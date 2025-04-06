@@ -11,7 +11,7 @@ REM @License Rihen
 
 setlocal enabledelayedexpansion
 set ROOT_DIR=%~dp0..
-set "PREMAKE_BIN=%ROOT_DIR%\External\Bin\Premake5\premake5.exe"
+set "PREMAKE_BIN=%ROOT_DIR%\External\Bins\Premake5\premake5.exe"
 
 REM #########################################################################
 REM # Initialisation des Paramètres

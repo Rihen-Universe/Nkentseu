@@ -1,6 +1,6 @@
 // @File PlatformDetection.h
 // @Description Détection avancée de la plateforme d'exécution et des composants système
-// @Author [Votre Nom]
+// @Author TEUGUIA TADJUIDJE Rodolf Séderis
 // @Date [AAAA-MM-JJ]
 // @License Rihen
 
