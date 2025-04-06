@@ -1,6 +1,6 @@
 // @File Platform.h
 // @Description Détection et propriétés de la plateforme d'exécution
-// @Author [Votre Nom]
+// @Author TEUGUIA TADJUIDJE Rodolf Séderis
 // @Date [AAAA-MM-JJ]
 // @License Rihen
 
@@ -155,6 +155,7 @@ namespace nkentseu {
         };
 
     } // namespace platform
+
 } // namespace nkentseu
 
 // Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.

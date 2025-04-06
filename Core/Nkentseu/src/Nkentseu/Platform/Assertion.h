@@ -1,13 +1,13 @@
 // @File Assertion.h
 // @Description Système d'assertions avancé avec gestion des symboles de debug
-// @Author [Votre Nom]
+// @Author TEUGUIA TADJUIDJE Rodolf Séderis
 // @Date [AAAA-MM-JJ]
 // @License Rihen
 
 #pragma once
 
 #include "PlatformDetection.h"
-#include "Logger/Logger.h"
+#include "Nkentseu/Logger/Logger.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // Configuration des symboles de debug
@@ -27,12 +27,7 @@
     #define NKENTSEU_ASSERT(condition, message) \
         do { \
             if (!(condition)) { \
-                nkentseu::Logger::Fatal( \
-                    "Assertion failed!\n" \
-                    "Message: %s\n" \
-                    "Location: %s:%d\n" \
-                    "Function: %s", \
-                    message, __FILE__, __LINE__, __PRETTY_FUNCTION__); \
+                nkentseu::logger.Fatal(message); \
                 NKENTSEU_DEBUG_BREAK(); \
             } \
         } while(0)
@@ -40,9 +35,7 @@
     #define NKENTSEU_ASSERT(condition, message) \
         do { \
             if (!(condition)) { \
-                nkentseu::Logger::Error( \
-                    "Assertion failed: %s", \
-                    message); \
+                nkentseu::logger.Fatal(message); \
             } \
         } while(0)
 #endif

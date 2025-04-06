@@ -16,7 +16,7 @@
 # @Description Définition des chemins absolus pour la robustesse
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT_DIR="$SCRIPT_DIR/.."
-PREMAKE_DIR="$ROOT_DIR/External/Bin/Premake5"
+PREMAKE_DIR="$ROOT_DIR/External/Bins/Premake5"
 
 ##############################################################################
 # Paramètres par Défaut

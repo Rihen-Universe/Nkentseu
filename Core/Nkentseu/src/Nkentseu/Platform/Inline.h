@@ -1,6 +1,6 @@
 // @File Inline.h
 // @Description Macros pour le contrôle d'inlining et de gestion des exceptions
-// @Author [Votre Nom]
+// @Author TEUGUIA TADJUIDJE Rodolf Séderis
 // @Date [AAAA-MM-JJ]
 // @License Rihen
 

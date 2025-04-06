@@ -28,7 +28,7 @@ void Logger::Log(LogLevel level, const std::string& message,
     std::string fullMessage = "[" + ApplicationName + "] " + message;
 
     if (Targets.empty()) {
-        std::cerr << "[Fallback Logger][" << timestamp << "] "
+        std::cerr << "[Fallback Logger] [" << timestamp << "] "
                   << "[" << LogLevelToString(level) << "] "
                   << fullMessage << std::endl;
         return;
