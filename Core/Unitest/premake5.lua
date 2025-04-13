@@ -21,7 +21,7 @@
 ]]
 project "Unitest"
     --kind("StaticLib")
-    ConfigureProject("Library", "Unitest")
+    ConfigureProject("SharedLibrary", "Unitest")
     
     -- Configuration PCH spécifique
     ConfigurePch(LibPaths.Internal.Unitest.pch)
@@ -41,7 +41,7 @@ project "Unitest"
     @Section Dépendances
     @Description Nécessite uniquement la bibliothèque Nkentseu
     ]]
-    AddDependencies({ "Nkentseu" })
+    AddDependencies("Unitest", { "Nkentseu" })
     
     --[[
     @Section Configuration Windows (DLL)

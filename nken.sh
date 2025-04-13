@@ -5,19 +5,22 @@ shift # Retire le premier argument
 
 case $COMMAND in
     "install")
-        ./tools/install.sh "$@"
+        ./Tools/install.sh "$@"
         ;;
     "gen")
-        ./tools/gen.sh "$@"
+        ./Tools/gen.sh "$@"
         ;;
     "build")
-        ./tools/build.sh "$@"
+        ./Tools/build.sh "$@"
         ;;
     "clear")
-        ./tools/clear.sh "$@"
+        ./Tools/clear.sh "$@"
+        ;;
+    "debug")
+        ./Tools/debug.sh "$@"
         ;;
     "run")
-        ./tools/run.sh "$@"
+        ./Tools/run.sh "$@"
         ;;
     *)
         echo "Usage: ./nken.sh [gen|build|clear|run] [options]"

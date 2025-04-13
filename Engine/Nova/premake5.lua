@@ -42,7 +42,7 @@ project "Nova"
     @Description Liste des projets requis pour le linking
     @Implementation: Utilise AddDependencies() du config.lua
     ]]
-    AddDependencies({ "Nkentseu", "Unitest" })
+    AddDependencies("Nova", { "Nkentseu", "Unitest" })
     
     --[[
     @Section Configuration Debug

@@ -1,8 +1,10 @@
-// @File Inline.h
-// @Description Macros pour le contrôle d'inlining et de gestion des exceptions
-// @Author TEUGUIA TADJUIDJE Rodolf Séderis
-// @Date [AAAA-MM-JJ]
-// @License Rihen
+/**
+* @File Inline.h
+* @Description Macros pour le contrôle d'inlining et de gestion des exceptions
+* @Author TEUGUIA TADJUIDJE Rodolf Séderis
+* @Date 2025-01-05
+* @License Rihen
+*/
 
 #pragma once
 

@@ -4,13 +4,15 @@ set COMMAND=%1
 shift
 
 if "%COMMAND%"=="gen" (
-    call tools\gen.bat %*
+    call Tools\gen.bat %*
 ) else if "%COMMAND%"=="build" (
-    call tools\build.bat %*
+    call Tools\build.bat %*
 ) else if "%COMMAND%"=="clear" (
-    call tools\clear.bat %*
+    call Tools\clear.bat %*
+)  else if "%COMMAND%"=="debug" (
+    call Tools\debug.bat %*
 ) else if "%COMMAND%"=="run" (
-    call tools\run.bat %*
+    call Tools\run.bat %*
 ) else (
     echo Usage: nken.bat [gen^|build^|clear^|run] [options]
     echo Exemples:
