@@ -22,7 +22,7 @@
 ]]
 project "Nkentseu"
     -- kind("StaticLib")
-    ConfigureProject("Library", "Nkentseu")
+    ConfigureProject("SharedLibrary", "Nkentseu")
     
     --[[
     @Configuration PCH
@@ -58,7 +58,7 @@ project "Nkentseu"
     @Filter: Ne s'applique que pour les bibliothèques partagées
     ]]
     filter { "kind:SharedLib" }
-        defines { "NKENTSEU_Nkentseu_EXPORTS" }
+        defines { "NKENTSEU_NKENTSEU_EXPORTS" }
     filter {}
 
 -- Fin du fichier Nkentseu/premake5.lua

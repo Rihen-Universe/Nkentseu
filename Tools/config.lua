@@ -192,14 +192,16 @@ ProjectConfig = {
     ProjectTypes = {
         Library = {
             Kind = "StaticLib",
-            ExportsDefines = { "NKENTSEU_EXPORTS", "NKENTSEU_STATIC" }
+            ExportsDefines = { "NKENTSEU_STATIC" }
+            -- ExportsDefines = { "NKENTSEU_EXPORTS", "NKENTSEU_STATIC" }
         },
         Application = {
             Kind = "ConsoleApp"
         },
         SharedLibrary = {
             Kind = "SharedLib",
-            ExportsDefines = { "NKENTSEU_EXPORTS", "NKENTSEU_SHARED_LIB" }
+            ExportsDefines = { "NKENTSEU_EXPORT" }
+            -- ExportsDefines = { "NKENTSEU_EXPORTS", "NKENTSEU_SHARED_LIB" }
         }
     },
 
@@ -222,13 +224,34 @@ ProjectConfig = {
     ConfigurationSettings = {
         Debug = {
             Symbols = "On",
-            Optimize = "Debug",
-            Defines = { "NKENTSEU_DEBUG" }
+            Optimize = "Off", -- Désactive toutes les optimisations
+            Defines = { 
+                "NKENTSEU_DEBUG", 
+                "_GLIBCXX_USE_CXX11_ABI=0",
+                "_DEBUG"
+            },
+            Flags = {
+                "-g",                      -- Symboles de debug
+                "-O0",                     -- Pas d'optimisation
+                "-fno-omit-frame-pointer", -- Meilleures stack traces
+                "-fno-inline",             -- Désactive l'inlining
+                -- "-fsanitize=address",      -- AddressSanitizer
+                -- "-fsanitize=undefined",    -- UndefinedBehaviorSanitizer
+                "-fno-optimize-sibling-calls" -- Meilleures traces d'appel
+            }
         },
         Release = {
             Symbols = "Off",
             Optimize = "Full",
-            Defines = { "NKENTSEU_RELEASE" }
+            Defines = { 
+                "NKENTSEU_RELEASE", 
+                "_GLIBCXX_USE_CXX11_ABI=0",
+                "NDEBUG"
+            },
+            Flags = {
+                "-Wno-unused-parameter",       -- Supprime les warnings inutiles en debug
+                "-Wno-missing-field-initializers"
+            }
         }
     },
 
@@ -250,7 +273,10 @@ ProjectConfig = {
         },
         
         OSFlags = {
-            Windows = {},
+            Windows = {
+                "-stdlib=libstdc++",  -- Force GNU stdlib
+                "-D_LIBCPP_HAS_NO_VENDOR_STRING_SWAP_OVERRIDE"  -- Correction spécifique
+                },
             Linux = {"-stdlib=libc++"},
             MacOS = {"-static"}
         },
@@ -259,8 +285,12 @@ ProjectConfig = {
             Common = {
                 "-fuse-ld=lld",
                 "-stdlib=libstdc++",
+                "-lstdc++",  -- Lie explicitement libstdc++
+                "-Wl,--allow-multiple-definition"  -- Permet certaines redéfinitions
             },
             Windows = {
+                "-Wl,--enable-stdcall-fixup -Wl,--enable-auto-import",
+                "-fvisibility=hidden -Wl,--export-all-symbols",
                 "-lwinpthread",
                 "-static-libstdc++",
                 "-static"
@@ -275,6 +305,13 @@ ProjectConfig = {
                 "-lpthread",
                 "-static"
             }
+        },
+
+        DefineFlags = {
+            Common = { "_GLIBCXX_USE_CXX11_ABI=0" },
+            Windows = {},
+            Linux = {},
+            Macos = {}
         }
     },
 
@@ -319,16 +356,22 @@ LibPaths = {
         Nkentseu = { 
             path = "%{wks.location}/Core/Nkentseu", 
             include = "%{wks.location}/Core/Nkentseu/src", 
-            pch = "%{wks.location}/Core/Nkentseu/pch" 
+            pch = "%{wks.location}/Core/Nkentseu/pch",
+            kind = "",
+            callbacks = {}
         },
         Unitest = { 
             path = "%{wks.location}/Core/Unitest", 
             include = "%{wks.location}/Core/Unitest/src", 
-            pch = "%{wks.location}/Core/Unitest/pch" 
+            pch = "%{wks.location}/Core/Unitest/pch",
+            kind = "",
+            callbacks = {}
         },
         Nova = { 
             path = "%{wks.location}/Engine/Nova", 
-            include = "%{wks.location}/Engine/Nova/src"
+            include = "%{wks.location}/Engine/Nova/src",
+            kind = "",
+            callbacks = {}
         }
     }
 }
@@ -360,6 +403,7 @@ function ConfigureProject(ProjectType, ProjectName)
 
     -- Configuration spécifique au type
     local ProjectTypeConfig = ProjectConfig.ProjectTypes[ProjectType]
+    LibPaths.Internal[ProjectName].kind = ProjectTypeConfig.Kind
     kind(ProjectTypeConfig.Kind)
     
     -- Répertoires de sortie
@@ -380,6 +424,22 @@ function ConfigureProject(ProjectType, ProjectName)
     if ProjectTypeConfig.ExportsDefines then
         defines(ProjectTypeConfig.ExportsDefines)
     end
+
+    -- Configuration spécifique au debug
+    filter { "configurations:Debug" }
+        buildoptions(ProjectConfig.ConfigurationSettings.Debug.Flags)
+        linkoptions {
+            -- "-fsanitize=address",
+            -- "-fsanitize=undefined"
+        }
+    
+    -- Configuration spécifique à la release
+    filter { "configurations:Release" }
+        buildoptions(ProjectConfig.ConfigurationSettings.Release.Flags)
+
+    filter {}
+
+    --ExecuteDependencyCallbacks(ProjectName)
 
     -- Configuration Clang multi-OS
     filter { "toolset:clang" }
@@ -407,14 +467,60 @@ end
 @Param Dependencies (table) Liste des noms de projets dépendants
 @ErrorHandling: Log un warning si dépendance inconnue
 ]]
-function AddDependencies(Dependencies)
-    for _, Dependency in ipairs(Dependencies) do
-        if LibPaths.Internal[Dependency] then
-            links(Dependency)
-            includedirs(LibPaths.Internal[Dependency])
-        else
-            Logger.Warning("Dépendance inconnue détectée: " .. Dependency)
+
+function AddDependencies(prjname, dependencies)
+    local binDir = ProjectConfig.Build.BinDir
+    local targetBinPath = path.join(binDir, prjname)
+    local isConsoleApp = LibPaths.Internal[prjname] and LibPaths.Internal[prjname].kind == "ConsoleApp"
+
+    -- Fonction générique pour créer les commandes de copie
+    local function CreateCopyCommands(depName, srcPath, destPath)
+        filter { "system:windows" }
+            prebuildcommands {
+                string.format('if exist "%s\\%s.dll" ( mkdir "%s" 2>nul & xcopy /Y "%s\\%s.*" "%s\\" /F >nul )',
+                    srcPath, depName, destPath, srcPath, depName, destPath)
+            }
+        
+        filter { "system:linux" }
+            prebuildcommands {
+                string.format('mkdir -p "%s" && cp -f "%s/%s.so" "%s/" 2>/dev/null || true',
+                    destPath, srcPath, depName, destPath)
+            }
+        
+        filter { "system:macosx" }
+            prebuildcommands {
+                string.format('mkdir -p "%s" && cp -f "%s/%s.dylib" "%s/" 2>/dev/null || true',
+                    destPath, srcPath, depName, destPath)
+            }
+        
+        filter {} -- Réinitialisation des filtres
+    end
+
+    for _, dependency in ipairs(dependencies) do
+        local dep = LibPaths.Internal[dependency]
+
+        if not dep then
+            Logger.Warning("Dépendance inconnue détectée: " .. dependency)
+            goto continue
         end
+
+        links(dependency)
+        includedirs(dep.include)
+        dependson(dependency)
+
+        if dep.kind == "SharedLib" then
+            local depBinPath = path.join(binDir, dependency)
+
+            -- Configuration spécifique aux ConsoleApp
+            if isConsoleApp then
+                CreateCopyCommands(dependency, depBinPath, targetBinPath)
+                Logger.Info("Configuration dynamique partagée pour: " .. dependency)
+            else
+                Logger.Info("Ignoré: %{prj.name} n'est pas une ConsoleApp interne.")
+            end
+        end
+
+        ::continue::
     end
 end
 

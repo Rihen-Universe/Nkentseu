@@ -1,8 +1,10 @@
-// @File Exports.h
-// @Description Gestion optimisée des symboles d'exportation multiplateforme
-// @Author TEUGUIA TADJUIDJE Rodolf Séderis
-// @Date [AAAA-MM-JJ]
-// @License Rihen
+/**
+* @File Exports.h
+* @Description Gestion optimisée des symboles d'exportation multiplateforme
+* @Author TEUGUIA TADJUIDJE Rodolf Séderis
+* @Date 2025-01-05
+* @License Rihen
+*/
 
 #pragma once
 
@@ -12,44 +14,39 @@
 // Configuration hiérarchique des symboles
 ///////////////////////////////////////////////////////////////////////////////
 
-// 1. Configuration manuelle prioritaire
-#if defined(NKENTSEU_EXPORT)
-    #define NKENTSEU_API_EXPORT NKENTSEU_EXPORT
-    #define NKENTSEU_API_IMPORT NKENTSEU_EXPORT
-
-#elif defined(NKENTSEU_IMPORT)
-    #define NKENTSEU_API_EXPORT NKENTSEU_IMPORT
-    #define NKENTSEU_API_IMPORT NKENTSEU_IMPORT
-
-// 2. Configuration statique unifiée
-#elif defined(NKENTSEU_STATIC)
+// 1. Configuration statique prioritaire
+#if defined(NKENTSEU_STATIC)
     #define NKENTSEU_API_EXPORT
     #define NKENTSEU_API_IMPORT
+    #define NKENTSEU_API_HIDDEN
 
-// 3. Configuration dynamique automatique
+// 2. Configuration dynamique automatique
 #else
     // Export/Import Windows
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
+
         #define NKENTSEU_API_EXPORT __declspec(dllexport)
         #define NKENTSEU_API_IMPORT __declspec(dllimport)
+        #define NKENTSEU_API_HIDDEN
+
         #ifdef _MSC_VER
             #pragma warning(disable : 4251)
         #endif
 
-    // Export/Import WebAssembly
-    #elif defined(NKENTSEU_PLATFORM_WEB)
-        #define NKENTSEU_API_EXPORT __attribute__((used, visibility("default")))
-        #define NKENTSEU_API_IMPORT __attribute__((import_module("nkentseu")))
-
     // Export/Import Unix-like (Clang/GCC)
-    #elif (defined(__clang__) || defined(__GNUC__)) && !defined(NKENTSEU_NO_VISIBILITY)
+    #elif (defined(__clang__) || defined(__GNUC__))
+
         #define NKENTSEU_API_EXPORT __attribute__((visibility("default")))
         #define NKENTSEU_API_IMPORT __attribute__((visibility("default")))
+        #define NKENTSEU_API_HIDDEN __attribute__((visibility("hidden")))
 
-    // Fallback pour autres compilateurs
+    // Fallback pour autres plateformes
     #else
+
         #define NKENTSEU_API_EXPORT
         #define NKENTSEU_API_IMPORT
+        #define NKENTSEU_API_HIDDEN
+        
     #endif
 #endif
 
@@ -57,22 +54,27 @@
 // Sélection automatique de l'API
 ///////////////////////////////////////////////////////////////////////////////
 #if !defined(NKENTSEU_API)
-    #if defined(NKENTSEU_BUILD_CORE) || defined(NKENTSEU_SHARED_LIB)
+    #if defined(NKENTSEU_EXPORT)
         #define NKENTSEU_API NKENTSEU_API_EXPORT
     #else
         #define NKENTSEU_API NKENTSEU_API_IMPORT
     #endif
 #endif
 
+// Gestion explicite de la visibilité des templates
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+    #define NKENTSEU_TEMPLATE_API
+#else
+    #define NKENTSEU_TEMPLATE_API NKENTSEU_API_HIDDEN
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 // Gestion unifiée des fonctions inline
 ///////////////////////////////////////////////////////////////////////////////
-#if !defined(NKENTSEU_INLINE_API)
-    #if defined(NKENTSEU_SHARED_LIB) && defined(NKENTSEU_API_EXPORT)
-        #define NKENTSEU_INLINE_API NKENTSEU_API __attribute__((visibility_inline))
-    #else
-        #define NKENTSEU_INLINE_API inline
-    #endif
+#if defined(__GNUC__) || defined(__clang__)
+    #define NKENTSEU_INLINE_API __attribute__((visibility("hidden"))) inline
+#else
+    #define NKENTSEU_INLINE_API inline
 #endif
 
 // Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.

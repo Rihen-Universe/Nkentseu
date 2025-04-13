@@ -1,8 +1,10 @@
-// @File PlatformDetection.h
-// @Description Détection avancée de la plateforme d'exécution et des composants système
-// @Author TEUGUIA TADJUIDJE Rodolf Séderis
-// @Date [AAAA-MM-JJ]
-// @License Rihen
+/**
+* @File PlatformDetection.h
+* @Description Détection avancée de la plateforme d'exécution et des composants système
+* @Author TEUGUIA TADJUIDJE Rodolf Séderis
+* @Date 2025-01-05
+* @License Rihen
+*/
 
 #pragma once
 
@@ -38,21 +40,27 @@
 #if defined(__NDS__) || defined(__DS__)
     #define NKENTSEU_PLATFORM_NINTENDO_DS
 
+    #ifdef __NDS__
+        #define NKENTSEU_PLATFORM_PSP
+    #elif defined(__DS__)
+        #define NKENTSEU_PLATFORM_DS
+    #endif
+
 // Plateformes Apple
 #elif defined(__APPLE__) && defined(__MACH__)
     #define NKENTSEU_PLATFORM_APPLE
     #include <TargetConditionals.h>
-    #if TARGET_OS_SIMULATOR
+    #if defined(TARGET_OS_SIMULATOR)
         #define NKENTSEU_PLATFORM_APPLE_SIMULATOR
     #endif
     
-    #if TARGET_OS_IOS
+    #if defined(TARGET_OS_IOS)
         #define NKENTSEU_PLATFORM_IOS
-    #elif TARGET_OS_WATCH
+    #elif defined(TARGET_OS_WATCH)
         #define NKENTSEU_PLATFORM_WATCHOS
-    #elif TARGET_OS_TV
+    #elif defined(TARGET_OS_TV)
         #define NKENTSEU_PLATFORM_TVOS
-    #elif TARGET_OS_MAC
+    #elif defined(TARGET_OS_MAC)
         #define NKENTSEU_PLATFORM_MACOS
     #endif
 
@@ -72,17 +80,28 @@
 // Systèmes Unix-like
 #elif defined(__linux__)
     #define NKENTSEU_PLATFORM_LINUX
+
+
+    #if WSOPSYS_IS_LINUX
+        #define NKENTSEU_PLATFORM_LINUX
+    #elif WSL_CHECK
+        #define NKENTSEU_PLATFORM_WSL
+    #else
+        #define NKENTSEU_PLATFORM_UNIX
+    #endif
+
+    namespace nkentseu {
+        bool IsWSL() noexcept;
+    }
     
     // Détection WSL
     #if __has_include("/proc/version")
         #include <cstring>
         
-        #define NKENTSEU_PLATFORM_WSL nkentseu::platform::IsWSL()
-        namespace nkentseu {
-            namespace platform {
-                bool IsWSL() noexcept;
-            }
-        }
+        #define NKENTSEU_PLATFORM_WSL nkentseu::IsWSL()
+        
+    #else
+        #define NKENTSEU_PLATFORM_WSL 0
     #endif
 
 // BSD Family
@@ -123,7 +142,7 @@
     #elif defined(__DIRECTFB__)
         #define NKENTSEU_DISPLAY_DIRECTFB
     #else
-        #warning "Aucun système d'affichage détecté!"
+        // #error "Aucun système d'affichage détecté!"
     #endif
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
     #define NKENTSEU_DISPLAY_WIN32
@@ -145,6 +164,19 @@
 #elif defined(__NX__)
     #define NKENTSEU_ENV_NINTENDO_SWITCH
     #define NKENTSEU_ENV_CONSOLE
+#endif
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Configuration des symboles de debug
+///////////////////////////////////////////////////////////////////////////////
+#if !defined(NKENTSEU_DEBUG_SYMBOLS)
+    #if defined(NKENTSEU_DEBUG) || !defined(NDEBUG)
+        #define NKENTSEU_DEBUG_SYMBOLS 1
+    #else
+        #define NKENTSEU_DEBUG_SYMBOLS 0
+    #endif
 #endif
 
 // Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.

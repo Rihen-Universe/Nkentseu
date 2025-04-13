@@ -1,24 +1,15 @@
-// @File Assertion.h
-// @Description Système d'assertions avancé avec gestion des symboles de debug
-// @Author TEUGUIA TADJUIDJE Rodolf Séderis
-// @Date [AAAA-MM-JJ]
-// @License Rihen
+/**
+* @File Assertion.h
+* @Description Système d'assertions avancé avec gestion des symboles de debug
+* @Author TEUGUIA TADJUIDJE Rodolf Séderis
+* @Date 2025-01-05
+* @License Rihen
+*/
 
 #pragma once
 
 #include "PlatformDetection.h"
 #include "Nkentseu/Logger/Logger.h"
-
-///////////////////////////////////////////////////////////////////////////////
-// Configuration des symboles de debug
-///////////////////////////////////////////////////////////////////////////////
-#if !defined(NKENTSEU_DEBUG_SYMBOLS)
-    #if defined(NKENTSEU_DEBUG) || !defined(NDEBUG)
-        #define NKENTSEU_DEBUG_SYMBOLS 1
-    #else
-        #define NKENTSEU_DEBUG_SYMBOLS 0
-    #endif
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Macros d'assertion avancées
