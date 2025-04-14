@@ -163,13 +163,14 @@ def smart_alloc(request):
 
 ## 📦 Modules Principaux
 
-### 🧠 Core Libraries
+### 🧠 Core Libraries Nkentseu
+**📦 Nkentseu** Noyaux du system [Readme](./Core/Nkentseu/Readme.md)
 | Module | Description | Documentation |
 |--------|-------------|---------------|
-| **🌐 Platform** | Abstraction système et détection hardware | [Readme](./Core/Nkentseu/Platform/Readme.md) |
-| **📅 Epoch** | Gestion temporelle précise (ns) et dates | [Readme](./Core/Nkentseu/Epoch/Readme.md) |
-| **📜 Logger** | Journalisation multi-cibles structurée | [Readme](./Core/Nkentseu/Logger/Readme.md) |
-| **📦 Memory** | Allocations sécurisées avec traçabilité | [Readme](./Core/Nkentseu/Memory/Readme.md) |
+| **🌐 Platform** | Abstraction système et détection hardware | [Readme](./Core/Nkentseu/src/Nkentseu/Platform/Readme.md) |
+| **📅 Epoch** | Gestion temporelle précise (ns) et dates | [Readme](./Core/Nkentseu/src/Nkentseu/Epoch/Readme.md) |
+| **📜 Logger** | Journalisation multi-cibles structurée | [Readme](./Core/Nkentseu/src/Nkentseu/Logger/Readme.md) |
+| **📦 Memory** | Allocations sécurisées avec traçabilité | [Readme](./Core/Nkentseu/src/Nkentseu/Memory/Readme.md) |
 
 ### 🚀 Engine Components
 | Module | Description | Documentation |

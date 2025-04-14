@@ -141,4 +141,24 @@ Les contributions sont soumises sous licence **Rihen**. Veuillez respecter :
 
 ---
 
-**License** : © Rihen 2024 - Tous droits réservés.
+
+## 📜 Licence
+```text
+Copyright 2025 Rihen  
+Sous licence GNU GENERAL PUBLIC LICENSE Version 3  
+Utilisation commerciale soumise à autorisation écrite  
+Contributions sous licence Rihen  
+```
+
+---
+
+## 📬 Support & Communauté
+
+**Équipe Technique**  
+[rihen.universe@gmail.com](rihen.universe@gmail.com)  
+📞 (+237) 693 761 773 (24/7/365)  
+
+**Ressources :**
+- [Documentation Officielle](https://rihen.com/docs/nkentseu)
+- [Forum Communautaire](https://forum.rihen.com/nkentseu)
+- [Dépôt GitHub](https://github.com/rihen/nkentseu)
