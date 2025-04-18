@@ -10,6 +10,7 @@
 
 #include "Nkentseu/Platform/Export.h"
 #include "Nkentseu/Platform/Platform.h"
+#include "Nkentseu/Platform/Types.h"
 #include <ctime>
 #include <sstream>
 #include <iomanip>

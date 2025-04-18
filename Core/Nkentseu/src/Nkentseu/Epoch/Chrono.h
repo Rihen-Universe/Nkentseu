@@ -10,6 +10,7 @@
 
 #include "Nkentseu/Platform/Export.h"
 #include "Nkentseu/Platform/Platform.h"
+#include "Nkentseu/Platform/Types.h"
 #include <chrono>
 #include <ratio>
 

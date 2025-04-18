@@ -11,6 +11,7 @@
 #include "LoggerTarget.h"
 #include "Nkentseu/Memory/Memory.h"
 #include "Nkentseu/Memory/SharedPtr.h"
+#include "Nkentseu/Platform/Types.h"
 
 #include <fstream>
 #include <string>

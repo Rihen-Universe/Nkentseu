@@ -12,6 +12,7 @@
 #include "LogSeverity.h"
 #include "Nkentseu/Epoch/Date.h"
 #include "Nkentseu/Epoch/Time.h"
+#include "Nkentseu/Platform/Types.h"
 #include <string>
 
 namespace nkentseu {

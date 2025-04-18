@@ -26,7 +26,7 @@
 */
 
 #pragma once
-#include "Nkentseu/Platform/Platform.h"
+#include "Nkentseu/Platform/Types.h"
 #include "Nkentseu/Platform/Export.h"
 #include <functional>
 #include <stdexcept>

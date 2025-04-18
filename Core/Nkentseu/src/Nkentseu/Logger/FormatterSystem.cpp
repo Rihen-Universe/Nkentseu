@@ -101,7 +101,7 @@ namespace nkentseu {
             if (openPos == std::string::npos) break;
     
             // Gestion des délimiteurs échappés
-            if (openPos > 0 && format[openPos - 1] == '/') {
+            if (openPos > 0 && format[openPos - 1] == '\\') {
                 format.replace(openPos - 1, 1, "");
                 searchStart = openPos + 1;
                 continue;

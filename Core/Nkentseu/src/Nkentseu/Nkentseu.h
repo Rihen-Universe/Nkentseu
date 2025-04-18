@@ -6,6 +6,7 @@
 #include "Platform/Export.h"
 #include "Platform/Inline.h"
 #include "Platform/Assertion.h"
+#include "Platform/Types.h"
 
 //--------------------- Logger Core sysem ---------------------------------
 #include "Memory/Memory.h"
@@ -24,3 +25,10 @@
 #include "Epoch/Chrono.h"
 #include "Epoch/TimeSpan.h"
 #include "Epoch/TimeZone.h"
+
+//---------------------- String Core sysem ---------------------------------
+// #include "String/String.h"
+// #include "String/BasicString.h"
+// #include "String/StringIterator.h"
+// #include "String/StringAllocator.h"
+#include "String/StringUtils.h"

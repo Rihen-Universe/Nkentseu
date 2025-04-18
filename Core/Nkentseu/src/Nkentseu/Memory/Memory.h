@@ -26,6 +26,7 @@
 
 #include "Nkentseu/Platform/Export.h"
 #include "Nkentseu/Platform/Platform.h"
+#include "Nkentseu/Platform/Types.h"
 #include "Nkentseu/Logger/Logger.h"
 #include "UniquePtr.h"
 #include "SharedPtr.h"
