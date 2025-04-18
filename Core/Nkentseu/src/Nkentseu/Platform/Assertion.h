@@ -9,7 +9,7 @@
 #pragma once
 
 #include "PlatformDetection.h"
-#include "Nkentseu/Logger/Logger.h"
+//#include "Nkentseu/Logger/Logger.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // Macros d'assertion avancées
@@ -18,7 +18,6 @@
     #define NKENTSEU_ASSERT(condition, message) \
         do { \
             if (!(condition)) { \
-                nkentseu::logger.Fatal(message); \
                 NKENTSEU_DEBUG_BREAK(); \
             } \
         } while(0)

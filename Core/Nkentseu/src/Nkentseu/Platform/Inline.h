@@ -20,7 +20,7 @@
     
 // Compilateurs Clang/LLVM
 #elif defined(__clang__)
-    #define NKENTSEU_FORCE_INLINE __attribute__((always_inline)) inline
+    #define NKENTSEU_FORCE_INLINE inline __attribute__((always_inline))
     #define NKENTSEU_NEVER_INLINE __attribute__((noinline))
     #define NKENTSEU_NOINLINE __attribute__((noinline))
     

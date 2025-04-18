@@ -46,6 +46,8 @@ void ThreadTask(int p) {
         // Opérations thread-safe
         Memory.Delete(data);
     }
+
+    NK_UNUSED p;
 }
 
 void ConcurrentUsage() {
@@ -246,18 +248,23 @@ int main() {
     Memory.Initialize();
 
     
-    nkentseu::Vector2fTest vector2Test;
+    //nkentseu::Vector2fTest vector2Test;
+    //nkentseu::StringTest stringTest;
+    
+    nkentseu::StringUtilsTest stringUtilTest;
+    nkentseu::StringConvertTest stringConverterTest;
     nkentseu::int32 result = nkentseu::RunTest();
 
     
     logger.Trace("[Nettoyage] Liberation des cibles du logger...");
     logger.ClearTargetsAndFlush();
 
-    logger.Trace("[Nettoyage] Arret du systeme de memoire...\n");
-    Memory.Shutdown();
-
     logger.Trace("[Fermeture] Fin normale de l'execution du programme.");
     logger.Trace("[Fermeture] Destruction du systeme de journalisation...");
     logger.Shutdown();
+
+    logger.Trace("[Nettoyage] Arret du systeme de memoire...\n");
+    Memory.Shutdown();
+    
     return result;
 }

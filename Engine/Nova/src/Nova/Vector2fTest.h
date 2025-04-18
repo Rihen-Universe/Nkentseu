@@ -24,6 +24,8 @@ namespace nkentseu {
             TestMagnitude();
             TestNormalization();
             TestEdgeCases();
+
+            NK_UNUSED context;
         }
 
     private:
