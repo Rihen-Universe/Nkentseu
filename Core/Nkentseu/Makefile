@@ -73,17 +73,24 @@ endif
 GENERATED :=
 OBJECTS :=
 
+GENERATED += $(OBJDIR)/Allocator.o
+GENERATED += $(OBJDIR)/BinaryStream.o
 GENERATED += $(OBJDIR)/Chrono.o
 GENERATED += $(OBJDIR)/ConsoleLogger.o
+GENERATED += $(OBJDIR)/ConsoleStream.o
 GENERATED += $(OBJDIR)/Date.o
 GENERATED += $(OBJDIR)/FileLogger.o
+GENERATED += $(OBJDIR)/FileStream.o
 GENERATED += $(OBJDIR)/FormatterSystem.o
+GENERATED += $(OBJDIR)/Iterator.o
 GENERATED += $(OBJDIR)/LogSeverity.o
 GENERATED += $(OBJDIR)/Logger.o
 GENERATED += $(OBJDIR)/LoggerTarget.o
 GENERATED += $(OBJDIR)/Memory.o
 GENERATED += $(OBJDIR)/Nkentseu.o
 GENERATED += $(OBJDIR)/Platform.o
+GENERATED += $(OBJDIR)/Stream.o
+GENERATED += $(OBJDIR)/String.o
 GENERATED += $(OBJDIR)/StringConverter.o
 GENERATED += $(OBJDIR)/StringUtils.o
 GENERATED += $(OBJDIR)/Time.o
@@ -91,17 +98,24 @@ GENERATED += $(OBJDIR)/TimeSpan.o
 GENERATED += $(OBJDIR)/TimeZone.o
 GENERATED += $(OBJDIR)/Types.o
 GENERATED += $(OBJDIR)/pch.o
+OBJECTS += $(OBJDIR)/Allocator.o
+OBJECTS += $(OBJDIR)/BinaryStream.o
 OBJECTS += $(OBJDIR)/Chrono.o
 OBJECTS += $(OBJDIR)/ConsoleLogger.o
+OBJECTS += $(OBJDIR)/ConsoleStream.o
 OBJECTS += $(OBJDIR)/Date.o
 OBJECTS += $(OBJDIR)/FileLogger.o
+OBJECTS += $(OBJDIR)/FileStream.o
 OBJECTS += $(OBJDIR)/FormatterSystem.o
+OBJECTS += $(OBJDIR)/Iterator.o
 OBJECTS += $(OBJDIR)/LogSeverity.o
 OBJECTS += $(OBJDIR)/Logger.o
 OBJECTS += $(OBJDIR)/LoggerTarget.o
 OBJECTS += $(OBJDIR)/Memory.o
 OBJECTS += $(OBJDIR)/Nkentseu.o
 OBJECTS += $(OBJDIR)/Platform.o
+OBJECTS += $(OBJDIR)/Stream.o
+OBJECTS += $(OBJDIR)/String.o
 OBJECTS += $(OBJDIR)/StringConverter.o
 OBJECTS += $(OBJDIR)/StringUtils.o
 OBJECTS += $(OBJDIR)/Time.o
@@ -175,6 +189,9 @@ endif
 $(OBJDIR)/pch.o: pch/pch.cpp
 	@echo "$(notdir $<)"
 	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
+$(OBJDIR)/Iterator.o: src/Nkentseu/Contener/Iterator.cpp
+	@echo "$(notdir $<)"
+	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
 $(OBJDIR)/Chrono.o: src/Nkentseu/Epoch/Chrono.cpp
 	@echo "$(notdir $<)"
 	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
@@ -208,6 +225,9 @@ $(OBJDIR)/Logger.o: src/Nkentseu/Logger/Logger.cpp
 $(OBJDIR)/LoggerTarget.o: src/Nkentseu/Logger/LoggerTarget.cpp
 	@echo "$(notdir $<)"
 	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
+$(OBJDIR)/Allocator.o: src/Nkentseu/Memory/Allocator.cpp
+	@echo "$(notdir $<)"
+	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
 $(OBJDIR)/Memory.o: src/Nkentseu/Memory/Memory.cpp
 	@echo "$(notdir $<)"
 	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
@@ -218,6 +238,21 @@ $(OBJDIR)/Platform.o: src/Nkentseu/Platform/Platform.cpp
 	@echo "$(notdir $<)"
 	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
 $(OBJDIR)/Types.o: src/Nkentseu/Platform/Types.cpp
+	@echo "$(notdir $<)"
+	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
+$(OBJDIR)/BinaryStream.o: src/Nkentseu/Stream/BinaryStream.cpp
+	@echo "$(notdir $<)"
+	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
+$(OBJDIR)/ConsoleStream.o: src/Nkentseu/Stream/ConsoleStream.cpp
+	@echo "$(notdir $<)"
+	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
+$(OBJDIR)/FileStream.o: src/Nkentseu/Stream/FileStream.cpp
+	@echo "$(notdir $<)"
+	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
+$(OBJDIR)/Stream.o: src/Nkentseu/Stream/Stream.cpp
+	@echo "$(notdir $<)"
+	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
+$(OBJDIR)/String.o: src/Nkentseu/String/String.cpp
 	@echo "$(notdir $<)"
 	$(SILENT) $(CXX) -include $(PCH_PLACEHOLDER) $(ALL_CXXFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
 $(OBJDIR)/StringConverter.o: src/Nkentseu/String/StringConverter.cpp

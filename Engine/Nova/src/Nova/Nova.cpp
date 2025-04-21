@@ -1,5 +1,4 @@
 #include "Nova.h"
-#include "Nkentseu/Memory/Memory.h"
 
 #include <iostream>
 #include <thread>
@@ -16,7 +15,7 @@ class GameObject {
 void BasicUsage() {
 
     // Allocation normale
-    GameObject* obj = Memory.New<GameObject>("Main Player", 123);
+    GameObject* obj = Memorys.New<GameObject>("Main Player", 123);
     
     // Utilisation de l'objet
     obj->Update();
@@ -24,16 +23,16 @@ void BasicUsage() {
     // Libération explicite
     int id = obj->GetId();
     logger.Info("Libération de l'objet : {0}", id);
-    Memory.Delete(obj);
+    Memorys.Delete(obj);
     logger.Info("Objet libéré : {0}", id);
 }
 
 void ArrayAllocation() {
     try {
         // Allocation d'un tableau de 10 entiers
-        int* numbers = Memory.NewArray<int>("Level Data", 10, 0);
+        int* numbers = Memorys.NewArray<int>("Level Data", 10, 0);
         
-        Memory.Delete(numbers);
+        Memorys.Delete(numbers);
     }
     catch (...) {
         // Le destructeur des éléments et la libération sont gérés automatiquement
@@ -42,9 +41,9 @@ void ArrayAllocation() {
 
 void ThreadTask(int p) {
     for (int i = 0; i < 10; ++i) {
-        auto* data = Memory.New<std::string>("Thread Data", "temp");
+        auto* data = Memorys.New<std::string>("Thread Data", "temp");
         // Opérations thread-safe
-        Memory.Delete(data);
+        Memorys.Delete(data);
     }
 
     NK_UNUSED p;
@@ -68,15 +67,15 @@ class Base {
 class Derived : public Base {
     char* buffer;
 public:
-    Derived() { buffer = Memory.NewArray<char>("Derived Buffer", 512); }
+    Derived() { buffer = Memorys.NewArray<char>("Derived Buffer", 512); }
     ~Derived() {
-        Memory.Delete(buffer);
+        Memorys.Delete(buffer);
     }
 };
 
 void PolymorphicUsage() {
-    Base* obj = Memory.New<Derived>("Polymorphic Object");
-    Memory.Delete(obj); // Appel correct au destructeur dérivé
+    Base* obj = Memorys.New<Derived>("Polymorphic Object");
+    Memorys.Delete(obj); // Appel correct au destructeur dérivé
 }
 
 class Player {
@@ -103,7 +102,7 @@ class Player {
 };
 
 void TestUniquePlayer() {
-    auto player = Memory.MakeUnique<Player>("Aragorn", "Aragorn", 1);
+    auto player = Memorys.MakeUnique<Player>("Aragorn", "Aragorn", 1);
     player->LevelUp();
     // Transfert de propriété
     auto newOwner = std::move(player);
@@ -135,7 +134,7 @@ void CombatSystem(nkentseu::SharedPtr<PlasmaGun> gun) {
 }
 
 void TestSharedWeapon() {
-    auto gun = Memory.MakeShared<PlasmaGun>("PlasmaGun", 100);
+    auto gun = Memorys.MakeShared<PlasmaGun>("PlasmaGun", 100);
     CombatSystem(gun); // Partage sécurisé
     gun->Fire();
 }
@@ -160,7 +159,7 @@ class TextureResource {
 };
 
 nkentseu::UniquePtr<TextureResource> LoadTexture() {
-    return Memory.MakeUnique<TextureResource>("metal_plate", "metal_plate.dds");
+    return Memorys.MakeUnique<TextureResource>("metal_plate", "metal_plate.dds");
 }
 
 void TestTextureTransfer() {
@@ -179,7 +178,7 @@ struct Particle {
 };
 
 void TestParticleStorm() {
-    auto particles = Memory.MakeUniqueArray<Particle>("Feu dartifice", 500);
+    auto particles = Memorys.MakeUniqueArray<Particle>("Feu dartifice", 500);
     
     for(int i = 0; i < 500; i++) {
         particles[i].x = 0;
@@ -190,7 +189,7 @@ void TestParticleStorm() {
 
 class LevelData {
     public:
-        explicit LevelData(int size) : m_data(Memory.MakeUniqueArray<int>("Sauvegarde", size)){
+        explicit LevelData(int size) : m_data(Memorys.MakeUniqueArray<int>("Sauvegarde", size)){
             if(size > 1000) throw std::runtime_error("Taille invalide");
         }
     
@@ -204,7 +203,7 @@ class LevelData {
 
 void TestLevelLoading() {
     try {
-        auto level = Memory.MakeShared<LevelData>("LevelData", 1500); // Lance une exception
+        auto level = Memorys.MakeShared<LevelData>("LevelData", 1500); // Lance une exception
     }
     catch(const std::exception& e) {
         logger.Errors("Erreur niveau: {0}", e.what());
@@ -232,11 +231,11 @@ class Goblin : public Enemy {
 
 void TestPolymorphicEnemy() {
     // Conversion implicite sécurisée
-    nkentseu::SharedPtr<Enemy> enemy = Memory.MakeShared<Goblin>("Goblin");
+    nkentseu::SharedPtr<Enemy> enemy = Memorys.MakeShared<Goblin>("Goblin");
     enemy->Attack();
 
     // Affectation entre types compatibles
-    nkentseu::SharedPtr<Goblin> goblin = Memory.MakeShared<Goblin>("Goblin Elite");
+    nkentseu::SharedPtr<Goblin> goblin = Memorys.MakeShared<Goblin>("Goblin Elite");
     nkentseu::SharedPtr<Enemy> genericEnemy;
     genericEnemy = goblin; // Affectation polymorphe
 }
@@ -245,14 +244,14 @@ int main() {
     // Initialisation du système
     logger.Trace("[Initialisation] Demarrage du systeme de journalisation (Logger)...");
     logger.Trace("[Initialisation] Mise en place du gestionnaire memoire...\n\n");
-    Memory.Initialize();
+    Memorys.Initialize();
 
     
     //nkentseu::Vector2fTest vector2Test;
-    //nkentseu::StringTest stringTest;
+    nkentseu::StringTest stringTest;
     
-    nkentseu::StringUtilsTest stringUtilTest;
-    nkentseu::StringConvertTest stringConverterTest;
+    // nkentseu::StringUtilsTest stringUtilTest;
+    // nkentseu::StringConvertTest stringConverterTest;
     nkentseu::int32 result = nkentseu::RunTest();
 
     
@@ -264,7 +263,7 @@ int main() {
     logger.Shutdown();
 
     logger.Trace("[Nettoyage] Arret du systeme de memoire...\n");
-    Memory.Shutdown();
+    Memorys.Shutdown();
     
     return result;
 }

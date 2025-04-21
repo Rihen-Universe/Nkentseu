@@ -179,6 +179,10 @@
     #endif
 #endif
 
+#define NKENTSEU_RESTRICT __restrict
+#define NKENTSEU_ASSUME_ALIGNED(ptr, alignment) \
+    __builtin_assume_aligned((ptr), (alignment))
+
 // Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.
 // Toute utilisation, reproduction ou diffusion, sous quelque forme que ce soit, requiert une autorisation préalable de Rihen.
 // © Rihen 2025 - Tous droits réservés.

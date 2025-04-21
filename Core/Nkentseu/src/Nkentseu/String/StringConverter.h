@@ -6,12 +6,14 @@
 #include "Nkentseu/Platform/Export.h"
 
 #include <iostream>
+#include <vector>
 
 namespace nkentseu
 {
+
     template<typename CharT>
     struct NKENTSEU_TEMPLATE_API StringConverter {
-    private:
+    public:
         template<typename IntegerT>
         static CharT* IntToStr(IntegerT value, CharT* buffer) {
             if(IsSigned_v<IntegerT> == false) {
@@ -291,18 +293,16 @@ namespace nkentseu
             }
         }
         #endif
-
-        static bool IsValidCodePoint(uint32 cp) {
-            return cp <= 0x10FFFF && 
-                  !(cp >= 0xD800 && cp <= 0xDFFF) && // Surrogates
-                  !(cp >= 0xFDD0 && cp <= 0xFDEF) &&  // Non-characters
-                  (cp & 0xFFFE) != 0xFFFE;
-        }
     public:
 
         template<typename U>
         static typename EnableIf<IsIntegral_v<U> && IsBooleanNatif_v<U>, const CharT*>::type Convert(U value) {
             return value ? ConversionTraits<CharT>::TrueStr : ConversionTraits<CharT>::FalseStr;
+        }
+
+        static const CharT* Convert(uint8 value) {
+            static thread_local CharT buffer[constants::INT_BUFFER_SIZE];
+            return UIntToStr(static_cast<uint32>(value), buffer);
         }
 
         template<typename U>
@@ -381,6 +381,126 @@ namespace nkentseu
             return buffer; 
         }
         #endif
+
+        // Ajouter dans la classe StringConverter avant la section publique
+        static void EncodeFromCodePoints(const std::vector<uint32>& code_points, CharT* dest) {
+            // Dispatch selon le type de caractère cible
+            if constexpr (IsSame_v<CharT, charb>) {
+                EncodeToCharb(code_points, dest);
+            } 
+            else if constexpr (IsSame_v<CharT, char8>) {
+                EncodeToUTF8(code_points, dest);
+            }
+            else if constexpr (IsSame_v<CharT, char16>) {
+                EncodeToUTF16(code_points, dest);
+            }
+            else if constexpr (IsSame_v<CharT, char32>) {
+                EncodeToUTF32(code_points, dest);
+            }
+            else if constexpr (IsSame_v<CharT, wchar>) {
+                #if defined(NKENTSEU_PLATFORM_WINDOWS)
+                EncodeToWChar(code_points, dest);
+                #else
+                // Pour les systèmes où wchar_t est 32-bit
+                EncodeToUTF32(code_points, reinterpret_cast<char32*>(dest));
+                #endif
+            }
+            else {
+                static_assert(DependentFalse<CharT>, "Type de caractère non supporté");
+            }
+        }
+
+        static void EncodeFromCodePoints(const uint32* codePoints, usize length, CharT* dest) {
+            EncodeFromCodePoints(std::vector<uint32>(codePoints, codePoints + length), dest);
+        }
+
+        // Ajouter dans la section private de la classe
+        template<typename T>
+        static constexpr bool DependentFalse = false; // Pour static_assert
+
+        static bool DecodeNext(const CharT*& src, const CharT* end, uint32& cp) {
+            if constexpr (IsSame_v<CharT, char16>) {
+                // Implémentation existante pour UTF-16
+                if(src >= end) return false;
+                uint16 c = *src++;
+                if((c & 0xFC00) == 0xD800) {
+                    if(src >= end || (*src & 0xFC00) != 0xDC00) {
+                        cp = unicode::REPLACEMENT_CHAR;
+                        return false;
+                    }
+                    uint16 low = *src++;
+                    cp = ((c & 0x3FF) << 10) + (low & 0x3FF) + 0x10000;
+                    return true;
+                }
+                cp = c;
+                return true;
+            }
+            else if constexpr (IsSame_v<CharT, charb>) { // UTF-8
+                if(src >= end) return false;
+                
+                uint8 b1 = *src++;
+                if(b1 <= 0x7F) { // 1 byte
+                    cp = b1;
+                    return true;
+                }
+                
+                if((b1 & 0xE0) == 0xC0) { // 2 bytes
+                    if(src >= end) return false;
+                    uint8 b2 = *src++;
+                    if((b2 & 0xC0) != 0x80) return false;
+                    cp = ((b1 & 0x1F) << 6) | (b2 & 0x3F);
+                    return cp >= 0x80;
+                }
+                
+                if((b1 & 0xF0) == 0xE0) { // 3 bytes
+                    if(end - src < 2) return false;
+                    uint8 b2 = *src++;
+                    uint8 b3 = *src++;
+                    if((b2 & 0xC0) != 0x80 || (b3 & 0xC0) != 0x80) return false;
+                    cp = ((b1 & 0x0F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+                    return cp >= 0x800;
+                }
+                
+                if((b1 & 0xF8) == 0xF0) { // 4 bytes
+                    if(end - src < 3) return false;
+                    uint8 b2 = *src++;
+                    uint8 b3 = *src++;
+                    uint8 b4 = *src++;
+                    if((b2 & 0xC0) != 0x80 || (b3 & 0xC0) != 0x80 || (b4 & 0xC0) != 0x80) return false;
+                    cp = ((b1 & 0x07) << 18) | ((b2 & 0x3F) << 12) | ((b3 & 0x3F) << 6) | (b4 & 0x3F);
+                    return cp >= 0x10000 && cp <= 0x10FFFF;
+                }
+                
+                return false;
+            }
+            else if constexpr (IsSame_v<CharT, char32>) {
+                if(src >= end) return false;
+                cp = *src++;
+                return IsValidCodePoint(cp);
+            }
+            else if constexpr (IsSame_v<CharT, wchar>) {
+                #if defined(NKENTSEU_PLATFORM_WINDOWS)
+                    // Traiter comme UTF-16
+                    return DecodeNext(reinterpret_cast<const char16*&>(src), reinterpret_cast<const char16*>(end), cp);
+                #else
+                    // Traiter comme UTF-32
+                    if(src >= end) return false;
+                    cp = *src++;
+                    return IsValidCodePoint(cp);
+                #endif
+            }
+            else {
+                // static_assert(DependentFalse<CharT>, "Type de caractère non supporté");
+                return false;
+            }
+        }
+
+        static bool IsValidCodePoint(uint32 cp) {
+            return cp <= 0x10FFFF && 
+                  !(cp >= 0xD800 && cp <= 0xDFFF) && 
+                  !(cp >= 0xFDD0 && cp <= 0xFDEF) && 
+                  (cp & 0xFFFE) != 0xFFFE;
+        }
     };
 
 } // namespace nkentseu

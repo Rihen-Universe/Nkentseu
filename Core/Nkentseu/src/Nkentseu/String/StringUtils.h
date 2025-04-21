@@ -14,7 +14,9 @@
 namespace nkentseu  // Namespace for the nkentseu library
 {
 
-    class NKENTSEU_API StringUtils
+#define Stru StringUtils  // Directive de raccourci
+
+    class NKENTSEU_API Stru
     {
         private:
 
@@ -257,6 +259,17 @@ namespace nkentseu  // Namespace for the nkentseu library
             template<typename CharT, typename... Args>
             static usize Format(CharT* buffer, const CharT* format, Args... args) {
                 return FormatWithSpecs(buffer, format, args...);
+            }
+
+            // Ajouter ces surcharges spécialisées
+            template<typename CharT>
+            static usize Format(CharT* buffer, const CharT* format, uint8 value) {
+                return Format(buffer, format, static_cast<unsigned int>(value));
+            }
+
+            template<typename CharT>
+            static usize Format(CharT* buffer, const CharT* format, int8 value) {
+                return Format(buffer, format, static_cast<int>(value));
             }
 
             // ComputeStringLength - Calcule la longueur d'une chaîne (sans le \0)
@@ -953,71 +966,6 @@ namespace nkentseu  // Namespace for the nkentseu library
                 }
             }
 
-            struct BlockHeader {
-                size_t size;
-                bool is_free;
-                BlockHeader* next;
-            };
-
-            static BlockHeader* head;
-
-            // void* MemAlloc(size_t size) {
-            //     if (size == 0) return nullptr;
-
-            //     // Alignement sur 8 octets
-            //     size = (size + sizeof(BlockHeader) + 7) & ~7;
-
-            //     BlockHeader* current = head;
-            //     BlockHeader* prev = nullptr;
-
-            //     // Recherche d'un bloc libre
-            //     while (current) {
-            //         if (current->is_free && current->size >= size) {
-            //             // Découpage du bloc si possible
-            //             if (current->size > size + sizeof(BlockHeader)) {
-            //                 BlockHeader* new_block = (BlockHeader*)((char*)current + sizeof(BlockHeader) + size);
-            //                 new_block->size = current->size - size - sizeof(BlockHeader);
-            //                 new_block->is_free = true;
-            //                 new_block->next = current->next;
-            //                 current->next = new_block;
-            //                 current->size = size;
-            //             }
-            //             current->is_free = false;
-            //             return (void*)(current + 1);
-            //         }
-            //         prev = current;
-            //         current = current->next;
-            //     }
-
-            //     // Allocation d'un nouveau bloc via sbrk
-            //     void* block = sbrk(size + sizeof(BlockHeader));
-            //     if (block == (void*)-1) return nullptr;
-
-            //     BlockHeader* header = (BlockHeader*)block;
-            //     header->size = size;
-            //     header->is_free = false;
-            //     header->next = nullptr;
-
-            //     if (prev)
-            //         prev->next = header;
-            //     else
-            //         head = header;
-
-            //     return (void*)(header + 1);
-            // }
-
-            // void MemFree(void* ptr) {
-            //     if (!ptr) return;
-
-            //     BlockHeader* header = (BlockHeader*)ptr - 1;
-            //     header->is_free = true;
-
-            //     // Fusion avec le bloc suivant
-            //     if (header->next && header->next->is_free) {
-            //         header->size += header->next->size + sizeof(BlockHeader);
-            //         header->next = header->next->next;
-            //     }
-            // }
 
             template<typename CharT>
             static CharT ToLower(CharT c) {
@@ -1106,6 +1054,74 @@ namespace nkentseu  // Namespace for the nkentseu library
                     dest[i] = ToUpper(src[i]);
                 }
                 dest[i] = '\0';
+            }
+
+            template<typename CharT>
+            static bool IsPunctuation(CharT c) {
+                // ASCII punctuation (common cases)
+                if (c >= 0x21 && c <= 0x2F) return true;
+                if (c >= 0x3A && c <= 0x40) return true;
+                if (c >= 0x5B && c <= 0x60) return true;
+                if (c >= 0x7B && c <= 0x7E) return true;
+    
+                // Unicode punctuation blocks (simplified)
+                if constexpr (sizeof(CharT) > 1) {
+                    if (c >= 0x2000 && c <= 0x206F) return true; // General Punctuation
+                    if (c >= 0x3000 && c <= 0x303F) return true; // CJK Symbols and Punctuation
+                }
+                return false;
+            }
+
+            template<typename CharT>
+            static usize Length(const CharT* str) {
+                const CharT* ptr = str;
+                while (*ptr != SLTT(CharT)) ++ptr;
+                return ptr - str;
+            }
+
+            template<typename CharT>
+            static int Compare(const CharT* str1, const CharT* str2) {
+                if (str1 == nullptr || str2 == nullptr) {
+                    return (str1 == str2) ? 0 : (str1 ? -1 : 1);
+                }
+                usize index = 0;
+                while (str1[index] != SLTT(CharT) && str2[index] != SLTT(CharT)){
+                    if (str1[index] != str2[index]) {
+                        return static_cast<int32>(str1[index]) - static_cast<int32>(str2[index]);
+                    }
+                    ++index;
+                }
+                return 0;
+            }
+
+            template<typename CharT>
+            static CharT* Tokenize(CharT* str, const CharT* delim, CharT** context) {
+                CharT* current = str ? str : *context;
+                if (!current) return nullptr;
+
+                // Ignorer les délimiteurs initiaux
+                while (*current && FindChar(delim, *current)) 
+                    ++current;
+
+                if (!*current) {
+                    *context = nullptr;
+                    return nullptr;
+                }
+
+                CharT* token_start = current;
+
+                // Trouver la fin du token
+                while (*current && !FindChar(delim, *current)) 
+                    ++current;
+
+                if (*current) {
+                    *current = SLTT(CharT);
+                    *context = current + 1;
+                } else {
+                    *context = nullptr;
+                }
+
+                return token_start;
             }
     };
 } // namespace nkentseu  // Namespace for the nkentseu library

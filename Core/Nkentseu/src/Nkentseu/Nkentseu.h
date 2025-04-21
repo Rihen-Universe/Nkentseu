@@ -32,3 +32,11 @@
 // #include "String/StringIterator.h"
 // #include "String/StringAllocator.h"
 #include "String/StringUtils.h"
+#include "String/String.h"
+#include "String/StringConverter.h"
+// #include "String/FormatSpect.h"
+// #include "String/FormatterSpect.h"
+
+//---------------------- Stream Core sysem ---------------------------------
+#include "Stream/Stream.h"
+#include "Stream/Stream.h"

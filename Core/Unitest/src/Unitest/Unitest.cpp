@@ -11,6 +11,7 @@
 
 #include <Nkentseu/Logger/ConsoleLogger.h>
 #include <Nkentseu/Logger/FileLogger.h>
+#include <Nkentseu/Memory/Memory.h>
 
 namespace nkentseu {
 
@@ -45,7 +46,7 @@ namespace nkentseu {
         if (name.empty()) {
             throw std::invalid_argument("Nom de test invalide");
         }
-        auto entry = Memory.MakeShared<UnitestCase>(name, name, function, description);
+        auto entry = Memorys.MakeShared<UnitestCase>(name, name, function, description);
         m_UnitestList[name] = entry;
         m_CurrentRegister = name;
     }
@@ -198,8 +199,8 @@ namespace nkentseu {
         static bool loading = false;
 
         if (!loading){
-            m_Logger.AddTarget(Memory.MakeShared<ConsoleLogger>("UnitestConsoleLogger"));
-            m_Logger.AddTarget(Memory.MakeShared<FileLogger>("UnitestFileLogger", "./logs/unitest", "unitest"));
+            m_Logger.AddTarget(Memorys.MakeShared<ConsoleLogger>("UnitestConsoleLogger"));
+            m_Logger.AddTarget(Memorys.MakeShared<FileLogger>("UnitestFileLogger", "./logs/unitest", "unitest"));
             loading = true;
         }
 
