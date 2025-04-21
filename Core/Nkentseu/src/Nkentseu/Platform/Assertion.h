@@ -49,6 +49,10 @@
     #define NKENTSEU_DEBUG_BREAK() ((void)0)
 #endif
 
+#include <cassert>
+// Ajouter dans un header approprié :
+#define NKENTSEU_DEBUG_BREAK_MSG(condition, msg) assert(condition && msg)
+
 // Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.
 // Toute utilisation, reproduction ou diffusion, sous quelque forme que ce soit, requiert une autorisation préalable de Rihen.
 // © Rihen 2025 - Tous droits réservés.

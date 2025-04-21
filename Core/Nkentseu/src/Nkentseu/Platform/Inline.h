@@ -52,6 +52,17 @@
     #define NKENTSEU_NOEXCEPT throw()
 #endif
 
+
+    
+// Définition correcte des macros de prédiction de branche
+#if defined(__GNUC__) || defined(__clang__)
+    #define NKENTSEU_LIKELY(x)   (__builtin_expect(!!(x), 1))
+    #define NKENTSEU_UNLIKELY(x) (__builtin_expect(!!(x), 0))
+#else
+    #define NKENTSEU_LIKELY(x)   (x)
+    #define NKENTSEU_UNLIKELY(x) (x)
+#endif
+
 // Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.
 // Toute utilisation, reproduction ou diffusion, sous quelque forme que ce soit, requiert une autorisation préalable de Rihen.
 // © Rihen 2025 - Tous droits réservés.

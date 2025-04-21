@@ -174,7 +174,7 @@ namespace nkentseu {
                 if (it->second.isSmartPtr){
                     return false;
                 }
-                info = std::move(it->second);
+                info = MemorySystem::Move(it->second);
 
                 allocations.erase(it);
             }
@@ -287,6 +287,85 @@ namespace nkentseu {
             return  SharedPtr<T>(ptr, MakeDeleter<T>(true), count, &alloc.isValid);
         }
 
+            // RawMemoryCopy - Copie mémoire brute (équivalent memcpy)
+            static void* Copy(void* dest, const void* src, usize count) {
+                uint8* d = static_cast<uint8*>(dest);
+                const uint8* s = static_cast<const uint8*>(src);
+                
+                for (usize i = 0; i < count; ++i)
+                    d[i] = s[i];
+                
+                return dest;
+            }
+
+            // SafeMemoryMove - Copie mémoire sécurisée (équivalent memmove)
+            static void* Move(void* dest, const void* src, usize count) {
+                uint8* d = static_cast<uint8*>(dest);
+                const uint8* s = static_cast<const uint8*>(src);
+                
+                if (d == s) return dest;
+                
+                if (d < s) {
+                    for (usize i = 0; i < count; ++i)
+                        d[i] = s[i];
+                } else {
+                    for (usize i = count; i > 0; --i)
+                        d[i-1] = s[i-1];
+                }
+                
+                return dest;
+            }
+
+            // Helper type trait pour enlever les références
+            template<typename T>
+            struct RemoveReference {
+                using type = T;
+            };
+
+            template<typename T>
+            struct RemoveReference<T&> {
+                using type = T;
+            };
+
+            template<typename T>
+            struct RemoveReference<T&&> {
+                using type = T;
+            };
+
+            // Notre implémentation de move
+            // template<typename T>
+            // constexpr typename RemoveReference<T>::type&& Move(T&& arg) noexcept {
+            //     return static_cast<typename RemoveReference<T>::type&&>(arg);
+            // }
+
+            template<typename T>
+            static constexpr auto&& Move(T&& t) noexcept {
+                using ReturnType = RemoveReference<T>::type&&;
+                return static_cast<ReturnType>(t);
+            }
+
+            // MemoryCompare - Comparaison mémoire (équivalent memcmp)
+            static int32 Compare(const void* lhs, const void* rhs, usize count) {
+                const uint8* a = static_cast<const uint8*>(lhs);
+                const uint8* b = static_cast<const uint8*>(rhs);
+                
+                for (usize i = 0; i < count; ++i) {
+                    if (a[i] != b[i])
+                        return static_cast<int>(a[i]) - static_cast<int>(b[i]);
+                }
+                return 0;
+            }
+
+            // MemorySet - Remplissage mémoire (équivalent memset)
+            static void* Set(void* dest, int32 value, usize count) {
+                uint8* d = static_cast<uint8*>(dest);
+                const uint8 v = static_cast<uint8>(value);
+                
+                for (usize i = 0; i < count; ++i)
+                    d[i] = v;
+                
+                return dest;
+            }
     private:
         MemorySystem() = default;
 
@@ -301,7 +380,7 @@ namespace nkentseu {
                     auto it = allocations.find(p);
                     if(it == allocations.end()) return;
 
-                    info = std::move(it->second);
+                    info = MemorySystem::Move(it->second);
                     allocations.erase(it);
                 }
 
@@ -364,14 +443,14 @@ namespace nkentseu {
                 usize count,
                 bool smartPtrFlag,
                 std::function<void(void*)> del, bool isValid = true)
-            : name(std::move(allocName)),
-            filename(std::move(sourceFile)),
-            function(std::move(funcName)),
+            : name(MemorySystem::Move(allocName)),
+            filename(MemorySystem::Move(sourceFile)),
+            function(MemorySystem::Move(funcName)),
             line(lineNumber),
             isArray(arrayFlag),
             elementCount(count),
             isSmartPtr(smartPtrFlag), isValid(isValid),
-            deleter(std::move(del))
+            deleter(MemorySystem::Move(del))
             {
             // Gestion thread-safe du compteur
             std::lock_guard<std::mutex> lock(counterMutex);
@@ -410,7 +489,7 @@ namespace nkentseu {
 * Capture automatiquement __FILE__, __LINE__ et __func__
 * pour le tracking d'allocation
 */
-#define Memory ::nkentseu::MemorySystem::Instance(__FILE__, __LINE__, __func__)
+#define Memorys ::nkentseu::MemorySystem::Instance(__FILE__, __LINE__, __func__)
 
 // Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.
 // Toute utilisation, reproduction ou diffusion, sous quelque forme que ce soit, requiert une autorisation préalable de Rihen.
