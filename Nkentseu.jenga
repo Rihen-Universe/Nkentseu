@@ -1,0 +1,1276 @@
+﻿#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+=============================================================================
+Nkentseu.jenga => Workspace principal du framework Nkentseu
+=============================================================================
+
+NKWindow est un framework C++ multi-plateforme de gestion de fenetres,
+d'evenements et de rendu pixel. Il fonctionne a  l'image de SDL3/SFML3
+mais entierement en C++ moderne (C++17/C++20), sous le namespace nkentseu.
+
+Architecture et ordre de dependances :
+
+  â”Œ===============================================================================================================================================================================â”
+  â”‚                                                                      â”‚
+  â”‚  NKPlatform  => Detection OS/arch/compilateur/CPU         (C++20)    â”‚
+  â”‚       â†“                                                              â”‚
+  â”‚  NKCore      => Types, macros, assertions, bits            (C++20)    â”‚
+  â”‚       â†“                                                              â”‚
+  â”‚  NKLogger    => Journalisation asynchrone multi-sink       (C++17)    â”‚
+  â”‚       â†“                                                              â”‚
+  â”‚  NKWindow    => Fenetrage, evenements, camera, rendu pxl   (C++17)    â”‚
+  â”‚       â†“                                                              â”‚
+  â”‚  Sandbox     => Application de demonstration (tous OS)     (C++17)    â”‚
+  â”‚                                                                      â”‚
+  â””===============================================================================================================================================================================â”˜
+
+  Rendu : seul le rendu pixel (software) est implemente pour l'instant.
+          Les autres backends (OpenGL, Vulkanâ€¦) seront developpes ensuite.
+
+Plateformes supportees :
+  Windows     => Backend Win32                   (clang-mingw)
+  Linux XLib  => Backend X11/XLib (defaut)       (clang-native / WSL2)
+  Linux XCB   => Backend X11/XCB                 (clang-native / WSL2)
+  Linux Wayland => Backend Wayland + xdg-shell   (clang-native / WSL2)
+  Linux NOOP  => Backend headless (CI/WSL)        (clang-native / WSL2)
+  macOS       => Backend Cocoa                   (clang-native)
+  Android     => NativeActivity+EGL              (android-ndk)
+  iOS         => Backend UIKit
+  Web         => Emscripten+Canvas               (emscripten)
+  HarmonyOS   => ArkUI Native
+  XboxSeries  => UWP GameCore                    (xbox-clang)
+  XboxOne     => UWP GameCore                    (xbox-clang)
+
+Namespace : nkentseu
+Nomenclature : voir NOMENCLATURE_ET_DOCUMENTATION.md
+
+Usage :
+  jenga build                                            # Hate (XLib)
+  jenga build --platform windows                         # Windows
+  jenga build --platform linux                           # Linux XLib (defaut)
+  jenga build --platform linux --options linux-backend=xcb      # Linux XCB
+  jenga build --platform linux --options linux-backend=wayland   # Linux Wayland
+  jenga build --platform linux --options headless                # Linux headless
+  jenga build --platform macos                           # macOS Cocoa
+  jenga build --platform android                         # Android (NDK)
+  jenga build --platform ios                             # iOS (UIKit)
+  jenga build --platform web                             # Web (Emscripten)
+  jenga build --platform harmonyos                       # HarmonyOS
+  jenga build --platform xboxseries                      # Xbox Series X/S
+  jenga build --platform xboxone                         # Xbox One
+  jenga build --config Release                           # Build Release
+
+  Notes Wayland :
+    Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols
+    Generer xdg-shell-client-protocol.h :
+      wayland-scanner client-header \\
+        /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \\
+        NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-client-protocol.h
+      wayland-scanner private-code \\
+        /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \\
+        NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-protocol.c
+
+Auteur : Rihen
+Date   : 2026
+=============================================================================
+"""
+
+import os
+import shutil
+from Jenga import *
+from Jenga.GlobalToolchains import RegisterJengaGlobalToolchains
+
+with workspace("Nkentseu", location="."):
+    RegisterJengaGlobalToolchains()
+
+    # Platform-specific toolchain names to avoid ambiguity/collisions.
+    TC_WINDOWS = "nk-windows-clang-mingw"
+
+    # Register a local Windows toolchain with explicit host resolution.
+    # This avoids machine-specific absolute paths from global toolchain files.
+    if os.name == "nt":
+        _clang = shutil.which("clang")
+        _clangxx = shutil.which("clang++")
+        _llvm_ar = shutil.which("llvm-ar") or shutil.which("ar")
+        if not _clang and os.path.exists(r"C:\msys64\ucrt64\bin\clang.exe"):
+            _clang = r"C:\msys64\ucrt64\bin\clang.exe"
+        if not _clangxx and os.path.exists(r"C:\msys64\ucrt64\bin\clang++.exe"):
+            _clangxx = r"C:\msys64\ucrt64\bin\clang++.exe"
+        if not _llvm_ar and os.path.exists(r"C:\msys64\ucrt64\bin\llvm-ar.exe"):
+            _llvm_ar = r"C:\msys64\ucrt64\bin\llvm-ar.exe"
+        if not _llvm_ar and os.path.exists(r"C:\msys64\ucrt64\bin\ar.exe"):
+            _llvm_ar = r"C:\msys64\ucrt64\bin\ar.exe"
+
+        with toolchain(TC_WINDOWS, "clang"):
+            settarget("Windows", "x86_64", "mingw")
+            targettriple(r"x86_64-w64-windows-gnu")
+            ccompiler(_clang or "clang")
+            cppcompiler(_clangxx or "clang++")
+            linker(_clangxx or "clang++")
+            if _llvm_ar:
+                archiver(_llvm_ar)
+            cflags(["--target=x86_64-w64-windows-gnu"])
+            cxxflags(["--target=x86_64-w64-windows-gnu"])
+            ldflags(["--target=x86_64-w64-windows-gnu"])
+
+    configurations(["Debug", "Release"])
+
+    # ===== Options Linux : choix du backend de fenetrage ============================================================â”€
+    # Par defaut : xlib
+    # Autres valeurs : xcb, wayland, headless
+    newoption(
+        trigger="linux-backend",
+        value="BACKEND",
+        allowed=[
+            ["xlib",     "X11/XLib  (defaut, le plus compatible)"],
+            ["xcb",      "X11/XCB   (plus leger, asynchrone)"],
+            ["wayland",  "Wayland   (compositeurs modernes, sans X11)"],
+            ["headless", "Pas de fenetre (CI, serveurs, WSL sans ecran)"],
+        ],
+        default="xlib",
+        description="Backend de fenetrage Linux"
+    )
+
+    # Alias court pour la compatibilite avec l'ancienne syntaxe
+    newoption(
+        trigger="headless",
+        description="[Obsolete] Utiliser --options linux-backend=headless"
+    )
+
+    # ===== Toutes les plateformes cibles =========================================================================================================
+    targetoses([
+        TargetOS.WINDOWS,
+        TargetOS.LINUX,
+        TargetOS.MACOS,
+        TargetOS.ANDROID,
+        TargetOS.IOS,
+        TargetOS.WEB,
+        TargetOS.HARMONYOS,
+        TargetOS.XBOX_SERIES,
+        TargetOS.XBOX_ONE,
+    ])
+
+    # ===== Architectures cibles =============================================================================================================================â”€
+    targetarchs([
+        TargetArch.X86_64,   # Desktop (Windows, Linux, macOS, Xbox)
+        TargetArch.ARM64,    # Mobile  (Android, iOS)
+        TargetArch.WASM32,   # Web     (Emscripten)
+    ])
+
+    # Shell plein ecran pour les builds Web
+    emscriptenfullscreenshell(True)
+
+    # Chemins Android SDK/NDK depuis l'environnement
+    androidsdkpath(os.getenv("ANDROID_SDK_ROOT", ""))
+    androidndkpath(os.getenv("ANDROID_NDK_ROOT", os.getenv("ANDROID_NDK_HOME", "")))
+
+    # Tests unitaires (desktop seulement)
+    with unitest() as u:
+        u.Compile()
+
+    # =========================================================================
+    # NKPlatform => Detection OS, architecture, compilateur, CPU (C++20)
+    # =========================================================================
+    # NKPlatform est la fondation sans dependances. Elle fournit des macros
+    # et des informations compilees sur l'environnement d'execution.
+    #
+    # Contenu (src/NKPlatform/) :
+    #   NkPlatformDetect.h    => OS (Windows, Linux, macOS, Android, iOS, Webâ€¦)
+    #   NkArchDetect.h        => Architecture (x86_64, ARM64, WASM32)
+    #   NkCompilerDetect.h    => Compilateur (MSVC, GCC, Clang, MinGW, Zigâ€¦)
+    #   NkCPUFeatures.h/cpp   => Capacites CPU (SSE2, AVX2, NEON, WASM SIMD)
+    #   NkEndianness.h        => Endianness (little / big)
+    #   NkPlatformConfig.h/cpp => Configuration compilee de la plateforme
+    # =========================================================================
+
+    with project("NKPlatform"):
+        staticlib()
+        language("C++")
+        cppdialect("C++20")
+        location("NKPlatform")
+
+        includedirs([
+            "src",
+            "src/NKPlatform",
+            "pch",
+            "../NKCore/src",
+            "../NKCore/src/NKCore",
+        ])
+        pchheader("pch/pch.h")
+        pchsource("pch/pch.cpp")
+
+        files([
+            "src/NKPlatform/**.cpp",
+            "src/NKPlatform/**.h",
+        ])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+        # ===== Toolchains ==================================================================================================================================
+        with filter("system:Windows"):
+            usetoolchain(TC_WINDOWS)
+        with filter("system:macOS"):
+            usetoolchain("clang-native")
+        with filter("system:Android"):
+            usetoolchain("android-ndk")
+        with filter("system:Web"):
+            usetoolchain("emscripten")
+        with filter("system:XboxSeries || system:XboxOne"):
+            usetoolchain("xbox-clang")
+
+        # ===== Debug / Release ===================================================================================================================â”€
+        with filter("config:Debug"):
+            defines(["_DEBUG", "DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+    # =========================================================================
+    # NKCore => Types, macros, assertions, operations bit (C++20)
+    # =========================================================================
+    # NKCore s'appuie sur NKPlatform pour les types fixes et les macros
+    # fondamentaux reutilises par toutes les couches superieures.
+    #
+    # Contenu (src/NKCore/) :
+    #   NkTypes.h           => Types fixes (NkU8, NkI32, NkVec2u, NkRectâ€¦)
+    #   NkMacros.h          => Macros utilitaires (NK_UNUSED, NK_STRINGIFYâ€¦)
+    #   NkBits.h/cpp        => Operations bit (popcount, clz, byteswapâ€¦)
+    #   NkLimits.h/cpp      => Limites de types scalaires
+    #   NkAtomic.h          => Atomiques portables (spin-lock, flags)
+    #   NkConfig.h          => Configuration globale du build
+    #   NkInline.h          => Macros NK_INLINE / NK_FORCE_INLINE
+    #   NkBuiltin.h         => Detection __builtin_* de GCC/Clang
+    #   NkVersion.h         => Version du framework (NK_VERSION_MAJOR/MINORâ€¦)
+    #   Assert/             => Assertions configurables + debug break
+    # =========================================================================
+
+    with project("NKCore"):
+        staticlib()
+        language("C++")
+        cppdialect("C++20")
+        location("NKCore")
+
+        includedirs([
+            "src",
+            "pch",
+            "../NKPlatform/src",          # pour NKPlatform/NkXxx.h
+            "../NKPlatform/src/NKPlatform", # pour NkPlatformDetect.h, NkArchDetect.h, NkCompilerDetect.h
+        ])
+        pchheader("pch/pch.h")
+        pchsource("pch/pch.cpp")
+
+        # NKCore depend de NKPlatform
+        dependson(["NKPlatform"])
+
+        files([
+            "src/NKCore/**.cpp",
+            "src/NKCore/**.h",
+        ])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+        defines(["NKENTSEU_CORE_STATIC"])
+
+        # ===== Toolchains ==================================================================================================================================
+        with filter("system:Windows"):
+            usetoolchain(TC_WINDOWS)
+        with filter("system:macOS"):
+            usetoolchain("clang-native")
+        with filter("system:Android"):
+            usetoolchain("android-ndk")
+        with filter("system:Web"):
+            usetoolchain("emscripten")
+        with filter("system:XboxSeries || system:XboxOne"):
+            usetoolchain("xbox-clang")
+
+        # ===== Debug / Release ===================================================================================================================â”€
+        with filter("config:Debug"):
+            defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG", "RELEASE", "NKENTSEU_RELEASE"])
+            optimize("Speed")
+            symbols(False)
+
+    # =========================================================================
+    # NKLogger => Journalisation asynchrone multi-sink (C++17)
+    # =========================================================================
+    # NKLogger fournit un systeme de journalisation thread-safe avec filtres,
+    # formatage configurable et plusieurs destinations (console, fichier, etc.)
+    #
+    # Contenu (src/Logger/) :
+    #   Logger.h/cpp          => Logger principal (point d'entree)
+    #   Log.h/cpp             => Macros NK_LOG_*, fonctions de log globales
+    #   AsyncLogger.h/cpp     => Logger asynchrone (file d'attente thread-safe)
+    #   LogLevel.h/cpp        => Niveaux (TRACE, DEBUG, INFO, WARN, ERRORâ€¦)
+    #   LogMessage.h/cpp      => Message de log (timestamp, thread, niveauâ€¦)
+    #   Formatter.h/cpp       => Formatage des messages (patterns)
+    #   Pattern.h             => Syntaxe des patterns de format
+    #   Registry.h/cpp        => Registre global des loggers nommes
+    #   Sink.h                => Interface ISink (destinations)
+    #   Sinks/
+    #     ConsoleSink         => Sortie console (ANSI couleurs)
+    #     FileSink            => Fichier texte simple
+    #     RotatingFileSink    => Fichier avec rotation par taille
+    #     DailyFileSink       => Fichier avec rotation quotidienne
+    #     AsyncSink           => Sink asynchrone (wraps un sink sync)
+    #     DistributingSink    => Dispatche vers plusieurs sinks
+    #     NullSink            => Sink /dev/null (tests, benchmarks)
+    #   Filters/
+    #     LevelFilter         => Filtre par niveau minimum
+    #     PatternFilter       => Filtre par pattern (regex)
+    #     ThreadFilter        => Filtre par thread ID
+    # =========================================================================
+
+    with project("NKLogger"):
+        staticlib()
+        language("C++")
+        cppdialect("C++17")
+        location("NKLogger")
+
+        includedirs([
+            "src",
+            "pch",
+            "../NKCore/src",
+            "../NKCore/pch",
+            "../NKPlatform/src",
+            "../NKPlatform/src/NKPlatform",
+        ])
+        pchheader("pch/pch.h")
+        pchsource("pch/pch.cpp")
+
+        dependson(["NKCore", "NKPlatform"])
+
+        files([
+            "src/Logger/**.cpp",
+            "src/Logger/**.h",
+        ])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+        # Liaison des bibliotheques systeme pour le threading
+        with filter("system:Windows"):
+            usetoolchain(TC_WINDOWS)
+        with filter("system:Linux"):
+            links(["pthread"])
+        with filter("system:macOS"):
+            usetoolchain("clang-native")
+        with filter("system:Android"):
+            usetoolchain("android-ndk")
+            links(["log"])
+        with filter("system:Web"):
+            usetoolchain("emscripten")
+        with filter("system:XboxSeries || system:XboxOne"):
+            usetoolchain("xbox-clang")
+
+        with filter("config:Debug"):
+            defines(["_DEBUG", "DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+    # =========================================================================
+    # NKWindow => Fenetrage, evenements, camera 2D, rendu pixel (C++17)
+    # =========================================================================
+    # NKWindow est la bibliotheque principale du framework. Elle gere tout ce
+    # qui touche a  la fenetre, aux entrees et au rendu pixel.
+    #
+    # Contenu (src/NKWindow/) :
+    #
+    #   Core/
+    #     NkWindow.h/cpp          => Fenetre principale (facade PIMPL â†’ IWindowImpl)
+    #     NkEvent.h/cpp           => evenement generique polymorphe
+    #     NkEventSystem.h/cpp     => Dispatcher d'evenements (singleton)
+    #     NkRenderer.h/cpp        => Renderer pixels (fa// =============================================================================
+    # // NkSoftwareRendererImpl.cpp — Renderer logiciel : blit OS par plateforme
+    # // Win32  : StretchDIBits (RGBA→BGRA)
+    # // XCB    : xcb_image_put (RGBA→BGRX)
+    # // XLib   : XPutImage     (RGBA→BGRX)
+    # // Android: ANativeWindow_lock / unlockAndPost
+    # // iOS/macOS : Metal — le SoftwareRenderer n'est pas le chemin privilégié
+    # // =============================================================================
+
+    # #include "NkSoftwareRendererImpl.h"
+    # #include "../../Core/NkPlatformDetect.h"
+    # #include <cstring>
+    # #include <algorithm>
+    # #include <vector>
+
+    # // Inclusions OS conditionnelles
+    #if defined(NKENTSEU_FAMILY_WINDOWS)
+    #   ifndef WIN32_LEAN_AND_MEAN
+    #       define WIN32_LEAN_AND_MEAN
+    #   endif
+    #   include <Windows.h>
+    #endif
+
+    #if defined(NKENTSEU_PLATFORM_XCB)
+    #   include <xcb/xcb.h>
+    #   include <xcb/xcb_image.h>
+    #endif
+
+    #if defined(NKENTSEU_PLATFORM_XLIB)
+    #   include <X11/Xlib.h>
+    #   include <X11/Xutil.h>
+    #endif
+
+    #if defined(NKENTSEU_PLATFORM_ANDROID)
+    #   include <android/native_window.h>
+    #endif
+
+    #if defined(NKENTSEU_PLATFORM_WASM)
+    #   include <emscripten.h>
+    #   include <cstdint>
+    #endif
+
+    # namespace nkentseu {
+
+    # // ---------------------------------------------------------------------------
+    # // Destruction
+    # // ---------------------------------------------------------------------------
+
+    # NkSoftwareRendererImpl::~NkSoftwareRendererImpl() {
+    #     if (mReady) {
+    #         Shutdown();
+    #     }
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // Init / Shutdown
+    # // ---------------------------------------------------------------------------
+
+    # bool NkSoftwareRendererImpl::Init(const NkRendererConfig& config,
+    #                                   const NkSurfaceDesc& surface) {
+    #     mConfig  = config;
+    #     mSurface = surface;
+    #     mBgColor = 0x141414FF;
+    #     AllocBuffer(surface.width, surface.height);
+    #     mReady = true;
+    #     return true;
+    # }
+
+    # void NkSoftwareRendererImpl::Shutdown() {
+    #     mBuffer.clear();
+    #     mFbInfo = {};
+    #     mReady  = false;
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // Informations
+    # // ---------------------------------------------------------------------------
+
+    # bool NkSoftwareRendererImpl::IsValid() const {
+    #     return mReady;
+    # }
+
+    # NkRendererApi NkSoftwareRendererImpl::GetApi() const {
+    #     return NkRendererApi::NK_SOFTWARE;
+    # }
+
+    # std::string NkSoftwareRendererImpl::GetApiName() const {
+    #     return "Software";
+    # }
+
+    # bool NkSoftwareRendererImpl::IsHardwareAccelerated() const {
+    #     return false;
+    # }
+
+    # NkError NkSoftwareRendererImpl::GetLastError() const {
+    #     return mLastError;
+    # }
+
+    # const NkFramebufferInfo& NkSoftwareRendererImpl::GetFramebufferInfo() const {
+    #     return mFbInfo;
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // Couleur de fond
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::SetBackgroundColor(NkU32 rgba) {
+    #     mBgColor = rgba;
+    # }
+
+    # NkU32 NkSoftwareRendererImpl::GetBackgroundColor() const {
+    #     return mBgColor;
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // Trame
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::BeginFrame(NkU32 clearColor) {
+    #     if (!mReady) {
+    #         return;
+    #     }
+    #     NkU8 r = (clearColor >> 24) & 0xFF;
+    #     NkU8 g = (clearColor >> 16) & 0xFF;
+    #     NkU8 b = (clearColor >>  8) & 0xFF;
+    #     NkU8 a =  clearColor        & 0xFF;
+    #     NkU8* p = mBuffer.data();
+    #     const std::size_t count = static_cast<std::size_t>(mFbInfo.width)
+    #                             * mFbInfo.height;
+    #     for (std::size_t i = 0; i < count; ++i, p += 4) {
+    #         p[0] = r;
+    #         p[1] = g;
+    #         p[2] = b;
+    #         p[3] = a;
+    #     }
+    # }
+
+    # void NkSoftwareRendererImpl::EndFrame() {
+    # }
+
+    # void NkSoftwareRendererImpl::Resize(NkU32 width, NkU32 height) {
+    #     AllocBuffer(width, height);
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // Present — dispatch vers le blit OS
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::Present(const NkSurfaceDesc& surface) {
+    #     if (!mReady || mBuffer.empty()) {
+    #         return;
+    #     }
+    #     NkU32 w = mFbInfo.width;
+    #     NkU32 h = mFbInfo.height;
+    #     if (!w || !h) {
+    #         return;
+    #     }
+    #     BlitOS(surface, w, h);
+    # }
+
+    # void NkSoftwareRendererImpl::BlitOS(const NkSurfaceDesc& surface,
+    #                                      NkU32 w, NkU32 h) {
+    # #if defined(NKENTSEU_FAMILY_WINDOWS)
+    #     BlitWin32(surface, w, h);
+    # #elif defined(NKENTSEU_PLATFORM_XCB)
+    #     BlitXCB(surface, w, h);
+    # #elif defined(NKENTSEU_PLATFORM_XLIB)
+    #     BlitXLib(surface, w, h);
+    # #elif defined(NKENTSEU_PLATFORM_ANDROID)
+    #     BlitANW(surface, w, h);
+    # #elif defined(NKENTSEU_PLATFORM_WASM)
+    #     BlitWASM(surface, w, h);
+    # #else
+    #     (void)surface;
+    #     (void)w;
+    #     (void)h;
+    # #endif
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // SetPixel — primitive RGBA avec alpha blending
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::SetPixel(NkI32 x, NkI32 y, NkU32 rgba) {
+    #     if (!mReady) {
+    #         return;
+    #     }
+    #     if (x < 0 || y < 0 ||
+    #         static_cast<NkU32>(x) >= mFbInfo.width ||
+    #         static_cast<NkU32>(y) >= mFbInfo.height) {
+    #         return;
+    #     }
+
+    #     NkU8 sr = (rgba >> 24) & 0xFF;
+    #     NkU8 sg = (rgba >> 16) & 0xFF;
+    #     NkU8 sb = (rgba >>  8) & 0xFF;
+    #     NkU8 sa =  rgba        & 0xFF;
+
+    #     NkU8* dst = mBuffer.data()
+    #               + static_cast<std::size_t>(y) * mFbInfo.pitch
+    #               + static_cast<std::size_t>(x) * 4;
+
+    #     if (sa == 255) {
+    #         dst[0] = sr;
+    #         dst[1] = sg;
+    #         dst[2] = sb;
+    #         dst[3] = 255;
+    #     } else if (sa > 0) {
+    #         NkU32 a  = sa;
+    #         NkU32 ia = 255u - a;
+    #         dst[0] = static_cast<NkU8>((sr * a + dst[0] * ia) / 255u);
+    #         dst[1] = static_cast<NkU8>((sg * a + dst[1] * ia) / 255u);
+    #         dst[2] = static_cast<NkU8>((sb * a + dst[2] * ia) / 255u);
+    #         dst[3] = 255;
+    #     }
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // AllocBuffer
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::AllocBuffer(NkU32 w, NkU32 h) {
+    #     if (!w || !h) {
+    #         return;
+    #     }
+    #     mFbInfo.width  = w;
+    #     mFbInfo.height = h;
+    #     mFbInfo.pitch  = w * 4;
+    #     mBuffer.assign(static_cast<std::size_t>(w) * h * 4, 0);
+    #     mFbInfo.pixels = mBuffer.data();
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // BlitWin32 : RGBA → BGRA + StretchDIBits
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::BlitWin32(const NkSurfaceDesc& sd,
+    #                                         NkU32 w, NkU32 h) {
+    # #if defined(NKENTSEU_FAMILY_WINDOWS)
+    #     if (!sd.hwnd || !IsWindow(sd.hwnd)) {
+    #         return;
+    #     }
+
+    #     // Conversion in-place (copie temporaire BGRA)
+    #     std::vector<NkU8> bgra(mBuffer.size());
+    #     const NkU8* src = mBuffer.data();
+    #     NkU8*       dst = bgra.data();
+    #     const std::size_t n = static_cast<std::size_t>(w) * h;
+    #     for (std::size_t i = 0; i < n; ++i, src += 4, dst += 4) {
+    #         dst[0] = src[2];  // B
+    #         dst[1] = src[1];  // G
+    #         dst[2] = src[0];  // R
+    #         dst[3] = src[3];  // A
+    #     }
+
+    #     BITMAPINFO bmi = {};
+    #     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    #     bmi.bmiHeader.biWidth       = static_cast<LONG>(w);
+    #     bmi.bmiHeader.biHeight      = -static_cast<LONG>(h); // top-down
+    #     bmi.bmiHeader.biPlanes      = 1;
+    #     bmi.bmiHeader.biBitCount    = 32;
+    #     bmi.bmiHeader.biCompression = BI_RGB;
+
+    #     HDC  hdc = GetDC(sd.hwnd);
+    #     RECT rc  = {};
+    #     GetClientRect(sd.hwnd, &rc);
+    #     StretchDIBits(hdc,
+    #                   0, 0,
+    #                   rc.right - rc.left,
+    #                   rc.bottom - rc.top,
+    #                   0, 0,
+    #                   static_cast<int>(w),
+    #                   static_cast<int>(h),
+    #                   bgra.data(),
+    #                   &bmi,
+    #                   DIB_RGB_COLORS,
+    #                   SRCCOPY);
+    #     ReleaseDC(sd.hwnd, hdc);
+    # #else
+    #     (void)sd;
+    #     (void)w;
+    #     (void)h;
+    # #endif
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // BlitXCB : RGBA → BGRX + xcb_image_put
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::BlitXCB(const NkSurfaceDesc& sd,
+    #                                       NkU32 w, NkU32 h) {
+    # #if defined(NKENTSEU_PLATFORM_XCB)
+    #     if (!sd.connection || sd.window == XCB_WINDOW_NONE) {
+    #         return;
+    #     }
+    #     if (xcb_connection_has_error(sd.connection)) {
+    #         return;
+    #     }
+    #     xcb_connection_t* conn = sd.connection;
+    #     xcb_window_t      win  = sd.window;
+
+    #     // RGBA → BGRX (XCB attend BGR avec padding)
+    #     std::vector<NkU8> bgrx(static_cast<std::size_t>(w) * h * 4);
+    #     const NkU8* src = mBuffer.data();
+    #     NkU8*       dst = bgrx.data();
+    #     const std::size_t n = static_cast<std::size_t>(w) * h;
+    #     for (std::size_t i = 0; i < n; ++i, src += 4, dst += 4) {
+    #         dst[0] = src[2];
+    #         dst[1] = src[1];
+    #         dst[2] = src[0];
+    #         dst[3] = 0;
+    #     }
+
+    #     // Obtenir le GC de la fenêtre
+    #     xcb_gcontext_t gc = xcb_generate_id(conn);
+    #     uint32_t mask = XCB_GC_FOREGROUND;
+    #     uint32_t val  = 0;
+    #     xcb_create_gc(conn, gc, win, mask, &val);
+
+    #     xcb_image_t* img = xcb_image_create_native(
+    #         conn,
+    #         static_cast<uint16_t>(w),
+    #         static_cast<uint16_t>(h),
+    #         XCB_IMAGE_FORMAT_Z_PIXMAP,
+    #         24,
+    #         nullptr,
+    #         static_cast<uint32_t>(bgrx.size()),
+    #         bgrx.data());
+    #     if (img) {
+    #         xcb_image_put(conn, win, gc, img, 0, 0, 0);
+    #         xcb_image_destroy(img);
+    #     }
+    #     xcb_free_gc(conn, gc);
+    #     xcb_flush(conn);
+    # #else
+    #     (void)sd;
+    #     (void)w;
+    #     (void)h;
+    # #endif
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // BlitXLib : RGBA → BGRX + XPutImage
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::BlitXLib(const NkSurfaceDesc& sd,
+    #                                        NkU32 w, NkU32 h) {
+    # #if defined(NKENTSEU_PLATFORM_XLIB)
+    #     if (!sd.display || sd.window == 0) {
+    #         return;
+    #     }
+    #     Display* dpy = sd.display;
+    #     ::Window  win = sd.window;
+
+    #     std::vector<NkU8> bgr(static_cast<std::size_t>(w) * h * 4);
+    #     const NkU8* src = mBuffer.data();
+    #     NkU8*       dst = bgr.data();
+    #     const std::size_t n = static_cast<std::size_t>(w) * h;
+    #     for (std::size_t i = 0; i < n; ++i, src += 4, dst += 4) {
+    #         dst[0] = src[2];
+    #         dst[1] = src[1];
+    #         dst[2] = src[0];
+    #         dst[3] = 0;
+    #     }
+
+    #     XImage* img = XCreateImage(dpy,
+    #         DefaultVisual(dpy, DefaultScreen(dpy)),
+    #         24,
+    #         ZPixmap,
+    #         0,
+    #         reinterpret_cast<char*>(bgr.data()),
+    #         w,
+    #         h,
+    #         32,
+    #         0);
+    #     if (img) {
+    #         GC gc = DefaultGC(dpy, DefaultScreen(dpy));
+    #         XPutImage(dpy, win, gc, img, 0, 0, 0, 0, w, h);
+    #         img->data = nullptr; // données dans bgr, pas dans l'image
+    #         XDestroyImage(img);
+    #     }
+    #     XFlush(dpy);
+    # #else
+    #     (void)sd;
+    #     (void)w;
+    #     (void)h;
+    # #endif
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // BlitANW : RGBA → ANativeWindow (Android)
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::BlitANW(const NkSurfaceDesc& sd,
+    #                                       NkU32 w, NkU32 h) {
+    # #if defined(NKENTSEU_PLATFORM_ANDROID)
+    #     ANativeWindow* anw = sd.nativeWindow;
+    #     if (!anw) {
+    #         return;
+    #     }
+
+    #     ANativeWindow_Buffer buf = {};
+    #     ARect dirty = { 0, 0,
+    #                     static_cast<int32_t>(w),
+    #                     static_cast<int32_t>(h) };
+    #     if (ANativeWindow_lock(anw, &buf, &dirty) != 0) {
+    #         return;
+    #     }
+
+    #     // Android attend RGBA_8888 ou RGBX_8888 selon le format
+    #     NkU8* out   = static_cast<NkU8*>(buf.bits);
+    #     const NkU8* in = mBuffer.data();
+    #     NkU32 stride = static_cast<NkU32>(buf.stride) * 4;
+
+    #     for (NkU32 row = 0; row < h && row < static_cast<NkU32>(buf.height); ++row) {
+    #         std::memcpy(out + row * stride,
+    #                     in  + row * w * 4,
+    #                     std::min(w, static_cast<NkU32>(buf.stride)) * 4);
+    #     }
+    #     ANativeWindow_unlockAndPost(anw);
+    # #else
+    #     (void)sd;
+    #     (void)w;
+    #     (void)h;
+    # #endif
+    # }
+
+    # // ---------------------------------------------------------------------------
+    # // BlitWASM : RGBA -> canvas 2D ImageData (WebAssembly)
+    # // ---------------------------------------------------------------------------
+
+    # void NkSoftwareRendererImpl::BlitWASM(const NkSurfaceDesc& sd,
+    #                                        NkU32 w, NkU32 h) {
+    # #if defined(NKENTSEU_PLATFORM_WASM)
+    #     if (mBuffer.empty() || w == 0 || h == 0) {
+    #         return;
+    #     }
+
+    #     const char* canvasId = (sd.canvasId && sd.canvasId[0] != '\0') ? sd.canvasId : "#canvas";
+    #     const std::uintptr_t ptr = reinterpret_cast<std::uintptr_t>(mBuffer.data());
+    #     const int iw = static_cast<int>(w);
+    #     const int ih = static_cast<int>(h);
+
+    #     EM_ASM({
+    #         var selector = UTF8ToString($0);
+    #         var ptr = $1 >>> 0;
+    #         var w = $2 | 0;
+    #         var h = $3 | 0;
+    #         var size = (w * h * 4) | 0;
+
+    #         var canvas = document.querySelector(selector);
+    #         if (!canvas && Module["canvas"]) canvas = Module["canvas"];
+    #         if (!canvas) return;
+
+    #         if (canvas.width !== w) canvas.width = w;
+    #         if (canvas.height !== h) canvas.height = h;
+
+    #         var ctx = canvas.__nk_ctx2d;
+    #         if (!ctx) {
+    #             ctx = canvas.getContext("2d");
+    #             canvas.__nk_ctx2d = ctx;
+    #         }
+    #         if (!ctx) return;
+
+    #         var imageData = canvas.__nk_imgData;
+    #         if (!imageData || imageData.width !== w || imageData.height !== h) {
+    #             imageData = ctx.createImageData(w, h);
+    #             canvas.__nk_imgData = imageData;
+    #         }
+
+    #         var heap = (typeof HEAPU8 !== "undefined")
+    #                  ? HEAPU8
+    #                  : ((typeof Module !== "undefined" && Module["HEAPU8"]) ? Module["HEAPU8"] : null);
+    #         if (!heap) return;
+    #         imageData.data.set(heap.subarray(ptr, ptr + size));
+    #         ctx.putImageData(imageData, 0, 0);
+    #     }, canvasId, ptr, iw, ih);
+    # #else
+    #     (void)sd;
+    #     (void)w;
+    #     (void)h;
+    # #endif
+    # }
+
+    # } // namespace nkentseuade PIMPL â†’ IRendererImpl)
+    #     NkSystem.h/cpp          => Initialisation/destruction du framework
+    #     NkGamepadSystem.h/cpp   => Gestion des manettes / joysticks
+    #     NkCamera2D.h            => (deprecated temporairement)
+    #     NkDialogs.h/cpp         => Boites de dialogue fichiers cross-platform
+    #     NkSurface.h             => Surface de rendu (taille, DPI, handle)
+    #     NkSafeArea.h            => Safe area mobile (encoches, bords)
+    #     NkEntry.h / NkMain.h    => Point d'entree cross-platform (nkmain)
+    #     NkTypes.h               => Types geometriques (NkVec2, NkRect, NkColorâ€¦)
+    #     Events/                 => Types d'evenements types (clavier, sourisâ€¦)
+    #     Camera/                 => (deprecated temporairement)
+    #
+    #   Platform/
+    #     Win32/      => Backend Windows (HWND, WndProc, DirectInput, XInput)
+    #     XLib/       => Backend Linux X11 (Xlib, XInput2)
+    #     XCB/        => Backend Linux XCB (alternatif a  XLib)
+    #     Noop/       => Backend headless (tests, CI, WSL sans affichage)
+    #     Cocoa/      => Backend macOS (.mm Objective-C++)
+    #     UIKit/      => Backend iOS   (.mm Objective-C++)
+    #     Android/    => Backend Android (NativeActivity + EGL)
+    #     WASM/       => Backend Web (Emscripten + Canvas API)
+    #     UWP/        => Backend Universal Windows Platform (Xbox)
+    #
+    #   Renderer/
+    #     Software/   => Rendu pixel software (NkSoftwareRendererImpl)
+    #                   SetPixel, DrawLine, FillRect, DrawCircle, FillTriangleâ€¦
+    #                   C'est le seul systeme de rendu disponible pour l'instant.
+    #                   Les etudiants ajouteront OpenGL, Vulkan, Metalâ€¦
+    #
+    #   EntryPoints/
+    #     Macros et adaptateurs d'entree pour chaque plateforme (main â†’ nkmain)
+    # =========================================================================
+
+    with project("NKWindow"):
+        staticlib()
+        language("C++")
+        cppdialect("C++17")
+        location("NKWindow")
+
+        includedirs([
+            "src",                          # NKWindow/src/
+            "pch",                          # PCH NKWindow
+            "../Externals",                 # stb, etc.
+            "../NKCore/src",                # Types + macros fondamentaux
+            "../NKCore/pch",                # pch NKCore
+            "../NKPlatform/src",            # Detection plateforme/architecture
+            "../NKPlatform/src/NKPlatform", # NkPlatformDetect.h, NkCompilerDetect.hâ€¦
+            "../NKLogger/src",              # Journalisation
+        ])
+        pchheader("pch/pch.h")
+        pchsource("pch/pch.cpp")
+
+        dependson(["NKPlatform", "NKCore", "NKLogger"])
+
+        # Fichiers communs (Core + Renderer => partages par toutes les plateformes)
+        files([
+            "src/NKWindow/Core/**.cpp",
+            "src/NKWindow/Core/**.h",
+            "src/NKWindow/Events/**.cpp",
+            "src/NKWindow/Events/**.h",
+            "src/NKWindow/Renderer/**.cpp",
+            "src/NKWindow/Renderer/**.h",
+        ])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+        # ===== Windows (Win32 backend) ====================================================================================================
+        with filter("system:Windows"):
+            usetoolchain(TC_WINDOWS)
+            defines([
+                "NKENTSEU_PLATFORM_WIN32=1",
+                "NKENTSEU_FAMILY_WINDOWS=1",
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE",
+                "UNICODE",
+            ])
+            files([
+                "src/NKWindow/Platform/Win32/**.cpp",
+                "src/NKWindow/Platform/Win32/**.h",
+            ])
+            links([
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32",
+            ])
+
+        # ===== Linux headless / NOOP (CI, serveurs, WSL sans ecran) ==============================â”€
+        with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+            defines(["NKENTSEU_PLATFORM_NOOP=1", "NKENTSEU_FAMILY_LINUX=1"])
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+            files([
+                "src/NKWindow/Platform/Linux/**.h",
+                "src/NKWindow/Platform/Noop/**.h",
+            ])
+            links(["pthread"])
+
+        # ===== Linux XLib (X11/XLib => defaut) ================================================================================
+        with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+            defines(["NKENTSEU_PLATFORM_XLIB=1", "NKENTSEU_FAMILY_LINUX=1"])
+            files([
+                "src/NKWindow/Platform/Linux/**.h",
+                "src/NKWindow/Platform/XLib/**.cpp",
+                "src/NKWindow/Platform/XLib/**.h",
+            ])
+            links(["pthread", "X11"])
+
+        # ===== Linux XCB (X11/XCB => asynchrone) ===========================================================================
+        with filter("system:Linux && options:linux-backend=xcb"):
+            defines(["NKENTSEU_PLATFORM_XCB=1", "NKENTSEU_FAMILY_LINUX=1"])
+            files([
+                "src/NKWindow/Platform/Linux/**.h",
+                "src/NKWindow/Platform/XCB/**.cpp",
+                "src/NKWindow/Platform/XCB/**.h",
+            ])
+            links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
+
+        # ===== Linux Wayland (compositeurs modernes sans X11) ========================================â”€
+        # Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols
+        # Generer xdg-shell-client-protocol.h avant de compiler :
+        #   wayland-scanner client-header \
+        #     /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
+        #     NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-client-protocol.h
+        with filter("system:Linux && options:linux-backend=wayland"):
+            defines(["NKENTSEU_PLATFORM_WAYLAND=1", "NKENTSEU_FAMILY_LINUX=1"])
+            files([
+                "src/NKWindow/Platform/Linux/**.h",
+                "src/NKWindow/Platform/Wayland/**.cpp",
+                "src/NKWindow/Platform/Wayland/**.h",
+                "src/NKWindow/Platform/Wayland/xdg-shell-protocol.c",
+            ])
+            links(["pthread", "wayland-client", "xkbcommon"])
+
+        # ===== macOS (Cocoa backend) =========================================================================================================
+        with filter("system:macOS"):
+            usetoolchain("clang-native")
+            defines([
+                "NKENTSEU_PLATFORM_COCOA=1",
+                "NKENTSEU_FAMILY_APPLE=1",
+            ])
+            files([
+                "src/NKWindow/Platform/Cocoa/**.cpp",
+                "src/NKWindow/Platform/Cocoa/**.mm",
+                "src/NKWindow/Platform/Cocoa/**.h",
+            ])
+            frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
+
+        # ===== Android (NativeActivity + EGL) ============================================================
+        with filter("system:Android"):
+            usetoolchain("android-ndk")
+            defines([
+                "NKENTSEU_PLATFORM_ANDROID=1",
+                "NKENTSEU_FAMILY_ANDROID=1",
+            ])
+            files([
+                "src/NKWindow/Platform/Android/**.cpp",
+                "src/NKWindow/Platform/Android/**.h",
+            ])
+            links(["android", "log", "EGL", "GLESv3"])
+            androidapplicationid("com.nkentseu.nkwindow")
+            androidminsdk(24)
+            androidtargetsdk(34)
+            androidcompilesdk(34)
+            # Couvre physiques ARM + emulateurs x86
+            androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+            androidnativeactivity(True)
+
+        # ===== iOS (UIKit backend) ==============================================================================================================
+        with filter("system:iOS"):
+            defines([
+                "NKENTSEU_PLATFORM_UIKIT=1",
+                "NKENTSEU_FAMILY_APPLE=1",
+            ])
+            files([
+                "src/NKWindow/Platform/UIKit/**.cpp",
+                "src/NKWindow/Platform/UIKit/**.mm",
+                "src/NKWindow/Platform/UIKit/**.h",
+            ])
+            frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation"])
+            iosbundleid("com.nkentseu.nkwindow")
+            iosversion("1.0")
+            iosminsdk("14.0")
+            iosbuildnumber(1)
+
+        # ===== Web (Emscripten + Canvas) ===============================================================================================
+        with filter("system:Web"):
+            usetoolchain("emscripten")
+            defines([
+                "NKENTSEU_PLATFORM_WASM=1",
+                "__EMSCRIPTEN__=1",
+            ])
+            files([
+                "src/NKWindow/Platform/WASM/**.cpp",
+                "src/NKWindow/Platform/WASM/**.h",
+            ])
+            emscripteninitialmemory(32)  # 32 MB initial
+
+        # ===== HarmonyOS (ArkUI Native => backend NOOP en attendant) =========================â”€
+        # Le backend dedie HarmonyOS est a  implementer.
+        with filter("system:HarmonyOS"):
+            defines([
+                "NKENTSEU_PLATFORM_HARMONYOS=1",
+                "__HARMONY__=1",
+            ])
+            files([
+                "src/NKWindow/Platform/Noop/**.h",
+            ])
+            links(["log", "EGL", "GLESv3"])
+
+        # ===== Xbox Series X/S et Xbox One (UWP / GameCore backend) =========================
+        # Le backend UWP fournit la fenetre et les manettes via XInput/GameInput.
+        # Le rendu pixel est gerer par le software renderer (NkSoftwareRendererImpl).
+        with filter("system:XboxSeries || system:XboxOne"):
+            usetoolchain("xbox-clang")
+            defines([
+                "NKENTSEU_PLATFORM_UWP=1",
+                "NKENTSEU_FAMILY_XBOX=1",
+                "WINAPI_FAMILY=WINAPI_FAMILY_TV_APP",
+                "_XBOX_ONE",
+            ])
+            files([
+                "src/NKWindow/Platform/UWP/**.h",
+            ])
+            links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+        # ===== Configurations Debug / Release ================================================================================â”€
+        with filter("config:Debug"):
+            defines(["_DEBUG", "DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG", "RELEASE"])
+            optimize("Speed")
+            symbols(False)
+
+        # Tests unitaires (desktop uniquement)
+        with filter("system:Windows || system:Linux || system:macOS"):
+            with test():
+                testfiles(["tests/**.cpp"])
+
+    # =========================================================================
+    # Sandbox => Application de demonstration multi-plateformes
+    # =========================================================================
+    # La Sandbox illustre l'utilisation complete du framework NKWindow :
+    #   â€¢ Creation de fenetre et boucle principale cross-platform
+    #   â€¢ Gestion des evenements : clavier, souris, touch, drag & drop
+    #   â€¢ Rendu pixel software : pixels, lignes, cercles, rectangles, triangles
+    #   â€¢ Camera 2D : retiree du workflow par defaut
+    #   â€¢ Gamepad : boutons, axes, rumble (XInput / Linux / HID)
+    #   â€¢ Safe area : gestion des encoches et bords mobiles
+    #   â€¢ Transforms 2D : retires pour simplifier l'API de base
+    #
+    # Un seul fichier src/main.cpp compile pour TOUTES les plateformes.
+    # Le point d'entree natif (WinMain, main, android_main, etc.) est
+    # abstrait par les macros NkEntry.h / NkMain.h de NKWindow.
+    # =========================================================================
+
+    startproject("Sandbox")
+
+    with project("Sandbox"):
+        windowedapp()
+        language("C++")
+        cppdialect("C++17")
+        location("Sandbox")
+
+        # Source unique multi-plateforme
+        files(["src/main.cpp"])
+
+        includedirs([
+            "../NKWindow/src",     # API publique NKWindow (NkWindow.h, etc.)
+            "../NKCore/src",       # Types fondamentaux (NkTypes, NkMacrosâ€¦)
+            "../NKCore/pch",       # pch NKCore
+            "../NKPlatform/src",   # Detection de plateforme
+            "../NKPlatform/src/NKPlatform", # NkPlatformDetect.h (include public de NkWindow.h)
+            "../NKLogger/src",     # Journalisation (Logger.h, Log.hâ€¦)
+            "../Externals",        # stb et autres dependances header-only
+        ])
+
+        # Lier toutes les bibliotheques du framework
+        links(["NKWindow", "NKLogger", "NKCore", "NKPlatform"])
+        dependson(["NKWindow", "NKLogger", "NKCore", "NKPlatform"])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+        # ===== Windows ============================================================================================================================================
+        with filter("system:Windows"):
+            windowedapp()
+            usetoolchain(TC_WINDOWS)
+            defines([
+                "NKENTSEU_PLATFORM_WIN32=1",
+                "NKENTSEU_FAMILY_WINDOWS=1",
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE", "UNICODE",
+            ])
+            links([
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32",
+            ])
+
+        # ===== Linux headless ========================================================================================================================â”€
+        with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_PLATFORM_NOOP=1"])
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            links(["pthread"])
+
+        # ===== Linux XLib ==================================================================================================================================â”€
+        with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_PLATFORM_XLIB=1"])
+            links(["pthread", "X11"])
+
+        # ===== Linux XCB =======================================================================================================================================
+        with filter("system:Linux && options:linux-backend=xcb"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_PLATFORM_XCB=1"])
+            links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
+
+        # ===== Linux Wayland =============================================================================================================================
+        with filter("system:Linux && options:linux-backend=wayland"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_PLATFORM_WAYLAND=1"])
+            links(["pthread", "wayland-client", "xkbcommon"])
+
+        # ===== macOS =================================================================================================================================================
+        with filter("system:macOS"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_PLATFORM_COCOA=1"])
+            frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+        # ===== Android ============================================================================================================================================
+        with filter("system:Android"):
+            windowedapp()
+            usetoolchain("android-ndk")
+            defines(["NKENTSEU_PLATFORM_ANDROID=1"])
+            links(["android", "log", "EGL", "GLESv3"])
+            androidapplicationid("com.nkentseu.sandbox")
+            androidminsdk(24)
+            androidtargetsdk(34)
+            androidcompilesdk(34)
+            androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+            androidnativeactivity(True)
+
+        # ===== iOS ======================================================================================================================================================
+        with filter("system:iOS"):
+            windowedapp()
+            defines(["NKENTSEU_PLATFORM_UIKIT=1"])
+            frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+            iosbundleid("com.nkentseu.sandbox")
+            iosversion("1.0")
+            iosminsdk("14.0")
+            iosbuildnumber(1)
+
+        # ===== Web ======================================================================================================================================================
+        with filter("system:Web"):
+            consoleapp()
+            usetoolchain("emscripten")
+            defines(["NKENTSEU_PLATFORM_WASM=1"])
+            emscriptencanvasid("canvas")
+            emscripteninitialmemory(32)
+            # Boucle principale synchrone (style SDL_Delay) sur le navigateur
+            emscriptenextraflags(["-s", "ASYNCIFY"])
+
+        # ===== HarmonyOS =======================================================================================================================================
+        with filter("system:HarmonyOS"):
+            windowedapp()
+            defines(["NKENTSEU_PLATFORM_HARMONYOS=1"])
+            links(["log", "EGL", "GLESv3"])
+
+        # ===== Xbox Series X/S et Xbox One ==========================================================================================â”€
+        with filter("system:XboxSeries || system:XboxOne"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            defines([
+                "NKENTSEU_PLATFORM_UWP=1",
+                "NKENTSEU_FAMILY_XBOX=1",
+                "WINAPI_FAMILY=WINAPI_FAMILY_TV_APP",
+            ])
+            links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+        # ===== Configurations Debug / Release ================================================================================â”€
+        with filter("config:Debug"):
+            defines(["_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
