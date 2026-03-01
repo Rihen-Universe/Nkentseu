@@ -37,9 +37,10 @@ with project("NKRenderer"):
         "../NKPlatform/src/NKPlatform",
         "../NKMath/src",
         "../NKLogger/src",
+        "../NKWindow/src",
     ])
 
-    dependson(["NKCore", "NKPlatform", "NKMath", "NKLogger"])
+    dependson(["NKCore", "NKPlatform", "NKMath", "NKLogger", "NKWindow"])
 
     files([
         "src/NKRenderer/**.cpp",
