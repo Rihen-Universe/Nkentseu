@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKMemory — Gestion mémoire avec tracking (C++17)
+=================================================
+Système central de gestion mémoire avec allocation/désallocation
+sécurisée, tracking des allocations et détection de fuites.
+
+Contenu (src/NKMemory/) :
+  NkMemory.h/cpp    => Système de gestion mémoire (NkMemorySystem singleton)
+  NkAllocator.h/cpp => Allocateur bas niveau configurable
+  NkSharedPtr.h     => Pointeur partagé avec tracking
+  NkUniquePtr.h     => Pointeur unique avec tracking
+  NkUtils.h/cpp     => Utilitaires mémoire (Copy, Move, Compare, Set)
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKMemory"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "src/NKMemory",
+        "pch",
+        "../NKCore/src",
+        "../NKCore/src/NKCore",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+        "../NKLogger/src",
+    ])
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    dependson(["NKCore", "NKPlatform", "NKLogger"])
+
+    files([
+        "src/NKMemory/**.cpp",
+        "src/NKMemory/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows"):
+        usetoolchain(_TC_WINDOWS)
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["log"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

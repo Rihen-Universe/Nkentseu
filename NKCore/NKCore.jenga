@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKCore — Types, macros, assertions, opérations bit (C++20)
+===========================================================
+S'appuie sur NKPlatform pour les types fixes et macros fondamentaux
+réutilisés par toutes les couches supérieures.
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKCore"):
+    staticlib()
+    language("C++")
+    cppdialect("C++20")
+    location(".")
+
+    includedirs([
+        "src",
+        "pch",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+    ])
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    dependson(["NKPlatform"])
+
+    files([
+        "src/NKCore/**.cpp",
+        "src/NKCore/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    defines(["NKENTSEU_CORE_STATIC"])
+
+    with filter("system:Windows"):
+        usetoolchain(_TC_WINDOWS)
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG", "RELEASE", "NKENTSEU_RELEASE"])
+        optimize("Speed")
+        symbols(False)

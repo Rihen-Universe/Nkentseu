@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKWindow — Fenêtrage, événements, entrées (C++17)
+==================================================
+Bibliothèque principale du framework. Gère la fenêtre, les entrées
+et le système d'événements. Le rendu est délégué à NKRenderer.
+
+Pas de PIMPL : NkWindow et NkEventSystem sont des classes concrètes
+dont les membres platform-spécifiques sont embarqués via #ifdef.
+
+Architecture :
+  NkWindow        → crée la fenêtre native + émet NkWindowId
+  NkEventSystem   → singleton, carte NkWindowId→NkWindow*
+  NkWindowPaintEvent → signal pour que NKRenderer effectue le blit
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKWindow"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "pch",
+        "../Externals",
+        "../NKCore/src",
+        "../NKCore/pch",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+        "../NKLogger/src",
+        "../NKMath/src",
+    ])
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath"])
+
+    # Fichiers communs (Core + Events — partagés par toutes les plateformes)
+    files([
+        "src/NKWindow/Core/**.cpp",
+        "src/NKWindow/Core/**.h",
+        "src/NKWindow/Events/**.cpp",
+        "src/NKWindow/Events/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "NKENTSEU_PLATFORM_WIN32=1",
+            "NKENTSEU_FAMILY_WINDOWS=1",
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE",
+            "UNICODE",
+        ])
+        files([
+            "src/NKWindow/Platform/Win32/**.cpp",
+            "src/NKWindow/Platform/Win32/**.h",
+        ])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32",
+        ])
+
+    # ===== Linux headless / NOOP ==================================================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        defines(["NKENTSEU_PLATFORM_NOOP=1", "NKENTSEU_FAMILY_LINUX=1"])
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+        files([
+            "src/NKWindow/Platform/Linux/**.h",
+            "src/NKWindow/Platform/Noop/**.h",
+        ])
+        links(["pthread"])
+
+    # ===== Linux XLib (défaut) ====================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        defines(["NKENTSEU_PLATFORM_XLIB=1", "NKENTSEU_FAMILY_LINUX=1"])
+        files([
+            "src/NKWindow/Platform/Linux/**.h",
+            "src/NKWindow/Platform/XLib/**.cpp",
+            "src/NKWindow/Platform/XLib/**.h",
+        ])
+        links(["pthread", "X11"])
+
+    # ===== Linux XCB ==============================================================
+    with filter("system:Linux && options:linux-backend=xcb"):
+        defines(["NKENTSEU_PLATFORM_XCB=1", "NKENTSEU_FAMILY_LINUX=1"])
+        files([
+            "src/NKWindow/Platform/Linux/**.h",
+            "src/NKWindow/Platform/XCB/**.cpp",
+            "src/NKWindow/Platform/XCB/**.h",
+        ])
+        links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
+
+    # ===== Linux Wayland ==========================================================
+    with filter("system:Linux && options:linux-backend=wayland"):
+        defines(["NKENTSEU_PLATFORM_WAYLAND=1", "NKENTSEU_FAMILY_LINUX=1"])
+        files([
+            "src/NKWindow/Platform/Linux/**.h",
+            "src/NKWindow/Platform/Wayland/**.cpp",
+            "src/NKWindow/Platform/Wayland/**.h",
+            "src/NKWindow/Platform/Wayland/xdg-shell-protocol.c",
+        ])
+        links(["pthread", "wayland-client", "xkbcommon"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_PLATFORM_COCOA=1", "NKENTSEU_FAMILY_APPLE=1"])
+        files([
+            "src/NKWindow/Platform/Cocoa/**.cpp",
+            "src/NKWindow/Platform/Cocoa/**.mm",
+            "src/NKWindow/Platform/Cocoa/**.h",
+        ])
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        defines(["NKENTSEU_PLATFORM_ANDROID=1", "NKENTSEU_FAMILY_ANDROID=1"])
+        files([
+            "src/NKWindow/Platform/Android/**.cpp",
+            "src/NKWindow/Platform/Android/**.h",
+        ])
+        links(["android", "log", "EGL", "GLESv3"])
+        androidapplicationid("com.nkentseu.nkwindow")
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+
+    # ===== iOS ====================================================================
+    with filter("system:iOS"):
+        defines(["NKENTSEU_PLATFORM_UIKIT=1", "NKENTSEU_FAMILY_APPLE=1"])
+        files([
+            "src/NKWindow/Platform/UIKit/**.cpp",
+            "src/NKWindow/Platform/UIKit/**.mm",
+            "src/NKWindow/Platform/UIKit/**.h",
+        ])
+        frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation"])
+        iosbundleid("com.nkentseu.nkwindow")
+        iosversion("1.0")
+        iosminsdk("14.0")
+        iosbuildnumber(1)
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+        defines(["NKENTSEU_PLATFORM_WASM=1", "__EMSCRIPTEN__=1"])
+        files([
+            "src/NKWindow/Platform/WASM/**.cpp",
+            "src/NKWindow/Platform/WASM/**.h",
+        ])
+        emscripteninitialmemory(32)
+
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        defines(["NKENTSEU_PLATFORM_HARMONYOS=1", "__HARMONY__=1"])
+        files(["src/NKWindow/Platform/Noop/**.h"])
+        links(["log", "EGL", "GLESv3"])
+
+    # ===== Xbox ===================================================================
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+        defines([
+            "NKENTSEU_PLATFORM_UWP=1",
+            "NKENTSEU_FAMILY_XBOX=1",
+            "WINAPI_FAMILY=WINAPI_FAMILY_TV_APP",
+            "_XBOX_ONE",
+        ])
+        files(["src/NKWindow/Platform/UWP/**.h"])
+        links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG", "RELEASE"])
+        optimize("Speed")
+        symbols(False)
+
+    # Tests unitaires (desktop uniquement)
+    with filter("system:Windows || system:Linux || system:macOS"):
+        with test():
+            testfiles(["tests/**.cpp"])

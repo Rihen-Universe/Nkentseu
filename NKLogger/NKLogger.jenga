@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKLogger — Journalisation asynchrone multi-sink (C++17)
+=======================================================
+Système de journalisation thread-safe avec filtres, formatage
+configurable et plusieurs destinations (console, fichier, etc.)
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKLogger"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "pch",
+        "../NKCore/src",
+        "../NKCore/pch",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+    ])
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    dependson(["NKCore", "NKPlatform"])
+
+    files([
+        "src/Logger/**.cpp",
+        "src/Logger/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows"):
+        usetoolchain(_TC_WINDOWS)
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["log"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

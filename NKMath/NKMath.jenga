@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKMath — Bibliothèque mathématique fondamentale (C++17)
+=======================================================
+Types géométriques et entiers fixes réutilisés par toutes les
+couches supérieures : NkU8..NkU64, NkI8..NkI64, NkVec2u, NkVec2i,
+NkRect, NkVec2f, NkVec3f.
+
+Dépend de NKCore pour les primitives brutes (nk_uint8, etc.)
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKMath"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "src/NKMath",
+        "../NKCore/src",
+        "../NKCore/src/NKCore",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+    ])
+
+    dependson(["NKCore", "NKPlatform"])
+
+    files([
+        "src/NKMath/**.cpp",
+        "src/NKMath/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows"):
+        usetoolchain(_TC_WINDOWS)
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

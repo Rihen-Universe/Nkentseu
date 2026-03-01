@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Sandbox — Application de démonstration multi-plateformes
+=========================================================
+Illustre l'utilisation complète du framework Nkentseu :
+  • Création de fenêtre et boucle principale cross-platform
+  • Gestion des événements : clavier, souris, touch, drag & drop
+  • Rendu pixel software via NKRenderer (NkSoftwareRenderer)
+  • Gamepad, safe area, transforms 2D
+
+Un seul fichier src/main.cpp compile pour TOUTES les plateformes.
+Le point d'entrée natif est abstrait par NkEntry.h / NkMain.h.
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("Sandbox"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/main.cpp"])
+
+    includedirs([
+        "../NKWindow/src",
+        "../NKCore/src",
+        "../NKCore/pch",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+        "../NKLogger/src",
+        "../NKMath/src",
+        "../NKRenderer/src",
+        "../NKTime/src",
+        "../NKStream/src",
+        "../NKMemory/src",
+        "../Externals",
+    ])
+
+    links(["NKWindow", "NKRenderer", "NKLogger", "NKCore", "NKPlatform",
+           "NKMath", "NKTime", "NKStream", "NKMemory"])
+    dependson(["NKWindow", "NKRenderer", "NKLogger", "NKCore", "NKPlatform",
+               "NKMath", "NKTime", "NKStream", "NKMemory"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows"):
+        windowedapp()
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "NKENTSEU_PLATFORM_WIN32=1",
+            "NKENTSEU_FAMILY_WINDOWS=1",
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE", "UNICODE",
+        ])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32",
+        ])
+
+    # ===== Linux headless =========================================================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_PLATFORM_NOOP=1"])
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        links(["pthread"])
+
+    # ===== Linux XLib =============================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_PLATFORM_XLIB=1"])
+        links(["pthread", "X11"])
+
+    # ===== Linux XCB ==============================================================
+    with filter("system:Linux && options:linux-backend=xcb"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_PLATFORM_XCB=1"])
+        links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
+
+    # ===== Linux Wayland ==========================================================
+    with filter("system:Linux && options:linux-backend=wayland"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_PLATFORM_WAYLAND=1"])
+        links(["pthread", "wayland-client", "xkbcommon"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_PLATFORM_COCOA=1"])
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        windowedapp()
+        usetoolchain("android-ndk")
+        defines(["NKENTSEU_PLATFORM_ANDROID=1"])
+        links(["android", "log", "EGL", "GLESv3"])
+        androidapplicationid("com.nkentseu.sandbox")
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+
+    # ===== iOS ====================================================================
+    with filter("system:iOS"):
+        windowedapp()
+        defines(["NKENTSEU_PLATFORM_UIKIT=1"])
+        frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+        iosbundleid("com.nkentseu.sandbox")
+        iosversion("1.0")
+        iosminsdk("14.0")
+        iosbuildnumber(1)
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        consoleapp()
+        usetoolchain("emscripten")
+        defines(["NKENTSEU_PLATFORM_WASM=1"])
+        emscriptencanvasid("canvas")
+        emscripteninitialmemory(32)
+        emscriptenextraflags(["-s", "ASYNCIFY"])
+
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        windowedapp()
+        defines(["NKENTSEU_PLATFORM_HARMONYOS=1"])
+        links(["log", "EGL", "GLESv3"])
+
+    # ===== Xbox ===================================================================
+    with filter("system:XboxSeries || system:XboxOne"):
+        windowedapp()
+        usetoolchain("xbox-clang")
+        defines([
+            "NKENTSEU_PLATFORM_UWP=1",
+            "NKENTSEU_FAMILY_XBOX=1",
+            "WINAPI_FAMILY=WINAPI_FAMILY_TV_APP",
+        ])
+        links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

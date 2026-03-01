@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKRenderer — Backends de rendu graphique (C++17)
+================================================
+Bibliothèque de rendu indépendante de NKWindow. Elle fournit :
+  - INkRenderer       : interface commune à tous les backends
+  - NkSoftwareRenderer: rendu pixel software (SetPixel, blit OS)
+  - NkRendererTypes.h : types partagés (NkSurfaceDesc, NkFramebufferInfo,
+                        NkRendererConfig, NkRendererApi…)
+
+Pas de PIMPL : le code utilisateur crée directement un NkSoftwareRenderer
+(ou un autre backend concret qui implémente INkRenderer) et l'utilise
+via la NkWindowPaintEvent.
+
+Architecture de rendu :
+  NkWindow → émet NkWindowPaintEvent(NkSurfaceDesc)
+    └─► INkRenderer::Present(surface) — appelé par le renderer concret
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKRenderer"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "src/NKRenderer",
+        "../NKCore/src",
+        "../NKCore/src/NKCore",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+        "../NKMath/src",
+        "../NKLogger/src",
+    ])
+
+    dependson(["NKCore", "NKPlatform", "NKMath", "NKLogger"])
+
+    files([
+        "src/NKRenderer/**.cpp",
+        "src/NKRenderer/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "NKENTSEU_PLATFORM_WIN32=1",
+            "NKENTSEU_FAMILY_WINDOWS=1",
+            "WIN32_LEAN_AND_MEAN",
+        ])
+        links(["gdi32", "user32"])
+
+    # ===== Linux XLib =============================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        defines(["NKENTSEU_PLATFORM_XLIB=1", "NKENTSEU_FAMILY_LINUX=1"])
+        links(["X11"])
+
+    # ===== Linux XCB ==============================================================
+    with filter("system:Linux && options:linux-backend=xcb"):
+        defines(["NKENTSEU_PLATFORM_XCB=1", "NKENTSEU_FAMILY_LINUX=1"])
+        links(["xcb", "xcb-image"])
+
+    # ===== Linux Wayland ==========================================================
+    with filter("system:Linux && options:linux-backend=wayland"):
+        defines(["NKENTSEU_PLATFORM_WAYLAND=1", "NKENTSEU_FAMILY_LINUX=1"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_PLATFORM_COCOA=1", "NKENTSEU_FAMILY_APPLE=1"])
+        frameworks(["Metal", "QuartzCore"])
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        defines(["NKENTSEU_PLATFORM_ANDROID=1", "NKENTSEU_FAMILY_ANDROID=1"])
+        links(["android", "EGL", "GLESv3"])
+
+    # ===== iOS ====================================================================
+    with filter("system:iOS"):
+        defines(["NKENTSEU_PLATFORM_UIKIT=1", "NKENTSEU_FAMILY_APPLE=1"])
+        frameworks(["Metal", "QuartzCore"])
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+        defines(["NKENTSEU_PLATFORM_WASM=1"])
+
+    # ===== Xbox ===================================================================
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_UWP=1", "NKENTSEU_FAMILY_XBOX=1"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

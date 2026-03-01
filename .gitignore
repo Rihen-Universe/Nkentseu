@@ -1,0 +1,36 @@
+# Build artifacts
+Build/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Build logs
+*.log
+build_*.txt
+*_build*.log
+*_diag.log
+
+# Temp / session files
+EVENT_SYSTEM_INTEGRATION_COMPLETE.md
+EVENT_USAGE_EXAMPLE.cpp
+FINAL_SUMMARY.md
+README_REFACTORING.md
+REFACTORING_COMPLETE.md
+REFACTORING_GUIDE.md
+REFACTORING_SUMMARY.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db

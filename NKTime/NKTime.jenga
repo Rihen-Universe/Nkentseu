@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKTime — Gestion précise du temps (C++17)
+==========================================
+Fournit des classes pour la gestion du temps quotidien, durées,
+fuseaux horaires et mesure de performance avec précision nanoseconde.
+
+Contenu (src/NKTime/) :
+  NkChrono.h/cpp   => Mesure de durée haute résolution
+  NkDate.h/cpp     => Représentation d'une date calendaire
+  NkTime.h/cpp     => Temps quotidien avec précision nanoseconde
+  NkTimeSpan.h/cpp => Durée signée entre deux instants
+  NkTimeZone.h/cpp => Gestion des fuseaux horaires
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKTime"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "src/NKTime",
+        "../NKCore/src",
+        "../NKCore/src/NKCore",
+        "../NKPlatform/src",
+        "../NKPlatform/src/NKPlatform",
+        "../NKLogger/src",
+    ])
+
+    dependson(["NKCore", "NKPlatform", "NKLogger"])
+
+    files([
+        "src/NKTime/**.cpp",
+        "src/NKTime/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows"):
+        usetoolchain(_TC_WINDOWS)
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["log"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
