@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Sandbox â€” Application de dÃ©monstration multi-plateformes
+=========================================================
+Illustre l'utilisation complÃ¨te du framework Nkentseu :
+  â€¢ CrÃ©ation de fenÃªtre et boucle principale cross-platform
+  â€¢ Gestion des Ã©vÃ©nements : clavier, souris, touch, drag & drop
+  â€¢ Rendu pixel software via NKRenderer (NkSoftwareRenderer)
+  â€¢ Gamepad, safe area, transforms 2D
+
+Un seul fichier src/main.cpp compile pour TOUTES les plateformes.
+Le point d'entrÃ©e natif est abstrait par NkEntry.h / NkMain.h.
+"""
+
+from Jenga import *
+from Jenga.Core.Api import androidallowrotation
+
+def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: str, needs_camera: bool = False):
+    with project(project_name):
+        windowedapp()
+        language("C++")
+        cppdialect("C++17")
+        location(".")
+
+        _TC_WINDOWS = "nk-windows-clang-mingw"
+
+        files([source_file])
+
+        includedirs([
+            "src",
+            "%{wks.location}/Externals",
+            "%{NKWindow.location}/src",
+            "%{NKWindow.location}/src/NKWindow",
+            "%{NKRenderer.location}/src",
+            "%{NKRenderer.location}/src/NKRenderer",
+            "%{NKLogger.location}/src",
+            "%{NKLogger.location}/src/NKLogger",
+            "%{NKCore.location}/src",
+            "%{NKCore.location}/src/NKCore",
+            "%{NKPlatform.location}/src",
+            "%{NKPlatform.location}/src/NKPlatform",
+            "%{NKMath.location}/src",
+            "%{NKMath.location}/src/NKMath",
+            "%{NKTime.location}/src",
+            "%{NKTime.location}/src/NKTime",
+            "%{NKStream.location}/src",
+            "%{NKStream.location}/src/NKStream",
+            "%{NKMemory.location}/src",
+            "%{NKMemory.location}/src/NKMemory",
+        ])
+
+
+        links(["NKWindow", "NKRenderer", "NKLogger", "NKCore", "NKPlatform",
+            "NKMath", "NKTime", "NKStream", "NKMemory"])
+        dependson(["NKWindow", "NKRenderer", "NKLogger", "NKCore", "NKPlatform",
+                "NKMath", "NKTime", "NKStream", "NKMemory"])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+        with filter("system:Windows && options:windows-runtime=uwp"):
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+
+        # ===== Windows ================================================================
+        with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+            windowedapp()
+            usetoolchain(_TC_WINDOWS)
+            defines([
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE", "UNICODE",
+            ])
+            links([
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32", "dinput8", "dxguid"
+            ])
+
+        # ===== UWP ====================================================================
+        with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            defines(["NKENTSEU_PLATFORM_UWP"])
+            links(["d3d12", "dxgi", "dxguid", "windowsapp"])
+
+        # ===== Linux headless =========================================================
+        with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            links(["pthread"])
+
+        # ===== Linux XLib =============================================================
+        with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            links(["pthread", "X11"])
+
+        # ===== Linux XCB ==============================================================
+        with filter("system:Linux && options:linux-backend=xcb"):
+            windowedapp()
+            usetoolchain("clang-native")
+            links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
+
+        # ===== Linux Wayland ==========================================================
+        with filter("system:Linux && options:linux-backend=wayland"):
+            windowedapp()
+            usetoolchain("clang-native")
+            links(["pthread", "wayland-client", "xkbcommon"])
+
+        # ===== macOS ==================================================================
+        with filter("system:macOS"):
+            windowedapp()
+            usetoolchain("clang-native")
+            frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+        # ===== Android ================================================================
+        with filter("system:Android"):
+            windowedapp()
+            usetoolchain("android-ndk")
+            links(["android", "log", "EGL", "GLESv3"])
+            androidapplicationid(f"com.nkentseu.{app_id_suffix}")
+            androidminsdk(24)
+            androidtargetsdk(34)
+            androidcompilesdk(34)
+            androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+            androidnativeactivity(True)
+            androidallowrotation(True)
+            if needs_camera:
+                androidpermissions([
+                    "android.permission.CAMERA",
+                ])
+
+        # ===== iOS ====================================================================
+        with filter("system:iOS"):
+            windowedapp()
+            frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+            iosbundleid("com.nkentseu.sandbox")
+            iosversion("1.0")
+            iosminsdk("14.0")
+            iosbuildnumber(1)
+
+        # ===== Web ====================================================================
+        with filter("system:Web"):
+            consoleapp()
+            usetoolchain("emscripten")
+            emscriptencanvasid("canvas")
+            emscripteninitialmemory(32)
+            emscriptenextraflags(["-s", "ASYNCIFY"])
+
+        # ===== HarmonyOS ==============================================================
+        with filter("system:HarmonyOS"):
+            windowedapp()
+            links(["log", "EGL", "GLESv3"])
+
+        # ===== Xbox ===================================================================
+        with filter("system:XboxSeries || system:XboxOne"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+        with filter("config:Debug"):
+            defines(["_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+configure_sandbox_app("Sandbox", "src/main.cpp", "sandbox")
+configure_sandbox_app("SandboxDBase", "src/main1.cpp", "sandbox.base")
+configure_sandbox_app("SandboxDiagnostic", "src/main2.cpp", "sandbox.diagnostic")
+configure_sandbox_app("SandboxPatternDispatcher", "src/main3.cpp", "sandbox.pattern.dispatcher")
+configure_sandbox_app("SandboxPatternPolling", "src/main4.cpp", "sandbox.pattern.polling")
+configure_sandbox_app("SandboxPatternCallback", "src/main5.cpp", "sandbox.pattern.callback")
+configure_sandbox_app("SandboxMultiWindow", "src/main6.cpp", "sandbox.multiwindow")
+configure_sandbox_app("SandboxStressRingBuffer", "src/main7.cpp", "sandbox.stress.ringbuffer")
+configure_sandbox_app("SandboxGamepadPS3", "src/main8.cpp", "sandbox.gamepad.ps3")

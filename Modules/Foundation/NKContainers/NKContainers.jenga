@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKContainers - Conteneurs fondamentaux (C++17)
+==============================================
+Périmètre initial stabilisé:
+  - Iterators: NkIterator, NkInitializerList
+  - Heterogeneous: NkPair
+  - Sequential: NkVector
+  - Associative: NkMap, NkBTree
+
+Le reste du dossier est conservé mais n'est pas encore branché au build
+tant que la migration des includes/API n'est pas terminée.
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKContainers"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "src/NKContainers",
+        "%{NKCore.location}/src",
+        "%{NKCore.location}/src/NKCore",
+        "%{NKPlatform.location}/src",
+        "%{NKPlatform.location}/src/NKPlatform",
+        "%{NKMemory.location}/src",
+        "%{NKMemory.location}/src/NKMemory",
+    ])
+
+    dependson(["NKCore", "NKPlatform", "NKMemory"])
+
+    defines([
+        "NK_USE_STD_INITIALIZER_LIST",
+    ])
+
+    files([
+        "src/NKContainers/**.cpp",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+    with filter("system:Linux"):
+        links(["pthread"])
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["log"])
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            dependson(["NKCore", "NKPlatform", "NKMemory"])
