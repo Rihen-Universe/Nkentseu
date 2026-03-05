@@ -11,24 +11,24 @@ et de rendu pixel. Namespace : nkentseu
 Architecture et ordre de dependances :
 
   NKPlatform  => Detection OS/arch/compilateur/CPU         (C++20)
-       ↓
+       â†“
   NKCore      => Types, macros, assertions, bits            (C++20)
-       ↓            ↓
-  NKMath      => Types géométriques (Vec2, Rect, …)        (C++17)
+       â†“            â†“
+  NKMath      => Types gÃ©omÃ©triques (Vec2, Rect, â€¦)        (C++17)
   NKLogger    => Journalisation asynchrone multi-sink       (C++17)
-       ↓            ↓                   ↓
+       â†“            â†“                   â†“
   NKTime      => Gestion du temps / chrono                  (C++17)
-  NKStream    => Flux de données (fichier, binaire…)        (C++17)
-  NKMemory    => Gestion mémoire + smart pointers           (C++17)
-       ↓
+  NKStream    => Flux de donnÃ©es (fichier, binaireâ€¦)        (C++17)
+  NKMemory    => Gestion mÃ©moire + smart pointers           (C++17)
+       â†“
   NKWindow    => Fenetrage, evenements, entrees             (C++17)
-       ↓
-  NKRenderer  => Rendu graphique (Software, OpenGL…)        (C++17)
-       ↓
+       â†“
+  NKRenderer  => Rendu graphique (Software, OpenGLâ€¦)        (C++17)
+       â†“
   Sandbox     => Application de demonstration (tous OS)     (C++17)
 
-Chaque projet possède son propre fichier .jenga dans son répertoire.
-Ce fichier workspace les réunit via include().
+Chaque projet possÃ¨de son propre fichier .jenga dans son rÃ©pertoire.
+Ce fichier workspace les rÃ©unit via include().
 
 Plateformes supportees :
   Windows     => Backend Win32                   (clang-mingw)
@@ -48,13 +48,19 @@ Usage :
   jenga build                                            # Hote (XLib)
   jenga build --platform windows                         # Windows
   jenga build --platform linux                           # Linux XLib (defaut)
-  jenga build --platform linux --options linux-backend=xcb
-  jenga build --platform linux --options linux-backend=wayland
-  jenga build --platform linux --options headless        # Linux headless
+  jenga build --platform linux --linux-backend xcb
+  jenga build --platform linux --linux-backend wayland
+  jenga build --platform linux --linux-backend headless  # Linux headless
   jenga build --platform macos                           # macOS Cocoa
   jenga build --platform android                         # Android (NDK)
   jenga build --platform ios                             # iOS (UIKit)
   jenga build --platform web                             # Web (Emscripten)
+  jenga build --platform windows --windows-runtime desktop
+                                                        # Windows desktop (Win32)
+  jenga build --platform windows --windows-runtime uwp
+                                                        # UWP (Windows Runtime)
+  jenga build --platform xboxseries                      # Xbox Series
+  jenga build --platform xboxone                         # Xbox One
   jenga build --config Release                           # Build Release
 
   Notes Wayland :
@@ -62,10 +68,10 @@ Usage :
     Generer xdg-shell-client-protocol.h :
       wayland-scanner client-header
         /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
-        NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-client-protocol.h
+        Modules/Runtime/NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-client-protocol.h
       wayland-scanner private-code
         /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
-        NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-protocol.c
+        Modules/Runtime/NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-protocol.c
 
 Auteur : Rihen
 Date   : 2026
@@ -130,6 +136,19 @@ with workspace("Nkentseu", location="."):
         description="[Obsolete] Utiliser --options linux-backend=headless"
     )
 
+    # ===== Option Windows : Desktop vs UWP ====================================
+    # Jenga v2.0.1 n'expose pas TargetOS.UWP; on route UWP via une option.
+    newoption(
+        trigger="windows-runtime",
+        value="RUNTIME",
+        allowed=[
+            ["desktop", "Windows desktop classique (Win32)"],
+            ["uwp",     "Windows Runtime (UWP)"],
+        ],
+        default="desktop",
+        description="Runtime Windows cible (desktop ou UWP)"
+    )
+
     # ===== Plateformes et architectures cibles ==================================
     targetoses([
         TargetOS.WINDOWS,
@@ -164,32 +183,50 @@ with workspace("Nkentseu", location="."):
     # L'ordre respecte la chaine de dependances.
     # =========================================================================
 
-    with include("NKPlatform/NKPlatform.jenga"):
+    with include("Modules/Foundation/NKPlatform/NKPlatform.jenga"):
         pass
 
-    with include("NKCore/NKCore.jenga"):
+    with include("Modules/Foundation/NKCore/NKCore.jenga"):
         pass
 
-    with include("NKLogger/NKLogger.jenga"):
+    with include("Modules/System/NKLogger/NKLogger.jenga"):
         pass
 
-    with include("NKMath/NKMath.jenga"):
+    with include("Modules/Foundation/NKMath/NKMath.jenga"):
         pass
 
-    with include("NKTime/NKTime.jenga"):
+    with include("Modules/Foundation/NKMemory/NKMemory.jenga"):
         pass
 
-    with include("NKStream/NKStream.jenga"):
+    with include("Modules/Foundation/NKContainers/NKContainers.jenga"):
         pass
 
-    with include("NKMemory/NKMemory.jenga"):
+    with include("Modules/System/NKTime/NKTime.jenga"):
         pass
 
-    with include("NKWindow/NKWindow.jenga"):
+    with include("Modules/System/NKStream/NKStream.jenga"):
         pass
 
-    with include("NKRenderer/NKRenderer.jenga"):
+    with include("Modules/System/NKThreading/NKThreading.jenga"):
         pass
 
-    with include("Sandbox/Sandbox.jenga"):
+    with include("Modules/System/NKFileSystem/NKFileSystem.jenga"):
+        pass
+
+    with include("Modules/System/NKReflection/NKReflection.jenga"):
+        pass
+
+    with include("Modules/System/NKSerialization/NKSerialization.jenga"):
+        pass
+
+    with include("Modules/Runtime/NKWindow/NKWindow.jenga"):
+        pass
+
+    with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
+        pass
+
+    with include("Modules/Runtime/NKCamera/NKCamera.jenga"):
+        pass
+
+    with include("Applications/Sandbox/Sandbox.jenga"):
         pass

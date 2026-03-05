@@ -1,0 +1,22 @@
+#pragma once
+// =============================================================================
+// NkUWPWindow.h - UWP platform data for NkWindow (data only)
+// =============================================================================
+
+#include "NKWindow/Core/NkTypes.h"
+
+#include <string>
+
+namespace nkentseu {
+
+    struct NkWindowData {
+        // CoreWindow or platform equivalent native handle when available.
+        void*       mNativeWindow = nullptr;
+        std::string mTitle;
+        NkU32       mWidth        = 0;
+        NkU32       mHeight       = 0;
+        bool        mVisible      = false;
+        bool        mFullscreen   = false;
+    };
+
+} // namespace nkentseu

@@ -1,0 +1,207 @@
+// ============================================================
+// FILE: NkPoolAllocator.h
+// DESCRIPTION: High-performance pool allocator (production-ready)
+// AUTHOR: Rihen
+// DATE: 2026-03-05
+// VERSION: 1.0.0
+// ============================================================
+// Allocateur pool optimisé pour:
+// - Zéro fragmentation
+// - O(1) allocation/deallocation
+// - Cache-friendly (blocs adjacents)
+// - Deterministic performance
+// ============================================================
+
+#pragma once
+
+#ifndef NKENTSEU_MEMORY_NKPOOLALLOCATOR_H_INCLUDED
+#define NKENTSEU_MEMORY_NKPOOLALLOCATOR_H_INCLUDED
+
+#include "NKMemory/NkAllocator.h"
+#include "NKCore/NkTypes.h"
+#include "NKCore/NkAtomic.h"
+#include "NKMemory/NkMemoryExport.h"
+
+#include <bitset>
+#include <new>
+
+namespace nkentseu {
+namespace memory {
+
+    /**
+     * @brief Fixed-size pool allocator (O(1) allocation/deallocation)
+     * 
+     * Alloue des blocs de taille fixe à partir d'un pool pré-alloué.
+     * Idéal pour allocations répétées du même type.
+     * 
+     * Avantages:
+     * - O(1) allocation et deallocation
+     * - Zéro fragmentation (blocs adjacents)
+     * - Déterministe (pas d'appels OS)
+     * - Cache-friendly (pool compact)
+     * 
+     * Utilisation:
+     * - Petit objets fréquents (< numéros de particules, bullets)
+     * - Allocations temporaires dans boucles critiques
+     * - Message queues (taille fixe)
+     * 
+     * @example
+     * ```cpp
+     * // Pool de 1000 objets de 64 bytes
+     * NkFixedPoolAllocator<64, 1000> pool;
+     * 
+     * void* ptr = pool.Allocate();  // O(1)
+     * // ...
+     * pool.Deallocate(ptr);          // O(1)
+     * ```
+     */
+    template<nk_size BlockSize, nk_size NumBlocks = 256>
+    class NKMEMORY_API NkFixedPoolAllocator : public NkAllocator {
+    public:
+        static_assert(BlockSize >= sizeof(nk_size), "BlockSize too small");
+        static_assert(NumBlocks > 0, "NumBlocks must be > 0");
+        
+        // ==============================================
+        // CONSTRUCTEUR/DESTRUCTEUR
+        // ==============================================
+        
+        explicit NkFixedPoolAllocator(const nk_char* name = "NkFixedPoolAllocator") 
+            : NkAllocator(name),
+              mBlocks(nullptr),
+              mFreeList(nullptr),
+              mNumFree(NumBlocks) {
+            
+            // Pré-allouer le pool entier en une seule allocation OS
+            mBlocks = static_cast<nk_uint8*>(
+                ::operator new(BlockSize * NumBlocks, std::nothrow)
+            );
+            
+            if (!mBlocks) {
+                return;
+            }
+            
+            // Construire la linked-list de blocs libres
+            for (nk_size i = 0; i < NumBlocks; ++i) {
+                nk_uint8* block = mBlocks + (i * BlockSize);
+                // Stocker le pointeur vers le prochain bloc libre
+                nk_uint8** ptrLoc = reinterpret_cast<nk_uint8**>(block);
+                *ptrLoc = (i + 1 < NumBlocks) ? mBlocks + ((i + 1) * BlockSize) : nullptr;
+            }
+            
+            mFreeList = mBlocks;
+        }
+        
+        ~NkFixedPoolAllocator() override {
+            if (mBlocks) {
+                ::operator delete(mBlocks);
+                mBlocks = nullptr;
+            }
+        }
+        
+        // Non-copiable
+        NkFixedPoolAllocator(const NkFixedPoolAllocator&) = delete;
+        NkFixedPoolAllocator& operator=(const NkFixedPoolAllocator&) = delete;
+        
+        // ==============================================
+        // ALLOCATOR API
+        // ==============================================
+        
+        Pointer Allocate(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override {
+            if (size > BlockSize || !mFreeList) {
+                return nullptr;
+            }
+            
+            core::NkScopedSpinLock guard(mLock);
+            
+            if (!mFreeList) {
+                return nullptr;
+            }
+            
+            // Pop from free list (head)
+            nk_uint8* block = mFreeList;
+            nk_uint8** ptrLoc = reinterpret_cast<nk_uint8**>(block);
+            mFreeList = *ptrLoc;
+            mNumFree--;
+            
+            return static_cast<Pointer>(block);
+        }
+        
+        void Deallocate(Pointer ptr) override {
+            if (!ptr) {
+                return;
+            }
+            
+            core::NkScopedSpinLock guard(mLock);
+            
+            // Push to free list (head)
+            nk_uint8* block = static_cast<nk_uint8*>(ptr);
+            nk_uint8** ptrLoc = reinterpret_cast<nk_uint8**>(block);
+            *ptrLoc = mFreeList;
+            mFreeList = block;
+            mNumFree++;
+        }
+        
+        void Reset() noexcept override {
+            core::NkScopedSpinLock guard(mLock);
+            
+            // Rebuild free list
+            for (nk_size i = 0; i < NumBlocks; ++i) {
+                nk_uint8* block = mBlocks + (i * BlockSize);
+                nk_uint8** ptrLoc = reinterpret_cast<nk_uint8**>(block);
+                *ptrLoc = (i + 1 < NumBlocks) ? mBlocks + ((i + 1) * BlockSize) : nullptr;
+            }
+            
+            mFreeList = mBlocks;
+            mNumFree = NumBlocks;
+        }
+        
+        /**
+         * @brief Obtient le nombre de blocs libres
+         */
+        [[nodiscard]] nk_size GetNumFreeBlocks() const noexcept {
+            core::NkScopedSpinLock guard(mLock);
+            return mNumFree;
+        }
+        
+        /**
+         * @brief Obtient l'utilisation (0.0 = vide, 1.0 = plein)
+         */
+        [[nodiscard]] float32 GetUsage() const noexcept {
+            core::NkScopedSpinLock guard(mLock);
+            return static_cast<float32>(NumBlocks - mNumFree) / static_cast<float32>(NumBlocks);
+        }
+        
+    private:
+        nk_uint8* mBlocks;
+        nk_uint8* mFreeList;
+        nk_size mNumFree;
+        mutable core::NkSpinLock mLock;
+    };
+    
+    // =======================================================
+    // VARIABLE-SIZE POOL ALLOCATOR
+    // =======================================================
+    
+    /**
+     * @brief Pool allocator pour tailles variées
+     * 
+     * Maintient plusieurs pools internes pour différentes tailles.
+     * Bonne pour allocations hétérogènes.
+     */
+    class NKMEMORY_API NkVariablePoolAllocator : public NkAllocator {
+    public:
+        explicit NkVariablePoolAllocator(const nk_char* name = "NkVariablePoolAllocator")
+            : NkAllocator(name) {}
+        
+        Pointer Allocate(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
+        void Deallocate(Pointer ptr) override;
+        void Reset() noexcept override;
+        
+    private:
+        // Implementation: maintient lista<pool> pour tailles différentes
+    };
+
+} // namespace memory
+} // namespace nkentseu
+
+#endif // NKENTSEU_MEMORY_NKPOOLALLOCATOR_H_INCLUDED
