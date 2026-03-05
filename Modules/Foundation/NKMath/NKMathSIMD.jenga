@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+=============================================================================
+NKMathSIMD.jenga => SIMD-optimized math library (SSE4.2 / AVX2)
+=============================================================================
+
+Performance-critical math functions with vectorization:
+  - 4 Sqrt/Exp/Sin/Cos in parallel (SSE4.2)
+  - 8 operations in parallel (AVX2)
+  - Polynomial approximations (Chebyshev)
+  - Lookup tables for periodic functions
+
+Targets: 2-3x improvement over scalar versions
+Platforms: Windows, Linux, macOS, Android (ARMv8)
+
+Author: Rihen
+Date: 2026-03-05
+"""
+
+from Jenga import *
+
+project("NKMathSIMD"):
+    # SIMD Math Library
+    namespace("nkentseu::math::simd")
+    kind("StaticLib")
+    language("C++17")
+    
+    # Dependencies
+    linkeddeps(["NKCore", "NKPlatform", "NKMath"])
+    includedirs([
+        "$(ProjectDir)/src",
+        "$(ProjectDir)/public"
+    ])
+    
+    files({
+        "src/**/*.h",
+        "src/**/*.cpp",
+        "public/**/*.h"
+    })
+    
+    # Platform-specific SIMD support
+    filter("platforms:windows or linux or macos")
+        defines({
+            "NK_ENABLE_SSE42=1",
+            "NK_ENABLE_AVX2=1"
+        })
+        
+        filter("toolset:msc")
+            buildoptions({"/arch:AVX2"})
+        
+        filter("toolset:gcc or clang")
+            buildoptions({"-march=native", "-mavx2", "-mfma"})
+    
+    filter("platforms:android")
+        -- ARMv7 NEON support
+        defines({"NK_ENABLE_NEON=1"})
+        buildoptions({"-march=armv7-a", "-mfpu=neon"})
+    
+    filter("platforms:ios")
+        -- ARMv8 NEON support
+        defines({"NK_ENABLE_NEON=1"})
+    
+    -- Tests
+    with group("Tests"):
+        project("NKMathSIMD_Tests"):
+            kind("ConsoleApp")
+            language("C++17")
+            linkeddeps(["NKMathSIMD", "NKCore"])
+            includedirs(["$(ProjectDir)/../NKMath/src"])
+            
+            files({
+                "tests/**/*.h",
+                "tests/**/*.cpp"
+            })
+            
+            filter("platforms:windows")
+                links({"user32"})
+    
+    -- Benchmarks
+    with group("Benchmarks"):
+        project("NKMathSIMD_Bench"):
+            kind("ConsoleApp")
+            language("C++17")
+            linkeddeps(["NKMathSIMD", "NKCore", "NKTime"])
+            
+            files({
+                "bench/**/*.h",
+                "bench/**/*.cpp"
+            })
+            
+            defines({"NK_BENCH_ENABLED=1"})
+

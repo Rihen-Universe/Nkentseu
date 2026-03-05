@@ -47,6 +47,7 @@ luac.out
 .jenga/
 Build/
 build/
+.vscode/
 
 # Precompiled Headers
 

@@ -68,5 +68,54 @@ with project("NKMath"):
     # Tests unitaires/benchmarks (desktop uniquement)
     with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         with test():
-            testfiles(["tests/**.cpp"])
+            testfiles([
+                "tests/NKMath_Tests.cpp",
+                "src/NKMath/**.h",
+            ])
             dependson(["NKCore", "NKPlatform"])
+            language("C++17")
+            includedirs([
+                "src",
+                "src/NKMath",
+                "%{NKCore.location}/src",
+                "%{NKPlatform.location}/src",
+            ])
+
+    # Benchmarks de performance
+    with group("Benchmarks"):
+        with project("NKMath_Bench"):
+            consoleapp()
+            language("C++17")
+            cppdialect("C++17")
+            location("bench")
+            
+            files([
+                "bench/NKMath_Bench.cpp",
+            ])
+            
+            includedirs([
+                "src",
+                "src/NKMath",
+                "%{NKCore.location}/src",
+                "%{NKCore.location}/src/NKCore",
+                "%{NKPlatform.location}/src",
+                "%{NKPlatform.location}/src/NKPlatform",
+                "%{NKTime.location}/src",
+                "%{NKTime.location}/src/NKTime",
+            ])
+            
+            dependson(["NKMath", "NKCore", "NKPlatform", "NKTime"])
+            
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/NKMath_Bench")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}")
+            
+            with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                usetoolchain(_TC_WINDOWS)
+            with filter("config:Debug"):
+                defines(["_DEBUG", "DEBUG"])
+                optimize("Off")
+                symbols(True)
+            with filter("config:Release"):
+                defines(["NDEBUG"])
+                optimize("Speed")
+                symbols(False)
