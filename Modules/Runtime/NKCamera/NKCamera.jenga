@@ -100,14 +100,18 @@ with project("NKCamera"):
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
         links(["pthread"])
 
     # ===== Linux (XLib/XCB/Wayland) ==============================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
         links(["pthread"])
     with filter("system:Linux && options:linux-backend=xcb"):
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
         links(["pthread"])
     with filter("system:Linux && options:linux-backend=wayland"):
+        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
         links(["pthread"])
 
     # ===== macOS ==================================================================
@@ -184,3 +188,12 @@ with project("NKCamera"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
+
+    # Tests unitaires/benchmarks (desktop uniquement)
+    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            dependson([
+                "NKCore", "NKPlatform", "NKMath", "NKMemory", "NKContainers",
+                "NKLogger", "NKThreading", "NKTime", "NKWindow", "NKRenderer",
+            ])

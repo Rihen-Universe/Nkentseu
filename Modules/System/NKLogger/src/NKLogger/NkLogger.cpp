@@ -190,7 +190,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log avec format string (style printf)
 	 */
-	void NkLogger::Log(NkLogLevel level, const char *format, ...) {
+	void NkLogger::Logf(NkLogLevel level, const char *format, ...) {
 		if (!ShouldLog(level))
 			return;
 
@@ -205,7 +205,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log avec format string et informations de source
 	 */
-	void NkLogger::Log(NkLogLevel level, const char *file, int line, const char *func, const char *format, ...) {
+	void NkLogger::Logf(NkLogLevel level, const char *file, int line, const char *func, const char *format, ...) {
 		if (!ShouldLog(level))
 			return;
 
@@ -229,7 +229,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log avec format string, informations de source et va_list
 	 */
-	void NkLogger::Log(NkLogLevel level, const char *file, int line, const char *func, const char *format, va_list args) {
+	void NkLogger::Logf(NkLogLevel level, const char *file, int line, const char *func, const char *format, va_list args) {
 		if (!ShouldLog(level))
 			return;
 
@@ -240,7 +240,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log trace avec format string
 	 */
-	void NkLogger::Trace(const char *format, ...) {
+	void NkLogger::Tracef(const char *format, ...) {
 		if (!ShouldLog(NkLogLevel::NK_TRACE))
 			return;
 
@@ -255,7 +255,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log debug avec format string
 	 */
-	void NkLogger::Debug(const char *format, ...) {
+	void NkLogger::Debugf(const char *format, ...) {
 		if (!ShouldLog(NkLogLevel::NK_DEBUG))
 			return;
 
@@ -270,7 +270,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log info avec format string
 	 */
-	void NkLogger::Info(const char *format, ...) {
+	void NkLogger::Infof(const char *format, ...) {
 		if (!ShouldLog(NkLogLevel::NK_INFO))
 			return;
 
@@ -285,7 +285,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log warning avec format string
 	 */
-	void NkLogger::Warn(const char *format, ...) {
+	void NkLogger::Warnf(const char *format, ...) {
 		if (!ShouldLog(NkLogLevel::NK_WARN))
 			return;
 
@@ -300,7 +300,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log error avec format string
 	 */
-	void NkLogger::Error(const char *format, ...) {
+	void NkLogger::Errorf(const char *format, ...) {
 		if (!ShouldLog(NkLogLevel::NK_ERROR))
 			return;
 
@@ -315,7 +315,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log critical avec format string
 	 */
-	void NkLogger::Critical(const char *format, ...) {
+	void NkLogger::Criticalf(const char *format, ...) {
 		if (!ShouldLog(NkLogLevel::NK_CRITICAL))
 			return;
 
@@ -330,7 +330,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log fatal avec format string
 	 */
-	void NkLogger::Fatal(const char *format, ...) {
+	void NkLogger::Fatalf(const char *format, ...) {
 		if (!ShouldLog(NkLogLevel::NK_FATAL))
 			return;
 

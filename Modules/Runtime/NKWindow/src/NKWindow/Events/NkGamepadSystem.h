@@ -58,6 +58,7 @@
 #include <array>
 #include <cstring>
 #include <string>
+#include <cmath>
 
 namespace nkentseu {
 
@@ -428,14 +429,24 @@ namespace nkentseu {
 			 * émis.
 			 * @param deadzone  Valeur dans [0, 0.5] (défaut 0.08).
 			 */
-			void SetDeadzone(NkF32 deadzone) noexcept { mDeadzone = deadzone; }
+			void SetDeadzone(NkF32 deadzone) noexcept {
+				if (!std::isfinite(deadzone)) deadzone = 0.08f;
+				if (deadzone < 0.f) deadzone = 0.f;
+				if (deadzone > 0.95f) deadzone = 0.95f;
+				mDeadzone = deadzone;
+			}
 			NkF32 GetDeadzone() const noexcept { return mDeadzone; }
 
 			/**
 			 * @brief Seuil de changement minimum sur un axe pour émettre un événement.
 			 * @param epsilon  Valeur dans [0, 0.1] (défaut 0.001).
 			 */
-			void SetAxisEpsilon(NkF32 epsilon) noexcept { mAxisEpsilon = epsilon; }
+			void SetAxisEpsilon(NkF32 epsilon) noexcept {
+				if (!std::isfinite(epsilon)) epsilon = 0.001f;
+				if (epsilon < 0.f) epsilon = 0.f;
+				if (epsilon > 1.f) epsilon = 1.f;
+				mAxisEpsilon = epsilon;
+			}
 			NkF32 GetAxisEpsilon() const noexcept { return mAxisEpsilon; }
 
 			// =========================================================================
@@ -544,6 +555,7 @@ namespace nkentseu {
 			static NkF32 ClampAxisForTarget(NkU32 logicalAxisIndex, NkF32 value) noexcept;
 
 			NkF32 ApplyDeadzone(NkF32 value) const noexcept {
+				if (!std::isfinite(value)) return 0.f;
 				if (value >  mDeadzone) return value;
 				if (value < -mDeadzone) return value;
 				return 0.f;

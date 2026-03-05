@@ -41,7 +41,7 @@ namespace nkentseu {
 
 		// Configuration par défaut
 		SetLevel(NkLogLevel::NK_INFO);
-		SetPattern(NkFormatter::NK_DEFAULT_PATTERN);
+		SetPattern(NkFormatter::NK_NKENTSEU_PATTERN);
 	}
 
 	/**
@@ -72,6 +72,7 @@ namespace nkentseu {
 
 		instance.SetPattern(pattern);
 		instance.SetLevel(level);
+		s_Initialized = true;
 	}
 
 	/**

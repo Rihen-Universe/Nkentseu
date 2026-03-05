@@ -90,24 +90,28 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             usetoolchain("clang-native")
             objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
             targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
             links(["pthread"])
 
         # ===== Linux XLib =============================================================
         with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
             windowedapp()
             usetoolchain("clang-native")
+            defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
             links(["pthread", "X11"])
 
         # ===== Linux XCB ==============================================================
         with filter("system:Linux && options:linux-backend=xcb"):
             windowedapp()
             usetoolchain("clang-native")
+            defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
             links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
 
         # ===== Linux Wayland ==========================================================
         with filter("system:Linux && options:linux-backend=wayland"):
             windowedapp()
             usetoolchain("clang-native")
+            defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
             links(["pthread", "wayland-client", "xkbcommon"])
 
         # ===== macOS ==================================================================
@@ -169,6 +173,11 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             defines(["NDEBUG"])
             optimize("Speed")
             symbols(False)
+
+        # Tests unitaires/benchmarks (desktop uniquement)
+        with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+            with test():
+                testfiles(["tests/**.cpp"])
 
 configure_sandbox_app("Sandbox", "src/main.cpp", "sandbox")
 configure_sandbox_app("SandboxDBase", "src/main1.cpp", "sandbox.base")

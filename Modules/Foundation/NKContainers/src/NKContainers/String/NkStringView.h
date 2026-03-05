@@ -602,14 +602,14 @@ namespace nkentseu {
         // LITERALS (C++11 user-defined literals)
         // ========================================
         
-        #if defined(NK_CPP11)
+#if defined(NK_CPP11)
         inline namespace literals {
-            inline NkStringView operator""_sv(const char* str, usize len) NK_NOEXCEPT {
-                return NkStringView(str, len);
+            inline NkStringView operator""_sv(const char* str, std::size_t len) NK_NOEXCEPT {
+                return NkStringView(str, static_cast<usize>(len));
             }
             
-            inline NkStringView operator""_nv(const char* str, usize len) NK_NOEXCEPT {
-                return NkStringView(str, len);
+            inline NkStringView operator""_nv(const char* str, std::size_t len) NK_NOEXCEPT {
+                return NkStringView(str, static_cast<usize>(len));
             }
         }
         #endif

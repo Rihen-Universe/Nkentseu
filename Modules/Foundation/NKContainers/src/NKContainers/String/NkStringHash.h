@@ -7,6 +7,7 @@
 
 #pragma once
 #include <cstdio>
+#include <cstddef>
 
 #ifndef NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGHASH_H_INCLUDED
 #define NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGHASH_H_INCLUDED
@@ -217,21 +218,21 @@ namespace nkentseu {
              */
             #if defined(NK_CPP11)
             inline namespace literals {
-                constexpr uint32 operator""_hash32(const char* str, usize length) NK_NOEXCEPT {
-                    return NkHashCompileTime32(str, length);
+                constexpr uint32 operator""_hash32(const char* str, std::size_t length) NK_NOEXCEPT {
+                    return NkHashCompileTime32(str, static_cast<usize>(length));
                 }
                 
-                constexpr uint64 operator""_hash64(const char* str, usize length) NK_NOEXCEPT {
-                    return NkHashCompileTime64(str, length);
+                constexpr uint64 operator""_hash64(const char* str, std::size_t length) NK_NOEXCEPT {
+                    return NkHashCompileTime64(str, static_cast<usize>(length));
                 }
                 
-                constexpr uint32 operator""_hash(const char* str, usize length) NK_NOEXCEPT {
-                    return NkHashCompileTime32(str, length);
+                constexpr uint32 operator""_hash(const char* str, std::size_t length) NK_NOEXCEPT {
+                    return NkHashCompileTime32(str, static_cast<usize>(length));
                 }
                 
-                constexpr uint32 operator""_murmur(const char* str, usize length) NK_NOEXCEPT {
+                constexpr uint32 operator""_murmur(const char* str, std::size_t length) NK_NOEXCEPT {
                     // Note: MurmurHash cannot be constexpr, fallback to FNV
-                    return NkHashCompileTime32(str, length);
+                    return NkHashCompileTime32(str, static_cast<usize>(length));
                 }
             }
             #endif

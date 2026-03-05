@@ -61,6 +61,16 @@
 
 namespace nkentseu {
 
+    namespace {
+        inline NkF32 SanitizeAxisValue(NkF32 v) noexcept {
+            return std::isfinite(v) ? v : 0.f;
+        }
+
+        inline NkF32 SanitizeAxisScale(NkF32 v) noexcept {
+            return std::isfinite(v) ? v : 1.f;
+        }
+    } // namespace
+
     // Sentinelles pour les accès invalides
     NkGamepadSnapshot NkGamepadSystem::sDummySnapshot;
     NkGamepadInfo     NkGamepadSystem::sDummyInfo;
@@ -79,6 +89,7 @@ namespace nkentseu {
 
     NkF32 NkGamepadSystem::ClampAxisForTarget(NkU32 logicalAxisIndex, NkF32 value) noexcept {
         if (logicalAxisIndex >= AXIS_COUNT) return 0.f;
+        value = SanitizeAxisValue(value);
 
         // Les gâchettes restent dans [0,1], les autres axes dans [-1,1].
         if (logicalAxisIndex == static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LT) ||
@@ -148,12 +159,13 @@ namespace nkentseu {
             const NkAxisRemap& remap = profile.axisMap[a];
             if (remap.logicalAxis >= AXIS_COUNT) continue;
 
-            NkF32 v = raw.axes[a];
+            NkF32 v = SanitizeAxisValue(raw.axes[a]);
             if (remap.invert) v = -v;
-            v *= remap.scale;
+            v *= SanitizeAxisScale(remap.scale);
             v = ClampAxisForTarget(remap.logicalAxis, v);
 
             NkF32& dst = out.axes[remap.logicalAxis];
+            dst = SanitizeAxisValue(dst);
             if (std::fabs(v) > std::fabs(dst)) dst = v;
         }
 
@@ -165,24 +177,34 @@ namespace nkentseu {
         const NkU32 up    = static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_UP);
         const NkU32 down  = static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_DOWN);
 
-        if (std::fabs(out.axes[dpadX]) < 0.001f) {
-            out.axes[dpadX] = out.buttons[right] ? 1.f : out.buttons[left] ? -1.f : 0.f;
+        NkF32 dpadXValue = SanitizeAxisValue(out.axes[dpadX]);
+        NkF32 dpadYValue = SanitizeAxisValue(out.axes[dpadY]);
+
+        if (std::fabs(dpadXValue) < 0.001f) {
+            dpadXValue = out.buttons[right] ? 1.f : out.buttons[left] ? -1.f : 0.f;
         }
-        if (std::fabs(out.axes[dpadY]) < 0.001f) {
-            out.axes[dpadY] = out.buttons[up] ? 1.f : out.buttons[down] ? -1.f : 0.f;
+        if (std::fabs(dpadYValue) < 0.001f) {
+            dpadYValue = out.buttons[up] ? 1.f : out.buttons[down] ? -1.f : 0.f;
         }
-        if (!out.buttons[left]  && out.axes[dpadX] < -0.5f) out.buttons[left]  = true;
-        if (!out.buttons[right] && out.axes[dpadX] >  0.5f) out.buttons[right] = true;
-        if (!out.buttons[up]    && out.axes[dpadY] >  0.5f) out.buttons[up]    = true;
-        if (!out.buttons[down]  && out.axes[dpadY] < -0.5f) out.buttons[down]  = true;
+        out.axes[dpadX] = dpadXValue;
+        out.axes[dpadY] = dpadYValue;
+
+        if (!out.buttons[left]  && dpadXValue < -0.5f) out.buttons[left]  = true;
+        if (!out.buttons[right] && dpadXValue >  0.5f) out.buttons[right] = true;
+        if (!out.buttons[up]    && dpadYValue >  0.5f) out.buttons[up]    = true;
+        if (!out.buttons[down]  && dpadYValue < -0.5f) out.buttons[down]  = true;
 
         // Cohérence triggers analogiques -> boutons digitaux si absents.
         const NkU32 ltA = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LT);
         const NkU32 rtA = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT);
         const NkU32 ltB = static_cast<NkU32>(NkGamepadButton::NK_GP_LT_DIGITAL);
         const NkU32 rtB = static_cast<NkU32>(NkGamepadButton::NK_GP_RT_DIGITAL);
-        if (!out.buttons[ltB]) out.buttons[ltB] = out.axes[ltA] > 0.5f;
-        if (!out.buttons[rtB]) out.buttons[rtB] = out.axes[rtA] > 0.5f;
+        const NkF32 ltValue = SanitizeAxisValue(out.axes[ltA]);
+        const NkF32 rtValue = SanitizeAxisValue(out.axes[rtA]);
+        out.axes[ltA] = ltValue;
+        out.axes[rtA] = rtValue;
+        if (!out.buttons[ltB]) out.buttons[ltB] = ltValue > 0.5f;
+        if (!out.buttons[rtB]) out.buttons[rtB] = rtValue > 0.5f;
 
         return out;
     }
@@ -287,7 +309,7 @@ namespace nkentseu {
 
         profile.axisMap[physicalAxisIndex].logicalAxis = logicalIndex;
         profile.axisMap[physicalAxisIndex].invert      = invert;
-        profile.axisMap[physicalAxisIndex].scale       = scale;
+        profile.axisMap[physicalAxisIndex].scale       = SanitizeAxisScale(scale);
         profile.active = true;
 
         SyncMappedSnapshot(idx);
@@ -320,6 +342,7 @@ namespace nkentseu {
 
     void NkGamepadSystem::PollGamepads() {
         if (!mReady || !mBackend) return;
+
         mBackend->Poll();
 
         for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
@@ -347,10 +370,12 @@ namespace nkentseu {
 
             // Axes avec deadzone et epsilon (domaine enum)
             for (NkU32 a = 0; a < EVENT_AXIS_COUNT; ++a) {
-                NkF32 v  = ApplyDeadzone(cur.axes[a]);
-                NkF32 pv = ApplyDeadzone(prev.axes[a]);
+                NkF32 v  = ApplyDeadzone(SanitizeAxisValue(cur.axes[a]));
+                NkF32 pv = ApplyDeadzone(SanitizeAxisValue(prev.axes[a]));
                 if (std::abs(v - pv) > mAxisEpsilon)
+                {
                     FireAxis(i, static_cast<NkGamepadAxis>(a), v, pv);
+                }
             }
 
             mPrevSnapshot[i] = cur;
@@ -506,7 +531,7 @@ namespace nkentseu {
                 if (a.physicalAxis >= AXIS_COUNT) continue;
                 dst.axisMap[a.physicalAxis].logicalAxis =
                     (a.logicalAxis < AXIS_COUNT) ? a.logicalAxis : NK_GAMEPAD_UNMAPPED;
-                dst.axisMap[a.physicalAxis].scale  = a.scale;
+                dst.axisMap[a.physicalAxis].scale  = SanitizeAxisScale(a.scale);
                 dst.axisMap[a.physicalAxis].invert = a.invert;
             }
 
@@ -585,6 +610,8 @@ namespace nkentseu {
     void NkGamepadSystem::FireAxis(NkU32 idx, NkGamepadAxis ax,
                                    NkF32 value, NkF32 prevValue)
     {
+        value = SanitizeAxisValue(value);
+        prevValue = SanitizeAxisValue(prevValue);
         NkGamepadAxisEvent ev(idx, ax, value, prevValue);
         EvSys().DispatchEvent(ev);
 

@@ -29,6 +29,10 @@ namespace {
 using namespace nkentseu;
 
 static float ClampUnit(float v) { return v < 0.f ? 0.f : v > 1.f ? 1.f : v; }
+static float SafeDt(float dt) {
+    if (!std::isfinite(dt) || dt <= 0.f || dt > 0.25f) return 1.f / 60.f;
+    return dt;
+}
 
 // ---------------------------------------------------------------------------
 // État partagé — modifié par les callbacks depuis différents "sous-systèmes"
@@ -62,6 +66,11 @@ static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
                         float t, float px, float py, float sat)
 {
     if (!w || !h) return;
+    if (!std::isfinite(t)) t = 0.f;
+    if (!std::isfinite(px)) px = 0.f;
+    if (!std::isfinite(py)) py = 0.f;
+    if (!std::isfinite(sat)) sat = 1.f;
+
     const NkU32 blk = (w*h > 1280u*720u) ? 2u : 1u;
     for (NkU32 y = 0; y < h; y += blk) {
         float fy = y / (float)h - 0.5f;
@@ -344,7 +353,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // =========================================================================
 
     NkChrono chrono;
-    NkElapsedTime elapsed;
+    NkElapsedTime elapsed{};
 
     while (state.running.load() && window.IsOpen())
     {
@@ -359,20 +368,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
         if (!state.running.load() || !window.IsOpen()) break;
 
-        // --- Polling souris pour drift continu (complément aux callbacks)
-        // Désactivé car NkInput n'est pas disponible dans ce contexte.
-        // Si vous avez besoin de cette fonctionnalité, incluez NkInput.h et assurez-vous qu'il est défini.
-        // /*
-        if (NkInput.IsMouseDown(NkMouseButton::NK_MB_RIGHT)) {
-            NkVec2i d = {NkInput.MouseDeltaX(), NkInput.MouseDeltaY()};
-            state.phaseX -= d.x * 0.001f;
-            state.phaseY -= d.y * 0.001f;
-        }
-        // */
-
         // --- Delta-time
-        float dt = (float)elapsed.seconds;
-        if (dt <= 0.f || dt > 0.25f) dt = 1.f / 60.f;
+        float dt = SafeDt(static_cast<float>(elapsed.seconds));
         state.time += dt * (state.neon.load() ? 1.8f : 1.0f);
 
         // --- Rendu

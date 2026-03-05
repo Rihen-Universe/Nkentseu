@@ -131,7 +131,7 @@ namespace nkentseu {
 			 * @brief Pattern détaillé (avec toutes les informations)
 			 */
 			static const char *NK_DETAILED_PATTERN;
-
+			static const char *NK_NKENTSEU_PATTERN;
 			/**
 			 * @brief Pattern avec couleurs (pour console)
 			 */

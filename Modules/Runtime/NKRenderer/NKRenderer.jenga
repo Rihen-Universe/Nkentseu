@@ -74,14 +74,20 @@ with project("NKRenderer"):
     # ===== Linux XLib =============================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
         links(["X11"])
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+
+    # ===== Linux headless =========================================================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
 
     # ===== Linux XCB ==============================================================
     with filter("system:Linux && options:linux-backend=xcb"):
         links(["xcb", "xcb-image"])
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
 
     # ===== Linux Wayland ==========================================================
     with filter("system:Linux && options:linux-backend=wayland"):
-        pass
+        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):
@@ -113,3 +119,17 @@ with project("NKRenderer"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
+
+    # Tests unitaires/benchmarks (desktop uniquement)
+    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            dependson(["NKCore", "NKPlatform", "NKMath", "NKLogger", "NKWindow"])
+            with filter("system:Linux"):
+                links(["pthread", "X11"])
+            with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                links([
+                    "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                    "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                    "uuid", "ole32", "dinput8", "dxguid"
+                ])

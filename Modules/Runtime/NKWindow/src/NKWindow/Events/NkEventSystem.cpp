@@ -26,7 +26,13 @@ namespace nkentseu {
     // Constructeur / Destructeur
     // =============================================================================
 
-    NkEventSystem::NkEventSystem()  = default;
+    NkEventSystem::NkEventSystem() {
+        // Défensif: certains toolchains peuvent laisser bucket_count() à 0
+        // sur map vide, ce qui peut provoquer un modulo par zéro au 1er operator[].
+        mWindowCallbacks.rehash(32);
+        mTypedCallbacks.rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
+        mTypedCallbacksWithToken.rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
+    }
     NkEventSystem::~NkEventSystem() { Shutdown(); }
 
     // =============================================================================
@@ -69,6 +75,27 @@ namespace nkentseu {
 
     void NkEventSystem::SetGlobalCallback(NkGlobalEventCallback cb) {
         mGlobalCallback = std::move(cb);
+    }
+
+    void NkEventSystem::AddEventCallbackRaw(NkEventType::Value type, NkEventCallback callback) {
+        if (mTypedCallbacks.bucket_count() == 0) {
+            mTypedCallbacks.rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
+        }
+        mTypedCallbacks[type].push_back(std::move(callback));
+    }
+
+    NkU64 NkEventSystem::AddEventCallbackTokenRaw(NkEventType::Value type, NkEventCallback callback) {
+        if (mTypedCallbacksWithToken.bucket_count() == 0) {
+            mTypedCallbacksWithToken.rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
+        }
+        const NkU64 token = ++mCallbackTokenCounter;
+        mTypedCallbacksWithToken[type].push_back({token, std::move(callback)});
+        return token;
+    }
+
+    void NkEventSystem::ClearEventCallbacksRaw(NkEventType::Value type) {
+        mTypedCallbacks.erase(type);
+        mTypedCallbacksWithToken.erase(type);
     }
 
     void NkEventSystem::ClearAllCallbacks() {

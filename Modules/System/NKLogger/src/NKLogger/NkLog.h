@@ -38,7 +38,7 @@ namespace nkentseu {
 			 * @param pattern Pattern de formatage (optionnel)
 			 * @param level Niveau de log (optionnel, Info par défaut)
 			 */
-			static void Initialize(const std::string &name = "default", const std::string &pattern = NkFormatter::NK_DEFAULT_PATTERN,
+			static void Initialize(const std::string &name = "default", const std::string &pattern = NkFormatter::NK_DETAILED_PATTERN,
 								NkLogLevel level = NkLogLevel::NK_INFO);
 
 			/**
