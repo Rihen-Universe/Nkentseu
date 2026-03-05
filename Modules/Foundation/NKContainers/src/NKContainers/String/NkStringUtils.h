@@ -10,6 +10,8 @@
 #ifndef NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGUTILS_H_INCLUDED
 #define NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGUTILS_H_INCLUDED
 
+#include <cstdarg>
+
 #include "NkString.h"
 #include "NkStringView.h"
 

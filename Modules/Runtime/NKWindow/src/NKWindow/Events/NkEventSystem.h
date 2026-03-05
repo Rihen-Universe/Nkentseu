@@ -33,6 +33,7 @@
 #include "NKWindow/Core/NkWindowId.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
+
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -175,6 +176,7 @@ namespace nkentseu {
 
     private:
         static std::size_t QueueSize(std::size_t h, std::size_t t, std::size_t cap) noexcept {
+            if (cap == 0) return 0;
             return (h >= t) ? (h - t) : (cap - t + h);
         }
 
@@ -184,6 +186,7 @@ namespace nkentseu {
                               std::unique_ptr<NkEvent> ev,
                               bool allowDrop)
         {
+            if (cap == 0) return false;
             std::size_t next = (head + 1) % cap;
             bool full = (next == tail);
             if (full) {
@@ -199,6 +202,7 @@ namespace nkentseu {
                                                  std::size_t cap,
                                                  std::size_t& head, std::size_t& tail)
         {
+            if (cap == 0) return nullptr;
             if (head == tail) return nullptr;
             auto ev = std::move(slots[tail]);
             tail = (tail + 1) % cap;
@@ -283,6 +287,7 @@ namespace nkentseu {
                                   NkWindowId windowId = NK_INVALID_WINDOW_ID)
             {
                 NkWindowId filterId = windowId;
+                const NkEventType::Value type = T::GetStaticType();
                 auto wrapper = [callback, filterId](NkEvent* ev) {
                     // CORRECTION 6 : si un filtre est défini, ignorer les events
                     // qui ne viennent pas de cette fenêtre.
@@ -290,7 +295,7 @@ namespace nkentseu {
                         ev->GetWindowId() != filterId) return;
                     if (auto* typed = ev->As<T>()) callback(typed);
                 };
-                mTypedCallbacks[T::GetStaticType()].push_back(std::move(wrapper));
+                AddEventCallbackRaw(type, std::move(wrapper));
             }
 
             // CORRECTION 4 : version RAII — le callback est automatiquement
@@ -301,17 +306,16 @@ namespace nkentseu {
                 NkWindowId windowId = NK_INVALID_WINDOW_ID)
             {
                 NkWindowId filterId = windowId;
+                const NkEventType::Value type = T::GetStaticType();
                 auto wrapper = [callback, filterId](NkEvent* ev) {
                     if (filterId != NK_INVALID_WINDOW_ID &&
                         ev->GetWindowId() != filterId) return;
                     if (auto* typed = ev->As<T>()) callback(typed);
                 };
-                // On stocke avec un token d'ID pour pouvoir le retirer
-                NkU64 token = ++mCallbackTokenCounter;
-                mTypedCallbacksWithToken[T::GetStaticType()].push_back({token, std::move(wrapper)});
+                NkU64 token = AddEventCallbackTokenRaw(type, std::move(wrapper));
 
                 // Le guard appelle RemoveCallbackToken à sa destruction
-                auto remover = [this, type = T::GetStaticType(), token]() {
+                auto remover = [this, type, token]() {
                     RemoveCallbackToken(type, token);
                 };
                 return NkCallbackGuard(std::move(remover));
@@ -319,8 +323,7 @@ namespace nkentseu {
 
             template<typename T>
             void ClearEventCallbacks() {
-                mTypedCallbacks.erase(T::GetStaticType());
-                mTypedCallbacksWithToken.erase(T::GetStaticType());
+                ClearEventCallbacksRaw(T::GetStaticType());
             }
 
             void ClearAllCallbacks();
@@ -375,6 +378,9 @@ namespace nkentseu {
             void DispatchToCallbacks(NkEvent* ev, NkWindowId winId);
             void UpdateInputState(NkEvent* ev);
             void RemoveCallbackToken(NkEventType::Value type, NkU64 token);
+            void AddEventCallbackRaw(NkEventType::Value type, NkEventCallback callback);
+            NkU64 AddEventCallbackTokenRaw(NkEventType::Value type, NkEventCallback callback);
+            void ClearEventCallbacksRaw(NkEventType::Value type);
 
             // Point 4 : Enqueue prend le winId explicitement pour que chaque
             // event sache exactement à quelle fenêtre il appartient.

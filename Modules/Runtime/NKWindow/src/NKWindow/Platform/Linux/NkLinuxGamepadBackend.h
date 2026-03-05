@@ -112,6 +112,12 @@ public:
                 } else if (type == JS_EVENT_AXIS) {
                     // Axe js [-32767,32767] ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ [-1,1]
                     float v = static_cast<float>(evt.value) / 32767.f;
+                    if (!std::isfinite(v))
+                        v = 0.f;
+                    if (v > 1.f)
+                        v = 1.f;
+                    else if (v < -1.f)
+                        v = -1.f;
                     if (std::abs(v) < NK_JS_DEADZONE)
                         v = 0.f;
                     NkGamepadAxis ax = JsAxisToNk(evt.number);

@@ -22,10 +22,19 @@
 
 #if defined(NKENTSEU_WINDOWING_XCB)
 #  include <xcb/xcb.h>
-#  include <xcb/xcb_image.h>
+#  if defined(__has_include)
+#    if __has_include(<xcb/xcb_image.h>)
+#      include <xcb/xcb_image.h>
+#      define NKENTSEU_HAS_XCB_IMAGE 1
+#    else
+#      define NKENTSEU_HAS_XCB_IMAGE 0
+#    endif
+#  else
+#    define NKENTSEU_HAS_XCB_IMAGE 0
+#  endif
 #endif
 
-#if defined(NKENTSEU_WINDOWING_XLIB)
+#if defined(NKENTSEU_WINDOWING_XLIB) && !defined(NKENTSEU_WINDOWING_XCB)
 #  include <X11/Xlib.h>
 #  include <X11/Xutil.h>
 #endif
@@ -130,7 +139,7 @@ void NkSoftwareRenderer::BlitOS(const NkSurfaceDesc& surface, NkU32 w, NkU32 h) 
     BlitWin32(surface, w, h);
 #elif defined(NKENTSEU_WINDOWING_XCB)
     BlitXCB(surface, w, h);
-#elif defined(NKENTSEU_WINDOWING_XLIB)
+#elif defined(NKENTSEU_WINDOWING_XLIB) && !defined(NKENTSEU_WINDOWING_XCB)
     BlitXLib(surface, w, h);
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
     BlitANW(surface, w, h);
@@ -241,6 +250,7 @@ void NkSoftwareRenderer::BlitXCB(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
     uint32_t mask = XCB_GC_FOREGROUND, val = 0;
     xcb_create_gc(sd.connection, gc, sd.window, mask, &val);
 
+#if NKENTSEU_HAS_XCB_IMAGE
     xcb_image_t* img = xcb_image_create_native(
         sd.connection,
         static_cast<uint16_t>(w), static_cast<uint16_t>(h),
@@ -250,6 +260,21 @@ void NkSoftwareRenderer::BlitXCB(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
         xcb_image_put(sd.connection, sd.window, gc, img, 0, 0, 0);
         xcb_image_destroy(img);
     }
+#else
+    xcb_put_image(
+        sd.connection,
+        XCB_IMAGE_FORMAT_Z_PIXMAP,
+        sd.window,
+        gc,
+        static_cast<uint16_t>(w),
+        static_cast<uint16_t>(h),
+        0,
+        0,
+        0,
+        24,
+        static_cast<uint32_t>(bgrx.size()),
+        bgrx.data());
+#endif
     xcb_free_gc(sd.connection, gc);
     xcb_flush(sd.connection);
 #else
@@ -262,7 +287,7 @@ void NkSoftwareRenderer::BlitXCB(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
 // ---------------------------------------------------------------------------
 
 void NkSoftwareRenderer::BlitXLib(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
-#if defined(NKENTSEU_WINDOWING_XLIB)
+#if defined(NKENTSEU_WINDOWING_XLIB) && !defined(NKENTSEU_WINDOWING_XCB)
     if (!sd.display || sd.window == 0) return;
 
     std::vector<NkU8> bgr(static_cast<std::size_t>(w) * h * 4);

@@ -11,6 +11,8 @@
 #ifndef NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRING_H_INCLUDED
 #define NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRING_H_INCLUDED
 
+#include <cstdarg>
+
 #include "NKContainers/NkCompat.h"
 #include "NkStringView.h"
 #include "NKMemory/NkAllocator.h"

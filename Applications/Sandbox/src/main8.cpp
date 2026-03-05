@@ -24,6 +24,16 @@
 namespace {
 using namespace nkentseu;
 
+static float SafeAxis01(float v) {
+    if (!std::isfinite(v)) return 0.f;
+    return std::clamp(v, 0.0f, 1.0f);
+}
+
+static float SafeAxis11(float v) {
+    if (!std::isfinite(v)) return 0.f;
+    return std::clamp(v, -1.0f, 1.0f);
+}
+
 struct RectI {
     NkI32 x;
     NkI32 y;
@@ -82,6 +92,8 @@ static void DrawStick(
     NkRenderer& renderer, float cx, float cy, float size,
     float ax, float ay, bool pressed)
 {
+    ax = SafeAxis11(ax);
+    ay = SafeAxis11(ay);
     const RectI zone = MakeRect(cx, cy, size, size);
     const NkU32 zoneColor = pressed
         ? NkRenderer::PackColor(110, 180, 255, 255)
@@ -90,8 +102,8 @@ static void DrawStick(
     StrokeRect(renderer, zone, NkRenderer::PackColor(20, 20, 24, 255));
 
     const float travel = (size * 0.5f) - 8.0f;
-    const float kx = std::clamp(ax, -1.0f, 1.0f);
-    const float ky = std::clamp(ay, -1.0f, 1.0f);
+    const float kx = ax;
+    const float ky = ay;
     const float knobX = cx + kx * travel;
     const float knobY = cy - ky * travel; // Y+ = haut côté NK.
 
@@ -356,13 +368,13 @@ static void ProbeRawInput(NkU32 padIndex, RawProbeState& probe) {
         if (raw.buttons[b] == probe.buttons[padIndex][b]) continue;
         const bool wasDown = probe.buttons[padIndex][b];
         probe.buttons[padIndex][b] = raw.buttons[b];
-        logger.Info("[RAW GP%u] button[%u] %s",
+        logger.Infof("[RAW GP%u] button[%u] %s",
             padIndex, b, raw.buttons[b] ? "DOWN" : "UP");
 
         // Diagnostic demandé: code bas niveau "non spécifié" par l'API NK.
         // Ici: tout bouton hors enum NkGamepadButton (canal brut étendu).
         if (b >= kKnownButtonCount && !wasDown && raw.buttons[b]) {
-            logger.Info("[LOW-LEVEL GP%u] UNKNOWN_BUTTON code=%u (raw_index=%u)",
+            logger.Infof("[LOW-LEVEL GP%u] UNKNOWN_BUTTON code=%u (raw_index=%u)",
                 padIndex,
                 static_cast<unsigned>(b - kRawButtonBase),
                 static_cast<unsigned>(b));
@@ -370,15 +382,16 @@ static void ProbeRawInput(NkU32 padIndex, RawProbeState& probe) {
     }
 
     for (NkU32 a = 0; a < NkGamepadSystem::AXIS_COUNT; ++a) {
-        const float prev = probe.axes[padIndex][a];
-        const float now = raw.axes[a];
+        const float prev = std::isfinite(probe.axes[padIndex][a]) ? probe.axes[padIndex][a] : 0.f;
+        float now = raw.axes[a];
+        if (!std::isfinite(now)) now = 0.f;
         if (std::fabs(now - prev) < 0.20f) continue;
         probe.axes[padIndex][a] = now;
-        logger.Info("[RAW GP%u] axis[%u] %.3f", padIndex, a, now);
+        logger.Infof("[RAW GP%u] axis[%u] %.3f", padIndex, a, now);
 
         // Même diagnostic pour les axes non standard.
         if (a >= kKnownAxisCount) {
-            logger.Info("[LOW-LEVEL GP%u] UNKNOWN_AXIS code=%u (raw_index=%u) value=%.3f",
+            logger.Infof("[LOW-LEVEL GP%u] UNKNOWN_AXIS code=%u (raw_index=%u) value=%.3f",
                 padIndex,
                 static_cast<unsigned>(a - kKnownAxisCount),
                 static_cast<unsigned>(a),
@@ -391,6 +404,7 @@ static void DrawPs3Layout(
     NkRenderer& renderer, NkU32 width, NkU32 height,
     bool connected, NkU32 padIndex)
 {
+    if (width == 0 || height == 0) return;
     const float s = std::min(width / 1280.0f, height / 720.0f);
     const float cx = width * 0.5f;
     const float cy = height * 0.54f;
@@ -437,12 +451,12 @@ static void DrawPs3Layout(
     float lx = 0.f, ly = 0.f, rx = 0.f, ry = 0.f, lt = 0.f, rt = 0.f;
     bool l3 = false, r3 = false;
     if (connected) {
-        lx = NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_LX);
-        ly = NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_LY);
-        rx = NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_RX);
-        ry = NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_RY);
-        lt = NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_LT);
-        rt = NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_RT);
+        lx = SafeAxis11(NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_LX));
+        ly = SafeAxis11(NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_LY));
+        rx = SafeAxis11(NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_RX));
+        ry = SafeAxis11(NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_RY));
+        lt = SafeAxis01(NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_LT));
+        rt = SafeAxis01(NkGamepads().GetAxis(padIndex, NkGamepadAxis::NK_GP_AXIS_RT));
         l3 = NkGamepads().IsButtonDown(padIndex, NkGamepadButton::NK_GP_LSTICK);
         r3 = NkGamepads().IsButtonDown(padIndex, NkGamepadButton::NK_GP_RSTICK);
     }
@@ -460,8 +474,8 @@ static void DrawPs3Layout(
 
     RectI ltFill = ltBar;
     RectI rtFill = rtBar;
-    ltFill.w = static_cast<NkI32>(std::clamp(lt, 0.0f, 1.0f) * barW);
-    rtFill.w = static_cast<NkI32>(std::clamp(rt, 0.0f, 1.0f) * barW);
+    ltFill.w = static_cast<NkI32>(SafeAxis01(lt) * barW);
+    rtFill.w = static_cast<NkI32>(SafeAxis01(rt) * barW);
     FillRect(renderer, ltFill, Dim(NkRenderer::PackColor(255, 160, 70, 255), 1.0f));
     FillRect(renderer, rtFill, Dim(NkRenderer::PackColor(255, 160, 70, 255), 1.0f));
     StrokeRect(renderer, ltBar, outline);
@@ -479,6 +493,8 @@ static void DrawPs3Layout(
 int nkmain(const nkentseu::NkEntryState& /*state*/) {
     using namespace nkentseu;
 
+    logger.Named("SandboxGamepadPS3");
+    
     if (!NkInitialise({ .appName = "Sandbox Gamepad PS3 Layout" })) {
         return -1;
     }
@@ -489,7 +505,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     cfg.height = 720;
     cfg.centered = true;
     cfg.resizable = true;
-
+    
     NkWindow window(cfg);
     if (!window.IsOpen()) {
         NkClose();
@@ -500,6 +516,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     NkRendererConfig rcfg;
     rcfg.api = NkRendererApi::NK_SOFTWARE;
     rcfg.autoResizeFramebuffer = true;
+    
     if (!renderer.Create(window, rcfg)) {
         NkClose();
         return -3;
@@ -511,15 +528,17 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     NkPadProfile selectedProfile = NkPadProfile::AUTO;
     std::array<bool, NK_MAX_GAMEPADS> presetApplied{};
     RawProbeState rawProbe{};
-
+    
     NkChrono chrono;
-    NkElapsedTime elapsed;
+    NkElapsedTime elapsed{};
     auto& events = NkEvents();
     auto& hidMapper = events.GetHidMapper();
 
+    logger.Info("JSON: {{ \"id\": {0} }}", 42);
+    
     NkGamepads().SetConnectCallback(
         [&presetApplied](const NkGamepadInfo& info, bool connected) {
-            logger.Info("[Gamepad] %s #%u (%s) vid=0x%04X pid=0x%04X type=%u",
+            logger.Infof("[Gamepad] {0} #%u (%s) vid=0x%04X pid=0x%04X type=%u",
                 connected ? "CONNECTED" : "DISCONNECTED",
                 info.index, info.name,
                 static_cast<unsigned>(info.vendorId),
@@ -530,7 +549,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
                 presetApplied[info.index] = false;
             }
         });
-
+        
     // Exemple d'intégration HID générique:
     // - mapping par deviceId à la connexion
     // - résolution des indices logiques depuis les événements bruts
@@ -539,27 +558,26 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
             const NkHidDeviceInfo& info = ev->GetInfo();
             hidMapper.SetButtonMap(info.deviceId, 0, 0);
             hidMapper.SetAxisMap(info.deviceId, 0, 0, false, 1.f, 0.08f, 0.f);
-            logger.Info("[HID] CONNECT dev=%llu name=%s",
-                static_cast<unsigned long long>(info.deviceId), info.name);
+            logger.Infof("[HID] CONNECT dev=%llu name=%s", static_cast<unsigned long long>(info.deviceId), info.name);
         });
-
+        
     events.AddEventCallback<NkHidButtonPressEvent>(
         [&hidMapper](NkHidButtonPressEvent* ev) {
             NkU32 logical = NK_HID_UNMAPPED;
             NkButtonState state = NkButtonState::NK_RELEASED;
             if (hidMapper.MapButtonEvent(*ev, logical, state)) {
-                logger.Info("[HID] BUTTON dev=%llu phys=%u -> logical=%u",
+                logger.Infof("[HID] BUTTON dev=%llu phys=%u -> logical=%u",
                     static_cast<unsigned long long>(ev->GetDeviceId()),
                     ev->GetButtonIndex(), logical);
             }
         });
-
+    
     events.AddEventCallback<NkHidAxisEvent>(
         [&hidMapper](NkHidAxisEvent* ev) {
             NkU32 logicalAxis = NK_HID_UNMAPPED;
             NkF32 mappedValue = 0.f;
             if (hidMapper.MapAxisEvent(*ev, logicalAxis, mappedValue)) {
-                logger.Info("[HID] AXIS dev=%llu phys=%u -> logical=%u val=%.3f",
+                logger.Infof("[HID] AXIS dev=%llu phys=%u -> logical=%u val=%.3f",
                     static_cast<unsigned long long>(ev->GetDeviceId()),
                     ev->GetAxisIndex(), logicalAxis, mappedValue);
             }
@@ -588,7 +606,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
                     case NkKey::NK_F5:
                         autoPreset = true;
                         std::fill(presetApplied.begin(), presetApplied.end(), false);
-                        logger.Info("[Mapping] profile=%s enabled", ProfileName(selectedProfile));
+                        logger.Infof("[Mapping] profile=%s enabled", ProfileName(selectedProfile));
                         break;
                     case NkKey::NK_F6:
                         autoPreset = false;
@@ -601,7 +619,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
                     case NkKey::NK_F7:
                         invertStickY = !invertStickY;
                         std::fill(presetApplied.begin(), presetApplied.end(), false);
-                        logger.Info("[Mapping] invert Y = %s", invertStickY ? "ON" : "OFF");
+                        logger.Infof("[Mapping] invert Y = %s", invertStickY ? "ON" : "OFF");
                         break;
                     case NkKey::NK_F8: {
                         NkU32 next = static_cast<NkU32>(selectedProfile) + 1u;
@@ -609,7 +627,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
                         selectedProfile = static_cast<NkPadProfile>(next);
                         autoPreset = true;
                         std::fill(presetApplied.begin(), presetApplied.end(), false);
-                        logger.Info("[Mapping] profile switched to %s", ProfileName(selectedProfile));
+                        logger.Infof("[Mapping] profile switched to %s", ProfileName(selectedProfile));
                         break;
                     }
                     default:
@@ -637,7 +655,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
 
                 ApplyPadProfileMapping(i, resolved, invertStickY);
                 presetApplied[i] = true;
-                logger.Info("[Mapping] profile=%s applied on slot %u (%s)",
+                logger.Infof("[Mapping] profile=%s applied on slot %u (%s)",
                     ProfileName(resolved), i, info.name);
             }
         }

@@ -269,61 +269,58 @@
  *   #include "NkPlatformDetect.h"
  */
 
+/**
+ * @brief Forcer le backend headless/noop uniquement
+ * @def NKENTSEU_FORCE_WINDOWING_NOOP_ONLY
+ *
+ * Si défini, aucune implémentation X11/Wayland n'est activée.
+ * Le backend de fenêtre noop/headless doit être utilisé.
+ *
+ * Usage:
+ *   #define NKENTSEU_FORCE_WINDOWING_NOOP_ONLY
+ *   #include "NkPlatformDetect.h"
+ */
+
 // ============================================================
-// DÉTECTION AUTO ou SÉLECTION EXPLICITE
+// SÉLECTION EXPLICITE (DÉTERMINISTE)
 // ============================================================
 
-// Déterminer le système de fenêtres par défaut sur Linux
+// Déterminer le système de fenêtres sur Linux.
+// Note: aucune auto-détection d'en-têtes (__has_include) pour éviter les
+// divergences de backend entre unités de compilation.
 #ifdef NKENTSEU_PLATFORM_LINUX
 	// Gestion des sélections exclusives - désactiver les conflits
-	#if defined(NKENTSEU_FORCE_WINDOWING_XCB_ONLY)
+	#if defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)
+		#undef NKENTSEU_FORCE_WINDOWING_XCB_ONLY
+		#undef NKENTSEU_FORCE_WINDOWING_XLIB_ONLY
+		#undef NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY
+	#elif defined(NKENTSEU_FORCE_WINDOWING_XCB_ONLY)
+		#undef NKENTSEU_FORCE_WINDOWING_NOOP_ONLY
 		#undef NKENTSEU_FORCE_WINDOWING_XLIB_ONLY
 		#undef NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY
 	#elif defined(NKENTSEU_FORCE_WINDOWING_XLIB_ONLY)
+		#undef NKENTSEU_FORCE_WINDOWING_NOOP_ONLY
 		#undef NKENTSEU_FORCE_WINDOWING_XCB_ONLY
 		#undef NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY
 	#elif defined(NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY)
+		#undef NKENTSEU_FORCE_WINDOWING_NOOP_ONLY
 		#undef NKENTSEU_FORCE_WINDOWING_XCB_ONLY
 		#undef NKENTSEU_FORCE_WINDOWING_XLIB_ONLY
 	#endif
 
-	// XCB (X11 Core Protocol)
+	// Sélection déterministe :
+	// 1) macros FORCE_* si présentes
+	// 2) fallback défaut = Xlib
 	#if defined(NKENTSEU_FORCE_WINDOWING_XCB_ONLY)
 		#define NKENTSEU_WINDOWING_XCB
-	#elif !defined(NKENTSEU_FORCE_WINDOWING_XLIB_ONLY) && !defined(NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY)
-		#if defined(__has_include)
-			#if __has_include(<xcb/xcb.h>)
-				#define NKENTSEU_WINDOWING_XCB
-			#endif
-		#elif defined(XCB_FOUND) || defined(XCB_INCLUDE_DIR)
-			#define NKENTSEU_WINDOWING_XCB
-		#endif
-	#endif
-
-	// Xlib (X11)
-	#if defined(NKENTSEU_FORCE_WINDOWING_XLIB_ONLY)
+	#elif defined(NKENTSEU_FORCE_WINDOWING_XLIB_ONLY)
 		#define NKENTSEU_WINDOWING_XLIB
-	#elif !defined(NKENTSEU_FORCE_WINDOWING_XCB_ONLY) && !defined(NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY)
-		#if defined(__has_include)
-			#if __has_include(<X11/Xlib.h>)
-				#define NKENTSEU_WINDOWING_XLIB
-			#endif
-		#elif defined(X11_FOUND) || defined(X11_INCLUDE_DIR)
-			#define NKENTSEU_WINDOWING_XLIB
-		#endif
-	#endif
-
-	// Wayland
-	#if defined(NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY)
+	#elif defined(NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY)
 		#define NKENTSEU_WINDOWING_WAYLAND
-	#elif !defined(NKENTSEU_FORCE_WINDOWING_XCB_ONLY) && !defined(NKENTSEU_FORCE_WINDOWING_XLIB_ONLY)
-		#if defined(__has_include)
-			#if __has_include(<wayland-client.h>)
-				#define NKENTSEU_WINDOWING_WAYLAND
-			#endif
-		#elif defined(WAYLAND_FOUND) || defined(WAYLAND_CLIENT_INCLUDE_DIR)
-			#define NKENTSEU_WINDOWING_WAYLAND
-		#endif
+	#elif defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)
+		// Backend headless/noop : aucun define X11/Wayland.
+	#else
+		#define NKENTSEU_WINDOWING_XLIB
 	#endif
 
 	// Catégorie X11 (Xlib ou XCB)
@@ -331,13 +328,14 @@
 		#define NKENTSEU_WINDOWING_X11
 	#endif
 
-
 	#if defined(NKENTSEU_WINDOWING_WAYLAND)
 		#define NKENTSEU_WINDOWING_PREFERRED "Wayland"
 	#elif defined(NKENTSEU_WINDOWING_XCB)
 		#define NKENTSEU_WINDOWING_PREFERRED "XCB"
 	#elif defined(NKENTSEU_WINDOWING_XLIB)
 		#define NKENTSEU_WINDOWING_PREFERRED "Xlib"
+	#elif defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)
+		#define NKENTSEU_WINDOWING_PREFERRED "Noop"
 	#else
 		#define NKENTSEU_WINDOWING_PREFERRED "Unknown"
 	#endif

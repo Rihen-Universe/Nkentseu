@@ -67,3 +67,9 @@ with project("NKLogger"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
+
+    # Tests unitaires/benchmarks (desktop uniquement)
+    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            dependson(["NKCore", "NKPlatform"])

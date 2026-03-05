@@ -28,6 +28,13 @@ namespace {
 using namespace nkentseu;
 
 static float ClampUnit(float v) { return v < 0.f ? 0.f : v > 1.f ? 1.f : v; }
+static float SafeDt(float dt) {
+    if (!std::isfinite(dt) || dt <= 0.f || dt > 0.25f) return 1.f / 60.f;
+    return dt;
+}
+static float SafeAxis(float v) {
+    return std::isfinite(v) ? v : 0.f;
+}
 
 // ---------------------------------------------------------------------------
 // Stats globales thread-safe (remplies depuis callbacks)
@@ -60,6 +67,7 @@ struct Stats {
 static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h, float t)
 {
     if (!w || !h) return;
+    if (!std::isfinite(t)) t = 0.f;
     const NkU32 blk = (w*h > 1280u*720u) ? 2u : 1u;
     for (NkU32 y = 0; y < h; y += blk) {
         float fy = y/(float)h - 0.5f;
@@ -97,7 +105,7 @@ static void PollGamepad(NkU32 idx, GpState& gs, Stats& stats)
 
     for (NkU32 ai = 0; ai < static_cast<NkU32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX); ++ai) {
         const NkGamepadAxis axis = static_cast<NkGamepadAxis>(ai);
-        float v = gp.GetAxis(idx, axis);
+        float v = SafeAxis(gp.GetAxis(idx, axis));
         if (std::fabs(v - gs.axes[ai]) > 0.001f) {
             gs.axes[ai] = v;
             ++stats.gpAxis;
@@ -125,8 +133,8 @@ static void PollGamepad(NkU32 idx, GpState& gs, Stats& stats)
     }
 
     // Stick gauche contrôle la fréquence de rumble continu
-    float lx = gs.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LX)];
-    float rt = gs.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT)];
+    float lx = SafeAxis(gs.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LX)]);
+    float rt = SafeAxis(gs.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT)]);
     if (rt > 0.5f && std::fabs(lx) > 0.2f) {
         gp.Rumble(idx, std::fabs(lx)*0.4f, rt*0.6f, 0.f, 0.f, 16);
         ++stats.gpRumble;
@@ -205,7 +213,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     constexpr int INJECT_PER_FRAME = 0; // désactivé
 
     NkChrono chrono;
-    NkElapsedTime elapsed;
+    NkElapsedTime elapsed{};
 
     std::printf("[ex06] Stress test désactivé (Enqueue non publique).\n");
     std::printf("[ex06] Connect a gamepad for full coverage\n");
@@ -259,8 +267,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         // -------------------------------------------------------------------
         // Delta-time + rapport santé
         // -------------------------------------------------------------------
-        float dt = (float)elapsed.seconds;
-        if (dt <= 0.f || dt > 0.25f) dt = 1.f/60.f;
+        float dt = SafeDt(static_cast<float>(elapsed.seconds));
         time   += dt;
         health += dt;
 

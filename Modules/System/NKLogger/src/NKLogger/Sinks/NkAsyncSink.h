@@ -50,7 +50,7 @@ namespace nkentseu {
 			/**
 			 * @brief Log asynchrone
 			 */
-			virtual void Log(NkLogLevel level, const char *format, ...) override;
+			virtual void Logf(NkLogLevel level, const char *format, ...) override;
 			void Log(NkLogLevel level, const std::string &message);
 			/**
 			 * @brief Force le flush des messages en attente

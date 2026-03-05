@@ -12,10 +12,13 @@
 #include "NKLogger/NkLogLevel.h"
 #include "NKLogger/NkSink.h"
 #include "NKLogger/NkFormatter.h"
+#include "NKLogger/NkTextFormat.h"
 #include <memory>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <mutex>
+#include <type_traits>
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -104,7 +107,7 @@ namespace nkentseu {
 		bool ShouldLog(NkLogLevel level) const;
 
 		// ---------------------------------------------------------------------
-		// MÉTHODES DE LOGGING (FORMAT STRING)
+		// MÉTHODES DE LOGGING (C-STYLE / printf)
 		// ---------------------------------------------------------------------
 
 		/**
@@ -113,7 +116,7 @@ namespace nkentseu {
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		virtual void Log(NkLogLevel level, const char *format, ...);
+		virtual void Logf(NkLogLevel level, const char *format, ...);
 
 		/**
 		 * @brief Log avec format string et informations de source
@@ -124,7 +127,7 @@ namespace nkentseu {
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		virtual void Log(NkLogLevel level, const char *file, int line, const char *func, const char *format, ...);
+		virtual void Logf(NkLogLevel level, const char *file, int line, const char *func, const char *format, ...);
 
 		/**
 		 * @brief Log avec message string et informations de source
@@ -145,56 +148,56 @@ namespace nkentseu {
 		 * @param format Format string
 		 * @param args Arguments variables (va_list)
 		 */
-		virtual void Log(NkLogLevel level, const char *file, int line, const char *func, const char *format, va_list args);
+		virtual void Logf(NkLogLevel level, const char *file, int line, const char *func, const char *format, va_list args);
 
 		/**
 		 * @brief Log trace avec format string
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		void Trace(const char *format, ...);
+		void Tracef(const char *format, ...);
 
 		/**
 		 * @brief Log debug avec format string
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		void Debug(const char *format, ...);
+		void Debugf(const char *format, ...);
 
 		/**
 		 * @brief Log info avec format string
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		void Info(const char *format, ...);
+		void Infof(const char *format, ...);
 
 		/**
 		 * @brief Log warning avec format string
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		void Warn(const char *format, ...);
+		void Warnf(const char *format, ...);
 
 		/**
 		 * @brief Log error avec format string
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		void Error(const char *format, ...);
+		void Errorf(const char *format, ...);
 
 		/**
 		 * @brief Log critical avec format string
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		void Critical(const char *format, ...);
+		void Criticalf(const char *format, ...);
 
 		/**
 		 * @brief Log fatal avec format string
 		 * @param format Format string
 		 * @param ... Arguments variables
 		 */
-		void Fatal(const char *format, ...);
+		void Fatalf(const char *format, ...);
 
 		// ---------------------------------------------------------------------
 		// MÉTHODES DE LOGGING (STREAM STYLE)
@@ -248,6 +251,59 @@ namespace nkentseu {
 		 * @param message Message à logger
 		 */
 		void Fatal(const std::string &message);
+
+		// ---------------------------------------------------------------------
+		// MÉTHODES DE LOGGING (INDEXED FORMAT STYLE: {i:p}) - API PRINCIPALE
+		// ---------------------------------------------------------------------
+
+		/**
+		 * @brief Log typé avec format indexé ({i:p})
+		 * @param level Niveau de log
+		 * @param format Chaîne de format
+		 * @param args Arguments typés
+		 */
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Log(NkLogLevel level, std::string_view format, Args&&... args) {
+			if (!ShouldLog(level))
+				return;
+			std::string message = NkFormatIndexed(format, std::forward<Args>(args)...);
+			LogInternal(level, message, m_SourceFile.c_str(), m_SourceLine, m_FunctionName.c_str());
+		}
+
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Trace(std::string_view format, Args&&... args) {
+			Log(NkLogLevel::NK_TRACE, format, std::forward<Args>(args)...);
+		}
+
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Debug(std::string_view format, Args&&... args) {
+			Log(NkLogLevel::NK_DEBUG, format, std::forward<Args>(args)...);
+		}
+
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Info(std::string_view format, Args&&... args) {
+			Log(NkLogLevel::NK_INFO, format, std::forward<Args>(args)...);
+		}
+
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Warn(std::string_view format, Args&&... args) {
+			Log(NkLogLevel::NK_WARN, format, std::forward<Args>(args)...);
+		}
+
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Error(std::string_view format, Args&&... args) {
+			Log(NkLogLevel::NK_ERROR, format, std::forward<Args>(args)...);
+		}
+
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Critical(std::string_view format, Args&&... args) {
+			Log(NkLogLevel::NK_CRITICAL, format, std::forward<Args>(args)...);
+		}
+
+		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
+		void Fatal(std::string_view format, Args&&... args) {
+			Log(NkLogLevel::NK_FATAL, format, std::forward<Args>(args)...);
+		}
 
 		// ---------------------------------------------------------------------
 		// UTILITAIRES
@@ -343,33 +399,42 @@ namespace nkentseu {
 	// MACROS DE LOGGING PRATIQUES
 	// -------------------------------------------------------------------------
 
-	#define NK_LOG_TRACE(logger, ...)                                                                                         \
+	#define NK_LOG_TRACE_F(logger, ...)                                                                                       \
 		if ((logger)->ShouldLog(NkLogLevel::NK_TRACE))                                                                          \
-		(logger)->Log(NkLogLevel::NK_TRACE, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+		(logger)->Logf(NkLogLevel::NK_TRACE, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_DEBUG(logger, ...)                                                                                         \
+	#define NK_LOG_DEBUG_F(logger, ...)                                                                                       \
 		if ((logger)->ShouldLog(NkLogLevel::NK_DEBUG))                                                                          \
-		(logger)->Log(NkLogLevel::NK_DEBUG, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+		(logger)->Logf(NkLogLevel::NK_DEBUG, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_INFO(logger, ...)                                                                                          \
+	#define NK_LOG_INFO_F(logger, ...)                                                                                        \
 		if ((logger)->ShouldLog(NkLogLevel::NK_INFO))                                                                           \
-		(logger)->Log(NkLogLevel::NK_INFO, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+		(logger)->Logf(NkLogLevel::NK_INFO, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_WARN(logger, ...)                                                                                          \
+	#define NK_LOG_WARN_F(logger, ...)                                                                                        \
 		if ((logger)->ShouldLog(NkLogLevel::NK_WARN))                                                                           \
-		(logger)->Log(NkLogLevel::NK_WARN, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+		(logger)->Logf(NkLogLevel::NK_WARN, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_ERROR(logger, ...)                                                                                         \
+	#define NK_LOG_ERROR_F(logger, ...)                                                                                       \
 		if ((logger)->ShouldLog(NkLogLevel::NK_ERROR))                                                                          \
-		(logger)->Log(NkLogLevel::NK_ERROR, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+		(logger)->Logf(NkLogLevel::NK_ERROR, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_CRITICAL(logger, ...)                                                                                      \
+	#define NK_LOG_CRITICAL_F(logger, ...)                                                                                    \
 		if ((logger)->ShouldLog(NkLogLevel::NK_CRITICAL))                                                                       \
-		(logger)->Log(NkLogLevel::NK_CRITICAL, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+		(logger)->Logf(NkLogLevel::NK_CRITICAL, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_FATAL(logger, ...)                                                                                         \
+	#define NK_LOG_FATAL_F(logger, ...)                                                                                       \
 		if ((logger)->ShouldLog(NkLogLevel::NK_FATAL))                                                                          \
-		(logger)->Log(NkLogLevel::NK_FATAL, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+		(logger)->Logf(NkLogLevel::NK_FATAL, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
+
+	// Alias de compatibilité
+	#define NK_LOG_TRACE(logger, ...) NK_LOG_TRACE_F(logger, __VA_ARGS__)
+	#define NK_LOG_DEBUG(logger, ...) NK_LOG_DEBUG_F(logger, __VA_ARGS__)
+	#define NK_LOG_INFO(logger, ...) NK_LOG_INFO_F(logger, __VA_ARGS__)
+	#define NK_LOG_WARN(logger, ...) NK_LOG_WARN_F(logger, __VA_ARGS__)
+	#define NK_LOG_ERROR(logger, ...) NK_LOG_ERROR_F(logger, __VA_ARGS__)
+	#define NK_LOG_CRITICAL(logger, ...) NK_LOG_CRITICAL_F(logger, __VA_ARGS__)
+	#define NK_LOG_FATAL(logger, ...) NK_LOG_FATAL_F(logger, __VA_ARGS__)
 
 	#define NK_LOG_FLUSH(logger) (logger)->Flush()
 
@@ -377,25 +442,25 @@ namespace nkentseu {
 	// MACROS AVEC INFORMATIONS DE SOURCE
 	// -------------------------------------------------------------------------
 
-	#define NK_LOG_TRACE_SRC(logger, ...)                                                                                     \
-		(logger)->LogInternal(NkLogLevel::NK_TRACE, (logger)->FormatString(__VA_ARGS__), __FILE__, __LINE__, __FUNCTION__)
+	#define NK_LOG_TRACE_SRC(logger, ...)                                                                                    \
+		(logger)->Logf(NkLogLevel::NK_TRACE, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_DEBUG_SRC(logger, ...)                                                                                     \
-		(logger)->LogInternal(NkLogLevel::NK_DEBUG, (logger)->FormatString(__VA_ARGS__), __FILE__, __LINE__, __FUNCTION__)
+	#define NK_LOG_DEBUG_SRC(logger, ...)                                                                                    \
+		(logger)->Logf(NkLogLevel::NK_DEBUG, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_INFO_SRC(logger, ...)                                                                                      \
-		(logger)->LogInternal(NkLogLevel::NK_INFO, (logger)->FormatString(__VA_ARGS__), __FILE__, __LINE__, __FUNCTION__)
+	#define NK_LOG_INFO_SRC(logger, ...)                                                                                     \
+		(logger)->Logf(NkLogLevel::NK_INFO, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_WARN_SRC(logger, ...)                                                                                      \
-		(logger)->LogInternal(NkLogLevel::NK_WARN, (logger)->FormatString(__VA_ARGS__), __FILE__, __LINE__, __FUNCTION__)
+	#define NK_LOG_WARN_SRC(logger, ...)                                                                                     \
+		(logger)->Logf(NkLogLevel::NK_WARN, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_ERROR_SRC(logger, ...)                                                                                     \
-		(logger)->LogInternal(NkLogLevel::NK_ERROR, (logger)->FormatString(__VA_ARGS__), __FILE__, __LINE__, __FUNCTION__)
+	#define NK_LOG_ERROR_SRC(logger, ...)                                                                                    \
+		(logger)->Logf(NkLogLevel::NK_ERROR, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_CRITICAL_SRC(logger, ...)                                                                                  \
-		(logger)->LogInternal(NkLogLevel::NK_CRITICAL, (logger)->FormatString(__VA_ARGS__), __FILE__, __LINE__, __FUNCTION__)
+	#define NK_LOG_CRITICAL_SRC(logger, ...)                                                                                 \
+		(logger)->Logf(NkLogLevel::NK_CRITICAL, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
-	#define NK_LOG_FATAL_SRC(logger, ...)                                                                                     \
-		(logger)->LogInternal(NkLogLevel::NK_FATAL, (logger)->FormatString(__VA_ARGS__), __FILE__, __LINE__, __FUNCTION__)
+	#define NK_LOG_FATAL_SRC(logger, ...)                                                                                    \
+		(logger)->Logf(NkLogLevel::NK_FATAL, __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__)
 
 } // namespace nkentseu

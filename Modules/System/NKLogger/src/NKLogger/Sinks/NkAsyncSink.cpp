@@ -32,7 +32,7 @@ namespace nkentseu {
 	/**
 	 * @brief Log asynchrone
 	 */
-	void NkAsyncLogger::Log(NkLogLevel level, const char *format, ...) {
+	void NkAsyncLogger::Logf(NkLogLevel level, const char *format, ...) {
 		if (!ShouldLog(level))
 			return;
 

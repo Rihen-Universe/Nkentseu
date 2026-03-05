@@ -88,3 +88,6 @@ with project("NKFileSystem"):
     with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         with test():
             testfiles(["tests/**.cpp"])
+            dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKThreading", "NKLogger"])
+            with filter("system:Linux || system:macOS"):
+                links(["pthread"])
