@@ -1,0 +1,182 @@
+# 🔣 Macros
+
+> 174 éléments
+
+[🏠 Accueil](../index.md) | [🎯 Types](./index.md)
+
+## Liste
+
+- **[`NKENTSEU_API_EXPERIMENTAL`](../files/NkVersion.h.md#nkentseu_api_experimental)** — Macro pour marquer une API comme expérimentale
+- **[`NKENTSEU_API_INTERNAL`](../files/NkVersion.h.md#nkentseu_api_internal)** — Macro pour marquer une API comme interne (non publique)
+- **[`NKENTSEU_API_STABLE`](../files/NkVersion.h.md#nkentseu_api_stable)** — Macro pour marquer une API comme stable
+- **[`NKENTSEU_API_VERSION`](../files/NkVersion.h.md#nkentseu_api_version)** — Version API complète encodée
+- **[`NKENTSEU_ASSERT_MSG`](../files/NkBuiltin.h.md#nkentseu_assert_msg)** — Assertion avec message personnalisé
+- **[`NKENTSEU_BLOCK_BEGIN`](../files/NkMacros.h.md#nkentseu_block_begin)** — Wrapper do-while(0) pour macros multi-statements
+- **[`NKENTSEU_BUILD_DATE`](../files/NkVersion.h.md#nkentseu_build_date)** — Date de compilation (format: "YYYY-MM-DD")
+- **[`NKENTSEU_BUILD_TIME`](../files/NkVersion.h.md#nkentseu_build_time)** — Heure de compilation (format: "HH:MM:SS")
+- **[`NKENTSEU_BUILD_TIMESTAMP`](../files/NkVersion.h.md#nkentseu_build_timestamp)** — Timestamp de compilation complet
+- **[`NKENTSEU_BUILTIN_DATE`](../files/NkBuiltin.h.md#nkentseu_builtin_date)** — Date de compilation courante
+- **[`NKENTSEU_BUILTIN_FILE`](../files/NkBuiltin.h.md#nkentseu_builtin_file)** — Nom du fichier source courant
+- **[`NKENTSEU_BUILTIN_LINE`](../files/NkBuiltin.h.md#nkentseu_builtin_line)** — Numéro de ligne courante
+- **[`NKENTSEU_BUILTIN_TIME`](../files/NkBuiltin.h.md#nkentseu_builtin_time)** — Heure de compilation courante
+- **[`NKENTSEU_BUILTIN_TIMESTAMP`](../files/NkBuiltin.h.md#nkentseu_builtin_timestamp)** — Timestamp de compilation
+- **[`NKENTSEU_CDECL`](../files/NkExport.h.md#nkentseu_cdecl)** — Convention d'appel C standard
+- **[`NKENTSEU_CHECK_CONTINUE`](../files/NkBuiltin.h.md#nkentseu_check_continue)** — Vérifie une condition et continue si fausse
+- **[`NKENTSEU_CHECK_RETURN`](../files/NkBuiltin.h.md#nkentseu_check_return)** — Vérifie une condition et retourne si fausse
+- **[`NKENTSEU_CONCAT3_IMPL`](../files/NkExport.h.md#nkentseu_concat3_impl)** — Concaténation de 3 tokens
+- **[`NKENTSEU_CONCAT_IMPL`](../files/NkExport.h.md#nkentseu_concat_impl)** — Concaténation de tokens (niveau 1)
+- **[`NKENTSEU_CONTAINER_API`](../files/NkCoreExport.h.md#nkentseu_container_api)** — API pour les containers
+- **[`NKENTSEU_CORE_API`](../files/NkExport.h.md#nkentseu_core_api)** — Alias court pour NKENTSEU_API
+- **[`NKENTSEU_CORE_C_API`](../files/NkCoreExport.h.md#nkentseu_core_c_api)** — API C du module Core
+- **[`NKENTSEU_CORE_DEPRECATED_API`](../files/NkCoreExport.h.md#nkentseu_core_deprecated_api)** — API Core dépréciée
+- **[`NKENTSEU_CORE_DEPRECATED_API_MSG`](../files/NkCoreExport.h.md#nkentseu-nkentseu_core_deprecated_api_msg)** (`nkentseu`) — API Core dépréciée avec message
+- **[`NKENTSEU_CORE_INTERNAL`](../files/NkCoreExport.h.md#nkentseu_core_internal)** — Symbole visible mais non exporté
+- **[`NKENTSEU_CORE_PRIVATE`](../files/NkCoreExport.h.md#nkentseu_core_private)** — Symboles privés du module Core
+- **[`NKENTSEU_CORE_PUBLIC`](../files/NkCoreExport.h.md#nkentseu_core_public)** — Symboles publics du module Core
+- **[`NKENTSEU_CORE_TEMPLATE`](../files/NkCoreExport.h.md#nkentseu_core_template)** — Pour les fonctions templates exportées
+- **[`NKENTSEU_C_API`](../files/NkExport.h.md#nkentseu_c_api)** — API C de Nkentseu
+- **[`NKENTSEU_DECLARE_WITH_CONTEXT`](../files/NkBuiltin.h.md#nkentseu_declare_with_context)** — Définit une variable locale avec contexte de débogage
+- **[`NKENTSEU_DEFAULT_PAGE_SIZE`](../files/NkConfig.h.md#nkentseu_default_page_size)** — Taille page mémoire par défaut
+- **[`NKENTSEU_DEFAULT_THREAD_COUNT`](../files/NkConfig.h.md#nkentseu_default_thread_count)** — Nombre de threads par défaut (0 = auto-detect)
+- **[`NKENTSEU_DEFINE_MODULE_API`](../files/NkExport.h.md#nkentseu_define_module_api)** — Macro pour définir une API de module
+- **[`NKENTSEU_DEPRECATED`](../files/NkExport.h.md#nkentseu_deprecated)** — Marque une API comme dépréciée
+- **[`NKENTSEU_DEPRECATED_API`](../files/NkExport.h.md#nkentseu_deprecated_api)** — Marque une API publique comme dépréciée
+- **[`NKENTSEU_ENABLE_STRING_SSO`](../files/NkConfig.h.md#nkentseu_enable_string_sso)** — Activer Small String Optimization (SSO)
+- **[`NKENTSEU_ERROR_API`](../files/NkCoreExport.h.md#nkentseu_error_api)** — API pour la gestion des erreurs
+- **[`NKENTSEU_EXTERN_C`](../files/NkExport.h.md#nkentseu_extern_c)** — Linkage C
+- **[`NKENTSEU_FASTCALL`](../files/NkExport.h.md#nkentseu_fastcall)** — Convention d'appel optimisée
+- **[`NKENTSEU_FIXME`](../files/NkBuiltin.h.md#nkentseu_fixme)** — Message FIXME avec localisation
+- **[`NKENTSEU_FIXME`](../files/NkMacros.h.md#nkentseu_fixme)** — FIXME avec message
+- **[`NKENTSEU_FORCE_INLINE`](../files/NkInline.h.md#nkentseu_force_inline)** — Force l'inlining
+- **[`NKENTSEU_FRAMEWORK_CORE_FULL_NAME`](../files/NkVersion.h.md#nkentseu_framework_core_full_name)** — Nom complet avec version
+- **[`NKENTSEU_FRAMEWORK_CORE_NAME`](../files/NkVersion.h.md#nkentseu_framework_core_name)** — Nom complet du framework
+- **[`NKENTSEU_GRAPHICS_C_API`](../files/NkGraphicsExport.h.md#nkentseu_graphics_c_api)** — API C du module Graphics
+- **[`NKENTSEU_GRAPHICS_D3D11_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_d3d11_available)** — Direct3D 11 disponible sur Windows
+- **[`NKENTSEU_GRAPHICS_D3D12_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_d3d12_available)** — Direct3D 12 disponible sur Windows 10+
+- **[`NKENTSEU_GRAPHICS_D3D12_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_d3d12_available)** — Direct3D 12 disponible sur Xbox Series X|S
+- **[`NKENTSEU_GRAPHICS_GLES3_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_gles3_available)** — OpenGL ES 3.x disponible sur Android
+- **[`NKENTSEU_GRAPHICS_GNM_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_gnm_available)** — GNM disponible sur PS5
+- **[`NKENTSEU_GRAPHICS_METAL_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_metal_available)** — Metal disponible sur macOS
+- **[`NKENTSEU_GRAPHICS_NVN_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu-nkentseu_graphics_nvn_available)** (`nkentseu`) — NVN (NVIDIA API) disponible sur Switch
+- **[`NKENTSEU_GRAPHICS_OPENGL_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_opengl_available)** — OpenGL disponible sur Windows
+- **[`NKENTSEU_GRAPHICS_OPENGL_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_opengl_available)** — OpenGL disponible sur macOS (deprecated depuis 10.14)
+- **[`NKENTSEU_GRAPHICS_PRIVATE`](../files/NkGraphicsExport.h.md#nkentseu_graphics_private)** — Symboles privés du module Graphics
+- **[`NKENTSEU_GRAPHICS_PUBLIC`](../files/NkGraphicsExport.h.md#nkentseu_graphics_public)** — Symboles publics du module Graphics
+- **[`NKENTSEU_GRAPHICS_VULKAN_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_vulkan_available)** — Vulkan disponible sur Windows
+- **[`NKENTSEU_GRAPHICS_VULKAN_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_vulkan_available)** — Vulkan disponible via MoltenVK
+- **[`NKENTSEU_GRAPHICS_VULKAN_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_vulkan_available)** — Vulkan disponible sur Android (API 24+)
+- **[`NKENTSEU_GRAPHICS_VULKAN_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_vulkan_available)** — Vulkan disponible sur PS5
+- **[`NKENTSEU_GRAPHICS_WEBGL2_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_webgl2_available)** — WebGL 2.0 disponible via Emscripten
+- **[`NKENTSEU_GRAPHICS_WEBGPU_AVAILABLE`](../files/NkCGXDetect.h.md#nkentseu_graphics_webgpu_available)** — WebGPU disponible (expérimental)
+- **[`NKENTSEU_HASHMAP_DEFAULT_CAPACITY`](../files/NkConfig.h.md#nkentseu_hashmap_default_capacity)** — Capacité initiale HashMap par défaut
+- **[`NKENTSEU_HASHMAP_MAX_LOAD_FACTOR`](../files/NkConfig.h.md#nkentseu_hashmap_max_load_factor)** — Load factor max HashMap (0.75 = 75%)
+- **[`NKENTSEU_IF`](../files/NkExport.h.md#nkentseu_if)** — Macro conditionnelle simple
+- **[`NKENTSEU_INLINE`](../files/NkInline.h.md#nkentseu_inline)** — Inline standard C++
+- **[`NKENTSEU_LOG_API`](../files/NkCoreExport.h.md#nkentseu_log_api)** — API pour le logging
+- **[`NKENTSEU_LOG_ERROR`](../files/NkBuiltin.h.md#nkentseu_log_error)** — Macro pour logger une erreur avec contexte
+- **[`NKENTSEU_LOG_INFO`](../files/NkBuiltin.h.md#nkentseu_log_info)** — Macro pour logger une information avec contexte
+- **[`NKENTSEU_LOG_WARNING`](../files/NkBuiltin.h.md#nkentseu_log_warning)** — Macro pour logger un avertissement avec contexte
+- **[`NKENTSEU_MATH_EPSILON`](../files/NkConfig.h.md#nkentseu_math_epsilon)** — Epsilon pour comparaisons flottantes
+- **[`NKENTSEU_MEMORY_API`](../files/NkCoreExport.h.md#nkentseu_memory_api)** — API pour la gestion de mémoire
+- **[`NKENTSEU_NOINLINE`](../files/NkInline.h.md#nkentseu_noinline)** — Empêche l'inlining
+- **[`NKENTSEU_NOTE`](../files/NkBuiltin.h.md#nkentseu_note)** — Message NOTE avec localisation
+- **[`NKENTSEU_PI`](../files/NkConfig.h.md#nkentseu_pi)** — Constante PI
+- **[`NKENTSEU_PRIVATE`](../files/NkExport.h.md#nkentseu_private)** — Symboles privés de Nkentseu
+- **[`NKENTSEU_PUBLIC`](../files/NkExport.h.md#nkentseu_public)** — Symboles publics de Nkentseu
+- **[`NKENTSEU_SHADER_API`](../files/NkGraphicsExport.h.md#nkentseu_shader_api)** — API pour les shaders
+- **[`NKENTSEU_SIMPLE_ASSERT`](../files/NkBuiltin.h.md#nkentseu_simple_assert)** — Assertion basique avec informations contextuelles
+- **[`NKENTSEU_SIZEOF_MEMBER`](../files/NkMacros.h.md#nkentseu_sizeof_member)** — Taille d'un membre de structure
+- **[`NKENTSEU_SIZEOF_TYPE`](../files/NkMacros.h.md#nkentseu_sizeof_type)** — Taille d'un type
+- **[`NKENTSEU_STDCALL`](../files/NkExport.h.md#nkentseu_stdcall)** — Convention d'appel Windows standard
+- **[`NKENTSEU_STRING_DEFAULT_CAPACITY`](../files/NkConfig.h.md#nkentseu_string_default_capacity)** — Taille buffer string par défaut
+- **[`NKENTSEU_STRING_SSO_SIZE`](../files/NkConfig.h.md#nkentseu_string_sso_size)** — Taille SSO buffer
+- **[`NKENTSEU_SYSTEM_API`](../files/NkCoreExport.h.md#nkentseu_system_api)** — API pour les utilitaires système
+- **[`NKENTSEU_TEST_ASSERT`](../files/NkBuiltin.h.md#nkentseu_test_assert)** — Assertion de test avec message
+- **[`NKENTSEU_TEXTURE_API`](../files/NkGraphicsExport.h.md#nkentseu_texture_api)** — API pour les textures
+- **[`NKENTSEU_THREAD_API`](../files/NkCoreExport.h.md#nkentseu_thread_api)** — API pour la gestion des threads
+- **[`NKENTSEU_TODO`](../files/NkBuiltin.h.md#nkentseu_todo)** — Message TODO avec localisation
+- **[`NKENTSEU_TODO`](../files/NkMacros.h.md#nkentseu_todo)** — TODO avec message
+- **[`NKENTSEU_TYPE_API`](../files/NkCoreExport.h.md#nkentseu_type_api)** — API pour le système de types
+- **[`NKENTSEU_UNIQUE_ID`](../files/NkBuiltin.h.md#nkentseu_unique_id)** — Macro de base pour créer un identifiant unique
+- **[`NKENTSEU_UNIQUE_NAME`](../files/NkBuiltin.h.md#nkentseu_unique_name)** — Crée un identifiant unique avec préfixe
+- **[`NKENTSEU_UNUSED`](../files/NkMacros.h.md#nkentseu_unused)** — Marque une variable/paramètre comme intentionnellement inutilisé
+- **[`NKENTSEU_UNUSED2`](../files/NkMacros.h.md#nkentseu_unused2)** — Marque deux variables comme inutilisées
+- **[`NKENTSEU_UNUSED3`](../files/NkMacros.h.md#nkentseu_unused3)** — Marque trois variables comme inutilisées
+- **[`NKENTSEU_UNUSED4`](../files/NkMacros.h.md#nkentseu_unused4)** — Marque quatre variables comme inutilisées
+- **[`NKENTSEU_USE_POSIX_API`](../files/NkConfig.h.md#nkentseu_use_posix_api)** — Utiliser POSIX API
+- **[`NKENTSEU_USE_WIN32_API`](../files/NkConfig.h.md#nkentseu_use_win32_api)** — Utiliser Win32 API
+- **[`NKENTSEU_VECTOR_DEFAULT_CAPACITY`](../files/NkConfig.h.md#nkentseu_vector_default_capacity)** — Capacité initiale Vector par défaut
+- **[`NKENTSEU_VECTOR_GROWTH_FACTOR`](../files/NkConfig.h.md#nkentseu_vector_growth_factor)** — Facteur de croissance Vector (1.5 ou 2.0)
+- **[`NKENTSEU_VERIFY`](../files/NkAssert.h.md#nkentseu_verify)** — Vérification toujours exécutée (même en Release)
+- **[`NKENTSEU_VERSION_AT_LEAST`](../files/NkVersion.h.md#nkentseu_version_at_least)** — Macro pour vérifier la version minimale requise
+- **[`NKENTSEU_VERSION_CORE`](../files/NkVersion.h.md#nkentseu_version_core)** — Version complète encodée (32-bit)
+- **[`NKENTSEU_VERSION_CORE_STRING`](../files/NkVersion.h.md#nkentseu_version_core_string)** — Version sous forme de chaîne
+- **[`NKENTSEU_VERSION_EQUALS`](../files/NkVersion.h.md#nkentseu_version_equals)** — Macro pour vérifier version exacte
+- **[`NKENTSEU_WASM_EXPORT`](../files/NkExport.h.md#nkentseu_wasm_export)** — Export WebAssembly avec nom
+- **[`NKENTSEU_WASM_IMPORT`](../files/NkExport.h.md#nkentseu_wasm_import)** — Import WebAssembly avec nom
+- **[`NKENTSEU_WASM_KEEP`](../files/NkExport.h.md#nkentseu_wasm_keep)** — Garde un symbole WebAssembly
+- **[`NKENTSEU_WASM_MAIN`](../files/NkExport.h.md#nkentseu_wasm_main)** — Définit la fonction main pour WebAssembly
+- **[`NKENTSEU_WILL_ADD_OVERFLOW`](../files/NkMacros.h.md#nkentseu_will_add_overflow)** — Vérifie si une addition déborde
+- **[`NKENTSEU_WILL_MUL_OVERFLOW`](../files/NkMacros.h.md#nkentseu_will_mul_overflow)** — Vérifie si une multiplication déborde
+- **[`NK_CORE_API`](../files/NkCoreExport.h.md#nk_core_api)** — Alias court pour NKENTSEU_CORE_API
+- **[`NK_GFX_API`](../files/NkGraphicsExport.h.md#nk_gfx_api)** — Alias court pour NKENTSEU_GRAPHICS_API
+- **[`NkAbs`](../files/NkMacros.h.md#nkabs)** — Retourne la valeur absolue
+- **[`NkAlignDown`](../files/NkTypeUtils.h.md#nkaligndown)** — Aligne une valeur vers le bas
+- **[`NkAlignPtr`](../files/NkMacros.h.md#nkalignptr)** — Aligne un pointeur
+- **[`NkAlignUp`](../files/NkTypeUtils.h.md#nkalignup)** — Aligne une valeur vers le haut
+- **[`NkAllocAligned`](../files/NkPlatform.h.md#nkentseu-nkentseu-arch-memory-nkplatformtype-nkplatformtype-nkarchitecturetype-nkdisplaytype-nkgraphicsapi-nkendianness-nkversioninfo-nkplatforminfo-nkallocaligned)** (`nkentseu::nkentseu::arch::memory`) — Alloue mémoire alignée sur cache line
+- **[`NkAllocPageAligned`](../files/NkPlatform.h.md#nkentseu-nkentseu-arch-memory-nkplatformtype-nkplatformtype-nkarchitecturetype-nkdisplaytype-nkgraphicsapi-nkendianness-nkversioninfo-nkplatforminfo-nkallocpagealigned)** (`nkentseu::nkentseu::arch::memory`) — Alloue mémoire alignée sur page
+- **[`NkArraySize`](../files/NkMacros.h.md#nkarraysize)** — Taille d'un tableau statique
+- **[`NkArraySize`](../files/NkTypeUtils.h.md#nkarraysize)** — Calcule la taille d'un tableau statique
+- **[`NkBit`](../files/NkMacros.h.md#nkbit)** — Crée un masque avec le bit N à 1 (32-bit par défaut)
+- **[`NkBit`](../files/NkTypeUtils.h.md#nkbit)** — Crée un masque de bit à la position x
+- **[`NkBit64`](../files/NkMacros.h.md#nkbit64)** — Crée un masque 64-bit
+- **[`NkBitClear`](../files/NkMacros.h.md#nkbitclear)** — Met un bit à 0
+- **[`NkBitSet`](../files/NkMacros.h.md#nkbitset)** — Met un bit à 1
+- **[`NkBitTest`](../files/NkMacros.h.md#nkbittest)** — Teste si un bit est à 1
+- **[`NkBitToggle`](../files/NkMacros.h.md#nkbittoggle)** — Inverse un bit
+- **[`NkCCast`](../files/NkTypeUtils.h.md#nkentseu-nkentseu-nkccast)** (`nkentseu::nkentseu`) — Cast de type C-style (à éviter)
+- **[`NkClamp`](../files/NkMacros.h.md#nkclamp)** — Limite une valeur entre min et max
+- **[`NkClamp`](../files/NkTypeUtils.h.md#nkclamp)** — Clampe une valeur entre min et max
+- **[`NkClearBit`](../files/NkTypeUtils.h.md#nkclearbit)** — Met un bit à 0
+- **[`NkConcat`](../files/NkMacros.h.md#nkconcat)** — Concatène deux tokens
+- **[`NkConcat3`](../files/NkMacros.h.md#nkconcat3)** — Concatène trois tokens
+- **[`NkConcat4`](../files/NkMacros.h.md#nkconcat4)** — Concatène quatre tokens
+- **[`NkConstCast`](../files/NkTypeUtils.h.md#nkentseu-nkconstcast)** (`nkentseu`) — Const cast
+- **[`NkContainerOf`](../files/NkMacros.h.md#nkcontainerof)** — Récupère le pointeur du conteneur depuis un pointeur membre
+- **[`NkContainerOf`](../files/NkTypeUtils.h.md#nkcontainerof)** — Calcule le pointeur de conteneur à partir d'un membre
+- **[`NkCurrentSourceLocation`](../files/NkPlatform.h.md#nkentseu-nkcurrentsourcelocation)** (`nkentseu`) — Capture la localisation actuelle
+- **[`NkDegreesToRadians`](../files/NkMacros.h.md#nkdegreestoradians)** — Convertit degrés en radians
+- **[`NkForEach`](../files/NkMacros.h.md#nkforeach)** — Applique une fonction à chaque argument variadique
+- **[`NkForEachHelper`](../files/NkMacros.h.md#nkforeachhelper)** — Helper pour NkForEach
+- **[`NkFreeAligned`](../files/NkPlatform.h.md#nkentseu-nkentseu-arch-memory-nkplatformtype-nkplatformtype-nkarchitecturetype-nkdisplaytype-nkgraphicsapi-nkendianness-nkversioninfo-nkplatforminfo-nkfreealigned)** (`nkentseu::nkentseu::arch::memory`) — Libère mémoire alignée
+- **[`NkGigabytes`](../files/NkMacros.h.md#nkgigabytes)** — Convertit en gigabytes
+- **[`NkIsAligned`](../files/NkTypeUtils.h.md#nkisaligned)** — Vérifie si une valeur est alignée
+- **[`NkKilobytes`](../files/NkMacros.h.md#nkkilobytes)** — Convertit en kilobytes
+- **[`NkMaskAddress`](../files/NkMacros.h.md#nkmaskaddress)** — Masque une adresse mémoire (pour debug)
+- **[`NkMax`](../files/NkMacros.h.md#nkmax)** — Retourne le maximum de deux valeurs
+- **[`NkMegabytes`](../files/NkMacros.h.md#nkmegabytes)** — Convertit en megabytes
+- **[`NkMin`](../files/NkMacros.h.md#nkmin)** — Retourne le minimum de deux valeurs
+- **[`NkOffsetOf`](../files/NkTypeUtils.h.md#nkoffsetof)** — Calcule l'offset d'un membre dans une structure
+- **[`NkPointerDistance`](../files/NkMacros.h.md#nkpointerdistance)** — Calcule la distance entre deux pointeurs en octets
+- **[`NkRadiansToDegrees`](../files/NkMacros.h.md#nkradianstodegrees)** — Convertit radians en degrés
+- **[`NkReinterpretCast`](../files/NkTypeUtils.h.md#nkreinterpretcast)** — Reinterpret cast (dangereux)
+- **[`NkSetBit`](../files/NkTypeUtils.h.md#nksetbit)** — Met un bit à 1
+- **[`NkStaticCast`](../files/NkTypeUtils.h.md#nkstaticcast)** — Cast statique sécurisé
+- **[`NkStrBool`](../files/NkTypeUtils.h.md#nkstrbool)** — Convertit un booléen en chaîne "True" ou "False"
+- **[`NkStringify`](../files/NkMacros.h.md#nkstringify)** — Convertit un token en chaîne de caractères
+- **[`NkSwap`](../files/NkMacros.h.md#nkswap)** — Échange deux valeurs (nécessite temporaire)
+- **[`NkTerabytes`](../files/NkMacros.h.md#nkterabytes)** — Convertit en terabytes
+- **[`NkTestBit`](../files/NkTypeUtils.h.md#nktestbit)** — Teste si un bit est à 1
+- **[`NkToggleBit`](../files/NkTypeUtils.h.md#nktogglebit)** — Inverse un bit
+- **[`NkVaArgsCount`](../files/NkMacros.h.md#nkvaargscount)** — Nombre d'arguments variadiques (max 16)
+- **[`NkVersionEncode`](../files/NkMacros.h.md#nkversionencode)** — Encode une version en entier 32-bit
+- **[`NkVersionMajor`](../files/NkMacros.h.md#nkversionmajor)** — Extrait le major d'une version encodée
+- **[`NkVersionMinor`](../files/NkMacros.h.md#nkversionminor)** — Extrait le minor d'une version encodée
+- **[`NkVersionPatch`](../files/NkMacros.h.md#nkversionpatch)** — Extrait le patch d'une version encodée
+- **[`_NKENTSEU_DEFINE_MODULE_C_API`](../files/NkExport.h.md#_nkentseu_define_module_c_api)** — Définit la macro d'export C du module
+- **[`_NKENTSEU_DEFINE_MODULE_EXPORT`](../files/NkExport.h.md#_nkentseu_define_module_export)** — Définit la macro d'export principale du module
+- **[`_NKENTSEU_DEFINE_MODULE_VISIBILITY`](../files/NkExport.h.md#_nkentseu_define_module_visibility)** — Définit les macros de visibilité du module
+- **[`_NKENTSEU_DETECT_MODULE_CONTEXT`](../files/NkExport.h.md#_nkentseu_detect_module_context)** — Détecte si on build ou utilise un module
+- **[`_NKENTSEU_IF_BUILDING`](../files/NkExport.h.md#_nkentseu_if_building)** — Conditionnel pour build de module
+- **[`_NKENTSEU_IF_SHARED`](../files/NkExport.h.md#_nkentseu_if_shared)** — Conditionnel pour build partagé
