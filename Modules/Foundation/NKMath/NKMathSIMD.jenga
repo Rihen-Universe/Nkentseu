@@ -24,7 +24,7 @@ project("NKMathSIMD"):
     # SIMD Math Library
     namespace("nkentseu::math::simd")
     kind("StaticLib")
-    language("C++17")
+    language("C++")
     
     # Dependencies
     linkeddeps(["NKCore", "NKPlatform", "NKMath"])
@@ -65,7 +65,7 @@ project("NKMathSIMD"):
     with group("Tests"):
         project("NKMathSIMD_Tests"):
             kind("ConsoleApp")
-            language("C++17")
+            language("C++")
             linkeddeps(["NKMathSIMD", "NKCore"])
             includedirs(["$(ProjectDir)/../NKMath/src"])
             
@@ -81,7 +81,7 @@ project("NKMathSIMD"):
     with group("Benchmarks"):
         project("NKMathSIMD_Bench"):
             kind("ConsoleApp")
-            language("C++17")
+            language("C++")
             linkeddeps(["NKMathSIMD", "NKCore", "NKTime"])
             
             files({
