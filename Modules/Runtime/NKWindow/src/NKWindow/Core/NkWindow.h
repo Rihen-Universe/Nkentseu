@@ -2,9 +2,9 @@
 
 // =============================================================================
 // NkWindow.h
-// Classe publique Window — implémentation concrète.
-// Les membres platform-spécifiques sont encapsulés dans NkWindowData,
-// défini par le backend platform (NkWin32Window.h, NkXLibWindow.h…).
+// Classe publique Window â€” implÃ©mentation concrÃ¨te.
+// Les membres platform-spÃ©cifiques sont encapsulÃ©s dans NkWindowData,
+// dÃ©fini par le backend platform (NkWin32Window.h, NkXLibWindow.hâ€¦).
 //
 // Usage :
 //   nkentseu::NkInitialise();
@@ -45,8 +45,8 @@
     #include "NKWindow/Platform/Cocoa/NkCocoaWindow.h"
 #elif defined(NKENTSEU_PLATFORM_IOS)
     #include "NKWindow/Platform/UIKit/NkUIKitWindow.h"
-#elif defined(NKENTSEU_PLATFORM_WEB) || defined(NKENTSEU_PLATFORM_EMSCRIPTEN) || defined(__EMSCRIPTEN__)
-    #include "NKWindow/Platform/WASM/NkWASMWindow.h"
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+    #include "NKWindow/Platform/Emscripten/NkEmscriptenWindow.h"
 #else
     #include "NKWindow/Platform/Noop/NkNoopWindow.h"
 #endif
@@ -56,7 +56,7 @@ namespace nkentseu {
     class NkEventSystem;
 
     // ---------------------------------------------------------------------------
-    // NkWindow — façade de fenêtre cross-plateforme
+    // NkWindow â€” faÃ§ade de fenÃªtre cross-plateforme
     // ---------------------------------------------------------------------------
 
     class NkWindow {
@@ -79,9 +79,9 @@ namespace nkentseu {
             // --- Identifiant ---
             NkWindowId GetId() const { return mId; }
 
-            // --- Propriétés ---
-            std::string    GetTitle() const;
-            void           SetTitle(const std::string& title);
+            // --- PropriÃ©tÃ©s ---
+            NkString    GetTitle() const;
+            void           SetTitle(const NkString& title);
             NkVec2u        GetSize() const;
             NkVec2u        GetPosition() const;
             float          GetDpiScale() const;
@@ -122,7 +122,7 @@ namespace nkentseu {
             // --- Surface graphique ---
             NkSurfaceDesc GetSurfaceDesc() const;
 
-            // Platform data — accessed directly by backend .cpp files
+            // Platform data â€” accessed directly by backend .cpp files
             struct NkWindowData mData;
 
         private:

@@ -54,6 +54,8 @@ namespace threading {
                         nk_bool initialState = false) noexcept
             : mManualReset(manualReset)
             , mSignaled(initialState)
+            , mWaiters(0)
+            , mPulseGeneration(0)
         {
         }
         
@@ -66,7 +68,11 @@ namespace threading {
         void Set() noexcept {
             NkScopedLock lock(mMutex);
             mSignaled = true;
-            mCondVar.NotifyAll();
+            if (mManualReset) {
+                mCondVar.NotifyAll();
+            } else {
+                mCondVar.NotifyOne();
+            }
         }
         
         /**
@@ -83,10 +89,15 @@ namespace threading {
          */
         void Pulse() noexcept {
             NkScopedLock lock(mMutex);
-            mSignaled = true;
-            mCondVar.NotifyAll();
-            if (!mManualReset) {
-                mSignaled = false;
+            if (mWaiters == 0) {
+                return;
+            }
+
+            ++mPulseGeneration;
+            if (mManualReset) {
+                mCondVar.NotifyAll();
+            } else {
+                mCondVar.NotifyOne();
             }
         }
         
@@ -97,25 +108,29 @@ namespace threading {
          */
         nk_bool Wait(nk_int32 timeoutMs = -1) noexcept {
             NkScopedLock lock(mMutex);
+            const nk_uint64 observedPulse = mPulseGeneration;
+            ++mWaiters;
             
             if (mSignaled) {
                 if (!mManualReset) {
                     mSignaled = false;
                 }
+                --mWaiters;
                 return true;
             }
             
             if (timeoutMs < 0) {
                 // Infini
-                while (!mSignaled) {
+                while (!mSignaled && mPulseGeneration == observedPulse) {
                     mCondVar.Wait(lock);
                 }
             } else {
                 // Avec timeout
-                auto end = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeoutMs);
-                while (!mSignaled) {
-                    if (!mCondVar.WaitUntil(lock, end)) {
+                const nk_uint64 deadline =
+                    NkConditionVariable::GetMonotonicTimeMs() + static_cast<nk_uint64>(timeoutMs);
+                while (!mSignaled && mPulseGeneration == observedPulse) {
+                    if (!mCondVar.WaitUntil(lock, deadline)) {
+                        --mWaiters;
                         return false;  // Timeout
                     }
                 }
@@ -124,6 +139,7 @@ namespace threading {
             if (!mManualReset) {
                 mSignaled = false;
             }
+            --mWaiters;
             return true;
         }
         
@@ -138,6 +154,8 @@ namespace threading {
     private:
         nk_bool mManualReset;
         nk_bool mSignaled;
+        nk_uint32 mWaiters;
+        nk_uint64 mPulseGeneration;
         mutable NkMutex mMutex;
         mutable NkConditionVariable mCondVar;
     };

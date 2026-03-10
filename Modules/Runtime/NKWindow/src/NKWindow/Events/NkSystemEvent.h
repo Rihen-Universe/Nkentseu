@@ -26,6 +26,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <cstring>
 #include <string>
 
@@ -174,12 +175,12 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkSystemPowerEvent(*this); }
-        std::string ToString() const override {
-            return std::string("SystemPower(") + NkPowerStateToString(mState)
-                 + (mBatteryLevel >= 0.f
-                     ? " bat=" + std::to_string(static_cast<int>(mBatteryLevel * 100)) + "%"
-                     : " wired")
-                 + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("SystemPower({0}{1})",
+                NkPowerStateToString(mState),
+                (mBatteryLevel >= 0.f
+                    ? NkString::Fmt(" bat={0}%", static_cast<int>(mBatteryLevel * 100))
+                    : " wired"));
         }
 
         NkPowerState GetState()        const noexcept { return mState; }
@@ -230,8 +231,8 @@ namespace nkentseu {
         }
 
         NkEvent*    Clone()    const override { return new NkSystemLocaleEvent(*this); }
-        std::string ToString() const override {
-            return std::string("SystemLocale(") + mPrevLocale + " -> " + mLocale + ")";
+        NkString ToString() const override {
+            return NkString("SystemLocale(") + mPrevLocale + " -> " + mLocale + ")";
         }
 
         const char* GetLocale()     const noexcept { return mLocale; }
@@ -270,14 +271,13 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkSystemDisplayEvent(*this); }
-        std::string ToString() const override {
+        NkString ToString() const override {
             const char* changes[] = {
                 "Added", "Removed", "Resolution", "Orientation", "DPI", "Primary"
             };
             NkU32 ci = static_cast<NkU32>(mChange);
-            return std::string("SystemDisplay(#") + std::to_string(mInfo.index)
-                 + " " + (ci < 6 ? changes[ci] : "?")
-                 + " " + std::to_string(mInfo.width) + "x" + std::to_string(mInfo.height) + ")";
+            return NkString::Fmt("SystemDisplay(#{0} {1} {2}x{3})",
+                mInfo.index, (ci < 6 ? changes[ci] : "?"), mInfo.width, mInfo.height);
         }
 
         NkDisplayChange      GetChange() const noexcept { return mChange; }
@@ -326,12 +326,12 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkSystemMemoryEvent(*this); }
-        std::string ToString() const override {
-            return std::string("SystemMemory(") + NkMemoryPressureToString(mPressure)
-                 + (mAvailableBytes > 0
-                    ? " avail=" + std::to_string(mAvailableBytes / (1024*1024)) + "MB"
-                    : "")
-                 + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("SystemMemory({0}{1})",
+                NkMemoryPressureToString(mPressure),
+                (mAvailableBytes > 0
+                    ? NkString::Fmt(" avail={0}MB", mAvailableBytes / (1024*1024))
+                    : ""));
         }
 
         NkMemoryPressure GetPressure()       const noexcept { return mPressure; }
@@ -383,9 +383,9 @@ namespace nkentseu {
         }
 
         NkEvent*    Clone()    const override { return new NkSystemTimeZoneEvent(*this); }
-        std::string ToString() const override {
-            return std::string("SystemTimeZone(") + mPrevTzId + " -> " + mTzId
-                 + " UTC" + (mOffsetMin >= 0 ? "+" : "") + std::to_string(mOffsetMin / 60) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("SystemTimeZone({0} -> {1} UTC{2}{3})",
+                mPrevTzId, mTzId, (mOffsetMin >= 0 ? "+" : ""), mOffsetMin / 60);
         }
 
         const char* GetTimeZoneId()     const noexcept { return mTzId; }
@@ -444,10 +444,10 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkSystemThemeEvent(*this); }
-        std::string ToString() const override {
+        NkString ToString() const override {
             const char* names[] = { "Light", "Dark", "HighContrast" };
             NkU32 ti = static_cast<NkU32>(mTheme);
-            return std::string("SystemTheme(") + (ti < 3 ? names[ti] : "?") + ")";
+            return NkString("SystemTheme(") + (ti < 3 ? names[ti] : "?") + ")";
         }
 
         Theme GetTheme()     const noexcept { return mTheme; }
@@ -507,12 +507,12 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkSystemAccessibilityEvent(*this); }
-        std::string ToString() const override {
-            return std::string("SystemAccessibility(")
-                 + (mReduceMotion    ? "reduceMotion "    : "")
-                 + (mIncreaseContrast? "highContrast "    : "")
-                 + (mInvertColors   ? "invertColors "    : "")
-                 + "fontScale=" + std::to_string(mFontScale) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("SystemAccessibility({0}{1}{2}fontScale={3:.3})",
+                (mReduceMotion     ? "reduceMotion "  : ""),
+                (mIncreaseContrast ? "highContrast "  : ""),
+                (mInvertColors     ? "invertColors "  : ""),
+                mFontScale);
         }
 
         bool  ReduceMotion()     const noexcept { return mReduceMotion; }

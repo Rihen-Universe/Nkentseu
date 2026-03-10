@@ -87,7 +87,7 @@ namespace nkentseu {
             mEventQueue.Clear();
             mCurrentEvent.reset();
         }
-        mWindowCallbacks.clear();
+        mWindowCallbacks.Clear();
 
         if (mData.mXkbState) {
             xkb_state_unref(mData.mXkbState);

@@ -126,71 +126,11 @@
 #define NK_CORE_API NKENTSEU_CORE_API
 
 // ============================================================
-// MACROS SPÉCIFIQUES AUX COMPOSANTS DU CORE
+// RESPONSABILITÉ DES MACROS D'API
 // ============================================================
-
-/**
- * @brief API pour la gestion de mémoire
- * @def NKENTSEU_MEMORY_API
- * @ingroup CoreModule
- *
- * Spécifique aux composants d'allocation mémoire.
- */
-#define NKENTSEU_MEMORY_API NKENTSEU_CORE_API
-
-/**
- * @brief API pour les containers
- * @def NKENTSEU_CONTAINER_API
- * @ingroup CoreModule
- *
- * Spécifique aux classes de containers (Vector, HashMap, etc.).
- */
-#define NKENTSEU_CONTAINER_API NKENTSEU_CORE_API
-
-/**
- * @brief API pour le système de types
- * @def NKENTSEU_TYPE_API
- * @ingroup CoreModule
- *
- * Spécifique au système de réflexion et de types.
- */
-#define NKENTSEU_TYPE_API NKENTSEU_CORE_API
-
-/**
- * @brief API pour le logging
- * @def NKENTSEU_LOG_API
- * @ingroup CoreModule
- *
- * Spécifique au système de journalisation.
- */
-#define NKENTSEU_LOG_API NKENTSEU_CORE_API
-
-/**
- * @brief API pour la gestion des threads
- * @def NKENTSEU_THREAD_API
- * @ingroup CoreModule
- *
- * Spécifique à la gestion des threads et synchronisation.
- */
-#define NKENTSEU_THREAD_API NKENTSEU_CORE_API
-
-/**
- * @brief API pour les utilitaires système
- * @def NKENTSEU_SYSTEM_API
- * @ingroup CoreModule
- *
- * Spécifique aux fonctions utilitaires système.
- */
-#define NKENTSEU_SYSTEM_API NKENTSEU_CORE_API
-
-/**
- * @brief API pour la gestion des erreurs
- * @def NKENTSEU_ERROR_API
- * @ingroup CoreModule
- *
- * Spécifique au système de gestion d'erreurs.
- */
-#define NKENTSEU_ERROR_API NKENTSEU_CORE_API
+// Le module Core ne doit définir que ses propres macros d'export.
+// Chaque couche/module (Memory, Containers, Logger, Threading, etc.)
+// doit déclarer sa macro API dans son propre *Export.h.
 
 // ============================================================
 // MACROS DE VISIBILITÉ AVANCÉES
@@ -262,7 +202,7 @@
  * #include "Platform/NkTypes.h"
  *
  * namespace nkentseu {
- * namespace core {
+ * 
  *
  * // Classe de base exportée
  * class NKENTSEU_CORE_API Object {
@@ -303,7 +243,7 @@
  * // Fonction utilitaire
  * NKENTSEU_SYSTEM_API nk_uint64 getSystemTime();
  *
- * } // namespace core
+ * 
  * } // namespace nkentseu
  *
  * // API C pour le Core

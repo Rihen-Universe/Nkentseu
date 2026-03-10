@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKCore\src\NKCore\String\NkString.h
-// DESCRIPTION: Dynamic string class with SSO - like std::string
+// DESCRIPTION: Dynamic string class with SSO - like NkString
 // AUTEUR: Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
@@ -18,7 +18,7 @@
 #include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Dynamic string avec Small String Optimization (SSO)
@@ -28,7 +28,7 @@ namespace nkentseu {
          * - Compatible avec allocateurs custom
          * - Null-terminated (compatible C)
          * 
-         * Équivalent std::string mais SANS STL.
+         * Équivalent NkString mais SANS STL.
          */
         class NKENTSEU_CORE_API NkString {
             public:
@@ -137,7 +137,7 @@ namespace nkentseu {
                 SizeType Length() const NK_NOEXCEPT;
                 SizeType Size() const NK_NOEXCEPT;
                 SizeType Capacity() const NK_NOEXCEPT;
-                Bool IsEmpty() const NK_NOEXCEPT;
+                Bool Empty() const NK_NOEXCEPT;
                 
                 /**
                  * @brief Réserve capacité
@@ -234,22 +234,37 @@ namespace nkentseu {
                  */
                 Bool StartsWith(NkStringView prefix) const NK_NOEXCEPT;
                 Bool StartsWith(Char ch) const NK_NOEXCEPT;
+                Bool StartsWith(const Char* prefix) const NK_NOEXCEPT {
+                    return prefix ? StartsWith(NkStringView(prefix)) : false;
+                }
                 Bool EndsWith(NkStringView suffix) const NK_NOEXCEPT;
                 Bool EndsWith(Char ch) const NK_NOEXCEPT;
+                Bool EndsWith(const Char* suffix) const NK_NOEXCEPT {
+                    return suffix ? EndsWith(NkStringView(suffix)) : false;
+                }
                 
                 /**
                  * @brief Contains
                  */
                 Bool Contains(NkStringView str) const NK_NOEXCEPT;
                 Bool Contains(Char ch) const NK_NOEXCEPT;
+                Bool Contains(const Char* str) const NK_NOEXCEPT {
+                    return str ? Contains(NkStringView(str)) : false;
+                }
                 
                 /**
                  * @brief Find
                  */
                 SizeType Find(NkStringView str, SizeType pos = 0) const NK_NOEXCEPT;
                 SizeType Find(Char ch, SizeType pos = 0) const NK_NOEXCEPT;
+                SizeType Find(const Char* str, SizeType pos = 0) const NK_NOEXCEPT {
+                    return str ? Find(NkStringView(str), pos) : npos;
+                }
                 SizeType RFind(NkStringView str, SizeType pos = npos) const NK_NOEXCEPT;
                 SizeType RFind(Char ch, SizeType pos = npos) const NK_NOEXCEPT;
+                SizeType RFind(const Char* str, SizeType pos = npos) const NK_NOEXCEPT {
+                    return str ? RFind(NkStringView(str), pos) : npos;
+                }
                 
                 // ========================================
                 // CONVERSION
@@ -322,9 +337,20 @@ namespace nkentseu {
                 NkString& RemoveChars(NkStringView charsToRemove);
                 NkString& RemoveAll(Char ch);
                 
-                // Formatage
+                // Formatage style printf (délègue à NkFormatf)
                 static NkString Format(const Char* format, ...);
                 static NkString VFormat(const Char* format, va_list args);
+
+                // Aliases printf-style (Fmtf / VFmtf — équivalents de Format / VFormat)
+                static NkString Fmtf(const Char* format, ...);
+                static NkString VFmtf(const Char* format, va_list args);
+
+                // Formatage style moderne {i:props} (délègue à NkFormat)
+                // Requiert #include "NKContainers/String/NkFormat.h" pour le corps template.
+                // Usage : NkString::Fmt("{0:w=8 >} = {1:.3}", 42, 3.14)
+                template<typename... Args>
+                static NkString Fmt(const Char* format, const Args&... args);
+
             private:
                 memory::NkIAllocator* mAllocator;
                 SizeType mLength;
@@ -374,7 +400,7 @@ namespace nkentseu {
         Bool operator>(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT;
         Bool operator>=(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT;
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRING_H_INCLUDED

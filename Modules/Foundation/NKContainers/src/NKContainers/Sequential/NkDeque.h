@@ -15,13 +15,13 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Double-ended queue (std::deque equivalent)
@@ -187,16 +187,16 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkDeque()
+            explicit NkDeque(Allocator* allocator = nullptr)
                 : mChunks(nullptr), mChunkCount(0), mChunkCapacity(0)
                 , mFrontChunk(0), mFrontOffset(0), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
             }
             
-            NkDeque(NkInitializerList<T> init)
+            NkDeque(NkInitializerList<T> init, Allocator* allocator = nullptr)
                 : mChunks(nullptr), mChunkCount(0), mChunkCapacity(0)
                 , mFrontChunk(0), mFrontOffset(0), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 for (auto& val : init) PushBack(val);
             }
             
@@ -242,12 +242,12 @@ namespace nkentseu {
             ConstReverseIterator rend() const { return ConstReverseIterator(begin()); }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             // Modifiers
             void Clear() {
-                while (!IsEmpty()) PopBack();
+                while (!Empty()) PopBack();
             }
             
             void PushBack(const T& value) {
@@ -308,7 +308,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_SEQUENTIAL_NKDEQUE_H_INCLUDED

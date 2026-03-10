@@ -23,7 +23,7 @@ int GcNode::destroyedCount = 0;
 } // namespace
 
 TEST_CASE(NKMemoryGC, RootReachabilityAndCollection) {
-    auto& gc = NkGarbageCollector::Instance();
+    NkGarbageCollector gc;
     gc.Collect();
     GcNode::destroyedCount = 0;
 
@@ -47,4 +47,29 @@ TEST_CASE(NKMemoryGC, RootReachabilityAndCollection) {
 
     ASSERT_TRUE(GcNode::destroyedCount >= 2);
     ASSERT_EQUAL(0, static_cast<int>(gc.ObjectCount()));
+}
+
+TEST_CASE(NKMemoryGC, MultipleCollectorsAreIndependent) {
+    NkGarbageCollector gcA;
+    NkGarbageCollector gcB;
+
+    gcA.Collect();
+    gcB.Collect();
+    GcNode::destroyedCount = 0;
+
+    GcNode* a = gcA.New<GcNode>();
+    GcNode* b = gcB.New<GcNode>();
+    ASSERT_NOT_NULL(a);
+    ASSERT_NOT_NULL(b);
+
+    ASSERT_EQUAL(1, static_cast<int>(gcA.ObjectCount()));
+    ASSERT_EQUAL(1, static_cast<int>(gcB.ObjectCount()));
+
+    gcA.Delete(a);
+    ASSERT_EQUAL(0, static_cast<int>(gcA.ObjectCount()));
+    ASSERT_EQUAL(1, static_cast<int>(gcB.ObjectCount()));
+
+    gcB.Collect();
+    ASSERT_EQUAL(0, static_cast<int>(gcB.ObjectCount()));
+    ASSERT_TRUE(GcNode::destroyedCount >= 2);
 }

@@ -5,8 +5,8 @@
 // DATE: 2026-02-10
 // -----------------------------------------------------------------------------
 
-#include "NkDirectory.h"
-#include "NkFile.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
 #include <cstring>
 #include <cstdlib>
 
@@ -62,7 +62,7 @@ namespace nkentseu {
             
             // Create parent first
             NkPath parent = NkPath(path).GetParent();
-            if (!parent.ToString().IsEmpty() && !Exists(parent)) {
+            if (!parent.ToString().Empty() && !Exists(parent)) {
                 if (!CreateRecursive(parent)) {
                     return false;
                 }
@@ -120,15 +120,15 @@ namespace nkentseu {
             return Exists(path.CStr());
         }
         
-        bool NkDirectory::IsEmpty(const char* path) {
+        bool NkDirectory::Empty(const char* path) {
             if (!Exists(path)) return true;
             
             auto entries = GetEntries(path);
-            return entries.IsEmpty();
+            return entries.Empty();
         }
         
-        bool NkDirectory::IsEmpty(const NkPath& path) {
-            return IsEmpty(path.CStr());
+        bool NkDirectory::Empty(const NkPath& path) {
+            return Empty(path.CStr());
         }
         
         bool NkDirectory::MatchesPattern(const char* name, const char* pattern) {
@@ -140,18 +140,18 @@ namespace nkentseu {
             return strstr(name, pattern) != nullptr;
         }
         
-        core::NkVector<core::NkString> NkDirectory::GetFiles(
+        NkVector<NkString> NkDirectory::GetFiles(
             const char* path,
             const char* pattern,
             NkSearchOption option
         ) {
-            core::NkVector<core::NkString> results;
+            NkVector<NkString> results;
             
             if (!path || !Exists(path)) return results;
             
             #ifdef _WIN32
             WIN32_FIND_DATAA findData;
-            core::NkString searchPath = core::NkString(path) + "\\*";
+            NkString searchPath = NkString(path) + "\\*";
             HANDLE hFind = FindFirstFileA(searchPath.CStr(), &findData);
             
             if (hFind == INVALID_HANDLE_VALUE) return results;
@@ -202,7 +202,7 @@ namespace nkentseu {
             return results;
         }
         
-        core::NkVector<core::NkString> NkDirectory::GetFiles(
+        NkVector<NkString> NkDirectory::GetFiles(
             const NkPath& path,
             const char* pattern,
             NkSearchOption option
@@ -213,7 +213,7 @@ namespace nkentseu {
         void NkDirectory::GetFilesRecursive(
             const char* path,
             const char* pattern,
-            core::NkVector<core::NkString>& results
+            NkVector<NkString>& results
         ) {
             auto dirs = GetDirectories(path);
             for (auto& dir : dirs) {
@@ -225,18 +225,18 @@ namespace nkentseu {
             }
         }
         
-        core::NkVector<core::NkString> NkDirectory::GetDirectories(
+        NkVector<NkString> NkDirectory::GetDirectories(
             const char* path,
             const char* pattern,
             NkSearchOption option
         ) {
-            core::NkVector<core::NkString> results;
+            NkVector<NkString> results;
             
             if (!path || !Exists(path)) return results;
             
             #ifdef _WIN32
             WIN32_FIND_DATAA findData;
-            core::NkString searchPath = core::NkString(path) + "\\*";
+            NkString searchPath = NkString(path) + "\\*";
             HANDLE hFind = FindFirstFileA(searchPath.CStr(), &findData);
             
             if (hFind == INVALID_HANDLE_VALUE) return results;
@@ -287,7 +287,7 @@ namespace nkentseu {
             return results;
         }
         
-        core::NkVector<core::NkString> NkDirectory::GetDirectories(
+        NkVector<NkString> NkDirectory::GetDirectories(
             const NkPath& path,
             const char* pattern,
             NkSearchOption option
@@ -298,7 +298,7 @@ namespace nkentseu {
         void NkDirectory::GetDirectoriesRecursive(
             const char* path,
             const char* pattern,
-            core::NkVector<core::NkString>& results
+            NkVector<NkString>& results
         ) {
             auto dirs = GetDirectories(path);
             for (auto& dir : dirs) {
@@ -310,18 +310,18 @@ namespace nkentseu {
             }
         }
         
-        core::NkVector<NkDirectoryEntry> NkDirectory::GetEntries(
+        NkVector<NkDirectoryEntry> NkDirectory::GetEntries(
             const char* path,
             const char* pattern,
             NkSearchOption option
         ) {
-            core::NkVector<NkDirectoryEntry> results;
+            NkVector<NkDirectoryEntry> results;
             
             if (!path || !Exists(path)) return results;
             
             #ifdef _WIN32
             WIN32_FIND_DATAA findData;
-            core::NkString searchPath = core::NkString(path) + "\\*";
+            NkString searchPath = NkString(path) + "\\*";
             HANDLE hFind = FindFirstFileA(searchPath.CStr(), &findData);
             
             if (hFind == INVALID_HANDLE_VALUE) return results;
@@ -384,7 +384,7 @@ namespace nkentseu {
             return results;
         }
         
-        core::NkVector<NkDirectoryEntry> NkDirectory::GetEntries(
+        NkVector<NkDirectoryEntry> NkDirectory::GetEntries(
             const NkPath& path,
             const char* pattern,
             NkSearchOption option
@@ -395,7 +395,7 @@ namespace nkentseu {
         void NkDirectory::GetEntriesRecursive(
             const char* path,
             const char* pattern,
-            core::NkVector<NkDirectoryEntry>& results
+            NkVector<NkDirectoryEntry>& results
         ) {
             auto dirs = GetDirectories(path);
             for (auto& dir : dirs) {
@@ -493,7 +493,7 @@ namespace nkentseu {
             const char* homeDrive = getenv("HOMEDRIVE");
             const char* homePath = getenv("HOMEPATH");
             if (homeDrive && homePath) {
-                return NkPath(core::NkString(homeDrive) + homePath);
+                return NkPath(NkString(homeDrive) + homePath);
             }
             #else
             const char* home = getenv("HOME");
@@ -514,7 +514,7 @@ namespace nkentseu {
             }
             #else
             NkPath home = GetHomeDirectory();
-            if (!home.ToString().IsEmpty()) {
+            if (!home.ToString().Empty()) {
                 return home / ".config";
             }
             #endif

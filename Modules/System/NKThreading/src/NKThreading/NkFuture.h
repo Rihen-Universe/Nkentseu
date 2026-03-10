@@ -17,16 +17,15 @@
 #define NKENTSEU_THREADING_NKFUTURE_H_INCLUDED
 
 #include "NKCore/NkTypes.h"
+#include "NKMemory/NkSharedPtr.h"
 #include "NKThreading/NkThreadingExport.h"
 #include "NKThreading/NkMutex.h"
 #include "NKThreading/NkConditionVariable.h"
 
-#include <functional>
-#include <memory>
-#include <chrono>
-
 namespace nkentseu {
 namespace threading {
+
+    using NkExceptionHandle = void*;
 
     // Forward declaration
     template<typename T>
@@ -85,7 +84,7 @@ namespace threading {
         
     private:
         class State;
-        std::shared_ptr<State> mState;
+        memory::NkSharedPtr<State> mState;
         friend class NkPromise<T>;
     };
     
@@ -107,10 +106,10 @@ namespace threading {
         
         void SetValue(const T& value) noexcept;
         void SetValue(T&& value) noexcept;
-        void SetException(std::exception_ptr ex) noexcept;
+        void SetException(NkExceptionHandle ex) noexcept;
         
     private:
-        std::shared_ptr<typename NkFuture<T>::State> mState;
+        memory::NkSharedPtr<typename NkFuture<T>::State> mState;
     };
     
     // Specialization for void
@@ -124,7 +123,7 @@ namespace threading {
         
     private:
         class State;
-        std::shared_ptr<State> mState;
+        memory::NkSharedPtr<State> mState;
         friend class NkPromise<void>;
     };
 

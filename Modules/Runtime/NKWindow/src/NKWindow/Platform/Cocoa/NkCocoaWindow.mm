@@ -187,15 +187,15 @@ namespace nkentseu {
         return mConfig;
     }
 
-    std::string NkWindow::GetTitle() const {
+    NkString NkWindow::GetTitle() const {
         if (!mData.mNSWindow) {
             return mConfig.title;
         }
         const char* utf8 = mData.mNSWindow.title.UTF8String;
-        return utf8 ? std::string(utf8) : std::string();
+        return utf8 ? NkString(utf8) : NkString();
     }
 
-    void NkWindow::SetTitle(const std::string& title) {
+    void NkWindow::SetTitle(const NkString& title) {
         mConfig.title = title;
         if (mData.mNSWindow) {
             [mData.mNSWindow setTitle:[NSString stringWithUTF8String:title.c_str()]];

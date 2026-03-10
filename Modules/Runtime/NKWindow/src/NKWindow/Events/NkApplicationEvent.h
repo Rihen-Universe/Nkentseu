@@ -16,6 +16,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 
 namespace nkentseu {
 
@@ -62,8 +63,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkAppLaunchEvent(*this); }
-        std::string ToString() const override {
-            return "AppLaunch(argc=" + std::to_string(mArgc) + ")";
+        NkString ToString() const override {
+            return "AppLaunch(argc=" + string::NkToString(mArgc) + ")";
         }
 
         int                GetArgc() const noexcept { return mArgc; }
@@ -105,9 +106,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkAppTickEvent(*this); }
-        std::string ToString() const override {
-            return "AppTick(dt=" + std::to_string(mDeltaTime)
-                 + "s total=" + std::to_string(mTotalTime) + "s)";
+        NkString ToString() const override {
+            return "AppTick(dt=" + string::NkToString(mDeltaTime)
+                 + "s total=" + string::NkToString(mTotalTime) + "s)";
         }
 
         NkF64 GetDeltaTime() const noexcept { return mDeltaTime; }
@@ -150,8 +151,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkAppUpdateEvent(*this); }
-        std::string ToString() const override {
-            return std::string("AppUpdate(dt=") + std::to_string(mDeltaTime)
+        NkString ToString() const override {
+            return NkString("AppUpdate(dt=") + string::NkToString(mDeltaTime)
                  + (mFixedStep ? " fixed" : " variable") + ")";
         }
 
@@ -190,9 +191,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkAppRenderEvent(*this); }
-        std::string ToString() const override {
-            return "AppRender(frame=" + std::to_string(mFrameIndex)
-                 + " alpha=" + std::to_string(mAlpha) + ")";
+        NkString ToString() const override {
+            return "AppRender(frame=" + string::NkToString(mFrameIndex)
+                 + " alpha=" + string::NkToString(mAlpha) + ")";
         }
 
         NkF64 GetAlpha()      const noexcept { return mAlpha; }
@@ -242,8 +243,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkAppCloseEvent(*this); }
-        std::string ToString() const override {
-            return std::string("AppClose(") + (mForced ? "forced" : "requested")
+        NkString ToString() const override {
+            return NkString("AppClose(") + (mForced ? "forced" : "requested")
                  + (mCancelled ? " cancelled" : "") + ")";
         }
 

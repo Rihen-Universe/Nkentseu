@@ -88,9 +88,9 @@ void NkUIKitCameraBackend::Shutdown()
 }
 
 // ---------------------------------------------------------------------------
-std::vector<NkCameraDevice> NkUIKitCameraBackend::EnumerateDevices()
+NkVector<NkCameraDevice> NkUIKitCameraBackend::EnumerateDevices()
 {
-    std::vector<NkCameraDevice> result;
+    NkVector<NkCameraDevice> result;
     NSArray<AVCaptureDeviceType>* types = @[
         AVCaptureDeviceTypeBuiltInWideAngleCamera,
         AVCaptureDeviceTypeBuiltInTelephotoCamera,
@@ -117,9 +117,9 @@ std::vector<NkCameraDevice> NkUIKitCameraBackend::EnumerateDevices()
             NkCameraDevice::Mode m;
             m.width=(NkU32)dim.width; m.height=(NkU32)dim.height;
             m.fps=30; m.format=NkPixelFormat::NK_PIXEL_BGRA8;
-            if (m.width>0&&m.height>0) dev.modes.push_back(m);
+            if (m.width>0&&m.height>0) dev.modes.PushBack(m);
         }
-        result.push_back(dev);
+        result.PushBack(dev);
     }
     return result;
 }
@@ -128,7 +128,7 @@ std::vector<NkCameraDevice> NkUIKitCameraBackend::EnumerateDevices()
 bool NkUIKitCameraBackend::StartStreaming(const NkCameraConfig& config)
 {
     auto devs = EnumerateDevices();
-    if (config.deviceIndex >= devs.size())
+    if (config.deviceIndex >= devs.Size())
     { mLastError="Device index out of range"; return false; }
 
     auto* p = (UIKitPrivate*)mPriv;
@@ -194,8 +194,8 @@ void NkUIKitCameraBackend::_OnVideoFrame(void* pxBuf, NkU64 ts)
     frame.width=(NkU32)w; frame.height=(NkU32)h;
     frame.stride=(NkU32)stride; frame.format=NkPixelFormat::NK_PIXEL_BGRA8;
     frame.timestampUs=ts; frame.frameIndex=mFrameIdx++;
-    frame.data.resize(stride*h);
-    memcpy(frame.data.data(),ptr,stride*h);
+    frame.data.Resize(static_cast<usize>(stride*h));
+    memcpy(frame.data.Data(),ptr,stride*h);
     CVPixelBufferUnlockBaseAddress(ib,kCVPixelBufferLock_ReadOnly);
 
     { std::lock_guard<std::mutex> lk(mMutex);
@@ -238,7 +238,9 @@ void NkUIKitCameraBackend::_OnPhotoCapture(void* data,size_t len,bool ok,const c
     mPhotoPending={};
     if (ok && data && len>0) {
         mPhotoPending.success=true;
-        mPhotoPending.frame.data.assign((NkU8*)data,(NkU8*)data+len);
+        mPhotoPending.frame.data.Clear();
+        mPhotoPending.frame.data.Resize(static_cast<usize>(len));
+        memcpy(mPhotoPending.frame.data.Data(), data, len);
         mPhotoPending.frame.format=NkPixelFormat::NK_PIXEL_MJPEG;
     } else {
         mPhotoPending.success=false;
@@ -247,12 +249,12 @@ void NkUIKitCameraBackend::_OnPhotoCapture(void* data,size_t len,bool ok,const c
     mPhotoReady=true; mPhotoCv.notify_one();
 }
 
-bool NkUIKitCameraBackend::CapturePhotoToFile(const std::string& path)
+bool NkUIKitCameraBackend::CapturePhotoToFile(const NkString& path)
 {
-    NkPhotoCaptureResult res; if (!CapturePhoto(res)||res.frame.data.empty()) return false;
+    NkPhotoCaptureResult res; if (!CapturePhoto(res)||res.frame.data.Empty()) return false;
     // JPEG brut → écriture directe
-    FILE* f=fopen(path.c_str(),"wb"); if (!f) return false;
-    fwrite(res.frame.data.data(),1,res.frame.data.size(),f);
+    FILE* f=fopen(path.CStr(),"wb"); if (!f) return false;
+    fwrite(res.frame.data.Data(),1,res.frame.data.Size(),f);
     fclose(f); return true;
 }
 

@@ -13,7 +13,7 @@
 #include "NkEncoding.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace encoding {
             namespace utf32 {
                 
@@ -73,7 +73,7 @@ namespace nkentseu {
                 
             } // namespace utf32
         } // namespace encoding
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_STRING_ENCODING_NKUTF32_H_INCLUDED

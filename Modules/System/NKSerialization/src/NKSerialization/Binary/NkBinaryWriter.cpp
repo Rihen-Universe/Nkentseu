@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkBinaryWriter.h"
+#include "NKSerialization/Binary/NkBinaryWriter.h"
 
 namespace nkentseu {
     namespace entseu {

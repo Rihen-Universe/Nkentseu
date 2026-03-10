@@ -21,8 +21,11 @@
 #include "NKPlatform/NkCompilerDetect.h"
 #include "NKThreading/NkThreadingExport.h"
 
-#include <atomic>
-#include <thread>
+#if defined(NK_PLATFORM_WINDOWS)
+#include <windows.h>
+#elif defined(NK_PLATFORM_LINUX) || defined(NK_PLATFORM_ANDROID) || defined(NK_PLATFORM_MACOS) || defined(NK_PLATFORM_IOS)
+#include <sched.h>
+#endif
 
 namespace nkentseu {
 namespace memory {
@@ -74,7 +77,7 @@ namespace memory {
          */
         void Lock() noexcept {
             // Fast-path: très probable que le lock soit libre
-            if (!mLocked.exchange(true, std::memory_order_acquire)) {
+            if (!mLocked.Exchange(true, NkMemoryOrder::NK_ACQUIRE)) {
                 return;  // Locked successfully
             }
             
@@ -87,21 +90,21 @@ namespace memory {
          * @return true si verrouillé, false sinon
          */
         [[nodiscard]] nk_bool TryLock() noexcept {
-            return !mLocked.exchange(true, std::memory_order_acquire);
+            return !mLocked.Exchange(true, NkMemoryOrder::NK_ACQUIRE);
         }
         
         /**
          * @brief Déverrouille le spin-lock
          */
         void Unlock() noexcept {
-            mLocked.store(false, std::memory_order_release);
+            mLocked.Store(false, NkMemoryOrder::NK_RELEASE);
         }
         
         /**
          * @brief Vérifie si le lock est actuellement verrouillé
          */
         [[nodiscard]] nk_bool IsLocked() const noexcept {
-            return mLocked.load(std::memory_order_relaxed);
+            return mLocked.Load(NkMemoryOrder::NK_RELAXED);
         }
         
     private:
@@ -111,7 +114,7 @@ namespace memory {
         void LockSlow() noexcept {
             nk_size spins = 0;
             
-            while (mLocked.exchange(true, std::memory_order_acquire)) {
+            while (mLocked.Exchange(true, NkMemoryOrder::NK_ACQUIRE)) {
                 // Pause instruction pour réduire consommation CPU
                 // (supporté: x86/x64/ARM)
                 PauseInstruction();
@@ -122,9 +125,17 @@ namespace memory {
                     // Continuer à spin
                 } else {
                     // Contention très haute: laisser l'OS respirer
-                    std::this_thread::yield();
+                    ThreadYield();
                 }
             }
+        }
+
+        static inline void ThreadYield() noexcept {
+#if defined(NK_PLATFORM_WINDOWS)
+            ::SwitchToThread();
+#elif defined(NK_PLATFORM_LINUX) || defined(NK_PLATFORM_ANDROID) || defined(NK_PLATFORM_MACOS) || defined(NK_PLATFORM_IOS)
+            (void)::sched_yield();
+#endif
         }
         
         /**
@@ -145,7 +156,7 @@ namespace memory {
 #endif
         }
         
-        std::atomic<nk_bool> mLocked;
+        NkAtomicBool mLocked;
     };
     
     // =======================================================

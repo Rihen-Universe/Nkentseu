@@ -8,8 +8,8 @@
 
 #import <Cocoa/Cocoa.h>
 #include "NKWindow/Core/NkEntry.h"
-#include <vector>
-#include <string>
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
 
 #ifndef NK_APP_NAME
 #define NK_APP_NAME "cocoa_app"
@@ -27,13 +27,13 @@ NkEntryState *gState = nullptr;
 // ---------------------------------------------------------------------------
 
 @interface NkAppDelegate : NSObject <NSApplicationDelegate>
-@property(nonatomic, assign) std::vector<std::string> *argsPtr;
+@property(nonatomic, assign) NkVector<NkString> *argsPtr;
 @end
 
 @implementation NkAppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notif {
-	std::vector<std::string> &args = *self.argsPtr;
+	NkVector<NkString> &args = *self.argsPtr;
 	nkentseu::NkEntryState state(args);
 	state.appName = NK_APP_NAME;
 	nkentseu::gState = &state;
@@ -53,7 +53,9 @@ NkEntryState *gState = nullptr;
 
 int main(int argc, const char *argv[]) {
 	@autoreleasepool {
-		std::vector<std::string> args(argv, argv + argc);
+		nkentseu::NkVector<nkentseu::NkString> args;
+	for (int i = 0; i < argc; ++i)
+		args.PushBack(nkentseu::NkString(argv[i]));
 
 		NSApplication *app = [NSApplication sharedApplication];
 		[app setActivationPolicy:NSApplicationActivationPolicyRegular];

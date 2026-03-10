@@ -30,7 +30,7 @@ namespace nkentseu {
 			 * @param maxSize Taille maximum par fichier (octets)
 			 * @param maxFiles Nombre maximum de fichiers conservés
 			 */
-			NkRotatingFileSink(const std::string &filename, core::usize maxSize, core::usize maxFiles);
+			NkRotatingFileSink(const NkString &filename, usize maxSize, usize maxFiles);
 
 			/**
 			 * @brief Destructeur
@@ -54,25 +54,25 @@ namespace nkentseu {
 			 * @brief Définit la taille maximum des fichiers
 			 * @param maxSize Taille en octets
 			 */
-			void SetMaxSize(core::usize maxSize);
+			void SetMaxSize(usize maxSize);
 
 			/**
 			 * @brief Obtient la taille maximum des fichiers
 			 * @return Taille en octets
 			 */
-			core::usize GetMaxSize() const;
+			usize GetMaxSize() const;
 
 			/**
 			 * @brief Définit le nombre maximum de fichiers
 			 * @param maxFiles Nombre maximum
 			 */
-			void SetMaxFiles(core::usize maxFiles);
+			void SetMaxFiles(usize maxFiles);
 
 			/**
 			 * @brief Obtient le nombre maximum de fichiers
 			 * @return Nombre maximum
 			 */
-			core::usize GetMaxFiles() const;
+			usize GetMaxFiles() const;
 
 			/**
 			 * @brief Force la rotation du fichier
@@ -100,20 +100,20 @@ namespace nkentseu {
 			 * @param index Index du fichier
 			 * @return Nom de fichier
 			 */
-			std::string GetFilenameForIndex(core::usize index) const;
+			NkString GetFilenameForIndex(usize index) const;
 
 			// ---------------------------------------------------------------------
 			// VARIABLES MEMBRE PRIVÉES
 			// ---------------------------------------------------------------------
 
 			/// Taille maximum par fichier (octets)
-			core::usize m_MaxSize;
+			usize m_MaxSize;
 
 			/// Nombre maximum de fichiers conservés
-			core::usize m_MaxFiles;
+			usize m_MaxFiles;
 
 			/// Taille courante du fichier
-			core::usize m_CurrentSize;
+			usize m_CurrentSize;
 	};
 
 } // namespace nkentseu

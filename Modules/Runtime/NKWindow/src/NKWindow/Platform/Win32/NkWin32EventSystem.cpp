@@ -291,6 +291,18 @@ namespace nkentseu {
             // =====================================================================
 
             case WM_MOUSEMOVE: {
+                if (owner && !owner->mData.mMouseTracking) {
+                    TRACKMOUSEEVENT tme{};
+                    tme.cbSize = sizeof(tme);
+                    tme.dwFlags = TME_LEAVE;
+                    tme.hwndTrack = hwnd;
+                    if (TrackMouseEvent(&tme)) {
+                        owner->mData.mMouseTracking = true;
+                    }
+                    NkMouseEnterEvent enterEvt;
+                    EnqueueForWindow(enterEvt);
+                }
+
                 int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
                 POINT pt = { x, y }; ClientToScreen(hwnd, &pt);
                 NkMouseButtons buttons;
@@ -401,6 +413,9 @@ namespace nkentseu {
             }
 
             case WM_MOUSELEAVE: {
+                if (owner) {
+                    owner->mData.mMouseTracking = false;
+                }
                 NkMouseLeaveEvent evt;
                 EnqueueForWindow(evt);
                 break;

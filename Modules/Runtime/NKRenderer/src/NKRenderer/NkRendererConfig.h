@@ -4,12 +4,12 @@
 // NkSurface.h
 // Descripteur de surface graphique natif par plateforme.
 //
-// NkSurfaceDesc contient tous les handles natifs nÃ©cessaires Ã  un backend
-// graphique (Vulkan, Metal, DirectX, OpenGL, Software) pour crÃ©er ses
+// NkSurfaceDesc contient tous les handles natifs nÃƒÂ©cessaires ÃƒÂ  un backend
+// graphique (Vulkan, Metal, DirectX, OpenGL, Software) pour crÃƒÂ©er ses
 // propres ressources de rendu.
 // =============================================================================
 
-#include "NkTypes.h"
+#include "NKCore/NkTypes.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
 #include "NKWindow/Core/NkSurface.h"
@@ -20,7 +20,7 @@
 namespace nkentseu {
 
 	// ---------------------------------------------------------------------------
-	// NkRendererConfig - configuration de crÃ©ation du renderer
+	// NkRendererConfig - configuration de crÃƒÂ©ation du renderer
 	// ---------------------------------------------------------------------------
 
 	struct NkRendererConfig {
@@ -30,14 +30,14 @@ namespace nkentseu {
 		NkPixelFormat colorFormat = NkPixelFormat::NK_PIXEL_R8G8B8A8_UNORM;
 		/// @brief Depth/stencil format.
 		NkPixelFormat depthFormat = NkPixelFormat::NK_PIXEL_D24_UNORM_S8_UINT;
-		NkU32 sampleCount = 1; ///< MSAA (1 = dÃ©sactivÃ©)
+		NkU32 sampleCount = 1; ///< MSAA (1 = dÃƒÂ©sactivÃƒÂ©)
 		/// @brief Enable vertical synchronization.
 		bool vsync = true;
 		/// @brief Enable validation/debug layers when available.
 		bool debug = false; ///< Couche de validation
 
 		/// When true, BeginFrame() automatically resizes the framebuffer if the
-		/// window dimensions have changed since the last frame â€” the application
+		/// window dimensions have changed since the last frame Ã¢â‚¬â€ the application
 		/// does not need to handle NkWindowResizeEvent manually.
 		/// When false, the application calls NkRenderer::Resize() itself.
 		bool autoResizeFramebuffer = true;
@@ -55,7 +55,7 @@ namespace nkentseu {
 	};
 
 	// ---------------------------------------------------------------------------
-	// NkRendererContext - contexte runtime exposÃ© par backend
+	// NkRendererContext - contexte runtime exposÃƒÂ© par backend
 	// ---------------------------------------------------------------------------
 
 	struct NkSoftwareRendererContext {
@@ -149,12 +149,14 @@ namespace nkentseu {
             return reinterpret_cast<void *>(static_cast<std::uintptr_t>(surface.window));
         #elif defined(NKENTSEU_WINDOWING_XLIB)
             return reinterpret_cast<void *>(static_cast<std::uintptr_t>(surface.window));
+        #elif defined(NKENTSEU_WINDOWING_WAYLAND)
+            return static_cast<void *>(surface.surface);
         #elif defined(NKENTSEU_PLATFORM_ANDROID)
             return static_cast<void *>(surface.nativeWindow);
-        #elif defined(NKENTSEU_PLATFORM_WASM)
+        #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
             return const_cast<char *>(surface.canvasId ? surface.canvasId : "#canvas");
         #else
-            return surface.dummy;
+            return nullptr;
         #endif
 	}
 
@@ -172,12 +174,14 @@ namespace nkentseu {
             return static_cast<void *>(surface.connection);
         #elif defined(NKENTSEU_WINDOWING_XLIB)
             return static_cast<void *>(surface.display);
+        #elif defined(NKENTSEU_WINDOWING_WAYLAND)
+            return static_cast<void *>(surface.display);
         #elif defined(NKENTSEU_PLATFORM_ANDROID)
             return static_cast<void *>(surface.nativeWindow);
-        #elif defined(NKENTSEU_PLATFORM_WASM)
+        #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
             return const_cast<char *>(surface.canvasId ? surface.canvasId : "#canvas");
         #else
-            return surface.dummy;
+            return nullptr;
         #endif
 	}
 

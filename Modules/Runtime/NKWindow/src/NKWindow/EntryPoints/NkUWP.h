@@ -51,16 +51,16 @@ namespace nkentseu {
     namespace {
         inline int gUwpExitCode = 0;
 
-        static std::vector<std::string> NkBuildUtf8ArgsFromCommandLine() {
+        static NkVector<NkString> NkBuildUtf8ArgsFromCommandLine() {
             int argc = 0;
             LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
-            std::vector<std::string> args;
+            NkVector<NkString> args;
             args.reserve(static_cast<std::size_t>(argc));
 
             for (int i = 0; i < argc; ++i) {
                 int sz = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
-                std::string s(static_cast<std::size_t>(sz), '\0');
+                NkString s(static_cast<std::size_t>(sz), '\0');
                 WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), sz, nullptr, nullptr);
                 if (!s.empty() && s.back() == '\0') s.pop_back();
                 args.push_back(std::move(s));
@@ -72,7 +72,7 @@ namespace nkentseu {
     } // namespace
 
 #if NKENTSEU_UWP_HAS_WINRT
-    inline winrt::Windows::UI::Core::CoreWindow gCoreWindow{nullptr};
+    inline winrt::Windows::UI::CoreWindow gCoreWindow{nullptr};
     inline void *gCoreWindowOpaque = nullptr;
 
     inline bool NkUWPIsCoreWindowReady() {
@@ -85,17 +85,17 @@ namespace nkentseu {
 
     inline void NkUWPPumpSystemEvents() {
         if (!gCoreWindow) return;
-        using winrt::Windows::UI::Core::CoreProcessEventsOption;
+        using winrt::Windows::UI::CoreProcessEventsOption;
         gCoreWindow.Dispatcher().ProcessEvents(CoreProcessEventsOption::ProcessAllIfPresent);
     }
 
     #if !defined(NKENTSEU_UWP_RUNTIME_ONLY)
-    struct NkUWPView final : winrt::implements<NkUWPView, winrt::Windows::ApplicationModel::Core::IFrameworkView> {
-        void Initialize(const winrt::Windows::ApplicationModel::Core::CoreApplicationView &) {}
+    struct NkUWPView final : winrt::implements<NkUWPView, winrt::Windows::ApplicationModel::IFrameworkView> {
+        void Initialize(const winrt::Windows::ApplicationModel::CoreApplicationView &) {}
         void Load(const winrt::hstring &) {}
         void Uninitialize() {}
 
-        void SetWindow(const winrt::Windows::UI::Core::CoreWindow &window) {
+        void SetWindow(const winrt::Windows::UI::CoreWindow &window) {
             gCoreWindow = window;
             gCoreWindowOpaque = winrt::get_abi(gCoreWindow);
         }
@@ -105,7 +105,7 @@ namespace nkentseu {
                 gCoreWindow.Activate();
             }
 
-            std::vector<std::string> args = NkBuildUtf8ArgsFromCommandLine();
+            NkVector<NkString> args = NkBuildUtf8ArgsFromCommandLine();
             NkEntryState state(args, gCoreWindowOpaque);
             state.appName = NK_APP_NAME;
             gState = &state;
@@ -113,13 +113,13 @@ namespace nkentseu {
             gUwpExitCode = nkmain(state);
             gState = nullptr;
 
-            winrt::Windows::ApplicationModel::Core::CoreApplication::Exit();
+            winrt::Windows::ApplicationModel::CoreApplication::Exit();
         }
     };
 
     struct NkUWPViewSource final
-        : winrt::implements<NkUWPViewSource, winrt::Windows::ApplicationModel::Core::IFrameworkViewSource> {
-        winrt::Windows::ApplicationModel::Core::IFrameworkView CreateView() {
+        : winrt::implements<NkUWPViewSource, winrt::Windows::ApplicationModel::IFrameworkViewSource> {
+        winrt::Windows::ApplicationModel::IFrameworkView CreateView() {
             return winrt::make<NkUWPView>();
         }
     };
@@ -127,7 +127,7 @@ namespace nkentseu {
     [MTAThread]
     int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         winrt::init_apartment(winrt::apartment_type::single_threaded);
-        winrt::Windows::ApplicationModel::Core::CoreApplication::Run(winrt::make<NkUWPViewSource>());
+        winrt::Windows::ApplicationModel::CoreApplication::Run(winrt::make<NkUWPViewSource>());
         return gUwpExitCode;
     }
     #endif // !NKENTSEU_UWP_RUNTIME_ONLY
@@ -140,7 +140,7 @@ namespace nkentseu {
 
     #if !defined(NKENTSEU_UWP_RUNTIME_ONLY)
     int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-        std::vector<std::string> args = NkBuildUtf8ArgsFromCommandLine();
+        NkVector<NkString> args = NkBuildUtf8ArgsFromCommandLine();
         NkEntryState state(args, nullptr);
         state.appName = NK_APP_NAME;
         gState = &state;

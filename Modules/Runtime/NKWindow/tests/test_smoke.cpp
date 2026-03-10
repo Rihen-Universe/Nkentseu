@@ -40,7 +40,7 @@
 // 			mQueue.pop();
 // 	}
 
-// 	bool IsEmpty() const override {
+// 	bool Empty() const override {
 // 		return mQueue.empty();
 // 	}
 // 	void PushEvent(const nkentseu::NkEvent &event) override {
@@ -120,10 +120,10 @@
 // 	ASSERT_NOT_NULL(src.dropText);
 // 	ASSERT_NOT_NULL(copy.dropText);
 // 	ASSERT_NOT_EQUAL(src.dropText, copy.dropText);
-// 	ASSERT_EQUAL(std::string("hello"), copy.dropText->text);
+// 	ASSERT_EQUAL(NkString("hello"), copy.dropText->text);
 
 // 	src.dropText->text = "changed";
-// 	ASSERT_EQUAL(std::string("hello"), copy.dropText->text);
+// 	ASSERT_EQUAL(NkString("hello"), copy.dropText->text);
 // }
 
 // TEST_CASE(NKWindowEvent, DropTextPointerCtorClonesPayload) {
@@ -134,7 +134,7 @@
 // 	nkentseu::NkEvent ev(&d);
 // 	ASSERT_NOT_NULL(ev.dropText);
 // 	ASSERT_NOT_EQUAL(&d, ev.dropText);
-// 	ASSERT_EQUAL(std::string("payload"), ev.dropText->text);
+// 	ASSERT_EQUAL(NkString("payload"), ev.dropText->text);
 // }
 
 // TEST_CASE(NKWindowEventSystem, PollEventsIsCallbackOnly) {

@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "NkBinaryStream.h"
+#include "NKStream/NkBinaryStream.h"
 
 namespace nkentseu
 {

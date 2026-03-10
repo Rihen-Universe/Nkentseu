@@ -15,6 +15,28 @@ Le point d'entrÃ©e natif est abstrait par NkEntry.h / NkMain.h.
 
 from Jenga import *
 from Jenga.Core.Api import androidallowrotation
+import shutil
+import subprocess
+
+def _pkg_exists(pkg_name: str) -> bool:
+    if not shutil.which("pkg-config"):
+        return False
+    try:
+        return subprocess.call(
+            ["pkg-config", "--exists", pkg_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+_WAYLAND_LINKS = ["pthread", "wayland-client", "xkbcommon", "wayland-cursor"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "xkbcommon"]
+_WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
+if _pkg_exists("libdecor-0"):
+    _WAYLAND_LINKS.append("decor-0")
+    _WAYLAND_TEST_LINKS.append("decor-0")
+    _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: str, needs_camera: bool = False):
     with project(project_name):
@@ -31,30 +53,27 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             "src",
             "%{wks.location}/Externals",
             "%{NKWindow.location}/src",
-            "%{NKWindow.location}/src/NKWindow",
             "%{NKRenderer.location}/src",
-            "%{NKRenderer.location}/src/NKRenderer",
             "%{NKLogger.location}/src",
-            "%{NKLogger.location}/src/NKLogger",
             "%{NKCore.location}/src",
-            "%{NKCore.location}/src/NKCore",
             "%{NKPlatform.location}/src",
-            "%{NKPlatform.location}/src/NKPlatform",
             "%{NKMath.location}/src",
-            "%{NKMath.location}/src/NKMath",
             "%{NKTime.location}/src",
-            "%{NKTime.location}/src/NKTime",
             "%{NKStream.location}/src",
-            "%{NKStream.location}/src/NKStream",
             "%{NKMemory.location}/src",
-            "%{NKMemory.location}/src/NKMemory",
+            "%{NKContainers.location}/src",
         ])
 
-
-        links(["NKWindow", "NKRenderer", "NKLogger", "NKCore", "NKPlatform",
-            "NKMath", "NKTime", "NKStream", "NKMemory"])
-        dependson(["NKWindow", "NKRenderer", "NKLogger", "NKCore", "NKPlatform",
-                "NKMath", "NKTime", "NKStream", "NKMemory"])
+        links([
+            "NKWindow", "NKRenderer", "NKLogger",
+            "NKMath", "NKTime", "NKStream",
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform"
+        ])
+        dependson([
+            "NKWindow", "NKRenderer", "NKLogger",
+            "NKMath", "NKTime", "NKStream",
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform"
+        ])
 
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
         targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -104,15 +123,20 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         with filter("system:Linux && options:linux-backend=xcb"):
             windowedapp()
             usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
             defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
-            links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
+            links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+            ldflags(["-fuse-ld=lld"])
 
         # ===== Linux Wayland ==========================================================
         with filter("system:Linux && options:linux-backend=wayland"):
             windowedapp()
             usetoolchain("clang-native")
-            defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
-            links(["pthread", "wayland-client", "xkbcommon"])
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            defines(_WAYLAND_DEFINES)
+            links(_WAYLAND_LINKS)
 
         # ===== macOS ==================================================================
         with filter("system:macOS"):
@@ -132,6 +156,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
             androidnativeactivity(True)
             androidallowrotation(True)
+            androidstl("c++_shared")
             if needs_camera:
                 androidpermissions([
                     "android.permission.CAMERA",
@@ -141,7 +166,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         with filter("system:iOS"):
             windowedapp()
             frameworks(["UIKit", "QuartzCore", "OpenGLES"])
-            iosbundleid("com.nkentseu.sandbox")
+            iosbundleid(f"com.nkentseu.{app_id_suffix}")
             iosversion("1.0")
             iosminsdk("14.0")
             iosbuildnumber(1)
@@ -152,7 +177,18 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             usetoolchain("emscripten")
             emscriptencanvasid("canvas")
             emscripteninitialmemory(32)
-            emscriptenextraflags(["-s", "ASYNCIFY"])
+            emscriptenextraflags([
+                "-s", "ASYNCIFY",
+                "-s", "DYNAMIC_EXECUTION",
+                "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap']",
+                "-s", "INITIAL_MEMORY=67108864",
+                "-s", "ALLOW_MEMORY_GROWTH=1",
+                "-s", "FULL_ES3=1",
+                "-s", "USE_WEBGL2=1",
+                "-s", "ASSERTIONS=1",
+                "-s", "NO_EXIT_RUNTIME=1",
+                "-s", "SAFE_HEAP=1",
+            ])
 
         # ===== HarmonyOS ==============================================================
         with filter("system:HarmonyOS"):
@@ -175,9 +211,24 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             symbols(False)
 
         # Tests unitaires/benchmarks (desktop uniquement)
-        with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
             with test():
                 testfiles(["tests/**.cpp"])
+                with filter("system:Linux && options:linux-backend=wayland"):
+                    defines(_WAYLAND_DEFINES)
+                    links(_WAYLAND_TEST_LINKS)
+                with filter("system:Linux && options:linux-backend=xcb"):
+                    defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+                    links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+                with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+                    defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+                    links(["pthread", "X11"])
+                with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                    links([
+                        "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                        "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                        "uuid", "ole32", "dinput8", "dxguid"
+                    ])
 
 configure_sandbox_app("Sandbox", "src/main.cpp", "sandbox")
 configure_sandbox_app("SandboxDBase", "src/main1.cpp", "sandbox.base")

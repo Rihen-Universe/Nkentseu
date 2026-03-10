@@ -11,7 +11,7 @@ namespace nkentseu {
 
 struct NkWindowData {
     void*       mNativeHandle = nullptr;
-    std::string mTitle;
+    NkString mTitle;
     NkU32       mWidth        = 0;
     NkU32       mHeight       = 0;
     bool        mVisible      = false;

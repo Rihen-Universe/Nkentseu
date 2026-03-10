@@ -106,131 +106,127 @@ namespace nkentseu {
     // NkActionManager — portage d'ActionManager
     // =========================================================================
 
-    void NkActionManager::CreateAction(const std::string& name, NkActionSubscriber handler) {
-        if (mActions.count(name)) return;  // déjà existant
+    void NkActionManager::CreateAction(const NkString& name, NkActionSubscriber handler) {
+        if (mActions.Contains(name)) return;
         mActions[name] = std::move(handler);
     }
 
     void NkActionManager::AddCommand(const NkActionCommand& cmd) {
-        const std::string& name = cmd.GetName();
-        if (!mActions.count(name)) return;  // action inexistante
+        const NkString& name = cmd.GetName();
+        if (!mActions.Contains(name)) return;
 
         auto& cmds = mCommands[name];
         for (const auto& c : cmds)
-            if (c == cmd) return;  // doublon
-        cmds.push_back(cmd);
+            if (c == cmd) return;
+        cmds.PushBack(cmd);
     }
 
-    void NkActionManager::RemoveAction(const std::string& name) {
-        mActions.erase(name);
-        mCommands.erase(name);
+    void NkActionManager::RemoveAction(const NkString& name) {
+        mActions.Erase(name);
+        mCommands.Erase(name);
     }
 
     void NkActionManager::RemoveCommand(const NkActionCommand& cmd) {
-        auto it = mCommands.find(cmd.GetName());
-        if (it == mCommands.end()) return;
-        auto& v = it->second;
-        v.erase(std::remove(v.begin(), v.end(), cmd), v.end());
+        NkVector<NkActionCommand>* v = mCommands.Find(cmd.GetName());
+        if (!v) return;
+        v->Erase(std::remove(v->begin(), v->end(), cmd), v->end());
     }
 
     void NkActionManager::TriggerAction(const NkInputCode& code, bool isPressed) {
-        for (auto& [name, cmds] : mCommands)
+        mCommands.ForEach([&](const NkString& name, NkVector<NkActionCommand>& cmds) {
             for (auto& cmd : cmds)
                 if (cmd.GetCode() == code)
                     FireAction(name, code, isPressed, cmd);
+        });
     }
 
-    void NkActionManager::FireAction(const std::string& name,
+    void NkActionManager::FireAction(const NkString& name,
                                       const NkInputCode& code,
                                       bool isPressed,
                                       NkActionCommand& cmd)
     {
-        // Portage exact de ActionManager::CheckEventStatus
         if (isPressed) {
             if (cmd.IsRepeatable() || !cmd.IsPrivateRepeatable()) {
-                auto it = mActions.find(name);
-                if (it != mActions.end() && it->second)
-                    it->second(name, code, true, !cmd.IsPrivateRepeatable());
+                NkActionSubscriber* sub = mActions.Find(name);
+                if (sub && *sub)
+                    (*sub)(name, code, true, !cmd.IsPrivateRepeatable());
                 cmd.SetPrivateRepeatable(true);
             }
         } else {
             cmd.SetPrivateRepeatable(false);
-            auto it = mActions.find(name);
-            if (it != mActions.end() && it->second)
-                it->second(name, code, false, false);
+            NkActionSubscriber* sub = mActions.Find(name);
+            if (sub && *sub)
+                (*sub)(name, code, false, false);
         }
     }
 
     NkU64 NkActionManager::GetCommandCount() const noexcept {
         NkU64 n = 0;
-        for (const auto& [name, cmds] : mCommands) n += cmds.size();
+        mCommands.ForEach([&](const NkString&, const NkVector<NkActionCommand>& cmds) { n += cmds.Size(); });
         return n;
     }
 
-    NkU64 NkActionManager::GetCommandCount(const std::string& name) const noexcept {
-        auto it = mCommands.find(name);
-        return it != mCommands.end() ? static_cast<NkU64>(it->second.size()) : 0u;
+    NkU64 NkActionManager::GetCommandCount(const NkString& name) const noexcept {
+        const NkVector<NkActionCommand>* v = mCommands.Find(name);
+        return v ? static_cast<NkU64>(v->Size()) : 0u;
     }
 
     // =========================================================================
     // NkAxisManager — portage d'AxisManager
     // =========================================================================
 
-    void NkAxisManager::CreateAxis(const std::string& name, NkAxisSubscriber handler) {
-        if (mAxes.count(name)) return;
+    void NkAxisManager::CreateAxis(const NkString& name, NkAxisSubscriber handler) {
+        if (mAxes.Contains(name)) return;
         mAxes[name] = std::move(handler);
     }
 
     void NkAxisManager::AddCommand(const NkAxisCommand& cmd) {
-        if (!mAxes.count(cmd.GetName())) return;
+        if (!mAxes.Contains(cmd.GetName())) return;
         auto& cmds = mCommands[cmd.GetName()];
         for (const auto& c : cmds)
             if (c == cmd) return;
-        cmds.push_back(cmd);
+        cmds.PushBack(cmd);
     }
 
-    void NkAxisManager::RemoveAxis(const std::string& name) {
-        mAxes.erase(name);
-        mCommands.erase(name);
+    void NkAxisManager::RemoveAxis(const NkString& name) {
+        mAxes.Erase(name);
+        mCommands.Erase(name);
     }
 
     void NkAxisManager::RemoveCommand(const NkAxisCommand& cmd) {
-        auto it = mCommands.find(cmd.GetName());
-        if (it == mCommands.end()) return;
-        auto& v = it->second;
-        v.erase(std::remove(v.begin(), v.end(), cmd), v.end());
+        NkVector<NkAxisCommand>* v = mCommands.Find(cmd.GetName());
+        if (!v) return;
+        v->Erase(std::remove(v->begin(), v->end(), cmd), v->end());
     }
 
     void NkAxisManager::UpdateAxes(const NkAxisResolver& resolver) {
-        // Portage exact d'AxisManager::UpdateAxis
-        for (auto& [name, cmds] : mCommands) {
+        mCommands.ForEach([&](const NkString& name, NkVector<NkAxisCommand>& cmds) {
             for (const auto& cmd : cmds) {
                 float raw   = resolver(cmd.GetCode().device, cmd.GetCode().code);
                 float value = raw * cmd.GetScale();
                 if (std::abs(value) >= cmd.GetMinInterval())
                     FireAxis(name, cmd, value);
             }
-        }
+        });
     }
 
-    void NkAxisManager::FireAxis(const std::string& name,
+    void NkAxisManager::FireAxis(const NkString& name,
                                   const NkAxisCommand& cmd, float value)
     {
-        // Portage de AxisManager::CheckEventStatus
-        auto it = mAxes.find(name);
-        if (it != mAxes.end() && it->second)
-            it->second(name, cmd.GetCode(), value);
+        NkAxisSubscriber* sub = mAxes.Find(name);
+        if (sub && *sub)
+            (*sub)(name, cmd.GetCode(), value);
     }
 
     NkU64 NkAxisManager::GetCommandCount() const noexcept {
         NkU64 n = 0;
-        for (const auto& [name, cmds] : mCommands) n += cmds.size();
+        mCommands.ForEach([&](const NkString&, const NkVector<NkAxisCommand>& cmds) { n += cmds.Size(); });
         return n;
     }
 
-    NkU64 NkAxisManager::GetCommandCount(const std::string& name) const noexcept {
-        auto it = mCommands.find(name);
-        return it != mCommands.end() ? static_cast<NkU64>(it->second.size()) : 0u;
+    NkU64 NkAxisManager::GetCommandCount(const NkString& name) const noexcept {
+        const NkVector<NkAxisCommand>* v = mCommands.Find(name);
+        return v ? static_cast<NkU64>(v->Size()) : 0u;
     }
 
 } // namespace nkentseu

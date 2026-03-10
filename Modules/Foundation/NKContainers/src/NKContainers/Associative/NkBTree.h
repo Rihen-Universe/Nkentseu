@@ -18,7 +18,7 @@
 #include "NKCore/Assert/NkAssert.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief B-Tree - Self-balancing multi-way tree
@@ -198,11 +198,11 @@ namespace nkentseu {
             
         public:
             // Constructors
-            explicit NkBTree(usize order = 3)
+            explicit NkBTree(usize order = 3, Allocator* allocator = nullptr)
                 : mRoot(nullptr)
                 , mOrder(order < 3 ? 3 : order)
                 , mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 NK_ASSERT(order >= 3);
                 mRoot = CreateNode(true);
             }
@@ -231,10 +231,10 @@ namespace nkentseu {
             
             // Capacity
             usize Size() const NK_NOEXCEPT { return mSize; }
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKBTREE_H_INCLUDED

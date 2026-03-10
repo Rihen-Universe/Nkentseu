@@ -17,11 +17,20 @@
 #define NKENTSEU_THREADING_NKMUTEX_H_INCLUDED
 
 #include "NKCore/NkTypes.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include "NKThreading/NkThreadingExport.h"
 
-#include <mutex>
-#include <thread>
-#include <chrono>
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #include <windows.h>
+#else
+    #include <errno.h>
+    #include <pthread.h>
+    #include <sched.h>
+    #include <time.h>
+#endif
 
 namespace nkentseu {
 namespace threading {
@@ -29,7 +38,7 @@ namespace threading {
     /**
      * @brief Standard OS mutex (pas re-entrant)
      * 
-     * Utilise la classe std::mutex du système d'exploitation
+     * Utilise les primitives natives du système d'exploitation
      * pour une synchronisation robuste entre threads.
      * 
      * **Utiliser pour:** I/O, opérations longues, ressources partagées
@@ -48,8 +57,22 @@ namespace threading {
         // CONSTRUCTEUR/DESTRUCTEUR
         // ==============================================
         
-        NkMutex() noexcept = default;
-        ~NkMutex() = default;
+        NkMutex() noexcept
+            : mInitialized(true) {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            InitializeSRWLock(&mMutex);
+#else
+            mInitialized = (pthread_mutex_init(&mMutex, nullptr) == 0);
+#endif
+        }
+        
+        ~NkMutex() {
+#if !defined(NKENTSEU_PLATFORM_WINDOWS)
+            if (mInitialized) {
+                pthread_mutex_destroy(&mMutex);
+            }
+#endif
+        }
         
         // Non-copiable, non-movable
         NkMutex(const NkMutex&) = delete;
@@ -63,7 +86,14 @@ namespace threading {
          * @brief Verrouille le mutex (bloquant)
          */
         void Lock() noexcept {
-            mMutex.lock();
+            if (!mInitialized) {
+                return;
+            }
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            AcquireSRWLockExclusive(&mMutex);
+#else
+            (void)pthread_mutex_lock(&mMutex);
+#endif
         }
         
         /**
@@ -71,14 +101,28 @@ namespace threading {
          * @return true si verrouillé, false sinon
          */
         [[nodiscard]] nk_bool TryLock() noexcept {
-            return mMutex.try_lock();
+            if (!mInitialized) {
+                return false;
+            }
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            return TryAcquireSRWLockExclusive(&mMutex) ? true : false;
+#else
+            return pthread_mutex_trylock(&mMutex) == 0;
+#endif
         }
         
         /**
          * @brief Déverrouille le mutex
          */
         void Unlock() noexcept {
-            mMutex.unlock();
+            if (!mInitialized) {
+                return;
+            }
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            ReleaseSRWLockExclusive(&mMutex);
+#else
+            (void)pthread_mutex_unlock(&mMutex);
+#endif
         }
         
         /**
@@ -87,22 +131,53 @@ namespace threading {
          * @return true si verrouillé, false si timeout
          */
         [[nodiscard]] nk_bool TryLockFor(nk_uint32 milliseconds) noexcept {
-            const auto deadline = std::chrono::steady_clock::now() +
-                                  std::chrono::milliseconds(milliseconds);
-
-            while (std::chrono::steady_clock::now() < deadline) {
-                if (mMutex.try_lock()) {
+            if (!mInitialized) {
+                return false;
+            }
+            if (milliseconds == 0U) {
+                return TryLock();
+            }
+            const nk_uint64 deadline = GetMonotonicTimeMs() + static_cast<nk_uint64>(milliseconds);
+            do {
+                if (TryLock()) {
                     return true;
                 }
-                std::this_thread::yield();
-            }
+                YieldThread();
+            } while (GetMonotonicTimeMs() < deadline);
+
             return false;
         }
         
     private:
-        std::mutex mMutex;
+        static nk_uint64 GetMonotonicTimeMs() noexcept {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            return static_cast<nk_uint64>(GetTickCount64());
+#else
+            timespec ts{};
+            if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+                return 0;
+            }
+            return static_cast<nk_uint64>(ts.tv_sec) * 1000ULL +
+                   static_cast<nk_uint64>(ts.tv_nsec / 1000000ULL);
+#endif
+        }
+
+        static void YieldThread() noexcept {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            Sleep(0);
+#else
+            sched_yield();
+#endif
+        }
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+        SRWLOCK mMutex;
+#else
+        pthread_mutex_t mMutex;
+#endif
+        nk_bool mInitialized;
         
-        // Pour l'accès au std::mutex dans les condition variables
+        // Pour l'accès au mutex natif dans les condition variables
         friend class NkConditionVariable;
     };
     
@@ -119,26 +194,91 @@ namespace threading {
      */
     class NKTHREADING_API NkRecursiveMutex {
     public:
-        NkRecursiveMutex() noexcept = default;
-        ~NkRecursiveMutex() = default;
+        NkRecursiveMutex() noexcept
+            : mInitialized(true) {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            InitializeCriticalSection(&mMutex);
+#else
+            pthread_mutexattr_t attr{};
+            if (pthread_mutexattr_init(&attr) != 0) {
+                mInitialized = false;
+                return;
+            }
+
+            #if defined(PTHREAD_MUTEX_RECURSIVE)
+                const int recursiveType = PTHREAD_MUTEX_RECURSIVE;
+            #elif defined(PTHREAD_MUTEX_RECURSIVE_NP)
+                const int recursiveType = PTHREAD_MUTEX_RECURSIVE_NP;
+            #else
+                const int recursiveType = PTHREAD_MUTEX_NORMAL;
+            #endif
+
+            if (pthread_mutexattr_settype(&attr, recursiveType) != 0) {
+                (void)pthread_mutexattr_destroy(&attr);
+                mInitialized = false;
+                return;
+            }
+
+            mInitialized = (pthread_mutex_init(&mMutex, &attr) == 0);
+            (void)pthread_mutexattr_destroy(&attr);
+#endif
+        }
+        
+        ~NkRecursiveMutex() {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            if (mInitialized) {
+                DeleteCriticalSection(&mMutex);
+            }
+#else
+            if (mInitialized) {
+                pthread_mutex_destroy(&mMutex);
+            }
+#endif
+        }
         
         NkRecursiveMutex(const NkRecursiveMutex&) = delete;
         NkRecursiveMutex& operator=(const NkRecursiveMutex&) = delete;
         
         void Lock() noexcept {
-            mMutex.lock();
+            if (!mInitialized) {
+                return;
+            }
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            EnterCriticalSection(&mMutex);
+#else
+            (void)pthread_mutex_lock(&mMutex);
+#endif
         }
         
         [[nodiscard]] nk_bool TryLock() noexcept {
-            return mMutex.try_lock();
+            if (!mInitialized) {
+                return false;
+            }
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            return TryEnterCriticalSection(&mMutex) ? true : false;
+#else
+            return pthread_mutex_trylock(&mMutex) == 0;
+#endif
         }
         
         void Unlock() noexcept {
-            mMutex.unlock();
+            if (!mInitialized) {
+                return;
+            }
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+            LeaveCriticalSection(&mMutex);
+#else
+            (void)pthread_mutex_unlock(&mMutex);
+#endif
         }
         
     private:
-        std::recursive_mutex mMutex;
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+        CRITICAL_SECTION mMutex;
+#else
+        pthread_mutex_t mMutex;
+#endif
+        nk_bool mInitialized;
     };
     
     // =======================================================
@@ -168,11 +308,13 @@ namespace threading {
         }
         
         NkScopedLock& operator=(NkScopedLock&& other) noexcept {
-            if (mMutex) {
-                mMutex->Unlock();
+            if (this != &other) {
+                if (mMutex) {
+                    mMutex->Unlock();
+                }
+                mMutex = other.mMutex;
+                other.mMutex = nullptr;
             }
-            mMutex = other.mMutex;
-            other.mMutex = nullptr;
             return *this;
         }
         

@@ -19,7 +19,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Trie - Prefix tree for strings
@@ -105,9 +105,9 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkTrie()
+            explicit NkTrie(Allocator* allocator = nullptr)
                 : mRoot(nullptr)
-                , mAllocator(&memory::NkGetDefaultAllocator())
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
                 , mSize(0) {
                 mRoot = CreateNode();
             }
@@ -193,7 +193,7 @@ namespace nkentseu {
             
             // Capacity
             usize Size() const NK_NOEXCEPT { return mSize; }
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             
             void Clear() {
                 DestroyNode(mRoot);
@@ -202,7 +202,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKTRIE_H_INCLUDED

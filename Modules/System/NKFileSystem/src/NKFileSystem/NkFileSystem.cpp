@@ -5,8 +5,8 @@
 // DATE: 2026-02-10
 // -----------------------------------------------------------------------------
 
-#include "NkFileSystem.h"
-#include "NkDirectory.h"
+#include "NKFileSystem/NkFileSystem.h"
+#include "NKFileSystem/NkDirectory.h"
 #include <cstring>
 #include <cstdlib>
 
@@ -56,8 +56,8 @@ namespace nkentseu {
             , LastWriteTime(0) {
         }
         
-        core::NkVector<NkDriveInfo> NkFileSystem::GetDrives() {
-            core::NkVector<NkDriveInfo> drives;
+        NkVector<NkDriveInfo> NkFileSystem::GetDrives() {
+            NkVector<NkDriveInfo> drives;
             
             #ifdef _WIN32
             DWORD driveMask = GetLogicalDrives();
@@ -139,7 +139,7 @@ namespace nkentseu {
             }
             #else
             auto drives = GetDrives();
-            if (!drives.IsEmpty()) {
+            if (!drives.Empty()) {
                 return drives[0];
             }
             #endif
@@ -332,34 +332,34 @@ namespace nkentseu {
             return NkPath::IsValidPath(path);
         }
         
-        core::NkString NkFileSystem::GetAbsolutePath(const char* path) {
-            if (!path) return core::NkString();
+        NkString NkFileSystem::GetAbsolutePath(const char* path) {
+            if (!path) return NkString();
             
             #ifdef _WIN32
             char buffer[MAX_PATH];
             if (GetFullPathNameA(path, MAX_PATH, buffer, NULL)) {
-                return core::NkString(buffer);
+                return NkString(buffer);
             }
             #else
             char buffer[PATH_MAX];
             if (realpath(path, buffer)) {
-                return core::NkString(buffer);
+                return NkString(buffer);
             }
             #endif
             
-            return core::NkString(path);
+            return NkString(path);
         }
         
-        core::NkString NkFileSystem::GetAbsolutePath(const NkPath& path) {
+        NkString NkFileSystem::GetAbsolutePath(const NkPath& path) {
             return GetAbsolutePath(path.CStr());
         }
         
-        core::NkString NkFileSystem::GetRelativePath(const char* from, const char* to) {
+        NkString NkFileSystem::GetRelativePath(const char* from, const char* to) {
             // Simplified implementation
-            return core::NkString(to);
+            return NkString(to);
         }
         
-        core::NkString NkFileSystem::GetRelativePath(const NkPath& from, const NkPath& to) {
+        NkString NkFileSystem::GetRelativePath(const NkPath& from, const NkPath& to) {
             return GetRelativePath(from.CStr(), to.CStr());
         }
         
@@ -401,22 +401,22 @@ namespace nkentseu {
             return IsSymbolicLink(path.CStr());
         }
         
-        core::NkString NkFileSystem::GetSymbolicLinkTarget(const char* path) {
-            if (!path) return core::NkString();
+        NkString NkFileSystem::GetSymbolicLinkTarget(const char* path) {
+            if (!path) return NkString();
             
             #ifndef _WIN32
             char buffer[PATH_MAX];
             ssize_t len = readlink(path, buffer, sizeof(buffer) - 1);
             if (len > 0) {
                 buffer[len] = '\0';
-                return core::NkString(buffer);
+                return NkString(buffer);
             }
             #endif
             
-            return core::NkString();
+            return NkString();
         }
         
-        core::NkString NkFileSystem::GetSymbolicLinkTarget(const NkPath& path) {
+        NkString NkFileSystem::GetSymbolicLinkTarget(const NkPath& path) {
             return GetSymbolicLinkTarget(path.CStr());
         }
         

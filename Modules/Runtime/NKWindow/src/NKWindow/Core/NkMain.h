@@ -2,9 +2,9 @@
 
 // =============================================================================
 // NkMain.h
-// Inclut automatiquement le point d'entrée natif de la plateforme courante.
+// Inclut automatiquement le point d'entrÃ©e natif de la plateforme courante.
 //
-// À inclure UNE SEULE FOIS dans le fichier source qui implémente nkmain().
+// Ã€ inclure UNE SEULE FOIS dans le fichier source qui implÃ©mente nkmain().
 //
 // Exemple :
 //   #include <NkentseuWindow/Core/NkMain.h>
@@ -17,7 +17,7 @@
 //   }
 // =============================================================================
 
-#include "NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include "NkEntry.h"
 
 #if defined(NKENTSEU_PLATFORM_UWP)
@@ -50,8 +50,8 @@
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
 #include "NKWindow/EntryPoints/NkAndroid.h"
 
-#elif defined(NKENTSEU_PLATFORM_WEB) || defined(__EMSCRIPTEN__)
-#include "NKWindow/EntryPoints/NkWasm.h"
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#include "NKWindow/EntryPoints/NkEmscripten.h"
 
 #else
 #include "NKWindow/EntryPoints/NkNoob.h"

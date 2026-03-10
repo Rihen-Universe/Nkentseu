@@ -15,7 +15,7 @@
 #include "NKCore/NkInline.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace encoding {
             
             /**
@@ -56,7 +56,7 @@ namespace nkentseu {
             NKENTSEU_CORE_API bool NkIsValidUTF32(const uint32* str, usize length);
             
         } // namespace encoding
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif

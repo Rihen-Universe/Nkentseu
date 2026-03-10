@@ -8,7 +8,11 @@
 #pragma once
 
 #include "NKLogger/Sinks/NkFileSink.h"
-#include <chrono>
+
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+
+#include <ctime>
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -32,7 +36,7 @@ namespace nkentseu {
 			 * @param minute Minute de rotation (0-59)
 			 * @param maxDays Nombre maximum de jours à conserver (0 = illimité)
 			 */
-			NkDailyFileSink(const std::string &filename, int hour = 0, int minute = 0, core::usize maxDays = 0);
+			NkDailyFileSink(const NkString &filename, int hour = 0, int minute = 0, usize maxDays = 0);
 
 			/**
 			 * @brief Destructeur
@@ -75,13 +79,13 @@ namespace nkentseu {
 			 * @brief Définit le nombre maximum de jours à conserver
 			 * @param maxDays Nombre de jours (0 = illimité)
 			 */
-			void SetMaxDays(core::usize maxDays);
+			void SetMaxDays(usize maxDays);
 
 			/**
 			 * @brief Obtient le nombre maximum de jours à conserver
 			 * @return Nombre de jours
 			 */
-			core::usize GetMaxDays() const;
+			usize GetMaxDays() const;
 
 			/**
 			 * @brief Force la rotation du fichier
@@ -114,21 +118,21 @@ namespace nkentseu {
 			 * @param date Date
 			 * @return Nom de fichier
 			 */
-			std::string GetFilenameForDate(const std::tm &date) const;
+			NkString GetFilenameForDate(const tm &date) const;
 
 			/**
 			 * @brief Extrait la date d'un nom de fichier
 			 * @param filename Nom de fichier
 			 * @return Structure tm avec la date
 			 */
-			std::tm ExtractDateFromFilename(const std::string &filename) const;
+			tm ExtractDateFromFilename(const NkString &filename) const;
 
 			/**
 			 * @brief Vérifie si une date est plus ancienne que maxDays
 			 * @param date Date à vérifier
 			 * @return true si trop ancienne, false sinon
 			 */
-			bool IsDateTooOld(const std::tm &date) const;
+			bool IsDateTooOld(const tm &date) const;
 
 			// ---------------------------------------------------------------------
 			// VARIABLES MEMBRE PRIVÉES
@@ -141,13 +145,13 @@ namespace nkentseu {
 			int m_RotationMinute;
 
 			/// Nombre maximum de jours à conserver
-			core::usize m_MaxDays;
+			usize m_MaxDays;
 
 			/// Date du fichier courant
-			std::tm m_CurrentDate;
+			tm m_CurrentDate;
 
 			/// Dernière vérification de rotation
-			std::chrono::system_clock::time_point m_LastCheck;
+			uint64 m_LastCheck;
 	};
 
 } // namespace nkentseu

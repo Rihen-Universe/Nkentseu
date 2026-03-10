@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "NkConsoleStream.h"
+#include "NKStream/NkConsoleStream.h"
 
 namespace nkentseu
 {

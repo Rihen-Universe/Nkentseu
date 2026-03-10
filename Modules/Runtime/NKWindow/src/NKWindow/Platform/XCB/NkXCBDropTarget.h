@@ -200,7 +200,7 @@ namespace nkentseu {
                 xcb_flush(mConnection);
             }
 
-            std::string ReadProperty(xcb_atom_t property) const {
+            NkString ReadProperty(xcb_atom_t property) const {
                 xcb_get_property_cookie_t cookie = xcb_get_property(
                     mConnection,
                     1,
@@ -218,18 +218,20 @@ namespace nkentseu {
                 const int len = xcb_get_property_value_length(reply);
                 const char* bytes = static_cast<const char*>(xcb_get_property_value(reply));
 
-                std::string out;
+                NkString out;
                 if (bytes && len > 0) {
-                    out.assign(bytes, bytes + len);
+                    std::string tmp(bytes, static_cast<std::size_t>(len));
+                    out = NkString(tmp.c_str());
                 }
 
                 std::free(reply);
                 return out;
             }
 
-            static std::vector<std::string> ParseUriList(const std::string& raw) {
-                std::vector<std::string> paths;
-                std::istringstream ss(raw);
+            static NkVector<NkString> ParseUriList(const NkString& raw) {
+                // Use std::string internally for parsing (std::getline / istringstream)
+                NkVector<NkString> paths;
+                std::istringstream ss(raw.CStr());
                 std::string line;
 
                 while (std::getline(ss, line)) {
@@ -258,7 +260,7 @@ namespace nkentseu {
                         }
                     }
 
-                    paths.push_back(std::move(decoded));
+                    paths.PushBack(NkString(decoded.c_str()));
                 }
 
                 return paths;
@@ -351,10 +353,10 @@ namespace nkentseu {
                 return;
             }
 
-            const std::string payload = ReadProperty(ev.property);
+            const NkString payload = ReadProperty(ev.property);
 
             if (ev.target == aUriList) {
-                const std::vector<std::string> paths = ParseUriList(payload);
+                const NkVector<NkString> paths = ParseUriList(payload);
                 if (!paths.empty()) {
                     NkDropFileData data{};
                     data.x = mDragX;

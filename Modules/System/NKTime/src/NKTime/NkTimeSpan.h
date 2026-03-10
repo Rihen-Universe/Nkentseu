@@ -1,99 +1,124 @@
-/**
-* @File NkTimeSpan.h
-* @Description Représente une durée temporelle avec précision nanoseconde
-* @Author TEUGUIA TADJUIDJE Rodolf Séderis
-* @Date 2025-01-05
-* @License Rihen
-*/
-
 #pragma once
+/**
+ * @File    NkTimeSpan.h
+ * @Brief   Durée signée avec décomposition calendaire — sans dépendance STL.
+ * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
+ * @License Apache-2.0
+ *
+ * @Design
+ *  NkTimeSpan représente une durée signée de plusieurs jours, heures, minutes,
+ *  secondes et nanosecondes. Analogue à .NET System.TimeSpan.
+ *  Stockage : un unique int64 en nanosecondes (source de vérité).
+ *
+ *  Distinction NkTimeSpan / NkDuration :
+ *    NkTimeSpan : durée signée avec GetDays/Hours/... et GetDate/GetTime.
+ *                 Usage : intervalles calendaires, différence entre deux dates.
+ *    NkDuration : durée simple pour API (Sleep, timeout, période de timer).
+ *                 Usage : NkChrono::Sleep(NkDuration::FromMilliseconds(16)).
+ *
+ *  GetDays/GetHours/... retournent les composants DÉCOMPOSÉS (pas les totaux) :
+ *    NkTimeSpan::FromHours(25).GetDays()  == 1
+ *    NkTimeSpan::FromHours(25).GetHours() == 1  (pas 25)
+ */
 
-#include "NkTimeExport.h"
-#include "NkPlatformDetect.h"
-#include "NkTypes.h"
-#include "NkTime.h"
-#include "NkDate.h"
-#include <chrono>
-#include <ctime>
-#include <string>
+#include "NKTime/NkTimeExport.h"
+#include "NKTime/NkTimeConstants.h"
+#include "NKTime/NkTimes.h"
+#include "NKTime/NkDate.h"
+#include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
 
-    /**
-    * - NkTimeSpan : Durée temporelle signée avec composants détaillés
-    *
-    * @Description :
-    * Représente une intervalle de temps pouvant être positive ou négative.
-    * Gère les conversions entre différentes unités et les opérations arithmétiques.
-    *
-    * @Members :
-    * - (int64) mTotalNanoseconds : Durée totale en nanosecondes
-    */
-    class NKTIME_API NkTimeSpan {
-    public:
-        /// @Region: Constructeurs -------------------------------------------------
-        NkTimeSpan() noexcept;
-        NkTimeSpan(int64 days, int64 hours, int64 minutes, int64 seconds,
-                int64 milliseconds = 0, int64 nanoseconds = 0);
-        explicit NkTimeSpan(int64 totalNanoseconds) noexcept {
-            mTotalNanoseconds = totalNanoseconds;
-        }
+    class NKENTSEU_TIME_API NkTimeSpan {
+        public:
 
-        /// @Region: Factory methods -----------------------------------------------
-        static NkTimeSpan FromDays(int64 days) noexcept;
-        static NkTimeSpan FromHours(int64 hours) noexcept;
-        static NkTimeSpan FromMinutes(int64 minutes) noexcept;
-        static NkTimeSpan FromSeconds(int64 seconds) noexcept;
-        static NkTimeSpan FromMilliseconds(int64 milliseconds) noexcept;
-        static NkTimeSpan FromNanoseconds(int64 nanoseconds) noexcept;
+            // ── Constructeurs ────────────────────────────────────────────────────
 
-        /// @Region: Composants temporels ------------------------------------------
-        int64 GetDays() const noexcept;
-        int64 GetHours() const noexcept;
-        int64 GetMinutes() const noexcept;
-        int64 GetSeconds() const noexcept;
-        int64 GetMilliseconds() const noexcept;
-        int64 GetNanoseconds() const noexcept;
+            NkTimeSpan() noexcept;
 
-        /// @Region: Opérations mathématiques --------------------------------------
-        NkTimeSpan& Add(const NkTimeSpan& other) noexcept;
-        NkTimeSpan& Subtract(const NkTimeSpan& other) noexcept;
-        NkTimeSpan& Multiply(double factor) noexcept;
-        NkTimeSpan& Divide(double divisor) noexcept;
+            /**
+             * @param days         Peut être négatif.
+             * @param hours        [0-23] supplémentaires
+             * @param minutes      [0-59] supplémentaires
+             * @param seconds      [0-59] supplémentaires
+             * @param milliseconds [0-999] supplémentaires
+             * @param nanoseconds  [0-999999] supplémentaires
+             */
+            NkTimeSpan(int64 days, int64 hours, int64 minutes, int64 seconds,
+                    int64 milliseconds = 0, int64 nanoseconds = 0) noexcept;
 
-        /// @Region: Opérateurs ----------------------------------------------------
-        NkTimeSpan operator+(const NkTimeSpan& other) const noexcept;
-        NkTimeSpan operator-(const NkTimeSpan& other) const noexcept;
-        NkTimeSpan operator*(double factor) const noexcept;
-        NkTimeSpan operator/(double divisor) const noexcept;
-        NkTimeSpan& operator+=(const NkTimeSpan& other) noexcept;
-        NkTimeSpan& operator-=(const NkTimeSpan& other) noexcept;
-        NkTimeSpan& operator*=(double factor) noexcept;
-        NkTimeSpan& operator/=(double divisor) noexcept;
+            /// Construit depuis un total de nanosecondes.
+            constexpr explicit NkTimeSpan(int64 totalNanoseconds) noexcept
+                : mTotalNanoseconds(totalNanoseconds) {}
 
-        /// @Region: Comparaisons --------------------------------------------------
-        bool operator==(const NkTimeSpan& other) const noexcept;
-        bool operator!=(const NkTimeSpan& other) const noexcept;
-        bool operator<(const NkTimeSpan& other) const noexcept;
-        bool operator<=(const NkTimeSpan& other) const noexcept;
-        bool operator>(const NkTimeSpan& other) const noexcept;
-        bool operator>=(const NkTimeSpan& other) const noexcept;
+            NkTimeSpan(const NkTimeSpan&)            noexcept = default;
+            NkTimeSpan& operator=(const NkTimeSpan&) noexcept = default;
 
-        NkTime GetTime() const noexcept;
-        NkDate GetDate() const noexcept;
+            // ── Fabriques statiques ──────────────────────────────────────────────
 
-        /// @Region: Conversions ---------------------------------------------------
-        std::string ToString() const;
-        int64 ToNanoseconds() const noexcept { return mTotalNanoseconds; }
-        double ToSeconds() const noexcept;
+            NKTIME_NODISCARD static NkTimeSpan FromDays        (int64 days)         noexcept;
+            NKTIME_NODISCARD static NkTimeSpan FromHours       (int64 hours)        noexcept;
+            NKTIME_NODISCARD static NkTimeSpan FromMinutes     (int64 minutes)      noexcept;
+            NKTIME_NODISCARD static NkTimeSpan FromSeconds     (int64 seconds)      noexcept;
+            NKTIME_NODISCARD static NkTimeSpan FromMilliseconds(int64 milliseconds) noexcept;
+            NKTIME_NODISCARD static NkTimeSpan FromNanoseconds (int64 nanoseconds)  noexcept;
 
-    private:
-        int64 mTotalNanoseconds = 0;
+            // ── Composants décomposés ────────────────────────────────────────────
+
+            NKTIME_NODISCARD int64 GetDays()         const noexcept;
+            NKTIME_NODISCARD int64 GetHours()        const noexcept;
+            NKTIME_NODISCARD int64 GetMinutes()      const noexcept;
+            NKTIME_NODISCARD int64 GetSeconds()      const noexcept;
+            NKTIME_NODISCARD int64 GetMilliseconds() const noexcept;
+            NKTIME_NODISCARD int64 GetNanoseconds()  const noexcept;
+
+            // ── Totaux ───────────────────────────────────────────────────────────
+
+            NKTIME_NODISCARD constexpr int64  ToNanoseconds() const noexcept { return mTotalNanoseconds; }
+            NKTIME_NODISCARD double           ToSeconds()     const noexcept;
+
+            // ── Opérateurs arithmétiques ─────────────────────────────────────────
+
+            NKTIME_NODISCARD NkTimeSpan  operator+ (const NkTimeSpan& o) const noexcept;
+            NKTIME_NODISCARD NkTimeSpan  operator- (const NkTimeSpan& o) const noexcept;
+            NKTIME_NODISCARD NkTimeSpan  operator* (double factor)       const noexcept;
+            NKTIME_NODISCARD NkTimeSpan  operator/ (double divisor)      const noexcept;
+            NkTimeSpan& operator+=(const NkTimeSpan& o)                        noexcept;
+            NkTimeSpan& operator-=(const NkTimeSpan& o)                        noexcept;
+            NkTimeSpan& operator*=(double factor)                               noexcept;
+            NkTimeSpan& operator/=(double divisor)                              noexcept;
+
+            // ── Méthodes nommées (chaînables) ────────────────────────────────────
+
+            NkTimeSpan& Add     (const NkTimeSpan& o) noexcept;
+            NkTimeSpan& Subtract(const NkTimeSpan& o) noexcept;
+            NkTimeSpan& Multiply(double factor)        noexcept;
+            NkTimeSpan& Divide  (double divisor)       noexcept;
+
+            // ── Comparaisons ─────────────────────────────────────────────────────
+
+            NKTIME_NODISCARD bool operator==(const NkTimeSpan& o) const noexcept;
+            NKTIME_NODISCARD bool operator!=(const NkTimeSpan& o) const noexcept;
+            NKTIME_NODISCARD bool operator< (const NkTimeSpan& o) const noexcept;
+            NKTIME_NODISCARD bool operator<=(const NkTimeSpan& o) const noexcept;
+            NKTIME_NODISCARD bool operator> (const NkTimeSpan& o) const noexcept;
+            NKTIME_NODISCARD bool operator>=(const NkTimeSpan& o) const noexcept;
+
+            // ── Extraction calendaire ────────────────────────────────────────────
+
+            /// Partie horaire de la durée (modulo 24h).
+            NKTIME_NODISCARD NkTime GetTime() const noexcept;
+            /// Partie calendaire depuis l'époque Unix (algorithme de Howard Hinnant).
+            NKTIME_NODISCARD NkDate GetDate() const noexcept;
+
+            // ── Formatage ────────────────────────────────────────────────────────
+
+            NKTIME_NODISCARD NkString ToString() const;
+            friend NkString ToString(const NkTimeSpan& ts) { return ts.ToString(); }
+
+        private:
+            int64 mTotalNanoseconds = 0;
     };
 
-}  // namespace nkentseu (fin du namespace)
-
-
-// Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.
-// Toute utilisation, reproduction ou diffusion, sous quelque forme que ce soit, requiert une autorisation préalable de Rihen.
-// © Rihen 2025 - Tous droits réservés.
+} // namespace nkentseu

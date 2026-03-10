@@ -9,7 +9,6 @@
 #pragma once
 
 #include "NKLogger/NkLogger.h"
-#include <memory>
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -38,7 +37,7 @@ namespace nkentseu {
 			 * @param pattern Pattern de formatage (optionnel)
 			 * @param level Niveau de log (optionnel, Info par défaut)
 			 */
-			static void Initialize(const std::string &name = "default", const std::string &pattern = NkFormatter::NK_DETAILED_PATTERN,
+			static void Initialize(const NkString &name = "default", const NkString &pattern = NkFormatter::NK_DETAILED_PATTERN,
 								NkLogLevel level = NkLogLevel::NK_INFO);
 
 			/**
@@ -62,7 +61,7 @@ namespace nkentseu {
 			/**
 			 * @brief Configure le nom du logger (retourne *this pour chaînage)
 			 */
-			NkLog &Named(const std::string &name);
+			NkLog &Named(const NkString &name);
 
 			/**
 			 * @brief Configure le niveau de log (retourne *this pour chaînage)
@@ -72,7 +71,7 @@ namespace nkentseu {
 			/**
 			 * @brief Configure le pattern (retourne *this pour chaînage)
 			 */
-			NkLog &Pattern(const std::string &pattern);
+			NkLog &Pattern(const NkString &pattern);
 
 			virtual NkLog &Source(const char *sourceFile = nullptr, uint32 sourceLine = 0,
 										const char *functionName = nullptr) override;
@@ -85,7 +84,7 @@ namespace nkentseu {
 			/**
 			 * @brief Constructeur privé
 			 */
-			explicit NkLog(const std::string &name = "default");
+			explicit NkLog(const NkString &name = "default");
 
 			/**
 			 * @brief Destructeur privé
@@ -116,5 +115,7 @@ namespace nkentseu {
 // MACRO PRINCIPALE POUR UN USAGE SIMPLIFIÉ
 // -----------------------------------------------------------------------------
 
-/// Macro pour obtenir le logger par défaut avec informations de source
-#define logger nkentseu::NkLog::Instance().Source(__FILE__, __LINE__, __FUNCTION__)
+/// Logger par défaut (sans mutation de source context à chaque appel).
+#define logger nkentseu::NkLog::Instance()
+/// Variante explicite avec source context quand nécessaire.
+#define logger_src nkentseu::NkLog::Instance().Source(__FILE__, __LINE__, __FUNCTION__)

@@ -5,6 +5,10 @@
 // Vidéo: ffmpeg pipe (MP4/H.264) ou écriture RAW si ffmpeg absent
 // =============================================================================
 #include "NKCamera/INkCameraBackend.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKCore/NkAtomic.h"
+#include "NKMath/NKMath.h"
+#include "NKLogger/NkLog.h"
 
 #include <linux/videodev2.h>
 #include <fcntl.h>
@@ -18,7 +22,6 @@
 #include <cstdio>
 #include <cmath>
 #include <thread>
-#include <atomic>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -47,24 +50,24 @@ public:
     // ------------------------------------------------------------------
     // Énumération — scanne /dev/video*
     // ------------------------------------------------------------------
-    std::vector<NkCameraDevice> EnumerateDevices() override
+    NkVector<NkCameraDevice> EnumerateDevices() override
     {
-        std::vector<NkCameraDevice> result;
-        std::vector<std::string> paths;
+        NkVector<NkCameraDevice> result;
+        NkVector<NkString> paths;
         DIR* dir = opendir("/dev");
         if (!dir) return result;
         struct dirent* ent;
         while ((ent = readdir(dir)))
             if (strncmp(ent->d_name,"video",5)==0) {
-                std::string p = "/dev/";  p += ent->d_name;
-                paths.push_back(p);
+                NkString p = "/dev/";  p += ent->d_name;
+                paths.PushBack(p);
             }
         closedir(dir);
         std::sort(paths.begin(), paths.end());
 
         NkU32 idx = 0;
         for (const auto& path : paths) {
-            int fd = open(path.c_str(), O_RDWR|O_NONBLOCK);
+            int fd = open(path.CStr(), O_RDWR|O_NONBLOCK);
             if (fd < 0) continue;
             struct v4l2_capability cap={};
             if (ioctl(fd,VIDIOC_QUERYCAP,&cap)<0
@@ -90,13 +93,13 @@ public:
                     { m.width=fs.discrete.width; m.height=fs.discrete.height; }
                     else { m.width=fs.stepwise.max_width; m.height=fs.stepwise.max_height; }
                     m.fps=30; m.format=NkPixelFormat::NK_PIXEL_YUYV;
-                    if (m.width>0&&m.height>0) dev.modes.push_back(m);
+                    if (m.width>0&&m.height>0) dev.modes.PushBack(m);
                     ++fs.index;
                 }
                 ++fd2.index;
             }
             close(fd);
-            result.push_back(std::move(dev));
+            result.PushBack(std::move(dev));
         }
         return result;
     }
@@ -109,17 +112,17 @@ public:
     // ------------------------------------------------------------------
     bool StartStreaming(const NkCameraConfig& config) override
     {
-        mLastError.clear();
+        mLastError.Clear();
         if (mFd >= 0) StopStreaming();
         auto devs = EnumerateDevices();
-        if (config.deviceIndex >= devs.size())
-        { mLastError="Device index "+std::to_string(config.deviceIndex)+" out of range"; return false; }
+        if (config.deviceIndex >= devs.Size())
+        { mLastError = NkString::Fmtf("Device index %u out of range", config.deviceIndex); return false; }
 
-        const std::string& path = devs[config.deviceIndex].id;
-        mFd = open(path.c_str(), O_RDWR);
+        const NkString& path = devs[config.deviceIndex].id;
+        mFd = open(path.CStr(), O_RDWR);
         if (mFd < 0) { mLastError="Cannot open "+path+": "+strerror(errno); return false; }
 
-        auto failAndCleanup = [&](const std::string& err) -> bool
+        auto failAndCleanup = [&](const NkString& err) -> bool
         {
             mLastError = err;
             for (auto& b : mBufs)
@@ -127,7 +130,7 @@ public:
                 if (b.start && b.start != MAP_FAILED)
                     munmap(b.start, b.length);
             }
-            mBufs.clear();
+            mBufs.Clear();
             if (mFd >= 0) { close(mFd); mFd = -1; }
             return false;
         };
@@ -151,7 +154,7 @@ public:
             }
         }
         if (!formatSet)
-            return failAndCleanup("VIDIOC_S_FMT failed: " + std::string(strerror(errno)));
+            return failAndCleanup("VIDIOC_S_FMT failed: " + NkString(strerror(errno)));
 
         mWidth  = fmt.fmt.pix.width;
         mHeight = fmt.fmt.pix.height;
@@ -174,25 +177,25 @@ public:
         struct v4l2_requestbuffers req={};
         req.count=4; req.type=V4L2_BUF_TYPE_VIDEO_CAPTURE; req.memory=V4L2_MEMORY_MMAP;
         if (ioctl(mFd,VIDIOC_REQBUFS,&req)<0||req.count<2)
-            return failAndCleanup("VIDIOC_REQBUFS failed: " + std::string(strerror(errno)));
+            return failAndCleanup("VIDIOC_REQBUFS failed: " + NkString(strerror(errno)));
 
-        mBufs.resize(req.count);
+        mBufs.Resize(req.count);
         for (NkU32 i=0;i<req.count;++i) {
             struct v4l2_buffer buf={};
             buf.type=V4L2_BUF_TYPE_VIDEO_CAPTURE; buf.memory=V4L2_MEMORY_MMAP; buf.index=i;
             if (ioctl(mFd,VIDIOC_QUERYBUF,&buf)<0)
-                return failAndCleanup("VIDIOC_QUERYBUF failed: " + std::string(strerror(errno)));
+                return failAndCleanup("VIDIOC_QUERYBUF failed: " + NkString(strerror(errno)));
             mBufs[i].length = buf.length;
             mBufs[i].start  = mmap(nullptr,buf.length,PROT_READ|PROT_WRITE, MAP_SHARED,mFd,buf.m.offset);
             if (mBufs[i].start == MAP_FAILED)
-                return failAndCleanup("mmap failed: " + std::string(strerror(errno)));
+                return failAndCleanup("mmap failed: " + NkString(strerror(errno)));
             if (ioctl(mFd,VIDIOC_QBUF,&buf)<0)
-                return failAndCleanup("VIDIOC_QBUF failed: " + std::string(strerror(errno)));
+                return failAndCleanup("VIDIOC_QBUF failed: " + NkString(strerror(errno)));
         }
 
         v4l2_buf_type t=V4L2_BUF_TYPE_VIDEO_CAPTURE;
         if (ioctl(mFd,VIDIOC_STREAMON,&t)<0)
-            return failAndCleanup("VIDIOC_STREAMON failed: " + std::string(strerror(errno)));
+            return failAndCleanup("VIDIOC_STREAMON failed: " + NkString(strerror(errno)));
 
         mRunning = true;
         mState   = NkCameraState::NK_CAM_STATE_STREAMING;
@@ -209,7 +212,7 @@ public:
             v4l2_buf_type t=V4L2_BUF_TYPE_VIDEO_CAPTURE;
             ioctl(mFd,VIDIOC_STREAMOFF,&t);
             for (auto& b:mBufs) if (b.start) munmap(b.start,b.length);
-            mBufs.clear();
+            mBufs.Clear();
             close(mFd); mFd=-1;
         }
         mState = NkCameraState::NK_CAM_STATE_CLOSED;
@@ -230,12 +233,12 @@ public:
         if (!mHasFrame){res.success=false;return false;}
         res.frame=mLastFrame; res.success=true; return true;
     }
-    bool CapturePhotoToFile(const std::string& path) override {
+    bool CapturePhotoToFile(const NkString& path) override {
         NkPhotoCaptureResult r; if (!CapturePhoto(r)) return false;
         // YUYV → RGBA → PPM (portabie, sans dépendance externe)
         auto& f = r.frame;
         NkU32 w=f.width,h=f.height;
-        std::vector<NkU8> rgb(w*h*3);
+        NkVector<NkU8> rgb; rgb.Resize(w*h*3);
         if (f.format==NkPixelFormat::NK_PIXEL_YUYV) {
             for (NkU32 i=0;i<w*h/2;++i) {
                 float y0=(float)f.data[i*4]-16.f,cb=(float)f.data[i*4+1]-128.f;
@@ -250,13 +253,19 @@ public:
             }
         }
         // Écrire PPM (compatible universellement)
-        std::string out = path.empty() ? "photo.ppm" : path;
-        auto dot=out.rfind('.');
-        if (dot!=std::string::npos) out=out.substr(0,dot)+".ppm";
-        FILE* fp=fopen(out.c_str(),"wb");
+        NkString out = path.Empty() ? "photo.ppm" : path;
+        // Find last '.' to replace extension
+        {
+            NkString::SizeType dot = NkString::SizeType(-1);
+            for (NkString::SizeType i = 0; i < out.Size(); ++i)
+                if (out[i] == '.') dot = i;
+            if (dot != NkString::SizeType(-1)) out = out.SubStr(0, dot) + ".ppm";
+            else out += ".ppm";
+        }
+        FILE* fp=fopen(out.CStr(),"wb");
         if (!fp) return false;
         fprintf(fp,"P6\n%d %d\n255\n",(int)w,(int)h);
-        fwrite(rgb.data(),1,rgb.size(),fp);
+        fwrite(rgb.Data(),1,rgb.Size(),fp);
         fclose(fp);
         return true;
     }
@@ -272,7 +281,7 @@ public:
             return false;
         }
 
-        const std::string requestedCodec = ToLowerCopy(config.videoCodec);
+        const NkString requestedCodec = ToLowerCopy(config.videoCodec);
         const bool forceImageSequence = (config.mode == NkVideoRecordConfig::Mode::IMAGE_SEQUENCE_ONLY) ||
                                         (requestedCodec == "images" ||
                                          requestedCodec == "image-sequence" ||
@@ -283,11 +292,11 @@ public:
         // Empêche l'arrêt brutal du process si ffmpeg ferme le pipe (SIGPIPE).
         std::signal(SIGPIPE, SIG_IGN);
 
-        mLastError.clear();
-        mRecordImageDir.clear();
+        mLastError.Clear();
+        mRecordImageDir.Clear();
         mRecordFrameCounter = 0;
 
-        std::string fallbackReason;
+        NkString fallbackReason;
         if (!forceImageSequence)
         {
             if (!FfmpegExists())
@@ -296,8 +305,8 @@ public:
             }
             else
             {
-                const std::string encoder = ResolveVideoEncoder(requestedCodec);
-                if (encoder.empty())
+                const NkString encoder = ResolveVideoEncoder(requestedCodec);
+                if (encoder.Empty())
                 {
                     fallbackReason = "requested video codec unavailable in ffmpeg";
                 }
@@ -310,7 +319,7 @@ public:
                             cmd, sizeof(cmd),
                             "ffmpeg -y -f rawvideo -pix_fmt yuyv422 -s %ux%u -r %u -i - "
                             "-c:v %s \"%s\" 2>/dev/null",
-                            mWidth, mHeight, mFPS, encoder.c_str(), config.outputPath.c_str()
+                            mWidth, mHeight, mFPS, encoder.CStr(), config.outputPath.CStr()
                         );
                     }
                     else
@@ -320,7 +329,7 @@ public:
                             cmd, sizeof(cmd),
                             "ffmpeg -y -f mjpeg -r %u -i - "
                             "-c:v %s \"%s\" 2>/dev/null",
-                            mFPS, encoder.c_str(), config.outputPath.c_str()
+                            mFPS, encoder.CStr(), config.outputPath.CStr()
                         );
                     }
 
@@ -339,7 +348,7 @@ public:
 
         if (!forceImageSequence && !allowImageFallback)
         {
-            mLastError = fallbackReason.empty()
+            mLastError = fallbackReason.Empty()
                        ? "video-only recording requested, but no encoder/path is available"
                        : fallbackReason;
             return false;
@@ -360,7 +369,7 @@ public:
             mFfmpegPipe = nullptr;
         }
         mRecordMode = RecordMode::None;
-        mRecordImageDir.clear();
+        mRecordImageDir.Clear();
         mRecordFrameCounter = 0;
         if (mState==NkCameraState::NK_CAM_STATE_RECORDING)
             mState=NkCameraState::NK_CAM_STATE_STREAMING;
@@ -378,31 +387,31 @@ public:
     bool GetOrientation(NkCameraOrientation& out) override
     {
         // Chercher /sys/bus/iio/devices/iio:device*/in_accel_*
-        static std::string iioPath;
-        if (iioPath.empty()) {
+        static NkString iioPath;
+        if (iioPath.Empty()) {
             DIR* d = opendir("/sys/bus/iio/devices");
             if (d) {
                 struct dirent* e;
                 while ((e=readdir(d))) {
                     if (strncmp(e->d_name,"iio:device",10)==0) {
-                        std::string p = "/sys/bus/iio/devices/";
+                        NkString p = "/sys/bus/iio/devices/";
                         p += e->d_name;
                         // Vérifier si in_accel_x_raw existe
-                        std::string xp = p+"/in_accel_x_raw";
-                        if (access(xp.c_str(),R_OK)==0) { iioPath=p; break; }
+                        NkString xp = p+"/in_accel_x_raw";
+                        if (access(xp.CStr(),R_OK)==0) { iioPath=p; break; }
                     }
                 }
                 closedir(d);
             }
         }
-        if (iioPath.empty()) return false;
+        if (iioPath.Empty()) return false;
 
-        auto readSysfs = [](const std::string& path) -> float {
-            std::ifstream f(path);
+        auto readSysfs = [](const NkString& path) -> float {
+            std::ifstream f(path.CStr());
             float v=0; f>>v; return v;
         };
         auto readScale = [&]() -> float {
-            std::string sp = iioPath+"/in_accel_scale";
+            NkString sp = iioPath+"/in_accel_scale";
             float s = readSysfs(sp);
             return (s==0.f) ? 1.f : s;
         };
@@ -416,8 +425,8 @@ public:
         out.accelY = ay;
         out.accelZ = az;
         // Calcul pitch/roll depuis accéléromètre
-        out.pitch = std::atan2(ay, std::sqrt(ax*ax+az*az)) * (180.f/3.14159f);
-        out.roll  = std::atan2(-ax, az) * (180.f/3.14159f);
+        out.pitch = math::NkToDegrees(math::NkAtan2(ay, math::NkSqrt(ax * ax + az * az)));
+        out.roll  = math::NkToDegrees(math::NkAtan2(-ax, az));
         out.yaw   = 0.f; // yaw non disponible sans magnétomètre
         return true;
     }
@@ -426,7 +435,7 @@ public:
     NkU32         GetHeight() const override { return mHeight; }
     NkU32         GetFPS()    const override { return mFPS;    }
     NkPixelFormat GetFormat() const override { return mFormat; }
-    std::string   GetLastError() const override { return mLastError; }
+    NkString   GetLastError() const override { return mLastError; }
 
 private:
     enum class RecordMode : NkU8
@@ -436,14 +445,10 @@ private:
         ImageSequence,
     };
 
-    static std::string ToLowerCopy(std::string value)
+    static NkString ToLowerCopy(NkString value)
     {
-        std::transform(
-            value.begin(),
-            value.end(),
-            value.begin(),
-            [](unsigned char c) { return static_cast<char>(std::tolower(c)); }
-        );
+        for (NkString::SizeType i = 0; i < value.Size(); ++i)
+            value[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(value[i])));
         return value;
     }
 
@@ -455,10 +460,10 @@ private:
         return cached == 1;
     }
 
-    static std::string GetFfmpegEncoders()
+    static NkString GetFfmpegEncoders()
     {
         static bool loaded = false;
-        static std::string encoders;
+        static NkString encoders;
         if (loaded) return encoders;
         loaded = true;
         if (!FfmpegExists()) return encoders;
@@ -473,18 +478,18 @@ private:
         return encoders;
     }
 
-    static bool HasEncoder(const std::string& encoder)
+    static bool HasEncoder(const NkString& encoder)
     {
-        if (encoder.empty()) return false;
-        const std::string all = ToLowerCopy(GetFfmpegEncoders());
-        const std::string key = " " + ToLowerCopy(encoder);
-        return !all.empty() && all.find(key) != std::string::npos;
+        if (encoder.Empty()) return false;
+        const NkString all = ToLowerCopy(GetFfmpegEncoders());
+        const NkString key = " " + ToLowerCopy(encoder);
+        return !all.Empty() && std::strstr(all.CStr(), key.CStr()) != nullptr;
     }
 
-    static std::string ResolveVideoEncoder(const std::string& requestedCodec)
+    static NkString ResolveVideoEncoder(const NkString& requestedCodec)
     {
-        const std::string c = ToLowerCopy(requestedCodec);
-        auto pickFirst = [](const std::vector<std::string>& options) -> std::string
+        const NkString c = ToLowerCopy(requestedCodec);
+        auto pickFirst = [](const NkVector<NkString>& options) -> NkString
         {
             for (const auto& o : options)
             {
@@ -493,65 +498,80 @@ private:
             return {};
         };
 
-        if (c.empty() || c == "h264" || c == "avc")
-            return pickFirst({ "libx264", "h264", "mpeg4" });
-        if (c == "h265" || c == "hevc")
-            return pickFirst({ "libx265", "hevc", "mpeg4" });
-        if (c == "vp9")
-            return pickFirst({ "libvpx-vp9", "vp9", "mpeg4" });
-        if (c == "vp8")
-            return pickFirst({ "libvpx", "vp8", "mpeg4" });
-        if (c == "mpeg4")
-            return pickFirst({ "mpeg4" });
-        if (c == "mjpeg" || c == "jpeg")
-            return pickFirst({ "mjpeg" });
+        if (c.Empty() || c == "h264" || c == "avc") {
+            NkVector<NkString> opts;
+            opts.PushBack("libx264"); opts.PushBack("h264"); opts.PushBack("mpeg4");
+            return pickFirst(opts);
+        }
+        if (c == "h265" || c == "hevc") {
+            NkVector<NkString> opts;
+            opts.PushBack("libx265"); opts.PushBack("hevc"); opts.PushBack("mpeg4");
+            return pickFirst(opts);
+        }
+        if (c == "vp9") {
+            NkVector<NkString> opts;
+            opts.PushBack("libvpx-vp9"); opts.PushBack("vp9"); opts.PushBack("mpeg4");
+            return pickFirst(opts);
+        }
+        if (c == "vp8") {
+            NkVector<NkString> opts;
+            opts.PushBack("libvpx"); opts.PushBack("vp8"); opts.PushBack("mpeg4");
+            return pickFirst(opts);
+        }
+        if (c == "mpeg4") {
+            NkVector<NkString> opts;
+            opts.PushBack("mpeg4");
+            return pickFirst(opts);
+        }
+        if (c == "mjpeg" || c == "jpeg") {
+            NkVector<NkString> opts;
+            opts.PushBack("mjpeg");
+            return pickFirst(opts);
+        }
         if (HasEncoder(c))
             return c;
         return {};
     }
 
-    bool StartImageSequenceRecordLocked(const std::string& outputPath, const std::string& reason)
+    bool StartImageSequenceRecordLocked(const NkString& outputPath, const NkString& reason)
     {
         namespace fs = std::filesystem;
         std::error_code ec;
-        fs::path base = outputPath.empty() ? fs::path("video.mp4") : fs::path(outputPath);
-        std::string stem = base.stem().string();
-        if (stem.empty()) stem = "video";
+        fs::path base = outputPath.Empty() ? fs::path("video.mp4") : fs::path(outputPath.CStr());
+        std::string stemStd = base.stem().string();
+        NkString stem(stemStd.c_str());
+        if (stem.Empty()) stem = "video";
 
-        fs::path dir = base.parent_path() / (stem + "_frames");
+        fs::path dir = base.parent_path() / (stemStd + "_frames");
         fs::create_directories(dir, ec);
         if (ec)
         {
-            mLastError = "Cannot create image-sequence folder: " + dir.string();
+            mLastError = NkString("Cannot create image-sequence folder: ") + NkString(dir.string().c_str());
             return false;
         }
 
         mRecordMode = RecordMode::ImageSequence;
-        mRecordImageDir = dir.string();
+        mRecordImageDir = NkString(dir.string().c_str());
         mRecordFrameCounter = 0;
-        if (!reason.empty())
+        if (!reason.Empty())
         {
-            std::fprintf(
-                stderr,
-                "[NkLinuxCameraBackend] %s. Falling back to image sequence in: %s\n",
-                reason.c_str(),
-                mRecordImageDir.c_str()
-            );
+            logger.Warn("[NkLinuxCameraBackend] {0}. Falling back to image sequence in: {1}",
+                        reason.CStr(), mRecordImageDir.CStr());
         }
         return true;
     }
 
-    bool WriteFrameAsPpm(const NkCameraFrame& frame, const std::string& outPath) const
+    bool WriteFrameAsPpm(const NkCameraFrame& frame, const NkString& outPath) const
     {
         const NkU32 w = frame.width;
         const NkU32 h = frame.height;
         if (w == 0 || h == 0) return false;
 
-        std::vector<NkU8> rgb(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3u);
+        NkVector<NkU8> rgb; rgb.Resize(static_cast<NkU32>(w) * static_cast<NkU32>(h) * 3u);
         if (frame.format == NkPixelFormat::NK_PIXEL_YUYV)
         {
             const std::size_t expected = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 2u;
-            if (frame.data.size() < expected) return false;
+            if (frame.data.Size() < expected) return false;
             for (NkU32 i = 0; i < (w * h / 2u); ++i)
             {
                 const float y0 = static_cast<float>(frame.data[i * 4u])     - 16.f;
@@ -570,7 +590,7 @@ private:
         else if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8 || frame.format == NkPixelFormat::NK_PIXEL_BGRA8)
         {
             const std::size_t expected = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u;
-            if (frame.data.size() < expected) return false;
+            if (frame.data.Size() < expected) return false;
             for (std::size_t i = 0, o = 0; i < expected; i += 4u, o += 3u)
             {
                 if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8)
@@ -589,40 +609,40 @@ private:
         }
         else if (frame.format == NkPixelFormat::NK_PIXEL_RGB8)
         {
-            if (frame.data.size() < rgb.size()) return false;
-            std::copy(frame.data.begin(), frame.data.begin() + static_cast<std::ptrdiff_t>(rgb.size()), rgb.begin());
+            if (frame.data.Size() < rgb.Size()) return false;
+            std::copy(frame.data.begin(), frame.data.begin() + static_cast<std::ptrdiff_t>(rgb.Size()), rgb.begin());
         }
         else
         {
             return false;
         }
 
-        FILE* fp = std::fopen(outPath.c_str(), "wb");
+        FILE* fp = std::fopen(outPath.CStr(), "wb");
         if (!fp) return false;
         std::fprintf(fp, "P6\n%u %u\n255\n", w, h);
-        const std::size_t wrote = std::fwrite(rgb.data(), 1, rgb.size(), fp);
+        const std::size_t wrote = std::fwrite(rgb.Data(), 1, rgb.Size(), fp);
         std::fclose(fp);
-        return wrote == rgb.size();
+        return wrote == rgb.Size();
     }
 
     bool WriteFrameToImageSequenceLocked(const NkCameraFrame& frame)
     {
-        if (mRecordImageDir.empty() || !frame.IsValid())
+        if (mRecordImageDir.Empty() || !frame.IsValid())
             return false;
 
         const NkU32 frameIdx = mRecordFrameCounter++;
         char name[64];
         std::snprintf(name, sizeof(name), "frame_%06u", frameIdx);
-        const std::string basePath = mRecordImageDir + "/" + std::string(name);
+        const NkString basePath = mRecordImageDir + "/" + NkString(name);
 
         if (frame.format == NkPixelFormat::NK_PIXEL_MJPEG)
         {
-            const std::string jpgPath = basePath + ".jpg";
-            FILE* fp = std::fopen(jpgPath.c_str(), "wb");
+            const NkString jpgPath = basePath + ".jpg";
+            FILE* fp = std::fopen(jpgPath.CStr(), "wb");
             if (!fp) return false;
-            const std::size_t wrote = std::fwrite(frame.data.data(), 1, frame.data.size(), fp);
+            const std::size_t wrote = std::fwrite(frame.data.Data(), 1, frame.data.Size(), fp);
             std::fclose(fp);
-            return wrote == frame.data.size();
+            return wrote == frame.data.Size();
         }
 
         return WriteFrameAsPpm(frame, basePath + ".ppm");
@@ -637,13 +657,13 @@ private:
             int sel = select(mFd+1,&fds,nullptr,nullptr,&tv);
             if (sel == 0) {
                 ++timeoutCount;
-                if (timeoutCount >= 5 && mLastError.empty())
+                if (timeoutCount >= 5 && mLastError.Empty())
                     mLastError = "No camera frame received (select timeout)";
                 continue;
             }
             if (sel < 0) {
                 if (errno == EINTR) continue;
-                mLastError = "select failed: " + std::string(strerror(errno));
+                mLastError = "select failed: " + NkString(strerror(errno));
                 continue;
             }
             timeoutCount = 0;
@@ -653,11 +673,11 @@ private:
             buf.memory=V4L2_MEMORY_MMAP;
             if (ioctl(mFd,VIDIOC_DQBUF,&buf)<0) {
                 if (errno == EAGAIN) continue;
-                mLastError = "VIDIOC_DQBUF failed: " + std::string(strerror(errno));
+                mLastError = "VIDIOC_DQBUF failed: " + NkString(strerror(errno));
                 continue;
             }
 
-            if (buf.index >= mBufs.size() || !mBufs[buf.index].start || mBufs[buf.index].start == MAP_FAILED) {
+            if (buf.index >= mBufs.Size() || !mBufs[buf.index].start || mBufs[buf.index].start == MAP_FAILED) {
                 mLastError = "Dequeued invalid buffer index";
                 continue;
             }
@@ -675,22 +695,24 @@ private:
             frame.format    =mFormat;
             frame.stride    =(mFormat == NkPixelFormat::NK_PIXEL_YUYV) ? (mWidth * 2u) : len;
             frame.frameIndex=mFrameIdx++;
-            frame.data.assign(src,src+len);
+            frame.data.Clear();
+            frame.data.Resize(len);
+            memcpy(frame.data.Data(), src, len);
 
             if (ioctl(mFd,VIDIOC_QBUF,&buf)<0)
-                mLastError = "VIDIOC_QBUF failed: " + std::string(strerror(errno));
+                mLastError = "VIDIOC_QBUF failed: " + NkString(strerror(errno));
 
             { std::lock_guard<std::mutex> lk(mMutex);
               mLastFrame=frame; mHasFrame=true; }
-            mLastError.clear();
+            mLastError.Clear();
             if (mFrameCb) mFrameCb(frame);
             bool recordingFailed = false;
             {
                 std::lock_guard<std::mutex> recLock(mRecordMutex);
                 if (mRecordMode == RecordMode::VideoPipe && mFfmpegPipe)
                 {
-                    const std::size_t wanted = frame.data.size();
-                    const std::size_t wrote  = std::fwrite(frame.data.data(), 1, wanted, mFfmpegPipe);
+                    const std::size_t wanted = frame.data.Size();
+                    const std::size_t wrote  = std::fwrite(frame.data.Data(), 1, wanted, mFfmpegPipe);
                     if (wrote != wanted || std::ferror(mFfmpegPipe))
                     {
                         mLastError = "Recording pipe write failed (ffmpeg closed or errored)";
@@ -717,11 +739,11 @@ private:
     NkCameraState mState=NkCameraState::NK_CAM_STATE_CLOSED;
     NkU32         mWidth=0,mHeight=0,mFPS=30,mFrameIdx=0;
     NkPixelFormat mFormat=NkPixelFormat::NK_PIXEL_YUYV;
-    std::string   mLastError;
+    NkString   mLastError;
 
-    std::vector<V4L2Buf> mBufs;
+    NkVector<V4L2Buf> mBufs;
     std::thread          mCaptureThread;
-    std::atomic<bool>    mRunning{false};
+    NkAtomicBool              mRunning{false};
     std::mutex           mMutex;
     NkCameraFrame        mLastFrame;
     bool                 mHasFrame=false;
@@ -732,7 +754,7 @@ private:
     std::mutex mRecordMutex;
     RecordMode mRecordMode = RecordMode::None;
     FILE* mFfmpegPipe=nullptr;
-    std::string mRecordImageDir;
+    NkString mRecordImageDir;
     NkU32 mRecordFrameCounter=0;
     std::chrono::steady_clock::time_point mRecordStart;
 };

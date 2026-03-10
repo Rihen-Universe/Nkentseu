@@ -20,7 +20,7 @@
 // INCLUDES
 // ============================================================
 
-#include "NkCompilerDetect.h"
+#include "NKPlatform/NkCompilerDetect.h"
 #include "NkTypes.h"
 #include "NkInline.h"
 #include "NkExport.h"
@@ -55,15 +55,15 @@
  * @ingroup BitMacros
  */
 #if defined(NKENTSEU_COMPILER_MSVC)
-#define NK_POPCOUNT32(x) __popcnt((nkentseu::core::nk_uint32)(x))
-#define NK_POPCOUNT64(x) __popcnt64((nkentseu::core::nk_uint64)(x))
+#define NK_POPCOUNT32(x) __popcnt((nkentseu::nk_uint32)(x))
+#define NK_POPCOUNT64(x) __popcnt64((nkentseu::nk_uint64)(x))
 #elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
-#define NK_POPCOUNT32(x) __builtin_popcount((nkentseu::core::nk_uint32)(x))
-#define NK_POPCOUNT64(x) __builtin_popcountll((nkentseu::core::nk_uint64)(x))
+#define NK_POPCOUNT32(x) __builtin_popcount((nkentseu::nk_uint32)(x))
+#define NK_POPCOUNT64(x) __builtin_popcountll((nkentseu::nk_uint64)(x))
 #else
 // Implémentation software fallback
-#define NK_POPCOUNT32(x) nkentseu::core::NkBits::CountBitsSoftware((nkentseu::core::nk_uint32)(x))
-#define NK_POPCOUNT64(x) nkentseu::core::NkBits::CountBitsSoftware((nkentseu::core::nk_uint64)(x))
+#define NK_POPCOUNT32(x) nkentseu::NkBits::CountBitsSoftware((nkentseu::nk_uint32)(x))
+#define NK_POPCOUNT64(x) nkentseu::NkBits::CountBitsSoftware((nkentseu::nk_uint64)(x))
 #endif
 
 // ------------------------------------------------------------------
@@ -78,19 +78,19 @@
  * @note Retourne 32 si x = 0
  * @ingroup BitMacros
  */
-NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CTZ32(nkentseu::core::nk_uint32 x) {
+NKENTSEU_FORCE_INLINE static nkentseu::nk_uint32 NK_CTZ32(nkentseu::nk_uint32 x) {
 	if (x == 0)
 		return 32;
 
 #if defined(NKENTSEU_COMPILER_MSVC)
 	unsigned long index;
 	_BitScanForward(&index, x);
-	return (nkentseu::core::nk_uint32)index;
+	return (nkentseu::nk_uint32)index;
 #elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
-	return (nkentseu::core::nk_uint32)__builtin_ctz(x);
+	return (nkentseu::nk_uint32)__builtin_ctz(x);
 #else
 	// Implémentation software fallback
-	nkentseu::core::nk_uint32 count = 0;
+	nkentseu::nk_uint32 count = 0;
 	while ((x & 1) == 0) {
 		++count;
 		x >>= 1;
@@ -107,7 +107,7 @@ NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CTZ32(nkentseu::core::
  * @note Retourne 64 si x = 0
  * @ingroup BitMacros
  */
-NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CTZ64(nkentseu::core::nk_uint64 x) {
+NKENTSEU_FORCE_INLINE static nkentseu::nk_uint32 NK_CTZ64(nkentseu::nk_uint64 x) {
 	if (x == 0)
 		return 64;
 
@@ -115,23 +115,23 @@ NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CTZ64(nkentseu::core::
 #if defined(NKENTSEU_ARCH_X86_64) || defined(NKENTSEU_ARCH_ARM64)
 	unsigned long index;
 	_BitScanForward64(&index, x);
-	return (nkentseu::core::nk_uint32)index;
+	return (nkentseu::nk_uint32)index;
 #else
 	// Fallback pour MSVC 32-bit
 	unsigned long index;
-	if (_BitScanForward(&index, (nkentseu::core::nk_uint32)(x & 0xFFFFFFFF))) {
-		return (nkentseu::core::nk_uint32)index;
+	if (_BitScanForward(&index, (nkentseu::nk_uint32)(x & 0xFFFFFFFF))) {
+		return (nkentseu::nk_uint32)index;
 	}
-	if (_BitScanForward(&index, (nkentseu::core::nk_uint32)(x >> 32))) {
-		return (nkentseu::core::nk_uint32)(index + 32);
+	if (_BitScanForward(&index, (nkentseu::nk_uint32)(x >> 32))) {
+		return (nkentseu::nk_uint32)(index + 32);
 	}
 	return 64;
 #endif
 #elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
-	return (nkentseu::core::nk_uint32)__builtin_ctzll(x);
+	return (nkentseu::nk_uint32)__builtin_ctzll(x);
 #else
 	// Implémentation software fallback
-	nkentseu::core::nk_uint32 count = 0;
+	nkentseu::nk_uint32 count = 0;
 	while ((x & 1) == 0) {
 		++count;
 		x >>= 1;
@@ -152,20 +152,20 @@ NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CTZ64(nkentseu::core::
  * @note Retourne 32 si x = 0
  * @ingroup BitMacros
  */
-NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CLZ32(nkentseu::core::nk_uint32 x) {
+NKENTSEU_FORCE_INLINE static nkentseu::nk_uint32 NK_CLZ32(nkentseu::nk_uint32 x) {
 	if (x == 0)
 		return 32;
 
 #if defined(NKENTSEU_COMPILER_MSVC)
 	unsigned long index;
 	_BitScanReverse(&index, x);
-	return (nkentseu::core::nk_uint32)(31 - index);
+	return (nkentseu::nk_uint32)(31 - index);
 #elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
-	return (nkentseu::core::nk_uint32)__builtin_clz(x);
+	return (nkentseu::nk_uint32)__builtin_clz(x);
 #else
 	// Implémentation software fallback
-	nnkentseu::core::k_uint32 count = 0;
-	nkentseu::core::nk_uint32 mask = 0x80000000;
+	nkentseu::nk_uint32 count = 0;
+	nkentseu::nk_uint32 mask = 0x80000000;
 	while ((x & mask) == 0) {
 		++count;
 		mask >>= 1;
@@ -182,7 +182,7 @@ NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CLZ32(nkentseu::core::
  * @note Retourne 64 si x = 0
  * @ingroup BitMacros
  */
-NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CLZ64(nkentseu::core::nk_uint64 x) {
+NKENTSEU_FORCE_INLINE static nkentseu::nk_uint32 NK_CLZ64(nkentseu::nk_uint64 x) {
 	if (x == 0)
 		return 64;
 
@@ -190,21 +190,21 @@ NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CLZ64(nkentseu::core::
 #if defined(NKENTSEU_ARCH_X86_64) || defined(NKENTSEU_ARCH_ARM64)
 	unsigned long index;
 	_BitScanReverse64(&index, x);
-	return (nkentseu::core::nk_uint32)(63 - index);
+	return (nkentseu::nk_uint32)(63 - index);
 #else
 	// Fallback pour MSVC 32-bit
 	if (x >> 32) {
-		return NK_CLZ32((nkentseu::core::nk_uint32)(x >> 32));
+		return NK_CLZ32((nkentseu::nk_uint32)(x >> 32));
 	} else {
-		return NK_CLZ32((nkentseu::core::nk_uint32)x) + 32;
+		return NK_CLZ32((nkentseu::nk_uint32)x) + 32;
 	}
 #endif
 #elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
-	return (nkentseu::core::nk_uint32)__builtin_clzll(x);
+	return (nkentseu::nk_uint32)__builtin_clzll(x);
 #else
 	// Implémentation software fallback
-	nkentseu::core::nk_uint32 count = 0;
-	nkentseu::core::nk_uint64 mask = (nkentseu::core::nk_uint64)1 << 63;
+	nkentseu::nk_uint32 count = 0;
+	nkentseu::nk_uint64 mask = (nkentseu::nk_uint64)1 << 63;
 	while ((x & mask) == 0) {
 		++count;
 		mask >>= 1;
@@ -230,24 +230,24 @@ NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_CLZ64(nkentseu::core::
  * @ingroup ByteSwapMacros
  */
 #if defined(NKENTSEU_COMPILER_MSVC)
-#define NK_BYTESWAP16(x) _byteswap_ushort((nkentseu::core::nk_uint16)(x))
-#define NK_BYTESWAP32(x) _byteswap_ulong((nkentseu::core::nk_uint32)(x))
-#define NK_BYTESWAP64(x) _byteswap_uint64((nkentseu::core::nk_uint64)(x))
+#define NK_BYTESWAP16(x) _byteswap_ushort((nkentseu::nk_uint16)(x))
+#define NK_BYTESWAP32(x) _byteswap_ulong((nkentseu::nk_uint32)(x))
+#define NK_BYTESWAP64(x) _byteswap_uint64((nkentseu::nk_uint64)(x))
 #elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
-#define NK_BYTESWAP16(x) __builtin_bswap16((nkentseu::core::nk_uint16)(x))
-#define NK_BYTESWAP32(x) __builtin_bswap32((nkentseu::core::nk_uint32)(x))
-#define NK_BYTESWAP64(x) __builtin_bswap64((nkentseu::core::nk_uint64)(x))
+#define NK_BYTESWAP16(x) __builtin_bswap16((nkentseu::nk_uint16)(x))
+#define NK_BYTESWAP32(x) __builtin_bswap32((nkentseu::nk_uint32)(x))
+#define NK_BYTESWAP64(x) __builtin_bswap64((nkentseu::nk_uint64)(x))
 #else
 // Implémentations manuelles (Fallback)
-NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint16 NK_BYTESWAP16(nkentseu::core::nk_uint16 x) {
-	return (nkentseu::core::nk_uint16)((x << 8) | (x >> 8));
+NKENTSEU_FORCE_INLINE static nkentseu::nk_uint16 NK_BYTESWAP16(nkentseu::nk_uint16 x) {
+	return (nkentseu::nk_uint16)((x << 8) | (x >> 8));
 }
 
-NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 NK_BYTESWAP32(nkentseu::core::nk_uint32 x) {
+NKENTSEU_FORCE_INLINE static nkentseu::nk_uint32 NK_BYTESWAP32(nkentseu::nk_uint32 x) {
 	return ((x << 24) | ((x << 8) & 0x00FF0000) | ((x >> 8) & 0x0000FF00) | (x >> 24));
 }
 
-NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint64 NK_BYTESWAP64(nkentseu::core::nk_uint64 x) {
+NKENTSEU_FORCE_INLINE static nkentseu::nk_uint64 NK_BYTESWAP64(nkentseu::nk_uint64 x) {
 	x = ((x << 32) | (x >> 32));
 	x = (((x & 0xFFFF0000FFFF0000ULL) >> 16) | ((x & 0x0000FFFF0000FFFFULL) << 16));
 	return (((x & 0xFF00FF00FF00FF00ULL) >> 8) | ((x & 0x00FF00FF00FF00FFULL) << 8));
@@ -262,7 +262,7 @@ namespace nkentseu {
 /**
  * @brief Namespace core.
  */
-namespace core {
+
 
 /**
  * @class NkBits
@@ -277,7 +277,7 @@ public:
 
 	/**
 	 * @brief Compte le nombre de bits à 1 (population count)
-	 * @tparam T Type entier (nkentseu::core::nk_uint32, nkentseu::core::nk_uint64)
+	 * @tparam T Type entier (nkentseu::nk_uint32, nkentseu::nk_uint64)
 	 * @param value Valeur à analyser
 	 * @return Nombre de bits à 1
 	 */
@@ -392,7 +392,7 @@ public:
 	 * @param value Valeur 16-bit
 	 * @return Valeur avec octets inversés
 	 */
-	NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint16 ByteSwap16(nkentseu::core::nk_uint16 value) {
+	NKENTSEU_FORCE_INLINE static nkentseu::nk_uint16 ByteSwap16(nkentseu::nk_uint16 value) {
 		return NK_BYTESWAP16(value);
 	}
 
@@ -401,7 +401,7 @@ public:
 	 * @param value Valeur 32-bit
 	 * @return Valeur avec octets inversés
 	 */
-	NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint32 ByteSwap32(nkentseu::core::nk_uint32 value) {
+	NKENTSEU_FORCE_INLINE static nkentseu::nk_uint32 ByteSwap32(nkentseu::nk_uint32 value) {
 		return NK_BYTESWAP32(value);
 	}
 
@@ -410,7 +410,7 @@ public:
 	 * @param value Valeur 64-bit
 	 * @return Valeur avec octets inversés
 	 */
-	NKENTSEU_FORCE_INLINE static nkentseu::core::nk_uint64 ByteSwap64(nkentseu::core::nk_uint64 value) {
+	NKENTSEU_FORCE_INLINE static nkentseu::nk_uint64 ByteSwap64(nkentseu::nk_uint64 value) {
 		return NK_BYTESWAP64(value);
 	}
 
@@ -433,14 +433,14 @@ public:
 	 * @param value Valeur 32-bit
 	 * @return Prochaine puissance de 2 supérieure ou égale
 	 */
-	static nkentseu::core::nk_uint32 NextPowerOfTwo(nkentseu::core::nk_uint32 value);
+	static nkentseu::nk_uint32 NextPowerOfTwo(nkentseu::nk_uint32 value);
 
 	/**
 	 * @brief Arrondit vers le haut à la prochaine puissance de 2
 	 * @param value Valeur 64-bit
 	 * @return Prochaine puissance de 2 supérieure ou égale
 	 */
-	static nkentseu::core::nk_uint64 NextPowerOfTwo(nkentseu::core::nk_uint64 value);
+	static nkentseu::nk_uint64 NextPowerOfTwo(nkentseu::nk_uint64 value);
 
 	/**
 	 * @brief Log2 d'une puissance de 2
@@ -575,7 +575,7 @@ private:
 	}
 };
 
-} // namespace core
+
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKCORE_SRC_NKCORE_NKBITS_H_INCLUDED

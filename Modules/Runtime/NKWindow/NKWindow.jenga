@@ -1,27 +1,50 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-NKWindow â€” FenÃªtrage, Ã©vÃ©nements, entrÃ©es (C++17)
+NKWindow Ã¢â‚¬â€ FenÃƒÂªtrage, ÃƒÂ©vÃƒÂ©nements, entrÃƒÂ©es (C++17)
 ==================================================
-BibliothÃ¨que principale du framework. GÃ¨re la fenÃªtre, les entrÃ©es
-et le systÃ¨me d'Ã©vÃ©nements. Le rendu est dÃ©lÃ©guÃ© Ã  NKRenderer.
+BibliothÃƒÂ¨que principale du framework. GÃƒÂ¨re la fenÃƒÂªtre, les entrÃƒÂ©es
+et le systÃƒÂ¨me d'ÃƒÂ©vÃƒÂ©nements. Le rendu est dÃƒÂ©lÃƒÂ©guÃƒÂ© ÃƒÂ  NKRenderer.
 
-Pas de PIMPL : NkWindow et NkEventSystem sont des classes concrÃ¨tes
-dont les membres platform-spÃ©cifiques sont embarquÃ©s via #ifdef.
+Pas de PIMPL : NkWindow et NkEventSystem sont des classes concrÃƒÂ¨tes
+dont les membres platform-spÃƒÂ©cifiques sont embarquÃƒÂ©s via #ifdef.
 
 Architecture :
-  NkWindow        â†’ crÃ©e la fenÃªtre native + Ã©met NkWindowId
-  NkEventSystem   â†’ singleton, carte NkWindowIdâ†’NkWindow*
-  NkWindowPaintEvent â†’ signal pour que NKRenderer effectue le blit
+  NkWindow        Ã¢â€ â€™ crÃƒÂ©e la fenÃƒÂªtre native + ÃƒÂ©met NkWindowId
+  NkEventSystem   Ã¢â€ â€™ singleton, carte NkWindowIdÃ¢â€ â€™NkWindow*
+  NkWindowPaintEvent Ã¢â€ â€™ signal pour que NKRenderer effectue le blit
 """
 
 from Jenga import *
 import os
+import shutil
+import subprocess
 
 _THIS_DIR = os.path.dirname(__file__) if "__file__" in globals() else "."
 _WAYLAND_XDG_PRIVATE_CODE = os.path.join(
     _THIS_DIR, "src", "NKWindow", "Platform", "Wayland", "xdg-shell-protocol.c"
 )
+
+def _pkg_exists(pkg_name: str) -> bool:
+    if not shutil.which("pkg-config"):
+        return False
+    try:
+        return subprocess.call(
+            ["pkg-config", "--exists", pkg_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+_HAS_LIBDECOR = _pkg_exists("libdecor-0")
+_WAYLAND_LINKS = ["pthread", "wayland-client", "xkbcommon", "wayland-cursor"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "xkbcommon"]
+_WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
+if _HAS_LIBDECOR:
+    _WAYLAND_LINKS.append("decor-0")
+    _WAYLAND_TEST_LINKS.append("decor-0")
+    _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
@@ -36,20 +59,18 @@ with project("NKWindow"):
         "pch",
         "%{wks.location}/Externals",
         "%{NKPlatform.location}/src",
-        "%{NKPlatform.location}/src/NKPlatform",
         "%{NKCore.location}/src",
-        "%{NKCore.location}/src/NKCore",
         "%{NKLogger.location}/src",
-        "%{NKLogger.location}/src/NKLogger",
         "%{NKMath.location}/src",
-        "%{NKMath.location}/src/NKMath",
+        "%{NKContainers.location}/src",
+        "%{NKMemory.location}/src",
     ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath"])
+    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath", "NKContainers", "NKMemory"])
 
-    # Fichiers communs (Core + Events â€” partagÃ©s par toutes les plateformes)
+    # Fichiers communs (Core + Events Ã¢â‚¬â€ partagÃƒÂ©s par toutes les plateformes)
     files([
         "src/NKWindow/Core/**.cpp",
         "src/NKWindow/Core/**.h",
@@ -97,7 +118,7 @@ with project("NKWindow"):
         ])
         links(["pthread"])
 
-    # ===== Linux XLib (dÃ©faut) ====================================================
+    # ===== Linux XLib (dÃƒÂ©faut) ====================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
         files([
             "src/NKWindow/Platform/Linux/**.h",
@@ -109,26 +130,28 @@ with project("NKWindow"):
 
     # ===== Linux XCB ==============================================================
     with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
         files([
             "src/NKWindow/Platform/Linux/**.h",
             "src/NKWindow/Platform/XCB/**.cpp",
             "src/NKWindow/Platform/XCB/**.h",
         ])
-        links(["pthread", "xcb", "xcb-icccm", "xcb-randr", "X11-xcb"])
+        links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
 
     # ===== Linux Wayland ==========================================================
     with filter("system:Linux && options:linux-backend=wayland"):
-        _wayland_files = [
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+        # NkXdgShellProtocol.cpp wraps xdg-shell-protocol.c (auto-picked by **.cpp)
+        files([
             "src/NKWindow/Platform/Linux/**.h",
             "src/NKWindow/Platform/Wayland/**.cpp",
             "src/NKWindow/Platform/Wayland/**.h",
-        ]
-        if os.path.exists(_WAYLAND_XDG_PRIVATE_CODE):
-            _wayland_files.append("src/NKWindow/Platform/Wayland/xdg-shell-protocol.c")
-        files(_wayland_files)
-        links(["pthread", "wayland-client", "xkbcommon"])
-        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
+        ])
+        links(_WAYLAND_LINKS)
+        defines(_WAYLAND_DEFINES)
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):
@@ -180,12 +203,12 @@ with project("NKWindow"):
     with filter("system:Web"):
         usetoolchain("emscripten")
         files([
-            "src/NKWindow/Platform/WASM/NkWASMWindow.cpp",
-            "src/NKWindow/Platform/WASM/NkWASMEventSystem.cpp",
-            "src/NKWindow/Platform/WASM/NkWASMWindow.h",
-            "src/NKWindow/Platform/WASM/NkWASMEventSystem.h",
-            "src/NKWindow/Platform/WASM/NkWASMDropTarget.h",
-            "src/NKWindow/Platform/WASM/NkWASMGamepad.h",
+            "src/NKWindow/Platform/Emscripten/NkEmscriptenWindow.cpp",
+            "src/NKWindow/Platform/Emscripten/NkEmscriptenEventSystem.cpp",
+            "src/NKWindow/Platform/Emscripten/NkEmscriptenWindow.h",
+            "src/NKWindow/Platform/Emscripten/NkEmscriptenEventSystem.h",
+            "src/NKWindow/Platform/Emscripten/NkEmscriptenDropTarget.h",
+            "src/NKWindow/Platform/Emscripten/NkEmscriptenGamepad.h",
         ])
         emscripteninitialmemory(32)
 
@@ -243,6 +266,15 @@ with project("NKWindow"):
         symbols(False)
 
     # Tests unitaires (desktop uniquement)
-    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+            with filter("system:Linux && options:linux-backend=wayland"):
+                defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
+                links(_WAYLAND_TEST_LINKS)
+            with filter("system:Linux && options:linux-backend=xcb"):
+                defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+                links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+            with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+                defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+                links(["pthread", "X11"])

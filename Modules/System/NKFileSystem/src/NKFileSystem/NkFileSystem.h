@@ -14,7 +14,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NkPath.h"
+#include "NKFileSystem/NkPath.h"
 
 namespace nkentseu {
     namespace entseu {
@@ -38,8 +38,8 @@ namespace nkentseu {
          * @brief Drive information
          */
         struct NkDriveInfo {
-            core::NkString Name;
-            core::NkString Label;
+            NkString Name;
+            NkString Label;
             NkFileSystemType Type;
             nk_int64 TotalSize;
             nk_int64 FreeSpace;
@@ -82,7 +82,7 @@ namespace nkentseu {
         class NkFileSystem {
         public:
             // Drive operations
-            static core::NkVector<NkDriveInfo> GetDrives();
+            static NkVector<NkDriveInfo> GetDrives();
             static NkDriveInfo GetDriveInfo(const char* path);
             static NkDriveInfo GetDriveInfo(const NkPath& path);
             
@@ -125,10 +125,10 @@ namespace nkentseu {
             static bool IsValidPath(const char* path);
             
             // Path conversion
-            static core::NkString GetAbsolutePath(const char* path);
-            static core::NkString GetAbsolutePath(const NkPath& path);
-            static core::NkString GetRelativePath(const char* from, const char* to);
-            static core::NkString GetRelativePath(const NkPath& from, const NkPath& to);
+            static NkString GetAbsolutePath(const char* path);
+            static NkString GetAbsolutePath(const NkPath& path);
+            static NkString GetRelativePath(const char* from, const char* to);
+            static NkString GetRelativePath(const NkPath& from, const NkPath& to);
             
             // File system info
             static NkFileSystemType GetFileSystemType(const char* path);
@@ -139,8 +139,8 @@ namespace nkentseu {
             // Symbolic links
             static bool IsSymbolicLink(const char* path);
             static bool IsSymbolicLink(const NkPath& path);
-            static core::NkString GetSymbolicLinkTarget(const char* path);
-            static core::NkString GetSymbolicLinkTarget(const NkPath& path);
+            static NkString GetSymbolicLinkTarget(const char* path);
+            static NkString GetSymbolicLinkTarget(const NkPath& path);
             static bool CreateSymbolicLink(const char* link, const char* target);
             static bool CreateSymbolicLink(const NkPath& link, const NkPath& target);
         };

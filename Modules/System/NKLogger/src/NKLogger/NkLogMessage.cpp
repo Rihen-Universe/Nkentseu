@@ -6,9 +6,26 @@
 // -----------------------------------------------------------------------------
 
 #include "NKLogger/NkLogMessage.h"
-#include <chrono>
+#include "NKLogger/NkSync.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <ctime>
-#include <thread>
+#if !defined(_WIN32)
+#   include <time.h>
+#endif
+
+namespace {
+    static inline uint64_t NkGetNowNs() {
+        timespec ts{};
+#if defined(_WIN32)
+        if (::timespec_get(&ts, TIME_UTC) == TIME_UTC)
+#else
+        if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
+#endif
+            return (static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL) + static_cast<uint64_t>(ts.tv_nsec);
+        return 0;
+    }
+} // namespace
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -23,21 +40,20 @@ namespace nkentseu {
 	 * @brief Constructeur par défaut
 	 */
 	NkLogMessage::NkLogMessage()
-		: timestamp(0), timePoint(std::chrono::system_clock::now()), threadId(0), sourceLine(0), level(NkLogLevel::NK_INFO) {
-		// Conversion du time_point en timestamp nanosecondes
-		timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(timePoint.time_since_epoch()).count();
+		: timestamp(0), threadId(0), sourceLine(0), level(NkLogLevel::NK_INFO) {
+		timestamp = static_cast<uint64>(NkGetNowNs());
 
 		// Obtention de l'ID du thread
-		threadId = static_cast<uint32>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
+		threadId = static_cast<uint32>(logger_sync::GetCurrentThreadId());
 	}
 
 	/**
 	 * @brief Constructeur avec niveau et message
 	 */
-	NkLogMessage::NkLogMessage(NkLogLevel lvl, const std::string &msg, const std::string &logger) : NkLogMessage() {
+	NkLogMessage::NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &logger) : NkLogMessage() {
 		level = lvl;
 		message = msg;
-		if (!logger.empty()) {
+		if (!logger.Empty()) {
 			loggerName = logger;
 		}
 	}
@@ -45,14 +61,14 @@ namespace nkentseu {
 	/**
 	 * @brief Constructeur avec informations complètes
 	 */
-	NkLogMessage::NkLogMessage(NkLogLevel lvl, const std::string &msg, const std::string &file, uint32 line,
-						const std::string &func, const std::string &logger)
+	NkLogMessage::NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &file, uint32 line,
+						const NkString &func, const NkString &logger)
 		: NkLogMessage(lvl, msg, logger) {
-		if (!file.empty())
+		if (!file.Empty())
 			sourceFile = file;
 		if (line > 0)
 			sourceLine = line;
-		if (!func.empty())
+		if (!func.Empty())
 			functionName = func;
 	}
 
@@ -61,36 +77,34 @@ namespace nkentseu {
 	 */
 	void NkLogMessage::Reset() {
 		timestamp = 0;
-		timePoint = std::chrono::system_clock::now();
 		threadId = 0;
-		threadName.clear();
+		threadName.Clear();
 		level = NkLogLevel::NK_INFO;
-		message.clear();
-		loggerName.clear();
-		sourceFile.clear();
+		message.Clear();
+		loggerName.Clear();
+		sourceFile.Clear();
 		sourceLine = 0;
-		functionName.clear();
+		functionName.Clear();
 
-		// Recalcul du timestamp
-		timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(timePoint.time_since_epoch()).count();
+		timestamp = static_cast<uint64>(NkGetNowNs());
 
 		// Recalcul de l'ID du thread
-		threadId = static_cast<uint32>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
+		threadId = static_cast<uint32>(logger_sync::GetCurrentThreadId());
 	}
 
 	/**
 	 * @brief Vérifie si le message est valide
 	 */
 	bool NkLogMessage::IsValid() const {
-		return !message.empty() && timestamp > 0;
+		return !message.Empty() && timestamp > 0;
 	}
 
 	/**
 	 * @brief Obtient l'heure sous forme de structure tm
 	 */
-	std::tm NkLogMessage::GetLocalTime() const {
-		auto time = std::chrono::system_clock::to_time_t(timePoint);
-		std::tm localTime;
+	tm NkLogMessage::GetLocalTime() const {
+		time_t time = static_cast<time_t>(timestamp / 1000000000ULL);
+		tm localTime{};
 
 	#ifdef _WIN32
 		localtime_s(&localTime, &time);
@@ -104,9 +118,9 @@ namespace nkentseu {
 	/**
 	 * @brief Obtient l'heure sous forme de structure tm (UTC)
 	 */
-	std::tm NkLogMessage::GetUTCTime() const {
-		auto time = std::chrono::system_clock::to_time_t(timePoint);
-		std::tm utcTime;
+	tm NkLogMessage::GetUTCTime() const {
+		time_t time = static_cast<time_t>(timestamp / 1000000000ULL);
+		tm utcTime{};
 
 	#ifdef _WIN32
 		gmtime_s(&utcTime, &time);

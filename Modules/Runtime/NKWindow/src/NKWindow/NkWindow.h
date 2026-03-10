@@ -4,7 +4,7 @@
 // NkWindow.h — Header principal NkWindow v2
 // =============================================================================
 
-#include "NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include "Core/NkTypes.h"
 #include "Core/NkWindowConfig.h"
 #include "Core/NkSurface.h"

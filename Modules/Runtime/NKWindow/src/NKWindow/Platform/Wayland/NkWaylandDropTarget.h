@@ -14,13 +14,10 @@
 
 #include <wayland-client.h>
 
-#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <string>
 #include <utility>
-#include <vector>
 #include <unistd.h>
 
 #include "NKWindow/Events/NkDropEvent.h"
@@ -89,7 +86,7 @@ namespace nkentseu {
             wl_data_device* mDataDevice = nullptr;
             wl_data_offer*  mOffer      = nullptr;
 
-            std::vector<std::string> mMimeTypes;
+            NkVector<NkString> mMimeTypes;
             NkF32 mDragX = 0.f;
             NkF32 mDragY = 0.f;
             bool mDragOnTargetSurface = false;
@@ -104,42 +101,49 @@ namespace nkentseu {
             DropEnterDataCallback mDropEnterData;
             DropLeaveDataCallback mDropLeaveData;
 
-            static bool HasMime(const std::vector<std::string>& mimeTypes, const char* mime) {
-                return std::find(mimeTypes.begin(), mimeTypes.end(), mime) != mimeTypes.end();
+            static bool HasMime(const NkVector<NkString>& mimeTypes, const char* mime) {
+                for (NkU32 i = 0; i < mimeTypes.Size(); ++i) {
+                    if (std::strcmp(mimeTypes[i].CStr(), mime) == 0) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
-            static std::vector<std::string> ParseUriList(const std::string& raw) {
-                std::vector<std::string> paths;
-                std::size_t start = 0;
+            static NkVector<NkString> ParseUriList(const NkString& raw) {
+                NkVector<NkString> paths;
+                NkU32 start = 0;
+                const NkU32 rawSize = raw.Size();
 
-                while (start < raw.size()) {
-                    std::size_t end = raw.find('\n', start);
-                    if (end == std::string::npos) {
-                        end = raw.size();
+                while (start < rawSize) {
+                    // Find '\n'
+                    NkU32 end = rawSize;
+                    for (NkU32 k = start; k < rawSize; ++k) {
+                        if (raw[k] == '\n') { end = k; break; }
                     }
 
-                    std::string line = raw.substr(start, end - start);
-                    if (!line.empty() && line.back() == '\r') {
-                        line.pop_back();
+                    NkString line = raw.SubStr(start, end - start);
+                    if (!line.Empty() && line.Back() == '\r') {
+                        line.PopBack();
                     }
 
-                    if (!line.empty() && line[0] != '#' && line.rfind("file://", 0) == 0) {
-                        std::string encoded = line.substr(7);
-                        std::string decoded;
-                        decoded.reserve(encoded.size());
+                    if (!line.Empty() && line[0] != '#' && line.StartsWith("file://")) {
+                        NkString encoded = line.SubStr(7);
+                        NkString decoded;
+                        decoded.Reserve(encoded.Size());
 
-                        for (std::size_t i = 0; i < encoded.size(); ++i) {
-                            if (encoded[i] == '%' && i + 2 < encoded.size()) {
+                        for (NkU32 i = 0; i < encoded.Size(); ++i) {
+                            if (encoded[i] == '%' && i + 2 < encoded.Size()) {
                                 int value = 0;
-                                std::sscanf(encoded.c_str() + i + 1, "%2x", &value);
-                                decoded.push_back(static_cast<char>(value));
+                                std::sscanf(encoded.CStr() + i + 1, "%2x", &value);
+                                decoded.PushBack(static_cast<char>(value));
                                 i += 2;
                             } else {
-                                decoded.push_back(encoded[i]);
+                                decoded.PushBack(encoded[i]);
                             }
                         }
 
-                        paths.push_back(std::move(decoded));
+                        paths.PushBack(std::move(decoded));
                     }
 
                     start = end + 1;
@@ -148,7 +152,7 @@ namespace nkentseu {
                 return paths;
             }
 
-            std::string ReadOfferData(wl_data_offer* offer, const std::string& mime) const {
+            NkString ReadOfferData(wl_data_offer* offer, const NkString& mime) const {
                 if (!offer || !mDisplay) {
                     return {};
                 }
@@ -158,15 +162,17 @@ namespace nkentseu {
                     return {};
                 }
 
-                wl_data_offer_receive(offer, mime.c_str(), pipefd[1]);
+                wl_data_offer_receive(offer, mime.CStr(), pipefd[1]);
                 close(pipefd[1]);
                 wl_display_flush(mDisplay);
 
-                std::string out;
+                NkString out;
                 char buffer[4096];
                 ssize_t n = 0;
                 while ((n = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
-                    out.append(buffer, static_cast<std::size_t>(n));
+                    for (ssize_t i = 0; i < n; ++i) {
+                        out.PushBack(buffer[i]);
+                    }
                 }
                 close(pipefd[0]);
 
@@ -214,7 +220,7 @@ namespace nkentseu {
                 if (!mimeType) {
                     return;
                 }
-                self->mMimeTypes.emplace_back(mimeType);
+                self->mMimeTypes.PushBack(NkString(mimeType));
             }
 
             static void OnOfferSourceActions(void*, wl_data_offer*, uint32_t) {}
@@ -237,7 +243,7 @@ namespace nkentseu {
                 }
 
                 self->mOffer = offer;
-                self->mMimeTypes.clear();
+                self->mMimeTypes.Clear();
 
                 if (offer) {
                     wl_data_offer_add_listener(offer, &kOfferListener, self);
@@ -308,7 +314,7 @@ namespace nkentseu {
                     wl_data_offer_destroy(self->mOffer);
                     self->mOffer = nullptr;
                 }
-                self->mMimeTypes.clear();
+                self->mMimeTypes.Clear();
             }
 
             static void OnDataDeviceMotion(void* data, wl_data_device*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
@@ -335,9 +341,9 @@ namespace nkentseu {
                 const bool hasPlainText = HasMime(self->mMimeTypes, "text/plain");
 
                 if (hasUri) {
-                    std::string raw = self->ReadOfferData(self->mOffer, "text/uri-list");
-                    std::vector<std::string> paths = ParseUriList(raw);
-                    if (!paths.empty()) {
+                    NkString raw = self->ReadOfferData(self->mOffer, "text/uri-list");
+                    NkVector<NkString> paths = ParseUriList(raw);
+                    if (!paths.Empty()) {
                         NkDropFileData fileData{};
                         fileData.x = static_cast<NkI32>(self->mDragX);
                         fileData.y = static_cast<NkI32>(self->mDragY);
@@ -346,7 +352,7 @@ namespace nkentseu {
                     }
                 } else if (hasUtf8Text || hasPlainText) {
                     const char* mime = hasUtf8Text ? "text/plain;charset=utf-8" : "text/plain";
-                    std::string text = self->ReadOfferData(self->mOffer, mime);
+                    NkString text = self->ReadOfferData(self->mOffer, mime);
 
                     NkDropTextData textData{};
                     textData.x = static_cast<NkI32>(self->mDragX);
@@ -359,7 +365,7 @@ namespace nkentseu {
                 wl_data_offer_finish(self->mOffer);
                 wl_data_offer_destroy(self->mOffer);
                 self->mOffer = nullptr;
-                self->mMimeTypes.clear();
+                self->mMimeTypes.Clear();
                 self->mDragOnTargetSurface = false;
             }
 

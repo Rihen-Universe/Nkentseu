@@ -5,7 +5,7 @@
 // DATE: 2026-02-10
 // -----------------------------------------------------------------------------
 
-#include "NkFile.h"
+#include "NKFileSystem/NkFile.h"
 #include <cstdio>
 #include <cstring>
 
@@ -118,8 +118,8 @@ namespace nkentseu {
             return fread(buffer, 1, size, static_cast<FILE*>(mHandle));
         }
         
-        core::NkString NkFile::ReadLine() {
-            if (!mIsOpen) return core::NkString();
+        NkString NkFile::ReadLine() {
+            if (!mIsOpen) return NkString();
             
             char buffer[4096];
             if (fgets(buffer, sizeof(buffer), static_cast<FILE*>(mHandle))) {
@@ -131,33 +131,33 @@ namespace nkentseu {
                         buffer[len - 2] = '\0';
                     }
                 }
-                return core::NkString(buffer);
+                return NkString(buffer);
             }
             
-            return core::NkString();
+            return NkString();
         }
         
-        core::NkString NkFile::ReadAll() {
-            if (!mIsOpen) return core::NkString();
+        NkString NkFile::ReadAll() {
+            if (!mIsOpen) return NkString();
             
             nk_int64 size = GetSize();
-            if (size <= 0) return core::NkString();
+            if (size <= 0) return NkString();
             
-            core::NkVector<char> buffer;
+            NkVector<char> buffer;
             buffer.Resize(static_cast<usize>(size) + 1);
             
             usize read = Read(buffer.Data(), static_cast<usize>(size));
             buffer[read] = '\0';
             
-            return core::NkString(buffer.Data());
+            return NkString(buffer.Data());
         }
         
-        core::NkVector<core::NkString> NkFile::ReadLines() {
-            core::NkVector<core::NkString> lines;
+        NkVector<NkString> NkFile::ReadLines() {
+            NkVector<NkString> lines;
             
             while (!IsEOF()) {
-                core::NkString line = ReadLine();
-                if (!line.IsEmpty() || !IsEOF()) {
+                NkString line = ReadLine();
+                if (!line.Empty() || !IsEOF()) {
                     lines.PushBack(line);
                 }
             }
@@ -182,7 +182,7 @@ namespace nkentseu {
             return true;
         }
         
-        bool NkFile::Write(const core::NkString& text) {
+        bool NkFile::Write(const NkString& text) {
             return Write(text.CStr(), text.Length()) == text.Length();
         }
         
@@ -317,31 +317,31 @@ namespace nkentseu {
             return GetFileSize(path.CStr());
         }
         
-        core::NkString NkFile::ReadAllText(const char* path) {
+        NkString NkFile::ReadAllText(const char* path) {
             NkFile file(path, NkFileMode::Read);
-            if (!file.IsOpen()) return core::NkString();
+            if (!file.IsOpen()) return NkString();
             return file.ReadAll();
         }
         
-        core::NkString NkFile::ReadAllText(const NkPath& path) {
+        NkString NkFile::ReadAllText(const NkPath& path) {
             return ReadAllText(path.CStr());
         }
         
-        core::NkVector<nk_uint8> NkFile::ReadAllBytes(const char* path) {
+        NkVector<nk_uint8> NkFile::ReadAllBytes(const char* path) {
             NkFile file(path, NkFileMode::Read);
-            if (!file.IsOpen()) return core::NkVector<nk_uint8>();
+            if (!file.IsOpen()) return NkVector<nk_uint8>();
             
             nk_int64 size = file.GetSize();
-            if (size <= 0) return core::NkVector<nk_uint8>();
+            if (size <= 0) return NkVector<nk_uint8>();
             
-            core::NkVector<nk_uint8> data;
+            NkVector<nk_uint8> data;
             data.Resize(static_cast<usize>(size));
             
             file.Read(data.Data(), static_cast<usize>(size));
             return data;
         }
         
-        core::NkVector<nk_uint8> NkFile::ReadAllBytes(const NkPath& path) {
+        NkVector<nk_uint8> NkFile::ReadAllBytes(const NkPath& path) {
             return ReadAllBytes(path.CStr());
         }
         
@@ -353,18 +353,18 @@ namespace nkentseu {
             return file.Write(text, len) == len;
         }
         
-        bool NkFile::WriteAllText(const NkPath& path, const core::NkString& text) {
+        bool NkFile::WriteAllText(const NkPath& path, const NkString& text) {
             return WriteAllText(path.CStr(), text.CStr());
         }
         
-        bool NkFile::WriteAllBytes(const char* path, const core::NkVector<nk_uint8>& data) {
+        bool NkFile::WriteAllBytes(const char* path, const NkVector<nk_uint8>& data) {
             NkFile file(path, NkFileMode::Write);
             if (!file.IsOpen()) return false;
             
             return file.Write(data.Data(), data.Size()) == data.Size();
         }
         
-        bool NkFile::WriteAllBytes(const NkPath& path, const core::NkVector<nk_uint8>& data) {
+        bool NkFile::WriteAllBytes(const NkPath& path, const NkVector<nk_uint8>& data) {
             return WriteAllBytes(path.CStr(), data);
         }
         

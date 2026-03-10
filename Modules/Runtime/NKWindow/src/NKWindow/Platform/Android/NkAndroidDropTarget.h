@@ -56,9 +56,9 @@ namespace nkentseu {
 
                 std::lock_guard<std::mutex> lock(RegistryMutex());
                 auto& map = Registry();
-                const auto it = map.find(mWindowId);
-                if (it != map.end() && it->second == this) {
-                    map.erase(it);
+                auto* val = map.Find(mWindowId);
+                if (val && *val == this) {
+                    map.Erase(mWindowId);
                 }
                 mWindowId = NK_INVALID_WINDOW_ID;
             }
@@ -108,7 +108,7 @@ namespace nkentseu {
                 EmitDropLeave();
             }
 
-            void OnDropFiles(float x, float y, const std::vector<std::string>& paths) {
+            void OnDropFiles(float x, float y, const NkVector<NkString>& paths) {
                 NkDropFileData data{};
                 data.x = static_cast<NkI32>(x);
                 data.y = static_cast<NkI32>(y);
@@ -116,7 +116,7 @@ namespace nkentseu {
                 EmitDropFiles(data);
             }
 
-            void OnDropText(float x, float y, const std::string& text, const std::string& mimeType = "text/plain") {
+            void OnDropText(float x, float y, const NkString& text, const NkString& mimeType = "text/plain") {
                 NkDropTextData data{};
                 data.x = static_cast<NkI32>(x);
                 data.y = static_cast<NkI32>(y);
@@ -131,8 +131,8 @@ namespace nkentseu {
                 }
                 std::lock_guard<std::mutex> lock(RegistryMutex());
                 auto& map = Registry();
-                const auto it = map.find(windowId);
-                return (it != map.end()) ? it->second : nullptr;
+                auto* val = map.Find(windowId);
+                return val ? *val : nullptr;
             }
 
             static bool DispatchDragEnter(NkWindowId windowId,
@@ -171,21 +171,21 @@ namespace nkentseu {
             static bool DispatchDropText(NkWindowId windowId,
                                          float x,
                                          float y,
-                                         const std::string& text,
-                                         const std::string& mimeType)
+                                         const NkString& text,
+                                         const NkString& mimeType)
             {
                 NkAndroidDropTarget* target = FindTarget(windowId);
                 if (!target) {
                     return false;
                 }
-                target->OnDropText(x, y, text, mimeType.empty() ? "text/plain" : mimeType);
+                target->OnDropText(x, y, text, mimeType.Empty() ? "text/plain" : mimeType);
                 return true;
             }
 
             static bool DispatchDropFiles(NkWindowId windowId,
                                           float x,
                                           float y,
-                                          const std::vector<std::string>& paths)
+                                          const NkVector<NkString>& paths)
             {
                 NkAndroidDropTarget* target = FindTarget(windowId);
                 if (!target) {
@@ -196,8 +196,8 @@ namespace nkentseu {
             }
 
         private:
-            static std::unordered_map<NkWindowId, NkAndroidDropTarget*>& Registry() {
-                static std::unordered_map<NkWindowId, NkAndroidDropTarget*> map;
+            static NkUnorderedMap<NkWindowId, NkAndroidDropTarget*>& Registry() {
+                static NkUnorderedMap<NkWindowId, NkAndroidDropTarget*> map;
                 return map;
             }
 

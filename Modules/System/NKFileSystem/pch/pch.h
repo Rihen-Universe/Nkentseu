@@ -1,19 +1,13 @@
 // -----------------------------------------------------------------------------
-// NKLogger/pch/pch.h — Precompiled header
-// Stable STL headers used across the logging subsystem.
+// NKFileSystem/pch/pch.h — Precompiled header
+// C/NK headers only (no STL).
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <thread>
-#include <mutex>
-#include <atomic>
-#include <queue>
-#include <condition_variable>
-#include <chrono>
-#include <functional>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>

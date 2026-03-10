@@ -1,110 +1,105 @@
 #pragma once
-
 /**
-* @File NkChrono.h
-* @Description Définit des utilitaires de mesure de temps haute précision
-* @Author TEUGUIA TADJUIDJE Rodolf Séderis
-* @Date 2025-01-05
-* @License Apache-2.0
-*/
+ * @File    NkChrono.h
+ * @Brief   Chronomètre haute précision — sans dépendance STL.
+ * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
+ * @License Apache-2.0
+ *
+ * @Design
+ *  NkChrono mesure des durées relatives. Il ne stocke qu'un timestamp de départ
+ *  (NkElapsedTime mStartTime) et calcule la différence à chaque appel à Elapsed().
+ *
+ *  Précision plateforme :
+ *    Windows  : QueryPerformanceCounter  (~100 ns selon le matériel)
+ *    Linux    : clock_gettime(CLOCK_MONOTONIC) (~1 ns)
+ *    macOS    : clock_gettime(CLOCK_MONOTONIC) (~1 ns)
+ *
+ *  NkElapsedTime est séparé dans NkElapsedTime.h (résultat de mesure, float64).
+ *  NkDuration    est séparé dans NkDuration.h    (durée à spécifier, int64).
+ *  NkChrono::Sleep accepte NkDuration pour l'API de sommeil.
+ *
+ * @Usage
+ * @code
+ *   NkChrono chrono;
+ *   // ... travail ...
+ *   NkElapsedTime dt    = chrono.Reset();   // lit ET remet à zéro atomiquement
+ *   NkElapsedTime total = chrono.Elapsed(); // lit sans remettre à zéro
+ *   NkChrono::Sleep(NkDuration::FromMilliseconds(16));
+ * @endcode
+ */
 
-#include "NkTimeExport.h"
-#include "NkDuration.h"
-#include "NKPlatform/NkPlatformDetect.h"
+#include "NKTime/NkTimeExport.h"
+#include "NKTime/NkElapsedTime.h"
+#include "NKTime/NkDuration.h"
 #include "NKCore/NkTypes.h"
-#include <chrono>
-#include <ratio>
 
 namespace nkentseu {
 
-    /**
-    * @Struct NkElapsedTime
-    * @Description Stocke le temps écoulé dans différentes unités
-    *
-    * @Members :
-    * - (float64) nanoseconds : Temps en nanosecondes
-    * - (float64) milliseconds : Temps en millisecondes
-    * - (float64) seconds : Temps en secondes
-    */
-    struct NKTIME_API NkElapsedTime {
-        float64 nanoseconds = 0.0;   ///< Temps écoulé en nanosecondes (1e-9 s)
-        float64 milliseconds = 0.0;  ///< Temps écoulé en millisecondes (1e-3 s)
-        float64 seconds = 0.0;       ///< Temps écoulé en secondes
+    class NKENTSEU_TIME_API NkChrono {
+        public:
 
-        /**
-        * @Function ToString
-        * @Description Formatage automatique dans l'unité la plus appropriée
-        * @return string Temps formaté (ex: "1.234 s", "45.678 ms")
-        */
-        std::string ToString() const;
+            // ── Constructeurs ────────────────────────────────────────────────────
 
-        /**
-        * @Friend ToString
-        * @Description : Surcharge amie de la fonction ToString
-        * @param (const NkElapsedTime&) elapsed : Temps ecouler à formater
-        * @return (std::string) : Représentation formatée du temps ecouler
-        */
-        friend std::string ToString(const NkElapsedTime& elapsed) {
-            return elapsed.ToString();
-        }
-    };
+            /// Démarre le chronomètre immédiatement à la construction.
+            NkChrono() noexcept;
+            ~NkChrono() = default;
 
-    /**
-    * @Class NkChrono
-    * @Description Chronomètre haute précision avec fonctionnalités de mesure
-    *
-    * @Fonctionnalités :
-    * - Démarrage automatique à la construction
-    * - Mesure du temps écoulé avec différentes unités
-    * - Réinitialisation avec lecture du temps écoulé
-    * - Précision nanoseconde
-    */
-    class NKTIME_API NkChrono {
-    public:
-        /// @Region: Constructeurs/Destructeur ------------------------------------
+            NkChrono(const NkChrono&)            = default;
+            NkChrono& operator=(const NkChrono&) = default;
 
-        /**
-        * @Constructor NkChrono
-        * @Description Initialise le chronomètre avec l'heure actuelle
-        */
-        NkChrono() noexcept;
+            // ── Mesure ───────────────────────────────────────────────────────────
 
-        ~NkChrono() = default;
+            /**
+             * @Brief Temps écoulé depuis la dernière construction ou Reset().
+             * @Note  Ne remet PAS le chrono à zéro.
+             */
+            NKTIME_NODISCARD NkElapsedTime Elapsed() const noexcept;
 
-        /// @Region: Opérations de base ------------------------------------------
+            /**
+             * @Brief Lit le temps écoulé PUIS remet le chrono à zéro.
+             *        Atomique depuis le point de vue de l'appelant.
+             * @Return Durée avant remise à zéro.
+             */
+            NKTIME_NODISCARD NkElapsedTime Reset() noexcept;
 
-        /**
-        * @Function Elapsed
-        * @Description Calcule le temps écoulé depuis le démarrage
-        * @return NkElapsedTime Temps écoulé dans toutes les unités
-        */
-        NkElapsedTime Elapsed() const noexcept;
+            // ── Horloge de base ──────────────────────────────────────────────────
 
-        /**
-        * @Function Reset
-        * @Description Réinitialise le chronomètre et retourne le temps écoulé
-        * @return NkElapsedTime Temps écoulé avant réinitialisation
-        */
-        NkElapsedTime Reset() noexcept;
+            /**
+             * @Brief Temps absolu monotonique en nanosecondes.
+             * @Note  Utilisez Elapsed() pour des mesures relatives.
+             *        L'origine est arbitraire (boot, epoch, etc.) mais stable.
+             */
+            NKTIME_NODISCARD static NkElapsedTime Now() noexcept;
 
-        // Sleep functions
-        static void Sleep(const NkDuration& duration);
-        static void Sleep(core::int64 milliseconds);     // convenience: ms as integer
-        static void Sleep(float64 milliseconds); // convenience: ms as float
-        static void SleepMilliseconds(core::int64 milliseconds);
-        static void SleepMicroseconds(core::int64 microseconds);
+            /**
+             * @Brief Fréquence de l'horloge sous-jacente en Hz.
+             *        Windows : fréquence QPC.
+             *        POSIX   : 1 000 000 000 (résolution 1 ns).
+             */
+            NKTIME_NODISCARD static int64 GetFrequency() noexcept;
 
-        // Yield the current thread's time-slice to the OS scheduler
-        static void YieldThread();
+            // ── Sommeil ──────────────────────────────────────────────────────────
 
-        // Utility
-        static core::int64 GetFrequency();  // Clock frequency in Hz
-    private:
-        std::chrono::high_resolution_clock::time_point mStartTime; ///< Point de départ temporel
+            /// Sommeil de la durée spécifiée (NkDuration).
+            static void Sleep(const NkDuration& duration) noexcept;
+
+            /// Commodité : durée en millisecondes entières.
+            static void Sleep(int64 milliseconds)   noexcept;
+
+            /// Commodité : durée en millisecondes flottantes.
+            static void Sleep(float64 milliseconds) noexcept;
+
+            static void SleepMilliseconds(int64 ms) noexcept;
+            static void SleepMicroseconds(int64 us) noexcept;
+            static void SleepNanoseconds (int64 ns) noexcept;
+
+            // ── Scheduling ───────────────────────────────────────────────────────
+
+            /// Cède le quantum restant du thread au scheduler OS.
+            static void YieldThread() noexcept;
+
+        private:
+            NkElapsedTime mStartTime; ///< Timestamp absolu du dernier Reset()/construction.
     };
 
 } // namespace nkentseu
-
-// Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.
-// Toute utilisation, reproduction ou diffusion, sous quelque forme que ce soit, requiert une autorisation préalable de Rihen.
-// © Rihen 2025 - Tous droits réservés.

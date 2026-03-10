@@ -27,7 +27,7 @@ namespace nkentseu {
                 [[nodiscard]] nk_int32 RefCount() const noexcept { return mRefCount.Load(); }
 
             private:
-                mutable core::NkAtomicInt32 mRefCount;
+                mutable NkAtomicInt32 mRefCount;
         };
 
         template <typename T>
@@ -67,7 +67,7 @@ namespace nkentseu {
 
                 NkIntrusivePtr& operator=(NkIntrusivePtr&& other) noexcept {
                     if (this != &other) {
-                        NkIntrusivePtr(core::traits::NkMove(other)).Swap(*this);
+                        NkIntrusivePtr(traits::NkMove(other)).Swap(*this);
                     }
                     return *this;
                 }
@@ -110,7 +110,7 @@ namespace nkentseu {
 
         template <typename T, typename... Args>
         NkIntrusivePtr<T> NkMakeIntrusive(Args&&... args) {
-            T* object = new T(core::traits::NkForward<Args>(args)...);
+            T* object = new T(traits::NkForward<Args>(args)...);
             if (object) {
                 object->AddRef();
             }

@@ -5,6 +5,8 @@
 // =============================================================================
 
 #include "NKWindow/Core/NkTypes.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/Sequential/NkVector.h"
 #include <string>
 #include <vector>
 #include <functional>
@@ -67,8 +69,8 @@ namespace nkentseu{
     // ---------------------------------------------------------------------------
     struct NkCameraDevice {
         NkU32          index  = 0;
-        std::string    id;       ///< Identifiant OS unique (path Linux, GUID Win32, uniqueID iOS/macOS)
-        std::string    name;     ///< Nom lisible
+        NkString    id;       ///< Identifiant OS unique (path Linux, GUID Win32, uniqueID iOS/macOS)
+        NkString    name;     ///< Nom lisible
         NkCameraFacing facing = NkCameraFacing::NK_CAMERA_FACING_ANY;
 
         struct Mode {
@@ -77,13 +79,12 @@ namespace nkentseu{
             NkU32         fps    = 30;
             NkPixelFormat format = NkPixelFormat::NK_PIXEL_RGBA8;
         };
-        std::vector<Mode> modes;
+        NkVector<Mode> modes;
 
-        bool IsValid() const { return !id.empty(); }
-        std::string ToString() const {
-            return "Camera[" + std::to_string(index) + "] \"" + name
-                + "\" facing=" + std::to_string((NkU32)facing)
-                + " modes=" + std::to_string(modes.size());
+        bool IsValid() const { return !id.Empty(); }
+        NkString ToString() const {
+            return NkString::Fmt("Camera[{0}] \"{1}\" facing={2} modes={3}",
+                index, name, (NkU32)facing, (NkU32)modes.Size());
         }
     };
 
@@ -122,14 +123,14 @@ namespace nkentseu{
         NkU64              timestampUs  = 0;
         NkU32              frameIndex   = 0;
         NkU32              stride       = 0;
-        std::vector<NkU8>  data;
+        NkVector<NkU8>  data;
 
-        bool IsValid() const { return width > 0 && height > 0 && !data.empty(); }
+        bool IsValid() const { return width > 0 && height > 0 && !data.Empty(); }
 
         /// Accès pixel RGBA8 (uniquement si format == NK_PIXEL_RGBA8)
         NkU32 GetPixelRGBA(NkU32 x, NkU32 y) const {
             if (x >= width || y >= height || format != NkPixelFormat::NK_PIXEL_RGBA8) return 0;
-            const NkU8* p = data.data() + y * stride + x * 4;
+            const NkU8* p = data.Data() + y * stride + x * 4;
             return ((NkU32)p[0] << 24) | ((NkU32)p[1] << 16)
                 | ((NkU32)p[2] <<  8) |  (NkU32)p[3];
         }
@@ -149,9 +150,9 @@ namespace nkentseu{
     // ---------------------------------------------------------------------------
     struct NkPhotoCaptureResult {
         bool           success  = false;
-        std::string    errorMsg;
+        NkString    errorMsg;
         NkCameraFrame  frame;
-        std::string    savedPath;
+        NkString    savedPath;
         explicit operator bool() const { return success; }
     };
 
@@ -165,13 +166,13 @@ namespace nkentseu{
             IMAGE_SEQUENCE_ONLY, // Force un enregistrement image par image
         };
 
-        std::string outputPath;
+        NkString outputPath;
         NkU32       bitrateBps      = 4000000;
         NkU32       audioSampleRate = 44100;
         bool        captureAudio    = false;
-        std::string videoCodec      = "h264";
-        std::string audioCodec      = "aac";
-        std::string container       = "mp4";
+        NkString videoCodec      = "h264";
+        NkString audioCodec      = "aac";
+        NkString container       = "mp4";
         Mode        mode            = Mode::AUTO;
     };
 
@@ -191,7 +192,7 @@ namespace nkentseu{
     // Callbacks
     // ---------------------------------------------------------------------------
     using NkFrameCallback       = std::function<void(const NkCameraFrame&)>;
-    using NkCameraHotPlugCallback = std::function<void(const std::vector<NkCameraDevice>&)>;
+    using NkCameraHotPlugCallback = std::function<void(const NkVector<NkCameraDevice>&)>;
 
     // ---------------------------------------------------------------------------
     // NkCameraOrientation — pour le mapping caméra virtuelle / caméra réelle

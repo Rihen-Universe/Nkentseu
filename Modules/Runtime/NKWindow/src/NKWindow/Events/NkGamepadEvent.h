@@ -27,6 +27,7 @@
 
 #include "NkEvent.h"
 #include "NkMouseEvent.h"    // pour NkButtonState
+#include "NKContainers/String/NkStringUtils.h"
 #include <cstring>
 #include <string>
 
@@ -238,10 +239,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGamepadConnectEvent(*this); }
-        std::string ToString() const override {
-            return std::string("GamepadConnect(#") + std::to_string(mInfo.index)
-                 + " \"" + mInfo.name + "\""
-                 + " " + NkGamepadTypeToString(mInfo.type) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GamepadConnect(#{0} \"{1}\" {2})",
+                mInfo.index, mInfo.name, NkGamepadTypeToString(mInfo.type));
         }
 
         const NkGamepadInfo& GetInfo() const noexcept { return mInfo; }
@@ -267,8 +267,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGamepadDisconnectEvent(*this); }
-        std::string ToString() const override {
-            return "GamepadDisconnect(#" + std::to_string(mGamepadIndex) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GamepadDisconnect(#{0})", mGamepadIndex);
         }
     };
 
@@ -331,9 +331,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGamepadButtonPressEvent(*this); }
-        std::string ToString() const override {
-            return "GamepadButtonPress(#" + std::to_string(mGamepadIndex)
-                 + " " + NkGamepadButtonToString(mButton) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GamepadButtonPress(#{0} {1})",
+                mGamepadIndex, NkGamepadButtonToString(mButton));
         }
     };
 
@@ -357,9 +357,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGamepadButtonReleaseEvent(*this); }
-        std::string ToString() const override {
-            return "GamepadButtonRelease(#" + std::to_string(mGamepadIndex)
-                 + " " + NkGamepadButtonToString(mButton) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GamepadButtonRelease(#{0} {1})",
+                mGamepadIndex, NkGamepadButtonToString(mButton));
         }
     };
 
@@ -404,11 +404,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGamepadAxisEvent(*this); }
-        std::string ToString() const override {
-            return "GamepadAxis(#" + std::to_string(mGamepadIndex)
-                 + " " + NkGamepadAxisToString(mAxis)
-                 + "=" + std::to_string(mValue)
-                 + " delta=" + std::to_string(mDelta) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GamepadAxis(#{0} {1}={2:.3} delta={3:.3})",
+                mGamepadIndex, NkGamepadAxisToString(mAxis), mValue, mDelta);
         }
 
         NkGamepadAxis GetAxis()      const noexcept { return mAxis; }
@@ -473,11 +471,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGamepadRumbleEvent(*this); }
-        std::string ToString() const override {
-            return "GamepadRumble(#" + std::to_string(mGamepadIndex)
-                 + " lo=" + std::to_string(mMotorLow)
-                 + " hi=" + std::to_string(mMotorHigh)
-                 + " " + std::to_string(mDurationMs) + "ms)";
+        NkString ToString() const override {
+            return NkString::Fmt("GamepadRumble(#{0} lo={1:.3} hi={2:.3} {3}ms)",
+                mGamepadIndex, mMotorLow, mMotorHigh, mDurationMs);
         }
 
         NkF32 GetMotorLow()     const noexcept { return mMotorLow; }
@@ -528,11 +524,12 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGamepadBatteryEvent(*this); }
-        std::string ToString() const override {
-            return "GamepadBattery(#" + std::to_string(mGamepadIndex)
-                 + " " + (mLevel < 0.f ? "wired"
-                         : std::to_string(static_cast<int>(mLevel * 100)) + "%")
-                 + (mIsCharging ? " charging" : "") + ")";
+        NkString ToString() const override {
+            NkString level = (mLevel < 0.f)
+                ? NkString("wired")
+                : NkString::Fmt("{0}%", static_cast<int>(mLevel * 100));
+            return NkString::Fmt("GamepadBattery(#{0} {1}{2})",
+                mGamepadIndex, level, mIsCharging ? " charging" : "");
         }
 
         NkF32 GetLevel()     const noexcept { return mLevel; }

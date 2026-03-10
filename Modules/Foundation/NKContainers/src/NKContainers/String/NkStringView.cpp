@@ -9,14 +9,14 @@
 #include "NkStringView.h"
 #include "NkString.h"
 #include "NkStringUtils.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "Encoding/NkASCII.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
-#include <cctype>
 #include <cstdlib>
 #include <cstring>
 
 namespace nkentseu {
-    namespace core {
+    
         
         // ========================================
         // CONSTRUCTORS
@@ -425,7 +425,7 @@ namespace nkentseu {
         
         bool NkStringView::IsLower() const NK_NOEXCEPT {
             for (SizeType i = 0; i < mLength; ++i) {
-                if (std::isupper(static_cast<unsigned char>(mData[i]))) {
+                if (encoding::ascii::NkIsUpper(mData[i])) {
                     return false;
                 }
             }
@@ -434,7 +434,7 @@ namespace nkentseu {
         
         bool NkStringView::IsUpper() const NK_NOEXCEPT {
             for (SizeType i = 0; i < mLength; ++i) {
-                if (std::islower(static_cast<unsigned char>(mData[i]))) {
+                if (encoding::ascii::NkIsLower(mData[i])) {
                     return false;
                 }
             }
@@ -522,7 +522,7 @@ namespace nkentseu {
             return string::NkTrimRight(*this);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

@@ -15,6 +15,7 @@
 
 #include "NkEvent.h"
 #include "NkEventState.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <string>
 #include <vector>
 #include <cstring>
@@ -43,9 +44,9 @@ namespace nkentseu {
         bool  hasText  = false;      ///< Contient du texte
         bool  hasImage = false;      ///< Contient une image
 
-        std::string ToString() const {
-            std::string s = "DropEnter(at " + std::to_string(x) + "," + std::to_string(y);
-            if (numFiles) s += " files=" + std::to_string(numFiles);
+        NkString ToString() const {
+            NkString s = NkString::Fmt("DropEnter(at {0},{1}", x, y);
+            if (numFiles) s += NkString::Fmt(" files={0}", numFiles);
             if (hasText)  s += " text";
             if (hasImage) s += " image";
             s += ")";
@@ -68,7 +69,7 @@ namespace nkentseu {
 
         NkEvent* Clone() const override { return new NkDropEnterEvent(*this); }
 
-        std::string ToString() const override {
+        NkString ToString() const override {
             return "NkDropEnterEvent(" + data.ToString() + ")";
         }
     };
@@ -80,8 +81,8 @@ namespace nkentseu {
     struct NkDropOverData {
         NkI32 x = 0, y = 0;
 
-        std::string ToString() const {
-            return "DropOver(" + std::to_string(x) + "," + std::to_string(y) + ")";
+        NkString ToString() const {
+            return NkString::Fmt("DropOver({0},{1})", x, y);
         }
     };
 
@@ -100,7 +101,7 @@ namespace nkentseu {
 
         NkEvent* Clone() const override { return new NkDropOverEvent(*this); }
 
-        std::string ToString() const override {
+        NkString ToString() const override {
             return "NkDropOverEvent(" + data.ToString() + ")";
         }
     };
@@ -110,7 +111,7 @@ namespace nkentseu {
     // ===========================================================================
 
     struct NkDropLeaveData {
-        std::string ToString() const { return "DropLeave"; }
+        NkString ToString() const { return "DropLeave"; }
     };
 
     // ===========================================================================
@@ -125,7 +126,7 @@ namespace nkentseu {
 
         NkEvent* Clone() const override { return new NkDropLeaveEvent(*this); }
 
-        std::string ToString() const override { return "NkDropLeaveEvent()"; }
+        NkString ToString() const override { return "NkDropLeaveEvent()"; }
     };
 
     // ===========================================================================
@@ -140,7 +141,7 @@ namespace nkentseu {
             if (p) strncpy(path, p, sizeof(path) - 1);
         }
 
-        std::string ToString() const { return std::string(path); }
+        NkString ToString() const { return NkString(path); }
     };
 
     // ===========================================================================
@@ -149,16 +150,15 @@ namespace nkentseu {
 
     struct NkDropFileData {
         NkI32 x = 0, y = 0;        ///< Position de dépose dans la zone client
-        std::vector<std::string> paths;
+        NkVector<NkString> paths;
 
         NkDropFileData() = default;
 
-        void AddPath(const std::string& p) { paths.push_back(p); }
+        void AddPath(const NkString& p) { paths.PushBack(p); }
         NkU32 Count() const { return static_cast<NkU32>(paths.size()); }
 
-        std::string ToString() const {
-            return "DropFile(" + std::to_string(Count()) + " file(s) at "
-                + std::to_string(x) + "," + std::to_string(y) + ")";
+        NkString ToString() const {
+            return NkString::Fmt("DropFile({0} file(s) at {1},{2})", Count(), x, y);
         }
     };
 
@@ -177,7 +177,7 @@ namespace nkentseu {
 
         NkEvent* Clone() const override { return new NkDropFileEvent(*this); }
 
-        std::string ToString() const override {
+        NkString ToString() const override {
             return "NkDropFileEvent(" + data.ToString() + ")";
         }
     };
@@ -188,12 +188,12 @@ namespace nkentseu {
 
     struct NkDropTextData {
         NkI32       x = 0, y = 0;
-        std::string text;     ///< Texte en UTF-8
-        std::string mimeType; ///< MIME type (ex : "text/plain", "text/html")
+        NkString text;     ///< Texte en UTF-8
+        NkString mimeType; ///< MIME type (ex : "text/plain", "text/html")
 
-        std::string ToString() const {
-            std::string preview = text.size() > 40 ? text.substr(0, 40) : text;
-            return "DropText(\"" + preview + (text.size() > 40 ? "..." : "") + "\")";
+        NkString ToString() const {
+            NkString preview = text.Size() > 40 ? text.SubStr(0, 40) : text;
+            return "DropText(\"" + preview + (text.Size() > 40 ? "..." : "") + "\")";
         }
     };
 
@@ -212,7 +212,7 @@ namespace nkentseu {
 
         NkEvent* Clone() const override { return new NkDropTextEvent(*this); }
 
-        std::string ToString() const override {
+        NkString ToString() const override {
             return "NkDropTextEvent(" + data.ToString() + ")";
         }
     };
@@ -223,17 +223,16 @@ namespace nkentseu {
 
     struct NkDropImageData {
         NkI32       x = 0, y = 0;
-        std::string sourceUri;  ///< URI de la source
-        std::string mimeType;   ///< "image/png", "image/jpeg"…
+        NkString sourceUri;  ///< URI de la source
+        NkString mimeType;   ///< "image/png", "image/jpeg"…
         NkU32       width  = 0;
         NkU32       height = 0;
-        std::vector<NkU8> pixels;  ///< Données brutes (si disponibles) — RGBA8
+        NkVector<NkU8> pixels;  ///< Données brutes (si disponibles) — RGBA8
 
         bool HasPixels() const { return !pixels.empty(); }
 
-        std::string ToString() const {
-            return "DropImage(" + std::to_string(width) + "x" + std::to_string(height)
-                + " " + mimeType + ")";
+        NkString ToString() const {
+            return NkString::Fmt("DropImage({0}x{1} {2})", width, height, mimeType);
         }
     };
 
@@ -252,7 +251,7 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkDropImageEvent(*this); }
 
-            std::string ToString() const override {
+            NkString ToString() const override {
                 return "NkDropImageEvent(" + data.ToString() + ")";
             }
     };

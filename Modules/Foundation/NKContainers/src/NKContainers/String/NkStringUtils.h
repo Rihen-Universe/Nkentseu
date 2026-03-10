@@ -15,8 +15,11 @@
 #include "NkString.h"
 #include "NkStringView.h"
 
+#include "NKCore/NkTraits.h"
+#include "NkStringFormat.h"
+
 namespace nkentseu {
-    namespace core {
+    
         namespace string {
             
             // ========================================
@@ -31,7 +34,7 @@ namespace nkentseu {
             /**
              * @brief Vérifie si la chaîne est vide
              */
-            NKENTSEU_CORE_API bool NkIsEmpty(NkStringView str);
+            NKENTSEU_CORE_API bool NkEmpty(NkStringView str);
             
             /**
              * @brief Vérifie si la chaîne n'est pas vide
@@ -165,13 +168,13 @@ namespace nkentseu {
                     auto pos = str.Find(delimiter, start);
                     if (pos == NkStringView::npos) {
                         auto part = str.SubStr(start);
-                        if (!part.IsEmpty()) {
+                        if (!part.Empty()) {
                             result.push_back(part);
                         }
                         break;
                     }
                     auto part = str.SubStr(start, pos - start);
-                    if (!part.IsEmpty()) {
+                    if (!part.Empty()) {
                         result.push_back(part);
                     }
                     start = pos + delimiter.Length();
@@ -486,16 +489,98 @@ namespace nkentseu {
             NKENTSEU_CORE_API bool NkParseDouble(NkStringView str, float64& out);
             NKENTSEU_CORE_API bool NkParseBool(NkStringView str, bool& out);
             
+            
+            
+            // ========================================
+            // FORMAT - Style placeholder {i:p}
+            // ========================================
+            
+            /**
+             * @brief Format avec placeholders {i:p} style .NET/C#
+             * 
+             * Exemple: NkFormat("Value: {0:hex}, Name: {1:upper}", 255, "test")
+             * Où 0, 1 = index du paramètre
+             * p (propriétés facultatives):
+             *   - d, int, num: décimal (entier/booléen)
+             *   - x, hex: hexadécimal (avec hex2, hex8, hex16 pour padding)
+             *   - xupper, hexupper: hexadécimal majuscules
+             *   - bin, b: binaire
+             *   - e, exp: notation exponentielle (flottants)
+             *   - g: notation générale (flottants)
+             *   - .N: N chiffres de précision (flottants)
+             *   - upper, lower: conversion de casse (chaînes)
+             *   - q, quote: ajoute guillemets (chaînes)
+             * 
+             * @note Implémenté dans NkStringFormat.h comme template variadic
+             * @example NkFormat("{0} + {1:hex} = {2:.2}", 10, 255, 3.14159)
+             */
+            // template <typename... Args>
+            // NkString NkFormat(NkStringView format, Args&&... args);
+            // Voir NkStringFormat.h pour la définition
+            
+            // ========================================
+            // FORMAT - Style printf %d, %s, etc.
+            // ========================================
+            
+            /**
+             * @brief Format style printf avec %d, %s, %f, etc.
+             */
+            NKENTSEU_CORE_API NkString NkFormatf(const char* format, ...);
+            
+            /**
+             * @brief Format printf avec arguments variadiques
+             */
+            NKENTSEU_CORE_API NkString NkVFormatf(const char* format, va_list args);
+            
             /**
              * @brief Conversion vers String
              */
-            NKENTSEU_CORE_API NkString NkToString(int32 value);
-            NKENTSEU_CORE_API NkString NkToString(int64 value);
-            NKENTSEU_CORE_API NkString NkToString(uint32 value);
-            NKENTSEU_CORE_API NkString NkToString(uint64 value);
+            /**
+             * @brief Convertit une valeur quelconque en NkString.
+             * 
+             * @tparam T Type de la valeur (entier, flottant, booléen).
+             * @param value Valeur à convertir.
+             * @param precision Précision pour les flottants (ignorée pour les autres types).
+             * @return NkString Représentation textuelle de la valeur.
+             */
+            template<typename T>
+            NKENTSEU_CORE_API NkString NkToString(T value, int precision = 6) {
+                // Utilisation de if constexpr pour sélectionner la bonne conversion
+                if constexpr (traits::NkIsSame_v<T, bool>) {
+                    return value ? NkString("true") : NkString("false");
+                }
+                else if constexpr (traits::NkIsFloatingPoint_v<T>) {
+                    // Pour les flottants, utiliser NkFormatf avec la précision demandée
+                    return NkFormatf("%.*f", precision, static_cast<double>(value));
+                }
+                else if constexpr (traits::NkIsIntegral_v<T>) {
+                    // Pour les entiers signés/non signés
+                    if constexpr (traits::NkIsSigned_v<T>) {
+                        return NkFormatf("%lld", static_cast<long long>(value));
+                    } else {
+                        return NkFormatf("%llu", static_cast<unsigned long long>(value));
+                    }
+                }
+                else {
+                    // Fallback pour les autres types (pointeurs, etc.) – optionnel
+                    static_assert(sizeof(T) == 0, "Type non supporté par NkToString");
+                    return NkString();
+                }
+            }
+
+            NKENTSEU_CORE_API NkString NkToString(int32 value, int = 6);
+            NKENTSEU_CORE_API NkString NkToString(int64 value, int = 6);
+            NKENTSEU_CORE_API NkString NkToString(uint32 value, int = 6);
+            NKENTSEU_CORE_API NkString NkToString(uint64 value, int = 6);
             NKENTSEU_CORE_API NkString NkToString(float32 value, int precision = 6);
             NKENTSEU_CORE_API NkString NkToString(float64 value, int precision = 6);
-            NKENTSEU_CORE_API NkString NkToString(bool value);
+            NKENTSEU_CORE_API NkString NkToString(bool value, int = 6);
+            
+            /**
+             * @brief Conversion vers String avec format printf
+             * Exemple: NkToStringf("%d", 42), NkToStringf("%s", "test")
+             */
+            NKENTSEU_CORE_API NkString NkToStringf(const char* format, ...);
             
             /**
              * @brief Conversion hexadécimale
@@ -570,17 +655,6 @@ namespace nkentseu {
             
             NKENTSEU_CORE_API NkString NkRepeat(NkStringView str, usize count);
             NKENTSEU_CORE_API NkString NkRepeat(char ch, usize count);
-            
-            // ========================================
-            // FORMAT (sprintf-like simplifié)
-            // ========================================
-            
-            NKENTSEU_CORE_API NkString NkFormat(const char* format, ...);
-            
-            /**
-             * @brief Format avec arguments variadiques
-             */
-            NKENTSEU_CORE_API NkString NkVFormat(const char* format, va_list args);
             
             // ========================================
             // ESCAPING & UNESCAPING
@@ -685,7 +759,7 @@ namespace nkentseu {
                 NkString result(str);
                 
                 for (const auto& pair : replacements) {
-                    NkString templateStr = NkFormat("{{%s}}", NkStringView(pair.first).Data());
+                    NkString templateStr = NkFormatf("{{%s}}", NkStringView(pair.first).Data());
                     result = NkReplaceAll(result.View(), templateStr.View(), NkStringView(pair.second));
                 }
                 
@@ -852,7 +926,7 @@ namespace nkentseu {
             NKENTSEU_CORE_API usize NkSafeConcat(char* dest, usize destSize, NkStringView src);
             
         } // namespace string
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKENTSEU_SRC_NKENTSEU_STRING_NKSTRINGUTILS_H_INCLUDED

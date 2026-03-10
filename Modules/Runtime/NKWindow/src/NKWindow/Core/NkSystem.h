@@ -32,8 +32,8 @@ namespace nkentseu {
         NkRendererApi preferredRenderer   = NkRendererApi::NK_SOFTWARE;
         bool          enableRendererDebug = false;
         bool          enableEventLogging  = false;
-        std::string   appName             = "NkApp";
-        std::string   appVersion          = "1.0.0";
+        NkString   appName             = "NkApp";
+        NkString   appVersion          = "1.0.0";
         bool          enableMultiWindow   = true;
     };
 
@@ -78,7 +78,7 @@ namespace nkentseu {
             NkWindowId RegisterWindow(NkWindow* win);
             void       UnregisterWindow(NkWindowId id);
             NkWindow*  GetWindow(NkWindowId id) const;
-            NkU32      GetWindowCount() const { return static_cast<NkU32>(mWindows.size()); }
+            NkU32      GetWindowCount() const { return static_cast<NkU32>(mWindows.Size()); }
             NkWindow*  GetWindowAt(NkU32 index) const;
 
         private:
@@ -92,7 +92,7 @@ namespace nkentseu {
             NkGamepadSystem  mGamepadSystem;
 
             // Registre des fenÃªtres
-            std::unordered_map<NkWindowId, NkWindow*> mWindows;
+            NkUnorderedMap<NkWindowId, NkWindow*> mWindows;
             NkWindowId                                 mNextWindowId = 1;
 
         #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)

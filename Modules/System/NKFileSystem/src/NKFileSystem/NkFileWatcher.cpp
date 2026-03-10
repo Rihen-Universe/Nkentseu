@@ -5,13 +5,15 @@
 // DATE: 2026-02-10
 // -----------------------------------------------------------------------------
 
-#include "NkFileWatcher.h"
+#include "NKFileSystem/NkFileWatcher.h"
 #include <cstring>
 #include <ctime>
 
 #ifdef _WIN32
     #include <windows.h>
     #include <process.h>
+#elif defined(__EMSCRIPTEN__)
+    // File watching not supported on WASM — stub implementation only
 #else
     #include <unistd.h>
     #include <pthread.h>
@@ -165,14 +167,14 @@ namespace nkentseu {
             CloseHandle(hDir);
         }
         
-        #else
-        
+        #elif !defined(__EMSCRIPTEN__)
+
         void* NkFileWatcher::ThreadProc(void* param) {
             NkFileWatcher* watcher = static_cast<NkFileWatcher*>(param);
             watcher->WatchThread();
             return nullptr;
         }
-        
+
         void NkFileWatcher::WatchThread() {
             int fd = inotify_init();
             if (fd < 0) {
@@ -253,7 +255,7 @@ namespace nkentseu {
         
         bool NkFileWatcher::Start() {
             if (mIsWatching) return true;
-            if (mPath.IsEmpty() || !mCallback) return false;
+            if (mPath.Empty() || !mCallback) return false;
             
             mIsWatching = true;
             
@@ -263,6 +265,10 @@ namespace nkentseu {
                 0,
                 this
             ));
+            #elif defined(__EMSCRIPTEN__)
+            // File watching not supported on WASM
+            mIsWatching = false;
+            return false;
             #else
             pthread_t* thread = new pthread_t;
             if (pthread_create(thread, NULL, ThreadProc, this) == 0) {
@@ -286,7 +292,7 @@ namespace nkentseu {
                 #ifdef _WIN32
                 WaitForSingleObject(mThread, INFINITE);
                 CloseHandle(mThread);
-                #else
+                #elif !defined(__EMSCRIPTEN__)
                 pthread_t* thread = static_cast<pthread_t*>(mThread);
                 pthread_join(*thread, NULL);
                 delete thread;
@@ -325,7 +331,7 @@ namespace nkentseu {
             if (wasWatching) Start();
         }
         
-        const core::NkString& NkFileWatcher::GetPath() const {
+        const NkString& NkFileWatcher::GetPath() const {
             return mPath;
         }
         

@@ -15,11 +15,11 @@
 #include "NKCore/NkTypes.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "Encoding/NkEncoding.h"
 
 namespace nkentseu {
-    namespace core {
+    
 
         // ========================================
         // CHARACTER TRAITS (inline implementation)
@@ -252,7 +252,7 @@ namespace nkentseu {
                 SizeType Length() const NK_NOEXCEPT { return mLength; }
                 SizeType Size() const NK_NOEXCEPT { return mLength; }
                 SizeType Capacity() const NK_NOEXCEPT { return mCapacity; }
-                bool IsEmpty() const NK_NOEXCEPT { return mLength == 0; }
+                bool Empty() const NK_NOEXCEPT { return mLength == 0; }
                 
                 void Reserve(SizeType newCapacity) {
                     if (newCapacity <= mCapacity) return;
@@ -533,7 +533,7 @@ namespace nkentseu {
         NKENTSEU_CORE_API WString NkToWide(const String8& str);
         NKENTSEU_CORE_API String8 NkFromWide(const WString& wstr);
 
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_STRING_NKBASICSTRING_H_INCLUDED // NK_CORE_NKCORE_SRC_NKCORE_STRING_NKBASICSTRING_H_INCLUDED

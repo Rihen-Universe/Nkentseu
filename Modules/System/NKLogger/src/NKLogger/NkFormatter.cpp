@@ -7,9 +7,7 @@
 
 #include "NKLogger/NkFormatter.h"
 #include "NKLogger/NkLogLevel.h"
-#include <sstream>
-#include <iomanip>
-#include <iostream>
+#include <cstdio>
 #include <ctime>
 
 // -----------------------------------------------------------------------------
@@ -19,6 +17,18 @@ namespace nkentseu {
 /**
  * @brief Namespace logger.
  */
+
+namespace {
+
+inline void NkAppendUInt32(NkString &result, uint32 value) {
+	char buffer[16];
+	const int length = ::snprintf(buffer, sizeof(buffer), "%u", static_cast<unsigned int>(value));
+	if (length > 0) {
+		result.Append(buffer, static_cast<usize>(length));
+	}
+}
+
+} // namespace
 
 const char *NkFormatter::NK_DEFAULT_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%t] -> %v";
 const char *NkFormatter::NK_SIMPLE_PATTERN = "%v";
@@ -51,7 +61,7 @@ NkFormatter::NkFormatter() : m_Pattern(NK_DEFAULT_PATTERN), m_TokensValid(false)
 /**
  * @brief Constructeur avec pattern spécifique
  */
-NkFormatter::NkFormatter(const std::string &pattern) : m_Pattern(pattern), m_TokensValid(false) {
+NkFormatter::NkFormatter(const NkString &pattern) : m_Pattern(pattern), m_TokensValid(false) {
 	ParsePattern(pattern);
 }
 
@@ -64,7 +74,7 @@ NkFormatter::~NkFormatter() {
 /**
  * @brief Définit le pattern de formatage
  */
-void NkFormatter::SetPattern(const std::string &pattern) {
+void NkFormatter::SetPattern(const NkString &pattern) {
 	if (m_Pattern != pattern) {
 		m_Pattern = pattern;
 		m_TokensValid = false;
@@ -74,27 +84,27 @@ void NkFormatter::SetPattern(const std::string &pattern) {
 /**
  * @brief Obtient le pattern courant
  */
-const std::string &NkFormatter::GetPattern() const {
+const NkString &NkFormatter::GetPattern() const {
 	return m_Pattern;
 }
 
 /**
  * @brief Formate un message de log
  */
-std::string NkFormatter::Format(const NkLogMessage &message) {
+NkString NkFormatter::Format(const NkLogMessage &message) {
 	return Format(message, false);
 }
 
 /**
  * @brief Formate un message de log avec des couleurs
  */
-std::string NkFormatter::Format(const NkLogMessage &message, bool useColors) {
+NkString NkFormatter::Format(const NkLogMessage &message, bool useColors) {
 	if (!m_TokensValid) {
 		ParsePattern(m_Pattern);
 	}
 
-	std::string result;
-	result.reserve(256); // Pré-allocation pour performance
+	NkString result;
+	result.Reserve(256); // Pré-allocation pour performance
 
 	for (const auto &token : m_Tokens) {
 		FormatToken(token, message, useColors, result);
@@ -106,12 +116,12 @@ std::string NkFormatter::Format(const NkLogMessage &message, bool useColors) {
 /**
  * @brief Parse le pattern en tokens
  */
-void NkFormatter::ParsePattern(const std::string &pattern) {
-	m_Tokens.clear();
-	m_Tokens.reserve(pattern.size() / 2); // Estimation
+void NkFormatter::ParsePattern(const NkString &pattern) {
+	m_Tokens.Clear();
+	m_Tokens.Reserve(pattern.Size() / 2); // Estimation
 
-	for (core::usize i = 0; i < pattern.size(); ++i) {
-		if (pattern[i] == '%' && i + 1 < pattern.size()) {
+	for (usize i = 0; i < pattern.Size(); ++i) {
+		if (pattern[i] == '%' && i + 1 < pattern.Size()) {
 			char next = pattern[i + 1];
 			NkPatternToken token;
 
@@ -179,25 +189,25 @@ void NkFormatter::ParsePattern(const std::string &pattern) {
 				default:
 					// Token littéral avec le %
 					token.type = NkPatternToken::Type::NK_LITERAL;
-					token.value = pattern.substr(i, 2);
-					m_Tokens.push_back(token);
+					token.value = pattern.SubStr(i, 2);
+					m_Tokens.PushBack(token);
 					++i;
 					continue;
 			}
 
-			m_Tokens.push_back(token);
+			m_Tokens.PushBack(token);
 			++i; // Skip le caractère suivant
 		} else {
 			// Token littéral
-			core::usize start = i;
-			while (i < pattern.size() && pattern[i] != '%') {
+			usize start = i;
+			while (i < pattern.Size() && pattern[i] != '%') {
 				++i;
 			}
 
 			NkPatternToken token;
 			token.type = NkPatternToken::Type::NK_LITERAL;
-			token.value = pattern.substr(start, i - start);
-			m_Tokens.push_back(token);
+			token.value = pattern.SubStr(start, i - start);
+			m_Tokens.PushBack(token);
 
 			--i; // Pour que la boucle incrémente correctement
 		}
@@ -209,7 +219,7 @@ void NkFormatter::ParsePattern(const std::string &pattern) {
 /**
  * @brief Formate un token individuel
  */
-void NkFormatter::FormatToken(const NkPatternToken &token, const NkLogMessage &message, bool useColors, std::string &result) {
+void NkFormatter::FormatToken(const NkPatternToken &token, const NkLogMessage &message, bool useColors, NkString &result) {
 	switch (token.type) {
 		case NkPatternToken::Type::NK_LITERAL:
 			result += token.value;
@@ -272,28 +282,24 @@ void NkFormatter::FormatToken(const NkPatternToken &token, const NkLogMessage &m
 			break;
 
 		case NkPatternToken::Type::NK_THREAD_ID: {
-			std::ostringstream oss;
-			oss << message.threadId;
-			result += oss.str();
+			NkAppendUInt32(result, message.threadId);
 			break;
 		}
 
 		case NkPatternToken::Type::NK_THREAD_NAME:
-			if (!message.threadName.empty()) {
+			if (!message.threadName.Empty()) {
 				result += message.threadName;
 			} else {
-				std::ostringstream oss;
-				oss << message.threadId;
-				result += oss.str();
+				NkAppendUInt32(result, message.threadId);
 			}
 			break;
 
 		case NkPatternToken::Type::NK_SOURCE_FILE:
-			if (!message.sourceFile.empty()) {
+			if (!message.sourceFile.Empty()) {
 				// Extraire juste le nom du fichier (sans chemin)
-				core::usize pos = message.sourceFile.find_last_of("/\\");
-				if (pos != std::string::npos) {
-					result += message.sourceFile.substr(pos + 1);
+				usize pos = message.sourceFile.FindLastOf("/\\");
+				if (pos != NkString::npos) {
+					result += message.sourceFile.SubStr(pos + 1);
 				} else {
 					result += message.sourceFile;
 				}
@@ -302,15 +308,13 @@ void NkFormatter::FormatToken(const NkPatternToken &token, const NkLogMessage &m
 
 		case NkPatternToken::Type::NK_SOURCE_LINE: {
 			if (message.sourceLine > 0) {
-				std::ostringstream oss;
-				oss << message.sourceLine;
-				result += oss.str();
+				NkAppendUInt32(result, message.sourceLine);
 			}
 			break;
 		}
 
 		case NkPatternToken::Type::NK_FUNCTION:
-			if (!message.functionName.empty()) {
+			if (!message.functionName.Empty()) {
 				result += message.functionName;
 			}
 			break;
@@ -320,7 +324,7 @@ void NkFormatter::FormatToken(const NkPatternToken &token, const NkLogMessage &m
 			break;
 
 		case NkPatternToken::Type::NK_LOGGER_NAME:
-			if (!message.loggerName.empty()) {
+			if (!message.loggerName.Empty()) {
 				result += message.loggerName;
 			} else {
 				result += "default";
@@ -348,23 +352,45 @@ void NkFormatter::FormatToken(const NkPatternToken &token, const NkLogMessage &m
 /**
  * @brief Formate un nombre avec padding
  */
-std::string NkFormatter::FormatNumber(int value, int width, char fillChar) const {
-	std::ostringstream oss;
-	oss << std::setw(width) << std::setfill(fillChar) << value;
-	return oss.str();
+NkString NkFormatter::FormatNumber(int value, int width, char fillChar) const {
+	char buffer[32];
+	const int length = ::snprintf(buffer, sizeof(buffer), "%d", value);
+	if (length <= 0) {
+		return {};
+	}
+
+	if (width <= length) {
+		return NkString(buffer, static_cast<usize>(length));
+	}
+
+	const int pad = width - length;
+	NkString out;
+	out.Reserve(static_cast<usize>(width));
+
+	// Conserve le signe devant les zéros: -01 au lieu de 0-1.
+	if (fillChar == '0' && value < 0) {
+		out.PushBack('-');
+		out.Append(static_cast<usize>(pad), fillChar);
+		out.Append(buffer + 1, static_cast<usize>(length - 1));
+		return out;
+	}
+
+	out.Append(static_cast<usize>(pad), fillChar);
+	out.Append(buffer, static_cast<usize>(length));
+	return out;
 }
 
 /**
  * @brief Obtient le code couleur ANSI pour un niveau de log
  */
-std::string NkFormatter::GetANSIColor(NkLogLevel level) const {
+NkString NkFormatter::GetANSIColor(NkLogLevel level) const {
 	return NkLogLevelToANSIColor(level);
 }
 
 /**
  * @brief Obtient le code de fin de couleur ANSI
  */
-std::string NkFormatter::GetANSIReset() const {
+NkString NkFormatter::GetANSIReset() const {
 	return "\033[0m";
 }
 

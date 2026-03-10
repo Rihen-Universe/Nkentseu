@@ -32,7 +32,7 @@ namespace nkentseu {
          */
         class NkPath {
         private:
-            core::NkString mPath;
+            NkString mPath;
             
             static constexpr char PREFERRED_SEPARATOR = '/';
             static constexpr char WINDOWS_SEPARATOR = '\\';
@@ -43,7 +43,7 @@ namespace nkentseu {
             // Constructors
             NkPath();
             NkPath(const char* path);
-            NkPath(const core::NkString& path);
+            NkPath(const NkString& path);
             NkPath(const NkPath& other);
             
             // Assignment
@@ -57,11 +57,11 @@ namespace nkentseu {
             NkPath operator/(const NkPath& other) const;
             
             // Path components
-            core::NkString GetDirectory() const;
-            core::NkString GetFileName() const;
-            core::NkString GetFileNameWithoutExtension() const;
-            core::NkString GetExtension() const;
-            core::NkString GetRoot() const;
+            NkString GetDirectory() const;
+            NkString GetFileName() const;
+            NkString GetFileNameWithoutExtension() const;
+            NkString GetExtension() const;
+            NkString GetRoot() const;
             
             // Path properties
             bool IsAbsolute() const;
@@ -77,8 +77,8 @@ namespace nkentseu {
             
             // Conversion
             const char* CStr() const;
-            core::NkString ToString() const;
-            core::NkString ToNative() const;  // With platform-specific separators
+            NkString ToString() const;
+            NkString ToNative() const;  // With platform-specific separators
             
             // Comparison
             bool operator==(const NkPath& other) const;

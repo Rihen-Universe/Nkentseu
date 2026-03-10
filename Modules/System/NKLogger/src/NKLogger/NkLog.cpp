@@ -1,123 +1,117 @@
 // -----------------------------------------------------------------------------
-// FICHIER: Core/NkLogger/src/NkLogger/NkLog.cpp
-// DESCRIPTION: Implémentation du logger par défaut avec API fluide.
-// AUTEUR: Rihen
-// DATE: 2026
+// NkLog.cpp
+// Default logger singleton implementation.
 // -----------------------------------------------------------------------------
+
+#if !defined(NK_LOG_HAS_ANDROID_LOG)
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+#define NK_LOG_HAS_ANDROID_LOG 1
+#elif defined(__has_include)
+#if __has_include(<android/log.h>)
+#define NK_LOG_HAS_ANDROID_LOG 1
+#else
+#define NK_LOG_HAS_ANDROID_LOG 0
+#endif
+#else
+#define NK_LOG_HAS_ANDROID_LOG 0
+#endif
+#endif
+
+#if NK_LOG_HAS_ANDROID_LOG
+#include "NKLogger/Sinks/NkAndroidSink.h"
+#else
+#include "NKLogger/Sinks/NkConsoleSink.h"
+#endif
 
 #include "NKLogger/NkLog.h"
-#include "NKLogger/Sinks/NkConsoleSink.h"
 #include "NKLogger/Sinks/NkFileSink.h"
-#include <cstdarg>
 
-// -----------------------------------------------------------------------------
-// NAMESPACE: nkentseu::logger
-// -----------------------------------------------------------------------------
 namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// INITIALISATION DES VARIABLES STATIQUES
-	// -------------------------------------------------------------------------
+bool NkLog::s_Initialized = false;
 
-	bool NkLog::s_Initialized = false;
+NkLog::NkLog(const NkString& name)
+    : NkLogger(name) {
+#if NK_LOG_HAS_ANDROID_LOG
+    // Android: route runtime logs to logcat.
+    memory::NkSharedPtr<NkISink> androidSink(
+        new NkAndroidSink(name.Empty() ? NkString("Nkentseu") : name));
+    AddSink(androidSink);
+#else
+    // Desktop: keep console output.
+    NkConsoleSink* consoleSinkRaw = new NkConsoleSink();
+    consoleSinkRaw->SetColorEnabled(true);
+    memory::NkSharedPtr<NkISink> consoleSink(consoleSinkRaw);
+    AddSink(consoleSink);
+#endif
 
-	// -------------------------------------------------------------------------
-	// IMPLÉMENTATION DE NkLog
-	// -------------------------------------------------------------------------
+    // Keep file sink for persisted logs.
+    memory::NkSharedPtr<NkISink> fileSink(new NkFileSink("logs/app.log"));
+    AddSink(fileSink);
 
-	/**
-	 * @brief Constructeur privé
-	 */
-	NkLog::NkLog(const std::string &name) : NkLogger(name) {
+    SetLevel(NkLogLevel::NK_INFO);
+    SetPattern(NkFormatter::NK_NKENTSEU_PATTERN);
+}
 
-		// Ajouter un sink console par défaut avec couleurs
-		auto consoleSink = std::make_shared<NkConsoleSink>();
-		consoleSink->SetColorEnabled(true);
-		AddSink(consoleSink);
+NkLog::~NkLog() {
+    Flush();
+}
 
-		// Ajouter un sink fichier par défaut
-		auto fileSink = std::make_shared<NkFileSink>("logs/app.log");
-		AddSink(fileSink);
+NkLog& NkLog::Instance() {
+    static NkLog instance;
+    s_Initialized = true;
+    return instance;
+}
 
-		// Configuration par défaut
-		SetLevel(NkLogLevel::NK_INFO);
-		SetPattern(NkFormatter::NK_NKENTSEU_PATTERN);
-	}
+void NkLog::Initialize(const NkString& name, const NkString& pattern, NkLogLevel level) {
+    auto& instance = Instance();
 
-	/**
-	 * @brief Destructeur
-	 */
-	NkLog::~NkLog() {
-		Flush();
-	}
+    if (instance.GetName() != name && !name.Empty()) {
+        instance.SetName(name);
+    }
 
-	/**
-	 * @brief Obtient l'instance singleton
-	 */
-	NkLog &NkLog::Instance() {
-		static NkLog instance;
-		s_Initialized = true;
-		return instance;
-	}
+    instance.SetPattern(pattern);
+    instance.SetLevel(level);
+    s_Initialized = true;
+}
 
-	/**
-	 * @brief Initialise le logger par défaut
-	 */
-	void NkLog::Initialize(const std::string &name, const std::string &pattern, NkLogLevel level) {
-		auto &instance = Instance();
+void NkLog::Shutdown() {
+    auto& instance = Instance();
+    instance.Flush();
+    instance.ClearSinks();
+}
 
-		if (instance.GetName() != name && !name.empty()) {
-			instance.SetName(name);
-		}
+NkLog& NkLog::Named(const NkString& name) {
+    SetName(name);
 
-		instance.SetPattern(pattern);
-		instance.SetLevel(level);
-		s_Initialized = true;
-	}
+#if NK_LOG_HAS_ANDROID_LOG
+    // Keep Android sink tag aligned with logger name.
+    for (auto& sink : m_Sinks) {
+        if (!sink) {
+            continue;
+        }
+        if (auto* androidSink = dynamic_cast<NkAndroidSink*>(sink.Get())) {
+            androidSink->SetTag(name);
+        }
+    }
+#endif
 
-	/**
-	 * @brief Nettoie le logger par défaut
-	 */
-	void NkLog::Shutdown() {
-		auto &instance = Instance();
-		instance.Flush();
-		instance.ClearSinks();
-	}
+    return *this;
+}
 
-	/**
-	 * @brief Configure les informations de source
-	 */
-	// SourceContext NkLog::Source(const char* file, int line, const char* function) const {
-	//     return SourceContext(file, line, function);
-	// }
+NkLog& NkLog::Level(NkLogLevel level) {
+    SetLevel(level);
+    return *this;
+}
 
-	/**
-	 * @brief Configure le nom du logger
-	 */
-	NkLog &NkLog::Named(const std::string &name) {
-		SetName(name);
-		return *this;
-	}
+NkLog& NkLog::Pattern(const NkString& pattern) {
+    SetPattern(pattern);
+    return *this;
+}
 
-	/**
-	 * @brief Configure le niveau de log
-	 */
-	NkLog &NkLog::Level(NkLogLevel level) {
-		SetLevel(level);
-		return *this;
-	}
-
-	/**
-	 * @brief Configure le pattern
-	 */
-	NkLog &NkLog::Pattern(const std::string &pattern) {
-		SetPattern(pattern);
-		return *this;
-	}
-
-	NkLog &NkLog::Source(const char *sourceFile, uint32 sourceLine, const char *functionName) {
-		NkLogger::Source(sourceFile, sourceLine, functionName);
-		return *this;
-	}
+NkLog& NkLog::Source(const char* sourceFile, uint32 sourceLine, const char* functionName) {
+    NkLogger::Source(sourceFile, sourceLine, functionName);
+    return *this;
+}
 
 } // namespace nkentseu

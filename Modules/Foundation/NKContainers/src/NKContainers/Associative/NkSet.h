@@ -15,13 +15,13 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Ordered set - std::set equivalent
@@ -232,14 +232,14 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkSet()
+            explicit NkSet(Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
             }
             
-            NkSet(NkInitializerList<T> init)
+            NkSet(NkInitializerList<T> init, Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 for (auto& val : init) Insert(val);
             }
             
@@ -254,7 +254,7 @@ namespace nkentseu {
             ConstIterator end() const { return ConstIterator(nullptr, this); }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             // Modifiers
@@ -335,7 +335,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKSET_H_INCLUDED

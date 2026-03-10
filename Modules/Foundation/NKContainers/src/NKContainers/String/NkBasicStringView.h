@@ -13,10 +13,10 @@
 
 #include "NKContainers/NkCompat.h"
 #include "NKCore/NkTypes.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Generic string view (non-owning, read-only)
@@ -85,7 +85,7 @@ namespace nkentseu {
                     return mLength;
                 }
                 
-                NK_CONSTEXPR bool IsEmpty() const NK_NOEXCEPT {
+                NK_CONSTEXPR bool Empty() const NK_NOEXCEPT {
                     return mLength == 0;
                 }
                 
@@ -246,7 +246,7 @@ namespace nkentseu {
             return lhs.Compare(rhs) < 0;
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_STRING_NKBASICSTRINGVIEW_H_INCLUDED

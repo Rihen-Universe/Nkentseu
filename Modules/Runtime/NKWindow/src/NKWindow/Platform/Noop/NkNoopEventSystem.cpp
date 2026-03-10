@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // NkNoopEventSystem.cpp
 // Headless/fallback implementation of platform-specific NkEventSystem methods.
 // =============================================================================
@@ -8,7 +8,7 @@
 #if defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY) || \
     (!defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX) && \
     !defined(NKENTSEU_PLATFORM_ANDROID) && !defined(NKENTSEU_PLATFORM_MACOS) && !defined(NKENTSEU_PLATFORM_IOS) && \
-    !defined(NKENTSEU_PLATFORM_WEB) && !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && !defined(__EMSCRIPTEN__) && \
+    !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && !defined(__EMSCRIPTEN__) && \
     !(defined(NKENTSEU_PLATFORM_LINUX) && (defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB) || defined(NKENTSEU_WINDOWING_WAYLAND))))
 
 #include "NKWindow/Events/NkEventSystem.h"

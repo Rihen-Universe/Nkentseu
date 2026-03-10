@@ -1,8 +1,8 @@
 // =============================================================================
-// NkGamepadSystem.cpp — implémentation façade + sélection backend
+// NkGamepadSystem.cpp â€” implÃ©mentation faÃ§ade + sÃ©lection backend
 //
 // CORRECTION : NkEventSystem::Instance() n'existe plus.
-// Tout dispatch passe par NkSystem::Events() (NkEventSystem possédé par NkSystem).
+// Tout dispatch passe par NkSystem::Events() (NkEventSystem possÃ©dÃ© par NkSystem).
 // =============================================================================
 
 #include "NkGamepadSystem.h"
@@ -14,7 +14,7 @@
 #include <cmath>
 
 // ---------------------------------------------------------------------------
-// Sélection du backend gamepad par plateforme
+// SÃ©lection du backend gamepad par plateforme
 // ---------------------------------------------------------------------------
 
 #if defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)
@@ -50,9 +50,9 @@
 #   include "NKWindow/Platform/Linux/NkLinuxGamepadBackend.h"
     using PlatformGamepad = nkentseu::NkLinuxGamepad;
 
-#elif defined(NKENTSEU_PLATFORM_WEB) || defined(__EMSCRIPTEN__)
-#   include "NKWindow/Platform/WASM/NkWASMGamepad.h"
-    using PlatformGamepad = nkentseu::NkWASMGamepad;
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#   include "NKWindow/Platform/Emscripten/NkEmscriptenGamepad.h"
+    using PlatformGamepad = nkentseu::NkEmscriptenGamepad;
 
 #else
 #   include "NKWindow/Platform/Noop/NkNoopGamepad.h"
@@ -71,13 +71,13 @@ namespace nkentseu {
         }
     } // namespace
 
-    // Sentinelles pour les accès invalides
+    // Sentinelles pour les accÃ¨s invalides
     NkGamepadSnapshot NkGamepadSystem::sDummySnapshot;
     NkGamepadInfo     NkGamepadSystem::sDummyInfo;
 
     // -------------------------------------------------------------------------
-    // Helper interne — seul point d'accès à NkEventSystem.
-    // NkEventSystem::Instance() n'existe plus → NkSystem::Events().
+    // Helper interne â€” seul point d'accÃ¨s Ã  NkEventSystem.
+    // NkEventSystem::Instance() n'existe plus â†’ NkSystem::Events().
     // -------------------------------------------------------------------------
     static inline NkEventSystem& EvSys() noexcept {
         return NkSystem::Events();
@@ -91,7 +91,7 @@ namespace nkentseu {
         if (logicalAxisIndex >= AXIS_COUNT) return 0.f;
         value = SanitizeAxisValue(value);
 
-        // Les gâchettes restent dans [0,1], les autres axes dans [-1,1].
+        // Les gÃ¢chettes restent dans [0,1], les autres axes dans [-1,1].
         if (logicalAxisIndex == static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LT) ||
             logicalAxisIndex == static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT))
         {
@@ -169,7 +169,7 @@ namespace nkentseu {
             if (std::fabs(v) > std::fabs(dst)) dst = v;
         }
 
-        // Cohérence dpad boutons <-> axes si non fournis explicitement.
+        // CohÃ©rence dpad boutons <-> axes si non fournis explicitement.
         const NkU32 dpadX = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_X);
         const NkU32 dpadY = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y);
         const NkU32 left  = static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_LEFT);
@@ -194,7 +194,7 @@ namespace nkentseu {
         if (!out.buttons[up]    && dpadYValue >  0.5f) out.buttons[up]    = true;
         if (!out.buttons[down]  && dpadYValue < -0.5f) out.buttons[down]  = true;
 
-        // Cohérence triggers analogiques -> boutons digitaux si absents.
+        // CohÃ©rence triggers analogiques -> boutons digitaux si absents.
         const NkU32 ltA = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LT);
         const NkU32 rtA = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT);
         const NkU32 ltB = static_cast<NkU32>(NkGamepadButton::NK_GP_LT_DIGITAL);
@@ -337,7 +337,7 @@ namespace nkentseu {
     }
 
     // -------------------------------------------------------------------------
-    // PollGamepads — détection deltas boutons/axes + fire callbacks
+    // PollGamepads â€” dÃ©tection deltas boutons/axes + fire callbacks
     // -------------------------------------------------------------------------
 
     void NkGamepadSystem::PollGamepads() {
@@ -350,7 +350,7 @@ namespace nkentseu {
             const NkGamepadSnapshot& cur  = ApplyRemap(i, mRawSnapshot[i]);
             const NkGamepadSnapshot& prev = mPrevSnapshot[i];
 
-            // Connexion / déconnexion
+            // Connexion / dÃ©connexion
             if (cur.connected != prev.connected)
                 FireConnect(cur.info, cur.connected);
 
@@ -359,7 +359,7 @@ namespace nkentseu {
                 continue;
             }
 
-            // Boutons (événements limités aux boutons connus par l'enum)
+            // Boutons (Ã©vÃ©nements limitÃ©s aux boutons connus par l'enum)
             for (NkU32 b = 0; b < EVENT_BUTTON_COUNT; ++b) {
                 if (cur.buttons[b] != prev.buttons[b]) {
                     FireButton(i, static_cast<NkGamepadButton>(b),
@@ -449,7 +449,7 @@ namespace nkentseu {
         if (!mReady || !mBackend) return;
         mBackend->Rumble(idx, motorLow, motorHigh, triggerLeft, triggerRight, durationMs);
 
-        // Dispatch de l'événement rumble via NkSystem::Events()
+        // Dispatch de l'Ã©vÃ©nement rumble via NkSystem::Events()
         NkGamepadRumbleEvent event(idx, motorLow, motorHigh,
                                    triggerLeft, triggerRight, durationMs);
         EvSys().DispatchEvent(event);
@@ -468,7 +468,7 @@ namespace nkentseu {
         NkGamepadMappingProfileData profile;
         profile.version = 1;
         profile.backendName = (mBackend ? mBackend->GetName() : "Unknown");
-        profile.slots.reserve(NK_MAX_GAMEPADS);
+        profile.slots.Reserve(NK_MAX_GAMEPADS);
 
         for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
             const NkRemapProfile& src = mMappings[i];
@@ -477,14 +477,14 @@ namespace nkentseu {
             NkGamepadMappingSlotData dst;
             dst.slotIndex = i;
             dst.active = src.active;
-            dst.buttons.reserve(BUTTON_COUNT);
-            dst.axes.reserve(AXIS_COUNT);
+            dst.buttons.Reserve(BUTTON_COUNT);
+            dst.axes.Reserve(AXIS_COUNT);
 
             for (NkU32 b = 0; b < BUTTON_COUNT; ++b) {
                 NkGamepadButtonMapEntry e;
                 e.physicalButton = b;
                 e.logicalButton = src.buttonMap[b];
-                dst.buttons.push_back(e);
+                dst.buttons.PushBack(e);
             }
             for (NkU32 a = 0; a < AXIS_COUNT; ++a) {
                 NkGamepadAxisMapEntry e;
@@ -492,9 +492,9 @@ namespace nkentseu {
                 e.logicalAxis = src.axisMap[a].logicalAxis;
                 e.scale = src.axisMap[a].scale;
                 e.invert = src.axisMap[a].invert;
-                dst.axes.push_back(e);
+                dst.axes.PushBack(e);
             }
-            profile.slots.push_back(std::move(dst));
+            profile.slots.PushBack(std::move(dst));
         }
 
         return profile;
@@ -502,7 +502,7 @@ namespace nkentseu {
 
     bool NkGamepadSystem::ImportMappingProfile(const NkGamepadMappingProfileData& profile,
                                                bool clearExisting,
-                                               std::string* outError)
+                                               NkString* outError)
     {
         if (clearExisting) {
             ClearAllMappings();
@@ -538,12 +538,12 @@ namespace nkentseu {
             SyncMappedSnapshot(slot.slotIndex);
         }
 
-        if (outError) outError->clear();
+        if (outError) outError->Clear();
         return true;
     }
 
-    bool NkGamepadSystem::SaveMappingProfile(const std::string& userId,
-                                             std::string* outError) const
+    bool NkGamepadSystem::SaveMappingProfile(const NkString& userId,
+                                             NkString* outError) const
     {
         if (!mMappingPersistence) {
             if (outError) *outError = "No mapping persistence backend configured.";
@@ -553,9 +553,9 @@ namespace nkentseu {
         return mMappingPersistence->Save(userId, profile, outError);
     }
 
-    bool NkGamepadSystem::LoadMappingProfile(const std::string& userId,
+    bool NkGamepadSystem::LoadMappingProfile(const NkString& userId,
                                              bool clearExisting,
-                                             std::string* outError)
+                                             NkString* outError)
     {
         if (!mMappingPersistence) {
             if (outError) *outError = "No mapping persistence backend configured.";
@@ -570,7 +570,7 @@ namespace nkentseu {
     }
 
     // -------------------------------------------------------------------------
-    // Fire helpers — tout le dispatch passe par EvSys() = NkSystem::Events()
+    // Fire helpers â€” tout le dispatch passe par EvSys() = NkSystem::Events()
     // -------------------------------------------------------------------------
 
     void NkGamepadSystem::FireConnect(const NkGamepadInfo& info, bool connected) {
@@ -580,7 +580,7 @@ namespace nkentseu {
             NkGamepadDisconnectEvent ev(info.index); EvSys().DispatchEvent(ev);
         }
 
-        // Mettre à jour NkEventState.gamepads en même temps
+        // Mettre Ã  jour NkEventState.gamepads en mÃªme temps
         auto& gpState = EvSys().GetInputState().GetGamepads();
         if (connected) gpState.OnConnect(info.index, info);
         else           gpState.OnDisconnect(info.index);
@@ -597,7 +597,7 @@ namespace nkentseu {
             NkGamepadButtonReleaseEvent ev(idx, btn); EvSys().DispatchEvent(ev);
         }
 
-        // Mettre à jour NkEventState.gamepads
+        // Mettre Ã  jour NkEventState.gamepads
         auto* slot = EvSys().GetInputState().GetGamepads().GetSlot(idx);
         if (slot) {
             if (st == NkButtonState::NK_PRESSED) slot->OnButtonPress(btn);
@@ -615,7 +615,7 @@ namespace nkentseu {
         NkGamepadAxisEvent ev(idx, ax, value, prevValue);
         EvSys().DispatchEvent(ev);
 
-        // Mettre à jour NkEventState.gamepads
+        // Mettre Ã  jour NkEventState.gamepads
         auto* slot = EvSys().GetInputState().GetGamepads().GetSlot(idx);
         if (slot) slot->OnAxisMove(ax, value);
 

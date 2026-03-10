@@ -22,6 +22,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <string>
 
 namespace nkentseu {
@@ -117,9 +118,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsContextReadyEvent(*this); }
-        std::string ToString() const override {
-            return std::string("GfxContextReady(") + NkGraphicsApiToString(mApi)
-                 + " " + std::to_string(mWidth) + "x" + std::to_string(mHeight) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GfxContextReady({0} {1}x{2})",
+                NkGraphicsApiToString(mApi), mWidth, mHeight);
         }
 
         NkGraphicsApi GetApi()    const noexcept { return mApi; }
@@ -151,21 +152,21 @@ namespace nkentseu {
          * @param reason   Description textuelle de la cause (ex: "VK_ERROR_DEVICE_LOST").
          * @param windowId Identifiant de la fenêtre concernée.
          */
-        NkGraphicsContextLostEvent(std::string reason   = {},
+        NkGraphicsContextLostEvent(NkString reason   = {},
                                     NkU64       windowId = 0)
             : NkGraphicsEvent(windowId)
             , mReason(std::move(reason))
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsContextLostEvent(*this); }
-        std::string ToString() const override {
-            return "GfxContextLost(" + (mReason.empty() ? "unknown" : mReason) + ")";
+        NkString ToString() const override {
+            return "GfxContextLost(" + (mReason.Empty() ? "unknown" : mReason) + ")";
         }
 
-        const std::string& GetReason() const noexcept { return mReason; }
+        const NkString& GetReason() const noexcept { return mReason; }
 
     private:
-        std::string mReason;
+        NkString mReason;
     };
 
     // =========================================================================
@@ -204,10 +205,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsContextResizeEvent(*this); }
-        std::string ToString() const override {
-            return "GfxContextResize(" + std::to_string(mPrevWidth) + "x"
-                 + std::to_string(mPrevHeight) + " -> "
-                 + std::to_string(mWidth) + "x" + std::to_string(mHeight) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GfxContextResize({0}x{1} -> {2}x{3})",
+                mPrevWidth, mPrevHeight, mWidth, mHeight);
         }
 
         NkU32 GetWidth()      const noexcept { return mWidth; }
@@ -255,9 +255,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsFrameBeginEvent(*this); }
-        std::string ToString() const override {
-            return "GfxFrameBegin(frame=" + std::to_string(mFrameIndex)
-                 + " inFlight=" + std::to_string(mFrameInFlight) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GfxFrameBegin(frame={0} inFlight={1})",
+                mFrameIndex, mFrameInFlight);
         }
 
         NkU64 GetFrameIndex()    const noexcept { return mFrameIndex; }
@@ -299,10 +299,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsFrameEndEvent(*this); }
-        std::string ToString() const override {
-            return "GfxFrameEnd(frame=" + std::to_string(mFrameIndex)
-                 + " GPU=" + std::to_string(mGpuTimeMs) + "ms"
-                 + " CPU=" + std::to_string(mCpuTimeMs) + "ms)";
+        NkString ToString() const override {
+            return NkString::Fmt("GfxFrameEnd(frame={0} GPU={1:.3}ms CPU={2:.3}ms)",
+                mFrameIndex, mGpuTimeMs, mCpuTimeMs);
         }
 
         NkU64 GetFrameIndex() const noexcept { return mFrameIndex; }
@@ -347,11 +346,11 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsGpuMemoryEvent(*this); }
-        std::string ToString() const override {
+        NkString ToString() const override {
             const char* lvls[] = {"NORMAL", "LOW", "CRITICAL"};
             NkU32 idx = static_cast<NkU32>(mLevel);
-            return std::string("GfxGpuMemory(") + (idx < 3 ? lvls[idx] : "?")
-                 + " avail=" + std::to_string(mAvailableMb) + "MB)";
+            return NkString::Fmt("GfxGpuMemory({0} avail={1}MB)",
+                (idx < 3 ? lvls[idx] : "?"), mAvailableMb);
         }
 
         NkGpuMemoryLevel GetLevel()       const noexcept { return mLevel; }
@@ -395,9 +394,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsVSyncEvent(*this); }
-        std::string ToString() const override {
-            return "GfxVSync(display=" + std::to_string(mDisplayIndex)
-                 + " " + std::to_string(mRefreshRateHz) + "Hz)";
+        NkString ToString() const override {
+            return NkString::Fmt("GfxVSync(display={0} {1}Hz)", mDisplayIndex, mRefreshRateHz);
         }
 
         NkU32 GetDisplayIndex()  const noexcept { return mDisplayIndex; }

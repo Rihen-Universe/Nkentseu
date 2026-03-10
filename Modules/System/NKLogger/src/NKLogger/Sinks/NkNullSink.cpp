@@ -41,14 +41,14 @@ namespace nkentseu {
 	/**
 	 * @brief No-op
 	 */
-	void NkNullSink::SetFormatter(std::unique_ptr<NkFormatter> formatter) {
+	void NkNullSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
 		// No-op
 	}
 
 	/**
 	 * @brief No-op
 	 */
-	void NkNullSink::SetPattern(const std::string &pattern) {
+	void NkNullSink::SetPattern(const NkString &pattern) {
 		// No-op
 	}
 
@@ -62,7 +62,7 @@ namespace nkentseu {
 	/**
 	 * @brief Retourne une chaîne vide
 	 */
-	std::string NkNullSink::GetPattern() const {
+	NkString NkNullSink::GetPattern() const {
 		return "";
 	}
 

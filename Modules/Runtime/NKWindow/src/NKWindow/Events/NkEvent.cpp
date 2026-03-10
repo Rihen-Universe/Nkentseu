@@ -4,8 +4,9 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkFormat.h"
 #include <chrono>
-#include <sstream>
+#include <cstdio>
 
 namespace nkentseu {
 
@@ -13,14 +14,14 @@ namespace nkentseu {
     // NkEventCategory — ToString / FromString
     // =========================================================================
 
-    std::string NkEventCategory::ToString(NkEventCategory::Value value) {
+    NkString NkEventCategory::ToString(NkEventCategory::Value value) {
         if (value == NK_CAT_NONE)  return "NONE";
         if (value == NK_CAT_ALL)   return "ALL";
 
-        std::string result;
+        NkString result;
         auto append = [&](NkEventCategory::Value flag, const char* name) {
             if (NkCategoryHas(value, flag)) {
-                if (!result.empty()) result += '|';
+                if (!result.Empty()) result += '|';
                 result += name;
             }
         };
@@ -37,10 +38,10 @@ namespace nkentseu {
         append(NK_CAT_GENERIC_HID, "GENERIC_HID");
         append(NK_CAT_DROP,        "DROP");
         append(NK_CAT_SYSTEM,      "SYSTEM");
-        return result.empty() ? "UNKNOWN" : result;
+        return result.Empty() ? "UNKNOWN" : result;
     }
 
-    NkEventCategory::Value NkEventCategory::FromString(const std::string& str) {
+    NkEventCategory::Value NkEventCategory::FromString(const NkString& str) {
         if (str == "NONE")        return NK_CAT_NONE;
         if (str == "APPLICATION") return NK_CAT_APPLICATION;
         if (str == "INPUT")       return NK_CAT_INPUT;
@@ -63,7 +64,7 @@ namespace nkentseu {
     // NkEventType — ToString / FromString
     // =========================================================================
 
-    std::string NkEventType::ToString(NkEventType::Value value) {
+    NkString NkEventType::ToString(NkEventType::Value value) {
         switch (value) {
             case NK_NONE:                   return "NK_NONE";
             case NK_APP_LAUNCH:             return "NK_APP_LAUNCH";
@@ -155,7 +156,7 @@ namespace nkentseu {
         }
     }
 
-    NkEventType::Value NkEventType::FromString(const std::string& str) {
+    NkEventType::Value NkEventType::FromString(const NkString& str) {
         if (str == "NK_APP_LAUNCH")              return NK_APP_LAUNCH;
         if (str == "NK_APP_TICK")                return NK_APP_TICK;
         if (str == "NK_APP_UPDATE")              return NK_APP_UPDATE;
@@ -259,23 +260,31 @@ namespace nkentseu {
         return new NkEvent(*this);
     }
 
-    std::string NkEvent::ToString() const {
-        std::ostringstream oss;
-        oss << "[NkEvent"
-            << " type="      << GetTypeStr()
-            << " cat="       << NkEventCategory::ToString(GetCategory())
-            << " ts="        << mTimestamp
-            << " window="    << mWindowID
-            << " handled="   << (mHandled ? "true" : "false")
-            << "]";
-        return oss.str();
+    NkString NkEvent::ToString() const {
+        char tsBuffer[32];
+        char windowBuffer[32];
+        ::snprintf(tsBuffer, sizeof(tsBuffer), "%llu", static_cast<unsigned long long>(mTimestamp));
+        ::snprintf(windowBuffer, sizeof(windowBuffer), "%llu", static_cast<unsigned long long>(mWindowID));
+
+        NkString out("[NkEvent type=");
+        out.Append(GetTypeStr() ? GetTypeStr() : "NK_NONE");
+        out.Append(" cat=");
+        out.Append(NkEventCategory::ToString(GetCategory()));
+        out.Append(" ts=");
+        out.Append(tsBuffer);
+        out.Append(" window=");
+        out.Append(windowBuffer);
+        out.Append(" handled=");
+        out.Append(mHandled ? "true" : "false");
+        out.Append("]");
+        return out;
     }
 
-    std::string NkEvent::TypeToString(NkEventType::Value type) {
+    NkString NkEvent::TypeToString(NkEventType::Value type) {
         return NkEventType::ToString(type);
     }
 
-    std::string NkEvent::CategoryToString(NkEventCategory::Value category) {
+    NkString NkEvent::CategoryToString(NkEventCategory::Value category) {
         return NkEventCategory::ToString(category);
     }
 

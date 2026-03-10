@@ -18,7 +18,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Stack adapter - std::stack equivalent
@@ -63,17 +63,17 @@ namespace nkentseu {
             
             // Element access
             Reference Top() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mContainer.Back();
             }
             
             ConstReference Top() const {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mContainer.Back();
             }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mContainer.IsEmpty(); }
+            bool Empty() const NK_NOEXCEPT { return mContainer.Empty(); }
             SizeType Size() const NK_NOEXCEPT { return mContainer.Size(); }
             
             // Modifiers
@@ -93,7 +93,7 @@ namespace nkentseu {
             #endif
             
             void Pop() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 mContainer.PopBack();
             }
             
@@ -118,7 +118,7 @@ namespace nkentseu {
             return !(lhs == rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ADAPTERS_NKSTACK_H_INCLUDED

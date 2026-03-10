@@ -12,7 +12,7 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <vector>
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 
@@ -27,7 +27,7 @@ namespace nkentseu {
         NkU32 width  = 0;
         NkU32 height = 0;
         NkU32 pitch  = 0;
-        std::vector<NkU8> pixels;
+        NkVector<NkU8> pixels;
     };
 
     // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ namespace nkentseu {
             // --- Info ---
 
             NkRendererApi GetApi()              const;
-            std::string   GetApiName()          const;
+            NkString   GetApiName()          const;
             bool          IsHardwareAccelerated() const;
             NkError       GetLastError()        const;
 

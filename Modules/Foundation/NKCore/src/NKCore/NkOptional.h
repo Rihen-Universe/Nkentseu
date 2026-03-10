@@ -6,7 +6,7 @@
 #include "NkTraits.h"
 
 namespace nkentseu {
-    namespace core {
+    
 
         struct NkNullOpt_t {
             explicit constexpr NkNullOpt_t(int) noexcept {}
@@ -103,6 +103,9 @@ namespace nkentseu {
                 [[nodiscard]] nk_bool HasValue() const noexcept {
                     return mHasValue;
                 }
+                [[nodiscard]] nk_bool Empty() const noexcept {
+                    return !mHasValue;
+                }
 
                 explicit constexpr operator nk_bool() const noexcept {
                     return mHasValue;
@@ -147,6 +150,31 @@ namespace nkentseu {
                     return fallback;
                 }
 
+                const T& ValueOrRef(const T& fallback) const {
+                    return mHasValue ? *Data() : fallback;
+                }
+
+                void Swap(NkOptional& other) {
+                    if (this == &other) {
+                        return;
+                    }
+                    if (mHasValue && other.mHasValue) {
+                        T tmp = traits::NkMove(*Data());
+                        *Data() = traits::NkMove(*other.Data());
+                        *other.Data() = traits::NkMove(tmp);
+                        return;
+                    }
+                    if (mHasValue) {
+                        other.Emplace(traits::NkMove(*Data()));
+                        Reset();
+                        return;
+                    }
+                    if (other.mHasValue) {
+                        Emplace(traits::NkMove(*other.Data()));
+                        other.Reset();
+                    }
+                }
+
             private:
                 T* Data() noexcept {
                     return reinterpret_cast<T*>(mStorage);
@@ -160,8 +188,7 @@ namespace nkentseu {
                 nk_bool mHasValue;
         };
 
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKOPTIONAL_H_INCLUDED
-

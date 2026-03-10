@@ -34,7 +34,7 @@ namespace {
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
-    std::wstring NkUtf8ToWide(const std::string &value) {
+    std::wstring NkUtf8ToWide(const NkString &value) {
         if (value.empty()) return {};
         const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
         if (size <= 1) return {};
@@ -206,11 +206,11 @@ namespace nkentseu {
         return mConfig;
     }
 
-    std::string NkWindow::GetTitle() const {
+    NkString NkWindow::GetTitle() const {
         return mData.mTitle;
     }
 
-    void NkWindow::SetTitle(const std::string& title) {
+    void NkWindow::SetTitle(const NkString& title) {
         mData.mTitle = title;
         mConfig.title = title;
         if (mData.mOwnsNativeWindow && mData.mNativeWindow) {

@@ -15,13 +15,13 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Unordered set - std::unordered_set equivalent
@@ -109,18 +109,18 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkUnorderedSet()
+            explicit NkUnorderedSet(Allocator* allocator = nullptr)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(0.75f)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*)));
                 memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
             }
             
-            NkUnorderedSet(NkInitializerList<T> init)
+            NkUnorderedSet(NkInitializerList<T> init, Allocator* allocator = nullptr)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(0.75f)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*)));
                 memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
                 for (auto& val : init) Insert(val);
@@ -132,7 +132,7 @@ namespace nkentseu {
             }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             // Modifiers
@@ -211,7 +211,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKUNORDEREDSET_H_INCLUDED

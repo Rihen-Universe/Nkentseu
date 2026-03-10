@@ -24,6 +24,7 @@ namespace nkentseu {
         ::Atom     mWmDeleteWindow = 0;
         int        mScreen         = 0;
         NkXLibDropTarget* mDropTarget = nullptr;
+        NkSurfaceHints mAppliedHints;  // ← ajout
     };
 
     // Backend registry accessors (map lives as static in NkXLibWindow.cpp)

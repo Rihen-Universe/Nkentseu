@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkXMLWriter.h"
+#include "NKSerialization/XML/NkXMLWriter.h"
 
 namespace nkentseu {
     namespace entseu {

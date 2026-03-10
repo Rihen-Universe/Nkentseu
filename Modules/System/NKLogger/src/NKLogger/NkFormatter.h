@@ -9,9 +9,10 @@
 
 #include "NKLogger/NkLoggerExport.h"
 #include "NKLogger/NkLogMessage.h"
-#include <string>
-#include <memory>
-#include <vector>
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkUniquePtr.h"
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -49,7 +50,7 @@ namespace nkentseu {
 		};
 
 		Type type;
-		std::string value; // Pour les tokens littéraux
+		NkString value; // Pour les tokens littéraux
 	};
 
 	// -------------------------------------------------------------------------
@@ -71,7 +72,7 @@ namespace nkentseu {
 			 * @brief Constructeur avec pattern spécifique
 			 * @param pattern Pattern de formatage
 			 */
-			explicit NkFormatter(const std::string &pattern);
+			explicit NkFormatter(const NkString &pattern);
 
 			/**
 			 * @brief Destructeur
@@ -86,13 +87,13 @@ namespace nkentseu {
 			 * @brief Définit le pattern de formatage
 			 * @param pattern Pattern à utiliser
 			 */
-			void SetPattern(const std::string &pattern);
+			void SetPattern(const NkString &pattern);
 
 			/**
 			 * @brief Obtient le pattern courant
 			 * @return Pattern de formatage
 			 */
-			const std::string &GetPattern() const;
+			const NkString &GetPattern() const;
 
 			// ---------------------------------------------------------------------
 			// FORMATAGE
@@ -103,7 +104,7 @@ namespace nkentseu {
 			 * @param message Message à formater
 			 * @return Message formaté
 			 */
-			std::string Format(const NkLogMessage &message);
+			NkString Format(const NkLogMessage &message);
 
 			/**
 			 * @brief Formate un message de log avec des couleurs
@@ -111,7 +112,7 @@ namespace nkentseu {
 			 * @param useColors true pour inclure les codes couleur
 			 * @return Message formaté
 			 */
-			std::string Format(const NkLogMessage &message, bool useColors);
+			NkString Format(const NkLogMessage &message, bool useColors);
 
 			// ---------------------------------------------------------------------
 			// PATTERNS PRÉDÉFINIS
@@ -151,7 +152,7 @@ namespace nkentseu {
 			 * @brief Parse le pattern en tokens
 			 * @param pattern Pattern à parser
 			 */
-			void ParsePattern(const std::string &pattern);
+			void ParsePattern(const NkString &pattern);
 
 			/**
 			 * @brief Formate un token individuel
@@ -160,7 +161,7 @@ namespace nkentseu {
 			 * @param useColors true pour inclure les couleurs
 			 * @param result Résultat en construction
 			 */
-			void FormatToken(const NkPatternToken &token, const NkLogMessage &message, bool useColors, std::string &result);
+			void FormatToken(const NkPatternToken &token, const NkLogMessage &message, bool useColors, NkString &result);
 
 			/**
 			 * @brief Formate un nombre avec padding
@@ -169,30 +170,30 @@ namespace nkentseu {
 			 * @param fillChar Caractère de remplissage
 			 * @return Chaîne formatée
 			 */
-			std::string FormatNumber(int value, int width = 2, char fillChar = '0') const;
+			NkString FormatNumber(int value, int width = 2, char fillChar = '0') const;
 
 			/**
 			 * @brief Obtient le code couleur ANSI pour un niveau de log
 			 * @param level Niveau de log
 			 * @return Code couleur ANSI
 			 */
-			std::string GetANSIColor(NkLogLevel level) const;
+			NkString GetANSIColor(NkLogLevel level) const;
 
 			/**
 			 * @brief Obtient le code de fin de couleur ANSI
 			 * @return Code de fin de couleur
 			 */
-			std::string GetANSIReset() const;
+			NkString GetANSIReset() const;
 
 			// ---------------------------------------------------------------------
 			// VARIABLES MEMBRE PRIVÉES
 			// ---------------------------------------------------------------------
 
 			/// Pattern de formatage
-			std::string m_Pattern;
+			NkString m_Pattern;
 
 			/// Tokens parsés
-			std::vector<NkPatternToken> m_Tokens;
+			NkVector<NkPatternToken> m_Tokens;
 
 			/// Indicateur si les tokens sont valides
 			bool m_TokensValid;
@@ -203,6 +204,6 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 
 	/// Type pour les pointeurs uniques de formatters
-	using FormatterPtr = std::unique_ptr<NkFormatter>;
+	using FormatterPtr = memory::NkUniquePtr<NkFormatter>;
 
 } // namespace nkentseu

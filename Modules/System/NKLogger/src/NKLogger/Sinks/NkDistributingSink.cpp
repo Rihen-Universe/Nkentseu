@@ -6,7 +6,8 @@
 // -----------------------------------------------------------------------------
 
 #include "NKLogger/Sinks/NkDistributingSink.h"
-#include <algorithm>
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
 
 /**
  * @brief Namespace nkentseu.
@@ -21,7 +22,7 @@ namespace nkentseu {
 	/**
 	 * @brief Constructeur avec liste initiale de sinks
 	 */
-	NkDistributingSink::NkDistributingSink(const std::vector<std::shared_ptr<NkISink>> &sinks) : m_Sinks(sinks) {
+	NkDistributingSink::NkDistributingSink(const NkVector<memory::NkSharedPtr<NkISink>> &sinks) : m_Sinks(sinks) {
 	}
 
 	/**
@@ -38,7 +39,7 @@ namespace nkentseu {
 			return;
 		}
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		for (auto &sink : m_Sinks) {
 			if (sink) {
 				sink->Log(message);
@@ -50,7 +51,7 @@ namespace nkentseu {
 	 * @brief Force le flush de tous les sous-sinks
 	 */
 	void NkDistributingSink::Flush() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		for (auto &sink : m_Sinks) {
 			if (sink) {
 				sink->Flush();
@@ -61,13 +62,13 @@ namespace nkentseu {
 	/**
 	 * @brief Définit le formatter pour tous les sous-sinks
 	 */
-	void NkDistributingSink::SetFormatter(std::unique_ptr<NkFormatter> formatter) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkDistributingSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		// Clone le formatter pour chaque sink
 		for (auto &sink : m_Sinks) {
 			if (sink && formatter) {
-				auto clonedFormatter = std::make_unique<NkFormatter>(formatter->GetPattern());
-				sink->SetFormatter(std::move(clonedFormatter));
+				auto clonedFormatter = memory::NkMakeUnique<NkFormatter>(formatter->GetPattern());
+				sink->SetFormatter(traits::NkMove(clonedFormatter));
 			}
 		}
 	}
@@ -75,8 +76,8 @@ namespace nkentseu {
 	/**
 	 * @brief Définit le pattern de formatage pour tous les sous-sinks
 	 */
-	void NkDistributingSink::SetPattern(const std::string &pattern) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkDistributingSink::SetPattern(const NkString &pattern) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		for (auto &sink : m_Sinks) {
 			if (sink) {
 				sink->SetPattern(pattern);
@@ -88,8 +89,8 @@ namespace nkentseu {
 	 * @brief Obtient le formatter (du premier sink)
 	 */
 	NkFormatter *NkDistributingSink::GetFormatter() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		if (!m_Sinks.empty() && m_Sinks[0]) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		if (!m_Sinks.Empty() && m_Sinks[0]) {
 			return m_Sinks[0]->GetFormatter();
 		}
 		return nullptr;
@@ -98,9 +99,9 @@ namespace nkentseu {
 	/**
 	 * @brief Obtient le pattern (du premier sink)
 	 */
-	std::string NkDistributingSink::GetPattern() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		if (!m_Sinks.empty() && m_Sinks[0]) {
+	NkString NkDistributingSink::GetPattern() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		if (!m_Sinks.Empty() && m_Sinks[0]) {
 			return m_Sinks[0]->GetPattern();
 		}
 		return "";
@@ -109,25 +110,27 @@ namespace nkentseu {
 	/**
 	 * @brief Ajoute un sous-sink
 	 */
-	void NkDistributingSink::AddSink(std::shared_ptr<NkISink> sink) {
+	void NkDistributingSink::AddSink(memory::NkSharedPtr<NkISink> sink) {
 		if (!sink)
 			return;
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		m_Sinks.push_back(sink);
+		logger_sync::NkScopedLock lock(m_Mutex);
+		m_Sinks.PushBack(sink);
 	}
 
 	/**
 	 * @brief Supprime un sous-sink
 	 */
-	void NkDistributingSink::RemoveSink(std::shared_ptr<NkISink> sink) {
+	void NkDistributingSink::RemoveSink(memory::NkSharedPtr<NkISink> sink) {
 		if (!sink)
 			return;
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		auto it = std::find(m_Sinks.begin(), m_Sinks.end(), sink);
-		if (it != m_Sinks.end()) {
-			m_Sinks.erase(it);
+		logger_sync::NkScopedLock lock(m_Mutex);
+		for (usize i = 0; i < m_Sinks.Size(); ++i) {
+			if (m_Sinks[i].Get() == sink.Get()) {
+				m_Sinks.Erase(m_Sinks.begin() + i);
+				return;
+			}
 		}
 	}
 
@@ -135,32 +138,37 @@ namespace nkentseu {
 	 * @brief Supprime tous les sous-sinks
 	 */
 	void NkDistributingSink::ClearSinks() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		m_Sinks.clear();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		m_Sinks.Clear();
 	}
 
 	/**
 	 * @brief Obtient la liste des sous-sinks
 	 */
-	std::vector<std::shared_ptr<NkISink>> NkDistributingSink::GetSinks() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	NkVector<memory::NkSharedPtr<NkISink>> NkDistributingSink::GetSinks() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_Sinks;
 	}
 
 	/**
 	 * @brief Obtient le nombre de sous-sinks
 	 */
-	core::usize NkDistributingSink::GetSinkCount() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return m_Sinks.size();
+	usize NkDistributingSink::GetSinkCount() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return m_Sinks.Size();
 	}
 
 	/**
 	 * @brief Vérifie si un sink spécifique est présent
 	 */
-	bool NkDistributingSink::ContainsSink(std::shared_ptr<NkISink> sink) const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return std::find(m_Sinks.begin(), m_Sinks.end(), sink) != m_Sinks.end();
+	bool NkDistributingSink::ContainsSink(memory::NkSharedPtr<NkISink> sink) const {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		for (const auto& current : m_Sinks) {
+			if (current.Get() == sink.Get()) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 } // namespace nkentseu

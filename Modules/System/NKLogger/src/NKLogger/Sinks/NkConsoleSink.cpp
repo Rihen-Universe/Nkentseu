@@ -1,12 +1,20 @@
-﻿// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // FICHIER: Core/NkLogger/src/NkLogger/Sinks/NkConsoleSink.cpp
-// DESCRIPTION: ImplÃ©mentation du sink console avec support couleur.
+// DESCRIPTION: Implémentation du sink console avec support couleur.
 // AUTEUR: Rihen
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
 #include "NKLogger/Sinks/NkConsoleSink.h"
 #include "NKLogger/NkLogLevel.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include <cstdio>
+#include <cstdlib>
+
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+#include <android/log.h>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -19,24 +27,58 @@
 // NAMESPACE: nkentseu::logger
 // -----------------------------------------------------------------------------
 namespace nkentseu {
+
+namespace {
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+	int NkToAndroidPriority(NkLogLevel level) {
+		switch (level) {
+			case NkLogLevel::NK_TRACE:
+				return ANDROID_LOG_VERBOSE;
+			case NkLogLevel::NK_DEBUG:
+				return ANDROID_LOG_DEBUG;
+			case NkLogLevel::NK_INFO:
+				return ANDROID_LOG_INFO;
+			case NkLogLevel::NK_WARN:
+				return ANDROID_LOG_WARN;
+			case NkLogLevel::NK_ERROR:
+				return ANDROID_LOG_ERROR;
+			case NkLogLevel::NK_CRITICAL:
+			case NkLogLevel::NK_FATAL:
+				return ANDROID_LOG_FATAL;
+			default:
+				return ANDROID_LOG_INFO;
+		}
+	}
+
+	NkString NkMakeAndroidTag(const NkString& loggerName) {
+		if (loggerName.Empty()) {
+			return "NkConsole";
+		}
+		if (loggerName.Length() > 23) {
+			return loggerName.SubStr(0, 23);
+		}
+		return loggerName;
+	}
+#endif
+} // namespace
 		
 	// -------------------------------------------------------------------------
-	// IMPLÃ‰MENTATION DE NkConsoleSink
+	// IMPLÉMENTATION DE NkConsoleSink
 	// -------------------------------------------------------------------------
 
 	/**
-	 * @brief Constructeur par dÃ©faut
+	 * @brief Constructeur par défaut
 	 */
 	NkConsoleSink::NkConsoleSink() : m_Stream(NkConsoleStream::NK_STD_OUT), m_UseColors(true), m_UseStderrForErrors(true) {
-		m_Formatter = std::make_unique<NkFormatter>(NkFormatter::NK_COLOR_PATTERN);
+		m_Formatter = memory::NkMakeUnique<NkFormatter>(NkFormatter::NK_COLOR_PATTERN);
 	}
 
 	/**
-	 * @brief Constructeur avec flux spÃ©cifique
+	 * @brief Constructeur avec flux spécifique
 	 */
 	NkConsoleSink::NkConsoleSink(NkConsoleStream stream, bool useColors)
 		: m_Stream(stream), m_UseColors(useColors), m_UseStderrForErrors(true) {
-		m_Formatter = std::make_unique<NkFormatter>(useColors ? NkFormatter::NK_COLOR_PATTERN : NkFormatter::NK_DEFAULT_PATTERN);
+		m_Formatter = memory::NkMakeUnique<NkFormatter>(useColors ? NkFormatter::NK_COLOR_PATTERN : NkFormatter::NK_DEFAULT_PATTERN);
 	}
 
 	/**
@@ -54,51 +96,69 @@ namespace nkentseu {
 			return;
 		}
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 
 		// Formater le message
-		std::string formatted = m_Formatter->Format(message, m_UseColors && SupportsColors());
+		NkString formatted = m_Formatter->Format(message, m_UseColors && SupportsColors());
 
-		// Obtenir le flux appropriÃ©
-		std::ostream &stream = GetStreamForLevel(message.level);
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+		// Android: route la sortie console vers logcat.
+		const NkString tag = NkMakeAndroidTag(message.loggerName);
+		__android_log_print(NkToAndroidPriority(message.level), tag.CStr(), "%s", formatted.CStr());
+		return;
+#endif
 
-		// Ã‰crire le message
-		stream << formatted << std::endl;
+		// Obtenir le flux approprié
+		FILE *stream = GetStreamForLevel(message.level);
+		if (stream == nullptr) {
+			return;
+		}
+
+		// Écrire le message
+		if (formatted.Size() > 0) {
+			(void)::fwrite(formatted.CStr(), sizeof(char), static_cast<size_t>(formatted.Size()), stream);
+		}
+		(void)::fputc('\n', stream);
 
 		// Flush pour les niveaux critiques
 		if (message.level >= NkLogLevel::NK_ERROR) {
-			stream.flush();
+			(void)::fflush(stream);
 		}
 	}
 
 	/**
-	 * @brief Force l'Ã©criture des donnÃ©es en attente
+	 * @brief Force l'écriture des données en attente
 	 */
 	void NkConsoleSink::Flush() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
+
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+		// Logcat gère son propre buffering.
+		return;
+#endif
 
 		if (m_Stream == NkConsoleStream::NK_STD_OUT || (m_UseStderrForErrors && m_Stream == NkConsoleStream::NK_STD_OUT)) {
-			std::cout.flush();
+			(void)::fflush(stdout);
 		}
 
 		if (m_Stream == NkConsoleStream::NK_STD_ERR || (m_UseStderrForErrors && m_Stream == NkConsoleStream::NK_STD_OUT)) {
-			std::cerr.flush();
+			(void)::fflush(stderr);
 		}
 	}
 
 	/**
-	 * @brief DÃ©finit le formatter pour ce sink
+	 * @brief Définit le formatter pour ce sink
 	 */
-	void NkConsoleSink::SetFormatter(std::unique_ptr<NkFormatter> formatter) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		m_Formatter = std::move(formatter);
+	void NkConsoleSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		m_Formatter = traits::NkMove(formatter);
 	}
 
 	/**
-	 * @brief DÃ©finit le pattern de formatage
+	 * @brief Définit le pattern de formatage
 	 */
-	void NkConsoleSink::SetPattern(const std::string &pattern) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkConsoleSink::SetPattern(const NkString &pattern) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			m_Formatter->SetPattern(pattern);
 		}
@@ -108,42 +168,42 @@ namespace nkentseu {
 	 * @brief Obtient le formatter courant
 	 */
 	NkFormatter *NkConsoleSink::GetFormatter() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return m_Formatter.get();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return m_Formatter.Get();
 	}
 
 	/**
 	 * @brief Obtient le pattern courant
 	 */
-	std::string NkConsoleSink::GetPattern() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	NkString NkConsoleSink::GetPattern() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			return m_Formatter->GetPattern();
 		}
-		return "";
+		return NkString();
 	}
 
 	/**
-	 * @brief Active ou dÃ©sactive les couleurs
+	 * @brief Active ou désactive les couleurs
 	 */
 	void NkConsoleSink::SetColorEnabled(bool enable) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_UseColors = enable;
 	}
 
 	/**
-	 * @brief VÃ©rifie si les couleurs sont activÃ©es
+	 * @brief Vérifie si les couleurs sont activées
 	 */
 	bool NkConsoleSink::IsColorEnabled() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_UseColors;
 	}
 
 	/**
-	 * @brief DÃ©finit le flux de console
+	 * @brief Définit le flux de console
 	 */
 	void NkConsoleSink::SetStream(NkConsoleStream stream) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_Stream = stream;
 	}
 
@@ -151,43 +211,46 @@ namespace nkentseu {
 	 * @brief Obtient le flux de console courant
 	 */
 	NkConsoleStream NkConsoleSink::GetStream() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_Stream;
 	}
 
 	/**
-	 * @brief DÃ©finit si le sink doit utiliser stderr pour les niveaux d'erreur
+	 * @brief Définit si le sink doit utiliser stderr pour les niveaux d'erreur
 	 */
 	void NkConsoleSink::SetUseStderrForErrors(bool enable) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_UseStderrForErrors = enable;
 	}
 
 	/**
-	 * @brief VÃ©rifie si le sink utilise stderr pour les erreurs
+	 * @brief Vérifie si le sink utilise stderr pour les erreurs
 	 */
 	bool NkConsoleSink::IsUsingStderrForErrors() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_UseStderrForErrors;
 	}
 
 	/**
-	 * @brief Obtient le flux de sortie appropriÃ© pour un niveau de log
+	 * @brief Obtient le flux de sortie approprié pour un niveau de log
 	 */
-	std::ostream &NkConsoleSink::GetStreamForLevel(NkLogLevel level) {
+	FILE *NkConsoleSink::GetStreamForLevel(NkLogLevel level) {
 		if (m_UseStderrForErrors && (level == NkLogLevel::NK_ERROR || level == NkLogLevel::NK_CRITICAL || level == NkLogLevel::NK_FATAL)) {
-			return std::cerr;
+			return stderr;
 		}
 
-		return (m_Stream == NkConsoleStream::NK_STD_OUT) ? std::cout : std::cerr;
+		return (m_Stream == NkConsoleStream::NK_STD_OUT) ? stdout : stderr;
 	}
 
 	/**
-	 * @brief VÃ©rifie si la console supporte les couleurs
+	 * @brief Vérifie si la console supporte les couleurs
 	 */
 	bool NkConsoleSink::SupportsColors() const {
-	#ifdef _WIN32
-		// Windows: vÃ©rifier si la console supporte les couleurs
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+		// Les codes ANSI n'ont pas d'utilité dans logcat.
+		return false;
+#elif defined(_WIN32)
+		// Windows: vérifier si la console supporte les couleurs
 		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 		if (hConsole == INVALID_HANDLE_VALUE) {
 			return false;
@@ -199,20 +262,20 @@ namespace nkentseu {
 		}
 
 		return (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
-	#else
-		// Unix: vÃ©rifier si c'est un terminal et supporte les couleurs
+#else
+		// Unix: vérifier si c'est un terminal et supporte les couleurs
 		static bool checked = false;
 		static bool supports = false;
 
 		if (!checked) {
-			// VÃ©rifier si stdout est un terminal
+			// Vérifier si stdout est un terminal
 			int fd = fileno(stdout);
 			if (fd < 0) {
 				supports = false;
 			} else {
-				// VÃ©rifier si c'est un TTY
+				// Vérifier si c'est un TTY
 				if (isatty(fd)) {
-					// VÃ©rifier la variable TERM
+					// Vérifier la variable TERM
 					const char *term = getenv("TERM");
 					if (term != nullptr) {
 						// Chercher des terminaux qui supportent les couleurs
@@ -225,20 +288,20 @@ namespace nkentseu {
 		}
 
 		return supports;
-	#endif
+#endif
 	}
 
 	/**
 	 * @brief Obtient le code couleur pour un niveau de log
 	 */
-	std::string NkConsoleSink::GetColorCode(NkLogLevel level) const {
+	NkString NkConsoleSink::GetColorCode(NkLogLevel level) const {
 		return NkLogLevelToANSIColor(level);
 	}
 
 	/**
-	 * @brief Obtient le code de rÃ©initialisation de couleur
+	 * @brief Obtient le code de réinitialisation de couleur
 	 */
-	std::string NkConsoleSink::GetResetCode() const {
+	NkString NkConsoleSink::GetResetCode() const {
 		return "\033[0m";
 	}
 
@@ -257,7 +320,7 @@ namespace nkentseu {
 	}
 
 	/**
-	 * @brief RÃ©initialise la couleur Windows
+	 * @brief Réinitialise la couleur Windows
 	 */
 	void NkConsoleSink::ResetWindowsColor() {
 	#ifdef _WIN32

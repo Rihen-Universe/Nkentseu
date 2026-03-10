@@ -1,7 +1,7 @@
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 
 using namespace nkentseu::memory;
 using namespace nkentseu;

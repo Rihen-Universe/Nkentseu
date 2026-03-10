@@ -17,6 +17,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
+#include "NKContainers/Associative/NkUnorderedMap.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #   define WIN32_LEAN_AND_MEAN
@@ -76,57 +77,65 @@ namespace nkentseu {
     // Point 2 : registre backend — static dans ce .cpp, invisible à l'extérieur
     // =============================================================================
 
-    static std::unordered_map<HWND, NkWindow*> sWin32WindowMap;
-    static NkWindow*                           sWin32LastWindow = nullptr;
+    // Function-local statics to avoid SIOF with the custom allocator
+    static NkUnorderedMap<HWND, NkWindow*>& Win32WindowMap() {
+        static NkUnorderedMap<HWND, NkWindow*> sMap;
+        return sMap;
+    }
+    static NkWindow*& Win32LastWindow() {
+        static NkWindow* sLast = nullptr;
+        return sLast;
+    }
 
     NkWindow* NkWin32FindWindow(HWND hwnd) {
-        auto it = sWin32WindowMap.find(hwnd);
-        return it != sWin32WindowMap.end() ? it->second : nullptr;
+        auto* win = Win32WindowMap().Find(hwnd);
+        return win ? *win : nullptr;
     }
 
     void NkWin32RegisterWindow(HWND hwnd, NkWindow* win) {
-        sWin32WindowMap[hwnd] = win;
-        sWin32LastWindow      = win;
+        Win32WindowMap()[hwnd] = win;
+        Win32LastWindow()      = win;
     }
 
     void NkWin32UnregisterWindow(HWND hwnd) {
-        auto it = sWin32WindowMap.find(hwnd);
-        if (it == sWin32WindowMap.end()) return;
+        auto& map = Win32WindowMap();
+        auto* win = map.Find(hwnd);
+        if (!win) return;
 
-        NkWindow* win = it->second;
-        sWin32WindowMap.erase(it);
+        NkWindow* w = *win;
+        map.Erase(hwnd);
 
-        if (sWin32LastWindow == win) {
-            sWin32LastWindow = sWin32WindowMap.empty()
-                ? nullptr
-                : sWin32WindowMap.begin()->second;
+        if (Win32LastWindow() == w) {
+            NkWindow* first = nullptr;
+            map.ForEach([&](HWND, NkWindow* v) { if (!first) first = v; });
+            Win32LastWindow() = first;
         }
     }
 
     NkWindow* NkWin32GetLastWindow() {
-        return sWin32LastWindow;
+        return Win32LastWindow();
     }
 
     // =============================================================================
     // Helpers UTF-8 ↔ Wide
     // =============================================================================
 
-    static std::wstring NkUtf8ToWide(const std::string& s) {
-        if (s.empty()) return {};
-        int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    static std::wstring NkUtf8ToWide(const NkString& s) {
+        if (s.Empty()) return {};
+        int len = MultiByteToWideChar(CP_UTF8, 0, s.CStr(), (int)s.Size(), nullptr, 0);
         std::wstring ws((size_t)len, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), ws.data(), len);
+        MultiByteToWideChar(CP_UTF8, 0, s.CStr(), (int)s.Size(), ws.data(), len);
         return ws;
     }
 
-    static std::string NkWideToUtf8(const std::wstring& ws) {
+    static NkString NkWideToUtf8(const std::wstring& ws) {
         if (ws.empty()) return {};
         int len = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), (int)ws.size(),
                                     nullptr, 0, nullptr, nullptr);
         std::string s((size_t)len, '\0');
         WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), (int)ws.size(),
                             s.data(), len, nullptr, nullptr);
-        return s;
+        return NkString(s.c_str());
     }
 
     // =============================================================================
@@ -221,8 +230,7 @@ namespace nkentseu {
         NkSetThreadDpiAwarenessContext(prev);
 
         if (!mData.mHwnd) {
-            mLastError = NkError(1, "CreateWindowExW failed (" +
-                                std::to_string(::GetLastError()) + ")");
+            mLastError = NkError(1, NkString::Fmtf("CreateWindowExW failed (%lu)", ::GetLastError()));
             NkSystem::Instance().UnregisterWindow(mId);
             mId = NK_INVALID_WINDOW_ID;
             return false;
@@ -253,24 +261,27 @@ namespace nkentseu {
                         kIIDTaskbarList3, (void**)&mData.mTaskbarList);
 
         // OLE DropTarget integration (events forwarded to NkEventSystem queue).
-        mData.mDropTarget = new NkWin32DropTarget(mData.mHwnd);
-        if (mData.mDropTarget) {
-            mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& ev) {
-                NkDropEnterEvent copy(ev);
-                NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropLeaveCallback([this](const NkDropLeaveEvent& ev) {
-                NkDropLeaveEvent copy(ev);
-                NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropFileCallback([this](const NkDropFileEvent& ev) {
-                NkDropFileEvent copy(ev);
-                NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropTextCallback([this](const NkDropTextEvent& ev) {
-                NkDropTextEvent copy(ev);
-                NkSystem::Events().Enqueue_Public(copy, mId);
-            });
+        // Respect explicit window config: only enable drag & drop when requested.
+        if (config.dropEnabled) {
+            mData.mDropTarget = new NkWin32DropTarget(mData.mHwnd);
+            if (mData.mDropTarget) {
+                mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& ev) {
+                    NkDropEnterEvent copy(ev);
+                    NkSystem::Events().Enqueue_Public(copy, mId);
+                });
+                mData.mDropTarget->SetDropLeaveCallback([this](const NkDropLeaveEvent& ev) {
+                    NkDropLeaveEvent copy(ev);
+                    NkSystem::Events().Enqueue_Public(copy, mId);
+                });
+                mData.mDropTarget->SetDropFileCallback([this](const NkDropFileEvent& ev) {
+                    NkDropFileEvent copy(ev);
+                    NkSystem::Events().Enqueue_Public(copy, mId);
+                });
+                mData.mDropTarget->SetDropTextCallback([this](const NkDropTextEvent& ev) {
+                    NkDropTextEvent copy(ev);
+                    NkSystem::Events().Enqueue_Public(copy, mId);
+                });
+            }
         }
 
         // --- Affichage ---
@@ -329,7 +340,7 @@ namespace nkentseu {
     // Title
     // =============================================================================
 
-    std::string NkWindow::GetTitle() const {
+    NkString NkWindow::GetTitle() const {
         if (!mData.mHwnd) return {};
         int len = GetWindowTextLengthW(mData.mHwnd);
         if (len <= 0) return {};
@@ -339,7 +350,7 @@ namespace nkentseu {
         return NkWideToUtf8(ws);
     }
 
-    void NkWindow::SetTitle(const std::string& t) {
+    void NkWindow::SetTitle(const NkString& t) {
         mConfig.title = t;
         if (mData.mHwnd) SetWindowTextW(mData.mHwnd, NkUtf8ToWide(t).c_str());
     }

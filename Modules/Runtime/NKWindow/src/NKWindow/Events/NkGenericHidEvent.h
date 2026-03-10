@@ -34,7 +34,7 @@
 #include "NkEvent.h"
 #include "NkMouseEvent.h"  // pour NkButtonState
 #include <cstring>
-#include <string>
+#include "NKContainers/String/NkStringUtils.h"
 #include <vector>
 
 namespace nkentseu {
@@ -134,10 +134,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkHidConnectEvent(*this); }
-        std::string ToString() const override {
-            return std::string("HidConnect(") + mInfo.name
-                 + " VID=" + std::to_string(mInfo.vendorId)
-                 + " PID=" + std::to_string(mInfo.productId) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("HidConnect({0} VID={1} PID={2})", mInfo.name, mInfo.vendorId, mInfo.productId);
         }
 
         const NkHidDeviceInfo& GetInfo() const noexcept { return mInfo; }
@@ -163,8 +161,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkHidDisconnectEvent(*this); }
-        std::string ToString() const override {
-            return "HidDisconnect(device=" + std::to_string(mDeviceId) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("HidDisconnect(device={0})", mDeviceId);
         }
     };
 
@@ -234,9 +232,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkHidButtonPressEvent(*this); }
-        std::string ToString() const override {
-            return "HidButtonPress(dev=" + std::to_string(mDeviceId)
-                 + " btn=" + std::to_string(mButtonIndex) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("HidButtonPress(dev={0} btn={1})", mDeviceId, mButtonIndex);
         }
     };
 
@@ -262,9 +259,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkHidButtonReleaseEvent(*this); }
-        std::string ToString() const override {
-            return "HidButtonRelease(dev=" + std::to_string(mDeviceId)
-                 + " btn=" + std::to_string(mButtonIndex) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("HidButtonRelease(dev={0} btn={1})", mDeviceId, mButtonIndex);
         }
     };
 
@@ -315,11 +311,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkHidAxisEvent(*this); }
-        std::string ToString() const override {
-            return "HidAxis(dev=" + std::to_string(mDeviceId)
-                 + " axis=" + std::to_string(mAxisIndex)
-                 + " val=" + std::to_string(mValue)
-                 + " delta=" + std::to_string(mDelta) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("HidAxis(dev={0} axis={1} val={2:.3} delta={3:.3})",
+                mDeviceId, mAxisIndex, mValue, mDelta);
         }
 
         NkU32 GetAxisIndex()  const noexcept { return mAxisIndex; }
@@ -370,7 +364,7 @@ namespace nkentseu {
          */
         NkHidRawInputEvent(NkU64             deviceId,
                              NkU8              reportId,
-                             std::vector<NkU8> data,
+                             NkVector<NkU8> data,
                              NkU64             windowId = 0)
             : NkGenericHidEvent(deviceId, windowId)
             , mReportId(reportId)
@@ -378,20 +372,19 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkHidRawInputEvent(*this); }
-        std::string ToString() const override {
-            return "HidRawInput(dev=" + std::to_string(mDeviceId)
-                 + " reportId=" + std::to_string(mReportId)
-                 + " size=" + std::to_string(mData.size()) + "B)";
+        NkString ToString() const override {
+            return NkString::Fmt("HidRawInput(dev={0} reportId={1} size={2}B)",
+                mDeviceId, mReportId, mData.Size());
         }
 
         NkU8                     GetReportId() const noexcept { return mReportId; }
-        const std::vector<NkU8>& GetData()     const noexcept { return mData; }
-        const NkU8*              GetBytes()    const noexcept { return mData.data(); }
-        NkU32                    GetSize()     const noexcept { return static_cast<NkU32>(mData.size()); }
+        const NkVector<NkU8>& GetData()     const noexcept { return mData; }
+        const NkU8*              GetBytes()    const noexcept { return mData.Data(); }
+        NkU32                    GetSize()     const noexcept { return static_cast<NkU32>(mData.Size()); }
 
     private:
         NkU8              mReportId = 0;
-        std::vector<NkU8> mData;
+        NkVector<NkU8> mData;
     };
 
 } // namespace nkentseu

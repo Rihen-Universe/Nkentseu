@@ -4,6 +4,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKCore/NkInline.h"
 #include <cstddef>
+#include <cstring>
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 #include <windows.h>
@@ -13,8 +14,7 @@
 #include <sys/stat.h>
 #endif
 
-#include "NkStream.h"
-#include <cstring>
+#include "NKStream/NkStream.h"
 
 
 namespace nkentseu {
@@ -47,7 +47,7 @@ namespace nkentseu {
                 const usize available = mSize - mPosition;
                 const usize toRead = (byteCount > available) ? available : byteCount;
 
-                std::memcpy(buffer, mBuffer + mPosition, toRead);
+                ::memcpy(buffer, mBuffer + mPosition, toRead);
                 mPosition += toRead;
                 return toRead;
             }
@@ -55,7 +55,7 @@ namespace nkentseu {
             usize WriteRaw(const void* data, usize byteCount) override {
                 EnsureCapacity(mPosition + byteCount);
 
-                std::memcpy(mBuffer + mPosition, data, byteCount);
+                ::memcpy(mBuffer + mPosition, data, byteCount);
                 mPosition += byteCount;
                 if(mPosition > mSize) mSize = mPosition;
                 return byteCount;
@@ -96,7 +96,9 @@ namespace nkentseu {
 
             void Reallocate(usize newCapacity) {
                 uint8* newBuffer = new uint8[newCapacity];
-                std::memcpy(newBuffer, mBuffer, mSize);
+                if (mBuffer && mSize > 0) {
+                    ::memcpy(newBuffer, mBuffer, mSize);
+                }
                 if(mOwned) delete[] mBuffer;
                 mBuffer = newBuffer;
                 mCapacity = newCapacity;

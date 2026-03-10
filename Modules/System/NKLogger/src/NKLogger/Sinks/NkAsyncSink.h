@@ -8,12 +8,10 @@
 #pragma once
 
 #include "NKLogger/NkLogger.h"
-#include <queue>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-#include <memory>
+#include "NKLogger/NkSync.h"
+#include "NKContainers/Adapters/NkQueue.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -36,7 +34,7 @@ namespace nkentseu {
 			 * @param queueSize Taille maximum de la file d'attente
 			 * @param flushInterval Intervalle de flush en ms
 			 */
-			NkAsyncLogger(const std::string &name, core::usize queueSize = 8192, uint32 flushInterval = 1000);
+			NkAsyncLogger(const NkString &name, usize queueSize = 8192, uint32 flushInterval = 1000);
 
 			/**
 			 * @brief Destructeur
@@ -51,7 +49,7 @@ namespace nkentseu {
 			 * @brief Log asynchrone
 			 */
 			virtual void Logf(NkLogLevel level, const char *format, ...) override;
-			void Log(NkLogLevel level, const std::string &message);
+			void Log(NkLogLevel level, const NkString &message);
 			/**
 			 * @brief Force le flush des messages en attente
 			 */
@@ -81,19 +79,19 @@ namespace nkentseu {
 			 * @brief Obtient la taille actuelle de la file d'attente
 			 * @return Taille de la file
 			 */
-			core::usize GetQueueSize() const;
+			usize GetQueueSize() const;
 
 			/**
 			 * @brief Définit la taille maximum de la file
 			 * @param size Taille maximum
 			 */
-			void SetMaxQueueSize(core::usize size);
+			void SetMaxQueueSize(usize size);
 
 			/**
 			 * @brief Obtient la taille maximum de la file
 			 * @return Taille maximum
 			 */
-			core::usize GetMaxQueueSize() const;
+			usize GetMaxQueueSize() const;
 
 			/**
 			 * @brief Définit l'intervalle de flush
@@ -118,6 +116,11 @@ namespace nkentseu {
 			void WorkerThread();
 
 			/**
+			 * @brief Entrée C-compatible du thread worker.
+			 */
+			static void WorkerThreadEntry(void* userData);
+
+			/**
 			 * @brief Ajoute un message à la file d'attente
 			 * @param message Message à ajouter
 			 * @return true si ajouté, false si file pleine
@@ -140,28 +143,28 @@ namespace nkentseu {
 			// ---------------------------------------------------------------------
 
 			/// File d'attente des messages
-			std::queue<NkLogMessage> m_MessageQueue;
+			NkQueue<NkLogMessage> m_MessageQueue;
 
 			/// Taille maximum de la file
-			core::usize m_MaxQueueSize;
+			usize m_MaxQueueSize;
 
 			/// Intervalle de flush en ms
 			uint32 m_FlushInterval;
 
 			/// Thread de traitement
-			std::thread m_WorkerThread;
+			logger_sync::NkThread m_WorkerThread;
 
 			/// Mutex pour la file d'attente
-			mutable std::mutex m_QueueMutex;
+			mutable logger_sync::NkMutex m_QueueMutex;
 
 			/// Condition variable pour la synchronisation
-			std::condition_variable m_Condition;
+			logger_sync::NkConditionVariable m_Condition;
 
 			/// Indicateur d'exécution
-			std::atomic<bool> m_Running;
+			logger_sync::NkAtomicBool m_Running;
 
 			/// Indicateur d'arrêt demandé
-			std::atomic<bool> m_StopRequested;
+			logger_sync::NkAtomicBool m_StopRequested;
 	};
 
 } // namespace nkentseu

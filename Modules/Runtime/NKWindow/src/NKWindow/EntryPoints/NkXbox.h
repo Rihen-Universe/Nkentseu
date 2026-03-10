@@ -33,16 +33,16 @@ namespace nkentseu {
     namespace {
         static void *gXboxNativeWindowOpaque = nullptr;
 
-        static std::vector<std::string> NkBuildUtf8ArgsFromCommandLine() {
+        static NkVector<NkString> NkBuildUtf8ArgsFromCommandLine() {
             int argc = 0;
             LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
-            std::vector<std::string> args;
+            NkVector<NkString> args;
             args.reserve(static_cast<std::size_t>(argc));
 
             for (int i = 0; i < argc; ++i) {
                 int sz = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
-                std::string s(static_cast<std::size_t>(sz), '\0');
+                NkString s(static_cast<std::size_t>(sz), '\0');
                 WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), sz, nullptr, nullptr);
                 if (!s.empty() && s.back() == '\0') s.pop_back();
                 args.push_back(std::move(s));
@@ -84,7 +84,7 @@ namespace nkentseu {
 } // namespace nkentseu
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR, int nCmdShow) {
-    std::vector<std::string> args = nkentseu::NkBuildUtf8ArgsFromCommandLine();
+    NkVector<NkString> args = nkentseu::NkBuildUtf8ArgsFromCommandLine();
     void *nativeWindow = nkentseu::NkXboxGetNativeWindowHandle();
 
     nkentseu::NkEntryState state(hInst, hPrev, nullptr, nCmdShow, args, nativeWindow);

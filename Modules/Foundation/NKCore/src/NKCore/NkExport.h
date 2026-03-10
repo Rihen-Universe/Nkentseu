@@ -16,8 +16,8 @@
 // INCLUDES DES SYSTÈMES DE DÉTECTION
 // ============================================================
 
-#include "NkPlatformDetect.h"
-#include "NkArchDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
+#include "NKPlatform/NkArchDetect.h"
 
 // ============================================================
 // CONFIGURATION DU BUILD (STATIQUE VS PARTAGÉ)

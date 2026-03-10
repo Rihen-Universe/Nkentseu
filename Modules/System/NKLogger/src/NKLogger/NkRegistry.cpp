@@ -7,12 +7,27 @@
 
 #include "NKLogger/NkRegistry.h"
 #include "NKLogger/Sinks/NkConsoleSink.h"
-#include <algorithm>
+
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
 // -----------------------------------------------------------------------------
 namespace nkentseu {
+
+	namespace {
+		using NkLoggerEntry = NkPair<NkString, memory::NkSharedPtr<NkLogger>>;
+
+		static usize NkFindLoggerIndex(const NkVector<NkLoggerEntry>& loggers, const NkString& name) {
+			for (usize i = 0; i < loggers.Size(); ++i) {
+				if (loggers[i].First == name) {
+					return i;
+				}
+			}
+			return static_cast<usize>(-1);
+		}
+	} // namespace
 
 	// -------------------------------------------------------------------------
 	// IMPLÉMENTATION DE NkRegistry
@@ -46,7 +61,7 @@ namespace nkentseu {
 	void NkRegistry::Initialize() {
 		auto &instance = Instance();
 
-		std::lock_guard<std::mutex> lock(instance.m_Mutex);
+		logger_sync::NkScopedLock lock(instance.m_Mutex);
 		if (!instance.m_Initialized) {
 			instance.CreateDefaultLogger();
 			instance.m_Initialized = true;
@@ -65,29 +80,28 @@ namespace nkentseu {
 	/**
 	 * @brief Enregistre un logger dans le registre
 	 */
-	bool NkRegistry::Register(std::shared_ptr<NkLogger> logger) {
-		if (!logger)
+	bool NkRegistry::Register(memory::NkSharedPtr<NkLogger> logger) {
+		if (!logger.IsValid())
 			return false;
 
-		std::string name = logger->GetName();
-
-		if (m_Loggers.find(name) != m_Loggers.end()) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		NkString name = logger->GetName();
+		if (NkFindLoggerIndex(m_Loggers, name) != static_cast<usize>(-1)) {
 			return false; // Nom déjà existant
 		}
 
-		m_Loggers[name] = logger;
+		m_Loggers.PushBack(NkLoggerEntry(name, logger));
 		return true;
 	}
 
 	/**
 	 * @brief Désenregistre un logger du registre
 	 */
-	bool NkRegistry::Unregister(const std::string &name) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		auto it = m_Loggers.find(name);
-
-		if (it != m_Loggers.end()) {
-			m_Loggers.erase(it);
+	bool NkRegistry::Unregister(const NkString &name) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		const usize index = NkFindLoggerIndex(m_Loggers, name);
+		if (index != static_cast<usize>(-1)) {
+			m_Loggers.Erase(m_Loggers.begin() + index);
 			return true;
 		}
 
@@ -97,64 +111,62 @@ namespace nkentseu {
 	/**
 	 * @brief Obtient un logger par son nom
 	 */
-	std::shared_ptr<NkLogger> NkRegistry::Get(const std::string &name) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		auto it = m_Loggers.find(name);
-
-		if (it != m_Loggers.end()) {
-			return it->second;
+	memory::NkSharedPtr<NkLogger> NkRegistry::Get(const NkString &name) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		const usize index = NkFindLoggerIndex(m_Loggers, name);
+		if (index != static_cast<usize>(-1)) {
+			return m_Loggers[index].Second;
 		}
 
-		return nullptr;
+		return memory::NkSharedPtr<NkLogger>();
 	}
 
 	/**
 	 * @brief Obtient un logger par son nom (crée si non existant)
 	 */
-	std::shared_ptr<NkLogger> NkRegistry::GetOrCreate(const std::string &name) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		auto it = m_Loggers.find(name);
-
-		if (it != m_Loggers.end()) {
-			return it->second;
+	memory::NkSharedPtr<NkLogger> NkRegistry::GetOrCreate(const NkString &name) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		const usize index = NkFindLoggerIndex(m_Loggers, name);
+		if (index != static_cast<usize>(-1)) {
+			return m_Loggers[index].Second;
 		}
 
 		// Création d'un nouveau logger
-		auto logger = std::make_shared<NkLogger>(name);
+		auto logger = memory::NkMakeShared<NkLogger>(name);
 		logger->SetLevel(m_GlobalLevel);
 		logger->SetPattern(m_GlobalPattern);
 
-		m_Loggers[name] = logger;
+		m_Loggers.PushBack(NkLoggerEntry(name, logger));
 		return logger;
 	}
 
 	/**
 	 * @brief Vérifie si un logger existe
 	 */
-	bool NkRegistry::Exists(const std::string &name) const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return m_Loggers.find(name) != m_Loggers.end();
+	bool NkRegistry::Exists(const NkString &name) const {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return NkFindLoggerIndex(m_Loggers, name) != static_cast<usize>(-1);
 	}
 
 	/**
 	 * @brief Supprime tous les loggers du registre
 	 */
 	void NkRegistry::Clear() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		m_Loggers.clear();
-		m_DefaultLogger.reset();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		m_Loggers.Clear();
+		m_DefaultLogger.Reset();
 	}
 
 	/**
 	 * @brief Obtient la liste de tous les noms de loggers
 	 */
-	std::vector<std::string> NkRegistry::GetLoggerNames() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		std::vector<std::string> names;
-		names.reserve(m_Loggers.size());
+	NkVector<NkString> NkRegistry::GetLoggerNames() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		NkVector<NkString> names;
+		names.Reserve(m_Loggers.Size());
 
 		for (const auto &pair : m_Loggers) {
-			names.push_back(pair.first);
+			names.PushBack(pair.First);
 		}
 
 		return names;
@@ -163,22 +175,22 @@ namespace nkentseu {
 	/**
 	 * @brief Obtient le nombre de loggers enregistrés
 	 */
-	core::usize NkRegistry::GetLoggerCount() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return m_Loggers.size();
+	usize NkRegistry::GetLoggerCount() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return m_Loggers.Size();
 	}
 
 	/**
 	 * @brief Définit le niveau de log global
 	 */
 	void NkRegistry::SetGlobalLevel(NkLogLevel level) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_GlobalLevel = level;
 
 		// Appliquer à tous les loggers existants
 		for (auto &pair : m_Loggers) {
-			if (pair.second) {
-				pair.second->SetLevel(level);
+			if (pair.Second.IsValid()) {
+				pair.Second->SetLevel(level);
 			}
 		}
 	}
@@ -187,21 +199,21 @@ namespace nkentseu {
 	 * @brief Obtient le niveau de log global
 	 */
 	NkLogLevel NkRegistry::GetGlobalLevel() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_GlobalLevel;
 	}
 
 	/**
 	 * @brief Définit le pattern global
 	 */
-	void NkRegistry::SetGlobalPattern(const std::string &pattern) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkRegistry::SetGlobalPattern(const NkString &pattern) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_GlobalPattern = pattern;
 
 		// Appliquer à tous les loggers existants
 		for (auto &pair : m_Loggers) {
-			if (pair.second) {
-				pair.second->SetPattern(pattern);
+			if (pair.Second.IsValid()) {
+				pair.Second->SetPattern(pattern);
 			}
 		}
 	}
@@ -209,8 +221,8 @@ namespace nkentseu {
 	/**
 	 * @brief Obtient le pattern global
 	 */
-	std::string NkRegistry::GetGlobalPattern() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	NkString NkRegistry::GetGlobalPattern() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_GlobalPattern;
 	}
 
@@ -218,11 +230,11 @@ namespace nkentseu {
 	 * @brief Force le flush de tous les loggers
 	 */
 	void NkRegistry::FlushAll() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 
 		for (auto &pair : m_Loggers) {
-			if (pair.second) {
-				pair.second->Flush();
+			if (pair.Second.IsValid()) {
+				pair.Second->Flush();
 			}
 		}
 	}
@@ -230,41 +242,41 @@ namespace nkentseu {
 	/**
 	 * @brief Définit le logger par défaut
 	 */
-	void NkRegistry::SetDefaultLogger(std::shared_ptr<NkLogger> logger) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkRegistry::SetDefaultLogger(memory::NkSharedPtr<NkLogger> logger) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_DefaultLogger = logger;
 
 		// S'assurer qu'il est aussi dans le registre
-		if (logger && !Exists(logger->GetName())) {
-			Register(logger);
+		if (logger.IsValid() && NkFindLoggerIndex(m_Loggers, logger->GetName()) == static_cast<usize>(-1)) {
+			m_Loggers.PushBack(NkLoggerEntry(logger->GetName(), logger));
 		}
 	}
 
 	/**
 	 * @brief Obtient le logger par défaut
 	 */
-	std::shared_ptr<NkLogger> NkRegistry::GetDefaultLogger() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-
-		if (!m_DefaultLogger) {
-			m_DefaultLogger = CreateDefaultLogger();
+	memory::NkSharedPtr<NkLogger> NkRegistry::GetDefaultLogger() {
+		{
+			logger_sync::NkScopedLock lock(m_Mutex);
+			if (m_DefaultLogger.IsValid()) {
+				return m_DefaultLogger;
+			}
 		}
-
-		return m_DefaultLogger;
+		return CreateDefaultLogger();
 	}
 
 	/**
 	 * @brief Crée un logger par défaut avec console sink
 	 */
-	std::shared_ptr<NkLogger> NkRegistry::CreateDefaultLogger() {
-		auto logger = std::make_shared<NkLogger>("default");
+	memory::NkSharedPtr<NkLogger> NkRegistry::CreateDefaultLogger() {
+		auto logger = memory::NkMakeShared<NkLogger>("default");
 
-		logger->SetLevel(m_GlobalLevel);
-		logger->SetPattern(m_GlobalPattern);
+			logger->SetLevel(m_GlobalLevel);
+			logger->SetPattern(m_GlobalPattern);
 
-		// Ajouter un sink console par défaut
-		auto consoleSink = std::make_shared<NkConsoleSink>();
-		logger->AddSink(consoleSink);
+			// Ajouter un sink console par défaut
+			memory::NkSharedPtr<NkISink> consoleSink(new NkConsoleSink());
+			logger->AddSink(consoleSink);
 
 		// Enregistrer le logger
 		Register(logger);
@@ -280,21 +292,21 @@ namespace nkentseu {
 	/**
 	 * @brief Obtient un logger par son nom
 	 */
-	std::shared_ptr<NkLogger> GetLogger(const std::string &name) {
+	memory::NkSharedPtr<NkLogger> GetLogger(const NkString &name) {
 		return NkRegistry::Instance().Get(name);
 	}
 
 	/**
 	 * @brief Obtient le logger par défaut
 	 */
-	std::shared_ptr<NkLogger> GetDefaultLogger() {
+	memory::NkSharedPtr<NkLogger> GetDefaultLogger() {
 		return NkRegistry::Instance().GetDefaultLogger();
 	}
 
 	/**
 	 * @brief Crée un logger avec un nom spécifique
 	 */
-	std::shared_ptr<NkLogger> CreateLogger(const std::string &name) {
+	memory::NkSharedPtr<NkLogger> CreateLogger(const NkString &name) {
 		auto &registry = NkRegistry::Instance();
 		return registry.GetOrCreate(name);
 	}
@@ -309,7 +321,7 @@ namespace nkentseu {
 	/**
 	 * @brief Supprime un logger spécifique
 	 */
-	void Drop(const std::string &name) {
+	void Drop(const NkString &name) {
 		NkRegistry::Instance().Unregister(name);
 	}
 } // namespace nkentseu

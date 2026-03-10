@@ -15,13 +15,13 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Singly linked list
@@ -172,14 +172,14 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkList()
+            explicit NkList(Allocator* allocator = nullptr)
                 : mHead(nullptr), mTail(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
             }
             
-            NkList(NkInitializerList<T> init)
+            NkList(NkInitializerList<T> init, Allocator* allocator = nullptr)
                 : mHead(nullptr), mTail(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 for (auto& val : init) {
                     PushBack(val);
                 }
@@ -250,7 +250,7 @@ namespace nkentseu {
             ConstIterator cend() const { return ConstIterator(nullptr); }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             // Modifiers
@@ -343,7 +343,7 @@ namespace nkentseu {
             lhs.Swap(rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_SEQUENTIAL_NKLIST_H_INCLUDED

@@ -19,6 +19,7 @@
 // =============================================================================
 
 #include "NkTypes.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <string>
 
 /**
@@ -60,9 +61,8 @@ namespace nkentseu {
 			return x >= left && x <= totalW - right && y >= top && y <= totalH - bottom;
 		}
 
-		std::string ToString() const {
-			return "SafeArea(T=" + std::to_string(top) + " B=" + std::to_string(bottom) + " L=" + std::to_string(left) +
-				" R=" + std::to_string(right) + ")";
+		NkString ToString() const {
+			return NkString::Fmt("SafeArea(T={0:.2} B={1:.2} L={2:.2} R={3:.2})", top, bottom, left, right);
 		}
 	};
 

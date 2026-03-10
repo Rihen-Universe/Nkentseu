@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkArchive.h"
+#include "NKSerialization/NkArchive.h"
 
 namespace nkentseu {
     namespace entseu {

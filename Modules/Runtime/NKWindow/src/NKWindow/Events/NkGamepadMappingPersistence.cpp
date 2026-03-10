@@ -6,7 +6,6 @@
 #include "NkGamepadMappingPersistence.h"
 
 #include <fstream>
-#include <sstream>
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -23,67 +22,65 @@
 namespace nkentseu {
 
     namespace {
-        static std::string Trim(std::string s) {
-            auto isSpace = [](unsigned char c) { return std::isspace(c) != 0; };
-            s.erase(s.begin(), std::find_if(s.begin(), s.end(), [&](char c) { return !isSpace(static_cast<unsigned char>(c)); }));
-            s.erase(std::find_if(s.rbegin(), s.rend(), [&](char c) { return !isSpace(static_cast<unsigned char>(c)); }).base(), s.end());
+        static NkString Trim(NkString s) {
+            s.Trim();
             return s;
         }
 
-        static bool DirectoryExists(const std::string& path) {
-            if (path.empty()) return false;
+        static bool DirectoryExists(const NkString& path) {
+            if (path.Empty()) return false;
 #if defined(_WIN32)
             struct _stat st{};
-            if (_stat(path.c_str(), &st) != 0) return false;
+            if (_stat(path.CStr(), &st) != 0) return false;
             return (st.st_mode & _S_IFDIR) != 0;
 #else
             struct stat st{};
-            if (stat(path.c_str(), &st) != 0) return false;
+            if (stat(path.CStr(), &st) != 0) return false;
             return S_ISDIR(st.st_mode);
 #endif
         }
 
-        static bool CreateDirectorySingle(const std::string& path) {
-            if (path.empty()) return false;
+        static bool CreateDirectorySingle(const NkString& path) {
+            if (path.Empty()) return false;
             if (DirectoryExists(path)) return true;
 #if defined(_WIN32)
-            if (_mkdir(path.c_str()) == 0) return true;
+            if (_mkdir(path.CStr()) == 0) return true;
             return errno == EEXIST;
 #else
-            if (mkdir(path.c_str(), 0755) == 0) return true;
+            if (mkdir(path.CStr(), 0755) == 0) return true;
             return errno == EEXIST;
 #endif
         }
 
-        static bool EnsureDirectories(const std::string& inPath) {
-            if (inPath.empty()) return false;
+        static bool EnsureDirectories(const NkString& inPath) {
+            if (inPath.Empty()) return false;
 
-            std::string path = inPath;
+            NkString path = inPath;
             std::replace(path.begin(), path.end(), '\\', '/');
 
-            std::string current;
-            std::size_t cursor = 0;
+            NkString current;
+            NkString::SizeType cursor = 0;
 
-            if (path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':') {
-                current = path.substr(0, 2);
+            if (path.Size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':') {
+                current = path.SubStr(0, 2);
                 cursor = 2;
-                if (cursor < path.size() && path[cursor] == '/') {
-                    current.push_back('/');
+                if (cursor < path.Size() && path[cursor] == '/') {
+                    current.PushBack('/');
                     ++cursor;
                 }
-            } else if (!path.empty() && path[0] == '/') {
+            } else if (!path.Empty() && path[0] == '/') {
                 current = "/";
                 cursor = 1;
             }
 
-            std::size_t segmentStart = cursor;
-            for (std::size_t i = cursor; i <= path.size(); ++i) {
-                if (i < path.size() && path[i] != '/') continue;
-                const std::string segment = path.substr(segmentStart, i - segmentStart);
+            NkString::SizeType segmentStart = cursor;
+            for (NkString::SizeType i = cursor; i <= path.Size(); ++i) {
+                if (i < path.Size() && path[i] != '/') continue;
+                const NkString segment = path.SubStr(segmentStart, i - segmentStart);
                 segmentStart = i + 1;
-                if (segment.empty()) continue;
+                if (segment.Empty()) continue;
 
-                if (!current.empty() && current.back() != '/') current.push_back('/');
+                if (!current.Empty() && current.Back() != '/') current.PushBack('/');
                 current += segment;
 
                 if (!CreateDirectorySingle(current)) return false;
@@ -91,26 +88,26 @@ namespace nkentseu {
             return true;
         }
 
-        static std::string JoinPath(const std::string& a, const std::string& b) {
-            if (a.empty()) return b;
-            if (b.empty()) return a;
-            const char last = a.back();
+        static NkString JoinPath(const NkString& a, const NkString& b) {
+            if (a.Empty()) return b;
+            if (b.Empty()) return a;
+            const char last = a.Back();
             if (last == '/' || last == '\\') return a + b;
             return a + "/" + b;
         }
     } // namespace
 
-    NkTextGamepadMappingPersistence::NkTextGamepadMappingPersistence(std::string baseDirectory,
-                                                                     std::string fileExtension)
+    NkTextGamepadMappingPersistence::NkTextGamepadMappingPersistence(NkString baseDirectory,
+                                                                     NkString fileExtension)
         : mBaseDirectory(std::move(baseDirectory))
         , mExtension(std::move(fileExtension))
     {
-        if (mBaseDirectory.empty()) mBaseDirectory = ResolveDefaultBaseDirectory();
-        if (mExtension.empty()) mExtension = ".nkmap";
-        if (!mExtension.empty() && mExtension[0] != '.') mExtension.insert(mExtension.begin(), '.');
+        if (mBaseDirectory.Empty()) mBaseDirectory = ResolveDefaultBaseDirectory();
+        if (mExtension.Empty()) mExtension = ".nkmap";
+        if (!mExtension.Empty() && mExtension[0] != '.') mExtension.Insert(0, 1, '.');
     }
 
-    std::string NkTextGamepadMappingPersistence::ResolveDefaultBaseDirectory() {
+    NkString NkTextGamepadMappingPersistence::ResolveDefaultBaseDirectory() {
         if (const char* env = std::getenv("NKENTSEU_GAMEPAD_MAPPING_DIR")) {
             if (*env) return env;
         }
@@ -132,7 +129,7 @@ namespace nkentseu {
         return "Build/GamepadMappings";
     }
 
-    std::string NkTextGamepadMappingPersistence::ResolveCurrentUserId() {
+    NkString NkTextGamepadMappingPersistence::ResolveCurrentUserId() {
         if (const char* env = std::getenv("NKENTSEU_GAMEPAD_USER")) {
             if (*env) return SanitizeUserId(env);
         }
@@ -148,42 +145,42 @@ namespace nkentseu {
         return "default";
     }
 
-    std::string NkTextGamepadMappingPersistence::SanitizeUserId(const std::string& raw) {
-        if (raw.empty()) return "default";
-        std::string out;
-        out.reserve(raw.size());
+    NkString NkTextGamepadMappingPersistence::SanitizeUserId(const NkString& raw) {
+        if (raw.Empty()) return "default";
+        NkString out;
+        out.Reserve(raw.Size());
         for (char c : raw) {
             const unsigned char uc = static_cast<unsigned char>(c);
-            if (std::isalnum(uc) || c == '_' || c == '-' || c == '.') out.push_back(c);
-            else out.push_back('_');
+            if (std::isalnum(uc) || c == '_' || c == '-' || c == '.') out.PushBack(c);
+            else out.PushBack('_');
         }
-        if (out.empty()) out = "default";
+        if (out.Empty()) out = "default";
         return out;
     }
 
-    std::string NkTextGamepadMappingPersistence::BuildUserFilePath(const std::string& userId) const {
-        const std::string id = SanitizeUserId(userId.empty() ? ResolveCurrentUserId() : userId);
+    NkString NkTextGamepadMappingPersistence::BuildUserFilePath(const NkString& userId) const {
+        const NkString id = SanitizeUserId(userId.Empty() ? ResolveCurrentUserId() : userId);
         return JoinPath(mBaseDirectory, id + mExtension);
     }
 
-    bool NkTextGamepadMappingPersistence::Save(const std::string& userId,
+    bool NkTextGamepadMappingPersistence::Save(const NkString& userId,
                                                const NkGamepadMappingProfileData& profile,
-                                               std::string* outError)
+                                               NkString* outError)
     {
         if (!EnsureDirectories(mBaseDirectory)) {
             if (outError) *outError = "Cannot create mapping directory: " + mBaseDirectory;
             return false;
         }
 
-        const std::string filePath = BuildUserFilePath(userId);
-        std::ofstream out(filePath, std::ios::binary | std::ios::trunc);
+        const NkString filePath = BuildUserFilePath(userId);
+        std::ofstream out(filePath.CStr(), std::ios::binary | std::ios::trunc);
         if (!out.is_open()) {
             if (outError) *outError = "Cannot open mapping file for write: " + filePath;
             return false;
         }
 
         out << "nkmap " << profile.version << "\n";
-        out << "backend " << profile.backendName << "\n";
+        out << "backend " << profile.backendName.CStr() << "\n";
 
         for (const NkGamepadMappingSlotData& slot : profile.slots) {
             out << "slot " << slot.slotIndex << " " << (slot.active ? 1 : 0) << "\n";
@@ -205,12 +202,12 @@ namespace nkentseu {
         return true;
     }
 
-    bool NkTextGamepadMappingPersistence::Load(const std::string& userId,
+    bool NkTextGamepadMappingPersistence::Load(const NkString& userId,
                                                NkGamepadMappingProfileData& outProfile,
-                                               std::string* outError)
+                                               NkString* outError)
     {
-        const std::string filePath = BuildUserFilePath(userId);
-        std::ifstream in(filePath, std::ios::binary);
+        const NkString filePath = BuildUserFilePath(userId);
+        std::ifstream in(filePath.CStr(), std::ios::binary);
         if (!in.is_open()) {
             if (outError) *outError = "Cannot open mapping file for read: " + filePath;
             return false;
@@ -233,7 +230,7 @@ namespace nkentseu {
             if (token == "backend") {
                 std::string rest;
                 std::getline(in, rest);
-                outProfile.backendName = Trim(rest);
+                outProfile.backendName = Trim(rest.c_str());
             } else if (token == "slot") {
                 NkGamepadMappingSlotData slot{};
                 int active = 0;
@@ -242,8 +239,8 @@ namespace nkentseu {
                     return false;
                 }
                 slot.active = (active != 0);
-                outProfile.slots.push_back(slot);
-                currentSlot = &outProfile.slots.back();
+                outProfile.slots.PushBack(slot);
+                currentSlot = &outProfile.slots.Back();
             } else if (token == "button") {
                 if (!currentSlot) {
                     std::string line;
@@ -255,7 +252,7 @@ namespace nkentseu {
                     if (outError) *outError = "Invalid button entry in mapping file: " + filePath;
                     return false;
                 }
-                currentSlot->buttons.push_back(e);
+                currentSlot->buttons.PushBack(e);
             } else if (token == "axis") {
                 if (!currentSlot) {
                     std::string line;
@@ -269,7 +266,7 @@ namespace nkentseu {
                     return false;
                 }
                 e.invert = (invert != 0);
-                currentSlot->axes.push_back(e);
+                currentSlot->axes.PushBack(e);
             } else if (token == "end_slot") {
                 currentSlot = nullptr;
             } else {

@@ -50,12 +50,12 @@ namespace nkentseu {
 			/**
 			 * @brief No-op
 			 */
-			void SetFormatter(std::unique_ptr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
 
 			/**
 			 * @brief No-op
 			 */
-			void SetPattern(const std::string &pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Retourne nullptr
@@ -65,7 +65,7 @@ namespace nkentseu {
 			/**
 			 * @brief Retourne une chaîne vide
 			 */
-			std::string GetPattern() const override;
+			NkString GetPattern() const override;
 	};
 
 } // namespace nkentseu

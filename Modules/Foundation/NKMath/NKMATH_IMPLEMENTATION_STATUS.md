@@ -197,7 +197,7 @@ return y
 ### Custom Implementations:
 - ✅ All bit operations (no std::bitset)
 - ✅ All rounding (no std::floor, ceil, round)
-- ✅ All trig (no std::sin, cos, tan)
+- ✅ All trig (no math::NkSin, cos, tan)
 - ✅ All exp/log (no std::exp, log)
 - ✅ All comparisons (no std::min, max)
 

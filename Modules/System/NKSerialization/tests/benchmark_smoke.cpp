@@ -1,26 +1,35 @@
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
-#include <chrono>
+#include "NKPlatform/NkFoundationLog.h"
+
 #include <cstdio>
-#include <string>
+#include <ctime>
+
+static double NkToNs(const timespec& ts) {
+    return (static_cast<double>(ts.tv_sec) * 1000000000.0) + static_cast<double>(ts.tv_nsec);
+}
 
 TEST_CASE(NKSerializationBenchmark, PlaceholderStringPipeline) {
     constexpr int kIters = 300000;
 
-    std::string payload;
-    payload.reserve(64);
+    size_t sink = 0;
+    char payload[64] {};
 
-    const auto t0 = std::chrono::high_resolution_clock::now();
+    timespec t0 {};
+    timespec t1 {};
+    timespec_get(&t0, TIME_UTC);
     for (int i = 0; i < kIters; ++i) {
-        payload.clear();
-        payload += "{\"v\":";
-        payload += std::to_string(i);
-        payload += "}";
+        const int written = ::snprintf(payload, sizeof(payload), "{\"v\":%d}", i);
+        if (written > 0) {
+            sink += static_cast<size_t>(written);
+        }
     }
-    const auto t1 = std::chrono::high_resolution_clock::now();
+    timespec_get(&t1, TIME_UTC);
 
-    const double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
+    const double ns = NkToNs(t1) - NkToNs(t0);
     ASSERT_TRUE(ns > 0.0);
-    std::printf("\n[NKSerialization Benchmark] placeholder encode loop: %.2f ns total\n", ns);
+    ASSERT_TRUE(sink > 0);
+    NK_FOUNDATION_LOG_INFO("[NKSerialization Benchmark] placeholder encode loop: %.2f ns total (sink=%zu)",
+                           ns, static_cast<size_t>(sink));
 }

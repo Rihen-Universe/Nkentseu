@@ -11,13 +11,14 @@
 #ifndef NKENTSEU_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKREGISTRY_H_INCLUDED
 #define NKENTSEU_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKREGISTRY_H_INCLUDED
 
-#include "NkType.h"
-#include "NkClass.h"
-#include "NkProperty.h"
-#include "NkMethod.h"
+#include "NKReflection/NkType.h"
+#include "NKReflection/NkClass.h"
+#include "NKReflection/NkProperty.h"
+#include "NKReflection/NkMethod.h"
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace reflection {
             
             /**
@@ -79,7 +80,7 @@ namespace nkentseu {
             };
             
         } // namespace reflection
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================
@@ -90,17 +91,17 @@ namespace nkentseu {
  * @brief Déclare une classe réfléchie
  */
 #define NKENTSEU_REFLECT_CLASS(ClassName) \
-    friend class ::nkentseu::core::reflection::Class; \
+    friend class ::nkentseu::reflection::Class; \
     public: \
-    static const ::nkentseu::core::reflection::Class& GetStaticClass() { \
-        static ::nkentseu::core::reflection::Class classInfo( \
+    static const ::nkentseu::reflection::Class& GetStaticClass() { \
+        static ::nkentseu::reflection::Class classInfo( \
             #ClassName, \
             sizeof(ClassName), \
-            ::nkentseu::core::reflection::TypeOf<ClassName>() \
+            ::nkentseu::reflection::TypeOf<ClassName>() \
         ); \
         return classInfo; \
     } \
-    virtual const ::nkentseu::core::reflection::Class& GetClass() const { \
+    virtual const ::nkentseu::reflection::Class& GetClass() const { \
         return GetStaticClass(); \
     } \
     private:
@@ -110,11 +111,11 @@ namespace nkentseu {
  */
 #define NKENTSEU_REFLECT_PROPERTY(PropertyName) \
     public: \
-    static const ::nkentseu::core::reflection::Property& Get##PropertyName##Property() { \
-        static ::nkentseu::core::reflection::Property property( \
+    static const ::nkentseu::reflection::Property& Get##PropertyName##Property() { \
+        static ::nkentseu::reflection::Property property( \
             #PropertyName, \
-            ::nkentseu::core::reflection::TypeOf<decltype(PropertyName)>(), \
-            offsetof(std::remove_reference<decltype(*this)>::type, PropertyName) \
+            ::nkentseu::reflection::TypeOf<decltype(PropertyName)>(), \
+            offsetof(::nkentseu::traits::NkRemoveReference_t<decltype(*this)>, PropertyName) \
         ); \
         return property; \
     } \
@@ -134,7 +135,7 @@ namespace nkentseu {
     namespace { \
         struct ClassName##_Registrar { \
             ClassName##_Registrar() { \
-                ::nkentseu::core::reflection::Registry::Get().RegisterClass( \
+                ::nkentseu::reflection::Registry::Get().RegisterClass( \
                     &ClassName::GetStaticClass() \
                 ); \
             } \

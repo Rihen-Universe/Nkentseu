@@ -3,7 +3,8 @@
 
 #include "NKContainers/NkContainers.h"
 
-using namespace nkentseu::core;
+using namespace nkentseu;
+
 
 TEST_CASE(NKContainersInitializerList, ManualConstruction) {
     const int raw[4] = {7, 8, 9, 10};

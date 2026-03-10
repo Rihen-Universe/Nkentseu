@@ -1,14 +1,14 @@
 // =============================================================================
-// NkSoftwareRenderer.cpp — Renderer logiciel : blit OS par plateforme
-// Win32  : StretchDIBits (RGBA→BGRA)
-// XCB    : xcb_image_put (RGBA→BGRX)
-// XLib   : XPutImage     (RGBA→BGRX)
+// NkSoftwareRenderer.cpp â€” Renderer logiciel : blit OS par plateforme
+// Win32  : StretchDIBits (RGBAâ†’BGRA)
+// XCB    : xcb_image_put (RGBAâ†’BGRX)
+// XLib   : XPutImage     (RGBAâ†’BGRX)
 // Android: ANativeWindow_lock / unlockAndPost
 // WASM   : Canvas 2D putImageData
 // =============================================================================
 
 #include "NkSoftwareRenderer.h"
-#include "NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include <cstring>
 #include <algorithm>
 #include <vector>
@@ -43,9 +43,13 @@
 #  include <android/native_window.h>
 #endif
 
-#if defined(NKENTSEU_PLATFORM_WASM)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #  include <emscripten.h>
 #  include <cstdint>
+#endif
+
+#if defined(NKENTSEU_WINDOWING_WAYLAND)
+#  include <wayland-client.h>
 #endif
 
 namespace nkentseu {
@@ -72,7 +76,7 @@ bool NkSoftwareRenderer::Init(const NkRendererConfig& config, const NkSurfaceDes
 }
 
 void NkSoftwareRenderer::Shutdown() {
-    mBuffer.clear();
+    mBuffer.Clear();
     mFbInfo = {};
     mReady  = false;
 }
@@ -107,7 +111,7 @@ void NkSoftwareRenderer::BeginFrame(NkU32 clearColor) {
     NkU8 g = (clearColor >> 16) & 0xFF;
     NkU8 b = (clearColor >>  8) & 0xFF;
     NkU8 a =  clearColor        & 0xFF;
-    NkU8* p = mBuffer.data();
+    NkU8* p = mBuffer.Data();
     const std::size_t count = static_cast<std::size_t>(mFbInfo.width) * mFbInfo.height;
     for (std::size_t i = 0; i < count; ++i, p += 4) {
         p[0] = r; p[1] = g; p[2] = b; p[3] = a;
@@ -141,9 +145,11 @@ void NkSoftwareRenderer::BlitOS(const NkSurfaceDesc& surface, NkU32 w, NkU32 h) 
     BlitXCB(surface, w, h);
 #elif defined(NKENTSEU_WINDOWING_XLIB) && !defined(NKENTSEU_WINDOWING_XCB)
     BlitXLib(surface, w, h);
+#elif defined(NKENTSEU_WINDOWING_WAYLAND)
+    BlitWayland(surface, w, h);
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
     BlitANW(surface, w, h);
-#elif defined(NKENTSEU_PLATFORM_WASM)
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
     BlitWASM(surface, w, h);
 #else
     (void)surface; (void)w; (void)h;
@@ -165,9 +171,7 @@ void NkSoftwareRenderer::SetPixel(NkI32 x, NkI32 y, NkU32 rgba) {
     NkU8 sb = (rgba >>  8) & 0xFF;
     NkU8 sa =  rgba         & 0xFF;
 
-    NkU8* dst = mBuffer.data()
-        + static_cast<std::size_t>(y) * mFbInfo.pitch
-        + static_cast<std::size_t>(x) * 4;
+    NkU8* dst = mBuffer.Data() + static_cast<std::size_t>(y) * mFbInfo.pitch + static_cast<std::size_t>(x) * 4;
 
     if (sa == 255) {
         dst[0] = sr; dst[1] = sg; dst[2] = sb; dst[3] = 255;
@@ -189,8 +193,9 @@ void NkSoftwareRenderer::AllocBuffer(NkU32 w, NkU32 h) {
     mFbInfo.width  = w;
     mFbInfo.height = h;
     mFbInfo.pitch  = w * 4;
-    mBuffer.assign(static_cast<std::size_t>(w) * h * 4, 0);
-    mFbInfo.pixels = mBuffer.data();
+    mBuffer.Clear();
+    mBuffer.Resize(static_cast<NkVector<NkU8>::SizeType>(static_cast<std::size_t>(w) * h * 4), static_cast<NkU8>(0));
+    mFbInfo.pixels = mBuffer.Data();
 }
 
 // ---------------------------------------------------------------------------
@@ -201,9 +206,9 @@ void NkSoftwareRenderer::BlitWin32(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP)
     if (!sd.hwnd || !IsWindow(sd.hwnd)) return;
 
-    std::vector<NkU8> bgra(mBuffer.size());
-    const NkU8* src = mBuffer.data();
-    NkU8*       dst = bgra.data();
+    NkVector<NkU8> bgra(mBuffer.Size());
+    const NkU8* src = mBuffer.Data();
+    NkU8*       dst = bgra.Data();
     const std::size_t n = static_cast<std::size_t>(w) * h;
     for (std::size_t i = 0; i < n; ++i, src += 4, dst += 4) {
         dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = src[3];
@@ -222,7 +227,7 @@ void NkSoftwareRenderer::BlitWin32(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
     GetClientRect(sd.hwnd, &rc);
     StretchDIBits(hdc, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
                   0, 0, static_cast<int>(w), static_cast<int>(h),
-                  bgra.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+                  bgra.Data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
     ReleaseDC(sd.hwnd, hdc);
 #else
     (void)sd; (void)w; (void)h;
@@ -238,9 +243,10 @@ void NkSoftwareRenderer::BlitXCB(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
     if (!sd.connection || sd.window == XCB_WINDOW_NONE) return;
     if (xcb_connection_has_error(sd.connection)) return;
 
-    std::vector<NkU8> bgrx(static_cast<std::size_t>(w) * h * 4);
-    const NkU8* src = mBuffer.data();
-    NkU8*       dst = bgrx.data();
+    NkVector<NkU8> bgrx;
+    bgrx.Resize(static_cast<NkU32>(w) * h * 4);
+    const NkU8* src = mBuffer.Data();
+    NkU8*       dst = bgrx.Data();
     const std::size_t n = static_cast<std::size_t>(w) * h;
     for (std::size_t i = 0; i < n; ++i, src += 4, dst += 4) {
         dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = 0;
@@ -255,7 +261,7 @@ void NkSoftwareRenderer::BlitXCB(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
         sd.connection,
         static_cast<uint16_t>(w), static_cast<uint16_t>(h),
         XCB_IMAGE_FORMAT_Z_PIXMAP, 24,
-        nullptr, static_cast<uint32_t>(bgrx.size()), bgrx.data());
+        nullptr, static_cast<uint32_t>(bgrx.Size()), bgrx.Data());
     if (img) {
         xcb_image_put(sd.connection, sd.window, gc, img, 0, 0, 0);
         xcb_image_destroy(img);
@@ -272,8 +278,8 @@ void NkSoftwareRenderer::BlitXCB(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
         0,
         0,
         24,
-        static_cast<uint32_t>(bgrx.size()),
-        bgrx.data());
+        static_cast<uint32_t>(bgrx.Size()),
+        bgrx.Data());
 #endif
     xcb_free_gc(sd.connection, gc);
     xcb_flush(sd.connection);
@@ -290,9 +296,10 @@ void NkSoftwareRenderer::BlitXLib(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
 #if defined(NKENTSEU_WINDOWING_XLIB) && !defined(NKENTSEU_WINDOWING_XCB)
     if (!sd.display || sd.window == 0) return;
 
-    std::vector<NkU8> bgr(static_cast<std::size_t>(w) * h * 4);
-    const NkU8* src = mBuffer.data();
-    NkU8*       dst = bgr.data();
+    NkVector<NkU8> bgr;
+    bgr.Resize(static_cast<NkU32>(w) * h * 4);
+    const NkU8* src = mBuffer.Data();
+    NkU8*       dst = bgr.Data();
     const std::size_t n = static_cast<std::size_t>(w) * h;
     for (std::size_t i = 0; i < n; ++i, src += 4, dst += 4) {
         dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = 0;
@@ -301,7 +308,7 @@ void NkSoftwareRenderer::BlitXLib(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
     XImage* img = XCreateImage(
         sd.display, DefaultVisual(sd.display, DefaultScreen(sd.display)),
         24, ZPixmap, 0,
-        reinterpret_cast<char*>(bgr.data()), w, h, 32, 0);
+        reinterpret_cast<char*>(bgr.Data()), w, h, 32, 0);
     if (img) {
         GC gc = DefaultGC(sd.display, DefaultScreen(sd.display));
         XPutImage(sd.display, sd.window, gc, img, 0, 0, 0, 0, w, h);
@@ -328,7 +335,7 @@ void NkSoftwareRenderer::BlitANW(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
     if (ANativeWindow_lock(anw, &buf, &dirty) != 0) return;
 
     NkU8*       out    = static_cast<NkU8*>(buf.bits);
-    const NkU8* in     = mBuffer.data();
+    const NkU8* in     = mBuffer.Data();
     NkU32       stride = static_cast<NkU32>(buf.stride) * 4;
 
     for (NkU32 row = 0; row < h && row < static_cast<NkU32>(buf.height); ++row) {
@@ -346,11 +353,11 @@ void NkSoftwareRenderer::BlitANW(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
 // ---------------------------------------------------------------------------
 
 void NkSoftwareRenderer::BlitWASM(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
-#if defined(NKENTSEU_PLATFORM_WASM)
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
     if (mBuffer.empty() || w == 0 || h == 0) return;
 
     const char* canvasId = (sd.canvasId && sd.canvasId[0] != '\0') ? sd.canvasId : "#canvas";
-    const std::uintptr_t ptr = reinterpret_cast<std::uintptr_t>(mBuffer.data());
+    const std::uintptr_t ptr = reinterpret_cast<std::uintptr_t>(mBuffer.Data());
     const int iw = static_cast<int>(w);
     const int ih = static_cast<int>(h);
 
@@ -386,11 +393,49 @@ void NkSoftwareRenderer::BlitWASM(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
 }
 
 // ---------------------------------------------------------------------------
-// BlitCocoa (stub — Metal/NSView required for full impl)
+// BlitCocoa (stub â€” Metal/NSView required for full impl)
 // ---------------------------------------------------------------------------
 
 void NkSoftwareRenderer::BlitCocoa(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
     (void)sd; (void)w; (void)h;
+}
+
+// ---------------------------------------------------------------------------
+// BlitWayland â€” copy software framebuffer into Wayland SHM buffer and commit
+// ---------------------------------------------------------------------------
+
+void NkSoftwareRenderer::BlitWayland(const NkSurfaceDesc& sd, NkU32 w, NkU32 h) {
+#if defined(NKENTSEU_WINDOWING_WAYLAND)
+    if (!sd.display || !sd.surface || !sd.shmPixels || !sd.shmBuffer || !sd.shmStride) return;
+    if (!sd.waylandConfigured) return;
+
+    // Software renderer stores RGBA bytes: [R, G, B, A].
+    // WL_SHM_FORMAT_ARGB8888 on little-endian stores bytes: [B, G, R, A].
+    // Swap R and B when copying.
+    const NkU8* src  = mBuffer.Data();
+    NkU8*       dst  = static_cast<NkU8*>(sd.shmPixels);
+    const NkU32 rows = (h < mFbInfo.height) ? h : mFbInfo.height;
+    const NkU32 cols = (w < mFbInfo.width)  ? w : mFbInfo.width;
+
+    for (NkU32 row = 0; row < rows; ++row) {
+        const NkU8* srcRow = src + static_cast<std::size_t>(row) * mFbInfo.pitch;
+        NkU8*       dstRow = dst + static_cast<std::size_t>(row) * sd.shmStride;
+        for (NkU32 col = 0; col < cols; ++col) {
+            dstRow[col*4 + 0] = srcRow[col*4 + 2]; // B â† src.R
+            dstRow[col*4 + 1] = srcRow[col*4 + 1]; // G
+            dstRow[col*4 + 2] = srcRow[col*4 + 0]; // R â† src.B
+            dstRow[col*4 + 3] = 0xFF;               // A = opaque
+        }
+    }
+
+    wl_surface_attach(sd.surface, sd.shmBuffer, 0, 0);
+    wl_surface_damage(sd.surface, 0, 0,
+                      static_cast<int32_t>(w), static_cast<int32_t>(h));
+    wl_surface_commit(sd.surface);
+    wl_display_flush(sd.display);
+#else
+    (void)sd; (void)w; (void)h;
+#endif
 }
 
 } // namespace nkentseu

@@ -12,14 +12,14 @@
 #include "Encoding/NkUTF32.h"
 
 namespace nkentseu {
-    namespace core {
+    
 
         // ========================================
         // UTF-8 → UTF-16
         // ========================================
 
         String16 NkToUTF16(const String8& utf8Str) {
-            if (utf8Str.IsEmpty()) return String16();
+            if (utf8Str.Empty()) return String16();
             
             // Estime taille nécessaire (pire cas: tous BMP = 1:1)
             usize maxUnits = utf8Str.Length();
@@ -54,7 +54,7 @@ namespace nkentseu {
         // ========================================
 
         String32 NkToUTF32(const String8& utf8Str) {
-            if (utf8Str.IsEmpty()) return String32();
+            if (utf8Str.Empty()) return String32();
             
             // Estime taille (pire cas: tous ASCII = 1:1)
             usize maxChars = utf8Str.Length();
@@ -88,7 +88,7 @@ namespace nkentseu {
         // ========================================
 
         String8 NkToUTF8(const String16& utf16Str) {
-            if (utf16Str.IsEmpty()) return String8();
+            if (utf16Str.Empty()) return String8();
             
             // Estime taille (pire cas: tous 4-bytes UTF-8 = 4:1)
             usize maxBytes = utf16Str.Length() * 4;
@@ -122,7 +122,7 @@ namespace nkentseu {
         // ========================================
 
         String8 NkToUTF8(const String32& utf32Str) {
-            if (utf32Str.IsEmpty()) return String8();
+            if (utf32Str.Empty()) return String8();
             
             // Pire cas: 4 bytes par codepoint
             usize maxBytes = utf32Str.Length() * 4;
@@ -191,5 +191,5 @@ namespace nkentseu {
             
         #endif
 
-    } // namespace core
+    
 } // namespace nkentseu

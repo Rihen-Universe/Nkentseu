@@ -12,8 +12,9 @@
 #define NK_CORE_NKENTSEU_SRC_NKENTSEU_PLATFORM_NKENDIANNESS_H_INCLUDED
 
 #include "NKCore/NkTypes.h"
-#include "NkPlatformDetect.h"
-#include "NkCompilerDetect.h"
+#include "NKCore/NkInline.h"
+#include "NKPlatform/NkPlatformDetect.h"
+#include "NKPlatform/NkCompilerDetect.h"
 #include <string.h>
 
 // ============================================================================
@@ -27,63 +28,109 @@ namespace nkentseu {
 namespace platform {
 
 /**
- * @brief Endianness enumeration
+ * @brief Nomenclature NK officielle.
  */
-enum class Endianness {
-	Little, // Least significant byte first (x86, ARM)
-	Big,	// Most significant byte first (Network, PowerPC)
-	Unknown
+enum class NkEndianness : nk_uint8 {
+	NK_LITTLE = 0,
+	NK_BIG = 1,
+	NK_UNKNOWN = 2
 };
 
 /**
- * @brief Compile-time endianness detection
+ * @brief Compile-time endianness detection (API NK).
  */
-constexpr Endianness GetCompileTimeEndianness() {
+constexpr NkEndianness NkGetCompileTimeEndianness() {
 #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-	return Endianness::Little;
+	return NkEndianness::NK_LITTLE;
 #elif defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-	return Endianness::Big;
+	return NkEndianness::NK_BIG;
 #elif defined(_WIN32) || defined(__i386__) || defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
-	// Most common platforms are little-endian
-	return Endianness::Little;
+	return NkEndianness::NK_LITTLE;
 #elif defined(__BIG_ENDIAN__) || defined(_BIG_ENDIAN)
-	return Endianness::Big;
+	return NkEndianness::NK_BIG;
 #else
-	return Endianness::Unknown;
+	return NkEndianness::NK_UNKNOWN;
 #endif
 }
 
 /**
- * @brief Runtime endianness detection
+ * @brief Runtime endianness detection (API NK).
  */
-inline Endianness GetRuntimeEndianness() {
+inline NkEndianness NkGetRuntimeEndianness() {
 	constexpr union {
 		uint32_t value;
 		uint8_t bytes[4];
 	} test = {0x01020304};
 
 	if (test.bytes[0] == 0x04) {
-		return Endianness::Little;
+		return NkEndianness::NK_LITTLE;
 	} else if (test.bytes[0] == 0x01) {
-		return Endianness::Big;
+		return NkEndianness::NK_BIG;
 	} else {
-		return Endianness::Unknown;
+		return NkEndianness::NK_UNKNOWN;
 	}
 }
 
 /**
- * @brief Check if system is little-endian
+ * @brief Check if system is little-endian.
  */
-constexpr bool IsLittleEndian() {
-	return GetCompileTimeEndianness() == Endianness::Little;
+constexpr bool NkIsLittleEndian() {
+	return NkGetCompileTimeEndianness() == NkEndianness::NK_LITTLE;
 }
 
 /**
- * @brief Check if system is big-endian
+ * @brief Check if system is big-endian.
  */
-constexpr bool IsBigEndian() {
-	return GetCompileTimeEndianness() == Endianness::Big;
+constexpr bool NkIsBigEndian() {
+	return NkGetCompileTimeEndianness() == NkEndianness::NK_BIG;
 }
+
+// Legacy API wrappers are opt-in only.
+#if defined(NKENTSEU_ENABLE_LEGACY_PLATFORM_API)
+enum class Endianness {
+	Little,
+	Big,
+	Unknown
+};
+
+constexpr NkEndianness NkToEndianness(Endianness value) {
+	switch (value) {
+	case Endianness::Little:
+		return NkEndianness::NK_LITTLE;
+	case Endianness::Big:
+		return NkEndianness::NK_BIG;
+	default:
+		return NkEndianness::NK_UNKNOWN;
+	}
+}
+
+constexpr Endianness NkToLegacyEndianness(NkEndianness value) {
+	switch (value) {
+	case NkEndianness::NK_LITTLE:
+		return Endianness::Little;
+	case NkEndianness::NK_BIG:
+		return Endianness::Big;
+	default:
+		return Endianness::Unknown;
+	}
+}
+
+[[deprecated("Use NkGetCompileTimeEndianness()")]] constexpr Endianness GetCompileTimeEndianness() {
+	return NkToLegacyEndianness(NkGetCompileTimeEndianness());
+}
+
+[[deprecated("Use NkGetRuntimeEndianness()")]] inline Endianness GetRuntimeEndianness() {
+	return NkToLegacyEndianness(NkGetRuntimeEndianness());
+}
+
+[[deprecated("Use NkIsLittleEndian()")]] constexpr bool IsLittleEndian() {
+	return NkIsLittleEndian();
+}
+
+[[deprecated("Use NkIsBigEndian()")]] constexpr bool IsBigEndian() {
+	return NkIsBigEndian();
+}
+#endif
 
 } // namespace platform
 } // namespace nkentseu
@@ -120,7 +167,7 @@ namespace platform {
 /**
  * @brief Swap bytes of 16-bit integer
  */
-NK_FORCEINLINE constexpr uint16_t ByteSwap16(uint16_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint16_t ByteSwap16(uint16_t value) {
 #if NK_COMPILER_MSVC
 	return _byteswap_ushort(value);
 #elif NK_COMPILER_GCC || NK_COMPILER_CLANG
@@ -130,10 +177,14 @@ NK_FORCEINLINE constexpr uint16_t ByteSwap16(uint16_t value) {
 #endif
 }
 
+NKENTSEU_FORCE_INLINE constexpr uint16_t NkByteSwap16(uint16_t value) {
+	return ByteSwap16(value);
+}
+
 /**
  * @brief Swap bytes of 32-bit integer
  */
-NK_FORCEINLINE constexpr uint32_t ByteSwap32(uint32_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint32_t ByteSwap32(uint32_t value) {
 #if NK_COMPILER_MSVC
 	return _byteswap_ulong(value);
 #elif NK_COMPILER_GCC || NK_COMPILER_CLANG
@@ -144,10 +195,14 @@ NK_FORCEINLINE constexpr uint32_t ByteSwap32(uint32_t value) {
 #endif
 }
 
+NKENTSEU_FORCE_INLINE constexpr uint32_t NkByteSwap32(uint32_t value) {
+	return ByteSwap32(value);
+}
+
 /**
  * @brief Swap bytes of 64-bit integer
  */
-NK_FORCEINLINE constexpr uint64_t ByteSwap64(uint64_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint64_t ByteSwap64(uint64_t value) {
 #if NK_COMPILER_MSVC
 	return _byteswap_uint64(value);
 #elif NK_COMPILER_GCC || NK_COMPILER_CLANG
@@ -160,10 +215,14 @@ NK_FORCEINLINE constexpr uint64_t ByteSwap64(uint64_t value) {
 #endif
 }
 
+NKENTSEU_FORCE_INLINE constexpr uint64_t NkByteSwap64(uint64_t value) {
+	return ByteSwap64(value);
+}
+
 /**
  * @brief Generic byte swap (template)
  */
-template <typename T> NK_FORCEINLINE constexpr T ByteSwap(T value) {
+template <typename T> NKENTSEU_FORCE_INLINE constexpr T ByteSwap(T value) {
 	static_assert(sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8, "ByteSwap only supports 2, 4, or 8 byte types");
 
 	if constexpr (sizeof(T) == 2) {
@@ -200,7 +259,7 @@ template <typename T> NK_FORCEINLINE constexpr T ByteSwap(T value) {
 /**
  * @brief Convert 16-bit value from host to network byte order
  */
-NK_FORCEINLINE constexpr uint16_t HostToNetwork16(uint16_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint16_t HostToNetwork16(uint16_t value) {
 #if NK_LITTLE_ENDIAN
 	return ByteSwap16(value);
 #else
@@ -208,10 +267,14 @@ NK_FORCEINLINE constexpr uint16_t HostToNetwork16(uint16_t value) {
 #endif
 }
 
+NKENTSEU_FORCE_INLINE constexpr uint16_t NkHostToNetwork16(uint16_t value) {
+	return HostToNetwork16(value);
+}
+
 /**
  * @brief Convert 32-bit value from host to network byte order
  */
-NK_FORCEINLINE constexpr uint32_t HostToNetwork32(uint32_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint32_t HostToNetwork32(uint32_t value) {
 #if NK_LITTLE_ENDIAN
 	return ByteSwap32(value);
 #else
@@ -219,10 +282,14 @@ NK_FORCEINLINE constexpr uint32_t HostToNetwork32(uint32_t value) {
 #endif
 }
 
+NKENTSEU_FORCE_INLINE constexpr uint32_t NkHostToNetwork32(uint32_t value) {
+	return HostToNetwork32(value);
+}
+
 /**
  * @brief Convert 64-bit value from host to network byte order
  */
-NK_FORCEINLINE constexpr uint64_t HostToNetwork64(uint64_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint64_t HostToNetwork64(uint64_t value) {
 #if NK_LITTLE_ENDIAN
 	return ByteSwap64(value);
 #else
@@ -230,25 +297,41 @@ NK_FORCEINLINE constexpr uint64_t HostToNetwork64(uint64_t value) {
 #endif
 }
 
+NKENTSEU_FORCE_INLINE constexpr uint64_t NkHostToNetwork64(uint64_t value) {
+	return HostToNetwork64(value);
+}
+
 /**
  * @brief Convert 16-bit value from network to host byte order
  */
-NK_FORCEINLINE constexpr uint16_t NetworkToHost16(uint16_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint16_t NetworkToHost16(uint16_t value) {
 	return HostToNetwork16(value); // Same operation
+}
+
+NKENTSEU_FORCE_INLINE constexpr uint16_t NkNetworkToHost16(uint16_t value) {
+	return NetworkToHost16(value);
 }
 
 /**
  * @brief Convert 32-bit value from network to host byte order
  */
-NK_FORCEINLINE constexpr uint32_t NetworkToHost32(uint32_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint32_t NetworkToHost32(uint32_t value) {
 	return HostToNetwork32(value); // Same operation
+}
+
+NKENTSEU_FORCE_INLINE constexpr uint32_t NkNetworkToHost32(uint32_t value) {
+	return NetworkToHost32(value);
 }
 
 /**
  * @brief Convert 64-bit value from network to host byte order
  */
-NK_FORCEINLINE constexpr uint64_t NetworkToHost64(uint64_t value) {
+NKENTSEU_FORCE_INLINE constexpr uint64_t NetworkToHost64(uint64_t value) {
 	return HostToNetwork64(value); // Same operation
+}
+
+NKENTSEU_FORCE_INLINE constexpr uint64_t NkNetworkToHost64(uint64_t value) {
+	return NetworkToHost64(value);
 }
 
 // ====================================================================
@@ -258,7 +341,7 @@ NK_FORCEINLINE constexpr uint64_t NetworkToHost64(uint64_t value) {
 /**
  * @brief Convert to little-endian
  */
-template <typename T> NK_FORCEINLINE constexpr T ToLittleEndian(T value) {
+template <typename T> NKENTSEU_FORCE_INLINE constexpr T ToLittleEndian(T value) {
 #if NK_LITTLE_ENDIAN
 	return value;
 #else
@@ -269,7 +352,7 @@ template <typename T> NK_FORCEINLINE constexpr T ToLittleEndian(T value) {
 /**
  * @brief Convert from little-endian
  */
-template <typename T> NK_FORCEINLINE constexpr T FromLittleEndian(T value) {
+template <typename T> NKENTSEU_FORCE_INLINE constexpr T FromLittleEndian(T value) {
 	return ToLittleEndian(value); // Same operation
 }
 
@@ -280,7 +363,7 @@ template <typename T> NK_FORCEINLINE constexpr T FromLittleEndian(T value) {
 /**
  * @brief Convert to big-endian
  */
-template <typename T> NK_FORCEINLINE constexpr T ToBigEndian(T value) {
+template <typename T> NKENTSEU_FORCE_INLINE constexpr T ToBigEndian(T value) {
 #if NK_BIG_ENDIAN
 	return value;
 #else
@@ -291,7 +374,7 @@ template <typename T> NK_FORCEINLINE constexpr T ToBigEndian(T value) {
 /**
  * @brief Convert from big-endian
  */
-template <typename T> NK_FORCEINLINE constexpr T FromBigEndian(T value) {
+template <typename T> NKENTSEU_FORCE_INLINE constexpr T FromBigEndian(T value) {
 	return ToBigEndian(value); // Same operation
 }
 

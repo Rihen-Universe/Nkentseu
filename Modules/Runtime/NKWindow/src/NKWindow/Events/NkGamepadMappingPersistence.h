@@ -35,14 +35,14 @@ namespace nkentseu {
     struct NkGamepadMappingSlotData {
         NkU32 slotIndex = 0;
         bool  active    = false;
-        std::vector<NkGamepadButtonMapEntry> buttons;
-        std::vector<NkGamepadAxisMapEntry>   axes;
+        NkVector<NkGamepadButtonMapEntry> buttons;
+        NkVector<NkGamepadAxisMapEntry>   axes;
     };
 
     struct NkGamepadMappingProfileData {
         NkU32 version = 1;
-        std::string backendName;
-        std::vector<NkGamepadMappingSlotData> slots;
+        NkString backendName;
+        NkVector<NkGamepadMappingSlotData> slots;
     };
 
     class NkIGamepadMappingPersistence {
@@ -51,44 +51,44 @@ namespace nkentseu {
 
         virtual const char* GetFormatName() const noexcept = 0;
 
-        virtual bool Save(const std::string& userId,
+        virtual bool Save(const NkString& userId,
                           const NkGamepadMappingProfileData& profile,
-                          std::string* outError) = 0;
+                          NkString* outError) = 0;
 
-        virtual bool Load(const std::string& userId,
+        virtual bool Load(const NkString& userId,
                           NkGamepadMappingProfileData& outProfile,
-                          std::string* outError) = 0;
+                          NkString* outError) = 0;
     };
 
     // Backend texte simple par défaut (lisible et sans dépendance externe).
     // Les applications peuvent le remplacer par JSON/YAML/custom.
     class NkTextGamepadMappingPersistence final : public NkIGamepadMappingPersistence {
     public:
-        explicit NkTextGamepadMappingPersistence(std::string baseDirectory = {},
-                                                 std::string fileExtension = ".nkmap");
+        explicit NkTextGamepadMappingPersistence(NkString baseDirectory = {},
+                                                 NkString fileExtension = ".nkmap");
 
         const char* GetFormatName() const noexcept override { return "text/nkmap"; }
 
-        bool Save(const std::string& userId,
+        bool Save(const NkString& userId,
                   const NkGamepadMappingProfileData& profile,
-                  std::string* outError) override;
+                  NkString* outError) override;
 
-        bool Load(const std::string& userId,
+        bool Load(const NkString& userId,
                   NkGamepadMappingProfileData& outProfile,
-                  std::string* outError) override;
+                  NkString* outError) override;
 
-        void SetBaseDirectory(const std::string& dir) { mBaseDirectory = dir; }
-        const std::string& GetBaseDirectory() const noexcept { return mBaseDirectory; }
+        void SetBaseDirectory(const NkString& dir) { mBaseDirectory = dir; }
+        const NkString& GetBaseDirectory() const noexcept { return mBaseDirectory; }
 
-        static std::string ResolveDefaultBaseDirectory();
-        static std::string ResolveCurrentUserId();
-        static std::string SanitizeUserId(const std::string& raw);
+        static NkString ResolveDefaultBaseDirectory();
+        static NkString ResolveCurrentUserId();
+        static NkString SanitizeUserId(const NkString& raw);
 
     private:
-        std::string BuildUserFilePath(const std::string& userId) const;
+        NkString BuildUserFilePath(const NkString& userId) const;
 
-        std::string mBaseDirectory;
-        std::string mExtension;
+        NkString mBaseDirectory;
+        NkString mExtension;
     };
 
 } // namespace nkentseu

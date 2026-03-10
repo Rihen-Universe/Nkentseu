@@ -3,6 +3,13 @@
 
 #include "NKRenderer/NkRenderer.h"
 
+#if defined(True)
+#undef True
+#endif
+#if defined(False)
+#undef False
+#endif
+
 using namespace nkentseu;
 
 TEST_CASE(NKRendererSmoke, PackUnpackColor) {

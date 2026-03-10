@@ -2,12 +2,13 @@
 #include <Unitest/TestMacro.h>
 
 #include "NKContainers/NkContainers.h"
+#include "NKPlatform/NkFoundationLog.h"
 
 #include <chrono>
 #include <stdio.h>
 #include <vector>
 
-using namespace nkentseu::core;
+using namespace nkentseu;
 
 namespace {
 
@@ -23,7 +24,7 @@ double MeasureNs(Fn&& fn) {
 
 TEST_CASE(NKContainersVector, PushBackAndAccess) {
     NkVector<int> values;
-    ASSERT_TRUE(values.IsEmpty());
+    ASSERT_TRUE(values.Empty());
 
     values.PushBack(10);
     values.PushBack(20);
@@ -88,7 +89,7 @@ TEST_CASE(NKContainersBenchmark, VectorVsStdVector) {
     ASSERT_TRUE(nkTimeNs > 0.0);
     ASSERT_TRUE(stlTimeNs > 0.0);
 
-    printf("\n[NKContainers Benchmark] NkVector vs std::vector\n");
-    printf("  NkVector     : %.2f ns total\n", nkTimeNs);
-    printf("  std::vector  : %.2f ns total\n", stlTimeNs);
+    NK_FOUNDATION_LOG_INFO("[NKContainers Benchmark] NkVector vs std::vector");
+    NK_FOUNDATION_LOG_INFO("  NkVector   : %.2f ns total", nkTimeNs);
+    NK_FOUNDATION_LOG_INFO("  std::vector: %.2f ns total", stlTimeNs);
 }

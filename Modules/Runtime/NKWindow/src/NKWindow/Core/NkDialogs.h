@@ -6,8 +6,9 @@
 // Implémentations pour Windows, Linux (Zenity), macOS (osascript), et stubs.
 // =============================================================================
 
-#include "NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include "NkTypes.h"
+#include "NKContainers/String/NkString.h"
 #include <string>
 #include <vector>
 #include <cstdlib> // pour system()
@@ -24,7 +25,7 @@ namespace nkentseu {
 
 	struct NkDialogResult {
 		bool confirmed = false; ///< true si l'utilisateur a validé
-		std::string path;		///< Chemin sélectionné (file dialogs)
+		NkString path;		///< Chemin sélectionné (file dialogs)
 		NkU32 color = 0;		///< Couleur choisie RGBA (color picker)
 	};
 
@@ -39,14 +40,14 @@ namespace nkentseu {
 			 * @param filter Filtre type "*.png;*.jpg" (peut être vide pour tous)
 			 * @param title  Titre de la boîte de dialogue.
 			 */
-			static NkDialogResult OpenFileDialog(const std::string &filter = "*.*", const std::string &title = "Open File");
+			static NkDialogResult OpenFileDialog(const NkString &filter = "*.*", const NkString &title = "Open File");
 
 			/**
 			 * @brief Ouvre un dialogue de sauvegarde de fichier.
 			 * @param defaultExt Extension par défaut sans point (ex: "png")
 			 * @param title  Titre de la boîte de dialogue.
 			 */
-			static NkDialogResult SaveFileDialog(const std::string &defaultExt = "", const std::string &title = "Save File");
+			static NkDialogResult SaveFileDialog(const NkString &defaultExt = "", const NkString &title = "Save File");
 
 			/**
 			 * @brief Affiche une boîte de message.
@@ -54,7 +55,7 @@ namespace nkentseu {
 			 * @param title   Titre de la fenêtre.
 			 * @param type    0=info, 1=warning, 2=error
 			 */
-			static void OpenMessageBox(const std::string &message, const std::string &title = "Message", int type = 0);
+			static void OpenMessageBox(const NkString &message, const NkString &title = "Message", int type = 0);
 
 			/**
 			 * @brief Ouvre un sélecteur de couleur.

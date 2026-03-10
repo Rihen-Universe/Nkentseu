@@ -11,7 +11,11 @@
 #include <xcb/xproto.h>
 #include <xcb/randr.h>
 #include <xcb/xfixes.h>
+// xcb/xkb.h uses 'explicit' as a struct member name, which is a C++ keyword.
+// Temporarily rename it to avoid a compilation error.
+#define explicit explicit_xkb_workaround
 #include <xcb/xkb.h>
+#undef explicit
 #include <xkbcommon/xkbcommon.h>
 #include <xkbcommon/xkbcommon-x11.h>
 #include <unordered_map>

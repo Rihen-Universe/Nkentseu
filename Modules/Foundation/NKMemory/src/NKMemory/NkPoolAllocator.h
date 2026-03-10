@@ -20,10 +20,13 @@
 #include "NKMemory/NkAllocator.h"
 #include "NKCore/NkTypes.h"
 #include "NKCore/NkAtomic.h"
-#include "NKMemory/NkMemoryExport.h"
+#include "NKMemory/NkExport.h"
 
-#include <bitset>
 #include <new>
+
+#ifndef NKENTSEU_STATIC_ASSERT
+#define NKENTSEU_STATIC_ASSERT(condition, message) static_assert((condition), message)
+#endif
 
 namespace nkentseu {
 namespace memory {
@@ -56,10 +59,10 @@ namespace memory {
      * ```
      */
     template<nk_size BlockSize, nk_size NumBlocks = 256>
-    class NKMEMORY_API NkFixedPoolAllocator : public NkAllocator {
+    class NKENTSEU_MEMORY_API NkFixedPoolAllocator : public NkAllocator {
     public:
-        static_assert(BlockSize >= sizeof(nk_size), "BlockSize too small");
-        static_assert(NumBlocks > 0, "NumBlocks must be > 0");
+        NKENTSEU_STATIC_ASSERT(BlockSize >= sizeof(nk_size), "BlockSize too small");
+        NKENTSEU_STATIC_ASSERT(NumBlocks > 0, "NumBlocks must be > 0");
         
         // ==============================================
         // CONSTRUCTEUR/DESTRUCTEUR
@@ -72,9 +75,11 @@ namespace memory {
               mNumFree(NumBlocks) {
             
             // Pré-allouer le pool entier en une seule allocation OS
-            mBlocks = static_cast<nk_uint8*>(
-                ::operator new(BlockSize * NumBlocks, std::nothrow)
-            );
+            try {
+                mBlocks = static_cast<nk_uint8*>(::operator new(BlockSize * NumBlocks));
+            } catch (...) {
+                mBlocks = nullptr;
+            }
             
             if (!mBlocks) {
                 return;
@@ -111,7 +116,7 @@ namespace memory {
                 return nullptr;
             }
             
-            core::NkScopedSpinLock guard(mLock);
+            NkScopedSpinLock guard(mLock);
             
             if (!mFreeList) {
                 return nullptr;
@@ -131,7 +136,7 @@ namespace memory {
                 return;
             }
             
-            core::NkScopedSpinLock guard(mLock);
+            NkScopedSpinLock guard(mLock);
             
             // Push to free list (head)
             nk_uint8* block = static_cast<nk_uint8*>(ptr);
@@ -142,7 +147,7 @@ namespace memory {
         }
         
         void Reset() noexcept override {
-            core::NkScopedSpinLock guard(mLock);
+            NkScopedSpinLock guard(mLock);
             
             // Rebuild free list
             for (nk_size i = 0; i < NumBlocks; ++i) {
@@ -159,7 +164,7 @@ namespace memory {
          * @brief Obtient le nombre de blocs libres
          */
         [[nodiscard]] nk_size GetNumFreeBlocks() const noexcept {
-            core::NkScopedSpinLock guard(mLock);
+            NkScopedSpinLock guard(mLock);
             return mNumFree;
         }
         
@@ -167,7 +172,7 @@ namespace memory {
          * @brief Obtient l'utilisation (0.0 = vide, 1.0 = plein)
          */
         [[nodiscard]] float32 GetUsage() const noexcept {
-            core::NkScopedSpinLock guard(mLock);
+            NkScopedSpinLock guard(mLock);
             return static_cast<float32>(NumBlocks - mNumFree) / static_cast<float32>(NumBlocks);
         }
         
@@ -175,7 +180,7 @@ namespace memory {
         nk_uint8* mBlocks;
         nk_uint8* mFreeList;
         nk_size mNumFree;
-        mutable core::NkSpinLock mLock;
+        mutable NkSpinLock mLock;
     };
     
     // =======================================================
@@ -188,7 +193,7 @@ namespace memory {
      * Maintient plusieurs pools internes pour différentes tailles.
      * Bonne pour allocations hétérogènes.
      */
-    class NKMEMORY_API NkVariablePoolAllocator : public NkAllocator {
+    class NKENTSEU_MEMORY_API NkVariablePoolAllocator : public NkAllocator {
     public:
         explicit NkVariablePoolAllocator(const nk_char* name = "NkVariablePoolAllocator")
             : NkAllocator(name) {}

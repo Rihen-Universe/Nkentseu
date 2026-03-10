@@ -14,7 +14,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NkPath.h"
+#include "NKFileSystem/NkPath.h"
 
 namespace nkentseu {
     namespace entseu {
@@ -86,14 +86,14 @@ namespace nkentseu {
             
             // Reading
             usize Read(void* buffer, usize size);
-            core::NkString ReadLine();
-            core::NkString ReadAll();
-            core::NkVector<core::NkString> ReadLines();
+            NkString ReadLine();
+            NkString ReadAll();
+            NkVector<NkString> ReadLines();
             
             // Writing
             usize Write(const void* data, usize size);
             bool WriteLine(const char* text);
-            bool Write(const core::NkString& text);
+            bool Write(const NkString& text);
             
             // Position
             nk_int64 Tell() const;
@@ -123,15 +123,15 @@ namespace nkentseu {
             static nk_int64 GetFileSize(const char* path);
             static nk_int64 GetFileSize(const NkPath& path);
             
-            static core::NkString ReadAllText(const char* path);
-            static core::NkString ReadAllText(const NkPath& path);
-            static core::NkVector<nk_uint8> ReadAllBytes(const char* path);
-            static core::NkVector<nk_uint8> ReadAllBytes(const NkPath& path);
+            static NkString ReadAllText(const char* path);
+            static NkString ReadAllText(const NkPath& path);
+            static NkVector<nk_uint8> ReadAllBytes(const char* path);
+            static NkVector<nk_uint8> ReadAllBytes(const NkPath& path);
             
             static bool WriteAllText(const char* path, const char* text);
-            static bool WriteAllText(const NkPath& path, const core::NkString& text);
-            static bool WriteAllBytes(const char* path, const core::NkVector<nk_uint8>& data);
-            static bool WriteAllBytes(const NkPath& path, const core::NkVector<nk_uint8>& data);
+            static bool WriteAllText(const NkPath& path, const NkString& text);
+            static bool WriteAllBytes(const char* path, const NkVector<nk_uint8>& data);
+            static bool WriteAllBytes(const NkPath& path, const NkVector<nk_uint8>& data);
         };
         
     } // namespace entseu

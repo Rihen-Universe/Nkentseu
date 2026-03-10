@@ -15,7 +15,7 @@
 // INCLUDES
 // ============================================================
 
-#include "NkCompilerDetect.h"
+#include "NKPlatform/NkCompilerDetect.h"
 #include "NkVersion.h"
 #include "NkTypes.h"
 
@@ -400,7 +400,7 @@
 #if defined(__GNUC__) || defined(__clang__)
 #define NkDeferConcat(a, b) a##b
 #define NkDeferVarname(a, b) NkDeferConcat(a, b)
-#define NkDefer(code) auto NkDeferVarname(defer_, __LINE__) = nkentseu::core::NkScopeGuard([&]() { code; })
+#define NkDefer(code) auto NkDeferVarname(defer_, __LINE__) = nkentseu::NkScopeGuard([&]() { code; })
 #else
 #define NkDefer(code)
 #endif

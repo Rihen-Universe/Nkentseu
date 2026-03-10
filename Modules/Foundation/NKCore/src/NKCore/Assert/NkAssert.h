@@ -28,11 +28,11 @@
 #define NKENTSEU_ASSERT_IMPL(condition, message, file, line, func)                                                     \
 	do {                                                                                                               \
 		if (!(condition)) {                                                                                            \
-			nkentseu::core::NkAssertionInfo info = {#condition, message, file, line, func};                            \
-			nkentseu::core::NkAssertAction action = nkentseu::core::NkAssertHandler::HandleAssertion(info);            \
-			if (action == nkentseu::core::NkAssertAction::NK_BREAK) {                                                  \
+			nkentseu::NkAssertionInfo info = {#condition, message, file, line, func};                            \
+			nkentseu::NkAssertAction action = nkentseu::NkAssertHandler::HandleAssertion(info);            \
+			if (action == nkentseu::NkAssertAction::NK_BREAK) {                                                  \
 				NKENTSEU_DEBUG_BREAK();                                                                                \
-			} else if (action == nkentseu::core::NkAssertAction::NK_ABORT) {                                           \
+			} else if (action == nkentseu::NkAssertAction::NK_ABORT) {                                           \
 				::abort();                                                                                          \
 			}                                                                                                          \
 		}                                                                                                              \

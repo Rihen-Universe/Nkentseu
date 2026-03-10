@@ -6,30 +6,53 @@
 // -----------------------------------------------------------------------------
 
 #include "NKLogger/Sinks/NkDailyFileSink.h"
-#include <filesystem>
-#include <sstream>
-#include <iomanip>
+
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+
 #include <ctime>
+#include <cstdio>
+#include <sys/stat.h>
+#if !defined(_WIN32)
+#   include <time.h>
+#endif
 
 /**
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
+	namespace {
+		static uint64 NkNowNs() {
+			timespec ts{};
+#if defined(_WIN32)
+			if (::timespec_get(&ts, TIME_UTC) == TIME_UTC)
+#else
+			if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
+#endif
+				return (static_cast<uint64>(ts.tv_sec) * 1000000000ULL) + static_cast<uint64>(ts.tv_nsec);
+			return 0;
+		}
+
+		static bool NkFileExists(const NkString& path) {
+			struct stat info {};
+			return ::stat(path.CStr(), &info) == 0;
+		}
+	}
 		
 	/**
 	 * @brief Constructeur avec configuration
 	 */
-	NkDailyFileSink::NkDailyFileSink(const std::string &filename, int hour, int minute, core::usize maxDays)
-		: NkFileSink(filename, false), m_RotationHour(hour), m_RotationMinute(minute), m_MaxDays(maxDays),
-		m_LastCheck(std::chrono::system_clock::now()) {
+	NkDailyFileSink::NkDailyFileSink(const NkString &filename, int hour, int minute, usize maxDays)
+		: NkFileSink(filename, false), m_RotationHour(hour), m_RotationMinute(minute), m_MaxDays(maxDays), m_LastCheck(0) {
 
 		// Initialiser la date courante
-		auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+		const time_t now = ::time(nullptr);
 	#ifdef _WIN32
 		localtime_s(&m_CurrentDate, &now);
 	#else
 		localtime_r(&now, &m_CurrentDate);
 	#endif
+		m_LastCheck = NkNowNs();
 	}
 
 	/**
@@ -49,7 +72,7 @@ namespace nkentseu {
 	 * @brief Définit l'heure de rotation
 	 */
 	void NkDailyFileSink::SetRotationTime(int hour, int minute) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_RotationHour = hour;
 		m_RotationMinute = minute;
 	}
@@ -58,7 +81,7 @@ namespace nkentseu {
 	 * @brief Obtient l'heure de rotation
 	 */
 	int NkDailyFileSink::GetRotationHour() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_RotationHour;
 	}
 
@@ -66,23 +89,23 @@ namespace nkentseu {
 	 * @brief Obtient la minute de rotation
 	 */
 	int NkDailyFileSink::GetRotationMinute() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_RotationMinute;
 	}
 
 	/**
 	 * @brief Définit le nombre maximum de jours à conserver
 	 */
-	void NkDailyFileSink::SetMaxDays(core::usize maxDays) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkDailyFileSink::SetMaxDays(usize maxDays) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_MaxDays = maxDays;
 	}
 
 	/**
 	 * @brief Obtient le nombre maximum de jours à conserver
 	 */
-	core::usize NkDailyFileSink::GetMaxDays() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	usize NkDailyFileSink::GetMaxDays() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_MaxDays;
 	}
 
@@ -98,18 +121,18 @@ namespace nkentseu {
 	 * @brief Vérifie et effectue la rotation si nécessaire
 	 */
 	void NkDailyFileSink::CheckRotation() {
-		auto now = std::chrono::system_clock::now();
+		const uint64 nowNs = NkNowNs();
 
 		// Vérifier seulement toutes les minutes
-		if (std::chrono::duration_cast<std::chrono::minutes>(now - m_LastCheck).count() < 1) {
+		if (m_LastCheck > 0 && nowNs > m_LastCheck && (nowNs - m_LastCheck) < 60000000000ULL) {
 			return;
 		}
 
-		m_LastCheck = now;
+		m_LastCheck = nowNs;
 
 		// Vérifier si changement de jour
-		auto nowTime = std::chrono::system_clock::to_time_t(now);
-		std::tm nowDate;
+		const time_t nowTime = static_cast<time_t>(nowNs / 1000000000ULL);
+		tm nowDate{};
 	#ifdef _WIN32
 		localtime_s(&nowDate, &nowTime);
 	#else
@@ -120,7 +143,10 @@ namespace nkentseu {
 			nowDate.tm_mday != m_CurrentDate.tm_mday) {
 
 			// Vérifier l'heure de rotation
-			if (nowDate.tm_hour >= m_RotationHour && nowDate.tm_min >= m_RotationMinute) {
+			const bool isAtRotationTime =
+				(nowDate.tm_hour > m_RotationHour) ||
+				(nowDate.tm_hour == m_RotationHour && nowDate.tm_min >= m_RotationMinute);
+			if (isAtRotationTime) {
 				PerformRotation();
 				m_CurrentDate = nowDate;
 			}
@@ -134,11 +160,12 @@ namespace nkentseu {
 		Close();
 
 		// Générer le nom de fichier avec la date
-		std::string rotatedFile = GetFilenameForDate(m_CurrentDate);
+		const NkString rotatedFile = GetFilenameForDate(m_CurrentDate);
 
 		// Renommer le fichier courant
-		if (std::filesystem::exists(GetFilename())) {
-			std::filesystem::rename(GetFilename(), rotatedFile);
+		const NkString currentFile = GetFilename();
+		if (NkFileExists(currentFile)) {
+			(void)::rename(currentFile.CStr(), rotatedFile.CStr());
 		}
 
 		// Nettoyer les anciens fichiers
@@ -159,18 +186,27 @@ namespace nkentseu {
 	/**
 	 * @brief Génère le nom de fichier pour une date donnée
 	 */
-	std::string NkDailyFileSink::GetFilenameForDate(const std::tm &date) const {
-		std::ostringstream oss;
-		oss << GetFilename() << "." << std::setfill('0') << std::setw(4) << (date.tm_year + 1900) << std::setw(2)
-			<< (date.tm_mon + 1) << std::setw(2) << date.tm_mday;
-		return oss.str();
+	NkString NkDailyFileSink::GetFilenameForDate(const tm &date) const {
+		char suffix[32];
+		const int written = ::snprintf(
+			suffix,
+			sizeof(suffix),
+			".%04d%02d%02d",
+			date.tm_year + 1900,
+			date.tm_mon + 1,
+			date.tm_mday);
+		NkString file = GetFilename();
+		if (written > 0) {
+			file.Append(suffix, static_cast<usize>(written));
+		}
+		return file;
 	}
 
 	/**
 	 * @brief Extrait la date d'un nom de fichier
 	 */
-	std::tm NkDailyFileSink::ExtractDateFromFilename(const std::string &filename) const {
-		std::tm date = {};
+	tm NkDailyFileSink::ExtractDateFromFilename(const NkString &filename) const {
+		tm date{};
 		// TODO: Parser le nom de fichier
 		return date;
 	}
@@ -178,7 +214,7 @@ namespace nkentseu {
 	/**
 	 * @brief Vérifie si une date est plus ancienne que maxDays
 	 */
-	bool NkDailyFileSink::IsDateTooOld(const std::tm &date) const {
+	bool NkDailyFileSink::IsDateTooOld(const tm &date) const {
 		// TODO: Comparer avec la date courante
 		return false;
 	}

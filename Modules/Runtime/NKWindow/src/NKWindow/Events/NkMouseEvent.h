@@ -29,6 +29,7 @@
 
 #include "NkEvent.h"
 #include "NkKeyboardEvent.h"  // NkModifierState
+#include "NKContainers/String/NkStringUtils.h"
 
 namespace nkentseu {
 
@@ -138,9 +139,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkMouseMoveEvent(*this); }
-        std::string ToString() const override {
-            return "MouseMove(" + std::to_string(mX) + "," + std::to_string(mY)
-                 + " d=" + std::to_string(mDeltaX) + "," + std::to_string(mDeltaY) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("MouseMove({0},{1} d={2},{3})",
+                mX, mY, mDeltaX, mDeltaY);
         }
 
         NkI32           GetX()          const noexcept { return mX;          }
@@ -181,9 +182,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkMouseRawEvent(*this); }
-        std::string ToString() const override {
-            return "MouseRaw(" + std::to_string(mDeltaX)
-                 + "," + std::to_string(mDeltaY) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("MouseRaw({0},{1})", mDeltaX, mDeltaY);
         }
 
         NkI32 GetDeltaX() const noexcept { return mDeltaX; }
@@ -258,9 +258,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkMouseButtonPressEvent(*this); }
-        std::string ToString() const override {
-            return std::string("MouseButtonPress(") + NkMouseButtonToString(mButton)
-                 + " " + std::to_string(mX) + "," + std::to_string(mY) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("MouseButtonPress({0} {1},{2})",
+                NkMouseButtonToString(mButton), mX, mY);
         }
     };
 
@@ -284,8 +284,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkMouseButtonReleaseEvent(*this); }
-        std::string ToString() const override {
-            return std::string("MouseButtonRelease(") + NkMouseButtonToString(mButton) + ")";
+        NkString ToString() const override {
+            return NkString("MouseButtonRelease(") + NkMouseButtonToString(mButton) + ")";
         }
     };
 
@@ -308,8 +308,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkMouseDoubleClickEvent(*this); }
-        std::string ToString() const override {
-            return std::string("MouseDoubleClick(") + NkMouseButtonToString(mButton) + ")";
+        NkString ToString() const override {
+            return NkString("MouseDoubleClick(") + NkMouseButtonToString(mButton) + ")";
         }
     };
 
@@ -372,8 +372,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkMouseWheelVerticalEvent(*this); }
-        std::string ToString() const override {
-            return "MouseWheelV(" + std::to_string(mDeltaY) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("MouseWheelV({0})", mDeltaY);
         }
 
         /// @brief Retourne true si le scroll est vers le haut (deltaY > 0)
@@ -401,8 +401,8 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkMouseWheelHorizontalEvent(*this); }
-        std::string ToString() const override {
-            return "MouseWheelH(" + std::to_string(mDeltaX) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("MouseWheelH({0})", mDeltaX);
         }
 
         /// @brief Retourne true si le scroll est vers la gauche (deltaX < 0)
@@ -422,7 +422,7 @@ namespace nkentseu {
         explicit NkMouseEnterEvent(NkU64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseEnterEvent(*this); }
-        std::string ToString() const override { return "MouseEnter()"; }
+        NkString ToString() const override { return "MouseEnter()"; }
     };
 
     class NkMouseLeaveEvent final : public NkMouseEvent {
@@ -431,7 +431,7 @@ namespace nkentseu {
         explicit NkMouseLeaveEvent(NkU64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseLeaveEvent(*this); }
-        std::string ToString() const override { return "MouseLeave()"; }
+        NkString ToString() const override { return "MouseLeave()"; }
     };
 
     // =========================================================================
@@ -445,7 +445,7 @@ namespace nkentseu {
         explicit NkMouseWindowEnterEvent(NkU64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseWindowEnterEvent(*this); }
-        std::string ToString() const override { return "MouseWindowEnter()"; }
+        NkString ToString() const override { return "MouseWindowEnter()"; }
     };
 
     class NkMouseWindowLeaveEvent final : public NkMouseEvent {
@@ -454,7 +454,7 @@ namespace nkentseu {
         explicit NkMouseWindowLeaveEvent(NkU64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseWindowLeaveEvent(*this); }
-        std::string ToString() const override { return "MouseWindowLeave()"; }
+        NkString ToString() const override { return "MouseWindowLeave()"; }
     };
 
     // =========================================================================
@@ -469,7 +469,7 @@ namespace nkentseu {
         explicit NkMouseCaptureBeginEvent(NkU64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseCaptureBeginEvent(*this); }
-        std::string ToString() const override { return "MouseCaptureBegin()"; }
+        NkString ToString() const override { return "MouseCaptureBegin()"; }
     };
 
     class NkMouseCaptureEndEvent final : public NkMouseEvent {
@@ -478,7 +478,7 @@ namespace nkentseu {
         explicit NkMouseCaptureEndEvent(NkU64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseCaptureEndEvent(*this); }
-        std::string ToString() const override { return "MouseCaptureEnd()"; }
+        NkString ToString() const override { return "MouseCaptureEnd()"; }
     };
 
 } // namespace nkentseu

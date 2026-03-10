@@ -23,6 +23,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <cstring>
 #include <cstdio>
 #include <string>
@@ -466,15 +467,15 @@ namespace nkentseu {
         bool operator!=(const NkModifierState& o) const noexcept { return !(*this == o); }
 
         /// @brief Retourne une string lisible ex: "Ctrl+Shift"
-        std::string ToString() const {
-            std::string s;
+        NkString ToString() const {
+            NkString s;
             if (ctrl)  s += "Ctrl+";
             if (alt)   s += "Alt+";
             if (shift) s += "Shift+";
             if (super) s += "Super+";
             if (altGr) s += "AltGr+";
-            if (s.empty()) return "None";
-            s.pop_back(); // enlever le dernier '+'
+            if (s.Empty()) return "None";
+            s.PopBack(); // enlever le dernier '+'
             return s;
         }
     };
@@ -557,8 +558,8 @@ namespace nkentseu {
                 : NkKeyboardEvent(key, scancode, mods, nativeKey, extended, windowId) {}
 
             NkEvent*    Clone()    const override { return new NkKeyPressEvent(*this); }
-            std::string ToString() const override {
-                return "KeyPress(" + std::string(NkKeyToString(mKey))
+            NkString ToString() const override {
+                return "KeyPress(" + NkString(NkKeyToString(mKey))
                     + " mod=" + mModifiers.ToString() + ")";
             }
     };
@@ -583,9 +584,9 @@ namespace nkentseu {
             {}
 
             NkEvent*    Clone()    const override { return new NkKeyRepeatEvent(*this); }
-            std::string ToString() const override {
-                return "KeyRepeat(" + std::string(NkKeyToString(mKey))
-                    + " x" + std::to_string(mRepeatCount) + ")";
+            NkString ToString() const override {
+                return NkString::Fmt("KeyRepeat({0} x{1})",
+                    NkKeyToString(mKey), mRepeatCount);
             }
 
             /// @brief Nombre de fois que la touche a répété depuis le dernier événement
@@ -612,8 +613,8 @@ namespace nkentseu {
                 : NkKeyboardEvent(key, scancode, mods, nativeKey, extended, windowId) {}
 
             NkEvent*    Clone()    const override { return new NkKeyReleaseEvent(*this); }
-            std::string ToString() const override {
-                return "KeyRelease(" + std::string(NkKeyToString(mKey)) + ")";
+            NkString ToString() const override {
+                return "KeyRelease(" + NkString(NkKeyToString(mKey)) + ")";
             }
     };
 
@@ -644,8 +645,8 @@ namespace nkentseu {
             }
 
             NkEvent*    Clone()    const override { return new NkTextInputEvent(*this); }
-            std::string ToString() const override {
-                return std::string("TextInput(U+") + ToHex(mCodepoint) + " \"" + mUtf8 + "\")";
+            NkString ToString() const override {
+                return NkString("TextInput(U+") + ToHex(mCodepoint) + " \"" + mUtf8 + "\")";
             }
 
             /// @brief Codepoint Unicode UTF-32
@@ -681,7 +682,7 @@ namespace nkentseu {
             }
 
             /// @brief Convertit un entier en string hexadécimale (4 chiffres min)
-            static std::string ToHex(NkU32 v) {
+            static NkString ToHex(NkU32 v) {
                 char buf[9];
                 snprintf(buf, sizeof(buf), "%04X", v);
                 return buf;

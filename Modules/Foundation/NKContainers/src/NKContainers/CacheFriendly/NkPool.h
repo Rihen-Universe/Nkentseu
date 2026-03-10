@@ -16,11 +16,11 @@
 #include "NKCore/NkExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Object pool - Fast fixed-size memory pool
@@ -233,7 +233,7 @@ namespace nkentseu {
             SizeType Allocated() const NK_NOEXCEPT { return mAllocated; }
             SizeType Available() const NK_NOEXCEPT { return mCapacity - mAllocated; }
             bool IsFull() const NK_NOEXCEPT { return mAllocated >= mCapacity; }
-            bool IsEmpty() const NK_NOEXCEPT { return mAllocated == 0; }
+            bool Empty() const NK_NOEXCEPT { return mAllocated == 0; }
             
             // ========================================
             // UTILITIES
@@ -272,7 +272,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_CACHEFRIENDLY_NKPOOL_H_INCLUDED

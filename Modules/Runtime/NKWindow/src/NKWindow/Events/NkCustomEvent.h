@@ -9,7 +9,7 @@
 // Classes :
 //   NkCustomEvent         — événement générique à payload fixe (128 octets max)
 //   NkCustomPtrEvent      — événement transportant un pointeur + données de taille libre
-//   NkCustomStringEvent   — événement transportant une std::string arbitraire
+//   NkCustomStringEvent   — événement transportant une NkString arbitraire
 //
 // Usage recommandé :
 //
@@ -39,6 +39,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <string>
 #include <vector>
 #include <cstring>
@@ -88,9 +89,9 @@ namespace nkentseu {
         }
 
         NkEvent*    Clone()    const override { return new NkCustomEvent(*this); }
-        std::string ToString() const override {
-            return "CustomEvent(type=" + std::to_string(mCustomType)
-                 + " dataSize=" + std::to_string(mDataSize) + "B)";
+        NkString ToString() const override {
+            return "CustomEvent(type=" + string::NkToString(mCustomType)
+                 + " dataSize=" + string::NkToString(mDataSize) + "B)";
         }
 
         // --- Accès au type applicatif ---
@@ -153,7 +154,7 @@ namespace nkentseu {
      * @brief Événement personnalisé transportant un pointeur vers des données
      *        de taille arbitraire.
      *
-     * Les données sont copiées dans un std::vector<NkU8> géré par l'événement.
+     * Les données sont copiées dans un NkVector<NkU8> géré par l'événement.
      * Convient pour des payloads plus larges que NK_CUSTOM_PAYLOAD_MAX, ou
      * dont la taille n'est connue qu'au moment de l'exécution.
      *
@@ -171,7 +172,7 @@ namespace nkentseu {
          * @param windowId   Identifiant de la fenêtre.
          */
         NkCustomPtrEvent(NkU32             customType,
-                          std::vector<NkU8> data      = {},
+                          NkVector<NkU8> data      = {},
                           void*             userPtr    = nullptr,
                           NkU64             windowId   = 0)
             : NkEvent(windowId)
@@ -181,17 +182,16 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkCustomPtrEvent(*this); }
-        std::string ToString() const override {
-            return "CustomPtrEvent(type=" + std::to_string(mCustomType)
-                 + " size=" + std::to_string(mData.size()) + "B)";
+        NkString ToString() const override {
+            return NkString::Fmt("CustomPtrEvent(type={0} size={1}B)", mCustomType, mData.size());
         }
 
         NkU32                    GetCustomType() const noexcept { return mCustomType; }
         void*                    GetUserPtr()    const noexcept { return mUserPtr; }
         void                     SetUserPtr(void* p) noexcept { mUserPtr = p; }
-        const std::vector<NkU8>& GetData()       const noexcept { return mData; }
-        std::vector<NkU8>&       GetData()             noexcept { return mData; }
-        const NkU8*              GetBytes()      const noexcept { return mData.data(); }
+        const NkVector<NkU8>& GetData()       const noexcept { return mData; }
+        NkVector<NkU8>&       GetData()             noexcept { return mData; }
+        const NkU8*              GetBytes()      const noexcept { return mData.Data(); }
         NkU32                    GetSize()       const noexcept { return static_cast<NkU32>(mData.size()); }
         bool                     HasData()       const noexcept { return !mData.empty(); }
 
@@ -202,13 +202,13 @@ namespace nkentseu {
         template<typename T>
         const T* ViewAs() const noexcept {
             return (mData.size() >= sizeof(T))
-                   ? reinterpret_cast<const T*>(mData.data())
+                   ? reinterpret_cast<const T*>(mData.Data())
                    : nullptr;
         }
 
     private:
         NkU32             mCustomType = 0;
-        std::vector<NkU8> mData;
+        NkVector<NkU8> mData;
         void*             mUserPtr    = nullptr;
     };
 
@@ -246,8 +246,8 @@ namespace nkentseu {
          * @param windowId   Identifiant de la fenêtre.
          */
         NkCustomStringEvent(NkU32       customType = 0,
-                             std::string tag        = {},
-                             std::string message    = {},
+                             NkString tag        = {},
+                             NkString message    = {},
                              NkU64       windowId   = 0)
             : NkEvent(windowId)
             , mCustomType(customType)
@@ -256,19 +256,18 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkCustomStringEvent(*this); }
-        std::string ToString() const override {
-            return "CustomString(type=" + std::to_string(mCustomType)
-                 + " tag=\"" + mTag + "\""
-                 + " msg=\"" + mMessage.substr(0, 32)
-                 + (mMessage.size() > 32 ? "..." : "") + "\")";
+        NkString ToString() const override {
+            return NkString::Fmt("CustomString(type={0} tag=\"{1}\" msg=\"{2}{3}\")",
+                mCustomType, mTag, mMessage.SubStr(0, 32),
+                (mMessage.Size() > 32 ? "..." : ""));
         }
 
         NkU32              GetCustomType() const noexcept { return mCustomType; }
-        const std::string& GetTag()        const noexcept { return mTag; }
-        const std::string& GetMessage()    const noexcept { return mMessage; }
+        const NkString& GetTag()        const noexcept { return mTag; }
+        const NkString& GetMessage()    const noexcept { return mMessage; }
 
-        bool HasTag()     const noexcept { return !mTag.empty(); }
-        bool HasMessage() const noexcept { return !mMessage.empty(); }
+        bool HasTag()     const noexcept { return !mTag.Empty(); }
+        bool HasMessage() const noexcept { return !mMessage.Empty(); }
 
         /// @brief Compare l'étiquette avec la chaîne donnée
         bool IsTag(const char* tag) const noexcept {
@@ -277,8 +276,8 @@ namespace nkentseu {
 
     private:
         NkU32       mCustomType = 0;
-        std::string mTag;
-        std::string mMessage;
+        NkString mTag;
+        NkString mMessage;
     };
 
 } // namespace nkentseu

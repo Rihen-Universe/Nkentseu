@@ -12,10 +12,34 @@
 #include "NKRenderer/NkRendererConfig.h"
 #include "NKWindow/Events/NkGamepadSystem.h"
 #include "NKTime/NkChrono.h"
+
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#include <emscripten.h>
+#endif
+
+#if !defined(NK_MAIN8_HAS_ANDROID_LOG)
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+#define NK_MAIN8_HAS_ANDROID_LOG 1
+#elif defined(__has_include)
+#if __has_include(<android/log.h>)
+#define NK_MAIN8_HAS_ANDROID_LOG 1
+#else
+#define NK_MAIN8_HAS_ANDROID_LOG 0
+#endif
+#else
+#define NK_MAIN8_HAS_ANDROID_LOG 0
+#endif
+#endif
+
+#if NK_MAIN8_HAS_ANDROID_LOG
+#include <android/log.h>
+#endif
+
 #include "NKLogger/NkLog.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -105,7 +129,7 @@ static void DrawStick(
     const float kx = ax;
     const float ky = ay;
     const float knobX = cx + kx * travel;
-    const float knobY = cy - ky * travel; // Y+ = haut côté NK.
+    const float knobY = cy - ky * travel; // Y+ = haut cÃ´tÃ© NK.
 
     const RectI knob = MakeRect(knobX, knobY, 14.0f, 14.0f);
     FillRect(renderer, knob, NkRenderer::PackColor(245, 245, 245, 255));
@@ -119,6 +143,12 @@ static NkU32 FindFirstConnectedGamepad() {
         }
     }
     return NK_MAX_GAMEPADS;
+}
+
+static bool IsEscapePressed(const NkKeyPressEvent* k) {
+    if (!k) return false;
+    return k->GetKey() == NkKey::NK_ESCAPE
+        || k->GetScancode() == NkScancode::NK_SC_ESCAPE;
 }
 
 enum class NkPadProfile : NkU32 {
@@ -149,19 +179,19 @@ static const char* ProfileName(NkPadProfile p) {
     }
 }
 
-static std::string LowerAscii(std::string v) {
+static NkString LowerAscii(NkString v) {
     for (char& c : v) {
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     }
     return v;
 }
 
-static bool Contains(const std::string& hay, const char* needle) {
-    return hay.find(needle) != std::string::npos;
+static bool Contains(const NkString& hay, const char* needle) {
+    return hay.Find(needle) != NkString::npos;
 }
 
 static NkPadProfile DetectPadProfile(const NkGamepadInfo& info) {
-    const std::string name = LowerAscii(info.name);
+    const NkString name = LowerAscii(info.name);
 
     if (info.type == NkGamepadType::NK_GP_TYPE_XBOX || info.vendorId == 0x045E ||
         Contains(name, "xbox") || Contains(name, "xinput"))
@@ -371,8 +401,8 @@ static void ProbeRawInput(NkU32 padIndex, RawProbeState& probe) {
         logger.Infof("[RAW GP%u] button[%u] %s",
             padIndex, b, raw.buttons[b] ? "DOWN" : "UP");
 
-        // Diagnostic demandé: code bas niveau "non spécifié" par l'API NK.
-        // Ici: tout bouton hors enum NkGamepadButton (canal brut étendu).
+        // Diagnostic demandÃ©: code bas niveau "non spÃ©cifiÃ©" par l'API NK.
+        // Ici: tout bouton hors enum NkGamepadButton (canal brut Ã©tendu).
         if (b >= kKnownButtonCount && !wasDown && raw.buttons[b]) {
             logger.Infof("[LOW-LEVEL GP%u] UNKNOWN_BUTTON code=%u (raw_index=%u)",
                 padIndex,
@@ -389,7 +419,7 @@ static void ProbeRawInput(NkU32 padIndex, RawProbeState& probe) {
         probe.axes[padIndex][a] = now;
         logger.Infof("[RAW GP%u] axis[%u] %.3f", padIndex, a, now);
 
-        // Même diagnostic pour les axes non standard.
+        // MÃªme diagnostic pour les axes non standard.
         if (a >= kKnownAxisCount) {
             logger.Infof("[LOW-LEVEL GP%u] UNKNOWN_AXIS code=%u (raw_index=%u) value=%.3f",
                 padIndex,
@@ -494,10 +524,26 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     using namespace nkentseu;
 
     logger.Named("SandboxGamepadPS3");
+#if defined(_DEBUG) || defined(DEBUG) || defined(NKENTSEU_DEBUG)
+    logger.Level(NkLogLevel::NK_DEBUG);
+#else
+    logger.Level(NkLogLevel::NK_INFO);
+#endif
+    NkU32 bootStep = 0;
+    auto bootLog = [&bootStep](const char* message) {
+        const unsigned step = static_cast<unsigned>(++bootStep);
+        logger.Infof("[BOOTSTEP %u] %s", step, message);
+#if NK_MAIN8_HAS_ANDROID_LOG
+        __android_log_print(ANDROID_LOG_INFO, "SandboxGamepadPS3", "[BOOTSTEP %u] %s", step, message);
+#endif
+    };
+    bootLog("logger.Named done");
     
     if (!NkInitialise({ .appName = "Sandbox Gamepad PS3 Layout" })) {
+        bootLog("NkInitialise failed");
         return -1;
     }
+    bootLog("NkInitialise done");
 
     NkWindowConfig cfg;
     cfg.title = "Sandbox - Gamepad PS3 Validator";
@@ -505,12 +551,16 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     cfg.height = 720;
     cfg.centered = true;
     cfg.resizable = true;
+    cfg.dropEnabled = false;
     
     NkWindow window(cfg);
+    bootLog("NkWindow constructed");
     if (!window.IsOpen()) {
+        bootLog("window.IsOpen == false");
         NkClose();
         return -2;
     }
+    bootLog("window.IsOpen == true");
 
     NkRenderer renderer;
     NkRendererConfig rcfg;
@@ -518,12 +568,14 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     rcfg.autoResizeFramebuffer = true;
     
     if (!renderer.Create(window, rcfg)) {
+        bootLog("renderer.Create failed");
         NkClose();
         return -3;
     }
+    bootLog("renderer.Create done");
 
     bool running = true;
-    bool autoPreset = true;
+    bool autoPreset = false;
     bool invertStickY = false;
     NkPadProfile selectedProfile = NkPadProfile::AUTO;
     std::array<bool, NK_MAX_GAMEPADS> presetApplied{};
@@ -533,55 +585,67 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     NkElapsedTime elapsed{};
     auto& events = NkEvents();
     auto& hidMapper = events.GetHidMapper();
+    bootLog("NkEvents + hidMapper ready");
 
-    logger.Info("JSON: {{ \"id\": {0} }}", 42);
-    
-    NkGamepads().SetConnectCallback(
-        [&presetApplied](const NkGamepadInfo& info, bool connected) {
-            logger.Infof("[Gamepad] {0} #%u (%s) vid=0x%04X pid=0x%04X type=%u",
-                connected ? "CONNECTED" : "DISCONNECTED",
-                info.index, info.name,
-                static_cast<unsigned>(info.vendorId),
-                static_cast<unsigned>(info.productId),
-                static_cast<unsigned>(info.type));
+    // logger.Info("JSON: {{ \"id\": {0} }}", 42);
+    constexpr bool kEnableRuntimeHidHooks = false;
+    if (kEnableRuntimeHidHooks) {
+        bootLog("before SetConnectCallback");
+        
+        NkGamepads().SetConnectCallback(
+            [&presetApplied](const NkGamepadInfo& info, bool connected) {
+                logger.Infof("[Gamepad] %s #%u (%.127s) vid=0x%04X pid=0x%04X type=%u",
+                    connected ? "CONNECTED" : "DISCONNECTED",
+                    info.index, info.name,
+                    static_cast<unsigned>(info.vendorId),
+                    static_cast<unsigned>(info.productId),
+                    static_cast<unsigned>(info.type));
 
-            if (info.index < NK_MAX_GAMEPADS && !connected) {
-                presetApplied[info.index] = false;
-            }
-        });
+                if (info.index < NK_MAX_GAMEPADS && !connected) {
+                    presetApplied[info.index] = false;
+                }
+            });
+        bootLog("after SetConnectCallback");
+            
+        // Example of generic HID integration:
+        // - map by deviceId on connect
+        // - resolve logical indices from raw events
+        bootLog("before AddEventCallback<NkHidConnectEvent>");
+        events.AddEventCallback<NkHidConnectEvent>(
+            [&hidMapper](NkHidConnectEvent* ev) {
+                const NkHidDeviceInfo& info = ev->GetInfo();
+                hidMapper.SetButtonMap(info.deviceId, 0, 0);
+                hidMapper.SetAxisMap(info.deviceId, 0, 0, false, 1.f, 0.08f, 0.f);
+                logger.Infof("[HID] CONNECT dev=%llu name=%.127s", static_cast<unsigned long long>(info.deviceId), info.name);
+            });
+        bootLog("after AddEventCallback<NkHidConnectEvent>");
+            
+        bootLog("before AddEventCallback<NkHidButtonPressEvent>");
+        events.AddEventCallback<NkHidButtonPressEvent>(
+            [&hidMapper](NkHidButtonPressEvent* ev) {
+                NkU32 logical = NK_HID_UNMAPPED;
+                NkButtonState state = NkButtonState::NK_RELEASED;
+                if (hidMapper.MapButtonEvent(*ev, logical, state)) {
+                    logger.Infof("[HID] BUTTON dev=%llu phys=%u -> logical=%u",
+                        static_cast<unsigned long long>(ev->GetDeviceId()),
+                        ev->GetButtonIndex(), logical);
+                }
+            });
+        bootLog("after AddEventCallback<NkHidButtonPressEvent>");
         
-    // Exemple d'intégration HID générique:
-    // - mapping par deviceId à la connexion
-    // - résolution des indices logiques depuis les événements bruts
-    events.AddEventCallback<NkHidConnectEvent>(
-        [&hidMapper](NkHidConnectEvent* ev) {
-            const NkHidDeviceInfo& info = ev->GetInfo();
-            hidMapper.SetButtonMap(info.deviceId, 0, 0);
-            hidMapper.SetAxisMap(info.deviceId, 0, 0, false, 1.f, 0.08f, 0.f);
-            logger.Infof("[HID] CONNECT dev=%llu name=%s", static_cast<unsigned long long>(info.deviceId), info.name);
-        });
-        
-    events.AddEventCallback<NkHidButtonPressEvent>(
-        [&hidMapper](NkHidButtonPressEvent* ev) {
-            NkU32 logical = NK_HID_UNMAPPED;
-            NkButtonState state = NkButtonState::NK_RELEASED;
-            if (hidMapper.MapButtonEvent(*ev, logical, state)) {
-                logger.Infof("[HID] BUTTON dev=%llu phys=%u -> logical=%u",
-                    static_cast<unsigned long long>(ev->GetDeviceId()),
-                    ev->GetButtonIndex(), logical);
-            }
-        });
-    
-    events.AddEventCallback<NkHidAxisEvent>(
-        [&hidMapper](NkHidAxisEvent* ev) {
-            NkU32 logicalAxis = NK_HID_UNMAPPED;
-            NkF32 mappedValue = 0.f;
-            if (hidMapper.MapAxisEvent(*ev, logicalAxis, mappedValue)) {
-                logger.Infof("[HID] AXIS dev=%llu phys=%u -> logical=%u val=%.3f",
-                    static_cast<unsigned long long>(ev->GetDeviceId()),
-                    ev->GetAxisIndex(), logicalAxis, mappedValue);
-            }
-        });
+        bootLog("before AddEventCallback<NkHidAxisEvent>");
+        events.AddEventCallback<NkHidAxisEvent>(
+            [&hidMapper](NkHidAxisEvent* ev) {
+                NkU32 logicalAxis = NK_HID_UNMAPPED;
+                NkF32 mappedValue = 0.f;
+                if (hidMapper.MapAxisEvent(*ev, logicalAxis, mappedValue)) {
+                    logger.Infof("[HID] AXIS dev=%llu phys=%u -> logical=%u val=%.3f",
+                        static_cast<unsigned long long>(ev->GetDeviceId()),
+                        ev->GetAxisIndex(), logicalAxis, mappedValue);
+                }
+            });
+        bootLog("after AddEventCallback<NkHidAxisEvent>");
+    }
 
     logger.Info("[PS3 Validator]");
     logger.Info("  F5: apply current profile remap");
@@ -589,20 +653,94 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     logger.Info("  F7: toggle stick Y inversion");
     logger.Info("  F8: cycle profile (Auto/Xbox/PS4/PS3/Switch/Generic)");
     logger.Info("  ESC: quit");
+    bootLog("entering main loop");
+
+    constexpr bool kMinimalCloseDiag = false;
+    constexpr bool kInputDiagLogs = true;
+    if (kMinimalCloseDiag) {
+        while (running && window.IsOpen()) {
+            NkElapsedTime e = chrono.Reset();
+            (void)e;
+
+            while (NkEvent* ev = events.PollEvent()) {
+                if (ev->Is<NkWindowCloseEvent>()) {
+                    running = false;
+                    break;
+                }
+                if constexpr (kInputDiagLogs) {
+                    if (ev->Is<NkMouseEnterEvent>()) logger.Info("[MOUSE] enter");
+                    if (ev->Is<NkMouseLeaveEvent>()) logger.Info("[MOUSE] leave");
+                    if (auto* mb = ev->As<NkMouseButtonPressEvent>()) {
+                        logger.Infof("[MOUSE] press btn=%s x=%d y=%d",
+                            NkMouseButtonToString(mb->GetButton()),
+                            mb->GetX(), mb->GetY());
+                    }
+                    if (auto* mb = ev->As<NkMouseButtonReleaseEvent>()) {
+                        logger.Infof("[MOUSE] release btn=%s x=%d y=%d",
+                            NkMouseButtonToString(mb->GetButton()),
+                            mb->GetX(), mb->GetY());
+                    }
+                }
+                if (auto* k = ev->As<NkKeyPressEvent>()) {
+                    if (IsEscapePressed(k)) {
+                        running = false;
+                        break;
+                    }
+                }
+                if (auto* r = ev->As<NkWindowResizeEvent>()) {
+                    renderer.Resize(r->GetWidth(), r->GetHeight());
+                }
+            }
+
+            if (!running || !window.IsOpen()) {
+                break;
+            }
+
+            renderer.BeginFrame(NkRenderer::PackColor(14, 16, 22, 255));
+            renderer.EndFrame();
+            renderer.Present();
+
+            elapsed = chrono.Elapsed();
+            if (elapsed.milliseconds < 16) {
+                NkChrono::Sleep(16 - elapsed.milliseconds);
+            } else {
+                NkChrono::YieldThread();
+            }
+        }
+
+        goto shutdown_sequence;
+    }
 
     while (running && window.IsOpen()) {
-        chrono.Reset();
+        NkElapsedTime e = chrono.Reset();
+        (void)e;
 
         while (NkEvent* ev = events.PollEvent()) {
+
             if (ev->Is<NkWindowCloseEvent>()) {
                 running = false;
                 break;
             }
+            if constexpr (kInputDiagLogs) {
+                if (ev->Is<NkMouseEnterEvent>()) logger.Info("[MOUSE] enter");
+                if (ev->Is<NkMouseLeaveEvent>()) logger.Info("[MOUSE] leave");
+                if (auto* mb = ev->As<NkMouseButtonPressEvent>()) {
+                    logger.Infof("[MOUSE] press btn=%s x=%d y=%d",
+                        NkMouseButtonToString(mb->GetButton()),
+                        mb->GetX(), mb->GetY());
+                }
+                if (auto* mb = ev->As<NkMouseButtonReleaseEvent>()) {
+                    logger.Infof("[MOUSE] release btn=%s x=%d y=%d",
+                        NkMouseButtonToString(mb->GetButton()),
+                        mb->GetX(), mb->GetY());
+                }
+            }
             if (auto* k = ev->As<NkKeyPressEvent>()) {
+                if (IsEscapePressed(k)) {
+                    running = false;
+                    break;
+                }
                 switch (k->GetKey()) {
-                    case NkKey::NK_ESCAPE:
-                        running = false;
-                        break;
                     case NkKey::NK_F5:
                         autoPreset = true;
                         std::fill(presetApplied.begin(), presetApplied.end(), false);
@@ -640,7 +778,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
             }
         }
 
-        if (!running) {
+        if (!running || !window.IsOpen()) {
             break;
         }
 
@@ -662,7 +800,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
 
         const NkU32 pad = FindFirstConnectedGamepad();
         const bool connected = (pad < NK_MAX_GAMEPADS);
-        if (connected) {
+        constexpr bool kEnableRawProbe = true;
+        if (kEnableRawProbe && connected) {
             ProbeRawInput(pad, rawProbe);
         }
 
@@ -670,19 +809,39 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
         const NkFramebufferInfo& fb = renderer.GetFramebufferInfo();
         const NkU32 w = fb.width ? fb.width : window.GetSize().x;
         const NkU32 h = fb.height ? fb.height : window.GetSize().y;
-        DrawPs3Layout(renderer, w, h, connected, pad);
+        constexpr bool kEnablePs3Draw = true;
+        if (kEnablePs3Draw) {
+            DrawPs3Layout(renderer, w, h, connected, pad);
+        }
         renderer.EndFrame();
         renderer.Present();
 
         elapsed = chrono.Elapsed();
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+        // On Web, return control to the browser each frame so the canvas can present.
+        emscripten_sleep(0);
+#else
         if (elapsed.milliseconds < 16) {
             NkChrono::Sleep(16 - elapsed.milliseconds);
         } else {
             NkChrono::YieldThread();
         }
+#endif
     }
 
+shutdown_sequence:
+    const auto shutdownStart = std::chrono::steady_clock::now();
+    auto shutdownMs = [&shutdownStart]() -> long long {
+        return static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - shutdownStart).count());
+    };
+
+    logger.Infof("[SHUTDOWN] begin");
     renderer.Shutdown();
+    logger.Infof("[SHUTDOWN] renderer.Shutdown +%lldms", shutdownMs());
+    window.Close();
+    logger.Infof("[SHUTDOWN] window.Close +%lldms", shutdownMs());
     NkClose();
+    logger.Infof("[SHUTDOWN] NkClose +%lldms", shutdownMs());
     return 0;
 }

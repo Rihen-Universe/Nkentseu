@@ -11,6 +11,7 @@
 // =============================================================================
 
 #include "NKRenderer/NkIRenderer.h"
+#include "NKContainers/Sequential/NkVector.h"
 #include <vector>
 
 namespace nkentseu {
@@ -38,11 +39,11 @@ namespace nkentseu {
             void Resize(NkU32 width, NkU32 height) override;
             void SetPixel(NkI32 x, NkI32 y, NkU32 rgba) override;
 
-            const NkU8* GetPixelBuffer() const noexcept { return mBuffer.data(); }
-            NkU8*       GetPixelBuffer()       noexcept { return mBuffer.data(); }
+            const NkU8* GetPixelBuffer() const noexcept { return mBuffer.Data(); }
+            NkU8*       GetPixelBuffer()       noexcept { return mBuffer.Data(); }
 
         private:
-            std::vector<NkU8> mBuffer;
+            NkVector<NkU8> mBuffer;
             NkRendererConfig  mConfig   {};
             NkSurfaceDesc     mSurface  {};
             NkFramebufferInfo mFbInfo   {};
@@ -55,9 +56,10 @@ namespace nkentseu {
             void BlitWin32(const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
             void BlitXCB  (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
             void BlitXLib (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitANW  (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitWASM (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitCocoa(const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
+            void BlitANW    (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
+            void BlitWASM   (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
+            void BlitCocoa  (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
+            void BlitWayland(const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
     };
 
 } // namespace nkentseu

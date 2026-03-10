@@ -11,7 +11,7 @@
 #ifndef NKENTSEU_CORE_NKCORE_SRC_NKCORE_NKINLINE_H_INCLUDED
 #define NKENTSEU_CORE_NKCORE_SRC_NKCORE_NKINLINE_H_INCLUDED
 
-#include "NkCompilerDetect.h"
+#include "NKPlatform/NkCompilerDetect.h"
 
 // ============================================================
 // MACROS D'INLINING

@@ -1,11 +1,11 @@
-﻿// =============================================================================
+// =============================================================================
 // NkDropSystem.cpp
 // SystÃ¨me Drag & Drop cross-platform.
 // =============================================================================
 
 #include "NkDropSystem.h"
 #include "NkEvent.h"
-#include "NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include <unordered_set>
 #include <memory>
 
@@ -171,9 +171,9 @@ namespace nkentseu {
     };
     using PlatformDropBackend = NkLinuxDropTargetBackend;
 
-    #elif defined(NKENTSEU_PLATFORM_WEB) || defined(NKENTSEU_PLATFORM_EMSCRIPTEN) || defined(__EMSCRIPTEN__)
+    #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
     // WASM backend â€” HTML5 Drag & Drop API (ondrop, ondragover events)
-    class NkWASMDropTargetBackend : public IDropTargetBackend {
+    class NkEmscriptenDropTargetBackend : public IDropTargetBackend {
     public:
         void Enable(void* nativeHandle) override {
             if (!nativeHandle) return;
@@ -191,7 +191,7 @@ namespace nkentseu {
     private:
         std::unordered_set<std::uintptr_t> mDropTargets;
     };
-    using PlatformDropBackend = NkWASMDropTargetBackend;
+    using PlatformDropBackend = NkEmscriptenDropTargetBackend;
 
     #else
     // Fallback Noop backend

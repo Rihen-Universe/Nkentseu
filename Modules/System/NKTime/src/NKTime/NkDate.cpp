@@ -1,224 +1,125 @@
 /**
-* @File NkDate.cpp
-* @Description Implémentation complète de la classe NkDate avec gestion des dates grégoriennes
-* @Author TEUGUIA TADJUIDJE Rodolf Séderis
-* @Date 2025-01-05
-* @License Apache-2.0
-*/
+ * @File    NkDate.cpp
+ * @Brief   Implémentation de NkDate.
+ * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
+ * @License Apache-2.0
+ */
 
 #include "pch.h"
-#include "NkDate.h"
+#include "NKTime/NkDate.h"
+#include "NKCore/Assert/NkAssert.h"
+#include <cstdio>
+#include <ctime>
 
 namespace nkentseu {
 
-    /// @Region: Constructeurs et initialisation ----------------------------------
+    // =============================================================================
+    //  Constructeurs
+    // =============================================================================
 
-    /**
-    * @Constructor NkDate par défaut
-    * @Description Initialise avec la date système actuelle
-    * @Note Utilise GetCurrent() pour l'initialisation thread-safe
-    */
     NkDate::NkDate() noexcept {
         *this = GetCurrent();
     }
 
-    /**
-    * @Constructor NkDate à partir de composants
-    * @Description Construit une date validée
-    * @param year Année [1601-30827]
-    * @param month Mois [1-12]
-    * @param day Jour [1-31]
-    * @Throws std::invalid_argument Si validation échoue
-    */
-    NkDate::NkDate(int32 year, int32 month, int32 day) :
-        year(year), month(month), day(day) {
+    NkDate::NkDate(int32 y, int32 m, int32 d)
+        : year(y), month(m), day(d)
+    {
         Validate();
     }
 
-    /// @Region: Méthodes de validation -------------------------------------------
+    // =============================================================================
+    //  Validation
+    // =============================================================================
 
-    /**
-    * @Function Validate
-    * @Description Validation complète des composants de la date
-    * @Throws std::invalid_argument Si un composant est invalide
-    */
     void NkDate::Validate() const {
-        if(year < 1601 || year > 30827)
-            throw std::invalid_argument("Year must be between 1601-30827");
-
-        if(month < 1 || month > 12)
-            throw std::invalid_argument("Month must be 1-12");
-
+        NKENTSEU_ASSERT_MSG(year >= 1601 && year <= 30827, "Year must be in [1601, 30827]");
+        NKENTSEU_ASSERT_MSG(month >= 1 && month <= 12,     "Month must be in [1, 12]");
         const int32 maxDay = DaysInMonth(year, month);
-        if(day < 1 || day > maxDay)
-            throw std::invalid_argument("Day invalid for current month/year");
+        NKENTSEU_ASSERT_MSG(day >= 1 && day <= maxDay,     "Day invalid for current month/year");
     }
 
-    /// @Region: Mutateurs avec propagation de validation -------------------------
+    // =============================================================================
+    //  Mutateurs
+    // =============================================================================
 
-    /**
-    * @Function SetYear
-    * @Description Modifie l'année avec validation étendue
-    * @param year Nouvelle année [1601-30827]
-    * @Throws std::invalid_argument Si hors limites
-    */
-    void NkDate::SetYear(int32 year) {
-        if(year < 1601 || year > 30827)
-            throw std::invalid_argument("Year must be between 1601-30827");
-        this->year = year;
+    void NkDate::SetYear(int32 y) {
+        NKENTSEU_ASSERT_MSG(y >= 1601 && y <= 30827, "Year must be in [1601, 30827]");
+        year = y;
         Validate();
     }
 
-    /**
-    * @Function SetMonth
-    * @Description Modifie le mois avec validation
-    * @param month Nouveau mois [1-12]
-    * @Throws std::invalid_argument Si hors limites
-    */
-    void NkDate::SetMonth(int32 month) {
-        if(month < 1 || month > 12)
-            throw std::invalid_argument("Month must be 1-12");
-        this->month = month;
+    void NkDate::SetMonth(int32 m) {
+        NKENTSEU_ASSERT_MSG(m >= 1 && m <= 12, "Month must be in [1, 12]");
+        month = m;
         Validate();
     }
 
-    /**
-    * @Function SetDay
-    * @Description Modifie le jour avec validation contextuelle
-    * @param day Nouveau jour [1-31]
-    * @Throws std::invalid_argument Si incompatible avec mois/année
-    */
-    void NkDate::SetDay(int32 day) {
-        this->day = day;
+    void NkDate::SetDay(int32 d) {
+        day = d;
         Validate();
     }
 
-    /// @Region: Méthodes statiques et utilitaires --------------------------------
+    // =============================================================================
+    //  Statiques
+    // =============================================================================
 
-    /**
-    * @Function GetCurrent
-    * @Description Obtient la date système locale thread-safe
-    * @Note Gère les spécificités Windows/POSIX
-    * @return NkDate Date courante validée
-    */
     NkDate NkDate::GetCurrent() {
-        std::time_t now = std::time(nullptr);
+        time_t now = ::time(nullptr);
+        tm ts = {};
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        std::tm tmStruct;
-        localtime_s(&tmStruct, &now);
-        return NkDate(tmStruct.tm_year + 1900,
-                    tmStruct.tm_mon + 1,
-                    tmStruct.tm_mday);
+        ::localtime_s(&ts, &now);
     #else
-        std::tm tmStruct;
-        localtime_r(&now, &tmStruct);
-        return NkDate(tmStruct.tm_year + 1900,
-                    tmStruct.tm_mon + 1,
-                    tmStruct.tm_mday);
+        ::localtime_r(&now, &ts);
     #endif
+
+        return NkDate(ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday);
     }
 
-    /// @Region: Formatage et conversion ------------------------------------------
-
-    /**
-    * @Function ToString
-    * @Description Formatage ISO 8601 avec padding zéro
-    * @Exemple "2025-01-05"
-    * @return string Date formatée
-    */
-    std::string NkDate::ToString() const {
-        std::ostringstream ss;
-        ss << std::setfill('0')
-        << std::setw(4) << year << "-"
-        << std::setw(2) << month << "-"
-        << std::setw(2) << day;
-        return ss.str();
-    }
-
-    /**
-    * @Function GetMonthName
-    * @Description Nom du mois en français
-    * @Note L'implémentation actuelle utilise une locale fixe
-    * @return string Nom du mois localisé
-    */
-    std::string NkDate::GetMonthName() const {
-        static const char* months[] = {
-            "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-            "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
-        };
-        return months[month - 1];
-    }
-
-    /// @Region: Calculs de date --------------------------------------------------
-
-    /**
-    * @Function DaysInMonth
-    * @Description Calcule les jours dans un mois donné
-    * @param year Année pour gestion bissextile
-    * @param month Mois cible [1-12]
-    * @return int32 Nombre de jours dans le mois
-    * @Throws std::invalid_argument Si mois invalide
-    */
     int32 NkDate::DaysInMonth(int32 year, int32 month) {
-        if(month < 1 || month > 12)
-            throw std::invalid_argument("Month must be 1-12");
-
-        static const int32 days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-
-        if(month == 2 && IsLeapYear(year))
-            return 29;
-
+        NKENTSEU_ASSERT_MSG(month >= 1 && month <= 12, "Month must be in [1, 12]");
+        static const int32 days[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
+        if (month == 2 && IsLeapYear(year)) return 29;
         return days[month - 1];
     }
 
-    /**
-    * @Function IsLeapYear
-    * @Description Détermine si une année est bissextile
-    * @param year Année à vérifier
-    * @return bool true si bissextile selon règles grégoriennes
-    */
     bool NkDate::IsLeapYear(int32 year) noexcept {
         return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
     }
 
-    /// @Region: Opérateurs de comparaison ----------------------------------------
+    // =============================================================================
+    //  Formatage
+    // =============================================================================
 
-    /**
-    * @Operator ==
-    * @Description Comparaison d'égalité complète
-    * @param other NkDate à comparer
-    * @return bool true si dates identiques
-    */
-    bool NkDate::operator==(const NkDate& other) const noexcept {
-        return year == other.year
-            && month == other.month
-            && day == other.day;
+    NkString NkDate::ToString() const {
+        char buf[16];
+        ::snprintf(buf, sizeof(buf), "%04d-%02d-%02d", year, month, day);
+        return NkString(buf);
     }
 
-    /**
-    * @Operator !=
-    * @Description Comparaison de différence
-    * @param other NkDate à comparer
-    * @return bool true si dates différentes
-    */
-    bool NkDate::operator!=(const NkDate& other) const noexcept {
-        return !(*this == other);
+    NkString NkDate::GetMonthName() const {
+        static const char* months[12] = {
+            "Janvier","Février","Mars","Avril","Mai","Juin",
+            "Juillet","Août","Septembre","Octobre","Novembre","Décembre"
+        };
+        return NkString(months[month - 1]);
     }
 
-    /**
-    * @Operator <
-    * @Description Comparaison chronologique
-    * @param other NkDate de comparaison
-    * @return bool true si cette date est antérieure
-    */
-    bool NkDate::operator<(const NkDate& other) const noexcept {
-        return std::tie(year, month, day)
-            < std::tie(other.year, other.month, other.day);
+    // =============================================================================
+    //  Comparaisons
+    // =============================================================================
+
+    bool NkDate::operator==(const NkDate& o) const noexcept {
+        return year == o.year && month == o.month && day == o.day;
     }
+    bool NkDate::operator!=(const NkDate& o) const noexcept { return !(*this == o); }
+    bool NkDate::operator< (const NkDate& o) const noexcept {
+        if (year  != o.year)  return year  < o.year;
+        if (month != o.month) return month < o.month;
+        return day < o.day;
+    }
+    bool NkDate::operator<=(const NkDate& o) const noexcept { return !(o < *this); }
+    bool NkDate::operator> (const NkDate& o) const noexcept { return  (o < *this); }
+    bool NkDate::operator>=(const NkDate& o) const noexcept { return !(*this < o); }
 
 } // namespace nkentseu
-
-// Ce document, ainsi que toutes les informations qu'il contient, est protégé par la licence Rihen.
-// Toute utilisation, reproduction ou diffusion, sous quelque forme que ce soit, requiert une autorisation préalable de Rihen.
-// © Rihen 2025 - Tous droits réservés.

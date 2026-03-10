@@ -3,7 +3,7 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkTypes.h"
 #include "NKCore/NkInline.h"
-#include "NkStreamExport.h"
+#include "NKStream/NkStreamExport.h"
 #include <cstddef>
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)

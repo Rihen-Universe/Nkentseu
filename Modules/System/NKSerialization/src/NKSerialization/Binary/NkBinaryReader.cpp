@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkBinaryReader.h"
+#include "NKSerialization/Binary/NkBinaryReader.h"
 
 namespace nkentseu {
     namespace entseu {

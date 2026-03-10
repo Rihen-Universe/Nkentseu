@@ -4,8 +4,8 @@
 // =============================================================================
 
 #include "NKWindow/Core/NkEntry.h"
-#include <vector>
-#include <string>
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
 
 #ifndef NK_APP_NAME
 #define NK_APP_NAME "noop_app"
@@ -19,7 +19,9 @@ NkEntryState *gState = nullptr;
 }
 
 int main(int argc, char *argv[]) {
-	std::vector<std::string> args(argv, argv + argc);
+	nkentseu::NkVector<nkentseu::NkString> args;
+	for (int i = 0; i < argc; ++i)
+		args.PushBack(nkentseu::NkString(argv[i]));
 
 	nkentseu::NkEntryState state(args);
 	state.appName = NK_APP_NAME;

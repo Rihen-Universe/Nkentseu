@@ -26,19 +26,27 @@ namespace nkentseu {
 
     android_app* nk_android_global_app = nullptr;
     static std::mutex sAndroidWindowsMutex;
-    static std::vector<NkWindow*> sAndroidWindows;
-    static std::unordered_map<NkWindowId, NkWindow*> sAndroidWindowById;
     static NkWindow* sAndroidLastWindow = nullptr;
+
+    // Function-local statics avoid static init order fiasco with NkAllocator.
+    static NkVector<NkWindow*>& AndroidWindows() {
+        static NkVector<NkWindow*> sVec;
+        return sVec;
+    }
+    static NkUnorderedMap<NkWindowId, NkWindow*>& AndroidWindowById() {
+        static NkUnorderedMap<NkWindowId, NkWindow*> sMap;
+        return sMap;
+    }
 
     NkWindow* NkAndroidFindWindowById(NkWindowId id) {
         std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
-        auto it = sAndroidWindowById.find(id);
-        return (it != sAndroidWindowById.end()) ? it->second : nullptr;
+        auto* win = AndroidWindowById().Find(id);
+        return win ? *win : nullptr;
     }
 
-    std::vector<NkWindow*> NkAndroidGetWindowsSnapshot() {
+    NkVector<NkWindow*> NkAndroidGetWindowsSnapshot() {
         std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
-        return sAndroidWindows;
+        return AndroidWindows();
     }
 
     NkWindow* NkAndroidGetLastWindow() {
@@ -47,47 +55,46 @@ namespace nkentseu {
     }
 
     void NkAndroidRegisterWindow(NkWindow* window) {
-        if (!window) {
-            return;
-        }
-
+        if (!window) return;
         const NkWindowId id = window->GetId();
-        if (id == NK_INVALID_WINDOW_ID) {
-            return;
-        }
+        if (id == NK_INVALID_WINDOW_ID) return;
 
         std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
-        if (std::find(sAndroidWindows.begin(), sAndroidWindows.end(), window) == sAndroidWindows.end()) {
-            sAndroidWindows.push_back(window);
+        auto& windows = AndroidWindows();
+        bool found = false;
+        for (NkU32 i = 0; i < windows.Size(); ++i) {
+            if (windows[i] == window) { found = true; break; }
         }
-        sAndroidWindowById[id] = window;
+        if (!found) windows.PushBack(window);
+        AndroidWindowById()[id] = window;
         sAndroidLastWindow = window;
     }
 
     void NkAndroidUnregisterWindow(NkWindow* window) {
-        if (!window) {
-            return;
-        }
+        if (!window) return;
 
         std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
+        auto& windows = AndroidWindows();
 
-        sAndroidWindows.erase(
-            std::remove(sAndroidWindows.begin(), sAndroidWindows.end(), window),
-            sAndroidWindows.end());
-
-        NkWindowId staleId = NK_INVALID_WINDOW_ID;
-        for (const auto& kv : sAndroidWindowById) {
-            if (kv.second == window) {
-                staleId = kv.first;
+        // Remove window from vector
+        for (NkU32 i = 0; i < windows.Size(); ++i) {
+            if (windows[i] == window) {
+                windows.Erase(windows.begin() + i);
                 break;
             }
         }
+
+        // Remove from map
+        NkWindowId staleId = NK_INVALID_WINDOW_ID;
+        AndroidWindowById().ForEach([&](NkWindowId id, NkWindow* const& v) {
+            if (v == window && staleId == NK_INVALID_WINDOW_ID) staleId = id;
+        });
         if (staleId != NK_INVALID_WINDOW_ID) {
-            sAndroidWindowById.erase(staleId);
+            AndroidWindowById().Erase(staleId);
         }
 
         if (sAndroidLastWindow == window) {
-            sAndroidLastWindow = sAndroidWindows.empty() ? nullptr : sAndroidWindows.back();
+            sAndroidLastWindow = windows.Empty() ? nullptr : windows.Back();
         }
     }
 
@@ -393,7 +400,7 @@ namespace nkentseu {
 
     NkWindowConfig NkWindow::GetConfig() const { return mConfig; }
 
-    std::string NkWindow::GetTitle() const { return mConfig.title; }
+    NkString NkWindow::GetTitle() const { return mConfig.title; }
 
     NkVec2u NkWindow::GetSize() const {
         if (mData.mNativeWindow) {
@@ -431,7 +438,7 @@ namespace nkentseu {
 
     NkVec2u NkWindow::GetDisplayPosition() const { return {0, 0}; }
 
-    void NkWindow::SetTitle(const std::string& title) { mConfig.title = title; }
+    void NkWindow::SetTitle(const NkString& title) { mConfig.title = title; }
 
     void NkWindow::SetSize(NkU32, NkU32) {}
 

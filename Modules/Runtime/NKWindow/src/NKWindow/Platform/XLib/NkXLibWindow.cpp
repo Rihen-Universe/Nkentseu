@@ -29,39 +29,43 @@ namespace nkentseu {
     // Globals partages (backend registry)
     // =============================================================================
 
-    static Display*                                  sDisplay        = nullptr;
-    static int                                       sWindowCount    = 0;
-    static std::mutex                                sDisplayMutex;
-    static std::unordered_map<::Window, NkWindow*>  sXLibWindowMap;
-    static NkWindow*                                 sXLibLastWindow = nullptr;
+    static Display*   sDisplay        = nullptr;
+    static int        sWindowCount    = 0;
+    static std::mutex sDisplayMutex;
+    static NkWindow*  sXLibLastWindow = nullptr;
+
+    // Function-local static avoids static init order fiasco with NkAllocator.
+    static NkUnorderedMap<::Window, NkWindow*>& XLibWindowMap() {
+        static NkUnorderedMap<::Window, NkWindow*> sMap;
+        return sMap;
+    }
 
     Display* NkXLibGetDisplay() {
         return sDisplay;
     }
 
     NkWindow* NkXLibFindWindow(::Window xid) {
-        auto it = sXLibWindowMap.find(xid);
-        return (it != sXLibWindowMap.end()) ? it->second : nullptr;
+        auto* win = XLibWindowMap().Find(xid);
+        return win ? *win : nullptr;
     }
 
     void NkXLibRegisterWindow(::Window xid, NkWindow* win) {
-        sXLibWindowMap[xid] = win;
+        XLibWindowMap()[xid] = win;
         sXLibLastWindow = win;
     }
 
     void NkXLibUnregisterWindow(::Window xid) {
-        auto it = sXLibWindowMap.find(xid);
-        if (it == sXLibWindowMap.end()) {
-            return;
-        }
+        auto& map = XLibWindowMap();
+        auto* win = map.Find(xid);
+        if (!win) return;
 
-        NkWindow* win = it->second;
-        sXLibWindowMap.erase(it);
+        NkWindow* w = *win;
+        map.Erase(xid);
 
-        if (sXLibLastWindow == win) {
-            sXLibLastWindow = sXLibWindowMap.empty()
-                ? nullptr
-                : sXLibWindowMap.begin()->second;
+        if (sXLibLastWindow == w) {
+            NkWindow* first = nullptr;
+            map.ForEach([&](::Window, NkWindow* v) { if (!first) first = v; });
+            sXLibLastWindow = first;
         }
     }
 
@@ -113,26 +117,62 @@ namespace nkentseu {
             ? (DisplayHeight(sDisplay, mData.mScreen) - static_cast<int>(config.height)) / 2
             : config.y;
 
+        // Valeurs par défaut (sans hint)
+        Visual*       visual = DefaultVisual(sDisplay, mData.mScreen);
+        int           depth  = DefaultDepth (sDisplay, mData.mScreen);
+        unsigned long vmask  = CWBackPixel | CWBorderPixel | CWEventMask;
+
         XSetWindowAttributes attrs = {};
         attrs.background_pixel = BlackPixel(sDisplay, mData.mScreen);
         attrs.border_pixel     = BlackPixel(sDisplay, mData.mScreen);
         attrs.event_mask       =
             ExposureMask      | StructureNotifyMask |
-            KeyPressMask      | KeyReleaseMask |
-            ButtonPressMask   | ButtonReleaseMask |
-            PointerMotionMask | FocusChangeMask |
+            KeyPressMask      | KeyReleaseMask      |
+            ButtonPressMask   | ButtonReleaseMask   |
+            PointerMotionMask | FocusChangeMask     |
             EnterWindowMask   | LeaveWindowMask;
 
+        // ── Consommation du hint GLX VisualId ───────────────────────────────
+        // NkWindow ne sait pas que c'est pour OpenGL.
+        // Il applique mécaniquement : si le hint GlxVisualId est présent,
+        // utiliser la Visual correspondante plutôt que la default.
+        if (config.surfaceHints.Has(NkSurfaceHintKey::NK_GLX_VISUAL_ID)) {
+            VisualID vid = static_cast<VisualID>(
+                config.surfaceHints.Get(NkSurfaceHintKey::NK_GLX_VISUAL_ID));
+
+            XVisualInfo tmpl{};
+            tmpl.visualid = vid;
+            int n = 0;
+            XVisualInfo* vi = XGetVisualInfo(sDisplay, VisualIDMask, &tmpl, &n);
+
+            if (vi && n > 0) {
+                visual = vi->visual;
+                depth  = vi->depth;
+                // Une visual non-default nécessite un colormap dédié
+                attrs.colormap = XCreateColormap(
+                    sDisplay, DefaultRootWindow(sDisplay), visual, AllocNone);
+                vmask |= CWColormap;
+                // background_pixel doit être 0 avec une visual RGBA
+                attrs.background_pixel = 0;
+                XFree(vi);
+            }
+            // Si XGetVisualInfo échoue : on reste sur la visual par défaut.
+            // Le contexte OpenGL échouera plus tard avec un message clair.
+        }
+        // ── Fin consommation hint ────────────────────────────────────────────
+
         mData.mXid = XCreateWindow(
-            sDisplay,
-            DefaultRootWindow(sDisplay),
+            sDisplay, DefaultRootWindow(sDisplay),
             x, y, config.width, config.height,
             0,
-            DefaultDepth(sDisplay, mData.mScreen),
+            depth,       // ← depth éventuellement issu du hint
             InputOutput,
-            DefaultVisual(sDisplay, mData.mScreen),
-            CWBackPixel | CWBorderPixel | CWEventMask,
+            visual,      // ← visual éventuellement issue du hint
+            vmask,
             &attrs);
+
+        // ── Mémoriser les hints appliqués → disponibles via GetSurfaceDesc() ─
+        mData.mAppliedHints = config.surfaceHints;
 
         if (!mData.mXid) {
             mLastError = NkError(2, "XCreateWindow failed");
@@ -145,7 +185,7 @@ namespace nkentseu {
         XSetWMProtocols(sDisplay, mData.mXid, &mData.mWmDeleteWindow, 1);
 
         // Title
-        XStoreName(sDisplay, mData.mXid, config.title.c_str());
+        XStoreName(sDisplay, mData.mXid, config.title.CStr());
 
         // Size constraints
         if (!config.resizable) {
@@ -233,7 +273,7 @@ namespace nkentseu {
     bool NkWindow::IsOpen() const { return mIsOpen; }
     bool NkWindow::IsValid() const { return mIsOpen && mData.mXid != 0; }
 
-    std::string NkWindow::GetTitle() const { return mConfig.title; }
+    NkString NkWindow::GetTitle() const { return mConfig.title; }
     NkError NkWindow::GetLastError() const { return mLastError; }
     NkWindowConfig NkWindow::GetConfig() const { return mConfig; }
 
@@ -278,10 +318,10 @@ namespace nkentseu {
     // Setters
     // =============================================================================
 
-    void NkWindow::SetTitle(const std::string& title) {
+    void NkWindow::SetTitle(const NkString& title) {
         mConfig.title = title;
         if (mData.mDisplay && mData.mXid) {
-            XStoreName(mData.mDisplay, mData.mXid, title.c_str());
+            XStoreName(mData.mDisplay, mData.mXid, title.CStr());
         }
     }
 
@@ -434,14 +474,16 @@ namespace nkentseu {
     // =============================================================================
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
-        NkSurfaceDesc desc;
-        auto sz = GetSize();
-        desc.width = sz.x;
-        desc.height = sz.y;
-        desc.dpi = GetDpiScale();
-        desc.display = mData.mDisplay;
-        desc.window = mData.mXid;
-        return desc;
+        NkSurfaceDesc sd;
+        auto sz         = GetSize();
+        sd.width        = sz.x;
+        sd.height       = sz.y;
+        sd.dpi          = GetDpiScale();
+        sd.display      = mData.mDisplay;
+        sd.window       = mData.mXid;
+        sd.screen       = mData.mScreen;
+        sd.appliedHints = mData.mAppliedHints;   // ← ajout
+        return sd;
     }
 
 } // namespace nkentseu

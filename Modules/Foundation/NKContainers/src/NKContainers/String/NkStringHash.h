@@ -7,7 +7,7 @@
 
 #pragma once
 #include <cstdio>
-#include <cstddef>
+#include <stddef.h>
 
 #ifndef NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGHASH_H_INCLUDED
 #define NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGHASH_H_INCLUDED
@@ -15,10 +15,10 @@
 #include "NKContainers/NkCompat.h"
 #include "NkStringView.h"
 #include "NKCore/NkTypes.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace string {
             
             // ========================================
@@ -218,19 +218,19 @@ namespace nkentseu {
              */
             #if defined(NK_CPP11)
             inline namespace literals {
-                constexpr uint32 operator""_hash32(const char* str, std::size_t length) NK_NOEXCEPT {
+                constexpr uint32 operator""_hash32(const char* str, size_t length) NK_NOEXCEPT {
                     return NkHashCompileTime32(str, static_cast<usize>(length));
                 }
                 
-                constexpr uint64 operator""_hash64(const char* str, std::size_t length) NK_NOEXCEPT {
+                constexpr uint64 operator""_hash64(const char* str, size_t length) NK_NOEXCEPT {
                     return NkHashCompileTime64(str, static_cast<usize>(length));
                 }
                 
-                constexpr uint32 operator""_hash(const char* str, std::size_t length) NK_NOEXCEPT {
+                constexpr uint32 operator""_hash(const char* str, size_t length) NK_NOEXCEPT {
                     return NkHashCompileTime32(str, static_cast<usize>(length));
                 }
                 
-                constexpr uint32 operator""_murmur(const char* str, std::size_t length) NK_NOEXCEPT {
+                constexpr uint32 operator""_murmur(const char* str, size_t length) NK_NOEXCEPT {
                     // Note: MurmurHash cannot be constexpr, fallback to FNV
                     return NkHashCompileTime32(str, static_cast<usize>(length));
                 }
@@ -242,7 +242,7 @@ namespace nkentseu {
             // ========================================
             
             /**
-             * @brief Hash function for std::unordered_map
+             * @brief Hash function for NkUnorderedMap
              */
             struct NKENTSEU_CORE_API NkStringHash {
                 usize operator()(NkStringView str) const NK_NOEXCEPT {
@@ -255,7 +255,7 @@ namespace nkentseu {
             };
             
             /**
-             * @brief Case-insensitive hash for std::unordered_map
+             * @brief Case-insensitive hash for NkUnorderedMap
              */
             struct NKENTSEU_CORE_API NkStringHashIgnoreCase {
                 usize operator()(NkStringView str) const NK_NOEXCEPT {
@@ -375,7 +375,7 @@ namespace nkentseu {
             NKENTSEU_CORE_API double NkHashCollisionProbability(usize numItems, usize hashSpace) NK_NOEXCEPT;
             
         } // namespace string
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGHASH_H_INCLUDED

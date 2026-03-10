@@ -23,7 +23,7 @@ namespace nkentseu {
 /**
  * @brief Namespace core.
  */
-namespace core {
+
 
 /**
  * @brief Limites pour types entiers (template)
@@ -252,7 +252,7 @@ template <> struct NkNumericLimits<nk_float64> {
 	static constexpr nk_int32 max_exponent10 = 308;
 };
 
-} // namespace core
+
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKCORE_SRC_NKCORE_NKLIMITS_H_INCLUDED

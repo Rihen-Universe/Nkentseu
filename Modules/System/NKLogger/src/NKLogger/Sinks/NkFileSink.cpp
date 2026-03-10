@@ -6,13 +6,83 @@
 // -----------------------------------------------------------------------------
 
 #include "NKLogger/Sinks/NkFileSink.h"
-#include <filesystem>
-#include <chrono>
+
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+
+#include <cerrno>
+#include <cstdio>
+#include <sys/stat.h>
+
+#if defined(_WIN32)
+	#include <direct.h>
+#endif
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
 // -----------------------------------------------------------------------------
 namespace nkentseu {
+	namespace {
+		static bool NkPathExists(const NkString& path) {
+			if (path.Empty()) {
+				return false;
+			}
+			struct stat info {};
+			return ::stat(path.CStr(), &info) == 0;
+		}
+
+		static usize NkGetPathFileSize(const NkString& path) {
+			struct stat info {};
+			if (::stat(path.CStr(), &info) != 0) {
+				return 0;
+			}
+			return static_cast<usize>(info.st_size);
+		}
+
+		static bool NkCreateDirectory(const char* path) {
+#if defined(_WIN32)
+			const int rc = ::_mkdir(path);
+#else
+			const int rc = ::mkdir(path, 0755);
+#endif
+			return (rc == 0 || errno == EEXIST);
+		}
+
+		static bool NkCreateDirectories(const NkString& directory) {
+			if (directory.Empty()) {
+				return true;
+			}
+			if (NkPathExists(directory)) {
+				return true;
+			}
+
+			NkString current;
+			current.Reserve(directory.Size());
+			for (usize i = 0; i < directory.Size(); ++i) {
+				const char ch = directory[i];
+				current.PushBack(ch);
+				const bool separator = (ch == '/' || ch == '\\');
+				if (!separator) {
+					continue;
+				}
+				if (current.Size() <= 1) {
+					continue;
+				}
+				(void)NkCreateDirectory(current.CStr());
+			}
+			return NkCreateDirectory(directory.CStr());
+		}
+
+		static void NkEnsureParentDirectory(const NkString& filename) {
+			const usize slashPos = filename.FindLastOf("/\\");
+			if (slashPos == NkString::npos) {
+				return;
+			}
+			NkString directory = filename.SubStr(0, slashPos);
+			(void)NkCreateDirectories(directory);
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	// IMPLÉMENTATION DE NkFileSink
 	// -------------------------------------------------------------------------
@@ -20,14 +90,12 @@ namespace nkentseu {
 	/**
 	 * @brief Constructeur avec chemin de fichier
 	 */
-	NkFileSink::NkFileSink(const std::string &filename, bool truncate) : m_Filename(filename), m_Truncate(truncate) {
-		m_Formatter = std::make_unique<NkFormatter>(NkFormatter::NK_DEFAULT_PATTERN);
-
-		// Créer le répertoire parent si nécessaire
-		std::filesystem::path path(filename);
-		if (path.has_parent_path()) {
-			std::filesystem::create_directories(path.parent_path());
-		}
+	NkFileSink::NkFileSink(const NkString &filename, bool truncate)
+		: m_Formatter(memory::NkMakeUnique<NkFormatter>(NkFormatter::NK_DEFAULT_PATTERN)),
+		  m_FileStream(nullptr),
+		  m_Filename(filename),
+		  m_Truncate(truncate) {
+		NkEnsureParentDirectory(filename);
 
 		Open();
 	}
@@ -47,20 +115,23 @@ namespace nkentseu {
 			return;
 		}
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 
 		// Vérifier si le fichier est ouvert
-		if (!m_FileStream.is_open()) {
+		if (m_FileStream == nullptr) {
 			if (!OpenFile()) {
 				return; // Impossible d'ouvrir le fichier
 			}
 		}
 
 		// Formater le message
-		std::string formatted = m_Formatter->Format(message, false);
+		NkString formatted = m_Formatter->Format(message, false);
 
 		// Écrire dans le fichier
-		m_FileStream << formatted << std::endl;
+		if (formatted.Size() > 0) {
+			(void)::fwrite(formatted.CStr(), sizeof(char), static_cast<size_t>(formatted.Size()), m_FileStream);
+		}
+		(void)::fputc('\n', m_FileStream);
 
 		// Vérifier la rotation si nécessaire
 		CheckRotation();
@@ -70,25 +141,25 @@ namespace nkentseu {
 	 * @brief Force l'écriture des données en attente
 	 */
 	void NkFileSink::Flush() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		if (m_FileStream.is_open()) {
-			m_FileStream.flush();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		if (m_FileStream != nullptr) {
+			(void)::fflush(m_FileStream);
 		}
 	}
 
 	/**
 	 * @brief Définit le formatter pour ce sink
 	 */
-	void NkFileSink::SetFormatter(std::unique_ptr<NkFormatter> formatter) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		m_Formatter = std::move(formatter);
+	void NkFileSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		m_Formatter = traits::NkMove(formatter);
 	}
 
 	/**
 	 * @brief Définit le pattern de formatage
 	 */
-	void NkFileSink::SetPattern(const std::string &pattern) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkFileSink::SetPattern(const NkString &pattern) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			m_Formatter->SetPattern(pattern);
 		}
@@ -98,26 +169,26 @@ namespace nkentseu {
 	 * @brief Obtient le formatter courant
 	 */
 	NkFormatter *NkFileSink::GetFormatter() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return m_Formatter.get();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return m_Formatter.Get();
 	}
 
 	/**
 	 * @brief Obtient le pattern courant
 	 */
-	std::string NkFileSink::GetPattern() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	NkString NkFileSink::GetPattern() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			return m_Formatter->GetPattern();
 		}
-		return "";
+		return NkString();
 	}
 
 	/**
 	 * @brief Ouvre le fichier
 	 */
 	bool NkFileSink::Open() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return OpenFile();
 	}
 
@@ -125,9 +196,10 @@ namespace nkentseu {
 	 * @brief Ferme le fichier
 	 */
 	void NkFileSink::Close() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		if (m_FileStream.is_open()) {
-			m_FileStream.close();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		if (m_FileStream != nullptr) {
+			(void)::fclose(m_FileStream);
+			m_FileStream = nullptr;
 		}
 	}
 
@@ -135,38 +207,36 @@ namespace nkentseu {
 	 * @brief Vérifie si le fichier est ouvert
 	 */
 	bool NkFileSink::IsOpen() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return m_FileStream.is_open();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return m_FileStream != nullptr;
 	}
 
 	/**
 	 * @brief Obtient le nom du fichier
 	 */
-	std::string NkFileSink::GetFilename() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	NkString NkFileSink::GetFilename() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_Filename;
 	}
 
 	/**
 	 * @brief Définit un nouveau nom de fichier
 	 */
-	void NkFileSink::SetFilename(const std::string &filename) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkFileSink::SetFilename(const NkString &filename) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 
 		if (m_Filename != filename) {
 			// Fermer l'ancien fichier
-			if (m_FileStream.is_open()) {
-				m_FileStream.close();
+			if (m_FileStream != nullptr) {
+				(void)::fclose(m_FileStream);
+				m_FileStream = nullptr;
 			}
 
 			// Mettre à jour le nom
 			m_Filename = filename;
 
 			// Créer le répertoire parent si nécessaire
-			std::filesystem::path path(filename);
-			if (path.has_parent_path()) {
-				std::filesystem::create_directories(path.parent_path());
-			}
+			NkEnsureParentDirectory(filename);
 
 			// Ouvrir le nouveau fichier
 			OpenFile();
@@ -176,32 +246,24 @@ namespace nkentseu {
 	/**
 	 * @brief Obtient la taille actuelle du fichier
 	 */
-	core::usize NkFileSink::GetFileSize() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-
-		if (!std::filesystem::exists(m_Filename)) {
-			return 0;
-		}
-
-		try {
-			return std::filesystem::file_size(m_Filename);
-		} catch (...) {
-			return 0;
-		}
+	usize NkFileSink::GetFileSize() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return NkGetPathFileSize(m_Filename);
 	}
 
 	/**
 	 * @brief Définit le mode d'ouverture
 	 */
 	void NkFileSink::SetTruncate(bool truncate) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 
 		if (m_Truncate != truncate) {
 			m_Truncate = truncate;
 
 			// Re-ouvrir le fichier avec le nouveau mode
-			if (m_FileStream.is_open()) {
-				m_FileStream.close();
+			if (m_FileStream != nullptr) {
+				(void)::fclose(m_FileStream);
+				m_FileStream = nullptr;
 				OpenFile();
 			}
 		}
@@ -211,7 +273,7 @@ namespace nkentseu {
 	 * @brief Obtient le mode d'ouverture
 	 */
 	bool NkFileSink::GetTruncate() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_Truncate;
 	}
 
@@ -219,35 +281,23 @@ namespace nkentseu {
 	 * @brief Ouvre le fichier avec le mode approprié
 	 */
 	bool NkFileSink::OpenFile() {
-		if (m_Filename.empty()) {
+		if (m_Filename.Empty()) {
 			return false;
 		}
 
-		// Déterminer le mode d'ouverture
-		std::ios_base::openmode mode = std::ios_base::out;
-		if (!m_Truncate) {
-			mode |= std::ios_base::app;
+		NkEnsureParentDirectory(m_Filename);
+
+		const char* mode = m_Truncate ? "wb" : "ab";
+		m_FileStream = ::fopen(m_Filename.CStr(), mode);
+		if (m_FileStream == nullptr) {
+			NkEnsureParentDirectory(m_Filename);
+			m_FileStream = ::fopen(m_Filename.CStr(), mode);
 		}
-
-		// Ouvrir le fichier
-		m_FileStream.open(m_Filename, mode);
-
-		if (!m_FileStream.is_open()) {
-			// Essayer de créer le répertoire parent
-			std::filesystem::path path(m_Filename);
-			if (path.has_parent_path()) {
-				std::filesystem::create_directories(path.parent_path());
-				m_FileStream.open(m_Filename, mode);
-			}
-		}
-
-		// Vérifier l'ouverture
-		if (!m_FileStream.is_open()) {
+		if (m_FileStream == nullptr) {
 			return false;
 		}
 
-		// Configurer le flux
-		m_FileStream << std::unitbuf; // Pas de buffering
+		(void)::setvbuf(m_FileStream, nullptr, _IONBF, 0); // Pas de buffering
 		return true;
 	}
 

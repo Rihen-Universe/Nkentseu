@@ -10,7 +10,7 @@
 #include "NkUTF32.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace encoding {
             namespace utf8 {
 
@@ -246,7 +246,7 @@ namespace nkentseu {
 
             } // namespace utf8
         } // namespace encoding
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

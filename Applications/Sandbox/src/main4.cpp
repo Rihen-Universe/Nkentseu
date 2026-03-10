@@ -15,13 +15,17 @@
 #include "NKTime/NkChrono.h"
 #include "NKWindow/Core/NkMain.h"
 
-#include <cstdio>
+#include "NKLogger/NkLog.h"
+#include "NKMath/NKMath.h"
+#include "NKMemory/NkMemory.h"
+
 #include <cmath>
 
 namespace {
 using namespace nkentseu;
+using namespace nkentseu::math;
 
-static float ClampUnit(float v) { return v < 0.f ? 0.f : v > 1.f ? 1.f : v; }
+static float ClampUnit(float v) { return NkMax(0.f, NkMin(1.f, v)); }
 
 // ---------------------------------------------------------------------------
 // Etat applicatif plat (Pattern B — pas de classes)
@@ -52,13 +56,13 @@ static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
         float fy = y / (float)h - 0.5f;
         for (NkU32 x = 0; x < w; x += blk) {
             float fx  = x / (float)w - 0.5f;
-            float rd  = std::sqrt(fx*fx + fy*fy);
-            float mix = (std::sin((fx+ph.x)*13.5f+t*1.7f)
-                        +std::sin((fy+ph.y)*11.f -t*1.3f)
-                        +std::sin(rd*24.f        -t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255);
+            float rd  = NkSqrt(fx*fx + fy*fy);
+            float mix = (NkSin((fx+ph.x)*13.5f+t*1.7f)
+                        +NkSin((fy+ph.y)*11.f -t*1.3f)
+                        +NkSin(rd*24.f        -t*2.1f)) * 0.333f;
+            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255);
+            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255);
+            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255);
             NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
             for (NkU32 by=0;by<blk&&(y+by)<h;++by)
                 for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
@@ -146,7 +150,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // 5. Boucle principale
     while (s.running && window.IsOpen())
     {
-        chrono.Reset();
+        NkElapsedTime e = chrono.Reset();
 
         // -------------------------------------------------------------------
         // 5a. Pomper uniquement les événements haute-priorité
@@ -183,12 +187,12 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             float lt = gp.GetAxis(0, NkGamepadAxis::NK_GP_AXIS_LT);
 
             // Stick gauche : déplacer phase
-            if (std::fabs(lx) > deadzone) s.phase.x += lx * 0.025f;
-            if (std::fabs(ly) > deadzone) s.phase.y += ly * 0.025f;
+            if (NkFabs(lx) > deadzone) s.phase.x += lx * 0.025f;
+            if (NkFabs(ly) > deadzone) s.phase.y += ly * 0.025f;
 
             // Stick droit X : saturation
-            if (std::fabs(rx) > deadzone)
-                s.saturation = std::fmax(0.1f, std::fmin(3.f,
+            if (NkFabs(rx) > deadzone)
+                s.saturation = NkMax(0.1f, NkMin(3.f,
                     s.saturation + rx * 0.01f));
 
             // RT/LT : vitesse time
@@ -241,7 +245,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             s.currentFps = (float)s.fpsFrames / (float)s.fpsAccum;
             s.fpsAccum   = 0.0;
             s.fpsFrames  = 0;
-            std::printf("[FPS] %.1f\n", s.currentFps);
+            logger.Info("[FPS] {0}", s.currentFps);
         }
 
         // -------------------------------------------------------------------
@@ -270,6 +274,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     }
 
     renderer.Shutdown();
+    window.Close();
     NkClose();
     return 0;
 }

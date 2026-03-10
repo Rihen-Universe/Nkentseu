@@ -13,12 +13,14 @@
 #include "NKLogger/NkSink.h"
 #include "NKLogger/NkFormatter.h"
 #include "NKLogger/NkTextFormat.h"
-#include <memory>
-#include <vector>
-#include <string>
-#include <string_view>
-#include <mutex>
-#include <type_traits>
+#include "NKLogger/NkSync.h"
+#include "NKCore/NkTraits.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkSharedPtr.h"
+#include "NKMemory/NkUniquePtr.h"
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -39,7 +41,7 @@ namespace nkentseu {
 		 * @brief Constructeur de logger avec nom
 		 * @param name Nom du logger
 		 */
-		explicit NkLogger(const std::string &name);
+		explicit NkLogger(const NkString &name);
 
 		/**
 		 * @brief Destructeur du logger
@@ -54,7 +56,7 @@ namespace nkentseu {
 		 * @brief Ajoute un sink au logger
 		 * @param sink Sink à ajouter (partagé)
 		 */
-		void AddSink(std::shared_ptr<NkISink> sink);
+		void AddSink(memory::NkSharedPtr<NkISink> sink);
 
 		/**
 		 * @brief Supprime tous les sinks du logger
@@ -65,7 +67,7 @@ namespace nkentseu {
 		 * @brief Obtient le nombre de sinks attachés
 		 * @return Nombre de sinks
 		 */
-		core::usize GetSinkCount() const;
+		usize GetSinkCount() const;
 
 		// ---------------------------------------------------------------------
 		// CONFIGURATION DU FORMATTER
@@ -75,13 +77,13 @@ namespace nkentseu {
 		 * @brief Définit le formatter pour tous les sinks
 		 * @param formatter NkFormatter à utiliser
 		 */
-		void SetFormatter(std::unique_ptr<NkFormatter> formatter);
+		void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter);
 
 		/**
 		 * @brief Définit le pattern de formatage
 		 * @param pattern Pattern à utiliser
 		 */
-		void SetPattern(const std::string &pattern);
+		void SetPattern(const NkString &pattern);
 
 		// ---------------------------------------------------------------------
 		// CONFIGURATION DU NIVEAU DE LOG
@@ -137,7 +139,7 @@ namespace nkentseu {
 		 * @param func Fonction source
 		 * @param message Message à logger
 		 */
-		void Log(NkLogLevel level, const char *file, int line, const char *func, const std::string &message);
+		void Log(NkLogLevel level, const char *file, int line, const char *func, const NkString &message);
 
 		/**
 		 * @brief Log avec format string, informations de source et va_list
@@ -208,49 +210,49 @@ namespace nkentseu {
 		 * @param level Niveau de log
 		 * @param message Message à logger
 		 */
-		void Log(NkLogLevel level, const std::string &message);
+		void Log(NkLogLevel level, const NkString &message);
 
 		/**
 		 * @brief Log trace avec stream style
 		 * @param message Message à logger
 		 */
-		void Trace(const std::string &message);
+		void Trace(const NkString &message);
 
 		/**
 		 * @brief Log debug avec stream style
 		 * @param message Message à logger
 		 */
-		void Debug(const std::string &message);
+		void Debug(const NkString &message);
 
 		/**
 		 * @brief Log info avec stream style
 		 * @param message Message à logger
 		 */
-		void Info(const std::string &message);
+		void Info(const NkString &message);
 
 		/**
 		 * @brief Log warning avec stream style
 		 * @param message Message à logger
 		 */
-		void Warn(const std::string &message);
+		void Warn(const NkString &message);
 
 		/**
 		 * @brief Log error avec stream style
 		 * @param message Message à logger
 		 */
-		void Error(const std::string &message);
+		void Error(const NkString &message);
 
 		/**
 		 * @brief Log critical avec stream style
 		 * @param message Message à logger
 		 */
-		void Critical(const std::string &message);
+		void Critical(const NkString &message);
 
 		/**
 		 * @brief Log fatal avec stream style
 		 * @param message Message à logger
 		 */
-		void Fatal(const std::string &message);
+		void Fatal(const NkString &message);
 
 		// ---------------------------------------------------------------------
 		// MÉTHODES DE LOGGING (INDEXED FORMAT STYLE: {i:p}) - API PRINCIPALE
@@ -262,47 +264,47 @@ namespace nkentseu {
 		 * @param format Chaîne de format
 		 * @param args Arguments typés
 		 */
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Log(NkLogLevel level, std::string_view format, Args&&... args) {
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Log(NkLogLevel level, NkStringView format, Args&&... args) {
 			if (!ShouldLog(level))
 				return;
-			std::string message = NkFormatIndexed(format, std::forward<Args>(args)...);
-			LogInternal(level, message, m_SourceFile.c_str(), m_SourceLine, m_FunctionName.c_str());
+			NkString message = NkFormatIndexed(format, traits::NkForward<Args>(args)...);
+			LogInternal(level, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 		}
 
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Trace(std::string_view format, Args&&... args) {
-			Log(NkLogLevel::NK_TRACE, format, std::forward<Args>(args)...);
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Trace(NkStringView format, Args&&... args) {
+			Log(NkLogLevel::NK_TRACE, format, traits::NkForward<Args>(args)...);
 		}
 
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Debug(std::string_view format, Args&&... args) {
-			Log(NkLogLevel::NK_DEBUG, format, std::forward<Args>(args)...);
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Debug(NkStringView format, Args&&... args) {
+			Log(NkLogLevel::NK_DEBUG, format, traits::NkForward<Args>(args)...);
 		}
 
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Info(std::string_view format, Args&&... args) {
-			Log(NkLogLevel::NK_INFO, format, std::forward<Args>(args)...);
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Info(NkStringView format, Args&&... args) {
+			Log(NkLogLevel::NK_INFO, format, traits::NkForward<Args>(args)...);
 		}
 
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Warn(std::string_view format, Args&&... args) {
-			Log(NkLogLevel::NK_WARN, format, std::forward<Args>(args)...);
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Warn(NkStringView format, Args&&... args) {
+			Log(NkLogLevel::NK_WARN, format, traits::NkForward<Args>(args)...);
 		}
 
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Error(std::string_view format, Args&&... args) {
-			Log(NkLogLevel::NK_ERROR, format, std::forward<Args>(args)...);
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Error(NkStringView format, Args&&... args) {
+			Log(NkLogLevel::NK_ERROR, format, traits::NkForward<Args>(args)...);
 		}
 
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Critical(std::string_view format, Args&&... args) {
-			Log(NkLogLevel::NK_CRITICAL, format, std::forward<Args>(args)...);
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Critical(NkStringView format, Args&&... args) {
+			Log(NkLogLevel::NK_CRITICAL, format, traits::NkForward<Args>(args)...);
 		}
 
-		template <typename... Args, typename std::enable_if_t<(sizeof...(Args) > 0), int> = 0>
-		void Fatal(std::string_view format, Args&&... args) {
-			Log(NkLogLevel::NK_FATAL, format, std::forward<Args>(args)...);
+		template <typename... Args, typename traits::NkEnableIf_t<(sizeof...(Args) > 0), int> = 0>
+		void Fatal(NkStringView format, Args&&... args) {
+			Log(NkLogLevel::NK_FATAL, format, traits::NkForward<Args>(args)...);
 		}
 
 		// ---------------------------------------------------------------------
@@ -318,7 +320,7 @@ namespace nkentseu {
 		 * @brief Obtient le nom du logger
 		 * @return Nom du logger
 		 */
-		const std::string &GetName() const;
+		const NkString &GetName() const;
 
 		/**
 		 * @brief Vérifie si le logger est actif
@@ -353,7 +355,7 @@ namespace nkentseu {
 		 * @param sourceLine Ligne source (optionnel)
 		 * @param functionName Fonction source (optionnel)
 		 */
-		void LogInternal(NkLogLevel level, const std::string &message, const char *sourceFile = nullptr,
+		void LogInternal(NkLogLevel level, const NkString &message, const char *sourceFile = nullptr,
 						uint32 sourceLine = 0, const char *functionName = nullptr);
 
 		// ---------------------------------------------------------------------
@@ -361,7 +363,7 @@ namespace nkentseu {
 		// ---------------------------------------------------------------------
 
 		/// Nom du logger
-		std::string m_Name;
+		NkString m_Name;
 
 		/// Niveau de log minimum
 		NkLogLevel m_Level;
@@ -370,17 +372,17 @@ namespace nkentseu {
 		bool m_Enabled;
 
 	protected:
-		void SetName(const std::string &name) {
+		void SetName(const NkString &name) {
 			m_Name = name;
 		}
 		/// Mutex pour la synchronisation thread-safe
-		mutable std::mutex m_Mutex;
+		mutable logger_sync::NkMutex m_Mutex;
 
 		/// Liste des sinks attachés
-		std::vector<std::shared_ptr<NkISink>> m_Sinks;
+		NkVector<memory::NkSharedPtr<NkISink>> m_Sinks;
 
 		/// NkFormatter pour le formatting
-		std::unique_ptr<NkFormatter> m_Formatter;
+		memory::NkUniquePtr<NkFormatter> m_Formatter;
 
 		/**
 		 * @brief Formatage variadique
@@ -388,11 +390,11 @@ namespace nkentseu {
 		 * @param args Arguments variables
 		 * @return Chaîne formatée
 		 */
-		std::string FormatString(const char *format, va_list args);
+		NkString FormatString(const char *format, va_list args);
 
-		std::string m_SourceFile;
+		NkString m_SourceFile;
 		uint32 m_SourceLine;
-		std::string m_FunctionName;
+		NkString m_FunctionName;
 	};
 
 	// -------------------------------------------------------------------------

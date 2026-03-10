@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkJSONWriter.h"
+#include "NKSerialization/JSON/NkJSONWriter.h"
 
 namespace nkentseu {
     namespace entseu {

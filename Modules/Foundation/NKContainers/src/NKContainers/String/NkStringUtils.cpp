@@ -10,12 +10,34 @@
 #include <cstdio>   // Pour sprintf
 #include <cstdlib>  // Pour atoi, atof
 #include <cstdarg>  // Pour va_list
-#include <random>   // Pour génération aléatoire
-#include <algorithm> // Pour transform
+#include <time.h>
 
 namespace nkentseu {
-    namespace core {
+    
         namespace string {
+            namespace {
+                static uint64 gNkStringUtilsRngState = 0u;
+
+                inline uint64 NkRandomNextU64() {
+                    if (gNkStringUtilsRngState == 0u) {
+                        gNkStringUtilsRngState = static_cast<uint64>(time(nullptr));
+                        if (gNkStringUtilsRngState == 0u) {
+                            gNkStringUtilsRngState = 0x9E3779B97F4A7C15ULL;
+                        }
+                    }
+
+                    uint64 x = gNkStringUtilsRngState;
+                    x ^= x >> 12u;
+                    x ^= x << 25u;
+                    x ^= x >> 27u;
+                    gNkStringUtilsRngState = x;
+                    return x * 0x2545F4914F6CDD1DULL;
+                }
+
+                inline uint32 NkRandomNextU32() {
+                    return static_cast<uint32>(NkRandomNextU64() >> 32u);
+                }
+            } // namespace
 
             // ========================================
             // BASIC OPERATIONS
@@ -25,12 +47,12 @@ namespace nkentseu {
                 return str.Length();
             }
 
-            bool NkIsEmpty(NkStringView str) {
-                return str.IsEmpty();
+            bool NkEmpty(NkStringView str) {
+                return str.Empty();
             }
 
             bool NkIsNotEmpty(NkStringView str) {
-                return !str.IsEmpty();
+                return !str.Empty();
             }
 
             // ========================================
@@ -220,7 +242,7 @@ namespace nkentseu {
             // ========================================
 
             NkString NkReplace(NkStringView str, NkStringView from, NkStringView to) {
-                if (from.IsEmpty()) return NkString(str);
+                if (from.Empty()) return NkString(str);
                 
                 auto pos = str.Find(from);
                 if (pos == NkStringView::npos) return NkString(str);
@@ -235,7 +257,7 @@ namespace nkentseu {
             }
 
             NkString NkReplaceAll(NkStringView str, NkStringView from, NkStringView to) {
-                if (from.IsEmpty()) return NkString(str);
+                if (from.Empty()) return NkString(str);
                 
                 NkString result;
                 result.Reserve(str.Length());
@@ -266,7 +288,7 @@ namespace nkentseu {
             }
 
             NkString NkReplaceLast(NkStringView str, NkStringView from, NkStringView to) {
-                if (from.IsEmpty()) return NkString(str);
+                if (from.Empty()) return NkString(str);
                 
                 auto pos = str.FindLast(from);
                 if (pos == NkStringView::npos) return NkString(str);
@@ -293,7 +315,7 @@ namespace nkentseu {
             // ========================================
 
             bool NkParseInt(NkStringView str, int32& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 Char buffer[64];
                 usize len = str.Length() < 63 ? str.Length() : 63;
@@ -309,7 +331,7 @@ namespace nkentseu {
             }
 
             bool NkParseInt64(NkStringView str, int64& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 Char buffer[64];
                 usize len = str.Length() < 63 ? str.Length() : 63;
@@ -322,7 +344,7 @@ namespace nkentseu {
             }
 
             bool NkParseUInt(NkStringView str, uint32& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 Char buffer[64];
                 usize len = str.Length() < 63 ? str.Length() : 63;
@@ -338,7 +360,7 @@ namespace nkentseu {
             }
 
             bool NkParseUInt64(NkStringView str, uint64& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 Char buffer[64];
                 usize len = str.Length() < 63 ? str.Length() : 63;
@@ -351,7 +373,7 @@ namespace nkentseu {
             }
 
             bool NkParseFloat(NkStringView str, float32& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 Char buffer[128];
                 usize len = str.Length() < 127 ? str.Length() : 127;
@@ -364,7 +386,7 @@ namespace nkentseu {
             }
 
             bool NkParseDouble(NkStringView str, float64& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 Char buffer[128];
                 usize len = str.Length() < 127 ? str.Length() : 127;
@@ -391,7 +413,7 @@ namespace nkentseu {
             }
 
             bool NkParseHex(NkStringView str, uint32& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 NkStringView trimmed = NkTrim(str);
                 if (trimmed.StartsWith("0x") || trimmed.StartsWith("0X")) {
@@ -412,7 +434,7 @@ namespace nkentseu {
             }
 
             bool NkParseHex(NkStringView str, uint64& out) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 NkStringView trimmed = NkTrim(str);
                 if (trimmed.StartsWith("0x") || trimmed.StartsWith("0X")) {
@@ -501,6 +523,17 @@ namespace nkentseu {
                 return NkString(buffer, len);
             }
 
+            NkString NkToStringf(const Char* format, ...) {
+                if (!format) return NkString();
+                
+                va_list args;
+                va_start(args, format);
+                NkString result = NkVFormatf(format, args);
+                va_end(args);
+                
+                return result;
+            }
+
             // ========================================
             // COMPARISON
             // ========================================
@@ -568,7 +601,7 @@ namespace nkentseu {
             }
 
             bool NkIsAllDigits(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 for (usize i = 0; i < str.Length(); ++i) {
                     if (!NkIsDigit(str[i])) return false;
                 }
@@ -576,7 +609,7 @@ namespace nkentseu {
             }
 
             bool NkIsAllAlpha(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 for (usize i = 0; i < str.Length(); ++i) {
                     if (!NkIsAlpha(str[i])) return false;
                 }
@@ -584,7 +617,7 @@ namespace nkentseu {
             }
 
             bool NkIsAllAlphaNumeric(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 for (usize i = 0; i < str.Length(); ++i) {
                     if (!NkIsAlphaNumeric(str[i])) return false;
                 }
@@ -592,7 +625,7 @@ namespace nkentseu {
             }
 
             bool NkIsAllHexDigits(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 for (usize i = 0; i < str.Length(); ++i) {
                     if (!NkIsHexDigit(str[i])) return false;
                 }
@@ -600,7 +633,7 @@ namespace nkentseu {
             }
 
             bool NkIsAllPrintable(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 for (usize i = 0; i < str.Length(); ++i) {
                     if (!NkIsPrintable(str[i])) return false;
                 }
@@ -608,10 +641,10 @@ namespace nkentseu {
             }
 
             bool NkIsNumeric(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 NkStringView trimmed = NkTrim(str);
-                if (trimmed.IsEmpty()) return false;
+                if (trimmed.Empty()) return false;
                 
                 bool hasDecimal = false;
                 bool hasSign = false;
@@ -637,10 +670,10 @@ namespace nkentseu {
             }
 
             bool NkIsInteger(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 NkStringView trimmed = NkTrim(str);
-                if (trimmed.IsEmpty()) return false;
+                if (trimmed.Empty()) return false;
                 
                 usize start = 0;
                 if (trimmed[0] == '+' || trimmed[0] == '-') {
@@ -658,7 +691,7 @@ namespace nkentseu {
             }
 
             bool NkIsPalindrome(NkStringView str, bool ignoreCase) {
-                if (str.IsEmpty()) return true;
+                if (str.Empty()) return true;
                 
                 usize i = 0;
                 usize j = str.Length() - 1;
@@ -683,7 +716,7 @@ namespace nkentseu {
 
             bool NkIsEmail(NkStringView str) {
                 NkStringView trimmed = NkTrim(str);
-                if (trimmed.IsEmpty()) return false;
+                if (trimmed.Empty()) return false;
                 
                 usize atPos = trimmed.Find('@');
                 if (atPos == NkStringView::npos || atPos == 0 || atPos == trimmed.Length() - 1) {
@@ -704,7 +737,7 @@ namespace nkentseu {
             }
 
             bool NkIsIdentifier(NkStringView str) {
-                if (str.IsEmpty()) return false;
+                if (str.Empty()) return false;
                 
                 // Premier caractère doit être une lettre ou underscore
                 if (!encoding::ascii::NkIsAlpha(str[0]) && str[0] != '_') {
@@ -789,10 +822,10 @@ namespace nkentseu {
             }
 
             // ========================================
-            // FORMAT
+            // FORMAT - Printf-style %d, %s, etc.
             // ========================================
 
-            NkString NkFormat(const Char* format, ...) {
+            NkString NkFormatf(const Char* format, ...) {
                 if (!format) return NkString();
                 
                 va_list args;
@@ -818,7 +851,7 @@ namespace nkentseu {
                 return result;
             }
 
-            NkString NkVFormat(const Char* format, va_list args) {
+            NkString NkVFormatf(const Char* format, va_list args) {
                 if (!format) return NkString();
                 
                 va_list args_copy;
@@ -835,6 +868,14 @@ namespace nkentseu {
                 return result;
             }
 
+            // ========================================
+            // FORMAT - Placeholder-style {i:p}
+            // ========================================
+            // Implémentation dans NkStringFormat.h (templates)
+            // 
+            // NkString NkFormat(NkStringView format, ...);
+            // NkString NkVFormat(NkStringView format, va_list args);
+            
             // ========================================
             // SEARCH & FIND
             // ========================================
@@ -871,7 +912,7 @@ namespace nkentseu {
             }
 
             bool NkContainsIgnoreCase(NkStringView str, NkStringView substring) {
-                if (substring.IsEmpty()) return true;
+                if (substring.Empty()) return true;
                 if (str.Length() < substring.Length()) return false;
                 
                 for (usize i = 0; i <= str.Length() - substring.Length(); ++i) {
@@ -898,7 +939,7 @@ namespace nkentseu {
             }
 
             bool NkContainsOnly(NkStringView str, NkStringView characters) {
-                if (str.IsEmpty()) return true;
+                if (str.Empty()) return true;
                 
                 for (usize i = 0; i < str.Length(); ++i) {
                     bool found = false;
@@ -966,7 +1007,7 @@ namespace nkentseu {
             }
 
             usize NkCount(NkStringView str, NkStringView substring) {
-                if (substring.IsEmpty() || str.Length() < substring.Length()) return 0;
+                if (substring.Empty() || str.Length() < substring.Length()) return 0;
                 
                 usize count = 0;
                 usize pos = 0;
@@ -988,7 +1029,7 @@ namespace nkentseu {
             }
 
             usize NkFindIgnoreCase(NkStringView str, NkStringView substring, usize start) {
-                if (substring.IsEmpty()) return start < str.Length() ? start : NkStringView::npos;
+                if (substring.Empty()) return start < str.Length() ? start : NkStringView::npos;
                 if (str.Length() < substring.Length()) return NkStringView::npos;
                 
                 for (usize i = start; i <= str.Length() - substring.Length(); ++i) {
@@ -1001,7 +1042,7 @@ namespace nkentseu {
             }
 
             usize NkFindLastIgnoreCase(NkStringView str, NkStringView substring) {
-                if (substring.IsEmpty()) return str.Length() > 0 ? str.Length() - 1 : NkStringView::npos;
+                if (substring.Empty()) return str.Length() > 0 ? str.Length() - 1 : NkStringView::npos;
                 if (str.Length() < substring.Length()) return NkStringView::npos;
                 
                 for (usize i = str.Length() - substring.Length(); i != static_cast<usize>(-1); --i) {
@@ -1057,11 +1098,11 @@ namespace nkentseu {
             }
 
             char NkFirstChar(NkStringView str) {
-                return str.IsEmpty() ? '\0' : str[0];
+                return str.Empty() ? '\0' : str[0];
             }
 
             char NkLastChar(NkStringView str) {
-                return str.IsEmpty() ? '\0' : str[str.Length() - 1];
+                return str.Empty() ? '\0' : str[str.Length() - 1];
             }
 
             NkStringView NkFirstChars(NkStringView str, usize count) {
@@ -1087,7 +1128,7 @@ namespace nkentseu {
             // ========================================
 
             NkString NkCapitalize(NkStringView str) {
-                if (str.IsEmpty()) return NkString();
+                if (str.Empty()) return NkString();
                 
                 NkString result(str);
                 NkCapitalizeInPlace(result);
@@ -1095,7 +1136,7 @@ namespace nkentseu {
             }
 
             void NkCapitalizeInPlace(NkString& str) {
-                if (str.IsEmpty()) return;
+                if (str.Empty()) return;
                 
                 str[0] = encoding::ascii::NkToUpper(str[0]);
                 for (usize i = 1; i < str.Length(); ++i) {
@@ -1104,7 +1145,7 @@ namespace nkentseu {
             }
 
             NkString NkTitleCase(NkStringView str) {
-                if (str.IsEmpty()) return NkString();
+                if (str.Empty()) return NkString();
                 
                 NkString result(str);
                 NkTitleCaseInPlace(result);
@@ -1112,7 +1153,7 @@ namespace nkentseu {
             }
 
             void NkTitleCaseInPlace(NkString& str) {
-                if (str.IsEmpty()) return;
+                if (str.Empty()) return;
                 
                 bool newWord = true;
                 for (usize i = 0; i < str.Length(); ++i) {
@@ -1148,7 +1189,7 @@ namespace nkentseu {
             }
 
             NkString NkRemoveChars(NkStringView str, NkStringView charsToRemove) {
-                if (str.IsEmpty() || charsToRemove.IsEmpty()) return NkString(str);
+                if (str.Empty() || charsToRemove.Empty()) return NkString(str);
                 
                 NkString result;
                 result.Reserve(str.Length());
@@ -1170,7 +1211,7 @@ namespace nkentseu {
             }
 
             void NkRemoveCharsInPlace(NkString& str, NkStringView charsToRemove) {
-                if (str.IsEmpty() || charsToRemove.IsEmpty()) return;
+                if (str.Empty() || charsToRemove.Empty()) return;
                 
                 usize writePos = 0;
                 for (usize readPos = 0; readPos < str.Length(); ++readPos) {
@@ -1192,7 +1233,7 @@ namespace nkentseu {
             }
 
             NkString NkRemoveDuplicates(NkStringView str, char duplicateChar) {
-                if (str.IsEmpty()) return NkString();
+                if (str.Empty()) return NkString();
                 
                 NkString result;
                 result.Reserve(str.Length());
@@ -1209,7 +1250,7 @@ namespace nkentseu {
             }
 
             void NkRemoveDuplicatesInPlace(NkString& str, char duplicateChar) {
-                if (str.IsEmpty()) return;
+                if (str.Empty()) return;
                 
                 usize writePos = 1;
                 for (usize readPos = 1; readPos < str.Length(); ++readPos) {
@@ -1230,7 +1271,7 @@ namespace nkentseu {
                 bool lastWasSpace = false;
                 for (usize i = 0; i < str.Length(); ++i) {
                     if (encoding::ascii::NkIsWhitespace(str[i])) {
-                        if (!lastWasSpace && !result.IsEmpty()) {
+                        if (!lastWasSpace && !result.Empty()) {
                             result.Append(' ');
                             lastWasSpace = true;
                         }
@@ -1798,7 +1839,7 @@ namespace nkentseu {
             }
 
             NkString NkChangeExtension(NkStringView path, NkStringView newExtension) {
-                if (newExtension.IsEmpty() || newExtension[0] != '.') {
+                if (newExtension.Empty() || newExtension[0] != '.') {
                     return NkString(path);
                 }
                 
@@ -1816,8 +1857,8 @@ namespace nkentseu {
             }
 
             NkString NkCombinePaths(NkStringView path1, NkStringView path2) {
-                if (path1.IsEmpty()) return NkString(path2);
-                if (path2.IsEmpty()) return NkString(path1);
+                if (path1.Empty()) return NkString(path2);
+                if (path2.Empty()) return NkString(path1);
                 
                 NkString result(path1);
                 
@@ -1851,7 +1892,7 @@ namespace nkentseu {
             }
 
             bool NkIsAbsolutePath(NkStringView path) {
-                if (path.IsEmpty()) return false;
+                if (path.Empty()) return false;
                 
                 // Windows: C:\ ou \\server
                 if (path.Length() >= 2) {
@@ -1938,7 +1979,7 @@ namespace nkentseu {
                     }
                 }
                 // Si la chaîne ne se termine pas par \n, compter la dernière ligne
-                if (!str.IsEmpty() && str[str.Length() - 1] != '\n') {
+                if (!str.Empty() && str[str.Length() - 1] != '\n') {
                     ++count;
                 }
                 return count;
@@ -2046,7 +2087,7 @@ namespace nkentseu {
 
             bool NkIsURL(NkStringView str) {
                 NkStringView trimmed = NkTrim(str);
-                if (trimmed.IsEmpty()) return false;
+                if (trimmed.Empty()) return false;
                 
                 // Vérifier les préfixes courants
                 return NkStartsWithIgnoreCase(trimmed, "http://") ||
@@ -2060,32 +2101,26 @@ namespace nkentseu {
             // ========================================
 
             NkString NkRandomString(usize length, NkStringView charset) {
-                if (length == 0 || charset.IsEmpty()) return NkString();
-                
-                static ::std::random_device rd;
-                static ::std::mt19937 gen(rd());
-                ::std::uniform_int_distribution<> dis(0, static_cast<int>(charset.Length()) - 1);
-                
+                if (length == 0 || charset.Empty()) return NkString();
+
                 NkString result;
                 result.Reserve(length);
-                
+
                 for (usize i = 0; i < length; ++i) {
-                    result.Append(charset[dis(gen)]);
+                    const usize idx = static_cast<usize>(NkRandomNextU64() % charset.Length());
+                    result.Append(charset[idx]);
                 }
-                
+
                 return result;
             }
 
             NkString NkGenerateUUID() {
                 // Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-                static ::std::random_device rd;
-                static ::std::mt19937_64 gen(rd());
-                static ::std::uniform_int_distribution<uint32> dis(0, 0xFFFFFFFF);
-                
-                uint32 part1 = dis(gen);
-                uint32 part2 = dis(gen);
-                uint32 part3 = dis(gen);
-                uint32 part4 = dis(gen);
+
+                uint32 part1 = NkRandomNextU32();
+                uint32 part2 = NkRandomNextU32();
+                uint32 part3 = NkRandomNextU32();
+                uint32 part4 = NkRandomNextU32();
                 
                 Char buffer[37];
                 snprintf(buffer, sizeof(buffer),
@@ -2195,7 +2230,7 @@ namespace nkentseu {
             }
 
         } // namespace string
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

@@ -12,7 +12,6 @@
 
 #include "NkGenericHidEvent.h"
 
-#include <unordered_map>
 #include <algorithm>
 #include <cmath>
 
@@ -30,10 +29,10 @@ namespace nkentseu {
 
     class NkGenericHidMapper {
     public:
-        void Clear() noexcept { mDevices.clear(); }
+        void Clear() noexcept { mDevices.Clear(); }
 
         void ClearDevice(NkU64 deviceId) noexcept {
-            mDevices.erase(deviceId);
+            mDevices.Erase(deviceId);
         }
 
         void SetButtonMap(NkU64 deviceId, NkU32 physicalButton, NkU32 logicalButton) {
@@ -71,9 +70,9 @@ namespace nkentseu {
             const DeviceMapping* dm = FindDevice(deviceId);
             if (!dm) return physicalButton;
 
-            auto it = dm->buttonMap.find(physicalButton);
-            if (it == dm->buttonMap.end()) return physicalButton;
-            return it->second;
+            const NkU32* val = dm->buttonMap.Find(physicalButton);
+            if (!val) return physicalButton;
+            return *val;
         }
 
         bool ResolveAxis(NkU64 deviceId,
@@ -89,21 +88,20 @@ namespace nkentseu {
                 return true;
             }
 
-            auto it = dm->axisMap.find(physicalAxis);
-            if (it == dm->axisMap.end()) {
+            const NkHidAxisBinding* b = dm->axisMap.Find(physicalAxis);
+            if (!b) {
                 outLogicalAxis = physicalAxis;
                 outValue = std::clamp(rawValue, -1.f, 1.f);
                 return true;
             }
 
-            const NkHidAxisBinding& b = it->second;
-            if (b.logicalAxis == NK_HID_UNMAPPED) return false;
+            if (b->logicalAxis == NK_HID_UNMAPPED) return false;
 
             NkF32 v = rawValue;
-            if (b.invert) v = -v;
-            v = (v * b.scale) + b.offset;
-            if (std::fabs(v) < b.deadzone) v = 0.f;
-            outLogicalAxis = b.logicalAxis;
+            if (b->invert) v = -v;
+            v = (v * b->scale) + b->offset;
+            if (std::fabs(v) < b->deadzone) v = 0.f;
+            outLogicalAxis = b->logicalAxis;
             outValue = std::clamp(v, -1.f, 1.f);
             return true;
         }
@@ -128,16 +126,17 @@ namespace nkentseu {
 
     private:
         struct DeviceMapping {
-            std::unordered_map<NkU32, NkU32> buttonMap;
-            std::unordered_map<NkU32, NkHidAxisBinding> axisMap;
+            NkUnorderedMap<NkU32, NkU32>            buttonMap;
+            NkUnorderedMap<NkU32, NkHidAxisBinding> axisMap;
         };
 
+        // FindDevice: returns const pointer (nullptr if not found).
+        // NkUnorderedMap::Find(key) const → const Value*
         const DeviceMapping* FindDevice(NkU64 deviceId) const noexcept {
-            auto it = mDevices.find(deviceId);
-            return (it == mDevices.end()) ? nullptr : &it->second;
+            return mDevices.Find(deviceId);
         }
 
-        std::unordered_map<NkU64, DeviceMapping> mDevices;
+        NkUnorderedMap<NkU64, DeviceMapping> mDevices;
     };
 
 } // namespace nkentseu

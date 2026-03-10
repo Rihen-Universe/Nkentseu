@@ -19,6 +19,29 @@ Architecture de rendu :
 """
 
 from Jenga import *
+import shutil
+import subprocess
+
+def _pkg_exists(pkg_name: str) -> bool:
+    if not shutil.which("pkg-config"):
+        return False
+    try:
+        return subprocess.call(
+            ["pkg-config", "--exists", pkg_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+_HAS_LIBDECOR = _pkg_exists("libdecor-0")
+_WAYLAND_LINKS = ["pthread", "wayland-client", "xkbcommon", "wayland-cursor"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "xkbcommon"]
+_WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
+if _HAS_LIBDECOR:
+    _WAYLAND_LINKS.append("decor-0")
+    _WAYLAND_TEST_LINKS.append("decor-0")
+    _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
@@ -30,20 +53,16 @@ with project("NKRenderer"):
 
     includedirs([
         "src",
-        "src/NKRenderer",
         "%{NKCore.location}/src",
-        "%{NKCore.location}/src/NKCore",
         "%{NKPlatform.location}/src",
-        "%{NKPlatform.location}/src/NKPlatform",
         "%{NKMath.location}/src",
-        "%{NKMath.location}/src/NKMath",
         "%{NKLogger.location}/src",
-        "%{NKLogger.location}/src/NKLogger",
+        "%{NKContainers.location}/src",
+        "%{NKMemory.location}/src",
         "%{NKWindow.location}/src",
-        "%{NKWindow.location}/src/NKWindow",
     ])
 
-    dependson(["NKCore", "NKPlatform", "NKMath", "NKLogger", "NKWindow"])
+    dependson(["NKMath", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
 
     files([
         "src/NKRenderer/**.cpp",
@@ -82,12 +101,17 @@ with project("NKRenderer"):
 
     # ===== Linux XCB ==============================================================
     with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
         links(["xcb", "xcb-image"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
 
     # ===== Linux Wayland ==========================================================
     with filter("system:Linux && options:linux-backend=wayland"):
-        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+        defines(_WAYLAND_DEFINES)
+        links(_WAYLAND_LINKS)
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):
@@ -121,11 +145,17 @@ with project("NKRenderer"):
         symbols(False)
 
     # Tests unitaires/benchmarks (desktop uniquement)
-    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            dependson(["NKCore", "NKPlatform", "NKMath", "NKLogger", "NKWindow"])
-            with filter("system:Linux"):
+            with filter("system:Linux && options:linux-backend=wayland"):
+                defines(_WAYLAND_DEFINES)
+                links(_WAYLAND_TEST_LINKS)
+            with filter("system:Linux && options:linux-backend=xcb"):
+                defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+                links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+            with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+                defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
                 links(["pthread", "X11"])
             with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
                 links([

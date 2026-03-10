@@ -20,7 +20,7 @@
 #include "NKContainers/Associative/NkUnorderedSet.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Graph structure - Vertices and edges
@@ -63,19 +63,22 @@ namespace nkentseu {
             bool mDirected;
             SizeType mVertexCount;
             SizeType mEdgeCount;
+            Allocator* mAllocator;
             
         public:
             // Constructors
-            explicit NkGraph(bool directed = false)
-                : mDirected(directed)
+            explicit NkGraph(bool directed = false, Allocator* allocator = nullptr)
+                : mAdjacency(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mDirected(directed)
                 , mVertexCount(0)
-                , mEdgeCount(0) {
+                , mEdgeCount(0)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
             }
             
             // Vertex operations
             void AddVertex(const VertexType& vertex) {
                 if (!mAdjacency.Contains(vertex)) {
-                    mAdjacency.Insert(vertex, VertexList());
+                    mAdjacency.Insert(vertex, VertexList(mAllocator));
                     ++mVertexCount;
                 }
             }
@@ -177,24 +180,25 @@ namespace nkentseu {
             SizeType VertexCount() const NK_NOEXCEPT { return mVertexCount; }
             SizeType EdgeCount() const NK_NOEXCEPT { return mEdgeCount; }
             bool IsDirected() const NK_NOEXCEPT { return mDirected; }
-            bool IsEmpty() const NK_NOEXCEPT { return mVertexCount == 0; }
+            bool Empty() const NK_NOEXCEPT { return mVertexCount == 0; }
+            Allocator* GetAllocator() const NK_NOEXCEPT { return mAllocator; }
             
             // Traversal helpers
             template<typename Func>
             void DFS(const VertexType& start, Func visitor) {
-                NkUnorderedSet<VertexType> visited;
+                NkUnorderedSet<VertexType, Allocator> visited(mAllocator);
                 DFSRecursive(start, visited, visitor);
             }
             
             template<typename Func>
             void BFS(const VertexType& start, Func visitor) {
-                NkUnorderedSet<VertexType> visited;
-                NkVector<VertexType> queue;
+                NkUnorderedSet<VertexType, Allocator> visited(mAllocator);
+                NkVector<VertexType, Allocator> queue(mAllocator);
                 
                 queue.PushBack(start);
                 visited.Insert(start);
                 
-                while (!queue.IsEmpty()) {
+                while (!queue.Empty()) {
                     VertexType vertex = queue.Front();
                     queue.Erase(queue.begin());
                     
@@ -214,7 +218,9 @@ namespace nkentseu {
             
         private:
             template<typename Func>
-            void DFSRecursive(const VertexType& vertex, NkUnorderedSet<VertexType>& visited, Func& visitor) {
+            void DFSRecursive(const VertexType& vertex,
+                              NkUnorderedSet<VertexType, Allocator>& visited,
+                              Func& visitor) {
                 visited.Insert(vertex);
                 visitor(vertex);
                 
@@ -229,7 +235,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_SPECIALIZED_NKGRAPH_H_INCLUDED

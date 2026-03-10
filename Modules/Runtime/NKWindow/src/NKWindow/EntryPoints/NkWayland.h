@@ -13,10 +13,10 @@
 
 #if defined(NKENTSEU_WINDOWING_WAYLAND)
 
-#include <cstdio>
 #include <cstdlib>
-#include <vector>
-#include <string>
+#include "NKLogger/NkLog.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
 
 #ifndef NK_APP_NAME
 #define NK_APP_NAME "wayland_app"
@@ -33,13 +33,13 @@ int main(int argc, char *argv[]) {
 	// Vérification de l'environnement Wayland
 	const char *waylandDisplay = std::getenv("WAYLAND_DISPLAY");
 	if (!waylandDisplay || !*waylandDisplay) {
-		std::fprintf(stderr,
-		             "[NkWindow][Wayland] WAYLAND_DISPLAY n'est pas défini. "
-		             "Un compositeur Wayland est-il en cours d'exécution?\n");
+		logger.Error("[NkWindow][Wayland] WAYLAND_DISPLAY n'est pas defini. Un compositeur Wayland est-il en cours d'execution?");
 		return 1;
 	}
 
-	std::vector<std::string> args(argv, argv + argc);
+	nkentseu::NkVector<nkentseu::NkString> args;
+	for (int i = 0; i < argc; ++i)
+		args.PushBack(nkentseu::NkString(argv[i]));
 
 	nkentseu::NkEntryState state(args);
 	state.appName = NK_APP_NAME;

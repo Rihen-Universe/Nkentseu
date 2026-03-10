@@ -9,6 +9,7 @@
 
 #include "NkPlatform.h"
 #include "NkAtomic.h"
+#include "NKPlatform/NkFoundationLog.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,8 +50,9 @@
 #endif
 #endif
 
-using namespace nkentseu::core;
-using namespace nkentseu::core::platform;
+
+using namespace nkentseu::platform;
+using namespace nkentseu;
 
 // ============================================================
 // VARIABLES STATIQUES
@@ -678,65 +680,77 @@ nk_bool NkIs64Bit() {
 void NkPrintPlatformInfo() {
 	const NkPlatformInfo &info = *NkGetPlatformInfo();
 
-	printf("=== Nkentseu Platform Information ===\n");
-	printf("OS: %s (%s)\n", info.osName, info.osVersion ? info.osVersion : "Unknown");
-	printf("Architecture: %s (%s-bit)\n", info.archName, info.is64Bit ? "64" : "32");
-	printf("Compiler: %s %s\n", info.compilerName, info.compilerVersion);
-	printf("CPU Cores: %u (Threads: %u)\n", info.cpuCoreCount, info.cpuThreadCount);
-	printf("CPU Cache: L1=%uKB, L2=%uKB, L3=%uMB\n", info.cpuL1CacheSize / 1024, info.cpuL2CacheSize / 1024,
-		   info.cpuL3CacheSize / (1024 * 1024));
-	printf("Memory: Total=%lluMB, Available=%lluMB\n",
-		   static_cast<unsigned long long>(info.totalMemory / (1024 * 1024)),
-		   static_cast<unsigned long long>(info.availableMemory / (1024 * 1024)));
-	printf("Page Size: %u bytes, Allocation Granularity: %u bytes\n", info.pageSize, info.allocationGranularity);
-	printf("Cache Line Size: %u bytes\n", info.cacheLineSize);
+	NK_FOUNDATION_LOG_INFO("=== Nkentseu Platform Information ===");
+	NK_FOUNDATION_LOG_INFO("OS: %s (%s)", info.osName, info.osVersion ? info.osVersion : "Unknown");
+	NK_FOUNDATION_LOG_INFO("Architecture: %s (%s-bit)", info.archName, info.is64Bit ? "64" : "32");
+	NK_FOUNDATION_LOG_INFO("Compiler: %s %s", info.compilerName, info.compilerVersion);
+	NK_FOUNDATION_LOG_INFO("CPU Cores: %u (Threads: %u)", info.cpuCoreCount, info.cpuThreadCount);
+	NK_FOUNDATION_LOG_INFO("CPU Cache: L1=%uKB, L2=%uKB, L3=%uMB", info.cpuL1CacheSize / 1024, info.cpuL2CacheSize / 1024,
+	                       info.cpuL3CacheSize / (1024 * 1024));
+	NK_FOUNDATION_LOG_INFO("Memory: Total=%lluMB, Available=%lluMB",
+	                       static_cast<unsigned long long>(info.totalMemory / (1024 * 1024)),
+	                       static_cast<unsigned long long>(info.availableMemory / (1024 * 1024)));
+	NK_FOUNDATION_LOG_INFO("Page Size: %u bytes, Allocation Granularity: %u bytes", info.pageSize,
+	                       info.allocationGranularity);
+	NK_FOUNDATION_LOG_INFO("Cache Line Size: %u bytes", info.cacheLineSize);
 
-	printf("SIMD Support: ");
-	nk_bool first = true;
+	nk_char simd[128] = {};
+	nk_size offset = 0;
+	const auto appendFeature = [&](const char* name) {
+		if (!name || name[0] == '\0' || offset >= sizeof(simd) - 1) {
+			return;
+		}
+		if (offset > 0 && offset < sizeof(simd) - 1) {
+			const nk_size remaining = sizeof(simd) - offset;
+			const int sepWritten = snprintf(simd + offset, remaining, ", ");
+			if (sepWritten > 0) {
+				const nk_size advanced = static_cast<nk_size>(sepWritten);
+				offset += (advanced < remaining) ? advanced : (remaining - 1);
+			}
+		}
+		if (offset < sizeof(simd) - 1) {
+			const nk_size remaining = sizeof(simd) - offset;
+			const int nameWritten = snprintf(simd + offset, remaining, "%s", name);
+			if (nameWritten > 0) {
+				const nk_size advanced = static_cast<nk_size>(nameWritten);
+				offset += (advanced < remaining) ? advanced : (remaining - 1);
+			}
+		}
+	};
+
 	if (info.hasSSE) {
-		printf("%sSSE", first ? "" : ", ");
-		first = false;
+		appendFeature("SSE");
 	}
 	if (info.hasSSE2) {
-		printf("%sSSE2", first ? "" : ", ");
-		first = false;
+		appendFeature("SSE2");
 	}
 	if (info.hasSSE3) {
-		printf("%sSSE3", first ? "" : ", ");
-		first = false;
+		appendFeature("SSE3");
 	}
 	if (info.hasSSE4_1) {
-		printf("%sSSE4.1", first ? "" : ", ");
-		first = false;
+		appendFeature("SSE4.1");
 	}
 	if (info.hasSSE4_2) {
-		printf("%sSSE4.2", first ? "" : ", ");
-		first = false;
+		appendFeature("SSE4.2");
 	}
 	if (info.hasAVX) {
-		printf("%sAVX", first ? "" : ", ");
-		first = false;
+		appendFeature("AVX");
 	}
 	if (info.hasAVX2) {
-		printf("%sAVX2", first ? "" : ", ");
-		first = false;
+		appendFeature("AVX2");
 	}
 	if (info.hasAVX512) {
-		printf("%sAVX-512", first ? "" : ", ");
-		first = false;
+		appendFeature("AVX-512");
 	}
 	if (info.hasNEON) {
-		printf("%sNEON", first ? "" : ", ");
-		first = false;
+		appendFeature("NEON");
 	}
-	if (first)
-		printf("None");
-	printf("\n");
+	NK_FOUNDATION_LOG_INFO("SIMD Support: %s", (offset > 0) ? simd : "None");
 
-	printf("Endianness: %s\n", info.isLittleEndian ? "Little Endian" : "Big Endian");
-	printf("Build Type: %s (%s)\n", info.buildType, info.isDebugBuild ? "Debug" : "Release");
-	printf("Library Type: %s\n", info.isSharedLibrary ? "Shared" : "Static");
-	printf("======================================\n");
+	NK_FOUNDATION_LOG_INFO("Endianness: %s", info.isLittleEndian ? "Little Endian" : "Big Endian");
+	NK_FOUNDATION_LOG_INFO("Build Type: %s (%s)", info.buildType, info.isDebugBuild ? "Debug" : "Release");
+	NK_FOUNDATION_LOG_INFO("Library Type: %s", info.isSharedLibrary ? "Shared" : "Static");
+	NK_FOUNDATION_LOG_INFO("======================================");
 }
 
 nk_bool NkIsAligned(const nk_ptr address, nk_size alignment) {
@@ -773,7 +787,7 @@ namespace nkentseu {
 /**
  * @brief Namespace core.
  */
-namespace core {
+
 /**
  * @brief Namespace platform.
  */
@@ -851,12 +865,10 @@ nk_bool NkIsPointerAligned(const nk_ptr ptr, nk_size alignment) noexcept {
 
 } // namespace memory
 } // namespace platform
-} // namespace core
+
 } // namespace nkentseu
 
 // ============================================================
 // Copyright Â© 2024-2026 Rihen. All rights reserved.
 // Proprietary License - Free to use and modify
 // ============================================================
-
-

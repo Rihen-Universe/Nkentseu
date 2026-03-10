@@ -17,7 +17,7 @@
 #include "NKCore/Assert/NkAssert.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Span - Non-owning view over contiguous sequence
@@ -118,7 +118,7 @@ namespace nkentseu {
             // Capacity
             NK_CONSTEXPR SizeType Size() const NK_NOEXCEPT { return mSize; }
             NK_CONSTEXPR SizeType SizeBytes() const NK_NOEXCEPT { return mSize * sizeof(T); }
-            NK_CONSTEXPR bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            NK_CONSTEXPR bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             
             // Subviews
             NkSpan First(SizeType count) const {
@@ -163,7 +163,7 @@ namespace nkentseu {
             return NkSpan<typename Container::ValueType>(cont);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_VIEWS_NKSPAN_H_INCLUDED

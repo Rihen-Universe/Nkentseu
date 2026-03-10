@@ -3,7 +3,7 @@
 
 #include "NKContainers/NkContainers.h"
 
-using namespace nkentseu::core;
+using namespace nkentseu;
 
 TEST_CASE(NKContainersIterator, AdvanceDistanceNextPrev) {
     int data[5] = {10, 20, 30, 40, 50};

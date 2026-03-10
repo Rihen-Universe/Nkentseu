@@ -70,11 +70,19 @@ namespace threading {
          * threads attendant.
          */
         void CountDown(nk_uint32 count = 1) noexcept {
+            if (count == 0) {
+                return;
+            }
+
             {
                 NkScopedLock lock(mMutex);
                 
                 NKENTSEU_ASSERT(mCount >= count);
-                mCount -= count;
+                if (count >= mCount) {
+                    mCount = 0;
+                } else {
+                    mCount -= count;
+                }
                 
                 if (mCount == 0) {
                     mCondVar.NotifyAll();
@@ -102,10 +110,10 @@ namespace threading {
                 return true;
             } else {
                 // Avec timeout
-                auto end = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeoutMs);
+                const nk_uint64 deadline =
+                    NkConditionVariable::GetMonotonicTimeMs() + static_cast<nk_uint64>(timeoutMs);
                 while (mCount > 0) {
-                    if (!mCondVar.WaitUntil(lock, end)) {
+                    if (!mCondVar.WaitUntil(lock, deadline)) {
                         return false;  // Timeout
                     }
                 }

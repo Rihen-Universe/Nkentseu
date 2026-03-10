@@ -10,11 +10,11 @@
 #ifndef NK_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKPROPERTY_H_INCLUDED
 #define NK_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKPROPERTY_H_INCLUDED
 
-#include "NkType.h"
+#include "NKReflection/NkType.h"
 #include "NKCore/Assert/NkAssert.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace reflection {
             
             /**
@@ -120,7 +120,7 @@ namespace nkentseu {
             };
             
         } // namespace reflection
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif

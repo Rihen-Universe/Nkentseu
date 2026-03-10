@@ -15,6 +15,9 @@
 #include <vector>
 
 #include "NKWindow/Core/NkEntry.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
+#include "NKCore/NkTraits.h"
 
 #pragma comment(lib, "shell32.lib")
 
@@ -36,15 +39,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	int argc = 0;
 	LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
-	std::vector<std::string> args;
-	args.reserve(static_cast<std::size_t>(argc));
+	nkentseu::NkVector<nkentseu::NkString> args;
+	args.Reserve(static_cast<nkentseu::usize>(argc));
 	for (int i = 0; i < argc; ++i) {
 		int sz = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
-		std::string s(static_cast<std::size_t>(sz), 0);
-		WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), sz, nullptr, nullptr);
-		if (!s.empty() && s.back() == '\0')
-			s.pop_back();
-		args.push_back(std::move(s));
+		nkentseu::NkString s(static_cast<nkentseu::usize>(sz), 0);
+		WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.Data(), sz, nullptr, nullptr);
+		if (!s.Empty() && s.Back() == '\0')
+			s.PopBack();
+		args.PushBack(nkentseu::traits::NkMove(s));
 	}
 	LocalFree(wargv);
 
@@ -59,6 +62,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	int result = nkmain(state);
 
 	nkentseu::gState = nullptr;
+
+#if defined(_DEBUG) || defined(NKENTSEU_DEBUG_CONSOLE)
+	fflush(stdout);
+	fflush(stderr);
+	FreeConsole();
+#endif
+
 	return result;
 }
 

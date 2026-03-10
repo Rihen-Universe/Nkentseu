@@ -13,11 +13,11 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKCore/NkTraits.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         // ========================================
         // SUCCESS/ERROR TAGS
@@ -413,7 +413,7 @@ namespace nkentseu {
         template<typename T>
         using NkSimpleResult = NkResult<T, NkSimpleError>;
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKCORE_SRC_NKCORE_UTILITIES_NKRESULT_H_INCLUDED

@@ -6,18 +6,24 @@
 // -----------------------------------------------------------------------------
 
 #include "NKLogger/Sinks/NkRotatingFileSink.h"
-#include <filesystem>
-#include <sstream>
+#include <cstdio>
+#include <sys/stat.h>
 
 /**
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
+	namespace {
+		static bool NkFileExists(const NkString& path) {
+			struct stat info {};
+			return ::stat(path.CStr(), &info) == 0;
+		}
+	}
 
 	/**
 	 * @brief Constructeur avec configuration de rotation
 	 */
-	NkRotatingFileSink::NkRotatingFileSink(const std::string &filename, core::usize maxSize, core::usize maxFiles)
+	NkRotatingFileSink::NkRotatingFileSink(const NkString &filename, usize maxSize, usize maxFiles)
 		: NkFileSink(filename, false), m_MaxSize(maxSize), m_MaxFiles(maxFiles), m_CurrentSize(0) {
 	}
 
@@ -38,32 +44,32 @@ namespace nkentseu {
 	/**
 	 * @brief Définit la taille maximum des fichiers
 	 */
-	void NkRotatingFileSink::SetMaxSize(core::usize maxSize) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkRotatingFileSink::SetMaxSize(usize maxSize) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_MaxSize = maxSize;
 	}
 
 	/**
 	 * @brief Obtient la taille maximum des fichiers
 	 */
-	core::usize NkRotatingFileSink::GetMaxSize() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	usize NkRotatingFileSink::GetMaxSize() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_MaxSize;
 	}
 
 	/**
 	 * @brief Définit le nombre maximum de fichiers
 	 */
-	void NkRotatingFileSink::SetMaxFiles(core::usize maxFiles) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkRotatingFileSink::SetMaxFiles(usize maxFiles) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_MaxFiles = maxFiles;
 	}
 
 	/**
 	 * @brief Obtient le nombre maximum de fichiers
 	 */
-	core::usize NkRotatingFileSink::GetMaxFiles() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	usize NkRotatingFileSink::GetMaxFiles() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_MaxFiles;
 	}
 
@@ -88,25 +94,27 @@ namespace nkentseu {
 	 * @brief Effectue la rotation des fichiers
 	 */
 	void NkRotatingFileSink::PerformRotation() {
+		if (m_MaxFiles == 0) {
+			return;
+		}
+
 		// Fermer le fichier courant
 		Close();
 
 		// Rotation des fichiers: .log.N -> .log.N+1
-		for (core::usize i = m_MaxFiles - 1; i > 0; --i) {
-			std::string oldFile = GetFilenameForIndex(i - 1);
-			std::string newFile = GetFilenameForIndex(i);
-
-			if (std::filesystem::exists(oldFile)) {
-				std::filesystem::rename(oldFile, newFile);
+		for (usize i = m_MaxFiles - 1; i > 0; --i) {
+			const NkString oldFile = GetFilenameForIndex(i - 1);
+			const NkString newFile = GetFilenameForIndex(i);
+			if (NkFileExists(oldFile)) {
+				(void)::rename(oldFile.CStr(), newFile.CStr());
 			}
 		}
 
 		// Renommer le fichier courant en .log.0
-		std::string currentFile = GetFilename();
-		std::string rotatedFile = GetFilenameForIndex(0);
-
-		if (std::filesystem::exists(currentFile)) {
-			std::filesystem::rename(currentFile, rotatedFile);
+		const NkString currentFile = GetFilename();
+		const NkString rotatedFile = GetFilenameForIndex(0);
+		if (NkFileExists(currentFile)) {
+			(void)::rename(currentFile.CStr(), rotatedFile.CStr());
 		}
 
 		// Rouvrir le fichier
@@ -117,10 +125,14 @@ namespace nkentseu {
 	/**
 	 * @brief Génère le nom de fichier pour un index donné
 	 */
-	std::string NkRotatingFileSink::GetFilenameForIndex(core::usize index) const {
-		std::ostringstream oss;
-		oss << GetFilename() << "." << index;
-		return oss.str();
+	NkString NkRotatingFileSink::GetFilenameForIndex(usize index) const {
+		char suffix[32];
+		const int written = ::snprintf(suffix, sizeof(suffix), ".%zu", static_cast<size_t>(index));
+		NkString name = GetFilename();
+		if (written > 0) {
+			name.Append(suffix, static_cast<usize>(written));
+		}
+		return name;
 	}
 
 } // namespace nkentseu

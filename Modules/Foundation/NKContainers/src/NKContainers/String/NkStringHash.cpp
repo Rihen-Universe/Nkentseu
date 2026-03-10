@@ -13,7 +13,7 @@
 #include <cmath>
 
 namespace nkentseu {
-    namespace core {
+    
         namespace string {
             
             // ========================================
@@ -1242,7 +1242,7 @@ namespace nkentseu {
             }
             
         } // namespace string
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

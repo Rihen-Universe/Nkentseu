@@ -15,10 +15,9 @@
 // INCLUDES
 // ============================================================
 
-#include <typeinfo>
 #include <stddef.h>
-#include <cfloat>
-#include <cwchar>
+#include <float.h>
+#include <wchar.h>
 
 #include "NkTypes.h"
 #include "NkTraits.h"
@@ -104,7 +103,7 @@
  * @param member Nom du membre
  * @return Offset en octets
  */
-#define NkOffsetOf(type, member) ((nkentseu::core::nk_usize) & ((type *)NKENTSEU_NULL)->member)
+#define NkOffsetOf(type, member) ((nkentseu::nk_usize) & ((type *)NKENTSEU_NULL)->member)
 
 /**
  * @brief Calcule le pointeur de conteneur à partir d'un membre
@@ -113,7 +112,7 @@
  * @param member Nom du membre dans le conteneur
  * @return Pointeur vers le conteneur
  */
-#define NkContainerOf(ptr, type, member) ((type *)((nkentseu::core::nk_uint8 *)(ptr) - NkOffsetOf(type, member)))
+#define NkContainerOf(ptr, type, member) ((type *)((nkentseu::nk_uint8 *)(ptr) - NkOffsetOf(type, member)))
 
 /**
  * @brief Inverse un bit
@@ -136,9 +135,9 @@
 // ============================================================
 
 // Masques de bits
-constexpr nkentseu::core::nk_uint8 NKENTSEU_BIT_MASK_8 = 0xFF;
-constexpr nkentseu::core::nk_uint32 NKENTSEU_BIT_MASK_32 = 0xFFFFFFFF;
-constexpr nkentseu::core::nk_uint8 NKENTSEU_BIT_SHIFT = 3;
+constexpr nkentseu::nk_uint8 NKENTSEU_BIT_MASK_8 = 0xFF;
+constexpr nkentseu::nk_uint32 NKENTSEU_BIT_MASK_32 = 0xFFFFFFFF;
+constexpr nkentseu::nk_uint8 NKENTSEU_BIT_SHIFT = 3;
 
 // ============================================================
 // CONVERSIONS SÉCURISÉES
@@ -159,28 +158,28 @@ constexpr nkentseu::core::nk_uint8 NKENTSEU_BIT_SHIFT = 3;
 
 #if defined(_WIN32) || defined(_WIN64)
 #define NkLiteral(CharT, str)                                                                                          \
-	nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char>::value		? str                                  \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char8>::value	? u8##str                              \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char16>::value ? u##str                               \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char32>::value ? U##str                               \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_wchar>::value	? L##str                               \
+	nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char>::value		? str                                  \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char8>::value	? u8##str                              \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char16>::value ? u##str                               \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char32>::value ? U##str                               \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_wchar>::value	? L##str                               \
 														: str
 #else
 #define NkLiteral(CharT, str)                                                                                          \
-	nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char>::value		? str                                  \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char8>::value	? u8##str                              \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char16>::value ? u##str                               \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_char32>::value ? U##str                               \
-	: nkentseu::core::traits::NkIsSame<CharT, nkentseu::core::nk_wchar>::value	? L##str                               \
+	nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char>::value		? str                                  \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char8>::value	? u8##str                              \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char16>::value ? u##str                               \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_char32>::value ? U##str                               \
+	: nkentseu::traits::NkIsSame<CharT, nkentseu::nk_wchar>::value	? L##str                               \
 														: str
 #endif
 
 #define NkConstChar(type, str) NkLiteral(type, str)
-#define NkConstChar8(str) NkLiteral(nkentseu::core::nk_char8, str)
-#define NkConstChar16(str) NkLiteral(nkentseu::core::nk_char16, str)
-#define NkConstChar32(str) NkLiteral(nkentseu::core::nk_char32, str)
-#define NkConstWChar(str) NkLiteral(nkentseu::core::nk_wchar, str)
-#define NkConstNKChar(str) NkLiteral(nkentseu::core::nk_char, str)
+#define NkConstChar8(str) NkLiteral(nkentseu::nk_char8, str)
+#define NkConstChar16(str) NkLiteral(nkentseu::nk_char16, str)
+#define NkConstChar32(str) NkLiteral(nkentseu::nk_char32, str)
+#define NkConstWChar(str) NkLiteral(nkentseu::nk_wchar, str)
+#define NkConstNKChar(str) NkLiteral(nkentseu::nk_char, str)
 // ============================================================
 // LITTÉRAUX C++11
 // ============================================================
@@ -189,7 +188,7 @@ namespace nkentseu {
 /**
  * @brief Namespace core.
  */
-namespace core {
+
 /**
  * @brief Namespace literals.
  */
@@ -341,7 +340,7 @@ constexpr Byte operator""_b(unsigned long long v) noexcept {
 	return Byte::from(v);
 }
 } // namespace literals
-} // namespace core
+
 } // namespace nkentseu
 
 // ============================================================
@@ -404,8 +403,8 @@ namespace nkentseu {
  * @param ptr Pointeur à convertir
  * @return Handle correspondant
  */
-template <typename T> inline core::NkHandle NkToHandle(T *ptr) noexcept {
-	return reinterpret_cast<core::NkHandle>(ptr);
+template <typename T> inline NkHandle NkToHandle(T *ptr) noexcept {
+	return reinterpret_cast<NkHandle>(ptr);
 }
 
 /**
@@ -414,7 +413,7 @@ template <typename T> inline core::NkHandle NkToHandle(T *ptr) noexcept {
  * @param handle Handle à convertir
  * @return Pointeur correspondant
  */
-template <typename T> inline T *NkFromHandle(core::NkHandle handle) noexcept {
+template <typename T> inline T *NkFromHandle(NkHandle handle) noexcept {
 	return reinterpret_cast<T *>(handle);
 }
 
@@ -456,33 +455,33 @@ namespace nkentseu {
 #endif
 
 // Vérifier que les alias ont la bonne taille
-NkStaticAssert(int8_size, sizeof(core::nk_int8) == 1, "int8 must be 1 byte");
-NkStaticAssert(int32_size, sizeof(core::nk_int32) == 4, "int32 must be 4 bytes");
-NkStaticAssert(int64_size, sizeof(core::nk_int64) == 8, "int64 must be 8 bytes");
-NkStaticAssert(float32_size, sizeof(core::nk_float32) == 4, "float32 must be 4 bytes");
-NkStaticAssert(float64_size, sizeof(core::nk_float64) == 8, "float64 must be 8 bytes");
+NkStaticAssert(int8_size, sizeof(nk_int8) == 1, "int8 must be 1 byte");
+NkStaticAssert(int32_size, sizeof(nk_int32) == 4, "int32 must be 4 bytes");
+NkStaticAssert(int64_size, sizeof(nk_int64) == 8, "int64 must be 8 bytes");
+NkStaticAssert(float32_size, sizeof(nk_float32) == 4, "float32 must be 4 bytes");
+NkStaticAssert(float64_size, sizeof(nk_float64) == 8, "float64 must be 8 bytes");
 
 // Vérifications Nkentseu
-NkStaticAssert(int8_valid, sizeof(core::nk_int8) == 1 && (core::nk_int8)-1 < 0, "int8_invalid");
-NkStaticAssert(uint8_valid, sizeof(core::nk_uint8) == 1 && (core::nk_uint8)-1 > 0, "uint8_invalid");
-NkStaticAssert(int16_valid, sizeof(core::nk_int16) == 2 && (core::nk_int16)-1 < 0, "int16_invalid");
-NkStaticAssert(uint16_valid, sizeof(core::nk_uint16) == 2 && (core::nk_uint16)-1 > 0, "uint16_invalid");
-NkStaticAssert(int32_valid, sizeof(core::nk_int32) == 4 && (core::nk_int32)-1 < 0, "int32_invalid");
-NkStaticAssert(uint32_valid, sizeof(core::nk_uint32) == 4 && (core::nk_uint32)-1 > 0, "uint32_invalid");
-NkStaticAssert(int64_valid, sizeof(core::nk_int64) == 8 && (core::nk_int64)-1 < 0, "int64_invalid");
-NkStaticAssert(uint64_valid, sizeof(core::nk_uint64) == 8 && (core::nk_uint64)-1 > 0, "uint64_invalid");
-NkStaticAssert(float32_valid, sizeof(core::nk_float32) == 4, "float32_invalid");
-NkStaticAssert(float64_valid, sizeof(core::nk_float64) == 8, "float64_invalid");
-NkStaticAssert(float80_valid, sizeof(core::nk_float80) >= 10, "float80_invalid");
-NkStaticAssert(nkchar_valid, sizeof(core::nk_char) == 1 && (core::nk_char)-1 < 0, "nkchar_invalid");
-NkStaticAssert(char8_valid, sizeof(core::nk_char8) == 1, "char8_invalid");
-NkStaticAssert(char16_valid, sizeof(core::nk_char16) == 2, "char16_invalid");
-NkStaticAssert(char32_valid, sizeof(core::nk_char32) == 4, "char32_invalid");
-NkStaticAssert(Boolean_valid, sizeof(core::nk_boolean) == 1, "Boolean_invalid");
-NkStaticAssert(bool32_valid, sizeof(core::nk_bool32) == 4, "bool32_invalid");
-NkStaticAssert(PTR_valid, sizeof(core::nk_ptr) == sizeof(void *), "PTR_invalid");
-NkStaticAssert(UPTR_valid, sizeof(core::nk_uptr) >= sizeof(void *), "UPTR_invalid");
-NkStaticAssert(usize_valid, sizeof(core::nk_usize) >= sizeof(void *), "usize_invalid");
+NkStaticAssert(int8_valid, sizeof(nk_int8) == 1 && (nk_int8)-1 < 0, "int8_invalid");
+NkStaticAssert(uint8_valid, sizeof(nk_uint8) == 1 && (nk_uint8)-1 > 0, "uint8_invalid");
+NkStaticAssert(int16_valid, sizeof(nk_int16) == 2 && (nk_int16)-1 < 0, "int16_invalid");
+NkStaticAssert(uint16_valid, sizeof(nk_uint16) == 2 && (nk_uint16)-1 > 0, "uint16_invalid");
+NkStaticAssert(int32_valid, sizeof(nk_int32) == 4 && (nk_int32)-1 < 0, "int32_invalid");
+NkStaticAssert(uint32_valid, sizeof(nk_uint32) == 4 && (nk_uint32)-1 > 0, "uint32_invalid");
+NkStaticAssert(int64_valid, sizeof(nk_int64) == 8 && (nk_int64)-1 < 0, "int64_invalid");
+NkStaticAssert(uint64_valid, sizeof(nk_uint64) == 8 && (nk_uint64)-1 > 0, "uint64_invalid");
+NkStaticAssert(float32_valid, sizeof(nk_float32) == 4, "float32_invalid");
+NkStaticAssert(float64_valid, sizeof(nk_float64) == 8, "float64_invalid");
+NkStaticAssert(float80_valid, sizeof(nk_float80) >= 10, "float80_invalid");
+NkStaticAssert(nkchar_valid, sizeof(nk_char) == 1 && (nk_char)-1 < 0, "nkchar_invalid");
+NkStaticAssert(char8_valid, sizeof(nk_char8) == 1, "char8_invalid");
+NkStaticAssert(char16_valid, sizeof(nk_char16) == 2, "char16_invalid");
+NkStaticAssert(char32_valid, sizeof(nk_char32) == 4, "char32_invalid");
+NkStaticAssert(Boolean_valid, sizeof(nk_boolean) == 1, "Boolean_invalid");
+NkStaticAssert(bool32_valid, sizeof(nk_bool32) == 4, "bool32_invalid");
+NkStaticAssert(PTR_valid, sizeof(nk_ptr) == sizeof(void *), "PTR_invalid");
+NkStaticAssert(UPTR_valid, sizeof(nk_uptr) >= sizeof(void *), "UPTR_invalid");
+NkStaticAssert(usize_valid, sizeof(nk_usize) >= sizeof(void *), "usize_invalid");
 } // namespace nkentseu
 #endif
 

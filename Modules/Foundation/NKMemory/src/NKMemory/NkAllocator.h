@@ -3,7 +3,7 @@
 #ifndef NKENTSEU_MEMORY_NKALLOCATOR_H_INCLUDED
 #define NKENTSEU_MEMORY_NKALLOCATOR_H_INCLUDED
 
-#include "NKMemory/NkMemoryExport.h"
+#include "NKMemory/NkExport.h"
 #include "NKMemory/NkUtils.h"
 #include "NKCore/NkTraits.h"
 #include "NKPlatform/NkPlatformDetect.h"
@@ -23,7 +23,7 @@ namespace nkentseu {
             NkMemoryFlag_Anonymous = 1u << 5u
         };
 
-        class NKMEMORY_API NkAllocatorBase {
+        class NKENTSEU_MEMORY_API NkAllocatorBase {
             public:
                 explicit NkAllocatorBase(const nk_char* name = "NkAllocatorBase") noexcept : mName(name) {}
                 virtual ~NkAllocatorBase() = default;
@@ -33,7 +33,7 @@ namespace nkentseu {
                 const nk_char* mName;
         };
 
-        class NKMEMORY_API NkAllocator : public NkAllocatorBase {
+        class NKENTSEU_MEMORY_API NkAllocator : public NkAllocatorBase {
             public:
                 using Pointer = void*;
                 using SizeType = nk_size;
@@ -43,6 +43,7 @@ namespace nkentseu {
 
                 virtual Pointer Allocate(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) = 0;
                 virtual void Deallocate(Pointer ptr) = 0;
+                virtual void Deallocate(Pointer ptr, SizeType /*size*/) { Deallocate(ptr); }
                 virtual Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
                                         SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
                 virtual Pointer Calloc(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
@@ -55,7 +56,7 @@ namespace nkentseu {
                     if (!memory) {
                         return nullptr;
                     }
-                    return new (memory) T(core::traits::NkForward<Args>(args)...);
+                    return new (memory) T(traits::NkForward<Args>(args)...);
                 }
 
                 template <typename T>
@@ -95,7 +96,7 @@ namespace nkentseu {
                                 T* array = reinterpret_cast<T*>(static_cast<nk_uint8*>(base) + baseOffset);
                                 SizeType i = 0u;
                                 for (; i < count; ++i) {
-                                    new (array + i) T(core::traits::NkForward<Args>(args)...);
+                                    new (array + i) T(traits::NkForward<Args>(args)...);
                                 }
 
                                 return array;
@@ -136,7 +137,7 @@ namespace nkentseu {
         // Backward-compat alias used by legacy modules.
         using NkIAllocator = NkAllocator;
 
-        class NKMEMORY_API NkNewAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkNewAllocator final : public NkAllocator {
             public:
                 NkNewAllocator() noexcept : NkAllocator("NkNewAllocator") {}
                 ~NkNewAllocator() override = default;
@@ -148,19 +149,20 @@ namespace nkentseu {
                 Pointer Calloc(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
         };
 
-        class NKMEMORY_API NkMallocAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkMallocAllocator final : public NkAllocator {
             public:
                 NkMallocAllocator() noexcept : NkAllocator("NkMallocAllocator") {}
                 ~NkMallocAllocator() override = default;
 
                 Pointer Allocate(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
                 void Deallocate(Pointer ptr) override;
+                void Deallocate(Pointer ptr, SizeType size) override;
                 Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
                                 SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
                 Pointer Calloc(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
         };
 
-        class NKMEMORY_API NkVirtualAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkVirtualAllocator final : public NkAllocator {
             public:
                 NkVirtualAllocator() noexcept;
                 ~NkVirtualAllocator() override;
@@ -191,7 +193,7 @@ namespace nkentseu {
                 SizeType UntrackBlock(Pointer ptr) noexcept;
         };
 
-        class NKMEMORY_API NkLinearAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkLinearAllocator final : public NkAllocator {
             public:
                 explicit NkLinearAllocator(SizeType capacityBytes,
                                         NkAllocator* backingAllocator = nullptr);
@@ -199,6 +201,7 @@ namespace nkentseu {
 
                 Pointer Allocate(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
                 void Deallocate(Pointer ptr) override;
+                void Deallocate(Pointer ptr, SizeType size) override;
                 Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
                                 SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
                 Pointer Calloc(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
@@ -217,7 +220,7 @@ namespace nkentseu {
                 nk_bool mOwnsBuffer;
         };
 
-        class NKMEMORY_API NkArenaAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkArenaAllocator final : public NkAllocator {
             public:
                 using Marker = SizeType;
 
@@ -244,7 +247,7 @@ namespace nkentseu {
                 nk_bool mOwnsBuffer;
         };
 
-        class NKMEMORY_API NkStackAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkStackAllocator final : public NkAllocator {
             public:
                 explicit NkStackAllocator(SizeType capacityBytes,
                                         NkAllocator* backingAllocator = nullptr);
@@ -275,7 +278,7 @@ namespace nkentseu {
                 nk_bool mOwnsBuffer;
         };
 
-        class NKMEMORY_API NkPoolAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkPoolAllocator final : public NkAllocator {
             public:
                 NkPoolAllocator(SizeType blockSize,
                                 SizeType blockCount,
@@ -306,7 +309,7 @@ namespace nkentseu {
                 nk_bool mOwnsBuffer;
         };
 
-        class NKMEMORY_API NkFreeListAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkFreeListAllocator final : public NkAllocator {
             public:
                 explicit NkFreeListAllocator(SizeType capacityBytes,
                                             NkAllocator* backingAllocator = nullptr);
@@ -343,7 +346,7 @@ namespace nkentseu {
                 void Coalesce(NkBlockHeader* block) noexcept;
         };
 
-        class NKMEMORY_API NkBuddyAllocator final : public NkAllocator {
+        class NKENTSEU_MEMORY_API NkBuddyAllocator final : public NkAllocator {
             public:
                 explicit NkBuddyAllocator(SizeType capacityBytes,
                                         SizeType minBlockSize = 32u,
@@ -363,20 +366,21 @@ namespace nkentseu {
                 NkFreeListAllocator mBackend;
         };
 
-        NKMEMORY_API NkAllocator& NkGetDefaultAllocator() noexcept;
-        NKMEMORY_API NkAllocator& NkGetMallocAllocator() noexcept;
-        NKMEMORY_API NkAllocator& NkGetNewAllocator() noexcept;
-        NKMEMORY_API NkAllocator& NkGetVirtualAllocator() noexcept;
-        NKMEMORY_API void NkSetDefaultAllocator(NkAllocator* allocator) noexcept;
+        NKENTSEU_MEMORY_API NkAllocator& NkGetDefaultAllocator() noexcept;
+        NKENTSEU_MEMORY_API NkAllocator& NkGetMallocAllocator() noexcept;
+        NKENTSEU_MEMORY_API NkAllocator& NkGetNewAllocator() noexcept;
+        NKENTSEU_MEMORY_API NkAllocator& NkGetVirtualAllocator() noexcept;
+        NKENTSEU_MEMORY_API void NkSetDefaultAllocator(NkAllocator* allocator) noexcept;
 
-        NKMEMORY_API void* NkAlloc(nk_size size, NkAllocator* allocator = nullptr,
+        NKENTSEU_MEMORY_API void* NkAlloc(nk_size size, NkAllocator* allocator = nullptr,
                                 nk_size alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
-        NKMEMORY_API void* NkAllocZero(nk_size count, nk_size size, NkAllocator* allocator = nullptr,
+        NKENTSEU_MEMORY_API void* NkAllocZero(nk_size count, nk_size size, NkAllocator* allocator = nullptr,
                                     nk_size alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
-        NKMEMORY_API void* NkRealloc(void* ptr, nk_size oldSize, nk_size newSize,
+        NKENTSEU_MEMORY_API void* NkRealloc(void* ptr, nk_size oldSize, nk_size newSize,
                                     NkAllocator* allocator = nullptr,
                                     nk_size alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
-        NKMEMORY_API void NkFree(void* ptr, NkAllocator* allocator = nullptr);
+        NKENTSEU_MEMORY_API void NkFree(void* ptr, NkAllocator* allocator = nullptr);
+        NKENTSEU_MEMORY_API void NkFree(void* ptr, nk_size size, NkAllocator* allocator = nullptr);
 
     } // namespace memory
 } // namespace nkentseu

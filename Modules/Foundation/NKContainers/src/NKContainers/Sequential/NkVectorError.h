@@ -16,7 +16,7 @@
 #include "NKContainers/NkContainersExport.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         // ========================================
         // ERROR CODES
@@ -129,19 +129,19 @@ namespace nkentseu {
          * @brief Throw out of range exception
          */
         #define NK_VECTOR_THROW_OUT_OF_RANGE(index, size) \
-            throw ::nkentseu::core::NkVectorOutOfRangeException(index, size)
+            throw ::nkentseu::NkVectorOutOfRangeException(index, size)
         
         /**
          * @brief Throw bad alloc exception
          */
         #define NK_VECTOR_THROW_BAD_ALLOC(size) \
-            throw ::nkentseu::core::NkVectorBadAllocException(size)
+            throw ::nkentseu::NkVectorBadAllocException(size)
         
         /**
          * @brief Throw length error exception
          */
         #define NK_VECTOR_THROW_LENGTH_ERROR(msg) \
-            throw ::nkentseu::core::NkVectorLengthException(msg)
+            throw ::nkentseu::NkVectorLengthException(msg)
         
         #else
         
@@ -189,7 +189,7 @@ namespace nkentseu {
             }
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_SEQUENTIAL_NKVECTORERROR_H_INCLUDED

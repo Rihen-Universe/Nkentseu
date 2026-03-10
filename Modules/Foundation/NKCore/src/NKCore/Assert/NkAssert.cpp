@@ -6,6 +6,10 @@
 // -----------------------------------------------------------------------------
 
 #include "NkAssert.h"
+#include "NkAssertHandler.h"
+#include "NKCore/NkTypes.h"
+#include "NKCore/NkMacros.h"
+#include "NKCore/NkPlatform.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -13,44 +17,39 @@
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-	/**
-	 * @brief Namespace core.
-	 */
-	namespace core {
 
-		static NkAssertCallback sAssertCallback = &NkAssertHandler::DefaultCallback;
+	static NkAssertCallback sAssertCallback = &NkAssertHandler::DefaultCallback;
 
-		NkAssertCallback NkAssertHandler::GetCallback() {
-			return sAssertCallback;
+	NkAssertCallback NkAssertHandler::GetCallback() {
+		return sAssertCallback;
+	}
+
+	void NkAssertHandler::SetCallback(NkAssertCallback callback) {
+		sAssertCallback = callback ? callback : &DefaultCallback;
+	}
+
+	NkAssertAction NkAssertHandler::DefaultCallback(const NkAssertionInfo &info) {
+		// Afficher l'assertion échouée
+		fprintf(stderr, "\n=== ASSERTION FAILED ===\n");
+		fprintf(stderr, "Expression: %s\n", info.expression);
+		if (info.message && info.message[0]) {
+			fprintf(stderr, "Message: %s\n", info.message);
 		}
+		fprintf(stderr, "File: %s:%d\n", info.file, info.line);
+		fprintf(stderr, "Function: %s\n", info.function);
+		fprintf(stderr, "========================\n\n");
 
-		void NkAssertHandler::SetCallback(NkAssertCallback callback) {
-			sAssertCallback = callback ? callback : &DefaultCallback;
-		}
+	#if defined(NK_DEBUG)
+		return NkAssertAction::NK_BREAK;
+	#else
+		return NkAssertAction::NK_ABORT;
+	#endif
+	}
 
-		NkAssertAction NkAssertHandler::DefaultCallback(const NkAssertionInfo &info) {
-			// Afficher l'assertion échouée
-			fprintf(stderr, "\n=== ASSERTION FAILED ===\n");
-			fprintf(stderr, "Expression: %s\n", info.expression);
-			if (info.message && info.message[0]) {
-				fprintf(stderr, "Message: %s\n", info.message);
-			}
-			fprintf(stderr, "File: %s:%d\n", info.file, info.line);
-			fprintf(stderr, "Function: %s\n", info.function);
-			fprintf(stderr, "========================\n\n");
+	NkAssertAction NkAssertHandler::HandleAssertion(const NkAssertionInfo &info) {
+		return sAssertCallback(info);
+	}
 
-		#if defined(NK_DEBUG)
-			return NkAssertAction::NK_BREAK;
-		#else
-			return NkAssertAction::NK_ABORT;
-		#endif
-		}
-
-		NkAssertAction NkAssertHandler::HandleAssertion(const NkAssertionInfo &info) {
-			return sAssertCallback(info);
-		}
-
-	} // namespace core
 } // namespace nkentseu
 
 // ============================================================

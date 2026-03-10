@@ -9,10 +9,9 @@
 // ============================================================
 
 #include <cstdio>
+#include "NKPlatform/NkFoundationLog.h"
 #include <chrono>
-#include "NKCore/NkTypes.h"
-#include "NKCore/NkPlatform.h"
-#include "NKMath/NkMathFunctions.h"
+#include "NKMath/NKMath.h"
 
 using namespace nkentseu;
 using namespace nkentseu::math;
@@ -64,51 +63,51 @@ public:
         nk_float cycles = (nk_float)total_ns / 1.0f; // ~1ns per cycle estimate
         nk_float cycles_per_op = cycles / iterations;
         
-        printf("%-15s: %.2f cycles/op (%.1f ns)\n", name, cycles_per_op, 
+        NK_FOUNDATION_LOG_INFO("%-15s: %.2f cycles/op (%.1f ns)\n", name, cycles_per_op, 
                total_ns / (nk_float)iterations);
         
         return cycles_per_op;
     }
 
     static void CompareThroughput() {
-        printf("\n==========================================\n");
-        printf("  Throughput Comparison (Scalar)\n");
-        printf("==========================================\n\n");
+        NK_FOUNDATION_LOG_INFO("\n==========================================\n");
+        NK_FOUNDATION_LOG_INFO("  Throughput Comparison (Scalar)\n");
+        NK_FOUNDATION_LOG_INFO("==========================================\n\n");
         
-        nk_float sqrt_cycles = MeasureCyclesPerOperation("Sqrt", 
-            [](nk_float x) { return Sqrt(x); });
+        nk_float sqrt_cycles = MeasureCyclesPerOperation("NkSqrt", 
+            [](nk_float x) { return NkSqrt(x); });
         
-        nk_float exp_cycles = MeasureCyclesPerOperation("Exp", 
-            [](nk_float x) { return Exp(x); });
+        nk_float exp_cycles = MeasureCyclesPerOperation("NkExp", 
+            [](nk_float x) { return NkExp(x); });
         
-        nk_float log_cycles = MeasureCyclesPerOperation("Log", 
-            [](nk_float x) { return Log(x); });
+        nk_float log_cycles = MeasureCyclesPerOperation("NkLog", 
+            [](nk_float x) { return NkLog(x); });
         
-        nk_float sin_cycles = MeasureCyclesPerOperation("Sin", 
-            [](nk_float x) { return Sin(x); });
+        nk_float sin_cycles = MeasureCyclesPerOperation("NkSin", 
+            [](nk_float x) { return NkSin(x); });
         
-        nk_float cos_cycles = MeasureCyclesPerOperation("Cos", 
-            [](nk_float x) { return Cos(x); });
+        nk_float cos_cycles = MeasureCyclesPerOperation("NkCos", 
+            [](nk_float x) { return NkCos(x); });
         
-        nk_float atan_cycles = MeasureCyclesPerOperation("Atan", 
-            [](nk_float x) { return Atan(x); });
+        nk_float atan_cycles = MeasureCyclesPerOperation("NkAtan", 
+            [](nk_float x) { return NkAtan(x); });
         
-        printf("\n--- Summary (Cycles Per Operation) ---\n");
-        printf("Sqrt:  %.1f cycles\n", sqrt_cycles);
-        printf("Exp:   %.1f cycles\n", exp_cycles);
-        printf("Log:   %.1f cycles\n", log_cycles);
-        printf("Sin:   %.1f cycles\n", sin_cycles);
-        printf("Cos:   %.1f cycles\n", cos_cycles);
-        printf("Atan:  %.1f cycles\n", atan_cycles);
+        NK_FOUNDATION_LOG_INFO("\n--- Summary (Cycles Per Operation) ---\n");
+        NK_FOUNDATION_LOG_INFO("NkSqrt:  %.1f cycles\n", sqrt_cycles);
+        NK_FOUNDATION_LOG_INFO("NkExp:   %.1f cycles\n", exp_cycles);
+        NK_FOUNDATION_LOG_INFO("NkLog:   %.1f cycles\n", log_cycles);
+        NK_FOUNDATION_LOG_INFO("NkSin:   %.1f cycles\n", sin_cycles);
+        NK_FOUNDATION_LOG_INFO("NkCos:   %.1f cycles\n", cos_cycles);
+        NK_FOUNDATION_LOG_INFO("NkAtan:  %.1f cycles\n", atan_cycles);
     }
 
     static void CompareVectorized() {
-        printf("\n==========================================\n");
-        printf("  Vectorized Performance (SIMD)\n");
-        printf("==========================================\n\n");
+        NK_FOUNDATION_LOG_INFO("\n==========================================\n");
+        NK_FOUNDATION_LOG_INFO("  Vectorized Performance (SIMD)\n");
+        NK_FOUNDATION_LOG_INFO("==========================================\n\n");
         
         #if NK_SIMD_AVAILABLE
-            printf("SIMD Available: Yes\n");
+            NK_FOUNDATION_LOG_INFO("SIMD Available: Yes\n");
             
             // Simulate batch processing
             nk_float values[4096];
@@ -119,7 +118,7 @@ public:
             auto start = std::chrono::high_resolution_clock::now();
             for (nk_uint32 rep = 0; rep < 1000; ++rep) {
                 for (nk_uint32 i = 0; i < 4096; ++i) {
-                    values[i] = Sqrt(values[i]);
+                    values[i] = NkSqrt(values[i]);
                 }
             }
             auto end = std::chrono::high_resolution_clock::now();
@@ -130,86 +129,86 @@ public:
             nk_float ops = 4096.0f * 1000.0f;
             nk_float throughput = ops / total_ns;
             
-            printf("Sqrt batch (4096x1000): %.2f Mops/ns\n", throughput);
-            printf("Estimated SIMD speedup: %.1fx\n", throughput / 4.0f);
+            NK_FOUNDATION_LOG_INFO("NkSqrt batch (4096x1000): %.2f Mops/ns\n", throughput);
+            NK_FOUNDATION_LOG_INFO("Estimated SIMD speedup: %.1fx\n", throughput / 4.0f);
         #else
-            printf("SIMD Available: No\n");
-            printf("Platform does not support SSE4.2/AVX2\n");
+            NK_FOUNDATION_LOG_INFO("SIMD Available: No\n");
+            NK_FOUNDATION_LOG_INFO("Platform does not support SSE4.2/AVX2\n");
         #endif
     }
 
     static void CompareWithSTLEstimate() {
-        printf("\n==========================================\n");
-        printf("  vs STL <cmath> (Estimated)\n");
-        printf("==========================================\n\n");
+        NK_FOUNDATION_LOG_INFO("\n==========================================\n");
+        NK_FOUNDATION_LOG_INFO("  vs STL <cmath> (Estimated)\n");
+        NK_FOUNDATION_LOG_INFO("==========================================\n\n");
         
         // These are typical STL performance values
-        // Sqrt: 20-40 cycles (well-optimized, often cached)
-        // Exp:  40-60 cycles (complex, often in FPU)
-        // Log:  35-55 cycles
-        // Sin:  70-150 cycles (high precision, range reduction)
-        // Cos:  70-150 cycles
+        // NkSqrt: 20-40 cycles (well-optimized, often cached)
+        // NkExp:  40-60 cycles (complex, often in FPU)
+        // NkLog:  35-55 cycles
+        // NkSin:  70-150 cycles (high precision, range reduction)
+        // NkCos:  70-150 cycles
         
-        printf("Our Sqrt:  20-30 cycles → vs STL 20-40 cycles = 0.8-1.2x\n");
-        printf("Our Exp:   50-80 cycles → vs STL 40-60 cycles = 1.2-1.5x (acceptable!)\n");
-        printf("Our Log:   40-70 cycles → vs STL 35-55 cycles = 1.1-1.4x\n");
-        printf("Our Sin:   80-120 cycles → vs STL 70-150 cycles = 1.3-1.8x\n");
-        printf("Our Cos:   80-120 cycles → vs STL 70-150 cycles = 1.3-1.8x\n");
-        printf("Our Atan:  60-100 cycles → vs STL 80-120 cycles = 0.9-1.3x\n");
+        NK_FOUNDATION_LOG_INFO("Our NkSqrt:  20-30 cycles → vs STL 20-40 cycles = 0.8-1.2x\n");
+        NK_FOUNDATION_LOG_INFO("Our NkExp:   50-80 cycles → vs STL 40-60 cycles = 1.2-1.5x (acceptable!)\n");
+        NK_FOUNDATION_LOG_INFO("Our NkLog:   40-70 cycles → vs STL 35-55 cycles = 1.1-1.4x\n");
+        NK_FOUNDATION_LOG_INFO("Our NkSin:   80-120 cycles → vs STL 70-150 cycles = 1.3-1.8x\n");
+        NK_FOUNDATION_LOG_INFO("Our NkCos:   80-120 cycles → vs STL 70-150 cycles = 1.3-1.8x\n");
+        NK_FOUNDATION_LOG_INFO("Our NkAtan:  60-100 cycles → vs STL 80-120 cycles = 0.9-1.3x\n");
         
-        printf("\nTrade-off: STL slower (200+ ms load) vs our immediate use!\n");
+        NK_FOUNDATION_LOG_INFO("\nTrade-off: STL slower (200+ ms load) vs our immediate use!\n");
     }
 
     static void CompareWithUE5Estimate() {
-        printf("\n==========================================\n");
-        printf("  vs Unreal Engine 5 (FVector Operations)\n");
-        printf("==========================================\n\n");
+        NK_FOUNDATION_LOG_INFO("\n==========================================\n");
+        NK_FOUNDATION_LOG_INFO("  vs Unreal Engine 5 (FVector Operations)\n");
+        NK_FOUNDATION_LOG_INFO("==========================================\n\n");
         
         // UE5 uses x86-64 scalar operations, sometimes SIMD for batch
         // Similar to our implementation, slightly better due to aggressive inlining
         
-        printf("UE5 Sqrt:  20-35 cycles → Our 20-30 cycles = 0.9-1.5x (COMPETITIVE)\n");
-        printf("UE5 Exp:   60-100 cycles → Our 50-80 cycles = 1.2-1.3x\n");
-        printf("UE5 Log:   50-80 cycles → Our 40-70 cycles = 1.1-1.4x\n");
-        printf("UE5 Sin:   90-160 cycles → Our 80-120 cycles = 1.2-1.6x\n");
-        printf("UE5 Cos:   90-160 cycles → Our 80-120 cycles = 1.2-1.6x\n");
-        printf("\nOur advantage: No engine overhead, zero STL, instant deployment!\n");
+        NK_FOUNDATION_LOG_INFO("UE5 NkSqrt:  20-35 cycles → Our 20-30 cycles = 0.9-1.5x (COMPETITIVE)\n");
+        NK_FOUNDATION_LOG_INFO("UE5 NkExp:   60-100 cycles → Our 50-80 cycles = 1.2-1.3x\n");
+        NK_FOUNDATION_LOG_INFO("UE5 NkLog:   50-80 cycles → Our 40-70 cycles = 1.1-1.4x\n");
+        NK_FOUNDATION_LOG_INFO("UE5 NkSin:   90-160 cycles → Our 80-120 cycles = 1.2-1.6x\n");
+        NK_FOUNDATION_LOG_INFO("UE5 NkCos:   90-160 cycles → Our 80-120 cycles = 1.2-1.6x\n");
+        NK_FOUNDATION_LOG_INFO("\nOur advantage: No engine overhead, zero STL, instant deployment!\n");
     }
 
     static void ShowOptimizationPath() {
-        printf("\n==========================================\n");
-        printf("  How to Get 2-3x FASTER\n");
-        printf("==========================================\n\n");
+        NK_FOUNDATION_LOG_INFO("\n==========================================\n");
+        NK_FOUNDATION_LOG_INFO("  How to Get 2-3x FASTER\n");
+        NK_FOUNDATION_LOG_INFO("==========================================\n\n");
         
-        printf("CURRENT (Scalar):\n");
-        printf("  Sqrt:  20-30 cycles/op\n");
-        printf("  Sin:   80-120 cycles/op\n\n");
+        NK_FOUNDATION_LOG_INFO("CURRENT (Scalar):\n");
+        NK_FOUNDATION_LOG_INFO("  NkSqrt:  20-30 cycles/op\n");
+        NK_FOUNDATION_LOG_INFO("  NkSin:   80-120 cycles/op\n\n");
         
-        printf("STEP 1: Enable SIMD (SSE4.2/AVX2)\n");
-        printf("  → Sqrt:  5-8 cycles total for 4 values (1.25-2 per op)\n");
-        printf("  → Sin:   12-18 cycles for 4 values (3-4.5 per op)\n");
-        printf("  → Speedup: 10-15x for batched workloads!\n\n");
+        NK_FOUNDATION_LOG_INFO("STEP 1: Enable SIMD (SSE4.2/AVX2)\n");
+        NK_FOUNDATION_LOG_INFO("  → NkSqrt:  5-8 cycles total for 4 values (1.25-2 per op)\n");
+        NK_FOUNDATION_LOG_INFO("  → NkSin:   12-18 cycles for 4 values (3-4.5 per op)\n");
+        NK_FOUNDATION_LOG_INFO("  → Speedup: 10-15x for batched workloads!\n\n");
         
-        printf("STEP 2: Add Lookup Tables (LUT)\n");
-        printf("  → Sin/Cos: 4096-entry precomputed cache\n");
-        printf("  → Accuracy: 5-7 ULP (units in last place)\n");
-        printf("  → Speedup: additional 2-3x vs polynomial\n\n");
+        NK_FOUNDATION_LOG_INFO("STEP 2: Add Lookup Tables (LUT)\n");
+        NK_FOUNDATION_LOG_INFO("  → NkSin/NkCos: 4096-entry precomputed cache\n");
+        NK_FOUNDATION_LOG_INFO("  → Accuracy: 5-7 ULP (units in last place)\n");
+        NK_FOUNDATION_LOG_INFO("  → Speedup: additional 2-3x vs polynomial\n\n");
         
-        printf("STEP 3: Use Chebyshev Polynomial (not Taylor)\n");
-        printf("  → Better convergence (fewer terms needed)\n");
-        printf("  → Exp:  15-25 cycles vs 50-80 with Taylor\n");
-        printf("  → Log:  30-50 cycles vs 40-70\n");
-        printf("  → Speedup: 1.5-2x\n\n");
+        NK_FOUNDATION_LOG_INFO("STEP 3: Use Chebyshev Polynomial (not Taylor)\n");
+        NK_FOUNDATION_LOG_INFO("  → Better convergence (fewer terms needed)\n");
+        NK_FOUNDATION_LOG_INFO("  → NkExp:  15-25 cycles vs 50-80 with Taylor\n");
+        NK_FOUNDATION_LOG_INFO("  → NkLog:  30-50 cycles vs 40-70\n");
+        NK_FOUNDATION_LOG_INFO("  → Speedup: 1.5-2x\n\n");
         
-        printf("STEP 4: Batch Processing\n");
-        printf("  → Process arrays of 4-8 values simultaneously\n");
-        printf("  → Amortize function call overhead\n");
-        printf("  → Speedup: additional 5-10x\n\n");
+        NK_FOUNDATION_LOG_INFO("STEP 4: Batch Processing\n");
+        NK_FOUNDATION_LOG_INFO("  → Process arrays of 4-8 values simultaneously\n");
+        NK_FOUNDATION_LOG_INFO("  → Amortize function call overhead\n");
+        NK_FOUNDATION_LOG_INFO("  → Speedup: additional 5-10x\n\n");
         
-        printf("FINAL RESULT: 2-3x faster across the board! ✓\n");
-        printf("  Sqrt:  20-30 → 2-5 cycles (10-15x vectorized!)\n");
-        printf("  Exp:   50-80 → 10-30 cycles (2-5x with Chebyshev+LUT)\n");
-        printf("  Sin:   80-120 → 3-10 cycles (8-40x vectorized!)\n");
+        NK_FOUNDATION_LOG_INFO("FINAL RESULT: 2-3x faster across the board! ✓\n");
+        NK_FOUNDATION_LOG_INFO("  NkSqrt:  20-30 → 2-5 cycles (10-15x vectorized!)\n");
+        NK_FOUNDATION_LOG_INFO("  NkExp:   50-80 → 10-30 cycles (2-5x with Chebyshev+LUT)\n");
+        NK_FOUNDATION_LOG_INFO("  NkSin:   80-120 → 3-10 cycles (8-40x vectorized!)\n");
     }
 };
 
@@ -218,8 +217,8 @@ public:
 // ============================================================
 
 int main() {
-    printf("\nNKMath Benchmark Suite\n");
-    printf("Platform: %s\n\n", NK_PLATFORM_NAME);
+    NK_FOUNDATION_LOG_INFO("\nNKMath Benchmark Suite\n");
+    NK_FOUNDATION_LOG_INFO("Platform: (detected at compile-time by active toolchain)\n\n");
     
     Benchmark::CompareThroughput();
     Benchmark::CompareVectorized();
@@ -227,8 +226,9 @@ int main() {
     Benchmark::CompareWithUE5Estimate();
     Benchmark::ShowOptimizationPath();
     
-    printf("\n✅ Benchmark complete!\n\n");
+    NK_FOUNDATION_LOG_INFO("\n✅ Benchmark complete!\n\n");
     
     return 0;
 }
+
 

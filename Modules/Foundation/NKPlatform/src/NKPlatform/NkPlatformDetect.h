@@ -186,12 +186,11 @@
 
 /**
  * @brief Macro de détection de plateforme Web (Emscripten/WebAssembly)
- * @def NKENTSEU_PLATFORM_WEB
+ * @def NKENTSEU_PLATFORM_EMSCRIPTEN
  * @ingroup PlatformDetection
  */
 
 #if defined(__EMSCRIPTEN__)
-#define NKENTSEU_PLATFORM_WEB
 #define NKENTSEU_PLATFORM_EMSCRIPTEN
 #undef NKENTSEU_PLATFORM_NAME
 #undef NKENTSEU_PLATFORM_VERSION
@@ -242,7 +241,7 @@
  * 
  * Usage:
  *   #define NKENTSEU_FORCE_WINDOWING_XCB_ONLY
- *   #include "NkPlatformDetect.h"
+ *   #include "NKPlatform/NkPlatformDetect.h"
  */
 
 /**
@@ -254,7 +253,7 @@
  * 
  * Usage:
  *   #define NKENTSEU_FORCE_WINDOWING_XLIB_ONLY
- *   #include "NkPlatformDetect.h"
+ *   #include "NKPlatform/NkPlatformDetect.h"
  */
 
 /**
@@ -266,7 +265,7 @@
  * 
  * Usage:
  *   #define NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY
- *   #include "NkPlatformDetect.h"
+ *   #include "NKPlatform/NkPlatformDetect.h"
  */
 
 /**
@@ -278,7 +277,7 @@
  *
  * Usage:
  *   #define NKENTSEU_FORCE_WINDOWING_NOOP_ONLY
- *   #include "NkPlatformDetect.h"
+ *   #include "NKPlatform/NkPlatformDetect.h"
  */
 
 // ============================================================
@@ -790,8 +789,8 @@
 #endif
 
 // Web
-#if defined(NKENTSEU_PLATFORM_WEB)
-#define NKENTSEU_PLATFORM_WEB_BROWSER
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#define NKENTSEU_PLATFORM_EMSCRIPTEN_BROWSER
 #endif
 
 // Unix-like
@@ -820,7 +819,7 @@
 #if defined(NKENTSEU_PLATFORM_WINDOWS) + defined(NKENTSEU_PLATFORM_LINUX) + defined(NKENTSEU_PLATFORM_MACOS) +         \
 		defined(NKENTSEU_PLATFORM_CONSOLE) >                                                                           \
 	1
-#if !defined(NKENTSEU_PLATFORM_WEB) && !defined(NKENTSEU_PLATFORM_STEAM_DECK)
+#if !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && !defined(NKENTSEU_PLATFORM_STEAM_DECK)
 #warning "Nkentseu: Plusieurs plateformes principales détectées simultanément"
 #endif
 #endif
@@ -1146,7 +1145,7 @@
 // MACROS CONDITIONNELLES - WEB & EMBARQUÉ
 // ============================================================
 
-#ifdef NKENTSEU_PLATFORM_WEB
+#ifdef NKENTSEU_PLATFORM_EMSCRIPTEN
 #define NKENTSEU_WEB_ONLY(...) __VA_ARGS__
 #define NKENTSEU_NOT_WEB(...)
 #else
