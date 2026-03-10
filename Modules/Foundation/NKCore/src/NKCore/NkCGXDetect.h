@@ -16,8 +16,8 @@
 // INCLUDES
 // ============================================================
 
-#include "NkPlatformDetect.h"
-#include "NkArchDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
+#include "NKPlatform/NkArchDetect.h"
 
 // ============================================================
 // DÉTECTION APIS GRAPHIQUES PAR PLATEFORME

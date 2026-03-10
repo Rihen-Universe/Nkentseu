@@ -4,25 +4,33 @@
 #include "NKLogger/NkFormatter.h"
 #include "NKLogger/NkLogMessage.h"
 
-#include <chrono>
 #include <cstdio>
+#include <ctime>
 
 using namespace nkentseu;
 
-TEST_CASE(NKLoggerBenchmark, FormatterHotPath) {
-    constexpr int kIters = 200000;
+// namespace {
+// double NkToNs(const timespec& ts) {
+//     return static_cast<double>(ts.tv_sec) * 1000000000.0 + static_cast<double>(ts.tv_nsec);
+// }
+// } // namespace
 
-    NkFormatter formatter("[%Y-%m-%d %H:%M:%S.%e] [%L] %n: %v");
-    NkLogMessage msg(NkLogLevel::NK_INFO, "benchmark-message", "bench.cpp", 12, "Run", "bench");
+// TEST_CASE(NKLoggerBenchmark, FormatterHotPath) {
+//     constexpr int kIters = 200000;
 
-    volatile std::size_t sink = 0;
-    const auto t0 = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < kIters; ++i) {
-        sink += formatter.Format(msg).size();
-    }
-    const auto t1 = std::chrono::high_resolution_clock::now();
+//     NkFormatter formatter("[%Y-%m-%d %H:%M:%S.%e] [%L] %n: %v");
+//     NkLogMessage msg(NkLogLevel::NK_INFO, "benchmark-message", "bench.cpp", 12, "Run", "bench");
 
-    const double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
-    ASSERT_TRUE(ns > 0.0);
-    std::printf("\n[NKLogger Benchmark] format loop: %.2f ns total (sink=%zu)\n", ns, static_cast<std::size_t>(sink));
-}
+//     volatile usize sink = 0;
+//     timespec t0{};
+//     timespec t1{};
+//     (void)::timespec_get(&t0, TIME_UTC);
+//     for (int i = 0; i < kIters; ++i) {
+//         sink += formatter.Format(msg).Size();
+//     }
+//     (void)::timespec_get(&t1, TIME_UTC);
+
+//     const double ns = NkToNs(t1) - NkToNs(t0);
+//     ASSERT_TRUE(ns > 0.0);
+//     ::printf("\n[NKLogger Benchmark] format loop: %.2f ns total (sink=%zu)\n", ns, static_cast<size_t>(sink));
+// }

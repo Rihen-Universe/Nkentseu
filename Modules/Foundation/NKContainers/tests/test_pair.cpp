@@ -3,7 +3,7 @@
 
 #include "NKContainers/NkContainers.h"
 
-using namespace nkentseu::core;
+using namespace nkentseu;
 
 TEST_CASE(NKContainersPair, ConstructionAndComparison) {
     NkPair<int, int> a(1, 2);

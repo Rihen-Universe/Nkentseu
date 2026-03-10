@@ -8,12 +8,12 @@
 #include "NkString.h"
 #include "NkStringUtils.h"
 #include "NkStringHash.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 
 #include <cstdarg>  // Pour va_list, va_start, va_end
 
 namespace nkentseu {
-    namespace core {
+    
 
         // ========================================
         // CONSTRUCTORS
@@ -317,7 +317,7 @@ namespace nkentseu {
             return mCapacity;
         }
 
-        Bool NkString::IsEmpty() const NK_NOEXCEPT {
+        Bool NkString::Empty() const NK_NOEXCEPT {
             return mLength == 0;
         }
 
@@ -429,7 +429,7 @@ namespace nkentseu {
 
         NkString& NkString::Insert(SizeType pos, NkStringView view) {
             NK_ASSERT(pos <= mLength);
-            if (view.IsEmpty()) return *this;
+            if (view.Empty()) return *this;
             
             GrowIfNeeded(view.Length());
             Char* data = GetData();
@@ -613,7 +613,7 @@ namespace nkentseu {
         }
 
         NkString::SizeType NkString::RFind(NkStringView str, SizeType pos) const NK_NOEXCEPT {
-            if (str.IsEmpty()) return mLength;
+            if (str.Empty()) return mLength;
             if (str.Length() > mLength) return npos;
             
             SizeType searchPos = pos;
@@ -989,7 +989,7 @@ namespace nkentseu {
         }
 
         NkString& NkString::RemoveChars(NkStringView charsToRemove) {
-            if (charsToRemove.IsEmpty()) return *this;
+            if (charsToRemove.Empty()) return *this;
             
             Char* data = GetData();
             SizeType writePos = 0;
@@ -1034,14 +1034,26 @@ namespace nkentseu {
             
             va_list args;
             va_start(args, format);
-            result = string::NkVFormat(format, args);
+            result = string::NkVFormatf(format, args);
             va_end(args);
             
             return result;
         }
 
         NkString NkString::VFormat(const Char* format, va_list args) {
-            return string::NkVFormat(format, args);
+            return string::NkVFormatf(format, args);
+        }
+
+        NkString NkString::Fmtf(const Char* format, ...) {
+            va_list args;
+            va_start(args, format);
+            NkString result = VFormat(format, args);
+            va_end(args);
+            return result;
+        }
+
+        NkString NkString::VFmtf(const Char* format, va_list args) {
+            return VFormat(format, args);
         }
 
         // ========================================
@@ -1108,7 +1120,7 @@ namespace nkentseu {
             return lhs.Compare(rhs) >= 0;
         }
 
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

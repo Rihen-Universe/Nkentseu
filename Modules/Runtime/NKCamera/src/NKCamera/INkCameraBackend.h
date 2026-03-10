@@ -21,7 +21,7 @@ namespace nkentseu {
             // -----------------------------------------------------------------------
             // Énumération — retourne TOUS les périphériques disponibles
             // -----------------------------------------------------------------------
-            virtual std::vector<NkCameraDevice> EnumerateDevices() = 0;
+            virtual NkVector<NkCameraDevice> EnumerateDevices() = 0;
 
             /// Callback hot-plug (brancher/débrancher une webcam USB)
             virtual void SetHotPlugCallback(NkCameraHotPlugCallback cb) = 0;
@@ -40,7 +40,7 @@ namespace nkentseu {
             // Capture photo
             // -----------------------------------------------------------------------
             virtual bool CapturePhoto(NkPhotoCaptureResult& out) = 0;
-            virtual bool CapturePhotoToFile(const std::string& path) = 0;
+            virtual bool CapturePhotoToFile(const NkString& path) = 0;
 
             // -----------------------------------------------------------------------
             // Enregistrement vidéo
@@ -68,7 +68,7 @@ namespace nkentseu {
             virtual NkU32         GetHeight()    const = 0;
             virtual NkU32         GetFPS()       const = 0;
             virtual NkPixelFormat GetFormat()    const = 0;
-            virtual std::string   GetLastError() const = 0;
+            virtual NkString   GetLastError() const = 0;
 
             // -----------------------------------------------------------------------
             // Orientation IMU (optionnel — mobile/XR uniquement)

@@ -17,13 +17,11 @@
 #define NKENTSEU_THREADING_NKTHREADPOOL_H_INCLUDED
 
 #include "NKCore/NkTypes.h"
+#include "NKContainers/Adapters/NkQueue.h"
+#include "NKContainers/Functional/NkFunction.h"
 #include "NKThreading/NkThreadingExport.h"
 #include "NKThreading/NkMutex.h"
-#include "NKContainers/Sequential/NkVector.h"
-
-#include <functional>
-#include <queue>
-#include <memory>
+#include "NKMemory/NkUniquePtr.h"
 
 namespace nkentseu {
 namespace threading {
@@ -34,7 +32,7 @@ namespace threading {
      * Une tâche est juste une fonction sans arguments
      * qui sera exécutée par le thread pool.
      */
-    using Task = std::function<void()>;
+    using Task = NkFunction<void>;
     
     // Forward declaration
     class NkThreadPoolImpl;
@@ -172,7 +170,7 @@ namespace threading {
         static NkThreadPool& GetGlobal() noexcept;
         
     private:
-        std::unique_ptr<NkThreadPoolImpl> mImpl;
+        memory::NkUniquePtr<NkThreadPoolImpl> mImpl;
     };
 
 } // namespace threading

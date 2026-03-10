@@ -8,24 +8,23 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 
+#include "NKLogger/NkLog.h"
+
 #include <iostream>
 #include <fstream>
 
-static std::ofstream gLog("sandbox_diag.log", std::ios::trunc);
-#define LOG(x) do { std::cout << x << "\n"; std::cout.flush(); \
-                    gLog      << x << "\n"; gLog.flush(); } while(0)
 
 int nkmain(const nkentseu::NkEntryState&)
 {
     using namespace nkentseu;
 
-    LOG("[1] nkmain start");
+    logger.Info("[1] nkmain start");
 
     // --- Init ---
     NkAppData app;
     app.appName = "Test";
-    if (!NkInitialise(app)) { LOG("[FATAL] NkInitialise failed"); return -1; }
-    LOG("[2] NkInitialise OK  platform=" << NkEvents().GetPlatformName());
+    if (!NkInitialise(app)) { logger.Error("[FATAL] NkInitialise failed"); return -1; }
+    logger.Info("[2] NkInitialise OK  platform={0}", NkEvents().GetPlatformName());
 
     // --- Fenetre ---
     NkWindowConfig cfg;
@@ -35,11 +34,11 @@ int nkmain(const nkentseu::NkEntryState&)
 
     NkWindow window(cfg);
     if (!window.IsOpen()) {
-        LOG("[FATAL] Window failed: " << window.GetLastError().ToString());
+        logger.Error("[FATAL] Window failed: {0}", window.GetLastError().ToString());
         NkClose();
         return -2;
     }
-    LOG("[3] Window open OK");
+    logger.Info("[3] Window open OK");
 
     // --- Boucle minimale ---
     auto& es = NkEvents();
@@ -47,7 +46,7 @@ int nkmain(const nkentseu::NkEntryState&)
     int events = 0;
     bool running = true;
 
-    LOG("[4] Entering loop — close the window to exit");
+    logger.Info("[4] Entering loop — close the window to exit");
 
     while (running)
     {
@@ -55,16 +54,16 @@ int nkmain(const nkentseu::NkEntryState&)
         while ((ev = es.PollEvent()) != nullptr)
         {
             ++events;
-            LOG("[EVENT #" << events << "] type=" << (int)ev->GetType());
+            logger.Info("[EVENT #{0}] type={1}", events, static_cast<int>(ev->GetType()));
 
             if (ev->Is<NkWindowCloseEvent>()) {
-                LOG("[EVENT] → WindowClose, quitting");
+                logger.Info("[EVENT] → WindowClose, quitting");
                 running = false;
                 window.Close();
                 break;
             }
             if (auto* k = ev->As<NkKeyPressEvent>()) {
-                LOG("[EVENT] → KeyPress key=" << (int)k->GetKey());
+                logger.Info("[EVENT] → KeyPress key={0}", static_cast<int>(k->GetKey()));
                 if (k->GetKey() == NkKey::NK_ESCAPE) {
                     running = false;
                     window.Close();
@@ -77,11 +76,11 @@ int nkmain(const nkentseu::NkEntryState&)
 
         ++frames;
         if (frames % 600 == 0)
-            LOG("[LOOP] alive frames=" << frames << " events=" << events);
+            logger.Info("[LOOP] alive frames={0} events={1}", frames, events);
     }
 
-    LOG("[5] Loop exited frames=" << frames << " events=" << events);
+    logger.Info("[5] Loop exited frames={0} events={1}", frames, events);
     NkClose();
-    LOG("[6] Done");
+    logger.Info("[6] Done");
     return 0;
 }

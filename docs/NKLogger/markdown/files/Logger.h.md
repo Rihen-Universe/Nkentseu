@@ -122,7 +122,7 @@ void Critical(const char* format, ... )
 #### ⚙️ `Critical`
 
 ```cpp
-void Critical(const std::string& message)
+void Critical(const NkString& message)
 ```
 
 **Log critical avec stream style**
@@ -131,7 +131,7 @@ void Critical(const std::string& message)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:241`*
 
@@ -165,7 +165,7 @@ void Debug(const char* format, ... )
 #### ⚙️ `Debug`
 
 ```cpp
-void Debug(const std::string& message)
+void Debug(const NkString& message)
 ```
 
 **Log debug avec stream style**
@@ -174,7 +174,7 @@ void Debug(const std::string& message)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:217`*
 
@@ -208,7 +208,7 @@ void Error(const char* format, ... )
 #### ⚙️ `Error`
 
 ```cpp
-void Error(const std::string& message)
+void Error(const NkString& message)
 ```
 
 **Log error avec stream style**
@@ -217,7 +217,7 @@ void Error(const std::string& message)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:235`*
 
@@ -251,7 +251,7 @@ void Fatal(const char* format, ... )
 #### ⚙️ `Fatal`
 
 ```cpp
-void Fatal(const std::string& message)
+void Fatal(const NkString& message)
 ```
 
 **Log fatal avec stream style**
@@ -260,7 +260,7 @@ void Fatal(const std::string& message)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:247`*
 
@@ -368,7 +368,7 @@ void Info(const char* format, ... )
 #### ⚙️ `Info`
 
 ```cpp
-void Info(const std::string& message)
+void Info(const NkString& message)
 ```
 
 **Log info avec stream style**
@@ -377,7 +377,7 @@ void Info(const std::string& message)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:223`*
 
@@ -442,7 +442,7 @@ virtual void Log(LogLevel level, const char* file, int line, const char* func, c
 #### ⚙️ `Log`
 
 ```cpp
-void Log(LogLevel level, const char* file, int line, const char* func, const std::string& message)
+void Log(LogLevel level, const char* file, int line, const char* func, const NkString& message)
 ```
 
 **Log avec message string et informations de source**
@@ -455,7 +455,7 @@ void Log(LogLevel level, const char* file, int line, const char* func, const std
 | `file` | `const char*` | [in] Fichier source |
 | `line` | `int` | [in] Ligne source |
 | `func` | `const char*` | [in] Fonction source |
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:130`*
 
@@ -495,7 +495,7 @@ virtual void Log(LogLevel level, const char* file, int line, const char* func, c
 #### ⚙️ `Log`
 
 ```cpp
-void Log(LogLevel level, const std::string& message)
+void Log(LogLevel level, const NkString& message)
 ```
 
 **Log avec stream style**
@@ -505,7 +505,7 @@ void Log(LogLevel level, const std::string& message)
 | Nom | Type | Description |
 |-----|------|-------------|
 | `level` | `LogLevel` | [in] Niveau de log |
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:204`*
 
@@ -517,7 +517,7 @@ void Log(LogLevel level, const std::string& message)
 #### ⚙️ `Logger`
 
 ```cpp
-explicit Logger(const std::string& name)
+explicit Logger(const NkString& name)
 ```
 
 **Constructeur de logger avec nom**
@@ -526,7 +526,7 @@ explicit Logger(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` | [in] Nom du logger |
+| `name` | `const NkString&` | [in] Nom du logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:36`*
 
@@ -580,7 +580,7 @@ void SetLevel(LogLevel level)
 #### ⚙️ `SetPattern`
 
 ```cpp
-void SetPattern(const std::string& pattern)
+void SetPattern(const NkString& pattern)
 ```
 
 **Définit le pattern de formatage**
@@ -589,7 +589,7 @@ void SetPattern(const std::string& pattern)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` | [in] Pattern à utiliser |
+| `pattern` | `const NkString&` | [in] Pattern à utiliser |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:78`*
 
@@ -648,7 +648,7 @@ void Trace(const char* format, ... )
 #### ⚙️ `Trace`
 
 ```cpp
-void Trace(const std::string& message)
+void Trace(const NkString& message)
 ```
 
 **Log trace avec stream style**
@@ -657,7 +657,7 @@ void Trace(const std::string& message)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:211`*
 
@@ -691,7 +691,7 @@ void Warn(const char* format, ... )
 #### ⚙️ `Warn`
 
 ```cpp
-void Warn(const std::string& message)
+void Warn(const NkString& message)
 ```
 
 **Log warning avec stream style**
@@ -700,7 +700,7 @@ void Warn(const std::string& message)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `message` | `const std::string&` | [in] Message à logger |
+| `message` | `const NkString&` | [in] Message à logger |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Logger.h:229`*
 

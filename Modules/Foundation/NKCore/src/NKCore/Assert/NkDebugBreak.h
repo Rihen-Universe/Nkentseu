@@ -4,8 +4,8 @@
 #ifndef NKENTSEU_CORE_NKCORE_SRC_NKCORE_ASSERT_NKDEBUGBREAK_H_INCLUDED
 #define NKENTSEU_CORE_NKCORE_SRC_NKCORE_ASSERT_NKDEBUGBREAK_H_INCLUDED
 
-#include "NkPlatformDetect.h"
-#include "NkCompilerDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
+#include "NKPlatform/NkCompilerDetect.h"
 
 #if defined(NKENTSEU_COMPILER_MSVC)
 #define NKENTSEU_DEBUGBREAK() __debugbreak()

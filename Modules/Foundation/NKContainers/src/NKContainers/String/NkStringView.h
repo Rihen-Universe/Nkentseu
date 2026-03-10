@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKCore\src\NKCore\String\NkStringView.h
-// DESCRIPTION: String view (non-owning, read-only) - like std::string_view
+// DESCRIPTION: String view (non-owning, read-only) - like NkString_view
 // AUTEUR: Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
@@ -16,12 +16,13 @@
 #include "NKCore/NkExport.h"
 #include "NKPlatform/NkCompilerDetect.h"
 #include "NKCore/NkInline.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKCore/NkTraits.h"
+#include <stddef.h>
 
 namespace nkentseu {
-    namespace core {
+    
         
         // Forward declaration de NkString
         class NkString;
@@ -30,7 +31,7 @@ namespace nkentseu {
          * @brief String view (non-owning, read-only)
          * 
          * Vue sur une chaîne existante sans copie.
-         * Équivalent std::string_view C++17.
+         * Équivalent NkString_view C++17.
          * 
          * @warning Ne possède PAS les données - la chaîne source
          *          doit rester valide pendant l'utilisation
@@ -162,7 +163,7 @@ namespace nkentseu {
                 NK_CONSTEXPR SizeType Size() const NK_NOEXCEPT { return mLength; }
                 NK_CONSTEXPR usize Count() const NK_NOEXCEPT { return static_cast<usize>(mLength); }
                 
-                NK_CONSTEXPR bool IsEmpty() const NK_NOEXCEPT { return mLength == 0; }
+                NK_CONSTEXPR bool Empty() const NK_NOEXCEPT { return mLength == 0; }
                 NK_CONSTEXPR bool IsNull() const NK_NOEXCEPT { return mData == nullptr; }
                 NK_CONSTEXPR bool IsNullOrEmpty() const NK_NOEXCEPT { return mData == nullptr || mLength == 0; }
                 
@@ -568,14 +569,38 @@ namespace nkentseu {
         // COMPARISON OPERATORS TEMPLATES
         // ========================================
         
-        template<typename T1, typename T2>
-        NK_INLINE bool operator==(const T1& lhs, const T2& rhs) NK_NOEXCEPT {
-            return NkStringView(lhs).Compare(NkStringView(rhs)) == 0;
+        // template<typename T1, typename T2>
+        // NK_INLINE bool operator==(const T1& lhs, const T2& rhs) NK_NOEXCEPT {
+        //     return NkStringView(lhs).Compare(NkStringView(rhs)) == 0;
+        // }
+
+        NK_CONSTEXPR bool operator==(const NkStringView& lhs, const NkStringView& rhs) noexcept {
+            return lhs.Compare(rhs) == 0;
+        }
+
+        NK_CONSTEXPR bool operator==(const NkStringView& lhs, const char* rhs) noexcept {
+            return lhs.Compare(NkStringView(rhs)) == 0;
+        }
+
+        NK_CONSTEXPR bool operator==(const char* lhs, const NkStringView& rhs) noexcept {
+            return NkStringView(lhs).Compare(rhs) == 0;
         }
         
-        template<typename T1, typename T2>
-        NK_INLINE bool operator!=(const T1& lhs, const T2& rhs) NK_NOEXCEPT {
-            return NkStringView(lhs).Compare(NkStringView(rhs)) != 0;
+        // template<typename T1, typename T2>
+        // NK_INLINE bool operator!=(const T1& lhs, const T2& rhs) NK_NOEXCEPT {
+        //     return NkStringView(lhs).Compare(NkStringView(rhs)) != 0;
+        // }
+
+        NK_CONSTEXPR bool operator!=(const NkStringView& lhs, const NkStringView& rhs) noexcept {
+            return lhs.Compare(rhs) == 0;
+        }
+
+        NK_CONSTEXPR bool operator!=(const NkStringView& lhs, const char* rhs) noexcept {
+            return lhs.Compare(NkStringView(rhs)) != 0;
+        }
+
+        NK_CONSTEXPR bool operator!=(const char* lhs, const NkStringView& rhs) noexcept {
+            return NkStringView(lhs).Compare(rhs) != 0;
         }
         
         template<typename T1, typename T2>
@@ -604,17 +629,17 @@ namespace nkentseu {
         
 #if defined(NK_CPP11)
         inline namespace literals {
-            inline NkStringView operator""_sv(const char* str, std::size_t len) NK_NOEXCEPT {
+            inline NkStringView operator""_sv(const char* str, size_t len) NK_NOEXCEPT {
                 return NkStringView(str, static_cast<usize>(len));
             }
             
-            inline NkStringView operator""_nv(const char* str, std::size_t len) NK_NOEXCEPT {
+            inline NkStringView operator""_nv(const char* str, size_t len) NK_NOEXCEPT {
                 return NkStringView(str, static_cast<usize>(len));
             }
         }
         #endif
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGVIEW_H_INCLUDED

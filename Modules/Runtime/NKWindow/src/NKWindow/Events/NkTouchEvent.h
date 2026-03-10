@@ -27,6 +27,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <algorithm>
 
 namespace nkentseu {
@@ -154,8 +155,8 @@ namespace nkentseu {
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchBeginEvent(*this); }
-        std::string ToString() const override {
-            return "TouchBegin(" + std::to_string(mNumTouches) + " contacts)";
+        NkString ToString() const override {
+            return NkString::Fmt("TouchBegin({0} contacts)", mNumTouches);
         }
     };
 
@@ -174,8 +175,8 @@ namespace nkentseu {
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchMoveEvent(*this); }
-        std::string ToString() const override {
-            return "TouchMove(" + std::to_string(mNumTouches) + " contacts)";
+        NkString ToString() const override {
+            return NkString::Fmt("TouchMove({0} contacts)", mNumTouches);
         }
     };
 
@@ -194,8 +195,8 @@ namespace nkentseu {
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchEndEvent(*this); }
-        std::string ToString() const override {
-            return "TouchEnd(" + std::to_string(mNumTouches) + " contacts)";
+        NkString ToString() const override {
+            return NkString::Fmt("TouchEnd({0} contacts)", mNumTouches);
         }
     };
 
@@ -214,8 +215,8 @@ namespace nkentseu {
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchCancelEvent(*this); }
-        std::string ToString() const override {
-            return "TouchCancel(" + std::to_string(mNumTouches) + " contacts)";
+        NkString ToString() const override {
+            return NkString::Fmt("TouchCancel({0} contacts)", mNumTouches);
         }
     };
 
@@ -235,8 +236,8 @@ namespace nkentseu {
             : NkEvent(windowId), mScale(scale), mScaleDelta(scaleDelta), mCenterX(centerX), mCenterY(centerY) {}
 
         NkEvent* Clone() const override { return new NkGesturePinchEvent(*this); }
-        std::string ToString() const override {
-            return "GesturePinch(scale=" + std::to_string(mScale) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GesturePinch(scale={0:.3})", mScale);
         }
 
         float GetScale() const noexcept { return mScale; }
@@ -266,8 +267,8 @@ namespace nkentseu {
             : NkEvent(windowId), mAngle(angleDegrees), mAngleDelta(angleDeltaDegrees) {}
 
         NkEvent* Clone() const override { return new NkGestureRotateEvent(*this); }
-        std::string ToString() const override {
-            return "GestureRotate(" + std::to_string(mAngle) + "°)";
+        NkString ToString() const override {
+            return NkString::Fmt("GestureRotate({0:.3}°)", mAngle);
         }
 
         float GetAngle() const noexcept { return mAngle; }
@@ -295,8 +296,8 @@ namespace nkentseu {
               mVelocityY(velocityY), mNumFingers(numFingers) {}
 
         NkEvent* Clone() const override { return new NkGesturePanEvent(*this); }
-        std::string ToString() const override {
-            return "GesturePan(d=" + std::to_string(mDeltaX) + "," + std::to_string(mDeltaY) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GesturePan(d={0:.3},{1:.3})", mDeltaX, mDeltaY);
         }
 
         float GetDeltaX() const noexcept { return mDeltaX; }
@@ -327,8 +328,8 @@ namespace nkentseu {
             : NkEvent(windowId), mDirection(direction), mSpeed(speed), mNumFingers(numFingers) {}
 
         NkEvent* Clone() const override { return new NkGestureSwipeEvent(*this); }
-        std::string ToString() const override {
-            return std::string("GestureSwipe(") + NkSwipeDirectionToString(mDirection) + ")";
+        NkString ToString() const override {
+            return NkString("GestureSwipe(") + NkSwipeDirectionToString(mDirection) + ")";
         }
 
         NkSwipeDirection GetDirection() const noexcept { return mDirection; }
@@ -361,8 +362,8 @@ namespace nkentseu {
             : NkEvent(windowId), mX(x), mY(y), mTapCount(tapCount), mNumFingers(numFingers) {}
 
         NkEvent* Clone() const override { return new NkGestureTapEvent(*this); }
-        std::string ToString() const override {
-            return "GestureTap(x" + std::to_string(mTapCount) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("GestureTap(x{0})", mTapCount);
         }
 
         float GetX() const noexcept { return mX; }
@@ -393,8 +394,8 @@ namespace nkentseu {
             : NkEvent(windowId), mX(x), mY(y), mDurationMs(durationMs), mNumFingers(numFingers) {}
 
         NkEvent* Clone() const override { return new NkGestureLongPressEvent(*this); }
-        std::string ToString() const override {
-            return "GestureLongPress(" + std::to_string(mDurationMs) + "ms)";
+        NkString ToString() const override {
+            return NkString::Fmt("GestureLongPress({0:.1}ms)", mDurationMs);
         }
 
         float GetX() const noexcept { return mX; }

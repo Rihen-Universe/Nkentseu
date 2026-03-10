@@ -1,8 +1,9 @@
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
+#include "NKLogger/NkLog.h"
+
 #include <chrono>
-#include <cstdio>
 
 TEST_CASE(SandboxBenchmark, ColorPackingLoop) {
     constexpr int kIters = 1000000;
@@ -17,5 +18,6 @@ TEST_CASE(SandboxBenchmark, ColorPackingLoop) {
 
     const double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
     ASSERT_TRUE(ns > 0.0);
-    std::printf("\n[Sandbox Benchmark] color packing: %.2f ns total (sink=%u)\n", ns, static_cast<unsigned int>(sink));
+    logger.Info("[Sandbox Benchmark] color packing: {0} ns total (sink={1})",
+                ns, static_cast<unsigned int>(sink));
 }

@@ -91,7 +91,8 @@ namespace threading {
         void Reset() noexcept {
             NkScopedLock lock(mMutex);
             mCount = 0;
-            mCurrentPhase = 0;
+            ++mCurrentPhase;
+            mCondVar.NotifyAll();
         }
         
     private:

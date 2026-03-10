@@ -351,7 +351,7 @@ private:
     NkWindowBackend() = default;
     ~NkWindowBackend() = default;
 
-    std::unordered_map<uint32_t, std::unique_ptr<NkWindowImpl>> m_windows;
+    NkUnorderedMap<uint32_t, std::unique_ptr<NkWindowImpl>> m_windows;
     uint32_t m_nextId = 1; // Les ID commencent à 1 (0 = invalide)
 };
 
@@ -464,7 +464,7 @@ Comparons les différentes approches du point de vue du coût d'appel d'une mét
 
 ### Détail du coût pour l'approche ID
 
-1. **Recherche dans la map** : selon le conteneur utilisé (`std::unordered_map` ou `std::map`), le coût est O(1) en moyenne (hash) ou O(log n) (arbre). Pour un nombre modéré de fenêtres (disons < 100), la différence est négligeable. Mais pour des milliers de fenêtres, une `unordered_map` bien dimensionnée reste très rapide.
+1. **Recherche dans la map** : selon le conteneur utilisé (`NkUnorderedMap` ou `std::map`), le coût est O(1) en moyenne (hash) ou O(log n) (arbre). Pour un nombre modéré de fenêtres (disons < 100), la différence est négligeable. Mais pour des milliers de fenêtres, une `unordered_map` bien dimensionnée reste très rapide.
 2. **Appel de fonction** : une fois l'implémentation récupérée, on appelle une fonction membre ou une fonction libre sur cette implémentation. C'est une indirection supplémentaire (similaire à un appel virtuel, mais via un pointeur de fonction stocké dans l'impl ou directement une fonction membre).
 3. **Comparaison** : l'approche ID ajoute une étape de lookup par rapport aux autres méthodes. Cependant, cette étape est souvent très rapide (quelques cycles CPU) et peut même être optimisée par le compilateur si la map est petite et que l'ID est utilisé fréquemment (mais en général, le lookup reste un surcoût).
 
@@ -476,7 +476,7 @@ Comparons les différentes approches du point de vue du coût d'appel d'une mét
 
 ### Facteurs d'accélération possibles
 
-- Utiliser un `std::unordered_map` avec un hash simple (l'ID lui-même peut servir de hash si on utilise une `std::vector` indexée, mais alors il faut un vecteur de taille fixe ou redimensionnable, ce qui peut être moins adapté si les ID sont très espacés).
+- Utiliser un `NkUnorderedMap` avec un hash simple (l'ID lui-même peut servir de hash si on utilise une `NkVector` indexée, mais alors il faut un vecteur de taille fixe ou redimensionnable, ce qui peut être moins adapté si les ID sont très espacés).
 - On peut aussi utiliser un tableau de pointeurs indexé par ID si les ID sont consécutifs et que le nombre de fenêtres est limité (par exemple, un pool). Cela donnerait un accès O(1) sans hash.
 
 ## Avantages de l'approche par ID

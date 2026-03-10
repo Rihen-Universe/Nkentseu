@@ -1,28 +1,62 @@
 #pragma once
 // =============================================================================
-// NkTimeExport.h — Macros d'export/import pour NKTime
-// NKTIME_API est vide pour les builds statiques (défaut).
-// Définir NKTIME_SHARED pour un build DLL/SO.
+// NkTimeExport.h — Macros d'export/import et utilitaires de compilation NKTime
+//
+// NKENTSEU_TIME_API        : export/import DLL ou vide pour static (défaut)
+// NKTIME_NODISCARD  : [[nodiscard]] si C++17+
+// NKTIME_INLINE     : force-inline portable
+// NKTIME_LIKELY /
+// NKTIME_UNLIKELY   : hints de prédiction de branche
+//
+// Pour un build DLL : définir NKTIME_SHARED
+//   - Côté bibliothèque : définir NKTIME_BUILD en plus de NKTIME_SHARED
+//   - Côté client       : définir NKTIME_SHARED uniquement
+// Pour un build statique : ne rien définir (défaut).
 // =============================================================================
-#include "NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformDetect.h"
 
+// ── Export / Import ──────────────────────────────────────────────────────────
 #if defined(NKTIME_SHARED)
 #  if defined(NKTIME_BUILD)
 #    if defined(NKENTSEU_PLATFORM_WINDOWS)
-#      define NKTIME_API __declspec(dllexport)
+#      define NKENTSEU_TIME_API __declspec(dllexport)
 #    elif defined(__GNUC__) || defined(__clang__)
-#      define NKTIME_API __attribute__((visibility("default")))
+#      define NKENTSEU_TIME_API __attribute__((visibility("default")))
 #    else
-#      define NKTIME_API
+#      define NKENTSEU_TIME_API
 #    endif
 #  else
 #    if defined(NKENTSEU_PLATFORM_WINDOWS)
-#      define NKTIME_API __declspec(dllimport)
+#      define NKENTSEU_TIME_API __declspec(dllimport)
 #    else
-#      define NKTIME_API
+#      define NKENTSEU_TIME_API
 #    endif
 #  endif
 #else
-// Static library: no visibility annotation needed.
-#  define NKTIME_API
+#  define NKENTSEU_TIME_API  // Static library — pas d'annotation de visibilité
+#endif
+
+// ── [[nodiscard]] ────────────────────────────────────────────────────────────
+#if defined(__cplusplus) && __cplusplus >= 201703L
+#  define NKTIME_NODISCARD [[nodiscard]]
+#else
+#  define NKTIME_NODISCARD
+#endif
+
+// ── Force-inline ─────────────────────────────────────────────────────────────
+#if defined(_MSC_VER)
+#  define NKTIME_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#  define NKTIME_INLINE __attribute__((always_inline)) inline
+#else
+#  define NKTIME_INLINE inline
+#endif
+
+// ── Branch prediction hints ──────────────────────────────────────────────────
+#if defined(__GNUC__) || defined(__clang__)
+#  define NKTIME_LIKELY(x)   __builtin_expect(!!(x), 1)
+#  define NKTIME_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#  define NKTIME_LIKELY(x)   (x)
+#  define NKTIME_UNLIKELY(x) (x)
 #endif

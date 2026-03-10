@@ -38,7 +38,7 @@ public:
     bool Init() override;
     void Shutdown() override;
 
-    std::vector<NkCameraDevice> EnumerateDevices() override;
+    NkVector<NkCameraDevice> EnumerateDevices() override;
     void SetHotPlugCallback(NkCameraHotPlugCallback cb) override { mHotPlugCb = std::move(cb); }
 
     bool StartStreaming(const NkCameraConfig& config) override;
@@ -48,7 +48,7 @@ public:
     bool GetLastFrame(NkCameraFrame& out) override;
 
     bool CapturePhoto(NkPhotoCaptureResult& res) override;
-    bool CapturePhotoToFile(const std::string& path) override;
+    bool CapturePhotoToFile(const NkString& path) override;
 
     bool StartVideoRecord(const NkVideoRecordConfig& config) override;
     void StopVideoRecord() override;
@@ -65,7 +65,7 @@ public:
     NkU32         GetHeight()    const override { return mHeight; }
     NkU32         GetFPS()       const override { return mFPS;    }
     NkPixelFormat GetFormat()    const override { return NkPixelFormat::NK_PIXEL_BGRA8; }
-    std::string   GetLastError() const override { return mLastError; }
+    NkString   GetLastError() const override { return mLastError; }
 
     // Appelé depuis le delegate ObjC
     void OnSampleBuffer(void* cmSampleBuffer);
@@ -74,7 +74,7 @@ private:
     NkCameraState   mState    = NkCameraState::NK_CAM_STATE_CLOSED;
     NkU32           mWidth    = 0, mHeight = 0, mFPS = 30;
     NkU32           mFrameIdx = 0;
-    std::string     mLastError;
+    NkString     mLastError;
 
     std::mutex     mMutex;
     NkCameraFrame  mLastFrame;

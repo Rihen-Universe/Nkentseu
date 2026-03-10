@@ -1,4 +1,4 @@
-﻿#include "NkDialogs.h"
+#include "NkDialogs.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
 // ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@
 // Pour macOS, on utilisera des commandes via osascript
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB) // Linux
 // Pour Linux, on utilisera Zenity (outil GTK en ligne de commande)
-#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 // Plateformes mobiles/Web : stubs
 #endif
 
@@ -36,14 +36,14 @@ namespace nkentseu {
 
 	// Fonction utilitaire pour convertir un filtre utilisateur (ex: "*.png;*.jpg")
 	// en chaÃ®ne pour OPENFILENAME (double null-terminated avec des paires description|pattern)
-	static std::string Win32PrepareFilter(const std::string &userFilter) {
-		if (userFilter.empty() || userFilter == "*.*")
+	static NkString Win32PrepareFilter(const NkString &userFilter) {
+		if (userFilter.Empty() || userFilter == "*.*")
 			return "All Files\0*.*\0";
 
 		// On va construire un filtre simple : on prend l'extension et on met un libellÃ©
 		// Exemple : "*.png;*.jpg" -> "Image Files (*.png;*.jpg)\0*.png;*.jpg\0"
-		std::string result;
-		result.reserve(userFilter.size() + 32);
+		NkString result;
+		result.Reserve(userFilter.Size() + 32);
 
 		// CrÃ©er une description basÃ©e sur l'extension
 		result += "Fichiers (";
@@ -58,19 +58,19 @@ namespace nkentseu {
 		// l'utilisateur peut passer "*.png;*.jpg" et Ã§a fonctionnera avec l'API Windows?
 		// En rÃ©alitÃ©, OPENFILENAME attend une liste de patterns sÃ©parÃ©s par ';' dans une seule chaÃ®ne, donc "*.png;*.jpg"
 		// est correct. On ajoute juste un double null Ã  la fin.
-		result.push_back('\0'); // dÃ©jÃ  un null de la fin de la chaÃ®ne prÃ©cÃ©dente, mais on en ajoute un pour doubler
+		result.PushBack('\0'); // dÃ©jÃ  un null de la fin de la chaÃ®ne prÃ©cÃ©dente, mais on en ajoute un pour doubler
 		return result;
 	}
 
-	inline NkDialogResult NkDialogs::OpenFileDialog(const std::string &filter, const std::string &title) {
+	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
-		std::string winFilter = Win32PrepareFilter(filter);
-		ofn.lpstrFilter = winFilter.c_str();
+		NkString winFilter = Win32PrepareFilter(filter);
+		ofn.lpstrFilter = winFilter.CStr();
 		ofn.lpstrFile = buf;
 		ofn.nMaxFile = MAX_PATH;
-		ofn.lpstrTitle = title.empty() ? nullptr : title.c_str();
+		ofn.lpstrTitle = title.Empty() ? nullptr : title.CStr();
 		ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
 
 		NkDialogResult r;
@@ -79,14 +79,14 @@ namespace nkentseu {
 		return r;
 	}
 
-	inline NkDialogResult NkDialogs::SaveFileDialog(const std::string &defaultExt, const std::string &title) {
+	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
 		ofn.lpstrFile = buf;
 		ofn.nMaxFile = MAX_PATH;
-		ofn.lpstrTitle = title.empty() ? nullptr : title.c_str();
-		ofn.lpstrDefExt = defaultExt.empty() ? nullptr : defaultExt.c_str();
+		ofn.lpstrTitle = title.Empty() ? nullptr : title.CStr();
+		ofn.lpstrDefExt = defaultExt.Empty() ? nullptr : defaultExt.CStr();
 		ofn.Flags = OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
 
 		NkDialogResult r;
@@ -95,7 +95,7 @@ namespace nkentseu {
 		return r;
 	}
 
-	inline void NkDialogs::OpenMessageBox(const std::string &message, const std::string &title, int type) {
+	inline void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
 		UINT flags = MB_OK;
 		switch (type) {
 			case 1:
@@ -108,7 +108,7 @@ namespace nkentseu {
 				flags |= MB_ICONINFORMATION;
 				break;
 		}
-		MessageBoxA(nullptr, message.c_str(), title.empty() ? nullptr : title.c_str(), flags);
+		MessageBoxA(nullptr, message.CStr(), title.Empty() ? nullptr : title.CStr(), flags);
 	}
 
 	inline NkDialogResult NkDialogs::ColorPicker(NkU32 initial) {
@@ -132,8 +132,8 @@ namespace nkentseu {
 	// ===========================================================================
 	#elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
 
-	static std::string ExecCommand(const char *cmd) {
-		std::string result;
+	static NkString ExecCommand(const char *cmd) {
+		NkString result;
 		FILE *pipe = popen(cmd, "r");
 		if (!pipe)
 			return result;
@@ -143,47 +143,47 @@ namespace nkentseu {
 		}
 		pclose(pipe);
 		// Enlever le saut de ligne final
-		if (!result.empty() && result.back() == '\n')
-			result.pop_back();
+		if (!result.Empty() && result.Back() == '\n')
+			result.PopBack();
 		return result;
 	}
 
-	inline NkDialogResult NkDialogs::OpenFileDialog(const std::string &filter, const std::string &title) {
+	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
 		NkDialogResult res;
 		// Construction de la commande zenity
-		std::string cmd = "zenity --file-selection --title=\"";
+		NkString cmd = "zenity --file-selection --title=\"";
 		cmd += title;
 		cmd += "\"";
-		if (!filter.empty() && filter != "*.*") {
+		if (!filter.Empty() && filter != NkString("*.*")) {
 			// Zenity accepte --file-filter='Nom *.extension'
 			cmd += " --file-filter=\"";
 			cmd += filter;
 			cmd += "\"";
 		}
-		std::string path = ExecCommand(cmd.c_str());
-		res.confirmed = !path.empty();
+		NkString path = ExecCommand(cmd.CStr());
+		res.confirmed = !path.Empty();
 		res.path = path;
 		return res;
 	}
 
-	inline NkDialogResult NkDialogs::SaveFileDialog(const std::string &defaultExt, const std::string &title) {
+	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
 		NkDialogResult res;
-		std::string cmd = "zenity --file-selection --save --confirm-overwrite --title=\"";
+		NkString cmd = "zenity --file-selection --save --confirm-overwrite --title=\"";
 		cmd += title;
 		cmd += "\"";
-		if (!defaultExt.empty()) {
+		if (!defaultExt.Empty()) {
 			cmd += " --file-filter=\"*.";
 			cmd += defaultExt;
 			cmd += "\"";
 		}
-		std::string path = ExecCommand(cmd.c_str());
-		res.confirmed = !path.empty();
+		NkString path = ExecCommand(cmd.CStr());
+		res.confirmed = !path.Empty();
 		res.path = path;
 		return res;
 	}
 
-	inline void NkDialogs::OpenMessageBox(const std::string &message, const std::string &title, int type) {
-		std::string cmd = "zenity --";
+	inline void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+		NkString cmd = "zenity --";
 		switch (type) {
 			case 1:
 				cmd += "warning";
@@ -200,7 +200,7 @@ namespace nkentseu {
 		cmd += "\" --title=\"";
 		cmd += title;
 		cmd += "\"";
-		system(cmd.c_str());
+		system(cmd.CStr());
 	}
 
 	inline NkDialogResult NkDialogs::ColorPicker(NkU32 initial) {
@@ -208,16 +208,16 @@ namespace nkentseu {
 		// Convertir initial en #RRGGBB pour zenity
 		char hex[8];
 		snprintf(hex, sizeof(hex), "#%02X%02X%02X", (initial >> 16) & 0xFF, (initial >> 8) & 0xFF, initial & 0xFF);
-		std::string cmd = "zenity --color-selection --color=";
+		NkString cmd = "zenity --color-selection --color=";
 		cmd += hex;
-		std::string output = ExecCommand(cmd.c_str());
+		NkString output = ExecCommand(cmd.CStr());
 		// Le format de sortie est gÃ©nÃ©ralement #RRGGBB
-		if (output.empty() || output[0] != '#') {
+		if (output.Empty() || output[0] != '#') {
 			res.confirmed = false;
 		} else {
 			res.confirmed = true;
 			unsigned int r, g, b;
-			if (sscanf(output.c_str(), "#%02x%02x%02x", &r, &g, &b) == 3) {
+			if (sscanf(output.CStr(), "#%02x%02x%02x", &r, &g, &b) == 3) {
 				res.color = (r << 24) | (g << 16) | (b << 8) | 0xFF;
 			}
 		}
@@ -229,8 +229,8 @@ namespace nkentseu {
 	// ===========================================================================
 	#elif defined(NKENTSEU_PLATFORM_MACOS)
 
-	static std::string ExecCommand(const char *cmd) {
-		std::string result;
+	static NkString ExecCommand(const char *cmd) {
+		NkString result;
 		FILE *pipe = popen(cmd, "r");
 		if (!pipe)
 			return result;
@@ -239,67 +239,67 @@ namespace nkentseu {
 			result += buffer;
 		}
 		pclose(pipe);
-		if (!result.empty() && result.back() == '\n')
-			result.pop_back();
+		if (!result.Empty() && result.Back() == '\n')
+			result.PopBack();
 		return result;
 	}
 
 	// Pour les dialogues de fichiers, on utilise osascript (AppleScript)
-	inline NkDialogResult NkDialogs::OpenFileDialog(const std::string &filter, const std::string &title) {
+	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
 		NkDialogResult res;
 		// Construction d'un script AppleScript pour choisir un fichier
-		std::string script = "osascript -e 'POSIX path of (choose file with prompt \"" + title + "\"";
-		if (!filter.empty() && filter != "*.*") {
+		NkString script = "osascript -e 'POSIX path of (choose file with prompt \"" + title + "\"";
+		if (!filter.Empty() && filter != "*.*") {
 			// Transformer le filtre "*.png;*.jpg" en liste pour AppleScript
 			// AppleScript attend des types comme {"png","jpg"}
 			script += " of type {";
-			std::string f = filter;
+			NkString f = filter;
 			size_t pos = 0;
 			bool first = true;
-			while ((pos = f.find(';')) != std::string::npos) {
-				std::string ext = f.substr(0, pos);
-				if (!ext.empty()) {
+			while ((pos = f.find(';')) != NkString::npos) {
+				NkString ext = f.substr(0, pos);
+				if (!ext.Empty()) {
 					if (!first)
 						script += ",";
 					// enlever le *.
-					if (ext.size() > 2 && ext[0] == '*' && ext[1] == '.')
+					if (ext.Size() > 2 && ext[0] == '*' && ext[1] == '.')
 						ext = ext.substr(2);
 					script += "\"" + ext + "\"";
 					first = false;
 				}
 				f.erase(0, pos + 1);
 			}
-			if (!f.empty()) {
+			if (!f.Empty()) {
 				if (!first)
 					script += ",";
-				if (f.size() > 2 && f[0] == '*' && f[1] == '.')
+				if (f.Size() > 2 && f[0] == '*' && f[1] == '.')
 					f = f.substr(2);
 				script += "\"" + f + "\"";
 			}
 			script += "}";
 		}
 		script += ")'";
-		std::string path = ExecCommand(script.c_str());
-		res.confirmed = !path.empty();
+		NkString path = ExecCommand(script.CStr());
+		res.confirmed = !path.Empty();
 		res.path = path;
 		return res;
 	}
 
-	inline NkDialogResult NkDialogs::SaveFileDialog(const std::string &defaultExt, const std::string &title) {
+	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
 		NkDialogResult res;
-		std::string script = "osascript -e 'POSIX path of (choose file name with prompt \"" + title + "\"";
-		if (!defaultExt.empty()) {
+		NkString script = "osascript -e 'POSIX path of (choose file name with prompt \"" + title + "\"";
+		if (!defaultExt.Empty()) {
 			script += " default name \"untitled." + defaultExt + "\"";
 		}
 		script += ")'";
-		std::string path = ExecCommand(script.c_str());
-		res.confirmed = !path.empty();
+		NkString path = ExecCommand(script.CStr());
+		res.confirmed = !path.Empty();
 		res.path = path;
 		return res;
 	}
 
-	inline void NkDialogs::OpenMessageBox(const std::string &message, const std::string &title, int type) {
-		std::string script = "osascript -e 'display dialog \"" + message + "\" with title \"" + title + "\"";
+	inline void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+		NkString script = "osascript -e 'display dialog \"" + message + "\" with title \"" + title + "\"";
 		switch (type) {
 			case 1:
 				script += " with icon caution";
@@ -312,7 +312,7 @@ namespace nkentseu {
 				break;
 		}
 		script += "'";
-		system(script.c_str());
+		system(script.CStr());
 	}
 
 	inline NkDialogResult NkDialogs::ColorPicker(NkU32 initial) {
@@ -327,13 +327,13 @@ namespace nkentseu {
 	// ===========================================================================
 	#else
 
-	inline NkDialogResult NkDialogs::OpenFileDialog(const std::string &, const std::string &) {
+	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
 		return {};
 	}
-	inline NkDialogResult NkDialogs::SaveFileDialog(const std::string &, const std::string &) {
+	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
 		return {};
 	}
-	inline void NkDialogs::OpenMessageBox(const std::string &, const std::string &, int) {
+	inline void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
 	}
 	inline NkDialogResult NkDialogs::ColorPicker(NkU32) {
 		return {};

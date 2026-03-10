@@ -117,7 +117,7 @@ All `.jenga` files configured and linked:
 
 nk_float x = 2.0f;
 nk_float sq = math::Sqrt(x);           // 1.414... (custom impl)
-nk_float s = math::Sin(math::NK_PI_F); // ≈ 0 (no std::sin)
+nk_float s = math::Sin(math::NK_PI_F); // ≈ 0 (no math::NkSin)
 nk_float e = math::Exp(1.0f);          // 2.718... (e)
 nk_float g = math::NK_G;                // 6.674e-11 (G const)
 ```
@@ -161,11 +161,11 @@ cam.RegisterFrameCallback([](const Frame& f) {
 ### ZERO STL Dependency ✅
 ```cpp
 // NOT IN NKMath:
-❌ std::sin, std::cos, std::sqrt
+❌ math::NkSin, std::cos, math::NkSqrt
 ❌ std::exp, std::log, std::pow
 ❌ std::ceil, std::floor, std::round
 ❌ std::min, std::max (custom inline instead)
-❌ std::vector (use NkVectorFast instead)
+❌ NkVector (use NkVectorFast instead)
 ❌ <cmath>, <limits>, <algorithm> includes
 ```
 

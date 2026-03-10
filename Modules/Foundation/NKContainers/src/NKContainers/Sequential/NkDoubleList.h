@@ -16,13 +16,13 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Doubly linked list (std::list equivalent)
@@ -354,7 +354,7 @@ namespace nkentseu {
             // CAPACITY
             // ========================================
             
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             bool empty() const NK_NOEXCEPT { return mSize == 0; }
             
             SizeType Size() const NK_NOEXCEPT { return mSize; }
@@ -639,7 +639,7 @@ namespace nkentseu {
             lhs.Swap(rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_SEQUENTIAL_NKDOUBLELIST_H_INCLUDED

@@ -44,7 +44,7 @@ namespace nkentseu {
     // Énumération
     // ===========================================================================
 
-    std::vector<NkCameraDevice> NkCameraSystem::EnumerateDevices()
+    NkVector<NkCameraDevice> NkCameraSystem::EnumerateDevices()
     {
         if (!mReady) return {};
         return mBackend.EnumerateDevices();
@@ -127,7 +127,7 @@ namespace nkentseu {
         return mBackend.CapturePhoto(out);
     }
 
-    std::string NkCameraSystem::CapturePhotoToFile(const std::string& path)
+    NkString NkCameraSystem::CapturePhotoToFile(const NkString& path)
     {
         (void)path;
         // Écriture disque désactivée : l'appelant doit consommer NkCameraFrame::data.
@@ -142,7 +142,7 @@ namespace nkentseu {
     {
         if (!mReady) return false;
         NkVideoRecordConfig cfg = config;
-        if (cfg.outputPath.empty())
+        if (cfg.outputPath.Empty())
             cfg.outputPath = GenerateAutoPath("video", cfg.container);
         return mBackend.StartVideoRecord(cfg);
     }
@@ -174,7 +174,7 @@ namespace nkentseu {
     NkU32         NkCameraSystem::GetFPS()       const { return mReady ? mBackend.GetFPS()    : 0; }
     NkPixelFormat NkCameraSystem::GetFormat()    const
     { return mReady ? mBackend.GetFormat() : NkPixelFormat::NK_PIXEL_UNKNOWN; }
-    std::string   NkCameraSystem::GetLastError() const
+    NkString   NkCameraSystem::GetLastError() const
     { return mReady ? mBackend.GetLastError() : "Camera system not initialised"; }
 
     // ===========================================================================
@@ -284,7 +284,8 @@ namespace nkentseu {
     {
         if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8) return true;
         NkU32 w = frame.width, h = frame.height;
-        std::vector<NkU8> out(w * h * 4);
+        NkVector<NkU8> out;
+        out.Resize(w * h * 4);
 
         if (frame.format == NkPixelFormat::NK_PIXEL_BGRA8) {
             for (NkU32 i = 0; i < w * h; ++i) {
@@ -344,8 +345,8 @@ namespace nkentseu {
         }
 
         if (frame.format == NkPixelFormat::NK_PIXEL_NV12) {
-            const NkU8* Y  = frame.data.data();
-            const NkU8* UV = frame.data.data() + w * h;
+            const NkU8* Y  = frame.data.Data();
+            const NkU8* UV = frame.data.Data() + w * h;
             for (NkU32 row = 0; row < h; ++row) {
                 for (NkU32 col = 0; col < w; ++col) {
                     float y  = (float)Y[row * w + col] - 16.f;
@@ -377,7 +378,7 @@ namespace nkentseu {
     }
 
     bool NkCameraSystem::SaveFrameToFile(const NkCameraFrame& frame,
-                                        const std::string& path, int quality)
+                                        const NkString& path, int quality)
     {
         (void)frame;
         (void)path;
@@ -386,8 +387,8 @@ namespace nkentseu {
         return false;
     }
 
-    std::string NkCameraSystem::GenerateAutoPath(const std::string& prefix,
-                                                const std::string& ext)
+    NkString NkCameraSystem::GenerateAutoPath(const NkString& prefix,
+                                                const NkString& ext)
     {
         const auto now = std::chrono::system_clock::now();
         const auto t   = std::chrono::system_clock::to_time_t(now);
@@ -403,7 +404,7 @@ namespace nkentseu {
         if (std::strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", &tmBuf) == 0)
             std::snprintf(ts, sizeof(ts), "00000000_000000");
 
-        return prefix + "_" + std::string(ts) + "." + ext;
+        return prefix + "_" + NkString(ts) + "." + ext;
     }
 
     // ===========================================================================
@@ -475,10 +476,10 @@ namespace nkentseu {
     NkCameraState NkMultiCamera::Stream::GetState() const
     { return mBackendReady ? mBackend.GetState() : NkCameraState::NK_CAM_STATE_CLOSED; }
 
-    std::string NkMultiCamera::Stream::GetLastError() const
+    NkString NkMultiCamera::Stream::GetLastError() const
     { return mBackendReady ? mBackend.GetLastError() : "camera backend init failed"; }
 
-    bool NkMultiCamera::Stream::CapturePhotoToFile(const std::string& path)
+    bool NkMultiCamera::Stream::CapturePhotoToFile(const NkString& path)
     {
         (void)path;
         // I/O fichier volontairement désactivé : pipeline data/framebuffer only.
@@ -499,21 +500,21 @@ namespace nkentseu {
 
         auto s = std::make_unique<Stream>(deviceIndex);
         s->Start(config);
-        mStreams.push_back(std::move(s));
-        return *mStreams.back();
+        mStreams.PushBack(std::move(s));
+        return *mStreams.Back();
     }
 
     void NkMultiCamera::Close(NkU32 deviceIndex)
     {
-        mStreams.erase(
-            std::remove_if(mStreams.begin(), mStreams.end(),
-                [deviceIndex](const std::unique_ptr<Stream>& s){
-                    return s->DeviceIndex() == deviceIndex;
-                }),
-            mStreams.end());
+        for (usize i = 0; i < mStreams.Size(); ) {
+            if (mStreams[i]->DeviceIndex() == deviceIndex)
+                mStreams.Erase(mStreams.begin() + i);
+            else
+                ++i;
+        }
     }
 
-    void NkMultiCamera::CloseAll() { mStreams.clear(); }
+    void NkMultiCamera::CloseAll() { mStreams.Clear(); }
 
     NkMultiCamera::Stream* NkMultiCamera::Get(NkU32 deviceIndex)
     {

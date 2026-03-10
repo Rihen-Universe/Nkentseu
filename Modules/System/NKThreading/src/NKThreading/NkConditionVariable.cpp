@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkConditionVariable.h"
+#include "NKThreading/NkConditionVariable.h"
 
 namespace nkentseu {
     namespace entseu {

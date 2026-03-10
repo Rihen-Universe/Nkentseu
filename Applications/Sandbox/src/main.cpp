@@ -13,9 +13,13 @@
 #include "NKRenderer/NkRendererConfig.h"
 #include "NKTime/NkChrono.h"
 
+#include "NKLogger/NkLog.h"
+#include "NKMath/NKMath.h"
+
+#include "NKMemory/NkMemory.h"
+
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <memory>
 #include <iostream>
 #include <cstdlib>
@@ -26,6 +30,7 @@
 
 namespace {
 using namespace nkentseu;
+using namespace nkentseu::math;
 
 float ClampUnit(float v) {
     if (v < 0.f) return 0.f;
@@ -50,13 +55,13 @@ void DrawPlasma(NkRenderer& renderer, NkU32 width, NkU32 height,
         float fy = y * ih - 0.5f;
         for (NkU32 x = 0; x < width; x += blk) {
             float fx  = x * iw - 0.5f;
-            float rd  = std::sqrt(fx*fx + fy*fy);
-            float mix = (std::sin((fx + phase.x)*13.5f + t*1.7f)
-                        +std::sin((fy + phase.y)*11.0f - t*1.3f)
-                        +std::sin(rd*24.f - t*2.1f)) * 0.33333334f;
-            float r = ClampUnit((0.5f+0.5f*std::sin(6.2831853f*(mix+0.00f))-0.5f)*sat+0.5f);
-            float g = ClampUnit((0.5f+0.5f*std::sin(6.2831853f*(mix+0.33f))-0.5f)*sat+0.5f);
-            float b = ClampUnit((0.5f+0.5f*std::sin(6.2831853f*(mix+0.66f))-0.5f)*sat+0.5f);
+            float rd  =  NkSqrt(fx*fx + fy*fy);
+            float mix = (NkSin((fx + phase.x)*13.5f + t*1.7f)
+                        +NkSin((fy + phase.y)*11.0f - t*1.3f)
+                        +NkSin(rd*24.f - t*2.1f)) * 0.33333334f;
+            float r = ClampUnit((0.5f+0.5f*NkSin(6.2831853f*(mix+0.00f))-0.5f)*sat+0.5f);
+            float g = ClampUnit((0.5f+0.5f*NkSin(6.2831853f*(mix+0.33f))-0.5f)*sat+0.5f);
+            float b = ClampUnit((0.5f+0.5f*NkSin(6.2831853f*(mix+0.66f))-0.5f)*sat+0.5f);
             NkU32 col = PackWaveColor(r, g, b);
             for (NkU32 by=0;by<blk&&(y+by)<height;++by)
                 for (NkU32 bx=0;bx<blk&&(x+bx)<width;++bx)
@@ -167,7 +172,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // 1. Initialisation
     // -------------------------------------------------------------------------
     if (!NkInitialise({ .appName = "NkWindow Sandbox Pattern A" })) {
-        std::fprintf(stderr, "[Sandbox] NkInitialise FAILED\n");
+        logger.Error("[Sandbox] NkInitialise FAILED");
         return -1;
     }
 
@@ -184,7 +189,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     NkWindow window(cfg);
     if (!window.IsOpen()) {
-        std::fprintf(stderr, "[Sandbox] Window creation FAILED\n");
+        logger.Error("[Sandbox] Window creation FAILED");
         NkClose();
         return -2;
     }
@@ -196,11 +201,11 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     rcfg.api                   = NK_SANDBOX_RENDERER_API;
     rcfg.autoResizeFramebuffer = true;
 
-    std::unique_ptr<NkRenderer> renderer;
+    mem::NkUniquePtr<NkRenderer> renderer;
     if (rcfg.api != NkRendererApi::NK_NONE) {
-        renderer = std::make_unique<NkRenderer>();
+        renderer = mem::NkMakeUnique<NkRenderer>();
         if (!renderer->Create(window, rcfg)) {
-            std::fprintf(stderr, "[Sandbox] Renderer creation FAILED\n");
+            logger.Error("[Sandbox] Renderer creation FAILED");
             NkClose();
             return -3;
         }
@@ -223,7 +228,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     while (running && window.IsOpen())
     {
-        chrono.Reset();
+        NkElapsedTime e = chrono.Reset();
 
         // --- Pattern A : Dispatcher typé (OnEvent pour chaque event)
         while (NkEvent* event = eventSystem.PollEvent())
@@ -274,6 +279,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     if (renderer)
         renderer->Shutdown();
 
+    window.Close();
     NkClose();
     return 0;
 }

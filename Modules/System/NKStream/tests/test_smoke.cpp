@@ -34,8 +34,8 @@ TEST_CASE(NKStreamSmoke, FileStreamReadWrite) {
     ASSERT_TRUE(r.Open(path, NkStream::ReadMode | NkStream::BinaryMode));
     char out[32] = {};
     ASSERT_EQUAL(static_cast<int>(sizeof(payload) - 1), static_cast<int>(r.ReadRaw(out, sizeof(payload) - 1)));
-    ASSERT_EQUAL(0, std::strcmp(payload, out));
+    ASSERT_EQUAL(0, ::strcmp(payload, out));
     r.Close();
 
-    std::remove(path);
+    ::remove(path);
 }

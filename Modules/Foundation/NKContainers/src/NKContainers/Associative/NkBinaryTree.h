@@ -15,12 +15,12 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Generic binary tree (non-balanced)
@@ -152,9 +152,9 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkBinaryTree()
+            explicit NkBinaryTree(Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
             }
             
             NkBinaryTree(const NkBinaryTree& other)
@@ -178,7 +178,7 @@ namespace nkentseu {
             }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             usize Height() const {
@@ -232,7 +232,7 @@ namespace nkentseu {
                 NkVector<Node*> queue;
                 queue.PushBack(mRoot);
                 
-                while (!queue.IsEmpty()) {
+                while (!queue.Empty()) {
                     Node* node = queue.Front();
                     queue.Erase(queue.begin());
                     
@@ -279,7 +279,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKBINARYTREE_H_INCLUDED

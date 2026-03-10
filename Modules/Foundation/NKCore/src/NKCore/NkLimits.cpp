@@ -17,7 +17,7 @@ namespace nkentseu {
 /**
  * @brief Namespace core.
  */
-namespace core {
+
 
 // Utiliser union pour créer les valeurs spéciales
 union NkFloat32Union {
@@ -98,7 +98,7 @@ nk_float64 NkNumericLimits<nk_float64>::quiet_NaN() {
 	return u.f;
 }
 
-} // namespace core
+
 } // namespace nkentseu
 
 // ============================================================

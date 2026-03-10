@@ -204,7 +204,7 @@ virtual void SetLevel(LogLevel level)
 `virtual`
 
 ```cpp
-virtual void SetPattern(const std::string& pattern) = 0
+virtual void SetPattern(const NkString& pattern) = 0
 ```
 
 **Définit le pattern de formatage**
@@ -213,7 +213,7 @@ virtual void SetPattern(const std::string& pattern) = 0
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` | [in] Pattern à utiliser |
+| `pattern` | `const NkString&` | [in] Pattern à utiliser |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sink.h:54`*
 

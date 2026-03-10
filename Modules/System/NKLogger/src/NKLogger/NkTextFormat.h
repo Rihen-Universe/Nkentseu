@@ -1,43 +1,41 @@
 #pragma once
 
-#include <algorithm>
+#include "NKCore/NkTraits.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/String/NkStringView.h"
+
 #include <cctype>
-#include <iomanip>
-#include <limits>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <type_traits>
-#include <utility>
+#include <cstdio>
 
 namespace nkentseu {
 
 namespace detail {
 
 template <typename T>
-struct NkDependentFalse : std::false_type {};
+struct NkDependentFalse : traits::NkFalseType {};
 
-inline std::string NkToLowerCopy(std::string_view input) {
-    std::string out(input.begin(), input.end());
-    std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+inline NkString NkToLowerCopy(NkStringView input) {
+    NkString out(input.Data(), input.Size());
+    for (char& c : out) {
+        c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+    }
     return out;
 }
 
-inline bool NkTryParsePrecision(std::string_view props, int& precision) {
-    if (props.size() < 2 || props.front() != '.') {
+inline bool NkTryParsePrecision(NkStringView props, int& precision) {
+    if (props.Size() < 2 || props.Front() != '.') {
         return false;
     }
 
     int parsed = 0;
-    for (std::size_t i = 1; i < props.size(); ++i) {
+    for (usize i = 1; i < props.Size(); ++i) {
         const char c = props[i];
         if (c < '0' || c > '9') {
             return false;
         }
-        parsed = (parsed * 10) + (c - '0');
+
+        parsed = (parsed * 10) + static_cast<int>(c - '0');
         if (parsed > 32) {
             parsed = 32;
             break;
@@ -48,229 +46,325 @@ inline bool NkTryParsePrecision(std::string_view props, int& precision) {
     return true;
 }
 
-inline std::string NkApplyStringProperties(std::string value, std::string_view props) {
-    const std::string p = NkToLowerCopy(props);
+inline NkString NkApplyStringProperties(NkString value, NkStringView props) {
+    const NkString p = NkToLowerCopy(props);
     if (p == "upper") {
-        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-            return static_cast<char>(std::toupper(c));
-        });
+        for (char& c : value) {
+            c = static_cast<char>(::toupper(static_cast<unsigned char>(c)));
+        }
         return value;
     }
+
     if (p == "lower") {
-        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
+        for (char& c : value) {
+            c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+        }
         return value;
     }
+
     if (p == "q" || p == "quote") {
         return "\"" + value + "\"";
     }
+
     return value;
 }
 
 template <typename T, typename = void>
-struct NkHasToStringWithProps : std::false_type {};
+struct NkHasToStringWithProps : traits::NkFalseType {};
 
 template <typename T>
 struct NkHasToStringWithProps<
     T,
-    std::void_t<decltype(NKToString(std::declval<const T&>(), std::declval<std::string_view>()))>>
-    : std::true_type {};
+    traits::NkVoidT<decltype(NKToString(*static_cast<const T*>(nullptr), NkStringView{}))>>
+    : traits::NkTrueType {};
 
 template <typename T, typename = void>
-struct NkHasToString : std::false_type {};
+struct NkHasToString : traits::NkFalseType {};
 
 template <typename T>
-struct NkHasToString<T, std::void_t<decltype(NKToString(std::declval<const T&>()))>> : std::true_type {};
-
-template <typename T, typename = void>
-struct NkHasOStream : std::false_type {};
+struct NkHasToString<T, traits::NkVoidT<decltype(NKToString(*static_cast<const T*>(nullptr)))>>
+    : traits::NkTrueType {};
 
 template <typename T>
-struct NkHasOStream<T, std::void_t<decltype(std::declval<std::ostringstream&>() << std::declval<const T&>())>>
-    : std::true_type {};
+struct NkMakeUnsigned;
+
+template <>
+struct NkMakeUnsigned<signed char> { using Type = unsigned char; };
+template <>
+struct NkMakeUnsigned<unsigned char> { using Type = unsigned char; };
+template <>
+struct NkMakeUnsigned<char> { using Type = unsigned char; };
+template <>
+struct NkMakeUnsigned<wchar_t> { using Type = unsigned int; };
+template <>
+struct NkMakeUnsigned<char16_t> { using Type = unsigned short; };
+template <>
+struct NkMakeUnsigned<char32_t> { using Type = unsigned int; };
+template <>
+struct NkMakeUnsigned<short> { using Type = unsigned short; };
+template <>
+struct NkMakeUnsigned<unsigned short> { using Type = unsigned short; };
+template <>
+struct NkMakeUnsigned<int> { using Type = unsigned int; };
+template <>
+struct NkMakeUnsigned<unsigned int> { using Type = unsigned int; };
+template <>
+struct NkMakeUnsigned<long> { using Type = unsigned long; };
+template <>
+struct NkMakeUnsigned<unsigned long> { using Type = unsigned long; };
+template <>
+struct NkMakeUnsigned<long long> { using Type = unsigned long long; };
+template <>
+struct NkMakeUnsigned<unsigned long long> { using Type = unsigned long long; };
 
 template <typename T>
-std::string NkFormatValueImpl(const T& value, std::string_view props) {
-    using D = std::decay_t<T>;
+using NkMakeUnsigned_t = typename NkMakeUnsigned<traits::NkRemoveCV_t<T>>::Type;
 
-    if constexpr (std::is_same_v<D, std::string>) {
+inline NkString NkUnsignedToBase(unsigned long long value,
+                                       unsigned base,
+                                       bool uppercase,
+                                       usize minWidth = 0) {
+    const char* digits = uppercase ? "0123456789ABCDEF" : "0123456789abcdef";
+    char buffer[65];
+    usize pos = sizeof(buffer);
+
+    do {
+        const unsigned idx = static_cast<unsigned>(value % base);
+        buffer[--pos] = digits[idx];
+        value /= base;
+    } while (value > 0 && pos > 0);
+
+    while ((sizeof(buffer) - pos) < minWidth && pos > 0) {
+        buffer[--pos] = '0';
+    }
+
+    return NkString(buffer + pos, sizeof(buffer) - pos);
+}
+
+template <typename T>
+NkString NkFormatDecimal(T value) {
+    char buffer[64];
+    int length = 0;
+
+    if constexpr (traits::NkIsSigned_v<T>) {
+        length = ::snprintf(buffer, sizeof(buffer), "%lld", static_cast<long long>(value));
+    } else {
+        length = ::snprintf(buffer, sizeof(buffer), "%llu", static_cast<unsigned long long>(value));
+    }
+
+    return length > 0 ? NkString(buffer, static_cast<usize>(length)) : NkString{};
+}
+
+template <typename T>
+NkString NkFormatFloating(T value, NkStringView props) {
+    char buffer[128];
+    int length = 0;
+
+    int precision = 0;
+    if (NkTryParsePrecision(props, precision)) {
+        length = ::snprintf(buffer, sizeof(buffer), "%.*f", precision, static_cast<double>(value));
+        return length > 0 ? NkString(buffer, static_cast<usize>(length)) : NkString{};
+    }
+
+    const NkString p = NkToLowerCopy(props);
+    if (p == "e" || p == "exp") {
+        length = ::snprintf(buffer, sizeof(buffer), "%e", static_cast<double>(value));
+    } else if (p == "g" || p.Empty()) {
+        length = ::snprintf(buffer, sizeof(buffer), "%g", static_cast<double>(value));
+    } else {
+        length = ::snprintf(buffer, sizeof(buffer), "%f", static_cast<double>(value));
+    }
+
+    return length > 0 ? NkString(buffer, static_cast<usize>(length)) : NkString{};
+}
+
+template <typename T>
+NkString NkFormatValueImpl(const T& value, NkStringView props) {
+    using D = traits::NkDecay_t<T>;
+
+    if constexpr (traits::NkIsSame_v<D, NkString>) {
         return NkApplyStringProperties(value, props);
-    } else if constexpr (std::is_same_v<D, std::string_view>) {
-        return NkApplyStringProperties(std::string(value), props);
-    } else if constexpr (std::is_same_v<D, const char*> || std::is_same_v<D, char*>) {
-        return NkApplyStringProperties(value ? std::string(value) : std::string(), props);
-    } else if constexpr (std::is_same_v<D, bool>) {
-        const std::string p = NkToLowerCopy(props);
+    } else if constexpr (traits::NkIsSame_v<D, NkStringView>) {
+        return NkApplyStringProperties(NkString(value), props);
+    } else if constexpr (traits::NkIsSame_v<D, const char*> ||
+                         traits::NkIsSame_v<D, char*>) {
+        return NkApplyStringProperties(value ? NkString(value) : NkString(), props);
+    } else if constexpr (traits::NkIsSame_v<D, bool>) {
+        const NkString p = NkToLowerCopy(props);
         if (p == "d" || p == "int" || p == "num") {
             return value ? "1" : "0";
         }
         return value ? "true" : "false";
-    } else if constexpr (std::is_integral_v<D>) {
-        std::ostringstream oss;
-        const std::string p = NkToLowerCopy(props);
+    } else if constexpr (traits::NkIsIntegral_v<D>) {
+        const NkString p = NkToLowerCopy(props);
         if (p == "x" || p == "hex") {
-            oss << std::hex << std::nouppercase;
+            using U = NkMakeUnsigned_t<D>;
+            return NkUnsignedToBase(static_cast<unsigned long long>(static_cast<U>(value)), 16, false);
         } else if (p == "x2" || p == "hex2") {
-            oss << std::hex << std::setfill('0') << std::setw(2) << std::nouppercase;
+            using U = NkMakeUnsigned_t<D>;
+            return NkUnsignedToBase(static_cast<unsigned long long>(static_cast<U>(value)), 16, false, 2);
         } else if (p == "x8" || p == "hex8") {
-            oss << std::hex << std::setfill('0') << std::setw(8) << std::nouppercase;
+            using U = NkMakeUnsigned_t<D>;
+            return NkUnsignedToBase(static_cast<unsigned long long>(static_cast<U>(value)), 16, false, 8);
         } else if (p == "x16" || p == "hex16") {
-            oss << std::hex << std::setfill('0') << std::setw(16) << std::nouppercase;
-        } else if (p == "xupper" || p == "hexupper" || p == "X" || p == "HEX") {
-            oss << std::hex << std::uppercase;
+            using U = NkMakeUnsigned_t<D>;
+            return NkUnsignedToBase(static_cast<unsigned long long>(static_cast<U>(value)), 16, false, 16);
+        } else if (p == "xupper" || p == "hexupper") {
+            using U = NkMakeUnsigned_t<D>;
+            return NkUnsignedToBase(static_cast<unsigned long long>(static_cast<U>(value)), 16, true);
         } else if (p == "bin" || p == "b") {
-            using U = std::make_unsigned_t<D>;
-            U u = static_cast<U>(value);
-            std::string bits;
-            bits.reserve(sizeof(U) * 8);
-            for (int i = static_cast<int>(sizeof(U) * 8) - 1; i >= 0; --i) {
-                bits.push_back((u & (U{1} << i)) ? '1' : '0');
-            }
-            const std::size_t firstOne = bits.find('1');
-            if (firstOne == std::string::npos) {
-                return "0";
-            }
-            return bits.substr(firstOne);
+            using U = NkMakeUnsigned_t<D>;
+            return NkUnsignedToBase(static_cast<unsigned long long>(static_cast<U>(value)), 2, false);
         }
-        oss << value;
-        return oss.str();
-    } else if constexpr (std::is_floating_point_v<D>) {
-        std::ostringstream oss;
-        int precision = 6;
-        if (NkTryParsePrecision(props, precision)) {
-            oss << std::fixed << std::setprecision(precision);
-        } else {
-            const std::string p = NkToLowerCopy(props);
-            if (p == "e" || p == "exp") {
-                oss << std::scientific;
-            } else if (p == "g") {
-                oss << std::defaultfloat;
-            }
-        }
-        oss << value;
-        return oss.str();
+        return NkFormatDecimal(value);
+    } else if constexpr (traits::NkIsFloatingPoint_v<D>) {
+        return NkFormatFloating(value, props);
     } else if constexpr (NkHasToStringWithProps<D>::value) {
         return NKToString(value, props);
     } else if constexpr (NkHasToString<D>::value) {
         return NKToString(value);
-    } else if constexpr (NkHasOStream<D>::value) {
-        std::ostringstream oss;
-        oss << value;
-        return oss.str();
     } else {
         static_assert(NkDependentFalse<D>::value,
                       "No formatter found for type. Provide NKToString(const T&) or "
-                      "NKToString(const T&, std::string_view).");
+                      "NKToString(const T&, NkStringView)."
+        );
         return {};
     }
 }
 
 template <typename Resolver>
-std::string NkFormatIndexedRuntime(std::string_view format, Resolver&& resolver) {
-    std::string out;
-    out.reserve(format.size() + 32);
+NkString NkFormatIndexedRuntime(NkStringView format, Resolver&& resolver) {
+    NkString out;
+    out.Reserve(format.Size() + 32);
 
-    std::size_t i = 0;
-    while (i < format.size()) {
+    usize i = 0;
+    while (i < format.Size()) {
         const char c = format[i];
 
         if (c == '{') {
-            if (i + 1 < format.size() && format[i + 1] == '{') {
-                out.push_back('{');
+            if (i + 1 < format.Size() && format[i + 1] == '{') {
+                out.PushBack('{');
                 i += 2;
                 continue;
             }
 
-            const std::size_t close = format.find('}', i + 1);
-            if (close == std::string_view::npos) {
-                out.push_back('{');
+            const usize close = format.Find('}', i + 1);
+            if (close == NkStringView::npos) {
+                out.PushBack('{');
                 ++i;
                 continue;
             }
 
-            const std::string_view placeholder = format.substr(i + 1, close - i - 1);
-            const std::size_t colonPos = placeholder.find(':');
-            std::string_view indexPart = (colonPos == std::string_view::npos)
-                                             ? placeholder
-                                             : placeholder.substr(0, colonPos);
-            const std::string_view props = (colonPos == std::string_view::npos)
-                                               ? std::string_view{}
-                                               : placeholder.substr(colonPos + 1);
+            const NkStringView placeholder = format.SubStr(i + 1, close - i - 1);
+            const usize colonPos = placeholder.Find(':');
+            NkStringView indexPart = (colonPos == NkStringView::npos)
+                ? placeholder
+                : placeholder.SubStr(0, colonPos);
+            const NkStringView props = (colonPos == NkStringView::npos)
+                ? NkStringView{}
+                : placeholder.SubStr(colonPos + 1);
 
-            while (!indexPart.empty() && std::isspace(static_cast<unsigned char>(indexPart.front()))) {
-                indexPart.remove_prefix(1);
+            while (!indexPart.Empty() && ::isspace(static_cast<unsigned char>(indexPart.Front()))) {
+                indexPart.RemovePrefix(1);
             }
-            while (!indexPart.empty() && std::isspace(static_cast<unsigned char>(indexPart.back()))) {
-                indexPart.remove_suffix(1);
+            while (!indexPart.Empty() && ::isspace(static_cast<unsigned char>(indexPart.Back()))) {
+                indexPart.RemoveSuffix(1);
             }
 
-            std::size_t index = 0;
-            bool validIndex = !indexPart.empty();
+            usize index = 0;
+            bool validIndex = !indexPart.Empty();
             for (const char digit : indexPart) {
                 if (digit < '0' || digit > '9') {
                     validIndex = false;
                     break;
                 }
-                const std::size_t next = index * 10 + static_cast<std::size_t>(digit - '0');
+
+                const usize next = index * 10 + static_cast<usize>(digit - '0');
                 if (next < index) {
                     validIndex = false;
                     break;
                 }
+
                 index = next;
             }
 
-            std::string replacement;
+            NkString replacement;
             if (validIndex && resolver(index, props, replacement)) {
                 out += replacement;
             } else {
-                out.append(format.substr(i, close - i + 1));
+                out.Append(format.SubStr(i, close - i + 1));
             }
 
             i = close + 1;
             continue;
         }
 
-        if (c == '}' && i + 1 < format.size() && format[i + 1] == '}') {
-            out.push_back('}');
+        if (c == '}' && i + 1 < format.Size() && format[i + 1] == '}') {
+            out.PushBack('}');
             i += 2;
             continue;
         }
 
-        out.push_back(c);
+        out.PushBack(c);
         ++i;
     }
 
     return out;
 }
 
-template <typename Tuple, std::size_t... I>
-std::string NkFormatIndexedTuple(std::string_view format, Tuple&& tuple, std::index_sequence<I...>) {
-    auto resolver = [&](std::size_t index, std::string_view props, std::string& out) -> bool {
-        bool handled = false;
-        (void)((index == I ? (out = NkFormatValueImpl(std::get<I>(tuple), props), handled = true, true) : false) || ...);
-        return handled;
-    };
-    return NkFormatIndexedRuntime(format, resolver);
+inline bool NkResolveIndexed(usize,
+                             usize,
+                             NkStringView,
+                             NkString&) {
+    return false;
+}
+
+template <typename First, typename... Rest>
+bool NkResolveIndexed(usize index,
+                      usize current,
+                      NkStringView props,
+                      NkString& out,
+                      First&& first,
+                      Rest&&... rest) {
+    if (index == current) {
+        out = NkFormatValueImpl(first, props);
+        return true;
+    }
+
+    if constexpr (sizeof...(Rest) == 0) {
+        return false;
+    } else {
+        return NkResolveIndexed(index,
+                                current + 1,
+                                props,
+                                out,
+                                traits::NkForward<Rest>(rest)...);
+    }
 }
 
 } // namespace detail
 
 template <typename T>
-std::string NkFormatValue(const T& value, std::string_view properties = {}) {
+NkString NkFormatValue(const T& value, NkStringView properties = {}) {
     return detail::NkFormatValueImpl(value, properties);
 }
 
 template <typename... Args>
-std::string NkFormatIndexed(std::string_view format, Args&&... args) {
+NkString NkFormatIndexed(NkStringView format, Args&&... args) {
     if constexpr (sizeof...(Args) == 0) {
-        auto resolver = [](std::size_t, std::string_view, std::string&) {
+        auto resolver = [](usize, NkStringView, NkString&) {
             return false;
         };
         return detail::NkFormatIndexedRuntime(format, resolver);
     } else {
-        auto tuple = std::forward_as_tuple(std::forward<Args>(args)...);
-        return detail::NkFormatIndexedTuple(format, tuple, std::index_sequence_for<Args...>{});
+        auto resolver = [&](usize index, NkStringView props, NkString& out) -> bool {
+            return detail::NkResolveIndexed(index,
+                                            0,
+                                            props,
+                                            out,
+                                            args...);
+        };
+        return detail::NkFormatIndexedRuntime(format, resolver);
     }
 }
 

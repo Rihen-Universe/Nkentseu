@@ -26,17 +26,15 @@ with project("NKTime"):
 
     includedirs([
         "src",
-        "src/NKTime",
         "pch",
         "%{NKCore.location}/src",
-        "%{NKCore.location}/src/NKCore",
         "%{NKPlatform.location}/src",
-        "%{NKPlatform.location}/src/NKPlatform",
+        "%{NKContainers.location}/src",
+        "%{NKMemory.location}/src",
         "%{NKLogger.location}/src",
-        "%{NKLogger.location}/src/NKLogger",
     ])
 
-    dependson(["NKCore", "NKPlatform", "NKLogger"])
+    dependson(["NKContainers", "NKMemory", "NKLogger", "NKCore", "NKPlatform"])
 
     files([
         "src/NKTime/**.cpp",
@@ -76,7 +74,6 @@ with project("NKTime"):
         symbols(False)
 
     # Tests unitaires/benchmarks (desktop uniquement)
-    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            dependson(["NKCore", "NKPlatform", "NKLogger"])

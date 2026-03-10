@@ -4,10 +4,12 @@
 #define NKENTSEU_MEMORY_NKMEMORY_H_INCLUDED
 
 #include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkContainerAllocator.h"
 #include "NKMemory/NkGc.h"
+#include "NKMemory/NkHash.h"
 #include "NKMemory/NkIntrusivePtr.h"
-#include "NKMemory/NkMemoryExport.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkExport.h"
+#include "NKMemory/NkFunction.h"
 #include "NKMemory/NkSharedPtr.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "NKCore/NkAtomic.h"
@@ -22,7 +24,15 @@ namespace nkentseu {
             nk_size totalAllocations;
         };
 
-        class NKMEMORY_API NkMemorySystem {
+        struct NkGcProfile {
+            nk_uint64 Id;
+            nk_char Name[64];
+            nk_size ObjectCount;
+            NkAllocator* Allocator;
+            nk_bool IsDefault;
+        };
+
+        class NKENTSEU_MEMORY_API NkMemorySystem {
             public:
                 using NkLogCallback = void (*)(const nk_char*);
 
@@ -54,7 +64,7 @@ namespace nkentseu {
                         return nullptr;
                     }
 
-                    T* object = new (memory) T(core::traits::NkForward<Args>(args)...);
+                    T* object = new (memory) T(traits::NkForward<Args>(args)...);
                     RegisterAllocation(object, memory, sizeof(T), 1u, alignof(T),
                                     &DestroyObject<T>, file, line, function, tag);
                     return object;
@@ -99,6 +109,12 @@ namespace nkentseu {
                 [[nodiscard]] NkMemoryStats GetStats() const noexcept;
                 void DumpLeaks() noexcept;
 
+                NkGarbageCollector* CreateGc(NkAllocator* allocator = nullptr) noexcept;
+                nk_bool DestroyGc(NkGarbageCollector* collector) noexcept;
+                nk_bool SetGcName(NkGarbageCollector* collector, const nk_char* name) noexcept;
+                nk_bool GetGcProfile(const NkGarbageCollector* collector, NkGcProfile* outProfile) const noexcept;
+                [[nodiscard]] nk_size GetGcCount() const noexcept;
+
                 [[nodiscard]] NkGarbageCollector& Gc() noexcept { return mGc; }
 
             private:
@@ -115,7 +131,18 @@ namespace nkentseu {
                     const nk_char* function;
                     const nk_char* tag;
                     nk_int32 line;
+                    NkAllocationNode* prev;
                     NkAllocationNode* next;
+                };
+
+                struct NkGcNode {
+                    NkGarbageCollector* Collector;
+                    NkAllocator* Allocator;
+                    nk_uint64 Id;
+                    nk_char Name[64];
+                    nk_bool IsDefault;
+                    NkGcNode* Prev;
+                    NkGcNode* Next;
                 };
 
                 NkMemorySystem() noexcept;
@@ -162,6 +189,11 @@ namespace nkentseu {
                 NkAllocationNode* FindAndDetach(void* userPtr) noexcept;
                 void ReleaseNode(NkAllocationNode* node) noexcept;
                 void LogLine(const nk_char* message) noexcept;
+                NkGcNode* FindGcNodeLocked(const NkGarbageCollector* collector) noexcept;
+                const NkGcNode* FindGcNodeLocked(const NkGarbageCollector* collector) const noexcept;
+                static void CopyGcName(nk_char* destination,
+                                       nk_size destinationSize,
+                                       const nk_char* source) noexcept;
 
                 NkAllocator* mAllocator;
                 NkAllocationNode* mHead;
@@ -171,8 +203,13 @@ namespace nkentseu {
                 nk_size mTotalAllocations;
                 NkLogCallback mLogCallback;
                 nk_bool mInitialized;
-                mutable core::NkSpinLock mLock;
-                NkGarbageCollector& mGc;
+                mutable NkSpinLock mLock;
+                NkPointerHashMap mAllocIndex;
+                NkGarbageCollector mGc;
+                NkGcNode mDefaultGcNode;
+                NkGcNode* mGcHead;
+                nk_size mGcCount;
+                nk_uint64 mNextGcId;
         };
 
     } // namespace memory

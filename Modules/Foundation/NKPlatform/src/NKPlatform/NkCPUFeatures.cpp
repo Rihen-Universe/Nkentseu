@@ -6,11 +6,10 @@
 // -----------------------------------------------------------------------------
 
 #include "NkCPUFeatures.h"
-#include "NkArchDetect.h"
+#include "NKPlatform/NkArchDetect.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
-#include <string>
 
 #ifdef NK_PLATFORM_WINDOWS
 #include <windows.h>
@@ -33,22 +32,49 @@ namespace platform {
 
 namespace {
 
-static std::string TrimString(const char *text) {
+static void CopyStringTruncated(nk_char* dst, nk_size dstCount, const char* src) {
+	if (!dst || dstCount == 0u) {
+		return;
+	}
+	dst[0] = '\0';
+	if (!src) {
+		return;
+	}
+	::snprintf(dst, static_cast<size_t>(dstCount), "%s", src);
+}
+
+static void TrimStringToBuffer(const char* text, nk_char* dst, nk_size dstCount) {
+	if (!dst || dstCount == 0u) {
+		return;
+	}
+	dst[0] = '\0';
 	if (!text) {
-		return std::string();
+		return;
 	}
 
-	const nk_char *start = text;
+	const char* start = text;
 	while (*start && ::isspace(static_cast<unsigned char>(*start)) != 0) {
 		++start;
 	}
 
-	const nk_char *end = text + ::strlen(text);
+	const char* end = text + ::strlen(text);
 	while (end > start && ::isspace(static_cast<unsigned char>(*(end - 1))) != 0) {
 		--end;
 	}
 
-	return std::string(start, static_cast<size_t>(end - start));
+	const size_t trimmedLen = static_cast<size_t>(end - start);
+	if (trimmedLen == 0u) {
+		return;
+	}
+
+	const size_t copyLen = (trimmedLen < static_cast<size_t>(dstCount - 1u)) ? trimmedLen
+																			  : static_cast<size_t>(dstCount - 1u);
+	::memcpy(dst, start, copyLen);
+	dst[copyLen] = '\0';
+}
+
+static bool ContainsSubString(const nk_char* text, const char* pattern) {
+	return (text && pattern && ::strstr(text, pattern) != nullptr);
 }
 
 } // namespace
@@ -80,7 +106,7 @@ ExtendedFeatures::ExtendedFeatures()
 // ====================================================================
 
 CPUFeatures::CPUFeatures()
-	: vendor(""), brand(""), family(0), model(0), stepping(0), baseFrequency(0), maxFrequency(0) {
+	: vendor{0}, brand{0}, family(0), model(0), stepping(0), baseFrequency(0), maxFrequency(0) {
 
 	DetectVendorAndBrand();
 	DetectTopology();
@@ -137,7 +163,7 @@ void CPUFeatures::DetectVendorAndBrand() {
 	::memcpy(vendorStr + 8, &ecx, 4);
 	vendorStr[12] = '\0';
 
-	vendor = std::string(vendorStr);
+	CopyStringTruncated(vendor, VENDOR_CAPACITY, vendorStr);
 
 	// Get brand string (CPUID 0x80000002-0x80000004)
 	char brandStr[49] = {0};
@@ -153,7 +179,7 @@ void CPUFeatures::DetectVendorAndBrand() {
 			::memcpy(brandStr + i * 16 + 12, &edx, 4);
 		}
 		brandStr[48] = '\0';
-		brand = std::string(brandStr);
+		CopyStringTruncated(brand, BRAND_CAPACITY, brandStr);
 	}
 
 	// Get family/model/stepping
@@ -175,7 +201,7 @@ void CPUFeatures::DetectVendorAndBrand() {
 
 #elif NK_ARCH_ARM || NK_ARCH_ARM64
 
-	vendor = "ARM";
+	CopyStringTruncated(vendor, VENDOR_CAPACITY, "ARM");
 
 #ifdef NK_PLATFORM_ANDROID
 	// On Android, try to read /proc/cpuinfo
@@ -186,7 +212,7 @@ void CPUFeatures::DetectVendorAndBrand() {
 			if (strncmp(line, "Hardware", 8) == 0) {
 				char *colon = strchr(line, ':');
 				if (colon) {
-					brand = TrimString(colon + 2);
+					TrimStringToBuffer(colon + 2, brand, BRAND_CAPACITY);
 				}
 				break;
 			}
@@ -195,14 +221,14 @@ void CPUFeatures::DetectVendorAndBrand() {
 	}
 #endif
 
-	if (brand.empty()) {
-		brand = "ARM Processor";
+	if (brand[0] == '\0') {
+		CopyStringTruncated(brand, BRAND_CAPACITY, "ARM Processor");
 	}
 
 #else
 
-	vendor = "Unknown";
-	brand = "Unknown Processor";
+	CopyStringTruncated(vendor, VENDOR_CAPACITY, "Unknown");
+	CopyStringTruncated(brand, BRAND_CAPACITY, "Unknown Processor");
 
 #endif
 }
@@ -287,7 +313,7 @@ void CPUFeatures::DetectCache() {
 	i32 eax, ebx, ecx, edx;
 
 	// Intel cache detection (CPUID leaf 4)
-	if (vendor.find("Intel") != std::string::npos) {
+	if (ContainsSubString(vendor, "Intel")) {
 		for (i32 i = 0; i < 16; ++i) {
 			CPUID(4, i, &eax, &ebx, &ecx, &edx);
 
@@ -316,7 +342,7 @@ void CPUFeatures::DetectCache() {
 		}
 	}
 	// AMD cache detection (CPUID 0x80000006)
-	else if (vendor.find("AMD") != std::string::npos) {
+	else if (ContainsSubString(vendor, "AMD")) {
 		CPUID(0x80000006, 0, &eax, &ebx, &ecx, &edx);
 		cache.lineSize = ecx & 0xFF;
 		cache.l2Size = (ecx >> 16) & 0xFFFF;
@@ -383,7 +409,7 @@ void CPUFeatures::DetectSIMDFeatures() {
 	simd.hasAVX512VL = (ebx & (1 << 31)) != 0;
 
 	// AMD-specific
-	if (vendor.find("AMD") != std::string::npos) {
+	if (ContainsSubString(vendor, "AMD")) {
 		CPUID(0x80000001, 0, &eax, &ebx, &ecx, &edx);
 		simd.hasFMA4 = (ecx & (1 << 16)) != 0;
 	}
@@ -509,13 +535,18 @@ void CPUFeatures::DetectFrequency() {
 // ToString
 // ====================================================================
 
-std::string CPUFeatures::ToString() const {
+void CPUFeatures::ToString(nk_char* outBuffer, nk_size outBufferSize) const {
+	if (!outBuffer || outBufferSize == 0u) {
+		return;
+	}
+	outBuffer[0] = '\0';
+
 	char buffer[2048];
 	int offset = 0;
 
 	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "CPU Information:\n");
-	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  Vendor: %s\n", vendor.c_str());
-	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  Brand: %s\n", brand.c_str());
+	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  Vendor: %s\n", vendor);
+	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  Brand: %s\n", brand);
 	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  Family: %d, Model: %d, Stepping: %d\n", family,
 					   model, stepping);
 	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "  Base Frequency: %d MHz, Max: %d MHz\n",
@@ -557,7 +588,13 @@ std::string CPUFeatures::ToString() const {
 		offset += snprintf(buffer + offset, sizeof(buffer) - offset, "NEON ");
 	offset += snprintf(buffer + offset, sizeof(buffer) - offset, "\n");
 
-	return std::string(buffer);
+	::snprintf(outBuffer, static_cast<size_t>(outBufferSize), "%s", buffer);
+}
+
+const nk_char* CPUFeatures::ToString() const {
+	static nk_char sBuffer[2048];
+	ToString(sBuffer, sizeof(sBuffer));
+	return sBuffer;
 }
 
 } // namespace platform

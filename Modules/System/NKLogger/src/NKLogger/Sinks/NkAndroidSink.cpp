@@ -12,7 +12,7 @@
 //   - Utilise __android_log_print() pour envoyer à logcat
 //   - Les logs incluent le timestamp, niveau, et tag
 //   - Supporte tous les niveaux de log
-//   - Thread-safe avec std::mutex
+//   - Thread-safe avec verrou interne
 // COMMANDE LOGCAT: adb logcat -s "MyApp"
 // TAGS: Android, NDK, Logging, Performance
 // LIMITE: Les logs très longs (>500 chars) peuvent être tronqués par le système
@@ -47,9 +47,9 @@
 //   - Mettre cette classe dans une classe Logger wrapper
 //   - Combiner avec NkFileSink pour persister les logs
 // EXEMPLE DE CONFIGURATION:
-//   auto consoleSink = std::make_unique<NkAndroidSink>("MyApp");
-//   consoleSink->SetFormatter(std::make_unique<NkFormatter>("[%lvl] %msg"));
-//   logger->AddSink(std::move(consoleSink));
+//   auto consoleSink = memory::NkMakeUnique<NkAndroidSink>("MyApp");
+//   consoleSink->SetFormatter(memory::NkMakeUnique<NkFormatter>("[%lvl] %msg"));
+//   logger->AddSink(traits::NkMove(consoleSink));
 // NOTES DE VERSION:
 //   v1.0 (2026): Implémentation initiale
 //   - Support des niveaux de log complets
@@ -92,9 +92,9 @@
 // INTÉGRATION: Fonctionne avec le reste du système NkLogger sans modifications
 // EXEMPLE RÉALISTE:
 //   try {
-//     auto sink = std::make_unique<NkAndroidSink>("com.example");
+//     auto sink = memory::NkMakeUnique<NkAndroidSink>("com.example");
 //     sink->SetFormatter(...);
-//     nkentseu::logger::NkLogger::GetInstance()->AddSink(std::move(sink));
+//     nkentseu::logger::NkLogger::GetInstance()->AddSink(traits::NkMove(sink));
 //   } catch(...) { /* handle error */ }
 // NOTES FIREBASE CRASHLYTICS INTEGRATION:
 //   Ce sink ne doit pas remplacer Crashlytics.
@@ -113,18 +113,21 @@
 #include "NKLogger/Sinks/NkAndroidSink.h"
 #include "NKLogger/NkLogLevel.h"
 #include "NKLogger/NkFormatter.h"
-#include <cstring>
-#include <algorithm>
 
-#ifdef NKENTSEU_PLATFORM_ANDROID
+
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+
+#include <cctype>
+#include <cstdio>
+
+#if NK_ANDROID_SINK_HAS_ANDROID_LOG
 #include <android/log.h>
-#else
-#include <iostream>
 #endif
 
 // Déclarations stub pour non-Android
 namespace nkentseu::android_sink_internal {
-#ifndef NKENTSEU_PLATFORM_ANDROID
+#if !NK_ANDROID_SINK_HAS_ANDROID_LOG
 	const int ANDROID_LOG_VERBOSE = 1;
 	const int ANDROID_LOG_DEBUG = 2;
 	const int ANDROID_LOG_INFO = 3;
@@ -134,34 +137,17 @@ namespace nkentseu::android_sink_internal {
 #endif
 }
 
-// Macro pour abstraction
-#ifdef NKENTSEU_PLATFORM_ANDROID
-#define ANDROID_LOG_CALL(prio, tag, fmt, ...) __android_log_print(prio, tag, fmt, __VA_ARGS__)
-#else
-#define ANDROID_LOG_CALL(prio, tag, fmt, ...) \
-	do { \
-		std::cerr << "[" << tag << "] " << fmt << std::endl; \
-	} while (0)
-#endif
-
-// Macro pour appel sans arguments
-#ifdef NKENTSEU_PLATFORM_ANDROID
-#define ANDROID_LOG_CALL_VA(prio, tag, message) __android_log_print(prio, tag, "%s", message.c_str())
-#else
-#define ANDROID_LOG_CALL_VA(prio, tag, message) std::cerr << "[" << tag << "] " << message << std::endl
-#endif
-
 // Vérifier les limites
 static_assert(nkentseu::NkAndroidSink::GetMaxTagLength() >= 10, "TAG length trop court");
 static_assert(nkentseu::NkAndroidSink::GetMaxTagLength() <= 23, "TAG length trop long");
 
 // Function helper pour éviter les va_args
 namespace {
-	void LogToAndroid(int prio, const std::string &tag, const std::string &message) {
-#ifdef NKENTSEU_PLATFORM_ANDROID
-		__android_log_print(prio, tag.c_str(), "%s", message.c_str());
+	void LogToAndroid(int prio, const nkentseu::NkString &tag, const nkentseu::NkString &message) {
+#if NK_ANDROID_SINK_HAS_ANDROID_LOG
+		__android_log_print(prio, tag.CStr(), "%s", message.CStr());
 #else
-		std::string levelStr;
+		const char* levelStr = "?";
 		switch (prio) {
 			case 1: levelStr = "V"; break;
 			case 2: levelStr = "D"; break;
@@ -169,9 +155,9 @@ namespace {
 			case 4: levelStr = "W"; break;
 			case 5: levelStr = "E"; break;
 			case 6: levelStr = "F"; break;
-			default: levelStr = "?"; break;
+			default: break;
 		}
-		std::cerr << "[" << levelStr << "/" << tag << "] " << message << std::endl;
+		(void)::fprintf(stderr, "[%s/%s] %s\n", levelStr, tag.CStr(), message.CStr());
 #endif
 	}
 }
@@ -188,9 +174,9 @@ namespace nkentseu {
 	/**
 	 * @brief Constructeur avec tag Android
 	 */
-	NkAndroidSink::NkAndroidSink(const std::string &tag)
+	NkAndroidSink::NkAndroidSink(const NkString &tag)
 		: m_Tag(ValidateTag(tag)), m_ShortLogs(false) {
-		m_Formatter = std::make_unique<NkFormatter>(NkFormatter::NK_DEFAULT_PATTERN);
+		m_Formatter = memory::NkMakeUnique<NkFormatter>(NkFormatter::NK_DEFAULT_PATTERN);
 	}
 
 	/**
@@ -208,10 +194,10 @@ namespace nkentseu {
 			return;
 		}
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 
 		// Formater le message
-		std::string formatted;
+		NkString formatted;
 		if (m_ShortLogs) {
 			// Logs courtes: juste le message
 			formatted = message.message;
@@ -231,7 +217,7 @@ namespace nkentseu {
 	 * @brief Force l'écriture des données en attente
 	 */
 	void NkAndroidSink::Flush() {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		// Le système Android log gère automatiquement le flush
 		// Pas d'action supplémentaire requise
 	}
@@ -239,16 +225,16 @@ namespace nkentseu {
 	/**
 	 * @brief Définit le formatter pour ce sink
 	 */
-	void NkAndroidSink::SetFormatter(std::unique_ptr<NkFormatter> formatter) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		m_Formatter = std::move(formatter);
+	void NkAndroidSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+		logger_sync::NkScopedLock lock(m_Mutex);
+		m_Formatter = traits::NkMove(formatter);
 	}
 
 	/**
 	 * @brief Définit le pattern de formatage
 	 */
-	void NkAndroidSink::SetPattern(const std::string &pattern) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkAndroidSink::SetPattern(const NkString &pattern) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			m_Formatter->SetPattern(pattern);
 		}
@@ -258,15 +244,15 @@ namespace nkentseu {
 	 * @brief Obtient le formatter courant
 	 */
 	NkFormatter *NkAndroidSink::GetFormatter() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
-		return m_Formatter.get();
+		logger_sync::NkScopedLock lock(m_Mutex);
+		return m_Formatter.Get();
 	}
 
 	/**
 	 * @brief Obtient le pattern courant
 	 */
-	std::string NkAndroidSink::GetPattern() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	NkString NkAndroidSink::GetPattern() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			return m_Formatter->GetPattern();
 		}
@@ -276,16 +262,16 @@ namespace nkentseu {
 	/**
 	 * @brief Définit le tag Android
 	 */
-	void NkAndroidSink::SetTag(const std::string &tag) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	void NkAndroidSink::SetTag(const NkString &tag) {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_Tag = ValidateTag(tag);
 	}
 
 	/**
 	 * @brief Obtient le tag Android courant
 	 */
-	std::string NkAndroidSink::GetTag() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+	NkString NkAndroidSink::GetTag() const {
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_Tag;
 	}
 
@@ -293,7 +279,7 @@ namespace nkentseu {
 	 * @brief Active/désactive les logs courtes
 	 */
 	void NkAndroidSink::SetShortLogs(bool enable) {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		m_ShortLogs = enable;
 	}
 
@@ -301,7 +287,7 @@ namespace nkentseu {
 	 * @brief Vérifie si les logs courtes sont activées
 	 */
 	bool NkAndroidSink::IsShortLogsEnabled() const {
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		logger_sync::NkScopedLock lock(m_Mutex);
 		return m_ShortLogs;
 	}
 
@@ -333,21 +319,21 @@ namespace nkentseu {
 	/**
 	 * @brief Valide et tronque le tag si nécessaire
 	 */
-	std::string NkAndroidSink::ValidateTag(const std::string &tag) const {
-		if (tag.empty()) {
+	NkString NkAndroidSink::ValidateTag(const NkString &tag) const {
+		if (tag.Empty()) {
 			return EMPTY_TAG;
 		}
 
-		std::string validTag = tag;
+		NkString validTag = tag;
 
 		// Truncate si trop long
-		if (validTag.length() > MAX_TAG_LENGTH) {
-			validTag = validTag.substr(0, MAX_TAG_LENGTH);
+		if (validTag.Length() > MAX_TAG_LENGTH) {
+			validTag = validTag.SubStr(0, MAX_TAG_LENGTH);
 		}
 
 		// Remplacer les caractères invalides
 		for (char &c : validTag) {
-			if (!std::isalnum(c) && c != '_' && c != '-' && c != '.') {
+			if (!::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-' && c != '.') {
 				c = '_';
 			}
 		}
@@ -358,23 +344,33 @@ namespace nkentseu {
 	/**
 	 * @brief Écrit directement dans les logs Android
 	 */
-	void NkAndroidSink::WriteAndroidLog(int prio, const std::string &tag, const std::string &message) {
+	void NkAndroidSink::WriteAndroidLog(int prio, const NkString &tag, const NkString &message) {
 		// Limiter la taille du message pour éviter les truncations
-		const core::usize MAX_LOG_SIZE = 4000; // Limite Android typique
+		const usize MAX_LOG_SIZE = 4000; // Limite Android typique
 
-		if (message.length() <= MAX_LOG_SIZE) {
+		if (message.Length() <= MAX_LOG_SIZE) {
 			LogToAndroid(prio, tag, message);
 		} else {
 			// Fragmenter le message si trop long
-			core::usize offset = 0;
+			usize offset = 0;
 			int fragmentNumber = 0;
 
-			while (offset < message.length()) {
-				core::usize chunkSize = std::min(MAX_LOG_SIZE - 50, message.length() - offset);
-				std::string chunk = message.substr(offset, chunkSize);
+			while (offset < message.Length()) {
+				usize chunkSize = message.Length() - offset;
+				const usize maxChunkSize = MAX_LOG_SIZE - 50;
+				if (chunkSize > maxChunkSize) {
+					chunkSize = maxChunkSize;
+				}
+				NkString chunk = message.SubStr(offset, chunkSize);
 				fragmentNumber++;
 
-				std::string fragmentedMessage = "[FRAGMENT " + std::to_string(fragmentNumber) + "] " + chunk;
+				char prefix[64];
+				const int prefixLength = ::snprintf(prefix, sizeof(prefix), "[FRAGMENT %d] ", fragmentNumber);
+				NkString fragmentedMessage;
+				if (prefixLength > 0) {
+					fragmentedMessage.Append(prefix, static_cast<usize>(prefixLength));
+				}
+				fragmentedMessage += chunk;
 				LogToAndroid(prio, tag, fragmentedMessage);
 
 				offset += chunkSize;

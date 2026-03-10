@@ -16,7 +16,7 @@
 #include "NKCore/NkTraits.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Pair container - holds two values
@@ -329,7 +329,7 @@ namespace nkentseu {
         }
         #endif
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_HETEROGENEOUS_NKPAIR_H_INCLUDED

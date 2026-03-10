@@ -4,9 +4,10 @@
 #define NKENTSEU_CORE_NKVARIANT_H_INCLUDED
 
 #include "NkInvoke.h"
+#include "NKCore/Assert/NkAssert.h"
 
 namespace nkentseu {
-    namespace core {
+    
 
         namespace detail {
 
@@ -135,6 +136,9 @@ namespace nkentseu {
                 [[nodiscard]] nk_bool ValuelessByException() const noexcept {
                     return !mHasValue;
                 }
+                [[nodiscard]] nk_bool HasValue() const noexcept {
+                    return mHasValue;
+                }
 
                 [[nodiscard]] nk_size Index() const noexcept {
                     return mHasValue ? mIndex : kNpos;
@@ -178,6 +182,18 @@ namespace nkentseu {
                 }
 
                 template <typename T>
+                T& GetChecked() {
+                    NK_ASSERT(HoldsAlternative<T>());
+                    return Get<T>();
+                }
+
+                template <typename T>
+                const T& GetChecked() const {
+                    NK_ASSERT(HoldsAlternative<T>());
+                    return Get<T>();
+                }
+
+                template <typename T>
                 T* GetIf() noexcept {
                     return HoldsAlternative<T>() ? reinterpret_cast<T*>(mStorage) : nullptr;
                 }
@@ -201,6 +217,15 @@ namespace nkentseu {
                         return;
                     }
                     VisitImplConst<0u>(visitor);
+                }
+
+                void Swap(NkVariant& other) {
+                    if (this == &other) {
+                        return;
+                    }
+                    NkVariant tmp(traits::NkMove(other));
+                    other = traits::NkMove(*this);
+                    *this = traits::NkMove(tmp);
                 }
 
             private:
@@ -310,7 +335,7 @@ namespace nkentseu {
             variant.Visit(traits::NkForward<Visitor>(visitor));
         }
 
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKVARIANT_H_INCLUDED

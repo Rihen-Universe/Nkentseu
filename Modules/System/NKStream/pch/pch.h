@@ -1,9 +1,8 @@
 #pragma once
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <fstream>
-#include <functional>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>

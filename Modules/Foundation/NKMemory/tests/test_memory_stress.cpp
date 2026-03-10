@@ -2,9 +2,9 @@
 #include <Unitest/TestMacro.h>
 
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
+#include "NKCore/NkAtomic.h"
 
-#include <atomic>
 #include <thread>
 
 using namespace nkentseu::memory;
@@ -29,7 +29,7 @@ static nk_size RandRange(nk_uint32& state, nk_size minValue, nk_size maxValue) {
 } // namespace
 
 TEST_CASE(NKMemoryStress, MallocMultiThread) {
-    std::atomic<int> failures{0};
+    NkAtomicInt failures(0);
 
     auto worker = [&failures](nk_uint32 seed) {
         NkMallocAllocator allocator;
@@ -57,5 +57,5 @@ TEST_CASE(NKMemoryStress, MallocMultiThread) {
     t3.join();
     t4.join();
 
-    ASSERT_EQUAL(0, failures.load());
+    ASSERT_EQUAL(0, failures.Load());
 }

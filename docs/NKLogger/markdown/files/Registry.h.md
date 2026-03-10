@@ -55,7 +55,7 @@ void Clear()
 `const`
 
 ```cpp
-bool Exists(const std::string& name) const
+bool Exists(const NkString& name) const
 ```
 
 **Vérifie si un logger existe**
@@ -64,7 +64,7 @@ bool Exists(const std::string& name) const
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` | [in] Nom du logger |
+| `name` | `const NkString&` | [in] Nom du logger |
 
 **Retour:** true si existe, false sinon
 
@@ -93,7 +93,7 @@ void FlushAll()
 #### ⚙️ `Get`
 
 ```cpp
-shared_ptr<Logger> Get(const std::string& name)
+shared_ptr<Logger> Get(const NkString& name)
 ```
 
 **Obtient un logger par son nom**
@@ -102,7 +102,7 @@ shared_ptr<Logger> Get(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` | [in] Nom du logger |
+| `name` | `const NkString&` | [in] Nom du logger |
 
 **Retour:** Pointeur vers le logger, nullptr si non trouvé
 
@@ -175,7 +175,7 @@ size_t GetLoggerCount() const
 `const`
 
 ```cpp
-vector<std::string> GetLoggerNames() const
+vector<NkString> GetLoggerNames() const
 ```
 
 **Obtient la liste de tous les noms de loggers**
@@ -192,7 +192,7 @@ vector<std::string> GetLoggerNames() const
 #### ⚙️ `GetOrCreate`
 
 ```cpp
-shared_ptr<Logger> GetOrCreate(const std::string& name)
+shared_ptr<Logger> GetOrCreate(const NkString& name)
 ```
 
 **Obtient un logger par son nom (crée si non existant)**
@@ -201,7 +201,7 @@ shared_ptr<Logger> GetOrCreate(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` | [in] Nom du logger |
+| `name` | `const NkString&` | [in] Nom du logger |
 
 **Retour:** Pointeur vers le logger (existant ou nouvellement créé)
 
@@ -316,7 +316,7 @@ void SetGlobalLevel(LogLevel level)
 #### ⚙️ `SetGlobalPattern`
 
 ```cpp
-void SetGlobalPattern(const std::string& pattern)
+void SetGlobalPattern(const NkString& pattern)
 ```
 
 **Définit le pattern global**
@@ -325,7 +325,7 @@ void SetGlobalPattern(const std::string& pattern)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` | [in] Pattern de formatage global |
+| `pattern` | `const NkString&` | [in] Pattern de formatage global |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Registry.h:122`*
 
@@ -354,7 +354,7 @@ static void Shutdown()
 #### ⚙️ `Unregister`
 
 ```cpp
-bool Unregister(const std::string& name)
+bool Unregister(const NkString& name)
 ```
 
 **Désenregistre un logger du registre**
@@ -363,7 +363,7 @@ bool Unregister(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` | [in] Nom du logger à désenregistrer |
+| `name` | `const NkString&` | [in] Nom du logger à désenregistrer |
 
 **Retour:** true si désenregistré, false si non trouvé
 

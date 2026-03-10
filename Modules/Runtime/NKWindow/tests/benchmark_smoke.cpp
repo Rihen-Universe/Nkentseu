@@ -2,9 +2,9 @@
 #include <Unitest/TestMacro.h>
 
 #include "NKWindow/Core/NkTypes.h"
+#include "NKLogger/NkLog.h"
 
 #include <chrono>
-#include <cstdio>
 
 using namespace nkentseu;
 
@@ -22,5 +22,6 @@ TEST_CASE(NKWindowBenchmark, RendererApiToStringLoop) {
 
     const double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
     ASSERT_TRUE(ns > 0.0);
-    std::printf("\n[NKWindow Benchmark] renderer API stringify: %.2f ns total (sink=%zu)\n", ns, static_cast<std::size_t>(sink));
+    logger.Info("[NKWindow Benchmark] renderer API stringify: {0} ns total (sink={1})",
+                ns, static_cast<std::size_t>(sink));
 }

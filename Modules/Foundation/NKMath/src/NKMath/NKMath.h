@@ -8,7 +8,8 @@
 #ifndef NKENTSEU_NKMATH_H_INCLUDED
 #define NKENTSEU_NKMATH_H_INCLUDED
 
-#include "NkMathFunctions.h"
+#include "NkFunctions.h"
+#include "NkSIMD.h"
 #include "NkTypes.h"
 
 namespace nkentseu {

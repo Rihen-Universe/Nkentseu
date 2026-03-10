@@ -5,7 +5,7 @@
 // DATE: 2026-02-10
 // -----------------------------------------------------------------------------
 
-#include "NkPath.h"
+#include "NKFileSystem/NkPath.h"
 #include <cstring>
 #include <cstdlib>
 
@@ -43,7 +43,7 @@ namespace nkentseu {
             NormalizeSeparators();
         }
         
-        NkPath::NkPath(const core::NkString& path) : mPath(path) {
+        NkPath::NkPath(const NkString& path) : mPath(path) {
             NormalizeSeparators();
         }
         
@@ -64,7 +64,7 @@ namespace nkentseu {
         }
         
         NkPath& NkPath::Append(const char* component) {
-            if (mPath.IsEmpty()) {
+            if (mPath.Empty()) {
                 mPath = component;
             } else {
                 if (mPath[mPath.Length() - 1] != PREFERRED_SEPARATOR) {
@@ -89,7 +89,7 @@ namespace nkentseu {
             return *this / other.CStr();
         }
         
-        core::NkString NkPath::GetDirectory() const {
+        NkString NkPath::GetDirectory() const {
             const char* path = mPath.CStr();
             const char* lastSep = nullptr;
             
@@ -100,12 +100,12 @@ namespace nkentseu {
             }
             
             if (lastSep) {
-                return core::NkString(path, lastSep - path);
+                return NkString(path, lastSep - path);
             }
-            return core::NkString();
+            return NkString();
         }
         
-        core::NkString NkPath::GetFileName() const {
+        NkString NkPath::GetFileName() const {
             const char* path = mPath.CStr();
             const char* lastSep = nullptr;
             
@@ -116,13 +116,13 @@ namespace nkentseu {
             }
             
             if (lastSep) {
-                return core::NkString(lastSep + 1);
+                return NkString(lastSep + 1);
             }
             return mPath;
         }
         
-        core::NkString NkPath::GetFileNameWithoutExtension() const {
-            core::NkString filename = GetFileName();
+        NkString NkPath::GetFileNameWithoutExtension() const {
+            NkString filename = GetFileName();
             const char* name = filename.CStr();
             const char* lastDot = nullptr;
             
@@ -133,12 +133,12 @@ namespace nkentseu {
             }
             
             if (lastDot && lastDot != name) {
-                return core::NkString(name, lastDot - name);
+                return NkString(name, lastDot - name);
             }
             return filename;
         }
         
-        core::NkString NkPath::GetExtension() const {
+        NkString NkPath::GetExtension() const {
             const char* filename = GetFileName().CStr();
             const char* lastDot = nullptr;
             
@@ -149,26 +149,26 @@ namespace nkentseu {
             }
             
             if (lastDot && lastDot != filename) {
-                return core::NkString(lastDot);
+                return NkString(lastDot);
             }
-            return core::NkString();
+            return NkString();
         }
         
-        core::NkString NkPath::GetRoot() const {
+        NkString NkPath::GetRoot() const {
             const char* path = mPath.CStr();
             
             // Windows drive root example: C:/ or C:\\.
             if (path[0] && path[1] == ':') {
                 char root[4] = {path[0], ':', PREFERRED_SEPARATOR, '\0'};
-                return core::NkString(root);
+                return NkString(root);
             }
             
             // Unix: /
             if (path[0] == PREFERRED_SEPARATOR) {
-                return core::NkString("/");
+                return NkString("/");
             }
             
-            return core::NkString();
+            return NkString();
         }
         
         bool NkPath::IsAbsolute() const {
@@ -192,19 +192,19 @@ namespace nkentseu {
         }
         
         bool NkPath::HasExtension() const {
-            return !GetExtension().IsEmpty();
+            return !GetExtension().Empty();
         }
         
         bool NkPath::HasFileName() const {
-            return !GetFileName().IsEmpty();
+            return !GetFileName().Empty();
         }
         
         NkPath& NkPath::ReplaceExtension(const char* newExt) {
-            core::NkString dir = GetDirectory();
-            core::NkString name = GetFileNameWithoutExtension();
+            NkString dir = GetDirectory();
+            NkString name = GetFileNameWithoutExtension();
             
             mPath = dir;
-            if (!dir.IsEmpty()) {
+            if (!dir.Empty()) {
                 mPath += PREFERRED_SEPARATOR;
             }
             mPath += name;
@@ -220,9 +220,9 @@ namespace nkentseu {
         }
         
         NkPath& NkPath::ReplaceFileName(const char* newName) {
-            core::NkString dir = GetDirectory();
+            NkString dir = GetDirectory();
             mPath = dir;
-            if (!dir.IsEmpty()) {
+            if (!dir.Empty()) {
                 mPath += PREFERRED_SEPARATOR;
             }
             mPath += newName;
@@ -242,12 +242,12 @@ namespace nkentseu {
             return mPath.CStr();
         }
         
-        core::NkString NkPath::ToString() const {
+        NkString NkPath::ToString() const {
             return mPath;
         }
         
-        core::NkString NkPath::ToNative() const {
-            core::NkString result = mPath;
+        NkString NkPath::ToNative() const {
+            NkString result = mPath;
             
             #ifdef _WIN32
             // Convert / to \ on Windows

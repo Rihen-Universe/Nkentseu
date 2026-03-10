@@ -14,7 +14,7 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace encoding {
             namespace base64 {
                 
@@ -55,7 +55,7 @@ namespace nkentseu {
                 
             } // namespace base64
         } // namespace encoding
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_ENCODING_NKBASE64_H_INCLUDED

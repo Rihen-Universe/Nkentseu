@@ -4,7 +4,7 @@
 #include "NKContainers/NkContainers.h"
 #include "NKContainers/Views/NkSpan.h"
 
-using namespace nkentseu::core;
+using namespace nkentseu;
 
 TEST_CASE(NKContainersSpan, ViewsAndIndexing) {
     int raw[5] = {1, 2, 3, 4, 5};

@@ -50,22 +50,28 @@ namespace nkentseu {
                 virtual void DestroyControlBlock() noexcept = 0;
 
             private:
-                core::NkAtomicInt32 mStrong;
-                core::NkAtomicInt32 mWeak;
+                NkAtomicInt32 mStrong;
+                NkAtomicInt32 mWeak;
         };
 
         template <typename T>
         class NkSharedControlBlock final : public NkSharedControlBlockBase {
             public:
-                NkSharedControlBlock(T* ptr, NkAllocator* allocator) noexcept
-                    : mPtr(ptr), mAllocator(allocator ? allocator : &NkGetDefaultAllocator()) {}
+                NkSharedControlBlock(T* ptr, NkAllocator* allocator, nk_bool useAllocatorForObject) noexcept
+                    : mPtr(ptr)
+                    , mAllocator(allocator ? allocator : &NkGetDefaultAllocator())
+                    , mUseAllocatorForObject(useAllocatorForObject) {}
 
             protected:
                 void DestroyObject() noexcept override {
                     if (!mPtr) {
                         return;
                     }
-                    mAllocator->Delete(mPtr);
+                    if (mUseAllocatorForObject && mAllocator) {
+                        mAllocator->Delete(mPtr);
+                    } else {
+                        delete mPtr;
+                    }
                     mPtr = nullptr;
                 }
 
@@ -78,6 +84,7 @@ namespace nkentseu {
             private:
                 T* mPtr;
                 NkAllocator* mAllocator;
+                nk_bool mUseAllocatorForObject;
         };
 
         template <typename T>
@@ -96,14 +103,19 @@ namespace nkentseu {
                     if (!ptr) {
                         return;
                     }
-                    NkAllocator* alloc = allocator ? allocator : &NkGetDefaultAllocator();
-                    void* mem = alloc->Allocate(sizeof(NkSharedControlBlock<T>), alignof(NkSharedControlBlock<T>));
+                    NkAllocator* controlAllocator = allocator ? allocator : &NkGetDefaultAllocator();
+                    void* mem = controlAllocator->Allocate(sizeof(NkSharedControlBlock<T>), alignof(NkSharedControlBlock<T>));
                     if (!mem) {
-                        alloc->Delete(ptr);
+                        if (allocator) {
+                            allocator->Delete(ptr);
+                        } else {
+                            delete ptr;
+                        }
                         mPtr = nullptr;
                         return;
                     }
-                    mControl = new (mem) NkSharedControlBlock<T>(ptr, alloc);
+                    const nk_bool useAllocatorForObject = allocator != nullptr;
+                    mControl = new (mem) NkSharedControlBlock<T>(ptr, controlAllocator, useAllocatorForObject);
                 }
 
                 NkSharedPtr(const NkSharedPtr& other) noexcept
@@ -142,7 +154,7 @@ namespace nkentseu {
 
                 NkSharedPtr& operator=(NkSharedPtr&& other) noexcept {
                     if (this != &other) {
-                        NkSharedPtr(core::traits::NkMove(other)).Swap(*this);
+                        NkSharedPtr(traits::NkMove(other)).Swap(*this);
                     }
                     return *this;
                 }
@@ -153,6 +165,7 @@ namespace nkentseu {
                 }
 
                 void Reset() noexcept { NkSharedPtr().Swap(*this); }
+                void Reset(T* ptr, NkAllocator* allocator = nullptr) { NkSharedPtr(ptr, allocator).Swap(*this); }
 
                 void Swap(NkSharedPtr& other) noexcept {
                     T* tmpPtr = mPtr;
@@ -171,6 +184,7 @@ namespace nkentseu {
                     return mControl ? mControl->StrongCount() : 0;
                 }
                 [[nodiscard]] nk_bool Unique() const noexcept { return UseCount() == 1; }
+                [[nodiscard]] nk_bool IsValid() const noexcept { return mPtr != nullptr; }
                 explicit operator nk_bool() const noexcept { return mPtr != nullptr; }
 
             private:
@@ -232,7 +246,7 @@ namespace nkentseu {
 
                 NkWeakPtr& operator=(NkWeakPtr&& other) noexcept {
                     if (this != &other) {
-                        NkWeakPtr(core::traits::NkMove(other)).Swap(*this);
+                        NkWeakPtr(traits::NkMove(other)).Swap(*this);
                     }
                     return *this;
                 }
@@ -255,6 +269,9 @@ namespace nkentseu {
                 [[nodiscard]] nk_bool Expired() const noexcept {
                     return !mControl || mControl->Expired();
                 }
+                [[nodiscard]] nk_bool IsValid() const noexcept {
+                    return !Expired();
+                }
                 [[nodiscard]] NkSharedPtr<T> Lock() const noexcept {
                     if (!mControl) {
                         return NkSharedPtr<T>();
@@ -275,13 +292,13 @@ namespace nkentseu {
         template <typename T, typename... Args>
         NkSharedPtr<T> NkMakeShared(Args&&... args) {
             NkAllocator& alloc = NkGetDefaultAllocator();
-            T* object = alloc.New<T>(core::traits::NkForward<Args>(args)...);
+            T* object = alloc.New<T>(traits::NkForward<Args>(args)...);
             return NkSharedPtr<T>(object, &alloc);
         }
 
         template <typename T, typename... Args>
         NkSharedPtr<T> NkMakeSharedWithAllocator(NkAllocator& allocator, Args&&... args) {
-            T* object = allocator.New<T>(core::traits::NkForward<Args>(args)...);
+            T* object = allocator.New<T>(traits::NkForward<Args>(args)...);
             return NkSharedPtr<T>(object, &allocator);
         }
 

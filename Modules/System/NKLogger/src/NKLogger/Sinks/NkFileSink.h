@@ -8,8 +8,10 @@
 #pragma once
 
 #include "NKLogger/NkSink.h"
-#include <fstream>
-#include <mutex>
+#include "NKLogger/NkSync.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include <cstdio>
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -30,7 +32,7 @@ namespace nkentseu {
 			 * @param filename Chemin du fichier
 			 * @param truncate true pour tronquer le fichier existant
 			 */
-			explicit NkFileSink(const std::string &filename, bool truncate = false);
+			explicit NkFileSink(const NkString &filename, bool truncate = false);
 
 			/**
 			 * @brief Destructeur
@@ -54,12 +56,12 @@ namespace nkentseu {
 			/**
 			 * @brief Définit le formatter pour ce sink
 			 */
-			void SetFormatter(std::unique_ptr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
 
 			/**
 			 * @brief Définit le pattern de formatage
 			 */
-			void SetPattern(const std::string &pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Obtient le formatter courant
@@ -69,7 +71,7 @@ namespace nkentseu {
 			/**
 			 * @brief Obtient le pattern courant
 			 */
-			std::string GetPattern() const override;
+			NkString GetPattern() const override;
 
 			// ---------------------------------------------------------------------
 			// CONFIGURATION SPÉCIFIQUE AU FICHIER
@@ -96,19 +98,19 @@ namespace nkentseu {
 			 * @brief Obtient le nom du fichier
 			 * @return Nom du fichier
 			 */
-			std::string GetFilename() const;
+			NkString GetFilename() const;
 
 			/**
 			 * @brief Définit un nouveau nom de fichier
 			 * @param filename Nouveau nom de fichier
 			 */
-			void SetFilename(const std::string &filename);
+			void SetFilename(const NkString &filename);
 
 			/**
 			 * @brief Obtient la taille actuelle du fichier
 			 * @return Taille en octets
 			 */
-			core::usize GetFileSize() const;
+			usize GetFileSize() const;
 
 			/**
 			 * @brief Définit le mode d'ouverture (truncate/append)
@@ -142,20 +144,20 @@ namespace nkentseu {
 			// ---------------------------------------------------------------------
 
 			/// NkFormatter pour ce sink
-			std::unique_ptr<NkFormatter> m_Formatter;
+			memory::NkUniquePtr<NkFormatter> m_Formatter;
 
 			/// Flux de fichier
-			std::ofstream m_FileStream;
+			FILE *m_FileStream;
 
 			/// Nom du fichier
-			std::string m_Filename;
+			NkString m_Filename;
 
 			/// Mode d'ouverture (truncate/append)
 			bool m_Truncate;
 
 		protected:
 			/// Mutex pour la synchronisation thread-safe
-			mutable std::mutex m_Mutex;
+			mutable logger_sync::NkMutex m_Mutex;
 	};
 
 } // namespace nkentseu

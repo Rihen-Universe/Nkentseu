@@ -1,19 +1,13 @@
 // -----------------------------------------------------------------------------
-// NKLogger/pch/pch.h — Precompiled header
-// Stable STL headers used across the logging subsystem.
+// NKThreading/pch/pch.h
+// Precompiled header minimal, sans conteneurs STL.
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <thread>
-#include <mutex>
-#include <atomic>
-#include <queue>
-#include <condition_variable>
-#include <chrono>
-#include <functional>
-#include <cstdint>
-#include <cstddef>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>

@@ -23,6 +23,12 @@
 #include <chrono>
 
 #include "NKMath/NkTypes.h"
+#include "NKContainers/NkContainers.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkFormat.h"
+#include "NKContainers/String/NkFormatf.h"
+#include "NKContainers/Associative/NkUnorderedMap.h"
+#include "NKContainers/Functional/NkFunction.h"
 
 // ---------------------------------------------------------------------------
 // Macro BIT — décalage de bits
@@ -32,6 +38,10 @@
 #endif
 
 namespace nkentseu {
+
+#ifndef NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION
+    #define NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION 0
+#endif
 
     // =========================================================================
     // NkEventCategory
@@ -61,11 +71,11 @@ namespace nkentseu {
         };
 
         /// @brief Convertit une valeur de catégorie en chaîne lisible
-        static std::string ToString(NkEventCategory::Value value);
+        static NkString ToString(NkEventCategory::Value value);
 
         /// @brief Convertit une chaîne en valeur de catégorie
         /// @return NK_CAT_NONE si la chaîne est inconnue
-        static NkEventCategory::Value FromString(const std::string& str);
+        static NkEventCategory::Value FromString(const NkString& str);
     };
 
     // -------------------------------------------------------------------------
@@ -228,11 +238,11 @@ namespace nkentseu {
         };
 
         /// @brief Convertit un type d'événement en chaîne lisible
-        static std::string ToString(NkEventType::Value value);
+        static NkString ToString(NkEventType::Value value);
 
         /// @brief Convertit une chaîne en type d'événement
         /// @return NK_NONE si la chaîne est inconnue
-        static NkEventType::Value FromString(const std::string& str);
+        static NkEventType::Value FromString(const NkString& str);
     };
 
     // =========================================================================
@@ -329,7 +339,7 @@ namespace nkentseu {
             // --- Opérateur de flux ---
 
             friend std::ostream& operator<<(std::ostream& os, const NkEvent& e) {
-                return os << e.ToString();
+                return os << e.ToString().CStr();
             }
 
             // --- Accesseurs ---
@@ -390,13 +400,13 @@ namespace nkentseu {
             // --- Sérialisation ---
 
             /// @brief Retourne une représentation lisible de l'événement (pour logs/debug)
-            virtual std::string ToString() const;
+            virtual NkString ToString() const;
 
             /// @brief Convertit un type en string (délègue à NkEventType::ToString)
-            static std::string TypeToString(NkEventType::Value type);
+            static NkString TypeToString(NkEventType::Value type);
 
             /// @brief Convertit une catégorie en string (délègue à NkEventCategory::ToString)
-            static std::string CategoryToString(NkEventCategory::Value category);
+            static NkString CategoryToString(NkEventCategory::Value category);
 
         protected:
             NkU64         mWindowID  = 0;     ///< Identifiant de la fenêtre source
@@ -416,14 +426,25 @@ namespace nkentseu {
     //   EventHandlerRef  : alias sémantique — handler passif (observation)
     // =========================================================================
 
+    #if NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION
+    using EventObserver    = NkFunction<void, NkEvent&>;
+    using EventObserverRef = NkFunction<void, const NkEvent&>;
+    using EventHandler     = NkFunction<void, NkEvent&>;
+    using EventHandlerRef  = NkFunction<void, const NkEvent&>;
+    #else
     using EventObserver    = std::function<void(NkEvent&)>;
     using EventObserverRef = std::function<void(const NkEvent&)>;
     using EventHandler     = std::function<void(NkEvent&)>;
     using EventHandlerRef  = std::function<void(const NkEvent&)>;
+    #endif
 
     // =========================================================================
     // NkEventCallback — type de callback pour les événements
     // =========================================================================
+    #if NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION
+    using NkEventCallback = NkFunction<void, NkEvent*>;
+    #else
     using NkEventCallback = std::function<void(NkEvent*)>;
+    #endif
 
 } // namespace nkentseu

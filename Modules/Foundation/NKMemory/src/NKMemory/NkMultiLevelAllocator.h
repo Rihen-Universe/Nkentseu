@@ -22,11 +22,10 @@
 
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkPoolAllocator.h"
-#include "NKMemory/NkMemoryExport.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKMemory/NkExport.h"
 #include "NKCore/NkTypes.h"
 #include "NKCore/NkAtomic.h"
-
-#include <memory>
 
 namespace nkentseu {
 namespace memory {
@@ -65,7 +64,7 @@ namespace memory {
      * alloc.Deallocate(p3);
      * ```
      */
-    class NKMEMORY_API NkMultiLevelAllocator : public NkAllocator {
+    class NKENTSEU_MEMORY_API NkMultiLevelAllocator : public NkAllocator {
     public:
         // Pool sizes (configurable)
         enum {
@@ -118,7 +117,7 @@ namespace memory {
         // STATISTICS
         // ==============================================
         
-        struct NKMEMORY_API Stats {
+        struct NKENTSEU_MEMORY_API Stats {
             struct PoolStats {
                 nk_size allocated;
                 nk_size capacity;
@@ -147,9 +146,9 @@ namespace memory {
         
     private:
         // Internal pools
-        std::unique_ptr<NkFixedPoolAllocator<TINY_SIZE, TINY_COUNT>> mTinyPool;
-        std::unique_ptr<NkFixedPoolAllocator<SMALL_SIZE, SMALL_COUNT>> mSmallPool;
-        std::unique_ptr<NkVariablePoolAllocator> mMediumPool;
+        NkUniquePtr<NkFixedPoolAllocator<TINY_SIZE, TINY_COUNT>> mTinyPool;
+        NkUniquePtr<NkFixedPoolAllocator<SMALL_SIZE, SMALL_COUNT>> mSmallPool;
+        NkUniquePtr<NkVariablePoolAllocator> mMediumPool;
         
         // Large allocations tracker (minimal state in this module).
         struct {
@@ -162,7 +161,7 @@ namespace memory {
          */
         NkAllocator* FindAllocatorFor(void* ptr) const noexcept;
         
-        core::NkSpinLock mLock;
+        NkSpinLock mLock;
     };
     
     /**

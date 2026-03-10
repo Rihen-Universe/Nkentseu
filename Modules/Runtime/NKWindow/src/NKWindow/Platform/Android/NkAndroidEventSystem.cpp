@@ -18,9 +18,14 @@
 #include "NKWindow/Platform/Android/NkAndroidGamepad.h"
 #include "NKWindow/Platform/Android/NkAndroidWindow.h"
 
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/Sequential/NkVector.h"
+
 #include <android/input.h>
 #include <android/keycodes.h>
 #include <android/log.h>
+#include <android/looper.h>
 #include <android/native_window.h>
 #include <android/window.h>
 #include <android_native_app_glue.h>
@@ -43,7 +48,7 @@ namespace nkentseu {
 
     template <typename Fn>
     static void ForEachAndroidWindow(Fn&& fn) {
-        const std::vector<NkWindow*> windows = NkAndroidGetWindowsSnapshot();
+        const nkentseu::NkVector<NkWindow*> windows = NkAndroidGetWindowsSnapshot();
         for (NkWindow* window : windows) {
             if (!window) {
                 continue;
@@ -71,7 +76,7 @@ namespace nkentseu {
             }
         }
 
-        const std::vector<NkWindow*> windows = NkAndroidGetWindowsSnapshot();
+        const nkentseu::NkVector<NkWindow*> windows = NkAndroidGetWindowsSnapshot();
         for (auto it = windows.rbegin(); it != windows.rend(); ++it) {
             NkWindow* window = *it;
             if (!window) {
@@ -142,6 +147,7 @@ namespace nkentseu {
     static NkKey AKeyToNkKey(int32_t keycode) {
         switch (keycode) {
             case AKEYCODE_BACK:
+            case AKEYCODE_ESCAPE:
                 return NkKey::NK_ESCAPE;
             case AKEYCODE_DPAD_UP:
                 return NkKey::NK_UP;
@@ -277,6 +283,7 @@ namespace nkentseu {
             const int32_t keycode = AKeyEvent_getKeyCode(ev);
             const int32_t action = AKeyEvent_getAction(ev);
             const NkKey key = AKeyToNkKey(keycode);
+            bool handledKey = false;
             if (key != NkKey::NK_UNKNOWN) {
                 NkModifierState mods{};
                 const int32_t meta = AKeyEvent_getMetaState(ev);
@@ -287,16 +294,18 @@ namespace nkentseu {
                 if (action == AKEY_EVENT_ACTION_DOWN) {
                     NkKeyPressEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<NkU32>(keycode));
                     gAndroidEventSystem->Enqueue_Public(event, targetWinId);
+                    handledKey = true;
                 } else if (action == AKEY_EVENT_ACTION_UP) {
                     NkKeyReleaseEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<NkU32>(keycode));
                     gAndroidEventSystem->Enqueue_Public(event, targetWinId);
+                    handledKey = true;
                 }
             }
 
-            if (keycode == AKEYCODE_BACK) {
+            if (keycode == AKEYCODE_BACK || keycode == AKEYCODE_ESCAPE) {
                 return 1;
             }
-            return 0;
+            return handledKey ? 1 : 0;
         }
 
         if (evType == AINPUT_EVENT_TYPE_MOTION) {
@@ -509,7 +518,7 @@ namespace nkentseu {
             mEventQueue.Clear();
             mCurrentEvent.reset();
         }
-        mWindowCallbacks.clear();
+        mWindowCallbacks.Clear();
         mTotalEventCount = 0;
         mPumping = false;
         mPumpThreadId = std::thread::id{};
@@ -528,10 +537,19 @@ namespace nkentseu {
             return;
         }
 
-        int events = 0;
-        android_poll_source* source = nullptr;
+        if (!app->looper) {
+            mPumping = false;
+            return;
+        }
 
-        while (ALooper_pollAll(0, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0) {
+        int events = 0;
+        while (true) {
+            android_poll_source* source = nullptr;
+            const int pollResult = ALooper_pollOnce(0, nullptr, &events, reinterpret_cast<void**>(&source));
+            if (pollResult < 0) {
+                break;
+            }
+
             if (source) {
                 source->process(app, source);
             }
@@ -556,7 +574,7 @@ namespace nkentseu {
         Enqueue(evt, winId);
     }
 
-    static std::string JStringToUtf8(JNIEnv* env, jstring value) {
+    static NkString JStringToUtf8(JNIEnv* env, jstring value) {
         if (!env || !value) {
             return {};
         }
@@ -566,7 +584,7 @@ namespace nkentseu {
             return {};
         }
 
-        std::string utf8(raw);
+        NkString utf8(raw);
         env->ReleaseStringUTFChars(value, raw);
         return utf8;
     }
@@ -626,8 +644,8 @@ Java_com_nkentseu_nkwindow_NkAndroidDropBridge_nativeDropText(
         return;
     }
 
-    const std::string textUtf8 = nkentseu::JStringToUtf8(env, text);
-    const std::string mimeUtf8 = nkentseu::JStringToUtf8(env, mimeType);
+    const nkentseu::NkString textUtf8 = nkentseu::JStringToUtf8(env, text);
+    const nkentseu::NkString mimeUtf8 = nkentseu::JStringToUtf8(env, mimeType);
     nkentseu::NkAndroidDropTarget::DispatchDropText(target, x, y, textUtf8, mimeUtf8);
 }
 
@@ -641,15 +659,15 @@ Java_com_nkentseu_nkwindow_NkAndroidDropBridge_nativeDropFiles(
         return;
     }
 
-    std::vector<std::string> utf8Paths;
+    nkentseu::NkVector<nkentseu::NkString> utf8Paths;
     if (paths) {
         const jsize count = env->GetArrayLength(paths);
-        utf8Paths.reserve(static_cast<size_t>(count));
+        utf8Paths.Reserve(static_cast<size_t>(count));
 
         for (jsize i = 0; i < count; ++i) {
             jobject obj = env->GetObjectArrayElement(paths, i);
             jstring str = static_cast<jstring>(obj);
-            utf8Paths.push_back(nkentseu::JStringToUtf8(env, str));
+            utf8Paths.PushBack(nkentseu::JStringToUtf8(env, str));
             env->DeleteLocalRef(str);
         }
     }

@@ -21,11 +21,11 @@ NkEntryState *gState = nullptr;
 // ---------------------------------------------------------------------------
 
 struct NkWatchOSArgs {
-	std::string bundleId;
-	std::string version;
-	std::string build;
-	std::string cachePath;
-	std::vector<std::string> args;
+	NkString bundleId;
+	NkString version;
+	NkString build;
+	NkString cachePath;
+	NkVector<NkString> args;
 };
 
 static NkWatchOSArgs g_watchos_args;

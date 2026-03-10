@@ -85,7 +85,7 @@ string Format(const LogMessage& message, bool useColors)
 #### ⚙️ `Formatter`
 
 ```cpp
-explicit Formatter(const std::string& pattern)
+explicit Formatter(const NkString& pattern)
 ```
 
 **Constructeur par défaut (pattern par défaut)**
@@ -94,7 +94,7 @@ explicit Formatter(const std::string& pattern)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` |  |
+| `pattern` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Formatter.h:66`*
 
@@ -106,7 +106,7 @@ explicit Formatter(const std::string& pattern)
 #### ⚙️ `Formatter`
 
 ```cpp
-explicit Formatter(const std::string& pattern)
+explicit Formatter(const NkString& pattern)
 ```
 
 **Constructeur avec pattern spécifique**
@@ -115,7 +115,7 @@ explicit Formatter(const std::string& pattern)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` | [in] Pattern de formatage |
+| `pattern` | `const NkString&` | [in] Pattern de formatage |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Formatter.h:71`*
 
@@ -146,7 +146,7 @@ string& GetPattern() const
 #### ⚙️ `SetPattern`
 
 ```cpp
-void SetPattern(const std::string& pattern)
+void SetPattern(const NkString& pattern)
 ```
 
 **Destructeur**
@@ -155,7 +155,7 @@ void SetPattern(const std::string& pattern)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` |  |
+| `pattern` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Formatter.h:77`*
 
@@ -167,7 +167,7 @@ void SetPattern(const std::string& pattern)
 #### ⚙️ `SetPattern`
 
 ```cpp
-void SetPattern(const std::string& pattern)
+void SetPattern(const NkString& pattern)
 ```
 
 **Définit le pattern de formatage**
@@ -176,7 +176,7 @@ void SetPattern(const std::string& pattern)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` | [in] Pattern à utiliser |
+| `pattern` | `const NkString&` | [in] Pattern à utiliser |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Formatter.h:86`*
 

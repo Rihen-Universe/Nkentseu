@@ -34,11 +34,10 @@ namespace nkentseu {
     // Globals partagés
     // =============================================================================
 
-    static xcb_connection_t*                        sConnection   = nullptr;
-    static xcb_screen_t*                            sDefaultScreen = nullptr;
-    static int                                       sWindowCount  = 0;
-    static std::mutex                                sConnectionMutex;
-    static std::unordered_map<xcb_window_t, NkWindow*> sXCBWindowMap;
+    static xcb_connection_t* sConnection    = nullptr;
+    static xcb_screen_t*     sDefaultScreen = nullptr;
+    static int               sWindowCount   = 0;
+    static std::mutex        sConnectionMutex;
 
     // Atoms partagés
     static xcb_atom_t sAtomWmDeleteWindow = XCB_ATOM_NONE;
@@ -46,21 +45,27 @@ namespace nkentseu {
     static xcb_atom_t sAtomNetWmName      = XCB_ATOM_NONE;
     static xcb_atom_t sAtomUtf8String     = XCB_ATOM_NONE;
 
+    // Function-local static avoids static init order fiasco with NkAllocator.
+    static NkUnorderedMap<xcb_window_t, NkWindow*>& XCBWindowMap() {
+        static NkUnorderedMap<xcb_window_t, NkWindow*> sMap;
+        return sMap;
+    }
+
     // =============================================================================
     // Registre accessor functions (déclarées dans NkXCBWindow.h)
     // =============================================================================
 
     NkWindow* NkXCBFindWindow(xcb_window_t xid) {
-        auto it = sXCBWindowMap.find(xid);
-        return (it != sXCBWindowMap.end()) ? it->second : nullptr;
+        auto* win = XCBWindowMap().Find(xid);
+        return win ? *win : nullptr;
     }
 
     void NkXCBRegisterWindow(xcb_window_t xid, NkWindow* win) {
-        sXCBWindowMap[xid] = win;
+        XCBWindowMap()[xid] = win;
     }
 
     void NkXCBUnregisterWindow(xcb_window_t xid) {
-        sXCBWindowMap.erase(xid);
+        XCBWindowMap().Erase(xid);
     }
 
     // Accesseur connexion pour NkXCBEventSystem.cpp
@@ -183,13 +188,13 @@ namespace nkentseu {
         xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
                             mData.mWindow, XCB_ATOM_WM_NAME,
                             XCB_ATOM_STRING, 8,
-                            static_cast<uint32_t>(config.title.size()),
-                            config.title.c_str());
+                            static_cast<uint32_t>(config.title.Size()),
+                            config.title.CStr());
         xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
                             mData.mWindow, sAtomNetWmName,
                             sAtomUtf8String, 8,
-                            static_cast<uint32_t>(config.title.size()),
-                            config.title.c_str());
+                            static_cast<uint32_t>(config.title.Size()),
+                            config.title.CStr());
 
         // --- WM size hints (non-resizable) ---
         if (!config.resizable) {
@@ -283,7 +288,7 @@ namespace nkentseu {
     NkError        NkWindow::GetLastError() const { return mLastError; }
     NkWindowConfig NkWindow::GetConfig()    const { return mConfig; }
 
-    std::string NkWindow::GetTitle() const { return mConfig.title; }
+    NkString NkWindow::GetTitle() const { return mConfig.title; }
 
     NkVec2u NkWindow::GetSize() const {
         if (!mData.mConnection || !mData.mWindow)
@@ -322,17 +327,17 @@ namespace nkentseu {
     // Setters
     // =============================================================================
 
-    void NkWindow::SetTitle(const std::string& title) {
+    void NkWindow::SetTitle(const NkString& title) {
         mConfig.title = title;
         if (!mData.mConnection || !mData.mWindow) return;
         xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE,
                             mData.mWindow, XCB_ATOM_WM_NAME,
                             XCB_ATOM_STRING, 8,
-                            static_cast<uint32_t>(title.size()), title.c_str());
+                            static_cast<uint32_t>(title.Size()), title.CStr());
         xcb_change_property(mData.mConnection, XCB_PROP_MODE_REPLACE,
                             mData.mWindow, sAtomNetWmName,
                             sAtomUtf8String, 8,
-                            static_cast<uint32_t>(title.size()), title.c_str());
+                            static_cast<uint32_t>(title.Size()), title.CStr());
         xcb_flush(mData.mConnection);
     }
 

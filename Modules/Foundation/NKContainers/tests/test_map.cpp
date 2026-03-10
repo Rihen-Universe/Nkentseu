@@ -2,12 +2,13 @@
 #include <Unitest/TestMacro.h>
 
 #include "NKContainers/NkContainers.h"
+#include "NKPlatform/NkFoundationLog.h"
 
 #include <chrono>
 #include <map>
 #include <stdio.h>
 
-using namespace nkentseu::core;
+using namespace nkentseu;
 
 namespace {
 
@@ -23,7 +24,7 @@ double MeasureNs(Fn&& fn) {
 
 TEST_CASE(NKContainersMap, InsertFindContainsAndOrder) {
     NkMap<int, int> map;
-    ASSERT_TRUE(map.IsEmpty());
+    ASSERT_TRUE(map.Empty());
 
     map.Insert(3, 30);
     map.Insert(1, 10);
@@ -94,7 +95,7 @@ TEST_CASE(NKContainersBenchmark, MapVsStdMap) {
     ASSERT_TRUE(nkTimeNs > 0.0);
     ASSERT_TRUE(stlTimeNs > 0.0);
 
-    printf("\n[NKContainers Benchmark] NkMap vs std::map\n");
-    printf("  NkMap     : %.2f ns total\n", nkTimeNs);
-    printf("  std::map  : %.2f ns total\n", stlTimeNs);
+    NK_FOUNDATION_LOG_INFO("[NKContainers Benchmark] NkMap vs std::map");
+    NK_FOUNDATION_LOG_INFO("  NkMap     : %.2f ns total", nkTimeNs);
+    NK_FOUNDATION_LOG_INFO("  std::map  : %.2f ns total", stlTimeNs);
 }

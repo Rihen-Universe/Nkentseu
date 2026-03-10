@@ -15,12 +15,16 @@
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Ajout pour NkChrono et NkElapsedTime
 
-#include <cstdio>
+#include "NKLogger/NkLog.h"
+#include "NKMath/NKMath.h"
+#include "NKMemory/NkMemory.h"
+
 #include <cmath>
 #include <string>
 
 namespace {
 using namespace nkentseu;
+using namespace nkentseu::math;
 
 // ---------------------------------------------------------------------------
 // Layer applicatif — reçoit chaque event via OnEvent(NkEvent*)
@@ -81,8 +85,7 @@ public:
 
     // Résumé stats pour HUD debug
     void PrintStats() const {
-        std::printf(
-            "[Stats] keys=%u mouse=%u wheel=%u drops=%u gamepads=%u resize=%u\n",
+        logger.Info("[Stats] keys={0} mouse={1} wheel={2} drops={3} gamepads={4} resize={5}",
             mKeyPresses, mMouseClicks, mWheelTicks, mDrops, mGamepadEvents, mResizes);
     }
 
@@ -109,7 +112,7 @@ private:
     // -----------------------------------------------------------------------
 
     bool OnWindowClose(NkWindowCloseEvent& /*e*/) {
-        std::printf("[Window] Close requested\n");
+        logger.Info("[Window] Close requested");
         mClose = true;
         return true;
     }
@@ -118,22 +121,22 @@ private:
         mViewW = e.GetWidth();
         mViewH = e.GetHeight();
         ++mResizes;
-        std::printf("[Window] Resize → %ux%u\n", mViewW, mViewH);
+        logger.Info("[Window] Resize → {0}x{1}", mViewW, mViewH);
         return false; // non consommé : le renderer peut aussi le traiter
     }
 
     bool OnWindowFocusGained(NkWindowFocusGainedEvent& /*e*/) {
-        std::printf("[Window] Focus gained\n");
+        logger.Info("[Window] Focus gained");
         return true;
     }
 
     bool OnWindowFocusLost(NkWindowFocusLostEvent& /*e*/) {
-        std::printf("[Window] Focus lost\n");
+        logger.Info("[Window] Focus lost");
         return true;
     }
 
     bool OnWindowMove(NkWindowMoveEvent& e) {
-        std::printf("[Window] Moved → (%d, %d)\n", e.GetX(), e.GetY());
+        logger.Info("[Window] Moved → ({0}, {1})", e.GetX(), e.GetY());
         return true;
     }
 
@@ -151,7 +154,7 @@ private:
                 return true;
             case NkKey::NK_SPACE:
                 mNeon = !mNeon;
-                std::printf("[Key] Neon mode %s\n", mNeon ? "ON" : "OFF");
+                logger.Info("[Key] Neon mode {0}", mNeon ? "ON" : "OFF");
                 return true;
             case NkKey::NK_P:
                 PrintStats();
@@ -160,7 +163,7 @@ private:
                 // Ctrl+Z : reset phase
                 if (e.GetKey() == NkKey::NK_Z && e.GetModifiers().ctrl) {
                     mPhase = { 0.f, 0.f };
-                    std::printf("[Key] Phase reset\n");
+                    logger.Info("[Key] Phase reset");
                     return true;
                 }
                 return false;
@@ -168,13 +171,13 @@ private:
     }
 
     bool OnKeyRelease(NkKeyReleaseEvent& e) {
-        std::printf("[Key] Released key=%d\n", (int)e.GetKey());
+        logger.Info("[Key] Released key={0}", (int)e.GetKey());
         return false;
     }
 
     bool OnTextInput(NkTextInputEvent& e) {
         // Codepoint Unicode reçu — illustre la saisie texte
-        std::printf("[Key] Typed codepoint=U+%04X\n", e.GetCodepoint());
+        logger.Info("[Key] Typed codepoint=U+{0}", e.GetCodepoint());
         return false;
     }
 
@@ -182,14 +185,12 @@ private:
 
     bool OnMousePress(NkMouseButtonPressEvent& e) {
         ++mMouseClicks;
-        std::printf("[Mouse] Press btn=%d at (%d,%d)\n",
-            (int)e.GetButton(), e.GetX(), e.GetY());
+        logger.Info("[Mouse] Press btn={0} at ({1},{2})", (int)e.GetButton(), e.GetX(), e.GetY());
         return false;
     }
 
     bool OnMouseRelease(NkMouseButtonReleaseEvent& e) {
-        std::printf("[Mouse] Release btn=%d at (%d,%d)\n",
-            (int)e.GetButton(), e.GetX(), e.GetY());
+        logger.Info("[Mouse] Release btn={0} at ({1},{2})", (int)e.GetButton(), e.GetX(), e.GetY());
         return false;
     }
 
@@ -204,68 +205,64 @@ private:
 
     bool OnMouseWheel(NkMouseWheelVerticalEvent& e) {
         ++mWheelTicks;
-        mSaturation = std::fmax(0.1f, std::fmin(3.f,
-            mSaturation + e.GetDeltaY() * 0.1f));
-        std::printf("[Mouse] Wheel dy=%.2f → sat=%.2f\n",
-            e.GetDeltaY(), mSaturation);
+        const float nextSaturation = mSaturation + static_cast<float>(e.GetDeltaY()) * 0.1f;
+        mSaturation = NkClamp(nextSaturation, 0.1f, 3.0f);
+        logger.Info("[Mouse] Wheel dy={0} → sat={1}", e.GetDeltaY(), mSaturation);
         return true;
     }
 
     bool OnMouseEnter(NkMouseEnterEvent& /*e*/) {
-        std::printf("[Mouse] Entered window\n");
+        logger.Info("[Mouse] Entered window");
         return true;
     }
 
     bool OnMouseLeave(NkMouseLeaveEvent& /*e*/) {
-        std::printf("[Mouse] Left window\n");
+        logger.Info("[Mouse] Left window");
         return true;
     }
 
     // --- Drag & Drop ---
 
     bool OnDropEnter(NkDropEnterEvent& e) {
-        std::printf("[Drop] Enter pos=(%d,%d) numFiles=%u hasText=%s\n",
-            e.data.x, e.data.y,
-            e.data.numFiles,
-            e.data.hasText ? "yes" : "no");
+        logger.Info("[Drop] Enter pos=({0},{1}) numFiles={2} hasText={3}",
+            e.data.x, e.data.y, e.data.numFiles, e.data.hasText ? "yes" : "no");
         return true;
     }
 
     bool OnDropLeave(NkDropLeaveEvent& /*e*/) {
-        std::printf("[Drop] Leave\n");
+        logger.Info("[Drop] Leave");
         return true;
     }
 
     bool OnDropFile(NkDropFileEvent& e) {
         ++mDrops;
-        std::printf("[Drop] Files (%zu):\n", e.data.paths.size());
+        logger.Info("[Drop] Files ({0}):", e.data.paths.Size());
         for (const auto& f : e.data.paths)
-            std::printf("  → %s\n", f.c_str());
+            logger.Info("  → {0}", f.CStr());
         return true;
     }
 
     bool OnDropText(NkDropTextEvent& e) {
         ++mDrops;
-        std::printf("[Drop] Text [%.60s...]\n", e.data.text.c_str());
+        logger.Info("[Drop] Text [{0}...]", e.data.text.SubStr(0, 60).CStr());
         return true;
     }
 
     // --- Gamepad ---
 
     bool OnGamepadConnect(NkGamepadConnectEvent& e) {
-        std::printf("[Gamepad] CONNECTED index=%u\n", e.GetGamepadIndex());
+        logger.Info("[Gamepad] CONNECTED index={0}", e.GetGamepadIndex());
         return true;
     }
 
     bool OnGamepadDisconnect(NkGamepadDisconnectEvent& e) {
-        std::printf("[Gamepad] DISCONNECTED index=%u\n", e.GetGamepadIndex());
+        logger.Info("[Gamepad] DISCONNECTED index={0}", e.GetGamepadIndex());
         return true;
     }
 
     bool OnGamepadButton(NkGamepadButtonPressEvent& e) {
         ++mGamepadEvents;
-        std::printf("[Gamepad] Button=%d idx=%u\n",
-            (int)e.GetButton(), e.GetGamepadIndex());
+        logger.Info("[Gamepad] Button={0} idx={1}", (int)e.GetButton(), e.GetGamepadIndex());
         if (e.GetButton() == NkGamepadButton::NK_GP_SOUTH) {
             mNeon = !mNeon;
             NkGamepads().Rumble(e.GetGamepadIndex(),
@@ -284,10 +281,10 @@ private:
         float v = e.GetValue();
         switch (e.GetAxis()) {
             case NkGamepadAxis::NK_GP_AXIS_LX:
-                if (std::fabs(v) > 0.12f) mPhase.x += v * 0.025f;
+                if (NkFabs(v) > 0.12f) mPhase.x += v * 0.025f;
                 return true;
             case NkGamepadAxis::NK_GP_AXIS_LY:
-                if (std::fabs(v) > 0.12f) mPhase.y += v * 0.025f;
+                if (NkFabs(v) > 0.12f) mPhase.y += v * 0.025f;
                 return true;
             case NkGamepadAxis::NK_GP_AXIS_RT:
                 mSaturation = 1.f + v * 0.8f;
@@ -312,13 +309,13 @@ static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
         float fy = y / (float)h - 0.5f;
         for (NkU32 x = 0; x < w; x += blk) {
             float fx  = x / (float)w - 0.5f;
-            float rd  = std::sqrt(fx*fx + fy*fy);
-            float mix = (std::sin((fx+phase.x)*13.5f+t*1.7f)
-                        +std::sin((fy+phase.y)*11.f -t*1.3f)
-                        +std::sin(rd*24.f         -t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255.f);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255.f);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255.f);
+            float rd  = NkSqrt(fx*fx + fy*fy);
+            float mix = (NkSin((fx+phase.x)*13.5f+t*1.7f)
+                        +NkSin((fy+phase.y)*11.f -t*1.3f)
+                        +NkSin(rd*24.f         -t*2.1f)) * 0.333f;
+            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255.f);
+            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255.f);
+            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255.f);
             NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
             for (NkU32 by=0;by<blk&&(y+by)<h;++by)
                 for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
@@ -365,7 +362,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // Signature attendue : void(const NkGamepadInfo&, bool)
     NkGamepads().SetConnectCallback(
         [](const NkGamepadInfo& info, bool connected) {
-            std::printf("[Gamepad] %s #%u (%s)\n",
+            logger.Info("[Gamepad] {0} #{1} ({2})",
                 connected ? "Connected" : "Disconnected",
                 info.index, info.name);
         });
@@ -377,7 +374,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     while (!layer.ShouldClose() && window.IsOpen())
     {
-        chrono.Reset();
+        NkElapsedTime e = chrono.Reset();
 
         // --- Dispatch typé
         while (NkEvent* ev = es.PollEvent())
@@ -412,6 +409,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     }
 
     renderer.Shutdown();
+    window.Close();
     NkClose();
     return 0;
 }
+

@@ -5,12 +5,12 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkRegistry.h"
+#include "NKReflection/NkRegistry.h"
 
 namespace nkentseu {
-    namespace core {
+    
         // TODO: Ajouter les implémentations ici
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

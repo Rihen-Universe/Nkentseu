@@ -8,16 +8,15 @@
 #include "NkStringBuilder.h"
 #include "NkStringUtils.h"
 #include "NkStringHash.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
-#include <algorithm>
 
 namespace nkentseu {
-    namespace core {
+    
 
         // ========================================
         // STATIC HELPER FUNCTIONS
@@ -629,7 +628,7 @@ namespace nkentseu {
         }
         
         NkStringBuilder& NkStringBuilder::ReplaceAll(NkStringView oldStr, NkStringView newStr) {
-            if (oldStr.IsEmpty()) return *this;
+            if (oldStr.Empty()) return *this;
             
             SizeType oldLen = oldStr.Length();
             SizeType newLen = newStr.Length();
@@ -687,7 +686,7 @@ namespace nkentseu {
         }
         
         NkStringBuilder& NkStringBuilder::RemoveAll(NkStringView str) {
-            if (str.IsEmpty()) return *this;
+            if (str.Empty()) return *this;
             
             SizeType strLen = str.Length();
             SizeType writePos = 0;
@@ -789,7 +788,7 @@ namespace nkentseu {
             return MAX_CAPACITY;
         }
         
-        bool NkStringBuilder::IsEmpty() const NK_NOEXCEPT {
+        bool NkStringBuilder::Empty() const NK_NOEXCEPT {
             return mLength == 0;
         }
         
@@ -952,7 +951,7 @@ namespace nkentseu {
         }
         
         NkStringBuilder::SizeType NkStringBuilder::Find(NkStringView str, SizeType pos) const NK_NOEXCEPT {
-            if (str.IsEmpty()) return pos;
+            if (str.Empty()) return pos;
             if (pos > mLength) return NkStringView::npos;
             if (str.Length() > mLength - pos) return NkStringView::npos;
             
@@ -978,7 +977,7 @@ namespace nkentseu {
         }
         
         NkStringBuilder::SizeType NkStringBuilder::FindLast(NkStringView str, SizeType pos) const NK_NOEXCEPT {
-            if (str.IsEmpty()) return (pos < mLength) ? pos : mLength;
+            if (str.Empty()) return (pos < mLength) ? pos : mLength;
             if (str.Length() > mLength) return NkStringView::npos;
             
             SizeType searchPos = (pos == NkStringView::npos || pos >= mLength - str.Length()) 
@@ -1225,7 +1224,6 @@ namespace nkentseu {
         // ========================================
         
         void NkStringBuilder::Swap(NkStringBuilder& other) NK_NOEXCEPT {
-            using ::std::swap;
             (traits::NkSwap)(mAllocator, other.mAllocator);
             (traits::NkSwap)(mBuffer, other.mBuffer);
             (traits::NkSwap)(mLength, other.mLength);
@@ -1266,7 +1264,7 @@ namespace nkentseu {
             return result;
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

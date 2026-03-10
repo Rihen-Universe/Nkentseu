@@ -3,11 +3,11 @@
 
 #include "NKContainers/NkContainers.h"
 
-using namespace nkentseu::core;
+using namespace nkentseu;
 
 TEST_CASE(NKContainersBTree, InsertAndSearch) {
     NkBTree<int> tree(3);
-    ASSERT_TRUE(tree.IsEmpty());
+    ASSERT_TRUE(tree.Empty());
 
     tree.Insert(10);
     tree.Insert(20);

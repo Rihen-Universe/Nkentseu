@@ -6,13 +6,13 @@
 #include "NKCore/NkVariant.h"
 
 TEST_CASE(NKCoreUtility, OptionalVariantInvokeSmoke) {
-    nkentseu::core::NkOptional<int> maybe;
+    nkentseu::NkOptional<int> maybe;
     ASSERT_FALSE(maybe.HasValue());
     maybe.Emplace(42);
     ASSERT_TRUE(maybe.HasValue());
     ASSERT_EQUAL(42, maybe.Value());
 
-    nkentseu::core::NkVariant<int, float> value;
+    nkentseu::NkVariant<int, float> value;
     value.Emplace<int>(7);
     ASSERT_TRUE(value.HoldsAlternative<int>());
     ASSERT_EQUAL(7, value.Get<int>());
@@ -23,10 +23,10 @@ TEST_CASE(NKCoreUtility, OptionalVariantInvokeSmoke) {
     };
 
     Worker worker;
-    const int result = nkentseu::core::NkInvoke(&Worker::Add, worker, 9);
+    const int result = nkentseu::NkInvoke(&Worker::Add, worker, 9);
     ASSERT_EQUAL(12, result);
 
-    int& ref = nkentseu::core::NkInvoke(&Worker::base, worker);
+    int& ref = nkentseu::NkInvoke(&Worker::base, worker);
     ref = 10;
     ASSERT_EQUAL(10, worker.base);
 }

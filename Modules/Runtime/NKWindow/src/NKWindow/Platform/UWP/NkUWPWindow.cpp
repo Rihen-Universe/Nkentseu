@@ -113,11 +113,11 @@ namespace nkentseu {
         return mConfig;
     }
 
-    std::string NkWindow::GetTitle() const {
+    NkString NkWindow::GetTitle() const {
         return mData.mTitle;
     }
 
-    void NkWindow::SetTitle(const std::string& title) {
+    void NkWindow::SetTitle(const NkString& title) {
         mData.mTitle = title;
         mConfig.title = title;
     }

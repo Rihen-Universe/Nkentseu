@@ -14,7 +14,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NkPath.h"
+#include "NKFileSystem/NkPath.h"
 
 namespace nkentseu {
     namespace entseu {
@@ -23,7 +23,7 @@ namespace nkentseu {
          * @brief Directory entry information
          */
         struct NkDirectoryEntry {
-            core::NkString Name;
+            NkString Name;
             NkPath FullPath;
             bool IsDirectory;
             bool IsFile;
@@ -68,41 +68,41 @@ namespace nkentseu {
             static bool Exists(const char* path);
             static bool Exists(const NkPath& path);
             
-            static bool IsEmpty(const char* path);
-            static bool IsEmpty(const NkPath& path);
+            static bool Empty(const char* path);
+            static bool Empty(const NkPath& path);
             
             // Enumeration
-            static core::NkVector<core::NkString> GetFiles(
+            static NkVector<NkString> GetFiles(
                 const char* path,
                 const char* pattern = "*",
                 NkSearchOption option = NkSearchOption::TopDirectoryOnly
             );
             
-            static core::NkVector<core::NkString> GetFiles(
+            static NkVector<NkString> GetFiles(
                 const NkPath& path,
                 const char* pattern = "*",
                 NkSearchOption option = NkSearchOption::TopDirectoryOnly
             );
             
-            static core::NkVector<core::NkString> GetDirectories(
+            static NkVector<NkString> GetDirectories(
                 const char* path,
                 const char* pattern = "*",
                 NkSearchOption option = NkSearchOption::TopDirectoryOnly
             );
             
-            static core::NkVector<core::NkString> GetDirectories(
+            static NkVector<NkString> GetDirectories(
                 const NkPath& path,
                 const char* pattern = "*",
                 NkSearchOption option = NkSearchOption::TopDirectoryOnly
             );
             
-            static core::NkVector<NkDirectoryEntry> GetEntries(
+            static NkVector<NkDirectoryEntry> GetEntries(
                 const char* path,
                 const char* pattern = "*",
                 NkSearchOption option = NkSearchOption::TopDirectoryOnly
             );
             
-            static core::NkVector<NkDirectoryEntry> GetEntries(
+            static NkVector<NkDirectoryEntry> GetEntries(
                 const NkPath& path,
                 const char* pattern = "*",
                 NkSearchOption option = NkSearchOption::TopDirectoryOnly
@@ -140,17 +140,17 @@ namespace nkentseu {
             static void GetFilesRecursive(
                 const char* path,
                 const char* pattern,
-                core::NkVector<core::NkString>& results
+                NkVector<NkString>& results
             );
             static void GetDirectoriesRecursive(
                 const char* path,
                 const char* pattern,
-                core::NkVector<core::NkString>& results
+                NkVector<NkString>& results
             );
             static void GetEntriesRecursive(
                 const char* path,
                 const char* pattern,
-                core::NkVector<NkDirectoryEntry>& results
+                NkVector<NkDirectoryEntry>& results
             );
         };
         

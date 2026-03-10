@@ -9,11 +9,13 @@
 
 #include "NKLogger/NkLoggerExport.h"
 #include "NKLogger/NkLogger.h"
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <mutex>
-#include <vector>
+#include "NKLogger/NkSync.h"
+
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/Heterogeneous/NkPair.h"
+#include "NKMemory/NkSharedPtr.h"
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -55,35 +57,35 @@ namespace nkentseu {
 			 * @param logger NkLogger à enregistrer
 			 * @return true si enregistré, false si nom déjà existant
 			 */
-			bool Register(std::shared_ptr<NkLogger> logger);
+			bool Register(memory::NkSharedPtr<NkLogger> logger);
 
 			/**
 			 * @brief Désenregistre un logger du registre
 			 * @param name Nom du logger à désenregistrer
 			 * @return true si désenregistré, false si non trouvé
 			 */
-			bool Unregister(const std::string &name);
+			bool Unregister(const NkString &name);
 
 			/**
 			 * @brief Obtient un logger par son nom
 			 * @param name Nom du logger
 			 * @return Pointeur vers le logger, nullptr si non trouvé
 			 */
-			std::shared_ptr<NkLogger> Get(const std::string &name);
+			memory::NkSharedPtr<NkLogger> Get(const NkString &name);
 
 			/**
 			 * @brief Obtient un logger par son nom (crée si non existant)
 			 * @param name Nom du logger
 			 * @return Pointeur vers le logger (existant ou nouvellement créé)
 			 */
-			std::shared_ptr<NkLogger> GetOrCreate(const std::string &name);
+			memory::NkSharedPtr<NkLogger> GetOrCreate(const NkString &name);
 
 			/**
 			 * @brief Vérifie si un logger existe
 			 * @param name Nom du logger
 			 * @return true si existe, false sinon
 			 */
-			bool Exists(const std::string &name) const;
+			bool Exists(const NkString &name) const;
 
 			/**
 			 * @brief Supprime tous les loggers du registre
@@ -94,13 +96,13 @@ namespace nkentseu {
 			 * @brief Obtient la liste de tous les noms de loggers
 			 * @return Vecteur des noms de loggers
 			 */
-			std::vector<std::string> GetLoggerNames() const;
+			NkVector<NkString> GetLoggerNames() const;
 
 			/**
 			 * @brief Obtient le nombre de loggers enregistrés
 			 * @return Nombre de loggers
 			 */
-			core::usize GetLoggerCount() const;
+			usize GetLoggerCount() const;
 
 			// ---------------------------------------------------------------------
 			// CONFIGURATION GLOBALE
@@ -122,13 +124,13 @@ namespace nkentseu {
 			 * @brief Définit le pattern global
 			 * @param pattern Pattern de formatage global
 			 */
-			void SetGlobalPattern(const std::string &pattern);
+			void SetGlobalPattern(const NkString &pattern);
 
 			/**
 			 * @brief Obtient le pattern global
 			 * @return Pattern de formatage global
 			 */
-			std::string GetGlobalPattern() const;
+			NkString GetGlobalPattern() const;
 
 			/**
 			 * @brief Force le flush de tous les loggers
@@ -139,19 +141,19 @@ namespace nkentseu {
 			 * @brief Définit le logger par défaut
 			 * @param logger NkLogger par défaut
 			 */
-			void SetDefaultLogger(std::shared_ptr<NkLogger> logger);
+			void SetDefaultLogger(memory::NkSharedPtr<NkLogger> logger);
 
 			/**
 			 * @brief Obtient le logger par défaut
 			 * @return Pointeur vers le logger par défaut
 			 */
-			std::shared_ptr<NkLogger> GetDefaultLogger();
+			memory::NkSharedPtr<NkLogger> GetDefaultLogger();
 
 			/**
 			 * @brief Crée un logger par défaut avec console sink
 			 * @return Pointeur vers le nouveau logger par défaut
 			 */
-			std::shared_ptr<NkLogger> CreateDefaultLogger();
+			memory::NkSharedPtr<NkLogger> CreateDefaultLogger();
 
 		private:
 			// ---------------------------------------------------------------------
@@ -183,19 +185,19 @@ namespace nkentseu {
 			// ---------------------------------------------------------------------
 
 			/// Map des loggers par nom
-			std::unordered_map<std::string, std::shared_ptr<NkLogger>> m_Loggers;
+			NkVector<NkPair<NkString, memory::NkSharedPtr<NkLogger>>> m_Loggers;
 
 			/// NkLogger par défaut
-			std::shared_ptr<NkLogger> m_DefaultLogger;
+			memory::NkSharedPtr<NkLogger> m_DefaultLogger;
 
 			/// Niveau de log global
 			NkLogLevel m_GlobalLevel;
 
 			/// Pattern global
-			std::string m_GlobalPattern;
+			NkString m_GlobalPattern;
 
 			/// Mutex pour la synchronisation thread-safe
-			mutable std::mutex m_Mutex;
+			mutable logger_sync::NkMutex m_Mutex;
 
 			/// Indicateur d'initialisation
 			bool m_Initialized;
@@ -210,20 +212,20 @@ namespace nkentseu {
 	 * @param name Nom du logger
 	 * @return Pointeur vers le logger
 	 */
-	NKLOGGER_API std::shared_ptr<NkLogger> GetLogger(const std::string &name);
+	NKLOGGER_API memory::NkSharedPtr<NkLogger> GetLogger(const NkString &name);
 
 	/**
 	 * @brief Obtient le logger par défaut
 	 * @return Pointeur vers le logger par défaut
 	 */
-	NKLOGGER_API std::shared_ptr<NkLogger> GetDefaultLogger();
+	NKLOGGER_API memory::NkSharedPtr<NkLogger> GetDefaultLogger();
 
 	/**
 	 * @brief Crée un logger avec un nom spécifique
 	 * @param name Nom du logger
 	 * @return Nouveau logger
 	 */
-	NKLOGGER_API std::shared_ptr<NkLogger> CreateLogger(const std::string &name);
+	NKLOGGER_API memory::NkSharedPtr<NkLogger> CreateLogger(const NkString &name);
 
 	/**
 	 * @brief Supprime tous les loggers
@@ -234,6 +236,6 @@ namespace nkentseu {
 	 * @brief Supprime un logger spécifique
 	 * @param name Nom du logger à supprimer
 	 */
-	NKLOGGER_API void Drop(const std::string &name);
+	NKLOGGER_API void Drop(const NkString &name);
 
 } // namespace nkentseu

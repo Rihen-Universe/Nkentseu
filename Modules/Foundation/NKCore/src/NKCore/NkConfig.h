@@ -12,7 +12,7 @@
 #define NKENTSEU_CORE_NKCORE_SRC_NKCORE_NKCONFIG_H_INCLUDED
 
 #include "NkPlatform.h"
-#include "NkCompilerDetect.h"
+#include "NKPlatform/NkCompilerDetect.h"
 #include "NkVersion.h"
 #include "NkCGXDetect.h"
 #include "NkMacros.h"

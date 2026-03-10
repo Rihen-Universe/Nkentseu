@@ -35,7 +35,7 @@
 `noexcept`
 
 ```cpp
-template<typename T> inline T* NkFromHandle(core::NkHandle handle) noexcept
+template<typename T> inline T* NkFromHandle(NkHandle handle) noexcept
 ```
 
 **Convertit un handle en pointeur**
@@ -48,7 +48,7 @@ template<typename T> inline T* NkFromHandle(core::NkHandle handle) noexcept
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `handle` | `core::NkHandle` | [in] Handle à convertir |
+| `handle` | `NkHandle` | [in] Handle à convertir |
 
 **Retour:** Pointeur correspondant
 
@@ -259,7 +259,7 @@ template<typename T> NkHandle NkToHandle(T* ptr) noexcept
 #### 🔣 `NkContainerOf`
 
 ```cpp
-#define NkContainerOf ((type *)((nkentseu::core::nk_uint8 *)(ptr) - NkOffsetOf(type, member)))
+#define NkContainerOf ((type *)((nkentseu::nk_uint8 *)(ptr) - NkOffsetOf(type, member)))
 ```
 
 **Calcule le pointeur de conteneur à partir d'un membre**
@@ -293,7 +293,7 @@ template<typename T> NkHandle NkToHandle(T* ptr) noexcept
 #### 🔣 `NkOffsetOf`
 
 ```cpp
-#define NkOffsetOf ((nkentseu::core::nk_usize) &((type *)NKENTSEU_NULL)->member)
+#define NkOffsetOf ((nkentseu::nk_usize) &((type *)NKENTSEU_NULL)->member)
 ```
 
 **Calcule l'offset d'un membre dans une structure**

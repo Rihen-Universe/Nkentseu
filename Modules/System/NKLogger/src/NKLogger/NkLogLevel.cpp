@@ -7,12 +7,31 @@
 
 #include "NKLogger/NkLogLevel.h"
 #include <cstring>
-#include <cctype> // Pour std::tolower
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
 // -----------------------------------------------------------------------------
 namespace nkentseu {
+
+	namespace {
+		inline char NkAsciiToLower(char c) {
+			return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+		}
+
+		inline bool NkEqualsIgnoreCase(const char* lhs, const char* rhs) {
+			if (!lhs || !rhs) {
+				return false;
+			}
+			while (*lhs && *rhs) {
+				if (NkAsciiToLower(*lhs) != NkAsciiToLower(*rhs)) {
+					return false;
+				}
+				++lhs;
+				++rhs;
+			}
+			return (*lhs == '\0' && *rhs == '\0');
+		}
+	} // namespace
 
 	// -------------------------------------------------------------------------
 	// FONCTIONS UTILITAIRES POUR NkLogLevel
@@ -77,25 +96,21 @@ namespace nkentseu {
 		if (!str)
 			return NkLogLevel::NK_INFO;
 
-		std::string levelStr(str);
-		for (auto &c : levelStr)
-			c = std::tolower(c);
-
-		if (levelStr == "trace")
+		if (NkEqualsIgnoreCase(str, "trace"))
 			return NkLogLevel::NK_TRACE;
-		if (levelStr == "debug")
+		if (NkEqualsIgnoreCase(str, "debug"))
 			return NkLogLevel::NK_DEBUG;
-		if (levelStr == "info")
+		if (NkEqualsIgnoreCase(str, "info"))
 			return NkLogLevel::NK_INFO;
-		if (levelStr == "warn" || levelStr == "warning")
+		if (NkEqualsIgnoreCase(str, "warn") || NkEqualsIgnoreCase(str, "warning"))
 			return NkLogLevel::NK_WARN;
-		if (levelStr == "error")
+		if (NkEqualsIgnoreCase(str, "error"))
 			return NkLogLevel::NK_ERROR;
-		if (levelStr == "critical")
+		if (NkEqualsIgnoreCase(str, "critical"))
 			return NkLogLevel::NK_CRITICAL;
-		if (levelStr == "fatal")
+		if (NkEqualsIgnoreCase(str, "fatal"))
 			return NkLogLevel::NK_FATAL;
-		if (levelStr == "off")
+		if (NkEqualsIgnoreCase(str, "off"))
 			return NkLogLevel::NK_OFF;
 
 		return NkLogLevel::NK_INFO; // Valeur par défaut

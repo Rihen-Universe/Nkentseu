@@ -12,7 +12,7 @@
 #include "NkUTF32.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace encoding {
 
             // BOM signatures
@@ -69,5 +69,5 @@ namespace nkentseu {
             }
 
         } // namespace encoding
-    } // namespace core
+    
 } // namespace nkentseu

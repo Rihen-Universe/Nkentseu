@@ -26,7 +26,7 @@ NkEntryState *gState = nullptr;
 }
 
 // Stockage global des args pour la durée de vie de l'app
-static std::vector<std::string> g_apple_mobile_args;
+static NkVector<NkString> g_apple_mobile_args;
 
 @interface NkAppDelegate : UIResponder <UIApplicationDelegate>
 @property(nonatomic, strong) UIWindow *window;

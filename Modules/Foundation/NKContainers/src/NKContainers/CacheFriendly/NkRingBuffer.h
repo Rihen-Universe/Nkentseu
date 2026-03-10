@@ -16,12 +16,12 @@
 #include "NKCore/NkExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Ring buffer (circular buffer)
@@ -184,23 +184,23 @@ namespace nkentseu {
             // ========================================
             
             Reference Front() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mData[mTail];
             }
             
             ConstReference Front() const {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mData[mTail];
             }
             
             Reference Back() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 SizeType idx = (mHead + mCapacity - 1) % mCapacity;
                 return mData[idx];
             }
             
             ConstReference Back() const {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 SizeType idx = (mHead + mCapacity - 1) % mCapacity;
                 return mData[idx];
             }
@@ -221,7 +221,7 @@ namespace nkentseu {
             // CAPACITY
             // ========================================
             
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             bool IsFull() const NK_NOEXCEPT { return mSize == mCapacity; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             SizeType Capacity() const NK_NOEXCEPT { return mCapacity; }
@@ -231,7 +231,7 @@ namespace nkentseu {
             // ========================================
             
             void Clear() {
-                while (!IsEmpty()) {
+                while (!Empty()) {
                     Pop();
                 }
             }
@@ -288,7 +288,7 @@ namespace nkentseu {
              * Retourne la valeur retirée
              */
             T Pop() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 T value = mData[mTail];
                 mData[mTail].~T();
                 mTail = NextIndex(mTail);
@@ -300,7 +300,7 @@ namespace nkentseu {
              * @brief Pop sans retourner la valeur (plus rapide)
              */
             void PopDiscard() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 mData[mTail].~T();
                 mTail = NextIndex(mTail);
                 --mSize;
@@ -325,7 +325,7 @@ namespace nkentseu {
             lhs.Swap(rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_CACHEFRIENDLY_NKRINGBUFFER_H_INCLUDED

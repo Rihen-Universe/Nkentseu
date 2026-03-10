@@ -20,10 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <sstream>
-#include <string>
 #include <utility>
-#include <vector>
 
 #include "NKWindow/Events/NkDropEvent.h"
 
@@ -179,7 +176,7 @@ namespace nkentseu {
             XFlush(mDisplay);
         }
 
-        std::string ReadProperty(Atom property) const {
+        NkString ReadProperty(Atom property) const {
             Atom actualType = None;
             int actualFormat = 0;
             unsigned long nItems = 0;
@@ -193,44 +190,50 @@ namespace nkentseu {
                 &actualType, &actualFormat,
                 &nItems, &bytesLeft, &data);
 
-            std::string result;
+            NkString result;
             if (data) {
                 // Xdnd uses 8-bit strings for text/uri-list and text/plain
-                result.assign(reinterpret_cast<char*>(data), nItems);
+                result = NkString(reinterpret_cast<const char*>(data), static_cast<NkString::SizeType>(nItems));
                 XFree(data);
             }
             return result;
         }
 
-        static std::vector<std::string> ParseUriList(const std::string& raw) {
-            std::vector<std::string> paths;
-            std::istringstream ss(raw);
-            std::string line;
-            while (std::getline(ss, line)) {
-                if (line.empty() || line[0] == '#') {
-                    continue;
-                }
-                if (!line.empty() && line.back() == '\r') {
-                    line.pop_back();
-                }
-                if (line.rfind("file://", 0) != 0) {
-                    continue;
-                }
+        static NkVector<NkString> ParseUriList(const NkString& raw) {
+            NkVector<NkString> paths;
+            NkString::SizeType len   = raw.Size();
+            NkString::SizeType start = 0;
+            for (NkString::SizeType i = 0; i <= len; ++i) {
+                bool atEnd     = (i == len);
+                bool atNewline = (!atEnd && raw[i] == '\n');
+                if (!atEnd && !atNewline) continue;
 
-                std::string encoded = line.substr(7);
-                std::string decoded;
-                decoded.reserve(encoded.size());
-                for (std::size_t i = 0; i < encoded.size(); ++i) {
-                    if (encoded[i] == '%' && i + 2 < encoded.size()) {
+                NkString line = raw.SubStr(start, i - start);
+                start = i + 1;
+
+                // Strip trailing '\r'
+                if (!line.Empty() && line.Back() == '\r') line.PopBack();
+
+                // Skip empty lines and comments
+                if (line.Empty() || line[0] == '#') continue;
+
+                // Must start with "file://"
+                if (!line.StartsWith("file://")) continue;
+
+                NkString encoded = line.SubStr(7);
+                NkString decoded;
+                decoded.Reserve(encoded.Size());
+                for (NkString::SizeType j = 0; j < encoded.Size(); ++j) {
+                    if (encoded[j] == '%' && j + 2 < encoded.Size()) {
                         int v = 0;
-                        std::sscanf(encoded.c_str() + i + 1, "%2x", &v);
-                        decoded.push_back(static_cast<char>(v));
-                        i += 2;
+                        std::sscanf(encoded.CStr() + j + 1, "%2x", &v);
+                        decoded.PushBack(static_cast<char>(v));
+                        j += 2;
                     } else {
-                        decoded.push_back(encoded[i]);
+                        decoded.PushBack(encoded[j]);
                     }
                 }
-                paths.push_back(std::move(decoded));
+                paths.PushBack(std::move(decoded));
             }
             return paths;
         }
@@ -318,10 +321,10 @@ namespace nkentseu {
             return;
         }
 
-        const std::string data = ReadProperty(ev.property);
+        const NkString data = ReadProperty(ev.property);
 
         if (ev.target == aUriList) {
-            const std::vector<std::string> paths = ParseUriList(data);
+            const NkVector<NkString> paths = ParseUriList(data);
             if (!paths.empty()) {
                 NkDropFileData drop{};
                 drop.x = mDragX;

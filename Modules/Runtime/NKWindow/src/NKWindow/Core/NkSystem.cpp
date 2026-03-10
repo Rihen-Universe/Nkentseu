@@ -76,25 +76,25 @@ namespace nkentseu {
     }
 
     void NkSystem::UnregisterWindow(NkWindowId id) {
-        auto it = mWindows.find(id);
-        if (it != mWindows.end()) {
-            mWindows.erase(it);
-            // Supprime le callback associÃ© Ã  cette fenÃªtre dans NkEventSystem
+        if (mWindows.Contains(id)) {
+            mWindows.Erase(id);
             mEventSystem.RemoveWindowCallback(id);
         }
     }
 
     NkWindow* NkSystem::GetWindow(NkWindowId id) const {
-        auto it = mWindows.find(id);
-        return (it != mWindows.end()) ? it->second : nullptr;
+        auto* win = mWindows.Find(id);
+        return win ? *win : nullptr;
     }
 
     NkWindow* NkSystem::GetWindowAt(NkU32 index) const {
-        if (index >= mWindows.size()) return nullptr;
-        auto it = mWindows.begin();
-        std::advance(it, index);
-        return it->second;
+        if (index >= mWindows.Size()) return nullptr;
+        NkU32 i = 0;
+        NkWindow* result = nullptr;
+        mWindows.ForEach([&](NkWindowId, NkWindow* win) {
+            if (i++ == index) result = win;
+        });
+        return result;
     }
 
 } // namespace nkentseu
-

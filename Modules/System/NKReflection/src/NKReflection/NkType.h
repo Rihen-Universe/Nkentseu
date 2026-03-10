@@ -18,7 +18,7 @@
 #include <typeinfo>
 
 namespace nkentseu {
-    namespace core {
+    
         namespace reflection {
             
             // Forward declarations
@@ -196,7 +196,7 @@ namespace nkentseu {
             }
             
         } // namespace reflection
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKTYPE_H_INCLUDED

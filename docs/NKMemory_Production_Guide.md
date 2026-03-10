@@ -199,7 +199,7 @@ Pattern recommandé:
 #include "NKCore/NkOptional.h"
 
 using namespace nkentseu::memory;
-using nkentseu::core::NkOptional;
+using nkentseu::NkOptional;
 
 void SmallApp() {
     auto p = NkMakeUnique<int>(12);
@@ -216,8 +216,8 @@ void SmallApp() {
 
 ```cpp
 #include "NKCore/NkOptional.h"
-using nkentseu::core::NkOptional;
-using nkentseu::core::NkNullOpt;
+using nkentseu::NkOptional;
+using nkentseu::NkNullOpt;
 
 NkOptional<int> ParsePort(bool ok) {
     if (!ok) return NkNullOpt;
@@ -230,8 +230,8 @@ NkOptional<int> ParsePort(bool ok) {
 ```cpp
 #include "NKCore/NkVariant.h"
 
-using nkentseu::core::NkVariant;
-using nkentseu::core::NkVisit;
+using nkentseu::NkVariant;
+using nkentseu::NkVisit;
 
 using Msg = NkVariant<int, float>;
 
@@ -252,9 +252,9 @@ struct Worker {
     int Mul(int a, int b) { return a * b; }
 };
 
-int x = nkentseu::core::NkInvoke([](int v) { return v + 1; }, 41);
+int x = nkentseu::NkInvoke([](int v) { return v + 1; }, 41);
 Worker w;
-int y = nkentseu::core::NkInvoke(&Worker::Mul, w, 6, 7);
+int y = nkentseu::NkInvoke(&Worker::Mul, w, 6, 7);
 ```
 
 ## 7. Smart pointers et ownership

@@ -19,10 +19,8 @@ with project("NKPlatform"):
 
     includedirs([
         "src",
-        "src/NKPlatform",
         "pch",
         "%{NKCore.location}/src",
-        "%{NKCore.location}/src/NKCore",
     ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
@@ -62,6 +60,7 @@ with project("NKPlatform"):
         symbols(False)
 
     # Tests unitaires/benchmarks (desktop uniquement)
-    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+

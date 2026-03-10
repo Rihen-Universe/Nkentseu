@@ -14,11 +14,11 @@
 // ---------------------------------------------------------------------------
 
 struct NkAppleMobileArgs {
-	std::string bundleId;
-	std::string version;
-	std::string build;
-	std::string documentsPath;
-	std::vector<std::string> args;
+	NkString bundleId;
+	NkString version;
+	NkString build;
+	NkString documentsPath;
+	NkVector<NkString> args;
 };
 
 static NkAppleMobileArgs g_ios_args;

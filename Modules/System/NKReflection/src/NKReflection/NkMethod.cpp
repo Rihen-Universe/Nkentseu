@@ -5,12 +5,12 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkMethod.h"
+#include "NKReflection/NkMethod.h"
 
 namespace nkentseu {
-    namespace core {
+    
         // TODO: Ajouter les implémentations ici
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

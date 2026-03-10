@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkRecursiveMutex.h"
+#include "NKThreading/NkRecursiveMutex.h"
 
 namespace nkentseu {
     namespace entseu {

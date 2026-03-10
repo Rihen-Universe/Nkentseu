@@ -6,7 +6,7 @@
 // VERSION: 2.0.0
 // ============================================================
 
-#include "NkSpinLock.h"
+#include "NKThreading/NkSpinLock.h"
 
 namespace nkentseu {
 namespace memory {

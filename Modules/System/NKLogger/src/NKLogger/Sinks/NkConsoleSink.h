@@ -8,13 +8,15 @@
 #pragma once
 
 #include "NKLogger/NkSink.h"
-#include <iostream>
-#include <mutex>
+#include "NKLogger/NkSync.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include <cstdio>
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
 // -----------------------------------------------------------------------------
-namespace nkentseu {\
+namespace nkentseu {
 	// -------------------------------------------------------------------------
 	// ÉNUMÉRATION: NkConsoleStream
 	// DESCRIPTION: Flux de console disponibles
@@ -68,12 +70,12 @@ namespace nkentseu {\
 			/**
 			 * @brief Définit le formatter pour ce sink
 			 */
-			void SetFormatter(std::unique_ptr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
 
 			/**
 			 * @brief Définit le pattern de formatage
 			 */
-			void SetPattern(const std::string &pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Obtient le formatter courant
@@ -83,7 +85,7 @@ namespace nkentseu {\
 			/**
 			 * @brief Obtient le pattern courant
 			 */
-			std::string GetPattern() const override;
+			NkString GetPattern() const override;
 
 			// ---------------------------------------------------------------------
 			// CONFIGURATION SPÉCIFIQUE À LA CONSOLE
@@ -133,9 +135,9 @@ namespace nkentseu {\
 			/**
 			 * @brief Obtient le flux de sortie approprié pour un niveau de log
 			 * @param level Niveau de log
-			 * @return Référence au flux ostream approprié
+			 * @return Flux C approprié
 			 */
-			std::ostream &GetStreamForLevel(NkLogLevel level);
+			FILE *GetStreamForLevel(NkLogLevel level);
 
 			/**
 			 * @brief Vérifie si la console supporte les couleurs
@@ -148,13 +150,13 @@ namespace nkentseu {\
 			 * @param level Niveau de log
 			 * @return Code couleur ANSI
 			 */
-			std::string GetColorCode(NkLogLevel level) const;
+			NkString GetColorCode(NkLogLevel level) const;
 
 			/**
 			 * @brief Obtient le code de réinitialisation de couleur
 			 * @return Code de réinitialisation ANSI
 			 */
-			std::string GetResetCode() const;
+			NkString GetResetCode() const;
 
 			/**
 			 * @brief Configure la couleur Windows pour un niveau de log
@@ -172,7 +174,7 @@ namespace nkentseu {\
 			// ---------------------------------------------------------------------
 
 			/// NkFormatter pour ce sink
-			std::unique_ptr<NkFormatter> m_Formatter;
+			memory::NkUniquePtr<NkFormatter> m_Formatter;
 
 			/// Flux de console principal
 			NkConsoleStream m_Stream;
@@ -184,7 +186,7 @@ namespace nkentseu {\
 			bool m_UseStderrForErrors;
 
 			/// Mutex pour la synchronisation thread-safe
-			mutable std::mutex m_Mutex;
+			mutable logger_sync::NkMutex m_Mutex;
 	};
 
 } // namespace nkentseu

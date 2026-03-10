@@ -10,8 +10,10 @@
 #include "NKLogger/NkLoggerExport.h"
 #include "NKLogger/NkLogMessage.h"
 #include "NKLogger/NkFormatter.h"
-#include <memory>
-#include <string>
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKMemory/NkSharedPtr.h"
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -48,13 +50,13 @@ namespace nkentseu {
 			 * @brief Définit le formatter pour ce sink
 			 * @param formatter NkFormatter à utiliser
 			 */
-			virtual void SetFormatter(std::unique_ptr<NkFormatter> formatter) = 0;
+			virtual void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) = 0;
 
 			/**
 			 * @brief Définit le pattern de formatage
 			 * @param pattern Pattern à utiliser
 			 */
-			virtual void SetPattern(const std::string &pattern) = 0;
+			virtual void SetPattern(const NkString &pattern) = 0;
 
 			/**
 			 * @brief Obtient le formatter courant
@@ -66,7 +68,7 @@ namespace nkentseu {
 			 * @brief Obtient le pattern courant
 			 * @return Pattern de formatage
 			 */
-			virtual std::string GetPattern() const = 0;
+			virtual NkString GetPattern() const = 0;
 
 			// ---------------------------------------------------------------------
 			// MÉTHODES VIRTUELLES (OPTIONNELLES)
@@ -117,7 +119,7 @@ namespace nkentseu {
 			 * @brief Obtient le nom du sink
 			 * @return Nom du sink
 			 */
-			virtual std::string GetName() const {
+			virtual NkString GetName() const {
 				return m_Name;
 			}
 
@@ -125,7 +127,7 @@ namespace nkentseu {
 			 * @brief Définit le nom du sink
 			 * @param name Nom du sink
 			 */
-			virtual void SetName(const std::string &name) {
+			virtual void SetName(const NkString &name) {
 				m_Name = name;
 			}
 
@@ -137,7 +139,7 @@ namespace nkentseu {
 			bool m_Enabled = true;
 
 			/// Nom du sink
-			std::string m_Name;
+			NkString m_Name;
 	};
 
 	// -------------------------------------------------------------------------
@@ -145,9 +147,9 @@ namespace nkentseu {
 	// -------------------------------------------------------------------------
 
 	/// Type pour les pointeurs partagés de sinks
-	using NkSinkPtr = std::shared_ptr<NkISink>;
+	using NkSinkPtr = memory::NkSharedPtr<NkISink>;
 
 	/// Type pour les pointeurs uniques de sinks
-	using NkSinkUniquePtr = std::unique_ptr<NkISink>;
+	using NkSinkUniquePtr = memory::NkUniquePtr<NkISink>;
 
 } // namespace nkentseu

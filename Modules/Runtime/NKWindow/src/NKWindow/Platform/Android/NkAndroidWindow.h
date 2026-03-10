@@ -12,6 +12,7 @@
 
 #include <android/native_window.h>
 #include <vector>
+#include "NKContainers/Sequential/NkVector.h"
 
 struct AConfiguration;
 struct android_app;
@@ -37,7 +38,7 @@ namespace nkentseu {
 
     class NkWindow;
     NkWindow*              NkAndroidFindWindowById(NkWindowId id);
-    std::vector<NkWindow*> NkAndroidGetWindowsSnapshot();
+    NkVector<NkWindow*> NkAndroidGetWindowsSnapshot();
     NkWindow*              NkAndroidGetLastWindow();
     void                   NkAndroidRegisterWindow(NkWindow* window);
     void                   NkAndroidUnregisterWindow(NkWindow* window);

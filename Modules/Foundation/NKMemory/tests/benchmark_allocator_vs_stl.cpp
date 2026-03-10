@@ -2,7 +2,8 @@
 #include <Unitest/TestMacro.h>
 
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
+#include "NKPlatform/NkFoundationLog.h"
 
 #include <chrono>
 #include <new>
@@ -64,7 +65,7 @@ TEST_CASE(NKMemoryBenchmark, MallocAllocatorVsOperatorNewDelete) {
     ASSERT_TRUE(nkTimeNs > 0.0);
     ASSERT_TRUE(stlTimeNs > 0.0);
 
-    printf("\n[NKMemory Benchmark] NkMallocAllocator vs operator new/delete\n");
-    printf("  NkMallocAllocator  : %.2f ns total\n", nkTimeNs);
-    printf("  operator new/delete: %.2f ns total\n", stlTimeNs);
+    NK_FOUNDATION_LOG_INFO("[NKMemory Benchmark] NkMallocAllocator vs operator new/delete");
+    NK_FOUNDATION_LOG_INFO("  NkMallocAllocator  : %.2f ns total", nkTimeNs);
+    NK_FOUNDATION_LOG_INFO("  operator new/delete: %.2f ns total", stlTimeNs);
 }

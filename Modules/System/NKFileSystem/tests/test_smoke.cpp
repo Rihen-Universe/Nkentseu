@@ -7,9 +7,9 @@
 #include "NKFileSystem/NkFileSystem.h"
 
 #include <cstdio>
-#include <string>
 
 using namespace nkentseu::entseu;
+using nkentseu::NkString;
 
 TEST_CASE(NKFileSystemSmoke, PathHelpers) {
     NkPath p("root");
@@ -17,22 +17,22 @@ TEST_CASE(NKFileSystemSmoke, PathHelpers) {
 
     ASSERT_TRUE(p.HasExtension());
     ASSERT_TRUE(p.HasFileName());
-    ASSERT_TRUE(std::string(p.GetExtension().CStr()) == ".txt");
+    ASSERT_TRUE(p.GetExtension() == ".txt");
 }
 
 TEST_CASE(NKFileSystemSmoke, FileAndDirectoryOps) {
-    const std::string base = std::string("nk_fs_test_dir");
-    const std::string filePath = base + "/sample.txt";
+    const NkString base("nk_fs_test_dir");
+    const NkString filePath = base + "/sample.txt";
 
-    NkDirectory::CreateRecursive(base.c_str());
-    ASSERT_TRUE(NkDirectory::Exists(base.c_str()));
+    NkDirectory::CreateRecursive(base.CStr());
+    ASSERT_TRUE(NkDirectory::Exists(base.CStr()));
 
-    ASSERT_TRUE(NkFile::WriteAllText(filePath.c_str(), "hello-fs"));
-    ASSERT_TRUE(NkFile::Exists(filePath.c_str()));
+    ASSERT_TRUE(NkFile::WriteAllText(filePath.CStr(), "hello-fs"));
+    ASSERT_TRUE(NkFile::Exists(filePath.CStr()));
 
-    const auto text = NkFile::ReadAllText(filePath.c_str());
-    ASSERT_TRUE(std::string(text.CStr()) == "hello-fs");
+    const auto text = NkFile::ReadAllText(filePath.CStr());
+    ASSERT_TRUE(text == "hello-fs");
 
-    ASSERT_TRUE(NkFile::Delete(filePath.c_str()));
-    ASSERT_TRUE(NkDirectory::Delete(base.c_str(), false));
+    ASSERT_TRUE(NkFile::Delete(filePath.CStr()));
+    ASSERT_TRUE(NkDirectory::Delete(base.CStr(), false));
 }

@@ -15,6 +15,8 @@
 // =============================================================================
 
 #include "NKCamera/INkCameraBackend.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKCore/NkAtomic.h"
 
 #include <camera/NdkCameraManager.h>
 #include <camera/NdkCameraDevice.h>
@@ -30,7 +32,6 @@
 #include <jni.h>
 #include <thread>
 #include <mutex>
-#include <atomic>
 #include <condition_variable>
 #include <chrono>
 #include <string>
@@ -77,9 +78,9 @@ public:
     // -----------------------------------------------------------------------
     // Énumération
     // -----------------------------------------------------------------------
-    std::vector<NkCameraDevice> EnumerateDevices() override
+    NkVector<NkCameraDevice> EnumerateDevices() override
     {
-        std::vector<NkCameraDevice> result;
+        NkVector<NkCameraDevice> result;
         if (!mCameraManager) return result;
 
         ACameraIdList* idList = nullptr;
@@ -95,7 +96,7 @@ public:
             NkCameraDevice dev;
             dev.index = static_cast<NkU32>(i);
             dev.id    = id;
-            dev.name  = std::string("Camera ") + id;
+            dev.name  = NkString("Camera ") + id;
 
             // Facing
             ACameraMetadata_const_entry facing{};
@@ -126,11 +127,11 @@ public:
                 mode.fps    = 30;
                 mode.format = NkPixelFormat::NK_PIXEL_YUV420;
                 if (mode.width > 0 && mode.height > 0)
-                    dev.modes.push_back(mode);
+                    dev.modes.PushBack(mode);
             }
 
             ACameraMetadata_free(meta);
-            result.push_back(std::move(dev));
+            result.PushBack(std::move(dev));
         }
         ACameraManager_deleteCameraIdList(idList);
         return result;
@@ -166,14 +167,14 @@ public:
         }
 
         auto devices = EnumerateDevices();
-        if (devices.empty())
+        if (devices.Empty())
         {
             mLastError =
                 "No Camera2 YUV device exposed by platform. "
                 "Some emulators (including MEmu variants) do not expose Camera2 for NDK.";
             return false;
         }
-        if (config.deviceIndex >= devices.size())
+        if (config.deviceIndex >= devices.Size())
         {
             mLastError = "Device index out of range";
             return false;
@@ -185,7 +186,7 @@ public:
         mHeight   = config.height;
         mFPS      = config.fps;
 
-        if (!dev.modes.empty())
+        if (!dev.modes.Empty())
         {
             bool exact = false;
             for (const auto& mode : dev.modes)
@@ -198,7 +199,7 @@ public:
             }
             if (!exact)
             {
-                const auto& first = dev.modes.front();
+                const auto& first = dev.modes[0];
                 mWidth = first.width;
                 mHeight = first.height;
             }
@@ -210,10 +211,10 @@ public:
         mDeviceCallbacks.onDisconnected = OnDeviceDisconnected;
 
         camera_status_t status = ACameraManager_openCamera(
-            mCameraManager, mCameraId.c_str(), &mDeviceCallbacks, &mCameraDevice);
+            mCameraManager, mCameraId.CStr(), &mDeviceCallbacks, &mCameraDevice);
         if (status != ACAMERA_OK)
         {
-            mLastError = std::string("ACameraManager_openCamera failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACameraManager_openCamera failed: ") + CameraStatusToString(status);
             return false;
         }
 
@@ -226,7 +227,7 @@ public:
         );
         if (mstatus != AMEDIA_OK || !mImageReader)
         {
-            mLastError = "AImageReader_new failed: " + std::to_string(static_cast<int>(mstatus));
+            mLastError = "AImageReader_new failed: " + NkString::Fmtf("%d", static_cast<int>(mstatus));
             StopStreaming();
             return false;
         }
@@ -237,7 +238,7 @@ public:
         mstatus = AImageReader_setImageListener(mImageReader, &listener);
         if (mstatus != AMEDIA_OK)
         {
-            mLastError = "AImageReader_setImageListener failed: " + std::to_string(static_cast<int>(mstatus));
+            mLastError = "AImageReader_setImageListener failed: " + NkString::Fmtf("%d", static_cast<int>(mstatus));
             StopStreaming();
             return false;
         }
@@ -247,7 +248,7 @@ public:
         mstatus = AImageReader_getWindow(mImageReader, &window);
         if (mstatus != AMEDIA_OK || !window)
         {
-            mLastError = "AImageReader_getWindow failed: " + std::to_string(static_cast<int>(mstatus));
+            mLastError = "AImageReader_getWindow failed: " + NkString::Fmtf("%d", static_cast<int>(mstatus));
             StopStreaming();
             return false;
         }
@@ -256,7 +257,7 @@ public:
         status = ACameraDevice_createCaptureRequest(mCameraDevice, TEMPLATE_PREVIEW, &mCaptureRequest);
         if (status != ACAMERA_OK || !mCaptureRequest)
         {
-            mLastError = std::string("ACameraDevice_createCaptureRequest failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACameraDevice_createCaptureRequest failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
@@ -265,14 +266,14 @@ public:
         status = ACameraOutputTarget_create(window, &mOutputTarget);
         if (status != ACAMERA_OK || !mOutputTarget)
         {
-            mLastError = std::string("ACameraOutputTarget_create failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACameraOutputTarget_create failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
         status = ACaptureRequest_addTarget(mCaptureRequest, mOutputTarget);
         if (status != ACAMERA_OK)
         {
-            mLastError = std::string("ACaptureRequest_addTarget failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACaptureRequest_addTarget failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
@@ -282,7 +283,7 @@ public:
         status = ACaptureSessionOutputContainer_create(&mSessionOutputContainer);
         if (status != ACAMERA_OK || !mSessionOutputContainer)
         {
-            mLastError = std::string("ACaptureSessionOutputContainer_create failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACaptureSessionOutputContainer_create failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
@@ -290,7 +291,7 @@ public:
         status = ACaptureSessionOutput_create(window, &mSessionOutput);
         if (status != ACAMERA_OK || !mSessionOutput)
         {
-            mLastError = std::string("ACaptureSessionOutput_create failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACaptureSessionOutput_create failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
@@ -298,7 +299,7 @@ public:
         status = ACaptureSessionOutputContainer_add(mSessionOutputContainer, mSessionOutput);
         if (status != ACAMERA_OK)
         {
-            mLastError = std::string("ACaptureSessionOutputContainer_add failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACaptureSessionOutputContainer_add failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
@@ -316,7 +317,7 @@ public:
         );
         if (status != ACAMERA_OK || !mCaptureSession)
         {
-            mLastError = std::string("ACameraDevice_createCaptureSession failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACameraDevice_createCaptureSession failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
@@ -330,7 +331,7 @@ public:
         );
         if (status != ACAMERA_OK)
         {
-            mLastError = std::string("ACameraCaptureSession_setRepeatingRequest failed: ") + CameraStatusToString(status);
+            mLastError = NkString("ACameraCaptureSession_setRepeatingRequest failed: ") + CameraStatusToString(status);
             StopStreaming();
             return false;
         }
@@ -394,11 +395,17 @@ public:
         return true;
     }
 
-    bool CapturePhotoToFile(const std::string& path) override
+    bool CapturePhotoToFile(const NkString& path) override
     {
         NkPhotoCaptureResult res;
         if (!CapturePhoto(res)) return false;
-        return NkCameraSystem::SaveFrameToFile(res.frame, path);
+        // Inline save: write raw frame data to file
+        if (res.frame.data.Empty()) return false;
+        FILE* f = fopen(path.CStr(), "wb");
+        if (!f) return false;
+        fwrite(res.frame.data.Data(), 1, res.frame.data.Size(), f);
+        fclose(f);
+        return true;
     }
 
     // -----------------------------------------------------------------------
@@ -419,7 +426,7 @@ public:
         mRecording       = true;
         mRecordStart     = std::chrono::steady_clock::now();
         mState           = NkCameraState::NK_CAM_STATE_RECORDING;
-        NKCAM_LOGI("Video record started: %s", config.outputPath.c_str());
+        NKCAM_LOGI("Video record started: %s", config.outputPath.CStr());
         return true;
     }
 
@@ -481,7 +488,7 @@ public:
     NkU32         GetHeight()    const override { return mHeight; }
     NkU32         GetFPS()       const override { return mFPS;    }
     NkPixelFormat GetFormat()    const override { return NkPixelFormat::NK_PIXEL_YUV420; }
-    std::string   GetLastError() const override { return mLastError; }
+    NkString   GetLastError() const override { return mLastError; }
 
 private:
     static const char* CameraStatusToString(camera_status_t status)
@@ -600,7 +607,7 @@ private:
     ASensorEventQueue* mGyroQueue  = nullptr;
     ALooper*          mSensorLooper   = nullptr;
     std::thread       mSensorThread;
-    std::atomic<bool> mSensorRunning{false};
+    NkAtomicBool mSensorRunning{false};
     mutable std::mutex       mSensorMutex;
     NkCameraOrientation      mLastOrientation{};
     bool                     mSensorReady = false;
@@ -640,10 +647,10 @@ private:
         frame.timestampUs = static_cast<NkU64>(ts / 1000);
         frame.frameIndex  = self->mFrameIdx++;
         // Copier Y + UV
-        frame.data.resize(yLen + uLen + vLen);
-        if (yPlane) memcpy(frame.data.data(),            yPlane, yLen);
-        if (uPlane) memcpy(frame.data.data() + yLen,     uPlane, uLen);
-        if (vPlane) memcpy(frame.data.data() + yLen+uLen,vPlane, vLen);
+        frame.data.Resize(static_cast<usize>(yLen + uLen + vLen));
+        if (yPlane) memcpy(frame.data.Data(),            yPlane, yLen);
+        if (uPlane) memcpy(frame.data.Data() + yLen,     uPlane, uLen);
+        if (vPlane) memcpy(frame.data.Data() + yLen+uLen,vPlane, vLen);
 
         AImage_delete(image);
 
@@ -659,7 +666,7 @@ private:
     static void OnDeviceError(void* ctx, ACameraDevice* dev, int error)
     {
         auto* self = static_cast<NkAndroidCameraBackend*>(ctx);
-        self->mLastError = "Camera device error: " + std::to_string(error);
+        self->mLastError = "Camera device error: " + NkString::Fmtf("%d", error);
         self->mState = NkCameraState::NK_CAM_STATE_ERROR;
         NKCAM_LOGE("Device error: %d", error);
     }
@@ -678,6 +685,7 @@ private:
     // GetOrientation — ASensorManager (accéléromètre + gyroscope NDK)
     // Requiert: <android/sensor.h> + linker -landroid
     // ------------------------------------------------------------------
+public:
     bool GetOrientation(NkCameraOrientation& out) override
     {
         if (!mSensorLooper) return false;
@@ -688,6 +696,7 @@ private:
         return true;
     }
 
+private:
     // Appeler depuis un thread dédié avec un Looper
     void InitSensors()
     {
@@ -741,11 +750,11 @@ private:
     ACameraDevice_StateCallbacks  mDeviceCallbacks{};
     ACameraCaptureSession_stateCallbacks mSessionCallbacks{};
 
-    std::string   mCameraId;
+    NkString   mCameraId;
     NkCameraState mState     = NkCameraState::NK_CAM_STATE_CLOSED;
     NkU32         mWidth     = 0, mHeight = 0, mFPS = 30;
     NkU32         mFrameIdx  = 0;
-    std::string   mLastError;
+    NkString   mLastError;
 
     std::mutex              mMutex;
     std::condition_variable mPhotoCv;
@@ -757,7 +766,7 @@ private:
 
     // Vidéo
     bool          mRecording = false;
-    std::string   mVideoRecordPath;
+    NkString   mVideoRecordPath;
     std::chrono::steady_clock::time_point mRecordStart;
     bool          mRequestedPermissionPrompt = false;
 

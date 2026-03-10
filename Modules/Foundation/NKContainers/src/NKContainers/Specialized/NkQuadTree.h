@@ -19,7 +19,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief QuadTree for 2D spatial partitioning
@@ -194,9 +194,9 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkQuadTree(float x, float y, float width, float height)
+            NkQuadTree(float x, float y, float width, float height, Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 mRoot = CreateNode(Bounds(x, y, width, height));
             }
             
@@ -205,7 +205,7 @@ namespace nkentseu {
             }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             // Modifiers
@@ -242,7 +242,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_SPECIALIZED_NKQUADTREE_H_INCLUDED

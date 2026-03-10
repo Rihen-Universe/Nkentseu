@@ -15,14 +15,14 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 #include "NkVectorError.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Dynamic array - Le conteneur le plus utilisé
@@ -93,7 +93,6 @@ namespace nkentseu {
             }
             
             void MoveOrCopyRange(T* dest, T* src, SizeType count) {
-                #if defined(NK_CPP11)
                 if (__is_trivial(T)) {
                     memory::NkCopy(dest, src, count * sizeof(T));
                 } else {
@@ -101,15 +100,6 @@ namespace nkentseu {
                         ConstructAt(dest + i, traits::NkMove(src[i]));
                     }
                 }
-                #else
-                if (__is_pod(T)) {
-                    memory::NkCopy(dest, src, count * sizeof(T));
-                } else {
-                    for (SizeType i = 0; i < count; ++i) {
-                        ConstructAt(dest + i, src[i]);
-                    }
-                }
-                #endif
             }
             
             void Reallocate(SizeType newCapacity) {
@@ -123,7 +113,7 @@ namespace nkentseu {
                     return;
                 }
                 
-                T* newData = static_cast<T*>(mAllocator->Allocate(newCapacity * sizeof(T)));
+                T* newData = static_cast<T*>(mAllocator->Allocate(newCapacity * sizeof(T), alignof(T)));
                 if (!newData) {
                     NK_VECTOR_THROW_BAD_ALLOC(newCapacity);
                     return;
@@ -158,7 +148,17 @@ namespace nkentseu {
                 , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
             }
             
-            explicit NkVector(SizeType count, const T& value = T())
+            // Default-construct N elements (works for move-only types)
+            explicit NkVector(SizeType count)
+                : mData(nullptr)
+                , mSize(0)
+                , mCapacity(0)
+                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                Resize(count);
+            }
+
+            // Fill-construct N copies of value
+            NkVector(SizeType count, const T& value)
                 : mData(nullptr)
                 , mSize(0)
                 , mCapacity(0)
@@ -166,17 +166,38 @@ namespace nkentseu {
                 Resize(count, value);
             }
             
+            // NkVector(NkInitializerList<T> init)
+            //     : mData(nullptr)
+            //     , mSize(0)
+            //     , mCapacity(0)
+            //     , mAllocator(&memory::NkGetDefaultAllocator()) {
+            //     Reserve(init.Size());
+            //     nkforeach (init, auto&, val) {
+            //         PushBack(val);
+            //     }
+            // }
+
             NkVector(NkInitializerList<T> init)
                 : mData(nullptr)
                 , mSize(0)
                 , mCapacity(0)
                 , mAllocator(&memory::NkGetDefaultAllocator()) {
                 Reserve(init.Size());
-                for (auto& val : init) {
-                    PushBack(val);
+                for (auto it = init.Begin(); it != init.End(); ++it) {
+                    PushBack(*it);
                 }
             }
-            
+
+#if defined(NK_HAS_STD_INITIALIZER_LIST)
+            NkVector(std::initializer_list<T> il)
+                : NkVector(NkInitializerList<T>(il)) {
+            }
+#endif
+            NkVector(const T& value) {
+                Reserve(1);
+                PushBack(value);
+            }
+
             NkVector(const NkVector& other)
                 : mData(nullptr)
                 , mSize(0)
@@ -210,6 +231,40 @@ namespace nkentseu {
             // ========================================
             // ASSIGNMENT
             // ========================================
+
+            void Assign(const T& value, SizeType count) {
+                Clear();
+                Reserve(count);
+                for (SizeType i = 0; i < count; ++i) {
+                    PushBack(value);
+                }
+            }
+
+            void Assign(const T* values, SizeType count) {
+                Clear();
+                Reserve(count);
+                for (SizeType i = 0; i < count; ++i) {
+                    PushBack(values[i]);
+                }
+            }
+
+            void Assign(NkInitializerList<T> init) {
+                Clear();
+                Reserve(init.Size());
+                for (auto& val : init) {
+                    PushBack(val);
+                }
+            }
+
+            void Assign(const NkVector& other) {
+                if (this != &other) {
+                    Clear();
+                    Reserve(other.mSize);
+                    for (SizeType i = 0; i < other.mSize; ++i) {
+                        PushBack(other.mData[i]);
+                    }
+                }
+            }
             
             NkVector& operator=(const NkVector& other) {
                 if (this != &other) {
@@ -307,7 +362,7 @@ namespace nkentseu {
             // CAPACITY
             // ========================================
             
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             bool empty() const NK_NOEXCEPT { return mSize == 0; }
             
             SizeType Size() const NK_NOEXCEPT { return mSize; }
@@ -315,7 +370,7 @@ namespace nkentseu {
             
             SizeType Capacity() const NK_NOEXCEPT { return mCapacity; }
             SizeType capacity() const NK_NOEXCEPT { return mCapacity; }
-            
+
             SizeType MaxSize() const NK_NOEXCEPT {
                 return static_cast<SizeType>(-1) / sizeof(T);
             }
@@ -379,7 +434,21 @@ namespace nkentseu {
                 mData[mSize].~T();
             }
             
-            void Resize(SizeType newSize, const T& value = T()) {
+            // Default-constructs new elements (supports move-only types like std::unique_ptr)
+            void Resize(SizeType newSize) {
+                if (newSize > mSize) {
+                    Reserve(newSize);
+                    for (SizeType i = mSize; i < newSize; ++i) {
+                        ConstructAt(mData + i);
+                    }
+                } else if (newSize < mSize) {
+                    DestroyRange(mData + newSize, mData + mSize);
+                }
+                mSize = newSize;
+            }
+
+            // Value-initializes new elements (T must be CopyConstructible)
+            void Resize(SizeType newSize, const T& value) {
                 if (newSize > mSize) {
                     Reserve(newSize);
                     for (SizeType i = mSize; i < newSize; ++i) {
@@ -401,51 +470,51 @@ namespace nkentseu {
             Iterator Insert(ConstIterator pos, const T& value) {
                 SizeType index = pos - begin();
                 NK_ASSERT(index <= mSize);
-                
+
                 if (mSize >= mCapacity) {
                     Reserve(CalculateGrowth(mSize + 1));
                 }
-                
+
                 for (SizeType i = mSize; i > index; --i) {
-                    ConstructAt(mData + i, mData[i - 1]);
+                    ConstructAt(mData + i, traits::NkMove(mData[i - 1]));
                     mData[i - 1].~T();
                 }
-                
+
                 ConstructAt(mData + index, value);
                 ++mSize;
-                
+
                 return begin() + index;
             }
-            
+
             Iterator Erase(ConstIterator pos) {
                 SizeType index = pos - begin();
                 NK_ASSERT(index < mSize);
-                
+
                 mData[index].~T();
-                
+
                 for (SizeType i = index; i < mSize - 1; ++i) {
-                    ConstructAt(mData + i, mData[i + 1]);
+                    ConstructAt(mData + i, traits::NkMove(mData[i + 1]));
                     mData[i + 1].~T();
                 }
-                
+
                 --mSize;
                 return begin() + index;
             }
-            
+
             Iterator Erase(ConstIterator first, ConstIterator last) {
                 SizeType firstIndex = first - begin();
                 SizeType lastIndex = last - begin();
                 SizeType count = lastIndex - firstIndex;
-                
+
                 NK_ASSERT(firstIndex <= lastIndex && lastIndex <= mSize);
-                
+
                 DestroyRange(mData + firstIndex, mData + lastIndex);
-                
+
                 for (SizeType i = lastIndex; i < mSize; ++i) {
-                    ConstructAt(mData + firstIndex + (i - lastIndex), mData[i]);
+                    ConstructAt(mData + firstIndex + (i - lastIndex), traits::NkMove(mData[i]));
                     mData[i].~T();
                 }
-                
+
                 mSize -= count;
                 return begin() + firstIndex;
             }
@@ -474,7 +543,7 @@ namespace nkentseu {
             return !(lhs == rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_SEQUENTIAL_NKVECTOR_H_INCLUDED

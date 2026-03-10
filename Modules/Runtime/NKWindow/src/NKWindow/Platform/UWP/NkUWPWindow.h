@@ -12,7 +12,7 @@ namespace nkentseu {
     struct NkWindowData {
         // CoreWindow or platform equivalent native handle when available.
         void*       mNativeWindow = nullptr;
-        std::string mTitle;
+        NkString mTitle;
         NkU32       mWidth        = 0;
         NkU32       mHeight       = 0;
         bool        mVisible      = false;

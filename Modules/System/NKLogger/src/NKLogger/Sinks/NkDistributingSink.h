@@ -8,9 +8,9 @@
 #pragma once
 
 #include "NKLogger/NkSink.h"
-#include <vector>
-#include <memory>
-#include <mutex>
+#include "NKLogger/NkSync.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
@@ -36,7 +36,7 @@ namespace nkentseu {
 			 * @brief Constructeur avec liste initiale de sinks
 			 * @param sinks Liste de sinks à ajouter
 			 */
-			explicit NkDistributingSink(const std::vector<std::shared_ptr<NkISink>> &sinks);
+			explicit NkDistributingSink(const NkVector<memory::NkSharedPtr<NkISink>> &sinks);
 
 			/**
 			 * @brief Destructeur
@@ -60,12 +60,12 @@ namespace nkentseu {
 			/**
 			 * @brief Définit le formatter pour tous les sous-sinks
 			 */
-			void SetFormatter(std::unique_ptr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
 
 			/**
 			 * @brief Définit le pattern de formatage pour tous les sous-sinks
 			 */
-			void SetPattern(const std::string &pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Obtient le formatter (du premier sink)
@@ -75,7 +75,7 @@ namespace nkentseu {
 			/**
 			 * @brief Obtient le pattern (du premier sink)
 			 */
-			std::string GetPattern() const override;
+			NkString GetPattern() const override;
 
 			// ---------------------------------------------------------------------
 			// GESTION DES SOUS-SINKS
@@ -85,13 +85,13 @@ namespace nkentseu {
 			 * @brief Ajoute un sous-sink
 			 * @param sink Sink à ajouter
 			 */
-			void AddSink(std::shared_ptr<NkISink> sink);
+			void AddSink(memory::NkSharedPtr<NkISink> sink);
 
 			/**
 			 * @brief Supprime un sous-sink
 			 * @param sink Sink à supprimer
 			 */
-			void RemoveSink(std::shared_ptr<NkISink> sink);
+			void RemoveSink(memory::NkSharedPtr<NkISink> sink);
 
 			/**
 			 * @brief Supprime tous les sous-sinks
@@ -102,20 +102,20 @@ namespace nkentseu {
 			 * @brief Obtient la liste des sous-sinks
 			 * @return Vecteur des sous-sinks
 			 */
-			std::vector<std::shared_ptr<NkISink>> GetSinks() const;
+			NkVector<memory::NkSharedPtr<NkISink>> GetSinks() const;
 
 			/**
 			 * @brief Obtient le nombre de sous-sinks
 			 * @return Nombre de sous-sinks
 			 */
-			core::usize GetSinkCount() const;
+			usize GetSinkCount() const;
 
 			/**
 			 * @brief Vérifie si un sink spécifique est présent
 			 * @param sink Sink à rechercher
 			 * @return true si présent, false sinon
 			 */
-			bool ContainsSink(std::shared_ptr<NkISink> sink) const;
+			bool ContainsSink(memory::NkSharedPtr<NkISink> sink) const;
 
 		private:
 			// ---------------------------------------------------------------------
@@ -123,10 +123,10 @@ namespace nkentseu {
 			// ---------------------------------------------------------------------
 
 			/// Liste des sous-sinks
-			std::vector<std::shared_ptr<NkISink>> m_Sinks;
+			NkVector<memory::NkSharedPtr<NkISink>> m_Sinks;
 
 			/// Mutex pour la synchronisation thread-safe
-			mutable std::mutex m_Mutex;
+			mutable logger_sync::NkMutex m_Mutex;
 	};
 
 } // namespace nkentseu

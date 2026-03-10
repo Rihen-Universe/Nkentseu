@@ -30,7 +30,7 @@
 #### ⚙️ `CreateLogger`
 
 ```cpp
-shared_ptr<Logger> CreateLogger(const std::string& name)
+shared_ptr<Logger> CreateLogger(const NkString& name)
 ```
 
 **Crée un logger avec un nom spécifique**
@@ -39,7 +39,7 @@ shared_ptr<Logger> CreateLogger(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` |  |
+| `name` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Registry.cpp:296`*
 
@@ -51,7 +51,7 @@ shared_ptr<Logger> CreateLogger(const std::string& name)
 #### ⚙️ `Drop`
 
 ```cpp
-void Drop(const std::string& name)
+void Drop(const NkString& name)
 ```
 
 **Supprime un logger spécifique**
@@ -60,7 +60,7 @@ void Drop(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` |  |
+| `name` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Registry.cpp:311`*
 
@@ -102,7 +102,7 @@ shared_ptr<Logger> GetDefaultLogger()
 #### ⚙️ `GetLogger`
 
 ```cpp
-shared_ptr<Logger> GetLogger(const std::string& name)
+shared_ptr<Logger> GetLogger(const NkString& name)
 ```
 
 **Obtient un logger par son nom**
@@ -111,7 +111,7 @@ shared_ptr<Logger> GetLogger(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` |  |
+| `name` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Registry.cpp:282`*
 

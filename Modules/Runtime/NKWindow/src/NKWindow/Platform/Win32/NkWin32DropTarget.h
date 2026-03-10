@@ -34,11 +34,11 @@
 #include <string>
 #include <vector>
 #include <functional>
-#include <atomic>
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "shell32.lib")
 
+#include "NKCore/NkAtomic.h"
 #include "NKWindow/Events/NkDropEvent.h"
 
 namespace nkentseu {
@@ -156,8 +156,8 @@ namespace nkentseu {
 				const NkI32 dropY = static_cast<NkI32>(cp.y);
 
 				// --- Fichiers ---
-				std::vector<std::string> files = ExtractFiles(pData);
-				if (!files.empty() && mDropFile) {
+				NkVector<NkString> files = ExtractFiles(pData);
+				if (!files.Empty() && mDropFile) {
 					NkDropFileData data{};
 					data.x = dropX;
 					data.y = dropY;
@@ -167,8 +167,8 @@ namespace nkentseu {
 				}
 
 				// --- Texte ---
-				std::string text = ExtractText(pData);
-				if (!text.empty() && mDropText) {
+				NkString text = ExtractText(pData);
+				if (!text.Empty() && mDropText) {
 					NkDropTextData data{};
 					data.x = dropX;
 					data.y = dropY;
@@ -184,7 +184,7 @@ namespace nkentseu {
 
 		private:
 			HWND               mHwnd;
-			std::atomic<ULONG> mRefCount;
+			NkAtomic<ULONG> mRefCount;
 
 			DropFileCallback  mDropFile;
 			DropTextCallback  mDropText;
@@ -206,8 +206,8 @@ namespace nkentseu {
 				return n;
 			}
 
-			static std::vector<std::string> ExtractFiles(IDataObject* pData) {
-				std::vector<std::string> result;
+			static NkVector<NkString> ExtractFiles(IDataObject* pData) {
+				NkVector<NkString> result;
 				FORMATETC fmt = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
 				STGMEDIUM stg = {};
 				if (FAILED(pData->GetData(&fmt, &stg))) return result;
@@ -226,7 +226,7 @@ namespace nkentseu {
 						WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1,
 											s.data(), sz, nullptr, nullptr);
 						if (!s.empty() && s.back() == '\0') s.pop_back();
-						result.push_back(std::move(s));
+						result.PushBack(NkString(s.c_str()));
 					}
 				}
 				GlobalUnlock(stg.hGlobal);
@@ -242,20 +242,21 @@ namespace nkentseu {
 				return true;
 			}
 
-			static std::string ExtractText(IDataObject* pData) {
+			static NkString ExtractText(IDataObject* pData) {
 				FORMATETC fmt = { CF_UNICODETEXT, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
 				STGMEDIUM stg = {};
 				if (FAILED(pData->GetData(&fmt, &stg))) return {};
 
 				const wchar_t* ws = static_cast<const wchar_t*>(GlobalLock(stg.hGlobal));
-				std::string result;
+				NkString result;
 				if (ws) {
 					int sz = WideCharToMultiByte(CP_UTF8, 0, ws, -1,
 												nullptr, 0, nullptr, nullptr);
-					result.resize(sz);
+					std::string s(sz, '\0');
 					WideCharToMultiByte(CP_UTF8, 0, ws, -1,
-										result.data(), sz, nullptr, nullptr);
-					if (!result.empty() && result.back() == '\0') result.pop_back();
+										s.data(), sz, nullptr, nullptr);
+					if (!s.empty() && s.back() == '\0') s.pop_back();
+					result = NkString(s.c_str());
 				}
 				GlobalUnlock(stg.hGlobal);
 				ReleaseStgMedium(&stg);

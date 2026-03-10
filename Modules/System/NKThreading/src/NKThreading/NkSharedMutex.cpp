@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkSharedMutex.h"
+#include "NKThreading/NkSharedMutex.h"
 
 namespace nkentseu {
     namespace entseu {

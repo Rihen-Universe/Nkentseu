@@ -97,7 +97,7 @@ LARGE (>1MB)       → Direct OS allocation
 
 **SSO Benefits:**
 ```cpp
-std::vector<int>        vs    NkVectorFast<int>
+NkVector<int>        vs    NkVectorFast<int>
 16 bytes header               64 bytes header (includes 10-16 ints inline)
 + heap ptr (size < 4)         NO heap alloc needed!
 

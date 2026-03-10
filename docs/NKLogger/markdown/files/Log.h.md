@@ -36,7 +36,7 @@
 `static`
 
 ```cpp
-static void Initialize(const std::string& name, const std::string& pattern, LogLevel level)
+static void Initialize(const NkString& name, const NkString& pattern, LogLevel level)
 ```
 
 **Initialise le logger par défaut**
@@ -45,8 +45,8 @@ static void Initialize(const std::string& name, const std::string& pattern, LogL
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` | [in] Nom du logger (optionnel, "default" par défaut) |
-| `pattern` | `const std::string&` | [in] Pattern de formatage (optionnel) |
+| `name` | `const NkString&` | [in] Nom du logger (optionnel, "default" par défaut) |
+| `pattern` | `const NkString&` | [in] Pattern de formatage (optionnel) |
 | `level` | `LogLevel` | [in] Niveau de log (optionnel, Info par défaut) |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Log.h:36`*
@@ -59,7 +59,7 @@ static void Initialize(const std::string& name, const std::string& pattern, LogL
 #### ⚙️ `Named`
 
 ```cpp
-NkentseuLogger& Named(const std::string& name)
+NkentseuLogger& Named(const NkString& name)
 ```
 
 **Configure les informations de source pour le prochain log**
@@ -68,7 +68,7 @@ NkentseuLogger& Named(const std::string& name)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `name` | `const std::string&` |  |
+| `name` | `const NkString&` |  |
 
 **Retour:** Objet SourceContext pour chaînage
 

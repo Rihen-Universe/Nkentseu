@@ -64,7 +64,7 @@ Usage :
   jenga build --config Release                           # Build Release
 
   Notes Wayland :
-    Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols
+    Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols, libdecor-0-dev
     Generer xdg-shell-client-protocol.h :
       wayland-scanner client-header
         /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
@@ -114,6 +114,19 @@ with workspace("Nkentseu", location="."):
             cflags(["--target=x86_64-w64-windows-gnu"])
             cxxflags(["--target=x86_64-w64-windows-gnu"])
             ldflags(["--target=x86_64-w64-windows-gnu"])
+
+    else:
+        # Cross-compilation Windows depuis Linux/WSL2 via MinGW-w64
+        _mingw_gcc   = shutil.which("x86_64-w64-mingw32-gcc")
+        _mingw_gxx   = shutil.which("x86_64-w64-mingw32-g++")
+        _mingw_ar    = shutil.which("x86_64-w64-mingw32-ar")
+        if _mingw_gxx:
+            with toolchain(TC_WINDOWS, "gcc"):
+                settarget("Windows", "x86_64", "mingw")
+                ccompiler(_mingw_gcc or "x86_64-w64-mingw32-gcc")
+                cppcompiler(_mingw_gxx)
+                linker(_mingw_gxx)
+                archiver(_mingw_ar or "x86_64-w64-mingw32-ar")
 
     configurations(["Debug", "Release"])
 
@@ -170,8 +183,12 @@ with workspace("Nkentseu", location="."):
 
     emscriptenfullscreenshell(True)
 
+    # androidsdkpath(os.getenv("ANDROID_SDK_ROOT", ""))
+    # androidndkpath(os.getenv("ANDROID_NDK_ROOT", os.getenv("ANDROID_NDK_HOME", "")))
+
+    # ── Android SDK/NDK paths (from environment) ─────────────────────────
     androidsdkpath(os.getenv("ANDROID_SDK_ROOT", ""))
-    androidndkpath(os.getenv("ANDROID_NDK_ROOT", os.getenv("ANDROID_NDK_HOME", "")))
+    androidndkpath(os.getenv("ANDROID_NDK_ROOT", ""))
 
     with unitest() as u:
         u.Compile()

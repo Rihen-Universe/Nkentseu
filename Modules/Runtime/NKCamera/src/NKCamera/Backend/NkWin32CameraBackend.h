@@ -20,8 +20,9 @@
 #pragma comment(lib,"ole32.lib")
 
 #include "NKCamera/INkCameraBackend.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKCore/NkAtomic.h"
 #include <thread>
-#include <atomic>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -59,9 +60,9 @@ public:
     // ------------------------------------------------------------------
     // Énumération — CORRECTE
     // ------------------------------------------------------------------
-    std::vector<NkCameraDevice> EnumerateDevices() override
+    NkVector<NkCameraDevice> EnumerateDevices() override
     {
-        std::vector<NkCameraDevice> result;
+        NkVector<NkCameraDevice> result;
         ComPtr<IMFAttributes> pAttr;
         MFCreateAttributes(&pAttr, 1);
         pAttr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
@@ -97,7 +98,7 @@ public:
                 pSrc->Shutdown();
                 ppDev[i]->ShutdownObject(); // libérer proprement
             }
-            result.push_back(std::move(dev));
+            result.PushBack(std::move(dev));
             ppDev[i]->Release();
         }
         CoTaskMemFree(ppDev);
@@ -125,7 +126,7 @@ public:
         if (FAILED(MFEnumDeviceSources(pAttr.Get(), &ppDev, &count)) ||
             config.deviceIndex >= count)
         {
-            mLastError = "No camera found at index " + std::to_string(config.deviceIndex);
+            mLastError = NkString::Fmtf("No camera found at index %u", config.deviceIndex);
             for (UINT32 i = 0; i < count; ++i) ppDev[i]->Release();
             CoTaskMemFree(ppDev);
             return false;
@@ -216,19 +217,20 @@ public:
         res.frame = mLastFrame; res.success = true; return true;
     }
 
-    bool CapturePhotoToFile(const std::string& path) override
+    bool CapturePhotoToFile(const NkString& path) override
     {
         NkPhotoCaptureResult r; if (!CapturePhoto(r)) return false;
         // Conversion NV12→RGBA8 puis sauvegarde via stb
         // La conversion est gérée par NkCameraSystem::SaveFrameToFile
-        extern bool NkSaveFrame(const NkCameraFrame&, const std::string&, int);
+        extern bool NkSaveFrame(const NkCameraFrame&, const NkString&, int);
         // Appel direct stbi depuis ici
         // NV12→RGBA8
         auto& f = r.frame;
         NkU32 w = f.width, h = f.height;
-        std::vector<NkU8> rgba(w*h*4);
-        const NkU8* Y  = f.data.data();
-        const NkU8* UV = f.data.data() + w*h;
+        NkVector<NkU8> rgba;
+        rgba.Resize(w*h*4);
+        const NkU8* Y  = f.data.Data();
+        const NkU8* UV = f.data.Data() + w*h;
         for (NkU32 row=0; row<h; ++row) for (NkU32 col=0; col<w; ++col) {
             float y = (float)Y[row*w+col]-16.f;
             float u = (float)UV[(row/2)*w+(col&~1u)]-128.f;
@@ -245,7 +247,7 @@ public:
         rgbaFrame.stride = w*4;
         // Pas d'encodeur image embarqué dans NKCamera:
         // on écrit ici un .ppm portable (pipeline raw/framebuffer).
-        FILE* fp = fopen(path.c_str(), "wb");
+        FILE* fp = fopen(path.CStr(), "wb");
         if (!fp) return false;
         fprintf(fp, "P6\n%d %d\n255\n", (int)w, (int)h);
         for (NkU32 i=0;i<w*h;++i) fwrite(&rgbaFrame.data[i*4],1,3,fp);
@@ -324,7 +326,7 @@ public:
     NkU32         GetHeight() const override { return mHeight; }
     NkU32         GetFPS()    const override { return mFPS;    }
     NkPixelFormat GetFormat() const override { return mFormat; }
-    std::string   GetLastError() const override { return mLastError; }
+    NkString   GetLastError() const override { return mLastError; }
 
 private:
     bool mReady() { return mMFReady && mReader; }
@@ -356,7 +358,7 @@ private:
             frame.stride     = mWidth;
             frame.timestampUs = (NkU64)(ts / 10); // 100ns → µs
             frame.frameIndex  = mFrameIndex++;
-            frame.data.assign(pData, pData + curLen);
+            frame.data.Clear(); frame.data.Resize(curLen); memcpy(frame.data.Data(), pData, curLen);
 
             pBuf->Unlock();
 
@@ -376,22 +378,22 @@ private:
         mRunning = false;
     }
 
-    static std::string WideToUtf8(const std::wstring& ws) {
+    static NkString WideToUtf8(const std::wstring& ws) {
         if (ws.empty()) return {};
         int n = WideCharToMultiByte(CP_UTF8,0,ws.c_str(),-1,nullptr,0,nullptr,nullptr);
-        std::string s(n,'\0');
-        WideCharToMultiByte(CP_UTF8,0,ws.c_str(),-1,s.data(),n,nullptr,nullptr);
-        if (!s.empty()&&s.back()=='\0') s.pop_back();
-        return s;
+        std::string buf(static_cast<std::size_t>(n), '\0');
+        WideCharToMultiByte(CP_UTF8,0,ws.c_str(),-1,buf.data(),n,nullptr,nullptr);
+        if (!buf.empty() && buf.back() == '\0') buf.pop_back();
+        return NkString(buf.c_str());
     }
-    static std::wstring Utf8ToWide(const std::string& s) {
-        if (s.empty()) return {};
-        int n = MultiByteToWideChar(CP_UTF8,0,s.c_str(),-1,nullptr,0);
+    static std::wstring Utf8ToWide(const NkString& s) {
+        if (s.Empty()) return {};
+        int n = MultiByteToWideChar(CP_UTF8,0,s.CStr(),-1,nullptr,0);
         std::wstring ws(n,L'\0');
-        MultiByteToWideChar(CP_UTF8,0,s.c_str(),-1,ws.data(),n);
+        MultiByteToWideChar(CP_UTF8,0,s.CStr(),-1,ws.data(),n);
         return ws;
     }
-    static void QueryModes(IMFMediaSource* pSrc, std::vector<NkCameraDevice::Mode>& modes) {
+    static void QueryModes(IMFMediaSource* pSrc, NkVector<NkCameraDevice::Mode>& modes) {
         ComPtr<IMFPresentationDescriptor> pPD;
         if (FAILED(pSrc->CreatePresentationDescriptor(&pPD))) return;
         BOOL sel = FALSE; ComPtr<IMFStreamDescriptor> pSD;
@@ -409,14 +411,14 @@ private:
             MFGetAttributeRatio(pMT.Get(),MF_MT_FRAME_RATE,&num,&den);
             mode.fps = (den>0)?num/den:30;
             mode.format = NkPixelFormat::NK_PIXEL_NV12;
-            if (mode.width>0&&mode.height>0) modes.push_back(mode);
+            if (mode.width>0&&mode.height>0) modes.PushBack(mode);
         }
     }
 
     bool           mMFReady   = false;
     bool           mCOMInited = false;
     NkCameraState  mState     = NkCameraState::NK_CAM_STATE_CLOSED;
-    std::string    mLastError;
+    NkString    mLastError;
 
     ComPtr<IMFMediaSource>  mSource;
     ComPtr<IMFSourceReader> mReader;
@@ -429,7 +431,7 @@ private:
     LONGLONG      mNextVideoTS=0;
 
     std::thread       mCaptureThread;
-    std::atomic<bool> mRunning{false};
+    NkAtomicBool mRunning{false};
     std::mutex        mMutex;
     NkCameraFrame     mLastFrame;
     bool              mHasFrame = false;

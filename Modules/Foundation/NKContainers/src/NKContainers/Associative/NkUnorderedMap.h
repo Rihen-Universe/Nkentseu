@@ -15,20 +15,20 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Heterogeneous/NkPair.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
-         * @brief Unordered map - std::unordered_map equivalent
+         * @brief Unordered map - NkUnorderedMap equivalent
          * 
          * Hash map avec separate chaining.
-         * Comme NkHashMap mais avec API std::unordered_map.
+         * Comme NkHashMap mais avec API NkUnorderedMap.
          * 
          * Complexité:
          * - Insert/Find/Erase: O(1) average, O(n) worst
@@ -92,8 +92,40 @@ namespace nkentseu {
                 return hash % mBucketCount;
             }
             
+            void CheckLoadFactor() {
+                if (mSize > mBucketCount * mMaxLoadFactor) {
+                    Rehash(mBucketCount * 2);
+                }
+            }
+            
+        public:
+            // Constructors
+            explicit NkUnorderedMap(Allocator* allocator = nullptr)
+                : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                , mMaxLoadFactor(0.75f)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*), alignof(Node*)));
+                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
+            }
+            
+            NkUnorderedMap(NkInitializerList<ValueType> init, Allocator* allocator = nullptr)
+                : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                , mMaxLoadFactor(0.75f)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*), alignof(Node*)));
+                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+            }
+            
+            ~NkUnorderedMap() {
+                Clear();
+                if (mBuckets) mAllocator->Deallocate(mBuckets);
+            }
+            
             void Rehash(SizeType newBucketCount) {
-                Node** newBuckets = static_cast<Node**>(mAllocator->Allocate(newBucketCount * sizeof(Node*)));
+                Node** newBuckets = static_cast<Node**>(mAllocator->Allocate(newBucketCount * sizeof(Node*), alignof(Node*)));
                 memory::NkMemZero(newBuckets, newBucketCount * sizeof(Node*));
                 
                 for (SizeType i = 0; i < mBucketCount; ++i) {
@@ -112,40 +144,8 @@ namespace nkentseu {
                 mBucketCount = newBucketCount;
             }
             
-            void CheckLoadFactor() {
-                if (mSize > mBucketCount * mMaxLoadFactor) {
-                    Rehash(mBucketCount * 2);
-                }
-            }
-            
-        public:
-            // Constructors
-            NkUnorderedMap()
-                : mBuckets(nullptr), mBucketCount(16), mSize(0)
-                , mMaxLoadFactor(0.75f)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
-                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*)));
-                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
-            }
-            
-            NkUnorderedMap(NkInitializerList<ValueType> init)
-                : mBuckets(nullptr), mBucketCount(16), mSize(0)
-                , mMaxLoadFactor(0.75f)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
-                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*)));
-                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
-                for (auto& pair : init) {
-                    Insert(pair.First, pair.Second);
-                }
-            }
-            
-            ~NkUnorderedMap() {
-                Clear();
-                if (mBuckets) mAllocator->Deallocate(mBuckets);
-            }
-            
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             // Modifiers
@@ -178,7 +178,7 @@ namespace nkentseu {
                 }
                 
                 // Insert new
-                Node* newNode = static_cast<Node*>(mAllocator->Allocate(sizeof(Node)));
+                Node* newNode = static_cast<Node*>(mAllocator->Allocate(sizeof(Node), alignof(Node)));
                 new (newNode) Node(hash, key, value, mBuckets[idx]);
                 mBuckets[idx] = newNode;
                 ++mSize;
@@ -251,9 +251,35 @@ namespace nkentseu {
                 Insert(key, Value());
                 return *Find(key);
             }
+
+            SizeType BucketCount() const NK_NOEXCEPT { return mBucketCount; }
+            float LoadFactor() const NK_NOEXCEPT { return mSize / static_cast<float>(mBucketCount); }
+
+            // Iteration: ForEach(fn) where fn receives (const Key&, Value&) or (const Key&, const Value&)
+            template<typename Fn>
+            void ForEach(Fn&& fn) {
+                for (SizeType i = 0; i < mBucketCount; ++i) {
+                    Node* node = mBuckets[i];
+                    while (node) {
+                        fn(node->Data.First, node->Data.Second);
+                        node = node->Next;
+                    }
+                }
+            }
+
+            template<typename Fn>
+            void ForEach(Fn&& fn) const {
+                for (SizeType i = 0; i < mBucketCount; ++i) {
+                    Node* node = mBuckets[i];
+                    while (node) {
+                        fn(node->Data.First, node->Data.Second);
+                        node = node->Next;
+                    }
+                }
+            }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKUNORDEREDMAP_H_INCLUDED

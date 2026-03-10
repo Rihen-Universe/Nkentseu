@@ -10,8 +10,8 @@
 #if defined(NKENTSEU_WINDOWING_XCB)
 
 #include <xcb/xcb.h>
-#include <vector>
-#include <string>
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/String/NkString.h"
 #include <cstdlib>
 
 #ifndef NK_APP_NAME
@@ -40,7 +40,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Connection is passed via NkEntryState; NkXCBWindow.cpp manages it from there
-	std::vector<std::string> args(argv, argv + argc);
+	nkentseu::NkVector<nkentseu::NkString> args;
+	for (int i = 0; i < argc; ++i)
+		args.PushBack(nkentseu::NkString(argv[i]));
 
 	nkentseu::NkEntryState state(conn, it.data, args);
 	state.appName = NK_APP_NAME;

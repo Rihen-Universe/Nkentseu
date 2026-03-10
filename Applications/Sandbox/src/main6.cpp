@@ -14,11 +14,23 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Ajout pour NkChrono et NkElapsedTime
+#include "NKMath/NKMath.h"
 
-#include <cstdio>
+#include "NKLogger/NkLog.h"
+
 #include <cmath>
 #include <array>
 #include <string>
+
+#ifdef NkMin
+#undef NkMin
+#endif
+#ifdef NkMax
+#undef NkMax
+#endif
+#ifdef NkClamp
+#undef NkClamp
+#endif
 
 namespace {
 using namespace nkentseu;
@@ -40,7 +52,7 @@ struct WinState {
     float      phaseX     = 0.f;
     float      phaseY     = 0.f;
     float      hueShift   = 0.f;  // offset de teinte (0.0 / 0.33 / 0.66)
-    std::string title;
+    NkString title;
 };
 
 // ---------------------------------------------------------------------------
@@ -56,13 +68,13 @@ static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
         float fy = y/(float)h - 0.5f;
         for (NkU32 x = 0; x < w; x += blk) {
             float fx  = x/(float)w - 0.5f;
-            float rd  = std::sqrt(fx*fx + fy*fy);
-            float mix = (std::sin((fx+px)*13.5f + t*1.7f)
-                        +std::sin((fy+py)*11.f  - t*1.3f)
-                        +std::sin(rd*24.f        - t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+hue+0.f  ))-0.5f)*sat+0.5f)*255);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+hue+0.33f))-0.5f)*sat+0.5f)*255);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+hue+0.66f))-0.5f)*sat+0.5f)*255);
+            float rd  = math::NkSqrt(fx*fx + fy*fy);
+            float mix = (math::NkSin((fx+px)*13.5f + t*1.7f)
+                        +math::NkSin((fy+py)*11.f  - t*1.3f)
+                        +math::NkSin(rd*24.f        - t*2.1f)) * 0.333f;
+            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.f  ))-0.5f)*sat+0.5f)*255);
+            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.33f))-0.5f)*sat+0.5f)*255);
+            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.66f))-0.5f)*sat+0.5f)*255);
             NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
             for (NkU32 by=0;by<blk&&(y+by)<h;++by)
                 for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
@@ -83,7 +95,7 @@ static void ProcessWindowEvent(NkEvent* ev, WinState& ws)
     // Fermeture individuelle
     if (auto* e = ev->As<NkWindowCloseEvent>()) {
         (void)e;
-        std::printf("[Win:%s] Close\n", ws.title.c_str());
+        logger.Info("[Win:{0}] Close", ws.title.CStr());
         ws.open = false;
         ws.window->Close();
         return;
@@ -92,8 +104,7 @@ static void ProcessWindowEvent(NkEvent* ev, WinState& ws)
     // Resize
     if (auto* e = ev->As<NkWindowResizeEvent>()) {
         ws.renderer.Resize(e->GetWidth(), e->GetHeight());
-        std::printf("[Win:%s] Resize → %ux%u\n",
-            ws.title.c_str(), e->GetWidth(), e->GetHeight());
+        logger.Info("[Win:{0}] Resize → {1}x{2}", ws.title.CStr(), e->GetWidth(), e->GetHeight());
         return;
     }
 
@@ -102,20 +113,19 @@ static void ProcessWindowEvent(NkEvent* ev, WinState& ws)
         switch (e->GetKey()) {
             case NkKey::NK_SPACE:
                 ws.neon = !ws.neon;
-                std::printf("[Win:%s] Neon %s\n",
-                    ws.title.c_str(), ws.neon ? "ON" : "OFF");
+                logger.Info("[Win:{0}] Neon {1}", ws.title.CStr(), ws.neon ? "ON" : "OFF");
                 break;
             case NkKey::NK_UP:
-                ws.saturation = std::fmin(3.f, ws.saturation + 0.1f);
+                ws.saturation = math::NkClamp(ws.saturation + 0.1f, 0.1f, 3.0f);
                 break;
             case NkKey::NK_DOWN:
-                ws.saturation = std::fmax(0.1f, ws.saturation - 0.1f);
+                ws.saturation = math::NkClamp(ws.saturation - 0.1f, 0.1f, 3.0f);
                 break;
             case NkKey::NK_LEFT:
-                ws.timeScale  = std::fmax(0.1f, ws.timeScale  - 0.1f);
+                ws.timeScale  = math::NkClamp(ws.timeScale - 0.1f, 0.1f, 5.0f);
                 break;
             case NkKey::NK_RIGHT:
-                ws.timeScale  = std::fmin(5.f,  ws.timeScale  + 0.1f);
+                ws.timeScale  = math::NkClamp(ws.timeScale + 0.1f, 0.1f, 5.0f);
                 break;
             default: break;
         }
@@ -132,27 +142,26 @@ static void ProcessWindowEvent(NkEvent* ev, WinState& ws)
     }
 
     if (auto* e = ev->As<NkMouseWheelVerticalEvent>()) {
-        ws.saturation = std::fmax(0.1f, std::fmin(3.f,
-            ws.saturation + e->GetDeltaY() * 0.1f));
+        const float wheelDelta = static_cast<float>(e->GetDeltaY());
+        ws.saturation = math::NkClamp(ws.saturation + wheelDelta * 0.1f, 0.1f, 3.0f);
         return;
     }
 
     // Focus
     if (auto* e = ev->As<NkWindowFocusGainedEvent>()) {
-        std::printf("[Win:%s] Focus gained\n", ws.title.c_str());
+        logger.Info("[Win:{0}] Focus gained", ws.title.CStr());
         return;
     }
     if (auto* e = ev->As<NkWindowFocusLostEvent>()) {
-        std::printf("[Win:%s] Focus lost\n", ws.title.c_str());
+        logger.Info("[Win:{0}] Focus lost", ws.title.CStr());
         return;
     }
 
     // Drag & Drop — fenêtre A seulement
     if (auto* e = ev->As<NkDropFileEvent>()) {
-        std::printf("[Win:%s] Drop %zu file(s):\n",
-            ws.title.c_str(), e->data.paths.size());   // CORRECTION
-        for (const auto& f : e->data.paths)            // CORRECTION
-            std::printf("  %s\n", f.c_str());
+        logger.Info("[Win:{0}] Drop {1} file(s):", ws.title.CStr(), e->data.paths.Size());
+        for (const auto& f : e->data.paths)
+            logger.Info("  {0}", f.CStr());
         return;
     }
 }
@@ -194,7 +203,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     NkWindow windowB(cfgB);
 
     if (!windowA.IsOpen() || !windowB.IsOpen()) {
-        std::fprintf(stderr, "[ex05] Window creation failed\n");
+        logger.Error("[ex05] Window creation failed");
         NkClose();
         return -2;
     }
@@ -222,13 +231,11 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     wins[1].title     = "B";
     if (!wins[1].renderer.Create(windowB, rcfg)) { NkClose(); return -4; }
 
-    // CORRECTION : format %llu pour NkWindowId (unsigned long long)
-    std::printf("[ex05] Window A id=%llu, Window B id=%llu\n",
+    logger.Info("[ex05] Window A id={0}, Window B id={1}",
         static_cast<unsigned long long>(wins[0].id),
         static_cast<unsigned long long>(wins[1].id));
-    std::printf("[ex05] Controls: SPACE=neon, UP/DOWN=saturation, "
-                "LEFT/RIGHT=speed, LMB drag=phase, scroll=sat\n");
-    std::printf("[ex05] Close one window independently — the other keeps running\n");
+    logger.Info("[ex05] Controls: SPACE=neon, UP/DOWN=saturation, LEFT/RIGHT=speed, LMB drag=phase, scroll=sat");
+    logger.Info("[ex05] Close one window independently — the other keeps running");
 
     auto& es = NkEvents();
 
@@ -238,7 +245,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // 4. Boucle principale
     while (wins[0].open || wins[1].open)
     {
-        chrono.Reset();
+        NkElapsedTime e = chrono.Reset();
 
         // -----------------------------------------------------------------------
         // Pomper TOUS les events et les router par windowId
@@ -251,7 +258,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             // Touche ESC globale — ferme tout
             if (auto* k = ev->As<NkKeyPressEvent>()) {
                 if (k->GetKey() == NkKey::NK_ESCAPE) {
-                    std::printf("[ex05] ESC — closing all windows\n");
+                    logger.Info("[ex05] ESC — closing all windows");
                     for (auto& w : wins) {
                         w.open = false;
                         if (w.window) w.window->Close();
@@ -273,13 +280,10 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             // Event sans fenêtre associée (ex: gamepad connect)
             if (!dispatched) {
                 if (auto* e = ev->As<NkGamepadConnectEvent>()) {
-                    // CORRECTION : pas de IsConnected(), on affiche simplement "connected"
-                    std::printf("[ex05] Gamepad connected #%u (global)\n",
-                        e->GetGamepadIndex());
+                    logger.Info("[ex05] Gamepad connected #{0} (global)", e->GetGamepadIndex());
                 }
                 if (auto* e = ev->As<NkGamepadDisconnectEvent>()) {
-                    std::printf("[ex05] Gamepad disconnected #%u (global)\n",
-                        e->GetGamepadIndex());
+                    logger.Info("[ex05] Gamepad disconnected #{0} (global)", e->GetGamepadIndex());
                 }
             }
         }
@@ -288,7 +292,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         for (auto& ws : wins) {
             if (ws.open && ws.window && !ws.window->IsOpen()) {
                 ws.open = false;
-                std::printf("[ex05] Window %s closed externally\n", ws.title.c_str());
+                logger.Info("[ex05] Window {0} closed externally", ws.title.CStr());
             }
         }
 
@@ -337,6 +341,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     for (auto& ws : wins)
         ws.renderer.Shutdown();
 
+    windowA.Close();
+    windowB.Close();
     NkClose();
     return 0;
 }

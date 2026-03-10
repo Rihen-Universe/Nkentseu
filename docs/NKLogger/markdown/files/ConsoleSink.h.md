@@ -247,7 +247,7 @@ void SetFormatter(std::unique_ptr<Formatter> formatter) override
 #### ⚙️ `SetPattern`
 
 ```cpp
-void SetPattern(const std::string& pattern) override
+void SetPattern(const NkString& pattern) override
 ```
 
 **Définit le pattern de formatage**
@@ -256,7 +256,7 @@ void SetPattern(const std::string& pattern) override
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` |  |
+| `pattern` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sinks\ConsoleSink.h:75`*
 

@@ -217,7 +217,7 @@ public:
         }
     }
 private:
-    std::vector<CallbackFn> m_callbacks;
+    NkVector<CallbackFn> m_callbacks;
 };
 
 // Usage
@@ -250,7 +250,7 @@ public:
         return static_cast<T*>(s_services[typeId]);
     }
 private:
-    static std::unordered_map<size_t, void*> s_services;
+    static NkUnorderedMap<size_t, void*> s_services;
 };
 
 // Usage
@@ -1102,7 +1102,7 @@ namespace Nk {
 // ============================================================================
 
 template<typename T>
-using Atomic = std::atomic<T>;
+using Atomic = traits::NkAtomic<T>;
 
 using AtomicBool  = Atomic<bool>;
 using AtomicInt32 = Atomic<int32>;
@@ -1175,7 +1175,7 @@ inline T AtomicDecrement(Atomic<T>& atomic, MemoryOrder order = MemoryOrderSeqCs
 // ============================================================================
 
 inline void AtomicThreadFence(MemoryOrder order = MemoryOrderSeqCst) {
-    std::atomic_thread_fence(order);
+    traits::NkAtomic_thread_fence(order);
 }
 
 } // namespace Nk

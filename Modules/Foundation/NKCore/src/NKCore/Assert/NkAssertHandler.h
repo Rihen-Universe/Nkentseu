@@ -19,42 +19,36 @@
  */
 namespace nkentseu {
 	/**
-	 * @brief Namespace core.
+	 * @brief Type de callback pour assertions
 	 */
-	namespace core {
+	using NkAssertCallback = NkAssertAction (*)(const NkAssertionInfo &);
 
-		/**
-		 * @brief Type de callback pour assertions
-		 */
-		using NkAssertCallback = NkAssertAction (*)(const NkAssertionInfo &);
+	/**
+	 * @brief Gestionnaire global d'assertions
+	 */
+	class NKENTSEU_CORE_API NkAssertHandler {
+		public:
+			/**
+			 * @brief Récupère callback actuel
+			 */
+			static NkAssertCallback GetCallback();
 
-		/**
-		 * @brief Gestionnaire global d'assertions
-		 */
-		class NKENTSEU_CORE_API NkAssertHandler {
-			public:
-				/**
-				 * @brief Récupère callback actuel
-				 */
-				static NkAssertCallback GetCallback();
+			/**
+			 * @brief Définit callback custom
+			 */
+			static void SetCallback(NkAssertCallback callback);
 
-				/**
-				 * @brief Définit callback custom
-				 */
-				static void SetCallback(NkAssertCallback callback);
+			/**
+			 * @brief Callback par défaut
+			 */
+			static NkAssertAction DefaultCallback(const NkAssertionInfo &info);
 
-				/**
-				 * @brief Callback par défaut
-				 */
-				static NkAssertAction DefaultCallback(const NkAssertionInfo &info);
+			/**
+			 * @brief Gère une assertion échouée
+			 */
+			static NkAssertAction HandleAssertion(const NkAssertionInfo &info);
+	};
 
-				/**
-				 * @brief Gère une assertion échouée
-				 */
-				static NkAssertAction HandleAssertion(const NkAssertionInfo &info);
-		};
-
-	} // namespace core
 } // namespace nkentseu
 
 #endif

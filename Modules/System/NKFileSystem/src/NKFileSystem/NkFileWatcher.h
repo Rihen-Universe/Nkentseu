@@ -14,7 +14,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NkPath.h"
+#include "NKFileSystem/NkPath.h"
 
 namespace nkentseu {
     namespace entseu {
@@ -35,8 +35,8 @@ namespace nkentseu {
          */
         struct NkFileChangeEvent {
             NkFileChangeType Type;
-            core::NkString Path;
-            core::NkString OldPath;  // For rename events
+            NkString Path;
+            NkString OldPath;  // For rename events
             nk_int64 Timestamp;
             
             NkFileChangeEvent();
@@ -74,7 +74,7 @@ namespace nkentseu {
         class NkFileWatcher {
         private:
             void* mHandle;  // Platform-specific handle
-            core::NkString mPath;
+            NkString mPath;
             NkFileWatcherCallback* mCallback;
             bool mIsWatching;
             bool mRecursive;
@@ -105,7 +105,7 @@ namespace nkentseu {
             void SetCallback(NkFileWatcherCallback* callback);
             void SetRecursive(bool recursive);
             
-            const core::NkString& GetPath() const;
+            const NkString& GetPath() const;
             bool IsRecursive() const;
         };
         

@@ -68,6 +68,7 @@ namespace nkentseu {
                 [[nodiscard]] pointer Get() const noexcept { return mPtr; }
                 [[nodiscard]] Deleter& GetDeleter() noexcept { return mDeleter; }
                 [[nodiscard]] const Deleter& GetDeleter() const noexcept { return mDeleter; }
+                [[nodiscard]] nk_bool IsValid() const noexcept { return mPtr != nullptr; }
 
                 explicit operator nk_bool() const noexcept { return mPtr != nullptr; }
 
@@ -131,6 +132,9 @@ namespace nkentseu {
                 NkUniquePtr& operator=(const NkUniquePtr&) = delete;
 
                 [[nodiscard]] pointer Get() const noexcept { return mPtr; }
+                [[nodiscard]] Deleter& GetDeleter() noexcept { return mDeleter; }
+                [[nodiscard]] const Deleter& GetDeleter() const noexcept { return mDeleter; }
+                [[nodiscard]] nk_bool IsValid() const noexcept { return mPtr != nullptr; }
                 explicit operator nk_bool() const noexcept { return mPtr != nullptr; }
 
                 [[nodiscard]] element_type& operator[](nk_size index) const noexcept { return mPtr[index]; }
@@ -149,6 +153,16 @@ namespace nkentseu {
                     }
                 }
 
+                void Swap(NkUniquePtr& other) noexcept {
+                    pointer tmp = mPtr;
+                    mPtr = other.mPtr;
+                    other.mPtr = tmp;
+
+                    Deleter tmpDel = mDeleter;
+                    mDeleter = other.mDeleter;
+                    other.mDeleter = tmpDel;
+                }
+
             private:
                 pointer mPtr;
                 Deleter mDeleter;
@@ -157,13 +171,13 @@ namespace nkentseu {
         template <typename T, typename... Args>
         NkUniquePtr<T> NkMakeUnique(Args&&... args) {
             NkAllocator& alloc = NkGetDefaultAllocator();
-            T* object = alloc.New<T>(core::traits::NkForward<Args>(args)...);
+            T* object = alloc.New<T>(traits::NkForward<Args>(args)...);
             return NkUniquePtr<T>(object, NkDefaultDelete<T>(&alloc));
         }
 
         template <typename T, typename... Args>
         NkUniquePtr<T> NkMakeUniqueWithAllocator(NkAllocator& allocator, Args&&... args) {
-            T* object = allocator.New<T>(core::traits::NkForward<Args>(args)...);
+            T* object = allocator.New<T>(traits::NkForward<Args>(args)...);
             return NkUniquePtr<T>(object, NkDefaultDelete<T>(&allocator));
         }
 

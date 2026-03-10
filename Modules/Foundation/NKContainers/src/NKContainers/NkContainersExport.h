@@ -25,6 +25,6 @@
 #endif
 
 // Static library in this workspace. Kept for future DLL/shared builds.
-#define NKCONTAINERS_API
+#define NKENTSEU_CONTAINERS_API
 
 #endif // NKENTSEU_CONTAINERS_NKCONTAINERSEXPORT_H_INCLUDED

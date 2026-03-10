@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkThread.h"
+#include "NKThreading/NkThread.h"
 
 namespace nkentseu {
     namespace entseu {

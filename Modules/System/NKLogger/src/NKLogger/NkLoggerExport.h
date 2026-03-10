@@ -8,7 +8,7 @@
 #pragma once
 
 #include "NKCore/NkCoreExport.h"
-#include "NkCompilerDetect.h"
+#include "NKPlatform/NkCompilerDetect.h"
 
 // -----------------------------------------------------------------------------
 // MACROS D'EXPORTATION/IMPORTATION POUR LOGGER

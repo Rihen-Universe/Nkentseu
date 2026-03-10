@@ -71,7 +71,7 @@ void ClearSinks()
 #### ⚙️ `DistributingSink`
 
 ```cpp
-explicit DistributingSink(const std::vector<std::shared_ptr<ISink>>& sinks)
+explicit DistributingSink(const NkVector<std::shared_ptr<ISink>>& sinks)
 ```
 
 **Constructeur par défaut**
@@ -80,7 +80,7 @@ explicit DistributingSink(const std::vector<std::shared_ptr<ISink>>& sinks)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `sinks` | `const std::vector<std::shared_ptr<ISink>>&` |  |
+| `sinks` | `const NkVector<std::shared_ptr<ISink>>&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sinks\DistributingSink.h:31`*
 
@@ -92,7 +92,7 @@ explicit DistributingSink(const std::vector<std::shared_ptr<ISink>>& sinks)
 #### ⚙️ `DistributingSink`
 
 ```cpp
-explicit DistributingSink(const std::vector<std::shared_ptr<ISink>>& sinks)
+explicit DistributingSink(const NkVector<std::shared_ptr<ISink>>& sinks)
 ```
 
 **Constructeur avec liste initiale de sinks**
@@ -101,7 +101,7 @@ explicit DistributingSink(const std::vector<std::shared_ptr<ISink>>& sinks)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `sinks` | `const std::vector<std::shared_ptr<ISink>>&` | [in] Liste de sinks à ajouter |
+| `sinks` | `const NkVector<std::shared_ptr<ISink>>&` | [in] Liste de sinks à ajouter |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sinks\DistributingSink.h:36`*
 
@@ -261,7 +261,7 @@ void SetFormatter(std::unique_ptr<Formatter> formatter) override
 #### ⚙️ `SetPattern`
 
 ```cpp
-void SetPattern(const std::string& pattern) override
+void SetPattern(const NkString& pattern) override
 ```
 
 **Définit le pattern de formatage pour tous les sous-sinks**
@@ -270,7 +270,7 @@ void SetPattern(const std::string& pattern) override
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` |  |
+| `pattern` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sinks\DistributingSink.h:66`*
 

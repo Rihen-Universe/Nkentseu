@@ -1,100 +1,90 @@
 #pragma once
-
 // =============================================================================
 // NkWindowConfig.h
-// Configuration de création de fenêtre + Safe Area pour mobile.
+// Configuration de création de fenêtre.
+//
+// Changement par rapport à la version précédente :
+//   → Ajout du champ `surfaceHints` (NkSurfaceHints).
+//     Ce champ est optionnel. Laisser vide pour Vulkan, DirectX, Metal,
+//     Software, EGL. Rempli automatiquement par
+//     NkGraphicsContextFactory::PrepareWindowConfig() pour OpenGL/GLX.
 // =============================================================================
 
 #include "NkTypes.h"
 #include "NkSafeArea.h"
-#include <string>
+#include "NkSurfaceHint.h"   // ← seul ajout d'include
 
-/**
- * @brief Namespace nkentseu.
- */
 namespace nkentseu {
 
-/**
- * @brief Enumeration NkScreenOrientation.
- */
-enum class NkScreenOrientation : NkU32 {
-	NK_SCREEN_ORIENTATION_AUTO = 0,
-	NK_SCREEN_ORIENTATION_PORTRAIT,
-	NK_SCREEN_ORIENTATION_LANDSCAPE,
-};
+	enum class NkScreenOrientation : NkU32 {
+		NK_SCREEN_ORIENTATION_AUTO = 0,
+		NK_SCREEN_ORIENTATION_PORTRAIT,
+		NK_SCREEN_ORIENTATION_LANDSCAPE,
+	};
 
-// ---------------------------------------------------------------------------
-// Options Web (WASM) pour le routage des entrées navigateur/app
-// ---------------------------------------------------------------------------
+	struct NkWebInputOptions {
+		bool captureKeyboard        = true;
+		bool allowBrowserShortcuts  = true;
+		bool captureMouseMove       = true;
+		bool captureMouseLeft       = true;
+		bool captureMouseMiddle     = true;
+		bool captureMouseRight      = false;
+		bool captureMouseWheel      = true;
+		bool captureTouch           = true;
+		bool preventContextMenu     = false;
+	};
 
-struct NkWebInputOptions {
-	// Clavier
-	bool captureKeyboard = true;
-	bool allowBrowserShortcuts = true; // F12, Ctrl+Shift+I/J, Ctrl+R, Meta+...
+	struct NkWindowConfig {
+		// --- Position et taille ---
+		NkI32 x         = 100;
+		NkI32 y         = 100;
+		NkU32 width     = 1280;
+		NkU32 height    = 720;
+		NkU32 minWidth  = 160;
+		NkU32 minHeight = 90;
+		NkU32 maxWidth  = 0xFFFF;
+		NkU32 maxHeight = 0xFFFF;
 
-	// Souris
-	bool captureMouseMove = true;
-	bool captureMouseLeft = true;
-	bool captureMouseMiddle = true;
-	bool captureMouseRight = false;
-	bool captureMouseWheel = true;
+		// --- Comportement ---
+		bool centered       = true;
+		bool resizable      = true;
+		bool movable        = true;
+		bool closable       = true;
+		bool minimizable    = true;
+		bool maximizable    = true;
+		bool canFullscreen  = true;
+		bool fullscreen     = false;
+		bool modal          = false;
+		bool vsync          = true;
+		bool dropEnabled    = false;
+		NkScreenOrientation screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
 
-	// Tactile
-	bool captureTouch = true;
+		// --- Apparence ---
+		bool   frame       = true;
+		bool   hasShadow   = true;
+		bool   transparent = false;
+		bool   visible     = true;
+		NkU32  bgColor     = 0x141414FF;
 
-	// Menu contextuel navigateur sur le canvas
-	bool preventContextMenu = false;
-};
+		// --- Identité ---
+		NkString title    = "NkWindow";
+		NkString name     = "NkApp";
+		NkString iconPath;
 
-// ---------------------------------------------------------------------------
-// NkWindowConfig
-// ---------------------------------------------------------------------------
+		// --- Mobile / Safe Area ---
+		bool respectSafeArea = true;
 
-struct NkWindowConfig {
-	// --- Position et taille ---
-	NkI32 x = 100;
-	NkI32 y = 100;
-	NkU32 width = 1280;
-	NkU32 height = 720;
-	NkU32 minWidth = 160;
-	NkU32 minHeight = 90;
-	NkU32 maxWidth = 0xFFFF;
-	NkU32 maxHeight = 0xFFFF;
+		// --- Web / WASM ---
+		NkWebInputOptions webInput;
 
-	// --- Comportement ---
-	bool centered = true;
-	bool resizable = true;
-	bool movable = true;
-	bool closable = true;
-	bool minimizable = true;
-	bool maximizable = true;
-	bool canFullscreen = true;
-	bool fullscreen = false;
-	bool modal = false;
-	bool vsync = true;
-	bool dropEnabled = false;
-	NkScreenOrientation screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
-
-	// --- Apparence ---
-	bool frame = true;
-	bool hasShadow = true;
-	bool transparent = false;
-	bool visible = true;
-	NkU32 bgColor = 0x141414FF;
-
-	// --- Identité ---
-	std::string title = "NkWindow";
-	std::string name = "NkApp";
-	std::string iconPath;
-
-	// --- Mobile / Safe Area ---
-	// Si true : le renderer recevra les insets via Window::GetSafeAreaInsets().
-	// Sur desktop : sans effet.
-	bool respectSafeArea = true;
-
-	// --- Web / WASM ---
-	// Contrôle fin de la capture des entrées navigateur.
-	NkWebInputOptions webInput;
-};
+		// ── Hints de surface ────────────────────────────────────────────────────
+		// Remplis par NkGraphicsContextFactory::PrepareWindowConfig() AVANT Create().
+		// NkWindow transmet ces hints au backend platform (XLib, XCB…)
+		// sans les interpréter.
+		// Pour la grande majorité des cas (Vulkan, Metal, DirectX, Software,
+		// OpenGL/WGL, OpenGL/EGL) : laisser vide, ne rien faire.
+		// Pour OpenGL/GLX sur Linux uniquement : appeler PrepareWindowConfig().
+		NkSurfaceHints surfaceHints;   // ← seul ajout dans ce struct
+	};
 
 } // namespace nkentseu

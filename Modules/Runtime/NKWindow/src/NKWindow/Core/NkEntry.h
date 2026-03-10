@@ -7,9 +7,9 @@
 // et dÃ©truite aprÃ¨s le retour de nkmain().
 // =============================================================================
 
-#include "NkPlatformDetect.h"
-#include <string>
-#include <vector>
+#include "NKPlatform/NkPlatformDetect.h"
+#include "NKContainers/String/NkStringUtils.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 // Inclusions conditionnelles des types natifs
 #if (defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP)) || defined(NKENTSEU_PLATFORM_XBOX)
@@ -38,8 +38,8 @@ namespace nkentseu {
 
 	struct NkEntryState {
 		// --- Arguments communs Ã  toutes les plateformes ---
-		std::string appName;
-		std::vector<std::string> args;
+		NkString appName;
+		NkVector<NkString> args;
 
 		// --- Handles natifs optionnels (nullptr / 0 sur les autres plateformes) ---
 
@@ -48,7 +48,7 @@ namespace nkentseu {
 		void *uwpCoreWindow = nullptr;
 
 		NkEntryState() = default;
-		explicit NkEntryState(const std::vector<std::string> &a, void *coreWindow = nullptr)
+		explicit NkEntryState(const NkVector<NkString> &a, void *coreWindow = nullptr)
 			: args(std::move(a)), uwpCoreWindow(coreWindow) {
 		}
 
@@ -59,7 +59,7 @@ namespace nkentseu {
 		LPSTR lpCmdLine = nullptr;
 		int nCmdShow = 1;
 
-		NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const std::vector<std::string> &a,
+		NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const NkVector<NkString> &a,
 					 void *nativeWindow = nullptr)
 			: xboxNativeWindow(nativeWindow), hInstance(hi), hPrevInstance(hpi), lpCmdLine(cmd), nCmdShow(ncmd), args(std::move(a)) {
 		}
@@ -70,7 +70,7 @@ namespace nkentseu {
 		LPSTR lpCmdLine = nullptr;
 		int nCmdShow = 1;
 
-		NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const std::vector<std::string> &a)
+		NkEntryState(HINSTANCE hi, HINSTANCE hpi, LPSTR cmd, int ncmd, const NkVector<NkString> &a)
 			: hInstance(hi), hPrevInstance(hpi), lpCmdLine(cmd), nCmdShow(ncmd), args(std::move(a)) {
 		}
 
@@ -78,40 +78,40 @@ namespace nkentseu {
 		// Wayland : wl_display est créé par fenêtre dans NkWaylandWindow::Create()
 		// — aucun handle global à transmettre ici.
 		NkEntryState() = default;
-		explicit NkEntryState(const std::vector<std::string> &a) : args(std::move(a)) {
+		explicit NkEntryState(const NkVector<NkString> &a) : args(std::move(a)) {
 		}
 
 	#elif defined(NKENTSEU_WINDOWING_XCB)
 		xcb_connection_t *connection = nullptr;
 		xcb_screen_t *screen = nullptr;
 
-		NkEntryState(xcb_connection_t *c, xcb_screen_t *s, const std::vector<std::string> &a)
+		NkEntryState(xcb_connection_t *c, xcb_screen_t *s, const NkVector<NkString> &a)
 			: connection(c), screen(s), args(std::move(a)) {
 		}
 
 	#elif defined(NKENTSEU_WINDOWING_XLIB)
 		Display *display = nullptr;
 
-		explicit NkEntryState(Display *d, const std::vector<std::string> &a) : display(d), args(std::move(a)) {
+		explicit NkEntryState(Display *d, const NkVector<NkString> &a) : display(d), args(std::move(a)) {
 		}
 
 	#elif defined(NKENTSEU_PLATFORM_ANDROID)
 		android_app *androidApp = nullptr;
 
-		explicit NkEntryState(android_app *app, const std::vector<std::string> &a) : androidApp(app), args(std::move(a)) {
+		explicit NkEntryState(android_app *app, NkVector<NkString> a) : androidApp(app), args(std::move(a)) {
 		}
 
 	#else
 		NkEntryState() = default;
-		explicit NkEntryState(const std::vector<std::string> &a) : args(std::move(a)) {
+		explicit NkEntryState(const NkVector<NkString> &a) : args(std::move(a)) {
 		}
 	#endif
 
 		// Accesseurs gÃ©nÃ©riques
-		const std::vector<std::string> &GetArgs() const {
+		const NkVector<NkString> &GetArgs() const {
 			return args;
 		}
-		const std::string &GetAppName() const {
+		const NkString &GetAppName() const {
 			return appName;
 		}
 	};

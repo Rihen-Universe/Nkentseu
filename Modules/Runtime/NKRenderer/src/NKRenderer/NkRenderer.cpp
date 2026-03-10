@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <cstring>
 #include <mutex>
-#include <unordered_map>
+#include "NKContainers/Associative/NkUnorderedMap.h"
 
 namespace nkentseu {
 
@@ -22,7 +22,7 @@ namespace nkentseu {
 
     namespace {
 
-    using NkRendererFactoryMap = std::unordered_map<NkU32, NkRenderer::NkRendererFactory>;
+    using NkRendererFactoryMap = NkUnorderedMap<NkU32, NkRenderer::NkRendererFactory>;
 
     NkRendererFactoryMap& ExternalRendererFactories() {
         static NkRendererFactoryMap sFactories;
@@ -52,9 +52,9 @@ namespace nkentseu {
             return nullptr;
         {
             std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
-            auto it = ExternalRendererFactories().find(static_cast<NkU32>(api));
-            if (it != ExternalRendererFactories().end() && it->second) {
-                if (auto impl = it->second())
+            auto* factory = ExternalRendererFactories().Find(static_cast<NkU32>(api));
+            if (factory && *factory) {
+                if (auto impl = (*factory)())
                     return impl;
             }
         }
@@ -125,13 +125,13 @@ namespace nkentseu {
     bool NkRenderer::UnregisterExternalRendererFactory(NkRendererApi api) {
         if (api == NkRendererApi::NK_NONE) return false;
         std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
-        return ExternalRendererFactories().erase(static_cast<NkU32>(api)) > 0;
+        return ExternalRendererFactories().Erase(static_cast<NkU32>(api));
     }
 
     bool NkRenderer::HasExternalRendererFactory(NkRendererApi api) {
         if (api == NkRendererApi::NK_NONE) return false;
         std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
-        return ExternalRendererFactories().count(static_cast<NkU32>(api)) > 0;
+        return ExternalRendererFactories().Contains(static_cast<NkU32>(api));
     }
 
     // ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ namespace nkentseu {
         return mConfig.api;
     }
 
-    std::string NkRenderer::GetApiName() const {
+    NkString NkRenderer::GetApiName() const {
         return mImpl ? mImpl->GetName() : NkRendererApiToString(mConfig.api);
     }
 
@@ -221,9 +221,9 @@ namespace nkentseu {
         mExternalTarget->pitch  = dstPitch;
         const std::size_t rowCount = static_cast<std::size_t>(fb.height);
         const std::size_t dstBytes = static_cast<std::size_t>(dstPitch) * rowCount;
-        mExternalTarget->pixels.resize(dstBytes);
+        mExternalTarget->pixels.Resize(dstBytes);
         const NkU8* src = fb.pixels;
-        NkU8*       dst = mExternalTarget->pixels.data();
+        NkU8*       dst = mExternalTarget->pixels.Data();
         if (fb.pitch == dstPitch) { std::memcpy(dst, src, dstBytes); return true; }
         for (std::size_t row = 0; row < rowCount; ++row)
             std::memcpy(dst + row * dstPitch, src + row * fb.pitch, dstPitch);

@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include <string>
-#include <chrono>
+#include <ctime>
 #include "NKCore/NkTypes.h"
+#include "NKContainers/String/NkString.h"
 #include "NKLogger/NkLogLevel.h"
 
 // -----------------------------------------------------------------------------
@@ -29,9 +29,6 @@ namespace nkentseu {
 		/// Timestamp en nanosecondes depuis l'epoch
 		uint64 timestamp;
 
-		/// Heure de réception du message
-		std::chrono::system_clock::time_point timePoint;
-
 		// ---------------------------------------------------------------------
 		// INFORMATIONS DE THREAD
 		// ---------------------------------------------------------------------
@@ -40,7 +37,7 @@ namespace nkentseu {
 		uint32 threadId;
 
 		/// Nom du thread (optionnel)
-		std::string threadName;
+		NkString threadName;
 
 		// ---------------------------------------------------------------------
 		// INFORMATIONS DE LOG
@@ -50,23 +47,23 @@ namespace nkentseu {
 		NkLogLevel level;
 
 		/// Message de log
-		std::string message;
+		NkString message;
 
 		/// Nom du logger
-		std::string loggerName;
+		NkString loggerName;
 
 		// ---------------------------------------------------------------------
 		// INFORMATIONS DE SOURCE (optionnelles)
 		// ---------------------------------------------------------------------
 
 		/// Fichier source
-		std::string sourceFile;
+		NkString sourceFile;
 
 		/// Ligne source
 		uint32 sourceLine;
 
 		/// Nom de la fonction
-		std::string functionName;
+		NkString functionName;
 
 		// ---------------------------------------------------------------------
 		// CONSTRUCTEURS
@@ -83,7 +80,7 @@ namespace nkentseu {
 		 * @param msg Message de log
 		 * @param logger Nom du logger (optionnel)
 		 */
-		NkLogMessage(NkLogLevel lvl, const std::string &msg, const std::string &logger = "");
+		NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &logger = "");
 
 		/**
 		 * @brief Constructeur avec informations complètes
@@ -94,8 +91,8 @@ namespace nkentseu {
 		 * @param func Fonction source (optionnel)
 		 * @param logger Nom du logger (optionnel)
 		 */
-		NkLogMessage(NkLogLevel lvl, const std::string &msg, const std::string &file, uint32 line, const std::string &func,
-				const std::string &logger = "");
+		NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &file, uint32 line, const NkString &func,
+				const NkString &logger = "");
 
 		/**
 		 * @brief Destructeur
@@ -121,13 +118,13 @@ namespace nkentseu {
 		 * @brief Obtient l'heure sous forme de structure tm
 		 * @return Structure tm avec l'heure locale
 		 */
-		std::tm GetLocalTime() const;
+		tm GetLocalTime() const;
 
 		/**
 		 * @brief Obtient l'heure sous forme de structure tm (UTC)
 		 * @return Structure tm avec l'heure UTC
 		 */
-		std::tm GetUTCTime() const;
+		tm GetUTCTime() const;
 
 		/**
 		 * @brief Obtient le timestamp en millisecondes

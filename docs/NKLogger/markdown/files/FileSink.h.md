@@ -52,7 +52,7 @@ void Close()
 #### ⚙️ `FileSink`
 
 ```cpp
-explicit FileSink(const std::string& filename, bool truncate)
+explicit FileSink(const NkString& filename, bool truncate)
 ```
 
 **Constructeur avec chemin de fichier**
@@ -61,7 +61,7 @@ explicit FileSink(const std::string& filename, bool truncate)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `filename` | `const std::string&` | [in] Chemin du fichier |
+| `filename` | `const NkString&` | [in] Chemin du fichier |
 | `truncate` | `bool` | [in] true pour tronquer le fichier existant |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sinks\FileSink.h:30`*
@@ -235,7 +235,7 @@ bool Open()
 #### ⚙️ `SetFilename`
 
 ```cpp
-void SetFilename(const std::string& filename)
+void SetFilename(const NkString& filename)
 ```
 
 **Définit un nouveau nom de fichier**
@@ -244,7 +244,7 @@ void SetFilename(const std::string& filename)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `filename` | `const std::string&` | [in] Nouveau nom de fichier |
+| `filename` | `const NkString&` | [in] Nouveau nom de fichier |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sinks\FileSink.h:103`*
 
@@ -277,7 +277,7 @@ void SetFormatter(std::unique_ptr<Formatter> formatter) override
 #### ⚙️ `SetPattern`
 
 ```cpp
-void SetPattern(const std::string& pattern) override
+void SetPattern(const NkString& pattern) override
 ```
 
 **Définit le pattern de formatage**
@@ -286,7 +286,7 @@ void SetPattern(const std::string& pattern) override
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `pattern` | `const std::string&` |  |
+| `pattern` | `const NkString&` |  |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKLogger\src\Logger\Sinks\FileSink.h:61`*
 

@@ -38,9 +38,9 @@ void NkCocoaCameraBackend::Shutdown() { StopStreaming(); }
 
 // ---------------------------------------------------------------------------
 
-std::vector<NkCameraDevice> NkCocoaCameraBackend::EnumerateDevices()
+NkVector<NkCameraDevice> NkCocoaCameraBackend::EnumerateDevices()
 {
-    std::vector<NkCameraDevice> result;
+    NkVector<NkCameraDevice> result;
     NSArray<AVCaptureDevice*>* devs = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
     NkU32 idx = 0;
     for (AVCaptureDevice* d in devs)
@@ -65,9 +65,9 @@ std::vector<NkCameraDevice> NkCocoaCameraBackend::EnumerateDevices()
             mode.height = static_cast<NkU32>(dim.height);
             mode.fps    = 30;
             mode.format = NkPixelFormat::NK_PIXEL_BGRA8;
-            if (mode.width > 0 && mode.height > 0) dev.modes.push_back(mode);
+            if (mode.width > 0 && mode.height > 0) dev.modes.PushBack(mode);
         }
-        result.push_back(dev);
+        result.PushBack(dev);
     }
     return result;
 }
@@ -151,8 +151,8 @@ void NkCocoaCameraBackend::OnSampleBuffer(void* sampleBuf)
     frame.stride     = static_cast<NkU32>(stride);
     frame.format     = NkPixelFormat::NK_PIXEL_BGRA8;
     frame.frameIndex = mFrameIdx++;
-    frame.data.resize(stride * h);
-    memcpy(frame.data.data(), ptr, stride * h);
+    frame.data.Resize(static_cast<usize>(stride * h));
+    memcpy(frame.data.Data(), ptr, stride * h);
 
     CVPixelBufferUnlockBaseAddress(ib, kCVPixelBufferLock_ReadOnly);
 
@@ -180,7 +180,7 @@ bool NkCocoaCameraBackend::CapturePhoto(NkPhotoCaptureResult& res)
     return true;
 }
 
-bool NkCocoaCameraBackend::CapturePhotoToFile(const std::string& path)
+bool NkCocoaCameraBackend::CapturePhotoToFile(const NkString& path)
 {
     NkPhotoCaptureResult res;
     if (!CapturePhoto(res)) return false;

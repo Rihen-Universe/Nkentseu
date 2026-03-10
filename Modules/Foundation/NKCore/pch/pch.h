@@ -7,17 +7,11 @@
 
 #pragma once
 
-// Ajoutez ici les en-têtes rarement modifiés
-#include <cstdint>
+// PCH NKCore: headers C/C++ de base uniquement (pas de STL conteneurs)
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
-#include <memory>
-#include <vector>
-#include <string>
-#include <functional>
-#include <utility>
-#include <type_traits>
-#include <cassert>
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

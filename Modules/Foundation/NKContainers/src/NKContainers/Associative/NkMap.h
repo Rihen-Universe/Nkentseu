@@ -15,14 +15,14 @@
 #include "NKContainers/NkContainersExport.h"
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkMemoryFn.h"
+#include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Heterogeneous/NkPair.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Ordered map - std::map equivalent
@@ -244,17 +244,31 @@ namespace nkentseu {
                 while (node && node->Left) node = node->Left;
                 return node;
             }
+
+            Node* FindNode(const Key& key) const {
+                Node* current = mRoot;
+                while (current) {
+                    if (key < current->Data.First) {
+                        current = current->Left;
+                    } else if (current->Data.First < key) {
+                        current = current->Right;
+                    } else {
+                        return current;
+                    }
+                }
+                return nullptr;
+            }
             
         public:
             // Constructors
-            NkMap()
+            explicit NkMap(Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
             }
             
-            NkMap(NkInitializerList<ValueType> init)
+            NkMap(NkInitializerList<ValueType> init, Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 for (auto& pair : init) {
                     Insert(pair.First, pair.Second);
                 }
@@ -269,9 +283,13 @@ namespace nkentseu {
             ConstIterator begin() const { return ConstIterator(FindMin(mRoot), this); }
             Iterator end() { return Iterator(nullptr, this); }
             ConstIterator end() const { return ConstIterator(nullptr, this); }
+            Iterator Begin() { return begin(); }
+            ConstIterator Begin() const { return begin(); }
+            Iterator End() { return end(); }
+            ConstIterator End() const { return end(); }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mSize == 0; }
+            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }
             
             // Modifiers
@@ -316,45 +334,56 @@ namespace nkentseu {
             }
             
             bool Contains(const Key& key) const {
-                Node* current = mRoot;
-                while (current) {
-                    if (key < current->Data.First) {
-                        current = current->Left;
-                    } else if (current->Data.First < key) {
-                        current = current->Right;
-                    } else {
-                        return true;
-                    }
-                }
-                return false;
+                return FindNode(key) != nullptr;
             }
             
             Value* Find(const Key& key) {
-                Node* current = mRoot;
-                while (current) {
-                    if (key < current->Data.First) {
-                        current = current->Left;
-                    } else if (current->Data.First < key) {
-                        current = current->Right;
-                    } else {
-                        return &current->Data.Second;
-                    }
-                }
-                return nullptr;
+                Node* node = FindNode(key);
+                return node ? &node->Data.Second : nullptr;
             }
             
             const Value* Find(const Key& key) const {
-                Node* current = mRoot;
-                while (current) {
-                    if (key < current->Data.First) {
-                        current = current->Left;
-                    } else if (current->Data.First < key) {
-                        current = current->Right;
-                    } else {
-                        return &current->Data.Second;
-                    }
+                Node* node = FindNode(key);
+                return node ? &node->Data.Second : nullptr;
+            }
+
+            Iterator FindIterator(const Key& key) {
+                return Iterator(FindNode(key), this);
+            }
+
+            ConstIterator FindIterator(const Key& key) const {
+                return ConstIterator(FindNode(key), this);
+            }
+
+            Value& At(const Key& key) {
+                Node* node = FindNode(key);
+                NK_ASSERT(node != nullptr);
+                return node->Data.Second;
+            }
+
+            const Value& At(const Key& key) const {
+                Node* node = FindNode(key);
+                NK_ASSERT(node != nullptr);
+                return node->Data.Second;
+            }
+
+            bool TryGet(const Key& key, Value& outValue) const {
+                const Value* value = Find(key);
+                if (!value) {
+                    return false;
                 }
-                return nullptr;
+                outValue = *value;
+                return true;
+            }
+
+            bool InsertOrAssign(const Key& key, const Value& value) {
+                Value* current = Find(key);
+                if (current) {
+                    *current = value;
+                    return false;
+                }
+                Insert(key, value);
+                return true;
             }
             
             Value& operator[](const Key& key) {
@@ -366,7 +395,7 @@ namespace nkentseu {
             }
         };
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKMAP_H_INCLUDED

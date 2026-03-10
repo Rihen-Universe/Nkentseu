@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 #endif
 
-#include "NkStream.h"
+#include "NKStream/NkStream.h"
 
 namespace nkentseu {
 

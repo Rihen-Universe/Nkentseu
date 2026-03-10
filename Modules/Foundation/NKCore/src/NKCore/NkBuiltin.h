@@ -26,6 +26,7 @@
  * @ingroup BuiltinMacros
  */
 #define NKENTSEU_BUILTIN_FILE __FILE__
+#define NK_BUILTIN_FILE NKENTSEU_BUILTIN_FILE
 
 /**
  * @brief Numéro de ligne courante
@@ -33,6 +34,7 @@
  * @ingroup BuiltinMacros
  */
 #define NKENTSEU_BUILTIN_LINE __LINE__
+#define NK_BUILTIN_LINE NKENTSEU_BUILTIN_LINE
 
 /**
  * @brief Nom de la fonction courante (dépend du compilateur)
@@ -50,6 +52,7 @@
 #else
 #define NKENTSEU_BUILTIN_FUNCTION __func__
 #endif
+#define NK_BUILTIN_FUNCTION NKENTSEU_BUILTIN_FUNCTION
 #else
 // C: utilise __func__ (standard C99)
 #if __STDC_VERSION__ >= 199901L
@@ -59,6 +62,9 @@
 #define NKENTSEU_BUILTIN_FUNCTION ""
 #endif
 #endif
+#ifndef NK_BUILTIN_FUNCTION
+#define NK_BUILTIN_FUNCTION NKENTSEU_BUILTIN_FUNCTION
+#endif
 
 /**
  * @brief Date de compilation courante
@@ -66,6 +72,7 @@
  * @ingroup BuiltinMacros
  */
 #define NKENTSEU_BUILTIN_DATE __DATE__
+#define NK_BUILTIN_DATE NKENTSEU_BUILTIN_DATE
 
 /**
  * @brief Heure de compilation courante
@@ -73,6 +80,7 @@
  * @ingroup BuiltinMacros
  */
 #define NKENTSEU_BUILTIN_TIME __TIME__
+#define NK_BUILTIN_TIME NKENTSEU_BUILTIN_TIME
 
 /**
  * @brief Timestamp de compilation
@@ -80,6 +88,7 @@
  * @ingroup BuiltinMacros
  */
 #define NKENTSEU_BUILTIN_TIMESTAMP __DATE__ " " __TIME__
+#define NK_BUILTIN_TIMESTAMP NKENTSEU_BUILTIN_TIMESTAMP
 
 // ============================================================
 // MACROS POUR INFORMATIONS DE COMPILATION
@@ -96,6 +105,7 @@
  * @ingroup CompileInfoMacros
  */
 #define NKENTSEU_UNIQUE_ID __LINE__
+#define NK_UNIQUE_ID NKENTSEU_UNIQUE_ID
 
 /**
  * @brief Crée un identifiant unique avec préfixe
@@ -104,6 +114,7 @@
  * @ingroup CompileInfoMacros
  */
 #define NKENTSEU_UNIQUE_NAME(prefix) NKENTSEU_CONCAT(prefix, NKENTSEU_UNIQUE_ID)
+#define NK_UNIQUE_NAME(prefix) NKENTSEU_UNIQUE_NAME(prefix)
 
 // ============================================================
 // MACROS DE DÉBOGAGE AMÉLIORÉES

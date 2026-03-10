@@ -53,7 +53,7 @@ static NkDialogResult ColorPicker(NkU32 initial) = 0
 `static`
 
 ```cpp
-static NkDialogResult OpenFileDialog(const std::string& filter, const std::string& title)
+static NkDialogResult OpenFileDialog(const NkString& filter, const NkString& title)
 ```
 
 **Ouvre un dialogue de sélection de fichier.**
@@ -62,8 +62,8 @@ static NkDialogResult OpenFileDialog(const std::string& filter, const std::strin
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `filter` | `const std::string&` | [in] Filtre type "*.png;*.jpg" (peut être vide pour tous) |
-| `title` | `const std::string&` | [in] Titre de la boîte de dialogue. |
+| `filter` | `const NkString&` | [in] Filtre type "*.png;*.jpg" (peut être vide pour tous) |
+| `title` | `const NkString&` | [in] Titre de la boîte de dialogue. |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKWindow\src\NKWindow\Core\NkDialogs.h:34`*
 
@@ -77,7 +77,7 @@ static NkDialogResult OpenFileDialog(const std::string& filter, const std::strin
 `static`
 
 ```cpp
-static NkDialogResult SaveFileDialog(const std::string& defaultExt, const std::string& title)
+static NkDialogResult SaveFileDialog(const NkString& defaultExt, const NkString& title)
 ```
 
 **Ouvre un dialogue de sauvegarde de fichier.**
@@ -86,8 +86,8 @@ static NkDialogResult SaveFileDialog(const std::string& defaultExt, const std::s
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `defaultExt` | `const std::string&` | [in] Extension par défaut sans point (ex: "png") |
-| `title` | `const std::string&` | [in] Titre de la boîte de dialogue. |
+| `defaultExt` | `const NkString&` | [in] Extension par défaut sans point (ex: "png") |
+| `title` | `const NkString&` | [in] Titre de la boîte de dialogue. |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKWindow\src\NKWindow\Core\NkDialogs.h:43`*
 

@@ -16,7 +16,7 @@
 #include "NKCore/NkTraits.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Tuple - Simplified tuple for 2-3 types
@@ -116,7 +116,7 @@ namespace nkentseu {
             return NkTuple4<T1, T2, T3, T4>(first, second, third, fourth);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_HETEROGENEOUS_NKTUPLE_H_INCLUDED

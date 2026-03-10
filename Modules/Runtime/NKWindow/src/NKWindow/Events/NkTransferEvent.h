@@ -30,6 +30,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include <string>
 #include <vector>
 
@@ -150,7 +151,7 @@ namespace nkentseu {
          * @param windowId    Identifiant de la fenêtre.
          */
         NkTransferBeginEvent(NkU64 transferId,
-                              std::string           name,
+                              NkString           name,
                               NkU64                 totalBytes = 0,
                               NkTransferDirection   direction  = NkTransferDirection::NK_TRANSFER_RECEIVE,
                               NkTransferProtocol    protocol   = NkTransferProtocol::NK_TRANSFER_PROTO_UNKNOWN,
@@ -163,14 +164,14 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkTransferBeginEvent(*this); }
-        std::string ToString() const override {
-            return "TransferBegin(id=" + std::to_string(mTransferId)
-                 + " \"" + mName + "\""
-                 + " size=" + (mTotalBytes > 0 ? std::to_string(mTotalBytes) : "?") + "B"
-                 + " " + NkTransferProtocolToString(mProtocol) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("TransferBegin(id={0} \"{1}\" size={2}B {3})",
+                mTransferId, mName,
+                (mTotalBytes > 0 ? NkString::Fmt("{0}", mTotalBytes) : "?"),
+                NkTransferProtocolToString(mProtocol));
         }
 
-        const std::string&    GetNames()      const noexcept { return mName; }
+        const NkString&    GetNames()      const noexcept { return mName; }
         NkU64                 GetTotalBytes()const noexcept { return mTotalBytes; }
         NkTransferDirection   GetDirection() const noexcept { return mDirection; }
         NkTransferProtocol    GetProtocol()  const noexcept { return mProtocol; }
@@ -179,7 +180,7 @@ namespace nkentseu {
         bool                  IsSizeKnown() const noexcept { return mTotalBytes > 0; }
 
     private:
-        std::string         mName;
+        NkString         mName;
         NkU64               mTotalBytes = 0;
         NkTransferDirection mDirection  = NkTransferDirection::NK_TRANSFER_RECEIVE;
         NkTransferProtocol  mProtocol   = NkTransferProtocol::NK_TRANSFER_PROTO_UNKNOWN;
@@ -212,11 +213,11 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkTransferProgressEvent(*this); }
-        std::string ToString() const override {
-            return "TransferProgress(id=" + std::to_string(mTransferId)
-                 + " " + std::to_string(mBytesTransferred) + "/"
-                 + (mTotalBytes > 0 ? std::to_string(mTotalBytes) : "?") + "B"
-                 + " " + std::to_string(static_cast<int>(GetProgressPercent())) + "%)";
+        NkString ToString() const override {
+            return NkString::Fmt("TransferProgress(id={0} {1}/{2}B {3}%)",
+                mTransferId, mBytesTransferred,
+                (mTotalBytes > 0 ? NkString::Fmt("{0}", mTotalBytes) : "?"),
+                static_cast<int>(GetProgressPercent()));
         }
 
         NkU64 GetBytesTransferred()  const noexcept { return mBytesTransferred; }
@@ -259,7 +260,7 @@ namespace nkentseu {
         NkTransferCompleteEvent(NkU64 transferId,
                                   NkU64 totalBytes  = 0,
                                   NkU64 durationMs  = 0,
-                                  std::string outputPath = {},
+                                  NkString outputPath = {},
                                   NkU64 windowId    = 0)
             : NkTransferEvent(transferId, windowId)
             , mTotalBytes(totalBytes)
@@ -268,15 +269,14 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkTransferCompleteEvent(*this); }
-        std::string ToString() const override {
-            return "TransferComplete(id=" + std::to_string(mTransferId)
-                 + " " + std::to_string(mTotalBytes) + "B"
-                 + " " + std::to_string(mDurationMs) + "ms)";
+        NkString ToString() const override {
+            return NkString::Fmt("TransferComplete(id={0} {1}B {2}ms)",
+                mTransferId, mTotalBytes, mDurationMs);
         }
 
         NkU64              GetTotalBytes()  const noexcept { return mTotalBytes; }
         NkU64              GetDurationMs()  const noexcept { return mDurationMs; }
-        const std::string& GetOutputPath()  const noexcept { return mOutputPath; }
+        const NkString& GetOutputPath()  const noexcept { return mOutputPath; }
 
         /// @brief Débit moyen [octets/s] (0 si durée nulle)
         NkU64 GetAverageSpeedBytesPerSec() const noexcept {
@@ -287,7 +287,7 @@ namespace nkentseu {
     private:
         NkU64       mTotalBytes = 0;
         NkU64       mDurationMs = 0;
-        std::string mOutputPath;
+        NkString mOutputPath;
     };
 
     // =========================================================================
@@ -312,7 +312,7 @@ namespace nkentseu {
          */
         NkTransferErrorEvent(NkU64 transferId,
                                NkTransferStatus status,
-                               std::string      message          = {},
+                               NkString      message          = {},
                                NkU64            bytesTransferred = 0,
                                NkU64            windowId         = 0)
             : NkTransferEvent(transferId, windowId)
@@ -322,19 +322,19 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkTransferErrorEvent(*this); }
-        std::string ToString() const override {
-            return "TransferError(id=" + std::to_string(mTransferId)
-                 + " " + NkTransferStatusToString(mStatus)
-                 + (mMessage.empty() ? "" : " \"" + mMessage + "\"") + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("TransferError(id={0} {1}{2})",
+                mTransferId, NkTransferStatusToString(mStatus),
+                (mMessage.Empty() ? "" : " \"" + mMessage + "\""));
         }
 
         NkTransferStatus   GetStatus()           const noexcept { return mStatus; }
-        const std::string& GetMessage()          const noexcept { return mMessage; }
+        const NkString& GetMessage()          const noexcept { return mMessage; }
         NkU64              GetBytesTransferred() const noexcept { return mBytesTransferred; }
 
     private:
         NkTransferStatus mStatus           = NkTransferStatus::NK_TRANSFER_STATUS_ERROR;
-        std::string      mMessage;
+        NkString      mMessage;
         NkU64            mBytesTransferred = 0;
     };
 
@@ -357,9 +357,9 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkTransferCancelledEvent(*this); }
-        std::string ToString() const override {
-            return "TransferCancelled(id=" + std::to_string(mTransferId)
-                 + " after " + std::to_string(mBytesTransferred) + "B)";
+        NkString ToString() const override {
+            return NkString::Fmt("TransferCancelled(id={0} after {1}B)",
+                mTransferId, mBytesTransferred);
         }
 
         NkU64 GetBytesTransferred() const noexcept { return mBytesTransferred; }
@@ -378,7 +378,7 @@ namespace nkentseu {
      * Utilisé pour les transferts en streaming où les données doivent être
      * traitées au fur et à mesure (audio, vidéo, réseau temps-réel...).
      *
-     * @note  Les données sont passées par valeur (std::vector<NkU8>) pour
+     * @note  Les données sont passées par valeur (NkVector<NkU8>) pour
      *        éviter les problèmes de durée de vie. Pour les gros volumes, il
      *        est recommandé d'utiliser un système de buffers partagés en dehors
      *        du système d'événements.
@@ -394,7 +394,7 @@ namespace nkentseu {
          * @param windowId    Identifiant de la fenêtre.
          */
         NkTransferDataEvent(NkU64             transferId,
-                              std::vector<NkU8> data,
+                              NkVector<NkU8> data,
                               NkU64             offset    = 0,
                               NkU64             windowId  = 0)
             : NkTransferEvent(transferId, windowId)
@@ -403,19 +403,18 @@ namespace nkentseu {
         {}
 
         NkEvent*    Clone()    const override { return new NkTransferDataEvent(*this); }
-        std::string ToString() const override {
-            return "TransferData(id=" + std::to_string(mTransferId)
-                 + " size=" + std::to_string(mData.size()) + "B"
-                 + " offset=" + std::to_string(mOffset) + ")";
+        NkString ToString() const override {
+            return NkString::Fmt("TransferData(id={0} size={1}B offset={2})",
+                mTransferId, mData.Size(), mOffset);
         }
 
-        const std::vector<NkU8>& GetData()   const noexcept { return mData; }
+        const NkVector<NkU8>& GetData()   const noexcept { return mData; }
         NkU64                    GetOffset()  const noexcept { return mOffset; }
-        NkU32                    GetSize()    const noexcept { return static_cast<NkU32>(mData.size()); }
-        const NkU8*              GetBytes()   const noexcept { return mData.data(); }
+        NkU32                    GetSize()    const noexcept { return static_cast<NkU32>(mData.Size()); }
+        const NkU8*              GetBytes()   const noexcept { return mData.Data(); }
 
     private:
-        std::vector<NkU8> mData;
+        NkVector<NkU8> mData;
         NkU64             mOffset = 0;
     };
 

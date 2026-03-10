@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkYAMLWriter.h"
+#include "NKSerialization/YAML/NkYAMLWriter.h"
 
 namespace nkentseu {
     namespace entseu {

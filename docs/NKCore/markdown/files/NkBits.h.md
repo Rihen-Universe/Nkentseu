@@ -58,7 +58,7 @@ template<typename T> class NkBits
 #### ⚙️ `NK_BYTESWAP16`
 
 ```cpp
-nk_uint16 NK_BYTESWAP16(nkentseu::core::nk_uint16 x)
+nk_uint16 NK_BYTESWAP16(nkentseu::nk_uint16 x)
 ```
 
 **Inverse l'ordre des octets (16-bit)**
@@ -67,7 +67,7 @@ nk_uint16 NK_BYTESWAP16(nkentseu::core::nk_uint16 x)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `x` | `nkentseu::core::nk_uint16` | [in] Valeur 16-bit |
+| `x` | `nkentseu::nk_uint16` | [in] Valeur 16-bit |
 
 **Retour:** Valeur avec octets inversés
 
@@ -81,7 +81,7 @@ nk_uint16 NK_BYTESWAP16(nkentseu::core::nk_uint16 x)
 #### ⚙️ `NK_CTZ64`
 
 ```cpp
-nk_uint32 NK_CTZ64(nkentseu::core::nk_uint64 x) = 0
+nk_uint32 NK_CTZ64(nkentseu::nk_uint64 x) = 0
 ```
 
 **Macro pour compter les zéros à droite (64-bit)**
@@ -90,7 +90,7 @@ nk_uint32 NK_CTZ64(nkentseu::core::nk_uint64 x) = 0
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `x` | `nkentseu::core::nk_uint64` | [in] Entier 64-bit |
+| `x` | `nkentseu::nk_uint64` | [in] Entier 64-bit |
 
 **Retour:** Nombre de zéros à droite (0-63)
 
@@ -108,7 +108,7 @@ nk_uint32 NK_CTZ64(nkentseu::core::nk_uint64 x) = 0
 #### 🔧 `ByteSwap16`
 
 ```cpp
-nk_uint16 ByteSwap16(nkentseu::core::nk_uint16 value)
+nk_uint16 ByteSwap16(nkentseu::nk_uint16 value)
 ```
 
 **Inverse l'ordre des octets (16-bit)**
@@ -117,7 +117,7 @@ nk_uint16 ByteSwap16(nkentseu::core::nk_uint16 value)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `value` | `nkentseu::core::nk_uint16` | [in] Valeur 16-bit |
+| `value` | `nkentseu::nk_uint16` | [in] Valeur 16-bit |
 
 **Retour:** Valeur avec octets inversés
 
@@ -131,7 +131,7 @@ nk_uint16 ByteSwap16(nkentseu::core::nk_uint16 value)
 #### 🔧 `ByteSwap32`
 
 ```cpp
-nk_uint32 ByteSwap32(nkentseu::core::nk_uint32 value)
+nk_uint32 ByteSwap32(nkentseu::nk_uint32 value)
 ```
 
 **Inverse l'ordre des octets (32-bit)**
@@ -140,7 +140,7 @@ nk_uint32 ByteSwap32(nkentseu::core::nk_uint32 value)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `value` | `nkentseu::core::nk_uint32` | [in] Valeur 32-bit |
+| `value` | `nkentseu::nk_uint32` | [in] Valeur 32-bit |
 
 **Retour:** Valeur avec octets inversés
 
@@ -154,7 +154,7 @@ nk_uint32 ByteSwap32(nkentseu::core::nk_uint32 value)
 #### 🔧 `ByteSwap64`
 
 ```cpp
-template<typename T> nk_uint64 ByteSwap64(nkentseu::core::nk_uint64 value)
+template<typename T> nk_uint64 ByteSwap64(nkentseu::nk_uint64 value)
 ```
 
 **Inverse l'ordre des octets (64-bit)**
@@ -167,7 +167,7 @@ template<typename T> nk_uint64 ByteSwap64(nkentseu::core::nk_uint64 value)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `value` | `nkentseu::core::nk_uint64` | [in] Valeur 64-bit |
+| `value` | `nkentseu::nk_uint64` | [in] Valeur 64-bit |
 
 **Retour:** Valeur avec octets inversés
 
@@ -422,7 +422,7 @@ template<typename T> static nk_int32 Log2(T value)
 #### 🔧 `NextPowerOfTwo`
 
 ```cpp
-nk_uint32 NextPowerOfTwo(nkentseu::core::nk_uint32 value)
+nk_uint32 NextPowerOfTwo(nkentseu::nk_uint32 value)
 ```
 
 **Arrondit vers le haut à la prochaine puissance de 2**
@@ -431,7 +431,7 @@ nk_uint32 NextPowerOfTwo(nkentseu::core::nk_uint32 value)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `value` | `nkentseu::core::nk_uint32` | [in] Valeur 32-bit |
+| `value` | `nkentseu::nk_uint32` | [in] Valeur 32-bit |
 
 **Retour:** Prochaine puissance de 2 supérieure ou égale
 
@@ -445,7 +445,7 @@ nk_uint32 NextPowerOfTwo(nkentseu::core::nk_uint32 value)
 #### 🔧 `NextPowerOfTwo`
 
 ```cpp
-template<typename T> nk_uint64 NextPowerOfTwo(nkentseu::core::nk_uint64 value)
+template<typename T> nk_uint64 NextPowerOfTwo(nkentseu::nk_uint64 value)
 ```
 
 **Arrondit vers le haut à la prochaine puissance de 2**
@@ -458,7 +458,7 @@ template<typename T> nk_uint64 NextPowerOfTwo(nkentseu::core::nk_uint64 value)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `value` | `nkentseu::core::nk_uint64` | [in] Valeur 64-bit |
+| `value` | `nkentseu::nk_uint64` | [in] Valeur 64-bit |
 
 **Retour:** Prochaine puissance de 2 supérieure ou égale
 

@@ -14,6 +14,10 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 
+#include "NKLogger/NkLog.h"
+
+#include "NKMemory/NkMemory.h"
+
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -21,15 +25,7 @@
 // ---------------------------------------------------------------------------
 // Logger dual (console + fichier)
 // ---------------------------------------------------------------------------
-static std::ofstream gLog("ex01_diagnostic.log", std::ios::trunc);
-
-#define LOG(x)                                    \
-    do {                                          \
-        std::printf("%s\n", (std::string("") + x).c_str()); \
-        gLog << x << "\n";                        \
-        gLog.flush();                             \
-    } while (0)
-
+#define gLog logger;
 // ---------------------------------------------------------------------------
 // Utilitaires de debug
 // ---------------------------------------------------------------------------
@@ -69,7 +65,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 {
     using namespace nkentseu;
 
-    LOG("=== ex01_diagnostic — NkWindow event diagnostic ===");
+    logger.Info("=== ex01_diagnostic — NkWindow event diagnostic ===");
 
     // -----------------------------------------------------------------------
     // 1. Init système
@@ -78,10 +74,10 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     app.appName = "ex01_diagnostic";
 
     if (!NkInitialise(app)) {
-        LOG("[FATAL] NkInitialise failed");
+        logger.Error("[FATAL] NkInitialise failed");
         return -1;
     }
-    LOG("[1] NkInitialise OK");
+    logger.Info("[1] NkInitialise OK");
 
     // -----------------------------------------------------------------------
     // 2. Fenêtre
@@ -96,11 +92,11 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     NkWindow window(cfg);
     if (!window.IsOpen()) {
-        LOG("[FATAL] Window creation failed");
+        logger.Error("[FATAL] Window creation failed");
         NkClose();
         return -2;
     }
-    LOG("[2] Window open — valid: " + std::string(window.IsValid() ? "yes" : "no"));
+    logger.Info("[2] Window open — valid: {0}", window.IsValid() ? "yes" : "no");
 
     // -----------------------------------------------------------------------
     // 3. Boucle diagnostique
@@ -111,8 +107,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     int   evCount = 0;
     bool  running = true;
 
-    LOG("[3] Entering event loop — close window or press ESC to exit");
-    LOG("    Interact : move/resize/focus/unfocus/drop files/press keys");
+    logger.Info("[3] Entering event loop — close window or press ESC to exit");
+    logger.Info("    Interact : move/resize/focus/unfocus/drop files/press keys");
 
     while (running && window.IsOpen())
     {
@@ -121,12 +117,9 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         {
             ++evCount;
             char buf[256];
-            std::snprintf(buf, sizeof(buf),
-                "[EVENT #%3d] type=%-22s winId=%llu",
-                evCount,
-                EventTypeName(ev->GetType()),
-                static_cast<unsigned long long>(ev->GetWindowId()));
-            std::string line = buf;
+            logger.Info("[EVENT] type={0} winId={1}", EventTypeName(ev->GetType()), ev->GetWindowId());
+            
+            NkString line = buf;
 
             // Détail selon le type
             if (auto* e = ev->As<NkWindowCloseEvent>()) {
@@ -137,7 +130,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             }
             else if (auto* e = ev->As<NkWindowResizeEvent>()) {
                 char d[64];
-                std::snprintf(d, sizeof(d), " → %ux%u", e->GetWidth(), e->GetHeight());
+                logger.Info("Resize event: new size = {0}x{1}", e->GetWidth(), e->GetHeight());
                 line += d;
             }
             else if (auto* e = ev->As<NkWindowFocusGainedEvent>()) {
@@ -148,15 +141,15 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             }
             else if (auto* e = ev->As<NkWindowMoveEvent>()) {
                 char d[64];
-                std::snprintf(d, sizeof(d), " → (%d,%d)", e->GetX(), e->GetY());
+                logger.Info("Move event: new pos = ({0},{1})", e->GetX(), e->GetY());
                 line += d;
             }
             else if (auto* e = ev->As<NkKeyPressEvent>()) {
                 // Affichage des modificateurs sous forme de chaîne (ToString)
-                std::string modStr = e->GetModifiers().ToString();
+                NkString modStr = e->GetModifiers().ToString();
                 char d[128];
-                std::snprintf(d, sizeof(d), " → key=%d mods=%s",
-                    static_cast<int>(e->GetKey()), modStr.c_str());
+                logger.Info("KeyPress event: key={0} mods={1}", static_cast<int>(e->GetKey()), modStr);
+                
                 line += d;
                 if (e->GetKey() == NkKey::NK_ESCAPE) {
                     line += " [ESC → exit]";
@@ -166,24 +159,22 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             }
             else if (auto* e = ev->As<NkKeyReleaseEvent>()) {
                 char d[64];
-                std::snprintf(d, sizeof(d), " → key=%d", static_cast<int>(e->GetKey()));
+                logger.Info("KeyRelease event: key={0}", static_cast<int>(e->GetKey()));
                 line += d;
             }
             else if (auto* e = ev->As<NkMouseMoveEvent>()) {
                 char d[64];
-                std::snprintf(d, sizeof(d), " → pos=(%d,%d) delta=(%d,%d)",
-                    e->GetX(), e->GetY(), e->GetDeltaX(), e->GetDeltaY());
+                logger.Info("MouseMove event: pos=({0},{1}) delta=({2},{3})", e->GetX(), e->GetY(), e->GetDeltaX(), e->GetDeltaY());
                 line += d;
             }
             else if (auto* e = ev->As<NkMouseButtonPressEvent>()) {
                 char d[64];
-                std::snprintf(d, sizeof(d), " → btn=%d pos=(%d,%d)",
-                    static_cast<int>(e->GetButton()), e->GetX(), e->GetY());
+                logger.Info("MouseButtonPress event: btn={0} pos=({1},{2})", static_cast<int>(e->GetButton()), e->GetX(), e->GetY());
                 line += d;
             }
             else if (auto* e = ev->As<NkMouseWheelVerticalEvent>()) {
                 char d[64];
-                std::snprintf(d, sizeof(d), " → delta=%.2f", e->GetDeltaY());
+                logger.Info("MouseWheelVertical event: delta={0:.2f}", e->GetDeltaY());
                 line += d;
             }
             else if (auto* e = ev->As<NkDropFileEvent>()) {
@@ -193,29 +184,27 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
                 line += "]";
             }
             else if (auto* e = ev->As<NkDropTextEvent>()) {
-                line += " → text=" + e->data.text.substr(0, 40);  // CORRECTION : data.text
+                line += " → text=" + e->data.text.SubStr(0, 40);  // CORRECTION : data.text
             }
             else if (auto* e = ev->As<NkDropEnterEvent>()) {
                 char d[64];
-                std::snprintf(d, sizeof(d), " → pos=(%d,%d)", e->data.x, e->data.y);  // CORRECTION : data.x et data.y
+                logger.Info("DropEnter event: pos=({0},{1})", e->data.x, e->data.y);  // CORRECTION : data.x et data.y
                 line += d;
             }
 
-            LOG(line);
+            logger.Info(line);
 
             if (!running) break;
         }
 
         ++frames;
         if (frames % 300 == 0)
-            LOG("[HEARTBEAT] frames=" + std::to_string(frames) +
-                " events=" + std::to_string(evCount));
+            logger.Info("[HEARTBEAT] frames={0} events={1}", frames, evCount);
     }
 
-    LOG("[4] Loop done — frames=" + std::to_string(frames) +
-        " totalEvents=" + std::to_string(evCount));
+    logger.Info("[4] Loop done — frames={0} totalEvents={1}", frames, evCount);
 
     NkClose();
-    LOG("[5] NkClose OK — see ex01_diagnostic.log for full log");
+    logger.Info("[5] NkClose OK — see ex01_diagnostic.log for full log");
     return 0;
 }

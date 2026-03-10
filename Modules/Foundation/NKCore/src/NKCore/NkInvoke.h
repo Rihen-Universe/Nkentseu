@@ -6,7 +6,7 @@
 #include "NkTraits.h"
 
 namespace nkentseu {
-    namespace core {
+    
 
         namespace detail {
 
@@ -79,7 +79,7 @@ namespace nkentseu {
         template <typename F, typename... Args>
         inline constexpr nk_bool NkIsInvocable_v = NkIsInvocable<F, Args...>::value;
 
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKINVOKE_H_INCLUDED

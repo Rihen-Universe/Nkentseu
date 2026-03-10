@@ -1,259 +1,178 @@
-#include "NkPlatformDetect.h"
-#include <iostream>
-#include <string>
+#include "NKPlatform/NkPlatformDetect.h"
+
+#include "NKPlatform/NkFoundationLog.h"
 
 // ============================================================
-// Exemple : Utilisation du Système de Fenêtres
+// Exemple : Utilisation du Système de Fenêtres (sans STL)
 // ============================================================
-// 
-// Ce fichier montre comment utiliser le nouveau système
-// NKENTSEU_WINDOWING_* pour détecter et utiliser différents
-// systèmes de fenêtres (XCB, Xlib, Wayland).
-//
-// Compiler avec:
-//   g++ -DNKENTSEU_FORCE_WINDOWING_XCB_ONLY example_windowing.cpp -o example_xcb
-//   g++ -DNKENTSEU_FORCE_WINDOWING_XLIB_ONLY example_windowing.cpp -o example_xlib
-//   g++ -DNKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY example_windowing.cpp -o example_wayland
-//   g++ example_windowing.cpp -o example_auto  # Auto-détection
 
 class WindowSystem {
 public:
-    WindowSystem() {
-        detectWindowingSystem();
+    WindowSystem() : mSystemName("Unknown/None") {
+        DetectWindowingSystem();
     }
-    
-    void displayInfo() const {
-        std::cout << "=====================================" << std::endl;
-        std::cout << "Windowing System Information" << std::endl;
-        std::cout << "=====================================" << std::endl;
-        
-        std::cout << "Detected System: " << system_name << std::endl;
-        
-        #ifdef NKENTSEU_WINDOWING_PREFERRED
-        std::cout << "Preferred System: " << NKENTSEU_WINDOWING_PREFERRED << std::endl;
-        #endif
-        
-        std::cout << "Capabilities:" << std::endl;
-        
-        #ifdef NKENTSEU_WINDOWING_XCB
-        std::cout << "  ✓ XCB (X11 Core Protocol)" << std::endl;
-        #else
-        std::cout << "  ✗ XCB (X11 Core Protocol)" << std::endl;
-        #endif
-        
-        #ifdef NKENTSEU_WINDOWING_XLIB
-        std::cout << "  ✓ Xlib (X11 Legacy)" << std::endl;
-        #else
-        std::cout << "  ✗ Xlib (X11 Legacy)" << std::endl;
-        #endif
-        
-        #ifdef NKENTSEU_WINDOWING_WAYLAND
-        std::cout << "  ✓ Wayland" << std::endl;
-        #else
-        std::cout << "  ✗ Wayland" << std::endl;
-        #endif
-        
-        #ifdef NKENTSEU_WINDOWING_X11
-        std::cout << "  ✓ X11 (XCB or Xlib)" << std::endl;
-        #else
-        std::cout << "  ✗ X11 (XCB or Xlib)" << std::endl;
-        #endif
-        
-        std::cout << "=====================================" << std::endl;
+
+    void DisplayInfo() const {
+        NK_FOUNDATION_LOG_INFO("=====================================\n");
+        NK_FOUNDATION_LOG_INFO("Windowing System Information\n");
+        NK_FOUNDATION_LOG_INFO("=====================================\n");
+        NK_FOUNDATION_LOG_INFO("Detected System: %s\n", mSystemName);
+
+#ifdef NKENTSEU_WINDOWING_PREFERRED
+        NK_FOUNDATION_LOG_INFO("Preferred System: %s\n", NKENTSEU_WINDOWING_PREFERRED);
+#endif
+
+        NK_FOUNDATION_LOG_INFO("Capabilities:\n");
+
+#ifdef NKENTSEU_WINDOWING_XCB
+        NK_FOUNDATION_LOG_INFO("  [OK] XCB (X11 Core Protocol)\n");
+#else
+        NK_FOUNDATION_LOG_INFO("  [NO] XCB (X11 Core Protocol)\n");
+#endif
+
+#ifdef NKENTSEU_WINDOWING_XLIB
+        NK_FOUNDATION_LOG_INFO("  [OK] Xlib (X11 Legacy)\n");
+#else
+        NK_FOUNDATION_LOG_INFO("  [NO] Xlib (X11 Legacy)\n");
+#endif
+
+#ifdef NKENTSEU_WINDOWING_WAYLAND
+        NK_FOUNDATION_LOG_INFO("  [OK] Wayland\n");
+#else
+        NK_FOUNDATION_LOG_INFO("  [NO] Wayland\n");
+#endif
+
+#ifdef NKENTSEU_WINDOWING_X11
+        NK_FOUNDATION_LOG_INFO("  [OK] X11 (XCB or Xlib)\n");
+#else
+        NK_FOUNDATION_LOG_INFO("  [NO] X11 (XCB or Xlib)\n");
+#endif
+
+        NK_FOUNDATION_LOG_INFO("=====================================\n");
     }
-    
-    void initializeWindow() {
-        std::cout << "\nInitializing window with: " << system_name << std::endl;
-        std::cout << "----------------------------------------" << std::endl;
-        
-        // Initialization spécifique au système détecté
+
+    void InitializeWindow() {
+        NK_FOUNDATION_LOG_INFO("\nInitializing window with: %s\n", mSystemName);
+        NK_FOUNDATION_LOG_INFO("----------------------------------------\n");
+
         NKENTSEU_XCB_ONLY({
-            initializeXCB();
+            InitializeXCB();
         });
-        
+
         NKENTSEU_XLIB_ONLY({
-            initializeXlib();
+            InitializeXlib();
         });
-        
+
         NKENTSEU_WAYLAND_ONLY({
-            initializeWayland();
+            InitializeWayland();
         });
-        
+
         NKENTSEU_NOT_X11({
-            std::cout << "Not using X11-based windowing" << std::endl;
+            NK_FOUNDATION_LOG_INFO("Not using X11-based windowing\n");
         });
     }
-    
-    void cleanup() {
-        std::cout << "\nCleaning up " << system_name << " resources..." << std::endl;
-        
+
+    void Cleanup() {
+        NK_FOUNDATION_LOG_INFO("\nCleaning up %s resources...\n", mSystemName);
+
         NKENTSEU_XCB_ONLY({
-            cleanupXCB();
+            CleanupXCB();
         });
-        
+
         NKENTSEU_XLIB_ONLY({
-            cleanupXlib();
+            CleanupXlib();
         });
-        
+
         NKENTSEU_WAYLAND_ONLY({
-            cleanupWayland();
+            CleanupWayland();
         });
-        
-        std::cout << "Cleanup complete." << std::endl;
+
+        NK_FOUNDATION_LOG_INFO("Cleanup complete.\n");
     }
 
 private:
-    std::string system_name;
-    
-    void detectWindowingSystem() {
-        #if defined(NKENTSEU_WINDOWING_XCB)
-        system_name = "XCB";
-        #elif defined(NKENTSEU_WINDOWING_XLIB)
-        system_name = "Xlib";
-        #elif defined(NKENTSEU_WINDOWING_WAYLAND)
-        system_name = "Wayland";
-        #else
-        system_name = "Unknown/None";
-        #endif
+    const char* mSystemName;
+
+    void DetectWindowingSystem() {
+#if defined(NKENTSEU_WINDOWING_XCB)
+        mSystemName = "XCB";
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+        mSystemName = "Xlib";
+#elif defined(NKENTSEU_WINDOWING_WAYLAND)
+        mSystemName = "Wayland";
+#else
+        mSystemName = "Unknown/None";
+#endif
     }
-    
-    void initializeXCB() {
-        std::cout << "  • Connecting to X Server via XCB..." << std::endl;
-        std::cout << "  • Modern X11 Core Protocol (XCB)" << std::endl;
-        std::cout << "  • Better performance than Xlib" << std::endl;
-        
-        // Ici, on pourrait ajouter du vrai code XCB:
-        // xcb_connection_t* conn = xcb_connect(NULL, NULL);
-        // if (xcb_connection_has_error(conn))
-        //     std::cerr << "Failed to connect to X server" << std::endl;
-        // xcb_disconnect(conn);
+
+    void InitializeXCB() {
+        NK_FOUNDATION_LOG_INFO("  - Connecting to X Server via XCB...\n");
+        NK_FOUNDATION_LOG_INFO("  - Modern X11 Core Protocol (XCB)\n");
+        NK_FOUNDATION_LOG_INFO("  - Better performance than Xlib\n");
     }
-    
-    void initializeXlib() {
-        std::cout << "  • Connecting to X Server via Xlib..." << std::endl;
-        std::cout << "  • Legacy X11 Client Library (Xlib)" << std::endl;
-        std::cout << "  • Wider compatibility, older API" << std::endl;
-        
-        // Ici, on pourrait ajouter du vrai code Xlib:
-        // Display* display = XOpenDisplay(NULL);
-        // if (display == NULL)
-        //     std::cerr << "Failed to open display" << std::endl;
-        // XCloseDisplay(display);
+
+    void InitializeXlib() {
+        NK_FOUNDATION_LOG_INFO("  - Connecting to X Server via Xlib...\n");
+        NK_FOUNDATION_LOG_INFO("  - Legacy X11 Client Library (Xlib)\n");
+        NK_FOUNDATION_LOG_INFO("  - Wider compatibility, older API\n");
     }
-    
-    void initializeWayland() {
-        std::cout << "  • Connecting to Wayland Compositor..." << std::endl;
-        std::cout << "  • Modern Display Protocol (Wayland)" << std::endl;
-        std::cout << "  • Future-proof, simpler architecture" << std::endl;
-        
-        // Ici, on pourrait ajouter du vrai code Wayland:
-        // struct wl_display* display = wl_display_connect(NULL);
-        // if (display == NULL)
-        //     std::cerr << "Failed to connect to Wayland" << std::endl;
-        // wl_display_disconnect(display);
+
+    void InitializeWayland() {
+        NK_FOUNDATION_LOG_INFO("  - Connecting to Wayland Compositor...\n");
+        NK_FOUNDATION_LOG_INFO("  - Modern Display Protocol (Wayland)\n");
+        NK_FOUNDATION_LOG_INFO("  - Future-proof, simpler architecture\n");
     }
-    
-    void cleanupXCB() {
-        std::cout << "  • Disconnecting from X Server (XCB)" << std::endl;
+
+    void CleanupXCB() {
+        NK_FOUNDATION_LOG_INFO("  - Disconnecting from X Server (XCB)\n");
     }
-    
-    void cleanupXlib() {
-        std::cout << "  • Closing X11 Display (Xlib)" << std::endl;
+
+    void CleanupXlib() {
+        NK_FOUNDATION_LOG_INFO("  - Closing X11 Display (Xlib)\n");
     }
-    
-    void cleanupWayland() {
-        std::cout << "  • Disconnecting from Wayland Compositor" << std::endl;
+
+    void CleanupWayland() {
+        NK_FOUNDATION_LOG_INFO("  - Disconnecting from Wayland Compositor\n");
     }
 };
 
-// ============================================================
-// Exemple d'Utilisation Conditionnelle
-// ============================================================
+static void DemonstrateConditionalCode() {
+    NK_FOUNDATION_LOG_INFO("\n\nConditional Code Execution Examples:\n");
+    NK_FOUNDATION_LOG_INFO("----------------------------------------\n");
 
-void demonstrateConditionalCode() {
-    std::cout << "\n" << std::endl;
-    std::cout << "Conditional Code Execution Examples:" << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
-    
-    // Code XCB uniquement
     NKENTSEU_XCB_ONLY({
-        std::cout << "[XCB] This code runs only when XCB is enabled" << std::endl;
+        NK_FOUNDATION_LOG_INFO("[XCB] This code runs only when XCB is enabled\n");
     });
-    
-    // Code Xlib uniquement
+
     NKENTSEU_XLIB_ONLY({
-        std::cout << "[Xlib] This code runs only when Xlib is enabled" << std::endl;
+        NK_FOUNDATION_LOG_INFO("[Xlib] This code runs only when Xlib is enabled\n");
     });
-    
-    // Code Wayland uniquement
+
     NKENTSEU_WAYLAND_ONLY({
-        std::cout << "[Wayland] This code runs only when Wayland is enabled" << std::endl;
+        NK_FOUNDATION_LOG_INFO("[Wayland] This code runs only when Wayland is enabled\n");
     });
-    
-    // Code X11 (XCB ou Xlib)
+
     NKENTSEU_X11_ONLY({
-        std::cout << "[X11] This code runs for XCB or Xlib (but not Wayland)" << std::endl;
+        NK_FOUNDATION_LOG_INFO("[X11] This code runs for XCB or Xlib (but not Wayland)\n");
     });
-    
-    // Code si PAS XCB
+
     NKENTSEU_NOT_XCB({
-        std::cout << "[Not XCB] This code runs for Xlib or Wayland" << std::endl;
+        NK_FOUNDATION_LOG_INFO("[Not XCB] This code runs for Xlib or Wayland\n");
     });
-    
-    // Code si PAS Wayland
+
     NKENTSEU_NOT_WAYLAND({
-        std::cout << "[Not Wayland] This code runs for XCB or Xlib" << std::endl;
+        NK_FOUNDATION_LOG_INFO("[Not Wayland] This code runs for XCB or Xlib\n");
     });
 }
 
-// Main
 int main() {
-    try {
-        // Créer une instance du système de fenêtres
-        WindowSystem ws;
-        
-        // Afficher les informations
-        ws.displayInfo();
-        
-        // Démonstrer le code conditionnel
-        demonstrateConditionalCode();
-        
-        // Initialiser la fenêtre
-        ws.initializeWindow();
-        
-        // Nettoyer
-        ws.cleanup();
-        
-        std::cout << "\n✓ Example completed successfully!" << std::endl;
-        return 0;
-        
-    } catch (const std::exception& e) {
-        std::cerr << "✗ Error: " << e.what() << std::endl;
-        return 1;
-    }
-}
+    WindowSystem ws;
 
-// ============================================================
-// Sorties attendues selon la compilation:
-// ============================================================
-//
-// # Avec: g++ example_windowing.cpp -o example_auto
-// Detected: XCB (ou Xlib ou Wayland selon la disponibilité)
-// 
-// # Avec: g++ -DNKENTSEU_FORCE_WINDOWING_XCB_ONLY example_windowing.cpp
-// Detected: XCB
-// [XCB] This code runs only when XCB is enabled
-// [X11] This code runs for XCB or Xlib (but not Wayland)
-// [Not XCB] est ignoré
-// 
-// # Avec: g++ -DNKENTSEU_FORCE_WINDOWING_XLIB_ONLY example_windowing.cpp
-// Detected: Xlib
-// [Xlib] This code runs only when Xlib is enabled
-// [X11] This code runs for XCB or Xlib (but not Wayland)
-// [Not Wayland] This code runs for XCB or Xlib
-// 
-// # Avec: g++ -DNKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY example_windowing.cpp
-// Detected: Wayland
-// [Wayland] This code runs only when Wayland is enabled
-// [X11] est ignoré
-// [Not XCB] This code runs for Xlib or Wayland
+    ws.DisplayInfo();
+    DemonstrateConditionalCode();
+    ws.InitializeWindow();
+    ws.Cleanup();
+
+    NK_FOUNDATION_LOG_INFO("\nExample completed successfully!\n");
+    return 0;
+}

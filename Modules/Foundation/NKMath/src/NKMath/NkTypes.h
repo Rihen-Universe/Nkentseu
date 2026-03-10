@@ -12,7 +12,7 @@
 // Dépend de NKCore/NkTypes.h pour les primitives fixes (nk_uint8, etc.)
 // =============================================================================
 
-#include <cmath>
+#include <math.h>
 #include "NKCore/NkTypes.h"
 
 namespace nkentseu {
@@ -31,6 +31,7 @@ namespace nkentseu {
     using NkI64 = nk_int64;
     using NkF32 = float32;
     using NkF64 = float64;
+    using NkUPtr = nk_uintptr;
 
     // ---------------------------------------------------------------------------
     // NkVec2u — vecteur 2D non-signé (uint32)
@@ -182,7 +183,7 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     inline float NkVec2f::Length() const {
-        return std::sqrt(LengthSq());
+        return sqrt(LengthSq());
     }
 
     inline NkVec2f NkVec2f::Normalized() const {

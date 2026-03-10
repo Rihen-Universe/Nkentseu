@@ -447,7 +447,7 @@ public:
     Tensor();
     Tensor(const TensorShape& shape, DType dtype = DType::Float32,
            Device device = Device());
-    Tensor(const std::vector<int64>& shape, DType dtype = DType::Float32);
+    Tensor(const NkVector<int64>& shape, DType dtype = DType::Float32);
   
     // Factory methods
     static Tensor Zeros(const TensorShape& shape, DType dtype = DType::Float32);
@@ -468,8 +468,8 @@ public:
     template<typename T> const T* Data() const { return static_cast<const T*>(m_data); }
   
     // Element access
-    template<typename T> T& At(const std::vector<int64>& indices);
-    template<typename T> const T& At(const std::vector<int64>& indices) const;
+    template<typename T> T& At(const NkVector<int64>& indices);
+    template<typename T> const T& At(const NkVector<int64>& indices) const;
   
     // Reshape
     Tensor Reshape(const TensorShape& newShape) const;
@@ -565,14 +565,14 @@ class TensorShape {
 public:
     TensorShape() = default;
     TensorShape(std::initializer_list<int64> dims) : m_dims(dims) {}
-    explicit TensorShape(const std::vector<int64>& dims) : m_dims(dims) {}
+    explicit TensorShape(const NkVector<int64>& dims) : m_dims(dims) {}
   
     // Access
     int64 operator[](size_t index) const { return m_dims[index]; }
     int64& operator[](size_t index) { return m_dims[index]; }
   
     size_t NumDims() const { return m_dims.size(); }
-    const std::vector<int64>& Dims() const { return m_dims; }
+    const NkVector<int64>& Dims() const { return m_dims; }
   
     // Total elements
     size_t NumElements() const {
@@ -582,8 +582,8 @@ public:
     }
   
     // Strides (for row-major layout)
-    std::vector<int64> ComputeStrides() const {
-        std::vector<int64> strides(m_dims.size());
+    NkVector<int64> ComputeStrides() const {
+        NkVector<int64> strides(m_dims.size());
         int64 stride = 1;
         for (int i = static_cast<int>(m_dims.size()) - 1; i >= 0; --i) {
             strides[i] = stride;
@@ -602,7 +602,7 @@ public:
     static TensorShape BroadcastShapes(const TensorShape& a, const TensorShape& b);
   
 private:
-    std::vector<int64> m_dims;
+    NkVector<int64> m_dims;
 };
 
 } // namespace Nk::AI
@@ -772,23 +772,23 @@ public:
     bool IsTraining() const { return m_training; }
   
     // Parameters
-    std::vector<Parameter*> Parameters();
+    NkVector<Parameter*> Parameters();
     void ZeroGrad();
   
     // Device
     virtual void To(Device device);
   
     // Save/Load state
-    virtual void SaveState(const std::string& path);
-    virtual void LoadState(const std::string& path);
+    virtual void SaveState(const NkString& path);
+    virtual void LoadState(const NkString& path);
   
 protected:
-    void RegisterParameter(const std::string& name, Parameter* param);
-    void RegisterSubmodule(const std::string& name, std::shared_ptr<Module> module);
+    void RegisterParameter(const NkString& name, Parameter* param);
+    void RegisterSubmodule(const NkString& name, std::shared_ptr<Module> module);
   
     bool m_training = true;
-    std::unordered_map<std::string, Parameter*> m_parameters;
-    std::unordered_map<std::string, std::shared_ptr<Module>> m_submodules;
+    NkUnorderedMap<NkString, Parameter*> m_parameters;
+    NkUnorderedMap<NkString, std::shared_ptr<Module>> m_submodules;
 };
 
 } // namespace Nk::AI::Neural
@@ -859,7 +859,7 @@ Linear::Linear(int64 inFeatures, int64 outFeatures, bool bias)
 
 void Linear::InitializeParameters() {
     // Kaiming (He) initialization
-    float stddev = std::sqrt(2.0f / m_inFeatures);
+    float stddev = math::NkSqrt(2.0f / m_inFeatures);
     m_weight.Data() = Tensor::Random(m_weight.Data().Shape()) * stddev;
   
     if (m_hasBias) {
@@ -953,10 +953,10 @@ private:
     float m_dropout;
   
     // Parameters for each layer
-    std::vector<Parameter> m_weightsIH;  // input to hidden
-    std::vector<Parameter> m_weightsHH;  // hidden to hidden
-    std::vector<Parameter> m_biasIH;
-    std::vector<Parameter> m_biasHH;
+    NkVector<Parameter> m_weightsIH;  // input to hidden
+    NkVector<Parameter> m_weightsHH;  // hidden to hidden
+    NkVector<Parameter> m_biasIH;
+    NkVector<Parameter> m_biasHH;
 };
 
 } // namespace Nk::AI::Neural
@@ -1505,7 +1505,7 @@ public:
     Tensor Forward(const Tensor& input) override;
   
     // Post-processing (NMS, etc.)
-    std::vector<Detection> Detect(const Tensor& image, float confThreshold = 0.5f, float nmsThreshold = 0.4f);
+    NkVector<Detection> Detect(const Tensor& image, float confThreshold = 0.5f, float nmsThreshold = 0.4f);
   
 private:
     Version m_version;
@@ -1518,7 +1518,7 @@ private:
   
     void BuildNetwork();
     void LoadPretrained();
-    std::vector<Detection> PostProcess(const Tensor& predictions, float confThreshold, float nmsThreshold);
+    NkVector<Detection> PostProcess(const Tensor& predictions, float confThreshold, float nmsThreshold);
 };
 
 } // namespace Nk::AI::Vision
@@ -1703,17 +1703,17 @@ public:
     PostTrainingQuantization(QuantizationMode mode = QuantizationMode::INT8);
   
     // Calibrate on dataset
-    void Calibrate(Neural::Module& model, const std::vector<Tensor>& calibrationData);
+    void Calibrate(Neural::Module& model, const NkVector<Tensor>& calibrationData);
   
     // Quantize model
     std::shared_ptr<Neural::Module> Quantize(Neural::Module& model);
   
     // Evaluate accuracy
-    float EvaluateAccuracy(Neural::Module& quantizedModel, const std::vector<Tensor>& testData);
+    float EvaluateAccuracy(Neural::Module& quantizedModel, const NkVector<Tensor>& testData);
   
 private:
     QuantizationMode m_mode;
-    std::unordered_map<std::string, QuantizationParams> m_layerParams;
+    NkUnorderedMap<NkString, QuantizationParams> m_layerParams;
   
     void CollectStatistics(Neural::Module& model, const Tensor& input);
     QuantizationParams ComputeQuantizationParams(const Tensor& activations);

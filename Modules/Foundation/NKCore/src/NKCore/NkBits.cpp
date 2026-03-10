@@ -16,7 +16,7 @@ namespace nkentseu {
 /**
  * @brief Namespace core.
  */
-namespace core {
+
 
 // ============================================================
 // NEXT POWER OF TWO - 32-BIT
@@ -63,7 +63,7 @@ nk_uint64 NkBits::NextPowerOfTwo(nk_uint64 value) {
 	return value;
 }
 
-} // namespace core
+
 } // namespace nkentseu
 
 // ============================================================

@@ -19,7 +19,7 @@
 #include "NKContainers/Iterators/NkIterator.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Fixed-size array (std::array equivalent)
@@ -92,7 +92,7 @@ namespace nkentseu {
             NK_CONSTEXPR ConstReverseIterator rend() const NK_NOEXCEPT { return ConstReverseIterator(begin()); }
             
             // Capacity
-            NK_CONSTEXPR bool IsEmpty() const NK_NOEXCEPT { return N == 0; }
+            NK_CONSTEXPR bool Empty() const NK_NOEXCEPT { return N == 0; }
             NK_CONSTEXPR SizeType Size() const NK_NOEXCEPT { return N; }
             NK_CONSTEXPR SizeType MaxSize() const NK_NOEXCEPT { return N; }
             
@@ -121,7 +121,7 @@ namespace nkentseu {
                 return dummy;
             }
             
-            NK_CONSTEXPR bool IsEmpty() const NK_NOEXCEPT { return true; }
+            NK_CONSTEXPR bool Empty() const NK_NOEXCEPT { return true; }
             NK_CONSTEXPR SizeType Size() const NK_NOEXCEPT { return 0; }
             void Fill(const T&) {}
             void Swap(NkArray&) NK_NOEXCEPT {}
@@ -146,7 +146,7 @@ namespace nkentseu {
             return !(lhs == rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_CACHEFRIENDLY_NKARRAY_H_INCLUDED

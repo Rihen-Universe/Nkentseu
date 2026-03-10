@@ -15,7 +15,7 @@
 #include "NkEncoding.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace encoding {
             namespace ascii {
                 
@@ -132,7 +132,7 @@ namespace nkentseu {
                 
             } // namespace ascii
         } // namespace encoding
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_STRING_ENCODING_NKASCII_H_INCLUDED

@@ -18,12 +18,23 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Ajout pour NkChrono et NkElapsedTime
+#include "NKMath/NKMath.h"
 
-#include <cstdio>
+#include "NKLogger/NkLog.h"
+
 #include <cmath>
 #include <string>
 #include <vector>
-#include <atomic>
+
+#ifdef NkMin
+#undef NkMin
+#endif
+#ifdef NkMax
+#undef NkMax
+#endif
+#ifdef NkClamp
+#undef NkClamp
+#endif
 
 namespace {
 using namespace nkentseu;
@@ -38,9 +49,9 @@ static float SafeDt(float dt) {
 // État partagé — modifié par les callbacks depuis différents "sous-systèmes"
 // ---------------------------------------------------------------------------
 struct SharedState {
-    std::atomic<bool>  running { true };
-    std::atomic<bool>  neon    { false };
-    std::atomic<bool>  fullscreen { false };
+    NkAtomicBool  running { true };
+    NkAtomicBool  neon    { false };
+    NkAtomicBool  fullscreen { false };
     float  saturation = 1.15f;
     float  phaseX     = 0.f;
     float  phaseY     = 0.f;
@@ -49,14 +60,14 @@ struct SharedState {
     NkU32  viewH      = 720;
 
     // Historique drops
-    std::vector<std::string> droppedFiles;
-    std::string              droppedText;
+    NkVector<NkString> droppedFiles;
+    NkString              droppedText;
 
     // Compteur d'events par type (stats)
-    std::atomic<NkU32> keyCount   { 0 };
-    std::atomic<NkU32> mouseCount { 0 };
-    std::atomic<NkU32> dropCount  { 0 };
-    std::atomic<NkU32> gpCount    { 0 };
+    NkAtomic<NkU32> keyCount   { 0 };
+    NkAtomic<NkU32> mouseCount { 0 };
+    NkAtomic<NkU32> dropCount  { 0 };
+    NkAtomic<NkU32> gpCount    { 0 };
 };
 
 // ---------------------------------------------------------------------------
@@ -76,13 +87,13 @@ static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
         float fy = y / (float)h - 0.5f;
         for (NkU32 x = 0; x < w; x += blk) {
             float fx  = x / (float)w - 0.5f;
-            float rd  = std::sqrt(fx*fx + fy*fy);
-            float mix = (std::sin((fx+px)*13.5f+t*1.7f)
-                        +std::sin((fy+py)*11.f -t*1.3f)
-                        +std::sin(rd*24.f      -t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.f  ))-0.5f)*sat+0.5f)*255);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*std::sin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255);
+            float rd  = math::NkSqrt(fx*fx + fy*fy);
+            float mix = (math::NkSin((fx+px)*13.5f+t*1.7f)
+                        +math::NkSin((fy+py)*11.f -t*1.3f)
+                        +math::NkSin(rd*24.f      -t*2.1f)) * 0.333f;
+            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+0.f  ))-0.5f)*sat+0.5f)*255);
+            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255);
+            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255);
             NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
             for (NkU32 by=0;by<blk&&(y+by)<h;++by)
                 for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
@@ -138,7 +149,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     es.AddEventCallback<NkWindowCloseEvent>(
         [&state](NkWindowCloseEvent* /*ev*/) {
-            std::printf("[CB:WindowMgr] Close event\n");
+            logger.Info("[CB:WindowMgr] Close event");
             state.running = false;
         });
 
@@ -147,23 +158,22 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             state.viewW = ev->GetWidth();
             state.viewH = ev->GetHeight();
             renderer.Resize(ev->GetWidth(), ev->GetHeight());
-            std::printf("[CB:WindowMgr] Resize → %ux%u\n",
-                ev->GetWidth(), ev->GetHeight());
+            logger.Info("[CB:WindowMgr] Resize → {0}x{1}", ev->GetWidth(), ev->GetHeight());
         });
 
     es.AddEventCallback<NkWindowFocusGainedEvent>(
         [](NkWindowFocusGainedEvent* /*ev*/) {
-            std::printf("[CB:WindowMgr] Focus gained\n");
+            logger.Info("[CB:WindowMgr] Focus gained");
         });
 
     es.AddEventCallback<NkWindowFocusLostEvent>(
         [](NkWindowFocusLostEvent* /*ev*/) {
-            std::printf("[CB:WindowMgr] Focus lost\n");
+            logger.Info("[CB:WindowMgr] Focus lost");
         });
 
     es.AddEventCallback<NkWindowMoveEvent>(
         [](NkWindowMoveEvent* ev) {
-            std::printf("[CB:WindowMgr] Moved (%d,%d)\n", ev->GetX(), ev->GetY());
+            logger.Info("[CB:WindowMgr] Moved ({0},{1})", ev->GetX(), ev->GetY());
         });
 
     // ── Sous-système "Input/Keyboard" ────────────────────────────────────────
@@ -176,18 +186,17 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
                     state.running = false;
                     break;
                 case NkKey::NK_F11:
-                    state.fullscreen = !state.fullscreen.load();
-                    window.SetFullscreen(state.fullscreen.load());
+                    state.fullscreen = !state.fullscreen.Load();
+                    window.SetFullscreen(state.fullscreen.Load());
                     break;
                 case NkKey::NK_SPACE:
-                    state.neon = !state.neon.load();
-                    std::printf("[CB:Input] Neon %s\n",
-                        state.neon.load() ? "ON" : "OFF");
+                    state.neon = !state.neon.Load();
+                    logger.Info("[CB:Input] Neon {0}", state.neon.Load() ? "ON" : "OFF");
                     break;
                 case NkKey::NK_R:
                     state.phaseX = state.phaseY = 0.f;
                     state.saturation = 1.15f;
-                    std::printf("[CB:Input] Reset\n");
+                    logger.Info("[CB:Input] Reset");
                     break;
                 default:
                     break;
@@ -196,12 +205,12 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     es.AddEventCallback<NkKeyReleaseEvent>(
         [](NkKeyReleaseEvent* ev) {
-            std::printf("[CB:Input] Key released key=%d\n", (int)ev->GetKey());
+            logger.Info("[CB:Input] Key released key={0}", (int)ev->GetKey());
         });
 
     es.AddEventCallback<NkTextInputEvent>(
         [](NkTextInputEvent* ev) {
-            std::printf("[CB:Input] Typed codepoint=U+%04X\n", ev->GetCodepoint());
+            logger.Info("[CB:Input] Typed codepoint=U+{0}", ev->GetCodepoint());
         });
 
     // ── Sous-système "Mouse" ─────────────────────────────────────────────────
@@ -218,57 +227,53 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     es.AddEventCallback<NkMouseWheelVerticalEvent>(
         [&state](NkMouseWheelVerticalEvent* ev) {
-            state.saturation = std::fmax(0.1f, std::fmin(3.f,
-                state.saturation + ev->GetDeltaY() * 0.12f));
-            std::printf("[CB:Mouse] Wheel dy=%.2f sat=%.2f\n",
-                ev->GetDeltaY(), state.saturation);
+            const float wheelDelta = static_cast<float>(ev->GetDeltaY());
+            state.saturation = math::NkClamp(state.saturation + wheelDelta * 0.12f, 0.1f, 3.0f);
+            logger.Info("[CB:Mouse] Wheel dy={0} sat={1}", ev->GetDeltaY(), state.saturation);
         });
 
     es.AddEventCallback<NkMouseButtonPressEvent>(
         [](NkMouseButtonPressEvent* ev) {
-            std::printf("[CB:Mouse] Press btn=%d at (%d,%d)\n",
-                (int)ev->GetButton(), ev->GetX(), ev->GetY());
+            logger.Info("[CB:Mouse] Press btn={0} at ({1},{2})", (int)ev->GetButton(), ev->GetX(), ev->GetY());
         });
 
     es.AddEventCallback<NkMouseEnterEvent>(
         [](NkMouseEnterEvent* /*ev*/) {
-            std::printf("[CB:Mouse] Enter window\n");
+            logger.Info("[CB:Mouse] Enter window");
         });
 
     es.AddEventCallback<NkMouseLeaveEvent>(
         [](NkMouseLeaveEvent* /*ev*/) {
-            std::printf("[CB:Mouse] Leave window\n");
+            logger.Info("[CB:Mouse] Leave window");
         });
 
     // ── Sous-système "Drag & Drop" ────────────────────────────────────────────
 
     es.AddEventCallback<NkDropEnterEvent>(
         [](NkDropEnterEvent* ev) {
-            std::printf("[CB:DnD] Enter pos=(%d,%d) files=%u text=%s\n",
-                ev->data.x, ev->data.y,
-                ev->data.numFiles,
-                ev->data.hasText ? "yes" : "no");
+            logger.Info("[CB:DnD] Enter pos=({0},{1}) files={2} text={3}",
+                ev->data.x, ev->data.y, ev->data.numFiles, ev->data.hasText ? "yes" : "no");
         });
 
     es.AddEventCallback<NkDropLeaveEvent>(
         [](NkDropLeaveEvent* /*ev*/) {
-            std::printf("[CB:DnD] Leave\n");
+            logger.Info("[CB:DnD] Leave");
         });
 
     es.AddEventCallback<NkDropFileEvent>(
         [&state](NkDropFileEvent* ev) {
             ++state.dropCount;
             state.droppedFiles = ev->data.paths;
-            std::printf("[CB:DnD] Files (%zu):\n", ev->data.paths.size());
+            logger.Info("[CB:DnD] Files ({0}):", ev->data.paths.Size());
             for (const auto& f : ev->data.paths)
-                std::printf("  %s\n", f.c_str());
+                logger.Info("  {0}", f.CStr());
         });
 
     es.AddEventCallback<NkDropTextEvent>(
         [&state](NkDropTextEvent* ev) {
             ++state.dropCount;
             state.droppedText = ev->data.text;
-            std::printf("[CB:DnD] Text [%.60s]\n", ev->data.text.c_str());
+            logger.Info("[CB:DnD] Text [{0}]", ev->data.text.SubStr(0, 60).CStr());
         });
 
     // ── Sous-système "Gamepad" ────────────────────────────────────────────────
@@ -277,32 +282,28 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // CORRECTION : signature attendue (const NkGamepadInfo&, bool)
     NkGamepads().SetConnectCallback(
         [](const NkGamepadInfo& info, bool connected) {
-            std::printf("[CB:Gamepad] %s #%u (%s)\n",
-                connected ? "CONNECTED" : "DISCONNECTED",
-                info.index, info.name);
+            logger.Info("[CB:Gamepad] {0} #{1} ({2})",
+                connected ? "CONNECTED" : "DISCONNECTED", info.index, info.name);
         });
 
     // Événement de connexion (NkGamepadConnectEvent)
     es.AddEventCallback<NkGamepadConnectEvent>(
         [](NkGamepadConnectEvent* ev) {
-            std::printf("[CB:Gamepad] ConnectEvent idx=%u\n",
-                ev->GetGamepadIndex());
+            logger.Info("[CB:Gamepad] ConnectEvent idx={0}", ev->GetGamepadIndex());
         });
 
     // Événement de déconnexion (NkGamepadDisconnectEvent)
     es.AddEventCallback<NkGamepadDisconnectEvent>(
         [](NkGamepadDisconnectEvent* ev) {
-            std::printf("[CB:Gamepad] DisconnectEvent idx=%u\n",
-                ev->GetGamepadIndex());
+            logger.Info("[CB:Gamepad] DisconnectEvent idx={0}", ev->GetGamepadIndex());
         });
 
     es.AddEventCallback<NkGamepadButtonPressEvent>(
         [&state](NkGamepadButtonPressEvent* ev) {
             ++state.gpCount;
-            std::printf("[CB:Gamepad] Button=%d idx=%u\n",
-                (int)ev->GetButton(), ev->GetGamepadIndex());
+            logger.Info("[CB:Gamepad] Button={0} idx={1}", (int)ev->GetButton(), ev->GetGamepadIndex());
             if (ev->GetButton() == NkGamepadButton::NK_GP_SOUTH) {
-                state.neon = !state.neon.load();
+                state.neon = !state.neon.Load();
                 NkGamepads().Rumble(
                     ev->GetGamepadIndex(), 0.25f, 0.5f, 0.f, 0.f, 80);
             }
@@ -339,10 +340,10 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         es.AddEventCallback<NkWindowResizeEvent>(
             [&es](NkWindowResizeEvent* ev) {
                 ++resizeCount;
-                std::printf("[CB:OneShotx3] Resize #%d → %ux%u\n",
+                logger.Info("[CB:OneShotx3] Resize #{0} → {1}x{2}",
                     resizeCount, ev->GetWidth(), ev->GetHeight());
                 if (resizeCount >= 3) {
-                    std::printf("[CB:OneShotx3] Unsubscribing all resize callbacks after 3 resizes\n");
+                    logger.Info("[CB:OneShotx3] Unsubscribing all resize callbacks after 3 resizes");
                     es.ClearEventCallbacks<NkWindowResizeEvent>();
                 }
             });
@@ -355,9 +356,9 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     NkChrono chrono;
     NkElapsedTime elapsed{};
 
-    while (state.running.load() && window.IsOpen())
+    while (state.running.Load() && window.IsOpen())
     {
-        chrono.Reset();
+        NkElapsedTime e = chrono.Reset();
 
         // Pomper la queue — les callbacks s'exécutent ici.
         NkEvent* ev = nullptr;
@@ -366,11 +367,11 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             (void)ev;
         }
 
-        if (!state.running.load() || !window.IsOpen()) break;
+        if (!state.running.Load() || !window.IsOpen()) break;
 
         // --- Delta-time
         float dt = SafeDt(static_cast<float>(elapsed.seconds));
-        state.time += dt * (state.neon.load() ? 1.8f : 1.0f);
+        state.time += dt * (state.neon.Load() ? 1.8f : 1.0f);
 
         // --- Rendu
         renderer.BeginFrame(NkRenderer::PackColor(8, 10, 18, 255));
@@ -390,11 +391,12 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             NkChrono::YieldThread();
     }
 
-    std::printf("[Stats] keys=%u mouse=%u drops=%u gamepad=%u\n",
-        state.keyCount.load(), state.mouseCount.load(),
-        state.dropCount.load(), state.gpCount.load());
+    logger.Info("[Stats] keys={0} mouse={1} drops={2} gamepad={3}",
+        state.keyCount.Load(), state.mouseCount.Load(),
+        state.dropCount.Load(), state.gpCount.Load());
 
     renderer.Shutdown();
+    window.Close();
     NkClose();
     return 0;
 }

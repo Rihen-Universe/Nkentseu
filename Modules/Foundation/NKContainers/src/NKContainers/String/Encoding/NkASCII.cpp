@@ -8,7 +8,7 @@
 #include "NkASCII.h"
 
 namespace nkentseu {
-    namespace core {
+    
         namespace encoding {
             namespace ascii {
 
@@ -55,7 +55,7 @@ namespace nkentseu {
 
             } // namespace ascii
         } // namespace encoding
-    } // namespace core
+    
 } // namespace nkentseu
 
 // ============================================================

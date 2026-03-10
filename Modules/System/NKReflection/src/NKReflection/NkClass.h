@@ -11,14 +11,14 @@
 #ifndef NK_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKCLASS_H_INCLUDED
 #define NK_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKCLASS_H_INCLUDED
 
-#include "NkType.h"
-#include "NkProperty.h"
-#include "NkMethod.h"
+#include "NKReflection/NkType.h"
+#include "NKReflection/NkProperty.h"
+#include "NKReflection/NkMethod.h"
 
 #include <cstring> // Pour strcmp
 
 namespace nkentseu {
-    namespace core {
+    
         namespace reflection {
             
             /**
@@ -168,7 +168,7 @@ namespace nkentseu {
             };
             
         } // namespace reflection
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif

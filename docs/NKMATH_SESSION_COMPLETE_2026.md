@@ -44,7 +44,7 @@ Sinh/Cosh→ (e^x ± e^-x)/2 (hyperbolic definitions)
 ❌ NEVER: #include <cmath>
 ❌ NEVER: #include <limits>  
 ❌ NEVER: #include <algorithm>
-❌ NEVER: std::sin, std::cos, std::exp, std::floor
+❌ NEVER: math::NkSin, std::cos, std::exp, std::floor
 
 ✅ ONLY: #include "NKCore/NkTypes.h"
 ```
@@ -257,7 +257,7 @@ Sinh/Cosh→ (e^x ± e^-x)/2 (hyperbolic definitions)
 > (Note: I want to avoid STL as much as possible, no std::cos or similar)
 
 ### ✅ DELIVERED:
-- Zero std::cos, std::sin, std::exp, std::floor
+- Zero std::cos, math::NkSin, std::exp, std::floor
 - Zero <cmath> includes
 - Custom implementations for all 36+ functions
 - Constants without external dependencies

@@ -17,11 +17,13 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Chemin correct pour NkChrono et NkElapsedTime
+#include "NKMath/NKMath.h"
+#include "NKCore/NkAtomic.h"
 
-#include <cstdio>
+#include "NKLogger/NkLog.h"
+
 #include <cmath>
 #include <cstring>
-#include <atomic>
 #include <chrono>
 
 namespace {
@@ -40,24 +42,22 @@ static float SafeAxis(float v) {
 // Stats globales thread-safe (remplies depuis callbacks)
 // ---------------------------------------------------------------------------
 struct Stats {
-    std::atomic<NkU64> pushed   { 0 };  // events injectés
-    std::atomic<NkU64> polled   { 0 };  // events récupérés via PollEvent
-    std::atomic<NkU64> dropped  { 0 };  // estimé : pushed - polled (en excès)
-    std::atomic<NkU64> gpAxis   { 0 };
-    std::atomic<NkU64> gpBtn    { 0 };
-    std::atomic<NkU64> gpRumble { 0 };
+    NkAtomic<NkU64> pushed   { 0 };  // events injectés
+    NkAtomic<NkU64> polled   { 0 };  // events récupérés via PollEvent
+    NkAtomic<NkU64> dropped  { 0 };  // estimé : pushed - polled (en excès)
+    NkAtomic<NkU64> gpAxis   { 0 };
+    NkAtomic<NkU64> gpBtn    { 0 };
+    NkAtomic<NkU64> gpRumble { 0 };
 
     void Print(float elapsed) const {
-        std::printf(
-            "[HEALTH t=%.1fs] pushed=%llu polled=%llu diff=%lld "
-            "gpAxis=%llu gpBtn=%llu rumble=%llu\n",
+        logger.Info("[HEALTH t={0}s] pushed={1} polled={2} diff={3} gpAxis={4} gpBtn={5} rumble={6}",
             elapsed,
-            (unsigned long long)pushed.load(),
-            (unsigned long long)polled.load(),
-            (long long)(pushed.load() - polled.load()),
-            (unsigned long long)gpAxis.load(),
-            (unsigned long long)gpBtn.load(),
-            (unsigned long long)gpRumble.load());
+            (unsigned long long)pushed.Load(),
+            (unsigned long long)polled.Load(),
+            (long long)(pushed.Load() - polled.Load()),
+            (unsigned long long)gpAxis.Load(),
+            (unsigned long long)gpBtn.Load(),
+            (unsigned long long)gpRumble.Load());
     }
 };
 
@@ -73,13 +73,13 @@ static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h, float t)
         float fy = y/(float)h - 0.5f;
         for (NkU32 x = 0; x < w; x += blk) {
             float fx  = x/(float)w - 0.5f;
-            float rd  = std::sqrt(fx*fx + fy*fy);
-            float mix = (std::sin(fx*13.5f+t*1.7f)
-                        +std::sin(fy*11.f -t*1.3f)
-                        +std::sin(rd*24.f -t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit(0.5f+0.5f*std::sin(6.28f*(mix+0.f  )))*255);
-            NkU8 gi = (NkU8)(ClampUnit(0.5f+0.5f*std::sin(6.28f*(mix+0.33f)))*255);
-            NkU8 bi = (NkU8)(ClampUnit(0.5f+0.5f*std::sin(6.28f*(mix+0.66f)))*255);
+            float rd  = math::NkSqrt(fx*fx + fy*fy);
+            float mix = (math::NkSin(fx*13.5f+t*1.7f)
+                        +math::NkSin(fy*11.f -t*1.3f)
+                        +math::NkSin(rd*24.f -t*2.1f)) * 0.333f;
+            NkU8 ri = (NkU8)(ClampUnit(0.5f+0.5f*math::NkSin(6.28f*(mix+0.f  )))*255);
+            NkU8 gi = (NkU8)(ClampUnit(0.5f+0.5f*math::NkSin(6.28f*(mix+0.33f)))*255);
+            NkU8 bi = (NkU8)(ClampUnit(0.5f+0.5f*math::NkSin(6.28f*(mix+0.66f)))*255);
             NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
             for (NkU32 by=0;by<blk&&(y+by)<h;++by)
                 for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
@@ -120,7 +120,7 @@ static void PollGamepad(NkU32 idx, GpState& gs, Stats& stats)
             gs.buttons[bi] = down;
             ++stats.gpBtn;
             if (down) {
-                std::printf("[GP#%u] Button %u (%s) pressed\n",
+                logger.Info("[GP#{0}] Button {1} ({2}) pressed",
                     idx, bi, NkGamepadButtonToString(btn));
                 // Rumble sur chaque nouveau bouton pressé
                 gp.Rumble(idx,
@@ -173,9 +173,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // CORRECTION : la lambda doit correspondre à NkGamepadConnectCallback (const NkGamepadInfo&, bool)
     NkGamepads().SetConnectCallback(
         [](const NkGamepadInfo& info, bool connected) {
-            std::printf("[Gamepad] %s #%u (%s)\n",
-                connected ? "CONNECTED" : "DISCONNECTED",
-                info.index, info.name);
+            logger.Info("[Gamepad] {0} #{1} ({2})",
+                connected ? "CONNECTED" : "DISCONNECTED", info.index, info.name);
         });
 
     Stats stats;
@@ -190,14 +189,12 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     es.AddEventCallback<NkGamepadButtonPressEvent>(
         [&stats](NkGamepadButtonPressEvent* ev) {
             ++stats.gpBtn;
-            std::printf("[GP Event] ButtonPress %d idx=%u\n",
-                (int)ev->GetButton(), ev->GetGamepadIndex());
+            logger.Info("[GP Event] ButtonPress {0} idx={1}", (int)ev->GetButton(), ev->GetGamepadIndex());
         });
     es.AddEventCallback<NkGamepadButtonReleaseEvent>(
         [&stats](NkGamepadButtonReleaseEvent* ev) {
             ++stats.gpBtn;
-            std::printf("[GP Event] ButtonRelease %d idx=%u\n",
-                (int)ev->GetButton(), ev->GetGamepadIndex());
+            logger.Info("[GP Event] ButtonRelease {0} idx={1}", (int)ev->GetButton(), ev->GetGamepadIndex());
         });
 
     // 5. État
@@ -215,13 +212,13 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     NkChrono chrono;
     NkElapsedTime elapsed{};
 
-    std::printf("[ex06] Stress test désactivé (Enqueue non publique).\n");
-    std::printf("[ex06] Connect a gamepad for full coverage\n");
-    std::printf("[ex06] ESC or close window to exit\n");
+    logger.Info("[ex06] Stress test désactivé (Enqueue non publique).");
+    logger.Info("[ex06] Connect a gamepad for full coverage");
+    logger.Info("[ex06] ESC or close window to exit");
 
     while (running && window.IsOpen())
     {
-        chrono.Reset();
+        NkElapsedTime e = chrono.Reset();
 
         // -------------------------------------------------------------------
         // Pomper — avec gestion Close/Resize/Key
@@ -252,8 +249,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         if (++gpPrint % 120 == 0) {
             for (NkU32 gpIdx = 0; gpIdx < NK_MAX_GAMEPADS; ++gpIdx) {
                 if (!gpStates[gpIdx].connected) continue;
-                std::printf("[GP#%u] LX=%.2f LY=%.2f RX=%.2f RY=%.2f "
-                            "LT=%.2f RT=%.2f\n",
+                logger.Info("[GP#{0}] LX={1} LY={2} RX={3} RY={4} LT={5} RT={6}",
                     gpIdx,
                     gpStates[gpIdx].axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LX)],
                     gpStates[gpIdx].axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LY)],
@@ -304,10 +300,12 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     // Final stats
     auto now  = std::chrono::steady_clock::now();
     float sec = std::chrono::duration<float>(now - t0).count();
-    std::printf("\n=== FINAL STATS ===\n");
+    logger.Info("=== FINAL STATS ===");
     stats.Print(sec);
 
     renderer.Shutdown();
+    window.Close();
     NkClose();
     return 0;
 }
+

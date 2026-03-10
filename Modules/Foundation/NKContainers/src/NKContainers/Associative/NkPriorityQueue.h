@@ -18,7 +18,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Priority queue - std::priority_queue equivalent
@@ -48,6 +48,7 @@ namespace nkentseu {
             using ConstReference = const T&;
             
         private:
+            Allocator* mAllocator;
             NkVector<T, Allocator> mHeap;
             
             SizeType Parent(SizeType i) const { return (i - 1) / 2; }
@@ -83,9 +84,19 @@ namespace nkentseu {
             
         public:
             // Constructors
-            NkPriorityQueue() {}
+            NkPriorityQueue()
+                : mAllocator(&memory::NkGetDefaultAllocator())
+                , mHeap(mAllocator) {
+            }
             
-            NkPriorityQueue(NkInitializerList<T> init) {
+            explicit NkPriorityQueue(Allocator* allocator)
+                : mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHeap(mAllocator) {
+            }
+            
+            NkPriorityQueue(NkInitializerList<T> init, Allocator* allocator = nullptr)
+                : mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHeap(mAllocator) {
                 for (auto& val : init) {
                     Push(val);
                 }
@@ -93,13 +104,14 @@ namespace nkentseu {
             
             // Element access
             ConstReference Top() const {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mHeap[0];
             }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mHeap.IsEmpty(); }
+            bool Empty() const NK_NOEXCEPT { return mHeap.Empty(); }
             SizeType Size() const NK_NOEXCEPT { return mHeap.Size(); }
+            Allocator* GetAllocator() const NK_NOEXCEPT { return mAllocator; }
             
             // Modifiers
             void Push(const T& value) {
@@ -121,7 +133,7 @@ namespace nkentseu {
             #endif
             
             void Pop() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 
                 if (mHeap.Size() == 1) {
                     mHeap.PopBack();
@@ -148,7 +160,7 @@ namespace nkentseu {
             lhs.Swap(rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ASSOCIATIVE_NKPRIORITYQUEUE_H_INCLUDED

@@ -19,7 +19,7 @@ namespace nkentseu {
 /**
  * @brief Namespace core.
  */
-namespace core {
+
 
 /**
  * @brief Informations sur une assertion échouée
@@ -43,7 +43,7 @@ enum class NkAssertAction {
 	NK_IGNORE_ALL ///< Ignorer toutes
 };
 
-} // namespace core
+
 } // namespace nkentseu
 
 #endif

@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // NkNoopWindow.cpp
 // Headless/fallback implementation of NkWindow without PIMPL.
 // =============================================================================
@@ -8,7 +8,7 @@
 #if defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY) || \
     (!defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX) && \
     !defined(NKENTSEU_PLATFORM_ANDROID) && !defined(NKENTSEU_PLATFORM_MACOS) && !defined(NKENTSEU_PLATFORM_IOS) && \
-    !defined(NKENTSEU_PLATFORM_WEB) && !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && !defined(__EMSCRIPTEN__) && \
+    !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && !defined(__EMSCRIPTEN__) && \
     !(defined(NKENTSEU_PLATFORM_LINUX) && (defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB) || defined(NKENTSEU_WINDOWING_WAYLAND))))
 
 #include "NKWindow/Platform/Noop/NkNoopWindow.h"
@@ -104,11 +104,11 @@ namespace nkentseu {
         return mConfig;
     }
 
-    std::string NkWindow::GetTitle() const {
+    NkString NkWindow::GetTitle() const {
         return mData.mTitle;
     }
 
-    void NkWindow::SetTitle(const std::string& title) {
+    void NkWindow::SetTitle(const NkString& title) {
         mData.mTitle = title;
         mConfig.title = title;
     }

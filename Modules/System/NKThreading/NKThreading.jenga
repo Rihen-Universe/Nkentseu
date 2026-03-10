@@ -31,23 +31,16 @@ with project("NKThreading"):
 
     includedirs([
         "src",
-        "src/NKThreading",
         "pch",
         "%{NKCore.location}/src",
-        "%{NKCore.location}/src/NKCore",
         "%{NKPlatform.location}/src",
-        "%{NKPlatform.location}/src/NKPlatform",
         "%{NKMemory.location}/src",
-        "%{NKMemory.location}/src/NKMemory",
         "%{NKContainers.location}/src",
-        "%{NKContainers.location}/src/NKContainers",
-        "%{NKLogger.location}/src",
-        "%{NKLogger.location}/src/NKLogger",
     ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger"])
+    dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers"])
 
     files([
         "src/NKThreading/**.cpp",
@@ -88,7 +81,7 @@ with project("NKThreading"):
         optimize("Speed")
         symbols(False)
 
-    # Tests unitaires/stress (desktop uniquement)
-    with filter("system:Linux || system:macOS || system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+    # Tests unitaires/stress
+    with filter("(system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne) || system:Linux || system:macOS || system:Web"):
         with test():
             testfiles(["tests/**.cpp"])

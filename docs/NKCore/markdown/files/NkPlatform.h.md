@@ -216,7 +216,7 @@ constexpr nk_uint32 Line() noexcept
 #### 🔧 `NkAlignAddress`
 
 ```cpp
-nk_ptr NkAlignAddress(nkentseu::core::nk_ptr address, nkentseu::core::nk_size alignment)
+nk_ptr NkAlignAddress(nkentseu::nk_ptr address, nkentseu::nk_size alignment)
 ```
 
 **Aligne une adresse vers le haut**
@@ -225,8 +225,8 @@ nk_ptr NkAlignAddress(nkentseu::core::nk_ptr address, nkentseu::core::nk_size al
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `address` | `nkentseu::core::nk_ptr` | [in] Adresse à aligner |
-| `alignment` | `nkentseu::core::nk_size` | [in] Alignement requis (doit être puissance de 2) |
+| `address` | `nkentseu::nk_ptr` | [in] Adresse à aligner |
+| `alignment` | `nkentseu::nk_size` | [in] Alignement requis (doit être puissance de 2) |
 
 **Retour:** Adresse alignée
 
@@ -240,7 +240,7 @@ nk_ptr NkAlignAddress(nkentseu::core::nk_ptr address, nkentseu::core::nk_size al
 #### 🔧 `NkAlignAddressConst`
 
 ```cpp
-nk_ptr NkAlignAddressConst(const nkentseu::core::nk_ptr address, nkentseu::core::nk_size alignment)
+nk_ptr NkAlignAddressConst(const nkentseu::nk_ptr address, nkentseu::nk_size alignment)
 ```
 
 **Aligne une adresse constante vers le haut**
@@ -249,8 +249,8 @@ nk_ptr NkAlignAddressConst(const nkentseu::core::nk_ptr address, nkentseu::core:
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `address` | `const nkentseu::core::nk_ptr` | [in] Adresse à aligner |
-| `alignment` | `nkentseu::core::nk_size` | [in] Alignement requis (doit être puissance de 2) |
+| `address` | `const nkentseu::nk_ptr` | [in] Adresse à aligner |
+| `alignment` | `nkentseu::nk_size` | [in] Alignement requis (doit être puissance de 2) |
 
 **Retour:** Adresse alignée
 
@@ -412,7 +412,7 @@ template<typename T> inline nk_size NkCalculatePadding(const T* addr, nk_size al
 `noexcept`
 
 ```cpp
-template<typename T, typename... Args> inline T* NkConstructAligned(core::nk_ptr ptr, Args&&... args) noexcept
+template<typename T, typename... Args> inline T* NkConstructAligned(nk_ptr ptr, Args&&... args) noexcept
 ```
 
 **Construit un objet dans de la mémoire alignée**
@@ -426,7 +426,7 @@ template<typename T, typename... Args> inline T* NkConstructAligned(core::nk_ptr
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `ptr` | `core::nk_ptr` | [in] Mémoire alignée |
+| `ptr` | `nk_ptr` | [in] Mémoire alignée |
 | `args` | `Args&&...` | [in] Arguments pour le constructeur |
 
 **Retour:** Pointeur vers l'objet construit
@@ -470,7 +470,7 @@ template<typename T> inline void NkDestroyAligned(T* ptr) noexcept
 `noexcept`
 
 ```cpp
-void NkFreeAligned(core::nk_ptr ptr) noexcept
+void NkFreeAligned(nk_ptr ptr) noexcept
 ```
 
 **Libère de la mémoire allouée avec AllocateAligned**
@@ -479,7 +479,7 @@ void NkFreeAligned(core::nk_ptr ptr) noexcept
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `ptr` | `core::nk_ptr` | [in] Pointeur à libérer |
+| `ptr` | `nk_ptr` | [in] Pointeur à libérer |
 
 *Défini dans: `E:\Projets\MacShared\Projets\Jenga\Jenga\Exemples\NKWindow\NKCore\src\NKCore\NkPlatform.h:830`*
 
@@ -913,7 +913,7 @@ inline nk_uint32 NkGetWordSize() noexcept
 #### 🔧 `NkHasSIMDFeature`
 
 ```cpp
-nk_bool NkHasSIMDFeature(const nkentseu::core::nk_char* feature)
+nk_bool NkHasSIMDFeature(const nkentseu::nk_char* feature)
 ```
 
 **Vérifie le support d'une fonctionnalité SIMD**
@@ -922,7 +922,7 @@ nk_bool NkHasSIMDFeature(const nkentseu::core::nk_char* feature)
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `feature` | `const nkentseu::core::nk_char*` | [in] Nom de la fonctionnalité (ex: "SSE", "AVX", "NEON") |
+| `feature` | `const nkentseu::nk_char*` | [in] Nom de la fonctionnalité (ex: "SSE", "AVX", "NEON") |
 
 **Retour:** true si supportée, false sinon
 
@@ -1008,7 +1008,7 @@ inline nk_bool NkIs64Bit() noexcept
 #### 🔧 `NkIsAligned`
 
 ```cpp
-nk_bool NkIsAligned(const nkentseu::core::nk_ptr address, nkentseu::core::nk_size alignment)
+nk_bool NkIsAligned(const nkentseu::nk_ptr address, nkentseu::nk_size alignment)
 ```
 
 **Vérifie si une adresse est alignée**
@@ -1017,8 +1017,8 @@ nk_bool NkIsAligned(const nkentseu::core::nk_ptr address, nkentseu::core::nk_siz
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `address` | `const nkentseu::core::nk_ptr` | [in] Adresse à vérifier |
-| `alignment` | `nkentseu::core::nk_size` | [in] Alignement requis (doit être puissance de 2) |
+| `address` | `const nkentseu::nk_ptr` | [in] Adresse à vérifier |
+| `alignment` | `nkentseu::nk_size` | [in] Alignement requis (doit être puissance de 2) |
 
 **Retour:** true si alignée, false sinon
 
@@ -1195,7 +1195,7 @@ inline nk_bool NkIsMobile() noexcept
 `noexcept`
 
 ```cpp
-template<typename T> nk_bool NkIsPointerAligned(const core::nk_ptr ptr, nk_size alignment) noexcept
+template<typename T> nk_bool NkIsPointerAligned(const nk_ptr ptr, nk_size alignment) noexcept
 ```
 
 **Vérifie si un pointeur est aligné**
@@ -1208,7 +1208,7 @@ template<typename T> nk_bool NkIsPointerAligned(const core::nk_ptr ptr, nk_size 
 
 | Nom | Type | Description |
 |-----|------|-------------|
-| `ptr` | `const core::nk_ptr` | [in] Pointeur à vérifier |
+| `ptr` | `const nk_ptr` | [in] Pointeur à vérifier |
 | `alignment` | `nk_size` | [in] Alignement à tester |
 
 **Retour:** true si aligné, false sinon

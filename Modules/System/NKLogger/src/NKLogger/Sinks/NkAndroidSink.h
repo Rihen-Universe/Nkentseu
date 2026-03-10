@@ -9,25 +9,42 @@
 // pour logger directement dans le système de logs Android.
 // Les logs peuvent être consultés avec: adb logcat
 // USAGE:
-//   auto sink = std::make_unique<NkAndroidSink>("MyApp");
-//   logger->AddSink(std::move(sink));
+//   auto sink = memory::NkMakeUnique<NkAndroidSink>("MyApp");
+//   logger->AddSink(traits::NkMove(sink));
 // TAGS: Android, Logging, JNI, NDK
 // -----------------------------------------------------------------------------
 
 #pragma once
 
 #include "NKLogger/NkSink.h"
+#include "NKLogger/NkSync.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkTypes.h"
-#include <string>
-#include <mutex>
 
-#ifdef NKENTSEU_PLATFORM_ANDROID
+
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkStringUtils.h"
+
+#if !defined(NK_ANDROID_SINK_HAS_ANDROID_LOG)
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+#define NK_ANDROID_SINK_HAS_ANDROID_LOG 1
+#elif defined(__has_include)
+#if __has_include(<android/log.h>)
+#define NK_ANDROID_SINK_HAS_ANDROID_LOG 1
+#else
+#define NK_ANDROID_SINK_HAS_ANDROID_LOG 0
+#endif
+#else
+#define NK_ANDROID_SINK_HAS_ANDROID_LOG 0
+#endif
+#endif
+
+#if NK_ANDROID_SINK_HAS_ANDROID_LOG
 #include <android/log.h>
 #endif
 
 // Forward declaration pour éviter les conflits
-#ifdef NKENTSEU_PLATFORM_ANDROID
+#if NK_ANDROID_SINK_HAS_ANDROID_LOG
     #ifndef ANDROID_LOG_UNKNOWN
         #define ANDROID_LOG_UNKNOWN 0
         #define ANDROID_LOG_VERBOSE 1
@@ -43,7 +60,7 @@
 // Private forward declaration (ne pas inclure android/log.h sur non-Android)
 namespace nkentseu::android_sink_internal {
 	// Déclarations stub pour la compilation non-Android
-#ifndef NKENTSEU_PLATFORM_ANDROID
+#if !NK_ANDROID_SINK_HAS_ANDROID_LOG
 	extern const int ANDROID_LOG_VERBOSE;
 	extern const int ANDROID_LOG_DEBUG;
 	extern const int ANDROID_LOG_INFO;
@@ -69,9 +86,9 @@ namespace nkentseu {
 	//   - Thread-safe avec mutex
 	//   - Peut compiler sur non-Android (configuration stub)
 	// EXEMPLE:
-	//   auto sink = std::make_unique<NkAndroidSink>("MyApp");
+	//   auto sink = memory::NkMakeUnique<NkAndroidSink>("MyApp");
 	//   sink->SetFormatter(...);
-	//   logger->AddSink(std::move(sink));
+	//   logger->AddSink(traits::NkMove(sink));
 	// -------------------------------------------------------------------------
 	class NKLOGGER_API NkAndroidSink : public NkISink {
 		public:
@@ -85,7 +102,7 @@ namespace nkentseu {
 			 *            Ce tag s'affichera dans logcat
 			 * EXEMPLE: NkAndroidSink("com.example.myapp")
 			 */
-			explicit NkAndroidSink(const std::string &tag);
+			explicit NkAndroidSink(const NkString &tag);
 
 			/**
 			 * @brief Destructeur
@@ -112,12 +129,12 @@ namespace nkentseu {
 			/**
 			 * @brief Définit le formatter pour ce sink
 			 */
-			void SetFormatter(std::unique_ptr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
 
 			/**
 			 * @brief Définit le pattern de formatage
 			 */
-			void SetPattern(const std::string &pattern) override;
+			void SetPattern(const NkString &pattern) override;
 
 			/**
 			 * @brief Obtient le formatter courant
@@ -127,7 +144,7 @@ namespace nkentseu {
 			/**
 			 * @brief Obtient le pattern courant
 			 */
-			std::string GetPattern() const override;
+			NkString GetPattern() const override;
 
 			// ---------------------------------------------------------------
 			// CONFIGURATION SPÉCIFIQUE À ANDROID
@@ -138,13 +155,13 @@ namespace nkentseu {
 			 * @param tag Nouveau tag (max 23 caractères sur certaines versions Android)
 			 * EXEMPLE: SetTag("app/core")
 			 */
-			void SetTag(const std::string &tag);
+			void SetTag(const NkString &tag);
 
 			/**
 			 * @brief Obtient le tag Android courant
 			 * @return Tag utilisé pour les logs
 			 */
-			std::string GetTag() const;
+			NkString GetTag() const;
 
 			/**
 			 * @brief Active/désactive les logs courtes (sans formatage)
@@ -160,7 +177,7 @@ namespace nkentseu {
 			 */
 			bool IsShortLogsEnabled() const;
 
-            static constexpr core::usize GetMaxTagLength() {
+            static constexpr usize GetMaxTagLength() {
                 return MAX_TAG_LENGTH;
             }
 		private:
@@ -180,7 +197,7 @@ namespace nkentseu {
 			 * @param tag Tag à valider
 			 * @return Tag validé (max 24 caractères)
 			 */
-			std::string ValidateTag(const std::string &tag) const;
+			NkString ValidateTag(const NkString &tag) const;
 
 			/**
 			 * @brief Écrit directement dans les logs Android
@@ -188,26 +205,26 @@ namespace nkentseu {
 			 * @param tag Tag du log
 			 * @param message Message à logger
 			 */
-			void WriteAndroidLog(int prio, const std::string &tag, const std::string &message);
+			void WriteAndroidLog(int prio, const NkString &tag, const NkString &message);
 
 			// ---------------------------------------------------------------
 			// VARIABLES MEMBRE PRIVÉES
 			// ---------------------------------------------------------------
 
 			/// Formatter pour ce sink
-			std::unique_ptr<NkFormatter> m_Formatter;
+			memory::NkUniquePtr<NkFormatter> m_Formatter;
 
 			/// Tag Android pour les logs
-			std::string m_Tag;
+			NkString m_Tag;
 
 			/// Utiliser les logs courtes (sans formatage)
 			bool m_ShortLogs;
 
 			/// Mutex pour la synchronisation thread-safe
-			mutable std::mutex m_Mutex;
+			mutable logger_sync::NkMutex m_Mutex;
 
 			/// Taille maximale du tag Android (23 caractères selon spec Android)
-			static constexpr core::usize MAX_TAG_LENGTH = 23;
+			static constexpr usize MAX_TAG_LENGTH = 23;
 
 			/// Message vide pour les cas d'erreur
 			static constexpr const char *EMPTY_TAG = "NkAndroidLog";

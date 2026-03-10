@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkJSONValue.h"
+#include "NKSerialization/JSON/NkJSONValue.h"
 
 namespace nkentseu {
     namespace entseu {

@@ -271,11 +271,11 @@ namespace nkentseu {
     // -------------------------------------------------------------------------
 
     struct NkActionCommand {
-            NkActionCommand(std::string name, NkInputCode code, bool repeatable = true)
+            NkActionCommand(NkString name, NkInputCode code, bool repeatable = true)
                 : mName(std::move(name)), mCode(code),
                 mRepeatable(repeatable), mPrivRepeatable(repeatable) {}
 
-            const std::string& GetName()               const noexcept { return mName; }
+            const NkString& GetName()               const noexcept { return mName; }
             const NkInputCode& GetCode()               const noexcept { return mCode; }
             bool               IsRepeatable()          const noexcept { return mRepeatable; }
             bool               IsPrivateRepeatable()   const noexcept { return mPrivRepeatable; }
@@ -285,7 +285,7 @@ namespace nkentseu {
             bool operator!=(const NkActionCommand& o) const noexcept { return !(*this == o); }
 
         private:
-            std::string mName;
+            NkString mName;
             NkInputCode mCode;
             bool        mRepeatable     = true;
             bool        mPrivRepeatable = true;
@@ -293,7 +293,7 @@ namespace nkentseu {
     };
 
     // Signature : (actionName, code, isPressed, isRepeat)
-    using NkActionSubscriber = std::function<void(const std::string&,
+    using NkActionSubscriber = std::function<void(const NkString&,
                                                    const NkInputCode&,
                                                    bool isPressed,
                                                    bool isRepeat)>;
@@ -303,12 +303,12 @@ namespace nkentseu {
     // -------------------------------------------------------------------------
 
     struct NkAxisCommand {
-            NkAxisCommand(std::string name, NkInputCode code,
+            NkAxisCommand(NkString name, NkInputCode code,
                         float scale = 1.f, float minInterval = 0.f)
                 : mName(std::move(name)), mCode(code),
                 mScale(scale), mMinInterval(minInterval) {}
 
-            const std::string& GetName()        const noexcept { return mName; }
+            const NkString& GetName()        const noexcept { return mName; }
             const NkInputCode& GetCode()        const noexcept { return mCode; }
             float              GetScale()       const noexcept { return mScale; }
             float              GetMinInterval() const noexcept { return mMinInterval; }
@@ -317,14 +317,14 @@ namespace nkentseu {
             bool operator!=(const NkAxisCommand& o) const noexcept { return !(*this == o); }
 
         private:
-            std::string mName;
+            NkString mName;
             NkInputCode mCode;
             float       mScale       = 1.f;
             float       mMinInterval = 0.f;
     };
 
     // Signature : (axisName, code, value)
-    using NkAxisSubscriber = std::function<void(const std::string&,
+    using NkAxisSubscriber = std::function<void(const NkString&,
                                                  const NkInputCode&,
                                                  float value)>;
 
@@ -334,24 +334,24 @@ namespace nkentseu {
 
     class NkActionManager {
         public:
-            void CreateAction(const std::string& name, NkActionSubscriber handler);
+            void CreateAction(const NkString& name, NkActionSubscriber handler);
             void AddCommand(const NkActionCommand& cmd);
-            void RemoveAction(const std::string& name);
+            void RemoveAction(const NkString& name);
             void RemoveCommand(const NkActionCommand& cmd);
 
             // Appelé par le dispatcher quand un event arrive
             void TriggerAction(const NkInputCode& code, bool isPressed);
 
-            NkU64 GetActionCount()                         const noexcept { return mActions.size(); }
+            NkU64 GetActionCount()                         const noexcept { return mActions.Size(); }
             NkU64 GetCommandCount()                        const noexcept;
-            NkU64 GetCommandCount(const std::string& name) const noexcept;
+            NkU64 GetCommandCount(const NkString& name) const noexcept;
 
         private:
-            void FireAction(const std::string& name, const NkInputCode& code,
+            void FireAction(const NkString& name, const NkInputCode& code,
                             bool isPressed, NkActionCommand& cmd);
 
-            std::unordered_map<std::string, NkActionSubscriber>           mActions;
-            std::unordered_map<std::string, std::vector<NkActionCommand>> mCommands;
+            NkUnorderedMap<NkString, NkActionSubscriber>           mActions;
+            NkUnorderedMap<NkString, NkVector<NkActionCommand>> mCommands;
     };
 
     // -------------------------------------------------------------------------
@@ -372,23 +372,23 @@ namespace nkentseu {
 
     class NkAxisManager {
         public:
-            void CreateAxis(const std::string& name, NkAxisSubscriber handler);
+            void CreateAxis(const NkString& name, NkAxisSubscriber handler);
             void AddCommand(const NkAxisCommand& cmd);
-            void RemoveAxis(const std::string& name);
+            void RemoveAxis(const NkString& name);
             void RemoveCommand(const NkAxisCommand& cmd);
 
             // Appelé chaque frame — analogue à AxisManager::UpdateAxis
             void UpdateAxes(const NkAxisResolver& resolver);
 
-            NkU64 GetAxisCount()                           const noexcept { return mAxes.size(); }
+            NkU64 GetAxisCount()                           const noexcept { return mAxes.Size(); }
             NkU64 GetCommandCount()                        const noexcept;
-            NkU64 GetCommandCount(const std::string& name) const noexcept;
+            NkU64 GetCommandCount(const NkString& name) const noexcept;
 
         private:
-            void FireAxis(const std::string& name, const NkAxisCommand& cmd, float value);
+            void FireAxis(const NkString& name, const NkAxisCommand& cmd, float value);
 
-            std::unordered_map<std::string, NkAxisSubscriber>           mAxes;
-            std::unordered_map<std::string, std::vector<NkAxisCommand>> mCommands;
+            NkUnorderedMap<NkString, NkAxisSubscriber>           mAxes;
+            NkUnorderedMap<NkString, NkVector<NkAxisCommand>> mCommands;
     };
 
     // =========================================================================
@@ -397,11 +397,11 @@ namespace nkentseu {
     // =========================================================================
 
     #define NK_ACTION_SUBSCRIBER(method_) \
-        [this](const std::string& n_, const NkInputCode& c_, bool p_, bool r_) \
+        [this](const NkString& n_, const NkInputCode& c_, bool p_, bool r_) \
             { this->method_(n_, c_, p_, r_); }
 
     #define NK_AXIS_SUBSCRIBER(method_) \
-        [this](const std::string& n_, const NkInputCode& c_, float v_) \
+        [this](const NkString& n_, const NkInputCode& c_, float v_) \
             { this->method_(n_, c_, v_); }
 
 } // namespace nkentseu

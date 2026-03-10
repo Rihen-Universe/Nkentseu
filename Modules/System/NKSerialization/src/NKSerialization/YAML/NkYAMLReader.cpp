@@ -5,7 +5,7 @@
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
-#include "NkYAMLReader.h"
+#include "NKSerialization/YAML/NkYAMLReader.h"
 
 namespace nkentseu {
     namespace entseu {

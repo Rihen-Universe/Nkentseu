@@ -18,7 +18,7 @@
 #include "NKContainers/Sequential/NkDeque.h"
 
 namespace nkentseu {
-    namespace core {
+    
         
         /**
          * @brief Queue adapter - std::queue equivalent
@@ -63,27 +63,27 @@ namespace nkentseu {
             
             // Element access
             Reference Front() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mContainer.Front();
             }
             
             ConstReference Front() const {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mContainer.Front();
             }
             
             Reference Back() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mContainer.Back();
             }
             
             ConstReference Back() const {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 return mContainer.Back();
             }
             
             // Capacity
-            bool IsEmpty() const NK_NOEXCEPT { return mContainer.IsEmpty(); }
+            bool Empty() const NK_NOEXCEPT { return mContainer.Empty(); }
             SizeType Size() const NK_NOEXCEPT { return mContainer.Size(); }
             
             // Modifiers
@@ -103,7 +103,7 @@ namespace nkentseu {
             #endif
             
             void Pop() {
-                NK_ASSERT(!IsEmpty());
+                NK_ASSERT(!Empty());
                 mContainer.PopFront();
             }
             
@@ -118,7 +118,7 @@ namespace nkentseu {
             lhs.Swap(rhs);
         }
         
-    } // namespace core
+    
 } // namespace nkentseu
 
 #endif // NK_CORE_NKCORE_SRC_NKCORE_CONTAINERS_ADAPTERS_NKQUEUE_H_INCLUDED

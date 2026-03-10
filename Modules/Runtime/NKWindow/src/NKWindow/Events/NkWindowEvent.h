@@ -25,6 +25,7 @@
 // =============================================================================
 
 #include "NkEvent.h"
+#include "NKContainers/String/NkStringUtils.h"
 #include "NkEventState.h"
 #include <string>
 
@@ -105,9 +106,8 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowCreateEvent(*this); }
 
-            std::string ToString() const override {
-                return "WindowCreate(" + std::to_string(mWidth) + "x"
-                                    + std::to_string(mHeight) + ")";
+            NkString ToString() const override {
+                return NkString::Fmt("WindowCreate({0}x{1})", mWidth, mHeight);
             }
 
             /// @brief Largeur initiale de la fenêtre (pixels)
@@ -140,8 +140,8 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowCloseEvent(*this); }
 
-            std::string ToString() const override {
-                return std::string("WindowClose(forced=") + (mForced ? "true" : "false") + ")";
+            NkString ToString() const override {
+                return NkString("WindowClose(forced=") + (mForced ? "true" : "false") + ")";
             }
 
             /// @brief Retourne true si la fermeture est imposée par le système (non annulable)
@@ -167,7 +167,7 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowDestroyEvent(*this); }
 
-            std::string ToString() const override { return "WindowDestroy()"; }
+            NkString ToString() const override { return "WindowDestroy()"; }
     };
 
     // =========================================================================
@@ -197,11 +197,10 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowPaintEvent(*this); }
 
-            std::string ToString() const override {
+            NkString ToString() const override {
                 if (mFull) return "WindowPaint(full)";
-                return "WindowPaint("
-                    + std::to_string(mDirtyX) + "," + std::to_string(mDirtyY)
-                    + " " + std::to_string(mDirtyW) + "x" + std::to_string(mDirtyH) + ")";
+                return NkString::Fmt("WindowPaint({0},{1} {2}x{3})",
+                    mDirtyX, mDirtyY, mDirtyW, mDirtyH);
             }
 
             /// @brief Retourne true si toute la fenêtre doit être redessinée
@@ -243,11 +242,9 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowResizeEvent(*this); }
 
-            std::string ToString() const override {
-                return "WindowResize(" + std::to_string(mWidth) + "x"
-                                    + std::to_string(mHeight) + " prev="
-                                    + std::to_string(mPrevWidth) + "x"
-                                    + std::to_string(mPrevHeight) + ")";
+            NkString ToString() const override {
+                return NkString::Fmt("WindowResize({0}x{1} prev={2}x{3})",
+                    mWidth, mHeight, mPrevWidth, mPrevHeight);
             }
 
             NkU32 GetWidth()      const noexcept { return mWidth;      }
@@ -282,7 +279,7 @@ namespace nkentseu {
             explicit NkWindowResizeBeginEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowResizeBeginEvent(*this); }
-            std::string ToString() const override { return "WindowResizeBegin()"; }
+            NkString ToString() const override { return "WindowResizeBegin()"; }
     };
 
     class NkWindowResizeEndEvent final : public NkWindowEvent {
@@ -291,7 +288,7 @@ namespace nkentseu {
             explicit NkWindowResizeEndEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowResizeEndEvent(*this); }
-            std::string ToString() const override { return "WindowResizeEnd()"; }
+            NkString ToString() const override { return "WindowResizeEnd()"; }
     };
 
     // =========================================================================
@@ -313,9 +310,9 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowMoveEvent(*this); }
 
-            std::string ToString() const override {
-                return "WindowMove(" + std::to_string(mX) + "," + std::to_string(mY)
-                    + " prev=" + std::to_string(mPrevX) + "," + std::to_string(mPrevY) + ")";
+            NkString ToString() const override {
+                return NkString::Fmt("WindowMove({0},{1} prev={2},{3})",
+                    mX, mY, mPrevX, mPrevY);
             }
 
             NkI32 GetX()     const noexcept { return mX;     }
@@ -344,7 +341,7 @@ namespace nkentseu {
             explicit NkWindowMoveBeginEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMoveBeginEvent(*this); }
-            std::string ToString() const override { return "WindowMoveBegin()"; }
+            NkString ToString() const override { return "WindowMoveBegin()"; }
     };
 
     class NkWindowMoveEndEvent final : public NkWindowEvent {
@@ -353,7 +350,7 @@ namespace nkentseu {
             explicit NkWindowMoveEndEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMoveEndEvent(*this); }
-            std::string ToString() const override { return "WindowMoveEnd()"; }
+            NkString ToString() const override { return "WindowMoveEnd()"; }
     };
 
     // =========================================================================
@@ -366,7 +363,7 @@ namespace nkentseu {
             explicit NkWindowFocusGainedEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowFocusGainedEvent(*this); }
-            std::string ToString() const override { return "WindowFocusGained()"; }
+            NkString ToString() const override { return "WindowFocusGained()"; }
     };
 
     class NkWindowFocusLostEvent final : public NkWindowEvent {
@@ -375,7 +372,7 @@ namespace nkentseu {
             explicit NkWindowFocusLostEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowFocusLostEvent(*this); }
-            std::string ToString() const override { return "WindowFocusLost()"; }
+            NkString ToString() const override { return "WindowFocusLost()"; }
     };
 
     // =========================================================================
@@ -388,7 +385,7 @@ namespace nkentseu {
             explicit NkWindowMinimizeEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMinimizeEvent(*this); }
-            std::string ToString() const override { return "WindowMinimize()"; }
+            NkString ToString() const override { return "WindowMinimize()"; }
     };
 
     class NkWindowMaximizeEvent final : public NkWindowEvent {
@@ -397,7 +394,7 @@ namespace nkentseu {
             explicit NkWindowMaximizeEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMaximizeEvent(*this); }
-            std::string ToString() const override { return "WindowMaximize()"; }
+            NkString ToString() const override { return "WindowMaximize()"; }
     };
 
     class NkWindowRestoreEvent final : public NkWindowEvent {
@@ -406,7 +403,7 @@ namespace nkentseu {
             explicit NkWindowRestoreEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowRestoreEvent(*this); }
-            std::string ToString() const override { return "WindowRestore()"; }
+            NkString ToString() const override { return "WindowRestore()"; }
     };
 
     // =========================================================================
@@ -419,7 +416,7 @@ namespace nkentseu {
             explicit NkWindowFullscreenEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowFullscreenEvent(*this); }
-            std::string ToString() const override { return "WindowFullscreen()"; }
+            NkString ToString() const override { return "WindowFullscreen()"; }
     };
 
     class NkWindowWindowedEvent final : public NkWindowEvent {
@@ -428,7 +425,7 @@ namespace nkentseu {
             explicit NkWindowWindowedEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowWindowedEvent(*this); }
-            std::string ToString() const override { return "WindowWindowed()"; }
+            NkString ToString() const override { return "WindowWindowed()"; }
     };
 
     // =========================================================================
@@ -452,9 +449,8 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowDpiEvent(*this); }
 
-            std::string ToString() const override {
-                return "WindowDpi(scale=" + std::to_string(mScale)
-                    + " dpi=" + std::to_string(mDpi) + ")";
+            NkString ToString() const override {
+                return NkString::Fmt("WindowDpi(scale={0:.3} dpi={1})", mScale, mDpi);
             }
 
             /// @brief Nouveau facteur d'échelle
@@ -484,8 +480,8 @@ namespace nkentseu {
 
             NkEvent* Clone() const override { return new NkWindowThemeEvent(*this); }
 
-            std::string ToString() const override {
-                return std::string("WindowTheme(") + NkWindowThemeToString(mTheme) + ")";
+            NkString ToString() const override {
+                return NkString("WindowTheme(") + NkWindowThemeToString(mTheme) + ")";
             }
 
             /// @brief Thème système actif
@@ -509,7 +505,7 @@ namespace nkentseu {
             explicit NkWindowShownEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowShownEvent(*this); }
-            std::string ToString() const override { return "WindowShown()"; }
+            NkString ToString() const override { return "WindowShown()"; }
     };
 
     class NkWindowHiddenEvent final : public NkWindowEvent {
@@ -518,7 +514,7 @@ namespace nkentseu {
             explicit NkWindowHiddenEvent(NkU64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowHiddenEvent(*this); }
-            std::string ToString() const override { return "WindowHidden()"; }
+            NkString ToString() const override { return "WindowHidden()"; }
     };
 
 } // namespace nkentseu

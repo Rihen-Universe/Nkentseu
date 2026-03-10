@@ -19,6 +19,7 @@
 #include <algorithm>
 
 #include "NKMath/NkTypes.h"
+#include "NKContainers/String/NkStringUtils.h"
 
 /**
  * @brief Namespace nkentseu.
@@ -53,17 +54,18 @@ namespace nkentseu {
 
 	struct NkError {
 		NkU32 code = 0;
-		std::string message = "";
+		NkString message = "";
 
 		NkError() = default;
-		NkError(NkU32 code, std::string msg) : code(code), message(std::move(msg)) {
+		NkError(NkU32 code, NkString msg) : code(code), message(std::move(msg)) {
 		}
 
 		bool IsOk() const {
 			return code == 0;
 		}
-		std::string ToString() const {
-			return code == 0 ? "OK" : "[" + std::to_string(code) + "] " + message;
+		NkString ToString() const {
+			if (code == 0) return NkString("OK");
+			return NkString::Fmtf("[%u] ", code) + message;
 		}
 
 		static NkError Ok() {

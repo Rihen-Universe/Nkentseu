@@ -2,6 +2,7 @@
 #include <Unitest/TestMacro.h>
 
 #include "NKMemory/NkAllocator.h"
+#include "NKPlatform/NkFoundationLog.h"
 
 #include <chrono>
 #include <stdio.h>
@@ -226,14 +227,14 @@ TEST_CASE(NKMemoryBenchmark, AllocatorP99) {
     results[4] = BenchBuddyAllocator();
     results[5] = BenchVirtualAllocator();
 
-    printf("\n[NKMemory Benchmark] avg/p99 en nanosecondes\n");
+    NK_FOUNDATION_LOG_INFO("[NKMemory Benchmark] avg/p99 en nanosecondes");
     for (const BenchResult& result : results) {
-        printf("  - %-20s avg=%10.2f ns  p99=%10.2f ns  failures=%llu/%llu\n",
-               result.name,
-               result.avgNs,
-               result.p99Ns,
-               static_cast<unsigned long long>(result.failures),
-               static_cast<unsigned long long>(result.samples));
+        NK_FOUNDATION_LOG_INFO("  - %-20s avg=%10.2f ns  p99=%10.2f ns  failures=%llu/%llu",
+                               result.name,
+                               result.avgNs,
+                               result.p99Ns,
+                               static_cast<unsigned long long>(result.failures),
+                               static_cast<unsigned long long>(result.samples));
         ASSERT_TRUE(result.samples > 0u);
         ASSERT_TRUE(result.avgNs > 0.0);
         ASSERT_TRUE(result.p99Ns > 0.0);
