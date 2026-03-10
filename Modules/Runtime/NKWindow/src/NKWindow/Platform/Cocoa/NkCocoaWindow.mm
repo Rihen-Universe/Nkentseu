@@ -16,6 +16,7 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKWindow/Events/NkWindowEvent.h"
+#include "NKMath/NkFunctions.h"
 
 #include <algorithm>
 
@@ -28,8 +29,8 @@ namespace nkentseu {
         NSRect contentRect = [window contentRectForFrameRect:window.frame];
         const float scale = static_cast<float>(window.backingScaleFactor);
         return {
-            static_cast<NkU32>(std::max(0.0f, static_cast<float>(contentRect.size.width)) * scale),
-            static_cast<NkU32>(std::max(0.0f, static_cast<float>(contentRect.size.height)) * scale)
+            static_cast<uint32>(math::NkMax(0.0f, static_cast<float>(contentRect.size.width)) * scale),
+            static_cast<uint32>(math::NkMax(0.0f, static_cast<float>(contentRect.size.height)) * scale)
         };
     }
 
@@ -215,8 +216,8 @@ namespace nkentseu {
         }
         NSRect frame = mData.mNSWindow.frame;
         return {
-            static_cast<NkU32>(std::max(0.0, frame.origin.x)),
-            static_cast<NkU32>(std::max(0.0, frame.origin.y))
+            static_cast<uint32>(math::NkMax(0.0, frame.origin.x)),
+            static_cast<uint32>(math::NkMax(0.0, frame.origin.y))
         };
     }
 
@@ -235,8 +236,8 @@ namespace nkentseu {
         const CGFloat scale = [screen backingScaleFactor];
         NSRect frame = [screen frame];
         return {
-            static_cast<NkU32>(std::max(0.0, frame.size.width * scale)),
-            static_cast<NkU32>(std::max(0.0, frame.size.height * scale))
+            static_cast<uint32>(math::NkMax(0.0, frame.size.width * scale)),
+            static_cast<uint32>(math::NkMax(0.0, frame.size.height * scale))
         };
     }
 
@@ -244,13 +245,13 @@ namespace nkentseu {
         return {0u, 0u};
     }
 
-    void NkWindow::SetSize(NkU32 width, NkU32 height) {
+    void NkWindow::SetSize(uint32 width, uint32 height) {
         if (!mData.mNSWindow) {
             return;
         }
 
-        const NkU32 oldW = mData.mWidth;
-        const NkU32 oldH = mData.mHeight;
+        const uint32 oldW = mData.mWidth;
+        const uint32 oldH = mData.mHeight;
 
         NSRect frame = [mData.mNSWindow frame];
         frame.size.width = static_cast<CGFloat>(width);
@@ -267,7 +268,7 @@ namespace nkentseu {
         NkSystem::Events().Enqueue_Public(resizeEvent, mId);
     }
 
-    void NkWindow::SetPosition(NkI32 x, NkI32 y) {
+    void NkWindow::SetPosition(int32 x, int32 y) {
         if (!mData.mNSWindow) {
             return;
         }
@@ -347,7 +348,7 @@ namespace nkentseu {
         return false;
     }
 
-    void NkWindow::SetMousePosition(NkU32 x, NkU32 y) {
+    void NkWindow::SetMousePosition(uint32 x, uint32 y) {
         CGWarpMouseCursorPosition(CGPointMake(x, y));
     }
 
@@ -389,4 +390,3 @@ namespace nkentseu {
 } // namespace nkentseu
 
 #endif // NKENTSEU_PLATFORM_MACOS
-

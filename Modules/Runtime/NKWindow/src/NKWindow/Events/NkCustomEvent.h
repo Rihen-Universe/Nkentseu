@@ -14,7 +14,7 @@
 // Usage recommandé :
 //
 //   // Définir un type d'événement applicatif
-//   enum class MyAppEvent : NkU32 {
+//   enum class MyAppEvent : uint32 {
 //       PLAYER_DIED    = 1,
 //       LEVEL_COMPLETE = 2,
 //       SCORE_UPDATED  = 3,
@@ -22,14 +22,14 @@
 //
 //   // Envoyer avec payload
 //   struct ScorePayload { int score; int level; };
-//   NkCustomEvent ev(static_cast<NkU32>(MyAppEvent::SCORE_UPDATED));
+//   NkCustomEvent ev(static_cast<uint32>(MyAppEvent::SCORE_UPDATED));
 //   ev.SetPayload(ScorePayload{4200, 3});
 //   dispatcher.Dispatch(ev);
 //
 //   // Recevoir
 //   void OnEvent(NkEvent& e) {
 //       if (auto* ce = e.As<NkCustomEvent>()) {
-//           if (ce->GetCustomType() == static_cast<NkU32>(MyAppEvent::SCORE_UPDATED)) {
+//           if (ce->GetCustomType() == static_cast<uint32>(MyAppEvent::SCORE_UPDATED)) {
 //               ScorePayload p{};
 //               ce->GetPayload(p);
 //               UpdateHud(p.score);
@@ -40,9 +40,9 @@
 
 #include "NkEvent.h"
 #include "NKContainers/String/NkStringUtils.h"
+#include "NKMemory/NkUtils.h"
 #include <string>
 #include <vector>
-#include <cstring>
 #include <memory>
 
 namespace nkentseu {
@@ -52,7 +52,7 @@ namespace nkentseu {
     // =========================================================================
 
     /// @brief Taille maximale du payload inline de NkCustomEvent [octets]
-    static constexpr NkU32 NK_CUSTOM_PAYLOAD_MAX = 128;
+    static constexpr uint32 NK_CUSTOM_PAYLOAD_MAX = 128;
 
     // =========================================================================
     // NkCustomEvent — événement générique à payload fixe (128 octets max)
@@ -69,7 +69,7 @@ namespace nkentseu {
      * userPtr    : pointeur opaque optionnel (l'application gère la durée de
      *              vie ; éviter si l'événement peut être copié).
      *
-     * @warning  T doit être trivially copyable (std::memcpy sûr).
+     * @warning  T doit être trivially copyable (memory::NkMemCopy sûr).
      */
     class NkCustomEvent final : public NkEvent {
     public:
@@ -80,12 +80,12 @@ namespace nkentseu {
          * @param customType Identifiant applicatif de l'événement.
          * @param windowId   Identifiant de la fenêtre source.
          */
-        explicit NkCustomEvent(NkU32 customType = 0,
-                                NkU64 windowId   = 0) noexcept
+        explicit NkCustomEvent(uint32 customType = 0,
+                                uint64 windowId   = 0) noexcept
             : NkEvent(windowId)
             , mCustomType(customType)
         {
-            std::memset(mPayload, 0, sizeof(mPayload));
+            memory::NkMemSet(mPayload, 0, sizeof(mPayload));
         }
 
         NkEvent*    Clone()    const override { return new NkCustomEvent(*this); }
@@ -96,8 +96,8 @@ namespace nkentseu {
 
         // --- Accès au type applicatif ---
 
-        NkU32  GetCustomType() const noexcept { return mCustomType; }
-        void   SetCustomType(NkU32 t) noexcept { mCustomType = t; }
+        uint32  GetCustomType() const noexcept { return mCustomType; }
+        void   SetCustomType(uint32 t) noexcept { mCustomType = t; }
 
         // --- Accès au pointeur utilisateur ---
 
@@ -115,8 +115,8 @@ namespace nkentseu {
         bool SetPayload(const T& value) noexcept {
             static_assert(sizeof(T) <= NK_CUSTOM_PAYLOAD_MAX,
                           "NkCustomEvent: payload trop grand (max 128 octets)");
-            std::memcpy(mPayload, &value, sizeof(T));
-            mDataSize = static_cast<NkU32>(sizeof(T));
+            memory::NkMemCopy(mPayload, &value, sizeof(T));
+            mDataSize = static_cast<uint32>(sizeof(T));
             return true;
         }
 
@@ -127,23 +127,23 @@ namespace nkentseu {
         template<typename T>
         bool GetPayload(T& out) const noexcept {
             if (mDataSize < sizeof(T)) return false;
-            std::memcpy(&out, mPayload, sizeof(T));
+            memory::NkMemCopy(&out, mPayload, sizeof(T));
             return true;
         }
 
         // --- Accès brut ---
 
-        const NkU8* GetRawPayload() const noexcept { return mPayload; }
-        NkU8*       GetRawPayload()       noexcept { return mPayload; }
-        NkU32       GetDataSize()   const noexcept { return mDataSize; }
+        const uint8* GetRawPayload() const noexcept { return mPayload; }
+        uint8*       GetRawPayload()       noexcept { return mPayload; }
+        uint32       GetDataSize()   const noexcept { return mDataSize; }
 
         bool        HasPayload()    const noexcept { return mDataSize > 0; }
 
     private:
-        NkU32 mCustomType = 0;
-        NkU32 mDataSize   = 0;
+        uint32 mCustomType = 0;
+        uint32 mDataSize   = 0;
         void* mUserPtr    = nullptr;
-        NkU8  mPayload[NK_CUSTOM_PAYLOAD_MAX] = {};
+        uint8  mPayload[NK_CUSTOM_PAYLOAD_MAX] = {};
     };
 
     // =========================================================================
@@ -154,7 +154,7 @@ namespace nkentseu {
      * @brief Événement personnalisé transportant un pointeur vers des données
      *        de taille arbitraire.
      *
-     * Les données sont copiées dans un NkVector<NkU8> géré par l'événement.
+     * Les données sont copiées dans un NkVector<uint8> géré par l'événement.
      * Convient pour des payloads plus larges que NK_CUSTOM_PAYLOAD_MAX, ou
      * dont la taille n'est connue qu'au moment de l'exécution.
      *
@@ -171,10 +171,10 @@ namespace nkentseu {
          * @param userPtr    Pointeur opaque (durée de vie gérée par l'appelant).
          * @param windowId   Identifiant de la fenêtre.
          */
-        NkCustomPtrEvent(NkU32             customType,
-                          NkVector<NkU8> data      = {},
+        NkCustomPtrEvent(uint32             customType,
+                          NkVector<uint8> data      = {},
                           void*             userPtr    = nullptr,
-                          NkU64             windowId   = 0)
+                          uint64             windowId   = 0)
             : NkEvent(windowId)
             , mCustomType(customType)
             , mData(std::move(data))
@@ -186,13 +186,13 @@ namespace nkentseu {
             return NkString::Fmt("CustomPtrEvent(type={0} size={1}B)", mCustomType, mData.size());
         }
 
-        NkU32                    GetCustomType() const noexcept { return mCustomType; }
+        uint32                    GetCustomType() const noexcept { return mCustomType; }
         void*                    GetUserPtr()    const noexcept { return mUserPtr; }
         void                     SetUserPtr(void* p) noexcept { mUserPtr = p; }
-        const NkVector<NkU8>& GetData()       const noexcept { return mData; }
-        NkVector<NkU8>&       GetData()             noexcept { return mData; }
-        const NkU8*              GetBytes()      const noexcept { return mData.Data(); }
-        NkU32                    GetSize()       const noexcept { return static_cast<NkU32>(mData.size()); }
+        const NkVector<uint8>& GetData()       const noexcept { return mData; }
+        NkVector<uint8>&       GetData()             noexcept { return mData; }
+        const uint8*              GetBytes()      const noexcept { return mData.Data(); }
+        uint32                    GetSize()       const noexcept { return static_cast<uint32>(mData.size()); }
         bool                     HasData()       const noexcept { return !mData.empty(); }
 
         /**
@@ -207,8 +207,8 @@ namespace nkentseu {
         }
 
     private:
-        NkU32             mCustomType = 0;
-        NkVector<NkU8> mData;
+        uint32             mCustomType = 0;
+        NkVector<uint8> mData;
         void*             mUserPtr    = nullptr;
     };
 
@@ -245,10 +245,10 @@ namespace nkentseu {
          * @param message    Contenu textuel du message.
          * @param windowId   Identifiant de la fenêtre.
          */
-        NkCustomStringEvent(NkU32       customType = 0,
+        NkCustomStringEvent(uint32       customType = 0,
                              NkString tag        = {},
                              NkString message    = {},
-                             NkU64       windowId   = 0)
+                             uint64       windowId   = 0)
             : NkEvent(windowId)
             , mCustomType(customType)
             , mTag(std::move(tag))
@@ -262,7 +262,7 @@ namespace nkentseu {
                 (mMessage.Size() > 32 ? "..." : ""));
         }
 
-        NkU32              GetCustomType() const noexcept { return mCustomType; }
+        uint32              GetCustomType() const noexcept { return mCustomType; }
         const NkString& GetTag()        const noexcept { return mTag; }
         const NkString& GetMessage()    const noexcept { return mMessage; }
 
@@ -275,7 +275,7 @@ namespace nkentseu {
         }
 
     private:
-        NkU32       mCustomType = 0;
+        uint32       mCustomType = 0;
         NkString mTag;
         NkString mMessage;
     };

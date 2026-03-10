@@ -48,7 +48,7 @@ static const NkVertex kCubeVertices[] = {
     {{-0.5f, 0.5f,-0.5f},{-1,0,0},{0,1},{1,1,1,1}},
 };
 
-static const NkU32 kCubeIndices[] = {
+static const uint32 kCubeIndices[] = {
     0,1,2, 2,3,0,   // front
     4,5,6, 6,7,4,   // back
     8,9,10, 10,11,8, // top
@@ -185,7 +185,7 @@ int main() {
     renderer.SetCamera(cam);
 
     // ── 7. Boucle principale ─────────────────────────────────────────────────
-    NkU32 frameIndex = 0;
+    uint32 frameIndex = 0;
 
     while (window.IsOpen()) {
         NkSystem::Events().PollEvents();

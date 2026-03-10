@@ -87,9 +87,9 @@ namespace nkentseu {
         return win ? *win : nullptr;
     }
 
-    NkWindow* NkSystem::GetWindowAt(NkU32 index) const {
+    NkWindow* NkSystem::GetWindowAt(uint32 index) const {
         if (index >= mWindows.Size()) return nullptr;
-        NkU32 i = 0;
+        uint32 i = 0;
         NkWindow* result = nullptr;
         mWindows.ForEach([&](NkWindowId, NkWindow* win) {
             if (i++ == index) result = win;

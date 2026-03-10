@@ -91,8 +91,8 @@ namespace nkentseu {
             NkWindowConfig GetConfig() const;
 
             // --- Manipulation ---
-            void SetSize(NkU32 width, NkU32 height);
-            void SetPosition(NkI32 x, NkI32 y);
+            void SetSize(uint32 width, uint32 height);
+            void SetPosition(int32 x, int32 y);
             void SetVisible(bool visible);
             void Minimize();
             void Maximize();
@@ -105,7 +105,7 @@ namespace nkentseu {
             bool IsAutoRotateEnabled() const;
 
             // --- Souris ---
-            void SetMousePosition(NkU32 x, NkU32 y);
+            void SetMousePosition(uint32 x, uint32 y);
             void ShowMouse(bool show);
             void CaptureMouse(bool capture);
 

@@ -21,8 +21,8 @@ namespace nkentseu {
             NSWindow*      mNSWindow   = nullptr;
             NSView*        mNSView     = nullptr;
             CAMetalLayer*  mMetalLayer = nullptr;
-            NkU32 mWidth      = 0;
-            NkU32 mHeight     = 0;
+            uint32 mWidth      = 0;
+            uint32 mHeight     = 0;
             bool  mVisible    = false;
             bool  mFullscreen = false;
     };

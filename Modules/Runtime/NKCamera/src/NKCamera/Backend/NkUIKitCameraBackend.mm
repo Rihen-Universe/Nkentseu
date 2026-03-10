@@ -24,7 +24,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sb
     CVImageBufferRef ib = CMSampleBufferGetImageBuffer(sb);
     if (!ib || !self.backend) return;
     CMTime pts = CMSampleBufferGetPresentationTimeStamp(sb);
-    NkU64 ts = (NkU64)(CMTimeGetSeconds(pts)*1e6);
+    uint64 ts = (uint64)(CMTimeGetSeconds(pts)*1e6);
     self.backend->_OnVideoFrame((__bridge void*)ib, ts);
 }
 @end
@@ -103,7 +103,7 @@ NkVector<NkCameraDevice> NkUIKitCameraBackend::EnumerateDevices()
             discoverySessionWithDeviceTypes:types
                                   mediaType:AVMediaTypeVideo
                                    position:AVCaptureDevicePositionUnspecified];
-    NkU32 idx = 0;
+    uint32 idx = 0;
     for (AVCaptureDevice* d in ds.devices) {
         NkCameraDevice dev;
         dev.index = idx++;
@@ -115,7 +115,7 @@ NkVector<NkCameraDevice> NkUIKitCameraBackend::EnumerateDevices()
         for (AVCaptureDeviceFormat* fmt in d.formats) {
             CMVideoDimensions dim = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription);
             NkCameraDevice::Mode m;
-            m.width=(NkU32)dim.width; m.height=(NkU32)dim.height;
+            m.width=(uint32)dim.width; m.height=(uint32)dim.height;
             m.fps=30; m.format=NkPixelFormat::NK_PIXEL_BGRA8;
             if (m.width>0&&m.height>0) dev.modes.PushBack(m);
         }
@@ -182,17 +182,17 @@ void NkUIKitCameraBackend::StopStreaming()
 }
 
 // ---------------------------------------------------------------------------
-void NkUIKitCameraBackend::_OnVideoFrame(void* pxBuf, NkU64 ts)
+void NkUIKitCameraBackend::_OnVideoFrame(void* pxBuf, uint64 ts)
 {
     CVImageBufferRef ib=(CVImageBufferRef)pxBuf;
     CVPixelBufferLockBaseAddress(ib,kCVPixelBufferLock_ReadOnly);
-    NkU8* ptr=(NkU8*)CVPixelBufferGetBaseAddress(ib);
+    uint8* ptr=(uint8*)CVPixelBufferGetBaseAddress(ib);
     size_t stride=CVPixelBufferGetBytesPerRow(ib);
     size_t w=CVPixelBufferGetWidth(ib), h=CVPixelBufferGetHeight(ib);
 
     NkCameraFrame frame;
-    frame.width=(NkU32)w; frame.height=(NkU32)h;
-    frame.stride=(NkU32)stride; frame.format=NkPixelFormat::NK_PIXEL_BGRA8;
+    frame.width=(uint32)w; frame.height=(uint32)h;
+    frame.stride=(uint32)stride; frame.format=NkPixelFormat::NK_PIXEL_BGRA8;
     frame.timestampUs=ts; frame.frameIndex=mFrameIdx++;
     frame.data.Resize(static_cast<usize>(stride*h));
     memcpy(frame.data.Data(),ptr,stride*h);
@@ -228,7 +228,12 @@ bool NkUIKitCameraBackend::CapturePhoto(NkPhotoCaptureResult& res)
     [p->photoOut capturePhotoWithSettings:[AVCapturePhotoSettings photoSettings]
                                  delegate:p->photoDel];
     std::unique_lock<std::mutex> lk(mPhotoMutex);
-    mPhotoCv.wait_for(lk,std::chrono::seconds(5),[this]{return mPhotoReady;});
+    const NkElapsedTime start = NkChrono::Now();
+    while (!mPhotoReady && (NkChrono::Now() - start).seconds < 5.0) {
+        lk.unlock();
+        NkChrono::Sleep(10);
+        lk.lock();
+    }
     res=mPhotoPending; return res.success;
 }
 
@@ -291,7 +296,7 @@ bool NkUIKitCameraBackend::StartVideoRecord(const NkVideoRecordConfig& config)
     [p->writer startWriting];
     [p->writer startSessionAtSourceTime:kCMTimeZero];
 
-    mFirstFrameTime=0; mRecordStart=std::chrono::steady_clock::now();
+    mFirstFrameTime=0; mRecordStart=NkChrono::Now();
     mRecording=true; mState=NkCameraState::NK_CAM_STATE_RECORDING;
     return true;
 }
@@ -314,7 +319,7 @@ void NkUIKitCameraBackend::StopVideoRecord()
 bool NkUIKitCameraBackend::IsRecording() const { return mRecording; }
 float NkUIKitCameraBackend::GetRecordingDurationSeconds() const {
     if (!mRecording) return 0.f;
-    return std::chrono::duration<float>(std::chrono::steady_clock::now()-mRecordStart).count();
+    return static_cast<float>((NkChrono::Now() - mRecordStart).seconds);
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKWindow/Events/NkWindowEvent.h"
 #include "NKWindow/Events/NkTouchEvent.h"
+#include "NKMath/NkFunctions.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -34,10 +35,10 @@
     }
 
     nkentseu::NkTouchPoint points[nkentseu::NK_MAX_TOUCH_POINTS];
-    nkentseu::NkU32 count = 0;
+    nkentseu::uint32 count = 0;
     const float scale = static_cast<float>([UIScreen mainScreen].scale);
-    const float width = std::max(1.0f, static_cast<float>(self.bounds.size.width));
-    const float height = std::max(1.0f, static_cast<float>(self.bounds.size.height));
+    const float width = math::NkMax(1.0f, static_cast<float>(self.bounds.size.width));
+    const float height = math::NkMax(1.0f, static_cast<float>(self.bounds.size.height));
 
     for (UITouch* touch in touches) {
         if (count >= nkentseu::NK_MAX_TOUCH_POINTS) {
@@ -49,7 +50,7 @@
         CGPoint screen = [touch locationInView:nil];
 
         nkentseu::NkTouchPoint& out = points[count++];
-        out.id = static_cast<nkentseu::NkU64>(reinterpret_cast<std::uintptr_t>(touch));
+        out.id = static_cast<nkentseu::uint64>(reinterpret_cast<std::uintptr_t>(touch));
         out.phase = phase;
         out.clientX = static_cast<float>(pos.x) * scale;
         out.clientY = static_cast<float>(pos.y) * scale;
@@ -132,8 +133,8 @@ namespace nkentseu {
             return {0u, 0u};
         }
         const float scale = static_cast<float>([UIScreen mainScreen].scale);
-        const NkU32 w = static_cast<NkU32>(std::max(0.0f, static_cast<float>(view.bounds.size.width)) * scale);
-        const NkU32 h = static_cast<NkU32>(std::max(0.0f, static_cast<float>(view.bounds.size.height)) * scale);
+        const uint32 w = static_cast<uint32>(math::NkMax(0.0f, static_cast<float>(view.bounds.size.width)) * scale);
+        const uint32 h = static_cast<uint32>(math::NkMax(0.0f, static_cast<float>(view.bounds.size.height)) * scale);
         return {w, h};
     }
 
@@ -288,8 +289,8 @@ namespace nkentseu {
         UIScreen* screen = [UIScreen mainScreen];
         const float scale = static_cast<float>(screen.scale);
         return {
-            static_cast<NkU32>(screen.bounds.size.width * scale),
-            static_cast<NkU32>(screen.bounds.size.height * scale)
+            static_cast<uint32>(screen.bounds.size.width * scale),
+            static_cast<uint32>(screen.bounds.size.height * scale)
         };
     }
 
@@ -297,18 +298,18 @@ namespace nkentseu {
         return {0u, 0u};
     }
 
-    void NkWindow::SetSize(NkU32 width, NkU32 height) {
+    void NkWindow::SetSize(uint32 width, uint32 height) {
         if (!mData.mUIView) {
             return;
         }
 
         const float scale = GetDpiScale();
-        const CGFloat wPt = static_cast<CGFloat>(std::max<NkU32>(width, 1u)) / scale;
-        const CGFloat hPt = static_cast<CGFloat>(std::max<NkU32>(height, 1u)) / scale;
+        const CGFloat wPt = static_cast<CGFloat>(std::max<uint32>(width, 1u)) / scale;
+        const CGFloat hPt = static_cast<CGFloat>(std::max<uint32>(height, 1u)) / scale;
         const CGRect frame = CGRectMake(0.0, 0.0, wPt, hPt);
 
-        const NkU32 oldW = mData.mWidth;
-        const NkU32 oldH = mData.mHeight;
+        const uint32 oldW = mData.mWidth;
+        const uint32 oldH = mData.mHeight;
 
         mData.mUIView.frame = frame;
         if (mData.mMetalLayer) {
@@ -325,7 +326,7 @@ namespace nkentseu {
         NkSystem::Events().Enqueue_Public(resizeEvent, mId);
     }
 
-    void NkWindow::SetPosition(NkI32, NkI32) {}
+    void NkWindow::SetPosition(int32, int32) {}
 
     void NkWindow::SetVisible(bool visible) {
         if (!mData.mUIWindow || mData.mVisible == visible) {
@@ -388,7 +389,7 @@ namespace nkentseu {
         return mConfig.screenOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
     }
 
-    void NkWindow::SetMousePosition(NkU32, NkU32) {}
+    void NkWindow::SetMousePosition(uint32, uint32) {}
 
     void NkWindow::ShowMouse(bool) {}
 
@@ -433,4 +434,3 @@ namespace nkentseu {
 } // namespace nkentseu
 
 #endif // NKENTSEU_PLATFORM_IOS
-

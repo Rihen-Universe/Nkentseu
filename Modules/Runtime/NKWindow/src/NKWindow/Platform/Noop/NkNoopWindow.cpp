@@ -133,12 +133,12 @@ namespace nkentseu {
         return {0u, 0u};
     }
 
-    void NkWindow::SetSize(NkU32 width, NkU32 height) {
-        const NkU32 oldW = mData.mWidth;
-        const NkU32 oldH = mData.mHeight;
+    void NkWindow::SetSize(uint32 width, uint32 height) {
+        const uint32 oldW = mData.mWidth;
+        const uint32 oldH = mData.mHeight;
 
-        mData.mWidth = std::max<NkU32>(width, 1u);
-        mData.mHeight = std::max<NkU32>(height, 1u);
+        mData.mWidth = std::max<uint32>(width, 1u);
+        mData.mHeight = std::max<uint32>(height, 1u);
         mConfig.width = mData.mWidth;
         mConfig.height = mData.mHeight;
 
@@ -146,7 +146,7 @@ namespace nkentseu {
         NkSystem::Events().Enqueue_Public(resizeEvent, mId);
     }
 
-    void NkWindow::SetPosition(NkI32, NkI32) {}
+    void NkWindow::SetPosition(int32, int32) {}
 
     void NkWindow::SetVisible(bool visible) {
         if (mData.mVisible == visible) {
@@ -202,7 +202,7 @@ namespace nkentseu {
         return false;
     }
 
-    void NkWindow::SetMousePosition(NkU32, NkU32) {}
+    void NkWindow::SetMousePosition(uint32, uint32) {}
 
     void NkWindow::ShowMouse(bool) {}
 

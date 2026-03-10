@@ -24,10 +24,10 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     struct NkRenderTexture {
-        NkU32 width  = 0;
-        NkU32 height = 0;
-        NkU32 pitch  = 0;
-        NkVector<NkU8> pixels;
+        uint32 width  = 0;
+        uint32 height = 0;
+        uint32 pitch  = 0;
+        NkVector<uint8> pixels;
     };
 
     // ---------------------------------------------------------------------------
@@ -70,15 +70,15 @@ namespace nkentseu {
 
             // --- Background color ---
 
-            void  SetBackgroundColor(NkU32 rgba);
-            NkU32 GetBackgroundColor() const;
+            void  SetBackgroundColor(uint32 rgba);
+            uint32 GetBackgroundColor() const;
 
             // --- Frame ---
 
-            void BeginFrame(NkU32 clearColor = 0xFFFFFFFF);
+            void BeginFrame(uint32 clearColor = 0xFFFFFFFF);
             void EndFrame();
             void Present();
-            void Resize(NkU32 width, NkU32 height);
+            void Resize(uint32 width, uint32 height);
 
             // --- Output ---
 
@@ -91,13 +91,13 @@ namespace nkentseu {
 
             // --- Color helpers ---
 
-            static NkU32 PackColor(NkU8 r, NkU8 g, NkU8 b, NkU8 a = 255);
-            static void  UnpackColor(NkU32 rgba, NkU8& r, NkU8& g, NkU8& b, NkU8& a);
+            static uint32 PackColor(uint8 r, uint8 g, uint8 b, uint8 a = 255);
+            static void  UnpackColor(uint32 rgba, uint8& r, uint8& g, uint8& b, uint8& a);
 
             // --- 2D primitives ---
 
-            void SetPixel(NkI32 x, NkI32 y, NkU32 rgba);
-            void DrawPixel(NkI32 x, NkI32 y, NkU32 rgba);
+            void SetPixel(int32 x, int32 y, uint32 rgba);
+            void DrawPixel(int32 x, int32 y, uint32 rgba);
 
             // --- Impl access ---
 

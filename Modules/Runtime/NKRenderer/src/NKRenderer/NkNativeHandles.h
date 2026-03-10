@@ -35,7 +35,7 @@ namespace nkentseu {
 // OpenGL
 // ===========================================================================
 struct NkOpenGLNativeHandles {
-    static constexpr NkU32 kTypeId = 0x4F474C00u; // 'OGL\0'
+    static constexpr uint32 kTypeId = 0x4F474C00u; // 'OGL\0'
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     // WGL
@@ -50,7 +50,7 @@ struct NkOpenGLNativeHandles {
     // GLX
     void*  glxContext = nullptr; ///< GLXContext
     void*  display    = nullptr; ///< Display*
-    NkU64  drawable   = 0;       ///< GLXDrawable (Window XID)
+    uint64  drawable   = 0;       ///< GLXDrawable (Window XID)
     // GLXFBConfig rÃ©cupÃ©rÃ© depuis NkSurfaceDesc::appliedHints si besoin
     void*  fbConfig   = nullptr; ///< GLXFBConfig (pour les extensions)
 
@@ -78,7 +78,7 @@ struct NkOpenGLNativeHandles {
 // Vulkan
 // ===========================================================================
 struct NkVulkanNativeHandles {
-    static constexpr NkU32 kTypeId = 0x564B0000u; // 'VK\0\0'
+    static constexpr uint32 kTypeId = 0x564B0000u; // 'VK\0\0'
 
     // Tous des void* pour Ã©viter d'inclure vulkan.h dans ce header.
     // Caster vers VkInstance, VkDevice, etc. dans le code Vulkan.
@@ -94,23 +94,23 @@ struct NkVulkanNativeHandles {
     void* commandPool      = nullptr; ///< VkCommandPool
     void* descriptorPool   = nullptr; ///< VkDescriptorPool global (optionnel)
 
-    NkU32 graphicsFamily   = 0;
-    NkU32 presentFamily    = 0;
-    NkU32 computeFamily    = 0;
-    NkU32 swapchainImages  = 0;  ///< Nombre d'images dans la swapchain
+    uint32 graphicsFamily   = 0;
+    uint32 presentFamily    = 0;
+    uint32 computeFamily    = 0;
+    uint32 swapchainImages  = 0;  ///< Nombre d'images dans la swapchain
 
     // Frame courante (mis Ã  jour par BeginFrame)
     void* commandBuffer    = nullptr; ///< VkCommandBuffer (frame courante)
     void* framebuffer      = nullptr; ///< VkFramebuffer  (frame courante)
-    NkU32 currentImage     = 0;       ///< Index dans la swapchain
-    NkU32 currentFrame     = 0;       ///< Index en vol (0..MAX_FRAMES-1)
+    uint32 currentImage     = 0;       ///< Index dans la swapchain
+    uint32 currentFrame     = 0;       ///< Index en vol (0..MAX_FRAMES-1)
 };
 
 // ===========================================================================
 // Metal
 // ===========================================================================
 struct NkMetalNativeHandles {
-    static constexpr NkU32 kTypeId = 0x4D544C00u; // 'MTL\0'
+    static constexpr uint32 kTypeId = 0x4D544C00u; // 'MTL\0'
 
     void* device          = nullptr; ///< id<MTLDevice>
     void* commandQueue    = nullptr; ///< id<MTLCommandQueue>
@@ -125,7 +125,7 @@ struct NkMetalNativeHandles {
 // DirectX 11
 // ===========================================================================
 struct NkDirectX11NativeHandles {
-    static constexpr NkU32 kTypeId = 0x44583131u; // 'DX11'
+    static constexpr uint32 kTypeId = 0x44583131u; // 'DX11'
 
     void* device         = nullptr; ///< ID3D11Device*
     void* deviceContext  = nullptr; ///< ID3D11DeviceContext*
@@ -138,7 +138,7 @@ struct NkDirectX11NativeHandles {
 // DirectX 12
 // ===========================================================================
 struct NkDirectX12NativeHandles {
-    static constexpr NkU32 kTypeId = 0x44583132u; // 'DX12'
+    static constexpr uint32 kTypeId = 0x44583132u; // 'DX12'
 
     void* device          = nullptr; ///< ID3D12Device*
     void* commandQueue    = nullptr; ///< ID3D12CommandQueue*
@@ -149,20 +149,20 @@ struct NkDirectX12NativeHandles {
     void* commandAllocator= nullptr; ///< ID3D12CommandAllocator*
     void* commandList     = nullptr; ///< ID3D12GraphicsCommandList*
     void* backBuffer      = nullptr; ///< ID3D12Resource* (backbuffer courant)
-    NkU32 frameIndex      = 0;
+    uint32 frameIndex      = 0;
 };
 
 // ===========================================================================
 // Software Renderer
 // ===========================================================================
 struct NkSoftwareNativeHandles {
-    static constexpr NkU32 kTypeId = 0x53575200u; // 'SWR\0'
+    static constexpr uint32 kTypeId = 0x53575200u; // 'SWR\0'
 
     void*  pixels      = nullptr; ///< Framebuffer RGBA8 (largeur Ã— hauteur Ã— 4 bytes)
-    NkU32  width       = 0;
-    NkU32  height      = 0;
-    NkU32  stride      = 0;       ///< En bytes (= width * 4 pour RGBA8)
-    NkU32  pixelFormat = 0;       ///< 0 = RGBA8
+    uint32  width       = 0;
+    uint32  height      = 0;
+    uint32  stride      = 0;       ///< En bytes (= width * 4 pour RGBA8)
+    uint32  pixelFormat = 0;       ///< 0 = RGBA8
     // Le contexte logiciel copie ce buffer vers la fenÃªtre dans Present().
 };
 

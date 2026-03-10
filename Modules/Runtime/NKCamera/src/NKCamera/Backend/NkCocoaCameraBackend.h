@@ -7,6 +7,7 @@
 // =============================================================================
 
 #include "NKCamera/INkCameraBackend.h"
+#include "NKTime/NkChrono.h"
 #include <string>
 #include <vector>
 #include <thread>
@@ -61,9 +62,9 @@ public:
 
     bool GetOrientation(NkCameraOrientation& out) override;
 
-    NkU32         GetWidth()     const override { return mWidth;  }
-    NkU32         GetHeight()    const override { return mHeight; }
-    NkU32         GetFPS()       const override { return mFPS;    }
+    uint32         GetWidth()     const override { return mWidth;  }
+    uint32         GetHeight()    const override { return mHeight; }
+    uint32         GetFPS()       const override { return mFPS;    }
     NkPixelFormat GetFormat()    const override { return NkPixelFormat::NK_PIXEL_BGRA8; }
     NkString   GetLastError() const override { return mLastError; }
 
@@ -72,8 +73,8 @@ public:
 
 private:
     NkCameraState   mState    = NkCameraState::NK_CAM_STATE_CLOSED;
-    NkU32           mWidth    = 0, mHeight = 0, mFPS = 30;
-    NkU32           mFrameIdx = 0;
+    uint32           mWidth    = 0, mHeight = 0, mFPS = 30;
+    uint32           mFrameIdx = 0;
     NkString     mLastError;
 
     std::mutex     mMutex;
@@ -91,7 +92,7 @@ private:
     void* mAssetWriter   = nullptr;  // AVAssetWriter*
     void* mAssetInput    = nullptr;  // AVAssetWriterInput*
 
-    std::chrono::steady_clock::time_point mRecordStart;
+    NkElapsedTime mRecordStart;
     bool mRecording = false;
 };
 

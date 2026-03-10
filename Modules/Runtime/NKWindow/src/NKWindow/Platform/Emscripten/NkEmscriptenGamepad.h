@@ -9,7 +9,6 @@
 
 #include "NKWindow/Events/NkGamepadSystem.h"
 
-#include <array>
 #include <cstdio>
 #include <cstring>
 
@@ -28,6 +27,15 @@ namespace nkentseu {
                 for (auto& info : mInfos) {
                     info = {};
                 }
+#ifdef __EMSCRIPTEN__
+                if (!mCallbacksRegistered) {
+                    const EMSCRIPTEN_RESULT c =
+                        emscripten_set_gamepadconnected_callback(this, EM_FALSE, &NkEmscriptenGamepad::OnConnected);
+                    const EMSCRIPTEN_RESULT d =
+                        emscripten_set_gamepaddisconnected_callback(this, EM_FALSE, &NkEmscriptenGamepad::OnDisconnected);
+                    mCallbacksRegistered = (c == EMSCRIPTEN_RESULT_SUCCESS && d == EMSCRIPTEN_RESULT_SUCCESS);
+                }
+#endif
                 return true;
             }
 
@@ -38,6 +46,13 @@ namespace nkentseu {
                 for (auto& info : mInfos) {
                     info = {};
                 }
+#ifdef __EMSCRIPTEN__
+                if (mCallbacksRegistered) {
+                    emscripten_set_gamepadconnected_callback(nullptr, EM_FALSE, nullptr);
+                    emscripten_set_gamepaddisconnected_callback(nullptr, EM_FALSE, nullptr);
+                    mCallbacksRegistered = false;
+                }
+#endif
             }
 
             void Poll() override {
@@ -58,15 +73,19 @@ namespace nkentseu {
                 if (count < 0) {
                     count = 0;
                 }
+                int maxProbe = count > 0 ? count : static_cast<int>(NK_MAX_GAMEPADS);
+                if (maxProbe > static_cast<int>(NK_MAX_GAMEPADS)) {
+                    maxProbe = static_cast<int>(NK_MAX_GAMEPADS);
+                }
 
-                for (int i = 0; i < count && static_cast<NkU32>(i) < NK_MAX_GAMEPADS; ++i) {
+                for (int i = 0; i < maxProbe && static_cast<uint32>(i) < NK_MAX_GAMEPADS; ++i) {
                     EmscriptenGamepadEvent ev{};
                     if (emscripten_get_gamepad_status(i, &ev) != EMSCRIPTEN_RESULT_SUCCESS) {
                         continue;
                     }
 
-                    NkGamepadSnapshot& snapshot = mSnapshots[static_cast<NkU32>(i)];
-                    NkGamepadInfo& info = mInfos[static_cast<NkU32>(i)];
+                    NkGamepadSnapshot& snapshot = mSnapshots[static_cast<uint32>(i)];
+                    NkGamepadInfo& info = mInfos[static_cast<uint32>(i)];
 
                     snapshot.connected = ev.connected;
                     if (!ev.connected) {
@@ -77,7 +96,7 @@ namespace nkentseu {
                         if (idx < 0 || idx >= ev.numButtons) {
                             return;
                         }
-                        snapshot.buttons[static_cast<NkU32>(button)] =
+                        snapshot.buttons[static_cast<uint32>(button)] =
                             ev.digitalButton[idx] || ev.analogButton[idx] > 0.5;
                     };
 
@@ -85,7 +104,7 @@ namespace nkentseu {
                         if (idx < 0 || idx >= ev.numAxes) {
                             return;
                         }
-                        snapshot.axes[static_cast<NkU32>(axis)] = ev.axis[idx];
+                        snapshot.axes[static_cast<uint32>(axis)] = ev.axis[idx];
                     };
 
                     mapButton(NkGamepadButton::NK_GP_SOUTH, 0);
@@ -110,21 +129,45 @@ namespace nkentseu {
                     mapAxis(NkGamepadAxis::NK_GP_AXIS_LY, 1);
                     mapAxis(NkGamepadAxis::NK_GP_AXIS_RX, 2);
                     mapAxis(NkGamepadAxis::NK_GP_AXIS_RY, 3);
+                    auto clamp01 = [](double v) -> float32 {
+                        if (v < 0.0) return 0.f;
+                        if (v > 1.0) return 1.f;
+                        return static_cast<float32>(v);
+                    };
+                    float32 lt = 0.f;
+                    float32 rt = 0.f;
+                    if (ev.numButtons > 6) {
+                        lt = clamp01(ev.analogButton[6]);
+                    } else if (ev.numAxes > 4) {
+                        lt = clamp01((ev.axis[4] + 1.0) * 0.5);
+                    }
+                    if (ev.numButtons > 7) {
+                        rt = clamp01(ev.analogButton[7]);
+                    } else if (ev.numAxes > 5) {
+                        rt = clamp01((ev.axis[5] + 1.0) * 0.5);
+                    }
+                    snapshot.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LT)] = lt;
+                    snapshot.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RT)] = rt;
+                    snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_LT_DIGITAL)] =
+                        snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_LT_DIGITAL)] || (lt > 0.5f);
+                    snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_RT_DIGITAL)] =
+                        snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_RT_DIGITAL)] || (rt > 0.5f);
 
-                    snapshot.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_X)] =
-                        (snapshot.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] ? 1.0f : 0.0f) -
-                        (snapshot.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_LEFT)] ? 1.0f : 0.0f);
-                    snapshot.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y)] =
-                        (snapshot.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_DOWN)] ? 1.0f : 0.0f) -
-                        (snapshot.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_UP)] ? 1.0f : 0.0f);
+                    snapshot.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_DPAD_X)] =
+                        (snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] ? 1.0f : 0.0f) -
+                        (snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_LEFT)] ? 1.0f : 0.0f);
+                    snapshot.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y)] =
+                        (snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_DOWN)] ? 1.0f : 0.0f) -
+                        (snapshot.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_UP)] ? 1.0f : 0.0f);
 
                     info = {};
-                    info.index = static_cast<NkU32>(i);
+                    info.index = static_cast<uint32>(i);
                     info.type = NkGamepadType::NK_GP_TYPE_GENERIC;
-                    info.numButtons = static_cast<NkU32>(ev.numButtons);
-                    info.numAxes = static_cast<NkU32>(ev.numAxes);
-                    std::snprintf(info.id, sizeof(info.id), "%s", ev.id);
-                    std::snprintf(info.name, sizeof(info.name), "%s", ev.id);
+                    info.numButtons = static_cast<uint32>(ev.numButtons);
+                    info.numAxes = static_cast<uint32>(ev.numAxes);
+                    const char* id = ev.id ? ev.id : "Web Gamepad";
+                    std::snprintf(info.id, sizeof(info.id), "%s", id);
+                    std::snprintf(info.name, sizeof(info.name), "%s", id);
                     snapshot.info = info;
                 }
 #else
@@ -134,8 +177,8 @@ namespace nkentseu {
 #endif
             }
 
-            NkU32 GetConnectedCount() const override {
-                NkU32 count = 0;
+            uint32 GetConnectedCount() const override {
+                uint32 count = 0;
                 for (const auto& snapshot : mSnapshots) {
                     if (snapshot.connected) {
                         ++count;
@@ -144,12 +187,12 @@ namespace nkentseu {
                 return count;
             }
 
-            const NkGamepadSnapshot& GetSnapshot(NkU32 idx) const override {
+            const NkGamepadSnapshot& GetSnapshot(uint32 idx) const override {
                 static NkGamepadSnapshot dummy{};
                 return idx < NK_MAX_GAMEPADS ? mSnapshots[idx] : dummy;
             }
 
-            void Rumble(NkU32, NkF32, NkF32, NkF32, NkF32, NkU32) override {
+            void Rumble(uint32, float32, float32, float32, float32, uint32) override {
                 // Browser rumble/haptics is not universally available in Emscripten C++ API.
             }
 
@@ -158,8 +201,45 @@ namespace nkentseu {
             }
 
         private:
-            std::array<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
-            std::array<NkGamepadInfo, NK_MAX_GAMEPADS> mInfos{};
+#ifdef __EMSCRIPTEN__
+            static EM_BOOL OnConnected(int, const EmscriptenGamepadEvent* ev, void* userData) {
+                if (!ev || !userData) {
+                    return EM_FALSE;
+                }
+                auto* self = static_cast<NkEmscriptenGamepad*>(userData);
+                const uint32 idx = static_cast<uint32>(ev->index);
+                if (idx >= NK_MAX_GAMEPADS) {
+                    return EM_FALSE;
+                }
+                self->mSnapshots[idx].connected = true;
+                self->mInfos[idx].index = idx;
+                self->mInfos[idx].type = NkGamepadType::NK_GP_TYPE_GENERIC;
+                self->mInfos[idx].numButtons = static_cast<uint32>(ev->numButtons);
+                self->mInfos[idx].numAxes = static_cast<uint32>(ev->numAxes);
+                const char* id = ev->id ? ev->id : "Web Gamepad";
+                std::snprintf(self->mInfos[idx].id, sizeof(self->mInfos[idx].id), "%s", id);
+                std::snprintf(self->mInfos[idx].name, sizeof(self->mInfos[idx].name), "%s", id);
+                return EM_TRUE;
+            }
+
+            static EM_BOOL OnDisconnected(int, const EmscriptenGamepadEvent* ev, void* userData) {
+                if (!ev || !userData) {
+                    return EM_FALSE;
+                }
+                auto* self = static_cast<NkEmscriptenGamepad*>(userData);
+                const uint32 idx = static_cast<uint32>(ev->index);
+                if (idx >= NK_MAX_GAMEPADS) {
+                    return EM_FALSE;
+                }
+                self->mSnapshots[idx].Clear();
+                self->mInfos[idx] = {};
+                return EM_TRUE;
+            }
+#endif
+
+            NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
+            NkArray<NkGamepadInfo, NK_MAX_GAMEPADS> mInfos{};
+            bool mCallbacksRegistered = false;
     };
 
 } // namespace nkentseu

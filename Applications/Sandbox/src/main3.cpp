@@ -97,15 +97,15 @@ private:
     bool    mNeon            = false;
     NkVec2f mPhase           = { 0.f, 0.f };
     float   mSaturation      = 1.15f;
-    NkU32   mViewW = 1280, mViewH = 720;
+    uint32   mViewW = 1280, mViewH = 720;
 
     // --- stats ---
-    NkU32 mKeyPresses    = 0;
-    NkU32 mMouseClicks   = 0;
-    NkU32 mWheelTicks    = 0;
-    NkU32 mDrops         = 0;
-    NkU32 mGamepadEvents = 0;
-    NkU32 mResizes       = 0;
+    uint32 mKeyPresses    = 0;
+    uint32 mMouseClicks   = 0;
+    uint32 mWheelTicks    = 0;
+    uint32 mDrops         = 0;
+    uint32 mGamepadEvents = 0;
+    uint32 mResizes       = 0;
 
     // -----------------------------------------------------------------------
     // Handlers — retournent true si l'event est consommé
@@ -300,26 +300,26 @@ private:
 // ---------------------------------------------------------------------------
 static float ClampUnit(float v) { return v < 0.f ? 0.f : v > 1.f ? 1.f : v; }
 
-static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
+static void DrawPlasma(NkRenderer& r, uint32 w, uint32 h,
                         float t, NkVec2f phase, float sat)
 {
     if (!w || !h) return;
-    const NkU32 blk = (w * h > 1280u * 720u) ? 2u : 1u;
-    for (NkU32 y = 0; y < h; y += blk) {
+    const uint32 blk = (w * h > 1280u * 720u) ? 2u : 1u;
+    for (uint32 y = 0; y < h; y += blk) {
         float fy = y / (float)h - 0.5f;
-        for (NkU32 x = 0; x < w; x += blk) {
+        for (uint32 x = 0; x < w; x += blk) {
             float fx  = x / (float)w - 0.5f;
             float rd  = NkSqrt(fx*fx + fy*fy);
             float mix = (NkSin((fx+phase.x)*13.5f+t*1.7f)
                         +NkSin((fy+phase.y)*11.f -t*1.3f)
                         +NkSin(rd*24.f         -t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255.f);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255.f);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255.f);
-            NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
-            for (NkU32 by=0;by<blk&&(y+by)<h;++by)
-                for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
-                    r.SetPixel((NkI32)(x+bx),(NkI32)(y+by),col);
+            uint8 ri = (uint8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255.f);
+            uint8 gi = (uint8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255.f);
+            uint8 bi = (uint8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255.f);
+            uint32 col = NkRenderer::PackColor(ri, gi, bi, 255);
+            for (uint32 by=0;by<blk&&(y+by)<h;++by)
+                for (uint32 bx=0;bx<blk&&(x+bx)<w;++bx)
+                    r.SetPixel((int32)(x+bx),(int32)(y+by),col);
         }
     }
 }
@@ -396,8 +396,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         // --- Render
         renderer.BeginFrame(NkRenderer::PackColor(8, 10, 18, 255));
         auto  vp = layer.GetViewport();
-        NkU32 w  = vp.x ? vp.x : (NkU32)cfg.width;
-        NkU32 h  = vp.y ? vp.y : (NkU32)cfg.height;
+        uint32 w  = vp.x ? vp.x : (uint32)cfg.width;
+        uint32 h  = vp.y ? vp.y : (uint32)cfg.height;
         DrawPlasma(renderer, w, h, t, layer.GetPhase(), layer.GetSaturation());
         renderer.EndFrame();
         renderer.Present();

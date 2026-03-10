@@ -163,16 +163,16 @@ namespace nkentseu {
             // ------------------------------------------------------------------
 
             /// Position zone client (state.mouse.x / y)
-            NkI32 MouseX()          const noexcept;
-            NkI32 MouseY()          const noexcept;
+            int32 MouseX()          const noexcept;
+            int32 MouseY()          const noexcept;
 
             /// Déplacement depuis le dernier poll (state.mouse.deltaX / deltaY)
-            NkI32 MouseDeltaX()     const noexcept;
-            NkI32 MouseDeltaY()     const noexcept;
+            int32 MouseDeltaX()     const noexcept;
+            int32 MouseDeltaY()     const noexcept;
 
             /// Mouvement brut sans accélération — FPS (state.mouse.rawDeltaX / Y)
-            NkI32 MouseRawDeltaX()  const noexcept;
-            NkI32 MouseRawDeltaY()  const noexcept;
+            int32 MouseRawDeltaX()  const noexcept;
+            int32 MouseRawDeltaY()  const noexcept;
 
             /// Boutons (state.mouse.IsButtonPressed / IsLeftDown…)
             bool IsMouseDown(NkMouseButton btn) const noexcept;
@@ -190,21 +190,21 @@ namespace nkentseu {
             // ------------------------------------------------------------------
 
             /// Bouton enfoncé (state.gamepads.IsButtonDown)
-            bool  IsGamepadDown(NkU32 idx, NkGamepadButton btn) const noexcept;
+            bool  IsGamepadDown(uint32 idx, NkGamepadButton btn) const noexcept;
 
             /// Valeur d'axe analogique (state.gamepads.GetAxis)
-            NkF32 GamepadAxis(NkU32 idx, NkGamepadAxis ax)      const noexcept;
+            float32 GamepadAxis(uint32 idx, NkGamepadAxis ax)      const noexcept;
 
             /// Manette connectée (state.gamepads.slots[idx].connected)
-            bool  IsGamepadConnected(NkU32 idx)                 const noexcept;
+            bool  IsGamepadConnected(uint32 idx)                 const noexcept;
 
             /// Vibration — délègue à NkGamepadSystem (commande de sortie)
-            void  GamepadRumble(NkU32 idx,
-                                NkF32 motorLow    = 0.f,
-                                NkF32 motorHigh   = 0.f,
-                                NkF32 triggerLeft  = 0.f,
-                                NkF32 triggerRight = 0.f,
-                                NkU32 durationMs   = 100) const;
+            void  GamepadRumble(uint32 idx,
+                                float32 motorLow    = 0.f,
+                                float32 motorHigh   = 0.f,
+                                float32 triggerLeft  = 0.f,
+                                float32 triggerRight = 0.f,
+                                uint32 durationMs   = 100) const;
 
         private:
             // Accès à NkEventState via NkSystem::Events().GetInputState()
@@ -231,7 +231,7 @@ namespace nkentseu {
     // NkInputCode — code d'entrée générique typé par device
     // -------------------------------------------------------------------------
 
-    enum class NkInputDevice : NkU32 {
+    enum class NkInputDevice : uint32 {
         NK_KEYBOARD    = 0,
         NK_MOUSE       = 1,
         NK_MOUSEWHEEL  = 2,
@@ -241,28 +241,28 @@ namespace nkentseu {
 
     struct NkInputCode {
         NkInputDevice device   = NkInputDevice::NK_KEYBOARD;
-        NkU32         code     = 0;
-        NkU32         modifier = 0;
+        uint32         code     = 0;
+        uint32         modifier = 0;
 
         bool operator==(const NkInputCode& o) const noexcept {
             return device == o.device && code == o.code && modifier == o.modifier;
         }
         bool operator!=(const NkInputCode& o) const noexcept { return !(*this == o); }
 
-        static NkInputCode Key(NkKey k, NkU32 mod = 0) noexcept {
-            return { NkInputDevice::NK_KEYBOARD, static_cast<NkU32>(k), mod };
+        static NkInputCode Key(NkKey k, uint32 mod = 0) noexcept {
+            return { NkInputDevice::NK_KEYBOARD, static_cast<uint32>(k), mod };
         }
-        static NkInputCode Mouse(NkMouseButton b, NkU32 mod = 0) noexcept {
-            return { NkInputDevice::NK_MOUSE, static_cast<NkU32>(b), mod };
+        static NkInputCode Mouse(NkMouseButton b, uint32 mod = 0) noexcept {
+            return { NkInputDevice::NK_MOUSE, static_cast<uint32>(b), mod };
         }
         static NkInputCode Wheel(bool horizontal = false) noexcept {
             return { NkInputDevice::NK_MOUSEWHEEL, horizontal ? 1u : 0u, 0 };
         }
-        static NkInputCode Gamepad(NkGamepadButton b, NkU32 mod = 0) noexcept {
-            return { NkInputDevice::NK_GAMEPAD, static_cast<NkU32>(b), mod };
+        static NkInputCode Gamepad(NkGamepadButton b, uint32 mod = 0) noexcept {
+            return { NkInputDevice::NK_GAMEPAD, static_cast<uint32>(b), mod };
         }
         static NkInputCode GamepadAxis(NkGamepadAxis a) noexcept {
-            return { NkInputDevice::NK_GAMEPAD_AXIS, static_cast<NkU32>(a), 0 };
+            return { NkInputDevice::NK_GAMEPAD_AXIS, static_cast<uint32>(a), 0 };
         }
     };
 
@@ -342,9 +342,9 @@ namespace nkentseu {
             // Appelé par le dispatcher quand un event arrive
             void TriggerAction(const NkInputCode& code, bool isPressed);
 
-            NkU64 GetActionCount()                         const noexcept { return mActions.Size(); }
-            NkU64 GetCommandCount()                        const noexcept;
-            NkU64 GetCommandCount(const NkString& name) const noexcept;
+            uint64 GetActionCount()                         const noexcept { return mActions.Size(); }
+            uint64 GetCommandCount()                        const noexcept;
+            uint64 GetCommandCount(const NkString& name) const noexcept;
 
         private:
             void FireAction(const NkString& name, const NkInputCode& code,
@@ -359,16 +359,16 @@ namespace nkentseu {
     // -------------------------------------------------------------------------
 
     // Callback de résolution de valeur — analogue à AxisUpdateFromCode
-    //   (NkInputDevice, NkU32 code) → float
+    //   (NkInputDevice, uint32 code) → float
     // Exemple d'implémentation :
-    //   [](NkInputDevice dev, NkU32 code) -> float {
+    //   [](NkInputDevice dev, uint32 code) -> float {
     //       if (dev == NkInputDevice::Keyboard)
     //           return NkInput.IsKeyDown(static_cast<NkKey>(code)) ? 1.f : 0.f;
     //       if (dev == NkInputDevice::GamepadAxis)
     //           return NkInput.GamepadAxis(0, static_cast<NkGamepadAxis>(code));
     //       return 0.f;
     //   }
-    using NkAxisResolver = std::function<float(NkInputDevice, NkU32)>;
+    using NkAxisResolver = std::function<float(NkInputDevice, uint32)>;
 
     class NkAxisManager {
         public:
@@ -380,9 +380,9 @@ namespace nkentseu {
             // Appelé chaque frame — analogue à AxisManager::UpdateAxis
             void UpdateAxes(const NkAxisResolver& resolver);
 
-            NkU64 GetAxisCount()                           const noexcept { return mAxes.Size(); }
-            NkU64 GetCommandCount()                        const noexcept;
-            NkU64 GetCommandCount(const NkString& name) const noexcept;
+            uint64 GetAxisCount()                           const noexcept { return mAxes.Size(); }
+            uint64 GetCommandCount()                        const noexcept;
+            uint64 GetCommandCount(const NkString& name) const noexcept;
 
         private:
             void FireAxis(const NkString& name, const NkAxisCommand& cmd, float value);

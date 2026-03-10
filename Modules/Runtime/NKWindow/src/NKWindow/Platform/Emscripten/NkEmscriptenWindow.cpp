@@ -11,6 +11,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
+#include "NKMath/NkFunctions.h"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -56,8 +57,8 @@ namespace nkentseu {
         });
 
         return {
-            static_cast<NkU32>(std::max(1, width)),
-            static_cast<NkU32>(std::max(1, height)),
+            static_cast<uint32>(math::NkMax(1, width)),
+            static_cast<uint32>(math::NkMax(1, height)),
         };
     }
 
@@ -68,7 +69,7 @@ namespace nkentseu {
         int height = 0;
         if (emscripten_get_canvas_element_size(canvasSelector, &width, &height) == EMSCRIPTEN_RESULT_SUCCESS &&
             width > 0 && height > 0) {
-            return { static_cast<NkU32>(width), static_cast<NkU32>(height) };
+            return { static_cast<uint32>(width), static_cast<uint32>(height) };
         }
 
         double cssWidth = 0.0;
@@ -92,7 +93,7 @@ namespace nkentseu {
         }
 
         emscripten_set_canvas_element_size(canvasSelector, width, height);
-        return { static_cast<NkU32>(width), static_cast<NkU32>(height) };
+        return { static_cast<uint32>(width), static_cast<uint32>(height) };
     }
 
     static void SetDocumentTitle(const NkString& title) {
@@ -234,7 +235,7 @@ namespace nkentseu {
         std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
 
         bool found = false;
-        for (NkU32 i = 0; i < WasmWindows().Size(); ++i) {
+        for (uint32 i = 0; i < WasmWindows().Size(); ++i) {
             if (WasmWindows()[i] == window) { found = true; break; }
         }
         if (!found) {
@@ -256,7 +257,7 @@ namespace nkentseu {
 
         std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
 
-        for (NkU32 i = 0; i < WasmWindows().Size(); ++i) {
+        for (uint32 i = 0; i < WasmWindows().Size(); ++i) {
             if (WasmWindows()[i] == window) {
                 WasmWindows().Erase(WasmWindows().begin() + i);
                 break;
@@ -313,8 +314,8 @@ namespace nkentseu {
         mConfig = config;
         mData.mCanvasId = "#canvas";
 
-        const NkU32 requestedWidth = config.width ? config.width : 1280u;
-        const NkU32 requestedHeight = config.height ? config.height : 720u;
+        const uint32 requestedWidth = config.width ? config.width : 1280u;
+        const uint32 requestedHeight = config.height ? config.height : 720u;
 
         const char* canvasSelector = NormalizeCanvasSelector(mData.mCanvasId);
         emscripten_set_canvas_element_size(canvasSelector, static_cast<int>(requestedWidth), static_cast<int>(requestedHeight));
@@ -441,7 +442,7 @@ namespace nkentseu {
         const int height = EM_ASM_INT({ return (window.screen && window.screen.height) ? (window.screen.height | 0) : 0; });
 
         if (width > 0 && height > 0) {
-            return { static_cast<NkU32>(width), static_cast<NkU32>(height) };
+            return { static_cast<uint32>(width), static_cast<uint32>(height) };
         }
 
         return QueryViewportFallback();
@@ -456,7 +457,7 @@ namespace nkentseu {
         SetDocumentTitle(title);
     }
 
-    void NkWindow::SetSize(NkU32 width, NkU32 height) {
+    void NkWindow::SetSize(uint32 width, uint32 height) {
         mConfig.width = width;
         mConfig.height = height;
 
@@ -473,7 +474,7 @@ namespace nkentseu {
         mData.mHeight = size.y;
     }
 
-    void NkWindow::SetPosition(NkI32, NkI32) {}
+    void NkWindow::SetPosition(int32, int32) {}
 
     void NkWindow::SetVisible(bool visible) {
         mData.mVisible = visible;
@@ -547,7 +548,7 @@ namespace nkentseu {
         return mConfig.screenOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
     }
 
-    void NkWindow::SetMousePosition(NkU32, NkU32) {}
+    void NkWindow::SetMousePosition(uint32, uint32) {}
 
     void NkWindow::ShowMouse(bool show) {
         EM_ASM({

@@ -97,10 +97,10 @@
 // } // namespace
 
 // TEST_CASE(NKWindowSmoke, FixedWidthTypes) {
-// 	ASSERT_EQUAL(1, static_cast<int>(sizeof(nkentseu::NkU8)));
-// 	ASSERT_EQUAL(2, static_cast<int>(sizeof(nkentseu::NkU16)));
-// 	ASSERT_EQUAL(4, static_cast<int>(sizeof(nkentseu::NkU32)));
-// 	ASSERT_EQUAL(8, static_cast<int>(sizeof(nkentseu::NkU64)));
+// 	ASSERT_EQUAL(1, static_cast<int>(sizeof(nkentseu::uint8)));
+// 	ASSERT_EQUAL(2, static_cast<int>(sizeof(nkentseu::uint16)));
+// 	ASSERT_EQUAL(4, static_cast<int>(sizeof(nkentseu::uint32)));
+// 	ASSERT_EQUAL(8, static_cast<int>(sizeof(nkentseu::uint64)));
 // }
 
 // TEST_CASE(NKWindowSmoke, VecDefaults) {
@@ -231,8 +231,8 @@
 // }
 
 TEST_CASE(NKWindowSmoke, BasicTypesAvailable) {
-	ASSERT_EQUAL(1, static_cast<int>(sizeof(nkentseu::NkU8)));
-	ASSERT_EQUAL(2, static_cast<int>(sizeof(nkentseu::NkU16)));
-	ASSERT_EQUAL(4, static_cast<int>(sizeof(nkentseu::NkU32)));
-	ASSERT_EQUAL(8, static_cast<int>(sizeof(nkentseu::NkU64)));
+	ASSERT_EQUAL(1, static_cast<int>(sizeof(nkentseu::uint8)));
+	ASSERT_EQUAL(2, static_cast<int>(sizeof(nkentseu::uint16)));
+	ASSERT_EQUAL(4, static_cast<int>(sizeof(nkentseu::uint32)));
+	ASSERT_EQUAL(8, static_cast<int>(sizeof(nkentseu::uint64)));
 }

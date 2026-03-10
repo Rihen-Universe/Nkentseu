@@ -16,7 +16,7 @@
 
 namespace nkentseu {
 
-	enum class NkScreenOrientation : NkU32 {
+	enum class NkScreenOrientation : uint32 {
 		NK_SCREEN_ORIENTATION_AUTO = 0,
 		NK_SCREEN_ORIENTATION_PORTRAIT,
 		NK_SCREEN_ORIENTATION_LANDSCAPE,
@@ -36,14 +36,14 @@ namespace nkentseu {
 
 	struct NkWindowConfig {
 		// --- Position et taille ---
-		NkI32 x         = 100;
-		NkI32 y         = 100;
-		NkU32 width     = 1280;
-		NkU32 height    = 720;
-		NkU32 minWidth  = 160;
-		NkU32 minHeight = 90;
-		NkU32 maxWidth  = 0xFFFF;
-		NkU32 maxHeight = 0xFFFF;
+		int32 x         = 100;
+		int32 y         = 100;
+		uint32 width     = 1280;
+		uint32 height    = 720;
+		uint32 minWidth  = 160;
+		uint32 minHeight = 90;
+		uint32 maxWidth  = 0xFFFF;
+		uint32 maxHeight = 0xFFFF;
 
 		// --- Comportement ---
 		bool centered       = true;
@@ -64,7 +64,7 @@ namespace nkentseu {
 		bool   hasShadow   = true;
 		bool   transparent = false;
 		bool   visible     = true;
-		NkU32  bgColor     = 0x141414FF;
+		uint32  bgColor     = 0x141414FF;
 
 		// --- Identité ---
 		NkString title    = "NkWindow";

@@ -73,7 +73,7 @@ namespace nkentseu {
         }
 
         const NkVector<NkWindow*> windows = NkEmscriptenGetWindowsSnapshot();
-        for (NkU32 i = windows.Size(); i > 0; --i) {
+        for (uint32 i = windows.Size(); i > 0; --i) {
             NkWindow* window = windows[i - 1];
             if (!window) {
                 continue;
@@ -104,13 +104,13 @@ namespace nkentseu {
     }
 
     struct CanvasCoords {
-        NkI32 x;
-        NkI32 y;
+        int32 x;
+        int32 y;
         double sx;
         double sy;
     };
 
-    static CanvasCoords MapCssToCanvas(const char* canvasSelector, NkI32 cssX, NkI32 cssY) {
+    static CanvasCoords MapCssToCanvas(const char* canvasSelector, int32 cssX, int32 cssY) {
         CanvasCoords out{cssX, cssY, 1.0, 1.0};
 
         int canvasWidth = 0;
@@ -131,8 +131,8 @@ namespace nkentseu {
 
         out.sx = static_cast<double>(canvasWidth) / cssWidth;
         out.sy = static_cast<double>(canvasHeight) / cssHeight;
-        out.x = static_cast<NkI32>(std::lround(static_cast<double>(cssX) * out.sx));
-        out.y = static_cast<NkI32>(std::lround(static_cast<double>(cssY) * out.sy));
+        out.x = static_cast<int32>(std::lround(static_cast<double>(cssX) * out.sx));
+        out.y = static_cast<int32>(std::lround(static_cast<double>(cssY) * out.sy));
         return out;
     }
 
@@ -311,15 +311,15 @@ namespace nkentseu {
 
         NkModifierState modifiers(ke->ctrlKey, ke->altKey, ke->shiftKey, ke->metaKey);
         if (ke->repeat) {
-            NkKeyRepeatEvent event(key, 1, scancode, modifiers, static_cast<NkU32>(ke->keyCode));
+            NkKeyRepeatEvent event(key, 1, scancode, modifiers, static_cast<uint32>(ke->keyCode));
             gWASMEventSystem->Enqueue_Public(event, targetWindowId);
         } else {
-            NkKeyPressEvent event(key, scancode, modifiers, static_cast<NkU32>(ke->keyCode));
+            NkKeyPressEvent event(key, scancode, modifiers, static_cast<uint32>(ke->keyCode));
             gWASMEventSystem->Enqueue_Public(event, targetWindowId);
         }
 
         if (!ke->repeat && ke->key[0] >= 0x20 && static_cast<unsigned char>(ke->key[0]) != 0x7F) {
-            NkTextInputEvent event(static_cast<NkU32>(static_cast<unsigned char>(ke->key[0])));
+            NkTextInputEvent event(static_cast<uint32>(static_cast<unsigned char>(ke->key[0])));
             gWASMEventSystem->Enqueue_Public(event, targetWindowId);
         }
 
@@ -354,7 +354,7 @@ namespace nkentseu {
         }
 
         NkModifierState modifiers(ke->ctrlKey, ke->altKey, ke->shiftKey, ke->metaKey);
-        NkKeyReleaseEvent event(key, scancode, modifiers, static_cast<NkU32>(ke->keyCode));
+        NkKeyReleaseEvent event(key, scancode, modifiers, static_cast<uint32>(ke->keyCode));
         gWASMEventSystem->Enqueue_Public(event, targetWindowId);
 
         return EM_TRUE;
@@ -375,15 +375,15 @@ namespace nkentseu {
             return EM_FALSE;
         }
 
-        const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<NkI32>(me->targetX), static_cast<NkI32>(me->targetY));
-        const NkI32 dx = static_cast<NkI32>(std::lround(static_cast<double>(me->movementX) * mapped.sx));
-        const NkI32 dy = static_cast<NkI32>(std::lround(static_cast<double>(me->movementY) * mapped.sy));
+        const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<int32>(me->targetX), static_cast<int32>(me->targetY));
+        const int32 dx = static_cast<int32>(std::lround(static_cast<double>(me->movementX) * mapped.sx));
+        const int32 dy = static_cast<int32>(std::lround(static_cast<double>(me->movementY) * mapped.sy));
 
         NkMouseMoveEvent event(
             mapped.x,
             mapped.y,
-            static_cast<NkI32>(me->screenX),
-            static_cast<NkI32>(me->screenY),
+            static_cast<int32>(me->screenX),
+            static_cast<int32>(me->screenY),
             dx,
             dy);
         gWASMEventSystem->Enqueue_Public(event, targetWindowId);
@@ -413,13 +413,13 @@ namespace nkentseu {
             (me->button == 1) ? NkMouseButton::NK_MB_MIDDLE :
                                 NkMouseButton::NK_MB_LEFT;
 
-        const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<NkI32>(me->targetX), static_cast<NkI32>(me->targetY));
+        const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<int32>(me->targetX), static_cast<int32>(me->targetY));
         NkMouseButtonPressEvent event(
             button,
             mapped.x,
             mapped.y,
-            static_cast<NkI32>(me->screenX),
-            static_cast<NkI32>(me->screenY));
+            static_cast<int32>(me->screenX),
+            static_cast<int32>(me->screenY));
         gWASMEventSystem->Enqueue_Public(event, targetWindowId);
 
         return EM_TRUE;
@@ -447,13 +447,13 @@ namespace nkentseu {
             (me->button == 1) ? NkMouseButton::NK_MB_MIDDLE :
                                 NkMouseButton::NK_MB_LEFT;
 
-        const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<NkI32>(me->targetX), static_cast<NkI32>(me->targetY));
+        const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<int32>(me->targetX), static_cast<int32>(me->targetY));
         NkMouseButtonReleaseEvent event(
             button,
             mapped.x,
             mapped.y,
-            static_cast<NkI32>(me->screenX),
-            static_cast<NkI32>(me->screenY));
+            static_cast<int32>(me->screenX),
+            static_cast<int32>(me->screenY));
         gWASMEventSystem->Enqueue_Public(event, targetWindowId);
 
         return EM_TRUE;
@@ -501,7 +501,7 @@ namespace nkentseu {
         }
 
         NkTouchPoint points[NK_MAX_TOUCH_POINTS];
-        NkU32 count = 0;
+        uint32 count = 0;
 
         for (int i = 0; i < te->numTouches && count < NK_MAX_TOUCH_POINTS; ++i) {
             const EmscriptenTouchPoint& tp = te->touches[i];
@@ -509,9 +509,9 @@ namespace nkentseu {
                 continue;
             }
 
-            const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<NkI32>(tp.targetX), static_cast<NkI32>(tp.targetY));
+            const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<int32>(tp.targetX), static_cast<int32>(tp.targetY));
             NkTouchPoint point;
-            point.id = static_cast<NkU64>(tp.identifier);
+            point.id = static_cast<uint64>(tp.identifier);
             point.phase = phase;
             point.clientX = static_cast<float>(mapped.x);
             point.clientY = static_cast<float>(mapped.y);
@@ -587,13 +587,13 @@ namespace nkentseu {
                 return;
             }
 
-            const NkU32 previousWidth = window.mData.mWidth;
-            const NkU32 previousHeight = window.mData.mHeight;
+            const uint32 previousWidth = window.mData.mWidth;
+            const uint32 previousHeight = window.mData.mHeight;
 
             window.mData.mPrevWidth = previousWidth;
             window.mData.mPrevHeight = previousHeight;
-            window.mData.mWidth = static_cast<NkU32>(width);
-            window.mData.mHeight = static_cast<NkU32>(height);
+            window.mData.mWidth = static_cast<uint32>(width);
+            window.mData.mHeight = static_cast<uint32>(height);
 
             NkWindowResizeEvent event(
                 window.mData.mWidth,
@@ -730,7 +730,7 @@ EMSCRIPTEN_KEEPALIVE void NkEmscriptenOnDragEnter(int x, int y, int numItems, in
         target,
         static_cast<float>(x),
         static_cast<float>(y),
-        static_cast<nkentseu::NkU32>(numItems < 0 ? 0 : numItems),
+        static_cast<nkentseu::uint32>(numItems < 0 ? 0 : numItems),
         hasText != 0,
         hasImage != 0);
 }

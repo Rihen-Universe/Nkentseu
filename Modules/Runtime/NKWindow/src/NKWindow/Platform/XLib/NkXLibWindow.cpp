@@ -283,12 +283,12 @@ namespace nkentseu {
         }
         XWindowAttributes a;
         XGetWindowAttributes(mData.mDisplay, mData.mXid, &a);
-        return { static_cast<NkU32>(a.width), static_cast<NkU32>(a.height) };
+        return { static_cast<uint32>(a.width), static_cast<uint32>(a.height) };
     }
 
     NkVec2u NkWindow::GetPosition() const {
         if (!mData.mDisplay || !mData.mXid) {
-            return { static_cast<NkU32>(mConfig.x), static_cast<NkU32>(mConfig.y) };
+            return { static_cast<uint32>(mConfig.x), static_cast<uint32>(mConfig.y) };
         }
         ::Window child;
         int x = 0;
@@ -297,7 +297,7 @@ namespace nkentseu {
             mData.mDisplay, mData.mXid,
             DefaultRootWindow(mData.mDisplay),
             0, 0, &x, &y, &child);
-        return { static_cast<NkU32>(x), static_cast<NkU32>(y) };
+        return { static_cast<uint32>(x), static_cast<uint32>(y) };
     }
 
     float NkWindow::GetDpiScale() const { return 1.0f; }
@@ -307,8 +307,8 @@ namespace nkentseu {
             return { 1920, 1080 };
         }
         return {
-            static_cast<NkU32>(DisplayWidth(mData.mDisplay, mData.mScreen)),
-            static_cast<NkU32>(DisplayHeight(mData.mDisplay, mData.mScreen))
+            static_cast<uint32>(DisplayWidth(mData.mDisplay, mData.mScreen)),
+            static_cast<uint32>(DisplayHeight(mData.mDisplay, mData.mScreen))
         };
     }
 
@@ -325,7 +325,7 @@ namespace nkentseu {
         }
     }
 
-    void NkWindow::SetSize(NkU32 w, NkU32 h) {
+    void NkWindow::SetSize(uint32 w, uint32 h) {
         mConfig.width = w;
         mConfig.height = h;
         if (mData.mDisplay && mData.mXid) {
@@ -333,7 +333,7 @@ namespace nkentseu {
         }
     }
 
-    void NkWindow::SetPosition(NkI32 x, NkI32 y) {
+    void NkWindow::SetPosition(int32 x, int32 y) {
         mConfig.x = x;
         mConfig.y = y;
         if (mData.mDisplay && mData.mXid) {
@@ -429,7 +429,7 @@ namespace nkentseu {
     // Mouse
     // =============================================================================
 
-    void NkWindow::SetMousePosition(NkU32 x, NkU32 y) {
+    void NkWindow::SetMousePosition(uint32 x, uint32 y) {
         if (mData.mDisplay && mData.mXid) {
             XWarpPointer(
                 mData.mDisplay, None, mData.mXid,

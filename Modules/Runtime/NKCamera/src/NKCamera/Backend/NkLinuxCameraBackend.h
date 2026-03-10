@@ -9,6 +9,7 @@
 #include "NKCore/NkAtomic.h"
 #include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
+#include "NKTime/NkChrono.h"
 
 #include <linux/videodev2.h>
 #include <fcntl.h>
@@ -26,7 +27,6 @@
 #include <string>
 #include <vector>
 #include <algorithm>
-#include <chrono>
 #include <fstream>
 #include <csignal>
 #include <filesystem>
@@ -65,7 +65,7 @@ public:
         closedir(dir);
         std::sort(paths.begin(), paths.end());
 
-        NkU32 idx = 0;
+        uint32 idx = 0;
         for (const auto& path : paths) {
             int fd = open(path.CStr(), O_RDWR|O_NONBLOCK);
             if (fd < 0) continue;
@@ -144,7 +144,7 @@ public:
         fmt.fmt.pix.field       = V4L2_FIELD_ANY;
 
         bool formatSet = false;
-        for (const NkU32 pixfmt : { static_cast<NkU32>(V4L2_PIX_FMT_MJPEG), static_cast<NkU32>(V4L2_PIX_FMT_YUYV) })
+        for (const uint32 pixfmt : { static_cast<uint32>(V4L2_PIX_FMT_MJPEG), static_cast<uint32>(V4L2_PIX_FMT_YUYV) })
         {
             fmt.fmt.pix.pixelformat = pixfmt;
             if (ioctl(mFd, VIDIOC_S_FMT, &fmt) == 0)
@@ -180,7 +180,7 @@ public:
             return failAndCleanup("VIDIOC_REQBUFS failed: " + NkString(strerror(errno)));
 
         mBufs.Resize(req.count);
-        for (NkU32 i=0;i<req.count;++i) {
+        for (uint32 i=0;i<req.count;++i) {
             struct v4l2_buffer buf={};
             buf.type=V4L2_BUF_TYPE_VIDEO_CAPTURE; buf.memory=V4L2_MEMORY_MMAP; buf.index=i;
             if (ioctl(mFd,VIDIOC_QUERYBUF,&buf)<0)
@@ -237,13 +237,13 @@ public:
         NkPhotoCaptureResult r; if (!CapturePhoto(r)) return false;
         // YUYV → RGBA → PPM (portabie, sans dépendance externe)
         auto& f = r.frame;
-        NkU32 w=f.width,h=f.height;
-        NkVector<NkU8> rgb; rgb.Resize(w*h*3);
+        uint32 w=f.width,h=f.height;
+        NkVector<uint8> rgb; rgb.Resize(w*h*3);
         if (f.format==NkPixelFormat::NK_PIXEL_YUYV) {
-            for (NkU32 i=0;i<w*h/2;++i) {
+            for (uint32 i=0;i<w*h/2;++i) {
                 float y0=(float)f.data[i*4]-16.f,cb=(float)f.data[i*4+1]-128.f;
                 float y1=(float)f.data[i*4+2]-16.f,cr=(float)f.data[i*4+3]-128.f;
-                auto cl=[](float v)->NkU8{return(NkU8)(v<0?0:v>255?255:v);};
+                auto cl=[](float v)->uint8{return(uint8)(v<0?0:v>255?255:v);};
                 rgb[i*6]  =cl(y0*1.164f+cr*1.596f);
                 rgb[i*6+1]=cl(y0*1.164f-cb*0.391f-cr*0.813f);
                 rgb[i*6+2]=cl(y0*1.164f+cb*2.018f);
@@ -337,7 +337,7 @@ public:
                     if (mFfmpegPipe)
                     {
                         mRecordMode  = RecordMode::VideoPipe;
-                        mRecordStart = std::chrono::steady_clock::now();
+                        mRecordStart = NkChrono::Now();
                         mState       = NkCameraState::NK_CAM_STATE_RECORDING;
                         return true;
                     }
@@ -357,7 +357,7 @@ public:
         if (!StartImageSequenceRecordLocked(config.outputPath, fallbackReason))
             return false;
 
-        mRecordStart = std::chrono::steady_clock::now();
+        mRecordStart = NkChrono::Now();
         mState       = NkCameraState::NK_CAM_STATE_RECORDING;
         return true;
     }
@@ -377,8 +377,7 @@ public:
     bool  IsRecording() const override { return mState==NkCameraState::NK_CAM_STATE_RECORDING; }
     float GetRecordingDurationSeconds() const override {
         if (!IsRecording()) return 0.f;
-        return std::chrono::duration<float>(
-            std::chrono::steady_clock::now()-mRecordStart).count();
+        return static_cast<float>((NkChrono::Now() - mRecordStart).seconds);
     }
 
     // ------------------------------------------------------------------
@@ -431,14 +430,14 @@ public:
         return true;
     }
 
-    NkU32         GetWidth()  const override { return mWidth;  }
-    NkU32         GetHeight() const override { return mHeight; }
-    NkU32         GetFPS()    const override { return mFPS;    }
+    uint32         GetWidth()  const override { return mWidth;  }
+    uint32         GetHeight() const override { return mHeight; }
+    uint32         GetFPS()    const override { return mFPS;    }
     NkPixelFormat GetFormat() const override { return mFormat; }
     NkString   GetLastError() const override { return mLastError; }
 
 private:
-    enum class RecordMode : NkU8
+    enum class RecordMode : uint8
     {
         None = 0,
         VideoPipe,
@@ -563,22 +562,22 @@ private:
 
     bool WriteFrameAsPpm(const NkCameraFrame& frame, const NkString& outPath) const
     {
-        const NkU32 w = frame.width;
-        const NkU32 h = frame.height;
+        const uint32 w = frame.width;
+        const uint32 h = frame.height;
         if (w == 0 || h == 0) return false;
 
-        NkVector<NkU8> rgb; rgb.Resize(static_cast<NkU32>(w) * static_cast<NkU32>(h) * 3u);
+        NkVector<uint8> rgb; rgb.Resize(static_cast<uint32>(w) * static_cast<uint32>(h) * 3u);
         if (frame.format == NkPixelFormat::NK_PIXEL_YUYV)
         {
             const std::size_t expected = static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 2u;
             if (frame.data.Size() < expected) return false;
-            for (NkU32 i = 0; i < (w * h / 2u); ++i)
+            for (uint32 i = 0; i < (w * h / 2u); ++i)
             {
                 const float y0 = static_cast<float>(frame.data[i * 4u])     - 16.f;
                 const float cb = static_cast<float>(frame.data[i * 4u + 1u]) - 128.f;
                 const float y1 = static_cast<float>(frame.data[i * 4u + 2u]) - 16.f;
                 const float cr = static_cast<float>(frame.data[i * 4u + 3u]) - 128.f;
-                auto cl = [](float v) -> NkU8 { return static_cast<NkU8>(v < 0.f ? 0.f : (v > 255.f ? 255.f : v)); };
+                auto cl = [](float v) -> uint8 { return static_cast<uint8>(v < 0.f ? 0.f : (v > 255.f ? 255.f : v)); };
                 rgb[i * 6u]     = cl(y0 * 1.164f + cr * 1.596f);
                 rgb[i * 6u + 1] = cl(y0 * 1.164f - cb * 0.391f - cr * 0.813f);
                 rgb[i * 6u + 2] = cl(y0 * 1.164f + cb * 2.018f);
@@ -630,7 +629,7 @@ private:
         if (mRecordImageDir.Empty() || !frame.IsValid())
             return false;
 
-        const NkU32 frameIdx = mRecordFrameCounter++;
+        const uint32 frameIdx = mRecordFrameCounter++;
         char name[64];
         std::snprintf(name, sizeof(name), "frame_%06u", frameIdx);
         const NkString basePath = mRecordImageDir + "/" + NkString(name);
@@ -650,7 +649,7 @@ private:
 
     void CaptureLoop()
     {
-        NkU32 timeoutCount = 0;
+        uint32 timeoutCount = 0;
         while (mRunning) {
             fd_set fds; FD_ZERO(&fds); FD_SET(mFd,&fds);
             struct timeval tv={1,0};
@@ -682,8 +681,8 @@ private:
                 continue;
             }
 
-            const NkU8* src=(const NkU8*)mBufs[buf.index].start;
-            NkU32 len = buf.bytesused ? buf.bytesused : static_cast<NkU32>(mBufs[buf.index].length);
+            const uint8* src=(const uint8*)mBufs[buf.index].start;
+            uint32 len = buf.bytesused ? buf.bytesused : static_cast<uint32>(mBufs[buf.index].length);
             if (len == 0) {
                 mLastError = "Dequeued empty camera buffer";
                 ioctl(mFd,VIDIOC_QBUF,&buf);
@@ -737,7 +736,7 @@ private:
 
     int           mFd=-1;
     NkCameraState mState=NkCameraState::NK_CAM_STATE_CLOSED;
-    NkU32         mWidth=0,mHeight=0,mFPS=30,mFrameIdx=0;
+    uint32         mWidth=0,mHeight=0,mFPS=30,mFrameIdx=0;
     NkPixelFormat mFormat=NkPixelFormat::NK_PIXEL_YUYV;
     NkString   mLastError;
 
@@ -755,8 +754,8 @@ private:
     RecordMode mRecordMode = RecordMode::None;
     FILE* mFfmpegPipe=nullptr;
     NkString mRecordImageDir;
-    NkU32 mRecordFrameCounter=0;
-    std::chrono::steady_clock::time_point mRecordStart;
+    uint32 mRecordFrameCounter=0;
+    NkElapsedTime mRecordStart;
 };
 
 } // namespace nkentseu

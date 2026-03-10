@@ -29,7 +29,7 @@ namespace nkentseu {
     // =============================================================================
 
     static NkKey XLibKeysymToNkKey(KeySym ks) {
-        return NkKeycodeMap::NkKeyFromX11KeySym(static_cast<NkU32>(ks));
+        return NkKeycodeMap::NkKeyFromX11KeySym(static_cast<uint32>(ks));
     }
 
     static NkModifierState XLibMods(unsigned int state) {
@@ -102,7 +102,7 @@ namespace nkentseu {
                 // ------------------------------------------------------------
                 case KeyPress:
                 case KeyRelease: {
-                    NkScancode sc = NkScancodeFromXKeycode(static_cast<NkU32>(xev.xkey.keycode));
+                    NkScancode sc = NkScancodeFromXKeycode(static_cast<uint32>(xev.xkey.keycode));
                     NkKey key = NkScancodeToKey(sc);
                     if (key == NkKey::NK_UNKNOWN) {
                         KeySym ks = XLookupKeysym(&xev.xkey, 0);
@@ -110,7 +110,7 @@ namespace nkentseu {
                     }
 
                     NkModifierState mods = XLibMods(xev.xkey.state);
-                    NkU32 nativeKey = static_cast<NkU32>(xev.xkey.keycode);
+                    uint32 nativeKey = static_cast<uint32>(xev.xkey.keycode);
 
                     if (key != NkKey::NK_UNKNOWN) {
                         if (xev.type == KeyPress) {
@@ -129,7 +129,7 @@ namespace nkentseu {
                         int n = XLookupString(&xev.xkey, buf, static_cast<int>(sizeof(buf)) - 1, &dummy, nullptr);
                         if (n > 0 && static_cast<unsigned char>(buf[0]) >= 0x20 &&
                             static_cast<unsigned char>(buf[0]) != 0x7F) {
-                            NkTextInputEvent e(static_cast<NkU32>(static_cast<unsigned char>(buf[0])));
+                            NkTextInputEvent e(static_cast<uint32>(static_cast<unsigned char>(buf[0])));
                             Enqueue(e, winId);
                         }
                     }
@@ -141,10 +141,10 @@ namespace nkentseu {
                 // ------------------------------------------------------------
                 case ButtonPress:
                 case ButtonRelease: {
-                    NkI32 x = xev.xbutton.x;
-                    NkI32 y = xev.xbutton.y;
-                    NkI32 sx = xev.xbutton.x_root;
-                    NkI32 sy = xev.xbutton.y_root;
+                    int32 x = xev.xbutton.x;
+                    int32 y = xev.xbutton.y;
+                    int32 sx = xev.xbutton.x_root;
+                    int32 sy = xev.xbutton.y_root;
                     NkModifierState mods = XLibMods(xev.xbutton.state);
                     const bool pressed = (xev.type == ButtonPress);
 
@@ -210,12 +210,12 @@ namespace nkentseu {
                 // Mouse move
                 // ------------------------------------------------------------
                 case MotionNotify: {
-                    NkI32 x = xev.xmotion.x;
-                    NkI32 y = xev.xmotion.y;
-                    NkI32 sx = xev.xmotion.x_root;
-                    NkI32 sy = xev.xmotion.y_root;
-                    NkI32 dx = x - mData.mPrevMouseX;
-                    NkI32 dy = y - mData.mPrevMouseY;
+                    int32 x = xev.xmotion.x;
+                    int32 y = xev.xmotion.y;
+                    int32 sx = xev.xmotion.x_root;
+                    int32 sy = xev.xmotion.y_root;
+                    int32 dx = x - mData.mPrevMouseX;
+                    int32 dy = y - mData.mPrevMouseY;
                     mData.mPrevMouseX = x;
                     mData.mPrevMouseY = y;
 
@@ -258,8 +258,8 @@ namespace nkentseu {
                         NkWindowPaintEvent e(
                             xev.xexpose.x,
                             xev.xexpose.y,
-                            static_cast<NkU32>(xev.xexpose.width),
-                            static_cast<NkU32>(xev.xexpose.height));
+                            static_cast<uint32>(xev.xexpose.width),
+                            static_cast<uint32>(xev.xexpose.height));
                         Enqueue(e, winId);
                     }
                     break;
@@ -270,8 +270,8 @@ namespace nkentseu {
                 // ------------------------------------------------------------
                 case ConfigureNotify: {
                     NkWindowResizeEvent e(
-                        static_cast<NkU32>(xev.xconfigure.width),
-                        static_cast<NkU32>(xev.xconfigure.height),
+                        static_cast<uint32>(xev.xconfigure.width),
+                        static_cast<uint32>(xev.xconfigure.height),
                         window ? window->GetConfig().width : 0u,
                         window ? window->GetConfig().height : 0u);
                     Enqueue(e, winId);

@@ -87,8 +87,8 @@ namespace nkentseu {
             wl_data_offer*  mOffer      = nullptr;
 
             NkVector<NkString> mMimeTypes;
-            NkF32 mDragX = 0.f;
-            NkF32 mDragY = 0.f;
+            float32 mDragX = 0.f;
+            float32 mDragY = 0.f;
             bool mDragOnTargetSurface = false;
 
             DropFileCallback  mDropFile;
@@ -102,7 +102,7 @@ namespace nkentseu {
             DropLeaveDataCallback mDropLeaveData;
 
             static bool HasMime(const NkVector<NkString>& mimeTypes, const char* mime) {
-                for (NkU32 i = 0; i < mimeTypes.Size(); ++i) {
+                for (uint32 i = 0; i < mimeTypes.Size(); ++i) {
                     if (std::strcmp(mimeTypes[i].CStr(), mime) == 0) {
                         return true;
                     }
@@ -112,13 +112,13 @@ namespace nkentseu {
 
             static NkVector<NkString> ParseUriList(const NkString& raw) {
                 NkVector<NkString> paths;
-                NkU32 start = 0;
-                const NkU32 rawSize = raw.Size();
+                uint32 start = 0;
+                const uint32 rawSize = raw.Size();
 
                 while (start < rawSize) {
                     // Find '\n'
-                    NkU32 end = rawSize;
-                    for (NkU32 k = start; k < rawSize; ++k) {
+                    uint32 end = rawSize;
+                    for (uint32 k = start; k < rawSize; ++k) {
                         if (raw[k] == '\n') { end = k; break; }
                     }
 
@@ -132,7 +132,7 @@ namespace nkentseu {
                         NkString decoded;
                         decoded.Reserve(encoded.Size());
 
-                        for (NkU32 i = 0; i < encoded.Size(); ++i) {
+                        for (uint32 i = 0; i < encoded.Size(); ++i) {
                             if (encoded[i] == '%' && i + 2 < encoded.Size()) {
                                 int value = 0;
                                 std::sscanf(encoded.CStr() + i + 1, "%2x", &value);
@@ -267,13 +267,13 @@ namespace nkentseu {
                 }
 
                 self->mDragOnTargetSurface = true;
-                self->mDragX = static_cast<NkF32>(wl_fixed_to_double(x));
-                self->mDragY = static_cast<NkF32>(wl_fixed_to_double(y));
+                self->mDragX = static_cast<float32>(wl_fixed_to_double(x));
+                self->mDragY = static_cast<float32>(wl_fixed_to_double(y));
                 self->mOffer = offer;
 
                 NkDropEnterData enterData{};
-                enterData.x = static_cast<NkI32>(self->mDragX);
-                enterData.y = static_cast<NkI32>(self->mDragY);
+                enterData.x = static_cast<int32>(self->mDragX);
+                enterData.y = static_cast<int32>(self->mDragY);
                 enterData.numFiles = 0;
                 enterData.hasText = HasMime(self->mMimeTypes, "text/plain;charset=utf-8") ||
                                     HasMime(self->mMimeTypes, "text/plain");
@@ -326,8 +326,8 @@ namespace nkentseu {
                     return;
                 }
 
-                self->mDragX = static_cast<NkF32>(wl_fixed_to_double(x));
-                self->mDragY = static_cast<NkF32>(wl_fixed_to_double(y));
+                self->mDragX = static_cast<float32>(wl_fixed_to_double(x));
+                self->mDragY = static_cast<float32>(wl_fixed_to_double(y));
             }
 
             static void OnDataDeviceDrop(void* data, wl_data_device*) {
@@ -345,8 +345,8 @@ namespace nkentseu {
                     NkVector<NkString> paths = ParseUriList(raw);
                     if (!paths.Empty()) {
                         NkDropFileData fileData{};
-                        fileData.x = static_cast<NkI32>(self->mDragX);
-                        fileData.y = static_cast<NkI32>(self->mDragY);
+                        fileData.x = static_cast<int32>(self->mDragX);
+                        fileData.y = static_cast<int32>(self->mDragY);
                         fileData.paths = std::move(paths);
                         self->EmitDropFiles(fileData);
                     }
@@ -355,8 +355,8 @@ namespace nkentseu {
                     NkString text = self->ReadOfferData(self->mOffer, mime);
 
                     NkDropTextData textData{};
-                    textData.x = static_cast<NkI32>(self->mDragX);
-                    textData.y = static_cast<NkI32>(self->mDragY);
+                    textData.x = static_cast<int32>(self->mDragX);
+                    textData.y = static_cast<int32>(self->mDragY);
                     textData.text = std::move(text);
                     textData.mimeType = mime;
                     self->EmitDropText(textData);

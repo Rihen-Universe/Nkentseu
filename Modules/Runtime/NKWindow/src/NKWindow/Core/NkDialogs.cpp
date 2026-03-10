@@ -111,7 +111,7 @@ namespace nkentseu {
 		MessageBoxA(nullptr, message.CStr(), title.Empty() ? nullptr : title.CStr(), flags);
 	}
 
-	inline NkDialogResult NkDialogs::ColorPicker(NkU32 initial) {
+	inline NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
 		static COLORREF customColors[16] = {};
 		CHOOSECOLORA cc = {};
 		cc.lStructSize = sizeof(cc);
@@ -203,7 +203,7 @@ namespace nkentseu {
 		system(cmd.CStr());
 	}
 
-	inline NkDialogResult NkDialogs::ColorPicker(NkU32 initial) {
+	inline NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
 		NkDialogResult res;
 		// Convertir initial en #RRGGBB pour zenity
 		char hex[8];
@@ -315,7 +315,7 @@ namespace nkentseu {
 		system(script.CStr());
 	}
 
-	inline NkDialogResult NkDialogs::ColorPicker(NkU32 initial) {
+	inline NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
 		// Pas de color picker simple en ligne de commande sur macOS, on peut utiliser un script plus complexe.
 		// Pour simplifier, on renvoie un stub.
 		(void)initial;
@@ -335,7 +335,7 @@ namespace nkentseu {
 	}
 	inline void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
 	}
-	inline NkDialogResult NkDialogs::ColorPicker(NkU32) {
+	inline NkDialogResult NkDialogs::ColorPicker(uint32) {
 		return {};
 	}
 

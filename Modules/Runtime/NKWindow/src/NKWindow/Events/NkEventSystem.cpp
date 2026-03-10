@@ -36,7 +36,7 @@ namespace nkentseu {
         // PrÃ©-crÃ©e les buckets pour tous les types d'Ã©vÃ©nements afin d'Ã©viter
         // des insertions ultÃ©rieures qui peuvent copier/dÃ©placer des callables
         // enregistrÃ©s (chemin instable observÃ© sur Android x86).
-        for (NkU32 i = 0; i < static_cast<NkU32>(NkEventType::NK_EVENT_COUNT); ++i) {
+        for (uint32 i = 0; i < static_cast<uint32>(NkEventType::NK_EVENT_COUNT); ++i) {
             const auto type = static_cast<NkEventType::Value>(i);
             mTypedCallbacks.Insert(type, NkVector<NkEventCallback>{});
             mTypedCallbacksWithToken.Insert(type, NkVector<TokenizedCallback>{});
@@ -143,11 +143,11 @@ namespace nkentseu {
             static_cast<unsigned long long>(callbacks->Capacity()));
     }
 
-    NkU64 NkEventSystem::AddEventCallbackTokenRaw(NkEventType::Value type, NkEventCallback callback) {
+    uint64 NkEventSystem::AddEventCallbackTokenRaw(NkEventType::Value type, NkEventCallback callback) {
         if (mTypedCallbacksWithToken.BucketCount() == 0) {
             mTypedCallbacksWithToken.Rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
         }
-        const NkU64 token = ++mCallbackTokenCounter;
+        const uint64 token = ++mCallbackTokenCounter;
         auto& vec = mTypedCallbacksWithToken[type];
         vec.Resize(vec.Size() + 1);
         auto& slot = vec[vec.Size() - 1];
@@ -169,7 +169,7 @@ namespace nkentseu {
     }
 
     // CORRECTION 4 : suppression d'un callback par token (appelÃ©e par NkCallbackGuard)
-    void NkEventSystem::RemoveCallbackToken(NkEventType::Value type, NkU64 token) {
+    void NkEventSystem::RemoveCallbackToken(NkEventType::Value type, uint64 token) {
         auto* vec = mTypedCallbacksWithToken.Find(type);
         if (!vec) return;
         vec->Erase(std::remove_if(vec->begin(), vec->end(),

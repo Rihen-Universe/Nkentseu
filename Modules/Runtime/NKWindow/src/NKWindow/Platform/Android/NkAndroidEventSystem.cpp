@@ -17,6 +17,7 @@
 #include "NKWindow/Platform/Android/NkAndroidDropTarget.h"
 #include "NKWindow/Platform/Android/NkAndroidGamepad.h"
 #include "NKWindow/Platform/Android/NkAndroidWindow.h"
+#include "NKLogger/NkLog.h"
 
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/String/NkStringUtils.h"
@@ -24,7 +25,6 @@
 
 #include <android/input.h>
 #include <android/keycodes.h>
-#include <android/log.h>
 #include <android/looper.h>
 #include <android/native_window.h>
 #include <android/window.h>
@@ -36,8 +36,7 @@
 #include <thread>
 #include <vector>
 
-#define NKLOG_TAG "NkAndroid"
-#define NKLOGD(...) __android_log_print(ANDROID_LOG_DEBUG, NKLOG_TAG, __VA_ARGS__)
+#define NKLOGD(...) logger.Debugf(__VA_ARGS__)
 
 namespace nkentseu {
 
@@ -125,8 +124,8 @@ namespace nkentseu {
         window.mData.mPrevHeight = window.mData.mHeight;
 
         if (window.mData.mNativeWindow) {
-            window.mData.mWidth = static_cast<NkU32>(ANativeWindow_getWidth(window.mData.mNativeWindow));
-            window.mData.mHeight = static_cast<NkU32>(ANativeWindow_getHeight(window.mData.mNativeWindow));
+            window.mData.mWidth = static_cast<uint32>(ANativeWindow_getWidth(window.mData.mNativeWindow));
+            window.mData.mHeight = static_cast<uint32>(ANativeWindow_getHeight(window.mData.mNativeWindow));
         } else {
             window.mData.mWidth = 0;
             window.mData.mHeight = 0;
@@ -135,7 +134,7 @@ namespace nkentseu {
 
     static NkTouchPoint AndroidMotionToTouchPoint(AInputEvent* ev, int32_t idx, NkTouchPhase phase) {
         NkTouchPoint point;
-        point.id = static_cast<NkU64>(AMotionEvent_getPointerId(ev, static_cast<size_t>(idx)));
+        point.id = static_cast<uint64>(AMotionEvent_getPointerId(ev, static_cast<size_t>(idx)));
         point.phase = phase;
         point.clientX = AMotionEvent_getX(ev, static_cast<size_t>(idx));
         point.clientY = AMotionEvent_getY(ev, static_cast<size_t>(idx));
@@ -292,11 +291,11 @@ namespace nkentseu {
                 mods.alt = (meta & AMETA_ALT_ON) != 0;
 
                 if (action == AKEY_EVENT_ACTION_DOWN) {
-                    NkKeyPressEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<NkU32>(keycode));
+                    NkKeyPressEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<uint32>(keycode));
                     gAndroidEventSystem->Enqueue_Public(event, targetWinId);
                     handledKey = true;
                 } else if (action == AKEY_EVENT_ACTION_UP) {
-                    NkKeyReleaseEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<NkU32>(keycode));
+                    NkKeyReleaseEvent event(key, NkScancode::NK_SC_UNKNOWN, mods, static_cast<uint32>(keycode));
                     gAndroidEventSystem->Enqueue_Public(event, targetWinId);
                     handledKey = true;
                 }
@@ -321,7 +320,7 @@ namespace nkentseu {
                 (source & AINPUT_SOURCE_MOUSE) == AINPUT_SOURCE_MOUSE;
 
             NkTouchPoint points[NK_MAX_TOUCH_POINTS];
-            NkU32 count = 0;
+            uint32 count = 0;
 
             if (isTouchSource) {
                 switch (act) {
@@ -367,10 +366,10 @@ namespace nkentseu {
                 switch (act) {
                     case AMOTION_EVENT_ACTION_MOVE: {
                         NkMouseMoveEvent event(
-                            static_cast<NkI32>(x),
-                            static_cast<NkI32>(y),
-                            static_cast<NkI32>(x),
-                            static_cast<NkI32>(y),
+                            static_cast<int32>(x),
+                            static_cast<int32>(y),
+                            static_cast<int32>(x),
+                            static_cast<int32>(y),
                             0,
                             0);
                         gAndroidEventSystem->Enqueue_Public(event, targetWinId);
@@ -379,16 +378,16 @@ namespace nkentseu {
                     case AMOTION_EVENT_ACTION_DOWN: {
                         NkMouseButtonPressEvent event(
                             NkMouseButton::NK_MB_LEFT,
-                            static_cast<NkI32>(x),
-                            static_cast<NkI32>(y));
+                            static_cast<int32>(x),
+                            static_cast<int32>(y));
                         gAndroidEventSystem->Enqueue_Public(event, targetWinId);
                         break;
                     }
                     case AMOTION_EVENT_ACTION_UP: {
                         NkMouseButtonReleaseEvent event(
                             NkMouseButton::NK_MB_LEFT,
-                            static_cast<NkI32>(x),
-                            static_cast<NkI32>(y));
+                            static_cast<int32>(x),
+                            static_cast<int32>(y));
                         gAndroidEventSystem->Enqueue_Public(event, targetWinId);
                         break;
                     }
@@ -443,8 +442,8 @@ namespace nkentseu {
             }
             case APP_CMD_WINDOW_RESIZED: {
                 ForEachAndroidWindow([&](NkWindow& window, NkWindowId id) {
-                    const NkU32 prevWidth = window.mData.mWidth;
-                    const NkU32 prevHeight = window.mData.mHeight;
+                    const uint32 prevWidth = window.mData.mWidth;
+                    const uint32 prevHeight = window.mData.mHeight;
                     UpdateWindowNativeSurface(window, app);
                     NkWindowResizeEvent event(
                         window.mData.mWidth,
@@ -605,7 +604,7 @@ Java_com_nkentseu_nkwindow_NkAndroidDropBridge_nativeDragEnter(
         target,
         x,
         y,
-        static_cast<nkentseu::NkU32>(numItems < 0 ? 0 : numItems),
+        static_cast<nkentseu::uint32>(numItems < 0 ? 0 : numItems),
         hasText == JNI_TRUE,
         hasImage == JNI_TRUE);
 }

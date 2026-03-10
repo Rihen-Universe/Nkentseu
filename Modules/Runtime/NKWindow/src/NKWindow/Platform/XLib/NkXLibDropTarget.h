@@ -85,8 +85,8 @@ namespace nkentseu {
 
         // Current drag state
         ::Window mSourceWin = 0;
-        NkI32    mDragX     = 0;
-        NkI32    mDragY     = 0;
+        int32    mDragX     = 0;
+        int32    mDragY     = 0;
         bool     mHasDrop   = false;
 
         // Event callbacks
@@ -296,8 +296,8 @@ namespace nkentseu {
         if (type == aXdndPosition) {
             mSourceWin = static_cast<::Window>(ev.data.l[0]);
             const unsigned long coords = static_cast<unsigned long>(ev.data.l[2]);
-            mDragX = static_cast<NkI32>((coords >> 16) & 0xFFFF);
-            mDragY = static_cast<NkI32>(coords & 0xFFFF);
+            mDragX = static_cast<int32>((coords >> 16) & 0xFFFF);
+            mDragY = static_cast<int32>(coords & 0xFFFF);
             SendStatus(true);
             return;
         }

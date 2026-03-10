@@ -62,9 +62,9 @@ namespace nkentseu {
     // =========================================================================
 
     /// Nombre de slots XInput (fixé par l'API)
-    static constexpr NkU32 NK_XINPUT_MAX   = 4u;
+    static constexpr uint32 NK_XINPUT_MAX   = 4u;
     /// Slots DirectInput = total - XInput
-    static constexpr NkU32 NK_DI_MAX       = NK_MAX_GAMEPADS - NK_XINPUT_MAX;
+    static constexpr uint32 NK_DI_MAX       = NK_MAX_GAMEPADS - NK_XINPUT_MAX;
     /// Deadzone XInput normalisée (SHORT → float)
     static constexpr SHORT NK_XI_DEADZONE_L = XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE;
     static constexpr SHORT NK_XI_DEADZONE_R = XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE;
@@ -130,8 +130,8 @@ namespace nkentseu {
         GUID                  guidInstance{};
         GUID                  guidProduct{};
         char                  name[128] = {};
-        NkU32                 numButtons = 0;
-        NkU32                 numAxes    = 0;
+        uint32                 numButtons = 0;
+        uint32                 numAxes    = 0;
         bool                  acquired   = false;
 
         // État brut DIJOYSTATE2
@@ -145,7 +145,7 @@ namespace nkentseu {
 
     struct NkDIAxisCollector {
         IDirectInputDevice8W* device;
-        NkU32                 axisCount = 0;
+        uint32                 axisCount = 0;
     };
 
     static BOOL CALLBACK NkDIEnumAxesCallback(const DIDEVICEOBJECTINSTANCEW* doi,
@@ -173,7 +173,7 @@ namespace nkentseu {
     struct NkDIEnumCtx {
         IDirectInput8W*                  di8    = nullptr;
         std::vector<NkDIDeviceContext>*  out    = nullptr;
-        NkU32                            maxOut = NK_DI_MAX;
+        uint32                            maxOut = NK_DI_MAX;
     };
 
     static BOOL CALLBACK NkDIEnumDevicesCallback(const DIDEVICEINSTANCEW* ddi,
@@ -247,14 +247,14 @@ namespace nkentseu {
     }
 
     static void NkDI_FillSnapshot(const NkDIDeviceContext& dc,
-                                   NkU32 slotIndex,
+                                   uint32 slotIndex,
                                    NkGamepadSnapshot& s) noexcept
     {
         const DIJOYSTATE2& st = dc.state;
-        const NkU32 logicalBtnCount = static_cast<NkU32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
-        const NkU32 logicalAxisCount = static_cast<NkU32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
-        const NkU32 rawBtnBase = logicalBtnCount;
-        const NkU32 rawAxisBase = logicalAxisCount;
+        const uint32 logicalBtnCount = static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
+        const uint32 logicalAxisCount = static_cast<uint32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
+        const uint32 rawBtnBase = logicalBtnCount;
+        const uint32 rawAxisBase = logicalAxisCount;
 
         NkGamepadInfo info = s.info;
         s.Clear();
@@ -281,10 +281,10 @@ namespace nkentseu {
             ry = rz;
         }
 
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LX)] = lx;
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LY)] = ly;
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RX)] = rx;
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RY)] = ry;
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LX)] = lx;
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LY)] = ly;
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RX)] = rx;
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RY)] = ry;
 
         // Gâchettes : privilégier lZ/lRz, fallback sliders si pas d'activité.
         float lt = z;
@@ -298,25 +298,25 @@ namespace nkentseu {
         // Axe centré [-1,+1] -> trigger [0,+1]
         if (lt < 0.f) lt = (lt + 1.f) * 0.5f;
         if (rt < 0.f) rt = (rt + 1.f) * 0.5f;
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LT)] = std::clamp(lt, 0.f, 1.f);
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT)] = std::clamp(rt, 0.f, 1.f);
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LT)] = std::clamp(lt, 0.f, 1.f);
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RT)] = std::clamp(rt, 0.f, 1.f);
 
         // Canal brut: exposer les boutons physiques DI en indices étendus.
-        const NkU32 physicalButtonCount =
-            std::min<NkU32>(dc.numButtons, static_cast<NkU32>(sizeof(st.rgbButtons) / sizeof(st.rgbButtons[0])));
-        for (NkU32 b = 0; b < physicalButtonCount; ++b) {
+        const uint32 physicalButtonCount =
+            std::min<uint32>(dc.numButtons, static_cast<uint32>(sizeof(st.rgbButtons) / sizeof(st.rgbButtons[0])));
+        for (uint32 b = 0; b < physicalButtonCount; ++b) {
             const bool down = (st.rgbButtons[b] & 0x80) != 0;
-            const NkU32 rawIndex = rawBtnBase + b;
+            const uint32 rawIndex = rawBtnBase + b;
             if (rawIndex < NkGamepadSystem::BUTTON_COUNT) {
                 s.buttons[rawIndex] = down;
             }
         }
 
         // Compatibilité: mapping générique DI [0..] -> layout NK depuis SOUTH.
-        const NkU32 firstBtn = static_cast<NkU32>(NkGamepadButton::NK_GP_SOUTH);
-        const NkU32 mapCount = (logicalBtnCount > firstBtn) ? (logicalBtnCount - firstBtn) : 0u;
-        NkU32 btnMax = std::min(dc.numButtons, mapCount);
-        for (NkU32 b = 0; b < btnMax; ++b)
+        const uint32 firstBtn = static_cast<uint32>(NkGamepadButton::NK_GP_SOUTH);
+        const uint32 mapCount = (logicalBtnCount > firstBtn) ? (logicalBtnCount - firstBtn) : 0u;
+        uint32 btnMax = std::min(dc.numButtons, mapCount);
+        for (uint32 b = 0; b < btnMax; ++b)
             s.buttons[firstBtn + b] = (st.rgbButtons[b] & 0x80) != 0;
 
         // D-pad (POV hat) → boutons D-pad discrets
@@ -324,38 +324,38 @@ namespace nkentseu {
         bool povValid = (pov != 0xFFFFFFFF);
         if (povValid) {
             float deg = static_cast<float>(pov) / 100.f; // centièmes → degrés
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_UP)]    = (deg >= 315.f || deg < 45.f);
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] = (deg >= 45.f  && deg < 135.f);
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_DOWN)]  = (deg >= 135.f && deg < 225.f);
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_LEFT)]  = (deg >= 225.f && deg < 315.f);
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_UP)]    = (deg >= 315.f || deg < 45.f);
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] = (deg >= 45.f  && deg < 135.f);
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_DOWN)]  = (deg >= 135.f && deg < 225.f);
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_LEFT)]  = (deg >= 225.f && deg < 315.f);
         } else {
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_UP)]    = false;
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] = false;
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_DOWN)]  = false;
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_LEFT)]  = false;
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_UP)]    = false;
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] = false;
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_DOWN)]  = false;
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_LEFT)]  = false;
         }
 
         // Axes D-pad analogiques
         const float dpadX =
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] ? 1.f :
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_LEFT)]  ? -1.f : 0.f;
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] ? 1.f :
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_LEFT)]  ? -1.f : 0.f;
         const float dpadY =
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_UP)]   ? 1.f :
-            s.buttons[static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_DOWN)] ? -1.f : 0.f;
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_UP)]   ? 1.f :
+            s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_DOWN)] ? -1.f : 0.f;
 
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_X)] = dpadX;
-        s.axes[static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y)] = dpadY;
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_DPAD_X)] = dpadX;
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y)] = dpadY;
 
         // Canal brut: axes physiques DI en indices étendus.
         const LONG physicalAxes[] = {
             st.lX, st.lY, st.lZ, st.lRx, st.lRy, st.lRz,
             st.rglSlider[0], st.rglSlider[1]
         };
-        const NkU32 physicalAxisCount =
-            static_cast<NkU32>(sizeof(physicalAxes) / sizeof(physicalAxes[0]));
+        const uint32 physicalAxisCount =
+            static_cast<uint32>(sizeof(physicalAxes) / sizeof(physicalAxes[0]));
 
-        for (NkU32 a = 0; a < physicalAxisCount; ++a) {
-            const NkU32 rawIndex = rawAxisBase + a;
+        for (uint32 a = 0; a < physicalAxisCount; ++a) {
+            const uint32 rawIndex = rawAxisBase + a;
             if (rawIndex >= NkGamepadSystem::AXIS_COUNT) break;
             s.axes[rawIndex] = NkDI_NormAxis(physicalAxes[a]);
         }
@@ -445,9 +445,9 @@ namespace nkentseu {
         // GetConnectedCount
         // =====================================================================
 
-        NkU32 GetConnectedCount() const override {
-            NkU32 n = 0;
-            for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i)
+        uint32 GetConnectedCount() const override {
+            uint32 n = 0;
+            for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i)
                 if (mSnapshots[i].connected) ++n;
             return n;
         }
@@ -456,7 +456,7 @@ namespace nkentseu {
         // GetSnapshot
         // =====================================================================
 
-        const NkGamepadSnapshot& GetSnapshot(NkU32 idx) const override {
+        const NkGamepadSnapshot& GetSnapshot(uint32 idx) const override {
             static NkGamepadSnapshot sDummy;
             return (idx < NK_MAX_GAMEPADS) ? mSnapshots[idx] : sDummy;
         }
@@ -467,10 +467,10 @@ namespace nkentseu {
         // DirectInput : Force Feedback — non implémenté ici (complexe, rare).
         // =====================================================================
 
-        void Rumble(NkU32 idx,
+        void Rumble(uint32 idx,
                     float motorLow, float motorHigh,
                     float /*triggerLeft*/, float /*triggerRight*/,
-                    NkU32 /*durationMs*/) override
+                    uint32 /*durationMs*/) override
         {
             if (idx < NK_XINPUT_MAX) {
                 // Slot XInput
@@ -530,7 +530,7 @@ namespace nkentseu {
         // =====================================================================
 
         static void FillXInputSnapshot(const XINPUT_GAMEPAD& xp,
-                                        NkU32 idx,
+                                        uint32 idx,
                                         NkGamepadSnapshot& s) noexcept
         {
             using B = NkGamepadButton;
@@ -540,7 +540,7 @@ namespace nkentseu {
             s.info.index = idx;
 
             auto btn = [&](B b, WORD mask) {
-                s.buttons[static_cast<NkU32>(b)] = (xp.wButtons & mask) != 0;
+                s.buttons[static_cast<uint32>(b)] = (xp.wButtons & mask) != 0;
             };
 
             btn(B::NK_GP_SOUTH,      XINPUT_GAMEPAD_A);
@@ -560,10 +560,10 @@ namespace nkentseu {
 
             float lt = NkXI_Trigger(xp.bLeftTrigger,  NK_XI_TRIGGER_DZ);
             float rt = NkXI_Trigger(xp.bRightTrigger, NK_XI_TRIGGER_DZ);
-            s.buttons[static_cast<NkU32>(B::NK_GP_LT_DIGITAL)] = (lt > 0.5f);
-            s.buttons[static_cast<NkU32>(B::NK_GP_RT_DIGITAL)] = (rt > 0.5f);
+            s.buttons[static_cast<uint32>(B::NK_GP_LT_DIGITAL)] = (lt > 0.5f);
+            s.buttons[static_cast<uint32>(B::NK_GP_RT_DIGITAL)] = (rt > 0.5f);
 
-            auto ax = [&](A a, float v) { s.axes[static_cast<NkU32>(a)] = v; };
+            auto ax = [&](A a, float v) { s.axes[static_cast<uint32>(a)] = v; };
             ax(A::NK_GP_AXIS_LX, NkXI_Deadzone(xp.sThumbLX, NK_XI_DEADZONE_L));
             ax(A::NK_GP_AXIS_LY, NkXI_Deadzone(xp.sThumbLY, NK_XI_DEADZONE_L));
             ax(A::NK_GP_AXIS_RX, NkXI_Deadzone(xp.sThumbRX, NK_XI_DEADZONE_R));
@@ -573,11 +573,11 @@ namespace nkentseu {
 
             // D-pad axes analogiques (pour cohérence avec DInput)
             ax(A::NK_GP_AXIS_DPAD_X,
-               s.buttons[static_cast<NkU32>(B::NK_GP_DPAD_RIGHT)] ? 1.f :
-               s.buttons[static_cast<NkU32>(B::NK_GP_DPAD_LEFT)]  ? -1.f : 0.f);
+               s.buttons[static_cast<uint32>(B::NK_GP_DPAD_RIGHT)] ? 1.f :
+               s.buttons[static_cast<uint32>(B::NK_GP_DPAD_LEFT)]  ? -1.f : 0.f);
             ax(A::NK_GP_AXIS_DPAD_Y,
-               s.buttons[static_cast<NkU32>(B::NK_GP_DPAD_UP)]   ? 1.f :
-               s.buttons[static_cast<NkU32>(B::NK_GP_DPAD_DOWN)] ? -1.f : 0.f);
+               s.buttons[static_cast<uint32>(B::NK_GP_DPAD_UP)]   ? 1.f :
+               s.buttons[static_cast<uint32>(B::NK_GP_DPAD_DOWN)] ? -1.f : 0.f);
         }
 
         static void FillXInputBattery(DWORD idx, NkGamepadSnapshot& s) noexcept {
@@ -595,12 +595,12 @@ namespace nkentseu {
         }
 
         static void FillXInputInfo(DWORD idx, NkGamepadInfo& info) noexcept {
-            info.index      = static_cast<NkU32>(idx);
+            info.index      = static_cast<uint32>(idx);
             info.type       = NkGamepadType::NK_GP_TYPE_XBOX;
             info.hasRumble  = true;
             info.hasBattery = true;
-            info.numButtons = static_cast<NkU32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
-            info.numAxes    = static_cast<NkU32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
+            info.numButtons = static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
+            info.numAxes    = static_cast<uint32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
             std::snprintf(info.id,   sizeof(info.id),   "XInput#%u", static_cast<unsigned>(idx));
             std::snprintf(info.name, sizeof(info.name), "Xbox Controller %u", static_cast<unsigned>(idx));
         }
@@ -628,12 +628,12 @@ namespace nkentseu {
                               DIEDFL_ATTACHEDONLY);
 
             // Remplir les infos des snapshots DirectInput
-            for (NkU32 i = 0; i < static_cast<NkU32>(mDIDevices.size()); ++i) {
-                NkU32 slot = NK_XINPUT_MAX + i;
+            for (uint32 i = 0; i < static_cast<uint32>(mDIDevices.size()); ++i) {
+                uint32 slot = NK_XINPUT_MAX + i;
                 auto& dc   = mDIDevices[i];
                 auto& info = mSnapshots[slot].info;
-                const NkU16 vid = static_cast<NkU16>((dc.guidProduct.Data1 >> 16) & 0xFFFF);
-                const NkU16 pid = static_cast<NkU16>(dc.guidProduct.Data1 & 0xFFFF);
+                const uint16 vid = static_cast<uint16>((dc.guidProduct.Data1 >> 16) & 0xFFFF);
+                const uint16 pid = static_cast<uint16>(dc.guidProduct.Data1 & 0xFFFF);
 
                 info.index      = slot;
                 info.type       = NkGamepadType::NK_GP_TYPE_GENERIC;
@@ -659,8 +659,8 @@ namespace nkentseu {
         void PollDirectInput() {
             if (!mDI8) return;
 
-            for (NkU32 i = 0; i < static_cast<NkU32>(mDIDevices.size()); ++i) {
-                NkU32 slot = NK_XINPUT_MAX + i;
+            for (uint32 i = 0; i < static_cast<uint32>(mDIDevices.size()); ++i) {
+                uint32 slot = NK_XINPUT_MAX + i;
                 auto& dc   = mDIDevices[i];
 
                 if (!dc.device) {
@@ -690,8 +690,8 @@ namespace nkentseu {
             }
 
             // Slots DInput non remplis → déconnectés
-            for (NkU32 i = static_cast<NkU32>(mDIDevices.size()); i < NK_DI_MAX; ++i) {
-                NkU32 slot = NK_XINPUT_MAX + i;
+            for (uint32 i = static_cast<uint32>(mDIDevices.size()); i < NK_DI_MAX; ++i) {
+                uint32 slot = NK_XINPUT_MAX + i;
                 mSnapshots[slot].connected = false;
             }
         }

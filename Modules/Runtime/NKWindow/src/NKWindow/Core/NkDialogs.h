@@ -26,7 +26,7 @@ namespace nkentseu {
 	struct NkDialogResult {
 		bool confirmed = false; ///< true si l'utilisateur a validé
 		NkString path;		///< Chemin sélectionné (file dialogs)
-		NkU32 color = 0;		///< Couleur choisie RGBA (color picker)
+		uint32 color = 0;		///< Couleur choisie RGBA (color picker)
 	};
 
 	// ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ namespace nkentseu {
 			 * @brief Ouvre un sélecteur de couleur.
 			 * @param initial Couleur initiale RGBA.
 			 */
-			static NkDialogResult ColorPicker(NkU32 initial = 0xFFFFFFFF);
+			static NkDialogResult ColorPicker(uint32 initial = 0xFFFFFFFF);
 	};
 
 } // namespace nkentseu

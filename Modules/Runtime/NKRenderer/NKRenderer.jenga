@@ -56,13 +56,14 @@ with project("NKRenderer"):
         "%{NKCore.location}/src",
         "%{NKPlatform.location}/src",
         "%{NKMath.location}/src",
+        "%{NKTime.location}/src",
         "%{NKLogger.location}/src",
         "%{NKContainers.location}/src",
         "%{NKMemory.location}/src",
         "%{NKWindow.location}/src",
     ])
 
-    dependson(["NKMath", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
+    dependson(["NKMath", "NKTime", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
 
     files([
         "src/NKRenderer/**.cpp",
@@ -148,6 +149,8 @@ with project("NKRenderer"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+            # Ensure static link resolution for symbols pulled from NKWindow.
+            links(["NKRenderer", "NKWindow", "NKTime"])
             with filter("system:Linux && options:linux-backend=wayland"):
                 defines(_WAYLAND_DEFINES)
                 links(_WAYLAND_TEST_LINKS)

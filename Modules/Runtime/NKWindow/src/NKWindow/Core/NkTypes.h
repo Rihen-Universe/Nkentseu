@@ -29,7 +29,7 @@ namespace nkentseu {
 	// NkPixelFormat - formats de pixel supportés
 	// ---------------------------------------------------------------------------
 
-	enum class NkPixelFormat : NkU32 {
+	enum class NkPixelFormat : uint32 {
 		NK_PIXEL_UNKNOWN = 0,
 		NK_PIXEL_R8G8B8A8_UNORM,
 		NK_PIXEL_B8G8R8A8_UNORM,
@@ -53,11 +53,11 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 
 	struct NkError {
-		NkU32 code = 0;
+		uint32 code = 0;
 		NkString message = "";
 
 		NkError() = default;
-		NkError(NkU32 code, NkString msg) : code(code), message(std::move(msg)) {
+		NkError(uint32 code, NkString msg) : code(code), message(std::move(msg)) {
 		}
 
 		bool IsOk() const {
@@ -77,7 +77,7 @@ namespace nkentseu {
 	// NkRendererApi - backends graphiques disponibles
 	// ---------------------------------------------------------------------------
 
-	enum class NkRendererApi : NkU32 {
+	enum class NkRendererApi : uint32 {
 		NK_NONE = 0,
 		NK_SOFTWARE,
 		NK_OPENGL,

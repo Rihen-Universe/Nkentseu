@@ -22,11 +22,11 @@
 #include "NKCamera/INkCameraBackend.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
+#include "NKTime/NkChrono.h"
 #include <thread>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <chrono>
 
 using Microsoft::WRL::ComPtr;
 
@@ -226,17 +226,17 @@ public:
         // Appel direct stbi depuis ici
         // NV12→RGBA8
         auto& f = r.frame;
-        NkU32 w = f.width, h = f.height;
-        NkVector<NkU8> rgba;
+        uint32 w = f.width, h = f.height;
+        NkVector<uint8> rgba;
         rgba.Resize(w*h*4);
-        const NkU8* Y  = f.data.Data();
-        const NkU8* UV = f.data.Data() + w*h;
-        for (NkU32 row=0; row<h; ++row) for (NkU32 col=0; col<w; ++col) {
+        const uint8* Y  = f.data.Data();
+        const uint8* UV = f.data.Data() + w*h;
+        for (uint32 row=0; row<h; ++row) for (uint32 col=0; col<w; ++col) {
             float y = (float)Y[row*w+col]-16.f;
             float u = (float)UV[(row/2)*w+(col&~1u)]-128.f;
             float v = (float)UV[(row/2)*w+(col&~1u)+1]-128.f;
-            auto cl=[](float x)->NkU8{return(NkU8)(x<0?0:x>255?255:x);};
-            NkU32 i=(row*w+col)*4;
+            auto cl=[](float x)->uint8{return(uint8)(x<0?0:x>255?255:x);};
+            uint32 i=(row*w+col)*4;
             rgba[i]=cl(y*1.164f+v*1.596f);rgba[i+1]=cl(y*1.164f-u*0.391f-v*0.813f);
             rgba[i+2]=cl(y*1.164f+u*2.018f);rgba[i+3]=255;
         }
@@ -250,7 +250,7 @@ public:
         FILE* fp = fopen(path.CStr(), "wb");
         if (!fp) return false;
         fprintf(fp, "P6\n%d %d\n255\n", (int)w, (int)h);
-        for (NkU32 i=0;i<w*h;++i) fwrite(&rgbaFrame.data[i*4],1,3,fp);
+        for (uint32 i=0;i<w*h;++i) fwrite(&rgbaFrame.data[i*4],1,3,fp);
         fclose(fp);
         return true;
     }
@@ -297,7 +297,7 @@ public:
         mSinkWriter->SetInputMediaType(mVideoStreamIdx, pIn.Get(), nullptr);
         mSinkWriter->BeginWriting();
 
-        mRecordStart = std::chrono::steady_clock::now();
+        mRecordStart = NkChrono::Now();
         mState       = NkCameraState::NK_CAM_STATE_RECORDING;
         return true;
     }
@@ -315,16 +315,15 @@ public:
     { return mState == NkCameraState::NK_CAM_STATE_RECORDING; }
     float GetRecordingDurationSeconds() const override {
         if (!IsRecording()) return 0.f;
-        return std::chrono::duration<float>(
-            std::chrono::steady_clock::now() - mRecordStart).count();
+        return static_cast<float>((NkChrono::Now() - mRecordStart).seconds);
     }
 
     // IMU: non disponible sur Win32 sans capteur externe
     bool GetOrientation(NkCameraOrientation&) override { return false; }
 
-    NkU32         GetWidth()  const override { return mWidth;  }
-    NkU32         GetHeight() const override { return mHeight; }
-    NkU32         GetFPS()    const override { return mFPS;    }
+    uint32         GetWidth()  const override { return mWidth;  }
+    uint32         GetHeight() const override { return mHeight; }
+    uint32         GetFPS()    const override { return mFPS;    }
     NkPixelFormat GetFormat() const override { return mFormat; }
     NkString   GetLastError() const override { return mLastError; }
 
@@ -356,7 +355,7 @@ private:
             frame.height     = mHeight;
             frame.format     = NkPixelFormat::NK_PIXEL_NV12;
             frame.stride     = mWidth;
-            frame.timestampUs = (NkU64)(ts / 10); // 100ns → µs
+            frame.timestampUs = (uint64)(ts / 10); // 100ns → µs
             frame.frameIndex  = mFrameIndex++;
             frame.data.Clear(); frame.data.Resize(curLen); memcpy(frame.data.Data(), pData, curLen);
 
@@ -424,9 +423,9 @@ private:
     ComPtr<IMFSourceReader> mReader;
     ComPtr<IMFSinkWriter>   mSinkWriter;
 
-    NkU32         mWidth=0, mHeight=0, mFPS=30;
+    uint32         mWidth=0, mHeight=0, mFPS=30;
     NkPixelFormat mFormat = NkPixelFormat::NK_PIXEL_NV12;
-    NkU32         mFrameIndex=0;
+    uint32         mFrameIndex=0;
     DWORD         mVideoStreamIdx=0;
     LONGLONG      mNextVideoTS=0;
 
@@ -438,7 +437,7 @@ private:
 
     NkFrameCallback         mFrameCb;
     NkCameraHotPlugCallback mHotPlugCb;
-    std::chrono::steady_clock::time_point mRecordStart;
+    NkElapsedTime mRecordStart;
 };
 
 } // namespace nkentseu

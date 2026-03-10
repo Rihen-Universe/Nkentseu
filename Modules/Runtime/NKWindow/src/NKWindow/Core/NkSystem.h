@@ -78,8 +78,8 @@ namespace nkentseu {
             NkWindowId RegisterWindow(NkWindow* win);
             void       UnregisterWindow(NkWindowId id);
             NkWindow*  GetWindow(NkWindowId id) const;
-            NkU32      GetWindowCount() const { return static_cast<NkU32>(mWindows.Size()); }
-            NkWindow*  GetWindowAt(NkU32 index) const;
+            uint32      GetWindowCount() const { return static_cast<uint32>(mWindows.Size()); }
+            NkWindow*  GetWindowAt(uint32 index) const;
 
         private:
             bool          mInitialised = false;

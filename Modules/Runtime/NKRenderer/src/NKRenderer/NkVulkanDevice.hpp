@@ -8,6 +8,7 @@
 #include "NkVulkanDevice.h"
 #include "NKWindow/Core/NkSurface.h"
 #include "NKLogger/NkLog.h"
+#include "NKMath/NkFunctions.h"
 
 // ── Vulkan headers ───────────────────────────────────────────────────────────
 #include <vulkan/vulkan.h>
@@ -123,13 +124,13 @@ static VkFormat ToVkFormat(NkTextureFormat f) {
 
 static VkShaderStageFlagBits ToVkStage(NkShaderStage s) {
     VkShaderStageFlags flags = 0;
-    if (static_cast<NkU32>(s) & static_cast<NkU32>(NkShaderStage::Vertex))
+    if (static_cast<uint32>(s) & static_cast<uint32>(NkShaderStage::Vertex))
         flags |= VK_SHADER_STAGE_VERTEX_BIT;
-    if (static_cast<NkU32>(s) & static_cast<NkU32>(NkShaderStage::Fragment))
+    if (static_cast<uint32>(s) & static_cast<uint32>(NkShaderStage::Fragment))
         flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
-    if (static_cast<NkU32>(s) & static_cast<NkU32>(NkShaderStage::Compute))
+    if (static_cast<uint32>(s) & static_cast<uint32>(NkShaderStage::Compute))
         flags |= VK_SHADER_STAGE_COMPUTE_BIT;
-    if (static_cast<NkU32>(s) & static_cast<NkU32>(NkShaderStage::Geometry))
+    if (static_cast<uint32>(s) & static_cast<uint32>(NkShaderStage::Geometry))
         flags |= VK_SHADER_STAGE_GEOMETRY_BIT;
     return static_cast<VkShaderStageFlagBits>(flags);
 }
@@ -283,9 +284,9 @@ bool NkVulkanDevice::CreateInstance(const NkGraphicsContextConfig& cfg) {
     VkInstanceCreateInfo ci{};
     ci.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     ci.pApplicationInfo        = &appInfo;
-    ci.enabledExtensionCount   = (NkU32)extensions.size();
+    ci.enabledExtensionCount   = (uint32)extensions.size();
     ci.ppEnabledExtensionNames = extensions.data();
-    ci.enabledLayerCount       = (NkU32)layers.size();
+    ci.enabledLayerCount       = (uint32)layers.size();
     ci.ppEnabledLayerNames     = layers.empty() ? nullptr : layers.data();
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
@@ -359,7 +360,7 @@ bool NkVulkanDevice::CreateSurface(const NkSurfaceDesc& sd) {
 // =============================================================================
 
 bool NkVulkanDevice::PickPhysicalDevice() {
-    NkU32 count = 0;
+    uint32 count = 0;
     vkEnumeratePhysicalDevices(VKI(mInstance), &count, nullptr);
     if (count == 0) return false;
 
@@ -380,13 +381,13 @@ bool NkVulkanDevice::PickPhysicalDevice() {
         else if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU) score = 1;
 
         // Vérifier que les queues nécessaires existent
-        NkU32 qCount = 0;
+        uint32 qCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(dev, &qCount, nullptr);
         std::vector<VkQueueFamilyProperties> qProps(qCount);
         vkGetPhysicalDeviceQueueFamilyProperties(dev, &qCount, qProps.data());
 
         bool hasGraphics = false, hasPresent = false;
-        for (NkU32 i = 0; i < qCount; ++i) {
+        for (uint32 i = 0; i < qCount; ++i) {
             if (qProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) hasGraphics = true;
             VkBool32 present = VK_FALSE;
             vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, VKS(mSurface), &present);
@@ -401,13 +402,13 @@ bool NkVulkanDevice::PickPhysicalDevice() {
     mPhysicalDevice = best;
 
     // Trouver les familles de queues
-    NkU32 qCount = 0;
+    uint32 qCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(VKPD(mPhysicalDevice), &qCount, nullptr);
     std::vector<VkQueueFamilyProperties> qProps(qCount);
     vkGetPhysicalDeviceQueueFamilyProperties(VKPD(mPhysicalDevice), &qCount, qProps.data());
 
     mGraphicsFamily = mPresentFamily = mComputeFamily = UINT32_MAX;
-    for (NkU32 i = 0; i < qCount; ++i) {
+    for (uint32 i = 0; i < qCount; ++i) {
         if ((qProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && mGraphicsFamily == UINT32_MAX)
             mGraphicsFamily = i;
         if ((qProps[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && mComputeFamily == UINT32_MAX)
@@ -425,13 +426,13 @@ bool NkVulkanDevice::PickPhysicalDevice() {
 // =============================================================================
 
 bool NkVulkanDevice::CreateLogicalDevice() {
-    std::vector<NkU32> uniqueFamilies = { mGraphicsFamily };
+    std::vector<uint32> uniqueFamilies = { mGraphicsFamily };
     if (mPresentFamily  != mGraphicsFamily) uniqueFamilies.push_back(mPresentFamily);
     if (mComputeFamily  != mGraphicsFamily) uniqueFamilies.push_back(mComputeFamily);
 
     float priority = 1.f;
     std::vector<VkDeviceQueueCreateInfo> queueCIs;
-    for (NkU32 fam : uniqueFamilies) {
+    for (uint32 fam : uniqueFamilies) {
         VkDeviceQueueCreateInfo qi{};
         qi.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         qi.queueFamilyIndex = fam;
@@ -452,10 +453,10 @@ bool NkVulkanDevice::CreateLogicalDevice() {
 
     VkDeviceCreateInfo ci{};
     ci.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    ci.queueCreateInfoCount    = (NkU32)queueCIs.size();
+    ci.queueCreateInfoCount    = (uint32)queueCIs.size();
     ci.pQueueCreateInfos       = queueCIs.data();
     ci.pEnabledFeatures        = &features;
-    ci.enabledExtensionCount   = (NkU32)extensions.size();
+    ci.enabledExtensionCount   = (uint32)extensions.size();
     ci.ppEnabledExtensionNames = extensions.data();
 
     VkDevice dev;
@@ -474,14 +475,14 @@ bool NkVulkanDevice::CreateLogicalDevice() {
 // CreateSwapchain
 // =============================================================================
 
-bool NkVulkanDevice::CreateSwapchain(NkU32 width, NkU32 height) {
+bool NkVulkanDevice::CreateSwapchain(uint32 width, uint32 height) {
     // Capacités de la surface
     VkSurfaceCapabilitiesKHR caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VKPD(mPhysicalDevice),
                                                VKS(mSurface), &caps);
 
     // Format : préférer BGRA8_SRGB
-    NkU32 fmtCount = 0;
+    uint32 fmtCount = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(VKPD(mPhysicalDevice),
                                           VKS(mSurface), &fmtCount, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(fmtCount);
@@ -497,7 +498,7 @@ bool NkVulkanDevice::CreateSwapchain(NkU32 width, NkU32 height) {
     mSwapchainFormat = chosen.format;
 
     // Present mode : MAILBOX (triple buffering) sinon FIFO
-    NkU32 pmCount = 0;
+    uint32 pmCount = 0;
     vkGetPhysicalDeviceSurfacePresentModesKHR(VKPD(mPhysicalDevice),
                                                VKS(mSurface), &pmCount, nullptr);
     std::vector<VkPresentModeKHR> pms(pmCount);
@@ -513,13 +514,13 @@ bool NkVulkanDevice::CreateSwapchain(NkU32 width, NkU32 height) {
     if (caps.currentExtent.width != UINT32_MAX) {
         ext = caps.currentExtent;
     } else {
-        ext.width  = std::clamp(width,  caps.minImageExtent.width,  caps.maxImageExtent.width);
-        ext.height = std::clamp(height, caps.minImageExtent.height, caps.maxImageExtent.height);
+        ext.width  = math::NkClamp(width,  caps.minImageExtent.width,  caps.maxImageExtent.width);
+        ext.height = math::NkClamp(height, caps.minImageExtent.height, caps.maxImageExtent.height);
     }
     mWidth  = ext.width;
     mHeight = ext.height;
 
-    NkU32 imgCount = std::min(caps.minImageCount + 1,
+    uint32 imgCount = math::NkMin(caps.minImageCount + 1,
                                caps.maxImageCount > 0 ? caps.maxImageCount : 8u);
 
     VkSwapchainCreateInfoKHR sci{};
@@ -532,7 +533,7 @@ bool NkVulkanDevice::CreateSwapchain(NkU32 width, NkU32 height) {
     sci.imageArrayLayers = 1;
     sci.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-    NkU32 qfams[] = { mGraphicsFamily, mPresentFamily };
+    uint32 qfams[] = { mGraphicsFamily, mPresentFamily };
     if (mGraphicsFamily != mPresentFamily) {
         sci.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
         sci.queueFamilyIndexCount = 2;
@@ -550,16 +551,16 @@ bool NkVulkanDevice::CreateSwapchain(NkU32 width, NkU32 height) {
     mSwapchain = sc;
 
     vkGetSwapchainImagesKHR(VKD(mDevice), sc, &mSwapImageCount, nullptr);
-    mSwapImageCount = std::min(mSwapImageCount, kMaxSwapImages);
+    mSwapImageCount = math::NkMin(mSwapImageCount, kMaxSwapImages);
     VkImage imgs[kMaxSwapImages];
     vkGetSwapchainImagesKHR(VKD(mDevice), sc, &mSwapImageCount, imgs);
-    for (NkU32 i = 0; i < mSwapImageCount; ++i) mSwapImages[i] = imgs[i];
+    for (uint32 i = 0; i < mSwapImageCount; ++i) mSwapImages[i] = imgs[i];
 
     return true;
 }
 
 bool NkVulkanDevice::CreateSwapchainViews() {
-    for (NkU32 i = 0; i < mSwapImageCount; ++i) {
+    for (uint32 i = 0; i < mSwapImageCount; ++i) {
         VkImageViewCreateInfo ci{};
         ci.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         ci.image    = VKIMG(mSwapImages[i]);
@@ -571,7 +572,7 @@ bool NkVulkanDevice::CreateSwapchainViews() {
         mSwapViews[i] = iv;
 
         // Enregistrer comme NkTextureHandle
-        NkU32 slot = mTextures.Alloc();
+        uint32 slot = mTextures.Alloc();
         auto* entry = mTextures.Get(slot);
         entry->image     = mSwapImages[i];
         entry->imageView = iv;
@@ -583,7 +584,7 @@ bool NkVulkanDevice::CreateSwapchainViews() {
     return true;
 }
 
-bool NkVulkanDevice::CreateDepthBuffer(NkU32 width, NkU32 height) {
+bool NkVulkanDevice::CreateDepthBuffer(uint32 width, uint32 height) {
     // Trouver un format depth supporté
     VkFormat candidates[] = {
         VK_FORMAT_D32_SFLOAT_S8_UINT,
@@ -700,7 +701,7 @@ bool NkVulkanDevice::CreateRenderPassInternal() {
     mSwapRenderPass = rp;
 
     // Exposer via handle
-    NkU32 slot = mRenderPasses.Alloc();
+    uint32 slot = mRenderPasses.Alloc();
     mRenderPasses.Get(slot)->renderPass = rp;
     mSwapRenderPassHandle.id = slot;
 
@@ -708,7 +709,7 @@ bool NkVulkanDevice::CreateRenderPassInternal() {
 }
 
 bool NkVulkanDevice::CreateFramebuffersInternal() {
-    for (NkU32 i = 0; i < mSwapImageCount; ++i) {
+    for (uint32 i = 0; i < mSwapImageCount; ++i) {
         VkImageView atts[] = { VKIV(mSwapViews[i]), VKIV(mDepthView) };
         VkFramebufferCreateInfo fci{};
         fci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -723,7 +724,7 @@ bool NkVulkanDevice::CreateFramebuffersInternal() {
         VK_CHECK(vkCreateFramebuffer(VKD(mDevice), &fci, nullptr, &fb));
         mSwapFBs[i] = fb;
 
-        NkU32 slot = mFramebuffers.Alloc();
+        uint32 slot = mFramebuffers.Alloc();
         auto* entry = mFramebuffers.Get(slot);
         entry->framebuffer = fb;
         entry->width = mWidth; entry->height = mHeight;
@@ -755,7 +756,7 @@ bool NkVulkanDevice::CreateDescriptorPool() {
     ci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     ci.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     ci.maxSets       = 4000;
-    ci.poolSizeCount = (NkU32)(sizeof(sizes)/sizeof(sizes[0]));
+    ci.poolSizeCount = (uint32)(sizeof(sizes)/sizeof(sizes[0]));
     ci.pPoolSizes    = sizes;
     VkDescriptorPool dp;
     VK_CHECK(vkCreateDescriptorPool(VKD(mDevice), &ci, nullptr, &dp));
@@ -772,7 +773,7 @@ bool NkVulkanDevice::CreateCommandBuffers() {
 
     VkCommandBuffer cbs[MAX_FRAMES_IN_FLIGHT];
     VK_CHECK(vkAllocateCommandBuffers(VKD(mDevice), &ai, cbs));
-    for (NkU32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         mCmdBuffers[i] = cbs[i];
         mCmdWrappers[i] = new NkVulkanCommandBuffer(cbs[i], mDevice);
         // Connecter les pools
@@ -792,7 +793,7 @@ bool NkVulkanDevice::CreateSyncObjects() {
     VkFenceCreateInfo fci{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    for (NkU32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkSemaphore s1, s2; VkFence fn;
         VK_CHECK(vkCreateSemaphore(VKD(mDevice), &sci, nullptr, &s1));
         VK_CHECK(vkCreateSemaphore(VKD(mDevice), &sci, nullptr, &s2));
@@ -862,7 +863,7 @@ void NkVulkanDevice::EndFrame(NkRHICommandBuffer& cmd) {
     mCurrentFrame = (mCurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-bool NkVulkanDevice::Recreate(NkU32 width, NkU32 height) {
+bool NkVulkanDevice::Recreate(uint32 width, uint32 height) {
     WaitIdle();
     DestroySwapchain();
     if (!CreateSwapchain(width, height))       return false;
@@ -881,18 +882,18 @@ void NkVulkanDevice::WaitIdle() {
 // Ressources — Buffer
 // =============================================================================
 
-NkU32 NkVulkanDevice::FindMemoryType(NkU32 typeFilter, NkU32 props) const {
+uint32 NkVulkanDevice::FindMemoryType(uint32 typeFilter, uint32 props) const {
     VkPhysicalDeviceMemoryProperties mp;
     vkGetPhysicalDeviceMemoryProperties(VKPD(mPhysicalDevice), &mp);
-    for (NkU32 i = 0; i < mp.memoryTypeCount; ++i)
+    for (uint32 i = 0; i < mp.memoryTypeCount; ++i)
         if ((typeFilter & (1 << i)) &&
             (mp.memoryTypes[i].propertyFlags & props) == props)
             return i;
     return UINT32_MAX;
 }
 
-bool NkVulkanDevice::AllocateMemory(NkU64 size, NkU32 filter,
-                                     NkU32 props, void** outMem) const {
+bool NkVulkanDevice::AllocateMemory(uint64 size, uint32 filter,
+                                     uint32 props, void** outMem) const {
     VkMemoryAllocateInfo ai{};
     ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     ai.allocationSize  = size;
@@ -961,7 +962,7 @@ NkBufferHandle NkVulkanDevice::CreateBuffer(const NkBufferDesc& desc) {
         }
     }
 
-    NkU32 slot = mBuffers.Alloc();
+    uint32 slot = mBuffers.Alloc();
     if (!slot) { vkDestroyBuffer(VKD(mDevice), buf, nullptr); vkFreeMemory(VKD(mDevice), mem, nullptr); return NkBufferHandle::Null(); }
     auto* entry = mBuffers.Get(slot);
     entry->buffer     = buf;
@@ -1001,17 +1002,17 @@ void NkVulkanDevice::UnmapBuffer(NkBufferHandle h) {
 
 NkTextureHandle NkVulkanDevice::CreateTexture(const NkTextureDesc& desc) {
     VkImageUsageFlags usage = 0;
-    if (static_cast<NkU32>(desc.usage) & static_cast<NkU32>(NkTextureUsage::Sampled))
+    if (static_cast<uint32>(desc.usage) & static_cast<uint32>(NkTextureUsage::Sampled))
         usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-    if (static_cast<NkU32>(desc.usage) & static_cast<NkU32>(NkTextureUsage::RenderTarget))
+    if (static_cast<uint32>(desc.usage) & static_cast<uint32>(NkTextureUsage::RenderTarget))
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    if (static_cast<NkU32>(desc.usage) & static_cast<NkU32>(NkTextureUsage::DepthStencil))
+    if (static_cast<uint32>(desc.usage) & static_cast<uint32>(NkTextureUsage::DepthStencil))
         usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    if (static_cast<NkU32>(desc.usage) & static_cast<NkU32>(NkTextureUsage::Storage))
+    if (static_cast<uint32>(desc.usage) & static_cast<uint32>(NkTextureUsage::Storage))
         usage |= VK_IMAGE_USAGE_STORAGE_BIT;
-    if (static_cast<NkU32>(desc.usage) & static_cast<NkU32>(NkTextureUsage::TransferDst))
+    if (static_cast<uint32>(desc.usage) & static_cast<uint32>(NkTextureUsage::TransferDst))
         usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if (static_cast<NkU32>(desc.usage) & static_cast<NkU32>(NkTextureUsage::TransferSrc))
+    if (static_cast<uint32>(desc.usage) & static_cast<uint32>(NkTextureUsage::TransferSrc))
         usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
     VkFormat fmt = ToVkFormat(desc.format);
@@ -1041,8 +1042,8 @@ NkTextureHandle NkVulkanDevice::CreateTexture(const NkTextureDesc& desc) {
     }
     vkBindImageMemory(VKD(mDevice), img, mem, 0);
 
-    bool isDepth = (static_cast<NkU32>(desc.usage) &
-                    static_cast<NkU32>(NkTextureUsage::DepthStencil)) != 0;
+    bool isDepth = (static_cast<uint32>(desc.usage) &
+                    static_cast<uint32>(NkTextureUsage::DepthStencil)) != 0;
     VkImageViewCreateInfo vci{};
     vci.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     vci.image    = img;
@@ -1061,7 +1062,7 @@ NkTextureHandle NkVulkanDevice::CreateTexture(const NkTextureDesc& desc) {
         return NkTextureHandle::Null();
     }
 
-    NkU32 slot = mTextures.Alloc();
+    uint32 slot = mTextures.Alloc();
     auto* entry = mTextures.Get(slot);
     entry->image      = img;
     entry->imageView  = iv;
@@ -1111,7 +1112,7 @@ NkSamplerHandle NkVulkanDevice::CreateSampler(const NkSamplerDesc& desc) {
     if (vkCreateSampler(VKD(mDevice), &ci, nullptr, &smp) != VK_SUCCESS)
         return NkSamplerHandle::Null();
 
-    NkU32 slot = mSamplers.Alloc();
+    uint32 slot = mSamplers.Alloc();
     mSamplers.Get(slot)->sampler = smp;
     return { slot };
 }
@@ -1131,11 +1132,11 @@ NkShaderHandle NkVulkanDevice::CreateShader(const NkShaderDesc& desc) {
     VkShaderModuleCreateInfo ci{};
     ci.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     ci.codeSize = desc.codeSize;
-    ci.pCode    = reinterpret_cast<const NkU32*>(desc.code);
+    ci.pCode    = reinterpret_cast<const uint32*>(desc.code);
     VkShaderModule mod;
     if (vkCreateShaderModule(VKD(mDevice), &ci, nullptr, &mod) != VK_SUCCESS)
         return NkShaderHandle::Null();
-    NkU32 slot = mShaders.Alloc();
+    uint32 slot = mShaders.Alloc();
     auto* e = mShaders.Get(slot);
     e->module = mod;
     e->stage  = desc.stage;
@@ -1158,7 +1159,7 @@ NkDescriptorLayoutHandle NkVulkanDevice::CreateDescriptorLayout(
     const NkDescriptorLayoutDesc& desc)
 {
     std::vector<VkDescriptorSetLayoutBinding> bindings(desc.bindingCount);
-    for (NkU32 i = 0; i < desc.bindingCount; ++i) {
+    for (uint32 i = 0; i < desc.bindingCount; ++i) {
         bindings[i].binding         = desc.bindings[i].binding;
         bindings[i].descriptorType  = ToVkDescType(desc.bindings[i].type);
         bindings[i].descriptorCount = desc.bindings[i].count;
@@ -1167,14 +1168,14 @@ NkDescriptorLayoutHandle NkVulkanDevice::CreateDescriptorLayout(
     }
     VkDescriptorSetLayoutCreateInfo ci{};
     ci.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    ci.bindingCount = (NkU32)bindings.size();
+    ci.bindingCount = (uint32)bindings.size();
     ci.pBindings    = bindings.data();
 
     VkDescriptorSetLayout dsl;
     if (vkCreateDescriptorSetLayout(VKD(mDevice), &ci, nullptr, &dsl) != VK_SUCCESS)
         return NkDescriptorLayoutHandle::Null();
 
-    NkU32 slot = mDescLayouts.Alloc();
+    uint32 slot = mDescLayouts.Alloc();
     mDescLayouts.Get(slot)->layout = dsl;
     return { slot };
 }
@@ -1207,7 +1208,7 @@ NkDescriptorSetHandle NkVulkanDevice::AllocDescriptorSet(
     if (vkAllocateDescriptorSets(VKD(mDevice), &ai, &ds) != VK_SUCCESS)
         return NkDescriptorSetHandle::Null();
 
-    NkU32 slot = mDescSets.Alloc();
+    uint32 slot = mDescSets.Alloc();
     mDescSets.Get(slot)->set = ds;
     return { slot };
 }
@@ -1222,7 +1223,7 @@ void NkVulkanDevice::FreeDescriptorSet(NkDescriptorSetHandle h) {
 
 void NkVulkanDevice::UpdateDescriptorSet(NkDescriptorSetHandle dsh,
                                           const NkDescriptorWrite* writes,
-                                          NkU32 count)
+                                          uint32 count)
 {
     auto* dse = mDescSets.Get(dsh.id);
     if (!dse) return;
@@ -1233,7 +1234,7 @@ void NkVulkanDevice::UpdateDescriptorSet(NkDescriptorSetHandle dsh,
     bufInfos.reserve(count);
     imgInfos.reserve(count);
 
-    for (NkU32 i = 0; i < count; ++i) {
+    for (uint32 i = 0; i < count; ++i) {
         const auto& w = writes[i];
         VkWriteDescriptorSet vkw{};
         vkw.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1265,7 +1266,7 @@ void NkVulkanDevice::UpdateDescriptorSet(NkDescriptorSetHandle dsh,
         }
         vkWrites.push_back(vkw);
     }
-    vkUpdateDescriptorSets(VKD(mDevice), (NkU32)vkWrites.size(),
+    vkUpdateDescriptorSets(VKD(mDevice), (uint32)vkWrites.size(),
                             vkWrites.data(), 0, nullptr);
 }
 
@@ -1279,7 +1280,7 @@ NkPipelineHandle NkVulkanDevice::CreatePipeline(const NkPipelineDesc& desc) {
 
     // Shader stages
     std::vector<VkPipelineShaderStageCreateInfo> stages;
-    for (NkU32 i = 0; i < desc.shaderCount; ++i) {
+    for (uint32 i = 0; i < desc.shaderCount; ++i) {
         auto* se = mShaders.Get(desc.shaders[i].id);
         if (!se) continue;
         VkPipelineShaderStageCreateInfo si{};
@@ -1292,23 +1293,23 @@ NkPipelineHandle NkVulkanDevice::CreatePipeline(const NkPipelineDesc& desc) {
 
     // Vertex input
     std::vector<VkVertexInputAttributeDescription> attrs(desc.attributeCount);
-    for (NkU32 i = 0; i < desc.attributeCount; ++i) {
+    for (uint32 i = 0; i < desc.attributeCount; ++i) {
         attrs[i].location = desc.attributes[i].location;
         attrs[i].binding  = desc.attributes[i].binding;
         attrs[i].format   = ToVkVertexFormat(desc.attributes[i].format);
         attrs[i].offset   = desc.attributes[i].offset;
     }
     std::vector<VkVertexInputBindingDescription> binds(desc.bindingCount);
-    for (NkU32 i = 0; i < desc.bindingCount; ++i) {
+    for (uint32 i = 0; i < desc.bindingCount; ++i) {
         binds[i].binding   = desc.bindings[i].binding;
         binds[i].stride    = desc.bindings[i].stride;
         binds[i].inputRate = ToVkInputRate(desc.bindings[i].instanced);
     }
     VkPipelineVertexInputStateCreateInfo vi{};
     vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vi.vertexAttributeDescriptionCount = (NkU32)attrs.size();
+    vi.vertexAttributeDescriptionCount = (uint32)attrs.size();
     vi.pVertexAttributeDescriptions    = attrs.data();
-    vi.vertexBindingDescriptionCount   = (NkU32)binds.size();
+    vi.vertexBindingDescriptionCount   = (uint32)binds.size();
     vi.pVertexBindingDescriptions      = binds.data();
 
     // Input assembly
@@ -1354,8 +1355,8 @@ NkPipelineHandle NkVulkanDevice::CreatePipeline(const NkPipelineDesc& desc) {
 
     // Blend
     std::vector<VkPipelineColorBlendAttachmentState> blends;
-    NkU32 colorCount = (desc.colorCount > 0) ? desc.colorCount : 1;
-    for (NkU32 i = 0; i < colorCount; ++i) {
+    uint32 colorCount = (desc.colorCount > 0) ? desc.colorCount : 1;
+    for (uint32 i = 0; i < colorCount; ++i) {
         const auto& b = desc.blends[i];
         VkPipelineColorBlendAttachmentState bs{};
         bs.colorWriteMask = b.writeMask;
@@ -1372,12 +1373,12 @@ NkPipelineHandle NkVulkanDevice::CreatePipeline(const NkPipelineDesc& desc) {
     }
     VkPipelineColorBlendStateCreateInfo cbs{};
     cbs.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    cbs.attachmentCount = (NkU32)blends.size();
+    cbs.attachmentCount = (uint32)blends.size();
     cbs.pAttachments    = blends.data();
 
     // Pipeline layout
     std::vector<VkDescriptorSetLayout> dsls;
-    for (NkU32 i = 0; i < desc.layoutCount; ++i) {
+    for (uint32 i = 0; i < desc.layoutCount; ++i) {
         auto* le = mDescLayouts.Get(desc.layouts[i].id);
         if (le) dsls.push_back(VKDSL(le->layout));
     }
@@ -1388,7 +1389,7 @@ NkPipelineHandle NkVulkanDevice::CreatePipeline(const NkPipelineDesc& desc) {
 
     VkPipelineLayoutCreateInfo pli{};
     pli.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pli.setLayoutCount = (NkU32)dsls.size();
+    pli.setLayoutCount = (uint32)dsls.size();
     pli.pSetLayouts    = dsls.empty() ? nullptr : dsls.data();
     if (desc.pushConstantSize > 0) {
         pli.pushConstantRangeCount = 1;
@@ -1405,7 +1406,7 @@ NkPipelineHandle NkVulkanDevice::CreatePipeline(const NkPipelineDesc& desc) {
 
     VkGraphicsPipelineCreateInfo gci{};
     gci.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    gci.stageCount          = (NkU32)stages.size();
+    gci.stageCount          = (uint32)stages.size();
     gci.pStages             = stages.data();
     gci.pVertexInputState   = &vi;
     gci.pInputAssemblyState = &ia;
@@ -1426,7 +1427,7 @@ NkPipelineHandle NkVulkanDevice::CreatePipeline(const NkPipelineDesc& desc) {
         return NkPipelineHandle::Null();
     }
 
-    NkU32 slot = mPipelines.Alloc();
+    uint32 slot = mPipelines.Alloc();
     auto* pe = mPipelines.Get(slot);
     pe->pipeline = pl;
     pe->layout   = pll;
@@ -1445,13 +1446,13 @@ NkPipelineHandle NkVulkanDevice::CreatePipelineCompute(const NkPipelineDesc& des
     si.pName  = se->entry;
 
     std::vector<VkDescriptorSetLayout> dsls;
-    for (NkU32 i = 0; i < desc.layoutCount; ++i) {
+    for (uint32 i = 0; i < desc.layoutCount; ++i) {
         auto* le = mDescLayouts.Get(desc.layouts[i].id);
         if (le) dsls.push_back(VKDSL(le->layout));
     }
     VkPipelineLayoutCreateInfo pli{};
     pli.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pli.setLayoutCount = (NkU32)dsls.size();
+    pli.setLayoutCount = (uint32)dsls.size();
     pli.pSetLayouts    = dsls.empty() ? nullptr : dsls.data();
 
     VkPipelineLayout pll;
@@ -1469,7 +1470,7 @@ NkPipelineHandle NkVulkanDevice::CreatePipelineCompute(const NkPipelineDesc& des
         vkDestroyPipelineLayout(VKD(mDevice), pll, nullptr);
         return NkPipelineHandle::Null();
     }
-    NkU32 slot = mPipelines.Alloc();
+    uint32 slot = mPipelines.Alloc();
     auto* pe = mPipelines.Get(slot);
     pe->pipeline = pl; pe->layout = pll; pe->type = desc.type;
     return { slot };
@@ -1488,7 +1489,7 @@ void NkVulkanDevice::DestroyPipeline(NkPipelineHandle h) {
 // =============================================================================
 
 void NkVulkanDevice::DestroySwapchain() {
-    for (NkU32 i = 0; i < mSwapImageCount; ++i) {
+    for (uint32 i = 0; i < mSwapImageCount; ++i) {
         if (mSwapFBs[i])   { vkDestroyFramebuffer(VKD(mDevice), VKFB(mSwapFBs[i]), nullptr); mSwapFBs[i] = nullptr; }
         if (mSwapViews[i]) { vkDestroyImageView  (VKD(mDevice), VKIV(mSwapViews[i]), nullptr); mSwapViews[i] = nullptr; }
     }
@@ -1501,7 +1502,7 @@ void NkVulkanDevice::DestroySwapchain() {
 
 void NkVulkanDevice::Shutdown() {
     WaitIdle();
-    for (NkU32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         delete mCmdWrappers[i]; mCmdWrappers[i] = nullptr;
         vkDestroySemaphore(VKD(mDevice), VKSEM(mImageAvailable[i]), nullptr);
         vkDestroySemaphore(VKD(mDevice), VKSEM(mRenderFinished[i]), nullptr);
@@ -1539,9 +1540,9 @@ NkRHICommandBuffer& NkVulkanDevice::GetCurrentCommandBuffer() {
     return *mCmdWrappers[mCurrentFrame];
 }
 
-NkTextureHandle    NkVulkanDevice::GetSwapchainTexture(NkU32 i) { return mSwapTextureHandles[i]; }
-NkU32              NkVulkanDevice::GetSwapchainImageCount() const { return mSwapImageCount; }
-NkU32              NkVulkanDevice::GetCurrentSwapchainIndex() const { return mCurrentImage; }
+NkTextureHandle    NkVulkanDevice::GetSwapchainTexture(uint32 i) { return mSwapTextureHandles[i]; }
+uint32              NkVulkanDevice::GetSwapchainImageCount() const { return mSwapImageCount; }
+uint32              NkVulkanDevice::GetCurrentSwapchainIndex() const { return mCurrentImage; }
 NkRenderPassHandle NkVulkanDevice::GetSwapchainRenderPass() { return mSwapRenderPassHandle; }
 NkFramebufferHandle NkVulkanDevice::GetCurrentFramebuffer() { return mSwapFBHandles[mCurrentImage]; }
 
@@ -1570,7 +1571,7 @@ void NkVulkanDevice::EndSingleTimeCommands(void* cmd) {
     vkFreeCommandBuffers(VKD(mDevice), VKCP(mCommandPool), 1, &cb);
 }
 
-void NkVulkanDevice::CopyBufferImmediate(void* src, void* dst, NkU64 size) {
+void NkVulkanDevice::CopyBufferImmediate(void* src, void* dst, uint64 size) {
     void* cmd = BeginSingleTimeCommands();
     VkBufferCopy region{ 0, 0, size };
     vkCmdCopyBuffer(VKCB(cmd), VKBUF(src), VKBUF(dst), 1, &region);
@@ -1595,14 +1596,14 @@ void NkVulkanCommandBuffer::End() {
 
 void NkVulkanCommandBuffer::BeginRenderPass(
     NkRenderPassHandle rph, NkFramebufferHandle fbh,
-    const NkClearValue* clears, NkU32 clearCount)
+    const NkClearValue* clears, uint32 clearCount)
 {
     auto* rpe = mRenderPasses->Get(rph.id);
     auto* fbe = mFramebuffers->Get(fbh.id);
     if (!rpe || !fbe) return;
 
     std::vector<VkClearValue> vkClears(clearCount);
-    for (NkU32 i = 0; i < clearCount; ++i) {
+    for (uint32 i = 0; i < clearCount; ++i) {
         vkClears[i].color = {{ clears[i].r, clears[i].g, clears[i].b, clears[i].a }};
         vkClears[i].depthStencil = { clears[i].depth, clears[i].stencil };
     }
@@ -1638,21 +1639,21 @@ void NkVulkanCommandBuffer::SetScissor(const NkScissor& sc) {
     vkCmdSetScissor(VKCB(mCmdBuf), 0, 1, &r);
 }
 
-void NkVulkanCommandBuffer::BindVertexBuffer(NkU32 binding, NkBufferHandle h, NkU64 offset) {
+void NkVulkanCommandBuffer::BindVertexBuffer(uint32 binding, NkBufferHandle h, uint64 offset) {
     auto* e = mBuffers->Get(h.id);
     if (!e) return;
     VkBuffer buf = VKBUF(e->buffer);
     vkCmdBindVertexBuffers(VKCB(mCmdBuf), binding, 1, &buf, &offset);
 }
 
-void NkVulkanCommandBuffer::BindIndexBuffer(NkBufferHandle h, NkIndexType type, NkU64 offset) {
+void NkVulkanCommandBuffer::BindIndexBuffer(NkBufferHandle h, NkIndexType type, uint64 offset) {
     auto* e = mBuffers->Get(h.id);
     if (!e) return;
     vkCmdBindIndexBuffer(VKCB(mCmdBuf), VKBUF(e->buffer), offset,
         type == NkIndexType::Uint16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
 }
 
-void NkVulkanCommandBuffer::BindDescriptorSet(NkU32 setIdx, NkDescriptorSetHandle dsh,
+void NkVulkanCommandBuffer::BindDescriptorSet(uint32 setIdx, NkDescriptorSetHandle dsh,
                                                NkPipelineHandle plh)
 {
     auto* dse = mDescSets->Get(dsh.id);
@@ -1666,7 +1667,7 @@ void NkVulkanCommandBuffer::BindDescriptorSet(NkU32 setIdx, NkDescriptorSetHandl
 }
 
 void NkVulkanCommandBuffer::PushConstants(NkPipelineHandle plh, NkShaderStage stages,
-                                           NkU32 offset, NkU32 size, const void* data)
+                                           uint32 offset, uint32 size, const void* data)
 {
     auto* ple = mPipelines->Get(plh.id);
     if (!ple) return;
@@ -1684,19 +1685,19 @@ void NkVulkanCommandBuffer::DrawIndexed(const NkDrawIndexedCall& cmd) {
                       cmd.firstIndex, cmd.vertexOffset, cmd.firstInstance);
 }
 
-void NkVulkanCommandBuffer::DrawIndirect(NkBufferHandle h, NkU64 off, NkU32 count) {
+void NkVulkanCommandBuffer::DrawIndirect(NkBufferHandle h, uint64 off, uint32 count) {
     auto* e = mBuffers->Get(h.id);
     if (!e) return;
     vkCmdDrawIndirect(VKCB(mCmdBuf), VKBUF(e->buffer), off, count,
                        sizeof(VkDrawIndirectCommand));
 }
 
-void NkVulkanCommandBuffer::Dispatch(NkU32 x, NkU32 y, NkU32 z) {
+void NkVulkanCommandBuffer::Dispatch(uint32 x, uint32 y, uint32 z) {
     vkCmdDispatch(VKCB(mCmdBuf), x, y, z);
 }
 
 void NkVulkanCommandBuffer::CopyBuffer(NkBufferHandle s, NkBufferHandle d,
-                                        NkU64 so, NkU64 doff, NkU64 sz)
+                                        uint64 so, uint64 doff, uint64 sz)
 {
     auto* se = mBuffers->Get(s.id);
     auto* de = mBuffers->Get(d.id);
@@ -1720,12 +1721,12 @@ void NkVulkanCommandBuffer::CopyTexture(NkTextureHandle s, NkTextureHandle d) {
                    1, &r);
 }
 
-void NkVulkanCommandBuffer::UploadBuffer(NkBufferHandle, const void*, NkU64, NkU64) {
+void NkVulkanCommandBuffer::UploadBuffer(NkBufferHandle, const void*, uint64, uint64) {
     // Délégué au device via staging — no-op ici si déjà géré dans CreateBuffer
 }
 
 void NkVulkanCommandBuffer::UploadTexture(NkTextureHandle, const void*,
-                                           NkU32, NkU32, NkU32, NkU32, NkU32, NkU32) {
+                                           uint32, uint32, uint32, uint32, uint32, uint32) {
     // Idem — utiliser NkRHIDevice::CreateTexture avec staging
 }
 

@@ -3,25 +3,7 @@
 // Default logger singleton implementation.
 // -----------------------------------------------------------------------------
 
-#if !defined(NK_LOG_HAS_ANDROID_LOG)
-#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
-#define NK_LOG_HAS_ANDROID_LOG 1
-#elif defined(__has_include)
-#if __has_include(<android/log.h>)
-#define NK_LOG_HAS_ANDROID_LOG 1
-#else
-#define NK_LOG_HAS_ANDROID_LOG 0
-#endif
-#else
-#define NK_LOG_HAS_ANDROID_LOG 0
-#endif
-#endif
-
-#if NK_LOG_HAS_ANDROID_LOG
-#include "NKLogger/Sinks/NkAndroidSink.h"
-#else
 #include "NKLogger/Sinks/NkConsoleSink.h"
-#endif
 
 #include "NKLogger/NkLog.h"
 #include "NKLogger/Sinks/NkFileSink.h"
@@ -32,18 +14,12 @@ bool NkLog::s_Initialized = false;
 
 NkLog::NkLog(const NkString& name)
     : NkLogger(name) {
-#if NK_LOG_HAS_ANDROID_LOG
-    // Android: route runtime logs to logcat.
-    memory::NkSharedPtr<NkISink> androidSink(
-        new NkAndroidSink(name.Empty() ? NkString("Nkentseu") : name));
-    AddSink(androidSink);
-#else
-    // Desktop: keep console output.
+    // Console sink on all platforms.
+    // On Android, NkConsoleSink routes to logcat with platform guards.
     NkConsoleSink* consoleSinkRaw = new NkConsoleSink();
     consoleSinkRaw->SetColorEnabled(true);
     memory::NkSharedPtr<NkISink> consoleSink(consoleSinkRaw);
     AddSink(consoleSink);
-#endif
 
     // Keep file sink for persisted logs.
     memory::NkSharedPtr<NkISink> fileSink(new NkFileSink("logs/app.log"));
@@ -83,18 +59,6 @@ void NkLog::Shutdown() {
 
 NkLog& NkLog::Named(const NkString& name) {
     SetName(name);
-
-#if NK_LOG_HAS_ANDROID_LOG
-    // Keep Android sink tag aligned with logger name.
-    for (auto& sink : m_Sinks) {
-        if (!sink) {
-            continue;
-        }
-        if (auto* androidSink = dynamic_cast<NkAndroidSink*>(sink.Get())) {
-            androidSink->SetTag(name);
-        }
-    }
-#endif
 
     return *this;
 }

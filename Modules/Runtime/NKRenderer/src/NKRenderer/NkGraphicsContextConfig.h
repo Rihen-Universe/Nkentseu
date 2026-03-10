@@ -9,7 +9,7 @@
 
 namespace nkentseu {
 
-    enum class NkGraphicsApi : NkU32 {
+    enum class NkGraphicsApi : uint32 {
         None      = 0,
         OpenGL    = 1,
         Vulkan    = 2,
@@ -20,13 +20,13 @@ namespace nkentseu {
         Auto      = 255,
     };
 
-    enum class NkOpenGLProfile : NkU32 {
+    enum class NkOpenGLProfile : uint32 {
         Core          = 0,
         Compatibility = 1,
         ES            = 2,
     };
 
-    enum class NkDepthFormat : NkU32 {
+    enum class NkDepthFormat : uint32 {
         None             = 0,
         Depth16          = 1,
         Depth24          = 2,
@@ -37,31 +37,31 @@ namespace nkentseu {
 
     struct NkGraphicsContextConfig {
         NkGraphicsApi     api             = NkGraphicsApi::Auto;
-        NkU32             colorBits       = 32;
+        uint32             colorBits       = 32;
         NkDepthFormat     depthFormat     = NkDepthFormat::Depth24Stencil8;
-        NkU32             stencilBits     = 8;
-        NkU32             msaaSamples     = 1;
+        uint32             stencilBits     = 8;
+        uint32             msaaSamples     = 1;
         bool              vsync           = true;
-        NkU32             swapchainImages = 2;
+        uint32             swapchainImages = 2;
 
         // OpenGL
-        NkU32             glMajor         = 3;
-        NkU32             glMinor         = 3;
+        uint32             glMajor         = 3;
+        uint32             glMinor         = 3;
         NkOpenGLProfile   glProfile       = NkOpenGLProfile::Core;
         bool              glDebug         = false;
 
         // Vulkan
         bool              vkValidation    = false;
-        NkU32             vkApiVersion    = 0;       // 0 = auto (1.2)
+        uint32             vkApiVersion    = 0;       // 0 = auto (1.2)
 
         // DirectX
         bool              dxDebugLayer    = false;
 
         // Software
-        NkU32             softPixelFormat = 0;       // 0 = RGBA8
+        uint32             softPixelFormat = 0;       // 0 = RGBA8
 
         // --- Helpers ---
-        static NkGraphicsContextConfig ForOpenGL(NkU32 maj=3, NkU32 min=3,
+        static NkGraphicsContextConfig ForOpenGL(uint32 maj=3, uint32 min=3,
                                                 bool debug=false) {
             NkGraphicsContextConfig c;
             c.api=NkGraphicsApi::OpenGL; c.glMajor=maj;

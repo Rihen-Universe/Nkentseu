@@ -62,7 +62,7 @@ namespace nkentseu {
         std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
         auto& windows = AndroidWindows();
         bool found = false;
-        for (NkU32 i = 0; i < windows.Size(); ++i) {
+        for (uint32 i = 0; i < windows.Size(); ++i) {
             if (windows[i] == window) { found = true; break; }
         }
         if (!found) windows.PushBack(window);
@@ -77,7 +77,7 @@ namespace nkentseu {
         auto& windows = AndroidWindows();
 
         // Remove window from vector
-        for (NkU32 i = 0; i < windows.Size(); ++i) {
+        for (uint32 i = 0; i < windows.Size(); ++i) {
             if (windows[i] == window) {
                 windows.Erase(windows.begin() + i);
                 break;
@@ -307,8 +307,8 @@ namespace nkentseu {
         ANativeWindow_acquire(mData.mNativeWindow);
         ANativeWindow_setBuffersGeometry(mData.mNativeWindow, 0, 0, WINDOW_FORMAT_RGBA_8888);
 
-        mData.mWidth = static_cast<NkU32>(ANativeWindow_getWidth(mData.mNativeWindow));
-        mData.mHeight = static_cast<NkU32>(ANativeWindow_getHeight(mData.mNativeWindow));
+        mData.mWidth = static_cast<uint32>(ANativeWindow_getWidth(mData.mNativeWindow));
+        mData.mHeight = static_cast<uint32>(ANativeWindow_getHeight(mData.mNativeWindow));
         mData.mPrevWidth = mData.mWidth;
         mData.mPrevHeight = mData.mHeight;
 
@@ -405,8 +405,8 @@ namespace nkentseu {
     NkVec2u NkWindow::GetSize() const {
         if (mData.mNativeWindow) {
             return {
-                static_cast<NkU32>(ANativeWindow_getWidth(mData.mNativeWindow)),
-                static_cast<NkU32>(ANativeWindow_getHeight(mData.mNativeWindow)),
+                static_cast<uint32>(ANativeWindow_getWidth(mData.mNativeWindow)),
+                static_cast<uint32>(ANativeWindow_getHeight(mData.mNativeWindow)),
             };
         }
         return {mConfig.width, mConfig.height};
@@ -440,9 +440,9 @@ namespace nkentseu {
 
     void NkWindow::SetTitle(const NkString& title) { mConfig.title = title; }
 
-    void NkWindow::SetSize(NkU32, NkU32) {}
+    void NkWindow::SetSize(uint32, uint32) {}
 
-    void NkWindow::SetPosition(NkI32, NkI32) {}
+    void NkWindow::SetPosition(int32, int32) {}
 
     void NkWindow::SetVisible(bool) {}
 
@@ -487,7 +487,7 @@ namespace nkentseu {
         return mData.mOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
     }
 
-    void NkWindow::SetMousePosition(NkU32, NkU32) {}
+    void NkWindow::SetMousePosition(uint32, uint32) {}
 
     void NkWindow::ShowMouse(bool) {}
 

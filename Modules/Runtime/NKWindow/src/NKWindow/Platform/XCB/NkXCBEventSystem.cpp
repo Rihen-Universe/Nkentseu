@@ -126,7 +126,7 @@ namespace nkentseu {
         const xcb_atom_t wmDeleteWindow = NkXCBGetWmDeleteWindowAtom();
 
         // Ãƒâ€°tat souris prÃƒÂ©cÃƒÂ©dent pour calcul delta
-        static NkI32 sPrevX = 0, sPrevY = 0;
+        static int32 sPrevX = 0, sPrevY = 0;
 
         xcb_generic_event_t* ev;
         while ((ev = xcb_poll_for_event(conn)) != nullptr) {
@@ -181,18 +181,18 @@ namespace nkentseu {
             case XCB_KEY_PRESS:
             case XCB_KEY_RELEASE: {
                 auto* ke = (xcb_key_press_event_t*)ev;
-                NkScancode sc  = NkScancodeFromXKeycode(static_cast<NkU32>(ke->detail));
+                NkScancode sc  = NkScancodeFromXKeycode(static_cast<uint32>(ke->detail));
                 NkKey      key = NkScancodeToKey(sc);
 
                 // Fallback XKB si disponible
                 if (key == NkKey::NK_UNKNOWN && mData.mXkbState) {
                     xkb_keysym_t sym = xkb_state_key_get_one_sym(
                         mData.mXkbState, static_cast<xkb_keycode_t>(ke->detail));
-                    key = NkKeycodeMap::NkKeyFromX11KeySym(static_cast<NkU32>(sym));
+                    key = NkKeycodeMap::NkKeyFromX11KeySym(static_cast<uint32>(sym));
                 }
 
                 NkModifierState mods = XCBMods(ke->state);
-                NkU32 nativeKey = static_cast<NkU32>(ke->detail);
+                uint32 nativeKey = static_cast<uint32>(ke->detail);
 
                 if (key != NkKey::NK_UNKNOWN) {
                     if (evType == XCB_KEY_PRESS) {
@@ -210,7 +210,7 @@ namespace nkentseu {
                     xkb_state_key_get_utf8(mData.mXkbState,
                         static_cast<xkb_keycode_t>(ke->detail), buf, sizeof(buf));
                     if (buf[0] >= 0x20 && (unsigned char)buf[0] != 0x7F) {
-                        NkTextInputEvent e(static_cast<NkU32>((unsigned char)buf[0]));
+                        NkTextInputEvent e(static_cast<uint32>((unsigned char)buf[0]));
                         Enqueue(e, winId);
                     }
                 }
@@ -223,10 +223,10 @@ namespace nkentseu {
             case XCB_BUTTON_PRESS:
             case XCB_BUTTON_RELEASE: {
                 auto* be = (xcb_button_press_event_t*)ev;
-                NkI32 x  = (NkI32)be->event_x;
-                NkI32 y  = (NkI32)be->event_y;
-                NkI32 sx = (NkI32)be->root_x;
-                NkI32 sy = (NkI32)be->root_y;
+                int32 x  = (int32)be->event_x;
+                int32 y  = (int32)be->event_y;
+                int32 sx = (int32)be->root_x;
+                int32 sy = (int32)be->root_y;
                 NkModifierState m = XCBMods(be->state);
                 bool pr = (evType == XCB_BUTTON_PRESS);
 
@@ -265,10 +265,10 @@ namespace nkentseu {
             // ----------------------------------------------------------------
             case XCB_MOTION_NOTIFY: {
                 auto* me = (xcb_motion_notify_event_t*)ev;
-                NkI32 x  = (NkI32)me->event_x;
-                NkI32 y  = (NkI32)me->event_y;
-                NkI32 sx = (NkI32)me->root_x;
-                NkI32 sy = (NkI32)me->root_y;
+                int32 x  = (int32)me->event_x;
+                int32 y  = (int32)me->event_y;
+                int32 sx = (int32)me->root_x;
+                int32 sy = (int32)me->root_y;
                 NkMouseMoveEvent e(x, y, sx, sy, x - sPrevX, y - sPrevY,
                                 NkMouseButtons{}, XCBMods(me->state));
                 sPrevX = x; sPrevY = y;
@@ -310,8 +310,8 @@ namespace nkentseu {
             case XCB_EXPOSE: {
                 auto* xe = (xcb_expose_event_t*)ev;
                 if (xe->count == 0) {
-                    NkWindowPaintEvent e((NkI32)xe->x, (NkI32)xe->y,
-                                        (NkU32)xe->width, (NkU32)xe->height);
+                    NkWindowPaintEvent e((int32)xe->x, (int32)xe->y,
+                                        (uint32)xe->width, (uint32)xe->height);
                     Enqueue(e, winId);
                 }
                 break;
@@ -322,11 +322,11 @@ namespace nkentseu {
             // ----------------------------------------------------------------
             case XCB_CONFIGURE_NOTIFY: {
                 auto* ce = (xcb_configure_notify_event_t*)ev;
-                NkWindowResizeEvent er((NkU32)ce->width, (NkU32)ce->height,
+                NkWindowResizeEvent er((uint32)ce->width, (uint32)ce->height,
                     window ? window->GetConfig().width  : 0u,
                     window ? window->GetConfig().height : 0u);
                 Enqueue(er, winId);
-                NkWindowMoveEvent em((NkI32)ce->x, (NkI32)ce->y);
+                NkWindowMoveEvent em((int32)ce->x, (int32)ce->y);
                 Enqueue(em, winId);
                 break;
             }

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{{ TITLE }}}</title>
+    <link rel="icon" href="data:,">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Sans scroll */
+            background-color: #000;
+        }
+
+        body.with-scroll {
+            overflow: auto; /* Avec scroll */
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #output {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.8);
+            color: #0f0;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            display: none;
+            z-index: 1000;
+        }
+
+        #output.show {
+            display: block;
+        }
+
+        .spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid white;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <div class="spinner" id="spinner"></div>
+        <canvas id="canvas" tabindex="-1"></canvas>
+    </div>
+    <div id="output"></div>
+
+    <script>
+        // Configuration
+        var enableScroll = false; // Changer à true pour activer le scroll
+        var showConsole = false;  // Changer à true pour afficher la console
+        var disableContextMenu = false; // true = bloque clic droit sur le canvas
+
+        if (enableScroll) {
+            document.body.classList.add('with-scroll');
+        }
+
+        if (showConsole) {
+            document.getElementById('output').classList.add('show');
+        }
+
+        // Gestion du redimensionnement du canvas
+        var canvas = document.getElementById('canvas');
+        if (disableContextMenu) {
+            canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+        }
+
+        // The WASM runtime controls canvas pixel dimensions via
+        // emscripten_set_canvas_element_size(). Do NOT set canvas.width /
+        // canvas.height from JavaScript: changing those attributes clears
+        // the canvas content and fights with the WASM renderer.
+        // CSS "width:100%; height:100%" already makes the canvas fill the
+        // viewport at the display level.
+        function resizeCanvas() {
+            // Intentionally a no-op for pixel dimensions.
+            // Notify the WASM layer about the new viewport size so it can
+            // emit a resize event if it subscribes to window.onresize.
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        // Configuration Emscripten
+        var Module = {
+            preRun: [],
+            postRun: [],
+            print: (function() {
+                var element = document.getElementById('output');
+                if (element) element.value = '';
+                return function(text) {
+                    if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+                    console.log(text);
+                    if (element && showConsole) {
+                        element.innerHTML += text + '\n';
+                        element.scrollTop = element.scrollHeight;
+                    }
+                };
+            })(),
+            canvas: (function() {
+                var canvas = document.getElementById('canvas');
+                canvas.addEventListener("webglcontextlost", function(e) {
+                    alert('WebGL context lost. You will need to reload the page.');
+                    e.preventDefault();
+                }, false);
+                return canvas;
+            })(),
+            setStatus: function(text) {
+                var spinner = document.getElementById('spinner');
+                var t = (text || '').toString();
+                var isRunning = t.indexOf('Running') === 0;
+                if (!t || isRunning) {
+                    spinner.style.display = 'none';
+                } else {
+                    spinner.style.display = 'block';
+                }
+                console.log('Status:', t);
+            },
+            totalDependencies: 0,
+            monitorRunDependencies: function(left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : '');
+            }
+        };
+
+        // Compatibility shim for legacy Emscripten outputs that still
+        // reference dynCall_* globals at startup.
+        (function installDynCallCompat() {
+            var root = (typeof globalThis !== 'undefined')
+                ? globalThis
+                : (typeof window !== 'undefined' ? window : this);
+
+            function makeLegacyDynCall(signature) {
+                return function() {
+                    var dynCaller = null;
+                    if (Module && typeof Module.dynCall === "function") {
+                        dynCaller = Module.dynCall;
+                    } else if (typeof root.dynCall === "function") {
+                        dynCaller = root.dynCall;
+                    }
+                    if (!dynCaller) {
+                        throw new Error("dynCall_" + signature + " requested before dynCall runtime is ready");
+                    }
+                    var argc = arguments.length;
+                    var index = argc > 0 ? arguments[0] : 0;
+                    var callArgs = [];
+                    for (var i = 1; i < argc; ++i) {
+                        callArgs.push(arguments[i]);
+                    }
+                    return dynCaller(signature, index, callArgs);
+                };
+            }
+
+            var signatures = ["v", "vi", "vii", "viii", "viiii", "ii", "iii", "iiii"];
+            for (var i = 0; i < signatures.length; ++i) {
+                var sig = signatures[i];
+                var symbol = "dynCall_" + sig;
+                if (typeof root[symbol] !== "function") {
+                    root[symbol] = makeLegacyDynCall(sig);
+                }
+            }
+        })();
+
+        Module.setStatus('Downloading...');
+
+        window.onerror = function() {
+            Module.setStatus('Exception thrown, see JavaScript console');
+            document.getElementById('spinner').style.display = 'none';
+        };
+
+        window.addEventListener('unhandledrejection', function(event) {
+            var reason = event && event.reason;
+            var reasonText = '';
+            if (typeof reason === 'string') {
+                reasonText = reason;
+            } else if (reason && reason.message) {
+                reasonText = reason.message;
+            } else if (reason && reason.stack) {
+                reasonText = reason.stack;
+            } else {
+                try {
+                    reasonText = JSON.stringify(reason);
+                } catch (_) {
+                    reasonText = String(reason);
+                }
+            }
+            console.error('Unhandled promise rejection:', reason);
+            Module.setStatus('Unhandled promise rejection: ' + reasonText);
+            document.getElementById('spinner').style.display = 'none';
+        });
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>

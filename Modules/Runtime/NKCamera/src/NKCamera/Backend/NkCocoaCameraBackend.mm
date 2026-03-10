@@ -42,7 +42,7 @@ NkVector<NkCameraDevice> NkCocoaCameraBackend::EnumerateDevices()
 {
     NkVector<NkCameraDevice> result;
     NSArray<AVCaptureDevice*>* devs = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-    NkU32 idx = 0;
+    uint32 idx = 0;
     for (AVCaptureDevice* d in devs)
     {
         NkCameraDevice dev;
@@ -61,8 +61,8 @@ NkVector<NkCameraDevice> NkCocoaCameraBackend::EnumerateDevices()
         {
             CMVideoDimensions dim = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription);
             NkCameraDevice::Mode mode;
-            mode.width  = static_cast<NkU32>(dim.width);
-            mode.height = static_cast<NkU32>(dim.height);
+            mode.width  = static_cast<uint32>(dim.width);
+            mode.height = static_cast<uint32>(dim.height);
             mode.fps    = 30;
             mode.format = NkPixelFormat::NK_PIXEL_BGRA8;
             if (mode.width > 0 && mode.height > 0) dev.modes.PushBack(mode);
@@ -78,7 +78,7 @@ bool NkCocoaCameraBackend::StartStreaming(const NkCameraConfig& config)
 {
     // Sélectionner le device
     NSArray<AVCaptureDevice*>* devs = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-    if (config.deviceIndex >= (NkU32)devs.count) { mLastError = "Device index out of range"; return false; }
+    if (config.deviceIndex >= (uint32)devs.count) { mLastError = "Device index out of range"; return false; }
     AVCaptureDevice* device = devs[config.deviceIndex];
 
     NSError* err = nil;
@@ -140,15 +140,15 @@ void NkCocoaCameraBackend::OnSampleBuffer(void* sampleBuf)
     if (!ib) return;
 
     CVPixelBufferLockBaseAddress(ib, kCVPixelBufferLock_ReadOnly);
-    NkU8*  ptr    = static_cast<NkU8*>(CVPixelBufferGetBaseAddress(ib));
+    uint8*  ptr    = static_cast<uint8*>(CVPixelBufferGetBaseAddress(ib));
     size_t stride = CVPixelBufferGetBytesPerRow(ib);
     size_t w      = CVPixelBufferGetWidth(ib);
     size_t h      = CVPixelBufferGetHeight(ib);
 
     NkCameraFrame frame;
-    frame.width      = static_cast<NkU32>(w);
-    frame.height     = static_cast<NkU32>(h);
-    frame.stride     = static_cast<NkU32>(stride);
+    frame.width      = static_cast<uint32>(w);
+    frame.height     = static_cast<uint32>(h);
+    frame.stride     = static_cast<uint32>(stride);
     frame.format     = NkPixelFormat::NK_PIXEL_BGRA8;
     frame.frameIndex = mFrameIdx++;
     frame.data.Resize(static_cast<usize>(stride * h));
@@ -218,7 +218,7 @@ bool NkCocoaCameraBackend::StartVideoRecord(const NkVideoRecordConfig& config)
 
     mAssetWriter = const_cast<void*>(CFBridgingRetain(writer));
     mAssetInput  = const_cast<void*>(CFBridgingRetain(input));
-    mRecordStart = std::chrono::steady_clock::now();
+    mRecordStart = NkChrono::Now();
     mRecording   = true;
     mState       = NkCameraState::NK_CAM_STATE_RECORDING;
     return true;
@@ -245,7 +245,7 @@ bool  NkCocoaCameraBackend::IsRecording() const { return mRecording; }
 float NkCocoaCameraBackend::GetRecordingDurationSeconds() const
 {
     if (!mRecording) return 0.f;
-    return std::chrono::duration<float>(std::chrono::steady_clock::now() - mRecordStart).count();
+    return static_cast<float>((NkChrono::Now() - mRecordStart).seconds);
 }
 
 bool NkCocoaCameraBackend::SetAutoFocus(bool e)

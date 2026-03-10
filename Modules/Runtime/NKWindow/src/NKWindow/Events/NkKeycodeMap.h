@@ -39,21 +39,21 @@ namespace nkentseu {
             // Win32 : Virtual Key (VK_*) <-> NkKey
             // -----------------------------------------------------------------------
 
-            static NkKey NkKeyFromWin32VK(NkU32 vk, bool extended = false);
-            static NkKey NkKeyFromWin32Scancode(NkU32 scancode, bool extended);
+            static NkKey NkKeyFromWin32VK(uint32 vk, bool extended = false);
+            static NkKey NkKeyFromWin32Scancode(uint32 scancode, bool extended);
 
             // -----------------------------------------------------------------------
             // X11 (XLib et XCB) : KeySym <-> NkKey
             // -----------------------------------------------------------------------
 
-            static NkKey NkKeyFromX11KeySym(NkU32 keysym);
-            static NkKey NkKeyFromX11Keycode(NkU32 keycode); // evdev keycode = xkeycode - 8
+            static NkKey NkKeyFromX11KeySym(uint32 keysym);
+            static NkKey NkKeyFromX11Keycode(uint32 keycode); // evdev keycode = xkeycode - 8
 
             // -----------------------------------------------------------------------
             // macOS / iOS : Carbon keyCode <-> NkKey
             // -----------------------------------------------------------------------
 
-            static NkKey NkKeyFromMacKeyCode(NkU16 keyCode);
+            static NkKey NkKeyFromMacKeyCode(uint16 keyCode);
 
             // -----------------------------------------------------------------------
             // Web / WASM : DOM key codes (KeyboardEvent.code) <-> NkKey
@@ -65,7 +65,7 @@ namespace nkentseu {
             // Android : AKEYCODE_* <-> NkKey
             // -----------------------------------------------------------------------
 
-            static NkKey NkKeyFromAndroid(NkU32 aKeycode);
+            static NkKey NkKeyFromAndroid(uint32 aKeycode);
 
             // -----------------------------------------------------------------------
             // Utilitaires
@@ -100,7 +100,7 @@ namespace nkentseu {
     // Win32 VK -> NkKey
     // ===========================================================================
 
-    inline NkKey NkKeycodeMap::NkKeyFromWin32VK(NkU32 vk, bool extended) {
+    inline NkKey NkKeycodeMap::NkKeyFromWin32VK(uint32 vk, bool extended) {
         switch (vk) {
         case 0x08: return NkKey::NK_BACK;
         case 0x09: return NkKey::NK_TAB;
@@ -216,7 +216,7 @@ namespace nkentseu {
     // Win32 Scancode PS/2 -> NkKey
     // ===========================================================================
 
-    inline NkKey NkKeycodeMap::NkKeyFromWin32Scancode(NkU32 sc, bool extended) {
+    inline NkKey NkKeycodeMap::NkKeyFromWin32Scancode(uint32 sc, bool extended) {
         return NkScancodeToKey(NkScancodeFromWin32(sc, extended));
     }
 
@@ -224,12 +224,12 @@ namespace nkentseu {
     // X11 KeySym -> NkKey
     // ===========================================================================
 
-    inline NkKey NkKeycodeMap::NkKeyFromX11KeySym(NkU32 ks) {
+    inline NkKey NkKeycodeMap::NkKeyFromX11KeySym(uint32 ks) {
         // Lettres minuscules/majuscules -> meme NkKey (position)
         if (ks >= 0x61 && ks <= 0x7A)
-            return static_cast<NkKey>(static_cast<NkU32>(NkKey::NK_A) + (ks - 0x61));
+            return static_cast<NkKey>(static_cast<uint32>(NkKey::NK_A) + (ks - 0x61));
         if (ks >= 0x41 && ks <= 0x5A)
-            return static_cast<NkKey>(static_cast<NkU32>(NkKey::NK_A) + (ks - 0x41));
+            return static_cast<NkKey>(static_cast<uint32>(NkKey::NK_A) + (ks - 0x41));
 
         switch (ks) {
         case 0x30: return NkKey::NK_NUM0; case 0x31: return NkKey::NK_NUM1;
@@ -317,7 +317,7 @@ namespace nkentseu {
     }
 
     // Evdev keycode = X11 keycode - 8
-    inline NkKey NkKeycodeMap::NkKeyFromX11Keycode(NkU32 keycode) {
+    inline NkKey NkKeycodeMap::NkKeyFromX11Keycode(uint32 keycode) {
         return NkScancodeToKey(NkScancodeFromXKeycode(keycode));
     }
 
@@ -325,7 +325,7 @@ namespace nkentseu {
     // macOS Carbon keyCode -> NkKey
     // ===========================================================================
 
-    inline NkKey NkKeycodeMap::NkKeyFromMacKeyCode(NkU16 kc) {
+    inline NkKey NkKeycodeMap::NkKeyFromMacKeyCode(uint16 kc) {
         switch (kc) {
         case 0x00: return NkKey::NK_A;
         case 0x01: return NkKey::NK_S;
@@ -558,7 +558,7 @@ namespace nkentseu {
     // Android AKEYCODE -> NkKey
     // ===========================================================================
 
-    inline NkKey NkKeycodeMap::NkKeyFromAndroid(NkU32 kc) {
+    inline NkKey NkKeycodeMap::NkKeyFromAndroid(uint32 kc) {
         switch (kc) {
         case 4:   return NkKey::NK_BACK;
         case 7:   return NkKey::NK_NUM0;

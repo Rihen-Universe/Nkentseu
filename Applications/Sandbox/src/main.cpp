@@ -38,22 +38,22 @@ float ClampUnit(float v) {
     return v;
 }
 
-NkU32 PackWaveColor(float r, float g, float b) {
+uint32 PackWaveColor(float r, float g, float b) {
     return NkRenderer::PackColor(
-        static_cast<NkU8>(ClampUnit(r) * 255.f),
-        static_cast<NkU8>(ClampUnit(g) * 255.f),
-        static_cast<NkU8>(ClampUnit(b) * 255.f), 255);
+        static_cast<uint8>(ClampUnit(r) * 255.f),
+        static_cast<uint8>(ClampUnit(g) * 255.f),
+        static_cast<uint8>(ClampUnit(b) * 255.f), 255);
 }
 
-void DrawPlasma(NkRenderer& renderer, NkU32 width, NkU32 height,
+void DrawPlasma(NkRenderer& renderer, uint32 width, uint32 height,
                 float t, const NkVec2f& phase, float sat)
 {
     if (!width || !height) return;
-    const NkU32 blk = (width * height > 1280u * 720u) ? 2u : 1u;
+    const uint32 blk = (width * height > 1280u * 720u) ? 2u : 1u;
     const float iw = 1.f / width, ih = 1.f / height;
-    for (NkU32 y = 0; y < height; y += blk) {
+    for (uint32 y = 0; y < height; y += blk) {
         float fy = y * ih - 0.5f;
-        for (NkU32 x = 0; x < width; x += blk) {
+        for (uint32 x = 0; x < width; x += blk) {
             float fx  = x * iw - 0.5f;
             float rd  =  NkSqrt(fx*fx + fy*fy);
             float mix = (NkSin((fx + phase.x)*13.5f + t*1.7f)
@@ -62,10 +62,10 @@ void DrawPlasma(NkRenderer& renderer, NkU32 width, NkU32 height,
             float r = ClampUnit((0.5f+0.5f*NkSin(6.2831853f*(mix+0.00f))-0.5f)*sat+0.5f);
             float g = ClampUnit((0.5f+0.5f*NkSin(6.2831853f*(mix+0.33f))-0.5f)*sat+0.5f);
             float b = ClampUnit((0.5f+0.5f*NkSin(6.2831853f*(mix+0.66f))-0.5f)*sat+0.5f);
-            NkU32 col = PackWaveColor(r, g, b);
-            for (NkU32 by=0;by<blk&&(y+by)<height;++by)
-                for (NkU32 bx=0;bx<blk&&(x+bx)<width;++bx)
-                    renderer.SetPixel((NkI32)(x+bx),(NkI32)(y+by),col);
+            uint32 col = PackWaveColor(r, g, b);
+            for (uint32 by=0;by<blk&&(y+by)<height;++by)
+                for (uint32 bx=0;bx<blk&&(x+bx)<width;++bx)
+                    renderer.SetPixel((int32)(x+bx),(int32)(y+by),col);
         }
     }
 }
@@ -158,7 +158,7 @@ private:
     bool mNeonMode = false;
     nkentseu::NkVec2f mPhaseOffset = {0.f, 0.f};
     float mSaturationBoost = 1.15f;
-    NkU32 mViewportW = 1280, mViewportH = 720;
+    uint32 mViewportW = 1280, mViewportH = 720;
 };
 
 } // namespace
@@ -258,8 +258,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         if (renderer) {
             renderer->BeginFrame(NkRenderer::PackColor(8, 10, 18, 255));
             const NkFramebufferInfo& fb = renderer->GetFramebufferInfo();
-            NkU32 w = fb.width  ? fb.width  : window.GetSize().x;
-            NkU32 h = fb.height ? fb.height : window.GetSize().y;
+            uint32 w = fb.width  ? fb.width  : window.GetSize().x;
+            uint32 h = fb.height ? fb.height : window.GetSize().y;
             DrawPlasma(*renderer, w, h, timeSeconds, layer.GetPhaseOffset(), layer.GetSaturation());
             renderer->EndFrame();
             renderer->Present();

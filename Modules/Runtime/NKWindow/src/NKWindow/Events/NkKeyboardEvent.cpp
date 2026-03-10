@@ -437,7 +437,7 @@ namespace nkentseu {
     // Bits 16–23 du LPARAM de WM_KEYDOWN, bit 24 = extended
     // =========================================================================
 
-    NkScancode NkScancodeFromWin32(NkU32 win32, bool ext) noexcept {
+    NkScancode NkScancodeFromWin32(uint32 win32, bool ext) noexcept {
         // Table PS/2 Set-1 normale (0x00–0x58)
         static const NkScancode kTable[0x80] = {
             NkScancode::NK_SC_UNKNOWN,     // 00
@@ -565,7 +565,7 @@ namespace nkentseu {
     // NkScancodeFromLinux — evdev keycode → USB HID
     // =========================================================================
 
-    NkScancode NkScancodeFromLinux(NkU32 kc) noexcept {
+    NkScancode NkScancodeFromLinux(uint32 kc) noexcept {
         // evdev (Linux kernel) → USB HID
         switch (kc) {
             case  1: return NkScancode::NK_SC_ESCAPE;
@@ -680,7 +680,7 @@ namespace nkentseu {
         }
     }
 
-    NkScancode NkScancodeFromXKeycode(NkU32 xkeycode) noexcept {
+    NkScancode NkScancodeFromXKeycode(uint32 xkeycode) noexcept {
         // XCB/XLib keycodes = evdev + 8
         return (xkeycode >= 8) ? NkScancodeFromLinux(xkeycode - 8)
                                 : NkScancode::NK_SC_UNKNOWN;
@@ -690,7 +690,7 @@ namespace nkentseu {
     // NkScancodeFromMac — Carbon/Cocoa NSEvent.keyCode → USB HID
     // =========================================================================
 
-    NkScancode NkScancodeFromMac(NkU32 kc) noexcept {
+    NkScancode NkScancodeFromMac(uint32 kc) noexcept {
         switch (kc) {
             case 0x00: return NkScancode::NK_SC_A;
             case 0x01: return NkScancode::NK_SC_S;

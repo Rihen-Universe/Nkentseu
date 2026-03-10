@@ -44,6 +44,14 @@ namespace nkentseu {
             using ConstIterator = const T*;
             using ReverseIterator = NkReverseIterator<Iterator>;
             using ConstReverseIterator = NkReverseIterator<ConstIterator>;
+            using value_type = T;
+            using size_type = usize;
+            using reference = T&;
+            using const_reference = const T&;
+            using pointer = T*;
+            using const_pointer = const T*;
+            using iterator = T*;
+            using const_iterator = const T*;
             
             // Data (public pour aggregate initialization)
             T mData[N > 0 ? N : 1];
@@ -73,9 +81,15 @@ namespace nkentseu {
             NK_CONSTEXPR ConstReference Front() const NK_NOEXCEPT { return mData[0]; }
             NK_CONSTEXPR Reference Back() NK_NOEXCEPT { return mData[N - 1]; }
             NK_CONSTEXPR ConstReference Back() const NK_NOEXCEPT { return mData[N - 1]; }
-            
+
             NK_CONSTEXPR Pointer Data() NK_NOEXCEPT { return mData; }
             NK_CONSTEXPR ConstPointer Data() const NK_NOEXCEPT { return mData; }
+            NK_CONSTEXPR Reference front() NK_NOEXCEPT { return Front(); }
+            NK_CONSTEXPR ConstReference front() const NK_NOEXCEPT { return Front(); }
+            NK_CONSTEXPR Reference back() NK_NOEXCEPT { return Back(); }
+            NK_CONSTEXPR ConstReference back() const NK_NOEXCEPT { return Back(); }
+            NK_CONSTEXPR Pointer data() NK_NOEXCEPT { return Data(); }
+            NK_CONSTEXPR ConstPointer data() const NK_NOEXCEPT { return Data(); }
             
             // Iterators
             NK_CONSTEXPR Iterator begin() NK_NOEXCEPT { return mData; }
@@ -95,17 +109,22 @@ namespace nkentseu {
             NK_CONSTEXPR bool Empty() const NK_NOEXCEPT { return N == 0; }
             NK_CONSTEXPR SizeType Size() const NK_NOEXCEPT { return N; }
             NK_CONSTEXPR SizeType MaxSize() const NK_NOEXCEPT { return N; }
+            NK_CONSTEXPR bool empty() const NK_NOEXCEPT { return Empty(); }
+            NK_CONSTEXPR SizeType size() const NK_NOEXCEPT { return Size(); }
+            NK_CONSTEXPR SizeType max_size() const NK_NOEXCEPT { return MaxSize(); }
             
             // Operations
             void Fill(const T& value) {
                 for (SizeType i = 0; i < N; ++i) mData[i] = value;
             }
-            
+            void fill(const T& value) { Fill(value); }
+
             void Swap(NkArray& other) NK_NOEXCEPT {
                 for (SizeType i = 0; i < N; ++i) {
                     traits::NkSwap(mData[i], other.mData[i]);
                 }
             }
+            void swap(NkArray& other) NK_NOEXCEPT { Swap(other); }
         };
         
         // Specialization N=0
@@ -114,6 +133,9 @@ namespace nkentseu {
             using ValueType = T;
             using SizeType = usize;
             using Reference = T&;
+            using value_type = T;
+            using size_type = usize;
+            using reference = T&;
             
             Reference operator[](SizeType) NK_NOEXCEPT {
                 NK_ASSERT(false);
@@ -123,8 +145,12 @@ namespace nkentseu {
             
             NK_CONSTEXPR bool Empty() const NK_NOEXCEPT { return true; }
             NK_CONSTEXPR SizeType Size() const NK_NOEXCEPT { return 0; }
+            NK_CONSTEXPR bool empty() const NK_NOEXCEPT { return true; }
+            NK_CONSTEXPR SizeType size() const NK_NOEXCEPT { return 0; }
             void Fill(const T&) {}
+            void fill(const T&) {}
             void Swap(NkArray&) NK_NOEXCEPT {}
+            void swap(NkArray&) NK_NOEXCEPT {}
         };
         
         // Non-member functions

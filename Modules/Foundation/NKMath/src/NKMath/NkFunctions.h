@@ -253,6 +253,20 @@ namespace math {
     // -------------------------------------------------------------------------
     nk_float NkFmod(nk_float x, nk_float y) noexcept;
     nk_double NkFmod(nk_double x, nk_double y) noexcept;
+    NK_FORCE_INLINE nk_bool NkIsFinite(nk_float x) noexcept {
+        union {
+            nk_float value;
+            nk_uint32 bits;
+        } data = { x };
+        return (data.bits & 0x7F800000u) != 0x7F800000u;
+    }
+    NK_FORCE_INLINE nk_bool NkIsFinite(nk_double x) noexcept {
+        union {
+            nk_double value;
+            nk_uint64 bits;
+        } data = { x };
+        return (data.bits & 0x7FF0000000000000ull) != 0x7FF0000000000000ull;
+    }
     nk_float NkFrexp(nk_float x, nk_int32* exp) noexcept;
     nk_double NkFrexp(nk_double x, nk_int32* exp) noexcept;
     nk_float NkLdexp(nk_float x, nk_int32 exp) noexcept;

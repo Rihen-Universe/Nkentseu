@@ -35,13 +35,13 @@ struct NkVertex {
 struct NkMesh {
     NkBufferHandle vertexBuffer;
     NkBufferHandle indexBuffer;
-    NkU32          indexCount  = 0;
-    NkU32          vertexCount = 0;
+    uint32          indexCount  = 0;
+    uint32          vertexCount = 0;
     NkIndexType    indexType   = NkIndexType::Uint32;
 
     static NkMesh Create(NkRHIDevice& dev,
-                          const NkVertex* verts, NkU32 vcount,
-                          const NkU32*    inds,  NkU32 icount) {
+                          const NkVertex* verts, uint32 vcount,
+                          const uint32*    inds,  uint32 icount) {
         NkMesh m;
         m.indexCount  = icount;
         m.vertexCount = vcount;
@@ -54,7 +54,7 @@ struct NkMesh {
         m.vertexBuffer = dev.CreateBuffer(vd);
 
         NkBufferDesc id_;
-        id_.size     = sizeof(NkU32) * icount;
+        id_.size     = sizeof(uint32) * icount;
         id_.usage    = NkBufferUsage::Index;
         id_.memory   = NkMemoryType::GpuOnly;
         id_.initData = inds;
@@ -114,29 +114,29 @@ struct NkRenderObject {
 // ---------------------------------------------------------------------------
 class NkSceneRenderer {
 public:
-    static constexpr NkU32 MAX_FRAMES = 2;
+    static constexpr uint32 MAX_FRAMES = 2;
 
     explicit NkSceneRenderer(NkRHIDevice& dev);
     ~NkSceneRenderer();
 
     // Initialisation : crée les ressources partagées (camera UBO, layouts)
-    bool Init(NkU32 width, NkU32 height);
+    bool Init(uint32 width, uint32 height);
     void Shutdown();
 
     // Mise à jour de la caméra
     void SetCamera(const CameraUBO& cam);
 
     // Taille de swapchain changée
-    void OnResize(NkU32 width, NkU32 height);
+    void OnResize(uint32 width, uint32 height);
 
     // Ajout/suppression d'objets
-    NkU32  AddObject   (NkRenderObject obj);
-    void   RemoveObject(NkU32 id);
-    NkRenderObject* GetObject(NkU32 id);
+    uint32  AddObject   (NkRenderObject obj);
+    void   RemoveObject(uint32 id);
+    NkRenderObject* GetObject(uint32 id);
 
     // ── Rendu d'une frame ────────────────────────────────────────────────────
     // Appelé entre BeginFrame() et EndFrame() du device.
-    void Render(NkRHICommandBuffer& cmd, NkU32 frameIndex);
+    void Render(NkRHICommandBuffer& cmd, uint32 frameIndex);
 
     // ── Création de matériau standard ────────────────────────────────────────
     NkMaterial CreatePBRMaterial(const NkTextureHandle albedo,
@@ -150,7 +150,7 @@ public:
 
 private:
     NkRHIDevice& mDevice;
-    NkU32        mWidth = 0, mHeight = 0;
+    uint32        mWidth = 0, mHeight = 0;
 
     // Layouts partagés par tous les matériaux
     NkDescriptorLayoutHandle mCameraLayout;
@@ -166,7 +166,7 @@ private:
 
     // Objets de scène
     std::vector<NkRenderObject> mObjects;
-    NkU32                       mNextId = 1;
+    uint32                       mNextId = 1;
 
     // Helpers
     NkShaderHandle LoadSPIRV(const char* path, NkShaderStage stage);
@@ -234,12 +234,12 @@ NkShaderHandle NkSceneRenderer::LoadSPIRV(const char* path, NkShaderStage stage)
     NkShaderDesc sd;
     sd.stage    = stage;
     sd.code     = code.data();
-    sd.codeSize = (NkU32)size;
+    sd.codeSize = (uint32)size;
     sd.entry    = "main";
     return mDevice.CreateShader(sd);
 }
 
-bool NkSceneRenderer::Init(NkU32 width, NkU32 height) {
+bool NkSceneRenderer::Init(uint32 width, uint32 height) {
     mWidth = width; mHeight = height;
 
     // ── Descriptor layouts ───────────────────────────────────────────────────
@@ -278,7 +278,7 @@ void NkSceneRenderer::CreateCameraResources() {
     uboDesc.usage  = NkBufferUsage::Uniform;
     uboDesc.memory = NkMemoryType::CpuToGpu;
 
-    for (NkU32 i = 0; i < MAX_FRAMES; ++i) {
+    for (uint32 i = 0; i < MAX_FRAMES; ++i) {
         mCameraUBO[i] = mDevice.CreateBuffer(uboDesc);
         mCameraSet[i] = mDevice.AllocDescriptorSet(mCameraLayout);
 
@@ -334,20 +334,20 @@ void NkSceneRenderer::SetCamera(const CameraUBO& cam) {
     mCameraData = cam;
 }
 
-void NkSceneRenderer::OnResize(NkU32 width, NkU32 height) {
+void NkSceneRenderer::OnResize(uint32 width, uint32 height) {
     mWidth = width; mHeight = height;
 }
 
-NkU32 NkSceneRenderer::AddObject(NkRenderObject obj) {
+uint32 NkSceneRenderer::AddObject(NkRenderObject obj) {
     mObjects.push_back(obj);
     return mNextId++;
 }
 
-void NkSceneRenderer::RemoveObject(NkU32) {
+void NkSceneRenderer::RemoveObject(uint32) {
     // TODO: gestion des IDs stables (pool ou map)
 }
 
-NkRenderObject* NkSceneRenderer::GetObject(NkU32 id) {
+NkRenderObject* NkSceneRenderer::GetObject(uint32 id) {
     if (id == 0 || id > mObjects.size()) return nullptr;
     return &mObjects[id - 1];
 }
@@ -358,8 +358,8 @@ NkRenderObject* NkSceneRenderer::GetObject(NkU32 id) {
 // réduire les changements de pipeline, sort front-to-back pour le depth culling)
 // =============================================================================
 
-void NkSceneRenderer::Render(NkRHICommandBuffer& cmd, NkU32 frameIndex) {
-    NkU32 fi = frameIndex % MAX_FRAMES;
+void NkSceneRenderer::Render(NkRHICommandBuffer& cmd, uint32 frameIndex) {
+    uint32 fi = frameIndex % MAX_FRAMES;
 
     // 1. Mettre à jour le camera UBO
     void* mapped = mDevice.MapBuffer(mCameraUBO[fi]);
@@ -469,7 +469,7 @@ NkMaterial NkSceneRenderer::CreatePBRMaterial(
 
 void NkSceneRenderer::Shutdown() {
     if (!mDevice.GetWidth()) return; // déjà shutdown
-    for (NkU32 i = 0; i < MAX_FRAMES; ++i) {
+    for (uint32 i = 0; i < MAX_FRAMES; ++i) {
         mDevice.DestroyBuffer(mCameraUBO[i]);
         mDevice.FreeDescriptorSet(mCameraSet[i]);
     }

@@ -7,6 +7,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "Backends/Software/NkSoftwareRenderer.h"
 #include "NkRendererStubs.h"
+#include "NKMemory/NkUtils.h"
 
 #include <cmath>
 #include <algorithm>
@@ -22,7 +23,7 @@ namespace nkentseu {
 
     namespace {
 
-    using NkRendererFactoryMap = NkUnorderedMap<NkU32, NkRenderer::NkRendererFactory>;
+    using NkRendererFactoryMap = NkUnorderedMap<uint32, NkRenderer::NkRendererFactory>;
 
     NkRendererFactoryMap& ExternalRendererFactories() {
         static NkRendererFactoryMap sFactories;
@@ -52,7 +53,7 @@ namespace nkentseu {
             return nullptr;
         {
             std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
-            auto* factory = ExternalRendererFactories().Find(static_cast<NkU32>(api));
+            auto* factory = ExternalRendererFactories().Find(static_cast<uint32>(api));
             if (factory && *factory) {
                 if (auto impl = (*factory)())
                     return impl;
@@ -118,20 +119,20 @@ namespace nkentseu {
     bool NkRenderer::RegisterExternalRendererFactory(NkRendererApi api, NkRendererFactory factory) {
         if (api == NkRendererApi::NK_NONE || !factory) return false;
         std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
-        ExternalRendererFactories()[static_cast<NkU32>(api)] = std::move(factory);
+        ExternalRendererFactories()[static_cast<uint32>(api)] = std::move(factory);
         return true;
     }
 
     bool NkRenderer::UnregisterExternalRendererFactory(NkRendererApi api) {
         if (api == NkRendererApi::NK_NONE) return false;
         std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
-        return ExternalRendererFactories().Erase(static_cast<NkU32>(api));
+        return ExternalRendererFactories().Erase(static_cast<uint32>(api));
     }
 
     bool NkRenderer::HasExternalRendererFactory(NkRendererApi api) {
         if (api == NkRendererApi::NK_NONE) return false;
         std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
-        return ExternalRendererFactories().Contains(static_cast<NkU32>(api));
+        return ExternalRendererFactories().Contains(static_cast<uint32>(api));
     }
 
     // ---------------------------------------------------------------------------
@@ -170,14 +171,14 @@ namespace nkentseu {
     // Couleur de fond
     // ---------------------------------------------------------------------------
 
-    void  NkRenderer::SetBackgroundColor(NkU32 rgba) { if (mImpl) mImpl->SetBackgroundColor(rgba); }
-    NkU32 NkRenderer::GetBackgroundColor() const     { return mImpl ? mImpl->GetBackgroundColor() : 0x141414FF; }
+    void  NkRenderer::SetBackgroundColor(uint32 rgba) { if (mImpl) mImpl->SetBackgroundColor(rgba); }
+    uint32 NkRenderer::GetBackgroundColor() const     { return mImpl ? mImpl->GetBackgroundColor() : 0x141414FF; }
 
     // ---------------------------------------------------------------------------
     // Trame
     // ---------------------------------------------------------------------------
 
-    void NkRenderer::BeginFrame(NkU32 clearColor) {
+    void NkRenderer::BeginFrame(uint32 clearColor) {
         if (!mImpl) return;
         if (mConfig.autoResizeFramebuffer && mWindow && mWindow->IsOpen()) {
             NkVec2u wsize = mWindow->GetSize();
@@ -185,7 +186,7 @@ namespace nkentseu {
             if (wsize.x > 0 && wsize.y > 0 && (wsize.x != fb.width || wsize.y != fb.height))
                 mImpl->Resize(wsize.x, wsize.y);
         }
-        NkU32 color = (clearColor == 0xFFFFFFFF) ? mImpl->GetBackgroundColor() : clearColor;
+        uint32 color = (clearColor == 0xFFFFFFFF) ? mImpl->GetBackgroundColor() : clearColor;
         mImpl->BeginFrame(color);
     }
 
@@ -199,7 +200,7 @@ namespace nkentseu {
         mImpl->Present(mWindow->GetSurfaceDesc());
     }
 
-    void NkRenderer::Resize(NkU32 w, NkU32 h) { if (mImpl) mImpl->Resize(w, h); }
+    void NkRenderer::Resize(uint32 w, uint32 h) { if (mImpl) mImpl->Resize(w, h); }
 
     // ---------------------------------------------------------------------------
     // Sortie
@@ -214,7 +215,7 @@ namespace nkentseu {
         if (!mExternalTarget || !mImpl) return false;
         const NkFramebufferInfo& fb = mImpl->GetFramebufferInfo();
         if (!fb.pixels || !fb.width || !fb.height || !fb.pitch) return false;
-        const NkU32 dstPitch = fb.width * 4;
+        const uint32 dstPitch = fb.width * 4;
         if (fb.pitch < dstPitch) return false;
         mExternalTarget->width  = fb.width;
         mExternalTarget->height = fb.height;
@@ -222,11 +223,11 @@ namespace nkentseu {
         const std::size_t rowCount = static_cast<std::size_t>(fb.height);
         const std::size_t dstBytes = static_cast<std::size_t>(dstPitch) * rowCount;
         mExternalTarget->pixels.Resize(dstBytes);
-        const NkU8* src = fb.pixels;
-        NkU8*       dst = mExternalTarget->pixels.Data();
-        if (fb.pitch == dstPitch) { std::memcpy(dst, src, dstBytes); return true; }
+        const uint8* src = fb.pixels;
+        uint8*       dst = mExternalTarget->pixels.Data();
+        if (fb.pitch == dstPitch) { memory::NkMemCopy(dst, src, dstBytes); return true; }
         for (std::size_t row = 0; row < rowCount; ++row)
-            std::memcpy(dst + row * dstPitch, src + row * fb.pitch, dstPitch);
+            memory::NkMemCopy(dst + row * dstPitch, src + row * fb.pitch, dstPitch);
         return true;
     }
 
@@ -234,12 +235,12 @@ namespace nkentseu {
     // Couleur utilitaires
     // ---------------------------------------------------------------------------
 
-    NkU32 NkRenderer::PackColor(NkU8 r, NkU8 g, NkU8 b, NkU8 a) {
-        return (static_cast<NkU32>(r) << 24) | (static_cast<NkU32>(g) << 16) |
-            (static_cast<NkU32>(b) << 8)  | a;
+    uint32 NkRenderer::PackColor(uint8 r, uint8 g, uint8 b, uint8 a) {
+        return (static_cast<uint32>(r) << 24) | (static_cast<uint32>(g) << 16) |
+            (static_cast<uint32>(b) << 8)  | a;
     }
 
-    void NkRenderer::UnpackColor(NkU32 rgba, NkU8& r, NkU8& g, NkU8& b, NkU8& a) {
+    void NkRenderer::UnpackColor(uint32 rgba, uint8& r, uint8& g, uint8& b, uint8& a) {
         r = (rgba >> 24) & 0xFF;
         g = (rgba >> 16) & 0xFF;
         b = (rgba >> 8)  & 0xFF;
@@ -250,7 +251,7 @@ namespace nkentseu {
     // Primitives
     // ---------------------------------------------------------------------------
 
-    void NkRenderer::SetPixel(NkI32 x, NkI32 y, NkU32 rgba) { if (mImpl) mImpl->SetPixel(x, y, rgba); }
-    void NkRenderer::DrawPixel(NkI32 x, NkI32 y, NkU32 rgba) { SetPixel(x, y, rgba); }
+    void NkRenderer::SetPixel(int32 x, int32 y, uint32 rgba) { if (mImpl) mImpl->SetPixel(x, y, rgba); }
+    void NkRenderer::DrawPixel(int32 x, int32 y, uint32 rgba) { SetPixel(x, y, rgba); }
 
 } // namespace nkentseu

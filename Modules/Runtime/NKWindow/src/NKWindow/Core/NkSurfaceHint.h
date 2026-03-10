@@ -21,8 +21,8 @@
 // n'ont besoin d'aucun hint pré-création.
 // =============================================================================
 
-#include "NkTypes.h"   // NkU32, NkUPtr (= uintptr_t)
-#include <array>
+#include "NkTypes.h"   // uint32, uintptr (= uintptr_t)
+#include "NKContainers/CacheFriendly/NkArray.h"
 
 namespace nkentseu {
 
@@ -30,7 +30,7 @@ namespace nkentseu {
     // NkSurfaceHintKey — identifiants opaques de hint
     // NkWindow voit ces clés comme de simples entiers.
     // ---------------------------------------------------------------------------
-    enum class NkSurfaceHintKey : NkU32 {
+    enum class NkSurfaceHintKey : uint32 {
         NK_NONE            = 0,
 
         // GLX — XLib/XCB
@@ -58,21 +58,21 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
     struct NkSurfaceHint {
         NkSurfaceHintKey key   = NkSurfaceHintKey::NK_NONE;
-        NkUPtr           value = 0;   ///< NkUPtr = uintptr_t
+        uintptr           value = 0;   ///< uintptr = uintptr_t
     };
 
     // ---------------------------------------------------------------------------
     // NkSurfaceHints — tableau compact, zéro allocation dynamique
     // ---------------------------------------------------------------------------
     struct NkSurfaceHints {
-        static constexpr NkU32 kMaxHints = 8;
+        static constexpr uint32 kMaxHints = 8;
 
-        std::array<NkSurfaceHint, kMaxHints> hints{};
-        NkU32                                count = 0;
+        NkArray<NkSurfaceHint, kMaxHints> hints{};
+        uint32                                count = 0;
 
         /// Ajoute ou remplace un hint.
-        void Set(NkSurfaceHintKey key, NkUPtr value) {
-            for (NkU32 i = 0; i < count; ++i) {
+        void Set(NkSurfaceHintKey key, uintptr value) {
+            for (uint32 i = 0; i < count; ++i) {
                 if (hints[i].key == key) { hints[i].value = value; return; }
             }
             if (count < kMaxHints)
@@ -80,14 +80,14 @@ namespace nkentseu {
         }
 
         /// Retourne la valeur d'un hint, ou defaultVal si absent.
-        NkUPtr Get(NkSurfaceHintKey key, NkUPtr defaultVal = 0) const {
-            for (NkU32 i = 0; i < count; ++i)
+        uintptr Get(NkSurfaceHintKey key, uintptr defaultVal = 0) const {
+            for (uint32 i = 0; i < count; ++i)
                 if (hints[i].key == key) return hints[i].value;
             return defaultVal;
         }
 
         bool Has(NkSurfaceHintKey key) const {
-            for (NkU32 i = 0; i < count; ++i)
+            for (uint32 i = 0; i < count; ++i)
                 if (hints[i].key == key) return true;
             return false;
         }

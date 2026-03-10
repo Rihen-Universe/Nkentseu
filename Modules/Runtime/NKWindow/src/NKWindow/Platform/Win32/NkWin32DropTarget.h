@@ -113,12 +113,12 @@ namespace nkentseu {
 				POINT cp = { pt.x, pt.y };
 				ScreenToClient(mHwnd, &cp);
 
-				NkU32 numFiles = CountFiles(pData);
+				uint32 numFiles = CountFiles(pData);
 				bool  hasText  = HasText(pData);
 
 				NkDropEnterData data{};
-				data.x = static_cast<NkI32>(cp.x);
-				data.y = static_cast<NkI32>(cp.y);
+				data.x = static_cast<int32>(cp.x);
+				data.y = static_cast<int32>(cp.y);
 				data.numFiles = numFiles;
 				data.hasText = hasText;
 				data.hasImage = false;
@@ -152,8 +152,8 @@ namespace nkentseu {
 			{
 				POINT cp = { pt.x, pt.y };
 				ScreenToClient(mHwnd, &cp);
-				const NkI32 dropX = static_cast<NkI32>(cp.x);
-				const NkI32 dropY = static_cast<NkI32>(cp.y);
+				const int32 dropX = static_cast<int32>(cp.x);
+				const int32 dropY = static_cast<int32>(cp.y);
 
 				// --- Fichiers ---
 				NkVector<NkString> files = ExtractFiles(pData);
@@ -195,12 +195,12 @@ namespace nkentseu {
 			// Helpers extraction
 			// =====================================================================
 
-			static NkU32 CountFiles(IDataObject* pData) {
+			static uint32 CountFiles(IDataObject* pData) {
 				FORMATETC fmt = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
 				STGMEDIUM stg = {};
 				if (FAILED(pData->GetData(&fmt, &stg))) return 0;
 				HDROP hDrop = static_cast<HDROP>(GlobalLock(stg.hGlobal));
-				NkU32 n = hDrop ? DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0) : 0;
+				uint32 n = hDrop ? DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0) : 0;
 				GlobalUnlock(stg.hGlobal);
 				ReleaseStgMedium(&stg);
 				return n;

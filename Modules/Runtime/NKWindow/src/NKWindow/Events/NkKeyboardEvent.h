@@ -39,7 +39,7 @@ namespace nkentseu {
     //      (sur AZERTY, c'est la touche qui produit le caractère 'A')
     // =========================================================================
 
-    enum class NkKey : NkU32 {
+    enum class NkKey : uint32 {
         NK_UNKNOWN = 0,
 
         // --- Touches de fonction ---
@@ -240,7 +240,7 @@ namespace nkentseu {
     // Valeurs = USB HID Keyboard/Keypad Usage IDs (Table 10, spec HID 1.11)
     // =========================================================================
 
-    enum class NkScancode : NkU32 {
+    enum class NkScancode : uint32 {
         NK_SC_UNKNOWN = 0,
 
         // Lettres (ordre HID, pas alphabétique)
@@ -419,17 +419,17 @@ namespace nkentseu {
     /// @brief Win32 PS/2 Set-1 → USB HID
     /// @param win32Scancode  Bits 16–23 du LPARAM de WM_KEYDOWN
     /// @param extended       Bit 24 du LPARAM (touche étendue)
-    NkScancode NkScancodeFromWin32(NkU32 win32Scancode, bool extended) noexcept;
+    NkScancode NkScancodeFromWin32(uint32 win32Scancode, bool extended) noexcept;
 
     /// @brief Linux evdev keycode → USB HID
     /// @note  Pour XCB/XLib, utiliser NkScancodeFromXKeycode(xcb_keycode_t)
-    NkScancode NkScancodeFromLinux(NkU32 linuxKeycode) noexcept;
+    NkScancode NkScancodeFromLinux(uint32 linuxKeycode) noexcept;
 
     /// @brief XCB / XLib keycode → USB HID (soustrait 8 avant conversion evdev)
-    NkScancode NkScancodeFromXKeycode(NkU32 xkeycode) noexcept;
+    NkScancode NkScancodeFromXKeycode(uint32 xkeycode) noexcept;
 
     /// @brief macOS NSEvent.keyCode (Carbon) → USB HID
-    NkScancode NkScancodeFromMac(NkU32 macKeycode) noexcept;
+    NkScancode NkScancodeFromMac(uint32 macKeycode) noexcept;
 
     /// @brief DOM KeyboardEvent.code → USB HID (WebAssembly)
     /// @param domCode  ex: "KeyA", "Space", "ArrowLeft", "Numpad0"
@@ -489,9 +489,9 @@ namespace nkentseu {
     class NkKeyboardEvent : public NkEvent {
         public:
             /// @brief Retourne les flags de catégorie (KEYBOARD + INPUT)
-            NkU32 GetCategoryFlags() const override {
-                return static_cast<NkU32>(NkEventCategory::NK_CAT_KEYBOARD)
-                    | static_cast<NkU32>(NkEventCategory::NK_CAT_INPUT);
+            uint32 GetCategoryFlags() const override {
+                return static_cast<uint32>(NkEventCategory::NK_CAT_KEYBOARD)
+                    | static_cast<uint32>(NkEventCategory::NK_CAT_INPUT);
             }
 
             // --- Accesseurs communs ---
@@ -503,7 +503,7 @@ namespace nkentseu {
             /// @brief État des modificateurs au moment de l'événement
             NkModifierState   GetModifiers()  const noexcept { return mModifiers;  }
             /// @brief Code natif brut de la plateforme (VK, KeySym, keyCode…)
-            NkU32             GetNativeKey()  const noexcept { return mNativeKey;  }
+            uint32             GetNativeKey()  const noexcept { return mNativeKey;  }
             /// @brief Retourne true si c'est une touche étendue (préfixe E0 PS/2)
             bool              IsExtended()    const noexcept { return mExtended;   }
 
@@ -520,9 +520,9 @@ namespace nkentseu {
             NkKeyboardEvent(NkKey                  key,
                             NkScancode             scancode,
                             const NkModifierState& mods,
-                            NkU32                  nativeKey,
+                            uint32                  nativeKey,
                             bool                   extended,
-                            NkU64                  windowId) noexcept
+                            uint64                  windowId) noexcept
                 : NkEvent(windowId)
                 , mKey(key), mScancode(scancode)
                 , mModifiers(mods), mNativeKey(nativeKey), mExtended(extended)
@@ -531,7 +531,7 @@ namespace nkentseu {
             NkKey           mKey       = NkKey::NK_UNKNOWN;   ///< Touche logique
             NkScancode      mScancode  = NkScancode::NK_SC_UNKNOWN; ///< Code physique HID
             NkModifierState mModifiers;                        ///< Modificateurs actifs
-            NkU32           mNativeKey = 0;                    ///< Code natif plateforme
+            uint32           mNativeKey = 0;                    ///< Code natif plateforme
             bool            mExtended  = false;                ///< Touche étendue ?
     };
 
@@ -552,9 +552,9 @@ namespace nkentseu {
             NkKeyPressEvent(NkKey                  key,
                             NkScancode             scancode  = NkScancode::NK_SC_UNKNOWN,
                             const NkModifierState& mods      = {},
-                            NkU32                  nativeKey = 0,
+                            uint32                  nativeKey = 0,
                             bool                   extended  = false,
-                            NkU64                  windowId  = 0) noexcept
+                            uint64                  windowId  = 0) noexcept
                 : NkKeyboardEvent(key, scancode, mods, nativeKey, extended, windowId) {}
 
             NkEvent*    Clone()    const override { return new NkKeyPressEvent(*this); }
@@ -573,12 +573,12 @@ namespace nkentseu {
             NK_EVENT_TYPE_FLAGS(NK_KEY_REPEATED)
 
             NkKeyRepeatEvent(NkKey                  key,
-                            NkU32                  repeatCount = 1,
+                            uint32                  repeatCount = 1,
                             NkScancode             scancode    = NkScancode::NK_SC_UNKNOWN,
                             const NkModifierState& mods        = {},
-                            NkU32                  nativeKey   = 0,
+                            uint32                  nativeKey   = 0,
                             bool                   extended    = false,
-                            NkU64                  windowId    = 0) noexcept
+                            uint64                  windowId    = 0) noexcept
                 : NkKeyboardEvent(key, scancode, mods, nativeKey, extended, windowId)
                 , mRepeatCount(repeatCount)
             {}
@@ -590,10 +590,10 @@ namespace nkentseu {
             }
 
             /// @brief Nombre de fois que la touche a répété depuis le dernier événement
-            NkU32 GetRepeatCount() const noexcept { return mRepeatCount; }
+            uint32 GetRepeatCount() const noexcept { return mRepeatCount; }
 
         private:
-            NkU32 mRepeatCount = 1; ///< Nombre de répétitions
+            uint32 mRepeatCount = 1; ///< Nombre de répétitions
     };
 
     // =========================================================================
@@ -607,9 +607,9 @@ namespace nkentseu {
             NkKeyReleaseEvent(NkKey                  key,
                             NkScancode             scancode  = NkScancode::NK_SC_UNKNOWN,
                             const NkModifierState& mods      = {},
-                            NkU32                  nativeKey = 0,
+                            uint32                  nativeKey = 0,
                             bool                   extended  = false,
-                            NkU64                  windowId  = 0) noexcept
+                            uint64                  windowId  = 0) noexcept
                 : NkKeyboardEvent(key, scancode, mods, nativeKey, extended, windowId) {}
 
             NkEvent*    Clone()    const override { return new NkKeyReleaseEvent(*this); }
@@ -631,14 +631,14 @@ namespace nkentseu {
             NK_EVENT_TYPE_FLAGS(NK_TEXT_INPUT)
 
             /// @brief Catégorie : KEYBOARD + INPUT
-            NkU32 GetCategoryFlags() const override {
-                return static_cast<NkU32>(NkEventCategory::NK_CAT_KEYBOARD)
-                    | static_cast<NkU32>(NkEventCategory::NK_CAT_INPUT);
+            uint32 GetCategoryFlags() const override {
+                return static_cast<uint32>(NkEventCategory::NK_CAT_KEYBOARD)
+                    | static_cast<uint32>(NkEventCategory::NK_CAT_INPUT);
             }
 
             /// @brief Construit depuis un codepoint Unicode UTF-32
             /// @param codepoint  Codepoint Unicode (U+0020 … U+10FFFF)
-            explicit NkTextInputEvent(NkU32 codepoint, NkU64 windowId = 0) noexcept
+            explicit NkTextInputEvent(uint32 codepoint, uint64 windowId = 0) noexcept
                 : NkEvent(windowId), mCodepoint(codepoint)
             {
                 EncodeUtf8(codepoint);
@@ -650,7 +650,7 @@ namespace nkentseu {
             }
 
             /// @brief Codepoint Unicode UTF-32
-            NkU32       GetCodepoint() const noexcept { return mCodepoint; }
+            uint32       GetCodepoint() const noexcept { return mCodepoint; }
             /// @brief Représentation UTF-8 du codepoint (null-terminated, max 4 octets)
             const char* GetUtf8()      const noexcept { return mUtf8; }
             /// @brief Retourne true si le caractère est imprimable (≥ U+0020, ≠ U+007F)
@@ -659,11 +659,11 @@ namespace nkentseu {
             bool        IsAscii()      const noexcept { return mCodepoint < 0x80; }
 
         private:
-            NkU32 mCodepoint = 0;   ///< Codepoint Unicode
+            uint32 mCodepoint = 0;   ///< Codepoint Unicode
             char  mUtf8[5]   = {};  ///< Représentation UTF-8 (max 4 octets + null)
 
             /// @brief Encode le codepoint en UTF-8 dans mUtf8
-            void EncodeUtf8(NkU32 cp) noexcept {
+            void EncodeUtf8(uint32 cp) noexcept {
                 if (cp < 0x80) {
                     mUtf8[0] = static_cast<char>(cp);
                 } else if (cp < 0x800) {
@@ -682,7 +682,7 @@ namespace nkentseu {
             }
 
             /// @brief Convertit un entier en string hexadécimale (4 chiffres min)
-            static NkString ToHex(NkU32 v) {
+            static NkString ToHex(uint32 v) {
                 char buf[9];
                 snprintf(buf, sizeof(buf), "%04X", v);
                 return buf;

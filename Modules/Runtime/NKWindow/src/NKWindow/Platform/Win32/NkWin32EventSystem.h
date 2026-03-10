@@ -14,8 +14,8 @@ namespace nkentseu {
 
     struct NkEventSystemData {
         bool   mRawInputRegistered = false;
-        NkI32  mPrevMouseX         = 0;
-        NkI32  mPrevMouseY         = 0;
+        int32  mPrevMouseX         = 0;
+        int32  mPrevMouseY         = 0;
     };
 
 } // namespace nkentseu

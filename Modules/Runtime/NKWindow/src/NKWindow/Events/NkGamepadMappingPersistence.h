@@ -18,29 +18,29 @@
 
 namespace nkentseu {
 
-    inline constexpr NkU32 NK_GAMEPAD_MAPPING_UNMAPPED = 0xFFFFFFFFu;
+    inline constexpr uint32 NK_GAMEPAD_MAPPING_UNMAPPED = 0xFFFFFFFFu;
 
     struct NkGamepadButtonMapEntry {
-        NkU32 physicalButton = 0;
-        NkU32 logicalButton  = 0;
+        uint32 physicalButton = 0;
+        uint32 logicalButton  = 0;
     };
 
     struct NkGamepadAxisMapEntry {
-        NkU32 physicalAxis = 0;
-        NkU32 logicalAxis  = NK_GAMEPAD_MAPPING_UNMAPPED;
-        NkF32 scale        = 1.f;
+        uint32 physicalAxis = 0;
+        uint32 logicalAxis  = NK_GAMEPAD_MAPPING_UNMAPPED;
+        float32 scale        = 1.f;
         bool  invert       = false;
     };
 
     struct NkGamepadMappingSlotData {
-        NkU32 slotIndex = 0;
+        uint32 slotIndex = 0;
         bool  active    = false;
         NkVector<NkGamepadButtonMapEntry> buttons;
         NkVector<NkGamepadAxisMapEntry>   axes;
     };
 
     struct NkGamepadMappingProfileData {
-        NkU32 version = 1;
+        uint32 version = 1;
         NkString backendName;
         NkVector<NkGamepadMappingSlotData> slots;
     };

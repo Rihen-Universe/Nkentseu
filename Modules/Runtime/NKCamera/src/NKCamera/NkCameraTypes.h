@@ -34,7 +34,7 @@ namespace nkentseu{
     // ---------------------------------------------------------------------------
     // NkCameraFacing
     // ---------------------------------------------------------------------------
-    enum class NkCameraFacing : NkU32 {
+    enum class NkCameraFacing : uint32 {
         NK_CAMERA_FACING_ANY      = 0,
         NK_CAMERA_FACING_FRONT,
         NK_CAMERA_FACING_BACK,
@@ -44,7 +44,7 @@ namespace nkentseu{
     // ---------------------------------------------------------------------------
     // NkCameraResolution
     // ---------------------------------------------------------------------------
-    enum class NkCameraResolution : NkU32 {
+    enum class NkCameraResolution : uint32 {
         NK_CAM_RES_CUSTOM = 0,
         NK_CAM_RES_QVGA,   ///<  320×240
         NK_CAM_RES_VGA,    ///<  640×480
@@ -53,7 +53,7 @@ namespace nkentseu{
         NK_CAM_RES_4K,     ///<  3840×2160
     };
 
-    inline void NkResolutionToSize(NkCameraResolution r, NkU32& w, NkU32& h) {
+    inline void NkResolutionToSize(NkCameraResolution r, uint32& w, uint32& h) {
         switch (r) {
         case NkCameraResolution::NK_CAM_RES_QVGA: w=320;  h=240;  break;
         case NkCameraResolution::NK_CAM_RES_VGA:  w=640;  h=480;  break;
@@ -68,15 +68,15 @@ namespace nkentseu{
     // NkCameraDevice
     // ---------------------------------------------------------------------------
     struct NkCameraDevice {
-        NkU32          index  = 0;
+        uint32          index  = 0;
         NkString    id;       ///< Identifiant OS unique (path Linux, GUID Win32, uniqueID iOS/macOS)
         NkString    name;     ///< Nom lisible
         NkCameraFacing facing = NkCameraFacing::NK_CAMERA_FACING_ANY;
 
         struct Mode {
-            NkU32         width  = 0;
-            NkU32         height = 0;
-            NkU32         fps    = 30;
+            uint32         width  = 0;
+            uint32         height = 0;
+            uint32         fps    = 30;
             NkPixelFormat format = NkPixelFormat::NK_PIXEL_RGBA8;
         };
         NkVector<Mode> modes;
@@ -84,7 +84,7 @@ namespace nkentseu{
         bool IsValid() const { return !id.Empty(); }
         NkString ToString() const {
             return NkString::Fmt("Camera[{0}] \"{1}\" facing={2} modes={3}",
-                index, name, (NkU32)facing, (NkU32)modes.Size());
+                index, name, (uint32)facing, (uint32)modes.Size());
         }
     };
 
@@ -92,11 +92,11 @@ namespace nkentseu{
     // NkCameraConfig
     // ---------------------------------------------------------------------------
     struct NkCameraConfig {
-        NkU32               deviceIndex      = 0;
+        uint32               deviceIndex      = 0;
         NkCameraResolution  preset           = NkCameraResolution::NK_CAM_RES_HD;
-        NkU32               width            = 0;
-        NkU32               height           = 0;
-        NkU32               fps              = 30;
+        uint32               width            = 0;
+        uint32               height           = 0;
+        uint32               fps              = 30;
         NkPixelFormat       outputFormat     = NkPixelFormat::NK_PIXEL_RGBA8;
         NkCameraFacing      facing           = NkCameraFacing::NK_CAMERA_FACING_ANY;
         bool                flipHorizontal   = false;
@@ -117,25 +117,25 @@ namespace nkentseu{
     // NkCameraFrame
     // ---------------------------------------------------------------------------
     struct NkCameraFrame {
-        NkU32              width        = 0;
-        NkU32              height       = 0;
+        uint32              width        = 0;
+        uint32              height       = 0;
         NkPixelFormat      format       = NkPixelFormat::NK_PIXEL_RGBA8;
-        NkU64              timestampUs  = 0;
-        NkU32              frameIndex   = 0;
-        NkU32              stride       = 0;
-        NkVector<NkU8>  data;
+        uint64              timestampUs  = 0;
+        uint32              frameIndex   = 0;
+        uint32              stride       = 0;
+        NkVector<uint8>  data;
 
         bool IsValid() const { return width > 0 && height > 0 && !data.Empty(); }
 
         /// Accès pixel RGBA8 (uniquement si format == NK_PIXEL_RGBA8)
-        NkU32 GetPixelRGBA(NkU32 x, NkU32 y) const {
+        uint32 GetPixelRGBA(uint32 x, uint32 y) const {
             if (x >= width || y >= height || format != NkPixelFormat::NK_PIXEL_RGBA8) return 0;
-            const NkU8* p = data.Data() + y * stride + x * 4;
-            return ((NkU32)p[0] << 24) | ((NkU32)p[1] << 16)
-                | ((NkU32)p[2] <<  8) |  (NkU32)p[3];
+            const uint8* p = data.Data() + y * stride + x * 4;
+            return ((uint32)p[0] << 24) | ((uint32)p[1] << 16)
+                | ((uint32)p[2] <<  8) |  (uint32)p[3];
         }
 
-        static NkU32 DefaultStride(NkU32 w, NkPixelFormat fmt) {
+        static uint32 DefaultStride(uint32 w, NkPixelFormat fmt) {
             switch (fmt) {
             case NkPixelFormat::NK_PIXEL_RGBA8:
             case NkPixelFormat::NK_PIXEL_BGRA8: return w * 4;
@@ -160,15 +160,15 @@ namespace nkentseu{
     // NkVideoRecordConfig
     // ---------------------------------------------------------------------------
     struct NkVideoRecordConfig {
-        enum class Mode : NkU32 {
+        enum class Mode : uint32 {
             AUTO = 0,            // Choisit la meilleure voie (vidéo native, puis fallback)
             VIDEO_ONLY,          // Force un enregistrement vidéo (échec si indisponible)
             IMAGE_SEQUENCE_ONLY, // Force un enregistrement image par image
         };
 
         NkString outputPath;
-        NkU32       bitrateBps      = 4000000;
-        NkU32       audioSampleRate = 44100;
+        uint32       bitrateBps      = 4000000;
+        uint32       audioSampleRate = 44100;
         bool        captureAudio    = false;
         NkString videoCodec      = "h264";
         NkString audioCodec      = "aac";
@@ -179,7 +179,7 @@ namespace nkentseu{
     // ---------------------------------------------------------------------------
     // NkCameraState
     // ---------------------------------------------------------------------------
-    enum class NkCameraState : NkU32 {
+    enum class NkCameraState : uint32 {
         NK_CAM_STATE_CLOSED    = 0,
         NK_CAM_STATE_OPENING,
         NK_CAM_STATE_STREAMING,

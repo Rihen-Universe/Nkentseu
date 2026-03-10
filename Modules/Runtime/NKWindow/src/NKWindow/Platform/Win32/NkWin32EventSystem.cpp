@@ -151,7 +151,7 @@ namespace nkentseu {
     }
 
     NkKey NkEventSystem::VkeyToNkKey(UINT vk, bool extended) noexcept {
-        return NkKeycodeMap::NkKeyFromWin32VK((NkU32)vk, extended);
+        return NkKeycodeMap::NkKeyFromWin32VK((uint32)vk, extended);
     }
 
     // =============================================================================
@@ -205,7 +205,7 @@ namespace nkentseu {
                 // On désenregistre la fenêtre avant de vérifier le compte
                 // (UnregisterWindow est déjà appelé dans NkWindow::Close,
                 //  mais WM_DESTROY peut arriver avant Close dans certains flux)
-                NkU32 remaining = NkSystem::Instance().GetWindowCount();
+                uint32 remaining = NkSystem::Instance().GetWindowCount();
                 if (remaining == 0) {
                     PostQuitMessage(0);
                 }
@@ -217,9 +217,9 @@ namespace nkentseu {
                 BeginPaint(hwnd, &ps);
                 EndPaint(hwnd, &ps);
                 NkWindowPaintEvent evt(
-                    (NkI32)ps.rcPaint.left, (NkI32)ps.rcPaint.top,
-                    (NkU32)(ps.rcPaint.right  - ps.rcPaint.left),
-                    (NkU32)(ps.rcPaint.bottom - ps.rcPaint.top));
+                    (int32)ps.rcPaint.left, (int32)ps.rcPaint.top,
+                    (uint32)(ps.rcPaint.right  - ps.rcPaint.left),
+                    (uint32)(ps.rcPaint.bottom - ps.rcPaint.top));
                 EnqueueForWindow(evt);
                 break;
             }
@@ -255,7 +255,7 @@ namespace nkentseu {
             // =====================================================================
 
             case WM_SIZE: {
-                NkU32 nw = LOWORD(lp), nh = HIWORD(lp);
+                uint32 nw = LOWORD(lp), nh = HIWORD(lp);
                 NkWindowResizeEvent evt(nw, nh,
                     owner ? owner->GetConfig().width  : 0u,
                     owner ? owner->GetConfig().height : 0u);
@@ -267,7 +267,7 @@ namespace nkentseu {
             }
 
             case WM_MOVE: {
-                NkWindowMoveEvent evt((NkI32)LOWORD(lp), (NkI32)HIWORD(lp));
+                NkWindowMoveEvent evt((int32)LOWORD(lp), (int32)HIWORD(lp));
                 EnqueueForWindow(evt);
                 break;
             }
@@ -275,9 +275,9 @@ namespace nkentseu {
             case WM_DPICHANGED: {
                 WORD dpi = HIWORD(wp);
                 NkWindowDpiEvent evt(
-                    (NkF32)dpi / USER_DEFAULT_SCREEN_DPI,
+                    (float32)dpi / USER_DEFAULT_SCREEN_DPI,
                     owner ? owner->GetDpiScale() : 1.f,
-                    (NkU32)dpi);
+                    (uint32)dpi);
                 EnqueueForWindow(evt);
                 const RECT* r = reinterpret_cast<const RECT*>(lp);
                 if (r) SetWindowPos(hwnd, nullptr,
@@ -312,7 +312,7 @@ namespace nkentseu {
                 if (mk & MK_MBUTTON)  buttons.Set(NkMouseButton::NK_MB_MIDDLE);
                 if (mk & MK_XBUTTON1) buttons.Set(NkMouseButton::NK_MB_BACK);
                 if (mk & MK_XBUTTON2) buttons.Set(NkMouseButton::NK_MB_FORWARD);
-                NkMouseMoveEvent evt(x, y, (NkI32)pt.x, (NkI32)pt.y,
+                NkMouseMoveEvent evt(x, y, (int32)pt.x, (int32)pt.y,
                     x - mData.mPrevMouseX, y - mData.mPrevMouseY, buttons, CurrentMods());
                 mData.mPrevMouseX = x;
                 mData.mPrevMouseY = y;
@@ -346,7 +346,7 @@ namespace nkentseu {
                 NkModifierState mods;
                 mods.ctrl  = !!(mk & MK_CONTROL);
                 mods.shift = !!(mk & MK_SHIFT);
-                NkMouseWheelVerticalEvent evt(delta, (NkI32)pt.x, (NkI32)pt.y, 0.0, false, mods);
+                NkMouseWheelVerticalEvent evt(delta, (int32)pt.x, (int32)pt.y, 0.0, false, mods);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -355,7 +355,7 @@ namespace nkentseu {
                 POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
                 ScreenToClient(hwnd, &pt);
                 double delta = GET_WHEEL_DELTA_WPARAM(wp) / (double)WHEEL_DELTA;
-                NkMouseWheelHorizontalEvent evt(delta, (NkI32)pt.x, (NkI32)pt.y);
+                NkMouseWheelHorizontalEvent evt(delta, (int32)pt.x, (int32)pt.y);
                 EnqueueForWindow(evt);
                 break;
             }

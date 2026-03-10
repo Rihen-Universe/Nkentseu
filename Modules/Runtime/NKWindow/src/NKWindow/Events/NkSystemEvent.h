@@ -27,7 +27,7 @@
 
 #include "NkEvent.h"
 #include "NKContainers/String/NkStringUtils.h"
-#include <cstring>
+#include "NKMemory/NkUtils.h"
 #include <string>
 
 namespace nkentseu {
@@ -36,7 +36,7 @@ namespace nkentseu {
     // NkPowerState — état du système d'alimentation
     // =========================================================================
 
-    enum class NkPowerState : NkU32 {
+    enum class NkPowerState : uint32 {
         NK_POWER_NORMAL             = 0, ///< Fonctionnement normal
         NK_POWER_LOW_BATTERY,            ///< Batterie faible (avertissement)
         NK_POWER_CRITICAL_BATTERY,       ///< Batterie critique (< 5%)
@@ -68,7 +68,7 @@ namespace nkentseu {
     // NkDisplayChange — type de changement d'affichage
     // =========================================================================
 
-    enum class NkDisplayChange : NkU32 {
+    enum class NkDisplayChange : uint32 {
         NK_DISPLAY_ADDED            = 0, ///< Nouveau moniteur connecté
         NK_DISPLAY_REMOVED,              ///< Moniteur déconnecté
         NK_DISPLAY_RESOLUTION_CHANGED,   ///< Résolution ou fréquence changée
@@ -82,7 +82,7 @@ namespace nkentseu {
     // NkMemoryPressure — niveau de pression RAM
     // =========================================================================
 
-    enum class NkMemoryPressure : NkU32 {
+    enum class NkMemoryPressure : uint32 {
         NK_MEM_NORMAL   = 0, ///< RAM suffisante
         NK_MEM_MODERATE,     ///< Pression modérée : libérer les caches non critiques
         NK_MEM_CRITICAL,     ///< Pression critique : libérer tout le non-essentiel
@@ -106,21 +106,21 @@ namespace nkentseu {
      * @brief Décrit les caractéristiques d'un moniteur physique.
      */
     struct NkDisplayInfo {
-        NkU32 index       = 0;       ///< Index système (0 = moniteur principal)
-        NkU32 width       = 0;       ///< Résolution horizontale [pixels logiques]
-        NkU32 height      = 0;       ///< Résolution verticale [pixels logiques]
-        NkU32 physWidth   = 0;       ///< Résolution horizontale [pixels physiques]
-        NkU32 physHeight  = 0;       ///< Résolution verticale [pixels physiques]
-        NkU32 refreshRate = 60;      ///< Taux de rafraîchissement [Hz]
-        NkF32 dpiScale    = 1.f;     ///< Facteur d'échelle (1.0 = 100%, 1.5 = 150%)
-        NkF32 dpiX        = 96.f;    ///< DPI horizontal physique
-        NkF32 dpiY        = 96.f;    ///< DPI vertical physique
-        NkI32 posX        = 0;       ///< Position X dans l'espace moniteurs virtuel
-        NkI32 posY        = 0;       ///< Position Y dans l'espace moniteurs virtuel
+        uint32 index       = 0;       ///< Index système (0 = moniteur principal)
+        uint32 width       = 0;       ///< Résolution horizontale [pixels logiques]
+        uint32 height      = 0;       ///< Résolution verticale [pixels logiques]
+        uint32 physWidth   = 0;       ///< Résolution horizontale [pixels physiques]
+        uint32 physHeight  = 0;       ///< Résolution verticale [pixels physiques]
+        uint32 refreshRate = 60;      ///< Taux de rafraîchissement [Hz]
+        float32 dpiScale    = 1.f;     ///< Facteur d'échelle (1.0 = 100%, 1.5 = 150%)
+        float32 dpiX        = 96.f;    ///< DPI horizontal physique
+        float32 dpiY        = 96.f;    ///< DPI vertical physique
+        int32 posX        = 0;       ///< Position X dans l'espace moniteurs virtuel
+        int32 posY        = 0;       ///< Position Y dans l'espace moniteurs virtuel
         bool  isPrimary   = false;   ///< Moniteur principal ?
         char  name[64]    = {};      ///< Nom lisible (ex: "DELL U2720Q")
 
-        NkDisplayInfo() { std::memset(name, 0, sizeof(name)); }
+        NkDisplayInfo() { memory::NkMemSet(name, 0, sizeof(name)); }
     };
 
     // =========================================================================
@@ -138,7 +138,7 @@ namespace nkentseu {
         NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_SYSTEM)
 
     protected:
-        explicit NkSystemEvent(NkU64 windowId = 0) noexcept : NkEvent(windowId) {}
+        explicit NkSystemEvent(uint64 windowId = 0) noexcept : NkEvent(windowId) {}
     };
 
     // =========================================================================
@@ -165,9 +165,9 @@ namespace nkentseu {
          * @param windowId     Identifiant de la fenêtre (0 = niveau OS).
          */
         NkSystemPowerEvent(NkPowerState state,
-                            NkF32 batteryLevel = -1.f,
+                            float32 batteryLevel = -1.f,
                             bool  pluggedIn    = false,
-                            NkU64 windowId     = 0) noexcept
+                            uint64 windowId     = 0) noexcept
             : NkSystemEvent(windowId)
             , mState(state)
             , mBatteryLevel(batteryLevel)
@@ -184,7 +184,7 @@ namespace nkentseu {
         }
 
         NkPowerState GetState()        const noexcept { return mState; }
-        NkF32        GetBatteryLevel() const noexcept { return mBatteryLevel; }
+        float32        GetBatteryLevel() const noexcept { return mBatteryLevel; }
         bool         IsPluggedIn()     const noexcept { return mPluggedIn; }
         bool         IsSuspending()    const noexcept {
             return mState == NkPowerState::NK_POWER_SUSPEND
@@ -197,7 +197,7 @@ namespace nkentseu {
 
     private:
         NkPowerState mState        = NkPowerState::NK_POWER_NORMAL;
-        NkF32        mBatteryLevel = -1.f;
+        float32        mBatteryLevel = -1.f;
         bool         mPluggedIn   = false;
     };
 
@@ -223,7 +223,7 @@ namespace nkentseu {
          */
         NkSystemLocaleEvent(const char* locale,
                              const char* prevLocale = "",
-                             NkU64       windowId   = 0) noexcept
+                             uint64       windowId   = 0) noexcept
             : NkSystemEvent(windowId)
         {
             std::strncpy(mLocale,     locale,     sizeof(mLocale) - 1);
@@ -264,7 +264,7 @@ namespace nkentseu {
          */
         NkSystemDisplayEvent(NkDisplayChange    change,
                               const NkDisplayInfo& info,
-                              NkU64 windowId = 0) noexcept
+                              uint64 windowId = 0) noexcept
             : NkSystemEvent(windowId)
             , mChange(change)
             , mInfo(info)
@@ -275,7 +275,7 @@ namespace nkentseu {
             const char* changes[] = {
                 "Added", "Removed", "Resolution", "Orientation", "DPI", "Primary"
             };
-            NkU32 ci = static_cast<NkU32>(mChange);
+            uint32 ci = static_cast<uint32>(mChange);
             return NkString::Fmt("SystemDisplay(#{0} {1} {2}x{3})",
                 mInfo.index, (ci < 6 ? changes[ci] : "?"), mInfo.width, mInfo.height);
         }
@@ -316,9 +316,9 @@ namespace nkentseu {
          * @param windowId       Identifiant de la fenêtre (0 = niveau OS).
          */
         NkSystemMemoryEvent(NkMemoryPressure pressure,
-                             NkU64 availableBytes = 0,
-                             NkU64 totalBytes     = 0,
-                             NkU64 windowId       = 0) noexcept
+                             uint64 availableBytes = 0,
+                             uint64 totalBytes     = 0,
+                             uint64 windowId       = 0) noexcept
             : NkSystemEvent(windowId)
             , mPressure(pressure)
             , mAvailableBytes(availableBytes)
@@ -335,17 +335,17 @@ namespace nkentseu {
         }
 
         NkMemoryPressure GetPressure()       const noexcept { return mPressure; }
-        NkU64            GetAvailableBytes() const noexcept { return mAvailableBytes; }
-        NkU64            GetTotalBytes()     const noexcept { return mTotalBytes; }
+        uint64            GetAvailableBytes() const noexcept { return mAvailableBytes; }
+        uint64            GetTotalBytes()     const noexcept { return mTotalBytes; }
         bool             IsCritical()        const noexcept { return mPressure == NkMemoryPressure::NK_MEM_CRITICAL; }
 
         /// @brief Mémoire disponible en Mo (0 si inconnu)
-        NkU64 GetAvailableMb() const noexcept { return mAvailableBytes / (1024ULL * 1024ULL); }
+        uint64 GetAvailableMb() const noexcept { return mAvailableBytes / (1024ULL * 1024ULL); }
 
     private:
         NkMemoryPressure mPressure       = NkMemoryPressure::NK_MEM_NORMAL;
-        NkU64            mAvailableBytes = 0;
-        NkU64            mTotalBytes     = 0;
+        uint64            mAvailableBytes = 0;
+        uint64            mTotalBytes     = 0;
     };
 
     // =========================================================================
@@ -373,8 +373,8 @@ namespace nkentseu {
          */
         NkSystemTimeZoneEvent(const char* tzId,
                                const char* prevTzId  = "",
-                               NkI32       offsetMin = 0,
-                               NkU64       windowId  = 0) noexcept
+                               int32       offsetMin = 0,
+                               uint64       windowId  = 0) noexcept
             : NkSystemEvent(windowId)
             , mOffsetMin(offsetMin)
         {
@@ -390,12 +390,12 @@ namespace nkentseu {
 
         const char* GetTimeZoneId()     const noexcept { return mTzId; }
         const char* GetPrevTimeZoneId() const noexcept { return mPrevTzId; }
-        NkI32       GetOffsetMinutes()  const noexcept { return mOffsetMin; }
+        int32       GetOffsetMinutes()  const noexcept { return mOffsetMin; }
 
     private:
         char  mTzId[64]     = {};
         char  mPrevTzId[64] = {};
-        NkI32 mOffsetMin    = 0;
+        int32 mOffsetMin    = 0;
     };
 
     // =========================================================================
@@ -415,7 +415,7 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_SYSTEM_DISPLAY)  // proxy
 
-        enum class Theme : NkU32 {
+        enum class Theme : uint32 {
             Light       = 0,
             Dark,
             HighContrast
@@ -431,10 +431,10 @@ namespace nkentseu {
          */
         NkSystemThemeEvent(Theme theme,
                             Theme prevTheme  = Theme::Light,
-                            NkU8  accentR    = 0,
-                            NkU8  accentG    = 120,
-                            NkU8  accentB    = 215,
-                            NkU64 windowId   = 0) noexcept
+                            uint8  accentR    = 0,
+                            uint8  accentG    = 120,
+                            uint8  accentB    = 215,
+                            uint64 windowId   = 0) noexcept
             : NkSystemEvent(windowId)
             , mTheme(theme)
             , mPrevTheme(prevTheme)
@@ -446,15 +446,15 @@ namespace nkentseu {
         NkEvent*    Clone()    const override { return new NkSystemThemeEvent(*this); }
         NkString ToString() const override {
             const char* names[] = { "Light", "Dark", "HighContrast" };
-            NkU32 ti = static_cast<NkU32>(mTheme);
+            uint32 ti = static_cast<uint32>(mTheme);
             return NkString("SystemTheme(") + (ti < 3 ? names[ti] : "?") + ")";
         }
 
         Theme GetTheme()     const noexcept { return mTheme; }
         Theme GetPrevTheme() const noexcept { return mPrevTheme; }
-        NkU8  GetAccentR()   const noexcept { return mAccentR; }
-        NkU8  GetAccentG()   const noexcept { return mAccentG; }
-        NkU8  GetAccentB()   const noexcept { return mAccentB; }
+        uint8  GetAccentR()   const noexcept { return mAccentR; }
+        uint8  GetAccentG()   const noexcept { return mAccentG; }
+        uint8  GetAccentB()   const noexcept { return mAccentB; }
         bool  IsDark()        const noexcept { return mTheme == Theme::Dark; }
         bool  IsLight()       const noexcept { return mTheme == Theme::Light; }
         bool  IsHighContrast()const noexcept { return mTheme == Theme::HighContrast; }
@@ -462,9 +462,9 @@ namespace nkentseu {
     private:
         Theme mTheme     = Theme::Light;
         Theme mPrevTheme = Theme::Light;
-        NkU8  mAccentR   = 0;
-        NkU8  mAccentG   = 120;
-        NkU8  mAccentB   = 215;
+        uint8  mAccentR   = 0;
+        uint8  mAccentG   = 120;
+        uint8  mAccentB   = 215;
     };
 
     // =========================================================================
@@ -495,8 +495,8 @@ namespace nkentseu {
                                     bool  invertColors     = false,
                                     bool  boldText         = false,
                                     bool  largeText        = false,
-                                    NkF32 fontScale        = 1.f,
-                                    NkU64 windowId         = 0) noexcept
+                                    float32 fontScale        = 1.f,
+                                    uint64 windowId         = 0) noexcept
             : NkSystemEvent(windowId)
             , mReduceMotion(reduceMotion)
             , mIncreaseContrast(increaseContrast)
@@ -520,7 +520,7 @@ namespace nkentseu {
         bool  InvertColors()     const noexcept { return mInvertColors; }
         bool  BoldText()         const noexcept { return mBoldText; }
         bool  LargeText()        const noexcept { return mLargeText; }
-        NkF32 GetFontScale()     const noexcept { return mFontScale; }
+        float32 GetFontScale()     const noexcept { return mFontScale; }
 
     private:
         bool  mReduceMotion     = false;
@@ -528,7 +528,7 @@ namespace nkentseu {
         bool  mInvertColors     = false;
         bool  mBoldText         = false;
         bool  mLargeText        = false;
-        NkF32 mFontScale        = 1.f;
+        float32 mFontScale        = 1.f;
     };
 
 } // namespace nkentseu
