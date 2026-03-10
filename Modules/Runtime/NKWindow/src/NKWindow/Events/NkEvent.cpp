@@ -5,7 +5,7 @@
 
 #include "NkEvent.h"
 #include "NKContainers/String/NkFormat.h"
-#include <chrono>
+#include "NKTime/NkChrono.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -212,15 +212,10 @@ namespace nkentseu {
     // =========================================================================
 
     NkTimestampMs NkEvent::GetCurrentTimestamp() {
-        using namespace std::chrono;
-        return static_cast<NkTimestampMs>(
-            duration_cast<milliseconds>(
-                steady_clock::now().time_since_epoch()
-            ).count()
-        );
+        return static_cast<NkTimestampMs>(NkChrono::Now().milliseconds);
     }
 
-    NkEvent::NkEvent(NkU64 windowId)
+    NkEvent::NkEvent(uint64 windowId)
         : mWindowID(windowId)
         , mTimestamp(GetCurrentTimestamp())
         , mHandled(false)
@@ -252,8 +247,8 @@ namespace nkentseu {
         return "NK_NONE";
     }
 
-    NkU32 NkEvent::GetCategoryFlags() const {
-        return static_cast<NkU32>(NkEventCategory::NK_CAT_NONE);
+    uint32 NkEvent::GetCategoryFlags() const {
+        return static_cast<uint32>(NkEventCategory::NK_CAT_NONE);
     }
 
     NkEvent* NkEvent::Clone() const {

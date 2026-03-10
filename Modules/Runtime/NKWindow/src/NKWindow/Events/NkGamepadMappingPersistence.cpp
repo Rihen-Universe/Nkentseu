@@ -216,7 +216,7 @@ namespace nkentseu {
         outProfile = {};
 
         std::string header;
-        NkU32 version = 0;
+        uint32 version = 0;
         if (!(in >> header >> version) || header != "nkmap") {
             if (outError) *outError = "Invalid mapping file header: " + filePath;
             return false;

@@ -25,9 +25,9 @@ public:
     void StopVideoRecord() override {}
     bool IsRecording() const override { return false; }
     float GetRecordingDurationSeconds() const override { return 0.f; }
-    NkU32 GetWidth()  const override { return 0; }
-    NkU32 GetHeight() const override { return 0; }
-    NkU32 GetFPS()    const override { return 0; }
+    uint32 GetWidth()  const override { return 0; }
+    uint32 GetHeight() const override { return 0; }
+    uint32 GetFPS()    const override { return 0; }
     NkPixelFormat GetFormat() const override { return NkPixelFormat::NK_PIXEL_UNKNOWN; }
     NkString GetLastError() const override {
         return mLastError.Empty() ? "Noop camera — no hardware" : mLastError;

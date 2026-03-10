@@ -28,7 +28,7 @@
 #include "NkEvent.h"
 #include "NkMouseEvent.h"    // pour NkButtonState
 #include "NKContainers/String/NkStringUtils.h"
-#include <cstring>
+#include "NKMemory/NkUtils.h"
 #include <string>
 
 namespace nkentseu {
@@ -37,7 +37,7 @@ namespace nkentseu {
     // NkGamepadType — famille de manette
     // =========================================================================
 
-    enum class NkGamepadType : NkU32 {
+    enum class NkGamepadType : uint32 {
         NK_GP_TYPE_UNKNOWN     = 0,
         NK_GP_TYPE_XBOX,           ///< Xbox 360 / One / Series X|S
         NK_GP_TYPE_PLAYSTATION,    ///< DualShock 3/4, DualSense
@@ -66,7 +66,7 @@ namespace nkentseu {
     // NkGamepadButton — boutons (layout Xbox universel)
     // =========================================================================
 
-    enum class NkGamepadButton : NkU32 {
+    enum class NkGamepadButton : uint32 {
         NK_GP_UNKNOWN = 0,
         // Boutons de face (labels Xbox / PlayStation)
         NK_GP_SOUTH,            ///< A (Xbox) / Croix (PS) / B (Nintendo)
@@ -134,7 +134,7 @@ namespace nkentseu {
     // NkGamepadAxis — axes analogiques
     // =========================================================================
 
-    enum class NkGamepadAxis : NkU32 {
+    enum class NkGamepadAxis : uint32 {
         NK_GP_AXIS_LX = 0,  ///< Stick gauche horizontal  [-1=gauche, +1=droite]
         NK_GP_AXIS_LY,      ///< Stick gauche vertical    [-1=bas, +1=haut]  (Y+ = haut selon HID)
         NK_GP_AXIS_RX,      ///< Stick droit horizontal
@@ -172,16 +172,16 @@ namespace nkentseu {
      * name   : nom lisible (ex: "Xbox Wireless Controller").
      */
     struct NkGamepadInfo {
-        NkU32         index       = 0;
+        uint32         index       = 0;
         char          id[128]     = {};     ///< GUID ou chemin opaque
         char          name[128]   = {};     ///< Nom lisible
         NkGamepadType type        = NkGamepadType::NK_GP_TYPE_UNKNOWN;
-        NkU16         vendorId    = 0;
-        NkU16         productId   = 0;
+        uint16         vendorId    = 0;
+        uint16         productId   = 0;
 
         // Capacités
-        NkU32 numButtons        = 0;
-        NkU32 numAxes           = 0;
+        uint32 numButtons        = 0;
+        uint32 numAxes           = 0;
         bool  hasRumble         = false;   ///< Moteurs de vibration
         bool  hasTriggerRumble  = false;   ///< Vibration dans les gâchettes
         bool  hasTouchpad       = false;   ///< Pavé tactile intégré
@@ -190,8 +190,8 @@ namespace nkentseu {
         bool  hasBattery        = false;   ///< Batterie (manette sans fil)
 
         NkGamepadInfo() {
-            std::memset(id,   0, sizeof(id));
-            std::memset(name, 0, sizeof(name));
+            memory::NkMemSet(id,   0, sizeof(id));
+            memory::NkMemSet(name, 0, sizeof(name));
         }
     };
 
@@ -209,16 +209,16 @@ namespace nkentseu {
         NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_GAMEPAD)
 
         /// @brief Index du joueur (0 = joueur 1)
-        NkU32 GetGamepadIndex() const noexcept { return mGamepadIndex; }
+        uint32 GetGamepadIndex() const noexcept { return mGamepadIndex; }
 
     protected:
-        explicit NkGamepadEvent(NkU32 index,
-                                 NkU64 windowId = 0) noexcept
+        explicit NkGamepadEvent(uint32 index,
+                                 uint64 windowId = 0) noexcept
             : NkEvent(windowId)
             , mGamepadIndex(index)
         {}
 
-        NkU32 mGamepadIndex = 0;
+        uint32 mGamepadIndex = 0;
     };
 
     // =========================================================================
@@ -233,7 +233,7 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_GAMEPAD_CONNECT)
 
         explicit NkGamepadConnectEvent(const NkGamepadInfo& info,
-                                        NkU64 windowId = 0) noexcept
+                                        uint64 windowId = 0) noexcept
             : NkGamepadEvent(info.index, windowId)
             , mInfo(info)
         {}
@@ -261,8 +261,8 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GAMEPAD_DISCONNECT)
 
-        NkGamepadDisconnectEvent(NkU32 index,
-                                  NkU64 windowId = 0) noexcept
+        NkGamepadDisconnectEvent(uint32 index,
+                                  uint64 windowId = 0) noexcept
             : NkGamepadEvent(index, windowId)
         {}
 
@@ -285,14 +285,14 @@ namespace nkentseu {
         NkGamepadButton GetButton()      const noexcept { return mButton; }
         NkButtonState   GetState()       const noexcept { return mState; }
         /// @brief Valeur analogique [0,1] pour les gâchettes mappées en bouton
-        NkF32           GetAnalogValue() const noexcept { return mAnalogValue; }
+        float32           GetAnalogValue() const noexcept { return mAnalogValue; }
 
     protected:
-        NkGamepadButtonEvent(NkU32           index,
+        NkGamepadButtonEvent(uint32           index,
                               NkGamepadButton button,
                               NkButtonState   state,
-                              NkF32           analogValue,
-                              NkU64           windowId) noexcept
+                              float32           analogValue,
+                              uint64           windowId) noexcept
             : NkGamepadEvent(index, windowId)
             , mButton(button)
             , mState(state)
@@ -301,7 +301,7 @@ namespace nkentseu {
 
         NkGamepadButton mButton      = NkGamepadButton::NK_GP_UNKNOWN;
         NkButtonState   mState       = NkButtonState::NK_RELEASED;
-        NkF32           mAnalogValue = 0.f;
+        float32           mAnalogValue = 0.f;
     };
 
     // =========================================================================
@@ -321,10 +321,10 @@ namespace nkentseu {
          * @param analogValue Valeur analogique si applicable [0,1] (défaut 1).
          * @param windowId    Identifiant de la fenêtre.
          */
-        NkGamepadButtonPressEvent(NkU32 index,
+        NkGamepadButtonPressEvent(uint32 index,
                                    NkGamepadButton button,
-                                   NkF32 analogValue = 1.f,
-                                   NkU64 windowId    = 0) noexcept
+                                   float32 analogValue = 1.f,
+                                   uint64 windowId    = 0) noexcept
             : NkGamepadButtonEvent(index, button,
                                    NkButtonState::NK_PRESSED,
                                    analogValue, windowId)
@@ -348,9 +348,9 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GAMEPAD_BUTTON_RELEASED)
 
-        NkGamepadButtonReleaseEvent(NkU32 index,
+        NkGamepadButtonReleaseEvent(uint32 index,
                                      NkGamepadButton button,
-                                     NkU64 windowId = 0) noexcept
+                                     uint64 windowId = 0) noexcept
             : NkGamepadButtonEvent(index, button,
                                    NkButtonState::NK_RELEASED,
                                    0.f, windowId)
@@ -379,7 +379,7 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_GAMEPAD_AXIS_MOTION)
 
         /// @brief Zone morte par défaut [proportion, 0.0-1.0]
-        static constexpr NkF32 DEFAULT_DEADZONE = 0.08f;
+        static constexpr float32 DEFAULT_DEADZONE = 0.08f;
 
         /**
          * @param index      Index du joueur.
@@ -389,12 +389,12 @@ namespace nkentseu {
          * @param deadzone   Zone morte utilisée pour le filtrage.
          * @param windowId   Identifiant de la fenêtre.
          */
-        NkGamepadAxisEvent(NkU32 index,
+        NkGamepadAxisEvent(uint32 index,
                             NkGamepadAxis axis,
-                            NkF32 value,
-                            NkF32 prevValue,
-                            NkF32 deadzone  = DEFAULT_DEADZONE,
-                            NkU64 windowId  = 0) noexcept
+                            float32 value,
+                            float32 prevValue,
+                            float32 deadzone  = DEFAULT_DEADZONE,
+                            uint64 windowId  = 0) noexcept
             : NkGamepadEvent(index, windowId)
             , mAxis(axis)
             , mValue(value)
@@ -410,20 +410,20 @@ namespace nkentseu {
         }
 
         NkGamepadAxis GetAxis()      const noexcept { return mAxis; }
-        NkF32         GetValue()     const noexcept { return mValue; }
-        NkF32         GetPrevValue() const noexcept { return mPrevValue; }
-        NkF32         GetDelta()     const noexcept { return mDelta; }
-        NkF32         GetDeadzone()  const noexcept { return mDeadzone; }
+        float32         GetValue()     const noexcept { return mValue; }
+        float32         GetPrevValue() const noexcept { return mPrevValue; }
+        float32         GetDelta()     const noexcept { return mDelta; }
+        float32         GetDeadzone()  const noexcept { return mDeadzone; }
         bool          IsInDeadzone() const noexcept {
             return mValue > -mDeadzone && mValue < mDeadzone;
         }
 
     private:
         NkGamepadAxis mAxis      = NkGamepadAxis::NK_GP_AXIS_LX;
-        NkF32         mValue     = 0.f;
-        NkF32         mPrevValue = 0.f;
-        NkF32         mDelta     = 0.f;
-        NkF32         mDeadzone  = DEFAULT_DEADZONE;
+        float32         mValue     = 0.f;
+        float32         mPrevValue = 0.f;
+        float32         mDelta     = 0.f;
+        float32         mDeadzone  = DEFAULT_DEADZONE;
     };
 
     // =========================================================================
@@ -455,13 +455,13 @@ namespace nkentseu {
          * @param durationMs   Durée [ms] (0 = infini jusqu'à stop).
          * @param windowId     Identifiant de la fenêtre.
          */
-        NkGamepadRumbleEvent(NkU32 index,
-                              NkF32 motorLow     = 0.f,
-                              NkF32 motorHigh    = 0.f,
-                              NkF32 triggerLeft  = 0.f,
-                              NkF32 triggerRight = 0.f,
-                              NkU32 durationMs   = 100,
-                              NkU64 windowId     = 0) noexcept
+        NkGamepadRumbleEvent(uint32 index,
+                              float32 motorLow     = 0.f,
+                              float32 motorHigh    = 0.f,
+                              float32 triggerLeft  = 0.f,
+                              float32 triggerRight = 0.f,
+                              uint32 durationMs   = 100,
+                              uint64 windowId     = 0) noexcept
             : NkGamepadEvent(index, windowId)
             , mMotorLow(motorLow)
             , mMotorHigh(motorHigh)
@@ -476,22 +476,22 @@ namespace nkentseu {
                 mGamepadIndex, mMotorLow, mMotorHigh, mDurationMs);
         }
 
-        NkF32 GetMotorLow()     const noexcept { return mMotorLow; }
-        NkF32 GetMotorHigh()    const noexcept { return mMotorHigh; }
-        NkF32 GetTriggerLeft()  const noexcept { return mTriggerLeft; }
-        NkF32 GetTriggerRight() const noexcept { return mTriggerRight; }
-        NkU32 GetDurationMs()   const noexcept { return mDurationMs; }
+        float32 GetMotorLow()     const noexcept { return mMotorLow; }
+        float32 GetMotorHigh()    const noexcept { return mMotorHigh; }
+        float32 GetTriggerLeft()  const noexcept { return mTriggerLeft; }
+        float32 GetTriggerRight() const noexcept { return mTriggerRight; }
+        uint32 GetDurationMs()   const noexcept { return mDurationMs; }
         bool  IsStop()          const noexcept {
             return mMotorLow == 0.f && mMotorHigh == 0.f
                 && mTriggerLeft == 0.f && mTriggerRight == 0.f;
         }
 
     private:
-        NkF32 mMotorLow     = 0.f;
-        NkF32 mMotorHigh    = 0.f;
-        NkF32 mTriggerLeft  = 0.f;
-        NkF32 mTriggerRight = 0.f;
-        NkU32 mDurationMs   = 100;
+        float32 mMotorLow     = 0.f;
+        float32 mMotorHigh    = 0.f;
+        float32 mTriggerLeft  = 0.f;
+        float32 mTriggerRight = 0.f;
+        uint32 mDurationMs   = 100;
     };
 
     // =========================================================================
@@ -514,10 +514,10 @@ namespace nkentseu {
          * @param isCharging   true si la manette est en charge.
          * @param windowId     Identifiant de la fenêtre.
          */
-        NkGamepadBatteryEvent(NkU32 index,
-                               NkF32 level      = -1.f,
+        NkGamepadBatteryEvent(uint32 index,
+                               float32 level      = -1.f,
                                bool  isCharging  = false,
-                               NkU64 windowId    = 0) noexcept
+                               uint64 windowId    = 0) noexcept
             : NkGamepadEvent(index, windowId)
             , mLevel(level)
             , mIsCharging(isCharging)
@@ -532,13 +532,13 @@ namespace nkentseu {
                 mGamepadIndex, level, mIsCharging ? " charging" : "");
         }
 
-        NkF32 GetLevel()     const noexcept { return mLevel; }
+        float32 GetLevel()     const noexcept { return mLevel; }
         bool  IsCharging()   const noexcept { return mIsCharging; }
         bool  IsWired()      const noexcept { return mLevel < 0.f; }
         bool  IsCritical()   const noexcept { return mLevel >= 0.f && mLevel < 0.1f; }
 
     private:
-        NkF32 mLevel      = -1.f;
+        float32 mLevel      = -1.f;
         bool  mIsCharging = false;
     };
 

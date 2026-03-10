@@ -43,14 +43,14 @@ namespace nkentseu {
     // NkContextError
     // ---------------------------------------------------------------------------
     struct NkContextError {
-        NkU32          code    = 0;
+        uint32          code    = 0;
         NkString message;
 
         bool IsOk()  const { return code == 0; }
         bool IsFail() const { return code != 0; }
 
         static NkContextError Ok()                            { return {0, {}}; }
-        static NkContextError Fail(NkU32 c, const char* msg)  { return {c, msg}; }
+        static NkContextError Fail(uint32 c, const char* msg)  { return {c, msg}; }
     };
 
     // ---------------------------------------------------------------------------
@@ -58,8 +58,8 @@ namespace nkentseu {
     // Transmis à BeginFrame / EndFrame / Present ET aux renderers.
     // ---------------------------------------------------------------------------
     struct NkFrameContext {
-        NkU32  imageIndex    = 0;      ///< Index dans la swapchain
-        NkU32  frameIndex    = 0;      ///< Index en vol (0 .. maxFramesInFlight-1)
+        uint32  imageIndex    = 0;      ///< Index dans la swapchain
+        uint32  frameIndex    = 0;      ///< Index en vol (0 .. maxFramesInFlight-1)
         bool   needsRecreate = false;  ///< true → appeler Recreate() avant le prochain frame
         void*  commandBuffer = nullptr;///< VkCommandBuffer* ou ID3D12GraphicsCommandList* courant
                                     ///< (nullptr pour OpenGL/Metal qui gèrent en interne)
@@ -69,10 +69,10 @@ namespace nkentseu {
     // NkSwapchainDesc
     // ---------------------------------------------------------------------------
     struct NkSwapchainDesc {
-        NkU32  width         = 0;
-        NkU32  height        = 0;
-        NkU32  imageCount    = 0;
-        NkU32  maxFrames     = 0;   ///< MAX_FRAMES_IN_FLIGHT
+        uint32  width         = 0;
+        uint32  height        = 0;
+        uint32  imageCount    = 0;
+        uint32  maxFrames     = 0;   ///< MAX_FRAMES_IN_FLIGHT
         bool   vsync         = true;
         float  dpi           = 1.f;
     };
@@ -95,7 +95,7 @@ namespace nkentseu {
 
             /// Reconstruit la swapchain (resize, changement de mode plein-écran).
             /// À appeler quand BeginFrame() retourne false + needsRecreate.
-            virtual NkContextError Recreate(NkU32 newWidth, NkU32 newHeight)    = 0;
+            virtual NkContextError Recreate(uint32 newWidth, uint32 newHeight)    = 0;
 
             // ── Boucle de rendu ─────────────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ namespace nkentseu {
 
             // ── Accès aux handles natifs ─────────────────────────────────────────────
             //
-            // T doit définir : static constexpr NkU32 kTypeId = <valeur unique>;
+            // T doit définir : static constexpr uint32 kTypeId = <valeur unique>;
             //
             // Types disponibles (définis dans NkNativeHandles.h) :
             //   NkOpenGLNativeHandles    (OpenGL)
@@ -150,8 +150,8 @@ namespace nkentseu {
             }
 
         protected:
-            virtual void*       GetNativeHandleImpl(NkU32 typeId)       = 0;
-            virtual const void* GetNativeHandleImpl(NkU32 typeId) const = 0;
+            virtual void*       GetNativeHandleImpl(uint32 typeId)       = 0;
+            virtual const void* GetNativeHandleImpl(uint32 typeId) const = 0;
     };
 
     using NkGraphicsContextPtr = std::unique_ptr<NkGraphicsContext>;

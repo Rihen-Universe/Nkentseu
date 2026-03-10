@@ -114,7 +114,7 @@ namespace nkentseu
             bool GetLastFrame(NkCameraFrame& outFrame);
 
             // Queue thread-safe â€” recommandÃ© dans la boucle principale
-            void EnableFrameQueue(NkU32 maxQueueSize = 4);
+            void EnableFrameQueue(uint32 maxQueueSize = 4);
             bool DrainFrameQueue(NkCameraFrame& outFrame);
 
             // -----------------------------------------------------------------------
@@ -146,12 +146,12 @@ namespace nkentseu
             // -----------------------------------------------------------------------
             // Informations session courante
             // -----------------------------------------------------------------------
-            NkU32         GetWidth()     const;
-            NkU32         GetHeight()    const;
-            NkU32         GetFPS()       const;
+            uint32         GetWidth()     const;
+            uint32         GetHeight()    const;
+            uint32         GetFPS()       const;
             NkPixelFormat GetFormat()    const;
             NkString   GetLastError() const;
-            NkU32         GetCurrentDeviceIndex() const { return mCurrentDeviceIndex; }
+            uint32         GetCurrentDeviceIndex() const { return mCurrentDeviceIndex; }
 
             INkCameraBackend* GetBackend() { return &mBackend; }
             const INkCameraBackend* GetBackend() const { return &mBackend; }
@@ -221,7 +221,7 @@ namespace nkentseu
             // Backend
             NkCameraBackend mBackend;
             bool            mReady               = false;
-            NkU32           mCurrentDeviceIndex  = 0;
+            uint32           mCurrentDeviceIndex  = 0;
 
             // Frame thread-safe
             mutable std::mutex  mFrameMutex;
@@ -231,7 +231,7 @@ namespace nkentseu
 
             // Queue optionnelle
             bool                         mQueueEnabled = false;
-            NkU32                        mMaxQueueSize = 4;
+            uint32                        mMaxQueueSize = 4;
             std::queue<NkCameraFrame>    mFrameQueue;
             mutable std::mutex           mQueueMutex;
 
@@ -273,16 +273,16 @@ namespace nkentseu
             // Un stream = une camÃ©ra physique ouverte
             class Stream {
                 public:
-                    explicit Stream(NkU32 deviceIndex);
+                    explicit Stream(uint32 deviceIndex);
                     ~Stream();
 
                     bool          Start(const NkCameraConfig& cfg);
                     void          Stop();
                     bool          GetLastFrame(NkCameraFrame& out);
                     bool          DrainFrame(NkCameraFrame& out);
-                    void          EnableQueue(NkU32 sz = 4);
+                    void          EnableQueue(uint32 sz = 4);
                     NkCameraState GetState()  const;
-                    NkU32         DeviceIndex() const { return mDeviceIndex; }
+                    uint32         DeviceIndex() const { return mDeviceIndex; }
                     NkString   GetLastError() const;
 
                     bool CapturePhotoToFile(const NkString& path = "");
@@ -290,31 +290,31 @@ namespace nkentseu
                 private:
                     void OnFrame(const NkCameraFrame& f);
 
-                    NkU32                     mDeviceIndex;
+                    uint32                     mDeviceIndex;
                     NkCameraBackend           mBackend;
                     bool                      mBackendReady = false;
                     mutable std::mutex        mMutex;
                     NkCameraFrame             mLastFrame;
                     bool                      mHasFrame = false;
                     bool                      mQueueEnabled = false;
-                    NkU32                     mMaxQueue = 4;
+                    uint32                     mMaxQueue = 4;
                     std::queue<NkCameraFrame> mQueue;
                     mutable std::mutex        mQueueMutex;
             };
 
             /// Ouvre la camÃ©ra d'index deviceIndex et dÃ©marre le streaming
-            Stream& Open(NkU32 deviceIndex, const NkCameraConfig& config = {});
+            Stream& Open(uint32 deviceIndex, const NkCameraConfig& config = {});
 
             /// Ferme une camÃ©ra par index
-            void Close(NkU32 deviceIndex);
+            void Close(uint32 deviceIndex);
 
             /// Ferme toutes les camÃ©ras
             void CloseAll();
 
             /// AccÃ¨s Ã  un stream par index de device
-            Stream* Get(NkU32 deviceIndex);
+            Stream* Get(uint32 deviceIndex);
 
-            NkU32 Count() const { return static_cast<NkU32>(mStreams.Size()); }
+            uint32 Count() const { return static_cast<uint32>(mStreams.Size()); }
 
         private:
             NkVector<std::unique_ptr<Stream>> mStreams;

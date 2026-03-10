@@ -21,7 +21,7 @@
 //     NkTransferDataEvent         — paquet de données brut reçu en ligne
 //
 // Usage type :
-//   Un transfert est identifié par un NkU64 transferId unique.
+//   Un transfert est identifié par un uint64 transferId unique.
 //   La séquence d'événements normale est :
 //     NkTransferBeginEvent -> N * NkTransferProgressEvent
 //     -> NkTransferCompleteEvent  (succès)
@@ -40,7 +40,7 @@ namespace nkentseu {
     // NkTransferDirection — sens du transfert
     // =========================================================================
 
-    enum class NkTransferDirection : NkU32 {
+    enum class NkTransferDirection : uint32 {
         NK_TRANSFER_SEND    = 0, ///< Envoi (upload, write)
         NK_TRANSFER_RECEIVE = 1  ///< Réception (download, read)
     };
@@ -49,7 +49,7 @@ namespace nkentseu {
     // NkTransferProtocol — canal de transfert
     // =========================================================================
 
-    enum class NkTransferProtocol : NkU32 {
+    enum class NkTransferProtocol : uint32 {
         NK_TRANSFER_PROTO_UNKNOWN  = 0,
         NK_TRANSFER_PROTO_FILE,        ///< Fichier local (copie, déplacement)
         NK_TRANSFER_PROTO_HTTP,        ///< HTTP / HTTPS
@@ -78,7 +78,7 @@ namespace nkentseu {
     // NkTransferStatus — résultat final
     // =========================================================================
 
-    enum class NkTransferStatus : NkU32 {
+    enum class NkTransferStatus : uint32 {
         NK_TRANSFER_STATUS_SUCCESS   = 0,
         NK_TRANSFER_STATUS_ERROR,        ///< Erreur réseau / I/O
         NK_TRANSFER_STATUS_TIMEOUT,      ///< Délai dépassé
@@ -117,15 +117,15 @@ namespace nkentseu {
         NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_TRANSFER)
 
         /// @brief Identifiant unique du transfert
-        NkU64 GetTransferId() const noexcept { return mTransferId; }
+        uint64 GetTransferId() const noexcept { return mTransferId; }
 
     protected:
-        NkTransferEvent(NkU64 transferId, NkU64 windowId = 0) noexcept
+        NkTransferEvent(uint64 transferId, uint64 windowId = 0) noexcept
             : NkEvent(windowId)
             , mTransferId(transferId)
         {}
 
-        NkU64 mTransferId = 0;
+        uint64 mTransferId = 0;
     };
 
     // =========================================================================
@@ -150,12 +150,12 @@ namespace nkentseu {
          * @param protocol    Canal utilisé.
          * @param windowId    Identifiant de la fenêtre.
          */
-        NkTransferBeginEvent(NkU64 transferId,
+        NkTransferBeginEvent(uint64 transferId,
                               NkString           name,
-                              NkU64                 totalBytes = 0,
+                              uint64                 totalBytes = 0,
                               NkTransferDirection   direction  = NkTransferDirection::NK_TRANSFER_RECEIVE,
                               NkTransferProtocol    protocol   = NkTransferProtocol::NK_TRANSFER_PROTO_UNKNOWN,
-                              NkU64                 windowId   = 0)
+                              uint64                 windowId   = 0)
             : NkTransferEvent(transferId, windowId)
             , mName(std::move(name))
             , mTotalBytes(totalBytes)
@@ -172,7 +172,7 @@ namespace nkentseu {
         }
 
         const NkString&    GetNames()      const noexcept { return mName; }
-        NkU64                 GetTotalBytes()const noexcept { return mTotalBytes; }
+        uint64                 GetTotalBytes()const noexcept { return mTotalBytes; }
         NkTransferDirection   GetDirection() const noexcept { return mDirection; }
         NkTransferProtocol    GetProtocol()  const noexcept { return mProtocol; }
         bool                  IsSend()       const noexcept { return mDirection == NkTransferDirection::NK_TRANSFER_SEND; }
@@ -181,7 +181,7 @@ namespace nkentseu {
 
     private:
         NkString         mName;
-        NkU64               mTotalBytes = 0;
+        uint64               mTotalBytes = 0;
         NkTransferDirection mDirection  = NkTransferDirection::NK_TRANSFER_RECEIVE;
         NkTransferProtocol  mProtocol   = NkTransferProtocol::NK_TRANSFER_PROTO_UNKNOWN;
     };
@@ -201,11 +201,11 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_TRANSFER)
 
-        NkTransferProgressEvent(NkU64 transferId,
-                                  NkU64 bytesTransferred,
-                                  NkU64 totalBytes        = 0,
-                                  NkU64 speedBytesPerSec  = 0,
-                                  NkU64 windowId          = 0) noexcept
+        NkTransferProgressEvent(uint64 transferId,
+                                  uint64 bytesTransferred,
+                                  uint64 totalBytes        = 0,
+                                  uint64 speedBytesPerSec  = 0,
+                                  uint64 windowId          = 0) noexcept
             : NkTransferEvent(transferId, windowId)
             , mBytesTransferred(bytesTransferred)
             , mTotalBytes(totalBytes)
@@ -220,23 +220,23 @@ namespace nkentseu {
                 static_cast<int>(GetProgressPercent()));
         }
 
-        NkU64 GetBytesTransferred()  const noexcept { return mBytesTransferred; }
-        NkU64 GetTotalBytes()        const noexcept { return mTotalBytes; }
-        NkU64 GetSpeedBytesPerSec()  const noexcept { return mSpeedBytesPerSec; }
+        uint64 GetBytesTransferred()  const noexcept { return mBytesTransferred; }
+        uint64 GetTotalBytes()        const noexcept { return mTotalBytes; }
+        uint64 GetSpeedBytesPerSec()  const noexcept { return mSpeedBytesPerSec; }
 
         /// @brief Pourcentage de progression [0.0, 100.0] ou -1 si taille inconnue
-        NkF64 GetProgressPercent() const noexcept {
+        float64 GetProgressPercent() const noexcept {
             if (mTotalBytes == 0) return -1.0;
-            return 100.0 * static_cast<NkF64>(mBytesTransferred) / static_cast<NkF64>(mTotalBytes);
+            return 100.0 * static_cast<float64>(mBytesTransferred) / static_cast<float64>(mTotalBytes);
         }
 
         /// @brief Vitesse de transfert en Ko/s (arrondi)
-        NkU64 GetSpeedKBps() const noexcept { return mSpeedBytesPerSec / 1024ULL; }
+        uint64 GetSpeedKBps() const noexcept { return mSpeedBytesPerSec / 1024ULL; }
 
     private:
-        NkU64 mBytesTransferred = 0;
-        NkU64 mTotalBytes       = 0;
-        NkU64 mSpeedBytesPerSec = 0;
+        uint64 mBytesTransferred = 0;
+        uint64 mTotalBytes       = 0;
+        uint64 mSpeedBytesPerSec = 0;
     };
 
     // =========================================================================
@@ -257,11 +257,11 @@ namespace nkentseu {
          * @param outputPath   Chemin de destination (si applicable).
          * @param windowId     Identifiant de la fenêtre.
          */
-        NkTransferCompleteEvent(NkU64 transferId,
-                                  NkU64 totalBytes  = 0,
-                                  NkU64 durationMs  = 0,
+        NkTransferCompleteEvent(uint64 transferId,
+                                  uint64 totalBytes  = 0,
+                                  uint64 durationMs  = 0,
                                   NkString outputPath = {},
-                                  NkU64 windowId    = 0)
+                                  uint64 windowId    = 0)
             : NkTransferEvent(transferId, windowId)
             , mTotalBytes(totalBytes)
             , mDurationMs(durationMs)
@@ -274,19 +274,19 @@ namespace nkentseu {
                 mTransferId, mTotalBytes, mDurationMs);
         }
 
-        NkU64              GetTotalBytes()  const noexcept { return mTotalBytes; }
-        NkU64              GetDurationMs()  const noexcept { return mDurationMs; }
+        uint64              GetTotalBytes()  const noexcept { return mTotalBytes; }
+        uint64              GetDurationMs()  const noexcept { return mDurationMs; }
         const NkString& GetOutputPath()  const noexcept { return mOutputPath; }
 
         /// @brief Débit moyen [octets/s] (0 si durée nulle)
-        NkU64 GetAverageSpeedBytesPerSec() const noexcept {
+        uint64 GetAverageSpeedBytesPerSec() const noexcept {
             if (mDurationMs == 0) return 0;
             return (mTotalBytes * 1000ULL) / mDurationMs;
         }
 
     private:
-        NkU64       mTotalBytes = 0;
-        NkU64       mDurationMs = 0;
+        uint64       mTotalBytes = 0;
+        uint64       mDurationMs = 0;
         NkString mOutputPath;
     };
 
@@ -310,11 +310,11 @@ namespace nkentseu {
          * @param bytesTransferred Octets transférés avant l'erreur.
          * @param windowId         Identifiant de la fenêtre.
          */
-        NkTransferErrorEvent(NkU64 transferId,
+        NkTransferErrorEvent(uint64 transferId,
                                NkTransferStatus status,
                                NkString      message          = {},
-                               NkU64            bytesTransferred = 0,
-                               NkU64            windowId         = 0)
+                               uint64            bytesTransferred = 0,
+                               uint64            windowId         = 0)
             : NkTransferEvent(transferId, windowId)
             , mStatus(status)
             , mMessage(std::move(message))
@@ -330,12 +330,12 @@ namespace nkentseu {
 
         NkTransferStatus   GetStatus()           const noexcept { return mStatus; }
         const NkString& GetMessage()          const noexcept { return mMessage; }
-        NkU64              GetBytesTransferred() const noexcept { return mBytesTransferred; }
+        uint64              GetBytesTransferred() const noexcept { return mBytesTransferred; }
 
     private:
         NkTransferStatus mStatus           = NkTransferStatus::NK_TRANSFER_STATUS_ERROR;
         NkString      mMessage;
-        NkU64            mBytesTransferred = 0;
+        uint64            mBytesTransferred = 0;
     };
 
     // =========================================================================
@@ -349,9 +349,9 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_TRANSFER)
 
-        NkTransferCancelledEvent(NkU64 transferId,
-                                   NkU64 bytesTransferred = 0,
-                                   NkU64 windowId         = 0) noexcept
+        NkTransferCancelledEvent(uint64 transferId,
+                                   uint64 bytesTransferred = 0,
+                                   uint64 windowId         = 0) noexcept
             : NkTransferEvent(transferId, windowId)
             , mBytesTransferred(bytesTransferred)
         {}
@@ -362,10 +362,10 @@ namespace nkentseu {
                 mTransferId, mBytesTransferred);
         }
 
-        NkU64 GetBytesTransferred() const noexcept { return mBytesTransferred; }
+        uint64 GetBytesTransferred() const noexcept { return mBytesTransferred; }
 
     private:
-        NkU64 mBytesTransferred = 0;
+        uint64 mBytesTransferred = 0;
     };
 
     // =========================================================================
@@ -378,7 +378,7 @@ namespace nkentseu {
      * Utilisé pour les transferts en streaming où les données doivent être
      * traitées au fur et à mesure (audio, vidéo, réseau temps-réel...).
      *
-     * @note  Les données sont passées par valeur (NkVector<NkU8>) pour
+     * @note  Les données sont passées par valeur (NkVector<uint8>) pour
      *        éviter les problèmes de durée de vie. Pour les gros volumes, il
      *        est recommandé d'utiliser un système de buffers partagés en dehors
      *        du système d'événements.
@@ -393,10 +393,10 @@ namespace nkentseu {
          * @param offset      Offset depuis le début du flux [octets].
          * @param windowId    Identifiant de la fenêtre.
          */
-        NkTransferDataEvent(NkU64             transferId,
-                              NkVector<NkU8> data,
-                              NkU64             offset    = 0,
-                              NkU64             windowId  = 0)
+        NkTransferDataEvent(uint64             transferId,
+                              NkVector<uint8> data,
+                              uint64             offset    = 0,
+                              uint64             windowId  = 0)
             : NkTransferEvent(transferId, windowId)
             , mData(std::move(data))
             , mOffset(offset)
@@ -408,14 +408,14 @@ namespace nkentseu {
                 mTransferId, mData.Size(), mOffset);
         }
 
-        const NkVector<NkU8>& GetData()   const noexcept { return mData; }
-        NkU64                    GetOffset()  const noexcept { return mOffset; }
-        NkU32                    GetSize()    const noexcept { return static_cast<NkU32>(mData.Size()); }
-        const NkU8*              GetBytes()   const noexcept { return mData.Data(); }
+        const NkVector<uint8>& GetData()   const noexcept { return mData; }
+        uint64                    GetOffset()  const noexcept { return mOffset; }
+        uint32                    GetSize()    const noexcept { return static_cast<uint32>(mData.Size()); }
+        const uint8*              GetBytes()   const noexcept { return mData.Data(); }
 
     private:
-        NkVector<NkU8> mData;
-        NkU64             mOffset = 0;
+        NkVector<uint8> mData;
+        uint64             mOffset = 0;
     };
 
 } // namespace nkentseu

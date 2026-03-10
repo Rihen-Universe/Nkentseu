@@ -46,14 +46,14 @@ namespace nkentseu {
 		}
 
 		/// Surface utilisable (en pixels)
-		NkU32 UsableWidth(NkU32 totalWidth) const {
+		uint32 UsableWidth(uint32 totalWidth) const {
 			float w = totalWidth - left - right;
-			return w > 0 ? static_cast<NkU32>(w) : 0;
+			return w > 0 ? static_cast<uint32>(w) : 0;
 		}
 
-		NkU32 UsableHeight(NkU32 totalHeight) const {
+		uint32 UsableHeight(uint32 totalHeight) const {
 			float h = totalHeight - top - bottom;
-			return h > 0 ? static_cast<NkU32>(h) : 0;
+			return h > 0 ? static_cast<uint32>(h) : 0;
 		}
 
 		/// Clipe un point dans la zone sûre (returns false si hors zone)
@@ -72,11 +72,11 @@ namespace nkentseu {
 
 	struct NkSafeAreaData {
 		NkSafeAreaInsets insets;
-		NkU32 displayWidth = 0;
-		NkU32 displayHeight = 0;
+		uint32 displayWidth = 0;
+		uint32 displayHeight = 0;
 
 		NkSafeAreaData() = default;
-		NkSafeAreaData(const NkSafeAreaInsets &i, NkU32 w, NkU32 h) : insets(i), displayWidth(w), displayHeight(h) {
+		NkSafeAreaData(const NkSafeAreaInsets &i, uint32 w, uint32 h) : insets(i), displayWidth(w), displayHeight(h) {
 		}
 	};
 

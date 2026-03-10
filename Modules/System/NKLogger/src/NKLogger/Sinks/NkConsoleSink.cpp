@@ -9,6 +9,7 @@
 #include "NKLogger/NkLogLevel.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/String/NkStringUtils.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -29,7 +30,7 @@
 namespace nkentseu {
 
 namespace {
-#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+#if defined(NKENTSEU_PLATFORM_ANDROID)
 	int NkToAndroidPriority(NkLogLevel level) {
 		switch (level) {
 			case NkLogLevel::NK_TRACE:
@@ -101,7 +102,7 @@ namespace {
 		// Formater le message
 		NkString formatted = m_Formatter->Format(message, m_UseColors && SupportsColors());
 
-#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+#if defined(NKENTSEU_PLATFORM_ANDROID)
 		// Android: route la sortie console vers logcat.
 		const NkString tag = NkMakeAndroidTag(message.loggerName);
 		__android_log_print(NkToAndroidPriority(message.level), tag.CStr(), "%s", formatted.CStr());
@@ -132,7 +133,7 @@ namespace {
 	void NkConsoleSink::Flush() {
 		logger_sync::NkScopedLock lock(m_Mutex);
 
-#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
+#if defined(NKENTSEU_PLATFORM_ANDROID)
 		// Logcat gère son propre buffering.
 		return;
 #endif

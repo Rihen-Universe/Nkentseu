@@ -22,7 +22,7 @@
 
 namespace nkentseu {
 
-    enum class NkDropType : NkU32 {
+    enum class NkDropType : uint32 {
         NK_DROP_TYPE_UNKNOWN = 0,
         NK_DROP_TYPE_FILE,           ///< Un ou plusieurs fichiers
         NK_DROP_TYPE_TEXT,           ///< Texte UTF-8
@@ -37,10 +37,10 @@ namespace nkentseu {
     // ===========================================================================
 
     struct NkDropEnterData {
-        NkI32      x = 0, y = 0;    ///< Position du curseur dans la zone client
+        int32      x = 0, y = 0;    ///< Position du curseur dans la zone client
 
         // Résumé de ce qui est proposé (avant l'acceptation)
-        NkU32 numFiles = 0;          ///< Nombre de fichiers
+        uint32 numFiles = 0;          ///< Nombre de fichiers
         bool  hasText  = false;      ///< Contient du texte
         bool  hasImage = false;      ///< Contient une image
 
@@ -64,7 +64,7 @@ namespace nkentseu {
 
         NkDropEnterData data;
 
-        explicit NkDropEnterEvent(const NkDropEnterData& d = {}, NkU64 windowId = 0) noexcept
+        explicit NkDropEnterEvent(const NkDropEnterData& d = {}, uint64 windowId = 0) noexcept
             : NkEvent(windowId), data(d) {}
 
         NkEvent* Clone() const override { return new NkDropEnterEvent(*this); }
@@ -79,7 +79,7 @@ namespace nkentseu {
     // ===========================================================================
 
     struct NkDropOverData {
-        NkI32 x = 0, y = 0;
+        int32 x = 0, y = 0;
 
         NkString ToString() const {
             return NkString::Fmt("DropOver({0},{1})", x, y);
@@ -96,7 +96,7 @@ namespace nkentseu {
 
         NkDropOverData data;
 
-        explicit NkDropOverEvent(const NkDropOverData& d = {}, NkU64 windowId = 0) noexcept
+        explicit NkDropOverEvent(const NkDropOverData& d = {}, uint64 windowId = 0) noexcept
             : NkEvent(windowId), data(d) {}
 
         NkEvent* Clone() const override { return new NkDropOverEvent(*this); }
@@ -122,7 +122,7 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_DROP_LEAVE)
 
-        explicit NkDropLeaveEvent(NkU64 windowId = 0) noexcept : NkEvent(windowId) {}
+        explicit NkDropLeaveEvent(uint64 windowId = 0) noexcept : NkEvent(windowId) {}
 
         NkEvent* Clone() const override { return new NkDropLeaveEvent(*this); }
 
@@ -149,13 +149,13 @@ namespace nkentseu {
     // ===========================================================================
 
     struct NkDropFileData {
-        NkI32 x = 0, y = 0;        ///< Position de dépose dans la zone client
+        int32 x = 0, y = 0;        ///< Position de dépose dans la zone client
         NkVector<NkString> paths;
 
         NkDropFileData() = default;
 
         void AddPath(const NkString& p) { paths.PushBack(p); }
-        NkU32 Count() const { return static_cast<NkU32>(paths.size()); }
+        uint32 Count() const { return static_cast<uint32>(paths.size()); }
 
         NkString ToString() const {
             return NkString::Fmt("DropFile({0} file(s) at {1},{2})", Count(), x, y);
@@ -172,7 +172,7 @@ namespace nkentseu {
 
         NkDropFileData data;
 
-        explicit NkDropFileEvent(const NkDropFileData& d = {}, NkU64 windowId = 0) noexcept
+        explicit NkDropFileEvent(const NkDropFileData& d = {}, uint64 windowId = 0) noexcept
             : NkEvent(windowId), data(d) {}
 
         NkEvent* Clone() const override { return new NkDropFileEvent(*this); }
@@ -187,7 +187,7 @@ namespace nkentseu {
     // ===========================================================================
 
     struct NkDropTextData {
-        NkI32       x = 0, y = 0;
+        int32       x = 0, y = 0;
         NkString text;     ///< Texte en UTF-8
         NkString mimeType; ///< MIME type (ex : "text/plain", "text/html")
 
@@ -207,7 +207,7 @@ namespace nkentseu {
 
         NkDropTextData data;
 
-        explicit NkDropTextEvent(const NkDropTextData& d = {}, NkU64 windowId = 0) noexcept
+        explicit NkDropTextEvent(const NkDropTextData& d = {}, uint64 windowId = 0) noexcept
             : NkEvent(windowId), data(d) {}
 
         NkEvent* Clone() const override { return new NkDropTextEvent(*this); }
@@ -222,12 +222,12 @@ namespace nkentseu {
     // ===========================================================================
 
     struct NkDropImageData {
-        NkI32       x = 0, y = 0;
+        int32       x = 0, y = 0;
         NkString sourceUri;  ///< URI de la source
         NkString mimeType;   ///< "image/png", "image/jpeg"…
-        NkU32       width  = 0;
-        NkU32       height = 0;
-        NkVector<NkU8> pixels;  ///< Données brutes (si disponibles) — RGBA8
+        uint32       width  = 0;
+        uint32       height = 0;
+        NkVector<uint8> pixels;  ///< Données brutes (si disponibles) — RGBA8
 
         bool HasPixels() const { return !pixels.empty(); }
 
@@ -246,7 +246,7 @@ namespace nkentseu {
 
             NkDropImageData data;
 
-            explicit NkDropImageEvent(const NkDropImageData& d = {}, NkU64 windowId = 0) noexcept
+            explicit NkDropImageEvent(const NkDropImageData& d = {}, uint64 windowId = 0) noexcept
                 : NkEvent(windowId), data(d) {}
 
             NkEvent* Clone() const override { return new NkDropImageEvent(*this); }

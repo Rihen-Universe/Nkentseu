@@ -33,7 +33,7 @@ public:
     virtual void BeginRenderPass(NkRenderPassHandle  rp,
                                  NkFramebufferHandle fb,
                                  const NkClearValue* clears,
-                                 NkU32               clearCount) = 0;
+                                 uint32               clearCount) = 0;
     virtual void EndRenderPass()   = 0;
     virtual void NextSubpass()     = 0;
 
@@ -43,33 +43,33 @@ public:
     virtual void SetScissor    (const NkScissor&  sc)      = 0;
 
     // ── Ressources ───────────────────────────────────────────────────────────
-    virtual void BindVertexBuffer (NkU32 binding, NkBufferHandle buf, NkU64 offset = 0) = 0;
-    virtual void BindIndexBuffer  (NkBufferHandle buf, NkIndexType type, NkU64 offset = 0) = 0;
-    virtual void BindDescriptorSet(NkU32 setIndex, NkDescriptorSetHandle ds,
+    virtual void BindVertexBuffer (uint32 binding, NkBufferHandle buf, uint64 offset = 0) = 0;
+    virtual void BindIndexBuffer  (NkBufferHandle buf, NkIndexType type, uint64 offset = 0) = 0;
+    virtual void BindDescriptorSet(uint32 setIndex, NkDescriptorSetHandle ds,
                                    NkPipelineHandle pipeline) = 0;
     virtual void PushConstants    (NkPipelineHandle pipeline,
                                    NkShaderStage    stages,
-                                   NkU32            offset,
-                                   NkU32            size,
+                                   uint32            offset,
+                                   uint32            size,
                                    const void*      data)  = 0;
 
     // ── Draw ─────────────────────────────────────────────────────────────────
     virtual void Draw        (const NkDrawCall&        cmd) = 0;
     virtual void DrawIndexed (const NkDrawIndexedCall& cmd) = 0;
-    virtual void DrawIndirect(NkBufferHandle buf, NkU64 offset, NkU32 count) = 0;
+    virtual void DrawIndirect(NkBufferHandle buf, uint64 offset, uint32 count) = 0;
 
     // ── Compute ──────────────────────────────────────────────────────────────
-    virtual void Dispatch(NkU32 x, NkU32 y, NkU32 z) = 0;
+    virtual void Dispatch(uint32 x, uint32 y, uint32 z) = 0;
 
     // ── Transferts / Synchronisation ─────────────────────────────────────────
     virtual void CopyBuffer (NkBufferHandle  src, NkBufferHandle  dst,
-                              NkU64 srcOff, NkU64 dstOff, NkU64 size) = 0;
+                              uint64 srcOff, uint64 dstOff, uint64 size) = 0;
     virtual void CopyTexture(NkTextureHandle src, NkTextureHandle dst) = 0;
     virtual void UploadBuffer(NkBufferHandle  dst, const void* data,
-                               NkU64 offset, NkU64 size) = 0;
+                               uint64 offset, uint64 size) = 0;
     virtual void UploadTexture(NkTextureHandle dst, const void* data,
-                                NkU32 mip, NkU32 layer,
-                                NkU32 x, NkU32 y, NkU32 w, NkU32 h) = 0;
+                                uint32 mip, uint32 layer,
+                                uint32 x, uint32 y, uint32 w, uint32 h) = 0;
 
     // ── Pipeline barriers (abstraction simplifiée) ───────────────────────────
     virtual void TextureBarrier(NkTextureHandle tex,
@@ -99,7 +99,7 @@ public:
     virtual void EndFrame  (NkRHICommandBuffer& cmd) = 0;
 
     /// Reconstruit la swapchain après un resize.
-    virtual bool Recreate(NkU32 width, NkU32 height) = 0;
+    virtual bool Recreate(uint32 width, uint32 height) = 0;
 
     // ── Ressources ───────────────────────────────────────────────────────────
 
@@ -126,7 +126,7 @@ public:
     // ── Mise à jour des descripteurs ─────────────────────────────────────────
     virtual void UpdateDescriptorSet(NkDescriptorSetHandle ds,
                                      const NkDescriptorWrite* writes,
-                                     NkU32 writeCount) = 0;
+                                     uint32 writeCount) = 0;
 
     // ── Mappage CPU/GPU ──────────────────────────────────────────────────────
     virtual void* MapBuffer  (NkBufferHandle buf) = 0;
@@ -140,13 +140,13 @@ public:
     virtual NkRHICommandBuffer& GetCurrentCommandBuffer() = 0;
 
     // ── Swapchain ────────────────────────────────────────────────────────────
-    virtual NkTextureHandle  GetSwapchainTexture(NkU32 index) = 0;
-    virtual NkU32            GetSwapchainImageCount() const    = 0;
-    virtual NkU32            GetCurrentSwapchainIndex() const  = 0;
+    virtual NkTextureHandle  GetSwapchainTexture(uint32 index) = 0;
+    virtual uint32            GetSwapchainImageCount() const    = 0;
+    virtual uint32            GetCurrentSwapchainIndex() const  = 0;
     virtual NkRenderPassHandle GetSwapchainRenderPass()        = 0;
     virtual NkFramebufferHandle GetCurrentFramebuffer()        = 0;
-    virtual NkU32            GetWidth()  const = 0;
-    virtual NkU32            GetHeight() const = 0;
+    virtual uint32            GetWidth()  const = 0;
+    virtual uint32            GetHeight() const = 0;
 
     // ── API ──────────────────────────────────────────────────────────────────
     virtual NkGraphicsApi GetApi() const = 0;

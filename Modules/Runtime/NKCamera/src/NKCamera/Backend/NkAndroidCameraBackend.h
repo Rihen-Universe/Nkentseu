@@ -17,6 +17,8 @@
 #include "NKCamera/INkCameraBackend.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
+#include "NKLogger/NkLog.h"
+#include "NKTime/NkChrono.h"
 
 #include <camera/NdkCameraManager.h>
 #include <camera/NdkCameraDevice.h>
@@ -24,7 +26,6 @@
 #include <camera/NdkCameraMetadata.h>
 #include <camera/NdkCameraMetadataTags.h>
 #include <media/NdkImageReader.h>
-#include <android/log.h>
 #include <android/sensor.h>
 #include <android_native_app_glue.h>
 #include <cmath>
@@ -33,14 +34,13 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <chrono>
 #include <string>
 #include <vector>
 #include <memory>
 
 #define NKCAM_TAG "NkCamera"
-#define NKCAM_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, NKCAM_TAG, __VA_ARGS__)
-#define NKCAM_LOGI(...) __android_log_print(ANDROID_LOG_INFO,  NKCAM_TAG, __VA_ARGS__)
+#define NKCAM_LOGE(fmt, ...) logger.Errorf("[" NKCAM_TAG "] " fmt, ##__VA_ARGS__)
+#define NKCAM_LOGI(fmt, ...) logger.Infof("[" NKCAM_TAG "] " fmt, ##__VA_ARGS__)
 
 namespace nkentseu
 {
@@ -94,7 +94,7 @@ public:
             ACameraManager_getCameraCharacteristics(mCameraManager, id, &meta);
 
             NkCameraDevice dev;
-            dev.index = static_cast<NkU32>(i);
+            dev.index = static_cast<uint32>(i);
             dev.id    = id;
             dev.name  = NkString("Camera ") + id;
 
@@ -122,8 +122,8 @@ public:
                 int fmt = configs.data.i32[j];
                 if (fmt != AIMAGE_FORMAT_YUV_420_888) continue;
                 NkCameraDevice::Mode mode;
-                mode.width  = static_cast<NkU32>(configs.data.i32[j+1]);
-                mode.height = static_cast<NkU32>(configs.data.i32[j+2]);
+                mode.width  = static_cast<uint32>(configs.data.i32[j+1]);
+                mode.height = static_cast<uint32>(configs.data.i32[j+2]);
                 mode.fps    = 30;
                 mode.format = NkPixelFormat::NK_PIXEL_YUV420;
                 if (mode.width > 0 && mode.height > 0)
@@ -387,7 +387,12 @@ public:
     {
         std::unique_lock<std::mutex> lk(mMutex);
         if (!mHasFrame) {
-            mPhotoCv.wait_for(lk, std::chrono::seconds(3), [this]{ return mHasFrame; });
+            const NkElapsedTime start = NkChrono::Now();
+            while (!mHasFrame && (NkChrono::Now() - start).seconds < 3.0) {
+                lk.unlock();
+                NkChrono::Sleep(10);
+                lk.lock();
+            }
         }
         if (!mHasFrame) { res.success = false; res.errorMsg = "No frame"; return false; }
         res.frame   = mLastFrame;
@@ -424,7 +429,7 @@ public:
         // Approche simplifiée : écrire frames YUV brutes + appeler ffmpeg via Runtime.exec
         mVideoRecordPath = config.outputPath;
         mRecording       = true;
-        mRecordStart     = std::chrono::steady_clock::now();
+        mRecordStart     = NkChrono::Now();
         mState           = NkCameraState::NK_CAM_STATE_RECORDING;
         NKCAM_LOGI("Video record started: %s", config.outputPath.CStr());
         return true;
@@ -443,8 +448,7 @@ public:
     float GetRecordingDurationSeconds() const override
     {
         if (!mRecording) return 0.f;
-        return std::chrono::duration<float>(
-            std::chrono::steady_clock::now() - mRecordStart).count();
+        return static_cast<float>((NkChrono::Now() - mRecordStart).seconds);
     }
 
     // -----------------------------------------------------------------------
@@ -484,9 +488,9 @@ public:
         return true;
     }
 
-    NkU32         GetWidth()     const override { return mWidth;  }
-    NkU32         GetHeight()    const override { return mHeight; }
-    NkU32         GetFPS()       const override { return mFPS;    }
+    uint32         GetWidth()     const override { return mWidth;  }
+    uint32         GetHeight()    const override { return mHeight; }
+    uint32         GetFPS()       const override { return mFPS;    }
     NkPixelFormat GetFormat()    const override { return NkPixelFormat::NK_PIXEL_YUV420; }
     NkString   GetLastError() const override { return mLastError; }
 
@@ -614,7 +618,7 @@ private:
 
     // Gyroscope integration (pitch/roll/yaw)
     float mIntPitch=0.f, mIntRoll=0.f, mIntYaw=0.f;
-    NkU64 mLastSensorTs=0;
+    uint64 mLastSensorTs=0;
     // -----------------------------------------------------------------------
     // Callbacks statiques C (NDK)
     // -----------------------------------------------------------------------
@@ -640,11 +644,11 @@ private:
         AImage_getTimestamp(image, &ts);
 
         NkCameraFrame frame;
-        frame.width  = static_cast<NkU32>(w);
-        frame.height = static_cast<NkU32>(h);
+        frame.width  = static_cast<uint32>(w);
+        frame.height = static_cast<uint32>(h);
         frame.format = NkPixelFormat::NK_PIXEL_YUV420;
-        frame.stride = static_cast<NkU32>(w);
-        frame.timestampUs = static_cast<NkU64>(ts / 1000);
+        frame.stride = static_cast<uint32>(w);
+        frame.timestampUs = static_cast<uint64>(ts / 1000);
         frame.frameIndex  = self->mFrameIdx++;
         // Copier Y + UV
         frame.data.Resize(static_cast<usize>(yLen + uLen + vLen));
@@ -752,8 +756,8 @@ private:
 
     NkString   mCameraId;
     NkCameraState mState     = NkCameraState::NK_CAM_STATE_CLOSED;
-    NkU32         mWidth     = 0, mHeight = 0, mFPS = 30;
-    NkU32         mFrameIdx  = 0;
+    uint32         mWidth     = 0, mHeight = 0, mFPS = 30;
+    uint32         mFrameIdx  = 0;
     NkString   mLastError;
 
     std::mutex              mMutex;
@@ -767,7 +771,7 @@ private:
     // Vidéo
     bool          mRecording = false;
     NkString   mVideoRecordPath;
-    std::chrono::steady_clock::time_point mRecordStart;
+    NkElapsedTime mRecordStart;
     bool          mRequestedPermissionPrompt = false;
 
     static JNIEnv*  sEnv;
@@ -809,7 +813,7 @@ private:
             if (mGyroQueue) {
                 while (ASensorEventQueue_getEvents(mGyroQueue, &ev, 1) > 0) {
                     if (ev.type == ASENSOR_TYPE_GYROSCOPE) {
-                        NkU64 ts = (NkU64)(ev.timestamp / 1000); // ns → µs
+                        uint64 ts = (uint64)(ev.timestamp / 1000); // ns → µs
                         if (mLastSensorTs > 0) {
                             float dt = (float)(ts - mLastSensorTs) / 1e6f;
                             if (dt > 0.f && dt < 0.1f) {

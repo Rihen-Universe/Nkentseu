@@ -44,8 +44,8 @@ namespace nkentseu {
 
     static NkWindowId FindWindowForNSWindow(NSWindow* nswin) {
         if (!nswin) return NK_INVALID_WINDOW_ID;
-        NkU32 count = NkSystem::Instance().GetWindowCount();
-        for (NkU32 i = 0; i < count; ++i) {
+        uint32 count = NkSystem::Instance().GetWindowCount();
+        for (uint32 i = 0; i < count; ++i) {
             NkWindow* w = NkSystem::Instance().GetWindowAt(i);
             if (w && w->mData.mNSWindow == nswin)
                 return w->GetId();
@@ -110,7 +110,7 @@ namespace nkentseu {
 
                     if (key != NkKey::NK_UNKNOWN) {
                         NkModifierState mods = CocoaNsMods([ev modifierFlags]);
-                        NkU32 nativeKey = static_cast<NkU32>(macKC);
+                        uint32 nativeKey = static_cast<uint32>(macKC);
                         if ([ev type] == NSEventTypeKeyUp) {
                             NkKeyReleaseEvent e(key, sc, mods, nativeKey);
                             Enqueue(e, winId);
@@ -129,7 +129,7 @@ namespace nkentseu {
                         if (chars && [chars length] > 0) {
                             unichar c = [chars characterAtIndex:0];
                             if (c >= 0x20 && c != 0x7F) {
-                                NkTextInputEvent e(static_cast<NkU32>(c));
+                                NkTextInputEvent e(static_cast<uint32>(c));
                                 Enqueue(e, winId);
                             }
                         }
@@ -152,9 +152,9 @@ namespace nkentseu {
                     if (pb & (1u << 1)) btns.Set(NkMouseButton::NK_MB_RIGHT);
                     if (pb & (1u << 2)) btns.Set(NkMouseButton::NK_MB_MIDDLE);
                     NkMouseMoveEvent e(
-                        (NkI32)p.x, (NkI32)p.y,
-                        (NkI32)screen.x, (NkI32)screen.y,
-                        (NkI32)[ev deltaX], (NkI32)[ev deltaY],
+                        (int32)p.x, (int32)p.y,
+                        (int32)screen.x, (int32)screen.y,
+                        (int32)[ev deltaX], (int32)[ev deltaY],
                         btns, CocoaNsMods([ev modifierFlags]));
                     Enqueue(e, winId);
                     break;
@@ -183,17 +183,17 @@ namespace nkentseu {
                         NSPoint p      = [ev locationInWindow];
                         NSPoint screen = [NSEvent mouseLocation];
                         NkModifierState mods = CocoaNsMods([ev modifierFlags]);
-                        NkU32 clicks = (NkU32)[ev clickCount];
+                        uint32 clicks = (uint32)[ev clickCount];
                         bool isDown = (t == NSEventTypeLeftMouseDown  ||
                                     t == NSEventTypeRightMouseDown ||
                                     t == NSEventTypeOtherMouseDown);
                         if (isDown) {
-                            NkMouseButtonPressEvent e(btn, (NkI32)p.x, (NkI32)p.y,
-                                                    (NkI32)screen.x, (NkI32)screen.y, clicks, mods);
+                            NkMouseButtonPressEvent e(btn, (int32)p.x, (int32)p.y,
+                                                    (int32)screen.x, (int32)screen.y, clicks, mods);
                             Enqueue(e, winId);
                         } else {
-                            NkMouseButtonReleaseEvent e(btn, (NkI32)p.x, (NkI32)p.y,
-                                                        (NkI32)screen.x, (NkI32)screen.y, clicks, mods);
+                            NkMouseButtonReleaseEvent e(btn, (int32)p.x, (int32)p.y,
+                                                        (int32)screen.x, (int32)screen.y, clicks, mods);
                             Enqueue(e, winId);
                         }
                     }
@@ -209,7 +209,7 @@ namespace nkentseu {
                     bool precise = ([ev hasPreciseScrollingDeltas] == YES);
                     double dy = [ev scrollingDeltaY];
                     double dx = [ev scrollingDeltaX];
-                    NkI32 px = (NkI32)p.x, py = (NkI32)p.y;
+                    int32 px = (int32)p.x, py = (int32)p.y;
                     if (dy != 0.0) {
                         NkMouseWheelVerticalEvent   e(dy, px, py, precise ? dy : 0.0, precise, mods);
                         Enqueue(e, winId);

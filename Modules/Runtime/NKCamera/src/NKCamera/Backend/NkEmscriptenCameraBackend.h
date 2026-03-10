@@ -109,9 +109,9 @@ public:
         return false;
     }
 
-    NkU32 GetWidth() const override { return 0; }
-    NkU32 GetHeight() const override { return 0; }
-    NkU32 GetFPS() const override { return 0; }
+    uint32 GetWidth() const override { return 0; }
+    uint32 GetHeight() const override { return 0; }
+    uint32 GetFPS() const override { return 0; }
     NkPixelFormat GetFormat() const override { return NkPixelFormat::NK_PIXEL_UNKNOWN; }
 
     NkString GetLastError() const override

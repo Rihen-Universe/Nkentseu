@@ -94,10 +94,10 @@ namespace nkentseu {
                 mDropLeave = std::move(cb);
             }
 
-            void OnDragEnter(float x, float y, NkU32 numItems, bool hasText, bool hasImage) {
+            void OnDragEnter(float x, float y, uint32 numItems, bool hasText, bool hasImage) {
                 NkDropEnterData data{};
-                data.x = static_cast<NkI32>(x);
-                data.y = static_cast<NkI32>(y);
+                data.x = static_cast<int32>(x);
+                data.y = static_cast<int32>(y);
                 data.numFiles = numItems;
                 data.hasText = hasText;
                 data.hasImage = hasImage;
@@ -106,8 +106,8 @@ namespace nkentseu {
 
             void OnDragOver(float x, float y) {
                 NkDropOverData data{};
-                data.x = static_cast<NkI32>(x);
-                data.y = static_cast<NkI32>(y);
+                data.x = static_cast<int32>(x);
+                data.y = static_cast<int32>(y);
                 EmitDropOver(data);
             }
 
@@ -117,8 +117,8 @@ namespace nkentseu {
 
             void OnDropText(float x, float y, const NkString& text, const NkString& mimeType = "text/plain") {
                 NkDropTextData data{};
-                data.x = static_cast<NkI32>(x);
-                data.y = static_cast<NkI32>(y);
+                data.x = static_cast<int32>(x);
+                data.y = static_cast<int32>(y);
                 data.text = text;
                 data.mimeType = mimeType;
                 EmitDropText(data);
@@ -126,8 +126,8 @@ namespace nkentseu {
 
             void OnDropFiles(float x, float y, const NkVector<NkString>& names) {
                 NkDropFileData data{};
-                data.x = static_cast<NkI32>(x);
-                data.y = static_cast<NkI32>(y);
+                data.x = static_cast<int32>(x);
+                data.y = static_cast<int32>(y);
                 data.paths = names;
                 EmitDropFiles(data);
             }
@@ -146,7 +146,7 @@ namespace nkentseu {
             static bool DispatchDragEnter(NkWindowId windowId,
                                           float x,
                                           float y,
-                                          NkU32 numItems,
+                                          uint32 numItems,
                                           bool hasText,
                                           bool hasImage)
             {

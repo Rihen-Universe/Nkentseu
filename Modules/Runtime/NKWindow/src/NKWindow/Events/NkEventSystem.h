@@ -32,6 +32,7 @@
 
 #include "NKWindow/Core/NkWindowId.h"
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKLogger/NkLog.h"
 
 
 #include <functional>
@@ -46,26 +47,7 @@
 #include <type_traits>
 #include <utility>
 
-#if !defined(NK_EVENTSYS_HAS_ANDROID_LOG)
-#   if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(ANDROID)
-#       define NK_EVENTSYS_HAS_ANDROID_LOG 1
-#   elif defined(__has_include)
-#       if __has_include(<android/log.h>)
-#           define NK_EVENTSYS_HAS_ANDROID_LOG 1
-#       else
-#           define NK_EVENTSYS_HAS_ANDROID_LOG 0
-#       endif
-#   else
-#       define NK_EVENTSYS_HAS_ANDROID_LOG 0
-#   endif
-#endif
-
-#if NK_EVENTSYS_HAS_ANDROID_LOG
-#   include <android/log.h>
-#   define NK_EVENTSYS_ANDROID_TRACE(...) __android_log_print(ANDROID_LOG_INFO, "NkEventSystem", __VA_ARGS__)
-#else
-#   define NK_EVENTSYS_ANDROID_TRACE(...) ((void)0)
-#endif
+#define NK_EVENTSYS_ANDROID_TRACE(...) logger.Infof(__VA_ARGS__)
 
 #if defined(NKENTSEU_PLATFORM_UWP)
 #   include "NKWindow/Platform/UWP/NkUWPEventSystem.h"
@@ -388,7 +370,7 @@ namespace nkentseu {
                         ev->GetWindowId() != filterId) return;
                     if (auto* typed = ev->As<T>()) callback(typed);
                 };
-                NkU64 token = AddEventCallbackTokenRaw(type, std::move(wrapper));
+                uint64 token = AddEventCallbackTokenRaw(type, std::move(wrapper));
 
                 // Le guard appelle RemoveCallbackToken Ã  sa destruction
                 auto remover = [this, type, token]() {
@@ -443,7 +425,7 @@ namespace nkentseu {
             bool GetQueueMode()                  const noexcept { return mQueueMode; }
 
             std::size_t GetPendingEventCount() const noexcept;
-            NkU64       GetTotalEventCount()   const noexcept { return mTotalEventCount; }
+            uint64       GetTotalEventCount()   const noexcept { return mTotalEventCount; }
             const char* GetPlatformName()      const noexcept;
 
         private:
@@ -453,9 +435,9 @@ namespace nkentseu {
             void PumpOS();
             void DispatchToCallbacks(NkEvent* ev, NkWindowId winId);
             void UpdateInputState(NkEvent* ev);
-            void RemoveCallbackToken(NkEventType::Value type, NkU64 token);
+            void RemoveCallbackToken(NkEventType::Value type, uint64 token);
             void AddEventCallbackRaw(NkEventType::Value type, NkEventCallback callback);
-            NkU64 AddEventCallbackTokenRaw(NkEventType::Value type, NkEventCallback callback);
+            uint64 AddEventCallbackTokenRaw(NkEventType::Value type, NkEventCallback callback);
             void ClearEventCallbacksRaw(NkEventType::Value type);
 
             // Point 4 : Enqueue prend le winId explicitement pour que chaque
@@ -468,11 +450,11 @@ namespace nkentseu {
 
             // CORRECTION 4 : callbacks tokÃ©nisÃ©s pour RAII guard
             struct TokenizedCallback {
-                NkU64           token;
+                uint64           token;
                 NkEventCallback callback;
             };
             NkUnorderedMap<NkEventType::Value, NkVector<TokenizedCallback>> mTypedCallbacksWithToken;
-            NkU64 mCallbackTokenCounter = 0;
+            uint64 mCallbackTokenCounter = 0;
 
             NkEventState mInputState;
             NkGenericHidMapper mHidMapper;
@@ -485,7 +467,7 @@ namespace nkentseu {
             bool   mAutoUpdateInputState = true;
             bool   mAutoGamepadPoll      = true;
             bool   mQueueMode            = true;
-            NkU64  mTotalEventCount      = 0;
+            uint64  mTotalEventCount      = 0;
 
             // Point 5 : deux mutex distincts
             //   mDispatchMutex : protÃ¨ge DispatchEvent() direct (appel externe)

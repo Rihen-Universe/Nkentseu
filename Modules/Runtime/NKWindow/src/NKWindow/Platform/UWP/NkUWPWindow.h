@@ -13,8 +13,8 @@ namespace nkentseu {
         // CoreWindow or platform equivalent native handle when available.
         void*       mNativeWindow = nullptr;
         NkString mTitle;
-        NkU32       mWidth        = 0;
-        NkU32       mHeight       = 0;
+        uint32       mWidth        = 0;
+        uint32       mHeight       = 0;
         bool        mVisible      = false;
         bool        mFullscreen   = false;
     };

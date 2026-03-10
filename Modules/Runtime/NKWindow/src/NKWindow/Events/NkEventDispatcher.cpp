@@ -24,6 +24,7 @@
 #include "NkEventDispatcher.h"
 #include "NkEventSystem.h"
 #include "NKWindow/Core/NkSystem.h"   // NkSystem::Events() → NkEventSystem&
+#include "NKMath/NkFunctions.h"
 
 #include <algorithm>
 
@@ -61,12 +62,12 @@ namespace nkentseu {
     // Souris — NkMouseInputState
     // -------------------------------------------------------------------------
 
-    NkI32 NkInputQuery::MouseX()          const noexcept { return State().mouse.x;          }
-    NkI32 NkInputQuery::MouseY()          const noexcept { return State().mouse.y;          }
-    NkI32 NkInputQuery::MouseDeltaX()     const noexcept { return State().mouse.deltaX;     }
-    NkI32 NkInputQuery::MouseDeltaY()     const noexcept { return State().mouse.deltaY;     }
-    NkI32 NkInputQuery::MouseRawDeltaX()  const noexcept { return State().mouse.rawDeltaX;  }
-    NkI32 NkInputQuery::MouseRawDeltaY()  const noexcept { return State().mouse.rawDeltaY;  }
+    int32 NkInputQuery::MouseX()          const noexcept { return State().mouse.x;          }
+    int32 NkInputQuery::MouseY()          const noexcept { return State().mouse.y;          }
+    int32 NkInputQuery::MouseDeltaX()     const noexcept { return State().mouse.deltaX;     }
+    int32 NkInputQuery::MouseDeltaY()     const noexcept { return State().mouse.deltaY;     }
+    int32 NkInputQuery::MouseRawDeltaX()  const noexcept { return State().mouse.rawDeltaX;  }
+    int32 NkInputQuery::MouseRawDeltaY()  const noexcept { return State().mouse.rawDeltaY;  }
 
     bool NkInputQuery::IsMouseDown(NkMouseButton btn) const noexcept {
         return State().mouse.IsButtonPressed(btn);
@@ -81,23 +82,23 @@ namespace nkentseu {
     // Manette — NkGamepadSetState (state.gamepads)
     // -------------------------------------------------------------------------
 
-    bool NkInputQuery::IsGamepadDown(NkU32 idx, NkGamepadButton btn) const noexcept {
+    bool NkInputQuery::IsGamepadDown(uint32 idx, NkGamepadButton btn) const noexcept {
         return State().gamepads.IsButtonDown(idx, btn);
     }
 
-    NkF32 NkInputQuery::GamepadAxis(NkU32 idx, NkGamepadAxis ax) const noexcept {
+    float32 NkInputQuery::GamepadAxis(uint32 idx, NkGamepadAxis ax) const noexcept {
         return State().gamepads.GetAxis(idx, ax);
     }
 
-    bool NkInputQuery::IsGamepadConnected(NkU32 idx) const noexcept {
+    bool NkInputQuery::IsGamepadConnected(uint32 idx) const noexcept {
         const auto* slot = State().gamepads.GetSlot(idx);
         return slot && slot->connected;
     }
 
-    void NkInputQuery::GamepadRumble(NkU32 idx,
-                                      NkF32 motorLow, NkF32 motorHigh,
-                                      NkF32 triggerLeft, NkF32 triggerRight,
-                                      NkU32 durationMs) const {
+    void NkInputQuery::GamepadRumble(uint32 idx,
+                                      float32 motorLow, float32 motorHigh,
+                                      float32 triggerLeft, float32 triggerRight,
+                                      uint32 durationMs) const {
         NkSystem::Gamepads().Rumble(idx,
             motorLow, motorHigh, triggerLeft, triggerRight, durationMs);
     }
@@ -160,15 +161,15 @@ namespace nkentseu {
         }
     }
 
-    NkU64 NkActionManager::GetCommandCount() const noexcept {
-        NkU64 n = 0;
+    uint64 NkActionManager::GetCommandCount() const noexcept {
+        uint64 n = 0;
         mCommands.ForEach([&](const NkString&, const NkVector<NkActionCommand>& cmds) { n += cmds.Size(); });
         return n;
     }
 
-    NkU64 NkActionManager::GetCommandCount(const NkString& name) const noexcept {
+    uint64 NkActionManager::GetCommandCount(const NkString& name) const noexcept {
         const NkVector<NkActionCommand>* v = mCommands.Find(name);
-        return v ? static_cast<NkU64>(v->Size()) : 0u;
+        return v ? static_cast<uint64>(v->Size()) : 0u;
     }
 
     // =========================================================================
@@ -204,7 +205,7 @@ namespace nkentseu {
             for (const auto& cmd : cmds) {
                 float raw   = resolver(cmd.GetCode().device, cmd.GetCode().code);
                 float value = raw * cmd.GetScale();
-                if (std::abs(value) >= cmd.GetMinInterval())
+                if (math::NkFabs(value) >= cmd.GetMinInterval())
                     FireAxis(name, cmd, value);
             }
         });
@@ -218,15 +219,15 @@ namespace nkentseu {
             (*sub)(name, cmd.GetCode(), value);
     }
 
-    NkU64 NkAxisManager::GetCommandCount() const noexcept {
-        NkU64 n = 0;
+    uint64 NkAxisManager::GetCommandCount() const noexcept {
+        uint64 n = 0;
         mCommands.ForEach([&](const NkString&, const NkVector<NkAxisCommand>& cmds) { n += cmds.Size(); });
         return n;
     }
 
-    NkU64 NkAxisManager::GetCommandCount(const NkString& name) const noexcept {
+    uint64 NkAxisManager::GetCommandCount(const NkString& name) const noexcept {
         const NkVector<NkAxisCommand>* v = mCommands.Find(name);
-        return v ? static_cast<NkU64>(v->Size()) : 0u;
+        return v ? static_cast<uint64>(v->Size()) : 0u;
     }
 
 } // namespace nkentseu

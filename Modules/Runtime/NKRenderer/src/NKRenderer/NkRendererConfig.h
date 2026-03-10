@@ -30,7 +30,7 @@ namespace nkentseu {
 		NkPixelFormat colorFormat = NkPixelFormat::NK_PIXEL_R8G8B8A8_UNORM;
 		/// @brief Depth/stencil format.
 		NkPixelFormat depthFormat = NkPixelFormat::NK_PIXEL_D24_UNORM_S8_UINT;
-		NkU32 sampleCount = 1; ///< MSAA (1 = dÃƒÂ©sactivÃƒÂ©)
+		uint32 sampleCount = 1; ///< MSAA (1 = dÃƒÂ©sactivÃƒÂ©)
 		/// @brief Enable vertical synchronization.
 		bool vsync = true;
 		/// @brief Enable validation/debug layers when available.
@@ -48,10 +48,10 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 
 	struct NkFramebufferInfo {
-		NkU32 width = 0;
-		NkU32 height = 0;
-		NkU32 pitch = 0;		///< Octets par ligne (width * 4 pour RGBA8)
-		NkU8 *pixels = nullptr; ///< Pointeur vers pixels (Software uniquement)
+		uint32 width = 0;
+		uint32 height = 0;
+		uint32 pitch = 0;		///< Octets par ligne (width * 4 pour RGBA8)
+		uint8 *pixels = nullptr; ///< Pointeur vers pixels (Software uniquement)
 	};
 
 	// ---------------------------------------------------------------------------

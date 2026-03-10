@@ -64,9 +64,9 @@ namespace nkentseu {
             // -----------------------------------------------------------------------
             // Informations session
             // -----------------------------------------------------------------------
-            virtual NkU32         GetWidth()     const = 0;
-            virtual NkU32         GetHeight()    const = 0;
-            virtual NkU32         GetFPS()       const = 0;
+            virtual uint32         GetWidth()     const = 0;
+            virtual uint32         GetHeight()    const = 0;
+            virtual uint32         GetFPS()       const = 0;
             virtual NkPixelFormat GetFormat()    const = 0;
             virtual NkString   GetLastError() const = 0;
 

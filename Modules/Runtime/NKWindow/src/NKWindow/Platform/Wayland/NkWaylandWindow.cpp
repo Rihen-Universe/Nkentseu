@@ -30,6 +30,8 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKLogger/NkLog.h"
+#include "NKMath/NkFunctions.h"
+#include "NKMemory/NkUtils.h"
 
 #include <wayland-client.h>
 #include <wayland-cursor.h>
@@ -270,8 +272,8 @@ namespace nkentseu {
         bool isMaximized  = false;
         if (states) {
             const uint32_t* s     = static_cast<const uint32_t*>(states->data);
-            const NkU32     count = static_cast<NkU32>(states->size / sizeof(uint32_t));
-            for (NkU32 i = 0; i < count; ++i) {
+            const uint32     count = static_cast<uint32>(states->size / sizeof(uint32_t));
+            for (uint32 i = 0; i < count; ++i) {
                 if (s[i] == XDG_TOPLEVEL_STATE_FULLSCREEN) isFullscreen = true;
                 if (s[i] == XDG_TOPLEVEL_STATE_MAXIMIZED)  isMaximized  = true;
             }
@@ -699,7 +701,7 @@ namespace nkentseu {
                 mData.mShm, mData.mWidth, mData.mHeight, mData.mStride, &mData.mPixels);
 
             if (mData.mBuffer && config.visible && mData.mConfigured) {
-                std::memset(mData.mPixels, 0,
+                memory::NkMemSet(mData.mPixels, 0,
                     static_cast<std::size_t>(mData.mStride) * mData.mHeight);
                 wl_surface_attach(mData.mSurface, mData.mBuffer, 0, 0);
                 wl_surface_damage(mData.mSurface, 0, 0,
@@ -801,15 +803,15 @@ namespace nkentseu {
         if (gOutputInfo.physWidth > 0 && gOutputInfo.width > 0) {
             const float dpi = static_cast<float>(gOutputInfo.width)
                             / (static_cast<float>(gOutputInfo.physWidth) / 25.4f);
-            return std::max(1.0f, dpi / 96.0f); // 96 DPI = 1.0 (référence)
+            return math::NkMax(1.0f, dpi / 96.0f); // 96 DPI = 1.0 (référence)
         }
         return 1.0f;
     }
 
     NkVec2u NkWindow::GetDisplaySize() const {
         return {
-            static_cast<NkU32>(gOutputInfo.width  > 0 ? gOutputInfo.width  : 1920),
-            static_cast<NkU32>(gOutputInfo.height > 0 ? gOutputInfo.height : 1080),
+            static_cast<uint32>(gOutputInfo.width  > 0 ? gOutputInfo.width  : 1920),
+            static_cast<uint32>(gOutputInfo.height > 0 ? gOutputInfo.height : 1080),
         };
     }
 
@@ -842,7 +844,7 @@ namespace nkentseu {
     // une fois le configure reçu et acquitté (mPendingSizeRelease).
     // =========================================================================
 
-    void NkWindow::SetSize(NkU32 width, NkU32 height) {
+    void NkWindow::SetSize(uint32 width, uint32 height) {
         mConfig.width  = width;
         mConfig.height = height;
 
@@ -880,7 +882,7 @@ namespace nkentseu {
     // SetPosition — non supporté nativement par xdg-shell
     // =========================================================================
 
-    void NkWindow::SetPosition(NkI32 /*x*/, NkI32 /*y*/) {
+    void NkWindow::SetPosition(int32 /*x*/, int32 /*y*/) {
         // xdg-shell n'expose pas de requête de positionnement client.
         // Des protocoles étendus (wlr-layer-shell, xdg-activation) existent
         // sur certains compositeurs mais ne sont pas standard.
@@ -972,7 +974,7 @@ namespace nkentseu {
     // Souris
     // =========================================================================
 
-    void NkWindow::SetMousePosition(NkU32 x, NkU32 y) {
+    void NkWindow::SetMousePosition(uint32 x, uint32 y) {
         // Wayland interdit le warp de curseur sans zwp_pointer_constraints_v1.
         // On mémorise la position cible pour usage interne (ex. FPS camera).
         mData.mMouseX = static_cast<int32_t>(x);

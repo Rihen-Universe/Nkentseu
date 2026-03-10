@@ -52,7 +52,7 @@ namespace nkentseu {
     struct NkEventCategory {
 
         /// @brief Valeurs de catégorie (flags de bits)
-        enum Value : NkU32 {
+        enum Value : uint32 {
             NK_CAT_NONE        = 0,
             NK_CAT_APPLICATION = BIT(1),   ///< Événements liés à l'application
             NK_CAT_INPUT       = BIT(2),   ///< Entrées utilisateur génériques
@@ -84,13 +84,13 @@ namespace nkentseu {
     // -------------------------------------------------------------------------
 
     inline NkEventCategory::Value operator|(NkEventCategory::Value a, NkEventCategory::Value b) {
-        return static_cast<NkEventCategory::Value>(static_cast<NkU32>(a) | static_cast<NkU32>(b));
+        return static_cast<NkEventCategory::Value>(static_cast<uint32>(a) | static_cast<uint32>(b));
     }
     inline NkEventCategory::Value operator&(NkEventCategory::Value a, NkEventCategory::Value b) {
-        return static_cast<NkEventCategory::Value>(static_cast<NkU32>(a) & static_cast<NkU32>(b));
+        return static_cast<NkEventCategory::Value>(static_cast<uint32>(a) & static_cast<uint32>(b));
     }
     inline NkEventCategory::Value operator~(NkEventCategory::Value a) {
-        return static_cast<NkEventCategory::Value>(~static_cast<NkU32>(a));
+        return static_cast<NkEventCategory::Value>(~static_cast<uint32>(a));
     }
     inline NkEventCategory::Value& operator|=(NkEventCategory::Value& a, NkEventCategory::Value b) {
         return a = a | b;
@@ -105,7 +105,7 @@ namespace nkentseu {
 
     /// @brief Retourne true si le flag est présent dans le set
     inline bool NkCategoryHas(NkEventCategory::Value set, NkEventCategory::Value flag) {
-        return (static_cast<NkU32>(set) & static_cast<NkU32>(flag)) != 0;
+        return (static_cast<uint32>(set) & static_cast<uint32>(flag)) != 0;
     }
     /// @brief Retourne true si aucune catégorie n'est définie
     inline bool NkCategoryEmpty(NkEventCategory::Value set) {
@@ -123,7 +123,7 @@ namespace nkentseu {
 
     struct NkEventType {
 
-        enum Value : NkU32 {
+        enum Value : uint32 {
             NK_NONE = 0,
 
             // --- Application ---
@@ -250,7 +250,7 @@ namespace nkentseu {
     // =========================================================================
 
     /// @brief Millisecondes depuis l'initialisation du système d'événements
-    using NkTimestampMs = NkU64;
+    using NkTimestampMs = uint64;
 
     // =========================================================================
     // Macros helper pour les classes dérivées de NkEvent
@@ -282,8 +282,8 @@ namespace nkentseu {
 
     /// @brief Implémente GetCategoryFlags()
     #define NK_EVENT_CATEGORY_FLAGS(category_) \
-        NkU32 GetCategoryFlags() const override { \
-            return static_cast<NkU32>(category_); \
+        uint32 GetCategoryFlags() const override { \
+            return static_cast<uint32>(category_); \
         }
 
     // =========================================================================
@@ -316,7 +316,7 @@ namespace nkentseu {
             virtual const char* GetTypeStr() const;
 
             /// @brief Retourne les flags de catégorie (bitfield NkEventCategory::Value)
-            virtual NkU32 GetCategoryFlags() const;
+            virtual uint32 GetCategoryFlags() const;
 
             /// @brief Crée une copie polymorphe de l'événement (heap-allocated)
             /// @note  Le caller est responsable de la destruction (delete / unique_ptr)
@@ -325,7 +325,7 @@ namespace nkentseu {
             // --- Constructeurs ---
 
             /// @brief Constructeur avec identifiant de fenêtre source
-            explicit NkEvent(NkU64 windowId);
+            explicit NkEvent(uint64 windowId);
 
             /// @brief Constructeur par défaut (windowId = 0)
             NkEvent();
@@ -350,10 +350,10 @@ namespace nkentseu {
             }
 
             /// @brief Retourne l'identifiant de la fenêtre source (0 si aucune)
-            NkU64 GetWindowId() const { return mWindowID; }
+            uint64 GetWindowId() const { return mWindowID; }
 
             /// @brief Définit l'identifiant de la fenêtre source
-            void SetWindowId(NkU64 id) { mWindowID = id; }
+            void SetWindowId(uint64 id) { mWindowID = id; }
 
             /// @brief Retourne le timestamp de création (ms depuis init système)
             NkTimestampMs GetTimestamp() const { return mTimestamp; }
@@ -379,7 +379,7 @@ namespace nkentseu {
 
             /// @brief Retourne true si l'événement appartient à la catégorie donnée
             bool HasCategory(NkEventCategory::Value flag) const {
-                return (GetCategoryFlags() & static_cast<NkU32>(flag)) != 0;
+                return (GetCategoryFlags() & static_cast<uint32>(flag)) != 0;
             }
 
             // --- Casting polymorphe type-safe ---
@@ -409,7 +409,7 @@ namespace nkentseu {
             static NkString CategoryToString(NkEventCategory::Value category);
 
         protected:
-            NkU64         mWindowID  = 0;     ///< Identifiant de la fenêtre source
+            uint64         mWindowID  = 0;     ///< Identifiant de la fenêtre source
             NkTimestampMs mTimestamp = 0;     ///< Timestamp de création (ms)
             bool          mHandled   = false; ///< Événement déjà traité ?
 

@@ -5,7 +5,6 @@
 #include "NkCameraSystem.h"
 #include "NKCamera/NkCamera2D.h"
 
-#include <chrono>
 #include <ctime>
 #include <cstdio>
 #include <cmath>
@@ -101,7 +100,7 @@ namespace nkentseu {
         return true;
     }
 
-    void NkCameraSystem::EnableFrameQueue(NkU32 maxSize)
+    void NkCameraSystem::EnableFrameQueue(uint32 maxSize)
     {
         std::lock_guard<std::mutex> lk(mQueueMutex);
         mQueueEnabled = true;
@@ -169,9 +168,9 @@ namespace nkentseu {
     // Informations session
     // ===========================================================================
 
-    NkU32         NkCameraSystem::GetWidth()     const { return mReady ? mBackend.GetWidth()  : 0; }
-    NkU32         NkCameraSystem::GetHeight()    const { return mReady ? mBackend.GetHeight() : 0; }
-    NkU32         NkCameraSystem::GetFPS()       const { return mReady ? mBackend.GetFPS()    : 0; }
+    uint32         NkCameraSystem::GetWidth()     const { return mReady ? mBackend.GetWidth()  : 0; }
+    uint32         NkCameraSystem::GetHeight()    const { return mReady ? mBackend.GetHeight() : 0; }
+    uint32         NkCameraSystem::GetFPS()       const { return mReady ? mBackend.GetFPS()    : 0; }
     NkPixelFormat NkCameraSystem::GetFormat()    const
     { return mReady ? mBackend.GetFormat() : NkPixelFormat::NK_PIXEL_UNKNOWN; }
     NkString   NkCameraSystem::GetLastError() const
@@ -283,12 +282,12 @@ namespace nkentseu {
     bool NkCameraSystem::ConvertToRGBA8(NkCameraFrame& frame)
     {
         if (frame.format == NkPixelFormat::NK_PIXEL_RGBA8) return true;
-        NkU32 w = frame.width, h = frame.height;
-        NkVector<NkU8> out;
+        uint32 w = frame.width, h = frame.height;
+        NkVector<uint8> out;
         out.Resize(w * h * 4);
 
         if (frame.format == NkPixelFormat::NK_PIXEL_BGRA8) {
-            for (NkU32 i = 0; i < w * h; ++i) {
+            for (uint32 i = 0; i < w * h; ++i) {
                 out[i*4+0] = frame.data[i*4+2];
                 out[i*4+1] = frame.data[i*4+1];
                 out[i*4+2] = frame.data[i*4+0];
@@ -301,7 +300,7 @@ namespace nkentseu {
         }
 
         if (frame.format == NkPixelFormat::NK_PIXEL_RGB8) {
-            for (NkU32 i = 0; i < w * h; ++i) {
+            for (uint32 i = 0; i < w * h; ++i) {
                 out[i*4+0] = frame.data[i*3+0];
                 out[i*4+1] = frame.data[i*3+1];
                 out[i*4+2] = frame.data[i*3+2];
@@ -315,13 +314,13 @@ namespace nkentseu {
 
         if (frame.format == NkPixelFormat::NK_PIXEL_YUYV) {
             // YUYV packed: Y0 U0 Y1 V0
-            for (NkU32 i = 0; i < w * h / 2; ++i) {
+            for (uint32 i = 0; i < w * h / 2; ++i) {
                 float y0 = (float)frame.data[i*4+0] - 16.f;
                 float cb = (float)frame.data[i*4+1] - 128.f;
                 float y1 = (float)frame.data[i*4+2] - 16.f;
                 float cr = (float)frame.data[i*4+3] - 128.f;
-                auto cl = [](float v) -> NkU8 {
-                    return (NkU8)(v < 0 ? 0 : v > 255 ? 255 : v);
+                auto cl = [](float v) -> uint8 {
+                    return (uint8)(v < 0 ? 0 : v > 255 ? 255 : v);
                 };
                 out[i*8+0] = cl(y0*1.164f + cr*1.596f);
                 out[i*8+1] = cl(y0*1.164f - cb*0.391f - cr*0.813f);
@@ -345,20 +344,20 @@ namespace nkentseu {
         }
 
         if (frame.format == NkPixelFormat::NK_PIXEL_NV12) {
-            const NkU8* Y  = frame.data.Data();
-            const NkU8* UV = frame.data.Data() + w * h;
-            for (NkU32 row = 0; row < h; ++row) {
-                for (NkU32 col = 0; col < w; ++col) {
+            const uint8* Y  = frame.data.Data();
+            const uint8* UV = frame.data.Data() + w * h;
+            for (uint32 row = 0; row < h; ++row) {
+                for (uint32 col = 0; col < w; ++col) {
                     float y  = (float)Y[row * w + col] - 16.f;
                     float u  = (float)UV[(row/2)*(w) + (col & ~1u)]     - 128.f;
                     float v  = (float)UV[(row/2)*(w) + (col & ~1u) + 1] - 128.f;
                     float r  = y * 1.164f + v * 1.596f;
                     float g  = y * 1.164f - u * 0.391f - v * 0.813f;
                     float b  = y * 1.164f + u * 2.018f;
-                    NkU32 idx = (row * w + col) * 4;
-                    out[idx+0] = (NkU8)(r < 0 ? 0 : r > 255 ? 255 : r);
-                    out[idx+1] = (NkU8)(g < 0 ? 0 : g > 255 ? 255 : g);
-                    out[idx+2] = (NkU8)(b < 0 ? 0 : b > 255 ? 255 : b);
+                    uint32 idx = (row * w + col) * 4;
+                    out[idx+0] = (uint8)(r < 0 ? 0 : r > 255 ? 255 : r);
+                    out[idx+1] = (uint8)(g < 0 ? 0 : g > 255 ? 255 : g);
+                    out[idx+2] = (uint8)(b < 0 ? 0 : b > 255 ? 255 : b);
                     out[idx+3] = 255;
                 }
             }
@@ -390,8 +389,7 @@ namespace nkentseu {
     NkString NkCameraSystem::GenerateAutoPath(const NkString& prefix,
                                                 const NkString& ext)
     {
-        const auto now = std::chrono::system_clock::now();
-        const auto t   = std::chrono::system_clock::to_time_t(now);
+        const std::time_t t = std::time(nullptr);
 
         std::tm tmBuf {};
     #if defined(_WIN32)
@@ -411,7 +409,7 @@ namespace nkentseu {
     // NkMultiCamera::Stream
     // ===========================================================================
 
-    NkMultiCamera::Stream::Stream(NkU32 idx) : mDeviceIndex(idx)
+    NkMultiCamera::Stream::Stream(uint32 idx) : mDeviceIndex(idx)
     {
         mBackendReady = mBackend.Init();
         if (mBackendReady)
@@ -467,7 +465,7 @@ namespace nkentseu {
         return true;
     }
 
-    void NkMultiCamera::Stream::EnableQueue(NkU32 sz)
+    void NkMultiCamera::Stream::EnableQueue(uint32 sz)
     {
         std::lock_guard<std::mutex> lk(mQueueMutex);
         mQueueEnabled = true; mMaxQueue = sz;
@@ -490,7 +488,7 @@ namespace nkentseu {
     // NkMultiCamera
     // ===========================================================================
 
-    NkMultiCamera::Stream& NkMultiCamera::Open(NkU32 deviceIndex,
+    NkMultiCamera::Stream& NkMultiCamera::Open(uint32 deviceIndex,
                                                 const NkCameraConfig& config)
     {
         // Vérifier si déjà ouvert
@@ -504,7 +502,7 @@ namespace nkentseu {
         return *mStreams.Back();
     }
 
-    void NkMultiCamera::Close(NkU32 deviceIndex)
+    void NkMultiCamera::Close(uint32 deviceIndex)
     {
         for (usize i = 0; i < mStreams.Size(); ) {
             if (mStreams[i]->DeviceIndex() == deviceIndex)
@@ -516,7 +514,7 @@ namespace nkentseu {
 
     void NkMultiCamera::CloseAll() { mStreams.Clear(); }
 
-    NkMultiCamera::Stream* NkMultiCamera::Get(NkU32 deviceIndex)
+    NkMultiCamera::Stream* NkMultiCamera::Get(uint32 deviceIndex)
     {
         for (auto& s : mStreams)
             if (s->DeviceIndex() == deviceIndex) return s.get();

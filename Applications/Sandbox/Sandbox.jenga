@@ -175,6 +175,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         with filter("system:Web"):
             consoleapp()
             usetoolchain("emscripten")
+            emscriptenshellfile("web/emscripten_fullscreen_nofavicon.html")
             emscriptencanvasid("canvas")
             emscripteninitialmemory(32)
             emscriptenextraflags([

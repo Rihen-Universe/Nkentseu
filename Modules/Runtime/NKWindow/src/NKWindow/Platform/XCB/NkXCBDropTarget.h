@@ -88,8 +88,8 @@ namespace nkentseu {
 
             // Current drag state
             xcb_window_t mSourceWindow = XCB_NONE;
-            NkI32        mDragX = 0;
-            NkI32        mDragY = 0;
+            int32        mDragX = 0;
+            int32        mDragY = 0;
             bool         mHasDrop = false;
 
             // Event callbacks
@@ -325,8 +325,8 @@ namespace nkentseu {
                 mSourceWindow = static_cast<xcb_window_t>(ev.data.data32[0]);
 
                 const uint32_t packed = ev.data.data32[2];
-                mDragX = static_cast<NkI32>(static_cast<int16_t>((packed >> 16) & 0xFFFFu));
-                mDragY = static_cast<NkI32>(static_cast<int16_t>(packed & 0xFFFFu));
+                mDragX = static_cast<int32>(static_cast<int16_t>((packed >> 16) & 0xFFFFu));
+                mDragY = static_cast<int32>(static_cast<int16_t>(packed & 0xFFFFu));
 
                 SendStatus(true);
                 return;

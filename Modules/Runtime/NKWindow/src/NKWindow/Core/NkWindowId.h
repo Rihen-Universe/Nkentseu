@@ -17,6 +17,6 @@ namespace nkentseu {
     // =========================================================================
     // NkWindowId — identifiant unique de fenêtre transmis avec chaque événement
     // =========================================================================
-    using NkWindowId = NkU64;
+    using NkWindowId = uint64;
     static constexpr NkWindowId NK_INVALID_WINDOW_ID = 0;
 } // namespace nkentseu

@@ -13,9 +13,9 @@
 using namespace nkentseu;
 
 TEST_CASE(NKRendererSmoke, PackUnpackColor) {
-    const NkU32 color = NkRenderer::PackColor(10, 20, 30, 40);
+    const uint32 color = NkRenderer::PackColor(10, 20, 30, 40);
 
-    NkU8 r = 0, g = 0, b = 0, a = 0;
+    uint8 r = 0, g = 0, b = 0, a = 0;
     NkRenderer::UnpackColor(color, r, g, b, a);
 
     ASSERT_EQUAL(10, static_cast<int>(r));

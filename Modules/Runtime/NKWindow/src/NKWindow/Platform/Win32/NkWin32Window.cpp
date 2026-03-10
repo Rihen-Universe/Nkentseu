@@ -362,13 +362,13 @@ namespace nkentseu {
     NkVec2u NkWindow::GetSize() const {
         RECT rc = {};
         if (mData.mHwnd) GetClientRect(mData.mHwnd, &rc);
-        return { (NkU32)(rc.right - rc.left), (NkU32)(rc.bottom - rc.top) };
+        return { (uint32)(rc.right - rc.left), (uint32)(rc.bottom - rc.top) };
     }
 
     NkVec2u NkWindow::GetPosition() const {
         RECT rc = {};
         if (mData.mHwnd) GetWindowRect(mData.mHwnd, &rc);
-        return { (NkU32)rc.left, (NkU32)rc.top };
+        return { (uint32)rc.left, (uint32)rc.top };
     }
 
     float NkWindow::GetDpiScale() const {
@@ -378,13 +378,13 @@ namespace nkentseu {
     }
 
     NkVec2u NkWindow::GetDisplaySize() const {
-        return { (NkU32)GetSystemMetrics(SM_CXSCREEN),
-                (NkU32)GetSystemMetrics(SM_CYSCREEN) };
+        return { (uint32)GetSystemMetrics(SM_CXSCREEN),
+                (uint32)GetSystemMetrics(SM_CYSCREEN) };
     }
 
     NkVec2u NkWindow::GetDisplayPosition() const { return { 0, 0 }; }
 
-    void NkWindow::SetSize(NkU32 w, NkU32 h) {
+    void NkWindow::SetSize(uint32 w, uint32 h) {
         RECT rc = { 0, 0, (LONG)w, (LONG)h };
         AdjustWindowRectEx(&rc, mData.mDwStyle, FALSE, mData.mDwExStyle);
         SetWindowPos(mData.mHwnd, nullptr, 0, 0,
@@ -392,7 +392,7 @@ namespace nkentseu {
                     SWP_NOMOVE | SWP_NOZORDER);
     }
 
-    void NkWindow::SetPosition(NkI32 x, NkI32 y) {
+    void NkWindow::SetPosition(int32 x, int32 y) {
         SetWindowPos(mData.mHwnd, nullptr, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
     }
 
@@ -423,7 +423,7 @@ namespace nkentseu {
     // Mouse
     // =============================================================================
 
-    void NkWindow::SetMousePosition(NkU32 x, NkU32 y) { SetCursorPos((int)x, (int)y); }
+    void NkWindow::SetMousePosition(uint32 x, uint32 y) { SetCursorPos((int)x, (int)y); }
     void NkWindow::ShowMouse(bool show)   { ShowCursor(show ? TRUE : FALSE); }
     void NkWindow::CaptureMouse(bool cap) {
         if (cap) SetCapture(mData.mHwnd);
@@ -436,7 +436,7 @@ namespace nkentseu {
 
     void NkWindow::SetProgress(float progress) {
         if (mData.mTaskbarList) {
-            const NkU32 kMax = 10000;
+            const uint32 kMax = 10000;
             mData.mTaskbarList->SetProgressValue(mData.mHwnd,
                 (ULONGLONG)(progress * kMax), kMax);
         }

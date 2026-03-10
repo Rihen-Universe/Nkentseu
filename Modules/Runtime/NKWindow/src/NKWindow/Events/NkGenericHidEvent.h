@@ -33,7 +33,7 @@
 
 #include "NkEvent.h"
 #include "NkMouseEvent.h"  // pour NkButtonState
-#include <cstring>
+#include "NKMemory/NkUtils.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include <vector>
 
@@ -43,7 +43,7 @@ namespace nkentseu {
     // NkHidUsagePage — USB HID Usage Pages (selection des plus courants)
     // =========================================================================
 
-    enum class NkHidUsagePage : NkU16 {
+    enum class NkHidUsagePage : uint16 {
         NK_HID_PAGE_UNDEFINED     = 0x00,
         NK_HID_PAGE_GENERIC       = 0x01, ///< Generic Desktop Controls (joystick, gamepad...)
         NK_HID_PAGE_SIMULATION    = 0x02, ///< Simulation Controls (volant, avion...)
@@ -71,21 +71,21 @@ namespace nkentseu {
      * tant que le périphérique est connecté à la même interface physique.
      */
     struct NkHidDeviceInfo {
-        NkU64         deviceId   = 0;      ///< Identifiant opaque attribué par le système
+        uint64         deviceId   = 0;      ///< Identifiant opaque attribué par le système
         char          name[128]  = {};     ///< Nom lisible (ex: "Logitech G29 Racing Wheel")
         char          path[256]  = {};     ///< Chemin système (ex: /dev/input/event4)
-        NkU16         vendorId   = 0;      ///< USB Vendor ID (VID)
-        NkU16         productId  = 0;      ///< USB Product ID (PID)
-        NkU16         usagePage  = 0;      ///< USB HID Usage Page primaire
-        NkU16         usageId    = 0;      ///< USB HID Usage ID principal
-        NkU32         numButtons = 0;      ///< Nombre de boutons déclarés
-        NkU32         numAxes    = 0;      ///< Nombre d'axes analogiques
-        NkU32         numHats    = 0;      ///< Nombre de chapeaux (D-pad HID)
+        uint16         vendorId   = 0;      ///< USB Vendor ID (VID)
+        uint16         productId  = 0;      ///< USB Product ID (PID)
+        uint16         usagePage  = 0;      ///< USB HID Usage Page primaire
+        uint16         usageId    = 0;      ///< USB HID Usage ID principal
+        uint32         numButtons = 0;      ///< Nombre de boutons déclarés
+        uint32         numAxes    = 0;      ///< Nombre d'axes analogiques
+        uint32         numHats    = 0;      ///< Nombre de chapeaux (D-pad HID)
         bool          isWireless = false;  ///< Connexion sans fil ?
 
         NkHidDeviceInfo() {
-            std::memset(name, 0, sizeof(name));
-            std::memset(path, 0, sizeof(path));
+            memory::NkMemSet(name, 0, sizeof(name));
+            memory::NkMemSet(path, 0, sizeof(path));
         }
     };
 
@@ -104,16 +104,16 @@ namespace nkentseu {
         NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_GENERIC_HID)
 
         /// @brief Identifiant opaque du périphérique HID source
-        NkU64 GetDeviceId() const noexcept { return mDeviceId; }
+        uint64 GetDeviceId() const noexcept { return mDeviceId; }
 
     protected:
-        NkGenericHidEvent(NkU64 deviceId,
-                           NkU64 windowId = 0) noexcept
+        NkGenericHidEvent(uint64 deviceId,
+                           uint64 windowId = 0) noexcept
             : NkEvent(windowId)
             , mDeviceId(deviceId)
         {}
 
-        NkU64 mDeviceId = 0;
+        uint64 mDeviceId = 0;
     };
 
     // =========================================================================
@@ -128,7 +128,7 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_GENERIC_CONNECT)
 
         explicit NkHidConnectEvent(const NkHidDeviceInfo& info,
-                                    NkU64 windowId = 0) noexcept
+                                    uint64 windowId = 0) noexcept
             : NkGenericHidEvent(info.deviceId, windowId)
             , mInfo(info)
         {}
@@ -155,8 +155,8 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GENERIC_DISCONNECT)
 
-        NkHidDisconnectEvent(NkU64 deviceId,
-                               NkU64 windowId = 0) noexcept
+        NkHidDisconnectEvent(uint64 deviceId,
+                               uint64 windowId = 0) noexcept
             : NkGenericHidEvent(deviceId, windowId)
         {}
 
@@ -178,18 +178,18 @@ namespace nkentseu {
      */
     class NkHidButtonEvent : public NkGenericHidEvent {
     public:
-        NkU32         GetButtonIndex() const noexcept { return mButtonIndex; }
+        uint32         GetButtonIndex() const noexcept { return mButtonIndex; }
         NkButtonState GetState()       const noexcept { return mState; }
-        NkU16         GetUsagePage()   const noexcept { return mUsagePage; }
-        NkU16         GetUsageId()     const noexcept { return mUsageId; }
+        uint16         GetUsagePage()   const noexcept { return mUsagePage; }
+        uint16         GetUsageId()     const noexcept { return mUsageId; }
 
     protected:
-        NkHidButtonEvent(NkU64         deviceId,
-                          NkU32         buttonIndex,
+        NkHidButtonEvent(uint64         deviceId,
+                          uint32         buttonIndex,
                           NkButtonState state,
-                          NkU16         usagePage,
-                          NkU16         usageId,
-                          NkU64         windowId) noexcept
+                          uint16         usagePage,
+                          uint16         usageId,
+                          uint64         windowId) noexcept
             : NkGenericHidEvent(deviceId, windowId)
             , mButtonIndex(buttonIndex)
             , mState(state)
@@ -197,10 +197,10 @@ namespace nkentseu {
             , mUsageId(usageId)
         {}
 
-        NkU32         mButtonIndex = 0;
+        uint32         mButtonIndex = 0;
         NkButtonState mState       = NkButtonState::NK_RELEASED;
-        NkU16         mUsagePage   = 0;
-        NkU16         mUsageId     = 0;
+        uint16         mUsagePage   = 0;
+        uint16         mUsageId     = 0;
     };
 
     // =========================================================================
@@ -221,11 +221,11 @@ namespace nkentseu {
          * @param usageId      Usage ID HID.
          * @param windowId     Identifiant de la fenêtre.
          */
-        NkHidButtonPressEvent(NkU64 deviceId,
-                               NkU32 buttonIndex,
-                               NkU16 usagePage = 0,
-                               NkU16 usageId   = 0,
-                               NkU64 windowId  = 0) noexcept
+        NkHidButtonPressEvent(uint64 deviceId,
+                               uint32 buttonIndex,
+                               uint16 usagePage = 0,
+                               uint16 usageId   = 0,
+                               uint64 windowId  = 0) noexcept
             : NkHidButtonEvent(deviceId, buttonIndex,
                                 NkButtonState::NK_PRESSED,
                                 usagePage, usageId, windowId)
@@ -248,11 +248,11 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GENERIC_BUTTON_RELEASED)
 
-        NkHidButtonReleaseEvent(NkU64 deviceId,
-                                  NkU32 buttonIndex,
-                                  NkU16 usagePage = 0,
-                                  NkU16 usageId   = 0,
-                                  NkU64 windowId  = 0) noexcept
+        NkHidButtonReleaseEvent(uint64 deviceId,
+                                  uint32 buttonIndex,
+                                  uint16 usagePage = 0,
+                                  uint16 usageId   = 0,
+                                  uint64 windowId  = 0) noexcept
             : NkHidButtonEvent(deviceId, buttonIndex,
                                 NkButtonState::NK_RELEASED,
                                 usagePage, usageId, windowId)
@@ -292,14 +292,14 @@ namespace nkentseu {
          * @param usageId     Usage ID HID de l'axe.
          * @param windowId    Identifiant de la fenêtre.
          */
-        NkHidAxisEvent(NkU64 deviceId,
-                        NkU32 axisIndex,
-                        NkF32 value,
-                        NkF32 prevValue,
-                        NkI32 rawValue   = 0,
-                        NkU16 usagePage  = 0,
-                        NkU16 usageId    = 0,
-                        NkU64 windowId   = 0) noexcept
+        NkHidAxisEvent(uint64 deviceId,
+                        uint32 axisIndex,
+                        float32 value,
+                        float32 prevValue,
+                        int32 rawValue   = 0,
+                        uint16 usagePage  = 0,
+                        uint16 usageId    = 0,
+                        uint64 windowId   = 0) noexcept
             : NkGenericHidEvent(deviceId, windowId)
             , mAxisIndex(axisIndex)
             , mValue(value)
@@ -316,22 +316,22 @@ namespace nkentseu {
                 mDeviceId, mAxisIndex, mValue, mDelta);
         }
 
-        NkU32 GetAxisIndex()  const noexcept { return mAxisIndex; }
-        NkF32 GetValue()      const noexcept { return mValue; }
-        NkF32 GetPrevValue()  const noexcept { return mPrevValue; }
-        NkF32 GetDelta()      const noexcept { return mDelta; }
-        NkI32 GetRawValue()   const noexcept { return mRawValue; }
-        NkU16 GetUsagePage()  const noexcept { return mUsagePage; }
-        NkU16 GetUsageId()    const noexcept { return mUsageId; }
+        uint32 GetAxisIndex()  const noexcept { return mAxisIndex; }
+        float32 GetValue()      const noexcept { return mValue; }
+        float32 GetPrevValue()  const noexcept { return mPrevValue; }
+        float32 GetDelta()      const noexcept { return mDelta; }
+        int32 GetRawValue()   const noexcept { return mRawValue; }
+        uint16 GetUsagePage()  const noexcept { return mUsagePage; }
+        uint16 GetUsageId()    const noexcept { return mUsageId; }
 
     private:
-        NkU32 mAxisIndex = 0;
-        NkF32 mValue     = 0.f;
-        NkF32 mPrevValue = 0.f;
-        NkF32 mDelta     = 0.f;
-        NkI32 mRawValue  = 0;
-        NkU16 mUsagePage = 0;
-        NkU16 mUsageId   = 0;
+        uint32 mAxisIndex = 0;
+        float32 mValue     = 0.f;
+        float32 mPrevValue = 0.f;
+        float32 mDelta     = 0.f;
+        int32 mRawValue  = 0;
+        uint16 mUsagePage = 0;
+        uint16 mUsageId   = 0;
     };
 
     // =========================================================================
@@ -362,10 +362,10 @@ namespace nkentseu {
          * @param data       Données brutes du rapport (copiées).
          * @param windowId   Identifiant de la fenêtre.
          */
-        NkHidRawInputEvent(NkU64             deviceId,
-                             NkU8              reportId,
-                             NkVector<NkU8> data,
-                             NkU64             windowId = 0)
+        NkHidRawInputEvent(uint64             deviceId,
+                             uint8              reportId,
+                             NkVector<uint8> data,
+                             uint64             windowId = 0)
             : NkGenericHidEvent(deviceId, windowId)
             , mReportId(reportId)
             , mData(std::move(data))
@@ -377,14 +377,14 @@ namespace nkentseu {
                 mDeviceId, mReportId, mData.Size());
         }
 
-        NkU8                     GetReportId() const noexcept { return mReportId; }
-        const NkVector<NkU8>& GetData()     const noexcept { return mData; }
-        const NkU8*              GetBytes()    const noexcept { return mData.Data(); }
-        NkU32                    GetSize()     const noexcept { return static_cast<NkU32>(mData.Size()); }
+        uint8                     GetReportId() const noexcept { return mReportId; }
+        const NkVector<uint8>& GetData()     const noexcept { return mData; }
+        const uint8*              GetBytes()    const noexcept { return mData.Data(); }
+        uint32                    GetSize()     const noexcept { return static_cast<uint32>(mData.Size()); }
 
     private:
-        NkU8              mReportId = 0;
-        NkVector<NkU8> mData;
+        uint8              mReportId = 0;
+        NkVector<uint8> mData;
     };
 
 } // namespace nkentseu

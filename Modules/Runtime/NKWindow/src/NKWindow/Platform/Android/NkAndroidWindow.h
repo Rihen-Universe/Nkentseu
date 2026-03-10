@@ -27,10 +27,10 @@ namespace nkentseu {
             struct android_app* mAndroidApp    = nullptr;
             NkAndroidDropTarget* mDropTarget   = nullptr;
 
-            NkU32               mWidth         = 0;
-            NkU32               mHeight        = 0;
-            NkU32               mPrevWidth     = 0;
-            NkU32               mPrevHeight    = 0;
+            uint32               mWidth         = 0;
+            uint32               mHeight        = 0;
+            uint32               mPrevWidth     = 0;
+            uint32               mPrevHeight    = 0;
 
             NkSafeAreaInsets    mSafeArea{};
             NkScreenOrientation mOrientation   = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;

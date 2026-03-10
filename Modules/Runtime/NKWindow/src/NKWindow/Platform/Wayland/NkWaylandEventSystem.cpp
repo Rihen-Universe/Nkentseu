@@ -21,6 +21,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Platform/Wayland/NkWaylandEventSystem.h"
 #include "NKWindow/Platform/Wayland/NkWaylandWindow.h"
+#include "NKMemory/NkUtils.h"
 
 #include <wayland-client.h>
 #include <wayland-cursor.h>
@@ -53,7 +54,7 @@ namespace nkentseu {
     // =========================================================================
 
     static NkKey WlXkbSymToNkKey(xkb_keysym_t sym) {
-        return NkKeycodeMap::NkKeyFromX11KeySym(static_cast<NkU32>(sym));
+        return NkKeycodeMap::NkKeyFromX11KeySym(static_cast<uint32>(sym));
     }
 
     static NkModifierState WlBuildMods(xkb_state* state) {
@@ -86,8 +87,8 @@ namespace nkentseu {
         NkWindowId     focusedWindow = NK_INVALID_WINDOW_ID;
 
         // État pointeur
-        NkF32          pointerX    = 0.f;
-        NkF32          pointerY    = 0.f;
+        float32          pointerX    = 0.f;
+        float32          pointerY    = 0.f;
         wl_surface*    pointerSurface = nullptr;
 
         // Numéro de série du dernier événement pointer (pour set_cursor)
@@ -245,7 +246,7 @@ namespace nkentseu {
         }
 
         if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-            NkKeyPressEvent e(nkKey, sc, mods, static_cast<NkU32>(sym));
+            NkKeyPressEvent e(nkKey, sc, mods, static_cast<uint32>(sym));
             ctx->eventSystem->Enqueue_Public(e, winId);
 
             // Génération de l'événement texte
@@ -254,12 +255,12 @@ namespace nkentseu {
                 const int len = xkb_state_key_get_utf8(ctx->xkbState, keycode, buf, sizeof(buf));
                 if (len > 0 && static_cast<unsigned char>(buf[0]) >= 0x20
                             && static_cast<unsigned char>(buf[0]) != 0x7F) {
-                    NkTextInputEvent te(static_cast<NkU32>(static_cast<unsigned char>(buf[0])));
+                    NkTextInputEvent te(static_cast<uint32>(static_cast<unsigned char>(buf[0])));
                     ctx->eventSystem->Enqueue_Public(te, winId);
                 }
             }
         } else {
-            NkKeyReleaseEvent e(nkKey, sc, mods, static_cast<NkU32>(sym));
+            NkKeyReleaseEvent e(nkKey, sc, mods, static_cast<uint32>(sym));
             ctx->eventSystem->Enqueue_Public(e, winId);
         }
     }
@@ -298,8 +299,8 @@ namespace nkentseu {
 
         ctx->pointerSerial  = serial;
         ctx->pointerSurface = surface;
-        ctx->pointerX       = static_cast<NkF32>(wl_fixed_to_double(sx));
-        ctx->pointerY       = static_cast<NkF32>(wl_fixed_to_double(sy));
+        ctx->pointerX       = static_cast<float32>(wl_fixed_to_double(sx));
+        ctx->pointerY       = static_cast<float32>(wl_fixed_to_double(sy));
 
         // Applique le curseur de la fenêtre (visible ou caché)
         NkWindow* window = ResolveWindowFromSeat(ctx, surface);
@@ -328,12 +329,12 @@ namespace nkentseu {
         auto* ctx = static_cast<NkWaylandSeatCtx*>(data);
         if (!ctx || !ctx->eventSystem) return;
 
-        const NkI32 x  = static_cast<NkI32>(wl_fixed_to_double(sx));
-        const NkI32 y  = static_cast<NkI32>(wl_fixed_to_double(sy));
-        const NkI32 dx = x - static_cast<NkI32>(ctx->pointerX);
-        const NkI32 dy = y - static_cast<NkI32>(ctx->pointerY);
-        ctx->pointerX  = static_cast<NkF32>(x);
-        ctx->pointerY  = static_cast<NkF32>(y);
+        const int32 x  = static_cast<int32>(wl_fixed_to_double(sx));
+        const int32 y  = static_cast<int32>(wl_fixed_to_double(sy));
+        const int32 dx = x - static_cast<int32>(ctx->pointerX);
+        const int32 dy = y - static_cast<int32>(ctx->pointerY);
+        ctx->pointerX  = static_cast<float32>(x);
+        ctx->pointerY  = static_cast<float32>(y);
 
         // Si le curseur doit être caché, on le réapplique à chaque mouvement
         // (certains compositeurs le réinitialisent après un enter)
@@ -351,8 +352,8 @@ namespace nkentseu {
         auto* ctx = static_cast<NkWaylandSeatCtx*>(data);
         if (!ctx || !ctx->eventSystem) return;
 
-        const NkI32 x       = static_cast<NkI32>(ctx->pointerX);
-        const NkI32 y       = static_cast<NkI32>(ctx->pointerY);
+        const int32 x       = static_cast<int32>(ctx->pointerX);
+        const int32 y       = static_cast<int32>(ctx->pointerY);
         const bool  pressed = (state == WL_POINTER_BUTTON_STATE_PRESSED);
 
         NkMouseButton mapped;
@@ -379,8 +380,8 @@ namespace nkentseu {
         auto* ctx = static_cast<NkWaylandSeatCtx*>(data);
         if (!ctx || !ctx->eventSystem) return;
 
-        const NkI32      x     = static_cast<NkI32>(ctx->pointerX);
-        const NkI32      y     = static_cast<NkI32>(ctx->pointerY);
+        const int32      x     = static_cast<int32>(ctx->pointerX);
+        const int32      y     = static_cast<int32>(ctx->pointerY);
         const double     v     = wl_fixed_to_double(value);
         const NkWindowId winId = FindWindowForSurface(ctx, ctx->pointerSurface);
 
@@ -585,7 +586,7 @@ namespace nkentseu {
 
         // Attache et commit si la fenêtre est visible
         if (d.mVisible && d.mSurface && d.mConfigured) {
-            std::memset(d.mPixels, 0, size);
+            memory::NkMemSet(d.mPixels, 0, size);
             wl_surface_attach(d.mSurface, d.mBuffer, 0, 0);
             wl_surface_damage(d.mSurface, 0, 0,
                 static_cast<int32_t>(d.mWidth),
@@ -657,9 +658,9 @@ namespace nkentseu {
         if (mPumping) return;
         mPumping = true;
 
-        const NkU32 windowCount = NkSystem::Instance().GetWindowCount();
+        const uint32 windowCount = NkSystem::Instance().GetWindowCount();
 
-        for (NkU32 i = 0; i < windowCount; ++i) {
+        for (uint32 i = 0; i < windowCount; ++i) {
             NkWindow* window = NkSystem::Instance().GetWindowAt(i);
             if (!window) continue;
 

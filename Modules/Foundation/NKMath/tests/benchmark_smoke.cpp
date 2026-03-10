@@ -4,7 +4,7 @@
 #include "NKMath/NKMath.h"
 #include "NKPlatform/NkFoundationLog.h"
 
-#include <chrono>
+#include <ctime>
 #include <cmath>
 #include <cstdio>
 
@@ -16,22 +16,26 @@ TEST_CASE(NKMathBenchmark, TrigonometryLoopVsStd) {
     volatile float nkSink = 0.0f;
     volatile float stdSink = 0.0f;
 
-    const auto nkT0 = std::chrono::high_resolution_clock::now();
+    const clock_t nkT0 = std::clock();
     for (int i = 0; i < kIters; ++i) {
         float x = static_cast<float>(i) * 0.001f;
         nkSink = nkSink + NkSin(x) + NkCos(x);
     }
-    const auto nkT1 = std::chrono::high_resolution_clock::now();
+    const clock_t nkT1 = std::clock();
 
-    const auto stdT0 = std::chrono::high_resolution_clock::now();
+    const clock_t stdT0 = std::clock();
     for (int i = 0; i < kIters; ++i) {
         float x = static_cast<float>(i) * 0.001f;
         stdSink = stdSink + static_cast<float>(std::sin(x) + std::cos(x));
     }
-    const auto stdT1 = std::chrono::high_resolution_clock::now();
+    const clock_t stdT1 = std::clock();
 
-    const double nkNs = std::chrono::duration<double, std::nano>(nkT1 - nkT0).count();
-    const double stdNs = std::chrono::duration<double, std::nano>(stdT1 - stdT0).count();
+    const double nkNs =
+        (static_cast<double>(nkT1 - nkT0) * 1000000000.0) /
+        static_cast<double>(CLOCKS_PER_SEC);
+    const double stdNs =
+        (static_cast<double>(stdT1 - stdT0) * 1000000000.0) /
+        static_cast<double>(CLOCKS_PER_SEC);
     ASSERT_TRUE(nkNs > 0.0);
     ASSERT_TRUE(stdNs > 0.0);
 

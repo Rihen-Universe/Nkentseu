@@ -30,36 +30,36 @@ namespace nkentseu {
             NkError      GetLastError()          const override;
             const NkFramebufferInfo& GetFramebufferInfo() const override;
 
-            void SetBackgroundColor(NkU32 rgba) override;
-            NkU32 GetBackgroundColor()          const override;
+            void SetBackgroundColor(uint32 rgba) override;
+            uint32 GetBackgroundColor()          const override;
 
-            void BeginFrame(NkU32 clearColor = 0xFFFFFFFF) override;
+            void BeginFrame(uint32 clearColor = 0xFFFFFFFF) override;
             void EndFrame() override;
             void Present(const NkSurfaceDesc& surface) override;
-            void Resize(NkU32 width, NkU32 height) override;
-            void SetPixel(NkI32 x, NkI32 y, NkU32 rgba) override;
+            void Resize(uint32 width, uint32 height) override;
+            void SetPixel(int32 x, int32 y, uint32 rgba) override;
 
-            const NkU8* GetPixelBuffer() const noexcept { return mBuffer.Data(); }
-            NkU8*       GetPixelBuffer()       noexcept { return mBuffer.Data(); }
+            const uint8* GetPixelBuffer() const noexcept { return mBuffer.Data(); }
+            uint8*       GetPixelBuffer()       noexcept { return mBuffer.Data(); }
 
         private:
-            NkVector<NkU8> mBuffer;
+            NkVector<uint8> mBuffer;
             NkRendererConfig  mConfig   {};
             NkSurfaceDesc     mSurface  {};
             NkFramebufferInfo mFbInfo   {};
             NkError           mLastError{};
-            NkU32             mBgColor  = 0x141414FF;
+            uint32             mBgColor  = 0x141414FF;
             bool              mReady    = false;
 
-            void AllocBuffer(NkU32 w, NkU32 h);
-            void BlitOS(const NkSurfaceDesc& surface, NkU32 w, NkU32 h);
-            void BlitWin32(const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitXCB  (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitXLib (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitANW    (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitWASM   (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitCocoa  (const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
-            void BlitWayland(const NkSurfaceDesc& sd, NkU32 w, NkU32 h);
+            void AllocBuffer(uint32 w, uint32 h);
+            void BlitOS(const NkSurfaceDesc& surface, uint32 w, uint32 h);
+            void BlitWin32(const NkSurfaceDesc& sd, uint32 w, uint32 h);
+            void BlitXCB  (const NkSurfaceDesc& sd, uint32 w, uint32 h);
+            void BlitXLib (const NkSurfaceDesc& sd, uint32 w, uint32 h);
+            void BlitANW    (const NkSurfaceDesc& sd, uint32 w, uint32 h);
+            void BlitWASM   (const NkSurfaceDesc& sd, uint32 w, uint32 h);
+            void BlitCocoa  (const NkSurfaceDesc& sd, uint32 w, uint32 h);
+            void BlitWayland(const NkSurfaceDesc& sd, uint32 w, uint32 h);
     };
 
 } // namespace nkentseu

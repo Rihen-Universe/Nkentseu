@@ -31,7 +31,7 @@ namespace nkentseu {
     // NkGraphicsApi — API graphique active
     // =========================================================================
 
-    enum class NkGraphicsApi : NkU32 {
+    enum class NkGraphicsApi : uint32 {
         NK_GFX_API_NONE    = 0,
         NK_GFX_API_OPENGL,       ///< OpenGL 3.3+
         NK_GFX_API_OPENGLES,     ///< OpenGL ES 2.0 / 3.x (mobile)
@@ -62,7 +62,7 @@ namespace nkentseu {
     // NkGpuMemoryLevel — niveau de pression mémoire GPU
     // =========================================================================
 
-    enum class NkGpuMemoryLevel : NkU32 {
+    enum class NkGpuMemoryLevel : uint32 {
         NK_GPU_MEM_NORMAL   = 0, ///< Mémoire suffisante
         NK_GPU_MEM_LOW,          ///< Avertissement : libérer les caches
         NK_GPU_MEM_CRITICAL,     ///< Critique : libérer toutes les ressources non essentielles
@@ -83,7 +83,7 @@ namespace nkentseu {
         NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_GRAPHICS)
 
     protected:
-        explicit NkGraphicsEvent(NkU64 windowId = 0) noexcept : NkEvent(windowId) {}
+        explicit NkGraphicsEvent(uint64 windowId = 0) noexcept : NkEvent(windowId) {}
     };
 
     // =========================================================================
@@ -108,9 +108,9 @@ namespace nkentseu {
          * @param windowId    Identifiant de la fenêtre associée.
          */
         NkGraphicsContextReadyEvent(NkGraphicsApi api,
-                                     NkU32 width,
-                                     NkU32 height,
-                                     NkU64 windowId = 0) noexcept
+                                     uint32 width,
+                                     uint32 height,
+                                     uint64 windowId = 0) noexcept
             : NkGraphicsEvent(windowId)
             , mApi(api)
             , mWidth(width)
@@ -124,13 +124,13 @@ namespace nkentseu {
         }
 
         NkGraphicsApi GetApi()    const noexcept { return mApi; }
-        NkU32         GetWidth()  const noexcept { return mWidth; }
-        NkU32         GetHeight() const noexcept { return mHeight; }
+        uint32         GetWidth()  const noexcept { return mWidth; }
+        uint32         GetHeight() const noexcept { return mHeight; }
 
     private:
         NkGraphicsApi mApi    = NkGraphicsApi::NK_GFX_API_NONE;
-        NkU32         mWidth  = 0;
-        NkU32         mHeight = 0;
+        uint32         mWidth  = 0;
+        uint32         mHeight = 0;
     };
 
     // =========================================================================
@@ -153,7 +153,7 @@ namespace nkentseu {
          * @param windowId Identifiant de la fenêtre concernée.
          */
         NkGraphicsContextLostEvent(NkString reason   = {},
-                                    NkU64       windowId = 0)
+                                    uint64       windowId = 0)
             : NkGraphicsEvent(windowId)
             , mReason(std::move(reason))
         {}
@@ -192,11 +192,11 @@ namespace nkentseu {
          * @param prevH     Hauteur précédente.
          * @param windowId  Identifiant de la fenêtre concernée.
          */
-        NkGraphicsContextResizeEvent(NkU32 width,
-                                      NkU32 height,
-                                      NkU32 prevW    = 0,
-                                      NkU32 prevH    = 0,
-                                      NkU64 windowId = 0) noexcept
+        NkGraphicsContextResizeEvent(uint32 width,
+                                      uint32 height,
+                                      uint32 prevW    = 0,
+                                      uint32 prevH    = 0,
+                                      uint64 windowId = 0) noexcept
             : NkGraphicsEvent(windowId)
             , mWidth(width)
             , mHeight(height)
@@ -210,20 +210,20 @@ namespace nkentseu {
                 mPrevWidth, mPrevHeight, mWidth, mHeight);
         }
 
-        NkU32 GetWidth()      const noexcept { return mWidth; }
-        NkU32 GetHeight()     const noexcept { return mHeight; }
-        NkU32 GetPrevWidth()  const noexcept { return mPrevWidth; }
-        NkU32 GetPrevHeight() const noexcept { return mPrevHeight; }
+        uint32 GetWidth()      const noexcept { return mWidth; }
+        uint32 GetHeight()     const noexcept { return mHeight; }
+        uint32 GetPrevWidth()  const noexcept { return mPrevWidth; }
+        uint32 GetPrevHeight() const noexcept { return mPrevHeight; }
 
         float GetAspectRatio() const noexcept {
             return (mHeight > 0) ? static_cast<float>(mWidth) / static_cast<float>(mHeight) : 0.f;
         }
 
     private:
-        NkU32 mWidth      = 0;
-        NkU32 mHeight     = 0;
-        NkU32 mPrevWidth  = 0;
-        NkU32 mPrevHeight = 0;
+        uint32 mWidth      = 0;
+        uint32 mHeight     = 0;
+        uint32 mPrevWidth  = 0;
+        uint32 mPrevHeight = 0;
     };
 
     // =========================================================================
@@ -246,9 +246,9 @@ namespace nkentseu {
          * @param frameInFlight Index de la ressource en vol (0..N-1, double/triple buffering).
          * @param windowId      Identifiant de la fenêtre.
          */
-        NkGraphicsFrameBeginEvent(NkU64 frameIndex    = 0,
-                                   NkU32 frameInFlight = 0,
-                                   NkU64 windowId     = 0) noexcept
+        NkGraphicsFrameBeginEvent(uint64 frameIndex    = 0,
+                                   uint32 frameInFlight = 0,
+                                   uint64 windowId     = 0) noexcept
             : NkGraphicsEvent(windowId)
             , mFrameIndex(frameIndex)
             , mFrameInFlight(frameInFlight)
@@ -260,12 +260,12 @@ namespace nkentseu {
                 mFrameIndex, mFrameInFlight);
         }
 
-        NkU64 GetFrameIndex()    const noexcept { return mFrameIndex; }
-        NkU32 GetFrameInFlight() const noexcept { return mFrameInFlight; }
+        uint64 GetFrameIndex()    const noexcept { return mFrameIndex; }
+        uint32 GetFrameInFlight() const noexcept { return mFrameInFlight; }
 
     private:
-        NkU64 mFrameIndex    = 0;
-        NkU32 mFrameInFlight = 0;
+        uint64 mFrameIndex    = 0;
+        uint32 mFrameInFlight = 0;
     };
 
     // =========================================================================
@@ -288,10 +288,10 @@ namespace nkentseu {
          * @param cpuTimeMs     Temps CPU d'enregistrement des commandes [ms].
          * @param windowId      Identifiant de la fenêtre.
          */
-        NkGraphicsFrameEndEvent(NkU64  frameIndex = 0,
-                                 NkF64  gpuTimeMs  = 0.0,
-                                 NkF64  cpuTimeMs  = 0.0,
-                                 NkU64  windowId   = 0) noexcept
+        NkGraphicsFrameEndEvent(uint64  frameIndex = 0,
+                                 float64  gpuTimeMs  = 0.0,
+                                 float64  cpuTimeMs  = 0.0,
+                                 uint64  windowId   = 0) noexcept
             : NkGraphicsEvent(windowId)
             , mFrameIndex(frameIndex)
             , mGpuTimeMs(gpuTimeMs)
@@ -304,14 +304,14 @@ namespace nkentseu {
                 mFrameIndex, mGpuTimeMs, mCpuTimeMs);
         }
 
-        NkU64 GetFrameIndex() const noexcept { return mFrameIndex; }
-        NkF64 GetGpuTimeMs()  const noexcept { return mGpuTimeMs; }
-        NkF64 GetCpuTimeMs()  const noexcept { return mCpuTimeMs; }
+        uint64 GetFrameIndex() const noexcept { return mFrameIndex; }
+        float64 GetGpuTimeMs()  const noexcept { return mGpuTimeMs; }
+        float64 GetCpuTimeMs()  const noexcept { return mCpuTimeMs; }
 
     private:
-        NkU64 mFrameIndex = 0;
-        NkF64 mGpuTimeMs  = 0.0;
-        NkF64 mCpuTimeMs  = 0.0;
+        uint64 mFrameIndex = 0;
+        float64 mGpuTimeMs  = 0.0;
+        float64 mCpuTimeMs  = 0.0;
     };
 
     // =========================================================================
@@ -336,9 +336,9 @@ namespace nkentseu {
          * @param windowId        Identifiant de la fenêtre.
          */
         NkGraphicsGpuMemoryEvent(NkGpuMemoryLevel level,
-                                  NkU32 availableMb = 0,
-                                  NkU32 totalMb     = 0,
-                                  NkU64 windowId    = 0) noexcept
+                                  uint32 availableMb = 0,
+                                  uint32 totalMb     = 0,
+                                  uint64 windowId    = 0) noexcept
             : NkGraphicsEvent(windowId)
             , mLevel(level)
             , mAvailableMb(availableMb)
@@ -348,20 +348,20 @@ namespace nkentseu {
         NkEvent*    Clone()    const override { return new NkGraphicsGpuMemoryEvent(*this); }
         NkString ToString() const override {
             const char* lvls[] = {"NORMAL", "LOW", "CRITICAL"};
-            NkU32 idx = static_cast<NkU32>(mLevel);
+            uint32 idx = static_cast<uint32>(mLevel);
             return NkString::Fmt("GfxGpuMemory({0} avail={1}MB)",
                 (idx < 3 ? lvls[idx] : "?"), mAvailableMb);
         }
 
         NkGpuMemoryLevel GetLevel()       const noexcept { return mLevel; }
-        NkU32            GetAvailableMb() const noexcept { return mAvailableMb; }
-        NkU32            GetTotalMb()     const noexcept { return mTotalMb; }
+        uint32            GetAvailableMb() const noexcept { return mAvailableMb; }
+        uint32            GetTotalMb()     const noexcept { return mTotalMb; }
         bool             IsCritical()     const noexcept { return mLevel == NkGpuMemoryLevel::NK_GPU_MEM_CRITICAL; }
 
     private:
         NkGpuMemoryLevel mLevel       = NkGpuMemoryLevel::NK_GPU_MEM_NORMAL;
-        NkU32            mAvailableMb = 0;
-        NkU32            mTotalMb     = 0;
+        uint32            mAvailableMb = 0;
+        uint32            mTotalMb     = 0;
     };
 
     // =========================================================================
@@ -385,9 +385,9 @@ namespace nkentseu {
          * @param refreshRateHz    Taux de rafraîchissement du moniteur [Hz].
          * @param windowId         Identifiant de la fenêtre.
          */
-        NkGraphicsVSyncEvent(NkU32 displayIndex  = 0,
-                              NkU32 refreshRateHz = 60,
-                              NkU64 windowId      = 0) noexcept
+        NkGraphicsVSyncEvent(uint32 displayIndex  = 0,
+                              uint32 refreshRateHz = 60,
+                              uint64 windowId      = 0) noexcept
             : NkGraphicsEvent(windowId)
             , mDisplayIndex(displayIndex)
             , mRefreshRateHz(refreshRateHz)
@@ -398,12 +398,12 @@ namespace nkentseu {
             return NkString::Fmt("GfxVSync(display={0} {1}Hz)", mDisplayIndex, mRefreshRateHz);
         }
 
-        NkU32 GetDisplayIndex()  const noexcept { return mDisplayIndex; }
-        NkU32 GetRefreshRateHz() const noexcept { return mRefreshRateHz; }
+        uint32 GetDisplayIndex()  const noexcept { return mDisplayIndex; }
+        uint32 GetRefreshRateHz() const noexcept { return mRefreshRateHz; }
 
     private:
-        NkU32 mDisplayIndex  = 0;
-        NkU32 mRefreshRateHz = 60;
+        uint32 mDisplayIndex  = 0;
+        uint32 mRefreshRateHz = 60;
     };
 
 } // namespace nkentseu

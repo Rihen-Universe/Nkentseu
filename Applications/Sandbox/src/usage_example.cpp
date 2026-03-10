@@ -133,12 +133,12 @@ public:
         // Créer VAO/VBO/shader sprite ici — ressources propres à ce renderer
         InitSpritePipeline();
     }
-    void DrawSprite(float x, float y, float w, float h, NkU32 textureId) { /* ... */ }
+    void DrawSprite(float x, float y, float w, float h, uint32 textureId) { /* ... */ }
     void DrawText  (const char* text, float x, float y)                   { /* ... */ }
     void Flush     (const NkFrameContext&)                                 { /* ... */ }
 private:
     void InitSpritePipeline() { /* glGenVertexArrays, glCreateProgram… */ }
-    NkU32 mVAO = 0, mVBO = 0, mShader = 0;
+    uint32 mVAO = 0, mVBO = 0, mShader = 0;
 };
 
 // Exemple de renderer 3D
@@ -154,7 +154,7 @@ public:
     void Flush(const NkFrameContext&)   { /* ... */ }
 private:
     void InitPBRPipeline() { /* shaders PBR, FBO HDR… */ }
-    NkU32 mHDRFBO = 0, mShadowMap = 0;
+    uint32 mHDRFBO = 0, mShadowMap = 0;
 };
 
 // Renderer de debug (wireframe, AABB, gizmos)
@@ -170,7 +170,7 @@ public:
     void Flush     (const NkFrameContext&) { /* ... */ }
 private:
     void InitLinePipeline() { /* GL_LINES shader */ }
-    NkU32 mVAO = 0, mShader = 0;
+    uint32 mVAO = 0, mShader = 0;
 };
 
 void ExampleMultiRenderer() {
@@ -246,8 +246,8 @@ void ExampleSoftware() {
 
         // Rendu software pur
         uint32_t* pixels = static_cast<uint32_t*>(sw->pixels);
-        for (NkU32 y = 0; y < sw->height; ++y)
-            for (NkU32 x = 0; x < sw->width; ++x)
+        for (uint32 y = 0; y < sw->height; ++y)
+            for (uint32 x = 0; x < sw->width; ++x)
                 pixels[y * (sw->stride / 4) + x] = 0xFF202040; // fond foncé
 
         ctx->EndFrame(frame);

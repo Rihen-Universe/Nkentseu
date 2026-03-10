@@ -5,7 +5,6 @@
 
 #include "NKWindow/Events/NkGamepadSystem.h"
 
-#include <array>
 
 namespace nkentseu {
 
@@ -26,23 +25,23 @@ namespace nkentseu {
 
             void Poll() override {}
 
-            NkU32 GetConnectedCount() const override {
+            uint32 GetConnectedCount() const override {
                 return 0;
             }
 
-            const NkGamepadSnapshot& GetSnapshot(NkU32 idx) const override {
+            const NkGamepadSnapshot& GetSnapshot(uint32 idx) const override {
                 static NkGamepadSnapshot dummy{};
                 return idx < NK_MAX_GAMEPADS ? mSnapshots[idx] : dummy;
             }
 
-            void Rumble(NkU32, NkF32, NkF32, NkF32, NkF32, NkU32) override {}
+            void Rumble(uint32, float32, float32, float32, float32, uint32) override {}
 
             const char* GetName() const noexcept override {
                 return "NoopGamepad";
             }
 
         private:
-            std::array<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
+            NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
     };
 
 } // namespace nkentseu

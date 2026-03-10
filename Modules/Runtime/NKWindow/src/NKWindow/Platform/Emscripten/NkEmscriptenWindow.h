@@ -19,10 +19,10 @@ namespace nkentseu {
     struct NkWindowData {
         NkString        mCanvasId   = "#canvas";
         NkEmscriptenDropTarget*  mDropTarget = nullptr;
-        NkU32              mWidth      = 0;
-        NkU32              mHeight     = 0;
-        NkU32              mPrevWidth  = 0;
-        NkU32              mPrevHeight = 0;
+        uint32              mWidth      = 0;
+        uint32              mHeight     = 0;
+        uint32              mPrevWidth  = 0;
+        uint32              mPrevHeight = 0;
         bool               mVisible    = true;
         bool               mFullscreen = false;
     };

@@ -14,16 +14,16 @@
 //       const char* GetName() const override { return "MyRenderer"; }
 //       bool IsHardwareAccelerated() const override { return false; }
 //       const NkFramebufferInfo& GetFramebufferInfo() const override;
-//       void SetBackgroundColor(NkU32 rgba) override { mBgColor = rgba; }
-//       NkU32 GetBackgroundColor() const override { return mBgColor; }
-//       void BeginFrame(NkU32 clearColor) override;
+//       void SetBackgroundColor(uint32 rgba) override { mBgColor = rgba; }
+//       uint32 GetBackgroundColor() const override { return mBgColor; }
+//       void BeginFrame(uint32 clearColor) override;
 //       void EndFrame() override {}
 //       void Present(const NkSurfaceDesc& surface) override;
-//       void Resize(NkU32 w, NkU32 h) override;
-//       void SetPixel(NkI32 x, NkI32 y, NkU32 rgba) override;
+//       void Resize(uint32 w, uint32 h) override;
+//       void SetPixel(int32 x, int32 y, uint32 rgba) override;
 //   private:
 //       bool mReady = false;
-//       NkU32 mBgColor = 0x141414FF;
+//       uint32 mBgColor = 0x141414FF;
 //   };
 //
 // Puis passez une instance a NkRenderer :
@@ -52,14 +52,14 @@ namespace nkentseu {
             virtual const NkFramebufferInfo& GetFramebufferInfo() const = 0;
             virtual NkRendererContext GetContext() const { return NkRendererContext{}; }
 
-            virtual void SetBackgroundColor(NkU32 rgba) = 0;
-            virtual NkU32 GetBackgroundColor() const = 0;
+            virtual void SetBackgroundColor(uint32 rgba) = 0;
+            virtual uint32 GetBackgroundColor() const = 0;
 
-            virtual void BeginFrame(NkU32 clearColor = 0xFFFFFFFF) = 0;
+            virtual void BeginFrame(uint32 clearColor = 0xFFFFFFFF) = 0;
             virtual void EndFrame() = 0;
             virtual void Present(const NkSurfaceDesc& surface) = 0;
-            virtual void Resize(NkU32 width, NkU32 height) = 0;
-            virtual void SetPixel(NkI32 x, NkI32 y, NkU32 rgba) = 0;
+            virtual void Resize(uint32 width, uint32 height) = 0;
+            virtual void SetPixel(int32 x, int32 y, uint32 rgba) = 0;
     };
 
     using NkIRendererImpl = NkIRenderer;

@@ -9,7 +9,6 @@
 
 #include "NKWindow/Events/NkGamepadSystem.h"
 
-#include <array>
 
 namespace nkentseu {
 
@@ -35,8 +34,8 @@ namespace nkentseu {
                 }
             }
 
-            NkU32 GetConnectedCount() const override {
-                NkU32 count = 0;
+            uint32 GetConnectedCount() const override {
+                uint32 count = 0;
                 for (const auto& snapshot : mSnapshots) {
                     if (snapshot.connected) {
                         ++count;
@@ -45,19 +44,19 @@ namespace nkentseu {
                 return count;
             }
 
-            const NkGamepadSnapshot& GetSnapshot(NkU32 idx) const override {
+            const NkGamepadSnapshot& GetSnapshot(uint32 idx) const override {
                 static NkGamepadSnapshot dummy{};
                 return idx < NK_MAX_GAMEPADS ? mSnapshots[idx] : dummy;
             }
 
-            void Rumble(NkU32, NkF32, NkF32, NkF32, NkF32, NkU32) override {}
+            void Rumble(uint32, float32, float32, float32, float32, uint32) override {}
 
             const char* GetName() const noexcept override {
                 return "UIKitGamepad";
             }
 
         private:
-            std::array<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
+            NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
     };
 
 } // namespace nkentseu

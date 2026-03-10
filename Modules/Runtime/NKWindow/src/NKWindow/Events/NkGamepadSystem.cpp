@@ -10,6 +10,7 @@
 #include "NkEventSystem.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKMath/NkFunctions.h"
 #include <algorithm>
 #include <cmath>
 
@@ -62,12 +63,12 @@
 namespace nkentseu {
 
     namespace {
-        inline NkF32 SanitizeAxisValue(NkF32 v) noexcept {
-            return std::isfinite(v) ? v : 0.f;
+        inline float32 SanitizeAxisValue(float32 v) noexcept {
+            return math::NkIsFinite(v) ? v : 0.f;
         }
 
-        inline NkF32 SanitizeAxisScale(NkF32 v) noexcept {
-            return std::isfinite(v) ? v : 1.f;
+        inline float32 SanitizeAxisScale(float32 v) noexcept {
+            return math::NkIsFinite(v) ? v : 1.f;
         }
     } // namespace
 
@@ -87,36 +88,36 @@ namespace nkentseu {
     // Helpers remap
     // -------------------------------------------------------------------------
 
-    NkF32 NkGamepadSystem::ClampAxisForTarget(NkU32 logicalAxisIndex, NkF32 value) noexcept {
+    float32 NkGamepadSystem::ClampAxisForTarget(uint32 logicalAxisIndex, float32 value) noexcept {
         if (logicalAxisIndex >= AXIS_COUNT) return 0.f;
         value = SanitizeAxisValue(value);
 
         // Les gÃ¢chettes restent dans [0,1], les autres axes dans [-1,1].
-        if (logicalAxisIndex == static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LT) ||
-            logicalAxisIndex == static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT))
+        if (logicalAxisIndex == static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LT) ||
+            logicalAxisIndex == static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RT))
         {
-            return std::clamp(value, 0.f, 1.f);
+            return math::NkClamp(value, 0.f, 1.f);
         }
-        return std::clamp(value, -1.f, 1.f);
+        return math::NkClamp(value, -1.f, 1.f);
     }
 
-    void NkGamepadSystem::ResetMappingToIdentity(NkU32 idx) noexcept {
+    void NkGamepadSystem::ResetMappingToIdentity(uint32 idx) noexcept {
         if (idx >= NK_MAX_GAMEPADS) return;
 
         NkRemapProfile& profile = mMappings[idx];
         profile.active = false;
 
-        for (NkU32 b = 0; b < BUTTON_COUNT; ++b) {
+        for (uint32 b = 0; b < BUTTON_COUNT; ++b) {
             profile.buttonMap[b] = b;
         }
-        for (NkU32 a = 0; a < AXIS_COUNT; ++a) {
+        for (uint32 a = 0; a < AXIS_COUNT; ++a) {
             profile.axisMap[a].logicalAxis = a;
             profile.axisMap[a].scale       = 1.f;
             profile.axisMap[a].invert      = false;
         }
     }
 
-    const NkGamepadSnapshot& NkGamepadSystem::ApplyRemap(NkU32 idx,
+    const NkGamepadSnapshot& NkGamepadSystem::ApplyRemap(uint32 idx,
                                                           const NkGamepadSnapshot& raw) noexcept
     {
         NkGamepadSnapshot& out = mMappedSnapshot[idx];
@@ -146,44 +147,44 @@ namespace nkentseu {
         const NkRemapProfile& profile = mMappings[idx];
 
         // Boutons physiques -> logiques
-        for (NkU32 b = 0; b < BUTTON_COUNT; ++b) {
+        for (uint32 b = 0; b < BUTTON_COUNT; ++b) {
             if (!raw.buttons[b]) continue;
 
-            NkU32 dst = profile.buttonMap[b];
+            uint32 dst = profile.buttonMap[b];
             if (dst >= BUTTON_COUNT) continue;
             out.buttons[dst] = true;
         }
 
         // Axes physiques -> logiques
-        for (NkU32 a = 0; a < AXIS_COUNT; ++a) {
+        for (uint32 a = 0; a < AXIS_COUNT; ++a) {
             const NkAxisRemap& remap = profile.axisMap[a];
             if (remap.logicalAxis >= AXIS_COUNT) continue;
 
-            NkF32 v = SanitizeAxisValue(raw.axes[a]);
+            float32 v = SanitizeAxisValue(raw.axes[a]);
             if (remap.invert) v = -v;
             v *= SanitizeAxisScale(remap.scale);
             v = ClampAxisForTarget(remap.logicalAxis, v);
 
-            NkF32& dst = out.axes[remap.logicalAxis];
+            float32& dst = out.axes[remap.logicalAxis];
             dst = SanitizeAxisValue(dst);
-            if (std::fabs(v) > std::fabs(dst)) dst = v;
+            if (math::NkFabs(v) > math::NkFabs(dst)) dst = v;
         }
 
         // CohÃ©rence dpad boutons <-> axes si non fournis explicitement.
-        const NkU32 dpadX = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_X);
-        const NkU32 dpadY = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y);
-        const NkU32 left  = static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_LEFT);
-        const NkU32 right = static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_RIGHT);
-        const NkU32 up    = static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_UP);
-        const NkU32 down  = static_cast<NkU32>(NkGamepadButton::NK_GP_DPAD_DOWN);
+        const uint32 dpadX = static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_DPAD_X);
+        const uint32 dpadY = static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_DPAD_Y);
+        const uint32 left  = static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_LEFT);
+        const uint32 right = static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_RIGHT);
+        const uint32 up    = static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_UP);
+        const uint32 down  = static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_DOWN);
 
-        NkF32 dpadXValue = SanitizeAxisValue(out.axes[dpadX]);
-        NkF32 dpadYValue = SanitizeAxisValue(out.axes[dpadY]);
+        float32 dpadXValue = SanitizeAxisValue(out.axes[dpadX]);
+        float32 dpadYValue = SanitizeAxisValue(out.axes[dpadY]);
 
-        if (std::fabs(dpadXValue) < 0.001f) {
+        if (math::NkFabs(dpadXValue) < 0.001f) {
             dpadXValue = out.buttons[right] ? 1.f : out.buttons[left] ? -1.f : 0.f;
         }
-        if (std::fabs(dpadYValue) < 0.001f) {
+        if (math::NkFabs(dpadYValue) < 0.001f) {
             dpadYValue = out.buttons[up] ? 1.f : out.buttons[down] ? -1.f : 0.f;
         }
         out.axes[dpadX] = dpadXValue;
@@ -195,12 +196,12 @@ namespace nkentseu {
         if (!out.buttons[down]  && dpadYValue < -0.5f) out.buttons[down]  = true;
 
         // CohÃ©rence triggers analogiques -> boutons digitaux si absents.
-        const NkU32 ltA = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_LT);
-        const NkU32 rtA = static_cast<NkU32>(NkGamepadAxis::NK_GP_AXIS_RT);
-        const NkU32 ltB = static_cast<NkU32>(NkGamepadButton::NK_GP_LT_DIGITAL);
-        const NkU32 rtB = static_cast<NkU32>(NkGamepadButton::NK_GP_RT_DIGITAL);
-        const NkF32 ltValue = SanitizeAxisValue(out.axes[ltA]);
-        const NkF32 rtValue = SanitizeAxisValue(out.axes[rtA]);
+        const uint32 ltA = static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LT);
+        const uint32 rtA = static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RT);
+        const uint32 ltB = static_cast<uint32>(NkGamepadButton::NK_GP_LT_DIGITAL);
+        const uint32 rtB = static_cast<uint32>(NkGamepadButton::NK_GP_RT_DIGITAL);
+        const float32 ltValue = SanitizeAxisValue(out.axes[ltA]);
+        const float32 rtValue = SanitizeAxisValue(out.axes[rtA]);
         out.axes[ltA] = ltValue;
         out.axes[rtA] = rtValue;
         if (!out.buttons[ltB]) out.buttons[ltB] = ltValue > 0.5f;
@@ -209,7 +210,7 @@ namespace nkentseu {
         return out;
     }
 
-    void NkGamepadSystem::SyncMappedSnapshot(NkU32 idx) noexcept {
+    void NkGamepadSystem::SyncMappedSnapshot(uint32 idx) noexcept {
         if (idx >= NK_MAX_GAMEPADS) return;
 
         if (!mReady || !mBackend) {
@@ -237,7 +238,7 @@ namespace nkentseu {
             mMappingPersistence = std::make_unique<NkTextGamepadMappingPersistence>();
         }
 
-        for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
+        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
             mRawSnapshot[i].Clear();
             mMappedSnapshot[i].Clear();
             mPrevSnapshot[i].Clear();
@@ -252,7 +253,7 @@ namespace nkentseu {
         mBackend.reset();
         mReady = false;
 
-        for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
+        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
             mRawSnapshot[i].Clear();
             mMappedSnapshot[i].Clear();
             mPrevSnapshot[i].Clear();
@@ -264,27 +265,27 @@ namespace nkentseu {
     // Remapping public API
     // -------------------------------------------------------------------------
 
-    void NkGamepadSystem::ClearMapping(NkU32 idx) noexcept {
+    void NkGamepadSystem::ClearMapping(uint32 idx) noexcept {
         if (idx >= NK_MAX_GAMEPADS) return;
         ResetMappingToIdentity(idx);
         SyncMappedSnapshot(idx);
     }
 
     void NkGamepadSystem::ClearAllMappings() noexcept {
-        for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
+        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
             ResetMappingToIdentity(i);
             SyncMappedSnapshot(i);
         }
     }
 
-    void NkGamepadSystem::SetButtonMapByIndex(NkU32 idx,
-                                              NkU32 physicalButtonIndex,
+    void NkGamepadSystem::SetButtonMapByIndex(uint32 idx,
+                                              uint32 physicalButtonIndex,
                                               NkGamepadButton logicalButton) noexcept
     {
         if (idx >= NK_MAX_GAMEPADS || physicalButtonIndex >= BUTTON_COUNT) return;
 
         NkRemapProfile& profile = mMappings[idx];
-        NkU32 logicalIndex = static_cast<NkU32>(logicalButton);
+        uint32 logicalIndex = static_cast<uint32>(logicalButton);
         if (logicalButton == NkGamepadButton::NK_GP_UNKNOWN) {
             logicalIndex = NK_GAMEPAD_UNMAPPED;
         }
@@ -295,16 +296,16 @@ namespace nkentseu {
         SyncMappedSnapshot(idx);
     }
 
-    void NkGamepadSystem::SetAxisMapByIndex(NkU32 idx,
-                                            NkU32 physicalAxisIndex,
+    void NkGamepadSystem::SetAxisMapByIndex(uint32 idx,
+                                            uint32 physicalAxisIndex,
                                             NkGamepadAxis logicalAxis,
                                             bool invert,
-                                            NkF32 scale) noexcept
+                                            float32 scale) noexcept
     {
         if (idx >= NK_MAX_GAMEPADS || physicalAxisIndex >= AXIS_COUNT) return;
 
         NkRemapProfile& profile = mMappings[idx];
-        NkU32 logicalIndex = static_cast<NkU32>(logicalAxis);
+        uint32 logicalIndex = static_cast<uint32>(logicalAxis);
         if (logicalIndex >= AXIS_COUNT) logicalIndex = NK_GAMEPAD_UNMAPPED;
 
         profile.axisMap[physicalAxisIndex].logicalAxis = logicalIndex;
@@ -315,14 +316,14 @@ namespace nkentseu {
         SyncMappedSnapshot(idx);
     }
 
-    void NkGamepadSystem::DisableButtonByIndex(NkU32 idx, NkU32 physicalButtonIndex) noexcept {
+    void NkGamepadSystem::DisableButtonByIndex(uint32 idx, uint32 physicalButtonIndex) noexcept {
         if (idx >= NK_MAX_GAMEPADS || physicalButtonIndex >= BUTTON_COUNT) return;
         mMappings[idx].buttonMap[physicalButtonIndex] = NK_GAMEPAD_UNMAPPED;
         mMappings[idx].active = true;
         SyncMappedSnapshot(idx);
     }
 
-    void NkGamepadSystem::DisableAxisByIndex(NkU32 idx, NkU32 physicalAxisIndex) noexcept {
+    void NkGamepadSystem::DisableAxisByIndex(uint32 idx, uint32 physicalAxisIndex) noexcept {
         if (idx >= NK_MAX_GAMEPADS || physicalAxisIndex >= AXIS_COUNT) return;
         mMappings[idx].axisMap[physicalAxisIndex].logicalAxis = NK_GAMEPAD_UNMAPPED;
         mMappings[idx].axisMap[physicalAxisIndex].invert      = false;
@@ -331,7 +332,7 @@ namespace nkentseu {
         SyncMappedSnapshot(idx);
     }
 
-    const NkGamepadSystem::NkRemapProfile* NkGamepadSystem::GetMapping(NkU32 idx) const noexcept {
+    const NkGamepadSystem::NkRemapProfile* NkGamepadSystem::GetMapping(uint32 idx) const noexcept {
         if (idx >= NK_MAX_GAMEPADS) return nullptr;
         return &mMappings[idx];
     }
@@ -345,7 +346,7 @@ namespace nkentseu {
 
         mBackend->Poll();
 
-        for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
+        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
             mRawSnapshot[i] = mBackend->GetSnapshot(i);
             const NkGamepadSnapshot& cur  = ApplyRemap(i, mRawSnapshot[i]);
             const NkGamepadSnapshot& prev = mPrevSnapshot[i];
@@ -360,7 +361,7 @@ namespace nkentseu {
             }
 
             // Boutons (Ã©vÃ©nements limitÃ©s aux boutons connus par l'enum)
-            for (NkU32 b = 0; b < EVENT_BUTTON_COUNT; ++b) {
+            for (uint32 b = 0; b < EVENT_BUTTON_COUNT; ++b) {
                 if (cur.buttons[b] != prev.buttons[b]) {
                     FireButton(i, static_cast<NkGamepadButton>(b),
                                cur.buttons[b] ? NkButtonState::NK_PRESSED
@@ -369,10 +370,10 @@ namespace nkentseu {
             }
 
             // Axes avec deadzone et epsilon (domaine enum)
-            for (NkU32 a = 0; a < EVENT_AXIS_COUNT; ++a) {
-                NkF32 v  = ApplyDeadzone(SanitizeAxisValue(cur.axes[a]));
-                NkF32 pv = ApplyDeadzone(SanitizeAxisValue(prev.axes[a]));
-                if (std::abs(v - pv) > mAxisEpsilon)
+            for (uint32 a = 0; a < EVENT_AXIS_COUNT; ++a) {
+                float32 v  = ApplyDeadzone(SanitizeAxisValue(cur.axes[a]));
+                float32 pv = ApplyDeadzone(SanitizeAxisValue(prev.axes[a]));
+                if (math::NkFabs(v - pv) > mAxisEpsilon)
                 {
                     FireAxis(i, static_cast<NkGamepadAxis>(a), v, pv);
                 }
@@ -386,53 +387,53 @@ namespace nkentseu {
     // Polling direct
     // -------------------------------------------------------------------------
 
-    NkU32 NkGamepadSystem::GetConnectedCount() const noexcept {
+    uint32 NkGamepadSystem::GetConnectedCount() const noexcept {
         return (mReady && mBackend) ? mBackend->GetConnectedCount() : 0;
     }
 
-    bool NkGamepadSystem::IsConnected(NkU32 idx) const noexcept {
+    bool NkGamepadSystem::IsConnected(uint32 idx) const noexcept {
         return idx < NK_MAX_GAMEPADS && GetSnapshot(idx).connected;
     }
 
-    const NkGamepadInfo& NkGamepadSystem::GetInfo(NkU32 idx) const noexcept {
+    const NkGamepadInfo& NkGamepadSystem::GetInfo(uint32 idx) const noexcept {
         if (idx >= NK_MAX_GAMEPADS) return sDummyInfo;
         return GetSnapshot(idx).info;
     }
 
-    const NkGamepadSnapshot& NkGamepadSystem::GetSnapshot(NkU32 idx) const noexcept {
+    const NkGamepadSnapshot& NkGamepadSystem::GetSnapshot(uint32 idx) const noexcept {
         if (idx >= NK_MAX_GAMEPADS) return sDummySnapshot;
         return mMappedSnapshot[idx];
     }
 
-    const NkGamepadSnapshot& NkGamepadSystem::GetRawSnapshot(NkU32 idx) const noexcept {
+    const NkGamepadSnapshot& NkGamepadSystem::GetRawSnapshot(uint32 idx) const noexcept {
         if (idx >= NK_MAX_GAMEPADS) return sDummySnapshot;
         return mRawSnapshot[idx];
     }
 
-    bool NkGamepadSystem::IsButtonDown(NkU32 idx, NkGamepadButton btn) const noexcept {
+    bool NkGamepadSystem::IsButtonDown(uint32 idx, NkGamepadButton btn) const noexcept {
         return GetSnapshot(idx).IsButtonDown(btn);
     }
 
-    bool NkGamepadSystem::IsButtonDownByIndex(NkU32 idx, NkU32 btnIndex) const noexcept {
+    bool NkGamepadSystem::IsButtonDownByIndex(uint32 idx, uint32 btnIndex) const noexcept {
         if (idx >= NK_MAX_GAMEPADS || btnIndex >= BUTTON_COUNT) return false;
         return mMappedSnapshot[idx].buttons[btnIndex];
     }
 
-    NkF32 NkGamepadSystem::GetAxis(NkU32 idx, NkGamepadAxis ax) const noexcept {
+    float32 NkGamepadSystem::GetAxis(uint32 idx, NkGamepadAxis ax) const noexcept {
         return GetSnapshot(idx).GetAxis(ax);
     }
 
-    NkF32 NkGamepadSystem::GetAxisByIndex(NkU32 idx, NkU32 axisIndex) const noexcept {
+    float32 NkGamepadSystem::GetAxisByIndex(uint32 idx, uint32 axisIndex) const noexcept {
         if (idx >= NK_MAX_GAMEPADS || axisIndex >= AXIS_COUNT) return 0.f;
         return mMappedSnapshot[idx].axes[axisIndex];
     }
 
-    bool NkGamepadSystem::IsRawButtonDownByIndex(NkU32 idx, NkU32 btnIndex) const noexcept {
+    bool NkGamepadSystem::IsRawButtonDownByIndex(uint32 idx, uint32 btnIndex) const noexcept {
         if (idx >= NK_MAX_GAMEPADS || btnIndex >= BUTTON_COUNT) return false;
         return mRawSnapshot[idx].buttons[btnIndex];
     }
 
-    NkF32 NkGamepadSystem::GetRawAxisByIndex(NkU32 idx, NkU32 axisIndex) const noexcept {
+    float32 NkGamepadSystem::GetRawAxisByIndex(uint32 idx, uint32 axisIndex) const noexcept {
         if (idx >= NK_MAX_GAMEPADS || axisIndex >= AXIS_COUNT) return 0.f;
         return mRawSnapshot[idx].axes[axisIndex];
     }
@@ -441,10 +442,10 @@ namespace nkentseu {
     // Commandes de sortie
     // -------------------------------------------------------------------------
 
-    void NkGamepadSystem::Rumble(NkU32 idx,
-                                 NkF32 motorLow, NkF32 motorHigh,
-                                 NkF32 triggerLeft, NkF32 triggerRight,
-                                 NkU32 durationMs)
+    void NkGamepadSystem::Rumble(uint32 idx,
+                                 float32 motorLow, float32 motorHigh,
+                                 float32 triggerLeft, float32 triggerRight,
+                                 uint32 durationMs)
     {
         if (!mReady || !mBackend) return;
         mBackend->Rumble(idx, motorLow, motorHigh, triggerLeft, triggerRight, durationMs);
@@ -455,7 +456,7 @@ namespace nkentseu {
         EvSys().DispatchEvent(event);
     }
 
-    void NkGamepadSystem::SetLEDColor(NkU32 idx, NkU32 rgba) {
+    void NkGamepadSystem::SetLEDColor(uint32 idx, uint32 rgba) {
         if (!mReady || !mBackend) return;
         mBackend->SetLEDColor(idx, rgba);
     }
@@ -470,7 +471,7 @@ namespace nkentseu {
         profile.backendName = (mBackend ? mBackend->GetName() : "Unknown");
         profile.slots.Reserve(NK_MAX_GAMEPADS);
 
-        for (NkU32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
+        for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
             const NkRemapProfile& src = mMappings[i];
             if (!src.active) continue;
 
@@ -480,13 +481,13 @@ namespace nkentseu {
             dst.buttons.Reserve(BUTTON_COUNT);
             dst.axes.Reserve(AXIS_COUNT);
 
-            for (NkU32 b = 0; b < BUTTON_COUNT; ++b) {
+            for (uint32 b = 0; b < BUTTON_COUNT; ++b) {
                 NkGamepadButtonMapEntry e;
                 e.physicalButton = b;
                 e.logicalButton = src.buttonMap[b];
                 dst.buttons.PushBack(e);
             }
-            for (NkU32 a = 0; a < AXIS_COUNT; ++a) {
+            for (uint32 a = 0; a < AXIS_COUNT; ++a) {
                 NkGamepadAxisMapEntry e;
                 e.physicalAxis = a;
                 e.logicalAxis = src.axisMap[a].logicalAxis;
@@ -588,7 +589,7 @@ namespace nkentseu {
         if (mConnectCb) mConnectCb(info, connected);
     }
 
-    void NkGamepadSystem::FireButton(NkU32 idx, NkGamepadButton btn, NkButtonState st) {
+    void NkGamepadSystem::FireButton(uint32 idx, NkGamepadButton btn, NkButtonState st) {
         if (btn == NkGamepadButton::NK_GP_UNKNOWN) return;
 
         if (st == NkButtonState::NK_PRESSED) {
@@ -607,8 +608,8 @@ namespace nkentseu {
         if (mButtonCb) mButtonCb(idx, btn, st);
     }
 
-    void NkGamepadSystem::FireAxis(NkU32 idx, NkGamepadAxis ax,
-                                   NkF32 value, NkF32 prevValue)
+    void NkGamepadSystem::FireAxis(uint32 idx, NkGamepadAxis ax,
+                                   float32 value, float32 prevValue)
     {
         value = SanitizeAxisValue(value);
         prevValue = SanitizeAxisValue(prevValue);

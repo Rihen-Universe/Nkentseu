@@ -53,8 +53,8 @@ namespace nkentseu {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, TRUE);
 
         // Vérifier les demandes de fermeture venant de l'AppDelegate
-        NkU32 count = NkSystem::Instance().GetWindowCount();
-        for (NkU32 i = 0; i < count; ++i) {
+        uint32 count = NkSystem::Instance().GetWindowCount();
+        for (uint32 i = 0; i < count; ++i) {
             NkWindow* w = NkSystem::Instance().GetWindowAt(i);
             if (!w) continue;
             // Pas de wantsClose sur iOS (le système gère le cycle de vie)

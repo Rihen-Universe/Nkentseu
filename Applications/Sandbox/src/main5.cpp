@@ -41,7 +41,7 @@ using namespace nkentseu;
 
 static float ClampUnit(float v) { return v < 0.f ? 0.f : v > 1.f ? 1.f : v; }
 static float SafeDt(float dt) {
-    if (!std::isfinite(dt) || dt <= 0.f || dt > 0.25f) return 1.f / 60.f;
+    if (!math::NkIsFinite(dt) || dt <= 0.f || dt > 0.25f) return 1.f / 60.f;
     return dt;
 }
 
@@ -56,48 +56,48 @@ struct SharedState {
     float  phaseX     = 0.f;
     float  phaseY     = 0.f;
     float  time       = 0.f;
-    NkU32  viewW      = 1280;
-    NkU32  viewH      = 720;
+    uint32  viewW      = 1280;
+    uint32  viewH      = 720;
 
     // Historique drops
     NkVector<NkString> droppedFiles;
     NkString              droppedText;
 
     // Compteur d'events par type (stats)
-    NkAtomic<NkU32> keyCount   { 0 };
-    NkAtomic<NkU32> mouseCount { 0 };
-    NkAtomic<NkU32> dropCount  { 0 };
-    NkAtomic<NkU32> gpCount    { 0 };
+    NkAtomic<uint32> keyCount   { 0 };
+    NkAtomic<uint32> mouseCount { 0 };
+    NkAtomic<uint32> dropCount  { 0 };
+    NkAtomic<uint32> gpCount    { 0 };
 };
 
 // ---------------------------------------------------------------------------
 // Plasma visuel
 // ---------------------------------------------------------------------------
-static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
+static void DrawPlasma(NkRenderer& r, uint32 w, uint32 h,
                         float t, float px, float py, float sat)
 {
     if (!w || !h) return;
-    if (!std::isfinite(t)) t = 0.f;
-    if (!std::isfinite(px)) px = 0.f;
-    if (!std::isfinite(py)) py = 0.f;
-    if (!std::isfinite(sat)) sat = 1.f;
+    if (!math::NkIsFinite(t)) t = 0.f;
+    if (!math::NkIsFinite(px)) px = 0.f;
+    if (!math::NkIsFinite(py)) py = 0.f;
+    if (!math::NkIsFinite(sat)) sat = 1.f;
 
-    const NkU32 blk = (w*h > 1280u*720u) ? 2u : 1u;
-    for (NkU32 y = 0; y < h; y += blk) {
+    const uint32 blk = (w*h > 1280u*720u) ? 2u : 1u;
+    for (uint32 y = 0; y < h; y += blk) {
         float fy = y / (float)h - 0.5f;
-        for (NkU32 x = 0; x < w; x += blk) {
+        for (uint32 x = 0; x < w; x += blk) {
             float fx  = x / (float)w - 0.5f;
             float rd  = math::NkSqrt(fx*fx + fy*fy);
             float mix = (math::NkSin((fx+px)*13.5f+t*1.7f)
                         +math::NkSin((fy+py)*11.f -t*1.3f)
                         +math::NkSin(rd*24.f      -t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+0.f  ))-0.5f)*sat+0.5f)*255);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255);
-            NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
-            for (NkU32 by=0;by<blk&&(y+by)<h;++by)
-                for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
-                    r.SetPixel((NkI32)(x+bx),(NkI32)(y+by),col);
+            uint8 ri = static_cast<uint8>(ClampUnit((0.5f + 0.5f * math::NkSin(6.28f * (mix + 0.f)) - 0.5f) * sat + 0.5f) * 255);
+            uint8 gi = static_cast<uint8>(ClampUnit((0.5f + 0.5f * math::NkSin(6.28f * (mix + 0.33f)) - 0.5f) * sat + 0.5f) * 255);
+            uint8 bi = static_cast<uint8>(ClampUnit((0.5f + 0.5f * math::NkSin(6.28f * (mix + 0.66f)) - 0.5f) * sat + 0.5f) * 255);
+            uint32 col = NkRenderer::PackColor(ri, gi, bi, 255);
+            for (uint32 by=0;by<blk&&(y+by)<h;++by)
+                for (uint32 bx=0;bx<blk&&(x+bx)<w;++bx)
+                    r.SetPixel((int32)(x+bx),(int32)(y+by),col);
         }
     }
 }
@@ -316,7 +316,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     es.AddEventCallback<NkGamepadAxisEvent>(
         [&state](NkGamepadAxisEvent* ev) {
             float v = ev->GetValue();
-            if (std::fabs(v) < 0.12f) return; // dead-zone
+            if (math::NkFabs(v) < 0.12f) return; // dead-zone
 
             switch (ev->GetAxis()) {
                 case NkGamepadAxis::NK_GP_AXIS_LX:
@@ -376,8 +376,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         // --- Rendu
         renderer.BeginFrame(NkRenderer::PackColor(8, 10, 18, 255));
         const auto& fb = renderer.GetFramebufferInfo();
-        NkU32 w = fb.width  ? fb.width  : state.viewW;
-        NkU32 h = fb.height ? fb.height : state.viewH;
+        uint32 w = fb.width  ? fb.width  : state.viewW;
+        uint32 h = fb.height ? fb.height : state.viewH;
         DrawPlasma(renderer, w, h, state.time,
                    state.phaseX, state.phaseY, state.saturation);
         renderer.EndFrame();

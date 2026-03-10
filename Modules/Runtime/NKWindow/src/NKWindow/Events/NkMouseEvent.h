@@ -37,7 +37,7 @@ namespace nkentseu {
     // NkMouseButton — boutons de la souris
     // =========================================================================
 
-    enum class NkMouseButton : NkU32 {
+    enum class NkMouseButton : uint32 {
         NK_MB_UNKNOWN = 0,
         NK_MB_LEFT,         ///< Bouton gauche (principal)
         NK_MB_RIGHT,        ///< Bouton droit (contextuel)
@@ -69,7 +69,7 @@ namespace nkentseu {
     // NkButtonState — état d'un bouton
     // =========================================================================
 
-    enum class NkButtonState : NkU32 {
+    enum class NkButtonState : uint32 {
         NK_RELEASED = 0, ///< Bouton relâché
         NK_PRESSED   = 1  ///< Bouton pressé
     };
@@ -79,14 +79,14 @@ namespace nkentseu {
     // =========================================================================
 
     struct NkMouseButtons {
-        NkU32 mask = 0; ///< Bit i = bouton i enfoncé
+        uint32 mask = 0; ///< Bit i = bouton i enfoncé
 
         /// @brief Marque le bouton b comme enfoncé
-        void Set(NkMouseButton b)    noexcept { mask |=  (1u << static_cast<NkU32>(b)); }
+        void Set(NkMouseButton b)    noexcept { mask |=  (1u << static_cast<uint32>(b)); }
         /// @brief Marque le bouton b comme relâché
-        void Clear(NkMouseButton b)  noexcept { mask &= ~(1u << static_cast<NkU32>(b)); }
+        void Clear(NkMouseButton b)  noexcept { mask &= ~(1u << static_cast<uint32>(b)); }
         /// @brief Retourne true si le bouton b est enfoncé
-        bool IsDown(NkMouseButton b) const noexcept { return (mask & (1u << static_cast<NkU32>(b))) != 0; }
+        bool IsDown(NkMouseButton b) const noexcept { return (mask & (1u << static_cast<uint32>(b))) != 0; }
         /// @brief Retourne true si au moins un bouton est enfoncé
         bool Any()  const noexcept { return mask != 0; }
         /// @brief Retourne true si aucun bouton n'est enfoncé
@@ -102,13 +102,13 @@ namespace nkentseu {
     class NkMouseEvent : public NkEvent {
     public:
         /// @brief Retourne les flags de catégorie (MOUSE + INPUT)
-        NkU32 GetCategoryFlags() const override {
-            return static_cast<NkU32>(NkEventCategory::NK_CAT_MOUSE)
-                 | static_cast<NkU32>(NkEventCategory::NK_CAT_INPUT);
+        uint32 GetCategoryFlags() const override {
+            return static_cast<uint32>(NkEventCategory::NK_CAT_MOUSE)
+                 | static_cast<uint32>(NkEventCategory::NK_CAT_INPUT);
         }
 
     protected:
-        explicit NkMouseEvent(NkU64 windowId = 0) noexcept
+        explicit NkMouseEvent(uint64 windowId = 0) noexcept
             : NkEvent(windowId) {}
     };
 
@@ -125,12 +125,12 @@ namespace nkentseu {
         /// @param deltaX / deltaY  Déplacement depuis le dernier événement
         /// @param buttons          Boutons enfoncés durant le déplacement
         /// @param mods             Modificateurs clavier actifs
-        NkMouseMoveEvent(NkI32 x, NkI32 y,
-                         NkI32 screenX, NkI32 screenY,
-                         NkI32 deltaX, NkI32 deltaY,
+        NkMouseMoveEvent(int32 x, int32 y,
+                         int32 screenX, int32 screenY,
+                         int32 deltaX, int32 deltaY,
                          const NkMouseButtons&  buttons  = {},
                          const NkModifierState& mods     = {},
-                         NkU64 windowId = 0) noexcept
+                         uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId)
             , mX(x), mY(y)
             , mScreenX(screenX), mScreenY(screenY)
@@ -144,12 +144,12 @@ namespace nkentseu {
                 mX, mY, mDeltaX, mDeltaY);
         }
 
-        NkI32           GetX()          const noexcept { return mX;          }
-        NkI32           GetY()          const noexcept { return mY;          }
-        NkI32           GetScreenX()    const noexcept { return mScreenX;    }
-        NkI32           GetScreenY()    const noexcept { return mScreenY;    }
-        NkI32           GetDeltaX()     const noexcept { return mDeltaX;     }
-        NkI32           GetDeltaY()     const noexcept { return mDeltaY;     }
+        int32           GetX()          const noexcept { return mX;          }
+        int32           GetY()          const noexcept { return mY;          }
+        int32           GetScreenX()    const noexcept { return mScreenX;    }
+        int32           GetScreenY()    const noexcept { return mScreenY;    }
+        int32           GetDeltaX()     const noexcept { return mDeltaX;     }
+        int32           GetDeltaY()     const noexcept { return mDeltaY;     }
         NkMouseButtons  GetButtons()    const noexcept { return mButtons;    }
         NkModifierState GetModifiers()  const noexcept { return mModifiers;  }
 
@@ -157,9 +157,9 @@ namespace nkentseu {
         bool IsButtonDown(NkMouseButton b) const noexcept { return mButtons.IsDown(b); }
 
     private:
-        NkI32           mX = 0, mY = 0;                 ///< Position client
-        NkI32           mScreenX = 0, mScreenY = 0;     ///< Position écran
-        NkI32           mDeltaX = 0, mDeltaY = 0;       ///< Delta depuis dernier evt
+        int32           mX = 0, mY = 0;                 ///< Position client
+        int32           mScreenX = 0, mScreenY = 0;     ///< Position écran
+        int32           mDeltaX = 0, mDeltaY = 0;       ///< Delta depuis dernier evt
         NkMouseButtons  mButtons;                        ///< Boutons enfoncés
         NkModifierState mModifiers;                      ///< Modificateurs clavier
     };
@@ -175,8 +175,8 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_RAW)
 
-        NkMouseRawEvent(NkI32 deltaX, NkI32 deltaY, NkI32 deltaZ = 0,
-                        NkU64 windowId = 0) noexcept
+        NkMouseRawEvent(int32 deltaX, int32 deltaY, int32 deltaZ = 0,
+                        uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId)
             , mDeltaX(deltaX), mDeltaY(deltaY), mDeltaZ(deltaZ)
         {}
@@ -186,13 +186,13 @@ namespace nkentseu {
             return NkString::Fmt("MouseRaw({0},{1})", mDeltaX, mDeltaY);
         }
 
-        NkI32 GetDeltaX() const noexcept { return mDeltaX; }
-        NkI32 GetDeltaY() const noexcept { return mDeltaY; }
+        int32 GetDeltaX() const noexcept { return mDeltaX; }
+        int32 GetDeltaY() const noexcept { return mDeltaY; }
         /// @brief Delta Z brut (molette ou axe 3D, si disponible)
-        NkI32 GetDeltaZ() const noexcept { return mDeltaZ; }
+        int32 GetDeltaZ() const noexcept { return mDeltaZ; }
 
     private:
-        NkI32 mDeltaX = 0, mDeltaY = 0, mDeltaZ = 0;
+        int32 mDeltaX = 0, mDeltaY = 0, mDeltaZ = 0;
     };
 
     // =========================================================================
@@ -204,11 +204,11 @@ namespace nkentseu {
     public:
         NkMouseButton   GetButton()      const noexcept { return mButton;     }
         NkButtonState   GetState()       const noexcept { return mState;      }
-        NkI32           GetX()           const noexcept { return mX;          }
-        NkI32           GetY()           const noexcept { return mY;          }
-        NkI32           GetScreenX()     const noexcept { return mScreenX;    }
-        NkI32           GetScreenY()     const noexcept { return mScreenY;    }
-        NkU32           GetClickCount()  const noexcept { return mClickCount; }
+        int32           GetX()           const noexcept { return mX;          }
+        int32           GetY()           const noexcept { return mY;          }
+        int32           GetScreenX()     const noexcept { return mScreenX;    }
+        int32           GetScreenY()     const noexcept { return mScreenY;    }
+        uint32           GetClickCount()  const noexcept { return mClickCount; }
         NkModifierState GetModifiers()   const noexcept { return mModifiers;  }
 
         /// @brief Raccourcis pour les boutons communs
@@ -219,11 +219,11 @@ namespace nkentseu {
     protected:
         NkMouseButtonEvent(NkMouseButton          button,
                            NkButtonState          state,
-                           NkI32                  x,       NkI32 y,
-                           NkI32                  screenX, NkI32 screenY,
-                           NkU32                  clickCount,
+                           int32                  x,       int32 y,
+                           int32                  screenX, int32 screenY,
+                           uint32                  clickCount,
                            const NkModifierState& mods,
-                           NkU64                  windowId) noexcept
+                           uint64                  windowId) noexcept
             : NkMouseEvent(windowId)
             , mButton(button), mState(state)
             , mX(x), mY(y), mScreenX(screenX), mScreenY(screenY)
@@ -232,9 +232,9 @@ namespace nkentseu {
 
         NkMouseButton   mButton     = NkMouseButton::NK_MB_UNKNOWN; ///< Bouton concerné
         NkButtonState   mState      = NkButtonState::NK_RELEASED;   ///< État du bouton
-        NkI32           mX = 0, mY = 0;                              ///< Position client
-        NkI32           mScreenX = 0, mScreenY = 0;                  ///< Position écran
-        NkU32           mClickCount = 1;                             ///< 1 = simple, 2 = double…
+        int32           mX = 0, mY = 0;                              ///< Position client
+        int32           mScreenX = 0, mScreenY = 0;                  ///< Position écran
+        uint32           mClickCount = 1;                             ///< 1 = simple, 2 = double…
         NkModifierState mModifiers;                                  ///< Modificateurs actifs
     };
 
@@ -247,12 +247,12 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_BUTTON_PRESSED)
 
         NkMouseButtonPressEvent(NkMouseButton          button,
-                                NkI32                  x,        NkI32 y,
-                                NkI32                  screenX   = 0,
-                                NkI32                  screenY   = 0,
-                                NkU32                  clickCount = 1,
+                                int32                  x,        int32 y,
+                                int32                  screenX   = 0,
+                                int32                  screenY   = 0,
+                                uint32                  clickCount = 1,
                                 const NkModifierState& mods      = {},
-                                NkU64                  windowId  = 0) noexcept
+                                uint64                  windowId  = 0) noexcept
             : NkMouseButtonEvent(button, NkButtonState::NK_PRESSED,
                                  x, y, screenX, screenY, clickCount, mods, windowId)
         {}
@@ -273,12 +273,12 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_BUTTON_RELEASED)
 
         NkMouseButtonReleaseEvent(NkMouseButton          button,
-                                  NkI32                  x,        NkI32 y,
-                                  NkI32                  screenX   = 0,
-                                  NkI32                  screenY   = 0,
-                                  NkU32                  clickCount = 1,
+                                  int32                  x,        int32 y,
+                                  int32                  screenX   = 0,
+                                  int32                  screenY   = 0,
+                                  uint32                  clickCount = 1,
                                   const NkModifierState& mods      = {},
-                                  NkU64                  windowId  = 0) noexcept
+                                  uint64                  windowId  = 0) noexcept
             : NkMouseButtonEvent(button, NkButtonState::NK_RELEASED,
                                  x, y, screenX, screenY, clickCount, mods, windowId)
         {}
@@ -298,11 +298,11 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_DOUBLE_CLICK)
 
         NkMouseDoubleClickEvent(NkMouseButton          button,
-                                NkI32                  x,       NkI32 y,
-                                NkI32                  screenX  = 0,
-                                NkI32                  screenY  = 0,
+                                int32                  x,       int32 y,
+                                int32                  screenX  = 0,
+                                int32                  screenY  = 0,
                                 const NkModifierState& mods     = {},
-                                NkU64                  windowId = 0) noexcept
+                                uint64                  windowId = 0) noexcept
             : NkMouseButtonEvent(button, NkButtonState::NK_PRESSED,
                                  x, y, screenX, screenY, 2, mods, windowId)
         {}
@@ -320,21 +320,21 @@ namespace nkentseu {
 
     class NkMouseWheelEvent : public NkMouseEvent {
     public:
-        NkF64           GetDeltaX()       const noexcept { return mDeltaX;       }
-        NkF64           GetDeltaY()       const noexcept { return mDeltaY;       }
-        NkF64           GetPixelDeltaX()  const noexcept { return mPixelDeltaX;  }
-        NkF64           GetPixelDeltaY()  const noexcept { return mPixelDeltaY;  }
-        NkI32           GetX()            const noexcept { return mX;            }
-        NkI32           GetY()            const noexcept { return mY;            }
+        float64           GetDeltaX()       const noexcept { return mDeltaX;       }
+        float64           GetDeltaY()       const noexcept { return mDeltaY;       }
+        float64           GetPixelDeltaX()  const noexcept { return mPixelDeltaX;  }
+        float64           GetPixelDeltaY()  const noexcept { return mPixelDeltaY;  }
+        int32           GetX()            const noexcept { return mX;            }
+        int32           GetY()            const noexcept { return mY;            }
         /// @brief Retourne true si la molette supporte la haute précision (trackpad…)
         bool            IsHighPrecision() const noexcept { return mHighPrecision; }
         NkModifierState GetModifiers()    const noexcept { return mModifiers;     }
 
     protected:
-        NkMouseWheelEvent(NkF64 dX, NkF64 dY, NkF64 pdX, NkF64 pdY,
-                          NkI32 x, NkI32 y, bool highPrecision,
+        NkMouseWheelEvent(float64 dX, float64 dY, float64 pdX, float64 pdY,
+                          int32 x, int32 y, bool highPrecision,
                           const NkModifierState& mods,
-                          NkU64 windowId) noexcept
+                          uint64 windowId) noexcept
             : NkMouseEvent(windowId)
             , mDeltaX(dX), mDeltaY(dY)
             , mPixelDeltaX(pdX), mPixelDeltaY(pdY)
@@ -342,11 +342,11 @@ namespace nkentseu {
             , mHighPrecision(highPrecision), mModifiers(mods)
         {}
 
-        NkF64           mDeltaX      = 0.0; ///< Delta logique X (en "clics de molette")
-        NkF64           mDeltaY      = 0.0; ///< Delta logique Y
-        NkF64           mPixelDeltaX = 0.0; ///< Delta en pixels (haute précision)
-        NkF64           mPixelDeltaY = 0.0;
-        NkI32           mX = 0, mY = 0;     ///< Position curseur lors de l'événement
+        float64           mDeltaX      = 0.0; ///< Delta logique X (en "clics de molette")
+        float64           mDeltaY      = 0.0; ///< Delta logique Y
+        float64           mPixelDeltaX = 0.0; ///< Delta en pixels (haute précision)
+        float64           mPixelDeltaY = 0.0;
+        int32           mX = 0, mY = 0;     ///< Position curseur lors de l'événement
         bool            mHighPrecision = false; ///< Molette trackpad / haute précision
         NkModifierState mModifiers;
     };
@@ -362,12 +362,12 @@ namespace nkentseu {
         /// @param deltaY      Delta en "clics" (positif = vers le haut)
         /// @param x / y       Position du curseur
         /// @param pixelDeltaY Delta en pixels pour les trackpads haute précision
-        NkMouseWheelVerticalEvent(NkF64 deltaY,
-                                  NkI32 x = 0, NkI32 y = 0,
-                                  NkF64 pixelDeltaY     = 0.0,
+        NkMouseWheelVerticalEvent(float64 deltaY,
+                                  int32 x = 0, int32 y = 0,
+                                  float64 pixelDeltaY     = 0.0,
                                   bool  highPrecision   = false,
                                   const NkModifierState& mods = {},
-                                  NkU64 windowId        = 0) noexcept
+                                  uint64 windowId        = 0) noexcept
             : NkMouseWheelEvent(0.0, deltaY, 0.0, pixelDeltaY, x, y, highPrecision, mods, windowId)
         {}
 
@@ -391,12 +391,12 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_WHEEL_HORIZONTAL)
 
         /// @param deltaX      Delta en "clics" (positif = vers la droite)
-        NkMouseWheelHorizontalEvent(NkF64 deltaX,
-                                    NkI32 x = 0, NkI32 y = 0,
-                                    NkF64 pixelDeltaX    = 0.0,
+        NkMouseWheelHorizontalEvent(float64 deltaX,
+                                    int32 x = 0, int32 y = 0,
+                                    float64 pixelDeltaX    = 0.0,
                                     bool  highPrecision  = false,
                                     const NkModifierState& mods = {},
-                                    NkU64 windowId       = 0) noexcept
+                                    uint64 windowId       = 0) noexcept
             : NkMouseWheelEvent(deltaX, 0.0, pixelDeltaX, 0.0, x, y, highPrecision, mods, windowId)
         {}
 
@@ -419,7 +419,7 @@ namespace nkentseu {
     class NkMouseEnterEvent final : public NkMouseEvent {
     public:
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_ENTER)
-        explicit NkMouseEnterEvent(NkU64 windowId = 0) noexcept
+        explicit NkMouseEnterEvent(uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseEnterEvent(*this); }
         NkString ToString() const override { return "MouseEnter()"; }
@@ -428,7 +428,7 @@ namespace nkentseu {
     class NkMouseLeaveEvent final : public NkMouseEvent {
     public:
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_LEAVE)
-        explicit NkMouseLeaveEvent(NkU64 windowId = 0) noexcept
+        explicit NkMouseLeaveEvent(uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseLeaveEvent(*this); }
         NkString ToString() const override { return "MouseLeave()"; }
@@ -442,7 +442,7 @@ namespace nkentseu {
     class NkMouseWindowEnterEvent final : public NkMouseEvent {
     public:
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_WINDOW_ENTER)
-        explicit NkMouseWindowEnterEvent(NkU64 windowId = 0) noexcept
+        explicit NkMouseWindowEnterEvent(uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseWindowEnterEvent(*this); }
         NkString ToString() const override { return "MouseWindowEnter()"; }
@@ -451,7 +451,7 @@ namespace nkentseu {
     class NkMouseWindowLeaveEvent final : public NkMouseEvent {
     public:
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_WINDOW_LEAVE)
-        explicit NkMouseWindowLeaveEvent(NkU64 windowId = 0) noexcept
+        explicit NkMouseWindowLeaveEvent(uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseWindowLeaveEvent(*this); }
         NkString ToString() const override { return "MouseWindowLeave()"; }
@@ -466,7 +466,7 @@ namespace nkentseu {
     class NkMouseCaptureBeginEvent final : public NkMouseEvent {
     public:
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_CAPTURE_BEGIN)
-        explicit NkMouseCaptureBeginEvent(NkU64 windowId = 0) noexcept
+        explicit NkMouseCaptureBeginEvent(uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseCaptureBeginEvent(*this); }
         NkString ToString() const override { return "MouseCaptureBegin()"; }
@@ -475,7 +475,7 @@ namespace nkentseu {
     class NkMouseCaptureEndEvent final : public NkMouseEvent {
     public:
         NK_EVENT_TYPE_FLAGS(NK_MOUSE_CAPTURE_END)
-        explicit NkMouseCaptureEndEvent(NkU64 windowId = 0) noexcept
+        explicit NkMouseCaptureEndEvent(uint64 windowId = 0) noexcept
             : NkMouseEvent(windowId) {}
         NkEvent*    Clone()    const override { return new NkMouseCaptureEndEvent(*this); }
         NkString ToString() const override { return "MouseCaptureEnd()"; }

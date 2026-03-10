@@ -21,8 +21,8 @@
 
 #include "Core/NkWindow.h"
 #include "Events/NkEventSystem.h"
-#include "NKRenderer/NkRenderer.h"
-#include "NKRenderer/NkIRenderer.h"
+// NKRenderer is intentionally not included here to avoid reverse dependency
+// NKWindow -> NKRenderer. Include NKRenderer headers explicitly where needed.
 
 #include "Core/NkDialogs.h"
 #include "Core/NkEntry.h"

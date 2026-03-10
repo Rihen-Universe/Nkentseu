@@ -34,7 +34,7 @@ namespace nkentseu {
         NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_APPLICATION)
 
     protected:
-        explicit NkAppEvent(NkU64 windowId = 0) noexcept : NkEvent(windowId) {}
+        explicit NkAppEvent(uint64 windowId = 0) noexcept : NkEvent(windowId) {}
     };
 
     // =========================================================================
@@ -99,7 +99,7 @@ namespace nkentseu {
          * @param deltaTime  Temps écoulé depuis le dernier tick [secondes].
          * @param totalTime  Temps cumulé depuis le lancement [secondes].
          */
-        explicit NkAppTickEvent(NkF64 deltaTime, NkF64 totalTime = 0.0) noexcept
+        explicit NkAppTickEvent(float64 deltaTime, float64 totalTime = 0.0) noexcept
             : NkAppEvent()
             , mDeltaTime(deltaTime)
             , mTotalTime(totalTime)
@@ -111,17 +111,17 @@ namespace nkentseu {
                  + "s total=" + string::NkToString(mTotalTime) + "s)";
         }
 
-        NkF64 GetDeltaTime() const noexcept { return mDeltaTime; }
-        NkF64 GetTotalTime() const noexcept { return mTotalTime; }
+        float64 GetDeltaTime() const noexcept { return mDeltaTime; }
+        float64 GetTotalTime() const noexcept { return mTotalTime; }
 
         /// @brief FPS instantané (0 si deltaTime est nul)
-        NkF64 GetFps() const noexcept {
+        float64 GetFps() const noexcept {
             return (mDeltaTime > 0.0) ? (1.0 / mDeltaTime) : 0.0;
         }
 
     private:
-        NkF64 mDeltaTime = 0.0;
-        NkF64 mTotalTime = 0.0;
+        float64 mDeltaTime = 0.0;
+        float64 mTotalTime = 0.0;
     };
 
     // =========================================================================
@@ -143,7 +143,7 @@ namespace nkentseu {
          * @param deltaTime  Durée du pas de simulation [secondes].
          * @param fixedStep  true si la mise à jour se fait à pas fixe.
          */
-        explicit NkAppUpdateEvent(NkF64 deltaTime,
+        explicit NkAppUpdateEvent(float64 deltaTime,
                                    bool  fixedStep = false) noexcept
             : NkAppEvent()
             , mDeltaTime(deltaTime)
@@ -156,11 +156,11 @@ namespace nkentseu {
                  + (mFixedStep ? " fixed" : " variable") + ")";
         }
 
-        NkF64 GetDeltaTime() const noexcept { return mDeltaTime; }
+        float64 GetDeltaTime() const noexcept { return mDeltaTime; }
         bool  IsFixedStep()  const noexcept { return mFixedStep; }
 
     private:
-        NkF64 mDeltaTime = 0.0;
+        float64 mDeltaTime = 0.0;
         bool  mFixedStep  = false;
     };
 
@@ -183,8 +183,8 @@ namespace nkentseu {
          * @param alpha       Facteur d'interpolation [0,1].
          * @param frameIndex  Index de la frame courante depuis le lancement.
          */
-        explicit NkAppRenderEvent(NkF64 alpha      = 1.0,
-                                   NkU64 frameIndex = 0) noexcept
+        explicit NkAppRenderEvent(float64 alpha      = 1.0,
+                                   uint64 frameIndex = 0) noexcept
             : NkAppEvent()
             , mAlpha(alpha)
             , mFrameIndex(frameIndex)
@@ -196,12 +196,12 @@ namespace nkentseu {
                  + " alpha=" + string::NkToString(mAlpha) + ")";
         }
 
-        NkF64 GetAlpha()      const noexcept { return mAlpha; }
-        NkU64 GetFrameIndex() const noexcept { return mFrameIndex; }
+        float64 GetAlpha()      const noexcept { return mAlpha; }
+        uint64 GetFrameIndex() const noexcept { return mFrameIndex; }
 
     private:
-        NkF64 mAlpha      = 1.0;
-        NkU64 mFrameIndex = 0;
+        float64 mAlpha      = 1.0;
+        uint64 mFrameIndex = 0;
     };
 
     // =========================================================================

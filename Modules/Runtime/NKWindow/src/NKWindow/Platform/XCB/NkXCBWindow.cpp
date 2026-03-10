@@ -296,21 +296,21 @@ namespace nkentseu {
         xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
         xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, nullptr);
         if (!r) return { mConfig.width, mConfig.height };
-        NkVec2u sz = { (NkU32)r->width, (NkU32)r->height };
+        NkVec2u sz = { (uint32)r->width, (uint32)r->height };
         free(r);
         return sz;
     }
 
     NkVec2u NkWindow::GetPosition() const {
         if (!mData.mConnection || !mData.mWindow)
-            return { (NkU32)mConfig.x, (NkU32)mConfig.y };
+            return { (uint32)mConfig.x, (uint32)mConfig.y };
         xcb_translate_coordinates_cookie_t c =
             xcb_translate_coordinates(mData.mConnection, mData.mWindow,
                                     sDefaultScreen->root, 0, 0);
         xcb_translate_coordinates_reply_t* r =
             xcb_translate_coordinates_reply(mData.mConnection, c, nullptr);
-        if (!r) return { (NkU32)mConfig.x, (NkU32)mConfig.y };
-        NkVec2u pos = { (NkU32)r->dst_x, (NkU32)r->dst_y };
+        if (!r) return { (uint32)mConfig.x, (uint32)mConfig.y };
+        NkVec2u pos = { (uint32)r->dst_x, (uint32)r->dst_y };
         free(r);
         return pos;
     }
@@ -318,8 +318,8 @@ namespace nkentseu {
     float   NkWindow::GetDpiScale()        const { return 1.f; }
     NkVec2u NkWindow::GetDisplaySize()     const {
         if (!sDefaultScreen) return { 1920, 1080 };
-        return { (NkU32)sDefaultScreen->width_in_pixels,
-                (NkU32)sDefaultScreen->height_in_pixels };
+        return { (uint32)sDefaultScreen->width_in_pixels,
+                (uint32)sDefaultScreen->height_in_pixels };
     }
     NkVec2u NkWindow::GetDisplayPosition() const { return { 0, 0 }; }
 
@@ -341,7 +341,7 @@ namespace nkentseu {
         xcb_flush(mData.mConnection);
     }
 
-    void NkWindow::SetSize(NkU32 w, NkU32 h) {
+    void NkWindow::SetSize(uint32 w, uint32 h) {
         mConfig.width = w; mConfig.height = h;
         if (!mData.mConnection || !mData.mWindow) return;
         uint32_t values[] = { w, h };
@@ -351,7 +351,7 @@ namespace nkentseu {
         xcb_flush(mData.mConnection);
     }
 
-    void NkWindow::SetPosition(NkI32 x, NkI32 y) {
+    void NkWindow::SetPosition(int32 x, int32 y) {
         mConfig.x = x; mConfig.y = y;
         if (!mData.mConnection || !mData.mWindow) return;
         uint32_t values[] = { (uint32_t)x, (uint32_t)y };
@@ -442,7 +442,7 @@ namespace nkentseu {
     // Mouse
     // =============================================================================
 
-    void NkWindow::SetMousePosition(NkU32 x, NkU32 y) {
+    void NkWindow::SetMousePosition(uint32 x, uint32 y) {
         if (mData.mConnection && mData.mWindow)
             xcb_warp_pointer(mData.mConnection, XCB_NONE, mData.mWindow,
                             0, 0, 0, 0, (int16_t)x, (int16_t)y);

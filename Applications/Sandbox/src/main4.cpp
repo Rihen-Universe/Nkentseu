@@ -37,9 +37,9 @@ struct AppState {
     float   saturation   = 1.15f;
     NkVec2f phase        = { 0.f, 0.f };
     float   time         = 0.f;
-    NkU32   viewW        = 1280;
-    NkU32   viewH        = 720;
-    NkU32   fpsFrames    = 0;
+    uint32   viewW        = 1280;
+    uint32   viewH        = 720;
+    uint32   fpsFrames    = 0;
     double  fpsAccum     = 0.0;
     float   currentFps   = 0.f;
 };
@@ -47,26 +47,26 @@ struct AppState {
 // ---------------------------------------------------------------------------
 // Rendu plasma identique aux autres exemples
 // ---------------------------------------------------------------------------
-static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
+static void DrawPlasma(NkRenderer& r, uint32 w, uint32 h,
                         float t, NkVec2f ph, float sat)
 {
     if (!w || !h) return;
-    const NkU32 blk = (w*h > 1280u*720u) ? 2u : 1u;
-    for (NkU32 y = 0; y < h; y += blk) {
+    const uint32 blk = (w*h > 1280u*720u) ? 2u : 1u;
+    for (uint32 y = 0; y < h; y += blk) {
         float fy = y / (float)h - 0.5f;
-        for (NkU32 x = 0; x < w; x += blk) {
+        for (uint32 x = 0; x < w; x += blk) {
             float fx  = x / (float)w - 0.5f;
             float rd  = NkSqrt(fx*fx + fy*fy);
             float mix = (NkSin((fx+ph.x)*13.5f+t*1.7f)
                         +NkSin((fy+ph.y)*11.f -t*1.3f)
                         +NkSin(rd*24.f        -t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255);
-            NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
-            for (NkU32 by=0;by<blk&&(y+by)<h;++by)
-                for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
-                    r.SetPixel((NkI32)(x+bx),(NkI32)(y+by),col);
+            uint8 ri = (uint8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.00f))-0.5f)*sat+0.5f)*255);
+            uint8 gi = (uint8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.33f))-0.5f)*sat+0.5f)*255);
+            uint8 bi = (uint8)(ClampUnit((0.5f+0.5f*NkSin(6.28f*(mix+0.66f))-0.5f)*sat+0.5f)*255);
+            uint32 col = NkRenderer::PackColor(ri, gi, bi, 255);
+            for (uint32 by=0;by<blk&&(y+by)<h;++by)
+                for (uint32 bx=0;bx<blk&&(x+bx)<w;++bx)
+                    r.SetPixel((int32)(x+bx),(int32)(y+by),col);
         }
     }
 }
@@ -75,10 +75,10 @@ static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
 // Overlay debug (coins de l'écran) — utilise FillRect
 // ---------------------------------------------------------------------------
 
-static void DrawFillRect(NkRenderer& r, NkU32 x, NkU32 y, NkU32 w, NkU32 h, NkU32 col) {
-    for (NkU32 j = 0; j < h; ++j) {
-        for (NkU32 i = 0; i < w; ++i) {
-            r.DrawPixel(static_cast<NkI32>(x + i), static_cast<NkI32>(y + j), col);
+static void DrawFillRect(NkRenderer& r, uint32 x, uint32 y, uint32 w, uint32 h, uint32 col) {
+    for (uint32 j = 0; j < h; ++j) {
+        for (uint32 i = 0; i < w; ++i) {
+            r.DrawPixel(static_cast<int32>(x + i), static_cast<int32>(y + j), col);
         }
     }
 }
@@ -89,20 +89,20 @@ static void DrawHud(NkRenderer& r, const AppState& s)
     DrawFillRect(r, 0, 0, s.viewW, 22, NkRenderer::PackColor(0, 0, 0, 160));
 
     // Indicateur Neon
-    NkU32 neonCol = s.neon
+    uint32 neonCol = s.neon
         ? NkRenderer::PackColor(0, 255, 140, 255)
         : NkRenderer::PackColor(80, 80, 80, 255);
     DrawFillRect(r, 4, 4, 14, 14, neonCol);
 
     // Indicateur fullscreen
-    NkU32 fsCol = s.fullscreen
+    uint32 fsCol = s.fullscreen
         ? NkRenderer::PackColor(255, 200, 0, 255)
         : NkRenderer::PackColor(80, 80, 80, 255);
     DrawFillRect(r, 24, 4, 14, 14, fsCol);
 
     // Indicateur gamepad connecté (remplace le cercle par un carré)
     bool gpOk = NkGamepads().IsConnected(0);
-    NkU32 gpCol = gpOk
+    uint32 gpCol = gpOk
         ? NkRenderer::PackColor(50, 220, 50, 255)
         : NkRenderer::PackColor(80, 80, 80, 255);
     DrawFillRect(r, s.viewW - 24, 4, 14, 14, gpCol);
@@ -254,8 +254,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
         renderer.BeginFrame(NkRenderer::PackColor(8, 10, 18, 255));
 
         const auto& fb = renderer.GetFramebufferInfo();
-        NkU32 w = fb.width  ? fb.width  : s.viewW;
-        NkU32 h = fb.height ? fb.height : s.viewH;
+        uint32 w = fb.width  ? fb.width  : s.viewW;
+        uint32 h = fb.height ? fb.height : s.viewH;
 
         DrawPlasma(renderer, w, h, s.time, s.phase, s.saturation);
         DrawHud(renderer, s);

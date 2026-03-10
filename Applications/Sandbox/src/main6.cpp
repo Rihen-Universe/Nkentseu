@@ -15,11 +15,11 @@
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Ajout pour NkChrono et NkElapsedTime
 #include "NKMath/NKMath.h"
+#include "NKContainers/CacheFriendly/NkArray.h"
 
 #include "NKLogger/NkLog.h"
 
 #include <cmath>
-#include <array>
 #include <string>
 
 #ifdef NkMin
@@ -58,27 +58,27 @@ struct WinState {
 // ---------------------------------------------------------------------------
 // Plasma avec décalage de teinte par fenêtre
 // ---------------------------------------------------------------------------
-static void DrawPlasma(NkRenderer& r, NkU32 w, NkU32 h,
+static void DrawPlasma(NkRenderer& r, uint32 w, uint32 h,
                         float t, float px, float py,
                         float sat, float hue)
 {
     if (!w || !h) return;
-    const NkU32 blk = (w*h > 1280u*720u) ? 2u : 1u;
-    for (NkU32 y = 0; y < h; y += blk) {
+    const uint32 blk = (w*h > 1280u*720u) ? 2u : 1u;
+    for (uint32 y = 0; y < h; y += blk) {
         float fy = y/(float)h - 0.5f;
-        for (NkU32 x = 0; x < w; x += blk) {
+        for (uint32 x = 0; x < w; x += blk) {
             float fx  = x/(float)w - 0.5f;
             float rd  = math::NkSqrt(fx*fx + fy*fy);
             float mix = (math::NkSin((fx+px)*13.5f + t*1.7f)
                         +math::NkSin((fy+py)*11.f  - t*1.3f)
                         +math::NkSin(rd*24.f        - t*2.1f)) * 0.333f;
-            NkU8 ri = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.f  ))-0.5f)*sat+0.5f)*255);
-            NkU8 gi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.33f))-0.5f)*sat+0.5f)*255);
-            NkU8 bi = (NkU8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.66f))-0.5f)*sat+0.5f)*255);
-            NkU32 col = NkRenderer::PackColor(ri, gi, bi, 255);
-            for (NkU32 by=0;by<blk&&(y+by)<h;++by)
-                for (NkU32 bx=0;bx<blk&&(x+bx)<w;++bx)
-                    r.SetPixel((NkI32)(x+bx),(NkI32)(y+by),col);
+            uint8 ri = (uint8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.f  ))-0.5f)*sat+0.5f)*255);
+            uint8 gi = (uint8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.33f))-0.5f)*sat+0.5f)*255);
+            uint8 bi = (uint8)(ClampUnit((0.5f+0.5f*math::NkSin(6.28f*(mix+hue+0.66f))-0.5f)*sat+0.5f)*255);
+            uint32 col = NkRenderer::PackColor(ri, gi, bi, 255);
+            for (uint32 by=0;by<blk&&(y+by)<h;++by)
+                for (uint32 bx=0;bx<blk&&(x+bx)<w;++bx)
+                    r.SetPixel((int32)(x+bx),(int32)(y+by),col);
         }
     }
 }
@@ -177,7 +177,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     if (!NkInitialise({ .appName = "ex05 Multi-Window" })) return -1;
 
     // 2. Deux fenêtres
-    std::array<WinState, 2> wins;
+    NkArray<WinState, 2> wins;
 
     // Fenêtre A — rouge/plasma chaud, en haut à gauche
     NkWindowConfig cfgA;
@@ -316,8 +316,8 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
             ws.renderer.BeginFrame(NkRenderer::PackColor(8, 10, 18, 255));
 
             const auto& fb = ws.renderer.GetFramebufferInfo();
-            NkU32 w = fb.width  ? fb.width  : 640u;
-            NkU32 h = fb.height ? fb.height : 480u;
+            uint32 w = fb.width  ? fb.width  : 640u;
+            uint32 h = fb.height ? fb.height : 480u;
 
             DrawPlasma(ws.renderer, w, h,
                        ws.time, ws.phaseX, ws.phaseY,

@@ -90,9 +90,9 @@ void NkGraphicsContextFactory::PrepareForOpenGL(
     if (vi) {
         // Injecter la VisualID et le pointeur FBConfig dans les hints
         wcfg.surfaceHints.Set(NkSurfaceHintKey::GlxVisualId,
-                              (NkUPtr)vi->visualid);
+                              (uintptr)vi->visualid);
         wcfg.surfaceHints.Set(NkSurfaceHintKey::GlxFBConfigPtr,
-                              (NkUPtr)fbs[0]); // fbs[0] = premier FBConfig
+                              (uintptr)fbs[0]); // fbs[0] = premier FBConfig
         XFree(vi);
     }
 

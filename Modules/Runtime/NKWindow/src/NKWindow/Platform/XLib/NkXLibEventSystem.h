@@ -17,8 +17,8 @@ namespace nkentseu {
 
     struct NkEventSystemData {
         ::Display* mDisplay    = nullptr;
-        NkI32      mPrevMouseX = 0;
-        NkI32      mPrevMouseY = 0;
+        int32      mPrevMouseX = 0;
+        int32      mPrevMouseY = 0;
         bool       mInitialized = false;
     };
 

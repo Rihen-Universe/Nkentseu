@@ -9,7 +9,7 @@
 //   - Membres publics : camelCase
 //   - Membres privés  : mPascalCase
 //
-// Dépend de NKCore/NkTypes.h pour les primitives fixes (nk_uint8, etc.)
+// Dépend de NKCore/NkTypes.h pour les primitives fixes (uint8, uint16, etc.)
 // =============================================================================
 
 #include <math.h>
@@ -18,40 +18,24 @@
 namespace nkentseu {
 
     // ---------------------------------------------------------------------------
-    // Entiers fixes
-    // ---------------------------------------------------------------------------
-
-    using NkU8  = nk_uint8;
-    using NkU16 = nk_uint16;
-    using NkU32 = nk_uint32;
-    using NkU64 = nk_uint64;
-    using NkI8  = nk_int8;
-    using NkI16 = nk_int16;
-    using NkI32 = nk_int32;
-    using NkI64 = nk_int64;
-    using NkF32 = float32;
-    using NkF64 = float64;
-    using NkUPtr = nk_uintptr;
-
-    // ---------------------------------------------------------------------------
     // NkVec2u — vecteur 2D non-signé (uint32)
     // ---------------------------------------------------------------------------
 
     struct NkVec2u {
-        NkU32 x = 0;
-        NkU32 y = 0;
+        uint32 x = 0;
+        uint32 y = 0;
 
         NkVec2u() = default;
-        NkVec2u(NkU32 x, NkU32 y) : x(x), y(y) {}
+        NkVec2u(uint32 x, uint32 y) : x(x), y(y) {}
 
         bool operator==(const NkVec2u& other) const { return x == other.x && y == other.y; }
         bool operator!=(const NkVec2u& other) const { return !(*this == other); }
 
         template <typename T> NkVec2u operator*(T s) const {
-            return { static_cast<NkU32>(x * s), static_cast<NkU32>(y * s) };
+            return { static_cast<uint32>(x * s), static_cast<uint32>(y * s) };
         }
         template <typename T> NkVec2u operator/(T s) const {
-            return { static_cast<NkU32>(x / s), static_cast<NkU32>(y / s) };
+            return { static_cast<uint32>(x / s), static_cast<uint32>(y / s) };
         }
     };
 
@@ -60,11 +44,11 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     struct NkVec2i {
-        NkI32 x = 0;
-        NkI32 y = 0;
+        int32 x = 0;
+        int32 y = 0;
 
         NkVec2i() = default;
-        NkVec2i(NkI32 x, NkI32 y) : x(x), y(y) {}
+        NkVec2i(int32 x, int32 y) : x(x), y(y) {}
 
         bool operator==(const NkVec2i& other) const { return x == other.x && y == other.y; }
         bool operator!=(const NkVec2i& other) const { return !(*this == other); }
@@ -78,17 +62,17 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     struct NkRect {
-        NkI32 x      = 0;
-        NkI32 y      = 0;
-        NkU32 width  = 0;
-        NkU32 height = 0;
+        int32 x      = 0;
+        int32 y      = 0;
+        uint32 width  = 0;
+        uint32 height = 0;
 
         NkRect() = default;
-        NkRect(NkI32 x, NkI32 y, NkU32 w, NkU32 h) : x(x), y(y), width(w), height(h) {}
+        NkRect(int32 x, int32 y, uint32 w, uint32 h) : x(x), y(y), width(w), height(h) {}
 
-        bool Contains(NkI32 px, NkI32 py) const {
-            return px >= x && px < x + static_cast<NkI32>(width) &&
-                py >= y && py < y + static_cast<NkI32>(height);
+        bool Contains(int32 px, int32 py) const {
+            return px >= x && px < x + static_cast<int32>(width) &&
+                py >= y && py < y + static_cast<int32>(height);
         }
     };
 

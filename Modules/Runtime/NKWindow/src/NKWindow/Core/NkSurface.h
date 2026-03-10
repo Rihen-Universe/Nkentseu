@@ -81,8 +81,8 @@ namespace nkentseu {
 	struct NkSurfaceDesc {
 
 		// --- Dimensions physiques (pixels) ---
-		NkU32  width  = 0;
-		NkU32  height = 0;
+		uint32  width  = 0;
+		uint32  height = 0;
 		float  dpi    = 1.f;
 
 		// --- Handles natifs (conditionnel par plateforme) ---

@@ -52,11 +52,12 @@
 #include "NkGamepadEvent.h"
 #include "NkEventState.h"
 #include "NkGamepadMappingPersistence.h"
+#include "NKContainers/CacheFriendly/NkArray.h"
+#include "NKMath/NkFunctions.h"
+#include "NKMemory/NkUtils.h"
 
 #include <functional>
 #include <memory>
-#include <array>
-#include <cstring>
 #include <string>
 #include <cmath>
 
@@ -67,13 +68,13 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 
 	/// @brief Nombre maximal de manettes supportÃ©es simultanÃ©ment
-	inline constexpr NkU32 NK_MAX_GAMEPADS = 8;
+	inline constexpr uint32 NK_MAX_GAMEPADS = 8;
 	/// @brief Valeur sentinelle pour dÃ©sactiver un mapping bouton/axe.
-	inline constexpr NkU32 NK_GAMEPAD_UNMAPPED = 0xFFFFFFFFu;
+	inline constexpr uint32 NK_GAMEPAD_UNMAPPED = 0xFFFFFFFFu;
 	/// @brief CapacitÃ© de mapping boutons (physiques/logiques) demandÃ©e.
-	inline constexpr NkU32 NK_GAMEPAD_BUTTON_MAPPING_CAPACITY = 102;
+	inline constexpr uint32 NK_GAMEPAD_BUTTON_MAPPING_CAPACITY = 102;
 	/// @brief CapacitÃ© de mapping axes (physiques/logiques) demandÃ©e.
-	inline constexpr NkU32 NK_GAMEPAD_AXIS_MAPPING_CAPACITY = 54;
+	inline constexpr uint32 NK_GAMEPAD_AXIS_MAPPING_CAPACITY = 54;
 
 	// ---------------------------------------------------------------------------
 	// Snapshot complet d'une manette (pour le polling direct)
@@ -94,24 +95,24 @@ namespace nkentseu {
 		bool buttons[NK_GAMEPAD_BUTTON_MAPPING_CAPACITY] = {};
 
 		// Axes analogiques â€” capacitÃ© Ã©tendue
-		NkF32 axes[NK_GAMEPAD_AXIS_MAPPING_CAPACITY] = {};
+		float32 axes[NK_GAMEPAD_AXIS_MAPPING_CAPACITY] = {};
 
 		// Capteurs (si disponibles)
-		NkF32 gyroX = 0.f, gyroY = 0.f, gyroZ = 0.f;     ///< [rad/s]
-		NkF32 accelX = 0.f, accelY = 0.f, accelZ = 0.f;   ///< [m/sÂ²]
+		float32 gyroX = 0.f, gyroY = 0.f, gyroZ = 0.f;     ///< [rad/s]
+		float32 accelX = 0.f, accelY = 0.f, accelZ = 0.f;   ///< [m/sÂ²]
 
 		// Batterie
-		NkF32 batteryLevel = -1.f;  ///< [0,1] ou -1 (filaire / inconnu)
+		float32 batteryLevel = -1.f;  ///< [0,1] ou -1 (filaire / inconnu)
 		bool  isCharging   = false;
 
 		bool IsButtonDown(NkGamepadButton b) const noexcept {
-			NkU32 idx = static_cast<NkU32>(b);
+			uint32 idx = static_cast<uint32>(b);
 			return (idx < NK_GAMEPAD_BUTTON_MAPPING_CAPACITY)
 				&& buttons[idx];
 		}
 
-		NkF32 GetAxis(NkGamepadAxis a) const noexcept {
-			NkU32 idx = static_cast<NkU32>(a);
+		float32 GetAxis(NkGamepadAxis a) const noexcept {
+			uint32 idx = static_cast<uint32>(a);
 			return (idx < NK_GAMEPAD_AXIS_MAPPING_CAPACITY)
 				? axes[idx] : 0.f;
 		}
@@ -119,8 +120,8 @@ namespace nkentseu {
 		void Clear() noexcept {
 			connected = false;
 			info      = {};
-			std::memset(buttons, 0, sizeof(buttons));
-			std::memset(axes,    0, sizeof(axes));
+			memory::NkMemSet(buttons, 0, sizeof(buttons));
+			memory::NkMemSet(axes,    0, sizeof(axes));
 			gyroX = gyroY = gyroZ   = 0.f;
 			accelX = accelY = accelZ = 0.f;
 			batteryLevel = -1.f;
@@ -133,8 +134,8 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------------
 
 	using NkGamepadConnectCallback = std::function<void(const NkGamepadInfo&, bool connected)>;
-	using NkGamepadButtonCallback  = std::function<void(NkU32 idx, NkGamepadButton, NkButtonState)>;
-	using NkGamepadAxisCallback    = std::function<void(NkU32 idx, NkGamepadAxis,   NkF32 value)>;
+	using NkGamepadButtonCallback  = std::function<void(uint32 idx, NkGamepadButton, NkButtonState)>;
+	using NkGamepadAxisCallback    = std::function<void(uint32 idx, NkGamepadAxis,   float32 value)>;
 
 	// ===========================================================================
 	// NkIGamepad â€” interface PIMPL du backend manette
@@ -185,13 +186,13 @@ namespace nkentseu {
 			// -----------------------------------------------------------------------
 
 			/// @brief Nombre de manettes actuellement connectÃ©es
-			virtual NkU32 GetConnectedCount() const = 0;
+			virtual uint32 GetConnectedCount() const = 0;
 
 			/**
 			 * @brief Snapshot complet de la manette Ã  l'indice idx.
 			 * @param idx  Indice de la manette (0-based).
 			 */
-			virtual const NkGamepadSnapshot& GetSnapshot(NkU32 idx) const = 0;
+			virtual const NkGamepadSnapshot& GetSnapshot(uint32 idx) const = 0;
 
 			// -----------------------------------------------------------------------
 			// Commandes de sortie
@@ -210,10 +211,10 @@ namespace nkentseu {
 			 * @param triggerRight GÃ¢chette droite [0,1].
 			 * @param durationMs   DurÃ©e [ms], 0 = jusqu'Ã  l'appel Stop suivant.
 			 */
-			virtual void Rumble(NkU32 idx,
-								NkF32 motorLow, NkF32 motorHigh,
-								NkF32 triggerLeft, NkF32 triggerRight,
-								NkU32 durationMs) = 0;
+			virtual void Rumble(uint32 idx,
+								float32 motorLow, float32 motorHigh,
+								float32 triggerLeft, float32 triggerRight,
+								uint32 durationMs) = 0;
 
 			/**
 			 * @brief DÃ©finit la couleur de la LED d'une manette.
@@ -224,7 +225,7 @@ namespace nkentseu {
 			 * @note  SupportÃ© par DualSense, DualShock 4, Joy-Con.
 			 *        IgnorÃ© silencieusement si non supportÃ©.
 			 */
-			virtual void SetLEDColor(NkU32 idx, NkU32 rgba) {
+			virtual void SetLEDColor(uint32 idx, uint32 rgba) {
 				(void)idx; (void)rgba;
 			}
 
@@ -232,7 +233,7 @@ namespace nkentseu {
 			 * @brief Retourne true si la manette dispose de capteurs inertiels
 			 *        (gyroscope + accÃ©lÃ©romÃ¨tre).
 			 */
-			virtual bool HasMotion(NkU32 idx) const noexcept {
+			virtual bool HasMotion(uint32 idx) const noexcept {
 				(void)idx; return false;
 			}
 
@@ -259,21 +260,21 @@ namespace nkentseu {
 	 */
 	class NkGamepadSystem {
 		public:
-			static constexpr NkU32 BUTTON_COUNT       = NK_GAMEPAD_BUTTON_MAPPING_CAPACITY;
-			static constexpr NkU32 AXIS_COUNT         = NK_GAMEPAD_AXIS_MAPPING_CAPACITY;
-			static constexpr NkU32 EVENT_BUTTON_COUNT = static_cast<NkU32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
-			static constexpr NkU32 EVENT_AXIS_COUNT   = static_cast<NkU32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
+			static constexpr uint32 BUTTON_COUNT       = NK_GAMEPAD_BUTTON_MAPPING_CAPACITY;
+			static constexpr uint32 AXIS_COUNT         = NK_GAMEPAD_AXIS_MAPPING_CAPACITY;
+			static constexpr uint32 EVENT_BUTTON_COUNT = static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
+			static constexpr uint32 EVENT_AXIS_COUNT   = static_cast<uint32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
 
 			struct NkAxisRemap {
-				NkU32 logicalAxis = NK_GAMEPAD_UNMAPPED;
-				NkF32 scale       = 1.f;
+				uint32 logicalAxis = NK_GAMEPAD_UNMAPPED;
+				float32 scale       = 1.f;
 				bool  invert      = false;
 			};
 
 			struct NkRemapProfile {
 				bool active = false;
-				std::array<NkU32, BUTTON_COUNT> buttonMap{};
-				std::array<NkAxisRemap, AXIS_COUNT> axisMap{};
+				NkArray<uint32, BUTTON_COUNT> buttonMap{};
+				NkArray<NkAxisRemap, AXIS_COUNT> axisMap{};
 			};
 
 			// PossÃ©dÃ© par NkSystem â€” constructeur public pour dÃ©claration membre valeur.
@@ -355,40 +356,40 @@ namespace nkentseu {
 			// =========================================================================
 
 			/// @brief Nombre de manettes connectÃ©es
-			NkU32 GetConnectedCount() const noexcept;
+			uint32 GetConnectedCount() const noexcept;
 
 			/// @brief Retourne true si la manette idx est connectÃ©e
-			bool IsConnected(NkU32 idx) const noexcept;
+			bool IsConnected(uint32 idx) const noexcept;
 
 			/**
 			 * @brief Informations sur la manette idx.
 			 * @return RÃ©fÃ©rence vers des donnÃ©es vides si idx est invalide.
 			 */
-			const NkGamepadInfo& GetInfo(NkU32 idx) const noexcept;
+			const NkGamepadInfo& GetInfo(uint32 idx) const noexcept;
 
 			/**
 			 * @brief Snapshot complet de la manette idx.
 			 * @return RÃ©fÃ©rence vers un snapshot vide si idx est invalide.
 			 */
-			const NkGamepadSnapshot& GetSnapshot(NkU32 idx) const noexcept;
+			const NkGamepadSnapshot& GetSnapshot(uint32 idx) const noexcept;
 
 			/// @brief Retourne true si le bouton btn est enfoncÃ© sur la manette idx
-			bool IsButtonDown(NkU32 idx, NkGamepadButton btn) const noexcept;
-			bool IsButtonDownByIndex(NkU32 idx, NkU32 btnIndex) const noexcept;
+			bool IsButtonDown(uint32 idx, NkGamepadButton btn) const noexcept;
+			bool IsButtonDownByIndex(uint32 idx, uint32 btnIndex) const noexcept;
 
 			/**
 			 * @brief Valeur de l'axe ax sur la manette idx.
 			 * @return Valeur normalisÃ©e [-1,1] ou [0,1] selon l'axe, 0 si invalide.
 			 */
-			NkF32 GetAxis(NkU32 idx, NkGamepadAxis ax) const noexcept;
-			NkF32 GetAxisByIndex(NkU32 idx, NkU32 axisIndex) const noexcept;
+			float32 GetAxis(uint32 idx, NkGamepadAxis ax) const noexcept;
+			float32 GetAxisByIndex(uint32 idx, uint32 axisIndex) const noexcept;
 
 			/**
 			 * @brief Snapshot brut (avant remapping utilisateur).
 			 */
-			const NkGamepadSnapshot& GetRawSnapshot(NkU32 idx) const noexcept;
-			bool IsRawButtonDownByIndex(NkU32 idx, NkU32 btnIndex) const noexcept;
-			NkF32 GetRawAxisByIndex(NkU32 idx, NkU32 axisIndex) const noexcept;
+			const NkGamepadSnapshot& GetRawSnapshot(uint32 idx) const noexcept;
+			bool IsRawButtonDownByIndex(uint32 idx, uint32 btnIndex) const noexcept;
+			float32 GetRawAxisByIndex(uint32 idx, uint32 axisIndex) const noexcept;
 
 			// =========================================================================
 			// Commandes de sortie
@@ -404,18 +405,18 @@ namespace nkentseu {
 			 * @param triggerRight GÃ¢chette droite [0,1].
 			 * @param durationMs   DurÃ©e [ms], 0 = infini jusqu'Ã  Rumble(0,0,0,0).
 			 */
-			void Rumble(NkU32 idx,
-						NkF32 motorLow     = 0.f,
-						NkF32 motorHigh    = 0.f,
-						NkF32 triggerLeft  = 0.f,
-						NkF32 triggerRight = 0.f,
-						NkU32 durationMs   = 100);
+			void Rumble(uint32 idx,
+						float32 motorLow     = 0.f,
+						float32 motorHigh    = 0.f,
+						float32 triggerLeft  = 0.f,
+						float32 triggerRight = 0.f,
+						uint32 durationMs   = 100);
 
 			/// @brief ArrÃªte toutes les vibrations de la manette idx
-			void RumbleStop(NkU32 idx) { Rumble(idx, 0.f, 0.f, 0.f, 0.f, 0); }
+			void RumbleStop(uint32 idx) { Rumble(idx, 0.f, 0.f, 0.f, 0.f, 0); }
 
 			/// @brief DÃ©finit la couleur LED de la manette idx (0xRRGGBBAA)
-			void SetLEDColor(NkU32 idx, NkU32 rgba);
+			void SetLEDColor(uint32 idx, uint32 rgba);
 
 			// =========================================================================
 			// Configuration
@@ -429,25 +430,25 @@ namespace nkentseu {
 			 * Ã©mis.
 			 * @param deadzone  Valeur dans [0, 0.5] (dÃ©faut 0.08).
 			 */
-			void SetDeadzone(NkF32 deadzone) noexcept {
-				if (!std::isfinite(deadzone)) deadzone = 0.08f;
+			void SetDeadzone(float32 deadzone) noexcept {
+				if (!math::NkIsFinite(deadzone)) deadzone = 0.08f;
 				if (deadzone < 0.f) deadzone = 0.f;
 				if (deadzone > 0.95f) deadzone = 0.95f;
 				mDeadzone = deadzone;
 			}
-			NkF32 GetDeadzone() const noexcept { return mDeadzone; }
+			float32 GetDeadzone() const noexcept { return mDeadzone; }
 
 			/**
 			 * @brief Seuil de changement minimum sur un axe pour Ã©mettre un Ã©vÃ©nement.
 			 * @param epsilon  Valeur dans [0, 0.1] (dÃ©faut 0.001).
 			 */
-			void SetAxisEpsilon(NkF32 epsilon) noexcept {
-				if (!std::isfinite(epsilon)) epsilon = 0.001f;
+			void SetAxisEpsilon(float32 epsilon) noexcept {
+				if (!math::NkIsFinite(epsilon)) epsilon = 0.001f;
 				if (epsilon < 0.f) epsilon = 0.f;
 				if (epsilon > 1.f) epsilon = 1.f;
 				mAxisEpsilon = epsilon;
 			}
-			NkF32 GetAxisEpsilon() const noexcept { return mAxisEpsilon; }
+			float32 GetAxisEpsilon() const noexcept { return mAxisEpsilon; }
 
 			// =========================================================================
 			// Remapping utilisateur (gamepad -> layout logique)
@@ -456,7 +457,7 @@ namespace nkentseu {
 			/**
 			 * @brief Remet le slot en mapping identitÃ© (aucun remap).
 			 */
-			void ClearMapping(NkU32 idx) noexcept;
+			void ClearMapping(uint32 idx) noexcept;
 
 			/**
 			 * @brief Remet tous les slots en mapping identitÃ©.
@@ -467,18 +468,18 @@ namespace nkentseu {
 			 * @brief Mappe un bouton physique (index backend) vers un bouton logique.
 			 *        logicalButton = NK_GP_UNKNOWN dÃ©sactive ce bouton physique.
 			 */
-			void SetButtonMapByIndex(NkU32 idx,
-									 NkU32 physicalButtonIndex,
+			void SetButtonMapByIndex(uint32 idx,
+									 uint32 physicalButtonIndex,
 									 NkGamepadButton logicalButton) noexcept;
 
 			/**
 			 * @brief Version typÃ©e de SetButtonMapByIndex.
 			 */
-			void SetButtonMap(NkU32 idx,
+			void SetButtonMap(uint32 idx,
 							  NkGamepadButton physicalButton,
 							  NkGamepadButton logicalButton) noexcept
 			{
-				SetButtonMapByIndex(idx, static_cast<NkU32>(physicalButton), logicalButton);
+				SetButtonMapByIndex(idx, static_cast<uint32>(physicalButton), logicalButton);
 			}
 
 			/**
@@ -486,38 +487,38 @@ namespace nkentseu {
 			 * @param invert Inverse le signe (utile pour Y).
 			 * @param scale  Gain multiplicatif appliquÃ© Ã  l'axe.
 			 */
-			void SetAxisMapByIndex(NkU32 idx,
-								   NkU32 physicalAxisIndex,
+			void SetAxisMapByIndex(uint32 idx,
+								   uint32 physicalAxisIndex,
 								   NkGamepadAxis logicalAxis,
 								   bool invert = false,
-								   NkF32 scale = 1.f) noexcept;
+								   float32 scale = 1.f) noexcept;
 
 			/**
 			 * @brief Version typÃ©e de SetAxisMapByIndex.
 			 */
-			void SetAxisMap(NkU32 idx,
+			void SetAxisMap(uint32 idx,
 							NkGamepadAxis physicalAxis,
 							NkGamepadAxis logicalAxis,
 							bool invert = false,
-							NkF32 scale = 1.f) noexcept
+							float32 scale = 1.f) noexcept
 			{
-				SetAxisMapByIndex(idx, static_cast<NkU32>(physicalAxis), logicalAxis, invert, scale);
+				SetAxisMapByIndex(idx, static_cast<uint32>(physicalAxis), logicalAxis, invert, scale);
 			}
 
 			/**
 			 * @brief DÃ©sactive un bouton physique (il n'alimente plus l'Ã©tat logique).
 			 */
-			void DisableButtonByIndex(NkU32 idx, NkU32 physicalButtonIndex) noexcept;
+			void DisableButtonByIndex(uint32 idx, uint32 physicalButtonIndex) noexcept;
 
 			/**
 			 * @brief DÃ©sactive un axe physique.
 			 */
-			void DisableAxisByIndex(NkU32 idx, NkU32 physicalAxisIndex) noexcept;
+			void DisableAxisByIndex(uint32 idx, uint32 physicalAxisIndex) noexcept;
 
 			/**
 			 * @brief AccÃ¨s lecture au profil de remap d'un slot.
 			 */
-			const NkRemapProfile* GetMapping(NkU32 idx) const noexcept;
+			const NkRemapProfile* GetMapping(uint32 idx) const noexcept;
 
 			// =========================================================================
 			// Persistance des profils de mapping (format configurable)
@@ -547,15 +548,15 @@ namespace nkentseu {
 
 		private:
 			void FireConnect(const NkGamepadInfo& info, bool connected);
-			void FireButton(NkU32 idx, NkGamepadButton btn, NkButtonState state);
-			void FireAxis(NkU32 idx, NkGamepadAxis ax, NkF32 value, NkF32 prevValue);
-			void ResetMappingToIdentity(NkU32 idx) noexcept;
-			void SyncMappedSnapshot(NkU32 idx) noexcept;
-			const NkGamepadSnapshot& ApplyRemap(NkU32 idx, const NkGamepadSnapshot& raw) noexcept;
-			static NkF32 ClampAxisForTarget(NkU32 logicalAxisIndex, NkF32 value) noexcept;
+			void FireButton(uint32 idx, NkGamepadButton btn, NkButtonState state);
+			void FireAxis(uint32 idx, NkGamepadAxis ax, float32 value, float32 prevValue);
+			void ResetMappingToIdentity(uint32 idx) noexcept;
+			void SyncMappedSnapshot(uint32 idx) noexcept;
+			const NkGamepadSnapshot& ApplyRemap(uint32 idx, const NkGamepadSnapshot& raw) noexcept;
+			static float32 ClampAxisForTarget(uint32 logicalAxisIndex, float32 value) noexcept;
 
-			NkF32 ApplyDeadzone(NkF32 value) const noexcept {
-				if (!std::isfinite(value)) return 0.f;
+			float32 ApplyDeadzone(float32 value) const noexcept {
+				if (!math::NkIsFinite(value)) return 0.f;
 				if (value >  mDeadzone) return value;
 				if (value < -mDeadzone) return value;
 				return 0.f;
@@ -570,14 +571,14 @@ namespace nkentseu {
 			NkGamepadAxisCallback    mAxisCb;
 
 			// Snapshots prÃ©cÃ©dents pour dÃ©tection de delta
-			std::array<NkGamepadSnapshot, NK_MAX_GAMEPADS> mRawSnapshot;
-			std::array<NkGamepadSnapshot, NK_MAX_GAMEPADS> mMappedSnapshot;
-			std::array<NkGamepadSnapshot, NK_MAX_GAMEPADS> mPrevSnapshot;
-			std::array<NkRemapProfile,   NK_MAX_GAMEPADS> mMappings;
+			NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mRawSnapshot;
+			NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mMappedSnapshot;
+			NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mPrevSnapshot;
+			NkArray<NkRemapProfile,   NK_MAX_GAMEPADS> mMappings;
 
 			// Configuration
-			NkF32 mDeadzone    = 0.08f;
-			NkF32 mAxisEpsilon = 0.001f;
+			float32 mDeadzone    = 0.08f;
+			float32 mAxisEpsilon = 0.001f;
 			std::unique_ptr<NkIGamepadMappingPersistence> mMappingPersistence;
 
 			// Sentinelles pour les accÃ¨s invalides

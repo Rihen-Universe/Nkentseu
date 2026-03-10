@@ -55,8 +55,8 @@ namespace {
         wc.lpszClassName = kNkXboxFallbackWindowClassName;
         RegisterClassExW(&wc);
 
-        const nkentseu::NkU32 width = config.width > 0 ? config.width : 1280u;
-        const nkentseu::NkU32 height = config.height > 0 ? config.height : 720u;
+        const nkentseu::uint32 width = config.width > 0 ? config.width : 1280u;
+        const nkentseu::uint32 height = config.height > 0 ? config.height : 720u;
         RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
 
@@ -241,11 +241,11 @@ namespace nkentseu {
         return { 0u, 0u };
     }
 
-    void NkWindow::SetSize(NkU32 width, NkU32 height) {
-        const NkU32 w = std::max<NkU32>(width, 1u);
-        const NkU32 h = std::max<NkU32>(height, 1u);
-        const NkU32 oldW = mData.mWidth;
-        const NkU32 oldH = mData.mHeight;
+    void NkWindow::SetSize(uint32 width, uint32 height) {
+        const uint32 w = std::max<uint32>(width, 1u);
+        const uint32 h = std::max<uint32>(height, 1u);
+        const uint32 oldW = mData.mWidth;
+        const uint32 oldH = mData.mHeight;
 
         mData.mWidth = w;
         mData.mHeight = h;
@@ -267,7 +267,7 @@ namespace nkentseu {
         }
     }
 
-    void NkWindow::SetPosition(NkI32 x, NkI32 y) {
+    void NkWindow::SetPosition(int32 x, int32 y) {
         if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
             SetWindowPos(
                 reinterpret_cast<HWND>(mData.mNativeWindow),
@@ -330,7 +330,7 @@ namespace nkentseu {
         }
     }
 
-    void NkWindow::SetMousePosition(NkU32, NkU32) {}
+    void NkWindow::SetMousePosition(uint32, uint32) {}
 
     void NkWindow::ShowMouse(bool) {}
 

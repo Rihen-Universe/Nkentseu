@@ -35,7 +35,7 @@ namespace nkentseu {
     // NkWindowTheme — thème système actif
     // =========================================================================
 
-    enum class NkWindowTheme : NkU32 {
+    enum class NkWindowTheme : uint32 {
         NK_THEME_UNKNOWN       = 0,
         NK_THEME_LIGHT,         ///< Thème clair
         NK_THEME_DARK,          ///< Thème sombre
@@ -57,7 +57,7 @@ namespace nkentseu {
     // =========================================================================
 
     /// @brief Convertit un NkWindowState en string lisible
-    inline const char* NkWindowStateToString(NkU32 code) noexcept {
+    inline const char* NkWindowStateToString(uint32 code) noexcept {
         switch (code) {
             case 0:  return "UNDEFINED";    // NK_WINDOW_UNDEFINED
             case 1:  return "CREATED";      // NK_WINDOW_CREATED
@@ -80,13 +80,13 @@ namespace nkentseu {
     class NkWindowEvent : public NkEvent {
         public:
             /// @brief Retourne la catégorie fenêtre
-            NkU32 GetCategoryFlags() const override {
-                return static_cast<NkU32>(NkEventCategory::NK_CAT_WINDOW);
+            uint32 GetCategoryFlags() const override {
+                return static_cast<uint32>(NkEventCategory::NK_CAT_WINDOW);
             }
 
         protected:
             /// @brief Construit avec un identifiant de fenêtre
-            explicit NkWindowEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowEvent(uint64 windowId = 0) noexcept
                 : NkEvent(windowId) {}
     };
 
@@ -101,7 +101,7 @@ namespace nkentseu {
             /// @param width    Largeur initiale en pixels
             /// @param height   Hauteur initiale en pixels
             /// @param windowId Identifiant de la fenêtre créée
-            NkWindowCreateEvent(NkU32 width = 0, NkU32 height = 0, NkU64 windowId = 0) noexcept
+            NkWindowCreateEvent(uint32 width = 0, uint32 height = 0, uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId), mWidth(width), mHeight(height) {}
 
             NkEvent* Clone() const override { return new NkWindowCreateEvent(*this); }
@@ -111,13 +111,13 @@ namespace nkentseu {
             }
 
             /// @brief Largeur initiale de la fenêtre (pixels)
-            NkU32 GetWidth()  const noexcept { return mWidth; }
+            uint32 GetWidth()  const noexcept { return mWidth; }
             /// @brief Hauteur initiale de la fenêtre (pixels)
-            NkU32 GetHeight() const noexcept { return mHeight; }
+            uint32 GetHeight() const noexcept { return mHeight; }
 
         private:
-            NkU32 mWidth  = 0; ///< Largeur initiale
-            NkU32 mHeight = 0; ///< Hauteur initiale
+            uint32 mWidth  = 0; ///< Largeur initiale
+            uint32 mHeight = 0; ///< Hauteur initiale
     };
 
     // =========================================================================
@@ -135,7 +135,7 @@ namespace nkentseu {
 
             /// @param forced   true si la fermeture vient du système (non annulable)
             /// @param windowId Identifiant de la fenêtre
-            explicit NkWindowCloseEvent(bool forced = false, NkU64 windowId = 0) noexcept
+            explicit NkWindowCloseEvent(bool forced = false, uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId), mForced(forced) {}
 
             NkEvent* Clone() const override { return new NkWindowCloseEvent(*this); }
@@ -162,7 +162,7 @@ namespace nkentseu {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_DESTROY)
 
-            explicit NkWindowDestroyEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowDestroyEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
 
             NkEvent* Clone() const override { return new NkWindowDestroyEvent(*this); }
@@ -182,14 +182,14 @@ namespace nkentseu {
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_PAINT)
 
             /// @brief Repaint complet de la fenêtre
-            explicit NkWindowPaintEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowPaintEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId)
                 , mDirtyX(0), mDirtyY(0), mDirtyW(0), mDirtyH(0)
                 , mFull(true)
             {}
 
             /// @brief Repaint d'une zone rectangulaire spécifique (zone sale)
-            NkWindowPaintEvent(NkI32 x, NkI32 y, NkU32 w, NkU32 h, NkU64 windowId = 0) noexcept
+            NkWindowPaintEvent(int32 x, int32 y, uint32 w, uint32 h, uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId)
                 , mDirtyX(x), mDirtyY(y), mDirtyW(w), mDirtyH(h)
                 , mFull(false)
@@ -206,19 +206,19 @@ namespace nkentseu {
             /// @brief Retourne true si toute la fenêtre doit être redessinée
             bool  IsFullPaint() const noexcept { return mFull;    }
             /// @brief Coordonnée X de la zone sale
-            NkI32 GetDirtyX()   const noexcept { return mDirtyX;  }
+            int32 GetDirtyX()   const noexcept { return mDirtyX;  }
             /// @brief Coordonnée Y de la zone sale
-            NkI32 GetDirtyY()   const noexcept { return mDirtyY;  }
+            int32 GetDirtyY()   const noexcept { return mDirtyY;  }
             /// @brief Largeur de la zone sale
-            NkU32 GetDirtyW()   const noexcept { return mDirtyW;  }
+            uint32 GetDirtyW()   const noexcept { return mDirtyW;  }
             /// @brief Hauteur de la zone sale
-            NkU32 GetDirtyH()   const noexcept { return mDirtyH;  }
+            uint32 GetDirtyH()   const noexcept { return mDirtyH;  }
 
         private:
-            NkI32 mDirtyX = 0; ///< Origine X de la zone invalide
-            NkI32 mDirtyY = 0; ///< Origine Y de la zone invalide
-            NkU32 mDirtyW = 0; ///< Largeur de la zone invalide
-            NkU32 mDirtyH = 0; ///< Hauteur de la zone invalide
+            int32 mDirtyX = 0; ///< Origine X de la zone invalide
+            int32 mDirtyY = 0; ///< Origine Y de la zone invalide
+            uint32 mDirtyW = 0; ///< Largeur de la zone invalide
+            uint32 mDirtyH = 0; ///< Hauteur de la zone invalide
             bool  mFull   = true; ///< Repaint complet ?
     };
 
@@ -232,9 +232,9 @@ namespace nkentseu {
 
             /// @param w / h         Nouvelle taille
             /// @param prevW / prevH Ancienne taille (0 si inconnue)
-            NkWindowResizeEvent(NkU32 w = 0, NkU32 h = 0,
-                                NkU32 prevW = 0, NkU32 prevH = 0,
-                                NkU64 windowId = 0) noexcept
+            NkWindowResizeEvent(uint32 w = 0, uint32 h = 0,
+                                uint32 prevW = 0, uint32 prevH = 0,
+                                uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId)
                 , mWidth(w), mHeight(h)
                 , mPrevWidth(prevW), mPrevHeight(prevH)
@@ -247,10 +247,10 @@ namespace nkentseu {
                     mWidth, mHeight, mPrevWidth, mPrevHeight);
             }
 
-            NkU32 GetWidth()      const noexcept { return mWidth;      }
-            NkU32 GetHeight()     const noexcept { return mHeight;     }
-            NkU32 GetPrevWidth()  const noexcept { return mPrevWidth;  }
-            NkU32 GetPrevHeight() const noexcept { return mPrevHeight; }
+            uint32 GetWidth()      const noexcept { return mWidth;      }
+            uint32 GetHeight()     const noexcept { return mHeight;     }
+            uint32 GetPrevWidth()  const noexcept { return mPrevWidth;  }
+            uint32 GetPrevHeight() const noexcept { return mPrevHeight; }
 
             /// @brief Retourne true si la fenêtre a rétréci dans au moins une dimension
             bool GotSmaller() const noexcept {
@@ -262,10 +262,10 @@ namespace nkentseu {
             }
 
         private:
-            NkU32 mWidth      = 0; ///< Nouvelle largeur
-            NkU32 mHeight     = 0; ///< Nouvelle hauteur
-            NkU32 mPrevWidth  = 0; ///< Ancienne largeur
-            NkU32 mPrevHeight = 0; ///< Ancienne hauteur
+            uint32 mWidth      = 0; ///< Nouvelle largeur
+            uint32 mHeight     = 0; ///< Nouvelle hauteur
+            uint32 mPrevWidth  = 0; ///< Ancienne largeur
+            uint32 mPrevHeight = 0; ///< Ancienne hauteur
     };
 
     // =========================================================================
@@ -276,7 +276,7 @@ namespace nkentseu {
     class NkWindowResizeBeginEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_RESIZE_BEGIN)
-            explicit NkWindowResizeBeginEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowResizeBeginEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowResizeBeginEvent(*this); }
             NkString ToString() const override { return "WindowResizeBegin()"; }
@@ -285,7 +285,7 @@ namespace nkentseu {
     class NkWindowResizeEndEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_RESIZE_END)
-            explicit NkWindowResizeEndEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowResizeEndEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowResizeEndEvent(*this); }
             NkString ToString() const override { return "WindowResizeEnd()"; }
@@ -301,9 +301,9 @@ namespace nkentseu {
 
             /// @param x / y         Nouvelle position (coin supérieur gauche, écran)
             /// @param prevX / prevY Ancienne position (0,0 si inconnue)
-            NkWindowMoveEvent(NkI32 x = 0, NkI32 y = 0,
-                            NkI32 prevX = 0, NkI32 prevY = 0,
-                            NkU64 windowId = 0) noexcept
+            NkWindowMoveEvent(int32 x = 0, int32 y = 0,
+                            int32 prevX = 0, int32 prevY = 0,
+                            uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId)
                 , mX(x), mY(y), mPrevX(prevX), mPrevY(prevY)
             {}
@@ -315,20 +315,20 @@ namespace nkentseu {
                     mX, mY, mPrevX, mPrevY);
             }
 
-            NkI32 GetX()     const noexcept { return mX;     }
-            NkI32 GetY()     const noexcept { return mY;     }
-            NkI32 GetPrevX() const noexcept { return mPrevX; }
-            NkI32 GetPrevY() const noexcept { return mPrevY; }
+            int32 GetX()     const noexcept { return mX;     }
+            int32 GetY()     const noexcept { return mY;     }
+            int32 GetPrevX() const noexcept { return mPrevX; }
+            int32 GetPrevY() const noexcept { return mPrevY; }
             /// @brief Delta horizontal depuis la dernière position
-            NkI32 GetDeltaX() const noexcept { return mX - mPrevX; }
+            int32 GetDeltaX() const noexcept { return mX - mPrevX; }
             /// @brief Delta vertical depuis la dernière position
-            NkI32 GetDeltaY() const noexcept { return mY - mPrevY; }
+            int32 GetDeltaY() const noexcept { return mY - mPrevY; }
 
         private:
-            NkI32 mX     = 0; ///< Nouvelle position X
-            NkI32 mY     = 0; ///< Nouvelle position Y
-            NkI32 mPrevX = 0; ///< Ancienne position X
-            NkI32 mPrevY = 0; ///< Ancienne position Y
+            int32 mX     = 0; ///< Nouvelle position X
+            int32 mY     = 0; ///< Nouvelle position Y
+            int32 mPrevX = 0; ///< Ancienne position X
+            int32 mPrevY = 0; ///< Ancienne position Y
     };
 
     // =========================================================================
@@ -338,7 +338,7 @@ namespace nkentseu {
     class NkWindowMoveBeginEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_MOVE_BEGIN)
-            explicit NkWindowMoveBeginEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowMoveBeginEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMoveBeginEvent(*this); }
             NkString ToString() const override { return "WindowMoveBegin()"; }
@@ -347,7 +347,7 @@ namespace nkentseu {
     class NkWindowMoveEndEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_MOVE_END)
-            explicit NkWindowMoveEndEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowMoveEndEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMoveEndEvent(*this); }
             NkString ToString() const override { return "WindowMoveEnd()"; }
@@ -360,7 +360,7 @@ namespace nkentseu {
     class NkWindowFocusGainedEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_FOCUS_GAINED)
-            explicit NkWindowFocusGainedEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowFocusGainedEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowFocusGainedEvent(*this); }
             NkString ToString() const override { return "WindowFocusGained()"; }
@@ -369,7 +369,7 @@ namespace nkentseu {
     class NkWindowFocusLostEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_FOCUS_LOST)
-            explicit NkWindowFocusLostEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowFocusLostEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowFocusLostEvent(*this); }
             NkString ToString() const override { return "WindowFocusLost()"; }
@@ -382,7 +382,7 @@ namespace nkentseu {
     class NkWindowMinimizeEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_MINIMIZE)
-            explicit NkWindowMinimizeEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowMinimizeEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMinimizeEvent(*this); }
             NkString ToString() const override { return "WindowMinimize()"; }
@@ -391,7 +391,7 @@ namespace nkentseu {
     class NkWindowMaximizeEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_MAXIMIZE)
-            explicit NkWindowMaximizeEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowMaximizeEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowMaximizeEvent(*this); }
             NkString ToString() const override { return "WindowMaximize()"; }
@@ -400,7 +400,7 @@ namespace nkentseu {
     class NkWindowRestoreEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_RESTORE)
-            explicit NkWindowRestoreEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowRestoreEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowRestoreEvent(*this); }
             NkString ToString() const override { return "WindowRestore()"; }
@@ -413,7 +413,7 @@ namespace nkentseu {
     class NkWindowFullscreenEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_FULLSCREEN)
-            explicit NkWindowFullscreenEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowFullscreenEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowFullscreenEvent(*this); }
             NkString ToString() const override { return "WindowFullscreen()"; }
@@ -422,7 +422,7 @@ namespace nkentseu {
     class NkWindowWindowedEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_WINDOWED)
-            explicit NkWindowWindowedEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowWindowedEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowWindowedEvent(*this); }
             NkString ToString() const override { return "WindowWindowed()"; }
@@ -439,10 +439,10 @@ namespace nkentseu {
             /// @param scale     Nouveau facteur d'échelle (ex: 1.5 = 150%)
             /// @param prevScale Ancien facteur d'échelle
             /// @param dpi       Valeur DPI physique (ex: 144 pour 150% sur 96 DPI)
-            NkWindowDpiEvent(NkF32 scale     = 1.0f,
-                            NkF32 prevScale = 1.0f,
-                            NkU32 dpi       = 96,
-                            NkU64 windowId  = 0) noexcept
+            NkWindowDpiEvent(float32 scale     = 1.0f,
+                            float32 prevScale = 1.0f,
+                            uint32 dpi       = 96,
+                            uint64 windowId  = 0) noexcept
                 : NkWindowEvent(windowId)
                 , mScale(scale), mPrevScale(prevScale), mDpi(dpi)
             {}
@@ -454,16 +454,16 @@ namespace nkentseu {
             }
 
             /// @brief Nouveau facteur d'échelle
-            NkF32 GetScale()     const noexcept { return mScale;     }
+            float32 GetScale()     const noexcept { return mScale;     }
             /// @brief Ancien facteur d'échelle
-            NkF32 GetPrevScale() const noexcept { return mPrevScale; }
+            float32 GetPrevScale() const noexcept { return mPrevScale; }
             /// @brief Valeur DPI physique
-            NkU32 GetDpi()       const noexcept { return mDpi;       }
+            uint32 GetDpi()       const noexcept { return mDpi;       }
 
         private:
-            NkF32 mScale     = 1.0f; ///< Nouveau facteur d'échelle
-            NkF32 mPrevScale = 1.0f; ///< Ancien facteur d'échelle
-            NkU32 mDpi       = 96;   ///< Valeur DPI physique
+            float32 mScale     = 1.0f; ///< Nouveau facteur d'échelle
+            float32 mPrevScale = 1.0f; ///< Ancien facteur d'échelle
+            uint32 mDpi       = 96;   ///< Valeur DPI physique
     };
 
     // =========================================================================
@@ -475,7 +475,7 @@ namespace nkentseu {
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_THEME_CHANGE)
 
             explicit NkWindowThemeEvent(NkWindowTheme theme   = NkWindowTheme::NK_THEME_UNKNOWN,
-                                        NkU64         windowId = 0) noexcept
+                                        uint64         windowId = 0) noexcept
                 : NkWindowEvent(windowId), mTheme(theme) {}
 
             NkEvent* Clone() const override { return new NkWindowThemeEvent(*this); }
@@ -502,7 +502,7 @@ namespace nkentseu {
     class NkWindowShownEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_SHOWN)
-            explicit NkWindowShownEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowShownEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowShownEvent(*this); }
             NkString ToString() const override { return "WindowShown()"; }
@@ -511,7 +511,7 @@ namespace nkentseu {
     class NkWindowHiddenEvent final : public NkWindowEvent {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_HIDDEN)
-            explicit NkWindowHiddenEvent(NkU64 windowId = 0) noexcept
+            explicit NkWindowHiddenEvent(uint64 windowId = 0) noexcept
                 : NkWindowEvent(windowId) {}
             NkEvent*    Clone()    const override { return new NkWindowHiddenEvent(*this); }
             NkString ToString() const override { return "WindowHidden()"; }

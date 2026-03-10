@@ -6,9 +6,9 @@
 // =============================================================================
 
 #include "NKWindow/Core/NkEntry.h"
+#include "NKLogger/NkLog.h"
 
 #include <android/looper.h>
-#include <android/log.h>
 #include <android_native_app_glue.h>
 #include <jni.h>
 
@@ -24,8 +24,7 @@
 #define NK_ANDROID_BOOT_TAG "NkAndroidBoot"
 #endif
 
-#define NK_ANDROID_BOOTLOG(...) \
-    __android_log_print(ANDROID_LOG_INFO, NK_ANDROID_BOOT_TAG, __VA_ARGS__)
+#define NK_ANDROID_BOOTLOG(...) logger.Infof(__VA_ARGS__)
 
 namespace nkentseu {
 inline NkEntryState* gState = nullptr;

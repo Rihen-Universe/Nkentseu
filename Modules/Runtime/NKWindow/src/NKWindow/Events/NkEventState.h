@@ -36,9 +36,9 @@
 #include "NkMouseEvent.h"
 #include "NkTouchEvent.h"
 #include "NkGamepadEvent.h"
+#include "NKMemory/NkUtils.h"
 
 #include <bitset>
-#include <cstring>
 #include <string>
 
 namespace nkentseu {
@@ -51,7 +51,7 @@ namespace nkentseu {
      * @brief Décrit l'état courant d'une fenêtre (créée, en cours de fermeture…)
      */
     struct NkWindowState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_WINDOW_UNDEFINED = 0,
             NK_WINDOW_CREATED,          ///< Fenêtre créée et visible
@@ -83,7 +83,7 @@ namespace nkentseu {
      * @brief Indique si le curseur / contact est entré dans ou sorti d'une zone.
      */
     struct NkRegionState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_REGION_UNDEFINED = 0,
             NK_REGION_ENTERED,  ///< Vient d'entrer dans la zone
@@ -109,7 +109,7 @@ namespace nkentseu {
      * @brief Décrit si un périphérique (manette, HID…) est connecté ou non.
      */
     struct NkConnectionState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_CONNECTION_UNDEFINED   = 0,
             NK_CONNECTION_ESTABLISHED,  ///< Périphérique connecté et initialisé
@@ -133,7 +133,7 @@ namespace nkentseu {
      * @brief Décrit si une fenêtre a grandi, rétréci, ou n'a pas changé de taille.
      */
     struct NkResizeState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_RESIZE_UNDEFINED  = 0,
             NK_RESIZE_EXPANDED,     ///< La fenêtre a grandi (nouvelle dim > ancienne)
@@ -160,7 +160,7 @@ namespace nkentseu {
      * Utile pour déclencher une action logique sans seuil codé en dur.
      */
     struct NkAxisState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_AXIS_UNDEFINED = 0,
             NK_AXIS_NEUTRAL,    ///< Dans la zone morte (|value| < deadzone)
@@ -193,7 +193,7 @@ namespace nkentseu {
      * @brief Décrit les dimensions d'un contrôle analogique multi-axe.
      */
     struct NkAxisDirection {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_AXIS_DIR_UNDEFINED           = 0,
             NK_AXIS_DIR_HORIZONTAL,             ///< 1D horizontal (X)
@@ -227,7 +227,7 @@ namespace nkentseu {
      * @brief État générique de disponibilité d'un périphérique ou service.
      */
     struct NkStatusState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_STATUS_UNDEFINED    = 0,
             NK_STATUS_CONNECTED,       ///< Opérationnel
@@ -253,7 +253,7 @@ namespace nkentseu {
      * @brief Phase d'une opération de glisser-déposer.
      */
     struct NkDraggedState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_DRAGGED_UNDEFINED = 0,
             NK_DRAGGED_ACTIVE,       ///< L'objet est en cours de glissement
@@ -279,7 +279,7 @@ namespace nkentseu {
      * @brief Indique si une fenêtre a ou non le focus clavier.
      */
     struct NkFocusState {
-        using Code = NkU32;
+        using Code = uint32;
         enum Value : Code {
             NK_FOCUS_UNDEFINED = 0,
             NK_FOCUS_GAINED,    ///< Focus clavier obtenu
@@ -303,13 +303,13 @@ namespace nkentseu {
      * @brief Snapshot de l'état courant du clavier.
      *
      * Mis à jour par EventSystem en réponse aux NkKeyPressEvent / NkKeyReleaseEvent.
-     * La bitset est indexée par NkKey (valeur NkU32).
+     * La bitset est indexée par NkKey (valeur uint32).
      *
      * Taille : 256 bits = 32 octets pour les touches pressées +
      *           256 bits pour l'auto-repeat = 64 octets total + modifiers.
      */
     struct NkKeyboardInputState {
-        static constexpr NkU32 KEY_COUNT = 256;
+        static constexpr uint32 KEY_COUNT = 256;
 
         std::bitset<KEY_COUNT> pressed;     ///< Touches actuellement enfoncées
         std::bitset<KEY_COUNT> repeated;    ///< Touches en auto-repeat OS (subset de pressed)
@@ -320,12 +320,12 @@ namespace nkentseu {
         // --- Prédicats ---
 
         bool IsKeyPressed(NkKey key) const noexcept {
-            NkU32 idx = static_cast<NkU32>(key);
+            uint32 idx = static_cast<uint32>(key);
             return (idx < KEY_COUNT) && pressed[idx];
         }
 
         bool IsKeyRepeated(NkKey key) const noexcept {
-            NkU32 idx = static_cast<NkU32>(key);
+            uint32 idx = static_cast<uint32>(key);
             return (idx < KEY_COUNT) && repeated[idx];
         }
 
@@ -339,7 +339,7 @@ namespace nkentseu {
         // --- Mises à jour (appelées par EventSystem) ---
 
         void OnKeyPress(NkKey key, NkScancode sc, const NkModifierState& mods) noexcept {
-            NkU32 idx = static_cast<NkU32>(key);
+            uint32 idx = static_cast<uint32>(key);
             if (idx < KEY_COUNT) pressed[idx] = true;
             lastKey      = key;
             lastScancode = sc;
@@ -347,7 +347,7 @@ namespace nkentseu {
         }
 
         void OnKeyRepeat(NkKey key, NkScancode sc, const NkModifierState& mods) noexcept {
-            NkU32 idx = static_cast<NkU32>(key);
+            uint32 idx = static_cast<uint32>(key);
             if (idx < KEY_COUNT) { pressed[idx] = true; repeated[idx] = true; }
             lastKey      = key;
             lastScancode = sc;
@@ -355,7 +355,7 @@ namespace nkentseu {
         }
 
         void OnKeyRelease(NkKey key, const NkModifierState& mods) noexcept {
-            NkU32 idx = static_cast<NkU32>(key);
+            uint32 idx = static_cast<uint32>(key);
             if (idx < KEY_COUNT) { pressed[idx] = false; repeated[idx] = false; }
             modifiers = mods;
         }
@@ -380,14 +380,14 @@ namespace nkentseu {
      * (coin supérieur gauche = 0,0).
      */
     struct NkMouseInputState {
-        NkI32 x       = 0;  ///< Position X courante (zone client)
-        NkI32 y       = 0;  ///< Position Y courante (zone client)
-        NkI32 screenX = 0;  ///< Position X écran
-        NkI32 screenY = 0;  ///< Position Y écran
-        NkI32 deltaX  = 0;  ///< Déplacement X depuis le dernier poll
-        NkI32 deltaY  = 0;  ///< Déplacement Y depuis le dernier poll
-        NkI32 rawDeltaX = 0; ///< Mouvement brut X (sans accélération, pour FPS)
-        NkI32 rawDeltaY = 0; ///< Mouvement brut Y
+        int32 x       = 0;  ///< Position X courante (zone client)
+        int32 y       = 0;  ///< Position Y courante (zone client)
+        int32 screenX = 0;  ///< Position X écran
+        int32 screenY = 0;  ///< Position Y écran
+        int32 deltaX  = 0;  ///< Déplacement X depuis le dernier poll
+        int32 deltaY  = 0;  ///< Déplacement Y depuis le dernier poll
+        int32 rawDeltaX = 0; ///< Mouvement brut X (sans accélération, pour FPS)
+        int32 rawDeltaY = 0; ///< Mouvement brut Y
 
         NkMouseButtons buttons;     ///< Boutons actuellement enfoncés
         NkModifierState modifiers;  ///< Modificateurs clavier au dernier événement
@@ -408,13 +408,13 @@ namespace nkentseu {
 
         // --- Mises à jour (appelées par EventSystem) ---
 
-        void OnMove(NkI32 nx, NkI32 ny, NkI32 nsx, NkI32 nsy) noexcept {
+        void OnMove(int32 nx, int32 ny, int32 nsx, int32 nsy) noexcept {
             deltaX = nx - x; deltaY = ny - y;
             x = nx; y = ny;
             screenX = nsx; screenY = nsy;
         }
 
-        void OnRaw(NkI32 rdx, NkI32 rdy) noexcept {
+        void OnRaw(int32 rdx, int32 rdy) noexcept {
             rawDeltaX = rdx; rawDeltaY = rdy;
         }
 
@@ -453,24 +453,24 @@ namespace nkentseu {
     struct NkTouchInputState {
         /// @brief Contact simplifié pour le snapshot (différent de NkTouchPoint d'événement)
         struct TouchSlot {
-            NkU64  id       = 0;
-            NkF32  x        = 0.f; ///< Position X client [pixels]
-            NkF32  y        = 0.f; ///< Position Y client [pixels]
-            NkF32  pressure = 1.f; ///< Pression [0,1]
+            uint64  id       = 0;
+            float32  x        = 0.f; ///< Position X client [pixels]
+            float32  y        = 0.f; ///< Position Y client [pixels]
+            float32  pressure = 1.f; ///< Pression [0,1]
             bool   active   = false;
         };
 
         TouchSlot slots[NK_MAX_TOUCH_POINTS] = {};
-        NkU32     activeCount = 0;   ///< Nombre de contacts actifs
-        NkF32     centroidX   = 0.f; ///< X moyen des contacts actifs
-        NkF32     centroidY   = 0.f; ///< Y moyen des contacts actifs
+        uint32     activeCount = 0;   ///< Nombre de contacts actifs
+        float32     centroidX   = 0.f; ///< X moyen des contacts actifs
+        float32     centroidY   = 0.f; ///< Y moyen des contacts actifs
 
         bool IsTouching()    const noexcept { return activeCount > 0; }
         bool IsMultiTouch()  const noexcept { return activeCount >= 2; }
 
         /// @brief Recherche un slot actif par ID, retourne nullptr si absent
-        const TouchSlot* FindById(NkU64 id) const noexcept {
-            for (NkU32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i)
+        const TouchSlot* FindById(uint64 id) const noexcept {
+            for (uint32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i)
                 if (slots[i].active && slots[i].id == id) return &slots[i];
             return nullptr;
         }
@@ -479,7 +479,7 @@ namespace nkentseu {
 
         void OnBegin(const NkTouchPoint& pt) noexcept {
             // Chercher un slot libre
-            for (NkU32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i) {
+            for (uint32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i) {
                 if (!slots[i].active) {
                     slots[i] = { pt.id, pt.clientX, pt.clientY, pt.pressure, true };
                     ++activeCount;
@@ -490,7 +490,7 @@ namespace nkentseu {
         }
 
         void OnMove(const NkTouchPoint& pt) noexcept {
-            for (NkU32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i) {
+            for (uint32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i) {
                 if (slots[i].active && slots[i].id == pt.id) {
                     slots[i].x        = pt.clientX;
                     slots[i].y        = pt.clientY;
@@ -501,8 +501,8 @@ namespace nkentseu {
             }
         }
 
-        void OnEnd(NkU64 id) noexcept {
-            for (NkU32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i) {
+        void OnEnd(uint64 id) noexcept {
+            for (uint32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i) {
                 if (slots[i].active && slots[i].id == id) {
                     slots[i] = {};
                     if (activeCount > 0) --activeCount;
@@ -516,11 +516,11 @@ namespace nkentseu {
 
         void UpdateCentroid() noexcept {
             if (activeCount == 0) { centroidX = centroidY = 0.f; return; }
-            NkF32 sx = 0.f, sy = 0.f;
-            for (NkU32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i)
+            float32 sx = 0.f, sy = 0.f;
+            for (uint32 i = 0; i < NK_MAX_TOUCH_POINTS; ++i)
                 if (slots[i].active) { sx += slots[i].x; sy += slots[i].y; }
-            centroidX = sx / static_cast<NkF32>(activeCount);
-            centroidY = sy / static_cast<NkF32>(activeCount);
+            centroidX = sx / static_cast<float32>(activeCount);
+            centroidY = sy / static_cast<float32>(activeCount);
         }
 
         void Clear() noexcept {
@@ -541,36 +541,36 @@ namespace nkentseu {
      * La zone morte n'est PAS appliquée ici : c'est la responsabilité du backend.
      */
     struct NkGamepadInputState {
-        static constexpr NkU32 BUTTON_COUNT = static_cast<NkU32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
-        static constexpr NkU32 AXIS_COUNT   = static_cast<NkU32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
+        static constexpr uint32 BUTTON_COUNT = static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
+        static constexpr uint32 AXIS_COUNT   = static_cast<uint32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
 
         bool          connected = false;
         NkGamepadInfo info;
-        NkF32         batteryLevel = -1.f; ///< [0,1] ou -1 (filaire/inconnu)
+        float32         batteryLevel = -1.f; ///< [0,1] ou -1 (filaire/inconnu)
 
         std::bitset<BUTTON_COUNT> buttons;  ///< Boutons actuellement enfoncés
-        NkF32 axes[AXIS_COUNT]   = {};       ///< Valeurs des axes (après deadzone)
-        NkF32 prevAxes[AXIS_COUNT] = {};     ///< Valeurs au poll précédent
+        float32 axes[AXIS_COUNT]   = {};       ///< Valeurs des axes (après deadzone)
+        float32 prevAxes[AXIS_COUNT] = {};     ///< Valeurs au poll précédent
 
         // --- Prédicats ---
 
         bool IsButtonDown(NkGamepadButton btn) const noexcept {
-            NkU32 idx = static_cast<NkU32>(btn);
+            uint32 idx = static_cast<uint32>(btn);
             return (idx < BUTTON_COUNT) && buttons[idx];
         }
 
-        NkF32 GetAxis(NkGamepadAxis ax) const noexcept {
-            NkU32 idx = static_cast<NkU32>(ax);
+        float32 GetAxis(NkGamepadAxis ax) const noexcept {
+            uint32 idx = static_cast<uint32>(ax);
             return (idx < AXIS_COUNT) ? axes[idx] : 0.f;
         }
 
-        NkF32 GetPrevAxis(NkGamepadAxis ax) const noexcept {
-            NkU32 idx = static_cast<NkU32>(ax);
+        float32 GetPrevAxis(NkGamepadAxis ax) const noexcept {
+            uint32 idx = static_cast<uint32>(ax);
             return (idx < AXIS_COUNT) ? prevAxes[idx] : 0.f;
         }
 
         NkAxisState::Value GetAxisState(NkGamepadAxis ax,
-                                        NkF32 deadzone = 0.1f) const noexcept {
+                                        float32 deadzone = 0.1f) const noexcept {
             return NkAxisState::Classify(GetAxis(ax), deadzone);
         }
 
@@ -580,17 +580,17 @@ namespace nkentseu {
         // --- Mises à jour ---
 
         void OnButtonPress(NkGamepadButton btn) noexcept {
-            NkU32 idx = static_cast<NkU32>(btn);
+            uint32 idx = static_cast<uint32>(btn);
             if (idx < BUTTON_COUNT) buttons[idx] = true;
         }
 
         void OnButtonRelease(NkGamepadButton btn) noexcept {
-            NkU32 idx = static_cast<NkU32>(btn);
+            uint32 idx = static_cast<uint32>(btn);
             if (idx < BUTTON_COUNT) buttons[idx] = false;
         }
 
-        void OnAxisMove(NkGamepadAxis ax, NkF32 value) noexcept {
-            NkU32 idx = static_cast<NkU32>(ax);
+        void OnAxisMove(NkGamepadAxis ax, float32 value) noexcept {
+            uint32 idx = static_cast<uint32>(ax);
             if (idx < AXIS_COUNT) {
                 prevAxes[idx] = axes[idx];
                 axes[idx]     = value;
@@ -601,8 +601,8 @@ namespace nkentseu {
             connected     = false;
             batteryLevel  = -1.f;
             buttons.reset();
-            std::memset(axes,     0, sizeof(axes));
-            std::memset(prevAxes, 0, sizeof(prevAxes));
+            memory::NkMemSet(axes,     0, sizeof(axes));
+            memory::NkMemSet(prevAxes, 0, sizeof(prevAxes));
         }
     };
 
@@ -613,29 +613,29 @@ namespace nkentseu {
     /**
      * @brief Gère jusqu'à NK_MAX_GAMEPADS manettes simultanées.
      */
-    static constexpr NkU32 NK_MAX_GAMEPADS_STATE = 8;
+    static constexpr uint32 NK_MAX_GAMEPADS_STATE = 8;
 
     struct NkGamepadSetState {
         NkGamepadInputState slots[NK_MAX_GAMEPADS_STATE];
-        NkU32               connectedCount = 0;
+        uint32               connectedCount = 0;
 
-        NkGamepadInputState*       GetSlot(NkU32 idx)       noexcept {
+        NkGamepadInputState*       GetSlot(uint32 idx)       noexcept {
             return (idx < NK_MAX_GAMEPADS_STATE) ? &slots[idx] : nullptr;
         }
-        const NkGamepadInputState* GetSlot(NkU32 idx) const noexcept {
+        const NkGamepadInputState* GetSlot(uint32 idx) const noexcept {
             return (idx < NK_MAX_GAMEPADS_STATE) ? &slots[idx] : nullptr;
         }
 
-        bool IsButtonDown(NkU32 idx, NkGamepadButton btn) const noexcept {
+        bool IsButtonDown(uint32 idx, NkGamepadButton btn) const noexcept {
             const auto* s = GetSlot(idx);
             return s && s->IsButtonDown(btn);
         }
-        NkF32 GetAxis(NkU32 idx, NkGamepadAxis ax) const noexcept {
+        float32 GetAxis(uint32 idx, NkGamepadAxis ax) const noexcept {
             const auto* s = GetSlot(idx);
             return s ? s->GetAxis(ax) : 0.f;
         }
 
-        void OnConnect(NkU32 idx, const NkGamepadInfo& info) noexcept {
+        void OnConnect(uint32 idx, const NkGamepadInfo& info) noexcept {
             if (idx >= NK_MAX_GAMEPADS_STATE) return;
             slots[idx].Clear();
             slots[idx].connected = true;
@@ -643,7 +643,7 @@ namespace nkentseu {
             ++connectedCount;
         }
 
-        void OnDisconnect(NkU32 idx) noexcept {
+        void OnDisconnect(uint32 idx) noexcept {
             if (idx >= NK_MAX_GAMEPADS_STATE) return;
             slots[idx].Clear();
             if (connectedCount > 0) --connectedCount;

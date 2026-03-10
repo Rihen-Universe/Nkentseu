@@ -36,7 +36,7 @@ namespace nkentseu {
     // NkTouchPhase — phase d'un contact tactile
     // =========================================================================
 
-    enum class NkTouchPhase : NkU32 {
+    enum class NkTouchPhase : uint32 {
         NK_TOUCH_PHASE_BEGAN       = 0,
         NK_TOUCH_PHASE_MOVED,
         NK_TOUCH_PHASE_STATIONARY,
@@ -49,7 +49,7 @@ namespace nkentseu {
     // NkSwipeDirection — direction du swipe
     // =========================================================================
 
-    enum class NkSwipeDirection : NkU32 {
+    enum class NkSwipeDirection : uint32 {
         NK_SWIPE_NONE  = 0,
         NK_SWIPE_LEFT,
         NK_SWIPE_RIGHT,
@@ -71,10 +71,10 @@ namespace nkentseu {
     // NkTouchPoint — un contact individuel
     // =========================================================================
 
-    static constexpr NkU32 NK_MAX_TOUCH_POINTS = 32;
+    static constexpr uint32 NK_MAX_TOUCH_POINTS = 32;
 
     struct NkTouchPoint {
-        NkU64 id = 0; ///< Identifiant unique du contact
+        uint64 id = 0; ///< Identifiant unique du contact
         NkTouchPhase phase = NkTouchPhase::NK_TOUCH_PHASE_BEGAN;
 
         // Coordonnées dans la zone client (pixels physiques)
@@ -112,18 +112,18 @@ namespace nkentseu {
     public:
         NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_TOUCH)
 
-        NkU32 GetNumTouches() const noexcept { return mNumTouches; }
-        const NkTouchPoint& GetTouch(NkU32 i) const noexcept { return mTouches[i]; }
+        uint32 GetNumTouches() const noexcept { return mNumTouches; }
+        const NkTouchPoint& GetTouch(uint32 i) const noexcept { return mTouches[i]; }
         float GetCentroidX() const noexcept { return mCentroidX; }
         float GetCentroidY() const noexcept { return mCentroidY; }
 
     protected:
-        explicit NkTouchEvent(const NkTouchPoint* points, NkU32 count, NkU64 windowId = 0) noexcept
+        explicit NkTouchEvent(const NkTouchPoint* points, uint32 count, uint64 windowId = 0) noexcept
             : NkEvent(windowId), mNumTouches(0), mCentroidX(0.f), mCentroidY(0.f)
         {
             mNumTouches = (count > NK_MAX_TOUCH_POINTS) ? NK_MAX_TOUCH_POINTS : count;
             float sumX = 0.f, sumY = 0.f;
-            for (NkU32 i = 0; i < mNumTouches; ++i) {
+            for (uint32 i = 0; i < mNumTouches; ++i) {
                 mTouches[i] = points[i];
                 sumX += points[i].clientX;
                 sumY += points[i].clientY;
@@ -135,7 +135,7 @@ namespace nkentseu {
         }
 
         NkTouchPoint mTouches[NK_MAX_TOUCH_POINTS] = {};
-        NkU32        mNumTouches = 0;
+        uint32        mNumTouches = 0;
         float        mCentroidX  = 0.f;
         float        mCentroidY  = 0.f;
     };
@@ -151,7 +151,7 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_TOUCH_BEGIN)
 
-        explicit NkTouchBeginEvent(const NkTouchPoint* points, NkU32 count, NkU64 windowId = 0) noexcept
+        explicit NkTouchBeginEvent(const NkTouchPoint* points, uint32 count, uint64 windowId = 0) noexcept
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchBeginEvent(*this); }
@@ -171,7 +171,7 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_TOUCH_MOVE)
 
-        explicit NkTouchMoveEvent(const NkTouchPoint* points, NkU32 count, NkU64 windowId = 0) noexcept
+        explicit NkTouchMoveEvent(const NkTouchPoint* points, uint32 count, uint64 windowId = 0) noexcept
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchMoveEvent(*this); }
@@ -191,7 +191,7 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_TOUCH_END)
 
-        explicit NkTouchEndEvent(const NkTouchPoint* points, NkU32 count, NkU64 windowId = 0) noexcept
+        explicit NkTouchEndEvent(const NkTouchPoint* points, uint32 count, uint64 windowId = 0) noexcept
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchEndEvent(*this); }
@@ -211,7 +211,7 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_TOUCH_CANCEL)
 
-        explicit NkTouchCancelEvent(const NkTouchPoint* points, NkU32 count, NkU64 windowId = 0) noexcept
+        explicit NkTouchCancelEvent(const NkTouchPoint* points, uint32 count, uint64 windowId = 0) noexcept
             : NkTouchEvent(points, count, windowId) {}
 
         NkEvent* Clone() const override { return new NkTouchCancelEvent(*this); }
@@ -232,7 +232,7 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_GESTURE_PINCH)
 
         NkGesturePinchEvent(float scale, float scaleDelta, float centerX = 0.f, float centerY = 0.f,
-                             NkU64 windowId = 0) noexcept
+                             uint64 windowId = 0) noexcept
             : NkEvent(windowId), mScale(scale), mScaleDelta(scaleDelta), mCenterX(centerX), mCenterY(centerY) {}
 
         NkEvent* Clone() const override { return new NkGesturePinchEvent(*this); }
@@ -263,7 +263,7 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GESTURE_ROTATE)
 
-        NkGestureRotateEvent(float angleDegrees, float angleDeltaDegrees, NkU64 windowId = 0) noexcept
+        NkGestureRotateEvent(float angleDegrees, float angleDeltaDegrees, uint64 windowId = 0) noexcept
             : NkEvent(windowId), mAngle(angleDegrees), mAngleDelta(angleDeltaDegrees) {}
 
         NkEvent* Clone() const override { return new NkGestureRotateEvent(*this); }
@@ -291,7 +291,7 @@ namespace nkentseu {
         NK_EVENT_TYPE_FLAGS(NK_GESTURE_PAN)
 
         NkGesturePanEvent(float deltaX, float deltaY, float velocityX = 0.f, float velocityY = 0.f,
-                           NkU32 numFingers = 1, NkU64 windowId = 0) noexcept
+                           uint32 numFingers = 1, uint64 windowId = 0) noexcept
             : NkEvent(windowId), mDeltaX(deltaX), mDeltaY(deltaY), mVelocityX(velocityX),
               mVelocityY(velocityY), mNumFingers(numFingers) {}
 
@@ -304,12 +304,12 @@ namespace nkentseu {
         float GetDeltaY() const noexcept { return mDeltaY; }
         float GetVelocityX() const noexcept { return mVelocityX; }
         float GetVelocityY() const noexcept { return mVelocityY; }
-        NkU32 GetNumFingers() const noexcept { return mNumFingers; }
+        uint32 GetNumFingers() const noexcept { return mNumFingers; }
 
     private:
         float mDeltaX = 0.f, mDeltaY = 0.f;
         float mVelocityX = 0.f, mVelocityY = 0.f;
-        NkU32 mNumFingers = 1;
+        uint32 mNumFingers = 1;
     };
 
     // =========================================================================
@@ -323,8 +323,8 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GESTURE_SWIPE)
 
-        NkGestureSwipeEvent(NkSwipeDirection direction, float speed = 0.f, NkU32 numFingers = 1,
-                             NkU64 windowId = 0) noexcept
+        NkGestureSwipeEvent(NkSwipeDirection direction, float speed = 0.f, uint32 numFingers = 1,
+                             uint64 windowId = 0) noexcept
             : NkEvent(windowId), mDirection(direction), mSpeed(speed), mNumFingers(numFingers) {}
 
         NkEvent* Clone() const override { return new NkGestureSwipeEvent(*this); }
@@ -334,7 +334,7 @@ namespace nkentseu {
 
         NkSwipeDirection GetDirection() const noexcept { return mDirection; }
         float GetSpeed() const noexcept { return mSpeed; }
-        NkU32 GetNumFingers() const noexcept { return mNumFingers; }
+        uint32 GetNumFingers() const noexcept { return mNumFingers; }
         bool IsLeft() const noexcept { return mDirection == NkSwipeDirection::NK_SWIPE_LEFT; }
         bool IsRight() const noexcept { return mDirection == NkSwipeDirection::NK_SWIPE_RIGHT; }
         bool IsUp() const noexcept { return mDirection == NkSwipeDirection::NK_SWIPE_UP; }
@@ -343,7 +343,7 @@ namespace nkentseu {
     private:
         NkSwipeDirection mDirection = NkSwipeDirection::NK_SWIPE_NONE;
         float mSpeed = 0.f;
-        NkU32 mNumFingers = 1;
+        uint32 mNumFingers = 1;
     };
 
     // =========================================================================
@@ -357,8 +357,8 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GESTURE_TAP)
 
-        NkGestureTapEvent(float x = 0.f, float y = 0.f, NkU32 tapCount = 1, NkU32 numFingers = 1,
-                           NkU64 windowId = 0) noexcept
+        NkGestureTapEvent(float x = 0.f, float y = 0.f, uint32 tapCount = 1, uint32 numFingers = 1,
+                           uint64 windowId = 0) noexcept
             : NkEvent(windowId), mX(x), mY(y), mTapCount(tapCount), mNumFingers(numFingers) {}
 
         NkEvent* Clone() const override { return new NkGestureTapEvent(*this); }
@@ -368,14 +368,14 @@ namespace nkentseu {
 
         float GetX() const noexcept { return mX; }
         float GetY() const noexcept { return mY; }
-        NkU32 GetTapCount() const noexcept { return mTapCount; }
-        NkU32 GetNumFingers() const noexcept { return mNumFingers; }
+        uint32 GetTapCount() const noexcept { return mTapCount; }
+        uint32 GetNumFingers() const noexcept { return mNumFingers; }
         bool IsDoubleTap() const noexcept { return mTapCount >= 2; }
 
     private:
         float mX = 0.f, mY = 0.f;
-        NkU32 mTapCount = 1;
-        NkU32 mNumFingers = 1;
+        uint32 mTapCount = 1;
+        uint32 mNumFingers = 1;
     };
 
     // =========================================================================
@@ -389,8 +389,8 @@ namespace nkentseu {
     public:
         NK_EVENT_TYPE_FLAGS(NK_GESTURE_LONG_PRESS)
 
-        NkGestureLongPressEvent(float x = 0.f, float y = 0.f, float durationMs = 0.f, NkU32 numFingers = 1,
-                                 NkU64 windowId = 0) noexcept
+        NkGestureLongPressEvent(float x = 0.f, float y = 0.f, float durationMs = 0.f, uint32 numFingers = 1,
+                                 uint64 windowId = 0) noexcept
             : NkEvent(windowId), mX(x), mY(y), mDurationMs(durationMs), mNumFingers(numFingers) {}
 
         NkEvent* Clone() const override { return new NkGestureLongPressEvent(*this); }
@@ -401,12 +401,12 @@ namespace nkentseu {
         float GetX() const noexcept { return mX; }
         float GetY() const noexcept { return mY; }
         float GetDurationMs() const noexcept { return mDurationMs; }
-        NkU32 GetNumFingers() const noexcept { return mNumFingers; }
+        uint32 GetNumFingers() const noexcept { return mNumFingers; }
 
     private:
         float mX = 0.f, mY = 0.f;
         float mDurationMs = 0.f;
-        NkU32 mNumFingers = 1;
+        uint32 mNumFingers = 1;
     };
 
 } // namespace nkentseu

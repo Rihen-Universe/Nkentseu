@@ -26,19 +26,19 @@ namespace nkentseu {
                 const NkFramebufferInfo& GetFramebufferInfo() const override {                            \
                     static NkFramebufferInfo sDummy; return sDummy;                                       \
                 }                                                                                          \
-                void BeginFrame(NkU32)                override {}                                         \
+                void BeginFrame(uint32)                override {}                                         \
                 void EndFrame()                       override {}                                         \
                 void Present(const NkSurfaceDesc&)    override {}                                         \
-                void Resize(NkU32, NkU32)             override {}                                         \
-                void SetPixel(NkI32, NkI32, NkU32)   override {}                                         \
-                void SetBackgroundColor(NkU32 rgba)   override { mBgColor = rgba; }                       \
-                NkU32 GetBackgroundColor() const      override { return mBgColor; }                       \
+                void Resize(uint32, uint32)             override {}                                         \
+                void SetPixel(int32, int32, uint32)   override {}                                         \
+                void SetBackgroundColor(uint32 rgba)   override { mBgColor = rgba; }                       \
+                uint32 GetBackgroundColor() const      override { return mBgColor; }                       \
             private:                                                                                       \
                 NkRendererConfig  mConfig  {};                                                             \
                 NkSurfaceDesc     mSurface {};                                                             \
                 NkFramebufferInfo mFbInfo  {};                                                             \
                 NkError           mLastError{};                                                            \
-                NkU32             mBgColor = 0x141414FF;                                                   \
+                uint32             mBgColor = 0x141414FF;                                                   \
                 bool              mReady   = false;                                                        \
         };
 
