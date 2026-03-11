@@ -11,8 +11,9 @@
 #ifndef NK_CORE_NKENTSEU_SRC_NKENTSEU_PLATFORM_NKCPUFEATURES_H_INCLUDED
 #define NK_CORE_NKENTSEU_SRC_NKENTSEU_PLATFORM_NKCPUFEATURES_H_INCLUDED
 
-#include "NKCore/NkTypes.h"
 #include "NKPlatform/NkArchDetect.h"
+#include <stddef.h>
+#include <stdint.h>
 
 /**
  * @brief Namespace nkentseu.
@@ -27,11 +28,11 @@ namespace nkentseu {
 		 * @brief CPU cache information
 		 */
 		struct CacheInfo {
-			i32 lineSize;		   // Cache line size in bytes
-			i32 l1DataSize;		   // L1 data cache size in KB
-			i32 l1InstructionSize; // L1 instruction cache size in KB
-			i32 l2Size;			   // L2 cache size in KB
-			i32 l3Size;			   // L3 cache size in KB
+			int32_t lineSize;		   // Cache line size in bytes
+			int32_t l1DataSize;		   // L1 data cache size in KB
+			int32_t l1InstructionSize; // L1 instruction cache size in KB
+			int32_t l2Size;			   // L2 cache size in KB
+			int32_t l3Size;			   // L3 cache size in KB
 
 			CacheInfo();
 		};
@@ -40,9 +41,9 @@ namespace nkentseu {
 		 * @brief CPU topology information
 		 */
 		struct CPUTopology {
-			i32 numPhysicalCores;	// Physical cores
-			i32 numLogicalCores;	// Logical cores (with HT/SMT)
-			i32 numSockets;			// CPU sockets
+			int32_t numPhysicalCores;	// Physical cores
+			int32_t numLogicalCores;	// Logical cores (with HT/SMT)
+			int32_t numSockets;			// CPU sockets
 			bool hasHyperThreading; // Hyper-Threading/SMT enabled
 
 			CPUTopology();
@@ -122,15 +123,15 @@ namespace nkentseu {
 		 * }
 		 */
 		struct CPUFeatures {
-			static constexpr nk_size VENDOR_CAPACITY = 32u;
-			static constexpr nk_size BRAND_CAPACITY = 128u;
+			static constexpr size_t VENDOR_CAPACITY = 32u;
+			static constexpr size_t BRAND_CAPACITY = 128u;
 
 			// Vendor and model
-			nk_char vendor[VENDOR_CAPACITY]; // "GenuineIntel", "AuthenticAMD", "ARM"
-			nk_char brand[BRAND_CAPACITY];   // Full processor name
-			i32 family;
-			i32 model;
-			i32 stepping;
+			char vendor[VENDOR_CAPACITY]; // "GenuineIntel", "AuthenticAMD", "ARM"
+			char brand[BRAND_CAPACITY];   // Full processor name
+			int32_t family;
+			int32_t model;
+			int32_t stepping;
 
 			// Topology
 			CPUTopology topology;
@@ -145,8 +146,8 @@ namespace nkentseu {
 			ExtendedFeatures extended;
 
 			// Frequency (MHz)
-			i32 baseFrequency;
-			i32 maxFrequency;
+			int32_t baseFrequency;
+			int32_t maxFrequency;
 
 			/**
 			 * @brief Get singleton instance (lazy initialization)
@@ -156,12 +157,12 @@ namespace nkentseu {
 			/**
 			 * @brief Format CPU information in caller-provided buffer.
 			 */
-			void ToString(nk_char* outBuffer, nk_size outBufferSize) const;
+			void ToString(char* outBuffer, size_t outBufferSize) const;
 
 			/**
 			 * @brief Convenience c-string representation (non thread-safe).
 			 */
-			const nk_char* ToString() const;
+			const char* ToString() const;
 
 		private:
 			CPUFeatures();
@@ -175,7 +176,7 @@ namespace nkentseu {
 			void DetectFrequency();
 
 			#if NK_ARCH_X86 || NK_ARCH_X64
-				void CPUID(i32 function, i32 subfunction, i32 *eax, i32 *ebx, i32 *ecx, i32 *edx);
+				void CPUID(int32_t function, int32_t subfunction, int32_t *eax, int32_t *ebx, int32_t *ecx, int32_t *edx);
 			#endif
 		};
 
@@ -217,15 +218,15 @@ namespace nkentseu {
 			return CPUFeatures::Get().simd.hasFMA;
 		}
 
-		inline i32 NkGetCacheLineSize() {
+		inline int32_t NkGetCacheLineSize() {
 			return CPUFeatures::Get().cache.lineSize;
 		}
 
-		inline i32 NkGetPhysicalCoreCount() {
+		inline int32_t NkGetPhysicalCoreCount() {
 			return CPUFeatures::Get().topology.numPhysicalCores;
 		}
 
-		inline i32 NkGetLogicalCoreCount() {
+		inline int32_t NkGetLogicalCoreCount() {
 			return CPUFeatures::Get().topology.numLogicalCores;
 		}
 
@@ -249,13 +250,13 @@ namespace nkentseu {
 		[[deprecated("Use NkHasFMA()")]] inline bool HasFMA() {
 			return NkHasFMA();
 		}
-		[[deprecated("Use NkGetCacheLineSize()")]] inline i32 GetCacheLineSize() {
+		[[deprecated("Use NkGetCacheLineSize()")]] inline int32_t GetCacheLineSize() {
 			return NkGetCacheLineSize();
 		}
-		[[deprecated("Use NkGetPhysicalCoreCount()")]] inline i32 GetPhysicalCoreCount() {
+		[[deprecated("Use NkGetPhysicalCoreCount()")]] inline int32_t GetPhysicalCoreCount() {
 			return NkGetPhysicalCoreCount();
 		}
-		[[deprecated("Use NkGetLogicalCoreCount()")]] inline i32 GetLogicalCoreCount() {
+		[[deprecated("Use NkGetLogicalCoreCount()")]] inline int32_t GetLogicalCoreCount() {
 			return NkGetLogicalCoreCount();
 		}
 		#endif

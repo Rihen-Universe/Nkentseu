@@ -162,7 +162,7 @@ public:
         eff.id = -1;
         eff.u.rumble.strong_magnitude = static_cast<uint16>(math::NkMin(motorLow, 1.f) * 0xFFFF);
         eff.u.rumble.weak_magnitude = static_cast<uint16>(math::NkMin(motorHigh, 1.f) * 0xFFFF);
-        eff.replay.length = durationMs > 0 ? static_cast<uint16>(std::min<uint32>(durationMs, 0xFFFF)) : 0xFFFF;
+        eff.replay.length = durationMs > 0 ? static_cast<uint16>(math::NkMin<uint32>(durationMs, 0xFFFF)) : 0xFFFF;
         eff.replay.delay = 0;
 
         if (ioctl(dev.ffFd, EVIOCSFF, &eff) >= 0) {

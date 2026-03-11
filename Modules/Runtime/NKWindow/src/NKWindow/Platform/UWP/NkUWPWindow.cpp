@@ -143,8 +143,8 @@ namespace nkentseu {
     }
 
     void NkWindow::SetSize(uint32 width, uint32 height) {
-        const uint32 w = std::max<uint32>(width, 1u);
-        const uint32 h = std::max<uint32>(height, 1u);
+        const uint32 w = math::NkMax<uint32>(width, 1u);
+        const uint32 h = math::NkMax<uint32>(height, 1u);
         const uint32 oldW = mData.mWidth;
         const uint32 oldH = mData.mHeight;
 

@@ -13,6 +13,7 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKWindow/Events/NkWindowEvent.h"
+#include "NKContainers/String/NkWString.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -20,7 +21,6 @@
 #include <windows.h>
 
 #include <algorithm>
-#include <string>
 
 namespace {
 
@@ -34,12 +34,12 @@ namespace {
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
-    std::wstring NkUtf8ToWide(const NkString &value) {
+    NkWString NkUtf8ToWide(const NkString &value) {
         if (value.empty()) return {};
         const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
         if (size <= 1) return {};
-        std::wstring wide(static_cast<std::size_t>(size - 1), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.data(), size);
+        NkWString wide(static_cast<usize>(size - 1), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.Data(), size);
         return wide;
     }
 
@@ -60,13 +60,13 @@ namespace {
         RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
 
-        std::wstring title = NkUtf8ToWide(config.title);
-        if (title.empty()) title = L"NkXboxWindow";
+        NkWString title = NkUtf8ToWide(config.title);
+        if (title.Empty()) title = L"NkXboxWindow";
 
         HWND hwnd = CreateWindowExW(
             0,
             kNkXboxFallbackWindowClassName,
-            title.c_str(),
+            title.CStr(),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -214,9 +214,9 @@ namespace nkentseu {
         mData.mTitle = title;
         mConfig.title = title;
         if (mData.mOwnsNativeWindow && mData.mNativeWindow) {
-            std::wstring wide = NkUtf8ToWide(title);
-            if (!wide.empty()) {
-                SetWindowTextW(reinterpret_cast<HWND>(mData.mNativeWindow), wide.c_str());
+            NkWString wide = NkUtf8ToWide(title);
+            if (!wide.Empty()) {
+                SetWindowTextW(reinterpret_cast<HWND>(mData.mNativeWindow), wide.CStr());
             }
         }
     }
@@ -242,8 +242,8 @@ namespace nkentseu {
     }
 
     void NkWindow::SetSize(uint32 width, uint32 height) {
-        const uint32 w = std::max<uint32>(width, 1u);
-        const uint32 h = std::max<uint32>(height, 1u);
+        const uint32 w = math::NkMax<uint32>(width, 1u);
+        const uint32 h = math::NkMax<uint32>(height, 1u);
         const uint32 oldW = mData.mWidth;
         const uint32 oldH = mData.mHeight;
 

@@ -32,7 +32,7 @@ namespace platform {
 
 namespace {
 
-static void CopyStringTruncated(nk_char* dst, nk_size dstCount, const char* src) {
+static void CopyStringTruncated(char* dst, size_t dstCount, const char* src) {
 	if (!dst || dstCount == 0u) {
 		return;
 	}
@@ -43,7 +43,7 @@ static void CopyStringTruncated(nk_char* dst, nk_size dstCount, const char* src)
 	::snprintf(dst, static_cast<size_t>(dstCount), "%s", src);
 }
 
-static void TrimStringToBuffer(const char* text, nk_char* dst, nk_size dstCount) {
+static void TrimStringToBuffer(const char* text, char* dst, size_t dstCount) {
 	if (!dst || dstCount == 0u) {
 		return;
 	}
@@ -73,7 +73,7 @@ static void TrimStringToBuffer(const char* text, nk_char* dst, nk_size dstCount)
 	dst[copyLen] = '\0';
 }
 
-static bool ContainsSubString(const nk_char* text, const char* pattern) {
+static bool ContainsSubString(const char* text, const char* pattern) {
 	return (text && pattern && ::strstr(text, pattern) != nullptr);
 }
 
@@ -127,15 +127,15 @@ const CPUFeatures &CPUFeatures::Get() {
 
 #if NK_ARCH_X86 || NK_ARCH_X64
 
-void CPUFeatures::CPUID(i32 function, i32 subfunction, i32 *eax, i32 *ebx, i32 *ecx, i32 *edx) {
-	i32 regs[4] = {0};
+void CPUFeatures::CPUID(int32_t function, int32_t subfunction, int32_t *eax, int32_t *ebx, int32_t *ecx, int32_t *edx) {
+	int32_t regs[4] = {0};
 
-#ifdef NK_COMPILER_MSVC
-	__cpuidex(regs, function, subfunction);
-#elif NK_COMPILER_GCC || NK_COMPILER_CLANG
-	__asm__ __volatile__("cpuid"
-						 : "=a"(regs[0]), "=b"(regs[1]), "=c"(regs[2]), "=d"(regs[3])
-						 : "a"(function), "c"(subfunction));
+#if defined(_MSC_VER)
+		__cpuidex(regs, function, subfunction);
+#elif defined(__GNUC__) || defined(__clang__)
+		__asm__ __volatile__("cpuid"
+							 : "=a"(regs[0]), "=b"(regs[1]), "=c"(regs[2]), "=d"(regs[3])
+							 : "a"(function), "c"(subfunction));
 #endif
 
 	*eax = regs[0];
@@ -154,7 +154,7 @@ void CPUFeatures::DetectVendorAndBrand() {
 #if NK_ARCH_X86 || NK_ARCH_X64
 
 	// Get vendor string
-	i32 eax, ebx, ecx, edx;
+	int32_t eax, ebx, ecx, edx;
 	char vendorStr[13] = {0};
 
 	CPUID(0, 0, &eax, &ebx, &ecx, &edx);
@@ -167,11 +167,11 @@ void CPUFeatures::DetectVendorAndBrand() {
 
 	// Get brand string (CPUID 0x80000002-0x80000004)
 	char brandStr[49] = {0};
-	i32 maxExtended;
+	int32_t maxExtended;
 	CPUID(0x80000000, 0, &maxExtended, &ebx, &ecx, &edx);
 
 	if (maxExtended >= 0x80000004) {
-		for (i32 i = 0; i < 3; ++i) {
+		for (int32_t i = 0; i < 3; ++i) {
 			CPUID(0x80000002 + i, 0, &eax, &ebx, &ecx, &edx);
 			::memcpy(brandStr + i * 16 + 0, &eax, 4);
 			::memcpy(brandStr + i * 16 + 4, &ebx, 4);
@@ -189,8 +189,8 @@ void CPUFeatures::DetectVendorAndBrand() {
 	family = (eax >> 8) & 0xF;
 
 	// Extended family/model
-	i32 extModel = (eax >> 16) & 0xF;
-	i32 extFamily = (eax >> 20) & 0xFF;
+	int32_t extModel = (eax >> 16) & 0xF;
+	int32_t extFamily = (eax >> 20) & 0xFF;
 
 	if (family == 0xF) {
 		family += extFamily;
@@ -246,7 +246,7 @@ void CPUFeatures::DetectTopology() {
 
 	SYSTEM_INFO sysInfo;
 	GetSystemInfo(&sysInfo);
-	topology.numLogicalCores = static_cast<i32>(sysInfo.dwNumberOfProcessors);
+	topology.numLogicalCores = static_cast<int32_t>(sysInfo.dwNumberOfProcessors);
 
 	// Try to get physical core count
 	DWORD length = 0;
@@ -254,7 +254,7 @@ void CPUFeatures::DetectTopology() {
 	if (length > 0) {
 		auto *buffer = new SYSTEM_LOGICAL_PROCESSOR_INFORMATION[length / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION)];
 		if (GetLogicalProcessorInformation(buffer, &length)) {
-			i32 physicalCores = 0;
+			int32_t physicalCores = 0;
 			for (DWORD i = 0; i < length / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION); ++i) {
 				if (buffer[i].Relationship == RelationProcessorCore) {
 					++physicalCores;
@@ -270,7 +270,7 @@ void CPUFeatures::DetectTopology() {
 	// Try sysconf
 	long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
 	if (nprocs > 0) {
-		topology.numLogicalCores = static_cast<i32>(nprocs);
+		topology.numLogicalCores = static_cast<int32_t>(nprocs);
 	}
 
 	// Try to parse /sys/devices/system/cpu/cpu*/topology/thread_siblings_list
@@ -310,23 +310,23 @@ void CPUFeatures::DetectTopology() {
 void CPUFeatures::DetectCache() {
 #if NK_ARCH_X86 || NK_ARCH_X64
 
-	i32 eax, ebx, ecx, edx;
+	int32_t eax, ebx, ecx, edx;
 
 	// Intel cache detection (CPUID leaf 4)
 	if (ContainsSubString(vendor, "Intel")) {
-		for (i32 i = 0; i < 16; ++i) {
+		for (int32_t i = 0; i < 16; ++i) {
 			CPUID(4, i, &eax, &ebx, &ecx, &edx);
 
-			i32 cacheType = eax & 0x1F;
+			int32_t cacheType = eax & 0x1F;
 			if (cacheType == 0)
 				break; // No more caches
 
-			i32 cacheLevel = (eax >> 5) & 0x7;
-			i32 sets = ecx + 1;
-			i32 lineSize = (ebx & 0xFFF) + 1;
-			i32 partitions = ((ebx >> 12) & 0x3FF) + 1;
-			i32 ways = ((ebx >> 22) & 0x3FF) + 1;
-			i32 size = (ways * partitions * lineSize * sets) / 1024;
+			int32_t cacheLevel = (eax >> 5) & 0x7;
+			int32_t sets = ecx + 1;
+			int32_t lineSize = (ebx & 0xFFF) + 1;
+			int32_t partitions = ((ebx >> 12) & 0x3FF) + 1;
+			int32_t ways = ((ebx >> 22) & 0x3FF) + 1;
+			int32_t size = (ways * partitions * lineSize * sets) / 1024;
 
 			cache.lineSize = lineSize;
 
@@ -354,8 +354,8 @@ void CPUFeatures::DetectCache() {
 
 #elif NK_PLATFORM_MACOS || NK_PLATFORM_IOS
 
-	size_t len = sizeof(i32);
-	i32 value;
+	size_t len = sizeof(int32_t);
+	int32_t value;
 
 	if (sysctlbyname("hw.cachelinesize", &value, &len, nullptr, 0) == 0) {
 		cache.lineSize = value;
@@ -384,7 +384,7 @@ void CPUFeatures::DetectCache() {
 void CPUFeatures::DetectSIMDFeatures() {
 #if NK_ARCH_X86 || NK_ARCH_X64
 
-	i32 eax, ebx, ecx, edx;
+	int32_t eax, ebx, ecx, edx;
 
 	// CPUID(1): Basic features
 	CPUID(1, 0, &eax, &ebx, &ecx, &edx);
@@ -453,7 +453,7 @@ void CPUFeatures::DetectSIMDFeatures() {
 void CPUFeatures::DetectExtendedFeatures() {
 #if NK_ARCH_X86 || NK_ARCH_X64
 
-	i32 eax, ebx, ecx, edx;
+	int32_t eax, ebx, ecx, edx;
 
 	// CPUID(1)
 	CPUID(1, 0, &eax, &ebx, &ecx, &edx);
@@ -495,7 +495,7 @@ void CPUFeatures::DetectFrequency() {
 		DWORD mhz = 0;
 		DWORD size = sizeof(mhz);
 		if (RegQueryValueExA(hKey, "~MHz", nullptr, nullptr, (LPBYTE)&mhz, &size) == ERROR_SUCCESS) {
-			baseFrequency = static_cast<i32>(mhz);
+			baseFrequency = static_cast<int32_t>(mhz);
 			maxFrequency = baseFrequency;
 		}
 		RegCloseKey(hKey);
@@ -506,7 +506,7 @@ void CPUFeatures::DetectFrequency() {
 	uint64_t freq = 0;
 	size_t len = sizeof(freq);
 	if (sysctlbyname("hw.cpufrequency", &freq, &len, nullptr, 0) == 0) {
-		baseFrequency = static_cast<i32>(freq / 1000000); // Convert to MHz
+		baseFrequency = static_cast<int32_t>(freq / 1000000); // Convert to MHz
 		maxFrequency = baseFrequency;
 	}
 
@@ -519,7 +519,7 @@ void CPUFeatures::DetectFrequency() {
 			if (strncmp(line, "cpu MHz", 7) == 0) {
 				float mhz = 0;
 				if (sscanf(line, "cpu MHz : %f", &mhz) == 1) {
-					baseFrequency = static_cast<i32>(mhz);
+					baseFrequency = static_cast<int32_t>(mhz);
 					maxFrequency = baseFrequency;
 					break;
 				}
@@ -535,7 +535,7 @@ void CPUFeatures::DetectFrequency() {
 // ToString
 // ====================================================================
 
-void CPUFeatures::ToString(nk_char* outBuffer, nk_size outBufferSize) const {
+void CPUFeatures::ToString(char* outBuffer, size_t outBufferSize) const {
 	if (!outBuffer || outBufferSize == 0u) {
 		return;
 	}
@@ -591,8 +591,8 @@ void CPUFeatures::ToString(nk_char* outBuffer, nk_size outBufferSize) const {
 	::snprintf(outBuffer, static_cast<size_t>(outBufferSize), "%s", buffer);
 }
 
-const nk_char* CPUFeatures::ToString() const {
-	static nk_char sBuffer[2048];
+const char* CPUFeatures::ToString() const {
+	static char sBuffer[2048];
 	ToString(sBuffer, sizeof(sBuffer));
 	return sBuffer;
 }

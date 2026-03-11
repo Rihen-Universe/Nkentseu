@@ -11,11 +11,20 @@
 #ifndef NK_CORE_NKENTSEU_SRC_NKENTSEU_PLATFORM_NKENDIANNESS_H_INCLUDED
 #define NK_CORE_NKENTSEU_SRC_NKENTSEU_PLATFORM_NKENDIANNESS_H_INCLUDED
 
-#include "NKCore/NkTypes.h"
-#include "NKCore/NkInline.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKPlatform/NkCompilerDetect.h"
+#include <stdint.h>
 #include <string.h>
+
+#ifndef NKENTSEU_FORCE_INLINE
+    #if defined(_MSC_VER)
+        #define NKENTSEU_FORCE_INLINE __forceinline
+    #elif defined(__GNUC__) || defined(__clang__)
+        #define NKENTSEU_FORCE_INLINE __attribute__((always_inline)) inline
+    #else
+        #define NKENTSEU_FORCE_INLINE inline
+    #endif
+#endif
 
 // ============================================================================
 // ENDIANNESS DETECTION
@@ -30,7 +39,7 @@ namespace platform {
 /**
  * @brief Nomenclature NK officielle.
  */
-enum class NkEndianness : nk_uint8 {
+enum class NkEndianness : uint8_t {
 	NK_LITTLE = 0,
 	NK_BIG = 1,
 	NK_UNKNOWN = 2
@@ -168,9 +177,9 @@ namespace platform {
  * @brief Swap bytes of 16-bit integer
  */
 NKENTSEU_FORCE_INLINE constexpr uint16_t ByteSwap16(uint16_t value) {
-#if NK_COMPILER_MSVC
+#if defined(_MSC_VER)
 	return _byteswap_ushort(value);
-#elif NK_COMPILER_GCC || NK_COMPILER_CLANG
+#elif defined(__GNUC__) || defined(__clang__)
 	return __builtin_bswap16(value);
 #else
 	return (value >> 8) | (value << 8);
@@ -185,9 +194,9 @@ NKENTSEU_FORCE_INLINE constexpr uint16_t NkByteSwap16(uint16_t value) {
  * @brief Swap bytes of 32-bit integer
  */
 NKENTSEU_FORCE_INLINE constexpr uint32_t ByteSwap32(uint32_t value) {
-#if NK_COMPILER_MSVC
+#if defined(_MSC_VER)
 	return _byteswap_ulong(value);
-#elif NK_COMPILER_GCC || NK_COMPILER_CLANG
+#elif defined(__GNUC__) || defined(__clang__)
 	return __builtin_bswap32(value);
 #else
 	return ((value >> 24) & 0x000000FF) | ((value >> 8) & 0x0000FF00) | ((value << 8) & 0x00FF0000) |
@@ -203,9 +212,9 @@ NKENTSEU_FORCE_INLINE constexpr uint32_t NkByteSwap32(uint32_t value) {
  * @brief Swap bytes of 64-bit integer
  */
 NKENTSEU_FORCE_INLINE constexpr uint64_t ByteSwap64(uint64_t value) {
-#if NK_COMPILER_MSVC
+#if defined(_MSC_VER)
 	return _byteswap_uint64(value);
-#elif NK_COMPILER_GCC || NK_COMPILER_CLANG
+#elif defined(__GNUC__) || defined(__clang__)
 	return __builtin_bswap64(value);
 #else
 	return ((value >> 56) & 0x00000000000000FFULL) | ((value >> 40) & 0x000000000000FF00ULL) |
