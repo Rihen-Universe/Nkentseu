@@ -18,12 +18,12 @@ namespace nkentseu {
         // UTF-8 → UTF-16
         // ========================================
 
-        String16 NkToUTF16(const String8& utf8Str) {
-            if (utf8Str.Empty()) return String16();
+        NkString16 NkToUTF16(const NkString8& utf8Str) {
+            if (utf8Str.Empty()) return NkString16();
             
             // Estime taille nécessaire (pire cas: tous BMP = 1:1)
             usize maxUnits = utf8Str.Length();
-            String16 result;
+            NkString16 result;
             result.Reserve(maxUnits);
             
             // Buffer temporaire
@@ -53,12 +53,12 @@ namespace nkentseu {
         // UTF-8 → UTF-32
         // ========================================
 
-        String32 NkToUTF32(const String8& utf8Str) {
-            if (utf8Str.Empty()) return String32();
+        NkString32 NkToUTF32(const NkString8& utf8Str) {
+            if (utf8Str.Empty()) return NkString32();
             
             // Estime taille (pire cas: tous ASCII = 1:1)
             usize maxChars = utf8Str.Length();
-            String32 result;
+            NkString32 result;
             result.Reserve(maxChars);
             
             uint32* buffer = new uint32[maxChars + 1];
@@ -87,12 +87,12 @@ namespace nkentseu {
         // UTF-16 → UTF-8
         // ========================================
 
-        String8 NkToUTF8(const String16& utf16Str) {
-            if (utf16Str.Empty()) return String8();
+        NkString8 NkToUTF8(const NkString16& utf16Str) {
+            if (utf16Str.Empty()) return NkString8();
             
             // Estime taille (pire cas: tous 4-bytes UTF-8 = 4:1)
             usize maxBytes = utf16Str.Length() * 4;
-            String8 result;
+            NkString8 result;
             result.Reserve(maxBytes);
             
             Char* buffer = new Char[maxBytes + 1];
@@ -121,12 +121,12 @@ namespace nkentseu {
         // UTF-32 → UTF-8
         // ========================================
 
-        String8 NkToUTF8(const String32& utf32Str) {
-            if (utf32Str.Empty()) return String8();
+        NkString8 NkToUTF8(const NkString32& utf32Str) {
+            if (utf32Str.Empty()) return NkString8();
             
             // Pire cas: 4 bytes par codepoint
             usize maxBytes = utf32Str.Length() * 4;
-            String8 result;
+            NkString8 result;
             result.Reserve(maxBytes);
             
             Char* buffer = new Char[maxBytes + 1];
@@ -175,14 +175,14 @@ namespace nkentseu {
         #else
             // Unix: wchar_t = 4 bytes (UTF-32)
             
-            WString NkToWide(const String8& str) {
+            NkWString NkToWide(const NkString8& str) {
                 return NkBasicString<wchar>(
                     reinterpret_cast<const wchar*>(NkToUTF32(str).Data())
                 );
             }
             
-            String8 NkFromWide(const WString& wstr) {
-                String32 utf32(
+            NkString8 NkFromWide(const NkWString& wstr) {
+                NkString32 utf32(
                     reinterpret_cast<const char32*>(wstr.Data()),
                     wstr.Length()
                 );

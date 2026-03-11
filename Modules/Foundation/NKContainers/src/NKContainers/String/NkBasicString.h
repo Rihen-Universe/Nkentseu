@@ -516,22 +516,22 @@ namespace nkentseu {
         // TYPE ALIASES
         // ========================================
 
-        using String8 = NkBasicString<Char>;
-        using String16 = NkBasicString<char16>;
-        using String32 = NkBasicString<char32>;
-        using WString = NkBasicString<wchar>;
-        // using String = String8;  // UTF-8 par défaut
+        using NkString8 = NkBasicString<Char>;
+        using NkString16 = NkBasicString<char16>;
+        using NkString32 = NkBasicString<char32>;
+        using NkWString = NkBasicString<wchar>;
+        // using NkString = NkString8;  // UTF-8 par défaut
 
         // ========================================
         // CONVERSION HELPERS
         // ========================================
 
-        NKENTSEU_CORE_API String16 NkToUTF16(const String8& utf8Str);
-        NKENTSEU_CORE_API String32 NkToUTF32(const String8& utf8Str);
-        NKENTSEU_CORE_API String8 NkToUTF8(const String16& utf16Str);
-        NKENTSEU_CORE_API String8 NkToUTF8(const String32& utf32Str);
-        NKENTSEU_CORE_API WString NkToWide(const String8& str);
-        NKENTSEU_CORE_API String8 NkFromWide(const WString& wstr);
+        NKENTSEU_CORE_API NkString16 NkToUTF16(const NkString8& utf8Str);
+        NKENTSEU_CORE_API NkString32 NkToUTF32(const NkString8& utf8Str);
+        NKENTSEU_CORE_API NkString8 NkToUTF8(const NkString16& utf16Str);
+        NKENTSEU_CORE_API NkString8 NkToUTF8(const NkString32& utf32Str);
+        NKENTSEU_CORE_API NkWString NkToWide(const NkString8& str);
+        NKENTSEU_CORE_API NkString8 NkFromWide(const NkWString& wstr);
 
     
 } // namespace nkentseu
