@@ -47,6 +47,10 @@
 
 #include "NKWindow/Events/NkGamepadEvent.h"
 #include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/Associative/NkUnorderedMap.h"
+#include "NKContainers/CacheFriendly/NkArray.h"
+#include "NKMath/NkFunctions.h"
 
 #include <array>
 #include <vector>
@@ -65,7 +69,7 @@ namespace nkentseu {
     static constexpr uint32 NK_XINPUT_MAX   = 4u;
     /// Slots DirectInput = total - XInput
     static constexpr uint32 NK_DI_MAX       = NK_MAX_GAMEPADS - NK_XINPUT_MAX;
-    /// Deadzone XInput normalisée (SHORT → float)
+    /// Deadzone XInput normalisée (SHORT → float32)
     static constexpr SHORT NK_XI_DEADZONE_L = XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE;
     static constexpr SHORT NK_XI_DEADZONE_R = XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE;
     static constexpr BYTE  NK_XI_TRIGGER_DZ = XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
@@ -74,18 +78,18 @@ namespace nkentseu {
     // Helpers XInput
     // =========================================================================
 
-    static inline float NkXI_NormAxis(SHORT raw) noexcept {
+    static inline float32 NkXI_NormAxis(SHORT raw) noexcept {
         return raw >= 0
-            ? static_cast<float>(raw) / 32767.f
-            : static_cast<float>(raw) / 32768.f;
+            ? static_cast<float32>(raw) / 32767.f
+            : static_cast<float32>(raw) / 32768.f;
     }
 
-    static inline float NkXI_Deadzone(SHORT raw, SHORT dz) noexcept {
-        return (std::abs(raw) < dz) ? 0.f : NkXI_NormAxis(raw);
+    static inline float32 NkXI_Deadzone(SHORT raw, SHORT dz) noexcept {
+        return (math::NkAbs(raw) < dz) ? 0.f : NkXI_NormAxis(raw);
     }
 
-    static inline float NkXI_Trigger(BYTE raw, BYTE dz) noexcept {
-        return (raw < dz) ? 0.f : static_cast<float>(raw - dz) / (255.f - dz);
+    static inline float32 NkXI_Trigger(BYTE raw, BYTE dz) noexcept {
+        return (raw < dz) ? 0.f : static_cast<float32>(raw - dz) / (255.f - dz);
     }
 
     // =========================================================================
@@ -172,7 +176,7 @@ namespace nkentseu {
 
     struct NkDIEnumCtx {
         IDirectInput8W*                  di8    = nullptr;
-        std::vector<NkDIDeviceContext>*  out    = nullptr;
+        NkVector<NkDIDeviceContext>*  out    = nullptr;
         uint32                            maxOut = NK_DI_MAX;
     };
 
@@ -222,7 +226,7 @@ namespace nkentseu {
         dc.device   = dev;
         dc.acquired = true;
 
-        ctx->out->push_back(dc);
+        ctx->out->PushBack(dc);
         return DIENUM_CONTINUE;
     }
 
@@ -239,11 +243,11 @@ namespace nkentseu {
     //   rgdwPOV[0]   → D-pad (en centièmes de degrés, 0xFFFFFFFF = centré)
     // =========================================================================
 
-    static float NkDI_NormAxis(LONG raw) noexcept {
+    static float32 NkDI_NormAxis(LONG raw) noexcept {
         // DInput axe dans [-32768, 32767]
         return raw >= 0
-            ? static_cast<float>(raw) / 32767.f
-            : static_cast<float>(raw) / 32768.f;
+            ? static_cast<float32>(raw) / 32767.f
+            : static_cast<float32>(raw) / 32768.f;
     }
 
     static void NkDI_FillSnapshot(const NkDIDeviceContext& dc,
@@ -266,16 +270,16 @@ namespace nkentseu {
         s.info.numAxes    = dc.numAxes;
 
         // Sticks (X/Y = gauche).
-        const float lx = NkDI_NormAxis(st.lX);
-        const float ly = NkDI_NormAxis(st.lY);
-        float rx = NkDI_NormAxis(st.lRx);
-        float ry = NkDI_NormAxis(st.lRy);
+        const float32 lx = NkDI_NormAxis(st.lX);
+        const float32 ly = NkDI_NormAxis(st.lY);
+        float32 rx = NkDI_NormAxis(st.lRx);
+        float32 ry = NkDI_NormAxis(st.lRy);
 
         // Certains pads HID exposent le stick droit sur Z/Rz.
-        const float z  = NkDI_NormAxis(st.lZ);
-        const float rz = NkDI_NormAxis(st.lRz);
-        if ((std::fabs(rx) < 0.01f && std::fabs(ry) < 0.01f) &&
-            (std::fabs(z) > 0.05f || std::fabs(rz) > 0.05f))
+        const float32 z  = NkDI_NormAxis(st.lZ);
+        const float32 rz = NkDI_NormAxis(st.lRz);
+        if ((math::NkFabs(rx) < 0.01f && math::NkFabs(ry) < 0.01f) &&
+            (math::NkFabs(z) > 0.05f || math::NkFabs(rz) > 0.05f))
         {
             rx = z;
             ry = rz;
@@ -287,9 +291,9 @@ namespace nkentseu {
         s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RY)] = ry;
 
         // Gâchettes : privilégier lZ/lRz, fallback sliders si pas d'activité.
-        float lt = z;
-        float rt = rz;
-        if ((std::fabs(lt) < 0.01f && std::fabs(rt) < 0.01f) &&
+        float32 lt = z;
+        float32 rt = rz;
+        if ((math::NkFabs(lt) < 0.01f && math::NkFabs(rt) < 0.01f) &&
             (st.rglSlider[0] != 0 || st.rglSlider[1] != 0))
         {
             lt = NkDI_NormAxis(st.rglSlider[0]);
@@ -298,12 +302,12 @@ namespace nkentseu {
         // Axe centré [-1,+1] -> trigger [0,+1]
         if (lt < 0.f) lt = (lt + 1.f) * 0.5f;
         if (rt < 0.f) rt = (rt + 1.f) * 0.5f;
-        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LT)] = std::clamp(lt, 0.f, 1.f);
-        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RT)] = std::clamp(rt, 0.f, 1.f);
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_LT)] = math::NkClamp(lt, 0.f, 1.f);
+        s.axes[static_cast<uint32>(NkGamepadAxis::NK_GP_AXIS_RT)] = math::NkClamp(rt, 0.f, 1.f);
 
         // Canal brut: exposer les boutons physiques DI en indices étendus.
         const uint32 physicalButtonCount =
-            std::min<uint32>(dc.numButtons, static_cast<uint32>(sizeof(st.rgbButtons) / sizeof(st.rgbButtons[0])));
+            math::NkMin<uint32>(dc.numButtons, static_cast<uint32>(sizeof(st.rgbButtons) / sizeof(st.rgbButtons[0])));
         for (uint32 b = 0; b < physicalButtonCount; ++b) {
             const bool down = (st.rgbButtons[b] & 0x80) != 0;
             const uint32 rawIndex = rawBtnBase + b;
@@ -315,7 +319,7 @@ namespace nkentseu {
         // Compatibilité: mapping générique DI [0..] -> layout NK depuis SOUTH.
         const uint32 firstBtn = static_cast<uint32>(NkGamepadButton::NK_GP_SOUTH);
         const uint32 mapCount = (logicalBtnCount > firstBtn) ? (logicalBtnCount - firstBtn) : 0u;
-        uint32 btnMax = std::min(dc.numButtons, mapCount);
+        uint32 btnMax = math::NkMin<uint32>(dc.numButtons, mapCount);
         for (uint32 b = 0; b < btnMax; ++b)
             s.buttons[firstBtn + b] = (st.rgbButtons[b] & 0x80) != 0;
 
@@ -323,7 +327,7 @@ namespace nkentseu {
         DWORD pov = st.rgdwPOV[0];
         bool povValid = (pov != 0xFFFFFFFF);
         if (povValid) {
-            float deg = static_cast<float>(pov) / 100.f; // centièmes → degrés
+            float32 deg = static_cast<float32>(pov) / 100.f; // centièmes → degrés
             s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_UP)]    = (deg >= 315.f || deg < 45.f);
             s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] = (deg >= 45.f  && deg < 135.f);
             s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_DOWN)]  = (deg >= 135.f && deg < 225.f);
@@ -336,10 +340,10 @@ namespace nkentseu {
         }
 
         // Axes D-pad analogiques
-        const float dpadX =
+        const float32 dpadX =
             s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_RIGHT)] ? 1.f :
             s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_LEFT)]  ? -1.f : 0.f;
-        const float dpadY =
+        const float32 dpadY =
             s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_UP)]   ? 1.f :
             s.buttons[static_cast<uint32>(NkGamepadButton::NK_GP_DPAD_DOWN)] ? -1.f : 0.f;
 
@@ -424,7 +428,7 @@ namespace nkentseu {
                     dc.device = nullptr;
                 }
             }
-            mDIDevices.clear();
+            mDIDevices.Clear();
 
             if (mDI8) { mDI8->Release(); mDI8 = nullptr; }
 
@@ -468,15 +472,15 @@ namespace nkentseu {
         // =====================================================================
 
         void Rumble(uint32 idx,
-                    float motorLow, float motorHigh,
-                    float /*triggerLeft*/, float /*triggerRight*/,
+                    float32 motorLow, float32 motorHigh,
+                    float32 /*triggerLeft*/, float32 /*triggerRight*/,
                     uint32 /*durationMs*/) override
         {
             if (idx < NK_XINPUT_MAX) {
                 // Slot XInput
                 XINPUT_VIBRATION v{};
-                v.wLeftMotorSpeed  = static_cast<WORD>(std::min(motorLow,  1.f) * 65535.f);
-                v.wRightMotorSpeed = static_cast<WORD>(std::min(motorHigh, 1.f) * 65535.f);
+                v.wLeftMotorSpeed  = static_cast<WORD>(math::NkMin(motorLow,  1.f) * 65535.f);
+                v.wRightMotorSpeed = static_cast<WORD>(math::NkMin(motorHigh, 1.f) * 65535.f);
                 XInputSetState(static_cast<DWORD>(idx), &v);
             }
             // DirectInput Force Feedback : ignoré silencieusement
@@ -495,10 +499,10 @@ namespace nkentseu {
         IDirectInput8W*            mDI8         = nullptr;
 
         // Snapshots unifiés [0..3]=XInput, [4..7]=DirectInput
-        std::array<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
+        NkArray<NkGamepadSnapshot, NK_MAX_GAMEPADS> mSnapshots{};
 
         // Contextes DirectInput
-        std::vector<NkDIDeviceContext> mDIDevices;
+        NkVector<NkDIDeviceContext> mDIDevices;
 
         // =====================================================================
         // PollXInput — slots 0..3
@@ -558,12 +562,12 @@ namespace nkentseu {
             btn(B::NK_GP_DPAD_LEFT,  XINPUT_GAMEPAD_DPAD_LEFT);
             btn(B::NK_GP_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_RIGHT);
 
-            float lt = NkXI_Trigger(xp.bLeftTrigger,  NK_XI_TRIGGER_DZ);
-            float rt = NkXI_Trigger(xp.bRightTrigger, NK_XI_TRIGGER_DZ);
+            float32 lt = NkXI_Trigger(xp.bLeftTrigger,  NK_XI_TRIGGER_DZ);
+            float32 rt = NkXI_Trigger(xp.bRightTrigger, NK_XI_TRIGGER_DZ);
             s.buttons[static_cast<uint32>(B::NK_GP_LT_DIGITAL)] = (lt > 0.5f);
             s.buttons[static_cast<uint32>(B::NK_GP_RT_DIGITAL)] = (rt > 0.5f);
 
-            auto ax = [&](A a, float v) { s.axes[static_cast<uint32>(a)] = v; };
+            auto ax = [&](A a, float32 v) { s.axes[static_cast<uint32>(a)] = v; };
             ax(A::NK_GP_AXIS_LX, NkXI_Deadzone(xp.sThumbLX, NK_XI_DEADZONE_L));
             ax(A::NK_GP_AXIS_LY, NkXI_Deadzone(xp.sThumbLY, NK_XI_DEADZONE_L));
             ax(A::NK_GP_AXIS_RX, NkXI_Deadzone(xp.sThumbRX, NK_XI_DEADZONE_R));
@@ -619,7 +623,7 @@ namespace nkentseu {
                     dc.device->Release();
                 }
             }
-            mDIDevices.clear();
+            mDIDevices.Clear();
 
             NkDIEnumCtx ctx{ mDI8, &mDIDevices, NK_DI_MAX };
             mDI8->EnumDevices(DI8DEVCLASS_GAMECTRL,

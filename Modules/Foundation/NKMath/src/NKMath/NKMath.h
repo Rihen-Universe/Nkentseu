@@ -16,8 +16,8 @@ namespace nkentseu {
     namespace math {
 
         // Backward-compatible names
-        using Float3 = NkVec3f;
-        using Double3 = NkVec3d;
+        using NkFloat3 = NkVec3f;
+        using NkDouble3 = NkVec3d;
 
     } // namespace math
 } // namespace nkentseu

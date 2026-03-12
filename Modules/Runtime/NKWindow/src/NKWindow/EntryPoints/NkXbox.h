@@ -16,10 +16,8 @@
 #include <windows.h>
 #include <shellapi.h>
 
-#include <string>
-#include <vector>
-
 #include "NKWindow/Core/NkEntry.h"
+#include "NKCore/NkTraits.h"
 
 #pragma comment(lib, "shell32.lib")
 
@@ -38,14 +36,14 @@ namespace nkentseu {
             LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
             NkVector<NkString> args;
-            args.reserve(static_cast<std::size_t>(argc));
+            args.Reserve(static_cast<nk_size>(argc));
 
             for (int i = 0; i < argc; ++i) {
                 int sz = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
-                NkString s(static_cast<std::size_t>(sz), '\0');
-                WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), sz, nullptr, nullptr);
-                if (!s.empty() && s.back() == '\0') s.pop_back();
-                args.push_back(std::move(s));
+                NkString s(static_cast<nk_size>(sz), '\0');
+                WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.Data(), sz, nullptr, nullptr);
+                if (!s.Empty() && s.Back() == '\0') s.PopBack();
+                args.PushBack(traits::NkMove(s));
             }
 
             LocalFree(wargv);
@@ -84,15 +82,19 @@ namespace nkentseu {
 } // namespace nkentseu
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR, int nCmdShow) {
+    if (!nkentseu::NkEntryRuntimeInit(NK_APP_NAME)) {
+        return -1;
+    }
     NkVector<NkString> args = nkentseu::NkBuildUtf8ArgsFromCommandLine();
     void *nativeWindow = nkentseu::NkXboxGetNativeWindowHandle();
 
     nkentseu::NkEntryState state(hInst, hPrev, nullptr, nCmdShow, args, nativeWindow);
-    state.appName = NK_APP_NAME;
+    nkentseu::NkApplyEntryAppName(state, NK_APP_NAME);
     nkentseu::gState = &state;
 
     const int result = nkmain(state);
     nkentseu::gState = nullptr;
+    nkentseu::NkEntryRuntimeShutdown(true);
     return result;
 }
 

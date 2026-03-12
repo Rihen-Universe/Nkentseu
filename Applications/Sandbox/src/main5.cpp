@@ -14,7 +14,7 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvents.h"
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Ajout pour NkChrono et NkElapsedTime
@@ -25,6 +25,20 @@
 #include <cmath>
 #include <string>
 #include <vector>
+
+// AppData pattern #6: mutable global filled by static bootstrap object.
+static nkentseu::NkAppData gPatternCallbackAppData{};
+struct PatternCallbackAppDataBootstrap {
+    PatternCallbackAppDataBootstrap() {
+        gPatternCallbackAppData.appName = "SandboxPatternCallback";
+        gPatternCallbackAppData.appVersion = "1.0.0";
+        gPatternCallbackAppData.enableEventLogging = true;
+        gPatternCallbackAppData.enableRendererDebug = false;
+        gPatternCallbackAppData.enableMultiWindow = true;
+    }
+};
+static const PatternCallbackAppDataBootstrap gPatternCallbackAppDataBootstrap{};
+NKENTSEU_DEFINE_APP_DATA(gPatternCallbackAppData);
 
 #ifdef NkMin
 #undef NkMin
@@ -109,8 +123,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 {
     using namespace nkentseu;
 
-    // 1. Init
-    if (!NkInitialise({ .appName = "ex04 Pattern C — Callbacks" })) return -1;
+    // 1. Runtime déjà initialisé par l'entrypoint NkMain
 
     // 2. Fenêtre
     NkWindowConfig cfg;
@@ -122,14 +135,14 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     cfg.dropEnabled = true;
 
     NkWindow window(cfg);
-    if (!window.IsOpen()) { NkClose(); return -2; }
+    if (!window.IsOpen()) { return -2; }
 
     // 3. Renderer
     NkRendererConfig rcfg;
     rcfg.api                   = NkRendererApi::NK_SOFTWARE;
     rcfg.autoResizeFramebuffer = true;
     NkRenderer renderer;
-    if (!renderer.Create(window, rcfg)) { NkClose(); return -3; }
+    if (!renderer.Create(window, rcfg)) { return -3; }
 
     // 4. État partagé entre tous les callbacks
     SharedState state;
@@ -397,6 +410,5 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     renderer.Shutdown();
     window.Close();
-    NkClose();
     return 0;
 }

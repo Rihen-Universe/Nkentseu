@@ -187,28 +187,28 @@ namespace nkentseu {
              * Output: results in same locations
              * Speedup: 12-24x vs scalar loop!
              */
-            void NkSqrtBatch4(nk_float* values, nk_uint32 count) noexcept;
+            void NkSqrtBatch4(nk_float32* values, nk_uint32 count) noexcept;
 
             /**
              * @brief Process 8 values (AVX2)
              * Speedup: 20-40x vs scalar!
              */
-            void NkSqrtBatch8(nk_float* values, nk_uint32 count) noexcept;
+            void NkSqrtBatch8(nk_float32* values, nk_uint32 count) noexcept;
 
             /**
              * @brief Exp batch processing
              */
-            void NkExpBatch8(nk_float* values, nk_uint32 count) noexcept;
+            void NkExpBatch8(nk_float32* values, nk_uint32 count) noexcept;
 
             /**
              * @brief Sin batch processing (fast via LUT)
              */
-            void NkSinBatch8(nk_float* values, nk_uint32 count) noexcept;
+            void NkSinBatch8(nk_float32* values, nk_uint32 count) noexcept;
 
             /**
              * @brief Cos batch processing (fast via LUT)
              */
-            void NkCosBatch8(nk_float* values, nk_uint32 count) noexcept;
+            void NkCosBatch8(nk_float32* values, nk_uint32 count) noexcept;
 
         } // namespace simd
     } // namespace math

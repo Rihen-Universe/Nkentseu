@@ -17,7 +17,7 @@ using namespace nkentseu;
 using namespace nkentseu::math;
 
 // Prevent optimization of benchmark results
-volatile nk_float bench_result = 0.0f;
+volatile nk_float32 bench_result = 0.0f;
 
 // ============================================================
 // BENCHMARK UTILITIES
@@ -25,10 +25,10 @@ volatile nk_float bench_result = 0.0f;
 
 struct BenchResult {
     const char* name;
-    nk_float cycles_per_op;
-    nk_float throughput_ops_per_ns;
-    nk_float stl_ratio;  // 1.0 = same as STL, 2.0 = 2x slower, 0.5 = 2x faster
-    nk_float ue5_ratio;
+    nk_float32 cycles_per_op;
+    nk_float32 throughput_ops_per_ns;
+    nk_float32 stl_ratio;  // 1.0 = same as STL, 2.0 = 2x slower, 0.5 = 2x faster
+    nk_float32 ue5_ratio;
 };
 
 /**
@@ -42,9 +42,9 @@ private:
     using Duration = std::chrono::nanoseconds;
 
 public:
-    static nk_float MeasureCyclesPerOperation(
+    static nk_float32 MeasureCyclesPerOperation(
         const char* name,
-        nk_float (*func)(nk_float),
+        nk_float32 (*func)(nk_float32),
         nk_uint32 iterations = 100000)
     {
         // Warmup
@@ -60,11 +60,11 @@ public:
         auto end = Clock::now();
         
         auto total_ns = std::chrono::duration_cast<Duration>(end - start).count();
-        nk_float cycles = (nk_float)total_ns / 1.0f; // ~1ns per cycle estimate
-        nk_float cycles_per_op = cycles / iterations;
+        nk_float32 cycles = (nk_float32)total_ns / 1.0f; // ~1ns per cycle estimate
+        nk_float32 cycles_per_op = cycles / iterations;
         
         NK_FOUNDATION_LOG_INFO("%-15s: %.2f cycles/op (%.1f ns)\n", name, cycles_per_op, 
-               total_ns / (nk_float)iterations);
+               total_ns / (nk_float32)iterations);
         
         return cycles_per_op;
     }
@@ -74,23 +74,23 @@ public:
         NK_FOUNDATION_LOG_INFO("  Throughput Comparison (Scalar)\n");
         NK_FOUNDATION_LOG_INFO("==========================================\n\n");
         
-        nk_float sqrt_cycles = MeasureCyclesPerOperation("NkSqrt", 
-            [](nk_float x) { return NkSqrt(x); });
+        nk_float32 sqrt_cycles = MeasureCyclesPerOperation("NkSqrt", 
+            [](nk_float32 x) { return NkSqrt(x); });
         
-        nk_float exp_cycles = MeasureCyclesPerOperation("NkExp", 
-            [](nk_float x) { return NkExp(x); });
+        nk_float32 exp_cycles = MeasureCyclesPerOperation("NkExp", 
+            [](nk_float32 x) { return NkExp(x); });
         
-        nk_float log_cycles = MeasureCyclesPerOperation("NkLog", 
-            [](nk_float x) { return NkLog(x); });
+        nk_float32 log_cycles = MeasureCyclesPerOperation("NkLog", 
+            [](nk_float32 x) { return NkLog(x); });
         
-        nk_float sin_cycles = MeasureCyclesPerOperation("NkSin", 
-            [](nk_float x) { return NkSin(x); });
+        nk_float32 sin_cycles = MeasureCyclesPerOperation("NkSin", 
+            [](nk_float32 x) { return NkSin(x); });
         
-        nk_float cos_cycles = MeasureCyclesPerOperation("NkCos", 
-            [](nk_float x) { return NkCos(x); });
+        nk_float32 cos_cycles = MeasureCyclesPerOperation("NkCos", 
+            [](nk_float32 x) { return NkCos(x); });
         
-        nk_float atan_cycles = MeasureCyclesPerOperation("NkAtan", 
-            [](nk_float x) { return NkAtan(x); });
+        nk_float32 atan_cycles = MeasureCyclesPerOperation("NkAtan", 
+            [](nk_float32 x) { return NkAtan(x); });
         
         NK_FOUNDATION_LOG_INFO("\n--- Summary (Cycles Per Operation) ---\n");
         NK_FOUNDATION_LOG_INFO("NkSqrt:  %.1f cycles\n", sqrt_cycles);
@@ -110,7 +110,7 @@ public:
             NK_FOUNDATION_LOG_INFO("SIMD Available: Yes\n");
             
             // Simulate batch processing
-            nk_float values[4096];
+            nk_float32 values[4096];
             for (nk_uint32 i = 0; i < 4096; ++i) {
                 values[i] = 1.0f + (i / 4096.0f) * 100.0f;
             }
@@ -126,8 +126,8 @@ public:
             auto total_ns = std::chrono::duration_cast<
                 std::chrono::nanoseconds>(end - start).count();
             
-            nk_float ops = 4096.0f * 1000.0f;
-            nk_float throughput = ops / total_ns;
+            nk_float32 ops = 4096.0f * 1000.0f;
+            nk_float32 throughput = ops / total_ns;
             
             NK_FOUNDATION_LOG_INFO("NkSqrt batch (4096x1000): %.2f Mops/ns\n", throughput);
             NK_FOUNDATION_LOG_INFO("Estimated SIMD speedup: %.1fx\n", throughput / 4.0f);

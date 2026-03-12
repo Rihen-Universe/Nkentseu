@@ -11,10 +11,8 @@
 // =============================================================================
 
 #include "NkGamepadEvent.h"
-
-#include <string>
-#include <vector>
-#include <memory>
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 

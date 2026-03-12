@@ -10,7 +10,9 @@
 #include "NKMemory/NkIntrusivePtr.h"
 #include "NKMemory/NkExport.h"
 #include "NKMemory/NkFunction.h"
+#include "NKMemory/NkProfiler.h"
 #include "NKMemory/NkSharedPtr.h"
+#include "NKMemory/NkTracker.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "NKCore/NkAtomic.h"
 
@@ -205,6 +207,7 @@ namespace nkentseu {
                 nk_bool mInitialized;
                 mutable NkSpinLock mLock;
                 NkPointerHashMap mAllocIndex;
+                NkMemoryTracker mTracker;
                 NkGarbageCollector mGc;
                 NkGcNode mDefaultGcNode;
                 NkGcNode* mGcHead;
@@ -215,7 +218,16 @@ namespace nkentseu {
     } // namespace memory
 } // namespace nkentseu
 
+namespace nkentseu {
+    namespace memory {
+        inline NkGarbageCollector& NkGeneralGc() noexcept {
+            return NkMemorySystem::Instance().Gc();
+        }
+    } // namespace memory
+} // namespace nkentseu
+
 #define NK_MEMORY_SYSTEM (::nkentseu::memory::NkMemorySystem::Instance())
+#define NK_GC_GENERAL (::nkentseu::memory::NkGeneralGc())
 #define NK_MEM_ALLOC(bytes)                                                                            \
     NK_MEMORY_SYSTEM.Allocate((bytes), alignof(void*), __FILE__, __LINE__, __func__, "raw")
 #define NK_MEM_FREE(ptr) NK_MEMORY_SYSTEM.Free((ptr))

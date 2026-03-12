@@ -34,13 +34,7 @@
 #include "NkMouseEvent.h"      // NkMouseButton, NkMouseButtons
 #include "NkGamepadEvent.h"    // NkGamepadButton, NkGamepadAxis
 #include "NkGamepadSystem.h"   // NkGamepadSystem::Instance()
-
-#include <functional>
-#include <string>
-#include <unordered_map>
-#include <vector>
-#include <type_traits>
-#include <cmath>
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 
@@ -54,7 +48,7 @@ namespace nkentseu {
     // =========================================================================
 
     template<typename T>
-    using NkEventHandler = std::function<bool(T&)>;
+    using NkEventHandler = NkFunction<bool, T&>;
 
     class NkEventDispatcher {
     public:
@@ -65,7 +59,7 @@ namespace nkentseu {
         // Retourne true si l'event a été consommé (handler a retourné true).
         template<typename T>
         bool Dispatch(NkEventHandler<T> handler) {
-            static_assert(std::is_base_of<NkEvent, T>::value,
+            static_assert(traits::NkIsBaseOf_v<NkEvent, T>,
                           "NkEventDispatcher::Dispatch — T must derive from NkEvent");
             if (!mEvent || mEvent->IsHandled()) return false;
             if (mEvent->GetType() != T::GetStaticType()) return false;
@@ -78,7 +72,7 @@ namespace nkentseu {
         // Variante directe : lambda / free fn sans wrapper explicite
         template<typename T, typename Fn>
         bool Dispatch(Fn&& fn) {
-            return Dispatch<T>(NkEventHandler<T>(std::forward<Fn>(fn)));
+            return Dispatch<T>(NkEventHandler<T>(traits::NkForward<Fn>(fn)));
         }
 
         NkEvent*           GetEvent()     const noexcept { return mEvent; }
@@ -272,7 +266,7 @@ namespace nkentseu {
 
     struct NkActionCommand {
             NkActionCommand(NkString name, NkInputCode code, bool repeatable = true)
-                : mName(std::move(name)), mCode(code),
+                : mName(traits::NkMove(name)), mCode(code),
                 mRepeatable(repeatable), mPrivRepeatable(repeatable) {}
 
             const NkString& GetName()               const noexcept { return mName; }
@@ -293,10 +287,11 @@ namespace nkentseu {
     };
 
     // Signature : (actionName, code, isPressed, isRepeat)
-    using NkActionSubscriber = std::function<void(const NkString&,
-                                                   const NkInputCode&,
-                                                   bool isPressed,
-                                                   bool isRepeat)>;
+    using NkActionSubscriber = NkFunction<void,
+                                          const NkString&,
+                                          const NkInputCode&,
+                                          bool,
+                                          bool>;
 
     // -------------------------------------------------------------------------
     // NkAxisCommand — analogue exact d'AxisCommand
@@ -305,7 +300,7 @@ namespace nkentseu {
     struct NkAxisCommand {
             NkAxisCommand(NkString name, NkInputCode code,
                         float scale = 1.f, float minInterval = 0.f)
-                : mName(std::move(name)), mCode(code),
+                : mName(traits::NkMove(name)), mCode(code),
                 mScale(scale), mMinInterval(minInterval) {}
 
             const NkString& GetName()        const noexcept { return mName; }
@@ -324,9 +319,10 @@ namespace nkentseu {
     };
 
     // Signature : (axisName, code, value)
-    using NkAxisSubscriber = std::function<void(const NkString&,
-                                                 const NkInputCode&,
-                                                 float value)>;
+    using NkAxisSubscriber = NkFunction<void,
+                                        const NkString&,
+                                        const NkInputCode&,
+                                        float>;
 
     // -------------------------------------------------------------------------
     // NkActionManager — analogue exact d'ActionManager
@@ -368,7 +364,7 @@ namespace nkentseu {
     //           return NkInput.GamepadAxis(0, static_cast<NkGamepadAxis>(code));
     //       return 0.f;
     //   }
-    using NkAxisResolver = std::function<float(NkInputDevice, uint32)>;
+    using NkAxisResolver = NkFunction<float, NkInputDevice, uint32>;
 
     class NkAxisManager {
         public:

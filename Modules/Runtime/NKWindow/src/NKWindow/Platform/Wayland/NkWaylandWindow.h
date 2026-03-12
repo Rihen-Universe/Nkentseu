@@ -10,6 +10,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKWindow/Core/NkSurfaceHint.h"
 #include <cstdint>
 
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_WAYLAND)
@@ -122,6 +123,11 @@ namespace nkentseu {
         // Drag & drop
         // ----------------------------------------------------------------
         NkWaylandDropTarget*            mDropTarget         = nullptr;
+
+        // ----------------------------------------------------------------
+        // Surface hints applied at create-time (forwarded in NkSurfaceDesc)
+        // ----------------------------------------------------------------
+        NkSurfaceHints                  mAppliedHints{};
     };
 
     // Backend registry accessors

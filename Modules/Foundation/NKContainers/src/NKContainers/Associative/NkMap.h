@@ -20,12 +20,20 @@
 #include "NKContainers/Heterogeneous/NkPair.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
     
+        template<typename Key>
+        struct NkMapLess {
+            bool operator()(const Key& lhs, const Key& rhs) const {
+                return lhs < rhs;
+            }
+        };
+        
         
         /**
-         * @brief Ordered map - std::map equivalent
+         * @brief Ordered map - STL::map equivalent
          * 
          * Map ordonné implémenté avec Red-Black Tree.
          * Les paires key-value sont triées par clé.
@@ -45,7 +53,10 @@ namespace nkentseu {
          * map[2] = "two";
          * if (map.Contains(3)) { }
          */
-        template<typename Key, typename Value, typename Allocator = memory::NkAllocator>
+        template<typename Key,
+                 typename Value,
+                 typename Allocator = memory::NkAllocator,
+                 typename Compare = NkMapLess<Key>>
         class NkMap {
         private:
             enum Color { RED, BLACK };
@@ -142,6 +153,11 @@ namespace nkentseu {
             Node* mRoot;
             SizeType mSize;
             Allocator* mAllocator;
+            Compare mCompare;
+            
+            bool KeyEquals(const Key& lhs, const Key& rhs) const {
+                return !mCompare(lhs, rhs) && !mCompare(rhs, lhs);
+            }
             
             Node* CreateNode(const Key& key, const Value& value, Node* parent = nullptr) {
                 Node* node = static_cast<Node*>(mAllocator->Allocate(sizeof(Node)));
@@ -248,9 +264,9 @@ namespace nkentseu {
             Node* FindNode(const Key& key) const {
                 Node* current = mRoot;
                 while (current) {
-                    if (key < current->Data.First) {
+                    if (mCompare(key, current->Data.First)) {
                         current = current->Left;
-                    } else if (current->Data.First < key) {
+                    } else if (mCompare(current->Data.First, key)) {
                         current = current->Right;
                     } else {
                         return current;
@@ -263,20 +279,73 @@ namespace nkentseu {
             // Constructors
             explicit NkMap(Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mCompare() {
             }
             
             NkMap(NkInitializerList<ValueType> init, Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mCompare() {
                 for (auto& pair : init) {
                     Insert(pair.First, pair.Second);
                 }
             }
             
+            NkMap(const NkMap& other)
+                : mRoot(nullptr)
+                , mSize(0)
+                , mAllocator(other.mAllocator)
+                , mCompare(other.mCompare) {
+                for (auto it = other.begin(); it != other.end(); ++it) {
+                    Insert(it->First, it->Second);
+                }
+            }
+            
+            #if defined(NK_CPP11)
+            NkMap(NkMap&& other) NK_NOEXCEPT
+                : mRoot(other.mRoot)
+                , mSize(other.mSize)
+                , mAllocator(other.mAllocator)
+                , mCompare(traits::NkMove(other.mCompare)) {
+                other.mRoot = nullptr;
+                other.mSize = 0;
+            }
+            #endif
+            
             ~NkMap() {
                 Clear();
             }
+            
+            NkMap& operator=(const NkMap& other) {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                mAllocator = other.mAllocator;
+                mCompare = other.mCompare;
+                for (auto it = other.begin(); it != other.end(); ++it) {
+                    Insert(it->First, it->Second);
+                }
+                return *this;
+            }
+            
+            #if defined(NK_CPP11)
+            NkMap& operator=(NkMap&& other) NK_NOEXCEPT {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                mRoot = other.mRoot;
+                mSize = other.mSize;
+                mAllocator = other.mAllocator;
+                mCompare = traits::NkMove(other.mCompare);
+                
+                other.mRoot = nullptr;
+                other.mSize = 0;
+                return *this;
+            }
+            #endif
             
             // Iterators
             Iterator begin() { return Iterator(FindMin(mRoot), this); }
@@ -312,9 +381,9 @@ namespace nkentseu {
                 
                 while (current) {
                     parent = current;
-                    if (key < current->Data.First) {
+                    if (mCompare(key, current->Data.First)) {
                         current = current->Left;
-                    } else if (current->Data.First < key) {
+                    } else if (mCompare(current->Data.First, key)) {
                         current = current->Right;
                     } else {
                         current->Data.Second = value;  // Update existing
@@ -323,7 +392,7 @@ namespace nkentseu {
                 }
                 
                 Node* newNode = CreateNode(key, value, parent);
-                if (key < parent->Data.First) {
+                if (mCompare(key, parent->Data.First)) {
                     parent->Left = newNode;
                 } else {
                     parent->Right = newNode;
@@ -384,6 +453,47 @@ namespace nkentseu {
                 }
                 Insert(key, value);
                 return true;
+            }
+            
+            bool Erase(const Key& key) {
+                if (!Contains(key)) {
+                    return false;
+                }
+                
+                struct EntryCopy {
+                    Key KeyValue;
+                    Value ValueValue;
+                    
+                    EntryCopy(const Key& k, const Value& v)
+                        : KeyValue(k), ValueValue(v) {
+                    }
+                };
+                
+                NkVector<EntryCopy, Allocator> retained(mAllocator);
+                if (mSize > 1) {
+                    retained.Reserve(mSize - 1);
+                }
+                
+                for (auto it = begin(); it != end(); ++it) {
+                    if (!KeyEquals(it->First, key)) {
+                        retained.PushBack(EntryCopy(it->First, it->Second));
+                    }
+                }
+                
+                Clear();
+                for (SizeType i = 0; i < retained.Size(); ++i) {
+                    Insert(retained[i].KeyValue, retained[i].ValueValue);
+                }
+                return true;
+            }
+            
+            Iterator Erase(Iterator position) {
+                if (position == end()) {
+                    return end();
+                }
+                Key key = position->First;
+                Erase(key);
+                return end();
             }
             
             Value& operator[](const Key& key) {

@@ -132,12 +132,43 @@ namespace nkentseu {
         }
         
         bool NkDirectory::MatchesPattern(const char* name, const char* pattern) {
-            // Simple pattern matching (* wildcard)
-            if (strcmp(pattern, "*") == 0) return true;
-            
-            // TODO: Implement proper pattern matching
-            // For now, just check if pattern is contained in name
-            return strstr(name, pattern) != nullptr;
+            if (!name || !pattern) {
+                return false;
+            }
+
+            // Glob matching with '*' (0..N chars) and '?' (1 char).
+            const char* text = name;
+            const char* glob = pattern;
+            const char* star = nullptr;
+            const char* backtrack = nullptr;
+
+            while (*text) {
+                if (*glob == '*') {
+                    star = glob++;
+                    backtrack = text;
+                    continue;
+                }
+
+                if (*glob == '?' || *glob == *text) {
+                    ++glob;
+                    ++text;
+                    continue;
+                }
+
+                if (star) {
+                    glob = star + 1;
+                    text = ++backtrack;
+                    continue;
+                }
+
+                return false;
+            }
+
+            while (*glob == '*') {
+                ++glob;
+            }
+
+            return *glob == '\0';
         }
         
         NkVector<NkString> NkDirectory::GetFiles(

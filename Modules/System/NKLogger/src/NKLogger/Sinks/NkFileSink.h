@@ -134,6 +134,22 @@ namespace nkentseu {
 			 */
 			bool OpenFile();
 
+		protected:
+			/**
+			 * @brief Ouvre le flux fichier sans prendre le mutex (mutex déjà détenu)
+			 */
+			bool OpenUnlocked();
+
+			/**
+			 * @brief Ferme le flux fichier sans prendre le mutex (mutex déjà détenu)
+			 */
+			void CloseUnlocked();
+
+			/**
+			 * @brief Retourne le nom de fichier sans prendre le mutex (mutex déjà détenu)
+			 */
+			NkString GetFilenameUnlocked() const;
+
 			/**
 			 * @brief Vérifie et gère la rotation de fichier si nécessaire
 			 */

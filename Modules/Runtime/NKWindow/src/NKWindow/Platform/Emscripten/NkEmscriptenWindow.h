@@ -5,6 +5,7 @@
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/Core/NkWindowId.h"
+#include "NKWindow/Core/NkSurfaceHint.h"
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN) || defined(__EMSCRIPTEN__)
 
@@ -19,12 +20,14 @@ namespace nkentseu {
     struct NkWindowData {
         NkString        mCanvasId   = "#canvas";
         NkEmscriptenDropTarget*  mDropTarget = nullptr;
+        NkSurfaceHints      mAppliedHints{};
         uint32              mWidth      = 0;
         uint32              mHeight     = 0;
         uint32              mPrevWidth  = 0;
         uint32              mPrevHeight = 0;
         bool               mVisible    = true;
         bool               mFullscreen = false;
+        bool               mExternal   = false;
     };
 
     NkWindow*               NkEmscriptenFindWindowById(NkWindowId id);

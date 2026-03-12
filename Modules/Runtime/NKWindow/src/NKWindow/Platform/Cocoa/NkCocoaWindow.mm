@@ -34,6 +34,61 @@ namespace nkentseu {
         };
     }
 
+    static void ApplyCocoaWindowTransparency(NSWindow* window, bool transparent, bool hasShadow) {
+        if (!window) {
+            return;
+        }
+        if (transparent) {
+            [window setOpaque:NO];
+            [window setBackgroundColor:[NSColor clearColor]];
+            [window setHasShadow:hasShadow ? YES : NO];
+        } else {
+            [window setOpaque:YES];
+            [window setHasShadow:hasShadow ? YES : NO];
+        }
+    }
+
+    static void ApplyCocoaWindowIcon(NSWindow* window, const NkString& iconPath) {
+        if (!window || iconPath.Empty()) {
+            return;
+        }
+        NSString* path = [NSString stringWithUTF8String:iconPath.c_str()];
+        if (!path || path.length == 0) {
+            return;
+        }
+        NSImage* icon = [[NSImage alloc] initWithContentsOfFile:path];
+        if (!icon) {
+            return;
+        }
+        [window setMiniwindowImage:icon];
+        [NSApp setApplicationIconImage:icon];
+    }
+
+    static CAMetalLayer* EnsureCocoaMetalLayer(NSView* view) {
+        if (!view) {
+            return nil;
+        }
+        view.wantsLayer = YES;
+        view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+        CAMetalLayer* metalLayer = nil;
+        if (view.layer) {
+            for (CALayer* sublayer in view.layer.sublayers) {
+                if ([sublayer isKindOfClass:[CAMetalLayer class]]) {
+                    metalLayer = (CAMetalLayer*)sublayer;
+                    break;
+                }
+            }
+        }
+        if (!metalLayer) {
+            metalLayer = [CAMetalLayer layer];
+            metalLayer.frame = view.bounds;
+            metalLayer.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
+            [view.layer addSublayer:metalLayer];
+        }
+        return metalLayer;
+    }
+
     NkWindow::NkWindow() = default;
 
     NkWindow::NkWindow(const NkWindowConfig& config) {
@@ -52,8 +107,54 @@ namespace nkentseu {
         }
 
         mConfig = config;
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mExternal = false;
+        mData.mOwnsWindow = true;
+        mData.mParentWindow = nil;
 
         @autoreleasepool {
+            const bool wantsExternal = config.native.useExternalWindow;
+            const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+            if (wantsExternal && !hasExternalHandle) {
+                mLastError = NkError(1, "Cocoa: useExternalWindow=true but externalWindowHandle is null");
+                return false;
+            }
+
+            NSScreen* targetScreen = [NSScreen mainScreen];
+            if (config.native.externalDisplayHandle != 0) {
+                targetScreen = reinterpret_cast<NSScreen*>(config.native.externalDisplayHandle);
+                if (!targetScreen) {
+                    targetScreen = [NSScreen mainScreen];
+                }
+            }
+
+            NSWindow* window = nil;
+            NSView* view = nil;
+            CAMetalLayer* metalLayer = nil;
+
+            if (wantsExternal && hasExternalHandle) {
+                window = reinterpret_cast<NSWindow*>(config.native.externalWindowHandle);
+                if (!window) {
+                    mLastError = NkError(1, "Cocoa: external NSWindow is null");
+                    return false;
+                }
+                mData.mExternal = true;
+                mData.mOwnsWindow = false;
+
+                view = [window contentView];
+                if (!view) {
+                    NSRect contentRect = [window contentRectForFrameRect:window.frame];
+                    view = [[NSView alloc] initWithFrame:contentRect];
+                    [window setContentView:view];
+                }
+
+                metalLayer = EnsureCocoaMetalLayer(view);
+                [window setAcceptsMouseMovedEvents:YES];
+
+                if (!config.title.Empty()) {
+                    [window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
+                }
+            } else {
             NSWindowStyleMask style = NSWindowStyleMaskBorderless;
             if (config.frame) {
                 style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
@@ -64,15 +165,20 @@ namespace nkentseu {
                     style |= NSWindowStyleMaskMiniaturizable;
                 }
             }
+#ifdef NSWindowStyleMaskUtilityWindow
+                if (config.native.utilityWindow) {
+                    style |= NSWindowStyleMaskUtilityWindow;
+                }
+#endif
 
             NSRect frame = NSMakeRect(config.x, config.y, config.width, config.height);
             if (config.centered) {
-                NSRect screen = [[NSScreen mainScreen] frame];
+                    NSRect screen = targetScreen ? [targetScreen frame] : [[NSScreen mainScreen] frame];
                 frame.origin.x = (screen.size.width - config.width) * 0.5;
                 frame.origin.y = (screen.size.height - config.height) * 0.5;
             }
 
-            NSWindow* window = [[NSWindow alloc] initWithContentRect:frame
+                window = [[NSWindow alloc] initWithContentRect:frame
                                                             styleMask:style
                                                               backing:NSBackingStoreBuffered
                                                                 defer:NO];
@@ -81,19 +187,32 @@ namespace nkentseu {
                 return false;
             }
 
-            NSView* view = [[NSView alloc] initWithFrame:frame];
-            view.wantsLayer = YES;
-            view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-
-            CAMetalLayer* metalLayer = [CAMetalLayer layer];
-            metalLayer.frame = view.bounds;
-            metalLayer.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
-            [view.layer addSublayer:metalLayer];
+                view = [[NSView alloc] initWithFrame:frame];
+                metalLayer = EnsureCocoaMetalLayer(view);
 
             [window setContentView:view];
             [window setReleasedWhenClosed:NO];
             [window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
             [window setAcceptsMouseMovedEvents:YES];
+            }
+
+#ifdef NSWindowStyleMaskUtilityWindow
+            if (config.native.utilityWindow && window) {
+                const NSWindowStyleMask currentMask = [window styleMask];
+                [window setStyleMask:(currentMask | NSWindowStyleMaskUtilityWindow)];
+            }
+#endif
+
+            ApplyCocoaWindowTransparency(window, config.transparent, config.hasShadow);
+            ApplyCocoaWindowIcon(window, config.iconPath);
+
+            if (config.native.parentWindowHandle != 0 && window) {
+                NSWindow* parent = reinterpret_cast<NSWindow*>(config.native.parentWindowHandle);
+                if (parent && parent != window) {
+                    [parent addChildWindow:window ordered:NSWindowAbove];
+                    mData.mParentWindow = parent;
+                }
+            }
 
             if (config.visible) {
                 [window makeKeyAndOrderFront:nil];
@@ -115,6 +234,14 @@ namespace nkentseu {
             mId = NkSystem::Instance().RegisterWindow(this);
             if (mId == NK_INVALID_WINDOW_ID) {
                 mLastError = NkError(1, "Cocoa: failed to register window");
+                if (mData.mParentWindow && window) {
+                    [mData.mParentWindow removeChildWindow:window];
+                    mData.mParentWindow = nil;
+                }
+                if (!mData.mExternal && window) {
+                    [window orderOut:nil];
+                    [window close];
+                }
                 mData.mNSWindow = nil;
                 mData.mNSView = nil;
                 mData.mMetalLayer = nil;
@@ -122,7 +249,10 @@ namespace nkentseu {
             }
 
             if (config.fullscreen) {
-                [window toggleFullScreen:nil];
+                const BOOL isFullscreen = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+                if (!isFullscreen) {
+                    [window toggleFullScreen:nil];
+                }
             }
         }
 
@@ -150,13 +280,19 @@ namespace nkentseu {
         NkSystem::Events().Enqueue_Public(closeEvent, closingId);
 
         @autoreleasepool {
+            if (mData.mParentWindow && mData.mNSWindow) {
+                [mData.mParentWindow removeChildWindow:mData.mNSWindow];
+            }
             if (mData.mNSWindow) {
-                [mData.mNSWindow orderOut:nil];
-                [mData.mNSWindow close];
+                if (mData.mOwnsWindow) {
+                    [mData.mNSWindow orderOut:nil];
+                    [mData.mNSWindow close];
+                }
             }
             mData.mNSWindow = nil;
             mData.mNSView = nil;
             mData.mMetalLayer = nil;
+            mData.mParentWindow = nil;
         }
 
         NkWindowDestroyEvent destroyEvent;
@@ -170,6 +306,8 @@ namespace nkentseu {
         mData.mHeight = 0;
         mData.mVisible = false;
         mData.mFullscreen = false;
+        mData.mExternal = false;
+        mData.mOwnsWindow = true;
     }
 
     bool NkWindow::IsOpen() const {
@@ -384,6 +522,7 @@ namespace nkentseu {
         desc.dpi = GetDpiScale();
         desc.view = mData.mNSView;
         desc.metalLayer = mData.mMetalLayer;
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

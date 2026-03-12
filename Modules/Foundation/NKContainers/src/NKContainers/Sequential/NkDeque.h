@@ -24,7 +24,7 @@ namespace nkentseu {
     
         
         /**
-         * @brief Double-ended queue (std::deque equivalent)
+         * @brief Double-ended queue (STL::deque equivalent)
          * 
          * Implémentation par chunks (blocks). Combine les avantages de:
          * - Vector: Accès random O(1)
@@ -160,23 +160,62 @@ namespace nkentseu {
             SizeType mSize;
             Allocator* mAllocator;
             
-            void AllocateChunk() {
-                if (mChunkCount >= mChunkCapacity) {
-                    // Grow chunks array
-                    SizeType newCapacity = mChunkCapacity == 0 ? 4 : mChunkCapacity * 2;
-                    Chunk** newChunks = static_cast<Chunk**>(mAllocator->Allocate(newCapacity * sizeof(Chunk*)));
-                    
-                    if (mChunks) {
-                        memory::NkMemCopy(newChunks, mChunks, mChunkCount * sizeof(Chunk*));
-                        mAllocator->Deallocate(mChunks);
-                    }
-                    
-                    mChunks = newChunks;
-                    mChunkCapacity = newCapacity;
+            void EnsureChunkArrayCapacity(SizeType required) {
+                if (required <= mChunkCapacity) {
+                    return;
                 }
                 
-                mChunks[mChunkCount] = static_cast<Chunk*>(mAllocator->Allocate(sizeof(Chunk)));
+                SizeType newCapacity = mChunkCapacity == 0 ? 4 : mChunkCapacity * 2;
+                if (newCapacity < required) {
+                    newCapacity = required;
+                }
+                
+                Chunk** newChunks = static_cast<Chunk**>(mAllocator->Allocate(newCapacity * sizeof(Chunk*), alignof(Chunk*)));
+                NK_ASSERT(newChunks != nullptr);
+                memory::NkMemZero(newChunks, newCapacity * sizeof(Chunk*));
+                
+                if (mChunks) {
+                    memory::NkMemCopy(newChunks, mChunks, mChunkCount * sizeof(Chunk*));
+                    mAllocator->Deallocate(mChunks);
+                }
+                
+                mChunks = newChunks;
+                mChunkCapacity = newCapacity;
+            }
+            
+            Chunk* AllocateChunkBlock() {
+                Chunk* chunk = static_cast<Chunk*>(mAllocator->Allocate(sizeof(Chunk), alignof(Chunk)));
+                NK_ASSERT(chunk != nullptr);
+                return chunk;
+            }
+            
+            void AllocateChunk() {
+                EnsureChunkArrayCapacity(mChunkCount + 1);
+                mChunks[mChunkCount] = AllocateChunkBlock();
                 ++mChunkCount;
+            }
+            
+            void ReleaseChunkStorage() {
+                if (!mChunks) {
+                    mChunkCount = 0;
+                    mChunkCapacity = 0;
+                    mFrontChunk = 0;
+                    mFrontOffset = 0;
+                    return;
+                }
+                
+                for (SizeType i = 0; i < mChunkCount; ++i) {
+                    if (mChunks[i]) {
+                        mAllocator->Deallocate(mChunks[i]);
+                        mChunks[i] = nullptr;
+                    }
+                }
+                mAllocator->Deallocate(mChunks);
+                mChunks = nullptr;
+                mChunkCount = 0;
+                mChunkCapacity = 0;
+                mFrontChunk = 0;
+                mFrontOffset = 0;
             }
             
             void GetChunkAndOffset(SizeType index, SizeType& chunkIdx, SizeType& offset) const {
@@ -200,15 +239,80 @@ namespace nkentseu {
                 for (auto& val : init) PushBack(val);
             }
             
-            ~NkDeque() {
-                Clear();
-                if (mChunks) {
-                    for (SizeType i = 0; i < mChunkCount; ++i) {
-                        mAllocator->Deallocate(mChunks[i]);
-                    }
-                    mAllocator->Deallocate(mChunks);
+            NkDeque(const NkDeque& other)
+                : mChunks(nullptr)
+                , mChunkCount(0)
+                , mChunkCapacity(0)
+                , mFrontChunk(0)
+                , mFrontOffset(0)
+                , mSize(0)
+                , mAllocator(other.mAllocator) {
+                for (SizeType i = 0; i < other.mSize; ++i) {
+                    PushBack(other[i]);
                 }
             }
+            
+            #if defined(NK_CPP11)
+            NkDeque(NkDeque&& other) NK_NOEXCEPT
+                : mChunks(other.mChunks)
+                , mChunkCount(other.mChunkCount)
+                , mChunkCapacity(other.mChunkCapacity)
+                , mFrontChunk(other.mFrontChunk)
+                , mFrontOffset(other.mFrontOffset)
+                , mSize(other.mSize)
+                , mAllocator(other.mAllocator) {
+                other.mChunks = nullptr;
+                other.mChunkCount = 0;
+                other.mChunkCapacity = 0;
+                other.mFrontChunk = 0;
+                other.mFrontOffset = 0;
+                other.mSize = 0;
+            }
+            #endif
+            
+            ~NkDeque() {
+                Clear();
+                ReleaseChunkStorage();
+            }
+            
+            NkDeque& operator=(const NkDeque& other) {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                ReleaseChunkStorage();
+                mAllocator = other.mAllocator;
+                for (SizeType i = 0; i < other.mSize; ++i) {
+                    PushBack(other[i]);
+                }
+                return *this;
+            }
+            
+            #if defined(NK_CPP11)
+            NkDeque& operator=(NkDeque&& other) NK_NOEXCEPT {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                ReleaseChunkStorage();
+                
+                mChunks = other.mChunks;
+                mChunkCount = other.mChunkCount;
+                mChunkCapacity = other.mChunkCapacity;
+                mFrontChunk = other.mFrontChunk;
+                mFrontOffset = other.mFrontOffset;
+                mSize = other.mSize;
+                mAllocator = other.mAllocator;
+                
+                other.mChunks = nullptr;
+                other.mChunkCount = 0;
+                other.mChunkCapacity = 0;
+                other.mFrontChunk = 0;
+                other.mFrontOffset = 0;
+                other.mSize = 0;
+                return *this;
+            }
+            #endif
             
             // Element access
             Reference operator[](SizeType index) {
@@ -267,15 +371,20 @@ namespace nkentseu {
             }
             
             void PushFront(const T& value) {
+                if (mSize == 0) {
+                    PushBack(value);
+                    return;
+                }
+                
                 if (mFrontOffset == 0) {
                     if (mFrontChunk == 0) {
-                        // Need to allocate chunk at front
-                        AllocateChunk();
-                        // Shift all chunks
-                        for (SizeType i = mChunkCount - 1; i > 0; --i) {
+                        EnsureChunkArrayCapacity(mChunkCount + 1);
+                        for (SizeType i = mChunkCount; i > 0; --i) {
                             mChunks[i] = mChunks[i - 1];
                         }
-                        mChunks[0] = static_cast<Chunk*>(mAllocator->Allocate(sizeof(Chunk)));
+                        mChunks[0] = AllocateChunkBlock();
+                        ++mChunkCount;
+                        mFrontChunk = 0;
                     } else {
                         --mFrontChunk;
                     }
@@ -294,6 +403,10 @@ namespace nkentseu {
                 GetChunkAndOffset(mSize - 1, chunkIdx, offset);
                 mChunks[chunkIdx]->Data[offset].~T();
                 --mSize;
+                if (mSize == 0) {
+                    mFrontChunk = 0;
+                    mFrontOffset = 0;
+                }
             }
             
             void PopFront() {
@@ -305,6 +418,10 @@ namespace nkentseu {
                     mFrontOffset = 0;
                 }
                 --mSize;
+                if (mSize == 0) {
+                    mFrontChunk = 0;
+                    mFrontOffset = 0;
+                }
             }
         };
         

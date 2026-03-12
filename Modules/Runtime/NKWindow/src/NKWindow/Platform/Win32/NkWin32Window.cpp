@@ -18,6 +18,7 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
+#include "NKContainers/String/NkWString.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #   define WIN32_LEAN_AND_MEAN
@@ -120,22 +121,84 @@ namespace nkentseu {
     // Helpers UTF-8 ↔ Wide
     // =============================================================================
 
-    static std::wstring NkUtf8ToWide(const NkString& s) {
+    static NkWString NkUtf8ToWide(const NkString& s) {
         if (s.Empty()) return {};
         int len = MultiByteToWideChar(CP_UTF8, 0, s.CStr(), (int)s.Size(), nullptr, 0);
-        std::wstring ws((size_t)len, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, s.CStr(), (int)s.Size(), ws.data(), len);
+        NkWString ws((size_t)len, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, s.CStr(), (int)s.Size(), ws.Data(), len);
         return ws;
     }
 
-    static NkString NkWideToUtf8(const std::wstring& ws) {
-        if (ws.empty()) return {};
-        int len = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), (int)ws.size(),
+    static NkString NkWideToUtf8(const NkWString& ws) {
+        if (ws.Empty()) return {};
+        int len = WideCharToMultiByte(CP_UTF8, 0, ws.CStr(), (int)ws.Size(),
                                     nullptr, 0, nullptr, nullptr);
-        std::string s((size_t)len, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), (int)ws.size(),
-                            s.data(), len, nullptr, nullptr);
-        return NkString(s.c_str());
+        NkString s((size_t)len, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, ws.CStr(), (int)ws.Size(),
+                            s.Data(), len, nullptr, nullptr);
+        return NkString(s.CStr());
+    }
+
+    static void DestroyWindowIcons(NkWindowData& data) {
+        if (data.mIconBig && data.mIconBig != data.mIconSmall) {
+            DestroyIcon(data.mIconBig);
+        }
+        if (data.mIconSmall) {
+            DestroyIcon(data.mIconSmall);
+        }
+        data.mIconSmall = nullptr;
+        data.mIconBig = nullptr;
+    }
+
+    static void ApplyWindowIcons(HWND hwnd, NkWindowData& data, const NkString& iconPath) {
+        if (!hwnd || iconPath.Empty()) return;
+
+        DestroyWindowIcons(data);
+
+        const NkWString wPath = NkUtf8ToWide(iconPath);
+        const int smallW = GetSystemMetrics(SM_CXSMICON);
+        const int smallH = GetSystemMetrics(SM_CYSMICON);
+        const int bigW   = GetSystemMetrics(SM_CXICON);
+        const int bigH   = GetSystemMetrics(SM_CYICON);
+
+        HICON smallIcon = reinterpret_cast<HICON>(
+            LoadImageW(nullptr, wPath.CStr(), IMAGE_ICON, smallW, smallH, LR_LOADFROMFILE));
+        HICON bigIcon = reinterpret_cast<HICON>(
+            LoadImageW(nullptr, wPath.CStr(), IMAGE_ICON, bigW, bigH, LR_LOADFROMFILE));
+
+        if (!smallIcon && !bigIcon) return;
+
+        data.mIconSmall = smallIcon ? smallIcon : bigIcon;
+        data.mIconBig = bigIcon ? bigIcon : smallIcon;
+
+        if (data.mIconSmall) {
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(data.mIconSmall));
+        }
+        if (data.mIconBig) {
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(data.mIconBig));
+        }
+    }
+
+    static void ApplyTransparency(HWND hwnd) {
+        if (!hwnd) return;
+        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+
+        DWM_BLURBEHIND bb = {};
+        bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
+        bb.fEnable = TRUE;
+        bb.fTransitionOnMaximized = FALSE;
+        HRGN region = CreateRectRgn(-1, -1, 0, 0);
+        bb.hRgnBlur = region;
+        DwmEnableBlurBehindWindow(hwnd, &bb);
+        if (region) DeleteObject(region);
+    }
+
+    static void ApplyShadow(HWND hwnd) {
+        if (!hwnd) return;
+        BOOL ncr = TRUE;
+        DwmSetWindowAttribute(hwnd, DWMWA_NCRENDERING_ENABLED, &ncr, sizeof(ncr));
+        const MARGINS shadow = { 1, 1, 1, 1 };
+        DwmExtendFrameIntoClientArea(hwnd, &shadow);
     }
 
     // =============================================================================
@@ -157,134 +220,203 @@ namespace nkentseu {
     // =============================================================================
 
     bool NkWindow::Create(const NkWindowConfig& config) {
-        mConfig          = config;
+        mConfig = config;
+        mData = {};
         mData.mHInstance = GetModuleHandleW(nullptr);
+        mData.mAppliedHints = config.surfaceHints;
 
-        std::wstring wClassName = NkUtf8ToWide(config.name);
-        std::wstring wTitle     = NkUtf8ToWide(config.title);
+        if (config.native.win32PixelFormatShareWindowHandle != 0) {
+            mData.mAppliedHints.Set(
+                NkSurfaceHintKey::NK_WGL_SHARE_PIXEL_FORMAT_HWND,
+                config.native.win32PixelFormatShareWindowHandle);
+        }
 
-        // --- Styles ---
+        const bool useExternal = config.native.useExternalWindow &&
+                                 config.native.externalWindowHandle != 0;
+
+        mId = NkSystem::Instance().RegisterWindow(this);
+        if (mId == NK_INVALID_WINDOW_ID) {
+            mLastError = NkError(1, "RegisterWindow failed");
+            return false;
+        }
+
+        auto setupDropTarget = [&]() {
+            if (!config.dropEnabled || !mData.mHwnd) return;
+            mData.mDropTarget = new NkWin32DropTarget(mData.mHwnd);
+            if (!mData.mDropTarget) return;
+            mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& ev) {
+                NkDropEnterEvent copy(ev);
+                NkSystem::Events().Enqueue_Public(copy, mId);
+            });
+            mData.mDropTarget->SetDropLeaveCallback([this](const NkDropLeaveEvent& ev) {
+                NkDropLeaveEvent copy(ev);
+                NkSystem::Events().Enqueue_Public(copy, mId);
+            });
+            mData.mDropTarget->SetDropFileCallback([this](const NkDropFileEvent& ev) {
+                NkDropFileEvent copy(ev);
+                NkSystem::Events().Enqueue_Public(copy, mId);
+            });
+            mData.mDropTarget->SetDropTextCallback([this](const NkDropTextEvent& ev) {
+                NkDropTextEvent copy(ev);
+                NkSystem::Events().Enqueue_Public(copy, mId);
+            });
+        };
+
+        if (useExternal) {
+            HWND hwnd = reinterpret_cast<HWND>(config.native.externalWindowHandle);
+            if (!hwnd || !IsWindow(hwnd)) {
+                mLastError = NkError(1, "External HWND is invalid.");
+                NkSystem::Instance().UnregisterWindow(mId);
+                mId = NK_INVALID_WINDOW_ID;
+                return false;
+            }
+
+            mData.mHwnd = hwnd;
+            mData.mExternal = true;
+            mData.mHInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(hwnd, GWLP_HINSTANCE));
+            mData.mDwStyle = static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE));
+            mData.mDwExStyle = static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
+            mData.mParentHwnd = GetParent(hwnd);
+            mData.mPrevUserData = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+
+            ::SetLastError(0);
+            mData.mPrevWndProc = reinterpret_cast<WNDPROC>(
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC,
+                                  reinterpret_cast<LONG_PTR>(NkSystem::Events().WindowProcStatic)));
+            if (!mData.mPrevWndProc && ::GetLastError() != 0) {
+                mLastError = NkError(2, NkString::Fmtf("Subclass external HWND failed (%lu)", ::GetLastError()));
+                NkSystem::Instance().UnregisterWindow(mId);
+                mId = NK_INVALID_WINDOW_ID;
+                mData = {};
+                return false;
+            }
+
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+            NkWin32RegisterWindow(hwnd, this);
+            setupDropTarget();
+
+            CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
+                             kIIDTaskbarList3, reinterpret_cast<void**>(&mData.mTaskbarList));
+
+            mIsOpen = true;
+            return true;
+        }
+
+        NkWString wClassName = NkUtf8ToWide(config.name);
+        NkWString wTitle = NkUtf8ToWide(config.title);
+
         if (config.fullscreen) {
-            DEVMODE dm        = {};
-            dm.dmSize         = sizeof(DEVMODE);
-            dm.dmPelsWidth    = GetSystemMetrics(SM_CXSCREEN);
-            dm.dmPelsHeight   = GetSystemMetrics(SM_CYSCREEN);
-            dm.dmBitsPerPel   = 32;
-            dm.dmFields       = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
-            mData.mDmScreen   = dm;
+            DEVMODE dm = {};
+            dm.dmSize = sizeof(DEVMODE);
+            dm.dmPelsWidth = GetSystemMetrics(SM_CXSCREEN);
+            dm.dmPelsHeight = GetSystemMetrics(SM_CYSCREEN);
+            dm.dmBitsPerPel = 32;
+            dm.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
+            mData.mDmScreen = dm;
             ChangeDisplaySettingsW(&mData.mDmScreen, CDS_FULLSCREEN);
-            mData.mDwExStyle  = WS_EX_APPWINDOW;
-            mData.mDwStyle    = WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+            mData.mDwExStyle = WS_EX_APPWINDOW;
+            mData.mDwStyle = WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
         } else {
             mData.mDwExStyle = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-            mData.mDwStyle   = config.frame
+            mData.mDwStyle = config.frame
                 ? WS_OVERLAPPEDWINDOW
                 : (WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU |
-                WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+                   WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+        }
+
+        mData.mParentHwnd = reinterpret_cast<HWND>(config.native.parentWindowHandle);
+
+        if (config.native.utilityWindow) {
+            mData.mDwExStyle |= WS_EX_TOOLWINDOW;
+            mData.mDwExStyle &= ~WS_EX_APPWINDOW;
+        }
+        if (config.transparent) {
+            mData.mDwExStyle |= WS_EX_LAYERED;
+        }
+
+        if (config.native.utilityWindow && !mData.mParentHwnd) {
+            mData.mUtilityOwner = CreateWindowExW(
+                0, L"STATIC", L"",
+                WS_POPUP,
+                0, 0, 1, 1,
+                nullptr, nullptr, mData.mHInstance, nullptr);
+            mData.mParentHwnd = mData.mUtilityOwner;
         }
 
         RECT rc = {
             config.x, config.y,
-            config.x + (LONG)config.width,
-            config.y + (LONG)config.height
+            config.x + static_cast<LONG>(config.width),
+            config.y + static_cast<LONG>(config.height)
         };
         AdjustWindowRectEx(&rc, mData.mDwStyle, FALSE, mData.mDwExStyle);
 
-        // --- Window class registration ---
-        WNDCLASSEXW wc       = {};
-        wc.cbSize            = sizeof(WNDCLASSEXW);
-        wc.style             = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-        wc.lpfnWndProc       = NkSystem::Events().WindowProcStatic;
-        wc.hInstance         = mData.mHInstance;
-        wc.hIcon             = LoadIconW(nullptr, IDI_APPLICATION);
-        wc.hCursor           = LoadCursorW(nullptr, IDC_ARROW);
-        wc.hbrBackground     = (HBRUSH)GetStockObject(BLACK_BRUSH);
-        wc.lpszClassName     = wClassName.c_str();
-        wc.hIconSm           = LoadIconW(nullptr, IDI_WINLOGO);
-        RegisterClassExW(&wc); // OK si déjà enregistrée
+        WNDCLASSEXW wc = {};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+        wc.lpfnWndProc = NkSystem::Events().WindowProcStatic;
+        wc.hInstance = mData.mHInstance;
+        wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+        wc.lpszClassName = wClassName.CStr();
+        wc.hIconSm = LoadIconW(nullptr, IDI_WINLOGO);
+        RegisterClassExW(&wc);
 
-        // --- DPI awareness ---
         InitializeDpiAPIs();
         DPI_AWARENESS_CONTEXT prev =
             NkSetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-        // Enregistrement dans NkSystem (registre cross-plateforme)
-        mId = NkSystem::Instance().RegisterWindow(this);
-
-        // --- Création de la fenêtre ---
-        // lpCreateParams = this (NkWindow*), récupéré dans WM_NCCREATE via WindowProcStatic
         mData.mHwnd = CreateWindowExW(
-            0,
-            wClassName.c_str(),
-            wTitle.c_str(),
+            mData.mDwExStyle,
+            wClassName.CStr(),
+            wTitle.CStr(),
             mData.mDwStyle,
             0, 0,
-            rc.right  - rc.left,
+            rc.right - rc.left,
             rc.bottom - rc.top,
-            nullptr,
+            mData.mParentHwnd,
             nullptr,
             mData.mHInstance,
-            this    // passé comme lpCreateParams
-        );
+            this);
 
         NkSetThreadDpiAwarenessContext(prev);
 
         if (!mData.mHwnd) {
-            mLastError = NkError(1, NkString::Fmtf("CreateWindowExW failed (%lu)", ::GetLastError()));
+            mLastError = NkError(3, NkString::Fmtf("CreateWindowExW failed (%lu)", ::GetLastError()));
             NkSystem::Instance().UnregisterWindow(mId);
             mId = NK_INVALID_WINDOW_ID;
+            if (mData.mUtilityOwner) {
+                DestroyWindow(mData.mUtilityOwner);
+                mData.mUtilityOwner = nullptr;
+            }
             return false;
         }
 
-        // --- Centrage ---
         if (!config.fullscreen) {
-            int sw = GetSystemMetrics(SM_CXSCREEN);
-            int sh = GetSystemMetrics(SM_CYSCREEN);
-            int ww = rc.right  - rc.left;
-            int wh = rc.bottom - rc.top;
-            if (config.centered)
-                SetWindowPos(mData.mHwnd, nullptr, (sw-ww)/2, (sh-wh)/2, ww, wh, SWP_NOZORDER);
-            else
+            const int sw = GetSystemMetrics(SM_CXSCREEN);
+            const int sh = GetSystemMetrics(SM_CYSCREEN);
+            const int ww = rc.right - rc.left;
+            const int wh = rc.bottom - rc.top;
+            if (config.centered) {
+                SetWindowPos(mData.mHwnd, nullptr, (sw - ww) / 2, (sh - wh) / 2, ww, wh, SWP_NOZORDER);
+            } else {
                 SetWindowPos(mData.mHwnd, nullptr, config.x, config.y, ww, wh, SWP_NOZORDER);
-        }
-
-        // --- DWM shadow ---
-        BOOL ncr = TRUE;
-        DwmSetWindowAttribute(mData.mHwnd, DWMWA_NCRENDERING_ENABLED, &ncr, sizeof(ncr));
-        const MARGINS shadow = { 1, 1, 1, 1 };
-        DwmExtendFrameIntoClientArea(mData.mHwnd, &shadow);
-
-        // --- Taskbar ---
-        // Point 6 : CoCreateInstance fonctionne car OleInitialize a déjà été
-        // appelé par NkSystem::Initialise() avant toute création de fenêtre.
-        CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
-                        kIIDTaskbarList3, (void**)&mData.mTaskbarList);
-
-        // OLE DropTarget integration (events forwarded to NkEventSystem queue).
-        // Respect explicit window config: only enable drag & drop when requested.
-        if (config.dropEnabled) {
-            mData.mDropTarget = new NkWin32DropTarget(mData.mHwnd);
-            if (mData.mDropTarget) {
-                mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& ev) {
-                    NkDropEnterEvent copy(ev);
-                    NkSystem::Events().Enqueue_Public(copy, mId);
-                });
-                mData.mDropTarget->SetDropLeaveCallback([this](const NkDropLeaveEvent& ev) {
-                    NkDropLeaveEvent copy(ev);
-                    NkSystem::Events().Enqueue_Public(copy, mId);
-                });
-                mData.mDropTarget->SetDropFileCallback([this](const NkDropFileEvent& ev) {
-                    NkDropFileEvent copy(ev);
-                    NkSystem::Events().Enqueue_Public(copy, mId);
-                });
-                mData.mDropTarget->SetDropTextCallback([this](const NkDropTextEvent& ev) {
-                    NkDropTextEvent copy(ev);
-                    NkSystem::Events().Enqueue_Public(copy, mId);
-                });
             }
         }
 
-        // --- Affichage ---
+        if (config.transparent) {
+            ApplyTransparency(mData.mHwnd);
+        } else if (config.hasShadow) {
+            ApplyShadow(mData.mHwnd);
+        }
+
+        ApplyWindowIcons(mData.mHwnd, mData, config.iconPath);
+
+        CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
+                         kIIDTaskbarList3, reinterpret_cast<void**>(&mData.mTaskbarList));
+
+        setupDropTarget();
+
         if (config.visible) {
             ShowWindow(mData.mHwnd, SW_SHOWNORMAL);
             SetForegroundWindow(mData.mHwnd);
@@ -302,8 +434,8 @@ namespace nkentseu {
     void NkWindow::Close() {
         if (!mIsOpen) return;
 
-        // Point 2 : appel via la fonction d'accès, pas un extern
-        NkWin32UnregisterWindow(mData.mHwnd);
+        const HWND hwnd = mData.mHwnd;
+        NkWin32UnregisterWindow(hwnd);
         NkSystem::Instance().UnregisterWindow(mId);
 
         if (mData.mDropTarget) {
@@ -311,16 +443,39 @@ namespace nkentseu {
             mData.mDropTarget = nullptr;
         }
 
-        if (mData.mHwnd) {
-            DestroyWindow(mData.mHwnd);
-            UnregisterClassW(NkUtf8ToWide(mConfig.name).c_str(), mData.mHInstance);
-            mData.mHwnd = nullptr;
-        }
-
         if (mData.mTaskbarList) {
             mData.mTaskbarList->Release();
             mData.mTaskbarList = nullptr;
         }
+
+        if (hwnd) {
+            if (mData.mExternal) {
+                if (mData.mPrevWndProc &&
+                    mData.mPrevWndProc != NkSystem::Events().WindowProcStatic) {
+                    SetWindowLongPtrW(hwnd, GWLP_WNDPROC,
+                                      reinterpret_cast<LONG_PTR>(mData.mPrevWndProc));
+                }
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, mData.mPrevUserData);
+            } else {
+                DestroyWindow(hwnd);
+            }
+        }
+
+        if (!mData.mExternal && mData.mHInstance) {
+            UnregisterClassW(NkUtf8ToWide(mConfig.name).CStr(), mData.mHInstance);
+        }
+
+        if (mData.mUtilityOwner) {
+            DestroyWindow(mData.mUtilityOwner);
+            mData.mUtilityOwner = nullptr;
+        }
+
+        DestroyWindowIcons(mData);
+
+        mData.mHwnd = nullptr;
+        mData.mPrevWndProc = nullptr;
+        mData.mPrevUserData = 0;
+        mData.mExternal = false;
 
         mId     = NK_INVALID_WINDOW_ID;
         mIsOpen = false;
@@ -344,15 +499,15 @@ namespace nkentseu {
         if (!mData.mHwnd) return {};
         int len = GetWindowTextLengthW(mData.mHwnd);
         if (len <= 0) return {};
-        std::wstring ws((size_t)len + 1, L'\0');
-        GetWindowTextW(mData.mHwnd, ws.data(), len + 1);
-        ws.resize((size_t)len);
+        NkWString ws((size_t)len + 1, L'\0');
+        GetWindowTextW(mData.mHwnd, ws.Data(), len + 1);
+        ws.Resize((size_t)len);
         return NkWideToUtf8(ws);
     }
 
     void NkWindow::SetTitle(const NkString& t) {
         mConfig.title = t;
-        if (mData.mHwnd) SetWindowTextW(mData.mHwnd, NkUtf8ToWide(t).c_str());
+        if (mData.mHwnd) SetWindowTextW(mData.mHwnd, NkUtf8ToWide(t).CStr());
     }
 
     // =============================================================================
@@ -454,6 +609,7 @@ namespace nkentseu {
         sd.dpi       = GetDpiScale();
         sd.hwnd      = mData.mHwnd;
         sd.hinstance = mData.mHInstance;
+        sd.appliedHints = mData.mAppliedHints;
         return sd;
     }
 

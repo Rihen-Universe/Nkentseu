@@ -14,6 +14,7 @@ using CAMetalLayer = struct objc_object;
 #endif
 
 #include "NKWindow/Core/NkTypes.h"
+#include "NKWindow/Core/NkSurfaceHint.h"
 
 namespace nkentseu {
 
@@ -21,10 +22,14 @@ namespace nkentseu {
             NSWindow*      mNSWindow   = nullptr;
             NSView*        mNSView     = nullptr;
             CAMetalLayer*  mMetalLayer = nullptr;
+            NSWindow*      mParentWindow = nullptr;
+            NkSurfaceHints mAppliedHints{};
             uint32 mWidth      = 0;
             uint32 mHeight     = 0;
             bool  mVisible    = false;
             bool  mFullscreen = false;
+            bool  mExternal   = false;
+            bool  mOwnsWindow = true;
     };
 
 } // namespace nkentseu

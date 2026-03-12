@@ -17,17 +17,12 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenDropTarget.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenWindow.h"
+#include "NKMath/NkFunctions.h"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
-#include <cmath>
 #include <cstring>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <thread>
-#include <vector>
 
 namespace nkentseu {
 
@@ -131,8 +126,8 @@ namespace nkentseu {
 
         out.sx = static_cast<double>(canvasWidth) / cssWidth;
         out.sy = static_cast<double>(canvasHeight) / cssHeight;
-        out.x = static_cast<int32>(std::lround(static_cast<double>(cssX) * out.sx));
-        out.y = static_cast<int32>(std::lround(static_cast<double>(cssY) * out.sy));
+        out.x = static_cast<int32>(math::NkRound(static_cast<double>(cssX) * out.sx));
+        out.y = static_cast<int32>(math::NkRound(static_cast<double>(cssY) * out.sy));
         return out;
     }
 
@@ -376,8 +371,8 @@ namespace nkentseu {
         }
 
         const CanvasCoords mapped = MapCssToCanvas(CurrentCanvasSelector(), static_cast<int32>(me->targetX), static_cast<int32>(me->targetY));
-        const int32 dx = static_cast<int32>(std::lround(static_cast<double>(me->movementX) * mapped.sx));
-        const int32 dy = static_cast<int32>(std::lround(static_cast<double>(me->movementY) * mapped.sy));
+        const int32 dx = static_cast<int32>(math::NkRound(static_cast<double>(me->movementX) * mapped.sx));
+        const int32 dy = static_cast<int32>(math::NkRound(static_cast<double>(me->movementY) * mapped.sy));
 
         NkMouseMoveEvent event(
             mapped.x,
@@ -613,7 +608,7 @@ namespace nkentseu {
 
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
         mPumping = false;
@@ -664,14 +659,14 @@ namespace nkentseu {
         ClearAllCallbacks();
         mHidMapper.Clear();
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
-            mCurrentEvent.reset();
+            mCurrentEvent.Reset();
         }
         mWindowCallbacks.Clear();
         mTotalEventCount = 0;
         mPumping = false;
-        mPumpThreadId = std::thread::id{};
+        mPumpThreadId = 0;
         mReady = false;
     }
 
@@ -702,12 +697,26 @@ namespace nkentseu {
             return names;
         }
 
-        std::istringstream stream(newlineSeparated);
-        std::string item;
-        while (std::getline(stream, item, '\n')) {
-            if (!item.empty()) {
-                names.PushBack(NkString(item.c_str()));
+        const char* lineStart = newlineSeparated;
+        const char* cursor = newlineSeparated;
+        while (true) {
+            if (*cursor == '\n' || *cursor == '\0') {
+                const char* lineEnd = cursor;
+                while (lineEnd > lineStart && *(lineEnd - 1) == '\r') {
+                    --lineEnd;
+                }
+
+                const nk_size len = static_cast<nk_size>(lineEnd - lineStart);
+                if (len > 0) {
+                    names.PushBack(NkString(lineStart, len));
+                }
+
+                if (*cursor == '\0') {
+                    break;
+                }
+                lineStart = cursor + 1;
             }
+            ++cursor;
         }
         return names;
     }

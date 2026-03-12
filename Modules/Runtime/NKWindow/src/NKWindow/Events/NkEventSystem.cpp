@@ -12,15 +12,21 @@
 #include "NkGamepadSystem.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKPlatform/NkPlatformDetect.h"
-#include <algorithm>
 #include <cassert>
-#include <thread>
 
 #if defined(__EMSCRIPTEN__)
 #   include <emscripten.h>
 #endif
 
 namespace nkentseu {
+
+    namespace {
+        // Thread identity without STL thread wrapper: each thread has its own TLS address.
+        uint64 NkCurrentThreadTag() noexcept {
+            thread_local uint8 sThreadLocalTag = 0;
+            return static_cast<uint64>(reinterpret_cast<uintptr>(&sThreadLocalTag));
+        }
+    } // namespace
 
     // =============================================================================
     // Constructeur / Destructeur
@@ -30,8 +36,8 @@ namespace nkentseu {
         // DÃ©fensif: certains toolchains peuvent laisser bucket_count() Ã  0
         // sur map vide, ce qui peut provoquer un modulo par zÃ©ro au 1er operator[].
         mWindowCallbacks.Rehash(32);
-        mTypedCallbacks.Rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
-        mTypedCallbacksWithToken.Rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
+        mTypedCallbacks.Rehash(static_cast<nk_size>(NkEventType::NK_EVENT_COUNT));
+        mTypedCallbacksWithToken.Rehash(static_cast<nk_size>(NkEventType::NK_EVENT_COUNT));
 
         // PrÃ©-crÃ©e les buckets pour tous les types d'Ã©vÃ©nements afin d'Ã©viter
         // des insertions ultÃ©rieures qui peuvent copier/dÃ©placer des callables
@@ -60,14 +66,14 @@ namespace nkentseu {
         ClearAllCallbacks();
         mHidMapper.Clear();
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
-            mCurrentEvent.reset();
+            mCurrentEvent.Reset();
         }
         mWindowCallbacks.Clear();
         mTotalEventCount = 0;
         mPumping         = false;
-        mPumpThreadId    = std::thread::id{};  // reset thread ID
+        mPumpThreadId    = 0;  // reset thread ID
         mReady           = false;
     }
 #endif // !WASM
@@ -77,7 +83,7 @@ namespace nkentseu {
     // =============================================================================
 
     void NkEventSystem::SetWindowCallback(NkWindowId id, NkEventCallback cb) {
-        mWindowCallbacks[id] = std::move(cb);
+        mWindowCallbacks[id] = traits::NkMove(cb);
     }
 
     void NkEventSystem::RemoveWindowCallback(NkWindowId id) {
@@ -85,7 +91,7 @@ namespace nkentseu {
     }
 
     void NkEventSystem::SetGlobalCallback(NkGlobalEventCallback cb) {
-        mGlobalCallback = std::move(cb);
+        mGlobalCallback = traits::NkMove(cb);
     }
 
     void NkEventSystem::AddEventCallbackRaw(NkEventType::Value type, NkEventCallback callback) {
@@ -105,7 +111,7 @@ namespace nkentseu {
 
         if (mTypedCallbacks.BucketCount()== 0) {
             NK_EVENTSYS_ANDROID_TRACE("[AddEventCallbackRaw] bucket_count=0 -> rehash");
-            mTypedCallbacks.Rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
+            mTypedCallbacks.Rehash(static_cast<nk_size>(NkEventType::NK_EVENT_COUNT));
             NK_EVENTSYS_ANDROID_TRACE(
                 "[AddEventCallbackRaw] rehash done buckets=%llu",
                 static_cast<unsigned long long>(mTypedCallbacks.BucketCount()));
@@ -134,7 +140,7 @@ namespace nkentseu {
             static_cast<unsigned long long>(callbacks->Capacity()));
 
         callbacks->Resize(callbacks->Size() + 1);
-        (*callbacks)[callbacks->Size() - 1] = std::move(callback);
+        (*callbacks)[callbacks->Size() - 1] = traits::NkMove(callback);
 
         NK_EVENTSYS_ANDROID_TRACE(
             "[AddEventCallbackRaw] after push type=%u vec_size=%llu vec_capacity=%llu",
@@ -145,14 +151,14 @@ namespace nkentseu {
 
     uint64 NkEventSystem::AddEventCallbackTokenRaw(NkEventType::Value type, NkEventCallback callback) {
         if (mTypedCallbacksWithToken.BucketCount() == 0) {
-            mTypedCallbacksWithToken.Rehash(static_cast<std::size_t>(NkEventType::NK_EVENT_COUNT));
+            mTypedCallbacksWithToken.Rehash(static_cast<nk_size>(NkEventType::NK_EVENT_COUNT));
         }
         const uint64 token = ++mCallbackTokenCounter;
         auto& vec = mTypedCallbacksWithToken[type];
         vec.Resize(vec.Size() + 1);
         auto& slot = vec[vec.Size() - 1];
         slot.token = token;
-        slot.callback = std::move(callback);
+        slot.callback = traits::NkMove(callback);
         return token;
     }
 
@@ -172,9 +178,12 @@ namespace nkentseu {
     void NkEventSystem::RemoveCallbackToken(NkEventType::Value type, uint64 token) {
         auto* vec = mTypedCallbacksWithToken.Find(type);
         if (!vec) return;
-        vec->Erase(std::remove_if(vec->begin(), vec->end(),
-            [token](const TokenizedCallback& tc) { return tc.token == token; }),
-            vec->end());
+        for (nk_size i = 0; i < vec->Size(); ++i) {
+            if ((*vec)[i].token == token) {
+                vec->Erase(vec->begin() + i);
+                break;
+            }
+        }
         if (vec->Empty()) mTypedCallbacksWithToken.Erase(type);
     }
 
@@ -204,11 +213,11 @@ namespace nkentseu {
         // Point 3 : on clone et on pousse dans le ring buffer seulement si
         // le mode queue est actif. Le clone porte dÃ©jÃ  le bon windowId.
         if (mQueueMode) {
-            auto clone = std::unique_ptr<NkEvent>(evt.Clone());
+            NkEventPtr clone(evt.Clone());
             // CORRECTION 3 : push dans la file prioritaire appropriÃ©e
             NkEventPriority prio = NkGetEventPriority(evt.GetType());
-            std::lock_guard<std::mutex> lock(mQueueMutex);
-            mEventQueue.Push(std::move(clone), prio);
+            NkScopedSpinLock lock(mQueueMutex);
+            mEventQueue.Push(traits::NkMove(clone), prio);
         }
     }
 
@@ -231,9 +240,9 @@ namespace nkentseu {
             auto* vecT = mTypedCallbacks.Find(ev->GetType());
             if (vecT) {
                 // NOTE:
-                // Evite la copie des callables (std::function / NkFunction) qui peut
+                // Evite la copie des callables (function wrapper) qui peut
                 // Ãªtre coÃ»teuse et fragile sur certains runtimes Android x86.
-                for (std::size_t i = 0; i < vecT->Size(); ++i) {
+                for (nk_size i = 0; i < vecT->Size(); ++i) {
                     auto& cb = (*vecT)[i];
                     if (cb) cb(ev);
                 }
@@ -245,7 +254,7 @@ namespace nkentseu {
         {
             auto* vecTT = mTypedCallbacksWithToken.Find(ev->GetType());
             if (vecTT) {
-                for (std::size_t i = 0; i < vecTT->Size(); ++i) {
+                for (nk_size i = 0; i < vecTT->Size(); ++i) {
                     auto& tc = (*vecTT)[i];
                     if (tc.callback) tc.callback(ev);
                 }
@@ -267,9 +276,9 @@ namespace nkentseu {
 
     void NkEventSystem::PollEvents() {
         // CORRECTION 5 : PollEvents() doit Ãªtre appelÃ© depuis le thread pump.
-        if (mPumpThreadId == std::thread::id{})
-            mPumpThreadId = std::this_thread::get_id();
-        assert(std::this_thread::get_id() == mPumpThreadId &&
+        if (mPumpThreadId == 0)
+            mPumpThreadId = NkCurrentThreadTag();
+        assert(NkCurrentThreadTag() == mPumpThreadId &&
                "PollEvents() doit etre appele depuis le thread principal (pump thread)");
 
         if (mAutoGamepadPoll) {
@@ -298,20 +307,20 @@ namespace nkentseu {
         // CORRECTION 5 : PollEvent() doit Ãªtre appelÃ© depuis le thread qui a appelÃ© Init().
         // Si mPumpThreadId n'est pas encore enregistrÃ© (Init() pas encore appelÃ© depuis
         // un .cpp platform-specific), on l'enregistre maintenant au premier appel.
-        if (mPumpThreadId == std::thread::id{})
-            mPumpThreadId = std::this_thread::get_id();
-        assert(std::this_thread::get_id() == mPumpThreadId &&
+        if (mPumpThreadId == 0)
+            mPumpThreadId = NkCurrentThreadTag();
+        assert(NkCurrentThreadTag() == mPumpThreadId &&
                "PollEvent() doit etre appele depuis le thread principal (pump thread)");
 
         // Tenter de dÃ©piler un event dÃ©jÃ  en queue
         // CORRECTION 2 : mCurrentEvent garde la propriÃ©tÃ© unique_ptr ; le pointeur
         // retournÃ© est valide jusqu'au PROCHAIN appel de PollEvent().
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             auto ev = mEventQueue.Pop();
             if (ev) {
-                mCurrentEvent = std::move(ev);
-                return mCurrentEvent.get();
+                mCurrentEvent = traits::NkMove(ev);
+                return mCurrentEvent.Get();
             }
         }
 
@@ -325,11 +334,11 @@ namespace nkentseu {
 
         // Retenter aprÃ¨s le pump
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             auto ev = mEventQueue.Pop();
             if (ev) {
-                mCurrentEvent = std::move(ev);
-                return mCurrentEvent.get();
+                mCurrentEvent = traits::NkMove(ev);
+                return mCurrentEvent.Get();
             }
         }
 
@@ -349,10 +358,10 @@ namespace nkentseu {
     // CORRECTION 2 : PollEventCopy() â€” durÃ©e de vie contrÃ´lÃ©e par l'appelant.
     // Le unique_ptr retournÃ© est indÃ©pendant de mCurrentEvent : peut Ãªtre stockÃ©
     // entre frames, mis en file asynchrone, ou passÃ© Ã  un autre thread.
-    std::unique_ptr<NkEvent> NkEventSystem::PollEventCopy() {
+    NkEventPtr NkEventSystem::PollEventCopy() {
         NkEvent* raw = PollEvent();
-        if (!raw) return nullptr;
-        return std::unique_ptr<NkEvent>(raw->Clone());
+        if (!raw) return NkEventPtr(nullptr);
+        return NkEventPtr(raw->Clone());
     }
 
     // =============================================================================
@@ -364,7 +373,7 @@ namespace nkentseu {
     // =============================================================================
 
     void NkEventSystem::DispatchEvent(NkEvent& event) {
-        std::lock_guard<std::mutex> lock(mDispatchMutex);
+        NkScopedSpinLock lock(mDispatchMutex);
         NkWindowId winId = event.GetWindowId();
         DispatchToCallbacks(&event, winId);
         ++mTotalEventCount;
@@ -380,8 +389,8 @@ namespace nkentseu {
         return mInputState;
     }
 
-    std::size_t NkEventSystem::GetPendingEventCount() const noexcept {
-        std::lock_guard<std::mutex> lock(mQueueMutex);
+    nk_size NkEventSystem::GetPendingEventCount() const noexcept {
+        NkScopedSpinLock lock(mQueueMutex);
         return mEventQueue.Size();
     }
 

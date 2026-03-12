@@ -132,12 +132,24 @@ namespace nkentseu {
                 }
                 
             private:
-                NkTypeRegistry() = default;
+                static constexpr nk_usize NK_MAX_TYPES = 512;
+
+                NkTypeRegistry()
+                    : mTypes(mTypeStorage)
+                    , mTypeCount(0)
+                    , mTypeCapacity(NK_MAX_TYPES) {
+                    for (nk_usize i = 0; i < NK_MAX_TYPES; ++i) {
+                        mTypeStorage[i] = nullptr;
+                    }
+                }
                 
                 template<typename T>
-                static const nk_char* GetTypeName();
+                static const nk_char* GetTypeName() {
+                    return typeid(T).name();
+                }
                 
                 // Storage simplifié (dans implementation réelle: HashMap)
+                const NkType* mTypeStorage[NK_MAX_TYPES];
                 const NkType** mTypes;
                 nk_usize mTypeCount;
                 nk_usize mTypeCapacity;

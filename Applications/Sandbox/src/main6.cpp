@@ -10,17 +10,137 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvents.h"
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Ajout pour NkChrono et NkElapsedTime
 #include "NKMath/NKMath.h"
 #include "NKContainers/CacheFriendly/NkArray.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKStream/NkFileStream.h"
 
 #include "NKLogger/NkLog.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <string>
+
+static bool ParseAppDataBool(const nkentseu::NkString& value, bool& outValue) {
+    nkentseu::NkString v = value;
+    v.Trim().ToLower();
+
+    if (v == "1" || v == "true" || v == "yes" || v == "on") {
+        outValue = true;
+        return true;
+    }
+    if (v == "0" || v == "false" || v == "no" || v == "off") {
+        outValue = false;
+        return true;
+    }
+    return false;
+}
+
+static void ApplyAppDataConfigPair(
+    nkentseu::NkAppData& d,
+    nkentseu::NkString key,
+    nkentseu::NkString value)
+{
+    key.Trim().ToLower();
+    value.Trim();
+
+    bool b = false;
+    if (key == "appname") {
+        d.appName = value;
+    } else if (key == "appversion") {
+        d.appVersion = value;
+    } else if (key == "enableeventlogging" && ParseAppDataBool(value, b)) {
+        d.enableEventLogging = b;
+    } else if (key == "enablerendererdebug" && ParseAppDataBool(value, b)) {
+        d.enableRendererDebug = b;
+    } else if (key == "enablemultiwindow" && ParseAppDataBool(value, b)) {
+        d.enableMultiWindow = b;
+    }
+}
+
+static bool LoadAppDataFromFile(const char* path, nkentseu::NkAppData& d) {
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+
+    nkentseu::NkFileStream fs;
+    if (!fs.Open(path, nkentseu::NkStream::ReadMode | nkentseu::NkStream::TextMode)) {
+        return false;
+    }
+
+    const nkentseu::usize size = fs.Size();
+    nkentseu::NkVector<char> bytes;
+    bytes.Resize(size + 1);
+
+    const nkentseu::usize read = fs.ReadRaw(bytes.Data(), size);
+    fs.Close();
+    bytes[read] = '\0';
+
+    nkentseu::NkString text(bytes.Data(), read);
+    nkentseu::usize start = 0;
+
+    while (start < text.Size()) {
+        nkentseu::usize end = text.Find('\n', start);
+        if (end == nkentseu::NkString::npos) {
+            end = text.Size();
+        }
+
+        nkentseu::NkString line = text.SubStr(start, end - start);
+        line.Trim();
+
+        if (!line.Empty()) {
+            const bool isComment =
+                line[0] == '#' ||
+                line[0] == ';' ||
+                (line.Size() >= 2 && line[0] == '/' && line[1] == '/');
+
+            if (!isComment) {
+                const nkentseu::usize eq = line.Find('=');
+                if (eq != nkentseu::NkString::npos) {
+                    nkentseu::NkString key = line.SubStr(0, eq);
+                    nkentseu::NkString value = line.SubStr(eq + 1);
+                    ApplyAppDataConfigPair(d, key, value);
+                }
+            }
+        }
+
+        if (end >= text.Size()) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    return true;
+}
+
+// AppData pattern #7: updater callback with optional env/file override.
+static void ConfigureMultiWindowAppData(nkentseu::NkAppData& d) {
+    d.appName = "SandboxMultiWindow";
+    d.appVersion = "1.0.0";
+    d.enableEventLogging = false;
+    d.enableRendererDebug = false;
+    d.enableMultiWindow = true;
+
+    // 1) Optional file config
+    // Env: NK_APPDATA_FILE=/path/to/file.appdata
+    // Fallback relative path: Applications/Sandbox/Config/SandboxMultiWindow.appdata
+    const char* filePath = std::getenv("NK_APPDATA_FILE");
+    if (!filePath || filePath[0] == '\0') {
+        filePath = "Applications/Sandbox/Config/SandboxMultiWindow.appdata";
+    }
+    (void)LoadAppDataFromFile(filePath, d);
+
+    // 2) Optional env override has priority over file.
+    const char* forceSingle = std::getenv("NK_SANDBOX_SINGLE_WINDOW");
+    if (forceSingle && forceSingle[0] == '1') {
+        d.enableMultiWindow = false;
+    }
+}
+NK_REGISTER_ENTRY_APPDATA_UPDATER(ConfigureMultiWindowAppData);
 
 #ifdef NkMin
 #undef NkMin
@@ -173,8 +293,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 {
     using namespace nkentseu;
 
-    // 1. Init
-    if (!NkInitialise({ .appName = "ex05 Multi-Window" })) return -1;
+    // 1. Runtime déjà initialisé par l'entrypoint NkMain
 
     // 2. Deux fenêtres
     NkArray<WinState, 2> wins;
@@ -204,7 +323,6 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     if (!windowA.IsOpen() || !windowB.IsOpen()) {
         logger.Error("[ex05] Window creation failed");
-        NkClose();
         return -2;
     }
 
@@ -220,7 +338,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     wins[0].hueShift  = 0.0f;   // rouge dominant
     wins[0].timeScale = 1.0f;
     wins[0].title     = "A";
-    if (!wins[0].renderer.Create(windowA, rcfg)) { NkClose(); return -3; }
+    if (!wins[0].renderer.Create(windowA, rcfg)) { return -3; }
 
     // Init wins[1]
     wins[1].window    = &windowB;
@@ -229,7 +347,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     wins[1].hueShift  = 0.33f;  // cyan dominant
     wins[1].timeScale = 0.7f;
     wins[1].title     = "B";
-    if (!wins[1].renderer.Create(windowB, rcfg)) { NkClose(); return -4; }
+    if (!wins[1].renderer.Create(windowB, rcfg)) { return -4; }
 
     logger.Info("[ex05] Window A id={0}, Window B id={1}",
         static_cast<unsigned long long>(wins[0].id),
@@ -343,6 +461,5 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     windowA.Close();
     windowB.Close();
-    NkClose();
     return 0;
 }

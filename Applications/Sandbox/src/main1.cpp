@@ -4,7 +4,7 @@
 // ============================================================================
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvents.h"        // définit NkEvents() et inclut les événements
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 
@@ -13,6 +13,16 @@
 #include <iostream>
 #include <fstream>
 
+// AppData pattern #2: named variable initialized by lambda.
+nkentseu::NkAppData appData = [] {
+    nkentseu::NkAppData d{};
+    d.appName = "SandboxDBase";
+    d.appVersion = "1.0.0";
+    d.enableEventLogging = true;
+    return d;
+}();
+NKENTSEU_APP_DATA_DEFINED(appData);
+
 
 int nkmain(const nkentseu::NkEntryState&)
 {
@@ -20,11 +30,8 @@ int nkmain(const nkentseu::NkEntryState&)
 
     logger.Info("[1] nkmain start");
 
-    // --- Init ---
-    NkAppData app;
-    app.appName = "Test";
-    if (!NkInitialise(app)) { logger.Error("[FATAL] NkInitialise failed"); return -1; }
-    logger.Info("[2] NkInitialise OK  platform={0}", NkEvents().GetPlatformName());
+    // --- Runtime already initialized by NkMain entrypoint ---
+    logger.Info("[2] Runtime already initialized  platform={0}", NkEvents().GetPlatformName());
 
     // --- Fenetre ---
     NkWindowConfig cfg;
@@ -35,7 +42,6 @@ int nkmain(const nkentseu::NkEntryState&)
     NkWindow window(cfg);
     if (!window.IsOpen()) {
         logger.Error("[FATAL] Window failed: {0}", window.GetLastError().ToString());
-        NkClose();
         return -2;
     }
     logger.Info("[3] Window open OK");
@@ -80,7 +86,6 @@ int nkmain(const nkentseu::NkEntryState&)
     }
 
     logger.Info("[5] Loop exited frames={0} events={1}", frames, events);
-    NkClose();
     logger.Info("[6] Done");
     return 0;
 }

@@ -44,13 +44,19 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < argc; ++i)
 		args.PushBack(nkentseu::NkString(argv[i]));
 
+	if (!nkentseu::NkEntryRuntimeInit(NK_APP_NAME)) {
+		xcb_disconnect(conn);
+		return -1;
+	}
+
 	nkentseu::NkEntryState state(conn, it.data, args);
-	state.appName = NK_APP_NAME;
+	nkentseu::NkApplyEntryAppName(state, NK_APP_NAME);
 	nkentseu::gState = &state;
 
 	int result = nkmain(state);
 
 	nkentseu::gState = nullptr;
+	nkentseu::NkEntryRuntimeShutdown(true);
 	xcb_disconnect(conn);
 	return result;
 }

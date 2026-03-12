@@ -5,9 +5,9 @@
 
 #include "NkDropSystem.h"
 #include "NkEvent.h"
+#include "NKContainers/Associative/NkUnorderedSet.h"
+#include "NKMemory/NkUniquePtr.h"
 #include "NKPlatform/NkPlatformDetect.h"
-#include <unordered_set>
-#include <memory>
 
 namespace nkentseu {
 
@@ -32,16 +32,16 @@ namespace nkentseu {
         public:
             void Enable(void* nativeHandle) override {
                 if (!nativeHandle) return;
-                mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+                mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
             }
 
             void Disable(void* nativeHandle) override {
                 if (!nativeHandle) return;
-                mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+                mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
             }
 
         private:
-            std::unordered_set<std::uintptr_t> mDropTargets;
+            NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkUWPDropTargetBackend;
 
@@ -51,16 +51,16 @@ namespace nkentseu {
         public:
             void Enable(void* nativeHandle) override {
                 if (!nativeHandle) return;
-                mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+                mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
             }
 
             void Disable(void* nativeHandle) override {
                 if (!nativeHandle) return;
-                mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+                mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
             }
 
         private:
-            std::unordered_set<std::uintptr_t> mDropTargets;
+            NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkXboxDropTargetBackend;
 
@@ -73,16 +73,16 @@ namespace nkentseu {
                 // HWND is native handle
                 // Implementation: Register IDropTarget via OLE or DragAcceptFiles()
                 // For now: stub
-                mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+                mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
             }
 
             void Disable(void* nativeHandle) override {
                 if (!nativeHandle) return;
-                mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+                mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
             }
 
         private:
-            std::unordered_set<std::uintptr_t> mDropTargets;
+            NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkWin32DropTargetBackend;
 
@@ -94,16 +94,16 @@ namespace nkentseu {
             if (!nativeHandle) return;
             // NSView* is native handle
             // Implementation: [view registerForDraggedTypes:@[NSFilenamesPboardType, ...]];
-            mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
         }
 
         void Disable(void* nativeHandle) override {
             if (!nativeHandle) return;
-            mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
         }
 
     private:
-        std::unordered_set<std::uintptr_t> mDropTargets;
+        NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkCocoaDropTargetBackend;
 
@@ -115,16 +115,16 @@ namespace nkentseu {
             if (!nativeHandle) return;
             // UIView* is native handle
             // Implementation: UIDropInteraction + delegate
-            mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
         }
 
         void Disable(void* nativeHandle) override {
             if (!nativeHandle) return;
-            mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
         }
 
     private:
-        std::unordered_set<std::uintptr_t> mDropTargets;
+        NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkUIKitDropTargetBackend;
 
@@ -136,16 +136,16 @@ namespace nkentseu {
             if (!nativeHandle) return;
             // JNI handle to Activity
             // Implementation: setOnDragListener() for content URIs
-            mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
         }
 
         void Disable(void* nativeHandle) override {
             if (!nativeHandle) return;
-            mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
         }
 
     private:
-        std::unordered_set<std::uintptr_t> mDropTargets;
+        NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkAndroidDropTargetBackend;
 
@@ -158,16 +158,16 @@ namespace nkentseu {
             if (!nativeHandle) return;
             // Window (xcb_window_t or X11 Window)
             // Implementation: Set XdndAware atoms + SelectInput for ClientMessage
-            mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
         }
 
         void Disable(void* nativeHandle) override {
             if (!nativeHandle) return;
-            mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
         }
 
     private:
-        std::unordered_set<std::uintptr_t> mDropTargets;
+        NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkLinuxDropTargetBackend;
 
@@ -180,16 +180,16 @@ namespace nkentseu {
             // HTMLElement* is native handle
             // Implementation: addEventListener("drop"), addEventListener("dragover")
             // Use emscripten_run_script to attach DOM listeners
-            mDropTargets.insert(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Insert(reinterpret_cast<usize>(nativeHandle));
         }
 
         void Disable(void* nativeHandle) override {
             if (!nativeHandle) return;
-            mDropTargets.erase(reinterpret_cast<std::uintptr_t>(nativeHandle));
+            mDropTargets.Erase(reinterpret_cast<usize>(nativeHandle));
         }
 
     private:
-        std::unordered_set<std::uintptr_t> mDropTargets;
+        NkUnorderedSet<usize> mDropTargets;
     };
     using PlatformDropBackend = NkEmscriptenDropTargetBackend;
 
@@ -215,7 +215,12 @@ namespace nkentseu {
         }
 
         void EnableDropTarget(void* nativeHandle) {
-            if (!mBackend) mBackend = std::make_unique<PlatformDropBackend>();
+            if (!mBackend) {
+                memory::NkAllocator& allocator = memory::NkGetDefaultAllocator();
+                mBackend = memory::NkUniquePtr<IDropTargetBackend>(
+                    allocator.New<PlatformDropBackend>(),
+                    memory::NkDefaultDelete<IDropTargetBackend>(&allocator));
+            }
             mBackend->Enable(nativeHandle);
         }
 
@@ -225,7 +230,7 @@ namespace nkentseu {
 
     private:
         DropSystem() = default;
-        std::unique_ptr<IDropTargetBackend> mBackend;
+        memory::NkUniquePtr<IDropTargetBackend> mBackend;
     };
 
     // ---------------------------------------------------------------------------

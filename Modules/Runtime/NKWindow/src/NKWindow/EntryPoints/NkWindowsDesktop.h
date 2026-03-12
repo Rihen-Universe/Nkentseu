@@ -11,8 +11,6 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
-#include <string>
-#include <vector>
 
 #include "NKWindow/Core/NkEntry.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -55,13 +53,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 #define NK_APP_NAME "windows_app"
 #endif
 
+	if (!nkentseu::NkEntryRuntimeInit(NK_APP_NAME)) {
+		return -1;
+	}
+
 	nkentseu::NkEntryState state(hInstance, hPrevInstance, lpCmdLine, nCmdShow, args);
-	state.appName = NK_APP_NAME;
+	nkentseu::NkApplyEntryAppName(state, NK_APP_NAME);
 	nkentseu::gState = &state;
 
 	int result = nkmain(state);
 
 	nkentseu::gState = nullptr;
+	nkentseu::NkEntryRuntimeShutdown(true);
 
 #if defined(_DEBUG) || defined(NKENTSEU_DEBUG_CONSOLE)
 	fflush(stdout);
@@ -71,4 +74,3 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	return result;
 }
-

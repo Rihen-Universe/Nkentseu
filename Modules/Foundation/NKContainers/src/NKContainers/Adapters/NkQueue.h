@@ -21,7 +21,7 @@ namespace nkentseu {
     
         
         /**
-         * @brief Queue adapter - std::queue equivalent
+         * @brief Queue adapter - STL::queue equivalent
          * 
          * FIFO (First In First Out).
          * Wrapper autour d'un conteneur (Deque par défaut).

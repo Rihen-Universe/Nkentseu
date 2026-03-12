@@ -8,445 +8,445 @@
 #include <math.h>
 
 namespace nkentseu {
-namespace math {
+    namespace math {
 
-    nk_float NkFloor(nk_float x) noexcept {
-        return static_cast<nk_float>(floor(x));
-    }
-
-    nk_double NkFloor(nk_double x) noexcept {
-        return floor(x);
-    }
-
-    nk_float NkCeil(nk_float x) noexcept {
-        return static_cast<nk_float>(ceil(x));
-    }
-
-    nk_double NkCeil(nk_double x) noexcept {
-        return ceil(x);
-    }
-
-    nk_float NkTrunc(nk_float x) noexcept {
-        return static_cast<nk_float>(trunc(x));
-    }
-
-    nk_double NkTrunc(nk_double x) noexcept {
-        return trunc(x);
-    }
-
-    nk_float NkRound(nk_float x) noexcept {
-        return static_cast<nk_float>(round(x));
-    }
-
-    nk_double NkRound(nk_double x) noexcept {
-        return round(x);
-    }
-
-    nk_float NkSqrt(nk_float x) noexcept {
-        return (x <= 0.0f) ? 0.0f : static_cast<nk_float>(sqrt(x));
-    }
-
-    nk_double NkSqrt(nk_double x) noexcept {
-        return (x <= 0.0) ? 0.0 : sqrt(x);
-    }
-
-    nk_float NkRsqrt(nk_float x) noexcept {
-        return (x <= 0.0f) ? 0.0f : (1.0f / static_cast<nk_float>(sqrt(x)));
-    }
-
-    nk_double NkRsqrt(nk_double x) noexcept {
-        return (x <= 0.0) ? 0.0 : (1.0 / sqrt(x));
-    }
-
-    nk_float NkCbrt(nk_float x) noexcept {
-        return static_cast<nk_float>(cbrt(x));
-    }
-
-    nk_double NkCbrt(nk_double x) noexcept {
-        return cbrt(x);
-    }
-
-    nk_float NkExp(nk_float x) noexcept {
-        if (x < -87.0f) {
-            return 0.0f;
+        float32 NkFloor(float32 x) noexcept {
+            return static_cast<float32>(floor(x));
         }
-        if (x > 88.0f) {
-            return 3.4028235e38f;
-        }
-        return static_cast<nk_float>(exp(x));
-    }
 
-    nk_double NkExp(nk_double x) noexcept {
-        if (x < -708.0) {
-            return 0.0;
+        float64 NkFloor(float64 x) noexcept {
+            return floor(x);
         }
-        if (x > 709.0) {
-            return 1.7976931348623157e308;
+
+        float32 NkCeil(float32 x) noexcept {
+            return static_cast<float32>(ceil(x));
         }
-        return exp(x);
-    }
 
-    nk_float NkLog(nk_float x) noexcept {
-        return (x <= 0.0f) ? -3.4028235e38f : static_cast<nk_float>(log(x));
-    }
-
-    nk_double NkLog(nk_double x) noexcept {
-        return (x <= 0.0) ? -1.0e308 : log(x);
-    }
-
-    nk_float NkPow(nk_float x, nk_float y) noexcept {
-        if (x == 0.0f) {
-            return (y > 0.0f) ? 0.0f : 1.0f;
+        float64 NkCeil(float64 x) noexcept {
+            return ceil(x);
         }
-        if (x < 0.0f) {
-            const nk_float yInt = static_cast<nk_float>(static_cast<nk_int32>(y));
-            if (y != yInt) {
+
+        float32 NkTrunc(float32 x) noexcept {
+            return static_cast<float32>(trunc(x));
+        }
+
+        float64 NkTrunc(float64 x) noexcept {
+            return trunc(x);
+        }
+
+        float32 NkRound(float32 x) noexcept {
+            return static_cast<float32>(round(x));
+        }
+
+        float64 NkRound(float64 x) noexcept {
+            return round(x);
+        }
+
+        float32 NkSqrt(float32 x) noexcept {
+            return (x <= 0.0f) ? 0.0f : static_cast<float32>(sqrt(x));
+        }
+
+        float64 NkSqrt(float64 x) noexcept {
+            return (x <= 0.0) ? 0.0 : sqrt(x);
+        }
+
+        float32 NkRsqrt(float32 x) noexcept {
+            return (x <= 0.0f) ? 0.0f : (1.0f / static_cast<float32>(sqrt(x)));
+        }
+
+        float64 NkRsqrt(float64 x) noexcept {
+            return (x <= 0.0) ? 0.0 : (1.0 / sqrt(x));
+        }
+
+        float32 NkCbrt(float32 x) noexcept {
+            return static_cast<float32>(cbrt(x));
+        }
+
+        float64 NkCbrt(float64 x) noexcept {
+            return cbrt(x);
+        }
+
+        float32 NkExp(float32 x) noexcept {
+            if (x < -87.0f) {
                 return 0.0f;
             }
+            if (x > 88.0f) {
+                return 3.4028235e38f;
+            }
+            return static_cast<float32>(exp(x));
         }
-        return static_cast<nk_float>(pow(x, y));
-    }
 
-    nk_double NkPow(nk_double x, nk_double y) noexcept {
-        if (x == 0.0) {
-            return (y > 0.0) ? 0.0 : 1.0;
-        }
-        if (x < 0.0) {
-            const nk_double yInt = static_cast<nk_double>(static_cast<nk_int64>(y));
-            if (y != yInt) {
+        float64 NkExp(float64 x) noexcept {
+            if (x < -708.0) {
                 return 0.0;
             }
-        }
-        return pow(x, y);
-    }
-
-    nk_float NkPowInt(nk_float x, nk_int32 n) noexcept {
-        if (n == 0) {
-            return 1.0f;
-        }
-
-        nk_bool negativeExp = n < 0;
-        nk_uint32 exp = static_cast<nk_uint32>(negativeExp ? -n : n);
-        nk_float base = x;
-        nk_float result = 1.0f;
-
-        while (exp > 0u) {
-            if ((exp & 1u) != 0u) {
-                result *= base;
+            if (x > 709.0) {
+                return 1.7976931348623157e308;
             }
-            base *= base;
-            exp >>= 1u;
+            return exp(x);
         }
 
-        return negativeExp ? (1.0f / result) : result;
-    }
-
-    nk_double NkPowInt(nk_double x, nk_int32 n) noexcept {
-        if (n == 0) {
-            return 1.0;
+        float32 NkLog(float32 x) noexcept {
+            return (x <= 0.0f) ? -3.4028235e38f : static_cast<float32>(log(x));
         }
 
-        nk_bool negativeExp = n < 0;
-        nk_uint32 exp = static_cast<nk_uint32>(negativeExp ? -n : n);
-        nk_double base = x;
-        nk_double result = 1.0;
+        float64 NkLog(float64 x) noexcept {
+            return (x <= 0.0) ? -1.0e308 : log(x);
+        }
 
-        while (exp > 0u) {
-            if ((exp & 1u) != 0u) {
-                result *= base;
+        float32 NkPow(float32 x, float32 y) noexcept {
+            if (x == 0.0f) {
+                return (y > 0.0f) ? 0.0f : 1.0f;
             }
-            base *= base;
-            exp >>= 1u;
+            if (x < 0.0f) {
+                const float32 yInt = static_cast<float32>(static_cast<int32>(y));
+                if (y != yInt) {
+                    return 0.0f;
+                }
+            }
+            return static_cast<float32>(pow(x, y));
         }
 
-        return negativeExp ? (1.0 / result) : result;
-    }
-
-    nk_float NkSin(nk_float x) noexcept {
-        return static_cast<nk_float>(sin(x));
-    }
-
-    nk_double NkSin(nk_double x) noexcept {
-        return sin(x);
-    }
-
-    nk_float NkCos(nk_float x) noexcept {
-        return static_cast<nk_float>(cos(x));
-    }
-
-    nk_double NkCos(nk_double x) noexcept {
-        return cos(x);
-    }
-
-    nk_float NkAtan(nk_float x) noexcept {
-        return static_cast<nk_float>(atan(x));
-    }
-
-    nk_double NkAtan(nk_double x) noexcept {
-        return atan(x);
-    }
-
-    nk_float NkAtan2(nk_float y, nk_float x) noexcept {
-        return static_cast<nk_float>(atan2(y, x));
-    }
-
-    nk_double NkAtan2(nk_double y, nk_double x) noexcept {
-        return atan2(y, x);
-    }
-
-    nk_float NkAsin(nk_float a) noexcept {
-        if (NkFabs(a) > 1.0f) {
-            return 0.0f;
-        }
-        return static_cast<nk_float>(asin(a));
-    }
-
-    nk_double NkAsin(nk_double a) noexcept {
-        if (NkFabs(a) > 1.0) {
-            return 0.0;
-        }
-        return asin(a);
-    }
-
-    nk_float NkAcos(nk_float a) noexcept {
-        if (NkFabs(a) > 1.0f) {
-            return 0.0f;
-        }
-        return static_cast<nk_float>(acos(a));
-    }
-
-    nk_double NkAcos(nk_double a) noexcept {
-        if (NkFabs(a) > 1.0) {
-            return 0.0;
-        }
-        return acos(a);
-    }
-
-    nk_float NkSinh(nk_float x) noexcept {
-        return static_cast<nk_float>(sinh(x));
-    }
-
-    nk_double NkSinh(nk_double x) noexcept {
-        return sinh(x);
-    }
-
-    nk_float NkCosh(nk_float x) noexcept {
-        return static_cast<nk_float>(cosh(x));
-    }
-
-    nk_double NkCosh(nk_double x) noexcept {
-        return cosh(x);
-    }
-
-    nk_float NkTanh(nk_float x) noexcept {
-        if (x > 10.0f) {
-            return 1.0f;
-        }
-        if (x < -10.0f) {
-            return -1.0f;
-        }
-        return static_cast<nk_float>(tanh(x));
-    }
-
-    nk_double NkTanh(nk_double x) noexcept {
-        if (x > 20.0) {
-            return 1.0;
-        }
-        if (x < -20.0) {
-            return -1.0;
-        }
-        return tanh(x);
-    }
-
-    nk_float NkFmod(nk_float x, nk_float y) noexcept {
-        if (y == 0.0f) {
-            return x;
-        }
-        return static_cast<nk_float>(fmod(x, y));
-    }
-
-    nk_double NkFmod(nk_double x, nk_double y) noexcept {
-        if (y == 0.0) {
-            return x;
-        }
-        return fmod(x, y);
-    }
-
-    nk_float NkFrexp(nk_float x, nk_int32* exp) noexcept {
-        return static_cast<nk_float>(frexp(x, exp));
-    }
-
-    nk_double NkFrexp(nk_double x, nk_int32* exp) noexcept {
-        return frexp(x, exp);
-    }
-
-    nk_float NkLdexp(nk_float x, nk_int32 exp) noexcept {
-        return static_cast<nk_float>(ldexp(x, exp));
-    }
-
-    nk_double NkLdexp(nk_double x, nk_int32 exp) noexcept {
-        return ldexp(x, exp);
-    }
-
-    nk_float NkModf(nk_float x, nk_float* iptr) noexcept {
-        return static_cast<nk_float>(modf(x, iptr));
-    }
-
-    nk_double NkModf(nk_double x, nk_double* iptr) noexcept {
-        return modf(x, iptr);
-    }
-
-    DivResult64 NkDivI64(nk_int64 numerator, nk_int64 denominator) noexcept {
-        if (denominator == 0) {
-            return {0, numerator};
-        }
-        return {numerator / denominator, numerator % denominator};
-    }
-
-    nk_uint64 NkGcd(nk_uint64 a, nk_uint64 b) noexcept {
-        while (b != 0u) {
-            const nk_uint64 t = b;
-            b = a % b;
-            a = t;
-        }
-        return a;
-    }
-
-    nk_uint64 NkNextPowerOf2(nk_uint64 x) noexcept {
-        if (x == 0u) {
-            return 1u;
+        float64 NkPow(float64 x, float64 y) noexcept {
+            if (x == 0.0) {
+                return (y > 0.0) ? 0.0 : 1.0;
+            }
+            if (x < 0.0) {
+                const float64 yInt = static_cast<float64>(static_cast<int64>(y));
+                if (y != yInt) {
+                    return 0.0;
+                }
+            }
+            return pow(x, y);
         }
 
-        --x;
-        x |= x >> 1u;
-        x |= x >> 2u;
-        x |= x >> 4u;
-        x |= x >> 8u;
-        x |= x >> 16u;
-        x |= x >> 32u;
-        return x + 1u;
-    }
+        float32 NkPowInt(float32 x, int32 n) noexcept {
+            if (n == 0) {
+                return 1.0f;
+            }
 
-    nk_uint32 NkClz(nk_uint32 x) noexcept {
-        if (x == 0u) {
-            return 32u;
+            nk_bool negativeExp = n < 0;
+            uint32 exp = static_cast<uint32>(negativeExp ? -n : n);
+            float32 base = x;
+            float32 result = 1.0f;
+
+            while (exp > 0u) {
+                if ((exp & 1u) != 0u) {
+                    result *= base;
+                }
+                base *= base;
+                exp >>= 1u;
+            }
+
+            return negativeExp ? (1.0f / result) : result;
         }
 
-#if defined(__clang__) || defined(__GNUC__)
-        return static_cast<nk_uint32>(__builtin_clz(x));
-#else
-        nk_uint32 n = 0u;
-        if (x <= 0x0000FFFFu) { n += 16u; x <<= 16u; }
-        if (x <= 0x00FFFFFFu) { n += 8u; x <<= 8u; }
-        if (x <= 0x0FFFFFFFu) { n += 4u; x <<= 4u; }
-        if (x <= 0x3FFFFFFFu) { n += 2u; x <<= 2u; }
-        if (x <= 0x7FFFFFFFu) { n += 1u; }
-        return n;
-#endif
-    }
+        float64 NkPowInt(float64 x, int32 n) noexcept {
+            if (n == 0) {
+                return 1.0;
+            }
 
-    nk_uint32 NkClz(nk_uint64 x) noexcept {
-        if (x == 0u) {
-            return 64u;
+            nk_bool negativeExp = n < 0;
+            uint32 exp = static_cast<uint32>(negativeExp ? -n : n);
+            float64 base = x;
+            float64 result = 1.0;
+
+            while (exp > 0u) {
+                if ((exp & 1u) != 0u) {
+                    result *= base;
+                }
+                base *= base;
+                exp >>= 1u;
+            }
+
+            return negativeExp ? (1.0 / result) : result;
         }
 
-#if defined(__clang__) || defined(__GNUC__)
-        return static_cast<nk_uint32>(__builtin_clzll(static_cast<unsigned long long>(x)));
-#else
-        nk_uint32 n = 0u;
-        if (x <= 0x00000000FFFFFFFFull) { n += 32u; x <<= 32u; }
-        if (x <= 0x0000FFFFFFFFFFFFull) { n += 16u; x <<= 16u; }
-        if (x <= 0x00FFFFFFFFFFFFFFull) { n += 8u; x <<= 8u; }
-        if (x <= 0x0FFFFFFFFFFFFFFFull) { n += 4u; x <<= 4u; }
-        if (x <= 0x3FFFFFFFFFFFFFFFull) { n += 2u; x <<= 2u; }
-        if (x <= 0x7FFFFFFFFFFFFFFFull) { n += 1u; }
-        return n;
-#endif
-    }
-
-    nk_uint32 NkCtz(nk_uint32 x) noexcept {
-        if (x == 0u) {
-            return 32u;
+        float32 NkSin(float32 x) noexcept {
+            return static_cast<float32>(sin(x));
         }
 
-#if defined(__clang__) || defined(__GNUC__)
-        return static_cast<nk_uint32>(__builtin_ctz(x));
-#else
-        return 31u - NkClz(x & static_cast<nk_uint32>(-static_cast<nk_int32>(x)));
-#endif
-    }
-
-    nk_uint32 NkCtz(nk_uint64 x) noexcept {
-        if (x == 0u) {
-            return 64u;
+        float64 NkSin(float64 x) noexcept {
+            return sin(x);
         }
 
-#if defined(__clang__) || defined(__GNUC__)
-        return static_cast<nk_uint32>(__builtin_ctzll(static_cast<unsigned long long>(x)));
-#else
-        return 63u - NkClz(x & static_cast<nk_uint64>(-static_cast<nk_int64>(x)));
-#endif
-    }
+        float32 NkCos(float32 x) noexcept {
+            return static_cast<float32>(cos(x));
+        }
 
-    nk_uint32 NkPopcount(nk_uint32 x) noexcept {
-#if defined(__clang__) || defined(__GNUC__)
-        return static_cast<nk_uint32>(__builtin_popcount(x));
-#else
-        x = x - ((x >> 1u) & 0x55555555u);
-        x = (x & 0x33333333u) + ((x >> 2u) & 0x33333333u);
-        return ((x + (x >> 4u)) & 0x0F0F0F0Fu) * 0x01010101u >> 24u;
-#endif
-    }
+        float64 NkCos(float64 x) noexcept {
+            return cos(x);
+        }
 
-    nk_uint32 NkPopcount(nk_uint64 x) noexcept {
-#if defined(__clang__) || defined(__GNUC__)
-        return static_cast<nk_uint32>(__builtin_popcountll(static_cast<unsigned long long>(x)));
-#else
-        x = x - ((x >> 1u) & 0x5555555555555555ull);
-        x = (x & 0x3333333333333333ull) + ((x >> 2u) & 0x3333333333333333ull);
-        return static_cast<nk_uint32>(((x + (x >> 4u)) & 0x0F0F0F0F0F0F0F0Full) * 0x0101010101010101ull >> 56u);
-#endif
-    }
+        float32 NkAtan(float32 x) noexcept {
+            return static_cast<float32>(atan(x));
+        }
 
-    nk_float NkSmoothstep(nk_float t) noexcept {
-        if (t < 0.0f) {
-            return 0.0f;
+        float64 NkAtan(float64 x) noexcept {
+            return atan(x);
         }
-        if (t > 1.0f) {
-            return 1.0f;
-        }
-        return t * t * (3.0f - 2.0f * t);
-    }
 
-    nk_double NkSmoothstep(nk_double t) noexcept {
-        if (t < 0.0) {
-            return 0.0;
+        float32 NkAtan2(float32 y, float32 x) noexcept {
+            return static_cast<float32>(atan2(y, x));
         }
-        if (t > 1.0) {
-            return 1.0;
-        }
-        return t * t * (3.0 - 2.0 * t);
-    }
 
-    nk_float NkSmootherstep(nk_float t) noexcept {
-        if (t < 0.0f) {
-            return 0.0f;
+        float64 NkAtan2(float64 y, float64 x) noexcept {
+            return atan2(y, x);
         }
-        if (t > 1.0f) {
-            return 1.0f;
-        }
-        return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
-    }
 
-    nk_double NkSmootherstep(nk_double t) noexcept {
-        if (t < 0.0) {
-            return 0.0;
+        float32 NkAsin(float32 a) noexcept {
+            if (NkFabs(a) > 1.0f) {
+                return 0.0f;
+            }
+            return static_cast<float32>(asin(a));
         }
-        if (t > 1.0) {
-            return 1.0;
-        }
-        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-    }
 
-} // namespace math
+        float64 NkAsin(float64 a) noexcept {
+            if (NkFabs(a) > 1.0) {
+                return 0.0;
+            }
+            return asin(a);
+        }
+
+        float32 NkAcos(float32 a) noexcept {
+            if (NkFabs(a) > 1.0f) {
+                return 0.0f;
+            }
+            return static_cast<float32>(acos(a));
+        }
+
+        float64 NkAcos(float64 a) noexcept {
+            if (NkFabs(a) > 1.0) {
+                return 0.0;
+            }
+            return acos(a);
+        }
+
+        float32 NkSinh(float32 x) noexcept {
+            return static_cast<float32>(sinh(x));
+        }
+
+        float64 NkSinh(float64 x) noexcept {
+            return sinh(x);
+        }
+
+        float32 NkCosh(float32 x) noexcept {
+            return static_cast<float32>(cosh(x));
+        }
+
+        float64 NkCosh(float64 x) noexcept {
+            return cosh(x);
+        }
+
+        float32 NkTanh(float32 x) noexcept {
+            if (x > 10.0f) {
+                return 1.0f;
+            }
+            if (x < -10.0f) {
+                return -1.0f;
+            }
+            return static_cast<float32>(tanh(x));
+        }
+
+        float64 NkTanh(float64 x) noexcept {
+            if (x > 20.0) {
+                return 1.0;
+            }
+            if (x < -20.0) {
+                return -1.0;
+            }
+            return tanh(x);
+        }
+
+        float32 NkFmod(float32 x, float32 y) noexcept {
+            if (y == 0.0f) {
+                return x;
+            }
+            return static_cast<float32>(fmod(x, y));
+        }
+
+        float64 NkFmod(float64 x, float64 y) noexcept {
+            if (y == 0.0) {
+                return x;
+            }
+            return fmod(x, y);
+        }
+
+        float32 NkFrexp(float32 x, int32* exp) noexcept {
+            return static_cast<float32>(frexp(x, exp));
+        }
+
+        float64 NkFrexp(float64 x, int32* exp) noexcept {
+            return frexp(x, exp);
+        }
+
+        float32 NkLdexp(float32 x, int32 exp) noexcept {
+            return static_cast<float32>(ldexp(x, exp));
+        }
+
+        float64 NkLdexp(float64 x, int32 exp) noexcept {
+            return ldexp(x, exp);
+        }
+
+        float32 NkModf(float32 x, float32* iptr) noexcept {
+            return static_cast<float32>(modf(x, iptr));
+        }
+
+        float64 NkModf(float64 x, float64* iptr) noexcept {
+            return modf(x, iptr);
+        }
+
+        DivResult64 NkDivI64(int64 numerator, int64 denominator) noexcept {
+            if (denominator == 0) {
+                return {0, numerator};
+            }
+            return {numerator / denominator, numerator % denominator};
+        }
+
+        uint64 NkGcd(uint64 a, uint64 b) noexcept {
+            while (b != 0u) {
+                const uint64 t = b;
+                b = a % b;
+                a = t;
+            }
+            return a;
+        }
+
+        uint64 NkNextPowerOf2(uint64 x) noexcept {
+            if (x == 0u) {
+                return 1u;
+            }
+
+            --x;
+            x |= x >> 1u;
+            x |= x >> 2u;
+            x |= x >> 4u;
+            x |= x >> 8u;
+            x |= x >> 16u;
+            x |= x >> 32u;
+            return x + 1u;
+        }
+
+        uint32 NkClz(uint32 x) noexcept {
+            if (x == 0u) {
+                return 32u;
+            }
+
+    #if defined(__clang__) || defined(__GNUC__)
+            return static_cast<uint32>(__builtin_clz(x));
+    #else
+            uint32 n = 0u;
+            if (x <= 0x0000FFFFu) { n += 16u; x <<= 16u; }
+            if (x <= 0x00FFFFFFu) { n += 8u; x <<= 8u; }
+            if (x <= 0x0FFFFFFFu) { n += 4u; x <<= 4u; }
+            if (x <= 0x3FFFFFFFu) { n += 2u; x <<= 2u; }
+            if (x <= 0x7FFFFFFFu) { n += 1u; }
+            return n;
+    #endif
+        }
+
+        uint32 NkClz(uint64 x) noexcept {
+            if (x == 0u) {
+                return 64u;
+            }
+
+    #if defined(__clang__) || defined(__GNUC__)
+            return static_cast<uint32>(__builtin_clzll(static_cast<unsigned long long>(x)));
+    #else
+            uint32 n = 0u;
+            if (x <= 0x00000000FFFFFFFFull) { n += 32u; x <<= 32u; }
+            if (x <= 0x0000FFFFFFFFFFFFull) { n += 16u; x <<= 16u; }
+            if (x <= 0x00FFFFFFFFFFFFFFull) { n += 8u; x <<= 8u; }
+            if (x <= 0x0FFFFFFFFFFFFFFFull) { n += 4u; x <<= 4u; }
+            if (x <= 0x3FFFFFFFFFFFFFFFull) { n += 2u; x <<= 2u; }
+            if (x <= 0x7FFFFFFFFFFFFFFFull) { n += 1u; }
+            return n;
+    #endif
+        }
+
+        uint32 NkCtz(uint32 x) noexcept {
+            if (x == 0u) {
+                return 32u;
+            }
+
+    #if defined(__clang__) || defined(__GNUC__)
+            return static_cast<uint32>(__builtin_ctz(x));
+    #else
+            return 31u - NkClz(x & static_cast<uint32>(-static_cast<int32>(x)));
+    #endif
+        }
+
+        uint32 NkCtz(uint64 x) noexcept {
+            if (x == 0u) {
+                return 64u;
+            }
+
+    #if defined(__clang__) || defined(__GNUC__)
+            return static_cast<uint32>(__builtin_ctzll(static_cast<unsigned long long>(x)));
+    #else
+            return 63u - NkClz(x & static_cast<uint64>(-static_cast<int64>(x)));
+    #endif
+        }
+
+        uint32 NkPopcount(uint32 x) noexcept {
+    #if defined(__clang__) || defined(__GNUC__)
+            return static_cast<uint32>(__builtin_popcount(x));
+    #else
+            x = x - ((x >> 1u) & 0x55555555u);
+            x = (x & 0x33333333u) + ((x >> 2u) & 0x33333333u);
+            return ((x + (x >> 4u)) & 0x0F0F0F0Fu) * 0x01010101u >> 24u;
+    #endif
+        }
+
+        uint32 NkPopcount(uint64 x) noexcept {
+    #if defined(__clang__) || defined(__GNUC__)
+            return static_cast<uint32>(__builtin_popcountll(static_cast<unsigned long long>(x)));
+    #else
+            x = x - ((x >> 1u) & 0x5555555555555555ull);
+            x = (x & 0x3333333333333333ull) + ((x >> 2u) & 0x3333333333333333ull);
+            return static_cast<uint32>(((x + (x >> 4u)) & 0x0F0F0F0F0F0F0F0Full) * 0x0101010101010101ull >> 56u);
+    #endif
+        }
+
+        float32 NkSmoothstep(float32 t) noexcept {
+            if (t < 0.0f) {
+                return 0.0f;
+            }
+            if (t > 1.0f) {
+                return 1.0f;
+            }
+            return t * t * (3.0f - 2.0f * t);
+        }
+
+        float64 NkSmoothstep(float64 t) noexcept {
+            if (t < 0.0) {
+                return 0.0;
+            }
+            if (t > 1.0) {
+                return 1.0;
+            }
+            return t * t * (3.0 - 2.0 * t);
+        }
+
+        float32 NkSmootherstep(float32 t) noexcept {
+            if (t < 0.0f) {
+                return 0.0f;
+            }
+            if (t > 1.0f) {
+                return 1.0f;
+            }
+            return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+        }
+
+        float64 NkSmootherstep(float64 t) noexcept {
+            if (t < 0.0) {
+                return 0.0;
+            }
+            if (t > 1.0) {
+                return 1.0;
+            }
+            return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+        }
+
+    } // namespace math
 } // namespace nkentseu

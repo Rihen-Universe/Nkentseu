@@ -39,16 +39,18 @@
 #pragma comment(lib, "shell32.lib")
 
 #include "NKCore/NkAtomic.h"
+#include "NKCore/NkTraits.h"
+#include "NKContainers/String/NkWString.h"
 #include "NKWindow/Events/NkDropEvent.h"
 
 namespace nkentseu {
 
     class NkWin32DropTarget : public IDropTarget {
 		public:
-			using DropFileCallback  = std::function<void(const NkDropFileEvent&)>;
-			using DropTextCallback  = std::function<void(const NkDropTextEvent&)>;
-			using DropEnterCallback = std::function<void(const NkDropEnterEvent&)>;
-			using DropLeaveCallback = std::function<void(const NkDropLeaveEvent&)>;
+			using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
+			using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
+			using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
+			using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
 
 			// Point 6 : le constructeur ne touche plus à OLE.
 			// OleInitialize a déjà été appelé par NkSystem::Initialise().
@@ -72,10 +74,10 @@ namespace nkentseu {
 			}
 
 			// --- Callbacks ---
-			void SetDropFileCallback(DropFileCallback cb)   { mDropFile  = std::move(cb); }
-			void SetDropTextCallback(DropTextCallback cb)   { mDropText  = std::move(cb); }
-			void SetDropEnterCallback(DropEnterCallback cb) { mDropEnter = std::move(cb); }
-			void SetDropLeaveCallback(DropLeaveCallback cb) { mDropLeave = std::move(cb); }
+			void SetDropFileCallback(DropFileCallback cb)   { mDropFile  = traits::NkMove(cb); }
+			void SetDropTextCallback(DropTextCallback cb)   { mDropText  = traits::NkMove(cb); }
+			void SetDropEnterCallback(DropEnterCallback cb) { mDropEnter = traits::NkMove(cb); }
+			void SetDropLeaveCallback(DropLeaveCallback cb) { mDropLeave = traits::NkMove(cb); }
 
 			// =====================================================================
 			// IUnknown
@@ -157,26 +159,26 @@ namespace nkentseu {
 
 				// --- Fichiers ---
 				NkVector<NkString> files = ExtractFiles(pData);
-				if (!files.Empty() && mDropFile) {
-					NkDropFileData data{};
-					data.x = dropX;
-					data.y = dropY;
-					data.paths = std::move(files);
-					NkDropFileEvent event(data);
-					mDropFile(event);
-				}
+					if (!files.Empty() && mDropFile) {
+						NkDropFileData data{};
+						data.x = dropX;
+						data.y = dropY;
+						data.paths = traits::NkMove(files);
+						NkDropFileEvent event(data);
+						mDropFile(event);
+					}
 
 				// --- Texte ---
 				NkString text = ExtractText(pData);
-				if (!text.Empty() && mDropText) {
-					NkDropTextData data{};
-					data.x = dropX;
-					data.y = dropY;
-					data.text = std::move(text);
-					data.mimeType = "text/plain";
-					NkDropTextEvent event(data);
-					mDropText(event);
-				}
+					if (!text.Empty() && mDropText) {
+						NkDropTextData data{};
+						data.x = dropX;
+						data.y = dropY;
+						data.text = traits::NkMove(text);
+						data.mimeType = "text/plain";
+						NkDropTextEvent event(data);
+						mDropText(event);
+					}
 
 				*pdwEffect = DROPEFFECT_COPY;
 				return S_OK;
@@ -217,16 +219,16 @@ namespace nkentseu {
 					UINT n = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
 					for (UINT i = 0; i < n; ++i) {
 						UINT len = DragQueryFileW(hDrop, i, nullptr, 0);
-						std::wstring ws(len + 1, L'\0');
-						DragQueryFileW(hDrop, i, ws.data(), len + 1);
-						ws.resize(len);
-						int sz = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1,
+						NkWString ws(len + 1, L'\0');
+						DragQueryFileW(hDrop, i, ws.Data(), len + 1);
+						ws.Resize(len);
+						int sz = WideCharToMultiByte(CP_UTF8, 0, ws.CStr(), -1,
 													nullptr, 0, nullptr, nullptr);
-						std::string s(sz, '\0');
-						WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1,
-											s.data(), sz, nullptr, nullptr);
-						if (!s.empty() && s.back() == '\0') s.pop_back();
-						result.PushBack(NkString(s.c_str()));
+						NkString s(sz, '\0');
+						WideCharToMultiByte(CP_UTF8, 0, ws.CStr(), -1,
+											s.Data(), sz, nullptr, nullptr);
+						if (!s.Empty() && s.Back() == '\0') s.PopBack();
+						result.PushBack(NkString(s.CStr()));
 					}
 				}
 				GlobalUnlock(stg.hGlobal);
@@ -252,11 +254,11 @@ namespace nkentseu {
 				if (ws) {
 					int sz = WideCharToMultiByte(CP_UTF8, 0, ws, -1,
 												nullptr, 0, nullptr, nullptr);
-					std::string s(sz, '\0');
+					NkString s(sz, '\0');
 					WideCharToMultiByte(CP_UTF8, 0, ws, -1,
-										s.data(), sz, nullptr, nullptr);
-					if (!s.empty() && s.back() == '\0') s.pop_back();
-					result = NkString(s.c_str());
+										s.Data(), sz, nullptr, nullptr);
+					if (!s.Empty() && s.Back() == '\0') s.PopBack();
+					result = NkString(s.CStr());
 				}
 				GlobalUnlock(stg.hGlobal);
 				ReleaseStgMedium(&stg);

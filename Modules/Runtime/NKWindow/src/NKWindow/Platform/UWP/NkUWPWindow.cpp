@@ -36,23 +36,44 @@ namespace nkentseu {
             Close();
         }
 
-        if (!NkUWPIsCoreWindowReady()) {
-            mLastError = NkError(1, "UWP: CoreWindow not available yet");
+        mConfig = config;
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mExternal = false;
+
+        const bool wantsExternal = config.native.useExternalWindow;
+        const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+        if (wantsExternal && !hasExternalHandle) {
+            mLastError = NkError(1, "UWP: useExternalWindow=true but externalWindowHandle is null");
             return false;
         }
 
-        mConfig = config;
         mData.mTitle = config.title;
         mData.mWidth = config.width > 0 ? config.width : 1280u;
         mData.mHeight = config.height > 0 ? config.height : 720u;
         mData.mVisible = config.visible;
         mData.mFullscreen = config.fullscreen;
-        mData.mNativeWindow = NkUWPGetCoreWindowHandle();
+
+        if (wantsExternal && hasExternalHandle) {
+            mData.mNativeWindow = reinterpret_cast<void*>(config.native.externalWindowHandle);
+            mData.mExternal = true;
+        } else {
+            if (!NkUWPIsCoreWindowReady()) {
+                mLastError = NkError(1, "UWP: CoreWindow not available yet");
+                return false;
+            }
+            mData.mNativeWindow = NkUWPGetCoreWindowHandle();
+        }
+
+        if (!mData.mNativeWindow) {
+            mLastError = NkError(1, "UWP: native window handle is null");
+            return false;
+        }
 
         mId = NkSystem::Instance().RegisterWindow(this);
         if (mId == NK_INVALID_WINDOW_ID) {
             mLastError = NkError(1, "UWP: failed to register window");
             mData.mNativeWindow = nullptr;
+            mData.mExternal = false;
             return false;
         }
 
@@ -95,6 +116,7 @@ namespace nkentseu {
         mData.mHeight = 0;
         mData.mVisible = false;
         mData.mFullscreen = false;
+        mData.mExternal = false;
     }
 
     bool NkWindow::IsOpen() const {
@@ -211,6 +233,7 @@ namespace nkentseu {
         desc.height = mData.mHeight;
         desc.dpi = 1.0f;
         desc.nativeWindow = mData.mNativeWindow;
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

@@ -38,8 +38,8 @@ def _pkg_exists(pkg_name: str) -> bool:
         return False
 
 _HAS_LIBDECOR = _pkg_exists("libdecor-0")
-_WAYLAND_LINKS = ["pthread", "wayland-client", "xkbcommon", "wayland-cursor"]
-_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "xkbcommon"]
+_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL"]
 _WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
 if _HAS_LIBDECOR:
     _WAYLAND_LINKS.append("decor-0")
@@ -126,7 +126,7 @@ with project("NKWindow"):
             "src/NKWindow/Platform/XLib/**.cpp",
             "src/NKWindow/Platform/XLib/**.h",
         ])
-        links(["pthread", "X11"])
+        links(["pthread", "X11", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
 
     # ===== Linux XCB ==============================================================
@@ -138,7 +138,7 @@ with project("NKWindow"):
             "src/NKWindow/Platform/XCB/**.cpp",
             "src/NKWindow/Platform/XCB/**.h",
         ])
-        links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+        links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
 
     # ===== Linux Wayland ==========================================================

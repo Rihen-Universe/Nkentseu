@@ -24,7 +24,6 @@
 #include "NKWindow/Events/NkKeycodeMap.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkWindow.h"
-#include <mutex>
 
 namespace nkentseu {
 
@@ -61,7 +60,7 @@ namespace nkentseu {
         if (mReady) return true;
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
         mPumping = false;

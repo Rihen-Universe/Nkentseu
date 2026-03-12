@@ -38,9 +38,6 @@
 #include "NkGamepadEvent.h"
 #include "NKMemory/NkUtils.h"
 
-#include <bitset>
-#include <string>
-
 namespace nkentseu {
 
     // =========================================================================
@@ -311,8 +308,8 @@ namespace nkentseu {
     struct NkKeyboardInputState {
         static constexpr uint32 KEY_COUNT = 256;
 
-        std::bitset<KEY_COUNT> pressed;     ///< Touches actuellement enfoncées
-        std::bitset<KEY_COUNT> repeated;    ///< Touches en auto-repeat OS (subset de pressed)
+        bool pressed[KEY_COUNT] = {};     ///< Touches actuellement enfoncées
+        bool repeated[KEY_COUNT] = {};    ///< Touches en auto-repeat OS (subset de pressed)
         NkModifierState        modifiers;   ///< État courant des modificateurs
         NkKey                  lastKey      = NkKey::NK_UNKNOWN; ///< Dernière touche pressée
         NkScancode             lastScancode = NkScancode::NK_SC_UNKNOWN; ///< Dernier scancode
@@ -321,15 +318,22 @@ namespace nkentseu {
 
         bool IsKeyPressed(NkKey key) const noexcept {
             uint32 idx = static_cast<uint32>(key);
-            return (idx < KEY_COUNT) && pressed[idx];
+            return (idx < KEY_COUNT) ? pressed[idx] : false;
         }
 
         bool IsKeyRepeated(NkKey key) const noexcept {
             uint32 idx = static_cast<uint32>(key);
-            return (idx < KEY_COUNT) && repeated[idx];
+            return (idx < KEY_COUNT) ? repeated[idx] : false;
         }
 
-        bool IsAnyKeyPressed()  const noexcept { return pressed.any(); }
+        bool IsAnyKeyPressed()  const noexcept {
+            for (uint32 i = 0; i < KEY_COUNT; ++i) {
+                if (pressed[i]) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         bool IsCtrlDown()  const noexcept { return modifiers.ctrl;  }
         bool IsAltDown()   const noexcept { return modifiers.alt;   }
@@ -361,8 +365,8 @@ namespace nkentseu {
         }
 
         void Clear() noexcept {
-            pressed.reset();
-            repeated.reset();
+            memory::NkMemSet(pressed, 0, sizeof(pressed));
+            memory::NkMemSet(repeated, 0, sizeof(repeated));
             modifiers    = {};
             lastKey      = NkKey::NK_UNKNOWN;
             lastScancode = NkScancode::NK_SC_UNKNOWN;
@@ -548,7 +552,7 @@ namespace nkentseu {
         NkGamepadInfo info;
         float32         batteryLevel = -1.f; ///< [0,1] ou -1 (filaire/inconnu)
 
-        std::bitset<BUTTON_COUNT> buttons;  ///< Boutons actuellement enfoncés
+        bool buttons[BUTTON_COUNT] = {};  ///< Boutons actuellement enfoncés
         float32 axes[AXIS_COUNT]   = {};       ///< Valeurs des axes (après deadzone)
         float32 prevAxes[AXIS_COUNT] = {};     ///< Valeurs au poll précédent
 
@@ -556,7 +560,7 @@ namespace nkentseu {
 
         bool IsButtonDown(NkGamepadButton btn) const noexcept {
             uint32 idx = static_cast<uint32>(btn);
-            return (idx < BUTTON_COUNT) && buttons[idx];
+            return (idx < BUTTON_COUNT) ? buttons[idx] : false;
         }
 
         float32 GetAxis(NkGamepadAxis ax) const noexcept {
@@ -600,7 +604,7 @@ namespace nkentseu {
         void Clear() noexcept {
             connected     = false;
             batteryLevel  = -1.f;
-            buttons.reset();
+            memory::NkMemSet(buttons, 0, sizeof(buttons));
             memory::NkMemSet(axes,     0, sizeof(axes));
             memory::NkMemSet(prevAxes, 0, sizeof(prevAxes));
         }

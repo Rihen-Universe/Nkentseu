@@ -20,7 +20,6 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
-#include <mutex>
 
 namespace nkentseu {
 
@@ -54,7 +53,7 @@ namespace nkentseu {
 
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
 

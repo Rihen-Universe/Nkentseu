@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+GLAD loader as standalone static library.
+"""
+
+from Jenga import *
+
+with project("Glad"):
+    staticlib()
+    language("C")
+    location(".")
+
+    includedirs([
+        "include",
+    ])
+
+    files([
+        "include/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        files([
+            "src/gl.c",
+            "src/wgl.c",
+        ])
+
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        files([
+            "src/gl.c",
+            "src/glx.c",
+        ])
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+        files([
+            "src/gl.c",
+            "src/glx.c",
+        ])
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+        files([
+            "src/egl.c",
+            "src/gles2.c",
+        ])
+
+    with filter("system:macOS"):
+        files(["src/gl.c"])
+
+    with filter("system:Android"):
+        files([
+            "src/egl.c",
+            "src/gles2.c",
+        ])
+
+    with filter("system:iOS"):
+        files(["src/gles2.c"])
+
+    with filter("system:Web"):
+        files(["src/gles2.c"])

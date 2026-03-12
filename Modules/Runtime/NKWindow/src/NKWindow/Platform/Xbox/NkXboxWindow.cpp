@@ -43,7 +43,29 @@ namespace {
         return wide;
     }
 
-    HWND NkCreateFallbackXboxWindow(const nkentseu::NkWindowConfig &config) {
+    void NkApplyFallbackWindowIcon(HWND hwnd, const nkentseu::NkString& iconPath) {
+        if (!hwnd || iconPath.Empty()) {
+            return;
+        }
+        NkWString wPath = NkUtf8ToWide(iconPath);
+        if (wPath.Empty()) {
+            return;
+        }
+        HICON icon = reinterpret_cast<HICON>(LoadImageW(
+            nullptr,
+            wPath.CStr(),
+            IMAGE_ICON,
+            0,
+            0,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE));
+        if (!icon) {
+            return;
+        }
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+    }
+
+    HWND NkCreateFallbackXboxWindow(const nkentseu::NkWindowConfig &config, HWND parent) {
         HINSTANCE hInstance = GetModuleHandleW(nullptr);
         if (!hInstance) return nullptr;
 
@@ -57,26 +79,51 @@ namespace {
 
         const nkentseu::uint32 width = config.width > 0 ? config.width : 1280u;
         const nkentseu::uint32 height = config.height > 0 ? config.height : 720u;
+        DWORD style = WS_OVERLAPPEDWINDOW;
+        DWORD exStyle = 0;
+        if (!config.frame) {
+            style = WS_POPUP | WS_VISIBLE;
+        }
+        if (config.native.utilityWindow) {
+            exStyle |= WS_EX_TOOLWINDOW;
+            exStyle &= ~WS_EX_APPWINDOW;
+        } else {
+            exStyle |= WS_EX_APPWINDOW;
+        }
+        if (config.transparent) {
+            exStyle |= WS_EX_LAYERED;
+        }
+
         RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
-        AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+        AdjustWindowRectEx(&rect, style, FALSE, exStyle);
 
         NkWString title = NkUtf8ToWide(config.title);
         if (title.Empty()) title = L"NkXboxWindow";
 
         HWND hwnd = CreateWindowExW(
-            0,
+            exStyle,
             kNkXboxFallbackWindowClassName,
             title.CStr(),
-            WS_OVERLAPPEDWINDOW,
+            style,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             rect.right - rect.left,
             rect.bottom - rect.top,
-            nullptr,
+            parent,
             nullptr,
             hInstance,
             nullptr);
 
+        if (hwnd && config.transparent) {
+            BYTE alpha = static_cast<BYTE>(config.bgColor & 0xFFu);
+            if (alpha == 0xFFu) {
+                alpha = 230u;
+            }
+            SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+        }
+        if (hwnd) {
+            NkApplyFallbackWindowIcon(hwnd, config.iconPath);
+        }
         if (hwnd && config.visible) {
             ShowWindow(hwnd, SW_SHOWNORMAL);
             UpdateWindow(hwnd);
@@ -106,6 +153,8 @@ namespace nkentseu {
         }
 
         mConfig = config;
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mExternal = false;
         mData.mTitle = config.title;
         mData.mWidth = config.width > 0 ? config.width : 1280u;
         mData.mHeight = config.height > 0 ? config.height : 720u;
@@ -113,15 +162,32 @@ namespace nkentseu {
         mData.mFullscreen = config.fullscreen;
         mData.mOwnsNativeWindow = false;
 
+        const bool wantsExternal = config.native.useExternalWindow;
+        const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+        if (wantsExternal && !hasExternalHandle) {
+            mLastError = NkError(1, "Xbox: useExternalWindow=true but externalWindowHandle is null");
+            return false;
+        }
+
+        if (wantsExternal && hasExternalHandle) {
+            mData.mNativeWindow = reinterpret_cast<void*>(config.native.externalWindowHandle);
+            mData.mExternal = true;
+        } else {
+            mData.mNativeWindow = nullptr;
+        }
+
         // 1) runtime handle exposé par l'entrypoint Xbox
-        mData.mNativeWindow = NkXboxGetNativeWindowHandle();
-        if (!mData.mNativeWindow && gState) {
-            mData.mNativeWindow = gState->xboxNativeWindow;
+        if (!mData.mNativeWindow) {
+            mData.mNativeWindow = NkXboxGetNativeWindowHandle();
+            if (!mData.mNativeWindow && gState) {
+                mData.mNativeWindow = gState->xboxNativeWindow;
+            }
         }
 
         // 2) fallback desktop-compatible (utile hors runtime console complet)
         if (!mData.mNativeWindow) {
-            HWND fallback = NkCreateFallbackXboxWindow(config);
+            HWND parent = reinterpret_cast<HWND>(config.native.parentWindowHandle);
+            HWND fallback = NkCreateFallbackXboxWindow(config, parent);
             if (fallback) {
                 mData.mNativeWindow = reinterpret_cast<void *>(fallback);
                 mData.mOwnsNativeWindow = true;
@@ -188,6 +254,7 @@ namespace nkentseu {
         mData.mVisible = false;
         mData.mFullscreen = false;
         mData.mOwnsNativeWindow = false;
+        mData.mExternal = false;
     }
 
     bool NkWindow::IsOpen() const {
@@ -344,6 +411,7 @@ namespace nkentseu {
         desc.height = mData.mHeight;
         desc.dpi = 1.0f;
         desc.nativeWindow = mData.mNativeWindow;
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

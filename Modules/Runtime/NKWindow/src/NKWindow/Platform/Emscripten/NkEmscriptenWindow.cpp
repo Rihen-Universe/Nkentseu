@@ -11,17 +11,15 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
+#include "NKCore/NkAtomic.h"
 #include "NKMath/NkFunctions.h"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
-#include <cmath>
-#include <mutex>
-
 namespace nkentseu {
 
-    static std::mutex sWasmWindowsMutex;
+    static NkSpinLock sWasmWindowsMutex;
     static NkWindow* sWasmLastWindow = nullptr;
     static NkWindowId sWasmActiveWindowId = NK_INVALID_WINDOW_ID;
 
@@ -75,8 +73,8 @@ namespace nkentseu {
         double cssWidth = 0.0;
         double cssHeight = 0.0;
         if (emscripten_get_element_css_size(canvasSelector, &cssWidth, &cssHeight) == EMSCRIPTEN_RESULT_SUCCESS) {
-            width = static_cast<int>(std::lround(cssWidth));
-            height = static_cast<int>(std::lround(cssHeight));
+            width = static_cast<int>(math::NkRound(cssWidth));
+            height = static_cast<int>(math::NkRound(cssHeight));
         }
 
         if (width <= 0 || height <= 0) {
@@ -98,6 +96,44 @@ namespace nkentseu {
 
     static void SetDocumentTitle(const NkString& title) {
         EM_ASM({ document.title = UTF8ToString($0); }, title.CStr());
+    }
+
+    static void ApplyDocumentIcon(const NkString& iconPath) {
+        if (iconPath.Empty()) {
+            return;
+        }
+        EM_ASM({
+            var href = UTF8ToString($0);
+            if (!href) {
+                return;
+            }
+            var head = document.head || document.getElementsByTagName('head')[0];
+            if (!head) {
+                return;
+            }
+            var link = document.querySelector("link[rel~='icon']");
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                head.appendChild(link);
+            }
+            link.href = href;
+        }, iconPath.CStr());
+    }
+
+    static void ApplyCanvasTransparency(const char* selector, bool transparent) {
+        const char* canvasSelector = (selector && *selector) ? selector : "#canvas";
+        EM_ASM({
+            var sel = UTF8ToString($0);
+            var target = document.querySelector(sel);
+            if (!target && typeof Module !== 'undefined' && Module['canvas']) {
+                target = Module['canvas'];
+            }
+            if (!target) {
+                return;
+            }
+            target.style.backgroundColor = $1 ? "transparent" : "";
+        }, canvasSelector, transparent ? 1 : 0);
     }
 
     static void ApplyContextMenuPolicy(const char* selector, bool preventContextMenu) {
@@ -207,18 +243,18 @@ namespace nkentseu {
     }
 
     NkWindow* NkEmscriptenFindWindowById(NkWindowId id) {
-        std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
+        NkScopedSpinLock lock(sWasmWindowsMutex);
         NkWindow** found = WasmWindowById().Find(id);
         return found ? *found : nullptr;
     }
 
     NkVector<NkWindow*> NkEmscriptenGetWindowsSnapshot() {
-        std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
+        NkScopedSpinLock lock(sWasmWindowsMutex);
         return WasmWindows();
     }
 
     NkWindow* NkEmscriptenGetLastWindow() {
-        std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
+        NkScopedSpinLock lock(sWasmWindowsMutex);
         return sWasmLastWindow;
     }
 
@@ -232,7 +268,7 @@ namespace nkentseu {
             return;
         }
 
-        std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
+        NkScopedSpinLock lock(sWasmWindowsMutex);
 
         bool found = false;
         for (uint32 i = 0; i < WasmWindows().Size(); ++i) {
@@ -255,7 +291,7 @@ namespace nkentseu {
             return;
         }
 
-        std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
+        NkScopedSpinLock lock(sWasmWindowsMutex);
 
         for (uint32 i = 0; i < WasmWindows().Size(); ++i) {
             if (WasmWindows()[i] == window) {
@@ -286,12 +322,12 @@ namespace nkentseu {
     }
 
     NkWindowId NkEmscriptenGetActiveWindowId() {
-        std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
+        NkScopedSpinLock lock(sWasmWindowsMutex);
         return sWasmActiveWindowId;
     }
 
     void NkEmscriptenSetActiveWindowId(NkWindowId id) {
-        std::lock_guard<std::mutex> lock(sWasmWindowsMutex);
+        NkScopedSpinLock lock(sWasmWindowsMutex);
         if (id != NK_INVALID_WINDOW_ID && !WasmWindowById().Contains(id)) {
             return;
         }
@@ -312,7 +348,33 @@ namespace nkentseu {
 
     bool NkWindow::Create(const NkWindowConfig& config) {
         mConfig = config;
+        mData.mAppliedHints = config.surfaceHints;
         mData.mCanvasId = "#canvas";
+        mData.mExternal = false;
+
+        const bool wantsExternal = config.native.useExternalWindow;
+        const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+        if (wantsExternal && !hasExternalHandle) {
+            mLastError = NkError(1, "WASM: useExternalWindow=true but externalWindowHandle is null");
+            return false;
+        }
+
+        if (wantsExternal && hasExternalHandle) {
+            const char* externalSelector =
+                reinterpret_cast<const char*>(config.native.externalWindowHandle);
+            if (!externalSelector || !externalSelector[0]) {
+                mLastError = NkError(1, "WASM: externalWindowHandle must point to a non-empty canvas selector string");
+                return false;
+            }
+            mData.mCanvasId = externalSelector;
+            mData.mExternal = true;
+        } else if (config.native.externalDisplayHandle != 0) {
+            const char* externalSelector =
+                reinterpret_cast<const char*>(config.native.externalDisplayHandle);
+            if (externalSelector && externalSelector[0]) {
+                mData.mCanvasId = externalSelector;
+            }
+        }
 
         const uint32 requestedWidth = config.width ? config.width : 1280u;
         const uint32 requestedHeight = config.height ? config.height : 720u;
@@ -334,8 +396,10 @@ namespace nkentseu {
         mData.mFullscreen = config.fullscreen;
 
         SetDocumentTitle(config.title);
+        ApplyDocumentIcon(config.iconPath);
         InstallCanvasKeyboardFocus(canvasSelector);
         ApplyContextMenuPolicy(canvasSelector, config.webInput.preventContextMenu);
+        ApplyCanvasTransparency(canvasSelector, config.transparent);
         ApplyScreenOrientation(config.screenOrientation);
 
         mId = NkSystem::Instance().RegisterWindow(this);
@@ -403,6 +467,7 @@ namespace nkentseu {
         mData.mPrevHeight = 0;
         mData.mVisible = false;
         mData.mFullscreen = false;
+        mData.mExternal = false;
     }
 
     bool NkWindow::IsOpen() const {
@@ -595,6 +660,7 @@ namespace nkentseu {
         desc.height = size.y;
         desc.dpi = GetDpiScale();
         desc.canvasId = mData.mCanvasId.CStr();
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

@@ -19,6 +19,7 @@ Architecture de rendu :
 """
 
 from Jenga import *
+import os
 import shutil
 import subprocess
 
@@ -34,6 +35,9 @@ def _pkg_exists(pkg_name: str) -> bool:
     except Exception:
         return False
 
+def _norm(path: str) -> str:
+    return path.replace("\\", "/") if path else path
+
 _HAS_LIBDECOR = _pkg_exists("libdecor-0")
 _WAYLAND_LINKS = ["pthread", "wayland-client", "xkbcommon", "wayland-cursor"]
 _WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "xkbcommon"]
@@ -44,6 +48,9 @@ if _HAS_LIBDECOR:
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
+_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
 
 with project("NKRenderer"):
     staticlib()
@@ -51,8 +58,9 @@ with project("NKRenderer"):
     cppdialect("C++17")
     location(".")
 
-    includedirs([
+    _RENDERER_INCLUDE_DIRS = [
         "src",
+        "%{Glad.location}/include",
         "%{NKCore.location}/src",
         "%{NKPlatform.location}/src",
         "%{NKMath.location}/src",
@@ -61,9 +69,13 @@ with project("NKRenderer"):
         "%{NKContainers.location}/src",
         "%{NKMemory.location}/src",
         "%{NKWindow.location}/src",
-    ])
+    ]
+    if _VULKAN_INCLUDE:
+        _RENDERER_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
+    includedirs(_RENDERER_INCLUDE_DIRS)
 
-    dependson(["NKMath", "NKTime", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
+    dependson(["Glad", "NKMath", "NKTime", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
+    links(["Glad"])
 
     files([
         "src/NKRenderer/**.cpp",
@@ -83,7 +95,9 @@ with project("NKRenderer"):
         defines([
             "WIN32_LEAN_AND_MEAN",
         ])
-        links(["gdi32", "user32"])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        links(["gdi32", "user32", "vulkan-1"])
 
     # ===== UWP ====================================================================
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
@@ -93,7 +107,7 @@ with project("NKRenderer"):
 
     # ===== Linux XLib =============================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
-        links(["X11"])
+        links(["X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
 
     # ===== Linux headless =========================================================
@@ -104,7 +118,7 @@ with project("NKRenderer"):
     with filter("system:Linux && options:linux-backend=xcb"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
-        links(["xcb", "xcb-image"])
+        links(["xcb", "xcb-image", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
 
     # ===== Linux Wayland ==========================================================
@@ -122,7 +136,7 @@ with project("NKRenderer"):
     # ===== Android ================================================================
     with filter("system:Android"):
         usetoolchain("android-ndk")
-        links(["android", "EGL", "GLESv3"])
+        links(["android", "EGL", "GLESv3", "vulkan"])
 
     # ===== iOS ====================================================================
     with filter("system:iOS"):
@@ -156,13 +170,15 @@ with project("NKRenderer"):
                 links(_WAYLAND_TEST_LINKS)
             with filter("system:Linux && options:linux-backend=xcb"):
                 defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
-                links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+                links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11", "Xext"])
             with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
                 defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-                links(["pthread", "X11"])
+                links(["pthread", "X11", "Xext"])
             with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                if _VULKAN_LIB:
+                    libdirs([_VULKAN_LIB])
                 links([
                     "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                     "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
-                    "uuid", "ole32", "dinput8", "dxguid"
+                    "uuid", "ole32", "dinput8", "dxguid", "vulkan-1"
                 ])

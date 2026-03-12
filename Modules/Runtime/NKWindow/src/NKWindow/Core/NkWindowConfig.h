@@ -34,6 +34,42 @@ namespace nkentseu {
 		bool preventContextMenu     = false;
 	};
 
+	// -------------------------------------------------------------------------
+	// NkNativeWindowOptions
+	// Options natives avancées (cross-backend via handles opaques).
+	//
+	// Interprétation des handles:
+	//   - Windows : externalWindowHandle/parentWindowHandle = HWND
+	//   - XLib    : externalWindowHandle/parentWindowHandle = ::Window
+	//   - XCB     : externalWindowHandle/parentWindowHandle = xcb_window_t
+	//   - Wayland : externalWindowHandle = non supporte, parentWindowHandle = xdg_toplevel*
+	//   - macOS   : externalWindowHandle/parentWindowHandle = NSWindow*
+	//   - iOS     : externalWindowHandle = UIWindow*, parentWindowHandle = UIView*
+	//   - Android : externalWindowHandle = ANativeWindow*
+	//   - Web     : externalWindowHandle = const char* (canvas selector, ex: "#canvas")
+	//   - UWP/Xbox/Noop : externalWindowHandle = handle opaque
+	//
+	// externalDisplayHandle est utilisé uniquement quand nécessaire:
+	//   - XLib : Display*
+	//   - XCB  : xcb_connection_t*
+	//   - Wayland : wl_display*
+	//   - macOS : NSScreen*
+	//   - iOS   : UIScreen* (création interne uniquement)
+	//   - Android : android_app* (optionnel)
+	//   - Web : const char* (canvas selector alternatif)
+	// -------------------------------------------------------------------------
+	struct NkNativeWindowOptions {
+		bool    useExternalWindow = false;
+		uintptr externalWindowHandle = 0;
+		uintptr externalDisplayHandle = 0;
+
+		uintptr parentWindowHandle = 0;
+		bool    utilityWindow = false;
+
+		// Win32 only: copy pixel format from this HWND before WGL context creation.
+		uintptr win32PixelFormatShareWindowHandle = 0;
+	};
+
 	struct NkWindowConfig {
 		// --- Position et taille ---
 		int32 x         = 100;
@@ -70,6 +106,7 @@ namespace nkentseu {
 		NkString title    = "NkWindow";
 		NkString name     = "NkApp";
 		NkString iconPath;
+		NkNativeWindowOptions native;
 
 		// --- Mobile / Safe Area ---
 		bool respectSafeArea = true;

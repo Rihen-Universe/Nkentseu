@@ -574,15 +574,15 @@ namespace nkentseu {
         //     return NkStringView(lhs).Compare(NkStringView(rhs)) == 0;
         // }
 
-        NK_CONSTEXPR bool operator==(const NkStringView& lhs, const NkStringView& rhs) noexcept {
+        NK_INLINE bool operator==(const NkStringView& lhs, const NkStringView& rhs) noexcept {
             return lhs.Compare(rhs) == 0;
         }
 
-        NK_CONSTEXPR bool operator==(const NkStringView& lhs, const char* rhs) noexcept {
+        NK_INLINE bool operator==(const NkStringView& lhs, const char* rhs) noexcept {
             return lhs.Compare(NkStringView(rhs)) == 0;
         }
 
-        NK_CONSTEXPR bool operator==(const char* lhs, const NkStringView& rhs) noexcept {
+        NK_INLINE bool operator==(const char* lhs, const NkStringView& rhs) noexcept {
             return NkStringView(lhs).Compare(rhs) == 0;
         }
         
@@ -591,15 +591,15 @@ namespace nkentseu {
         //     return NkStringView(lhs).Compare(NkStringView(rhs)) != 0;
         // }
 
-        NK_CONSTEXPR bool operator!=(const NkStringView& lhs, const NkStringView& rhs) noexcept {
-            return lhs.Compare(rhs) == 0;
+        NK_INLINE bool operator!=(const NkStringView& lhs, const NkStringView& rhs) noexcept {
+            return lhs.Compare(rhs) != 0;
         }
 
-        NK_CONSTEXPR bool operator!=(const NkStringView& lhs, const char* rhs) noexcept {
+        NK_INLINE bool operator!=(const NkStringView& lhs, const char* rhs) noexcept {
             return lhs.Compare(NkStringView(rhs)) != 0;
         }
 
-        NK_CONSTEXPR bool operator!=(const char* lhs, const NkStringView& rhs) noexcept {
+        NK_INLINE bool operator!=(const char* lhs, const NkStringView& rhs) noexcept {
             return NkStringView(lhs).Compare(rhs) != 0;
         }
         

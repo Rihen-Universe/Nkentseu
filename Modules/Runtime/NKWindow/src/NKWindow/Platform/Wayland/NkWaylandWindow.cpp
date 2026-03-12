@@ -68,6 +68,8 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <cerrno>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -182,30 +184,30 @@ namespace nkentseu {
                                  uint32_t            /*version*/) {
         NkWindow* window = static_cast<NkWindow*>(data);
 
-        if (std::strcmp(iface, wl_compositor_interface.name) == 0) {
+        if (::strcmp(iface, wl_compositor_interface.name) == 0) {
             window->mData.mCompositor = static_cast<::wl_compositor*>(
                 wl_registry_bind(registry, name, &wl_compositor_interface, 4));
 
-        } else if (std::strcmp(iface, xdg_wm_base_interface.name) == 0) {
+        } else if (::strcmp(iface, xdg_wm_base_interface.name) == 0) {
             window->mData.mWmBase = static_cast<::xdg_wm_base*>(
                 wl_registry_bind(registry, name, &xdg_wm_base_interface, 1));
 
-        } else if (std::strcmp(iface, wl_shm_interface.name) == 0) {
+        } else if (::strcmp(iface, wl_shm_interface.name) == 0) {
             window->mData.mShm = static_cast<::wl_shm*>(
                 wl_registry_bind(registry, name, &wl_shm_interface, 1));
 
-        } else if (std::strcmp(iface, wl_seat_interface.name) == 0) {
+        } else if (::strcmp(iface, wl_seat_interface.name) == 0) {
             window->mData.mSeat = static_cast<::wl_seat*>(
                 wl_registry_bind(registry, name, &wl_seat_interface, 7));
             if (window->mData.mSeat && NkSystem::Instance().IsInitialised()) {
                 NkWaylandAttachSeatListener(&NkSystem::Events(), window->mData.mSeat);
             }
 
-        } else if (std::strcmp(iface, wl_data_device_manager_interface.name) == 0) {
+        } else if (::strcmp(iface, wl_data_device_manager_interface.name) == 0) {
             window->mData.mDataDeviceManager = static_cast<::wl_data_device_manager*>(
                 wl_registry_bind(registry, name, &wl_data_device_manager_interface, 3));
 
-        } else if (std::strcmp(iface, wl_output_interface.name) == 0) {
+        } else if (::strcmp(iface, wl_output_interface.name) == 0) {
             // On ne bind que le premier output (écran principal)
             if (!gOutputInfo.output) {
                 gOutputInfo.output = static_cast<::wl_output*>(
@@ -214,7 +216,7 @@ namespace nkentseu {
             }
 
 #if __has_include("xdg-decoration-client-protocol.h") || __has_include(<xdg-decoration-client-protocol.h>)
-        } else if (std::strcmp(iface, zxdg_decoration_manager_v1_interface.name) == 0) {
+        } else if (::strcmp(iface, zxdg_decoration_manager_v1_interface.name) == 0) {
             window->mData.mDecorationManager = static_cast<::zxdg_decoration_manager_v1*>(
                 wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, 1));
 #endif
@@ -403,7 +405,7 @@ namespace nkentseu {
                                              uint32_t       height,
                                              uint32_t       stride,
                                              void**         pixels) {
-        const std::size_t size = static_cast<std::size_t>(stride) * height;
+        const size_t size = static_cast<size_t>(stride) * height;
 
         char path[] = "/tmp/nk-wl-shm-XXXXXX";
         const int fd = mkstemp(path);
@@ -436,7 +438,7 @@ namespace nkentseu {
 
         // Buffer software
         if (d.mPixels && d.mBuffer) {
-            munmap(d.mPixels, static_cast<std::size_t>(d.mStride) * d.mHeight);
+            munmap(d.mPixels, static_cast<size_t>(d.mStride) * d.mHeight);
             d.mPixels = nullptr;
         }
         if (d.mBuffer)       { wl_buffer_destroy(d.mBuffer);         d.mBuffer        = nullptr; }
@@ -540,13 +542,37 @@ namespace nkentseu {
 
     bool NkWindow::Create(const NkWindowConfig& config) {
         mConfig = config;
+        mData.mAppliedHints = config.surfaceHints;
+        if (config.native.useExternalWindow && config.native.externalWindowHandle != 0) {
+            mLastError = NkError(100, "Wayland external window attach is not supported.");
+            return false;
+        }
+        if (config.transparent) {
+            logger.Warn("[NkWindow] Wayland: transparent top-level is compositor-dependent (best effort).");
+        }
+        ::xdg_toplevel* requestedParent =
+            reinterpret_cast<::xdg_toplevel*>(config.native.parentWindowHandle);
+        if (config.native.utilityWindow && !requestedParent) {
+            logger.Warn("[NkWindow] Wayland: utility window needs parent xdg_toplevel (ignored).");
+        }
 
         // ------------------------------------------------------------------
         // 1. Connexion Wayland
         // ------------------------------------------------------------------
         mData.mDisplay = wl_display_connect(nullptr);
         if (!mData.mDisplay) {
-            mLastError = NkError(1, "Wayland: wl_display_connect failed");
+            const char* waylandDisplay = ::getenv("WAYLAND_DISPLAY");
+            const char* runtimeDir     = ::getenv("XDG_RUNTIME_DIR");
+            const int err              = errno;
+            const char* errMsg         = ::strerror(err);
+            mLastError = NkError(
+                1,
+                NkString::Fmtf(
+                    "Wayland: wl_display_connect failed (WAYLAND_DISPLAY='%s', XDG_RUNTIME_DIR='%s', errno=%d '%s')",
+                    waylandDisplay ? waylandDisplay : "",
+                    runtimeDir ? runtimeDir : "",
+                    err,
+                    errMsg ? errMsg : ""));
             return false;
         }
 
@@ -599,6 +625,9 @@ namespace nkentseu {
 
                 libdecor_frame_set_title(mData.mLibdecorFrame, config.title.CStr());
                 libdecor_frame_set_app_id(mData.mLibdecorFrame, config.name.CStr());
+                if (requestedParent && mData.mXdgToplevel) {
+                    xdg_toplevel_set_parent(mData.mXdgToplevel, requestedParent);
+                }
 
                 if (!config.resizable) {
                     libdecor_frame_set_min_content_size(
@@ -641,6 +670,9 @@ namespace nkentseu {
             // Titre (barre de titre) + app_id (identifiant D-Bus / .desktop)
             xdg_toplevel_set_title(mData.mXdgToplevel, config.title.CStr());
             xdg_toplevel_set_app_id(mData.mXdgToplevel, config.name.CStr());
+            if (requestedParent) {
+                xdg_toplevel_set_parent(mData.mXdgToplevel, requestedParent);
+            }
 
             // Contraintes de taille initiales
             if (!config.resizable) {
@@ -686,6 +718,27 @@ namespace nkentseu {
             wl_display_roundtrip(mData.mDisplay);
         }
 
+        // Ensure xdg_surface is configured before any buffer attach/commit.
+        if (!mData.mConfigured && mData.mDisplay) {
+            for (int tries = 0; tries < 8 && !mData.mConfigured; ++tries) {
+#if NKENTSEU_HAS_LIBDECOR
+                if (mData.mUsingLibdecor && mData.mLibdecor) {
+                    (void)libdecor_dispatch(mData.mLibdecor, 0);
+                }
+#endif
+                if (wl_display_roundtrip(mData.mDisplay) < 0) {
+                    break;
+                }
+            }
+        }
+
+        if (!mData.mConfigured) {
+            logger.Error("[NkWindow] Wayland: xdg_surface configure not received.");
+            mLastError = NkError(2, "Wayland surface was never configured.");
+            DestroyWaylandResources(mData);
+            return false;
+        }
+
         // ------------------------------------------------------------------
         // 6. Dimensions finales (le compositeur peut avoir imposé les siennes)
         // ------------------------------------------------------------------
@@ -702,7 +755,7 @@ namespace nkentseu {
 
             if (mData.mBuffer && config.visible && mData.mConfigured) {
                 memory::NkMemSet(mData.mPixels, 0,
-                    static_cast<std::size_t>(mData.mStride) * mData.mHeight);
+                    static_cast<size_t>(mData.mStride) * mData.mHeight);
                 wl_surface_attach(mData.mSurface, mData.mBuffer, 0, 0);
                 wl_surface_damage(mData.mSurface, 0, 0,
                     static_cast<int32_t>(mData.mWidth),
@@ -731,22 +784,22 @@ namespace nkentseu {
             if (mData.mDropTarget) {
                 mData.mDropTarget->SetDataDeviceManager(mData.mDataDeviceManager);
 
-                mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& e) {
+                mData.mDropTarget->SetDropEnterCallback(NkWaylandDropTarget::DropEnterCallback([this](const NkDropEnterEvent& e) {
                     NkDropEnterEvent copy(e);
                     NkSystem::Events().Enqueue_Public(copy, mId);
-                });
-                mData.mDropTarget->SetDropLeaveCallback([this](const NkDropLeaveEvent& e) {
+                }));
+                mData.mDropTarget->SetDropLeaveCallback(NkWaylandDropTarget::DropLeaveCallback([this](const NkDropLeaveEvent& e) {
                     NkDropLeaveEvent copy(e);
                     NkSystem::Events().Enqueue_Public(copy, mId);
-                });
-                mData.mDropTarget->SetDropFileCallback([this](const NkDropFileEvent& e) {
+                }));
+                mData.mDropTarget->SetDropFileCallback(NkWaylandDropTarget::DropFileCallback([this](const NkDropFileEvent& e) {
                     NkDropFileEvent copy(e);
                     NkSystem::Events().Enqueue_Public(copy, mId);
-                });
-                mData.mDropTarget->SetDropTextCallback([this](const NkDropTextEvent& e) {
+                }));
+                mData.mDropTarget->SetDropTextCallback(NkWaylandDropTarget::DropTextCallback([this](const NkDropTextEvent& e) {
                     NkDropTextEvent copy(e);
                     NkSystem::Events().Enqueue_Public(copy, mId);
-                });
+                }));
             }
         }
 
@@ -1024,6 +1077,7 @@ namespace nkentseu {
         desc.shmPixels   = mData.mPixels;
         desc.shmBuffer   = mData.mBuffer;
         desc.shmStride   = mData.mStride;
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

@@ -31,8 +31,7 @@
 
 #include "NkEvent.h"
 #include "NKContainers/String/NkStringUtils.h"
-#include <string>
-#include <vector>
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 
@@ -157,7 +156,7 @@ namespace nkentseu {
                               NkTransferProtocol    protocol   = NkTransferProtocol::NK_TRANSFER_PROTO_UNKNOWN,
                               uint64                 windowId   = 0)
             : NkTransferEvent(transferId, windowId)
-            , mName(std::move(name))
+            , mName(traits::NkMove(name))
             , mTotalBytes(totalBytes)
             , mDirection(direction)
             , mProtocol(protocol)
@@ -265,7 +264,7 @@ namespace nkentseu {
             : NkTransferEvent(transferId, windowId)
             , mTotalBytes(totalBytes)
             , mDurationMs(durationMs)
-            , mOutputPath(std::move(outputPath))
+            , mOutputPath(traits::NkMove(outputPath))
         {}
 
         NkEvent*    Clone()    const override { return new NkTransferCompleteEvent(*this); }
@@ -317,7 +316,7 @@ namespace nkentseu {
                                uint64            windowId         = 0)
             : NkTransferEvent(transferId, windowId)
             , mStatus(status)
-            , mMessage(std::move(message))
+            , mMessage(traits::NkMove(message))
             , mBytesTransferred(bytesTransferred)
         {}
 
@@ -398,7 +397,7 @@ namespace nkentseu {
                               uint64             offset    = 0,
                               uint64             windowId  = 0)
             : NkTransferEvent(transferId, windowId)
-            , mData(std::move(data))
+            , mData(traits::NkMove(data))
             , mOffset(offset)
         {}
 

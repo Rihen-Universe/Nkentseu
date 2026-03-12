@@ -34,10 +34,12 @@ namespace nkentseu {
                     , mSize(size)
                     , mType(&type)
                     , mBaseClass(nullptr)
-                    , mProperties(nullptr)
+                    , mProperties(mPropertyStorage)
                     , mPropertyCount(0)
-                    , mMethods(nullptr)
+                    , mMethods(mMethodStorage)
                     , mMethodCount(0)
+                    , mConstructor(nullptr)
+                    , mDestructor(nullptr)
                 {}
                 
                 // ========================================
@@ -73,10 +75,13 @@ namespace nkentseu {
                 // ========================================
                 
                 void AddProperty(const NkProperty* property) {
+                    if (property == nullptr) {
+                        return;
+                    }
                     // Simplifié: dans implémentation réelle, utiliser Vector
                     // Pour l'instant, assume tableau statique
                     if (mPropertyCount < 64) {
-                        const_cast<const NkProperty**&>(mProperties)[mPropertyCount++] = property;
+                        mProperties[mPropertyCount++] = property;
                     }
                 }
                 
@@ -106,8 +111,11 @@ namespace nkentseu {
                 // ========================================
                 
                 void AddMethod(const NkMethod* method) {
+                    if (method == nullptr) {
+                        return;
+                    }
                     if (mMethodCount < 64) {
-                        const_cast<const NkMethod**&>(mMethods)[mMethodCount++] = method;
+                        mMethods[mMethodCount++] = method;
                     }
                 }
                 
@@ -157,9 +165,11 @@ namespace nkentseu {
                 const NkType* mType;
                 const NkClass* mBaseClass;
                 
+                const NkProperty* mPropertyStorage[64];
                 const NkProperty** mProperties;
                 usize mPropertyCount;
                 
+                const NkMethod* mMethodStorage[64];
                 const NkMethod** mMethods;
                 usize mMethodCount;
                 

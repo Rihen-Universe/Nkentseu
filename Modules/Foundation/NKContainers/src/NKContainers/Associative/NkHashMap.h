@@ -23,6 +23,26 @@
 
 namespace nkentseu {
     
+        template<typename Key>
+        struct NkHashMapDefaultHasher {
+            usize operator()(const Key& key) const {
+                const nk_uint8* data = reinterpret_cast<const nk_uint8*>(&key);
+                usize hash = static_cast<usize>(1469598103934665603ull);
+                for (usize i = 0; i < sizeof(Key); ++i) {
+                    hash ^= static_cast<usize>(data[i]);
+                    hash *= static_cast<usize>(1099511628211ull);
+                }
+                return hash;
+            }
+        };
+        
+        template<typename Key>
+        struct NkHashMapDefaultEqual {
+            bool operator()(const Key& lhs, const Key& rhs) const {
+                return lhs == rhs;
+            }
+        };
+        
         
         /**
          * @brief Hash map - NkUnorderedMap equivalent
@@ -41,7 +61,11 @@ namespace nkentseu {
          * map[3] = "three";
          * if (map.Contains(1)) { }
          */
-        template<typename Key, typename Value, typename Allocator = memory::NkAllocator>
+        template<typename Key,
+                 typename Value,
+                 typename Allocator = memory::NkAllocator,
+                 typename Hasher = NkHashMapDefaultHasher<Key>,
+                 typename KeyEqual = NkHashMapDefaultEqual<Key>>
         class NkHashMap {
         private:
             struct Node {
@@ -174,17 +198,12 @@ namespace nkentseu {
             SizeType mSize;
             float mMaxLoadFactor;
             Allocator* mAllocator;
+            Hasher mHasher;
+            KeyEqual mEqual;
             
             // Hash function
             usize HashKey(const Key& key) const {
-                // FNV-1a hash
-                usize hash = 2166136261u;
-                const unsigned char* data = reinterpret_cast<const unsigned char*>(&key);
-                for (usize i = 0; i < sizeof(Key); ++i) {
-                    hash ^= data[i];
-                    hash *= 16777619u;
-                }
-                return hash;
+                return mHasher(key);
             }
             
             usize GetBucketIndex(usize hash) const {
@@ -234,7 +253,7 @@ namespace nkentseu {
                 SizeType idx = GetBucketIndex(hash);
                 Node* node = mBuckets[idx];
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         return node;
                     }
                     node = node->Next;
@@ -247,14 +266,18 @@ namespace nkentseu {
             explicit NkHashMap(Allocator* allocator = nullptr)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(0.75f)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHasher()
+                , mEqual() {
                 InitBuckets(16);
             }
             
             NkHashMap(NkInitializerList<ValueType> init, Allocator* allocator = nullptr)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(0.75f)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHasher()
+                , mEqual() {
                 InitBuckets(16);
                 for (auto& pair : init) {
                     Insert(pair.First, pair.Second);
@@ -264,7 +287,9 @@ namespace nkentseu {
             NkHashMap(const NkHashMap& other)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(other.mMaxLoadFactor)
-                , mAllocator(other.mAllocator) {
+                , mAllocator(other.mAllocator)
+                , mHasher(other.mHasher)
+                , mEqual(other.mEqual) {
                 InitBuckets(other.mBucketCount);
                 for (SizeType i = 0; i < other.mBucketCount; ++i) {
                     Node* node = other.mBuckets[i];
@@ -280,7 +305,9 @@ namespace nkentseu {
                 , mBucketCount(other.mBucketCount)
                 , mSize(other.mSize)
                 , mMaxLoadFactor(other.mMaxLoadFactor)
-                , mAllocator(other.mAllocator) {
+                , mAllocator(other.mAllocator)
+                , mHasher(traits::NkMove(other.mHasher))
+                , mEqual(traits::NkMove(other.mEqual)) {
                 other.mBuckets = nullptr;
                 other.mBucketCount = 0;
                 other.mSize = 0;
@@ -296,6 +323,8 @@ namespace nkentseu {
                 }
                 mAllocator = other.mAllocator;
                 mMaxLoadFactor = other.mMaxLoadFactor;
+                mHasher = other.mHasher;
+                mEqual = other.mEqual;
                 InitBuckets(other.mBucketCount);
                 for (SizeType i = 0; i < other.mBucketCount; ++i) {
                     Node* node = other.mBuckets[i];
@@ -320,6 +349,8 @@ namespace nkentseu {
                 mSize = other.mSize;
                 mMaxLoadFactor = other.mMaxLoadFactor;
                 mAllocator = other.mAllocator;
+                mHasher = traits::NkMove(other.mHasher);
+                mEqual = traits::NkMove(other.mEqual);
 
                 other.mBuckets = nullptr;
                 other.mBucketCount = 0;
@@ -428,7 +459,7 @@ namespace nkentseu {
                 // Check if key exists
                 Node* node = mBuckets[idx];
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         node->Data.Second = value;  // Update
                         return;
                     }
@@ -452,7 +483,7 @@ namespace nkentseu {
                 Node* node = mBuckets[idx];
                 
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         *prev = node->Next;
                         node->~Node();
                         mAllocator->Deallocate(node);
@@ -486,7 +517,7 @@ namespace nkentseu {
                 SizeType idx = GetBucketIndex(hash);
                 Node* node = mBuckets[idx];
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         return Iterator(this, node, idx);
                     }
                     node = node->Next;
@@ -499,7 +530,7 @@ namespace nkentseu {
                 SizeType idx = GetBucketIndex(hash);
                 Node* node = mBuckets[idx];
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         return ConstIterator(this, node, idx);
                     }
                     node = node->Next;

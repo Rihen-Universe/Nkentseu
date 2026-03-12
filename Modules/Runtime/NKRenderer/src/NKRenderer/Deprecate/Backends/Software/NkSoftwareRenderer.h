@@ -10,7 +10,7 @@
 //   Cocoa   : NSBitmapImageRep + drawInRect
 // =============================================================================
 
-#include "NKRenderer/NkIRenderer.h"
+#include "NKRenderer/Deprecate/NkIRenderer.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include <vector>
 

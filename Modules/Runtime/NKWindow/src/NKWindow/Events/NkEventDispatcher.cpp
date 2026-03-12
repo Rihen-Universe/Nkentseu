@@ -26,8 +26,6 @@
 #include "NKWindow/Core/NkSystem.h"   // NkSystem::Events() → NkEventSystem&
 #include "NKMath/NkFunctions.h"
 
-#include <algorithm>
-
 namespace nkentseu {
 
     // =========================================================================
@@ -109,7 +107,7 @@ namespace nkentseu {
 
     void NkActionManager::CreateAction(const NkString& name, NkActionSubscriber handler) {
         if (mActions.Contains(name)) return;
-        mActions[name] = std::move(handler);
+        mActions[name] = traits::NkMove(handler);
     }
 
     void NkActionManager::AddCommand(const NkActionCommand& cmd) {
@@ -130,7 +128,12 @@ namespace nkentseu {
     void NkActionManager::RemoveCommand(const NkActionCommand& cmd) {
         NkVector<NkActionCommand>* v = mCommands.Find(cmd.GetName());
         if (!v) return;
-        v->Erase(std::remove(v->begin(), v->end(), cmd), v->end());
+        for (nk_size i = 0; i < v->Size(); ++i) {
+            if ((*v)[i] == cmd) {
+                v->Erase(v->begin() + i);
+                break;
+            }
+        }
     }
 
     void NkActionManager::TriggerAction(const NkInputCode& code, bool isPressed) {
@@ -178,7 +181,7 @@ namespace nkentseu {
 
     void NkAxisManager::CreateAxis(const NkString& name, NkAxisSubscriber handler) {
         if (mAxes.Contains(name)) return;
-        mAxes[name] = std::move(handler);
+        mAxes[name] = traits::NkMove(handler);
     }
 
     void NkAxisManager::AddCommand(const NkAxisCommand& cmd) {
@@ -197,7 +200,12 @@ namespace nkentseu {
     void NkAxisManager::RemoveCommand(const NkAxisCommand& cmd) {
         NkVector<NkAxisCommand>* v = mCommands.Find(cmd.GetName());
         if (!v) return;
-        v->Erase(std::remove(v->begin(), v->end(), cmd), v->end());
+        for (nk_size i = 0; i < v->Size(); ++i) {
+            if ((*v)[i] == cmd) {
+                v->Erase(v->begin() + i);
+                break;
+            }
+        }
     }
 
     void NkAxisManager::UpdateAxes(const NkAxisResolver& resolver) {

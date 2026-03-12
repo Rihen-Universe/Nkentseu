@@ -21,7 +21,7 @@ namespace nkentseu {
         /**
          * @brief Tuple - Simplified tuple for 2-3 types
          * 
-         * Version simplifiée de std::tuple.
+         * Version simplifiée de STL::tuple.
          * Supporte jusqu'à 3 types différents.
          * 
          * @example

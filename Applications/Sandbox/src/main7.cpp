@@ -13,7 +13,7 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvents.h"
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Chemin correct pour NkChrono et NkElapsedTime
@@ -24,6 +24,22 @@
 
 #include <cmath>
 #include <cstring>
+
+// AppData pattern #8: direct API override via NkSetEntryAppData().
+namespace {
+struct StressAppDataBootstrap {
+    StressAppDataBootstrap() {
+        nkentseu::NkAppData d{};
+        d.appName = "SandboxStressRingBuffer";
+        d.appVersion = "1.0.0";
+        d.enableEventLogging = false;
+        d.enableRendererDebug = false;
+        d.enableMultiWindow = false;
+        nkentseu::NkSetEntryAppData(d);
+    }
+};
+const StressAppDataBootstrap gStressAppDataBootstrap{};
+} // namespace
 
 namespace {
 using namespace nkentseu;
@@ -147,8 +163,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 {
     using namespace nkentseu;
 
-    // 1. Init
-    if (!NkInitialise({ .appName = "ex06 Stress RingBuffer + Gamepad" })) return -1;
+    // 1. Runtime déjà initialisé par l'entrypoint NkMain
 
     // 2. Fenêtre
     NkWindowConfig cfg;
@@ -159,14 +174,14 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     cfg.resizable = true;
 
     NkWindow window(cfg);
-    if (!window.IsOpen()) { NkClose(); return -2; }
+    if (!window.IsOpen()) { return -2; }
 
     // 3. Renderer
     NkRendererConfig rcfg;
     rcfg.api                   = NkRendererApi::NK_SOFTWARE;
     rcfg.autoResizeFramebuffer = true;
     NkRenderer renderer;
-    if (!renderer.Create(window, rcfg)) { NkClose(); return -3; }
+    if (!renderer.Create(window, rcfg)) { return -3; }
 
     // 4. Gamepad callbacks (event-driven)
     // CORRECTION : la lambda doit correspondre à NkGamepadConnectCallback (const NkGamepadInfo&, bool)
@@ -302,7 +317,6 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     renderer.Shutdown();
     window.Close();
-    NkClose();
     return 0;
 }
 

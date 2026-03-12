@@ -21,15 +21,17 @@ namespace nkentseu {
 
     class NkAndroidDropTarget;
 
-    struct NkWindowData {
-            ANativeWindow*      mNativeWindow  = nullptr;
-            AConfiguration*     mAConfig       = nullptr;
-            struct android_app* mAndroidApp    = nullptr;
-            NkAndroidDropTarget* mDropTarget   = nullptr;
+	    struct NkWindowData {
+	            ANativeWindow*      mNativeWindow  = nullptr;
+	            AConfiguration*     mAConfig       = nullptr;
+	            struct android_app* mAndroidApp    = nullptr;
+	            NkAndroidDropTarget* mDropTarget   = nullptr;
+	            NkSurfaceHints      mAppliedHints{};
+	            bool                mExternal      = false;
 
-            uint32               mWidth         = 0;
-            uint32               mHeight        = 0;
-            uint32               mPrevWidth     = 0;
+	            uint32               mWidth         = 0;
+	            uint32               mHeight        = 0;
+	            uint32               mPrevWidth     = 0;
             uint32               mPrevHeight    = 0;
 
             NkSafeAreaInsets    mSafeArea{};

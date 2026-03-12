@@ -86,6 +86,9 @@ from Jenga.GlobalToolchains import RegisterJengaGlobalToolchains
 with workspace("Nkentseu", location="."):
     RegisterJengaGlobalToolchains()
 
+    dutc(enable=True)
+    dute(enable=True)
+
     # Nom du toolchain Windows clang-mingw
     TC_WINDOWS = "nk-windows-clang-mingw"
 
@@ -111,22 +114,66 @@ with workspace("Nkentseu", location="."):
             linker(_clangxx or "clang++")
             if _llvm_ar:
                 archiver(_llvm_ar)
-            cflags(["--target=x86_64-w64-windows-gnu"])
-            cxxflags(["--target=x86_64-w64-windows-gnu"])
+            cflags([
+                "--target=x86_64-w64-windows-gnu",
+                "-DWINVER=0x0601",
+                "-D_WIN32_WINNT=0x0601",
+            ])
+            cxxflags([
+                "--target=x86_64-w64-windows-gnu",
+                "-DWINVER=0x0601",
+                "-D_WIN32_WINNT=0x0601",
+            ])
             ldflags(["--target=x86_64-w64-windows-gnu"])
 
     else:
-        # Cross-compilation Windows depuis Linux/WSL2 via MinGW-w64
-        _mingw_gcc   = shutil.which("x86_64-w64-mingw32-gcc")
-        _mingw_gxx   = shutil.which("x86_64-w64-mingw32-g++")
-        _mingw_ar    = shutil.which("x86_64-w64-mingw32-ar")
-        if _mingw_gxx:
+        # Cross-compilation Windows depuis Linux/WSL2:
+        # 1) Préfère llvm-mingw (clang/clang++).
+        # 2) Fallback MinGW GCC si clang n'est pas disponible.
+        _mingw_clang   = shutil.which("x86_64-w64-mingw32-clang")
+        _mingw_clangxx = shutil.which("x86_64-w64-mingw32-clang++")
+        _mingw_gcc     = shutil.which("x86_64-w64-mingw32-gcc")
+        _mingw_gxx     = shutil.which("x86_64-w64-mingw32-g++")
+        _llvm_ar       = shutil.which("llvm-ar")
+        _mingw_ar      = shutil.which("x86_64-w64-mingw32-ar")
+
+        if _mingw_clangxx:
+            with toolchain(TC_WINDOWS, "clang"):
+                settarget("Windows", "x86_64", "mingw")
+                targettriple("x86_64-w64-windows-gnu")
+                ccompiler(_mingw_clang or "x86_64-w64-mingw32-clang")
+                cppcompiler(_mingw_clangxx)
+                linker(_mingw_clangxx)
+                if _llvm_ar:
+                    archiver(_llvm_ar)
+                elif _mingw_ar:
+                    archiver(_mingw_ar)
+                cflags([
+                    "--target=x86_64-w64-windows-gnu",
+                    "-DWINVER=0x0601",
+                    "-D_WIN32_WINNT=0x0601",
+                ])
+                cxxflags([
+                    "--target=x86_64-w64-windows-gnu",
+                    "-DWINVER=0x0601",
+                    "-D_WIN32_WINNT=0x0601",
+                ])
+                ldflags(["--target=x86_64-w64-windows-gnu"])
+        elif _mingw_gxx:
             with toolchain(TC_WINDOWS, "gcc"):
                 settarget("Windows", "x86_64", "mingw")
                 ccompiler(_mingw_gcc or "x86_64-w64-mingw32-gcc")
                 cppcompiler(_mingw_gxx)
                 linker(_mingw_gxx)
                 archiver(_mingw_ar or "x86_64-w64-mingw32-ar")
+                cflags([
+                    "-DWINVER=0x0601",
+                    "-D_WIN32_WINNT=0x0601",
+                ])
+                cxxflags([
+                    "-DWINVER=0x0601",
+                    "-D_WIN32_WINNT=0x0601",
+                ])
 
     configurations(["Debug", "Release"])
 
@@ -237,6 +284,9 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Modules/Runtime/NKWindow/NKWindow.jenga"):
+        pass
+
+    with include("Externals/Libs/Glad/Glad.jenga"):
         pass
 
     with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):

@@ -8,6 +8,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKWindow/Core/NkSurfaceHint.h"
 
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XLIB)
 
@@ -22,7 +23,9 @@ namespace nkentseu {
         ::Display* mDisplay        = nullptr;
         ::Window   mXid            = 0;
         ::Atom     mWmDeleteWindow = 0;
+        ::Window   mParentXid      = 0;
         int        mScreen         = 0;
+        bool       mExternal       = false;
         NkXLibDropTarget* mDropTarget = nullptr;
         NkSurfaceHints mAppliedHints;  // ← ajout
     };

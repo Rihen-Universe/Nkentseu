@@ -19,9 +19,16 @@
 
 namespace nkentseu {
     
+        template<typename T>
+        struct NkPriorityLess {
+            bool operator()(const T& lhs, const T& rhs) const {
+                return lhs < rhs;
+            }
+        };
+        
         
         /**
-         * @brief Priority queue - std::priority_queue equivalent
+         * @brief Priority queue - STL::priority_queue equivalent
          * 
          * Implémentation avec binary heap (max-heap par défaut).
          * L'élément de plus haute priorité est toujours en tête.
@@ -39,7 +46,9 @@ namespace nkentseu {
          * int top = pq.Top();  // 4 (max)
          * pq.Pop();            // Remove 4
          */
-        template<typename T, typename Allocator = memory::NkAllocator>
+        template<typename T,
+                 typename Allocator = memory::NkAllocator,
+                 typename Compare = NkPriorityLess<T>>
         class NkPriorityQueue {
         public:
             using ValueType = T;
@@ -50,13 +59,14 @@ namespace nkentseu {
         private:
             Allocator* mAllocator;
             NkVector<T, Allocator> mHeap;
+            Compare mCompare;
             
             SizeType Parent(SizeType i) const { return (i - 1) / 2; }
             SizeType Left(SizeType i) const { return 2 * i + 1; }
             SizeType Right(SizeType i) const { return 2 * i + 2; }
             
             void HeapifyUp(SizeType i) {
-                while (i > 0 && mHeap[Parent(i)] < mHeap[i]) {
+                while (i > 0 && mCompare(mHeap[Parent(i)], mHeap[i])) {
                     traits::NkSwap(mHeap[i], mHeap[Parent(i)]);
                     i = Parent(i);
                 }
@@ -68,11 +78,11 @@ namespace nkentseu {
                 SizeType left = Left(i);
                 SizeType right = Right(i);
                 
-                if (left < size && mHeap[largest] < mHeap[left]) {
+                if (left < size && mCompare(mHeap[largest], mHeap[left])) {
                     largest = left;
                 }
                 
-                if (right < size && mHeap[largest] < mHeap[right]) {
+                if (right < size && mCompare(mHeap[largest], mHeap[right])) {
                     largest = right;
                 }
                 
@@ -86,17 +96,20 @@ namespace nkentseu {
             // Constructors
             NkPriorityQueue()
                 : mAllocator(&memory::NkGetDefaultAllocator())
-                , mHeap(mAllocator) {
+                , mHeap(mAllocator)
+                , mCompare() {
             }
             
             explicit NkPriorityQueue(Allocator* allocator)
                 : mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
-                , mHeap(mAllocator) {
+                , mHeap(mAllocator)
+                , mCompare() {
             }
             
             NkPriorityQueue(NkInitializerList<T> init, Allocator* allocator = nullptr)
                 : mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
-                , mHeap(mAllocator) {
+                , mHeap(mAllocator)
+                , mCompare() {
                 for (auto& val : init) {
                     Push(val);
                 }
@@ -151,12 +164,15 @@ namespace nkentseu {
             
             void Swap(NkPriorityQueue& other) NK_NOEXCEPT {
                 mHeap.Swap(other.mHeap);
+                traits::NkSwap(mAllocator, other.mAllocator);
+                traits::NkSwap(mCompare, other.mCompare);
             }
         };
         
         // Non-member functions
-        template<typename T, typename Allocator>
-        void NkSwap(NkPriorityQueue<T, Allocator>& lhs, NkPriorityQueue<T, Allocator>& rhs) NK_NOEXCEPT {
+        template<typename T, typename Allocator, typename Compare>
+        void NkSwap(NkPriorityQueue<T, Allocator, Compare>& lhs,
+                    NkPriorityQueue<T, Allocator, Compare>& rhs) NK_NOEXCEPT {
             lhs.Swap(rhs);
         }
         

@@ -13,7 +13,7 @@
     #include <windows.h>
     #include <process.h>
 #elif defined(__EMSCRIPTEN__)
-    // File watching not supported on WASM — stub implementation only
+    // WASM fallback: no native kernel watcher API.
 #else
     #include <unistd.h>
     #include <pthread.h>
@@ -266,9 +266,10 @@ namespace nkentseu {
                 this
             ));
             #elif defined(__EMSCRIPTEN__)
-            // File watching not supported on WASM
-            mIsWatching = false;
-            return false;
+            // WASM: keep API alive even without kernel notifications.
+            // Client code can still query IsWatching()/Stop() deterministically.
+            mThread = nullptr;
+            return true;
             #else
             pthread_t* thread = new pthread_t;
             if (pthread_create(thread, NULL, ThreadProc, this) == 0) {

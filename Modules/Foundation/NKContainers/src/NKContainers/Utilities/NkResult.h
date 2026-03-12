@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKCore\src\NKCore\Utilities\NkResult.h
-// DESCRIPTION: Result type (Success/Error) - like Rust Result or std::expected
+// DESCRIPTION: Result type (Success/Error) - like Rust Result or STL::expected
 // AUTEUR: Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
@@ -65,7 +65,7 @@ namespace nkentseu {
          * 
          * Similaire à:
          * - Rust: Result<T, E>
-         * - C++23: std::expected<T, E>
+         * - C++23: STL::expected<T, E>
          * 
          * Usage:
          * @code

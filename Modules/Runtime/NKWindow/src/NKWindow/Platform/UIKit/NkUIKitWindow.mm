@@ -18,7 +18,6 @@
 #include "NKWindow/Events/NkTouchEvent.h"
 #include "NKMath/NkFunctions.h"
 
-#include <algorithm>
 #include <cstdint>
 
 @interface NkUIKitTouchView : UIView {
@@ -50,7 +49,7 @@
         CGPoint screen = [touch locationInView:nil];
 
         nkentseu::NkTouchPoint& out = points[count++];
-        out.id = static_cast<nkentseu::uint64>(reinterpret_cast<std::uintptr_t>(touch));
+        out.id = static_cast<nkentseu::uint64>(reinterpret_cast<uintptr_t>(touch));
         out.phase = phase;
         out.clientX = static_cast<float>(pos.x) * scale;
         out.clientY = static_cast<float>(pos.y) * scale;
@@ -138,6 +137,50 @@ namespace nkentseu {
         return {w, h};
     }
 
+    static CAMetalLayer* EnsureUIKitMetalLayer(UIView* view, UIScreen* screen) {
+        if (!view) {
+            return nil;
+        }
+        CAMetalLayer* metalLayer = nil;
+        if (view.layer) {
+            for (CALayer* sublayer in view.layer.sublayers) {
+                if ([sublayer isKindOfClass:[CAMetalLayer class]]) {
+                    metalLayer = (CAMetalLayer*)sublayer;
+                    break;
+                }
+            }
+        }
+        if (!metalLayer) {
+            metalLayer = [CAMetalLayer layer];
+            metalLayer.frame = view.bounds;
+            [view.layer addSublayer:metalLayer];
+        }
+        metalLayer.contentsScale = screen ? screen.scale : [UIScreen mainScreen].scale;
+        metalLayer.frame = view.bounds;
+        return metalLayer;
+    }
+
+    static void ApplyUIKitTransparency(UIWindow* window, UIView* view, bool transparent) {
+        if (transparent) {
+            if (window) {
+                window.backgroundColor = [UIColor clearColor];
+                window.opaque = NO;
+            }
+            if (view) {
+                view.backgroundColor = [UIColor clearColor];
+                view.opaque = NO;
+            }
+        } else {
+            if (view) {
+                view.backgroundColor = [UIColor blackColor];
+                view.opaque = YES;
+            }
+            if (window) {
+                window.opaque = YES;
+            }
+        }
+    }
+
     NkWindow::NkWindow() = default;
 
     NkWindow::NkWindow(const NkWindowConfig& config) {
@@ -156,26 +199,99 @@ namespace nkentseu {
         }
 
         mConfig = config;
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mExternal = false;
+        mData.mOwnsWindow = true;
+        mData.mOwnsView = false;
+        mData.mParentView = nil;
 
         @autoreleasepool {
+            const bool wantsExternal = config.native.useExternalWindow;
+            const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+            if (wantsExternal && !hasExternalHandle) {
+                mLastError = NkError(1, "UIKit: useExternalWindow=true but externalWindowHandle is null");
+                return false;
+            }
+
             UIScreen* screen = [UIScreen mainScreen];
-            CGRect frame = screen.bounds;
+            if (!wantsExternal && config.native.externalDisplayHandle != 0) {
+                UIScreen* requestedScreen = reinterpret_cast<UIScreen*>(config.native.externalDisplayHandle);
+                if (requestedScreen) {
+                    screen = requestedScreen;
+                }
+            }
 
-            UIWindow* window = [[UIWindow alloc] initWithFrame:frame];
-            NkUIKitTouchView* view = [[NkUIKitTouchView alloc] initWithFrame:frame];
-            view->mOwner = this;
-            view.multipleTouchEnabled = YES;
-            view.backgroundColor = [UIColor blackColor];
-            view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            UIWindow* window = nil;
+            UIView* view = nil;
+            CAMetalLayer* metalLayer = nil;
 
-            CAMetalLayer* metalLayer = [CAMetalLayer layer];
-            metalLayer.frame = view.bounds;
-            metalLayer.contentsScale = screen.scale;
-            [view.layer addSublayer:metalLayer];
+            if (wantsExternal && hasExternalHandle) {
+                window = reinterpret_cast<UIWindow*>(config.native.externalWindowHandle);
+                if (!window) {
+                    mLastError = NkError(1, "UIKit: external UIWindow is null");
+                    return false;
+                }
+                mData.mExternal = true;
+                mData.mOwnsWindow = false;
 
-            UIViewController* controller = [[UIViewController alloc] init];
-            controller.view = view;
-            window.rootViewController = controller;
+                view = window.rootViewController ? window.rootViewController.view : nil;
+                if (!view) {
+                    NkUIKitTouchView* touchView = [[NkUIKitTouchView alloc] initWithFrame:window.bounds];
+                    touchView->mOwner = this;
+                    touchView.multipleTouchEnabled = YES;
+                    touchView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+                    UIViewController* controller = [[UIViewController alloc] init];
+                    controller.view = touchView;
+                    window.rootViewController = controller;
+                    view = touchView;
+                    mData.mOwnsView = true;
+                } else if ([view isKindOfClass:[NkUIKitTouchView class]]) {
+                    static_cast<NkUIKitTouchView*>(view)->mOwner = this;
+                }
+            } else if (config.native.parentWindowHandle != 0) {
+                UIView* parent = reinterpret_cast<UIView*>(config.native.parentWindowHandle);
+                if (!parent) {
+                    mLastError = NkError(1, "UIKit: parentWindowHandle is invalid");
+                    return false;
+                }
+                mData.mParentView = parent;
+                mData.mOwnsWindow = false;
+
+                NkUIKitTouchView* touchView = [[NkUIKitTouchView alloc] initWithFrame:parent.bounds];
+                touchView->mOwner = this;
+                touchView.multipleTouchEnabled = YES;
+                touchView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                [parent addSubview:touchView];
+                view = touchView;
+                window = parent.window;
+                mData.mOwnsView = true;
+            } else {
+                const CGRect frame = screen.bounds;
+                window = [[UIWindow alloc] initWithFrame:frame];
+                if (screen) {
+                    window.screen = screen;
+                }
+
+                NkUIKitTouchView* touchView = [[NkUIKitTouchView alloc] initWithFrame:frame];
+                touchView->mOwner = this;
+                touchView.multipleTouchEnabled = YES;
+                touchView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+                UIViewController* controller = [[UIViewController alloc] init];
+                controller.view = touchView;
+                window.rootViewController = controller;
+                view = touchView;
+                mData.mOwnsView = true;
+            }
+
+            if (!view) {
+                mLastError = NkError(1, "UIKit: failed to resolve render view");
+                return false;
+            }
+
+            metalLayer = EnsureUIKitMetalLayer(view, screen);
+            ApplyUIKitTransparency(window, view, config.transparent);
 
             mData.mUIWindow = window;
             mData.mUIView = view;
@@ -190,13 +306,25 @@ namespace nkentseu {
             mId = NkSystem::Instance().RegisterWindow(this);
             if (mId == NK_INVALID_WINDOW_ID) {
                 mLastError = NkError(1, "UIKit: failed to register window");
+                if (mData.mOwnsView && mData.mUIView) {
+                    [mData.mUIView removeFromSuperview];
+                }
+                mData.mUIWindow = nil;
+                mData.mUIView = nil;
+                mData.mMetalLayer = nil;
+                mData.mParentView = nil;
+                mData.mOwnsView = false;
                 return false;
             }
 
-            if (config.visible) {
-                [window makeKeyAndVisible];
-            } else {
-                window.hidden = YES;
+            if (mData.mOwnsWindow && window) {
+                if (config.visible) {
+                    [window makeKeyAndVisible];
+                } else {
+                    window.hidden = YES;
+                }
+            } else if (view) {
+                view.hidden = !config.visible;
             }
         }
 
@@ -225,14 +353,20 @@ namespace nkentseu {
 
         @autoreleasepool {
             if (mData.mUIView) {
-                static_cast<NkUIKitTouchView*>(mData.mUIView)->mOwner = nullptr;
+                if ([mData.mUIView isKindOfClass:[NkUIKitTouchView class]]) {
+                    static_cast<NkUIKitTouchView*>(mData.mUIView)->mOwner = nullptr;
+                }
             }
-            if (mData.mUIWindow) {
+            if (mData.mOwnsWindow && mData.mUIWindow) {
                 mData.mUIWindow.hidden = YES;
+            }
+            if (mData.mOwnsView && mData.mUIView) {
+                [mData.mUIView removeFromSuperview];
             }
             mData.mUIWindow = nil;
             mData.mUIView = nil;
             mData.mMetalLayer = nil;
+            mData.mParentView = nil;
         }
 
         NkWindowDestroyEvent destroyEvent;
@@ -246,6 +380,9 @@ namespace nkentseu {
         mData.mHeight = 0;
         mData.mVisible = false;
         mData.mFullscreen = false;
+        mData.mExternal = false;
+        mData.mOwnsWindow = true;
+        mData.mOwnsView = false;
     }
 
     bool NkWindow::IsOpen() const {
@@ -304,8 +441,8 @@ namespace nkentseu {
         }
 
         const float scale = GetDpiScale();
-        const CGFloat wPt = static_cast<CGFloat>(std::max<uint32>(width, 1u)) / scale;
-        const CGFloat hPt = static_cast<CGFloat>(std::max<uint32>(height, 1u)) / scale;
+        const CGFloat wPt = static_cast<CGFloat>(math::NkMax(width, 1u)) / scale;
+        const CGFloat hPt = static_cast<CGFloat>(math::NkMax(height, 1u)) / scale;
         const CGRect frame = CGRectMake(0.0, 0.0, wPt, hPt);
 
         const uint32 oldW = mData.mWidth;
@@ -329,12 +466,16 @@ namespace nkentseu {
     void NkWindow::SetPosition(int32, int32) {}
 
     void NkWindow::SetVisible(bool visible) {
-        if (!mData.mUIWindow || mData.mVisible == visible) {
+        if ((!mData.mUIWindow && !mData.mUIView) || mData.mVisible == visible) {
             return;
         }
         mData.mVisible = visible;
         mConfig.visible = visible;
-        mData.mUIWindow.hidden = !visible;
+        if (mData.mOwnsWindow && mData.mUIWindow) {
+            mData.mUIWindow.hidden = !visible;
+        } else if (mData.mUIView) {
+            mData.mUIView.hidden = !visible;
+        }
 
         if (visible) {
             NkWindowShownEvent event;
@@ -428,6 +569,7 @@ namespace nkentseu {
         desc.dpi = GetDpiScale();
         desc.view = mData.mUIView;
         desc.metalLayer = mData.mMetalLayer;
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

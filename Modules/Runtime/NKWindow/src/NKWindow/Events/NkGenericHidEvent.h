@@ -35,7 +35,7 @@
 #include "NkMouseEvent.h"  // pour NkButtonState
 #include "NKMemory/NkUtils.h"
 #include "NKContainers/String/NkStringUtils.h"
-#include <vector>
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 
@@ -368,7 +368,7 @@ namespace nkentseu {
                              uint64             windowId = 0)
             : NkGenericHidEvent(deviceId, windowId)
             , mReportId(reportId)
-            , mData(std::move(data))
+            , mData(traits::NkMove(data))
         {}
 
         NkEvent*    Clone()    const override { return new NkHidRawInputEvent(*this); }

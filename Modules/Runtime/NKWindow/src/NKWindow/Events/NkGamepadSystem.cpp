@@ -11,8 +11,6 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKMath/NkFunctions.h"
-#include <algorithm>
-#include <cmath>
 
 // ---------------------------------------------------------------------------
 // SÃ©lection du backend gamepad par plateforme
@@ -229,13 +227,21 @@ namespace nkentseu {
     // Init / Shutdown
     // -------------------------------------------------------------------------
 
-    bool NkGamepadSystem::Init(std::unique_ptr<NkIGamepad> backend) {
+    bool NkGamepadSystem::Init(memory::NkUniquePtr<NkIGamepad> backend) {
         if (mReady) return true;
-        if (!backend) backend = std::make_unique<PlatformGamepad>();
-        mBackend = std::move(backend);
+        if (!backend) {
+            memory::NkAllocator& allocator = memory::NkGetDefaultAllocator();
+            backend = memory::NkUniquePtr<NkIGamepad>(
+                allocator.New<PlatformGamepad>(),
+                memory::NkDefaultDelete<NkIGamepad>(&allocator));
+        }
+        mBackend = traits::NkMove(backend);
         mReady   = mBackend->Init();
         if (!mMappingPersistence) {
-            mMappingPersistence = std::make_unique<NkTextGamepadMappingPersistence>();
+            memory::NkAllocator& allocator = memory::NkGetDefaultAllocator();
+            mMappingPersistence = memory::NkUniquePtr<NkIGamepadMappingPersistence>(
+                allocator.New<NkTextGamepadMappingPersistence>(),
+                memory::NkDefaultDelete<NkIGamepadMappingPersistence>(&allocator));
         }
 
         for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
@@ -250,7 +256,7 @@ namespace nkentseu {
     void NkGamepadSystem::Shutdown() {
         if (!mReady) return;
         if (mBackend) mBackend->Shutdown();
-        mBackend.reset();
+        mBackend.Reset();
         mReady = false;
 
         for (uint32 i = 0; i < NK_MAX_GAMEPADS; ++i) {
@@ -461,8 +467,8 @@ namespace nkentseu {
         mBackend->SetLEDColor(idx, rgba);
     }
 
-    void NkGamepadSystem::SetMappingPersistence(std::unique_ptr<NkIGamepadMappingPersistence> persistence) {
-        mMappingPersistence = std::move(persistence);
+    void NkGamepadSystem::SetMappingPersistence(memory::NkUniquePtr<NkIGamepadMappingPersistence> persistence) {
+        mMappingPersistence = traits::NkMove(persistence);
     }
 
     NkGamepadMappingProfileData NkGamepadSystem::ExportMappingProfile() const {
@@ -495,7 +501,7 @@ namespace nkentseu {
                 e.invert = src.axisMap[a].invert;
                 dst.axes.PushBack(e);
             }
-            profile.slots.PushBack(std::move(dst));
+            profile.slots.PushBack(traits::NkMove(dst));
         }
 
         return profile;

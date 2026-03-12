@@ -17,8 +17,6 @@
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKWindow/Events/NkGamepadSystem.h"
 #include "NkSurface.h"
-#include <string>
-#include <unordered_map>
 
 namespace nkentseu {
 
@@ -29,12 +27,12 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     struct NkAppData {
-        NkRendererApi preferredRenderer   = NkRendererApi::NK_SOFTWARE;
-        bool          enableRendererDebug = false;
-        bool          enableEventLogging  = false;
-        NkString   appName             = "NkApp";
-        NkString   appVersion          = "1.0.0";
-        bool          enableMultiWindow   = true;
+        bool            enableRendererDebug = false;
+        bool            enableEventLogging  = false;
+        NkString        appName             = "NkApp";
+        NkString        appVersion          = "1.0.0";
+        bool            enableMultiWindow   = true;
+        void*           userData            = nullptr;
     };
 
     // ---------------------------------------------------------------------------

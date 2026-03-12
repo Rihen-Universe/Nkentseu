@@ -33,12 +33,17 @@ NkEntryState *gState = nullptr;
 @implementation NkAppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notif {
+	if (!nkentseu::NkEntryRuntimeInit(NK_APP_NAME)) {
+		[NSApp terminate:nil];
+		return;
+	}
 	NkVector<NkString> &args = *self.argsPtr;
 	nkentseu::NkEntryState state(args);
-	state.appName = NK_APP_NAME;
+	nkentseu::NkApplyEntryAppName(state, NK_APP_NAME);
 	nkentseu::gState = &state;
 	nkmain(state);
 	nkentseu::gState = nullptr;
+	nkentseu::NkEntryRuntimeShutdown(true);
 	[NSApp terminate:nil];
 }
 

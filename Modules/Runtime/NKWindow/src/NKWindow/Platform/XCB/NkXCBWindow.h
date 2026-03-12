@@ -4,6 +4,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKWindow/Core/NkSurfaceHint.h"
 
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XCB)
 
@@ -29,8 +30,11 @@ namespace nkentseu {
         xcb_connection_t* mConnection   = nullptr;
         xcb_screen_t*     mScreen       = nullptr;
         xcb_window_t      mWindow       = 0;
+        xcb_window_t      mParentWindow = 0;
+        NkSurfaceHints    mAppliedHints{};
         xcb_colormap_t    mColormap     = 0;
         xcb_cursor_t      mHiddenCursor = 0;
+        bool              mExternal     = false;
         NkXCBDropTarget*  mDropTarget   = nullptr;
 
         // Pour le suivi des événements

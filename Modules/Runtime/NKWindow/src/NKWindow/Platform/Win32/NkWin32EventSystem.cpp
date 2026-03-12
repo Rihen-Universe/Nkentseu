@@ -47,7 +47,7 @@ namespace nkentseu {
         if (mReady) return true;
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
         mPumping = false;
@@ -324,10 +324,11 @@ namespace nkentseu {
                 UINT sz = 0;
                 GetRawInputData((HRAWINPUT)lp, RID_INPUT, nullptr, &sz, sizeof(RAWINPUTHEADER));
                 if (sz > 0) {
-                    std::vector<BYTE> buf(sz);
-                    if (GetRawInputData((HRAWINPUT)lp, RID_INPUT, buf.data(),
+                    NkVector<BYTE> buf;
+                    buf.Resize(static_cast<usize>(sz));
+                    if (GetRawInputData((HRAWINPUT)lp, RID_INPUT, buf.Data(),
                                         &sz, sizeof(RAWINPUTHEADER)) == sz) {
-                        auto* raw = reinterpret_cast<const RAWINPUT*>(buf.data());
+                        auto* raw = reinterpret_cast<const RAWINPUT*>(buf.Data());
                         if (raw->header.dwType == RIM_TYPEMOUSE) {
                             NkMouseRawEvent evt(raw->data.mouse.lLastX,
                                             raw->data.mouse.lLastY, 0);
@@ -501,7 +502,14 @@ namespace nkentseu {
         }
 
         if (suppressDefaultProc) return 0;
-        return result ? result : DefWindowProcW(hwnd, msg, wp, lp);
+        if (result) return result;
+
+        if (owner && owner->mData.mExternal && owner->mData.mPrevWndProc &&
+            owner->mData.mPrevWndProc != NkEventSystem::WindowProcStatic) {
+            return CallWindowProcW(owner->mData.mPrevWndProc, hwnd, msg, wp, lp);
+        }
+
+        return DefWindowProcW(hwnd, msg, wp, lp);
     }
 
 } // namespace nkentseu

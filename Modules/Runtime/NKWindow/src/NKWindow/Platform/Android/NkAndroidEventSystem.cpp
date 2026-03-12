@@ -31,11 +31,6 @@
 #include <android_native_app_glue.h>
 #include <jni.h>
 
-#include <mutex>
-#include <string>
-#include <thread>
-#include <vector>
-
 #define NKLOGD(...) logger.Debugf(__VA_ARGS__)
 
 namespace nkentseu {
@@ -106,6 +101,22 @@ namespace nkentseu {
     }
 
     static void UpdateWindowNativeSurface(NkWindow& window, android_app* app, bool detachOnly = false) {
+        if (window.mData.mExternal) {
+            if (!window.mData.mAndroidApp && app) {
+                window.mData.mAndroidApp = app;
+            }
+            window.mData.mPrevWidth = window.mData.mWidth;
+            window.mData.mPrevHeight = window.mData.mHeight;
+            if (window.mData.mNativeWindow) {
+                window.mData.mWidth = static_cast<uint32>(ANativeWindow_getWidth(window.mData.mNativeWindow));
+                window.mData.mHeight = static_cast<uint32>(ANativeWindow_getHeight(window.mData.mNativeWindow));
+            } else {
+                window.mData.mWidth = 0;
+                window.mData.mHeight = 0;
+            }
+            return;
+        }
+
         window.mData.mAndroidApp = app;
 
         ANativeWindow* nativeWindow = (app && !detachOnly) ? app->window : nullptr;
@@ -473,7 +484,7 @@ namespace nkentseu {
 
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
         mPumping = false;
@@ -513,14 +524,14 @@ namespace nkentseu {
         ClearAllCallbacks();
         mHidMapper.Clear();
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
-            mCurrentEvent.reset();
+            mCurrentEvent.Reset();
         }
         mWindowCallbacks.Clear();
         mTotalEventCount = 0;
         mPumping = false;
-        mPumpThreadId = std::thread::id{};
+        mPumpThreadId = 0;
         mReady = false;
     }
 

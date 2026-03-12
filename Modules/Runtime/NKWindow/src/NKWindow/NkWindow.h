@@ -8,6 +8,7 @@
 #include "Core/NkTypes.h"
 #include "Core/NkWindowConfig.h"
 #include "Core/NkSurface.h"
+#include "Core/NkContext.h"
 #include "Core/NkSystem.h"
 #include "Events/NkGamepadSystem.h"
 

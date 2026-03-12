@@ -44,8 +44,6 @@
 #include <linux/input-event-codes.h>
 #include <poll.h>
 #include <cstring>
-#include <mutex>
-#include <thread>
 
 namespace nkentseu {
 
@@ -549,7 +547,7 @@ namespace nkentseu {
 
         // Libère l'ancien buffer
         if (d.mPixels && d.mBuffer) {
-            munmap(d.mPixels, static_cast<std::size_t>(d.mStride) * d.mPrevHeight);
+            munmap(d.mPixels, static_cast<size_t>(d.mStride) * d.mPrevHeight);
             d.mPixels = nullptr;
         }
         if (d.mBuffer) {
@@ -564,7 +562,7 @@ namespace nkentseu {
         // On réutilise CreateShmBuffer depuis NkWaylandWindow.cpp
         // via la surface desc (on passe par les membres publics).
         // Pour éviter de re-déclarer la fonction ici, on la redéfinit localement.
-        const std::size_t size = static_cast<std::size_t>(d.mStride) * d.mHeight;
+        const size_t size = static_cast<size_t>(d.mStride) * d.mHeight;
         char path[] = "/tmp/nk-wl-rsz-XXXXXX";
         const int fd = mkstemp(path);
         if (fd < 0) return;
@@ -604,7 +602,7 @@ namespace nkentseu {
 
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
         mPumping = false;
@@ -639,14 +637,14 @@ namespace nkentseu {
         ClearAllCallbacks();
         mHidMapper.Clear();
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
-            mCurrentEvent.reset();
+            mCurrentEvent.Reset();
         }
         mWindowCallbacks.Clear();
         mTotalEventCount = 0;
         mPumping         = false;
-        mPumpThreadId    = std::thread::id{};
+        mPumpThreadId    = 0;
         mReady           = false;
     }
 

@@ -28,7 +28,7 @@
 #include "NkEvent.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKMemory/NkUtils.h"
-#include <string>
+#include <cstring>
 
 namespace nkentseu {
 
@@ -226,8 +226,8 @@ namespace nkentseu {
                              uint64       windowId   = 0) noexcept
             : NkSystemEvent(windowId)
         {
-            std::strncpy(mLocale,     locale,     sizeof(mLocale) - 1);
-            std::strncpy(mPrevLocale, prevLocale, sizeof(mPrevLocale) - 1);
+            ::strncpy(mLocale,     locale,     sizeof(mLocale) - 1);
+            ::strncpy(mPrevLocale, prevLocale, sizeof(mPrevLocale) - 1);
         }
 
         NkEvent*    Clone()    const override { return new NkSystemLocaleEvent(*this); }
@@ -378,8 +378,8 @@ namespace nkentseu {
             : NkSystemEvent(windowId)
             , mOffsetMin(offsetMin)
         {
-            std::strncpy(mTzId,     tzId,     sizeof(mTzId) - 1);
-            std::strncpy(mPrevTzId, prevTzId, sizeof(mPrevTzId) - 1);
+            ::strncpy(mTzId,     tzId,     sizeof(mTzId) - 1);
+            ::strncpy(mPrevTzId, prevTzId, sizeof(mPrevTzId) - 1);
         }
 
         NkEvent*    Clone()    const override { return new NkSystemTimeZoneEvent(*this); }

@@ -1,0 +1,8 @@
+# NkAppData config example for SandboxMultiWindow
+# key=value
+
+appName=SandboxMultiWindow
+appVersion=1.0.0
+enableEventLogging=false
+enableRendererDebug=false
+enableMultiWindow=true

@@ -25,7 +25,7 @@ namespace nkentseu {
     
         
         /**
-         * @brief Doubly linked list (std::list equivalent)
+         * @brief Doubly linked list (STL::list equivalent)
          * 
          * Liste doublement chaînée. Chaque nœud pointe vers le précédent et le suivant.
          * Optimisée pour insertion/suppression O(1) en toute position.

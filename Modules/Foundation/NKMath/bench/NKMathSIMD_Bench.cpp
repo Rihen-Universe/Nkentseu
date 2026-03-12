@@ -11,9 +11,9 @@ int main() {
     constexpr nk_uint32 kCount = 4096u;
     constexpr nk_uint32 kIters = 512u;
 
-    nk_float values[kCount];
+    nk_float32 values[kCount];
     for (nk_uint32 i = 0; i < kCount; ++i) {
-        values[i] = 1.0f + static_cast<nk_float>(i) * 0.001f;
+        values[i] = 1.0f + static_cast<nk_float32>(i) * 0.001f;
     }
 
     const auto t0 = std::chrono::high_resolution_clock::now();
@@ -37,7 +37,7 @@ int main() {
     const auto t1 = std::chrono::high_resolution_clock::now();
     const double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
 
-    nk_float sink = 0.0f;
+    nk_float32 sink = 0.0f;
     for (nk_uint32 i = 0; i < kCount; ++i) {
         sink += values[i];
     }

@@ -15,10 +15,10 @@
 //
 // Qui consomme les hints ?
 //   → NkXLibWindow.cpp / NkXCBWindow.cpp  (pour GlxVisualId)
-//   → NkOpenGLContext::Init()             (pour récupérer le FBConfig)
+//   → NkContext.cpp (OpenGL/GLX et OpenGL/EGL optionnel)
 //
-// Tous les autres backends (Vulkan, Metal, DirectX, EGL, Software)
-// n'ont besoin d'aucun hint pré-création.
+// Les backends Vulkan/Metal/DirectX/Software restent surface-first
+// et n'ont pas besoin de hints pré-création.
 // =============================================================================
 
 #include "NkTypes.h"   // uint32, uintptr (= uintptr_t)
@@ -43,7 +43,9 @@ namespace nkentseu {
 
         // WGL — Win32
         // WGL n'a pas de contrainte de création sur HWND, pixel format
-        // est défini après — aucun hint nécessaire.
+        // est défini après. Ce hint est optionnel et permet de copier
+        // le pixel format d'une autre fenêtre Win32 (HWND).
+        NK_WGL_SHARE_PIXEL_FORMAT_HWND = 0x0300, ///< HWND source (uintptr_t)
 
         // Metal — CAMetalLayer déjà créée par NkCocoaWindow — aucun hint
         // Vulkan — surface créée après — aucun hint
