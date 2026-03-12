@@ -2091,33 +2091,6 @@ namespace nkentseu {
         return container.End();
     }
 
-    // ============================================================================
-    // Nouvelles surcharges de GetBegin/GetEnd pour les conteneurs STL (via std::begin/end)
-    // ============================================================================
-    template<typename Container>
-    auto GetBegin(Container& container) -> decltype(begin(container)) {
-        using std::begin;
-        return begin(container);
-    }
-
-    template<typename Container>
-    auto GetBegin(const Container& container) -> decltype(begin(container)) {
-        using std::begin;
-        return begin(container);
-    }
-
-    template<typename Container>
-    auto GetEnd(Container& container) -> decltype(end(container)) {
-        using std::end;
-        return end(container);
-    }
-
-    template<typename Container>
-    auto GetEnd(const Container& container) -> decltype(end(container)) {
-        using std::end;
-        return end(container);
-    }
-
     /**
      * - NkForeach : Applique une opération à chaque élément d’une plage.
      *

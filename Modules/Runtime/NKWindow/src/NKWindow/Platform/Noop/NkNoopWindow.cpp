@@ -16,8 +16,7 @@
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKWindow/Events/NkWindowEvent.h"
-
-#include <algorithm>
+#include "NKMath/NkFunctions.h"
 
 namespace nkentseu {
 
@@ -39,6 +38,23 @@ namespace nkentseu {
         }
 
         mConfig = config;
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mExternal = false;
+
+        const bool wantsExternal = config.native.useExternalWindow;
+        const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+        if (wantsExternal && !hasExternalHandle) {
+            mLastError = NkError(1, "Noop: useExternalWindow=true but externalWindowHandle is null");
+            return false;
+        }
+
+        if (wantsExternal && hasExternalHandle) {
+            mData.mNativeHandle = reinterpret_cast<void*>(config.native.externalWindowHandle);
+            mData.mExternal = true;
+        } else {
+            mData.mNativeHandle = nullptr;
+        }
+
         mData.mTitle = config.title;
         mData.mWidth = config.width > 0 ? config.width : 1280u;
         mData.mHeight = config.height > 0 ? config.height : 720u;
@@ -86,6 +102,7 @@ namespace nkentseu {
         mData.mHeight = 0;
         mData.mVisible = false;
         mData.mFullscreen = false;
+        mData.mExternal = false;
     }
 
     bool NkWindow::IsOpen() const {
@@ -137,8 +154,8 @@ namespace nkentseu {
         const uint32 oldW = mData.mWidth;
         const uint32 oldH = mData.mHeight;
 
-        mData.mWidth = std::max<uint32>(width, 1u);
-        mData.mHeight = std::max<uint32>(height, 1u);
+        mData.mWidth = math::NkMax(width, 1u);
+        mData.mHeight = math::NkMax(height, 1u);
         mConfig.width = mData.mWidth;
         mConfig.height = mData.mHeight;
 
@@ -226,6 +243,7 @@ namespace nkentseu {
         desc.height = mData.mHeight;
         desc.dpi = 1.0f;
         desc.dummy = mData.mNativeHandle;
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

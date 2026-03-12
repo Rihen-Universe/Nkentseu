@@ -55,103 +55,107 @@ namespace nkentseu {
          * }
          */
         class NkDirectory {
-        public:
-            // Directory operations
-            static bool Create(const char* path);
-            static bool Create(const NkPath& path);
-            static bool CreateRecursive(const char* path);
-            static bool CreateRecursive(const NkPath& path);
+            public:
+                // Directory operations
+                static bool Create(const char* path);
+                static bool Create(const NkPath& path);
+                static bool CreateRecursive(const char* path);
+                static bool CreateRecursive(const NkPath& path);
+                
+                static bool Delete(const char* path, bool recursive = false);
+                static bool Delete(const NkPath& path, bool recursive = false);
+                
+                static bool Exists(const char* path);
+                static bool Exists(const NkPath& path);
+                
+                static bool Empty(const char* path);
+                static bool Empty(const NkPath& path);
+                
+                // Enumeration
+                static NkVector<NkString> GetFiles(
+                    const char* path,
+                    const char* pattern = "*",
+                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                );
+                
+                static NkVector<NkString> GetFiles(
+                    const NkPath& path,
+                    const char* pattern = "*",
+                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                );
+                
+                static NkVector<NkString> GetDirectories(
+                    const char* path,
+                    const char* pattern = "*",
+                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                );
+                
+                static NkVector<NkString> GetDirectories(
+                    const NkPath& path,
+                    const char* pattern = "*",
+                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                );
+                
+                static NkVector<NkDirectoryEntry> GetEntries(
+                    const char* path,
+                    const char* pattern = "*",
+                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                );
+                
+                static NkVector<NkDirectoryEntry> GetEntries(
+                    const NkPath& path,
+                    const char* pattern = "*",
+                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                );
+                
+                // Copy/Move
+                static bool Copy(
+                    const char* source,
+                    const char* dest,
+                    bool recursive = true,
+                    bool overwrite = false
+                );
+                
+                static bool Copy(
+                    const NkPath& source,
+                    const NkPath& dest,
+                    bool recursive = true,
+                    bool overwrite = false
+                );
+                
+                static bool Move(const char* source, const char* dest);
+                static bool Move(const NkPath& source, const NkPath& dest);
+                
+                // Special directories
+                static NkPath GetCurrentDirectory();
+                static bool SetCurrentDirectory(const char* path);
+                static bool SetCurrentDirectory(const NkPath& path);
+                
+                static NkPath GetTempDirectory();
+                static NkPath GetHomeDirectory();
+                static NkPath GetAppDataDirectory();
+                
+            private:
             
-            static bool Delete(const char* path, bool recursive = false);
-            static bool Delete(const NkPath& path, bool recursive = false);
-            
-            static bool Exists(const char* path);
-            static bool Exists(const NkPath& path);
-            
-            static bool Empty(const char* path);
-            static bool Empty(const NkPath& path);
-            
-            // Enumeration
-            static NkVector<NkString> GetFiles(
-                const char* path,
-                const char* pattern = "*",
-                NkSearchOption option = NkSearchOption::TopDirectoryOnly
-            );
-            
-            static NkVector<NkString> GetFiles(
-                const NkPath& path,
-                const char* pattern = "*",
-                NkSearchOption option = NkSearchOption::TopDirectoryOnly
-            );
-            
-            static NkVector<NkString> GetDirectories(
-                const char* path,
-                const char* pattern = "*",
-                NkSearchOption option = NkSearchOption::TopDirectoryOnly
-            );
-            
-            static NkVector<NkString> GetDirectories(
-                const NkPath& path,
-                const char* pattern = "*",
-                NkSearchOption option = NkSearchOption::TopDirectoryOnly
-            );
-            
-            static NkVector<NkDirectoryEntry> GetEntries(
-                const char* path,
-                const char* pattern = "*",
-                NkSearchOption option = NkSearchOption::TopDirectoryOnly
-            );
-            
-            static NkVector<NkDirectoryEntry> GetEntries(
-                const NkPath& path,
-                const char* pattern = "*",
-                NkSearchOption option = NkSearchOption::TopDirectoryOnly
-            );
-            
-            // Copy/Move
-            static bool Copy(
-                const char* source,
-                const char* dest,
-                bool recursive = true,
-                bool overwrite = false
-            );
-            
-            static bool Copy(
-                const NkPath& source,
-                const NkPath& dest,
-                bool recursive = true,
-                bool overwrite = false
-            );
-            
-            static bool Move(const char* source, const char* dest);
-            static bool Move(const NkPath& source, const NkPath& dest);
-            
-            // Special directories
-            static NkPath GetCurrentDirectory();
-            static bool SetCurrentDirectory(const char* path);
-            static bool SetCurrentDirectory(const NkPath& path);
-            
-            static NkPath GetTempDirectory();
-            static NkPath GetHomeDirectory();
-            static NkPath GetAppDataDirectory();
-            
-        private:
-            static bool MatchesPattern(const char* name, const char* pattern);
-            static void GetFilesRecursive(
-                const char* path,
-                const char* pattern,
-                NkVector<NkString>& results
-            );
-            static void GetDirectoriesRecursive(
-                const char* path,
-                const char* pattern,
-                NkVector<NkString>& results
-            );
-            static void GetEntriesRecursive(
-                const char* path,
-                const char* pattern,
-                NkVector<NkDirectoryEntry>& results
-            );
+                static bool MatchesPattern(const char* name, const char* pattern);
+
+                static void GetFilesRecursive(
+                    const char* path,
+                    const char* pattern,
+                    NkVector<NkString>& results
+                );
+
+                static void GetDirectoriesRecursive(
+                    const char* path,
+                    const char* pattern,
+                    NkVector<NkString>& results
+                );
+
+                static void GetEntriesRecursive(
+                    const char* path,
+                    const char* pattern,
+                    NkVector<NkDirectoryEntry>& results
+                );
         };
         
     } // namespace entseu

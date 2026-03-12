@@ -21,7 +21,7 @@ namespace nkentseu {
     
         
         /**
-         * @brief Stack adapter - std::stack equivalent
+         * @brief Stack adapter - STL::stack equivalent
          * 
          * LIFO (Last In First Out).
          * Wrapper autour d'un conteneur (Vector par défaut).

@@ -123,6 +123,7 @@
         var Module = {
             preRun: [],
             postRun: [],
+            arguments: [],
             print: (function() {
                 var element = document.getElementById('output');
                 if (element) element.value = '';
@@ -160,6 +161,27 @@
                 Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : '');
             }
         };
+
+        // Optional URL-driven CLI args for nkmain:
+        //   ?demo=opengl
+        //   ?demo=software
+        //   ?args=--demo=opengl%20--foo=bar
+        (function configureArgsFromQuery() {
+            try {
+                var params = new URLSearchParams(window.location.search || "");
+                var demo = params.get("demo") || params.get("api");
+                if (demo && demo.length > 0) {
+                    Module.arguments = ["--demo=" + demo];
+                    return;
+                }
+                var rawArgs = params.get("args");
+                if (rawArgs && rawArgs.length > 0) {
+                    Module.arguments = rawArgs.split(/\s+/).filter(function(x) { return x && x.length > 0; });
+                }
+            } catch (_) {
+                // Keep default empty arguments on parsing failure.
+            }
+        })();
 
         // Compatibility shim for legacy Emscripten outputs that still
         // reference dynCall_* globals at startup.
@@ -208,6 +230,19 @@
 
         window.addEventListener('unhandledrejection', function(event) {
             var reason = event && event.reason;
+            var isExitStatus = !!(reason && (
+                reason.name === 'ExitStatus' ||
+                reason.message === 'ExitStatus' ||
+                typeof reason.status === 'number'
+            ));
+            if (isExitStatus) {
+                // Benign for Emscripten when runtime chooses to reject on exit/unwind.
+                if (event && typeof event.preventDefault === 'function') {
+                    event.preventDefault();
+                }
+                return;
+            }
+
             var reasonText = '';
             if (typeof reason === 'string') {
                 reasonText = reason;
@@ -225,6 +260,9 @@
             console.error('Unhandled promise rejection:', reason);
             Module.setStatus('Unhandled promise rejection: ' + reasonText);
             document.getElementById('spinner').style.display = 'none';
+            if (event && typeof event.preventDefault === 'function') {
+                event.preventDefault();
+            }
         });
     </script>
     {{{ SCRIPT }}}

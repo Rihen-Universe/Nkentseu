@@ -12,18 +12,32 @@
 #include <ctime>
 #if !defined(_WIN32)
 #   include <time.h>
+#else
+#   ifndef WIN32_LEAN_AND_MEAN
+#       define WIN32_LEAN_AND_MEAN
+#   endif
+#   include <windows.h>
 #endif
 
 namespace {
     static inline uint64_t NkGetNowNs() {
-        timespec ts{};
 #if defined(_WIN32)
-        if (::timespec_get(&ts, TIME_UTC) == TIME_UTC)
+        FILETIME fileTime{};
+        ::GetSystemTimeAsFileTime(&fileTime);
+
+        ULARGE_INTEGER ticks{};
+        ticks.LowPart = fileTime.dwLowDateTime;
+        ticks.HighPart = fileTime.dwHighDateTime;
+
+        constexpr uint64_t kWinToUnixEpochOffsetNs = 11644473600ULL * 1000000000ULL;
+        const uint64_t nowNs = ticks.QuadPart * 100ULL; // 100ns ticks
+        return (nowNs >= kWinToUnixEpochOffsetNs) ? (nowNs - kWinToUnixEpochOffsetNs) : 0ULL;
 #else
+        timespec ts{};
         if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
-#endif
             return (static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL) + static_cast<uint64_t>(ts.tv_nsec);
         return 0;
+#endif
     }
 } // namespace
 

@@ -23,6 +23,26 @@
 
 namespace nkentseu {
     
+        template<typename Key>
+        struct NkUnorderedMapDefaultHasher {
+            usize operator()(const Key& key) const {
+                const nk_uint8* data = reinterpret_cast<const nk_uint8*>(&key);
+                usize hash = static_cast<usize>(1469598103934665603ull);
+                for (usize i = 0; i < sizeof(Key); ++i) {
+                    hash ^= static_cast<usize>(data[i]);
+                    hash *= static_cast<usize>(1099511628211ull);
+                }
+                return hash;
+            }
+        };
+        
+        template<typename Key>
+        struct NkUnorderedMapDefaultEqual {
+            bool operator()(const Key& lhs, const Key& rhs) const {
+                return lhs == rhs;
+            }
+        };
+        
         
         /**
          * @brief Unordered map - NkUnorderedMap equivalent
@@ -40,7 +60,11 @@ namespace nkentseu {
          * };
          * map[3] = "three";
          */
-        template<typename Key, typename Value, typename Allocator = memory::NkAllocator>
+        template<typename Key,
+                 typename Value,
+                 typename Allocator = memory::NkAllocator,
+                 typename Hasher = NkUnorderedMapDefaultHasher<Key>,
+                 typename KeyEqual = NkUnorderedMapDefaultEqual<Key>>
         class NkUnorderedMap {
         private:
             struct Node {
@@ -76,16 +100,18 @@ namespace nkentseu {
             SizeType mSize;
             float mMaxLoadFactor;
             Allocator* mAllocator;
+            Hasher mHasher;
+            KeyEqual mEqual;
+            
+            void InitBuckets(SizeType bucketCount) {
+                mBucketCount = bucketCount > 0 ? bucketCount : 1;
+                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*), alignof(Node*)));
+                NK_ASSERT(mBuckets != nullptr);
+                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
+            }
             
             usize HashKey(const Key& key) const {
-                // FNV-1a hash
-                usize hash = 2166136261u;
-                const unsigned char* data = reinterpret_cast<const unsigned char*>(&key);
-                for (usize i = 0; i < sizeof(Key); ++i) {
-                    hash ^= data[i];
-                    hash *= 16777619u;
-                }
-                return hash;
+                return mHasher(key);
             }
             
             usize GetBucketIndex(usize hash) const {
@@ -103,28 +129,113 @@ namespace nkentseu {
             explicit NkUnorderedMap(Allocator* allocator = nullptr)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(0.75f)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
-                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*), alignof(Node*)));
-                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHasher()
+                , mEqual() {
+                InitBuckets(16);
             }
             
             NkUnorderedMap(NkInitializerList<ValueType> init, Allocator* allocator = nullptr)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(0.75f)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
-                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*), alignof(Node*)));
-                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHasher()
+                , mEqual() {
+                InitBuckets(16);
                 for (auto& pair : init) {
                     Insert(pair.First, pair.Second);
                 }
             }
+            
+            NkUnorderedMap(const NkUnorderedMap& other)
+                : mBuckets(nullptr)
+                , mBucketCount(0)
+                , mSize(0)
+                , mMaxLoadFactor(other.mMaxLoadFactor)
+                , mAllocator(other.mAllocator)
+                , mHasher(other.mHasher)
+                , mEqual(other.mEqual) {
+                InitBuckets(other.mBucketCount);
+                for (SizeType i = 0; i < other.mBucketCount; ++i) {
+                    Node* node = other.mBuckets[i];
+                    while (node) {
+                        Insert(node->Data.First, node->Data.Second);
+                        node = node->Next;
+                    }
+                }
+            }
+            
+            #if defined(NK_CPP11)
+            NkUnorderedMap(NkUnorderedMap&& other) NK_NOEXCEPT
+                : mBuckets(other.mBuckets)
+                , mBucketCount(other.mBucketCount)
+                , mSize(other.mSize)
+                , mMaxLoadFactor(other.mMaxLoadFactor)
+                , mAllocator(other.mAllocator)
+                , mHasher(traits::NkMove(other.mHasher))
+                , mEqual(traits::NkMove(other.mEqual)) {
+                other.mBuckets = nullptr;
+                other.mBucketCount = 0;
+                other.mSize = 0;
+            }
+            #endif
             
             ~NkUnorderedMap() {
                 Clear();
                 if (mBuckets) mAllocator->Deallocate(mBuckets);
             }
             
+            NkUnorderedMap& operator=(const NkUnorderedMap& other) {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                if (mBuckets) {
+                    mAllocator->Deallocate(mBuckets);
+                }
+                mAllocator = other.mAllocator;
+                mMaxLoadFactor = other.mMaxLoadFactor;
+                mHasher = other.mHasher;
+                mEqual = other.mEqual;
+                InitBuckets(other.mBucketCount);
+                for (SizeType i = 0; i < other.mBucketCount; ++i) {
+                    Node* node = other.mBuckets[i];
+                    while (node) {
+                        Insert(node->Data.First, node->Data.Second);
+                        node = node->Next;
+                    }
+                }
+                return *this;
+            }
+            
+            #if defined(NK_CPP11)
+            NkUnorderedMap& operator=(NkUnorderedMap&& other) NK_NOEXCEPT {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                if (mBuckets) {
+                    mAllocator->Deallocate(mBuckets);
+                }
+                mBuckets = other.mBuckets;
+                mBucketCount = other.mBucketCount;
+                mSize = other.mSize;
+                mMaxLoadFactor = other.mMaxLoadFactor;
+                mAllocator = other.mAllocator;
+                mHasher = traits::NkMove(other.mHasher);
+                mEqual = traits::NkMove(other.mEqual);
+                
+                other.mBuckets = nullptr;
+                other.mBucketCount = 0;
+                other.mSize = 0;
+                return *this;
+            }
+            #endif
+            
             void Rehash(SizeType newBucketCount) {
+                if (newBucketCount < 1) {
+                    newBucketCount = 1;
+                }
                 Node** newBuckets = static_cast<Node**>(mAllocator->Allocate(newBucketCount * sizeof(Node*), alignof(Node*)));
                 memory::NkMemZero(newBuckets, newBucketCount * sizeof(Node*));
                 
@@ -170,7 +281,7 @@ namespace nkentseu {
                 // Check if exists
                 Node* node = mBuckets[idx];
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         node->Data.Second = value;
                         return;
                     }
@@ -194,7 +305,7 @@ namespace nkentseu {
                 Node* node = mBuckets[idx];
                 
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         *prev = node->Next;
                         node->~Node();
                         mAllocator->Deallocate(node);
@@ -215,7 +326,7 @@ namespace nkentseu {
                 
                 Node* node = mBuckets[idx];
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         return &node->Data.Second;
                     }
                     node = node->Next;
@@ -230,7 +341,7 @@ namespace nkentseu {
                 
                 Node* node = mBuckets[idx];
                 while (node) {
-                    if (node->Data.First == key) {
+                    if (mEqual(node->Data.First, key)) {
                         return &node->Data.Second;
                     }
                     node = node->Next;
@@ -253,7 +364,9 @@ namespace nkentseu {
             }
 
             SizeType BucketCount() const NK_NOEXCEPT { return mBucketCount; }
-            float LoadFactor() const NK_NOEXCEPT { return mSize / static_cast<float>(mBucketCount); }
+            float LoadFactor() const NK_NOEXCEPT {
+                return mBucketCount > 0 ? (mSize / static_cast<float>(mBucketCount)) : 0.0f;
+            }
 
             // Iteration: ForEach(fn) where fn receives (const Key&, Value&) or (const Key&, const Value&)
             template<typename Fn>

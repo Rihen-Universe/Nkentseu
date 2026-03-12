@@ -3,14 +3,11 @@
 """
 NKContainers - Conteneurs fondamentaux (C++17)
 ==============================================
-Périmètre initial stabilisé:
-  - Iterators: NkIterator, NkInitializerList
-  - Heterogeneous: NkPair
-  - Sequential: NkVector
-  - Associative: NkMap, NkBTree
+Périmètre actuellement compilé:
+  - Tous les `.cpp` sous `src/NKContainers/**.cpp`
+  - Inclut les familles Sequential, Associative, String, Specialized, etc.
 
-Le reste du dossier est conservé mais n'est pas encore branché au build
-tant que la migration des includes/API n'est pas terminée.
+Le module est branché en build complet; la stabilisation API/ABI reste itérative.
 """
 
 from Jenga import *
@@ -79,4 +76,3 @@ with project("NKContainers"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-

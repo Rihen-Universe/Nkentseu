@@ -9,7 +9,6 @@
 
 #include "NKWindow/Events/NkGamepadSystem.h"
 
-#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
@@ -95,8 +94,8 @@ namespace nkentseu {
             info.type = NkGamepadType::NK_GP_TYPE_MOBILE;
             info.numButtons = static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX);
             info.numAxes = static_cast<uint32>(NkGamepadAxis::NK_GAMEPAD_AXIS_MAX);
-            std::snprintf(info.id, sizeof(info.id), "android-device-%d", AInputEvent_getDeviceId(ev));
-            std::snprintf(info.name, sizeof(info.name), "Android Gamepad %u", slot);
+            ::snprintf(info.id, sizeof(info.id), "android-device-%d", AInputEvent_getDeviceId(ev));
+            ::snprintf(info.name, sizeof(info.name), "Android Gamepad %u", slot);
             snapshot.info = info;
 
             if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION) {

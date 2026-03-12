@@ -5,11 +5,12 @@
 
 #include "NkGamepadMappingPersistence.h"
 
-#include <fstream>
-#include <algorithm>
-#include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cerrno>
+
+#include "NKCore/NkTraits.h"
+#include "NKContainers/String/Encoding/NkASCII.h"
 
 #if defined(_WIN32)
 #   include <direct.h>
@@ -22,9 +23,71 @@
 namespace nkentseu {
 
     namespace {
-        static NkString Trim(NkString s) {
-            s.Trim();
-            return s;
+        static void NormalizePathSeparators(NkString& path) {
+            for (NkString::SizeType i = 0; i < path.Size(); ++i) {
+                if (path[i] == '\\') {
+                    path[i] = '/';
+                }
+            }
+        }
+
+        static bool IsAsciiSpace(const char c) {
+            return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+        }
+
+        static bool ReadTextLine(FILE* file, NkString& outLine) {
+            outLine.Clear();
+            if (!file) return false;
+
+            int ch = 0;
+            while ((ch = ::fgetc(file)) != EOF) {
+                const char c = static_cast<char>(ch);
+                if (c == '\r') continue;
+                if (c == '\n') break;
+                outLine.PushBack(c);
+            }
+
+            return ch != EOF || !outLine.Empty();
+        }
+
+        static void TokenizeWhitespace(const NkString& line, NkVector<NkString>& outTokens) {
+            outTokens.Clear();
+            const NkString::SizeType size = line.Size();
+            NkString::SizeType i = 0;
+
+            while (i < size) {
+                while (i < size && IsAsciiSpace(line[i])) ++i;
+                if (i >= size) break;
+
+                const NkString::SizeType start = i;
+                while (i < size && !IsAsciiSpace(line[i])) ++i;
+                outTokens.PushBack(line.SubStr(start, i - start));
+            }
+        }
+
+        static NkString SliceAfterFirstToken(const NkString& line) {
+            const NkString::SizeType size = line.Size();
+            NkString::SizeType i = 0;
+
+            while (i < size && !IsAsciiSpace(line[i])) ++i;
+            while (i < size && IsAsciiSpace(line[i])) ++i;
+
+            if (i >= size) return {};
+            NkString out = line.SubStr(i);
+            out.Trim();
+            return out;
+        }
+
+        static bool ParseUIntToken(const NkString& token, uint32& outValue) {
+            return token.ToUInt(outValue);
+        }
+
+        static bool ParseIntToken(const NkString& token, int32& outValue) {
+            return token.ToInt(outValue);
+        }
+
+        static bool ParseFloatToken(const NkString& token, float32& outValue) {
+            return token.ToFloat(outValue);
         }
 
         static bool DirectoryExists(const NkString& path) {
@@ -56,12 +119,12 @@ namespace nkentseu {
             if (inPath.Empty()) return false;
 
             NkString path = inPath;
-            std::replace(path.begin(), path.end(), '\\', '/');
+            NormalizePathSeparators(path);
 
             NkString current;
             NkString::SizeType cursor = 0;
 
-            if (path.Size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':') {
+            if (path.Size() >= 2 && encoding::ascii::NkIsAlpha(path[0]) && path[1] == ':') {
                 current = path.SubStr(0, 2);
                 cursor = 2;
                 if (cursor < path.Size() && path[cursor] == '/') {
@@ -99,8 +162,8 @@ namespace nkentseu {
 
     NkTextGamepadMappingPersistence::NkTextGamepadMappingPersistence(NkString baseDirectory,
                                                                      NkString fileExtension)
-        : mBaseDirectory(std::move(baseDirectory))
-        , mExtension(std::move(fileExtension))
+        : mBaseDirectory(traits::NkMove(baseDirectory))
+        , mExtension(traits::NkMove(fileExtension))
     {
         if (mBaseDirectory.Empty()) mBaseDirectory = ResolveDefaultBaseDirectory();
         if (mExtension.Empty()) mExtension = ".nkmap";
@@ -108,18 +171,18 @@ namespace nkentseu {
     }
 
     NkString NkTextGamepadMappingPersistence::ResolveDefaultBaseDirectory() {
-        if (const char* env = std::getenv("NKENTSEU_GAMEPAD_MAPPING_DIR")) {
+        if (const char* env = ::getenv("NKENTSEU_GAMEPAD_MAPPING_DIR")) {
             if (*env) return env;
         }
 
 #if defined(_WIN32)
-        const char* base = std::getenv("LOCALAPPDATA");
-        if (!base || !*base) base = std::getenv("APPDATA");
+        const char* base = ::getenv("LOCALAPPDATA");
+        if (!base || !*base) base = ::getenv("APPDATA");
         if (base && *base) {
             return JoinPath(JoinPath(JoinPath(base, "Nkentseu"), "NKWindow"), "GamepadMappings");
         }
 #else
-        if (const char* home = std::getenv("HOME")) {
+        if (const char* home = ::getenv("HOME")) {
             if (*home) {
                 return JoinPath(JoinPath(home, ".config"), "nkentseu/nkwindow/gamepad_mappings");
             }
@@ -130,15 +193,15 @@ namespace nkentseu {
     }
 
     NkString NkTextGamepadMappingPersistence::ResolveCurrentUserId() {
-        if (const char* env = std::getenv("NKENTSEU_GAMEPAD_USER")) {
+        if (const char* env = ::getenv("NKENTSEU_GAMEPAD_USER")) {
             if (*env) return SanitizeUserId(env);
         }
 #if defined(_WIN32)
-        if (const char* user = std::getenv("USERNAME")) {
+        if (const char* user = ::getenv("USERNAME")) {
             if (*user) return SanitizeUserId(user);
         }
 #else
-        if (const char* user = std::getenv("USER")) {
+        if (const char* user = ::getenv("USER")) {
             if (*user) return SanitizeUserId(user);
         }
 #endif
@@ -150,8 +213,7 @@ namespace nkentseu {
         NkString out;
         out.Reserve(raw.Size());
         for (char c : raw) {
-            const unsigned char uc = static_cast<unsigned char>(c);
-            if (std::isalnum(uc) || c == '_' || c == '-' || c == '.') out.PushBack(c);
+            if (encoding::ascii::NkIsAlphaNumeric(c) || c == '_' || c == '-' || c == '.') out.PushBack(c);
             else out.PushBack('_');
         }
         if (out.Empty()) out = "default";
@@ -173,28 +235,62 @@ namespace nkentseu {
         }
 
         const NkString filePath = BuildUserFilePath(userId);
-        std::ofstream out(filePath.CStr(), std::ios::binary | std::ios::trunc);
-        if (!out.is_open()) {
+        FILE* out = ::fopen(filePath.CStr(), "wb");
+        if (!out) {
             if (outError) *outError = "Cannot open mapping file for write: " + filePath;
             return false;
         }
 
-        out << "nkmap " << profile.version << "\n";
-        out << "backend " << profile.backendName.CStr() << "\n";
-
-        for (const NkGamepadMappingSlotData& slot : profile.slots) {
-            out << "slot " << slot.slotIndex << " " << (slot.active ? 1 : 0) << "\n";
-            for (const NkGamepadButtonMapEntry& b : slot.buttons) {
-                out << "button " << b.physicalButton << " " << b.logicalButton << "\n";
-            }
-            for (const NkGamepadAxisMapEntry& a : slot.axes) {
-                out << "axis " << a.physicalAxis << " " << a.logicalAxis
-                    << " " << a.scale << " " << (a.invert ? 1 : 0) << "\n";
-            }
-            out << "end_slot\n";
+        if (::fprintf(out, "nkmap %u\n", static_cast<unsigned>(profile.version)) < 0 ||
+            ::fprintf(out, "backend %s\n", profile.backendName.CStr()) < 0)
+        {
+            ::fclose(out);
+            if (outError) *outError = "Write failed for mapping file: " + filePath;
+            return false;
         }
 
-        if (!out.good()) {
+        for (const NkGamepadMappingSlotData& slot : profile.slots) {
+            if (::fprintf(out, "slot %u %d\n",
+                          static_cast<unsigned>(slot.slotIndex),
+                          slot.active ? 1 : 0) < 0)
+            {
+                ::fclose(out);
+                if (outError) *outError = "Write failed for mapping file: " + filePath;
+                return false;
+            }
+
+            for (const NkGamepadButtonMapEntry& b : slot.buttons) {
+                if (::fprintf(out, "button %u %u\n",
+                              static_cast<unsigned>(b.physicalButton),
+                              static_cast<unsigned>(b.logicalButton)) < 0)
+                {
+                    ::fclose(out);
+                    if (outError) *outError = "Write failed for mapping file: " + filePath;
+                    return false;
+                }
+            }
+
+            for (const NkGamepadAxisMapEntry& a : slot.axes) {
+                if (::fprintf(out, "axis %u %u %.9g %d\n",
+                              static_cast<unsigned>(a.physicalAxis),
+                              static_cast<unsigned>(a.logicalAxis),
+                              static_cast<double>(a.scale),
+                              a.invert ? 1 : 0) < 0)
+                {
+                    ::fclose(out);
+                    if (outError) *outError = "Write failed for mapping file: " + filePath;
+                    return false;
+                }
+            }
+
+            if (::fprintf(out, "end_slot\n") < 0) {
+                ::fclose(out);
+                if (outError) *outError = "Write failed for mapping file: " + filePath;
+                return false;
+            }
+        }
+
+        if (::fflush(out) != 0 || ::fclose(out) != 0) {
             if (outError) *outError = "Write failed for mapping file: " + filePath;
             return false;
         }
@@ -207,34 +303,57 @@ namespace nkentseu {
                                                NkString* outError)
     {
         const NkString filePath = BuildUserFilePath(userId);
-        std::ifstream in(filePath.CStr(), std::ios::binary);
-        if (!in.is_open()) {
+        FILE* in = ::fopen(filePath.CStr(), "rb");
+        if (!in) {
             if (outError) *outError = "Cannot open mapping file for read: " + filePath;
             return false;
         }
 
         outProfile = {};
 
-        std::string header;
+        NkString line;
+        if (!ReadTextLine(in, line)) {
+            ::fclose(in);
+            if (outError) *outError = "Invalid mapping file header: " + filePath;
+            return false;
+        }
+        line.Trim();
+
+        NkVector<NkString> tokens;
+        TokenizeWhitespace(line, tokens);
         uint32 version = 0;
-        if (!(in >> header >> version) || header != "nkmap") {
+        if (tokens.Size() < 2 || tokens[0].Compare("nkmap") != 0 || !ParseUIntToken(tokens[1], version)) {
+            ::fclose(in);
             if (outError) *outError = "Invalid mapping file header: " + filePath;
             return false;
         }
         outProfile.version = version;
 
-        std::string token;
         NkGamepadMappingSlotData* currentSlot = nullptr;
 
-        while (in >> token) {
+        while (ReadTextLine(in, line)) {
+            line.Trim();
+            if (line.Empty()) continue;
+
+            TokenizeWhitespace(line, tokens);
+            if (tokens.Empty()) continue;
+
+            const NkString& token = tokens[0];
             if (token == "backend") {
-                std::string rest;
-                std::getline(in, rest);
-                outProfile.backendName = Trim(rest.c_str());
+                outProfile.backendName = SliceAfterFirstToken(line);
             } else if (token == "slot") {
+                if (tokens.Size() < 3) {
+                    ::fclose(in);
+                    if (outError) *outError = "Invalid slot entry in mapping file: " + filePath;
+                    return false;
+                }
+
                 NkGamepadMappingSlotData slot{};
-                int active = 0;
-                if (!(in >> slot.slotIndex >> active)) {
+                int32 active = 0;
+                if (!ParseUIntToken(tokens[1], slot.slotIndex) ||
+                    !ParseIntToken(tokens[2], active))
+                {
+                    ::fclose(in);
                     if (outError) *outError = "Invalid slot entry in mapping file: " + filePath;
                     return false;
                 }
@@ -243,25 +362,41 @@ namespace nkentseu {
                 currentSlot = &outProfile.slots.Back();
             } else if (token == "button") {
                 if (!currentSlot) {
-                    std::string line;
-                    std::getline(in, line);
                     continue;
                 }
+                if (tokens.Size() < 3) {
+                    ::fclose(in);
+                    if (outError) *outError = "Invalid button entry in mapping file: " + filePath;
+                    return false;
+                }
+
                 NkGamepadButtonMapEntry e{};
-                if (!(in >> e.physicalButton >> e.logicalButton)) {
+                if (!ParseUIntToken(tokens[1], e.physicalButton) ||
+                    !ParseUIntToken(tokens[2], e.logicalButton))
+                {
+                    ::fclose(in);
                     if (outError) *outError = "Invalid button entry in mapping file: " + filePath;
                     return false;
                 }
                 currentSlot->buttons.PushBack(e);
             } else if (token == "axis") {
                 if (!currentSlot) {
-                    std::string line;
-                    std::getline(in, line);
                     continue;
                 }
+                if (tokens.Size() < 5) {
+                    ::fclose(in);
+                    if (outError) *outError = "Invalid axis entry in mapping file: " + filePath;
+                    return false;
+                }
+
                 NkGamepadAxisMapEntry e{};
-                int invert = 0;
-                if (!(in >> e.physicalAxis >> e.logicalAxis >> e.scale >> invert)) {
+                int32 invert = 0;
+                if (!ParseUIntToken(tokens[1], e.physicalAxis) ||
+                    !ParseUIntToken(tokens[2], e.logicalAxis) ||
+                    !ParseFloatToken(tokens[3], e.scale) ||
+                    !ParseIntToken(tokens[4], invert))
+                {
+                    ::fclose(in);
                     if (outError) *outError = "Invalid axis entry in mapping file: " + filePath;
                     return false;
                 }
@@ -269,12 +404,10 @@ namespace nkentseu {
                 currentSlot->axes.PushBack(e);
             } else if (token == "end_slot") {
                 currentSlot = nullptr;
-            } else {
-                std::string ignored;
-                std::getline(in, ignored);
             }
         }
 
+        ::fclose(in);
         return true;
     }
 

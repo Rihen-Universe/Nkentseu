@@ -10,7 +10,7 @@
 
 namespace nkentseu {
     namespace entseu {
-        // TODO: Ajouter les implémentations ici
+        // Placeholder explicite: implementation a completer; cette unite ne contient pas encore de logique runtime.
     } // namespace entseu
 } // namespace nkentseu
 

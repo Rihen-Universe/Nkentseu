@@ -18,10 +18,8 @@
 #include <windows.h>
 #include <shellapi.h>
 
-#include <string>
-#include <vector>
-
 #include "NKWindow/Core/NkEntry.h"
+#include "NKCore/NkTraits.h"
 
 #pragma comment(lib, "shell32.lib")
 
@@ -56,14 +54,14 @@ namespace nkentseu {
             LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
             NkVector<NkString> args;
-            args.reserve(static_cast<std::size_t>(argc));
+            args.Reserve(static_cast<nk_size>(argc));
 
             for (int i = 0; i < argc; ++i) {
                 int sz = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
-                NkString s(static_cast<std::size_t>(sz), '\0');
-                WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), sz, nullptr, nullptr);
-                if (!s.empty() && s.back() == '\0') s.pop_back();
-                args.push_back(std::move(s));
+                NkString s(static_cast<nk_size>(sz), '\0');
+                WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.Data(), sz, nullptr, nullptr);
+                if (!s.Empty() && s.Back() == '\0') s.PopBack();
+                args.PushBack(traits::NkMove(s));
             }
 
             LocalFree(wargv);
@@ -105,13 +103,19 @@ namespace nkentseu {
                 gCoreWindow.Activate();
             }
 
+            if (!NkEntryRuntimeInit(NK_APP_NAME)) {
+                gUwpExitCode = -1;
+                winrt::Windows::ApplicationModel::CoreApplication::Exit();
+                return;
+            }
             NkVector<NkString> args = NkBuildUtf8ArgsFromCommandLine();
             NkEntryState state(args, gCoreWindowOpaque);
-            state.appName = NK_APP_NAME;
+            NkApplyEntryAppName(state, NK_APP_NAME);
             gState = &state;
 
             gUwpExitCode = nkmain(state);
             gState = nullptr;
+            NkEntryRuntimeShutdown(true);
 
             winrt::Windows::ApplicationModel::CoreApplication::Exit();
         }
@@ -140,13 +144,17 @@ namespace nkentseu {
 
     #if !defined(NKENTSEU_UWP_RUNTIME_ONLY)
     int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+        if (!NkEntryRuntimeInit(NK_APP_NAME)) {
+            return -1;
+        }
         NkVector<NkString> args = NkBuildUtf8ArgsFromCommandLine();
         NkEntryState state(args, nullptr);
-        state.appName = NK_APP_NAME;
+        NkApplyEntryAppName(state, NK_APP_NAME);
         gState = &state;
 
         const int result = nkmain(state);
         gState = nullptr;
+        NkEntryRuntimeShutdown(true);
         return result;
     }
     #endif // !NKENTSEU_UWP_RUNTIME_ONLY

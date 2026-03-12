@@ -1,6 +1,6 @@
 /**
  * @File NkFunctional.h
- * @Description Fournit des foncteurs utilitaires pour le framework Nkentseu, similaires à std::functional.
+ * @Description Fournit des foncteurs utilitaires pour le framework Nkentseu, similaires à STL::functional.
  * @Author TEUGUIA TADJUIDJE Rodolf
  * @Date 2025-06-10
  * @License Rihen
@@ -15,7 +15,7 @@ namespace nkentseu {
 
     /**
      * @class NkHash
-     * @brief Fonction de hachage pour les clés dans les conteneurs non triés, similaire à std::hash.
+     * @brief Fonction de hachage pour les clés dans les conteneurs non triés, similaire à STL::hash.
      * @tparam T Type de la clé.
      * @note Les utilisateurs doivent spécialiser cette classe pour leurs types personnalisés.
      */
@@ -119,7 +119,7 @@ namespace nkentseu {
 
     /**
      * @class NkEqual
-     * @brief Prédicat d'égalité pour comparer les clés, similaire à std::equal_to.
+     * @brief Prédicat d'égalité pour comparer les clés, similaire à STL::equal_to.
      * @tparam T Type de la clé.
      */
     template<typename T>
@@ -131,7 +131,7 @@ namespace nkentseu {
 
     /**
      * @class NkLess
-     * @brief Comparateur pour un ordre croissant, similaire à std::less.
+     * @brief Comparateur pour un ordre croissant, similaire à STL::less.
      * @tparam T Type de la clé.
      */
     template<typename T>
@@ -143,7 +143,7 @@ namespace nkentseu {
 
     /**
      * @class NkGreater
-     * @brief Comparateur pour un ordre décroissant, similaire à std::greater.
+     * @brief Comparateur pour un ordre décroissant, similaire à STL::greater.
      * @tparam T Type de la clé.
      */
     template<typename T>
@@ -155,7 +155,7 @@ namespace nkentseu {
 
     /**
      * @class NkLessEqual
-     * @brief Comparateur pour un ordre inférieur ou égal, similaire à std::less_equal.
+     * @brief Comparateur pour un ordre inférieur ou égal, similaire à STL::less_equal.
      * @tparam T Type de la clé.
      */
     template<typename T>
@@ -167,7 +167,7 @@ namespace nkentseu {
 
     /**
      * @class NkGreaterEqual
-     * @brief Comparateur pour un ordre supérieur ou égal, similaire à std::greater_equal.
+     * @brief Comparateur pour un ordre supérieur ou égal, similaire à STL::greater_equal.
      * @tparam T Type de la clé.
      */
     template<typename T>
@@ -179,7 +179,7 @@ namespace nkentseu {
 
     /**
      * @class NkLogicalAnd
-     * @brief Opérateur logique ET, similaire à std::logical_and.
+     * @brief Opérateur logique ET, similaire à STL::logical_and.
      * @tparam T Type des opérandes.
      */
     template<typename T>
@@ -191,7 +191,7 @@ namespace nkentseu {
 
     /**
      * @class NkLogicalOr
-     * @brief Opérateur logique OU, similaire à std::logical_or.
+     * @brief Opérateur logique OU, similaire à STL::logical_or.
      * @tparam T Type des opérandes.
      */
     template<typename T>
@@ -203,7 +203,7 @@ namespace nkentseu {
 
     /**
      * @class NkLogicalNot
-     * @brief Opérateur logique NON, similaire à std::logical_not.
+     * @brief Opérateur logique NON, similaire à STL::logical_not.
      * @tparam T Type de l'opérande.
      */
     template<typename T>

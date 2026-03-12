@@ -23,7 +23,7 @@
 
 #include "NkEvent.h"
 #include "NKContainers/String/NkStringUtils.h"
-#include <string>
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 
@@ -32,6 +32,7 @@ namespace nkentseu {
     // =========================================================================
 
     enum class NkGraphicsApi : uint32 {
+        // Canonical names used by NKWindow events.
         NK_GFX_API_NONE    = 0,
         NK_GFX_API_OPENGL,       ///< OpenGL 3.3+
         NK_GFX_API_OPENGLES,     ///< OpenGL ES 2.0 / 3.x (mobile)
@@ -39,9 +40,21 @@ namespace nkentseu {
         NK_GFX_API_D3D11,        ///< Direct3D 11
         NK_GFX_API_D3D12,        ///< Direct3D 12
         NK_GFX_API_METAL,        ///< Metal (macOS / iOS)
+        NK_GFX_API_WEBGL,        ///< WebGL (navigateur / WASM)
         NK_GFX_API_WEBGPU,       ///< WebGPU (navigateur / WASM)
         NK_GFX_API_SOFTWARE,     ///< Rasterisation logicielle (fallback)
-        NK_GFX_API_MAX
+        NK_GFX_API_MAX,
+
+        // Compatibility aliases used by NKRenderer.
+        NK_API_NONE       = NK_GFX_API_NONE,
+        NK_API_OPENGL     = NK_GFX_API_OPENGL,
+        NK_API_OPENGLES   = NK_GFX_API_OPENGLES,
+        NK_API_VULKAN     = NK_GFX_API_VULKAN,
+        NK_API_DIRECTX11  = NK_GFX_API_D3D11,
+        NK_API_DIRECTX12  = NK_GFX_API_D3D12,
+        NK_API_METAL      = NK_GFX_API_METAL,
+        NK_API_WEBGL      = NK_GFX_API_WEBGL,
+        NK_API_SOFTWARE   = NK_GFX_API_SOFTWARE
     };
 
     inline const char* NkGraphicsApiToString(NkGraphicsApi api) noexcept {
@@ -52,6 +65,7 @@ namespace nkentseu {
             case NkGraphicsApi::NK_GFX_API_D3D11:    return "D3D11";
             case NkGraphicsApi::NK_GFX_API_D3D12:    return "D3D12";
             case NkGraphicsApi::NK_GFX_API_METAL:    return "Metal";
+            case NkGraphicsApi::NK_GFX_API_WEBGL:    return "WebGL";
             case NkGraphicsApi::NK_GFX_API_WEBGPU:   return "WebGPU";
             case NkGraphicsApi::NK_GFX_API_SOFTWARE: return "Software";
             default:                                   return "None";
@@ -155,7 +169,7 @@ namespace nkentseu {
         NkGraphicsContextLostEvent(NkString reason   = {},
                                     uint64       windowId = 0)
             : NkGraphicsEvent(windowId)
-            , mReason(std::move(reason))
+            , mReason(traits::NkMove(reason))
         {}
 
         NkEvent*    Clone()    const override { return new NkGraphicsContextLostEvent(*this); }

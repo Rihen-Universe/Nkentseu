@@ -40,12 +40,16 @@ static NkWatchOSArgs g_watchos_args;
 @implementation NkWatchAppDelegate
 
 - (void)applicationDidBecomeActive {
+	if (!nkentseu::NkEntryRuntimeInit(g_watchos_args.bundleId.CStr())) {
+		return;
+	}
 	nkentseu::gState = new nkentseu::NkEntryState(g_watchos_args.args);
-	nkentseu::gState->appName = g_watchos_args.bundleId;
+	nkentseu::NkApplyEntryAppName(*nkentseu::gState, g_watchos_args.bundleId.CStr());
 	nkmain(*nkentseu::gState);
 }
 
 - (void)applicationWillResignActive {
+	nkentseu::NkEntryRuntimeShutdown(true);
 	delete nkentseu::gState;
 	nkentseu::gState = nullptr;
 }
@@ -69,7 +73,7 @@ int main(int argc, char *argv[]) {
 			g_watchos_args.cachePath = [[paths firstObject] UTF8String];
 
 		for (int i = 0; i < argc; ++i)
-			g_watchos_args.args.push_back(argv[i]);
+			g_watchos_args.args.PushBack(argv[i]);
 
 		NSLog(@"[NK] Platform: watchOS");
 

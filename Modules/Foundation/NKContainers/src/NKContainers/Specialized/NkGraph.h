@@ -197,10 +197,10 @@ namespace nkentseu {
                 
                 queue.PushBack(start);
                 visited.Insert(start);
+                SizeType head = 0;
                 
-                while (!queue.Empty()) {
-                    VertexType vertex = queue.Front();
-                    queue.Erase(queue.begin());
+                while (head < queue.Size()) {
+                    const VertexType& vertex = queue[head++];
                     
                     visitor(vertex);
                     

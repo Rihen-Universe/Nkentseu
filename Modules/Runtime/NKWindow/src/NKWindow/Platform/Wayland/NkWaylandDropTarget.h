@@ -16,26 +16,27 @@
 
 #include <cstdio>
 #include <cstring>
-#include <functional>
 #include <utility>
 #include <unistd.h>
 
 #include "NKWindow/Events/NkDropEvent.h"
+#include "NKContainers/Functional/NkFunction.h"
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 
     class NkWaylandDropTarget {
         public:
-            using DropFileCallback  = std::function<void(const NkDropFileEvent&)>;
-            using DropTextCallback  = std::function<void(const NkDropTextEvent&)>;
-            using DropEnterCallback = std::function<void(const NkDropEnterEvent&)>;
-            using DropLeaveCallback = std::function<void(const NkDropLeaveEvent&)>;
+            using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
+            using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
+            using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
+            using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
 
             // Legacy compatibility callbacks (data-only API)
-            using DropFilesDataCallback = std::function<void(const NkDropFileData&)>;
-            using DropTextDataCallback  = std::function<void(const NkDropTextData&)>;
-            using DropEnterDataCallback = std::function<void(const NkDropEnterData&)>;
-            using DropLeaveDataCallback = std::function<void()>;
+            using DropFilesDataCallback = NkFunction<void, const NkDropFileData&>;
+            using DropTextDataCallback  = NkFunction<void, const NkDropTextData&>;
+            using DropEnterDataCallback = NkFunction<void, const NkDropEnterData&>;
+            using DropLeaveDataCallback = NkFunction<void>;
 
             NkWaylandDropTarget(wl_display* display, wl_seat* seat, wl_surface* surface)
                 : mDisplay(display), mSeat(seat), mSurface(surface) {}
@@ -68,16 +69,16 @@ namespace nkentseu {
             }
 
             // Event-oriented API
-            void SetDropFileCallback(DropFileCallback cb)   { mDropFile = std::move(cb); }
-            void SetDropTextCallback(DropTextCallback cb)   { mDropText = std::move(cb); }
-            void SetDropEnterCallback(DropEnterCallback cb) { mDropEnter = std::move(cb); }
-            void SetDropLeaveCallback(DropLeaveCallback cb) { mDropLeave = std::move(cb); }
+            void SetDropFileCallback(DropFileCallback cb)   { mDropFile = traits::NkMove(cb); }
+            void SetDropTextCallback(DropTextCallback cb)   { mDropText = traits::NkMove(cb); }
+            void SetDropEnterCallback(DropEnterCallback cb) { mDropEnter = traits::NkMove(cb); }
+            void SetDropLeaveCallback(DropLeaveCallback cb) { mDropLeave = traits::NkMove(cb); }
 
             // Legacy API compatibility
-            void SetDropFilesCallback(DropFilesDataCallback cb) { mDropFilesData = std::move(cb); }
-            void SetDropTextCallback(DropTextDataCallback cb)   { mDropTextData = std::move(cb); }
-            void SetDropEnterCallback(DropEnterDataCallback cb) { mDropEnterData = std::move(cb); }
-            void SetDropLeaveCallback(DropLeaveDataCallback cb) { mDropLeaveData = std::move(cb); }
+            void SetDropFilesCallback(DropFilesDataCallback cb) { mDropFilesData = traits::NkMove(cb); }
+            void SetDropTextCallback(DropTextDataCallback cb)   { mDropTextData = traits::NkMove(cb); }
+            void SetDropEnterCallback(DropEnterDataCallback cb) { mDropEnterData = traits::NkMove(cb); }
+            void SetDropLeaveCallback(DropLeaveDataCallback cb) { mDropLeaveData = traits::NkMove(cb); }
 
         private:
             wl_display*     mDisplay    = nullptr;
@@ -103,11 +104,18 @@ namespace nkentseu {
 
             static bool HasMime(const NkVector<NkString>& mimeTypes, const char* mime) {
                 for (uint32 i = 0; i < mimeTypes.Size(); ++i) {
-                    if (std::strcmp(mimeTypes[i].CStr(), mime) == 0) {
+                    if (::strcmp(mimeTypes[i].CStr(), mime) == 0) {
                         return true;
                     }
                 }
                 return false;
+            }
+
+            static int HexNibble(char c) {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+                if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+                return -1;
             }
 
             static NkVector<NkString> ParseUriList(const NkString& raw) {
@@ -134,16 +142,18 @@ namespace nkentseu {
 
                         for (uint32 i = 0; i < encoded.Size(); ++i) {
                             if (encoded[i] == '%' && i + 2 < encoded.Size()) {
-                                int value = 0;
-                                std::sscanf(encoded.CStr() + i + 1, "%2x", &value);
-                                decoded.PushBack(static_cast<char>(value));
-                                i += 2;
-                            } else {
-                                decoded.PushBack(encoded[i]);
+                                const int hi = HexNibble(encoded[i + 1]);
+                                const int lo = HexNibble(encoded[i + 2]);
+                                if (hi >= 0 && lo >= 0) {
+                                    decoded.PushBack(static_cast<char>((hi << 4) | lo));
+                                    i += 2;
+                                    continue;
+                                }
                             }
+                            decoded.PushBack(encoded[i]);
                         }
 
-                        paths.PushBack(std::move(decoded));
+                        paths.PushBack(traits::NkMove(decoded));
                     }
 
                     start = end + 1;
@@ -347,7 +357,7 @@ namespace nkentseu {
                         NkDropFileData fileData{};
                         fileData.x = static_cast<int32>(self->mDragX);
                         fileData.y = static_cast<int32>(self->mDragY);
-                        fileData.paths = std::move(paths);
+                        fileData.paths = traits::NkMove(paths);
                         self->EmitDropFiles(fileData);
                     }
                 } else if (hasUtf8Text || hasPlainText) {
@@ -357,7 +367,7 @@ namespace nkentseu {
                     NkDropTextData textData{};
                     textData.x = static_cast<int32>(self->mDragX);
                     textData.y = static_cast<int32>(self->mDragY);
-                    textData.text = std::move(text);
+                    textData.text = traits::NkMove(text);
                     textData.mimeType = mime;
                     self->EmitDropText(textData);
                 }

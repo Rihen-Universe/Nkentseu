@@ -19,12 +19,20 @@
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
 #include "NKContainers/Iterators/NkInitializerList.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
     
+        template<typename T>
+        struct NkSetLess {
+            bool operator()(const T& lhs, const T& rhs) const {
+                return lhs < rhs;
+            }
+        };
+        
         
         /**
-         * @brief Ordered set - std::set equivalent
+         * @brief Ordered set - STL::set equivalent
          * 
          * Implémentation avec Red-Black Tree.
          * Les éléments sont toujours triés.
@@ -42,7 +50,9 @@ namespace nkentseu {
          * if (set.Contains(3)) { }
          * set.Erase(1);
          */
-        template<typename T, typename Allocator = memory::NkAllocator>
+        template<typename T,
+                 typename Allocator = memory::NkAllocator,
+                 typename Compare = NkSetLess<T>>
         class NkSet {
         private:
             enum Color { RED, BLACK };
@@ -127,6 +137,11 @@ namespace nkentseu {
             Node* mRoot;
             SizeType mSize;
             Allocator* mAllocator;
+            Compare mCompare;
+            
+            bool IsEquivalent(const T& lhs, const T& rhs) const {
+                return !mCompare(lhs, rhs) && !mCompare(rhs, lhs);
+            }
             
             Node* CreateNode(const T& value, Node* parent = nullptr) {
                 Node* node = static_cast<Node*>(mAllocator->Allocate(sizeof(Node)));
@@ -234,18 +249,71 @@ namespace nkentseu {
             // Constructors
             explicit NkSet(Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mCompare() {
             }
             
             NkSet(NkInitializerList<T> init, Allocator* allocator = nullptr)
                 : mRoot(nullptr), mSize(0)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mCompare() {
                 for (auto& val : init) Insert(val);
             }
+            
+            NkSet(const NkSet& other)
+                : mRoot(nullptr)
+                , mSize(0)
+                , mAllocator(other.mAllocator)
+                , mCompare(other.mCompare) {
+                for (auto it = other.begin(); it != other.end(); ++it) {
+                    Insert(*it);
+                }
+            }
+            
+            #if defined(NK_CPP11)
+            NkSet(NkSet&& other) NK_NOEXCEPT
+                : mRoot(other.mRoot)
+                , mSize(other.mSize)
+                , mAllocator(other.mAllocator)
+                , mCompare(traits::NkMove(other.mCompare)) {
+                other.mRoot = nullptr;
+                other.mSize = 0;
+            }
+            #endif
             
             ~NkSet() {
                 Clear();
             }
+            
+            NkSet& operator=(const NkSet& other) {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                mAllocator = other.mAllocator;
+                mCompare = other.mCompare;
+                for (auto it = other.begin(); it != other.end(); ++it) {
+                    Insert(*it);
+                }
+                return *this;
+            }
+            
+            #if defined(NK_CPP11)
+            NkSet& operator=(NkSet&& other) NK_NOEXCEPT {
+                if (this == &other) {
+                    return *this;
+                }
+                Clear();
+                mRoot = other.mRoot;
+                mSize = other.mSize;
+                mAllocator = other.mAllocator;
+                mCompare = traits::NkMove(other.mCompare);
+                
+                other.mRoot = nullptr;
+                other.mSize = 0;
+                return *this;
+            }
+            #endif
             
             // Iterators
             Iterator begin() { return Iterator(FindMin(mRoot), this); }
@@ -277,9 +345,9 @@ namespace nkentseu {
                 
                 while (current) {
                     parent = current;
-                    if (value < current->Value) {
+                    if (mCompare(value, current->Value)) {
                         current = current->Left;
-                    } else if (current->Value < value) {
+                    } else if (mCompare(current->Value, value)) {
                         current = current->Right;
                     } else {
                         return false;  // Duplicate
@@ -287,7 +355,7 @@ namespace nkentseu {
                 }
                 
                 Node* newNode = CreateNode(value, parent);
-                if (value < parent->Value) {
+                if (mCompare(value, parent->Value)) {
                     parent->Left = newNode;
                 } else {
                     parent->Right = newNode;
@@ -301,9 +369,9 @@ namespace nkentseu {
             bool Contains(const T& value) const {
                 Node* current = mRoot;
                 while (current) {
-                    if (value < current->Value) {
+                    if (mCompare(value, current->Value)) {
                         current = current->Left;
-                    } else if (current->Value < value) {
+                    } else if (mCompare(current->Value, value)) {
                         current = current->Right;
                     } else {
                         return true;
@@ -315,9 +383,9 @@ namespace nkentseu {
             Iterator Find(const T& value) {
                 Node* current = mRoot;
                 while (current) {
-                    if (value < current->Value) {
+                    if (mCompare(value, current->Value)) {
                         current = current->Left;
-                    } else if (current->Value < value) {
+                    } else if (mCompare(current->Value, value)) {
                         current = current->Right;
                     } else {
                         return Iterator(current, this);
@@ -326,12 +394,27 @@ namespace nkentseu {
                 return end();
             }
             
-            // Note: Erase complet nécessite fix-up RB-Tree (complexe)
-            // Version simplifiée ici
             bool Erase(const T& value) {
-                // Simplified - full RB-Tree erase is complex
-                // TODO: Implement full RB-Tree delete with fixup
-                return false;
+                if (!Contains(value)) {
+                    return false;
+                }
+                
+                NkVector<T, Allocator> retained(mAllocator);
+                if (mSize > 1) {
+                    retained.Reserve(mSize - 1);
+                }
+                
+                for (auto it = begin(); it != end(); ++it) {
+                    if (!IsEquivalent(*it, value)) {
+                        retained.PushBack(*it);
+                    }
+                }
+                
+                Clear();
+                for (SizeType i = 0; i < retained.Size(); ++i) {
+                    Insert(retained[i]);
+                }
+                return true;
             }
         };
         

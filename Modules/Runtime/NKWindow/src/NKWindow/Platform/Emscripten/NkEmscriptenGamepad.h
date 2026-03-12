@@ -165,9 +165,9 @@ namespace nkentseu {
                     info.type = NkGamepadType::NK_GP_TYPE_GENERIC;
                     info.numButtons = static_cast<uint32>(ev.numButtons);
                     info.numAxes = static_cast<uint32>(ev.numAxes);
-                    const char* id = ev.id ? ev.id : "Web Gamepad";
-                    std::snprintf(info.id, sizeof(info.id), "%s", id);
-                    std::snprintf(info.name, sizeof(info.name), "%s", id);
+                    const char* id = (ev.id[0] != '\0') ? ev.id : "Web Gamepad";
+                    snprintf(info.id, sizeof(info.id), "%s", id);
+                    snprintf(info.name, sizeof(info.name), "%s", id);
                     snapshot.info = info;
                 }
 #else
@@ -216,9 +216,9 @@ namespace nkentseu {
                 self->mInfos[idx].type = NkGamepadType::NK_GP_TYPE_GENERIC;
                 self->mInfos[idx].numButtons = static_cast<uint32>(ev->numButtons);
                 self->mInfos[idx].numAxes = static_cast<uint32>(ev->numAxes);
-                const char* id = ev->id ? ev->id : "Web Gamepad";
-                std::snprintf(self->mInfos[idx].id, sizeof(self->mInfos[idx].id), "%s", id);
-                std::snprintf(self->mInfos[idx].name, sizeof(self->mInfos[idx].name), "%s", id);
+                const char* id = (ev->id[0] != '\0') ? ev->id : "Web Gamepad";
+                snprintf(self->mInfos[idx].id, sizeof(self->mInfos[idx].id), "%s", id);
+                snprintf(self->mInfos[idx].name, sizeof(self->mInfos[idx].name), "%s", id);
                 return EM_TRUE;
             }
 

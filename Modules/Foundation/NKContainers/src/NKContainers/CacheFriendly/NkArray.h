@@ -22,7 +22,7 @@ namespace nkentseu {
     
         
         /**
-         * @brief Fixed-size array (std::array equivalent)
+         * @brief Fixed-size array (STL::array equivalent)
          * 
          * Performance identique à un C array, avec interface moderne.
          * Stack-allocated, très cache-friendly, zero overhead.

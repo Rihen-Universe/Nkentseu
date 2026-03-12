@@ -70,8 +70,6 @@ namespace nkentseu {
 
         class NkGarbageCollector {
             public:
-                static NkGarbageCollector& Instance() noexcept;
-
                 explicit NkGarbageCollector(NkAllocator* allocator = nullptr) noexcept;
                 ~NkGarbageCollector();
 

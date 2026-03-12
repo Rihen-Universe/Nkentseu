@@ -10,6 +10,12 @@
 #include "NKCore/Assert/NkAssert.h"
 #include <cstdio>
 #include <ctime>
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #include <windows.h>
+#endif
 
 namespace nkentseu {
 
@@ -133,7 +139,19 @@ using namespace time;
     NkTime NkTime::GetCurrent() {
         timespec ts = {};
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        ::timespec_get(&ts, TIME_UTC);
+        FILETIME fileTime{};
+        ::GetSystemTimeAsFileTime(&fileTime);
+
+        ULARGE_INTEGER ticks{};
+        ticks.LowPart = fileTime.dwLowDateTime;
+        ticks.HighPart = fileTime.dwHighDateTime;
+
+        constexpr uint64 kWinToUnixEpochOffsetNs = 11644473600ULL * 1000000000ULL;
+        const uint64 nowNs = static_cast<uint64>(ticks.QuadPart) * 100ULL; // 100ns ticks
+        const uint64 unixNs = (nowNs >= kWinToUnixEpochOffsetNs) ? (nowNs - kWinToUnixEpochOffsetNs) : 0ULL;
+
+        ts.tv_sec = static_cast<time_t>(unixNs / NS_PER_SECOND);
+        ts.tv_nsec = static_cast<long>(unixNs % NS_PER_SECOND);
     #else
         ::clock_gettime(CLOCK_REALTIME, &ts);
     #endif

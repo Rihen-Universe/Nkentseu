@@ -28,14 +28,19 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < argc; ++i)
 		args.PushBack(nkentseu::NkString(argv[i]));
 
+	if (!nkentseu::NkEntryRuntimeInit(NK_APP_NAME)) {
+		return -1;
+	}
+
 	// Display is opened lazily by NkWindow::Create() in NkXLibWindow.cpp
 	nkentseu::NkEntryState state(nullptr, args);
-	state.appName = NK_APP_NAME;
+	nkentseu::NkApplyEntryAppName(state, NK_APP_NAME);
 	nkentseu::gState = &state;
 
 	int result = nkmain(state);
 
 	nkentseu::gState = nullptr;
+	nkentseu::NkEntryRuntimeShutdown(true);
 	return result;
 }
 

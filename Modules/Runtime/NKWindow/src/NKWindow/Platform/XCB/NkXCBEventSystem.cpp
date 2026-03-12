@@ -25,7 +25,6 @@
 #include <xkbcommon/xkbcommon-x11.h>
 #include <xkbcommon/xkbcommon.h>
 #include <cstring>
-#include <mutex>
 
 namespace nkentseu {
 
@@ -52,7 +51,7 @@ namespace nkentseu {
         if (mReady) return true;
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
         mPumping = false;
@@ -83,9 +82,9 @@ namespace nkentseu {
         ClearAllCallbacks();
         mHidMapper.Clear();
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
-            mCurrentEvent.reset();
+            mCurrentEvent.Reset();
         }
         mWindowCallbacks.Clear();
 
@@ -107,7 +106,7 @@ namespace nkentseu {
         mData.mInitialized = false;
         mTotalEventCount = 0;
         mPumping = false;
-        mPumpThreadId = std::thread::id{};
+        mPumpThreadId = 0;
         mReady = false;
     }
 

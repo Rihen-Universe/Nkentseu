@@ -10,7 +10,7 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvents.h"
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKTime/NkChrono.h"
 #include "NKWindow/Core/NkMain.h"
@@ -20,6 +20,17 @@
 #include "NKMemory/NkMemory.h"
 
 #include <cmath>
+
+// AppData pattern #5: aggregate initialization (all fields in order).
+static nkentseu::NkAppData gPatternPollingAppData{
+    nkentseu::NkRendererApi::NK_SOFTWARE,
+    false,
+    false,
+    "SandboxPatternPolling",
+    "1.0.0",
+    false
+};
+NKENTSEU_DEFINE_APP_DATA(gPatternPollingAppData);
 
 namespace {
 using namespace nkentseu;
@@ -115,8 +126,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 {
     using namespace nkentseu;
 
-    // 1. Init
-    if (!NkInitialise({ .appName = "ex03 Pattern B — Polling" })) return -1;
+    // 1. Runtime déjà initialisé par l'entrypoint NkMain
 
     // 2. Fenêtre
     NkWindowConfig cfg;
@@ -128,7 +138,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     cfg.dropEnabled = false; // pas nécessaire en mode polling pur
 
     NkWindow window(cfg);
-    if (!window.IsOpen()) { NkClose(); return -2; }
+    if (!window.IsOpen()) { return -2; }
 
     // 3. Renderer
     NkRendererConfig rcfg;
@@ -136,7 +146,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     rcfg.autoResizeFramebuffer = true;
 
     NkRenderer renderer;
-    if (!renderer.Create(window, rcfg)) { NkClose(); return -3; }
+    if (!renderer.Create(window, rcfg)) { return -3; }
 
     // 4. État
     AppState s;
@@ -275,6 +285,5 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     renderer.Shutdown();
     window.Close();
-    NkClose();
     return 0;
 }

@@ -16,11 +16,11 @@
 #include "NKWindow/Events/NkEventSystem.h"
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
 #include "NKWindow/Platform/XLib/NkXLibDropTarget.h"
+#include "NKCore/NkAtomic.h"
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
-#include <mutex>
 #include <unordered_map>
 
 namespace nkentseu {
@@ -30,8 +30,9 @@ namespace nkentseu {
     // =============================================================================
 
     static Display*   sDisplay        = nullptr;
+    static bool       sDisplayOwned   = false;
     static int        sWindowCount    = 0;
-    static std::mutex sDisplayMutex;
+    static NkSpinLock sDisplayMutex;
     static NkWindow*  sXLibLastWindow = nullptr;
 
     // Function-local static avoids static init order fiasco with NkAllocator.
@@ -96,10 +97,16 @@ namespace nkentseu {
     bool NkWindow::Create(const NkWindowConfig& config) {
         mConfig = config;
 
-        std::lock_guard<std::mutex> lock(sDisplayMutex);
+        NkScopedSpinLock lock(sDisplayMutex);
 
         if (!sDisplay) {
-            sDisplay = XOpenDisplay(nullptr);
+            if (config.native.externalDisplayHandle != 0) {
+                sDisplay = reinterpret_cast<Display*>(config.native.externalDisplayHandle);
+                sDisplayOwned = false;
+            } else {
+                sDisplay = XOpenDisplay(nullptr);
+                sDisplayOwned = true;
+            }
             if (!sDisplay) {
                 mLastError = NkError(1, "XOpenDisplay failed");
                 return false;
@@ -109,6 +116,31 @@ namespace nkentseu {
 
         mData.mDisplay = sDisplay;
         mData.mScreen  = DefaultScreen(sDisplay);
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mParentXid = static_cast<::Window>(config.native.parentWindowHandle);
+
+        const bool useExternal = config.native.useExternalWindow &&
+                                 config.native.externalWindowHandle != 0;
+        if (useExternal) {
+            mData.mXid = static_cast<::Window>(config.native.externalWindowHandle);
+            mData.mExternal = true;
+            XWindowAttributes attrs = {};
+            if (XGetWindowAttributes(sDisplay, mData.mXid, &attrs) == 0) {
+                --sWindowCount;
+                if (sWindowCount <= 0) {
+                    if (sDisplayOwned) XCloseDisplay(sDisplay);
+                    sDisplay = nullptr;
+                    sDisplayOwned = false;
+                    sWindowCount = 0;
+                }
+                mLastError = NkError(2, "Invalid external X11 window.");
+                return false;
+            }
+            NkXLibRegisterWindow(mData.mXid, this);
+            mId = NkSystem::Instance().RegisterWindow(this);
+            mIsOpen = true;
+            return true;
+        }
 
         int x = config.centered
             ? (DisplayWidth(sDisplay, mData.mScreen) - static_cast<int>(config.width)) / 2
@@ -162,7 +194,7 @@ namespace nkentseu {
         // ── Fin consommation hint ────────────────────────────────────────────
 
         mData.mXid = XCreateWindow(
-            sDisplay, DefaultRootWindow(sDisplay),
+            sDisplay, mData.mParentXid ? mData.mParentXid : DefaultRootWindow(sDisplay),
             x, y, config.width, config.height,
             0,
             depth,       // ← depth éventuellement issu du hint
@@ -171,18 +203,39 @@ namespace nkentseu {
             vmask,
             &attrs);
 
-        // ── Mémoriser les hints appliqués → disponibles via GetSurfaceDesc() ─
-        mData.mAppliedHints = config.surfaceHints;
-
         if (!mData.mXid) {
             mLastError = NkError(2, "XCreateWindow failed");
             --sWindowCount;
+            if (sWindowCount <= 0) {
+                if (sDisplayOwned) XCloseDisplay(sDisplay);
+                sDisplay = nullptr;
+                sDisplayOwned = false;
+                sWindowCount = 0;
+            }
             return false;
         }
 
         // WM_DELETE_WINDOW
         mData.mWmDeleteWindow = XInternAtom(sDisplay, "WM_DELETE_WINDOW", False);
         XSetWMProtocols(sDisplay, mData.mXid, &mData.mWmDeleteWindow, 1);
+
+        if (config.native.utilityWindow) {
+            Atom wmWindowType = XInternAtom(sDisplay, "_NET_WM_WINDOW_TYPE", False);
+            Atom wmWindowTypeUtility = XInternAtom(sDisplay, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+            XChangeProperty(
+                sDisplay, mData.mXid, wmWindowType, XA_ATOM, 32, PropModeReplace,
+                reinterpret_cast<unsigned char*>(&wmWindowTypeUtility), 1);
+        }
+
+        if (config.transparent) {
+            Atom opacityAtom = XInternAtom(sDisplay, "_NET_WM_WINDOW_OPACITY", False);
+            unsigned long alpha = static_cast<unsigned long>(config.bgColor & 0xFFu);
+            if (alpha == 0xFFu) alpha = 230u;
+            unsigned long opacity = (alpha * 0xFFFFFFFFul) / 255ul;
+            XChangeProperty(
+                sDisplay, mData.mXid, opacityAtom, XA_CARDINAL, 32, PropModeReplace,
+                reinterpret_cast<unsigned char*>(&opacity), 1);
+        }
 
         // Title
         XStoreName(sDisplay, mData.mXid, config.title.CStr());
@@ -207,22 +260,22 @@ namespace nkentseu {
         // XDND drop target integration (events are forwarded to NkEventSystem queue).
         mData.mDropTarget = new NkXLibDropTarget(mData.mDisplay, mData.mXid);
         if (mData.mDropTarget) {
-            mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& ev) {
+            mData.mDropTarget->SetDropEnterCallback(NkXLibDropTarget::DropEnterCallback([this](const NkDropEnterEvent& ev) {
                 NkDropEnterEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropLeaveCallback([this](const NkDropLeaveEvent& ev) {
+            }));
+            mData.mDropTarget->SetDropLeaveCallback(NkXLibDropTarget::DropLeaveCallback([this](const NkDropLeaveEvent& ev) {
                 NkDropLeaveEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropFileCallback([this](const NkDropFileEvent& ev) {
+            }));
+            mData.mDropTarget->SetDropFileCallback(NkXLibDropTarget::DropFileCallback([this](const NkDropFileEvent& ev) {
                 NkDropFileEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropTextCallback([this](const NkDropTextEvent& ev) {
+            }));
+            mData.mDropTarget->SetDropTextCallback(NkXLibDropTarget::DropTextCallback([this](const NkDropTextEvent& ev) {
                 NkDropTextEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
+            }));
         }
 
         mIsOpen = true;
@@ -249,21 +302,25 @@ namespace nkentseu {
         }
 
         if (mData.mXid && mData.mDisplay) {
-            XDestroyWindow(mData.mDisplay, mData.mXid);
-            XFlush(mData.mDisplay);
+            if (!mData.mExternal) {
+                XDestroyWindow(mData.mDisplay, mData.mXid);
+                XFlush(mData.mDisplay);
+            }
             mData.mXid = 0;
         }
 
         {
-            std::lock_guard<std::mutex> lock(sDisplayMutex);
+            NkScopedSpinLock lock(sDisplayMutex);
             --sWindowCount;
             if (sWindowCount <= 0 && sDisplay) {
-                XCloseDisplay(sDisplay);
+                if (sDisplayOwned) XCloseDisplay(sDisplay);
                 sDisplay = nullptr;
+                sDisplayOwned = false;
                 sWindowCount = 0;
             }
         }
         mData.mDisplay = nullptr;
+        mData.mExternal = false;
     }
 
     // =============================================================================

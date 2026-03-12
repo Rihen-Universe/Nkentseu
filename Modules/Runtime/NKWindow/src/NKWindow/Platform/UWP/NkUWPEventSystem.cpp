@@ -11,8 +11,6 @@
 #define NKENTSEU_UWP_RUNTIME_ONLY 1
 #include "NKWindow/EntryPoints/NkUWP.h"
 
-#include <mutex>
-
 namespace nkentseu {
 
     bool NkEventSystem::Init() {
@@ -22,7 +20,7 @@ namespace nkentseu {
 
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
 

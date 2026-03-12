@@ -482,5 +482,5 @@ struct NkToString<Vec3> {
 
 ---
 
-**Zéro STL** — tout passe par `snprintf` sur des buffers stack, `NkString::Append`, et type erasure via tableau fixe de 32 `NkFormatArg` (aucun `NkVector`, `std::function`, ou `std::string`).
+**Zéro STL** — tout passe par `snprintf` sur des buffers stack, `NkString::Append`, et type erasure via tableau fixe de 32 `NkFormatArg` (aucun `NkVector`, `STL::function`, ou `STL::string`).
 */

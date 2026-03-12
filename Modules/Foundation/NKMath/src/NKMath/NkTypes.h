@@ -81,50 +81,50 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     struct NkVec2f {
-        float x = 0.f;
-        float y = 0.f;
+        float32 x = 0.f;
+        float32 y = 0.f;
 
         NkVec2f() = default;
-        NkVec2f(float x, float y) : x(x), y(y) {}
+        NkVec2f(float32 x, float32 y) : x(x), y(y) {}
 
         NkVec2f operator+(const NkVec2f& o) const { return { x + o.x, y + o.y }; }
         NkVec2f operator-(const NkVec2f& o) const { return { x - o.x, y - o.y }; }
-        NkVec2f operator*(float s)          const { return { x * s, y * s }; }
-        NkVec2f operator/(float s)          const { return { x / s, y / s }; }
+        NkVec2f operator*(float32 s)          const { return { x * s, y * s }; }
+        NkVec2f operator/(float32 s)          const { return { x / s, y / s }; }
 
         NkVec2f& operator+=(const NkVec2f& o) { x += o.x; y += o.y; return *this; }
         NkVec2f& operator-=(const NkVec2f& o) { x -= o.x; y -= o.y; return *this; }
-        NkVec2f& operator*=(float s)          { x *= s;   y *= s;   return *this; }
+        NkVec2f& operator*=(float32 s)          { x *= s;   y *= s;   return *this; }
 
-        float LengthSq() const { return x * x + y * y; }
-        float Length()   const;       // defined below
+        float32 LengthSq() const { return x * x + y * y; }
+        float32 Length()   const;       // defined below
         NkVec2f Normalized() const;   // defined below
-        float Dot(const NkVec2f& o) const { return x * o.x + y * o.y; }
+        float32 Dot(const NkVec2f& o) const { return x * o.x + y * o.y; }
 
         bool operator==(const NkVec2f& o) const { return x == o.x && y == o.y; }
         bool operator!=(const NkVec2f& o) const { return !(*this == o); }
     };
 
     struct NkVec2d {
-        double x = 0.0;
-        double y = 0.0;
+        float64 x = 0.0;
+        float64 y = 0.0;
 
         NkVec2d() = default;
-        NkVec2d(double x, double y) : x(x), y(y) {}
+        NkVec2d(float64 x, float64 y) : x(x), y(y) {}
 
         NkVec2d operator+(const NkVec2d& o) const { return { x + o.x, y + o.y }; }
         NkVec2d operator-(const NkVec2d& o) const { return { x - o.x, y - o.y }; }
-        NkVec2d operator*(double s)          const { return { x * s, y * s }; }
-        NkVec2d operator/(double s)          const { return { x / s, y / s }; }
+        NkVec2d operator*(float64 s)          const { return { x * s, y * s }; }
+        NkVec2d operator/(float64 s)          const { return { x / s, y / s }; }
 
         NkVec2d& operator+=(const NkVec2d& o) { x += o.x; y += o.y; return *this; }
         NkVec2d& operator-=(const NkVec2d& o) { x -= o.x; y -= o.y; return *this; }
-        NkVec2d& operator*=(double s)          { x *= s;   y *= s;   return *this; }
+        NkVec2d& operator*=(float64 s)          { x *= s;   y *= s;   return *this; }
 
-        double LengthSq() const { return x * x + y * y; }
-        double Length()   const;       // defined below
+        float64 LengthSq() const { return x * x + y * y; }
+        float64 Length()   const;       // defined below
         NkVec2d Normalized() const;   // defined below
-        double Dot(const NkVec2d& o) const { return x * o.x + y * o.y; }
+        float64 Dot(const NkVec2d& o) const { return x * o.x + y * o.y; }
 
         bool operator==(const NkVec2d& o) const { return x == o.x && y == o.y; }
         bool operator!=(const NkVec2d& o) const { return !(*this == o); }
@@ -135,15 +135,15 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     struct NkVec3f {
-        float x = 0.f, y = 0.f, z = 0.f;
+        float32 x = 0.f, y = 0.f, z = 0.f;
 
         NkVec3f() = default;
-        NkVec3f(float x, float y, float z) : x(x), y(y), z(z) {}
-        explicit NkVec3f(const NkVec2f& v, float z = 1.f) : x(v.x), y(v.y), z(z) {}
+        NkVec3f(float32 x, float32 y, float32 z) : x(x), y(y), z(z) {}
+        explicit NkVec3f(const NkVec2f& v, float32 z = 1.f) : x(v.x), y(v.y), z(z) {}
 
         NkVec2f ToVec2()            const { return { x, y }; }
         NkVec3f operator+(const NkVec3f& o) const { return { x + o.x, y + o.y, z + o.z }; }
-        NkVec3f operator*(float s)          const { return { x * s, y * s, z * s }; }
+        NkVec3f operator*(float32 s)          const { return { x * s, y * s, z * s }; }
     };
 
     // ---------------------------------------------------------------------------
@@ -151,27 +151,27 @@ namespace nkentseu {
     // ---------------------------------------------------------------------------
 
     struct NkVec3d {
-        double x = 0.0, y = 0.0, z = 0.0;
+        float64 x = 0.0, y = 0.0, z = 0.0;
 
         NkVec3d() = default;
-        NkVec3d(double x, double y, double z) : x(x), y(y), z(z) {}
-        explicit NkVec3d(const NkVec2d& v, double z = 1.0) : x(v.x), y(v.y), z(z) {}
+        NkVec3d(float64 x, float64 y, float64 z) : x(x), y(y), z(z) {}
+        explicit NkVec3d(const NkVec2d& v, float64 z = 1.0) : x(v.x), y(v.y), z(z) {}
 
         NkVec2d ToVec2()            const { return { x, y }; }
         NkVec3d operator+(const NkVec3d& o) const { return { x + o.x, y + o.y, z + o.z }; }
-        NkVec3d operator*(double s)          const { return { x * s, y * s, z * s }; }
+        NkVec3d operator*(float64 s)          const { return { x * s, y * s, z * s }; }
     };
 
     // ---------------------------------------------------------------------------
     // Inline implementations
     // ---------------------------------------------------------------------------
 
-    inline float NkVec2f::Length() const {
+    inline float32 NkVec2f::Length() const {
         return sqrt(LengthSq());
     }
 
     inline NkVec2f NkVec2f::Normalized() const {
-        float l = Length();
+        float32 l = Length();
         return l > 1e-8f ? NkVec2f{ x / l, y / l } : NkVec2f{};
     }
 

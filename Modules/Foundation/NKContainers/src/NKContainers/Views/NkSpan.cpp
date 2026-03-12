@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKCore\src\NKCore\Containers\Views\NkSpan.h
-// DESCRIPTION: Span - Non-owning view over contiguous sequence (std::span)
+// DESCRIPTION: Span - Non-owning view over contiguous sequence (STL::span)
 // AUTEUR: Rihen
 // DATE: 2026-02-09
 // VERSION: 1.0.0
@@ -10,7 +10,7 @@
 
 namespace nkentseu {
     namespace entseu {
-        // TODO: Ajouter les implémentations ici
+        // Placeholder explicite: implementation a completer; cette unite ne contient pas encore de logique runtime.
     } // namespace entseu
 } // namespace nkentseu
 

@@ -15,6 +15,8 @@
 #endif
 #include <windows.h>
 #include <shobjidl.h>
+#include <wingdi.h>
+#include "NKWindow/Core/NkSurfaceHint.h"
 
 namespace nkentseu {
 
@@ -26,13 +28,21 @@ namespace nkentseu {
     // -------------------------------------------------------------------------
     struct NkWindowData {
         HWND           mHwnd          = nullptr;
+        HWND           mParentHwnd    = nullptr;
+        HWND           mUtilityOwner  = nullptr;
         HINSTANCE      mHInstance     = nullptr;
         DWORD          mDwStyle       = 0;
         DWORD          mDwExStyle     = 0;
         DEVMODE        mDmScreen      = {};
         ITaskbarList3* mTaskbarList   = nullptr;
         NkWin32DropTarget* mDropTarget = nullptr;
+        HICON          mIconSmall     = nullptr;
+        HICON          mIconBig       = nullptr;
+        WNDPROC        mPrevWndProc   = nullptr;
+        LONG_PTR       mPrevUserData  = 0;
+        bool           mExternal      = false;
         bool           mMouseTracking = false;
+        NkSurfaceHints mAppliedHints{};
     };
 
     // -------------------------------------------------------------------------

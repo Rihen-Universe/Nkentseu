@@ -9,23 +9,19 @@
 
 #include "NKWindow/Core/NkWindowId.h"
 #include "NKWindow/Events/NkDropEvent.h"
-
-#include <functional>
-#include <mutex>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include "NKContainers/Functional/NkFunction.h"
+#include "NKCore/NkAtomic.h"
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 
     class NkAndroidDropTarget {
         public:
-            using DropFileCallback  = std::function<void(const NkDropFileEvent&)>;
-            using DropTextCallback  = std::function<void(const NkDropTextEvent&)>;
-            using DropEnterCallback = std::function<void(const NkDropEnterEvent&)>;
-            using DropOverCallback  = std::function<void(const NkDropOverEvent&)>;
-            using DropLeaveCallback = std::function<void(const NkDropLeaveEvent&)>;
+            using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
+            using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
+            using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
+            using DropOverCallback  = NkFunction<void, const NkDropOverEvent&>;
+            using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
 
             explicit NkAndroidDropTarget(NkWindowId windowId = NK_INVALID_WINDOW_ID) {
                 BindWindow(windowId);
@@ -44,7 +40,7 @@ namespace nkentseu {
                     return;
                 }
 
-                std::lock_guard<std::mutex> lock(RegistryMutex());
+                NkScopedSpinLock lock(RegistryMutex());
                 Registry()[windowId] = this;
                 mWindowId = windowId;
             }
@@ -54,7 +50,7 @@ namespace nkentseu {
                     return;
                 }
 
-                std::lock_guard<std::mutex> lock(RegistryMutex());
+                NkScopedSpinLock lock(RegistryMutex());
                 auto& map = Registry();
                 auto* val = map.Find(mWindowId);
                 if (val && *val == this) {
@@ -68,23 +64,23 @@ namespace nkentseu {
             }
 
             void SetDropFileCallback(DropFileCallback cb) {
-                mDropFile = std::move(cb);
+                mDropFile = traits::NkMove(cb);
             }
 
             void SetDropTextCallback(DropTextCallback cb) {
-                mDropText = std::move(cb);
+                mDropText = traits::NkMove(cb);
             }
 
             void SetDropEnterCallback(DropEnterCallback cb) {
-                mDropEnter = std::move(cb);
+                mDropEnter = traits::NkMove(cb);
             }
 
             void SetDropOverCallback(DropOverCallback cb) {
-                mDropOver = std::move(cb);
+                mDropOver = traits::NkMove(cb);
             }
 
             void SetDropLeaveCallback(DropLeaveCallback cb) {
-                mDropLeave = std::move(cb);
+                mDropLeave = traits::NkMove(cb);
             }
 
             void OnDragStarted(float x, float y, uint32 numItems, bool hasText, bool hasImage) {
@@ -129,7 +125,7 @@ namespace nkentseu {
                 if (windowId == NK_INVALID_WINDOW_ID) {
                     return nullptr;
                 }
-                std::lock_guard<std::mutex> lock(RegistryMutex());
+                NkScopedSpinLock lock(RegistryMutex());
                 auto& map = Registry();
                 auto* val = map.Find(windowId);
                 return val ? *val : nullptr;
@@ -201,8 +197,8 @@ namespace nkentseu {
                 return map;
             }
 
-            static std::mutex& RegistryMutex() {
-                static std::mutex mutex;
+            static NkSpinLock& RegistryMutex() {
+                static NkSpinLock mutex;
                 return mutex;
             }
 

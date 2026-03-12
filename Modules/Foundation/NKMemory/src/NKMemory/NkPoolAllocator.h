@@ -168,6 +168,22 @@ namespace memory {
             return mNumFree;
         }
         
+        [[nodiscard]] nk_size GetNumBlocks() const noexcept {
+            return NumBlocks;
+        }
+        
+        [[nodiscard]] nk_size GetBlockSize() const noexcept {
+            return BlockSize;
+        }
+        
+        [[nodiscard]] bool Owns(Pointer ptr) const noexcept {
+            if (!ptr || !mBlocks) {
+                return false;
+            }
+            const nk_uint8* p = static_cast<const nk_uint8*>(ptr);
+            return p >= mBlocks && p < (mBlocks + (BlockSize * NumBlocks));
+        }
+        
         /**
          * @brief Obtient l'utilisation (0.0 = vide, 1.0 = plein)
          */
@@ -196,14 +212,40 @@ namespace memory {
     class NKENTSEU_MEMORY_API NkVariablePoolAllocator : public NkAllocator {
     public:
         explicit NkVariablePoolAllocator(const nk_char* name = "NkVariablePoolAllocator")
-            : NkAllocator(name) {}
+            : NkAllocator(name)
+            , mHead(nullptr)
+            , mLiveBytes(0u)
+            , mLiveAllocations(0u) {}
         
         Pointer Allocate(SizeType size, SizeType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
         void Deallocate(Pointer ptr) override;
         void Reset() noexcept override;
         
+        [[nodiscard]] nk_size GetLiveBytes() const noexcept {
+            NkScopedSpinLock guard(mLock);
+            return mLiveBytes;
+        }
+        
+        [[nodiscard]] nk_size GetLiveAllocations() const noexcept {
+            NkScopedSpinLock guard(mLock);
+            return mLiveAllocations;
+        }
+        
+        [[nodiscard]] bool Owns(Pointer ptr) const noexcept;
+        
     private:
-        // Implementation: maintient lista<pool> pour tailles différentes
+        struct Header {
+            nk_uint64 magic;
+            nk_size requestedSize;
+            nk_size offsetToBase;
+            Header* prev;
+            Header* next;
+        };
+        
+        Header* mHead;
+        nk_size mLiveBytes;
+        nk_size mLiveAllocations;
+        mutable NkSpinLock mLock;
     };
 
 } // namespace memory

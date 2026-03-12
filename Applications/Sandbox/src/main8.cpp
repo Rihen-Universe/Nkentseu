@@ -8,8 +8,8 @@
 #include "NKWindow/Core/NkMain.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkEvents.h"
-#include "NKRenderer/NkRenderer.h"
-#include "NKRenderer/NkRendererConfig.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRendererConfig.h"
 #include "NKWindow/Events/NkGamepadSystem.h"
 #include "NKTime/NkChrono.h"
 #include "NKMath/NKMath.h"
@@ -26,6 +26,24 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+
+// AppData pattern #9: self-registered lambda (no macro).
+static nkentseu::NkAppData BuildGamepadPs3AppData() {
+    nkentseu::NkAppData d{};
+    d.appName = "SandboxGamepadPS3";
+    d.appVersion = "1.0.0";
+    d.enableEventLogging = true;
+    d.enableRendererDebug = false;
+    d.enableMultiWindow = false;
+    return d;
+}
+
+namespace {
+const bool gGamepadPs3AppDataRegistered = []() {
+    nkentseu::NkSetEntryAppData(BuildGamepadPs3AppData());
+    return true;
+}();
+} // namespace
 
 namespace {
 using namespace nkentseu;
@@ -518,11 +536,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     };
     bootLog("logger.Named done");
     
-    if (!NkInitialise({ .appName = "Sandbox Gamepad PS3 Layout" })) {
-        bootLog("NkInitialise failed");
-        return -1;
-    }
-    bootLog("NkInitialise done");
+    bootLog("runtime already initialized by entrypoint");
 
     NkWindowConfig cfg;
     cfg.title = "Sandbox - Gamepad PS3 Validator";
@@ -536,7 +550,6 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     bootLog("NkWindow constructed");
     if (!window.IsOpen()) {
         bootLog("window.IsOpen == false");
-        NkClose();
         return -2;
     }
     bootLog("window.IsOpen == true");
@@ -548,7 +561,6 @@ int nkmain(const nkentseu::NkEntryState& /*state*/) {
     
     if (!renderer.Create(window, rcfg)) {
         bootLog("renderer.Create failed");
-        NkClose();
         return -3;
     }
     bootLog("renderer.Create done");
@@ -826,7 +838,6 @@ shutdown_sequence:
     logger.Infof("[SHUTDOWN] renderer.Shutdown +%lldms", shutdownMs());
     window.Close();
     logger.Infof("[SHUTDOWN] window.Close +%lldms", shutdownMs());
-    NkClose();
-    logger.Infof("[SHUTDOWN] NkClose +%lldms", shutdownMs());
+    logger.Infof("[SHUTDOWN] runtime shutdown handled by entrypoint +%lldms", shutdownMs());
     return 0;
 }

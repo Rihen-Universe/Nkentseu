@@ -12,7 +12,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
-#include <mutex>
+#include <atomic>
 #include "NKContainers/Associative/NkUnorderedMap.h"
 
 namespace nkentseu {
@@ -30,10 +30,28 @@ namespace nkentseu {
         return sFactories;
     }
 
-    std::mutex& ExternalRendererFactoryMutex() {
-        static std::mutex sMutex;
-        return sMutex;
+    std::atomic_flag& ExternalRendererFactoryLock() {
+        static std::atomic_flag sLock = ATOMIC_FLAG_INIT;
+        return sLock;
     }
+
+    class ExternalRendererFactoryGuard {
+    public:
+        ExternalRendererFactoryGuard() noexcept
+            : mLock(ExternalRendererFactoryLock()) {
+            while (mLock.test_and_set(std::memory_order_acquire)) {}
+        }
+
+        ~ExternalRendererFactoryGuard() {
+            mLock.clear(std::memory_order_release);
+        }
+
+        ExternalRendererFactoryGuard(const ExternalRendererFactoryGuard&) = delete;
+        ExternalRendererFactoryGuard& operator=(const ExternalRendererFactoryGuard&) = delete;
+
+    private:
+        std::atomic_flag& mLock;
+    };
 
     std::unique_ptr<NkIRenderer> CreateBuiltinRendererImpl(NkRendererApi api) {
         switch (api) {
@@ -52,7 +70,7 @@ namespace nkentseu {
         if (api == NkRendererApi::NK_NONE)
             return nullptr;
         {
-            std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
+            ExternalRendererFactoryGuard lock;
             auto* factory = ExternalRendererFactories().Find(static_cast<uint32>(api));
             if (factory && *factory) {
                 if (auto impl = (*factory)())
@@ -118,20 +136,20 @@ namespace nkentseu {
 
     bool NkRenderer::RegisterExternalRendererFactory(NkRendererApi api, NkRendererFactory factory) {
         if (api == NkRendererApi::NK_NONE || !factory) return false;
-        std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
+        ExternalRendererFactoryGuard lock;
         ExternalRendererFactories()[static_cast<uint32>(api)] = std::move(factory);
         return true;
     }
 
     bool NkRenderer::UnregisterExternalRendererFactory(NkRendererApi api) {
         if (api == NkRendererApi::NK_NONE) return false;
-        std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
+        ExternalRendererFactoryGuard lock;
         return ExternalRendererFactories().Erase(static_cast<uint32>(api));
     }
 
     bool NkRenderer::HasExternalRendererFactory(NkRendererApi api) {
         if (api == NkRendererApi::NK_NONE) return false;
-        std::lock_guard<std::mutex> lock(ExternalRendererFactoryMutex());
+        ExternalRendererFactoryGuard lock;
         return ExternalRendererFactories().Contains(static_cast<uint32>(api));
     }
 

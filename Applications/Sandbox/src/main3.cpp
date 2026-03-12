@@ -10,7 +10,7 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvents.h"
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKTime/NkChrono.h"   // Ajout pour NkChrono et NkElapsedTime
@@ -21,6 +21,18 @@
 
 #include <cmath>
 #include <string>
+
+// AppData pattern #4: dedicated factory function + macro.
+static nkentseu::NkAppData BuildPatternDispatcherAppData() {
+    nkentseu::NkAppData d{};
+    d.appName = "SandboxPatternDispatcher";
+    d.appVersion = "1.0.0";
+    d.enableEventLogging = false;
+    d.enableRendererDebug = false;
+    d.enableMultiWindow = true;
+    return d;
+}
+NKENTSEU_DEFINE_APP_DATA(BuildPatternDispatcherAppData());
 
 namespace {
 using namespace nkentseu;
@@ -331,8 +343,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 {
     using namespace nkentseu;
 
-    // 1. Init
-    if (!NkInitialise({ .appName = "ex02 Pattern A — Dispatcher" })) return -1;
+    // 1. Runtime déjà initialisé par l'entrypoint NkMain
 
     // 2. Fenêtre
     NkWindowConfig cfg;
@@ -344,7 +355,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     cfg.dropEnabled = true;
 
     NkWindow window(cfg);
-    if (!window.IsOpen()) { NkClose(); return -2; }
+    if (!window.IsOpen()) { return -2; }
 
     // 3. Renderer
     NkRendererConfig rcfg;
@@ -352,7 +363,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     rcfg.autoResizeFramebuffer = true;
 
     NkRenderer renderer;
-    if (!renderer.Create(window, rcfg)) { NkClose(); return -3; }
+    if (!renderer.Create(window, rcfg)) { return -3; }
 
     // 4. Layer
     AppLayer layer;
@@ -410,7 +421,6 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     renderer.Shutdown();
     window.Close();
-    NkClose();
     return 0;
 }
 

@@ -15,6 +15,7 @@ Le point d'entrÃ©e natif est abstrait par NkEntry.h / NkMain.h.
 
 from Jenga import *
 from Jenga.Core.Api import androidallowrotation
+import os
 import shutil
 import subprocess
 
@@ -30,13 +31,20 @@ def _pkg_exists(pkg_name: str) -> bool:
     except Exception:
         return False
 
-_WAYLAND_LINKS = ["pthread", "wayland-client", "xkbcommon", "wayland-cursor"]
-_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "xkbcommon"]
+def _norm(path: str) -> str:
+    return path.replace("\\", "/") if path else path
+
+_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL"]
 _WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
 if _pkg_exists("libdecor-0"):
     _WAYLAND_LINKS.append("decor-0")
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
+
+_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
 
 def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: str, needs_camera: bool = False):
     with project(project_name):
@@ -49,9 +57,10 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
 
         files([source_file])
 
-        includedirs([
+        _SANDBOX_INCLUDE_DIRS = [
             "src",
             "%{wks.location}/Externals",
+            "%{Glad.location}/include",
             "%{NKWindow.location}/src",
             "%{NKRenderer.location}/src",
             "%{NKLogger.location}/src",
@@ -62,15 +71,18 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             "%{NKStream.location}/src",
             "%{NKMemory.location}/src",
             "%{NKContainers.location}/src",
-        ])
+        ]
+        if _VULKAN_INCLUDE:
+            _SANDBOX_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
+        includedirs(_SANDBOX_INCLUDE_DIRS)
 
         links([
-            "NKWindow", "NKRenderer", "NKLogger",
+            "Glad", "NKWindow", "NKRenderer", "NKLogger",
             "NKMath", "NKTime", "NKStream",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform"
         ])
         dependson([
-            "NKWindow", "NKRenderer", "NKLogger",
+            "Glad", "NKWindow", "NKRenderer", "NKLogger",
             "NKMath", "NKTime", "NKStream",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform"
         ])
@@ -90,10 +102,13 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
                 "WIN32_LEAN_AND_MEAN",
                 "_UNICODE", "UNICODE",
             ])
+            if _VULKAN_LIB:
+                libdirs([_VULKAN_LIB])
             links([
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                 "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
-                "uuid", "ole32", "dinput8", "dxguid"
+                "uuid", "ole32", "dinput8", "dxguid",
+                "d3d11", "d3d12", "dxgi", "d3dcompiler", "vulkan-1"
             ])
 
         # ===== UWP ====================================================================
@@ -117,7 +132,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             windowedapp()
             usetoolchain("clang-native")
             defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-            links(["pthread", "X11"])
+            links(["pthread", "X11", "Xext", "GL"])
 
         # ===== Linux XCB ==============================================================
         with filter("system:Linux && options:linux-backend=xcb"):
@@ -126,7 +141,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
             targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
             defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
-            links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+            links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
             ldflags(["-fuse-ld=lld"])
 
         # ===== Linux Wayland ==========================================================
@@ -148,7 +163,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         with filter("system:Android"):
             windowedapp()
             usetoolchain("android-ndk")
-            links(["android", "log", "EGL", "GLESv3"])
+            links(["android", "log", "EGL", "GLESv3", "vulkan"])
             androidapplicationid(f"com.nkentseu.{app_id_suffix}")
             androidminsdk(24)
             androidtargetsdk(34)
@@ -181,7 +196,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             emscriptenextraflags([
                 "-s", "ASYNCIFY",
                 "-s", "DYNAMIC_EXECUTION",
-                "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap']",
+                "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']",
                 "-s", "INITIAL_MEMORY=67108864",
                 "-s", "ALLOW_MEMORY_GROWTH=1",
                 "-s", "FULL_ES3=1",
@@ -220,23 +235,34 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
                     links(_WAYLAND_TEST_LINKS)
                 with filter("system:Linux && options:linux-backend=xcb"):
                     defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
-                    links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
+                    links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
                 with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
                     defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-                    links(["pthread", "X11"])
+                    links(["pthread", "X11", "Xext", "GL"])
                 with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                    if _VULKAN_LIB:
+                        libdirs([_VULKAN_LIB])
                     links([
                         "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                         "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
-                        "uuid", "ole32", "dinput8", "dxguid"
+                        "uuid", "ole32", "dinput8", "dxguid",
+                        "d3d11", "d3d12", "dxgi", "d3dcompiler", "vulkan-1"
                     ])
 
-configure_sandbox_app("Sandbox", "src/main.cpp", "sandbox")
-configure_sandbox_app("SandboxDBase", "src/main1.cpp", "sandbox.base")
-configure_sandbox_app("SandboxDiagnostic", "src/main2.cpp", "sandbox.diagnostic")
-configure_sandbox_app("SandboxPatternDispatcher", "src/main3.cpp", "sandbox.pattern.dispatcher")
-configure_sandbox_app("SandboxPatternPolling", "src/main4.cpp", "sandbox.pattern.polling")
-configure_sandbox_app("SandboxPatternCallback", "src/main5.cpp", "sandbox.pattern.callback")
-configure_sandbox_app("SandboxMultiWindow", "src/main6.cpp", "sandbox.multiwindow")
-configure_sandbox_app("SandboxStressRingBuffer", "src/main7.cpp", "sandbox.stress.ringbuffer")
-configure_sandbox_app("SandboxGamepadPS3", "src/main8.cpp", "sandbox.gamepad.ps3")
+# configure_sandbox_app("Sandbox", "src/main.cpp", "sandbox")
+# configure_sandbox_app("SandboxDBase", "src/main1.cpp", "sandbox.base")
+# configure_sandbox_app("SandboxDiagnostic", "src/main2.cpp", "sandbox.diagnostic")
+# configure_sandbox_app("SandboxPatternDispatcher", "src/main3.cpp", "sandbox.pattern.dispatcher")
+# configure_sandbox_app("SandboxPatternPolling", "src/main4.cpp", "sandbox.pattern.polling")
+# configure_sandbox_app("SandboxPatternCallback", "src/main5.cpp", "sandbox.pattern.callback")
+# configure_sandbox_app("SandboxMultiWindow", "src/main6.cpp", "sandbox.multiwindow")
+# configure_sandbox_app("SandboxStressRingBuffer", "src/main7.cpp", "sandbox.stress.ringbuffer")
+# configure_sandbox_app("SandboxGamepadPS3", "src/main8.cpp", "sandbox.gamepad.ps3")
+# configure_sandbox_app("SandboxContextAll", "src/main9.cpp", "sandbox.context.all")
+# configure_sandbox_app("SandboxOpenGLOnly", "src/main10.cpp", "sandbox.opengl.only")
+# configure_sandbox_app("SandboxVulkanOnly", "src/main11.cpp", "sandbox.vulkan.only")
+# configure_sandbox_app("SandboxDX11Only", "src/main12.cpp", "sandbox.dx11.only")
+# configure_sandbox_app("SandboxDX12Only", "src/main13.cpp", "sandbox.dx12.only")
+# configure_sandbox_app("SandboxMetalOnly", "src/main14.cpp", "sandbox.metal.only")
+# configure_sandbox_app("SandboxSoftwareOnly", "src/main15.cpp", "sandbox.software.only")
+configure_sandbox_app("NewGeneration", "src/NkGraphicsDemos.cpp", "sandbox.newgen")

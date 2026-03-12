@@ -22,6 +22,7 @@ namespace nkentseu {
             mInitialized(false),
             mLock(),
             mAllocIndex(&NkGetMallocAllocator()),
+            mTracker(),
             mGc(&NkGetDefaultAllocator()),
             mDefaultGcNode(),
             mGcHead(nullptr),
@@ -48,6 +49,7 @@ namespace nkentseu {
             } else {
                 mAllocIndex.Clear();
             }
+            mTracker.Clear();
             mInitialized = true;
         }
 
@@ -119,9 +121,13 @@ namespace nkentseu {
                 if (leakedHead->destroy) {
                     leakedHead->destroy(leakedHead->userPtr, leakedHead->basePtr, mAllocator, leakedHead->count);
                 }
+                mTracker.Unregister(leakedHead->userPtr);
+                NkMemoryProfiler::NotifyFree(leakedHead->userPtr, leakedHead->size);
                 ReleaseNode(leakedHead);
                 leakedHead = next;
             }
+            
+            mTracker.Clear();
         }
 
         void NkMemorySystem::SetLogCallback(NkLogCallback callback) noexcept {
@@ -166,42 +172,23 @@ namespace nkentseu {
             if (node->destroy) {
                 node->destroy(node->userPtr, node->basePtr, mAllocator, node->count);
             }
+            mTracker.Unregister(node->userPtr);
+            NkMemoryProfiler::NotifyFree(node->userPtr, node->size);
             ReleaseNode(node);
         }
 
         NkMemoryStats NkMemorySystem::GetStats() const noexcept {
-            NkScopedSpinLock guard(mLock);
             NkMemoryStats stats{};
-            stats.liveBytes = mLiveBytes;
-            stats.peakBytes = mPeakBytes;
-            stats.liveAllocations = mLiveAllocations;
-            stats.totalAllocations = mTotalAllocations;
+            const NkMemoryTracker::Stats trackerStats = mTracker.GetStats();
+            stats.liveBytes = trackerStats.liveBytes;
+            stats.peakBytes = trackerStats.peakBytes;
+            stats.liveAllocations = trackerStats.liveAllocations;
+            stats.totalAllocations = static_cast<nk_size>(trackerStats.totalAllocations);
             return stats;
         }
 
         void NkMemorySystem::DumpLeaks() noexcept {
-            NkScopedSpinLock guard(mLock);
-            NkAllocationNode* current = mHead;
-            if (!current) {
-                LogLine("[NKMemory] no leaks detected.");
-                return;
-            }
-
-            while (current) {
-                nk_char line[512];
-                NK_FOUNDATION_SPRINT(line,
-                        sizeof(line),
-                        "[NKMemory] leak ptr=%p size=%llu count=%llu tag=%s at %s:%d (%s)",
-                        current->userPtr,
-                        static_cast<unsigned long long>(current->size),
-                        static_cast<unsigned long long>(current->count),
-                        current->tag ? current->tag : "<none>",
-                        current->file ? current->file : "<unknown>",
-                        current->line,
-                        current->function ? current->function : "<unknown>");
-                LogLine(line);
-                current = current->next;
-            }
+            mTracker.DumpLeaks();
         }
 
         NkGarbageCollector* NkMemorySystem::CreateGc(NkAllocator* allocator) noexcept {
@@ -367,26 +354,46 @@ namespace nkentseu {
             node->prev = nullptr;
             node->next = nullptr;
 
-            NkScopedSpinLock guard(mLock);
-            if (!mAllocIndex.IsInitialized()) {
-                (void)mAllocIndex.Initialize(256u, &NkGetMallocAllocator());
-            }
-            node->next = mHead;
-            node->prev = nullptr;
-            if (mHead) {
-                mHead->prev = node;
-            }
-            mHead = node;
-            if (mAllocIndex.IsInitialized()) {
-                (void)mAllocIndex.Insert(userPtr, node);
-            }
+            nk_uint64 allocationSerial = 0u;
+            {
+                NkScopedSpinLock guard(mLock);
+                if (!mAllocIndex.IsInitialized()) {
+                    (void)mAllocIndex.Initialize(256u, &NkGetMallocAllocator());
+                }
+                node->next = mHead;
+                node->prev = nullptr;
+                if (mHead) {
+                    mHead->prev = node;
+                }
+                mHead = node;
+                if (mAllocIndex.IsInitialized()) {
+                    (void)mAllocIndex.Insert(userPtr, node);
+                }
 
-            ++mLiveAllocations;
-            ++mTotalAllocations;
-            mLiveBytes += size;
-            if (mLiveBytes > mPeakBytes) {
-                mPeakBytes = mLiveBytes;
+                ++mLiveAllocations;
+                ++mTotalAllocations;
+                mLiveBytes += size;
+                if (mLiveBytes > mPeakBytes) {
+                    mPeakBytes = mLiveBytes;
+                }
+                allocationSerial = static_cast<nk_uint64>(mTotalAllocations);
             }
+            
+            NkAllocationInfo info{};
+            info.userPtr = userPtr;
+            info.basePtr = basePtr;
+            info.size = size;
+            info.count = count;
+            info.alignment = alignment;
+            info.tag = static_cast<nk_uint8>(NkMemoryTag::NK_MEMORY_ENGINE);
+            info.file = file;
+            info.line = line;
+            info.function = function;
+            info.name = tag;
+            info.timestamp = allocationSerial;
+            info.threadId = 0u;
+            mTracker.Register(info);
+            NkMemoryProfiler::NotifyAlloc(userPtr, size, tag);
         }
 
         NkMemorySystem::NkAllocationNode* NkMemorySystem::FindAndDetach(void* userPtr) noexcept {

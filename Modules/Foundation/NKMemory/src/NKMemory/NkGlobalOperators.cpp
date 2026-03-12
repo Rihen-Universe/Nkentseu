@@ -29,33 +29,33 @@
 // Scalar new / delete
 // ---------------------------------------------------------------------------
 
-void* operator new(std::size_t size) {
+void* operator new(size_t size) {
     if (size == 0u) { size = 1u; }
-    void* ptr = std::malloc(size);
+    void* ptr = ::malloc(size);
     if (!ptr) { throw std::bad_alloc{}; }
     return ptr;
 }
 
-void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+void* operator new(size_t size, const std::nothrow_t&) noexcept {
     if (size == 0u) { size = 1u; }
-    return std::malloc(size);
+    return ::malloc(size);
 }
 
 void operator delete(void* ptr) noexcept {
-    std::free(ptr);
+    ::free(ptr);
 }
 
 void operator delete(void* ptr, const std::nothrow_t&) noexcept {
-    std::free(ptr);
+    ::free(ptr);
 }
 
 // C++14 sized scalar delete — compiler calls this when it knows the size.
-void operator delete(void* ptr, std::size_t size) noexcept {
+void operator delete(void* ptr, size_t size) noexcept {
 #if NK_HAS_FREE_SIZED
     ::free_sized(ptr, size);
 #else
     (void)size;
-    std::free(ptr);
+    ::free(ptr);
 #endif
 }
 
@@ -63,33 +63,33 @@ void operator delete(void* ptr, std::size_t size) noexcept {
 // Array new[] / delete[]
 // ---------------------------------------------------------------------------
 
-void* operator new[](std::size_t size) {
+void* operator new[](size_t size) {
     if (size == 0u) { size = 1u; }
-    void* ptr = std::malloc(size);
+    void* ptr = ::malloc(size);
     if (!ptr) { throw std::bad_alloc{}; }
     return ptr;
 }
 
-void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
+void* operator new[](size_t size, const std::nothrow_t&) noexcept {
     if (size == 0u) { size = 1u; }
-    return std::malloc(size);
+    return ::malloc(size);
 }
 
 void operator delete[](void* ptr) noexcept {
-    std::free(ptr);
+    ::free(ptr);
 }
 
 void operator delete[](void* ptr, const std::nothrow_t&) noexcept {
-    std::free(ptr);
+    ::free(ptr);
 }
 
 // C++14 sized array delete — compiler calls this when it knows the size.
-void operator delete[](void* ptr, std::size_t size) noexcept {
+void operator delete[](void* ptr, size_t size) noexcept {
 #if NK_HAS_FREE_SIZED
     ::free_sized(ptr, size);
 #else
     (void)size;
-    std::free(ptr);
+    ::free(ptr);
 #endif
 }
 

@@ -161,7 +161,7 @@ namespace memory {
          */
         NkAllocator* FindAllocatorFor(void* ptr) const noexcept;
         
-        NkSpinLock mLock;
+        mutable NkSpinLock mLock;
     };
     
     /**

@@ -7,10 +7,13 @@
 
 #include "NKWindow/Core/NkTypes.h"
 
-namespace nkentseu {
+    namespace nkentseu {
 
     enum class NkGraphicsApi : uint32 {
-        None      = 0,
+        NK_NONE   = 0,
+#if !defined(None)
+        None      = NK_NONE,
+#endif
         OpenGL    = 1,
         Vulkan    = 2,
         DirectX11 = 3,
@@ -27,7 +30,10 @@ namespace nkentseu {
     };
 
     enum class NkDepthFormat : uint32 {
-        None             = 0,
+        NK_NONE          = 0,
+#if !defined(None)
+        None             = NK_NONE,
+#endif
         Depth16          = 1,
         Depth24          = 2,
         Depth32F         = 3,

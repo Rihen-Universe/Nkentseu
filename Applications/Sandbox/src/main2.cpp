@@ -10,7 +10,7 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvents.h"        // définit NkEvents() et inclut les événements
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"
 
@@ -21,6 +21,16 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+
+// AppData pattern #3: explicit updater callback registration.
+static void ConfigureDiagnosticAppData(nkentseu::NkAppData& d) {
+    d.appName = "SandboxDiagnostic";
+    d.appVersion = "1.0.0";
+    d.enableEventLogging = true;
+    d.enableRendererDebug = true;
+    d.enableMultiWindow = true;
+}
+NK_REGISTER_ENTRY_APPDATA_UPDATER(ConfigureDiagnosticAppData);
 
 // ---------------------------------------------------------------------------
 // Logger dual (console + fichier)
@@ -68,16 +78,9 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     logger.Info("=== ex01_diagnostic — NkWindow event diagnostic ===");
 
     // -----------------------------------------------------------------------
-    // 1. Init système
+    // 1. Runtime déjà initialisé par l'entrypoint NkMain
     // -----------------------------------------------------------------------
-    NkAppData app;
-    app.appName = "ex01_diagnostic";
-
-    if (!NkInitialise(app)) {
-        logger.Error("[FATAL] NkInitialise failed");
-        return -1;
-    }
-    logger.Info("[1] NkInitialise OK");
+    logger.Info("[1] Runtime already initialized");
 
     // -----------------------------------------------------------------------
     // 2. Fenêtre
@@ -93,7 +96,6 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
     NkWindow window(cfg);
     if (!window.IsOpen()) {
         logger.Error("[FATAL] Window creation failed");
-        NkClose();
         return -2;
     }
     logger.Info("[2] Window open — valid: {0}", window.IsValid() ? "yes" : "no");
@@ -204,7 +206,6 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     logger.Info("[4] Loop done — frames={0} totalEvents={1}", frames, evCount);
 
-    NkClose();
-    logger.Info("[5] NkClose OK — see ex01_diagnostic.log for full log");
+    logger.Info("[5] Runtime shutdown handled by entrypoint — see ex01_diagnostic.log for full log");
     return 0;
 }

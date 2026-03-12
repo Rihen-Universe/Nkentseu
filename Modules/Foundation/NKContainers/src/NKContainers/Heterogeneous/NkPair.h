@@ -21,7 +21,7 @@ namespace nkentseu {
         /**
          * @brief Pair container - holds two values
          * 
-         * Implémentation personnalisée de std::pair sans aucune dépendance STL.
+         * Implémentation personnalisée de STL::pair sans aucune dépendance STL.
          * Utilisé massivement dans Map, HashMap, etc.
          * 
          * @example

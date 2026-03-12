@@ -40,10 +40,8 @@
 
 #include "NkEvent.h"
 #include "NKContainers/String/NkStringUtils.h"
+#include "NKCore/NkTraits.h"
 #include "NKMemory/NkUtils.h"
-#include <string>
-#include <vector>
-#include <memory>
 
 namespace nkentseu {
 
@@ -177,7 +175,7 @@ namespace nkentseu {
                           uint64             windowId   = 0)
             : NkEvent(windowId)
             , mCustomType(customType)
-            , mData(std::move(data))
+            , mData(traits::NkMove(data))
             , mUserPtr(userPtr)
         {}
 
@@ -251,8 +249,8 @@ namespace nkentseu {
                              uint64       windowId   = 0)
             : NkEvent(windowId)
             , mCustomType(customType)
-            , mTag(std::move(tag))
-            , mMessage(std::move(message))
+            , mTag(traits::NkMove(tag))
+            , mMessage(traits::NkMove(message))
         {}
 
         NkEvent*    Clone()    const override { return new NkCustomStringEvent(*this); }

@@ -9,6 +9,18 @@
 // Exemple :
 //   #include <NkentseuWindow/Core/NkMain.h>
 //
+//   static void ConfigureAppData(nkentseu::NkAppData& d) {
+//       d.appName = "MyApp";
+//       d.enableEventLogging = true;
+//   }
+//   NK_REGISTER_ENTRY_APPDATA_UPDATER(ConfigureAppData)
+//
+//   // ou en une macro (1 paramètre):
+//   nkentseu::NkAppData appData{};
+//   appData.appName = "MyApp";
+//   appData.enableEventLogging = true;
+//   NKENTSEU_DEFINE_APP_DATA(appData)
+//
 //   int nkmain(const nkentseu::NkEntryState& state) {
 //       nkentseu::NkWindowConfig cfg;
 //       cfg.title = "Hello NK";

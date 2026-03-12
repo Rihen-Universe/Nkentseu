@@ -13,8 +13,6 @@
 
 #include "NKWindow/Events/NkEventSystem.h"
 
-#include <mutex>
-
 namespace nkentseu {
 
     bool NkEventSystem::Init() {
@@ -24,7 +22,7 @@ namespace nkentseu {
 
         mTotalEventCount = 0;
         {
-            std::lock_guard<std::mutex> lock(mQueueMutex);
+            NkScopedSpinLock lock(mQueueMutex);
             mEventQueue.Clear();
         }
         mPumping = false;

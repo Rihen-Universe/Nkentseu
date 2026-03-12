@@ -7,11 +7,6 @@ void NkGcTracer::Mark(NkGcObject* object) noexcept {
     mGc.Mark(object);
 }
 
-NkGarbageCollector& NkGarbageCollector::Instance() noexcept {
-    static NkGarbageCollector collector;
-    return collector;
-}
-
 NkGarbageCollector::NkGarbageCollector(NkAllocator* allocator) noexcept
     : mObjects(nullptr),
       mRoots(nullptr),

@@ -40,14 +40,19 @@ NkEntryState *gState = nullptr;
 @implementation NkUIAppDelegate
 
 - (BOOL)application:(UIApplication *)app didFinishLaunchingWithOptions:(NSDictionary *)opts {
+	if (!nkentseu::NkEntryRuntimeInit(g_ios_args.bundleId.CStr())) {
+		return NO;
+	}
 	nkentseu::gState = new nkentseu::NkEntryState(g_ios_args.args);
-	nkentseu::gState->appName = g_ios_args.bundleId;
+	nkentseu::NkApplyEntryAppName(*nkentseu::gState, g_ios_args.bundleId.CStr());
 	int ret = nkmain(*nkentseu::gState);
 	(void)ret;
 	return YES;
 }
 
 - (void)applicationWillTerminate:(UIApplication *)app {
+	(void)app;
+	nkentseu::NkEntryRuntimeShutdown(true);
 	delete nkentseu::gState;
 	nkentseu::gState = nullptr;
 }
@@ -71,7 +76,7 @@ int main(int argc, char *argv[]) {
 			g_ios_args.documentsPath = [[paths firstObject] UTF8String];
 
 		for (int i = 0; i < argc; ++i)
-			g_ios_args.args.push_back(argv[i]);
+			g_ios_args.args.PushBack(argv[i]);
 
 #if TARGET_OS_TV
 		NSLog(@"[NK] Platform: tvOS");

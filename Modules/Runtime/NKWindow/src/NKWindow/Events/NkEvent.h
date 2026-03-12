@@ -13,16 +13,15 @@
 //   if (event.Is<NkKeyPressEvent>())            { ... }
 //   if (auto* kp = event.As<NkKeyPressEvent>()) { ... }
 //   event.MarkHandled();
-//   std::cout << event.ToString();
+//   logger.Info(event.ToString());
 // =============================================================================
 
 #include <cstdint>
 #include <string>
-#include <functional>
-#include <ostream>
 #include <chrono>
 
 #include "NKMath/NkTypes.h"
+#include "NKCore/NkTraits.h"
 #include "NKContainers/NkContainers.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/String/NkFormat.h"
@@ -38,10 +37,6 @@
 #endif
 
 namespace nkentseu {
-
-#ifndef NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION
-    #define NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION 0
-#endif
 
     // =========================================================================
     // NkEventCategory
@@ -255,7 +250,7 @@ namespace nkentseu {
     // =========================================================================
     // Macros helper pour les classes dérivées de NkEvent
     //
-    // NK_EVENT_BIND_HANDLER(methode)  — crée un std::bind vers une méthode membre
+    // NK_EVENT_BIND_HANDLER(methode)  — crée un lambda vers une méthode membre
     // NK_EVENT_STATIC_TYPE(TYPE)      — expose GetStaticType() (pour Is<T> / As<T>)
     // NK_EVENT_TYPE_FLAGS(TYPE)       — implémente GetType(), GetTypeStr(), GetName()
     // NK_EVENT_CATEGORY_FLAGS(CAT)    — implémente GetCategoryFlags()
@@ -265,9 +260,9 @@ namespace nkentseu {
     //   NK_EVENT_CATEGORY_FLAGS(NkEventCategory::NK_CAT_INPUT | NkEventCategory::NK_CAT_KEYBOARD)
     // =========================================================================
 
-    /// @brief Crée un std::bind vers une méthode membre (pour les handlers)
+    /// @brief Crée un lambda vers une méthode membre (pour les handlers)
     #define NK_EVENT_BIND_HANDLER(method_) \
-        std::bind(&method_, this, std::placeholders::_1)
+        [this](auto&& eventArg) -> decltype(auto) { return method_(traits::NkForward<decltype(eventArg)>(eventArg)); }
 
     /// @brief Expose GetStaticType() sur une classe dérivée
     #define NK_EVENT_STATIC_TYPE(type_) \
@@ -335,12 +330,6 @@ namespace nkentseu {
 
             /// @brief Destructeur virtuel — indispensable pour le polymorphisme
             virtual ~NkEvent() = default;
-
-            // --- Opérateur de flux ---
-
-            friend std::ostream& operator<<(std::ostream& os, const NkEvent& e) {
-                return os << e.ToString().CStr();
-            }
 
             // --- Accesseurs ---
 
@@ -426,25 +415,14 @@ namespace nkentseu {
     //   EventHandlerRef  : alias sémantique — handler passif (observation)
     // =========================================================================
 
-    #if NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION
     using EventObserver    = NkFunction<void, NkEvent&>;
     using EventObserverRef = NkFunction<void, const NkEvent&>;
     using EventHandler     = NkFunction<void, NkEvent&>;
     using EventHandlerRef  = NkFunction<void, const NkEvent&>;
-    #else
-    using EventObserver    = std::function<void(NkEvent&)>;
-    using EventObserverRef = std::function<void(const NkEvent&)>;
-    using EventHandler     = std::function<void(NkEvent&)>;
-    using EventHandlerRef  = std::function<void(const NkEvent&)>;
-    #endif
 
     // =========================================================================
     // NkEventCallback — type de callback pour les événements
     // =========================================================================
-    #if NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION
     using NkEventCallback = NkFunction<void, NkEvent*>;
-    #else
-    using NkEventCallback = std::function<void(NkEvent*)>;
-    #endif
 
 } // namespace nkentseu

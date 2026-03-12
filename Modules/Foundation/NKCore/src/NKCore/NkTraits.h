@@ -4,6 +4,7 @@
 #define NKENTSEU_CORE_NKTRAITS_H_INCLUDED
 
 #include "NkTypes.h"
+#include <type_traits>
 
 namespace nkentseu {
     
@@ -385,7 +386,7 @@ namespace nkentseu {
         template <typename T>
         struct NkIsUnion : NkBoolConstant<__is_union(T)> {};
         template <typename T>
-        struct NkIsFunction : NkBoolConstant<__is_function(T)> {};
+        struct NkIsFunction : NkBoolConstant<std::is_function_v<T>> {};
         #else
         template <typename T> struct NkIsEnum : NkFalseType {};
         template <typename T> struct NkIsClass : NkFalseType {};

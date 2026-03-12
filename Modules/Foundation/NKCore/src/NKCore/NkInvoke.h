@@ -4,6 +4,7 @@
 #define NKENTSEU_CORE_NKINVOKE_H_INCLUDED
 
 #include "NkTraits.h"
+#include <type_traits>
 
 namespace nkentseu {
     
@@ -29,8 +30,8 @@ namespace nkentseu {
 
         template <typename F, typename... Args,
                 typename traits::NkEnableIf_t<
-                    !__is_member_function_pointer(traits::NkRemoveReference_t<F>) &&
-                    !__is_member_object_pointer(traits::NkRemoveReference_t<F>),
+                    !std::is_member_function_pointer_v<traits::NkRemoveReference_t<F>> &&
+                    !std::is_member_object_pointer_v<traits::NkRemoveReference_t<F>>,
                     int> = 0>
         constexpr decltype(auto) NkInvoke(F&& function, Args&&... args) noexcept(
             noexcept(traits::NkForward<F>(function)(traits::NkForward<Args>(args)...))) {
@@ -39,7 +40,7 @@ namespace nkentseu {
 
         template <typename MemFn, typename Obj, typename... Args,
                 typename traits::NkEnableIf_t<
-                    __is_member_function_pointer(traits::NkRemoveReference_t<MemFn>),
+                    std::is_member_function_pointer_v<traits::NkRemoveReference_t<MemFn>>,
                     int> = 0>
         constexpr decltype(auto) NkInvoke(MemFn&& memberFunction, Obj&& object, Args&&... args) noexcept(
             noexcept((detail::NkInvokeObject(traits::NkForward<Obj>(object)).*memberFunction)(
@@ -50,7 +51,7 @@ namespace nkentseu {
 
         template <typename MemObj, typename Obj,
                 typename traits::NkEnableIf_t<
-                    __is_member_object_pointer(traits::NkRemoveReference_t<MemObj>),
+                    std::is_member_object_pointer_v<traits::NkRemoveReference_t<MemObj>>,
                     int> = 0>
         constexpr decltype(auto) NkInvoke(MemObj&& memberObject, Obj&& object) noexcept(
             noexcept(detail::NkInvokeObject(traits::NkForward<Obj>(object)).*memberObject)) {
@@ -83,4 +84,3 @@ namespace nkentseu {
 } // namespace nkentseu
 
 #endif // NKENTSEU_CORE_NKINVOKE_H_INCLUDED
-

@@ -189,7 +189,7 @@ namespace nkentseu {
 	 */
 	bool NkFileSink::Open() {
 		logger_sync::NkScopedLock lock(m_Mutex);
-		return OpenFile();
+		return OpenUnlocked();
 	}
 
 	/**
@@ -197,10 +197,7 @@ namespace nkentseu {
 	 */
 	void NkFileSink::Close() {
 		logger_sync::NkScopedLock lock(m_Mutex);
-		if (m_FileStream != nullptr) {
-			(void)::fclose(m_FileStream);
-			m_FileStream = nullptr;
-		}
+		CloseUnlocked();
 	}
 
 	/**
@@ -227,10 +224,7 @@ namespace nkentseu {
 
 		if (m_Filename != filename) {
 			// Fermer l'ancien fichier
-			if (m_FileStream != nullptr) {
-				(void)::fclose(m_FileStream);
-				m_FileStream = nullptr;
-			}
+			CloseUnlocked();
 
 			// Mettre à jour le nom
 			m_Filename = filename;
@@ -239,7 +233,7 @@ namespace nkentseu {
 			NkEnsureParentDirectory(filename);
 
 			// Ouvrir le nouveau fichier
-			OpenFile();
+			OpenUnlocked();
 		}
 	}
 
@@ -262,9 +256,8 @@ namespace nkentseu {
 
 			// Re-ouvrir le fichier avec le nouveau mode
 			if (m_FileStream != nullptr) {
-				(void)::fclose(m_FileStream);
-				m_FileStream = nullptr;
-				OpenFile();
+				CloseUnlocked();
+				OpenUnlocked();
 			}
 		}
 	}
@@ -299,6 +292,21 @@ namespace nkentseu {
 
 		(void)::setvbuf(m_FileStream, nullptr, _IONBF, 0); // Pas de buffering
 		return true;
+	}
+
+	bool NkFileSink::OpenUnlocked() {
+		return OpenFile();
+	}
+
+	void NkFileSink::CloseUnlocked() {
+		if (m_FileStream != nullptr) {
+			(void)::fclose(m_FileStream);
+			m_FileStream = nullptr;
+		}
+	}
+
+	NkString NkFileSink::GetFilenameUnlocked() const {
+		return m_Filename;
 	}
 
 	/**

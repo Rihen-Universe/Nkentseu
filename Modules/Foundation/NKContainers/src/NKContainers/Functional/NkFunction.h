@@ -1,6 +1,6 @@
 /**
  * @file NkFunction.h
- * @description Fournit une classe pour stocker des objets appelables dans le framework Nkentseu, similaire à std::function.
+ * @description Fournit une classe pour stocker des objets appelables dans le framework Nkentseu, similaire à STL::function.
  * @author TEUGUIA TADJUIDJE Rodolf
  * @date 2025-06-10
  * @license Rihen
@@ -32,7 +32,7 @@ namespace nkentseu {
 
     /**
      * @class NkFunction
-     * @brief Conteneur polymorphe pour objets appelables, similaire à std::function.
+     * @brief Conteneur polymorphe pour objets appelables, similaire à STL::function.
      * @tparam R Type de retour de l'appel.
      * @tparam Args Types des arguments de l'appel.
      */

@@ -18,6 +18,7 @@
 #define NKENTSEU_MEMORY_NKPROFILER_H_INCLUDED
 
 #include "NKCore/NkTypes.h"
+#include "NKCore/NkAtomic.h"
 #include "NKMemory/NkExport.h"
 
 namespace nkentseu {
@@ -67,6 +68,10 @@ namespace memory {
         
         static GlobalStats GetGlobalStats() noexcept;
         
+        static void NotifyAlloc(void* ptr, nk_size size, const nk_char* tag) noexcept;
+        static void NotifyFree(void* ptr, nk_size size) noexcept;
+        static void NotifyRealloc(void* oldPtr, void* newPtr, nk_size oldSize, nk_size newSize) noexcept;
+        
         /**
          * @brief Dump pour debug
          */
@@ -76,6 +81,8 @@ namespace memory {
         static AllocCallback sAllocCB;
         static FreeCallback sFreeCB;
         static ReallocCallback sReallocCB;
+        static GlobalStats sStats;
+        static NkSpinLock sLock;
     };
 
 } // namespace memory

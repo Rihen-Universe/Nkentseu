@@ -11,21 +11,18 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
+#include "NKCore/NkAtomic.h"
 
 #include <android/configuration.h>
 #include <android/native_window.h>
 #include <android/window.h>
 #include <android_native_app_glue.h>
 #include <jni.h>
-#include <algorithm>
-#include <mutex>
-#include <unordered_map>
-#include <vector>
 
 namespace nkentseu {
 
     android_app* nk_android_global_app = nullptr;
-    static std::mutex sAndroidWindowsMutex;
+    static NkSpinLock sAndroidWindowsMutex;
     static NkWindow* sAndroidLastWindow = nullptr;
 
     // Function-local statics avoid static init order fiasco with NkAllocator.
@@ -39,18 +36,18 @@ namespace nkentseu {
     }
 
     NkWindow* NkAndroidFindWindowById(NkWindowId id) {
-        std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
+        NkScopedSpinLock lock(sAndroidWindowsMutex);
         auto* win = AndroidWindowById().Find(id);
         return win ? *win : nullptr;
     }
 
     NkVector<NkWindow*> NkAndroidGetWindowsSnapshot() {
-        std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
+        NkScopedSpinLock lock(sAndroidWindowsMutex);
         return AndroidWindows();
     }
 
     NkWindow* NkAndroidGetLastWindow() {
-        std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
+        NkScopedSpinLock lock(sAndroidWindowsMutex);
         return sAndroidLastWindow;
     }
 
@@ -59,7 +56,7 @@ namespace nkentseu {
         const NkWindowId id = window->GetId();
         if (id == NK_INVALID_WINDOW_ID) return;
 
-        std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
+        NkScopedSpinLock lock(sAndroidWindowsMutex);
         auto& windows = AndroidWindows();
         bool found = false;
         for (uint32 i = 0; i < windows.Size(); ++i) {
@@ -73,7 +70,7 @@ namespace nkentseu {
     void NkAndroidUnregisterWindow(NkWindow* window) {
         if (!window) return;
 
-        std::lock_guard<std::mutex> lock(sAndroidWindowsMutex);
+        NkScopedSpinLock lock(sAndroidWindowsMutex);
         auto& windows = AndroidWindows();
 
         // Remove window from vector
@@ -292,18 +289,39 @@ namespace nkentseu {
 
     bool NkWindow::Create(const NkWindowConfig& config) {
         mConfig = config;
-        mData.mAndroidApp = nk_android_global_app;
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mExternal = false;
+        mData.mAndroidApp = config.native.externalDisplayHandle != 0
+            ? reinterpret_cast<android_app*>(config.native.externalDisplayHandle)
+            : nk_android_global_app;
 
-        if (!mData.mAndroidApp) {
-            mLastError = NkError(1, "Android: android_app is null");
+        const bool wantsExternal = config.native.useExternalWindow;
+        const bool hasExternalHandle = (config.native.externalWindowHandle != 0);
+        if (wantsExternal && !hasExternalHandle) {
+            mLastError = NkError(1, "Android: useExternalWindow=true but externalWindowHandle is null");
             return false;
         }
-        if (!mData.mAndroidApp->window) {
+
+        if (wantsExternal && hasExternalHandle) {
+            mData.mNativeWindow = reinterpret_cast<ANativeWindow*>(config.native.externalWindowHandle);
+            mData.mExternal = true;
+        } else {
+            if (!mData.mAndroidApp) {
+                mLastError = NkError(1, "Android: android_app is null");
+                return false;
+            }
+            if (!mData.mAndroidApp->window) {
+                mLastError = NkError(2, "Android: ANativeWindow is null");
+                return false;
+            }
+            mData.mNativeWindow = mData.mAndroidApp->window;
+        }
+
+        if (!mData.mNativeWindow) {
             mLastError = NkError(2, "Android: ANativeWindow is null");
             return false;
         }
 
-        mData.mNativeWindow = mData.mAndroidApp->window;
         ANativeWindow_acquire(mData.mNativeWindow);
         ANativeWindow_setBuffersGeometry(mData.mNativeWindow, 0, 0, WINDOW_FORMAT_RGBA_8888);
 
@@ -322,8 +340,10 @@ namespace nkentseu {
         }
 
         mData.mOrientation = config.screenOrientation;
-        NkAndroidApplyOrientation(*this, mData.mOrientation);
-        NkAndroidUpdateSafeArea(*this);
+        if (mData.mAndroidApp) {
+            NkAndroidApplyOrientation(*this, mData.mOrientation);
+            NkAndroidUpdateSafeArea(*this);
+        }
 
         mId = NkSystem::Instance().RegisterWindow(this);
         NkAndroidRegisterWindow(this);
@@ -390,6 +410,7 @@ namespace nkentseu {
         mData.mPrevHeight = 0;
         mData.mSafeArea = {};
         mData.mAndroidApp = nullptr;
+        mData.mExternal = false;
     }
 
     bool NkWindow::IsOpen() const { return mIsOpen; }
@@ -515,6 +536,7 @@ namespace nkentseu {
         desc.height = size.y;
         desc.dpi = GetDpiScale();
         desc.nativeWindow = mData.mNativeWindow;
+        desc.appliedHints = mData.mAppliedHints;
         return desc;
     }
 

@@ -16,6 +16,9 @@
 #include "NKReflection/NkProperty.h"
 #include "NKReflection/NkMethod.h"
 #include "NKCore/NkTraits.h"
+#include <cstring>
+#include <cstddef>
+#include <typeinfo>
 
 namespace nkentseu {
     
@@ -36,22 +39,49 @@ namespace nkentseu {
                     // ========================================
                     
                     void RegisterType(const NkType* type) {
-                        // Ajouter au registre (implémentation simplifiée)
+                        if (type == nullptr || type->GetName() == nullptr) {
+                            return;
+                        }
+                        for (usize i = 0; i < mTypeCount; ++i) {
+                            if (mTypes[i] == type) {
+                                return;
+                            }
+                            if (mTypes[i] != nullptr &&
+                                mTypes[i]->GetName() != nullptr &&
+                                ::strcmp(mTypes[i]->GetName(), type->GetName()) == 0) {
+                                return;
+                            }
+                        }
+                        if (mTypeCount < NK_MAX_TYPES) {
+                            mTypes[mTypeCount++] = type;
+                        }
                     }
                     
-                    const NkType* FindType(const Char* name) const {
-                        // Chercher dans registre
+                    const NkType* FindType(const nk_char* name) const {
+                        if (name == nullptr || name[0] == '\0') {
+                            return nullptr;
+                        }
+                        for (usize i = 0; i < mTypeCount; ++i) {
+                            if (mTypes[i] != nullptr &&
+                                mTypes[i]->GetName() != nullptr &&
+                                ::strcmp(mTypes[i]->GetName(), name) == 0) {
+                                return mTypes[i];
+                            }
+                        }
                         return nullptr;
                     }
                     
                     template<typename T>
                     const NkType* GetType() const {
+                        const NkType* existing = FindType(typeid(T).name());
+                        if (existing != nullptr) {
+                            return existing;
+                        }
                         static NkType type(
                             typeid(T).name(),
                             sizeof(T),
                             alignof(T),
-                            DetermineCategory<T>()
-                        );
+                            DetermineCategory<T>());
                         return &type;
                     }
                     
@@ -60,11 +90,35 @@ namespace nkentseu {
                     // ========================================
                     
                     void RegisterClass(const NkClass* classInfo) {
-                        // Ajouter au registre
+                        if (classInfo == nullptr || classInfo->GetName() == nullptr) {
+                            return;
+                        }
+                        for (usize i = 0; i < mClassCount; ++i) {
+                            if (mClasses[i] == classInfo) {
+                                return;
+                            }
+                            if (mClasses[i] != nullptr &&
+                                mClasses[i]->GetName() != nullptr &&
+                                ::strcmp(mClasses[i]->GetName(), classInfo->GetName()) == 0) {
+                                return;
+                            }
+                        }
+                        if (mClassCount < NK_MAX_CLASSES) {
+                            mClasses[mClassCount++] = classInfo;
+                        }
                     }
                     
-                    const NkClass* FindClass(const Char* name) const {
-                        // Chercher dans registre
+                    const NkClass* FindClass(const nk_char* name) const {
+                        if (name == nullptr || name[0] == '\0') {
+                            return nullptr;
+                        }
+                        for (usize i = 0; i < mClassCount; ++i) {
+                            if (mClasses[i] != nullptr &&
+                                mClasses[i]->GetName() != nullptr &&
+                                ::strcmp(mClasses[i]->GetName(), name) == 0) {
+                                return mClasses[i];
+                            }
+                        }
                         return nullptr;
                     }
                     
@@ -74,9 +128,26 @@ namespace nkentseu {
                     }
                     
                 private:
-                    NkRegistry() {} // Constructeur par défaut privé
+                    static constexpr usize NK_MAX_TYPES = 512;
+                    static constexpr usize NK_MAX_CLASSES = 512;
+
+                    NkRegistry()
+                        : mTypeCount(0)
+                        , mClassCount(0) {
+                        for (usize i = 0; i < NK_MAX_TYPES; ++i) {
+                            mTypes[i] = nullptr;
+                        }
+                        for (usize i = 0; i < NK_MAX_CLASSES; ++i) {
+                            mClasses[i] = nullptr;
+                        }
+                    } // Constructeur par défaut privé
                     NkRegistry(const NkRegistry&) = delete;
                     NkRegistry& operator=(const NkRegistry&) = delete;
+
+                    const NkType* mTypes[NK_MAX_TYPES];
+                    usize mTypeCount;
+                    const NkClass* mClasses[NK_MAX_CLASSES];
+                    usize mClassCount;
             };
             
         } // namespace reflection
@@ -91,17 +162,17 @@ namespace nkentseu {
  * @brief Déclare une classe réfléchie
  */
 #define NKENTSEU_REFLECT_CLASS(ClassName) \
-    friend class ::nkentseu::reflection::Class; \
+    using SelfType = ClassName; \
     public: \
-    static const ::nkentseu::reflection::Class& GetStaticClass() { \
-        static ::nkentseu::reflection::Class classInfo( \
+    static const ::nkentseu::reflection::NkClass& GetStaticClass() { \
+        static ::nkentseu::reflection::NkClass classInfo( \
             #ClassName, \
             sizeof(ClassName), \
-            ::nkentseu::reflection::TypeOf<ClassName>() \
+            ::nkentseu::reflection::NkTypeOf<ClassName>() \
         ); \
         return classInfo; \
     } \
-    virtual const ::nkentseu::reflection::Class& GetClass() const { \
+    virtual const ::nkentseu::reflection::NkClass& GetClass() const { \
         return GetStaticClass(); \
     } \
     private:
@@ -111,11 +182,11 @@ namespace nkentseu {
  */
 #define NKENTSEU_REFLECT_PROPERTY(PropertyName) \
     public: \
-    static const ::nkentseu::reflection::Property& Get##PropertyName##Property() { \
-        static ::nkentseu::reflection::Property property( \
+    static const ::nkentseu::reflection::NkProperty& Get##PropertyName##Property() { \
+        static ::nkentseu::reflection::NkProperty property( \
             #PropertyName, \
-            ::nkentseu::reflection::TypeOf<decltype(PropertyName)>(), \
-            offsetof(::nkentseu::traits::NkRemoveReference_t<decltype(*this)>, PropertyName) \
+            ::nkentseu::reflection::NkTypeOf<decltype(((SelfType*)0)->PropertyName)>(), \
+            offsetof(SelfType, PropertyName) \
         ); \
         return property; \
     } \
@@ -135,7 +206,7 @@ namespace nkentseu {
     namespace { \
         struct ClassName##_Registrar { \
             ClassName##_Registrar() { \
-                ::nkentseu::reflection::Registry::Get().RegisterClass( \
+                ::nkentseu::reflection::NkRegistry::Get().RegisterClass( \
                     &ClassName::GetStaticClass() \
                 ); \
             } \

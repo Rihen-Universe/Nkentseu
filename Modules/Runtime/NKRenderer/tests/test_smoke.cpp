@@ -1,7 +1,7 @@
 #include <Unitest/Unitest.h>
 #include <Unitest/TestMacro.h>
 
-#include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Deprecate/NkRenderer.h"
 
 #if defined(True)
 #undef True

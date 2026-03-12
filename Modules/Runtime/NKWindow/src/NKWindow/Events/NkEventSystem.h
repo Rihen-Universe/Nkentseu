@@ -33,19 +33,10 @@
 #include "NKWindow/Core/NkWindowId.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-
-
-#include <functional>
-#include <unordered_map>
-#include <vector>
-#include <memory>
-#include <mutex>
-#include <array>
-#include <atomic>
-#include <thread>
-#include <cstddef>
-#include <type_traits>
-#include <utility>
+#include "NKCore/NkAtomic.h"
+#include "NKCore/NkInvoke.h"
+#include "NKCore/NkTraits.h"
+#include "NKMemory/NkUniquePtr.h"
 
 #define NK_EVENTSYS_ANDROID_TRACE(...) logger.Infof(__VA_ARGS__)
 
@@ -87,12 +78,25 @@ namespace nkentseu {
 
     using NkGlobalEventCallback = NkEventCallback;
     using NkTypedEventCallback  = NkEventCallback;
+    using NkRemoverCallback     = NkFunction<void>;
 
-#if NKENTSEU_EVENT_CALLBACK_USE_NKFUNCTION
-    using NkRemoverCallback = NkFunction<void>;
-#else
-    using NkRemoverCallback = std::function<void()>;
-#endif
+    struct NkEventDelete {
+        void operator()(NkEvent* event) const noexcept { delete event; }
+    };
+
+    using NkEventPtr = memory::NkUniquePtr<NkEvent, NkEventDelete>;
+
+    namespace detail {
+        template<typename T, typename = void>
+        struct NkIsBoolTestable : traits::NkFalseType {};
+
+        template<typename T>
+        struct NkIsBoolTestable<T, traits::NkVoidT<decltype(static_cast<bool>(traits::NkDeclVal<T&>()))>>
+            : traits::NkTrueType {};
+
+        template<typename T>
+        inline constexpr nk_bool NkIsBoolTestable_v = NkIsBoolTestable<T>::value;
+    } // namespace detail
 
     // =========================================================================
     // NkEventPriority â€” CORRECTION 3 : classification drop-safe vs droppable
@@ -152,8 +156,8 @@ namespace nkentseu {
 
     class NkEventRingBuffer {
     public:
-        static constexpr std::size_t kHighCapacity   =  128; // critique â€” no-drop
-        static constexpr std::size_t kNormalCapacity =  512; // droppable
+        static constexpr nk_size kHighCapacity   =  128; // critique â€” no-drop
+        static constexpr nk_size kNormalCapacity =  512; // droppable
 
         NkEventRingBuffer()  = default;
         ~NkEventRingBuffer() = default;
@@ -163,70 +167,72 @@ namespace nkentseu {
 
         // CORRECTION 3 : push dans la file correspondant Ã  la prioritÃ©.
         // Retourne false uniquement pour NORMAL (drop-oldest), jamais pour HIGH.
-        bool Push(std::unique_ptr<NkEvent> ev, NkEventPriority prio) {
+        bool Push(NkEventPtr ev, NkEventPriority prio) {
             if (prio == NkEventPriority::HIGH) {
                 return PushInto(mHighSlots, kHighCapacity, mHighHead, mHighTail,
-                                std::move(ev), /*allowDrop=*/false);
+                                traits::NkMove(ev), /*allowDrop=*/false);
             } else {
                 return PushInto(mNormSlots, kNormalCapacity, mNormHead, mNormTail,
-                                std::move(ev), /*allowDrop=*/true);
+                                traits::NkMove(ev), /*allowDrop=*/true);
             }
         }
 
         // Pop : prioritÃ© HIGH d'abord, ensuite NORMAL.
-        std::unique_ptr<NkEvent> Pop() {
+        NkEventPtr Pop() {
             if (mHighHead != mHighTail) return PopFrom(mHighSlots, kHighCapacity, mHighHead, mHighTail);
             if (mNormHead != mNormTail) return PopFrom(mNormSlots, kNormalCapacity, mNormHead, mNormTail);
-            return nullptr;
+            return NkEventPtr(nullptr);
         }
 
         bool        Empty() const { return (mHighHead == mHighTail) && (mNormHead == mNormTail); }
-        std::size_t Size()  const { return QueueSize(mHighHead, mHighTail, kHighCapacity)
+        nk_size     Size()  const { return QueueSize(mHighHead, mHighTail, kHighCapacity)
                                          + QueueSize(mNormHead, mNormTail, kNormalCapacity); }
         void Clear() { while (!Empty()) Pop(); }
 
     private:
-        static std::size_t QueueSize(std::size_t h, std::size_t t, std::size_t cap) noexcept {
+        static nk_size QueueSize(nk_size h, nk_size t, nk_size cap) noexcept {
             if (cap == 0) return 0;
             return (h >= t) ? (h - t) : (cap - t + h);
         }
 
-        static bool PushInto(NkVector<std::unique_ptr<NkEvent>>& slots,
-                              std::size_t cap,
-                              std::size_t& head, std::size_t& tail,
-                              std::unique_ptr<NkEvent> ev,
+        static bool PushInto(NkVector<NkEventPtr>& slots,
+                              nk_size cap,
+                              nk_size& head, nk_size& tail,
+                              NkEventPtr ev,
                               bool allowDrop)
         {
             if (cap == 0) return false;
-            std::size_t next = (head + 1) % cap;
+            nk_size next = (head + 1) % cap;
             bool full = (next == tail);
             if (full) {
                 if (!allowDrop) return false; // HIGH : on ne droppe pas
                 tail = (tail + 1) % cap;      // NORMAL : drop oldest
             }
-            slots[head] = std::move(ev);
+            slots[head] = traits::NkMove(ev);
             head = next;
             return !full;
         }
 
-        static std::unique_ptr<NkEvent> PopFrom(NkVector<std::unique_ptr<NkEvent>>& slots,
-                                                 std::size_t cap,
-                                                 std::size_t& head, std::size_t& tail)
+        static NkEventPtr PopFrom(NkVector<NkEventPtr>& slots,
+                                   nk_size cap,
+                                   nk_size& head, nk_size& tail)
         {
-            if (cap == 0) return nullptr;
-            if (head == tail) return nullptr;
-            auto ev = std::move(slots[tail]);
+            if (cap == 0) return NkEventPtr(nullptr);
+            if (head == tail) return NkEventPtr(nullptr);
+            auto ev = traits::NkMove(slots[tail]);
             tail = (tail + 1) % cap;
             return ev;
         }
 
         // File HAUTE PRIORITÃ‰ (no-drop)
-        NkVector<std::unique_ptr<NkEvent>> mHighSlots{kHighCapacity};
-        std::size_t mHighHead = 0, mHighTail = 0;
+        NkVector<NkEventPtr> mHighSlots{kHighCapacity};
+        nk_size mHighHead = 0;
+        nk_size mHighTail = 0;
 
         // File NORMALE (drop-oldest)
-        NkVector<std::unique_ptr<NkEvent>> mNormSlots{kNormalCapacity};
-        std::size_t mNormHead = 0, mNormTail = 0;
+        NkVector<NkEventPtr> mNormSlots{kNormalCapacity};
+        nk_size mNormHead = 0;
+        nk_size mNormTail = 0;
     };
 
     // =========================================================================
@@ -243,7 +249,7 @@ namespace nkentseu {
         NkCallbackGuard() = default;
 
         NkCallbackGuard(NkRemoverCallback remover)
-            : mRemover(std::move(remover)) {}
+            : mRemover(traits::NkMove(remover)) {}
 
         ~NkCallbackGuard() { Release(); }
 
@@ -253,9 +259,9 @@ namespace nkentseu {
 
         // Movable
         NkCallbackGuard(NkCallbackGuard&& o) noexcept
-            : mRemover(std::move(o.mRemover)) { o.mRemover = NkRemoverCallback{}; }
+            : mRemover(traits::NkMove(o.mRemover)) { o.mRemover = NkRemoverCallback{}; }
         NkCallbackGuard& operator=(NkCallbackGuard&& o) noexcept {
-            if (this != &o) { Release(); mRemover = std::move(o.mRemover); o.mRemover = NkRemoverCallback{}; }
+            if (this != &o) { Release(); mRemover = traits::NkMove(o.mRemover); o.mRemover = NkRemoverCallback{}; }
             return *this;
         }
 
@@ -297,17 +303,17 @@ namespace nkentseu {
             void AddEventCallback(Callback&& callback,
                                   NkWindowId windowId = NK_INVALID_WINDOW_ID)
             {
-                static_assert(std::is_invocable_r_v<void, Callback&, T*>,
-                              "AddEventCallback<T>: callback must be invocable as void(T*)");
+                static_assert(NkIsInvocable_v<Callback&, T*>,
+                              "AddEventCallback<T>: callback must be invocable as (T*)");
 
                 NK_EVENTSYS_ANDROID_TRACE(
                     "[AddEventCallback<T>] enter this=%p windowId=%llu",
                     static_cast<void*>(this),
                     static_cast<unsigned long long>(windowId));
 
-                using CallbackT = std::decay_t<Callback>;
-                CallbackT typedCallback(std::forward<Callback>(callback));
-                if constexpr (std::is_constructible_v<bool, CallbackT>) {
+                using CallbackT = traits::NkDecay_t<Callback>;
+                CallbackT typedCallback(traits::NkForward<Callback>(callback));
+                if constexpr (detail::NkIsBoolTestable_v<CallbackT>) {
                     if (!static_cast<bool>(typedCallback)) {
                         NK_EVENTSYS_ANDROID_TRACE("[AddEventCallback<T>] empty callback -> skip");
                         return;
@@ -331,7 +337,7 @@ namespace nkentseu {
                     return;
                 }
 
-                auto wrapper = [callback = std::move(typedCallback), filterId](NkEvent* ev) mutable {
+                auto wrapper = [callback = traits::NkMove(typedCallback), filterId](NkEvent* ev) mutable {
                     // CORRECTION 6 : si un filtre est dÃ©fini, ignorer les events
                     // qui ne viennent pas de cette fenÃªtre.
                     if (filterId != NK_INVALID_WINDOW_ID &&
@@ -341,7 +347,7 @@ namespace nkentseu {
                 NK_EVENTSYS_ANDROID_TRACE(
                     "[AddEventCallback<T>] step wrapper-ready type=%u",
                     static_cast<unsigned>(type));
-                AddEventCallbackRaw(type, std::move(wrapper));
+                AddEventCallbackRaw(type, traits::NkMove(wrapper));
                 NK_EVENTSYS_ANDROID_TRACE(
                     "[AddEventCallback<T>] done type=%u",
                     static_cast<unsigned>(type));
@@ -354,29 +360,29 @@ namespace nkentseu {
                 Callback&& callback,
                 NkWindowId windowId = NK_INVALID_WINDOW_ID)
             {
-                static_assert(std::is_invocable_r_v<void, Callback&, T*>,
-                              "AddEventCallbackGuard<T>: callback must be invocable as void(T*)");
+                static_assert(NkIsInvocable_v<Callback&, T*>,
+                              "AddEventCallbackGuard<T>: callback must be invocable as (T*)");
 
-                using CallbackT = std::decay_t<Callback>;
-                CallbackT typedCallback(std::forward<Callback>(callback));
-                if constexpr (std::is_constructible_v<bool, CallbackT>) {
+                using CallbackT = traits::NkDecay_t<Callback>;
+                CallbackT typedCallback(traits::NkForward<Callback>(callback));
+                if constexpr (detail::NkIsBoolTestable_v<CallbackT>) {
                     if (!static_cast<bool>(typedCallback)) return NkCallbackGuard{};
                 }
 
                 NkWindowId filterId = windowId;
                 const NkEventType::Value type = T::GetStaticType();
-                auto wrapper = [callback = std::move(typedCallback), filterId](NkEvent* ev) mutable {
+                auto wrapper = [callback = traits::NkMove(typedCallback), filterId](NkEvent* ev) mutable {
                     if (filterId != NK_INVALID_WINDOW_ID &&
                         ev->GetWindowId() != filterId) return;
                     if (auto* typed = ev->As<T>()) callback(typed);
                 };
-                uint64 token = AddEventCallbackTokenRaw(type, std::move(wrapper));
+                uint64 token = AddEventCallbackTokenRaw(type, traits::NkMove(wrapper));
 
                 // Le guard appelle RemoveCallbackToken Ã  sa destruction
                 auto remover = [this, type, token]() {
                     RemoveCallbackToken(type, token);
                 };
-                return NkCallbackGuard(std::move(remover));
+                return NkCallbackGuard(traits::NkMove(remover));
             }
 
             template<typename T>
@@ -393,14 +399,14 @@ namespace nkentseu {
             // requise (ex: file de travail asynchrone, traitement diffÃ©rÃ©).
             NkEvent*                 PollEvent();
             bool                     PollEvent(NkEvent*& event);
-            std::unique_ptr<NkEvent> PollEventCopy();   // durÃ©e de vie contrÃ´lÃ©e par l'appelant
+            NkEventPtr               PollEventCopy();   // durÃ©e de vie contrÃ´lÃ©e par l'appelant
             void                     PollEvents();
 
             // --- Direct dispatch ---
             void DispatchEvent(NkEvent& event);
             template<typename T>
             void DispatchEvent(T&& event) {
-                static_assert(std::is_base_of<NkEvent, std::decay_t<T>>::value,
+                static_assert(traits::NkIsBaseOf_v<NkEvent, traits::NkDecay_t<T>>,
                               "DispatchEvent: T must derive from NkEvent");
                 NkEvent& base = event;
                 DispatchEvent(base);
@@ -424,7 +430,7 @@ namespace nkentseu {
             void SetQueueMode(bool e)            noexcept { mQueueMode = e; }
             bool GetQueueMode()                  const noexcept { return mQueueMode; }
 
-            std::size_t GetPendingEventCount() const noexcept;
+            nk_size GetPendingEventCount() const noexcept;
             uint64       GetTotalEventCount()   const noexcept { return mTotalEventCount; }
             const char* GetPlatformName()      const noexcept;
 
@@ -460,9 +466,9 @@ namespace nkentseu {
             NkGenericHidMapper mHidMapper;
             bool         mReady = false;
 
-            // Point 3 : ring buffer Ã  la place de std::deque<unique_ptr<NkEvent>>
-            NkEventRingBuffer        mEventQueue;
-            std::unique_ptr<NkEvent> mCurrentEvent;
+            // Point 3 : ring buffer Ã  la place d'une deque dynamique
+            NkEventRingBuffer mEventQueue;
+            NkEventPtr        mCurrentEvent;
 
             bool   mAutoUpdateInputState = true;
             bool   mAutoGamepadPoll      = true;
@@ -473,12 +479,12 @@ namespace nkentseu {
             //   mDispatchMutex : protÃ¨ge DispatchEvent() direct (appel externe)
             //   mQueueMutex    : protÃ¨ge mEventQueue pour l'accÃ¨s multi-thread
             //                    entre PumpOS() (producteur) et PollEvent() (consommateur)
-            mutable std::mutex mDispatchMutex;
-            mutable std::mutex mQueueMutex;
+            mutable NkSpinLock mDispatchMutex;
+            mutable NkSpinLock mQueueMutex;
 
             // CORRECTION 5 : thread ID enregistrÃ© Ã  Init() pour assertions
             // PollEvent() et PumpOS() doivent Ãªtre appelÃ©s depuis ce thread.
-            std::thread::id mPumpThreadId;
+            uint64 mPumpThreadId = 0;
 
             bool mPumping = false;
 

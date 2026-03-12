@@ -53,13 +53,11 @@
 #include "NkEventState.h"
 #include "NkGamepadMappingPersistence.h"
 #include "NKContainers/CacheFriendly/NkArray.h"
+#include "NKContainers/Functional/NkFunction.h"
+#include "NKCore/NkTraits.h"
 #include "NKMath/NkFunctions.h"
+#include "NKMemory/NkUniquePtr.h"
 #include "NKMemory/NkUtils.h"
-
-#include <functional>
-#include <memory>
-#include <string>
-#include <cmath>
 
 namespace nkentseu {
 
@@ -133,9 +131,9 @@ namespace nkentseu {
 	// Callbacks
 	// ---------------------------------------------------------------------------
 
-	using NkGamepadConnectCallback = std::function<void(const NkGamepadInfo&, bool connected)>;
-	using NkGamepadButtonCallback  = std::function<void(uint32 idx, NkGamepadButton, NkButtonState)>;
-	using NkGamepadAxisCallback    = std::function<void(uint32 idx, NkGamepadAxis,   float32 value)>;
+	using NkGamepadConnectCallback = NkFunction<void, const NkGamepadInfo&, bool>;
+	using NkGamepadButtonCallback  = NkFunction<void, uint32, NkGamepadButton, NkButtonState>;
+	using NkGamepadAxisCallback    = NkFunction<void, uint32, NkGamepadAxis, float32>;
 
 	// ===========================================================================
 	// NkIGamepad â€” interface PIMPL du backend manette
@@ -297,12 +295,12 @@ namespace nkentseu {
 			 * @param backend  Backend personnalisÃ© (nullptr = factory automatique).
 			 * @return true si l'initialisation a rÃ©ussi.
 			 */
-			bool Init(std::unique_ptr<NkIGamepad> backend = nullptr);
+			bool Init(memory::NkUniquePtr<NkIGamepad> backend = {});
 
 			/// @brief LibÃ¨re le backend et l'Ã©tat interne
 			void Shutdown();
 
-			bool IsReady() const noexcept { return mReady && mBackend != nullptr; }
+			bool IsReady() const noexcept { return mReady && static_cast<nk_bool>(mBackend); }
 
 			// =========================================================================
 			// Pompe (appeler chaque trame dans la boucle principale)
@@ -339,17 +337,17 @@ namespace nkentseu {
 			 *   });
 			 * @endcode
 			 */
-			void SetConnectCallback(NkGamepadConnectCallback cb) { mConnectCb = std::move(cb); }
+			void SetConnectCallback(NkGamepadConnectCallback cb) { mConnectCb = traits::NkMove(cb); }
 
 			/**
 			 * @brief Callback dÃ©clenchÃ© pour chaque changement d'Ã©tat de bouton.
 			 */
-			void SetButtonCallback(NkGamepadButtonCallback cb) { mButtonCb = std::move(cb); }
+			void SetButtonCallback(NkGamepadButtonCallback cb) { mButtonCb = traits::NkMove(cb); }
 
 			/**
 			 * @brief Callback dÃ©clenchÃ© pour chaque mouvement d'axe significatif.
 			 */
-			void SetAxisCallback(NkGamepadAxisCallback cb) { mAxisCb = std::move(cb); }
+			void SetAxisCallback(NkGamepadAxisCallback cb) { mAxisCb = traits::NkMove(cb); }
 
 			// =========================================================================
 			// Polling direct (ne gÃ©nÃ¨re pas d'Ã©vÃ©nements)
@@ -524,9 +522,9 @@ namespace nkentseu {
 			// Persistance des profils de mapping (format configurable)
 			// =========================================================================
 
-			void SetMappingPersistence(std::unique_ptr<NkIGamepadMappingPersistence> persistence);
-			NkIGamepadMappingPersistence* GetMappingPersistence() noexcept { return mMappingPersistence.get(); }
-			const NkIGamepadMappingPersistence* GetMappingPersistence() const noexcept { return mMappingPersistence.get(); }
+			void SetMappingPersistence(memory::NkUniquePtr<NkIGamepadMappingPersistence> persistence);
+			NkIGamepadMappingPersistence* GetMappingPersistence() noexcept { return mMappingPersistence.Get(); }
+			const NkIGamepadMappingPersistence* GetMappingPersistence() const noexcept { return mMappingPersistence.Get(); }
 
 			NkGamepadMappingProfileData ExportMappingProfile() const;
 			bool ImportMappingProfile(const NkGamepadMappingProfileData& profile,
@@ -543,8 +541,8 @@ namespace nkentseu {
 			// AccÃ¨s backend
 			// =========================================================================
 
-			NkIGamepad* GetBackend() noexcept { return mBackend.get(); }
-			const NkIGamepad* GetBackend() const noexcept { return mBackend.get(); }
+			NkIGamepad* GetBackend() noexcept { return mBackend.Get(); }
+			const NkIGamepad* GetBackend() const noexcept { return mBackend.Get(); }
 
 		private:
 			void FireConnect(const NkGamepadInfo& info, bool connected);
@@ -562,7 +560,7 @@ namespace nkentseu {
 				return 0.f;
 			}
 
-			std::unique_ptr<NkIGamepad> mBackend;
+			memory::NkUniquePtr<NkIGamepad> mBackend;
 			bool mReady = false;
 
 			// Callbacks directs
@@ -579,7 +577,7 @@ namespace nkentseu {
 			// Configuration
 			float32 mDeadzone    = 0.08f;
 			float32 mAxisEpsilon = 0.001f;
-			std::unique_ptr<NkIGamepadMappingPersistence> mMappingPersistence;
+			memory::NkUniquePtr<NkIGamepadMappingPersistence> mMappingPersistence;
 
 			// Sentinelles pour les accÃ¨s invalides
 			static NkGamepadSnapshot sDummySnapshot;

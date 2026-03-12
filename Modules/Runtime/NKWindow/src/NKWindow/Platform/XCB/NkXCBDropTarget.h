@@ -16,31 +16,28 @@
 #include <xcb/xcb.h>
 
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
-#include <sstream>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include "NKWindow/Events/NkDropEvent.h"
+#include "NKContainers/Functional/NkFunction.h"
+#include "NKContainers/String/Encoding/NkASCII.h"
+#include "NKCore/NkTraits.h"
 
 namespace nkentseu {
 
     class NkXCBDropTarget {
         public:
-            using DropFileCallback  = std::function<void(const NkDropFileEvent&)>;
-            using DropTextCallback  = std::function<void(const NkDropTextEvent&)>;
-            using DropEnterCallback = std::function<void(const NkDropEnterEvent&)>;
-            using DropLeaveCallback = std::function<void(const NkDropLeaveEvent&)>;
+            using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
+            using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
+            using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
+            using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
 
             // Legacy compatibility callbacks (data-only API)
-            using DropFilesDataCallback = std::function<void(const NkDropFileData&)>;
-            using DropTextDataCallback  = std::function<void(const NkDropTextData&)>;
-            using DropEnterDataCallback = std::function<void(const NkDropEnterData&)>;
-            using DropLeaveDataCallback = std::function<void()>;
+            using DropFilesDataCallback = NkFunction<void, const NkDropFileData&>;
+            using DropTextDataCallback  = NkFunction<void, const NkDropTextData&>;
+            using DropEnterDataCallback = NkFunction<void, const NkDropEnterData&>;
+            using DropLeaveDataCallback = NkFunction<void>;
 
             explicit NkXCBDropTarget(xcb_connection_t* connection, xcb_window_t window)
                 : mConnection(connection), mWindow(window) {
@@ -49,16 +46,16 @@ namespace nkentseu {
             }
 
             // Event-oriented API
-            void SetDropFileCallback(DropFileCallback cb)   { mDropFile = std::move(cb); }
-            void SetDropTextCallback(DropTextCallback cb)   { mDropText = std::move(cb); }
-            void SetDropEnterCallback(DropEnterCallback cb) { mDropEnter = std::move(cb); }
-            void SetDropLeaveCallback(DropLeaveCallback cb) { mDropLeave = std::move(cb); }
+            void SetDropFileCallback(DropFileCallback cb)   { mDropFile = traits::NkMove(cb); }
+            void SetDropTextCallback(DropTextCallback cb)   { mDropText = traits::NkMove(cb); }
+            void SetDropEnterCallback(DropEnterCallback cb) { mDropEnter = traits::NkMove(cb); }
+            void SetDropLeaveCallback(DropLeaveCallback cb) { mDropLeave = traits::NkMove(cb); }
 
             // Legacy API compatibility
-            void SetDropFilesCallback(DropFilesDataCallback cb) { mDropFilesData = std::move(cb); }
-            void SetDropTextCallback(DropTextDataCallback cb)   { mDropTextData = std::move(cb); }
-            void SetDropEnterCallback(DropEnterDataCallback cb) { mDropEnterData = std::move(cb); }
-            void SetDropLeaveCallback(DropLeaveDataCallback cb) { mDropLeaveData = std::move(cb); }
+            void SetDropFilesCallback(DropFilesDataCallback cb) { mDropFilesData = traits::NkMove(cb); }
+            void SetDropTextCallback(DropTextDataCallback cb)   { mDropTextData = traits::NkMove(cb); }
+            void SetDropEnterCallback(DropEnterDataCallback cb) { mDropEnterData = traits::NkMove(cb); }
+            void SetDropLeaveCallback(DropLeaveDataCallback cb) { mDropLeaveData = traits::NkMove(cb); }
 
             // Call from event loop:
             // - XCB_CLIENT_MESSAGE  -> HandleClientMessage(...)
@@ -106,10 +103,10 @@ namespace nkentseu {
 
             xcb_atom_t GetAtom(const char* name) const {
                 xcb_intern_atom_cookie_t cookie =
-                    xcb_intern_atom(mConnection, 0, static_cast<uint16_t>(std::strlen(name)), name);
+                    xcb_intern_atom(mConnection, 0, static_cast<uint16_t>(::strlen(name)), name);
                 xcb_intern_atom_reply_t* reply = xcb_intern_atom_reply(mConnection, cookie, nullptr);
                 xcb_atom_t atom = reply ? reply->atom : XCB_ATOM_NONE;
-                std::free(reply);
+                ::free(reply);
                 return atom;
             }
 
@@ -220,47 +217,61 @@ namespace nkentseu {
 
                 NkString out;
                 if (bytes && len > 0) {
-                    std::string tmp(bytes, static_cast<std::size_t>(len));
-                    out = NkString(tmp.c_str());
+                    out = NkString(bytes, static_cast<NkString::SizeType>(len));
                 }
 
-                std::free(reply);
+                ::free(reply);
                 return out;
             }
 
             static NkVector<NkString> ParseUriList(const NkString& raw) {
-                // Use std::string internally for parsing (std::getline / istringstream)
                 NkVector<NkString> paths;
-                std::istringstream ss(raw.CStr());
-                std::string line;
+                NkString::SizeType start = 0;
+                const NkString::SizeType rawSize = raw.Size();
 
-                while (std::getline(ss, line)) {
-                    if (line.empty() || line[0] == '#') {
-                        continue;
-                    }
-                    if (!line.empty() && line.back() == '\r') {
-                        line.pop_back();
-                    }
-                    if (line.rfind("file://", 0) != 0) {
-                        continue;
-                    }
-
-                    const std::string encoded = line.substr(7);
-                    std::string decoded;
-                    decoded.reserve(encoded.size());
-
-                    for (std::size_t i = 0; i < encoded.size(); ++i) {
-                        if (encoded[i] == '%' && i + 2 < encoded.size()) {
-                            int value = 0;
-                            std::sscanf(encoded.c_str() + i + 1, "%2x", &value);
-                            decoded.push_back(static_cast<char>(value));
-                            i += 2;
-                        } else {
-                            decoded.push_back(encoded[i]);
+                while (start < rawSize) {
+                    NkString::SizeType end = rawSize;
+                    for (NkString::SizeType k = start; k < rawSize; ++k) {
+                        if (raw[k] == '\n') {
+                            end = k;
+                            break;
                         }
                     }
 
-                    paths.PushBack(NkString(decoded.c_str()));
+                    NkString line = raw.SubStr(start, end - start);
+                    if (!line.Empty() && line.Back() == '\r') {
+                        line.PopBack();
+                    }
+
+                    if (line.Empty() || line[0] == '#') {
+                        start = (end < rawSize) ? (end + 1) : rawSize;
+                        continue;
+                    }
+
+                    if (!line.StartsWith("file://")) {
+                        start = (end < rawSize) ? (end + 1) : rawSize;
+                        continue;
+                    }
+
+                    NkString encoded = line.SubStr(7);
+                    NkString decoded;
+                    decoded.Reserve(encoded.Size());
+
+                    for (NkString::SizeType i = 0; i < encoded.Size(); ++i) {
+                        if (encoded[i] == '%' && i + 2 < encoded.Size()) {
+                            const int32 hi = encoding::ascii::NkToHexDigit(encoded[i + 1]);
+                            const int32 lo = encoding::ascii::NkToHexDigit(encoded[i + 2]);
+                            if (hi >= 0 && lo >= 0) {
+                                decoded.PushBack(static_cast<char>((hi << 4) | lo));
+                                i += 2;
+                                continue;
+                            }
+                        }
+                        decoded.PushBack(encoded[i]);
+                    }
+
+                    paths.PushBack(traits::NkMove(decoded));
+                    start = (end < rawSize) ? (end + 1) : rawSize;
                 }
 
                 return paths;

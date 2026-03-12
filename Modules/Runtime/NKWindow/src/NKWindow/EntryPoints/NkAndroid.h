@@ -7,14 +7,11 @@
 
 #include "NKWindow/Core/NkEntry.h"
 #include "NKLogger/NkLog.h"
+#include "NKCore/NkTraits.h"
 
 #include <android/looper.h>
 #include <android_native_app_glue.h>
 #include <jni.h>
-
-#include <string>
-#include <vector>
-#include <utility>
 
 #ifndef NK_APP_NAME
 #define NK_APP_NAME "android_app"
@@ -113,10 +110,16 @@ extern "C" void android_main(android_app* app) {
     }
     NK_ANDROID_BOOTLOG("args built size=%llu", static_cast<unsigned long long>(args.Size()));
 
+    if (!nkentseu::NkEntryRuntimeInit(NK_APP_NAME)) {
+        NK_ANDROID_BOOTLOG("NkEntryRuntimeInit failed");
+        nkentseu::nk_android_global_app = nullptr;
+        return;
+    }
+
     NK_ANDROID_BOOTLOG("before NkEntryState ctor");
-    nkentseu::NkEntryState state(app, std::move(args));
+    nkentseu::NkEntryState state(app, nkentseu::traits::NkMove(args));
     NK_ANDROID_BOOTLOG("after NkEntryState ctor");
-    state.appName = NK_APP_NAME;
+    nkentseu::NkApplyEntryAppName(state, NK_APP_NAME);
     nkentseu::gState = &state;
 
     NK_ANDROID_BOOTLOG("before nkmain");
@@ -124,6 +127,7 @@ extern "C" void android_main(android_app* app) {
     NK_ANDROID_BOOTLOG("after nkmain");
 
     nkentseu::gState = nullptr;
+    nkentseu::NkEntryRuntimeShutdown(true);
     nkentseu::nk_android_global_app = nullptr;
     NK_ANDROID_BOOTLOG("android_main exit");
 }

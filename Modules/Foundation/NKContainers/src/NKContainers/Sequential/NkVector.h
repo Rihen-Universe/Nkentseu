@@ -188,12 +188,11 @@ namespace nkentseu {
                 }
             }
 
-#if defined(NK_HAS_STD_INITIALIZER_LIST)
-            NkVector(std::initializer_list<T> il)
-                : NkVector(NkInitializerList<T>(il)) {
-            }
-#endif
-            NkVector(const T& value) {
+            NkVector(const T& value)
+                : mData(nullptr)
+                , mSize(0)
+                , mCapacity(0)
+                , mAllocator(&memory::NkGetDefaultAllocator()) {
                 Reserve(1);
                 PushBack(value);
             }
@@ -434,7 +433,7 @@ namespace nkentseu {
                 mData[mSize].~T();
             }
             
-            // Default-constructs new elements (supports move-only types like std::unique_ptr)
+            // Default-constructs new elements (supports move-only types like STL::unique_ptr)
             void Resize(SizeType newSize) {
                 if (newSize > mSize) {
                     Reserve(newSize);

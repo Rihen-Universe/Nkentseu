@@ -18,6 +18,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Events/NkEventSystem.h"
+#include "NKCore/NkAtomic.h"
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_aux.h>
@@ -25,7 +26,6 @@
 
 #include <unordered_map>
 #include <cstring>
-#include <mutex>
 #include <string>
 
 namespace nkentseu {
@@ -36,8 +36,9 @@ namespace nkentseu {
 
     static xcb_connection_t* sConnection    = nullptr;
     static xcb_screen_t*     sDefaultScreen = nullptr;
+    static bool              sConnectionOwned = false;
     static int               sWindowCount   = 0;
-    static std::mutex        sConnectionMutex;
+    static NkSpinLock        sConnectionMutex;
 
     // Atoms partagés
     static xcb_atom_t sAtomWmDeleteWindow = XCB_ATOM_NONE;
@@ -102,24 +103,38 @@ namespace nkentseu {
     bool NkWindow::Create(const NkWindowConfig& config) {
         mConfig = config;
 
-        std::lock_guard<std::mutex> lock(sConnectionMutex);
+        NkScopedSpinLock lock(sConnectionMutex);
 
         // Ouvrir la connexion xcb si nécessaire
         if (!sConnection) {
-            int screenNum = 0;
-            sConnection = xcb_connect(nullptr, &screenNum);
-            if (!sConnection || xcb_connection_has_error(sConnection)) {
-                mLastError = NkError(1, "xcb_connect failed");
-                sConnection = nullptr;
-                return false;
-            }
+            if (config.native.externalDisplayHandle != 0) {
+                sConnection = reinterpret_cast<xcb_connection_t*>(config.native.externalDisplayHandle);
+                sConnectionOwned = false;
+                if (!sConnection || xcb_connection_has_error(sConnection)) {
+                    mLastError = NkError(1, "Invalid external xcb_connection_t.");
+                    sConnection = nullptr;
+                    return false;
+                }
+                const xcb_setup_t* setup = xcb_get_setup(sConnection);
+                xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
+                sDefaultScreen = iter.data;
+            } else {
+                int screenNum = 0;
+                sConnection = xcb_connect(nullptr, &screenNum);
+                sConnectionOwned = true;
+                if (!sConnection || xcb_connection_has_error(sConnection)) {
+                    mLastError = NkError(1, "xcb_connect failed");
+                    sConnection = nullptr;
+                    sConnectionOwned = false;
+                    return false;
+                }
 
-            // Trouver l'écran par défaut
-            const xcb_setup_t*    setup = xcb_get_setup(sConnection);
-            xcb_screen_iterator_t iter  = xcb_setup_roots_iterator(setup);
-            for (int i = 0; i < screenNum; ++i)
-                xcb_screen_next(&iter);
-            sDefaultScreen = iter.data;
+                const xcb_setup_t* setup = xcb_get_setup(sConnection);
+                xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
+                for (int i = 0; i < screenNum; ++i)
+                    xcb_screen_next(&iter);
+                sDefaultScreen = iter.data;
+            }
 
             // Intern atoms utiles
             sAtomWmDeleteWindow = NkXCBInternAtom(sConnection, "WM_DELETE_WINDOW");
@@ -131,6 +146,39 @@ namespace nkentseu {
 
         mData.mConnection = sConnection;
         mData.mScreen     = sDefaultScreen;
+        mData.mAppliedHints = config.surfaceHints;
+        mData.mParentWindow = static_cast<xcb_window_t>(config.native.parentWindowHandle);
+
+        const bool useExternal = config.native.useExternalWindow &&
+                                 config.native.externalWindowHandle != 0;
+        if (useExternal) {
+            mData.mWindow = static_cast<xcb_window_t>(config.native.externalWindowHandle);
+            mData.mExternal = true;
+
+            xcb_get_geometry_cookie_t c = xcb_get_geometry(mData.mConnection, mData.mWindow);
+            xcb_generic_error_t* err = nullptr;
+            xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, &err);
+            if (!r || err) {
+                free(r);
+                free(err);
+                --sWindowCount;
+                if (sWindowCount <= 0) {
+                    if (sConnectionOwned) xcb_disconnect(sConnection);
+                    sConnection = nullptr;
+                    sConnectionOwned = false;
+                    sDefaultScreen = nullptr;
+                    sWindowCount = 0;
+                }
+                mLastError = NkError(2, "Invalid external XCB window.");
+                return false;
+            }
+            free(r);
+
+            NkXCBRegisterWindow(mData.mWindow, this);
+            mId = NkSystem::Instance().RegisterWindow(this);
+            mIsOpen = true;
+            return true;
+        }
 
         // --- Position ---
         int x = config.centered
@@ -169,7 +217,7 @@ namespace nkentseu {
             sConnection,
             XCB_COPY_FROM_PARENT,
             mData.mWindow,
-            sDefaultScreen->root,
+            mData.mParentWindow ? mData.mParentWindow : sDefaultScreen->root,
             static_cast<int16_t>(x), static_cast<int16_t>(y),
             static_cast<uint16_t>(config.width),
             static_cast<uint16_t>(config.height),
@@ -196,6 +244,24 @@ namespace nkentseu {
                             static_cast<uint32_t>(config.title.Size()),
                             config.title.CStr());
 
+        if (config.native.utilityWindow) {
+            const xcb_atom_t wmType = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_TYPE");
+            const xcb_atom_t wmTypeUtility = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_TYPE_UTILITY");
+            xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
+                                mData.mWindow, wmType, XCB_ATOM_ATOM, 32,
+                                1, &wmTypeUtility);
+        }
+
+        if (config.transparent) {
+            const xcb_atom_t opacityAtom = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_OPACITY");
+            uint32_t alpha = config.bgColor & 0xFFu;
+            if (alpha == 0xFFu) alpha = 230u;
+            const uint32_t opacity = static_cast<uint32_t>((static_cast<uint64_t>(alpha) * 0xFFFFFFFFull) / 255ull);
+            xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE,
+                                mData.mWindow, opacityAtom, XCB_ATOM_CARDINAL, 32,
+                                1, &opacity);
+        }
+
         // --- WM size hints (non-resizable) ---
         if (!config.resizable) {
             xcb_size_hints_t hints{};
@@ -210,22 +276,22 @@ namespace nkentseu {
         // XDND drop target integration (events forwarded to NkEventSystem queue).
         mData.mDropTarget = new NkXCBDropTarget(mData.mConnection, mData.mWindow);
         if (mData.mDropTarget) {
-            mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& ev) {
+            mData.mDropTarget->SetDropEnterCallback(NkXCBDropTarget::DropEnterCallback([this](const NkDropEnterEvent& ev) {
                 NkDropEnterEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropLeaveCallback([this](const NkDropLeaveEvent& ev) {
+            }));
+            mData.mDropTarget->SetDropLeaveCallback(NkXCBDropTarget::DropLeaveCallback([this](const NkDropLeaveEvent& ev) {
                 NkDropLeaveEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropFileCallback([this](const NkDropFileEvent& ev) {
+            }));
+            mData.mDropTarget->SetDropFileCallback(NkXCBDropTarget::DropFileCallback([this](const NkDropFileEvent& ev) {
                 NkDropFileEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
-            mData.mDropTarget->SetDropTextCallback([this](const NkDropTextEvent& ev) {
+            }));
+            mData.mDropTarget->SetDropTextCallback(NkXCBDropTarget::DropTextCallback([this](const NkDropTextEvent& ev) {
                 NkDropTextEvent copy(ev);
                 NkSystem::Events().Enqueue_Public(copy, mId);
-            });
+            }));
         }
 
         if (config.visible) {
@@ -255,8 +321,10 @@ namespace nkentseu {
         }
 
         if (mData.mWindow && mData.mConnection) {
-            xcb_destroy_window(mData.mConnection, mData.mWindow);
-            xcb_flush(mData.mConnection);
+            if (!mData.mExternal) {
+                xcb_destroy_window(mData.mConnection, mData.mWindow);
+                xcb_flush(mData.mConnection);
+            }
             mData.mWindow = 0;
         }
         if (mData.mColormap && mData.mConnection) {
@@ -265,17 +333,19 @@ namespace nkentseu {
         }
 
         {
-            std::lock_guard<std::mutex> lock(sConnectionMutex);
+            NkScopedSpinLock lock(sConnectionMutex);
             --sWindowCount;
             if (sWindowCount <= 0 && sConnection) {
-                xcb_disconnect(sConnection);
+                if (sConnectionOwned) xcb_disconnect(sConnection);
                 sConnection    = nullptr;
+                sConnectionOwned = false;
                 sDefaultScreen = nullptr;
                 sWindowCount   = 0;
             }
         }
         mData.mConnection = nullptr;
         mData.mScreen     = nullptr;
+        mData.mExternal   = false;
     }
 
     // =============================================================================
@@ -493,6 +563,8 @@ namespace nkentseu {
         sd.dpi         = GetDpiScale();
         sd.connection  = mData.mConnection;
         sd.window      = mData.mWindow;
+        sd.screen      = mData.mScreen;
+        sd.appliedHints = mData.mAppliedHints;
         return sd;
     }
 

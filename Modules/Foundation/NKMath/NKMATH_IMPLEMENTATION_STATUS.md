@@ -191,7 +191,7 @@ return y
 
 ### ✅ ONLY INCLUDES:
 ```cpp
-#include "NKCore/NkTypes.h"  // nk_float, nk_int32, etc.
+#include "NKCore/NkTypes.h"  // nk_float32, nk_int32, etc.
 ```
 
 ### Custom Implementations:
