@@ -20,7 +20,7 @@
 #include <string>
 #include <chrono>
 
-#include "NKMath/NkTypes.h"
+#include "NKMath/NKMath.h"
 #include "NKCore/NkTraits.h"
 #include "NKContainers/NkContainers.h"
 #include "NKContainers/String/NkString.h"
@@ -415,14 +415,14 @@ namespace nkentseu {
     //   EventHandlerRef  : alias sémantique — handler passif (observation)
     // =========================================================================
 
-    using EventObserver    = NkFunction<void, NkEvent&>;
-    using EventObserverRef = NkFunction<void, const NkEvent&>;
-    using EventHandler     = NkFunction<void, NkEvent&>;
-    using EventHandlerRef  = NkFunction<void, const NkEvent&>;
+    using EventObserver    = NkFunction<void(NkEvent&)>;
+    using EventObserverRef = NkFunction<void(const NkEvent&)>;
+    using EventHandler     = NkFunction<void(NkEvent&)>;
+    using EventHandlerRef  = NkFunction<void(const NkEvent&)>;
 
     // =========================================================================
     // NkEventCallback — type de callback pour les événements
     // =========================================================================
-    using NkEventCallback = NkFunction<void, NkEvent*>;
+    using NkEventCallback = NkFunction<void(NkEvent*)>;
 
 } // namespace nkentseu

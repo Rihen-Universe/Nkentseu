@@ -291,6 +291,15 @@ namespace nkentseu {
                     Insert(pair.First, pair.Second);
                 }
             }
+
+            NkMap(std::initializer_list<ValueType> init, Allocator* allocator = nullptr)
+                : mRoot(nullptr), mSize(0)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mCompare() {
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+            }
             
             NkMap(const NkMap& other)
                 : mRoot(nullptr)
@@ -340,13 +349,29 @@ namespace nkentseu {
                 mSize = other.mSize;
                 mAllocator = other.mAllocator;
                 mCompare = traits::NkMove(other.mCompare);
-                
+
                 other.mRoot = nullptr;
                 other.mSize = 0;
                 return *this;
             }
             #endif
-            
+
+            NkMap& operator=(NkInitializerList<ValueType> init) {
+                Clear();
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+                return *this;
+            }
+
+            NkMap& operator=(std::initializer_list<ValueType> init) {
+                Clear();
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+                return *this;
+            }
+
             // Iterators
             Iterator begin() { return Iterator(FindMin(mRoot), this); }
             ConstIterator begin() const { return ConstIterator(FindMin(mRoot), this); }

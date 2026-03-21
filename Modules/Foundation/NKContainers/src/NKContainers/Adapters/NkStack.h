@@ -16,6 +16,7 @@
 #include "NKCore/NkTraits.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
     
@@ -54,12 +55,32 @@ namespace nkentseu {
         public:
             // Constructors
             NkStack() {}
-            
+
             explicit NkStack(const Container& cont) : mContainer(cont) {}
-            
+
             #if defined(NK_CPP11)
             explicit NkStack(Container&& cont) : mContainer(traits::NkMove(cont)) {}
             #endif
+
+            NkStack(NkInitializerList<T> init) {
+                for (auto& val : init) Push(val);
+            }
+
+            NkStack(std::initializer_list<T> init) {
+                for (auto& val : init) Push(val);
+            }
+
+            NkStack& operator=(NkInitializerList<T> init) {
+                while (!Empty()) Pop();
+                for (auto& val : init) Push(val);
+                return *this;
+            }
+
+            NkStack& operator=(std::initializer_list<T> init) {
+                while (!Empty()) Pop();
+                for (auto& val : init) Push(val);
+                return *this;
+            }
             
             // Element access
             Reference Top() {

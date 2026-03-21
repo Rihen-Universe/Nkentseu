@@ -6,6 +6,7 @@
 //   Point 2 : sWin32WindowMap et sWin32LastWindow sont static dans ce .cpp
 //   Point 4 : WM_DESTROY conditionne PostQuitMessage à la dernière fenêtre
 //   Point 6 : OleInitialize/OleUninitialize retirés — gérés par NkSystem
+//   Point 7 : Synchronisation complète entre mData et mConfig
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
@@ -73,6 +74,7 @@ namespace {
 } // anonymous namespace
 
 namespace nkentseu {
+    using namespace math;
 
     // =============================================================================
     // Point 2 : registre backend — static dans ce .cpp, invisible à l'extérieur
@@ -202,6 +204,78 @@ namespace nkentseu {
     }
 
     // =============================================================================
+    // Fonctions de synchronisation mData ↔ mConfig
+    // =============================================================================
+
+    static void SyncConfigFromWindow(HWND hwnd, NkWindowConfig& config, const NkWindowData& data) {
+        if (!hwnd) return;
+
+        // Récupérer la position
+        RECT winRect;
+        GetWindowRect(hwnd, &winRect);
+        config.x = winRect.left;
+        config.y = winRect.top;
+
+        // Récupérer la taille client
+        RECT clientRect;
+        GetClientRect(hwnd, &clientRect);
+        config.width = clientRect.right - clientRect.left;
+        config.height = clientRect.bottom - clientRect.top;
+
+        // État fenêtré / plein écran
+        config.fullscreen = (GetWindowLongW(hwnd, GWL_STYLE) & WS_POPUP) != 0;
+
+        // Visibilité
+        config.visible = IsWindowVisible(hwnd) != 0;
+
+        // Titre
+        int len = GetWindowTextLengthW(hwnd);
+        if (len > 0) {
+            NkWString ws((size_t)len + 1, L'\0');
+            GetWindowTextW(hwnd, ws.Data(), len + 1);
+            ws.Resize((size_t)len);
+            config.title = NkWideToUtf8(ws);
+        }
+    }
+
+    static void SyncWindowFromConfig(HWND hwnd, const NkWindowConfig& config) {
+        if (!hwnd) return;
+
+        // Titre
+        SetWindowTextW(hwnd, NkUtf8ToWide(config.title).CStr());
+
+        // Redimensionner si nécessaire
+        RECT currentRect;
+        GetClientRect(hwnd, &currentRect);
+        uint32 currentW = currentRect.right - currentRect.left;
+        uint32 currentH = currentRect.bottom - currentRect.top;
+        
+        if (currentW != config.width || currentH != config.height) {
+            RECT rc = { 0, 0, (LONG)config.width, (LONG)config.height };
+            DWORD style = GetWindowLongW(hwnd, GWL_STYLE);
+            DWORD exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            AdjustWindowRectEx(&rc, style, FALSE, exStyle);
+            SetWindowPos(hwnd, nullptr, 0, 0,
+                        rc.right - rc.left, rc.bottom - rc.top,
+                        SWP_NOMOVE | SWP_NOZORDER);
+        }
+
+        // Position
+        RECT winRect;
+        GetWindowRect(hwnd, &winRect);
+        if (winRect.left != config.x || winRect.top != config.y) {
+            SetWindowPos(hwnd, nullptr, config.x, config.y, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER);
+        }
+
+        // Visibilité
+        bool isVisible = IsWindowVisible(hwnd) != 0;
+        if (isVisible != config.visible) {
+            ShowWindow(hwnd, config.visible ? SW_SHOW : SW_HIDE);
+        }
+    }
+
+    // =============================================================================
     // NkWindow — constructeurs / destructeur
     // =============================================================================
 
@@ -297,6 +371,9 @@ namespace nkentseu {
 
             CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
                              kIIDTaskbarList3, reinterpret_cast<void**>(&mData.mTaskbarList));
+
+            // Synchroniser mConfig depuis l'état réel de la fenêtre externe
+            SyncConfigFromWindow(hwnd, mConfig, mData);
 
             mIsOpen = true;
             return true;
@@ -423,6 +500,9 @@ namespace nkentseu {
             SetFocus(mData.mHwnd);
         }
 
+        // Synchronisation initiale : mConfig reflète l'état réel
+        SyncConfigFromWindow(mData.mHwnd, mConfig, mData);
+
         mIsOpen = true;
         return true;
     }
@@ -489,7 +569,15 @@ namespace nkentseu {
     bool NkWindow::IsValid() const { return mIsOpen && mData.mHwnd != nullptr; }
 
     NkError        NkWindow::GetLastError() const { return mLastError; }
-    NkWindowConfig NkWindow::GetConfig()    const { return mConfig; }
+    NkWindowConfig NkWindow::GetConfig()    const { 
+        // Synchroniser avant de retourner
+        if (mIsOpen && mData.mHwnd) {
+            NkWindowConfig updatedConfig = mConfig;
+            SyncConfigFromWindow(mData.mHwnd, updatedConfig, mData);
+            const_cast<NkWindow*>(this)->mConfig = updatedConfig;
+        }
+        return mConfig; 
+    }
 
     // =============================================================================
     // Title
@@ -502,12 +590,20 @@ namespace nkentseu {
         NkWString ws((size_t)len + 1, L'\0');
         GetWindowTextW(mData.mHwnd, ws.Data(), len + 1);
         ws.Resize((size_t)len);
-        return NkWideToUtf8(ws);
+        NkString title = NkWideToUtf8(ws);
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mConfig.title = title;
+        
+        return title;
     }
 
     void NkWindow::SetTitle(const NkString& t) {
         mConfig.title = t;
-        if (mData.mHwnd) SetWindowTextW(mData.mHwnd, NkUtf8ToWide(t).CStr());
+        if (mData.mHwnd) {
+            SetWindowTextW(mData.mHwnd, NkUtf8ToWide(t).CStr());
+            // La synchronisation est déjà faite via la modification de mConfig
+        }
     }
 
     // =============================================================================
@@ -517,13 +613,25 @@ namespace nkentseu {
     NkVec2u NkWindow::GetSize() const {
         RECT rc = {};
         if (mData.mHwnd) GetClientRect(mData.mHwnd, &rc);
-        return { (uint32)(rc.right - rc.left), (uint32)(rc.bottom - rc.top) };
+        NkVec2u size = { (uint32)(rc.right - rc.left), (uint32)(rc.bottom - rc.top) };
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mConfig.width = size.x;
+        const_cast<NkWindow*>(this)->mConfig.height = size.y;
+        
+        return size;
     }
 
     NkVec2u NkWindow::GetPosition() const {
         RECT rc = {};
         if (mData.mHwnd) GetWindowRect(mData.mHwnd, &rc);
-        return { (uint32)rc.left, (uint32)rc.top };
+        NkVec2u pos = { (uint32)rc.left, (uint32)rc.top };
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mConfig.x = pos.x;
+        const_cast<NkWindow*>(this)->mConfig.y = pos.y;
+        
+        return pos;
     }
 
     float NkWindow::GetDpiScale() const {
@@ -540,6 +648,9 @@ namespace nkentseu {
     NkVec2u NkWindow::GetDisplayPosition() const { return { 0, 0 }; }
 
     void NkWindow::SetSize(uint32 w, uint32 h) {
+        mConfig.width = w;
+        mConfig.height = h;
+        
         RECT rc = { 0, 0, (LONG)w, (LONG)h };
         AdjustWindowRectEx(&rc, mData.mDwStyle, FALSE, mData.mDwExStyle);
         SetWindowPos(mData.mHwnd, nullptr, 0, 0,
@@ -548,15 +659,46 @@ namespace nkentseu {
     }
 
     void NkWindow::SetPosition(int32 x, int32 y) {
+        mConfig.x = x;
+        mConfig.y = y;
+        
         SetWindowPos(mData.mHwnd, nullptr, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
     }
 
-    void NkWindow::SetVisible(bool v)  { ShowWindow(mData.mHwnd, v ? SW_SHOW : SW_HIDE); }
-    void NkWindow::Minimize()          { ShowWindow(mData.mHwnd, SW_MINIMIZE); }
-    void NkWindow::Maximize()          { ShowWindow(mData.mHwnd, IsZoomed(mData.mHwnd) ? SW_RESTORE : SW_MAXIMIZE); }
-    void NkWindow::Restore()           { ShowWindow(mData.mHwnd, SW_RESTORE); }
+    void NkWindow::SetVisible(bool v) { 
+        mConfig.visible = v;
+        ShowWindow(mData.mHwnd, v ? SW_SHOW : SW_HIDE); 
+    }
+    
+    void NkWindow::Minimize() { 
+        ShowWindow(mData.mHwnd, SW_MINIMIZE); 
+        // L'état de visibilité change, mais pas la taille/position
+        mConfig.visible = IsWindowVisible(mData.mHwnd) != 0;
+    }
+    
+    void NkWindow::Maximize() { 
+        ShowWindow(mData.mHwnd, IsZoomed(mData.mHwnd) ? SW_RESTORE : SW_MAXIMIZE); 
+        // Mettre à jour la taille après maximisation
+        RECT rc;
+        GetClientRect(mData.mHwnd, &rc);
+        mConfig.width = rc.right - rc.left;
+        mConfig.height = rc.bottom - rc.top;
+        mConfig.visible = true;
+    }
+    
+    void NkWindow::Restore() { 
+        ShowWindow(mData.mHwnd, SW_RESTORE); 
+        // Mettre à jour après restauration
+        RECT rc;
+        GetClientRect(mData.mHwnd, &rc);
+        mConfig.width = rc.right - rc.left;
+        mConfig.height = rc.bottom - rc.top;
+        mConfig.visible = true;
+    }
 
     void NkWindow::SetFullscreen(bool fs) {
+        mConfig.fullscreen = fs;
+        
         if (fs) {
             SetWindowLongW(mData.mHwnd, GWL_STYLE,
                         WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
@@ -564,6 +706,10 @@ namespace nkentseu {
                         GetSystemMetrics(SM_CXSCREEN),
                         GetSystemMetrics(SM_CYSCREEN),
                         SWP_FRAMECHANGED);
+            
+            // Mettre à jour la taille
+            mConfig.width = GetSystemMetrics(SM_CXSCREEN);
+            mConfig.height = GetSystemMetrics(SM_CYSCREEN);
         } else {
             SetWindowLongW(mData.mHwnd, GWL_STYLE, (LONG)mData.mDwStyle);
             SetWindowPos(mData.mHwnd, nullptr,
@@ -571,7 +717,6 @@ namespace nkentseu {
                         (int)mConfig.width, (int)mConfig.height,
                         SWP_FRAMECHANGED | SWP_NOZORDER);
         }
-        mConfig.fullscreen = fs;
     }
 
     // =============================================================================
@@ -603,7 +748,7 @@ namespace nkentseu {
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc sd;
-        auto sz      = GetSize();
+        auto sz      = GetSize();  // GetSize synchronise déjà mConfig
         sd.width     = sz.x;
         sd.height    = sz.y;
         sd.dpi       = GetDpiScale();

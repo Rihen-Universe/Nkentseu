@@ -32,7 +32,7 @@ namespace threading {
      * Une tâche est juste une fonction sans arguments
      * qui sera exécutée par le thread pool.
      */
-    using Task = NkFunction<void>;
+    using Task = NkFunction<void()>;
     
     // Forward declaration
     class NkThreadPoolImpl;

@@ -264,6 +264,14 @@ namespace nkentseu {
                     PushBack(val);
                 }
             }
+
+            NkDoubleList(std::initializer_list<T> init)
+                : mHead(nullptr)
+                , mTail(nullptr)
+                , mSize(0)
+                , mAllocator(&memory::NkGetDefaultAllocator()) {
+                for (auto& val : init) { PushBack(val); }
+            }
             
             NkDoubleList(const NkDoubleList& other)
                 : mHead(nullptr)
@@ -327,6 +335,12 @@ namespace nkentseu {
                 for (auto& val : init) {
                     PushBack(val);
                 }
+                return *this;
+            }
+
+            NkDoubleList& operator=(std::initializer_list<T> init) {
+                Clear();
+                for (auto& val : init) { PushBack(val); }
                 return *this;
             }
             

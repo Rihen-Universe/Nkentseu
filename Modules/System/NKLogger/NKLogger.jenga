@@ -24,11 +24,12 @@ with project("NKLogger"):
         "%{NKPlatform.location}/src",
         "%{NKContainers.location}/src",
         "%{NKMemory.location}/src",
+        "%{NKThreading.location}/src",
     ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    dependson(["NKCore", "NKPlatform", "NKContainers", "NKMemory"])
+    dependson(["NKCore", "NKPlatform", "NKContainers", "NKMemory", "NKThreading"])
 
     files([
         "src/NKLogger/**.cpp",

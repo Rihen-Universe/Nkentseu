@@ -16,6 +16,7 @@
 #include "NKTime/NkElapsedTime.h"
 #include "NKTime/NkDuration.h"
 #include "NKTime/NkChrono.h"
+#include "NKTime/NkClock.h"
 #include "NKTime/NkDate.h"
 #include "NKTime/NkTimes.h"
 #include "NKTime/NkTimeSpan.h"

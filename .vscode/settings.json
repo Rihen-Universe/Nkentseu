@@ -89,5 +89,10 @@
         "deque": "cpp",
         "__split_buffer": "cpp",
         "__config": "cpp"
+    },
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.shellArgs.windows": ["-NoExit", "chcp 65001 > $null"],
+    "terminal.integrated.env.windows": {
+        "PYTHONIOENCODING": "utf-8"
     }
 }

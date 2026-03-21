@@ -230,14 +230,24 @@ namespace nkentseu {
         public:
             NK_EVENT_TYPE_FLAGS(NK_WINDOW_RESIZE)
 
-            /// @param w / h         Nouvelle taille
-            /// @param prevW / prevH Ancienne taille (0 si inconnue)
+            enum ResizeState: uint32 {
+                NK_NOT_DEFINE = 0,
+                NK_EXPANDED,
+                NK_REDUCED,
+                NK_NOT_CHANGE
+            };
+
+             /// @param w / h         Nouvelle taille
+             /// @param prevW / prevH Ancienne taille (0 si inconnue)
+             /// @param resizeState   État du redimensionnement (agrandi, rétréci, inchangé)
+             /// @param windowId      Identifiant de la fenêtre
             NkWindowResizeEvent(uint32 w = 0, uint32 h = 0,
                                 uint32 prevW = 0, uint32 prevH = 0,
-                                uint64 windowId = 0) noexcept
+                                uint64 windowId = 0, ResizeState resizeState = NK_NOT_DEFINE) noexcept
                 : NkWindowEvent(windowId)
                 , mWidth(w), mHeight(h)
                 , mPrevWidth(prevW), mPrevHeight(prevH)
+                , mResizeState(resizeState)
             {}
 
             NkEvent* Clone() const override { return new NkWindowResizeEvent(*this); }
@@ -261,11 +271,14 @@ namespace nkentseu {
                 return mWidth > mPrevWidth || mHeight > mPrevHeight;
             }
 
+            ResizeState GetResizeState() const noexcept { return mResizeState; }
+
         private:
             uint32 mWidth      = 0; ///< Nouvelle largeur
             uint32 mHeight     = 0; ///< Nouvelle hauteur
             uint32 mPrevWidth  = 0; ///< Ancienne largeur
             uint32 mPrevHeight = 0; ///< Ancienne hauteur
+            ResizeState mResizeState = NK_NOT_DEFINE; ///< État de redimensionnement (agrandi, rétréci, inchangé)
     };
 
     // =========================================================================

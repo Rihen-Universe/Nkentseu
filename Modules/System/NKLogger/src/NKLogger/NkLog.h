@@ -116,6 +116,7 @@ namespace nkentseu {
 // -----------------------------------------------------------------------------
 
 /// Logger par défaut (sans mutation de source context à chaque appel).
-#define logger nkentseu::NkLog::Instance()
+#define logger nkentseu::NkLog::Instance().Source(__FILE__, __LINE__, __FUNCTION__)
+
 /// Variante explicite avec source context quand nécessaire.
-#define logger_src nkentseu::NkLog::Instance().Source(__FILE__, __LINE__, __FUNCTION__)
+#define logger_src logger

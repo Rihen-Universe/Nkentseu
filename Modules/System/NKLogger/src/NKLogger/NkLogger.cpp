@@ -13,11 +13,145 @@
 #include <cstddef>
 #include <ctime>
 #include <cstdio>
+#include <cstdint>
 
 // -----------------------------------------------------------------------------
 // NAMESPACE: nkentseu::logger
 // -----------------------------------------------------------------------------
 namespace nkentseu {
+
+namespace {
+
+    static char NkMapLatinAccentC3(uint8_t c2) {
+        switch (c2) {
+            case 0x80: case 0x81: case 0x82: case 0x83: case 0x84: case 0x85: return 'A';
+            case 0x87: return 'C';
+            case 0x88: case 0x89: case 0x8A: case 0x8B: return 'E';
+            case 0x8C: case 0x8D: case 0x8E: case 0x8F: return 'I';
+            case 0x91: return 'N';
+            case 0x92: case 0x93: case 0x94: case 0x95: case 0x96: return 'O';
+            case 0x99: case 0x9A: case 0x9B: case 0x9C: return 'U';
+            case 0x9D: return 'Y';
+            case 0xA0: case 0xA1: case 0xA2: case 0xA3: case 0xA4: case 0xA5: return 'a';
+            case 0xA6: return 'a';
+            case 0xA7: return 'c';
+            case 0xA8: case 0xA9: case 0xAA: case 0xAB: return 'e';
+            case 0xAC: case 0xAD: case 0xAE: case 0xAF: return 'i';
+            case 0xB1: return 'n';
+            case 0xB2: case 0xB3: case 0xB4: case 0xB5: case 0xB6: return 'o';
+            case 0xB9: case 0xBA: case 0xBB: case 0xBC: return 'u';
+            case 0xBD: case 0xBF: return 'y';
+            default: return '\0';
+        }
+    }
+
+    static NkString NkSanitizeLogText(const NkString& input) {
+        NkString out;
+        if (input.Empty()) {
+            return out;
+        }
+
+        out.Reserve(input.Size());
+        const usize n = input.Size();
+        usize i = 0;
+        while (i < n) {
+            const uint8_t c = static_cast<uint8_t>(input[i]);
+
+            if (c < 0x80) {
+                if ((c >= 0x20 && c <= 0x7E) || c == '\n' || c == '\r' || c == '\t') {
+                    out.PushBack(static_cast<char>(c));
+                } else {
+                    out.PushBack(' ');
+                }
+                ++i;
+                continue;
+            }
+
+            if (c == 0xC2 && (i + 1) < n) {
+                const uint8_t c2 = static_cast<uint8_t>(input[i + 1]);
+                if (c2 == 0xA0) {
+                    out.PushBack(' ');
+                } else {
+                    out.PushBack('?');
+                }
+                i += 2;
+                continue;
+            }
+
+            if (c == 0xC3 && (i + 1) < n) {
+                const uint8_t c2 = static_cast<uint8_t>(input[i + 1]);
+                const char mapped = NkMapLatinAccentC3(c2);
+                out.PushBack(mapped ? mapped : '?');
+                i += 2;
+                continue;
+            }
+
+            if (c == 0xC5 && (i + 1) < n) {
+                const uint8_t c2 = static_cast<uint8_t>(input[i + 1]);
+                if (c2 == 0x92) {
+                    out.Append("OE");
+                } else if (c2 == 0x93) {
+                    out.Append("oe");
+                } else {
+                    out.PushBack('?');
+                }
+                i += 2;
+                continue;
+            }
+
+            if (c == 0xE2 && (i + 2) < n) {
+                const uint8_t c2 = static_cast<uint8_t>(input[i + 1]);
+                const uint8_t c3 = static_cast<uint8_t>(input[i + 2]);
+                if (c2 == 0x80) {
+                    switch (c3) {
+                        case 0x93: // en dash
+                        case 0x94: // em dash
+                        case 0x95: // bullet
+                            out.PushBack('-');
+                            break;
+                        case 0x98: // left single quote
+                        case 0x99: // right single quote
+                            out.PushBack('\'');
+                            break;
+                        case 0x9C: // left double quote
+                        case 0x9D: // right double quote
+                            out.PushBack('"');
+                            break;
+                        case 0xA6: // ellipsis
+                            out.Append("...");
+                            break;
+                        default:
+                            out.PushBack('?');
+                            break;
+                    }
+                } else {
+                    out.PushBack('?');
+                }
+                i += 3;
+                continue;
+            }
+
+            // Fallback for other UTF-8 sequences.
+            if ((c & 0xE0) == 0xC0 && (i + 1) < n) {
+                i += 2;
+            } else if ((c & 0xF0) == 0xE0 && (i + 2) < n) {
+                i += 3;
+            } else if ((c & 0xF8) == 0xF0 && (i + 3) < n) {
+                i += 4;
+            } else {
+                ++i;
+            }
+            out.PushBack('?');
+        }
+
+        return out;
+    }
+
+    static NkString NkSanitizeLogText(const char* input) {
+        return input ? NkSanitizeLogText(NkString(input)) : NkString();
+    }
+
+} // namespace
 
 
 	// -------------------------------------------------------------------------
@@ -45,7 +179,7 @@ namespace nkentseu {
 	 * @param sink Sink à ajouter (partagé)
 	 */
 	void NkLogger::AddSink(memory::NkSharedPtr<NkISink> sink) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Sinks.PushBack(sink);
 	}
 
@@ -53,7 +187,7 @@ namespace nkentseu {
 	 * @brief Supprime tous les sinks du logger
 	 */
 	void NkLogger::ClearSinks() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Sinks.Clear();
 	}
 
@@ -62,7 +196,7 @@ namespace nkentseu {
 	 * @return Nombre de sinks
 	 */
 	usize NkLogger::GetSinkCount() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Sinks.Size();
 	}
 
@@ -71,7 +205,7 @@ namespace nkentseu {
 	 * @param formatter NkFormatter à utiliser
 	 */
 	void NkLogger::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Formatter = traits::NkMove(formatter);
 	}
 
@@ -80,7 +214,7 @@ namespace nkentseu {
 	 * @param pattern Pattern à utiliser
 	 */
 	void NkLogger::SetPattern(const NkString &pattern) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			m_Formatter->SetPattern(pattern);
 		}
@@ -91,7 +225,7 @@ namespace nkentseu {
 	 * @param level Niveau minimum à logger
 	 */
 	void NkLogger::SetLevel(NkLogLevel level) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Level = level;
 	}
 
@@ -100,7 +234,7 @@ namespace nkentseu {
 	 * @return Niveau de log
 	 */
 	NkLogLevel NkLogger::GetLevel() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Level;
 	}
 
@@ -125,29 +259,29 @@ namespace nkentseu {
 
 		// Création du message de log avec nom du logger
 		NkLogMessage msg;
-		msg.threadId = static_cast<uint32>(logger_sync::GetCurrentThreadId());
+		msg.threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
 		msg.level = level;
-		msg.message = message;
-		msg.loggerName = m_Name; // Nom du logger ajouté ici
+		msg.message = NkSanitizeLogText(message);
+		msg.loggerName = NkSanitizeLogText(m_Name); // Nom du logger ajouté ici
 
 		if (sourceFile)
-			msg.sourceFile = sourceFile;
+			msg.sourceFile = NkSanitizeLogText(sourceFile);
 		if (sourceLine > 0)
 			msg.sourceLine = sourceLine;
 		if (functionName)
-			msg.functionName = functionName;
+			msg.functionName = NkSanitizeLogText(functionName);
 
 	// Obtention du nom du thread si disponible
 	// pthread_getname_np disponible sur Linux et macOS, mais pas Android < API 26
 	#if defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
 		char threadName[256] = {0};
 		if (pthread_getname_np(pthread_self(), threadName, sizeof(threadName)) == 0) {
-			msg.threadName = threadName;
+			msg.threadName = NkSanitizeLogText(threadName);
 		}
 	#endif
 
 		// Envoi à tous les sinks
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		for (auto &sink : m_Sinks) {
 			if (sink) {
 				NkFormatter* sinkFormatter = sink->GetFormatter();
@@ -411,7 +545,7 @@ namespace nkentseu {
 	 * @brief Force le flush de tous les sinks
 	 */
 	void NkLogger::Flush() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		for (auto &sink : m_Sinks) {
 			if (sink) {
 				sink->Flush();
@@ -440,7 +574,7 @@ namespace nkentseu {
 	 * @param enabled État d'activation
 	 */
 	void NkLogger::SetEnabled(bool enabled) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Enabled = enabled;
 	}
 } // namespace nkentseu

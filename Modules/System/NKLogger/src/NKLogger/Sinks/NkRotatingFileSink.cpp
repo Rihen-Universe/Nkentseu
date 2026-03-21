@@ -45,7 +45,7 @@ namespace nkentseu {
 	 * @brief Définit la taille maximum des fichiers
 	 */
 	void NkRotatingFileSink::SetMaxSize(usize maxSize) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_MaxSize = maxSize;
 	}
 
@@ -53,7 +53,7 @@ namespace nkentseu {
 	 * @brief Obtient la taille maximum des fichiers
 	 */
 	usize NkRotatingFileSink::GetMaxSize() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_MaxSize;
 	}
 
@@ -61,7 +61,7 @@ namespace nkentseu {
 	 * @brief Définit le nombre maximum de fichiers
 	 */
 	void NkRotatingFileSink::SetMaxFiles(usize maxFiles) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_MaxFiles = maxFiles;
 	}
 
@@ -69,7 +69,7 @@ namespace nkentseu {
 	 * @brief Obtient le nombre maximum de fichiers
 	 */
 	usize NkRotatingFileSink::GetMaxFiles() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_MaxFiles;
 	}
 

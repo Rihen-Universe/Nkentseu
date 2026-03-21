@@ -1,0 +1,279 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{EB4C945D-5702-0D53-E0F6-062A4CAB0357}</ProjectGuid>
+    <IgnoreWarnCompileDuplicatedFilename>true</IgnoreWarnCompileDuplicatedFilename>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>NTSGraphics</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>..\..\build\bin\Debug-windows-x86_64\NTSGraphics\</OutDir>
+    <IntDir>..\..\build\obj\Debug-windows-x86_64\NTSGraphics\</IntDir>
+    <TargetName>NTSGraphics</TargetName>
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>..\..\build\bin\Release-windows-x86_64\NTSGraphics\</OutDir>
+    <IntDir>..\..\build\obj\Release-windows-x86_64\NTSGraphics\</IntDir>
+    <TargetName>NTSGraphics</TargetName>
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch/ntspch.h</PrecompiledHeaderFile>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;NKENTSEU_EXPORTS;NKENTSEU_DEBUG;NKENTSEU_GRAPHICS_API_VULKAN;_ALLOW_ITERATOR_DEBUG_LEVEL_MISMATCH ;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>src;..\..\External\Libs\Stb\src;..\NTSCore\src;..\NTSLogger\src;..\NTSMaths\src;..\..\External\Libs\FreeType\include;..\..\External\Libs\Glad\include;C:\VulkanSDK\1.4.335.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+      <Optimization>Disabled</Optimization>
+      <MinimalRebuild>false</MinimalRebuild>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ExternalWarningLevel>Level3</ExternalWarningLevel>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>freetype.lib;opengl32.lib;vulkan-1.lib;Xinput.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\..\External\Libs\FreeType\lib;C:\VulkanSDK\1.4.335.0\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <ImportLibrary>..\..\build\bin\Debug-windows-x86_64\NTSGraphics\NTSGraphics.lib</ImportLibrary>
+      <AdditionalOptions>-lpthread %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch/ntspch.h</PrecompiledHeaderFile>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;NKENTSEU_EXPORTS;NKENTSEU_RELEASE;NKENTSEU_GRAPHICS_API_VULKAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>src;..\..\External\Libs\Stb\src;..\NTSCore\src;..\NTSLogger\src;..\NTSMaths\src;..\..\External\Libs\FreeType\include;..\..\External\Libs\Glad\include;C:\VulkanSDK\1.4.335.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <Optimization>Full</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <MinimalRebuild>false</MinimalRebuild>
+      <StringPooling>true</StringPooling>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ExternalWarningLevel>Level3</ExternalWarningLevel>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>freetype.lib;opengl32.lib;vulkan-1.lib;Xinput.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\..\External\Libs\FreeType\lib;C:\VulkanSDK\1.4.335.0\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <ImportLibrary>..\..\build\bin\Release-windows-x86_64\NTSGraphics\NTSGraphics.lib</ImportLibrary>
+      <AdditionalOptions>-lpthread %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="src\NTSGraphics\Api\DirectX11\InternalShader.h" />
+    <ClInclude Include="src\NTSGraphics\Api\DirectX12\InternalShader.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Metal\InternalShader.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenGLUtils.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglContext.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglIndexBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglRenderTexture.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglRenderWindow.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglShader.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglShaderInputLayout.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglTexture.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglUniformBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglVertexArrayBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Opengl\OpenglVertexBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Software\InternalContext.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Software\InternalRenderer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Software\InternalShader.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanContext.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanIndexBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanRenderTexture.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanRenderWindow.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanShader.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanShaderInputLayout.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanTexture.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanUniformBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanUtils.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanVertexArrayBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Api\Vulkan\VulkanVertexBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Context.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Font.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Glyph.h" />
+    <ClInclude Include="src\NTSGraphics\Core\GraphicsEnum.h" />
+    <ClInclude Include="src\NTSGraphics\Core\GraphicsProperties.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Image.h" />
+    <ClInclude Include="src\NTSGraphics\Core\IndexBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Log.h" />
+    <ClInclude Include="src\NTSGraphics\Core\PrimitiveMesh.h" />
+    <ClInclude Include="src\NTSGraphics\Core\RenderTexture.h" />
+    <ClInclude Include="src\NTSGraphics\Core\RenderWindow.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Renderer.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Shader.h" />
+    <ClInclude Include="src\NTSGraphics\Core\ShaderInputLayout.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Text.h" />
+    <ClInclude Include="src\NTSGraphics\Core\TextOutline.h" />
+    <ClInclude Include="src\NTSGraphics\Core\Texture.h" />
+    <ClInclude Include="src\NTSGraphics\Core\UniformBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Core\VertexArrayBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Core\VertexBuffer.h" />
+    <ClInclude Include="src\NTSGraphics\Core\View.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\FontGlyph.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\FontTexture.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\Geometry2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\GlyphTexture.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\RenderCache2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\RenderCommand.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\RenderCommand2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\RenderData2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\Renderable2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\Renderer2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\Shape\Shape2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\Text2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\Transform2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\Vertex2D.h" />
+    <ClInclude Include="src\NTSGraphics\G2D\VertexArray2D.h" />
+    <ClInclude Include="src\NTSGraphics\Platform\Linux\XCB\XGLContext.h" />
+    <ClInclude Include="src\NTSGraphics\Platform\Linux\XLIB\XGLContext.h" />
+    <ClInclude Include="src\NTSGraphics\Platform\WindowInfo.h" />
+    <ClInclude Include="src\NTSGraphics\Platform\Windows\WGLContext.h" />
+    <ClInclude Include="src\pch\ntspch.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\NTSGraphics\Api\DirectX11\InternalShader.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\DirectX12\InternalShader.cpp">
+      <ObjectFileName>$(IntDir)\InternalShader1.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\NTSGraphics\Api\Metal\InternalShader.cpp">
+      <ObjectFileName>$(IntDir)\InternalShader2.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenGLUtils.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglContext.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglIndexBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglRenderTexture.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglRenderWindow.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglShader.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglShaderInputLayout.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglTexture.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglUniformBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglVertexArrayBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Opengl\OpenglVertexBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Software\InternalContext.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Software\InternalRenderer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Software\InternalShader.cpp">
+      <ObjectFileName>$(IntDir)\InternalShader3.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanContext.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanIndexBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanRenderTexture.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanRenderWindow.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanShader.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanShaderInputLayout.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanTexture.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanUniformBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanUtils.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanVertexArrayBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Api\Vulkan\VulkanVertexBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Context.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Font.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Glyph.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\GraphicsEnum.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\GraphicsProperties.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Image.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\IndexBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\PrimitiveMesh.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\RenderTexture.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\RenderWindow.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Renderer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Shader.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\ShaderInputLayout.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Text.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\TextOutline.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\Texture.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\UniformBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\VertexArrayBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\VertexBuffer.cpp" />
+    <ClCompile Include="src\NTSGraphics\Core\View.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\FontGlyph.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\FontTexture.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\Geometry2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\GlyphTexture.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\RenderCache2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\RenderCommand.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\RenderCommand2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\RenderData2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\Renderable2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\Renderer2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\Shape\Shape2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\Text2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\Transform2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\Vertex2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\G2D\VertexArray2D.cpp" />
+    <ClCompile Include="src\NTSGraphics\Platform\Linux\XCB\XGLContext.cpp" />
+    <ClCompile Include="src\NTSGraphics\Platform\Linux\XLIB\XGLContext.cpp">
+      <ObjectFileName>$(IntDir)\XGLContext1.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="src\NTSGraphics\Platform\WindowInfo.cpp" />
+    <ClCompile Include="src\NTSGraphics\Platform\Windows\WGLContext.cpp" />
+    <ClCompile Include="src\pch\ntspch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\NTSMaths\NTSMaths.vcxproj">
+      <Project>{F7CC2281-E399-7D8C-0CB3-6B34F8DEB21A}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\NTSLogger\NTSLogger.vcxproj">
+      <Project>{BA731DA4-26DE-D11A-6F1C-83C0DBC5AF6F}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\NTSCore\NTSCore.vcxproj">
+      <Project>{830BF441-EFEA-72DD-F802-FEB36461D93E}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\External\Libs\Stb\Stb.vcxproj">
+      <Project>{4E23880B-BA2C-887C-43A8-9E7CAFB0937C}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\External\Libs\Glad\Glad.vcxproj">
+      <Project>{BDD6857C-A90D-870D-52FA-6C103E10030F}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

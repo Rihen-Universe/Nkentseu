@@ -29,16 +29,16 @@ namespace nkentseu {
 
     class NkXLibDropTarget {
     public:
-        using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
-        using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
-        using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
-        using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
+        using DropFileCallback  = NkFunction<void(const NkDropFileEvent&)>;
+        using DropTextCallback  = NkFunction<void(const NkDropTextEvent&)>;
+        using DropEnterCallback = NkFunction<void(const NkDropEnterEvent&)>;
+        using DropLeaveCallback = NkFunction<void(const NkDropLeaveEvent&)>;
 
         // Legacy compatibility callbacks (ancienne API data-only)
-        using DropFilesDataCallback = NkFunction<void, const NkDropFileData&>;
-        using DropTextDataCallback  = NkFunction<void, const NkDropTextData&>;
-        using DropEnterDataCallback = NkFunction<void, const NkDropEnterData&>;
-        using DropLeaveDataCallback = NkFunction<void>;
+        using DropFilesDataCallback = NkFunction<void(const NkDropFileData&)>;
+        using DropTextDataCallback  = NkFunction<void(const NkDropTextData&)>;
+        using DropEnterDataCallback = NkFunction<void(const NkDropEnterData&)>;
+        using DropLeaveDataCallback = NkFunction<void()>;
 
         explicit NkXLibDropTarget(Display* display, ::Window window)
             : mDisplay(display), mWindow(window) {

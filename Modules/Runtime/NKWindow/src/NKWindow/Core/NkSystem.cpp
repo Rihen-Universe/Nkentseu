@@ -26,6 +26,9 @@ namespace nkentseu {
     bool NkSystem::Initialise(const NkAppData& data) {
         if (mInitialised) return true;
         mAppData = data;
+        if (mWindows.BucketCount() == 0) {
+            mWindows.Rehash(32);
+        }
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
         // Point 6 : OleInitialize une seule fois ici, avant toute crÃ©ation
@@ -70,6 +73,9 @@ namespace nkentseu {
 
     NkWindowId NkSystem::RegisterWindow(NkWindow* win) {
         if (!win) return NK_INVALID_WINDOW_ID;
+        if (mWindows.BucketCount() == 0) {
+            mWindows.Rehash(32);
+        }
         NkWindowId id = mNextWindowId++;
         mWindows[id]  = win;
         return id;

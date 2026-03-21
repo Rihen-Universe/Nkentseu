@@ -19,6 +19,7 @@
 #include "NKMemory/NkFunction.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Iterators/NkIterator.h"
+#include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
     
@@ -82,6 +83,40 @@ namespace nkentseu {
                 , mAllocator(&memory::NkGetDefaultAllocator()) {
                 NK_ASSERT(capacity > 0);
                 mData = static_cast<T*>(mAllocator->Allocate(mCapacity * sizeof(T)));
+            }
+
+            NkRingBuffer(NkInitializerList<T> init, Allocator* allocator = nullptr)
+                : mData(nullptr)
+                , mCapacity(init.Size() > 0 ? init.Size() : 1)
+                , mHead(0)
+                , mTail(0)
+                , mSize(0)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                mData = static_cast<T*>(mAllocator->Allocate(mCapacity * sizeof(T)));
+                for (auto& val : init) Push(val);
+            }
+
+            NkRingBuffer(std::initializer_list<T> init, Allocator* allocator = nullptr)
+                : mData(nullptr)
+                , mCapacity(init.size() > 0 ? init.size() : 1)
+                , mHead(0)
+                , mTail(0)
+                , mSize(0)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                mData = static_cast<T*>(mAllocator->Allocate(mCapacity * sizeof(T)));
+                for (auto& val : init) Push(val);
+            }
+
+            NkRingBuffer& operator=(NkInitializerList<T> init) {
+                Clear();
+                for (auto& val : init) Push(val);
+                return *this;
+            }
+
+            NkRingBuffer& operator=(std::initializer_list<T> init) {
+                Clear();
+                for (auto& val : init) Push(val);
+                return *this;
             }
             
             explicit NkRingBuffer(SizeType capacity, Allocator* allocator)

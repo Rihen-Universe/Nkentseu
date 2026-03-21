@@ -148,6 +148,14 @@ namespace threading {
             return false;
         }
         
+        #if defined(NKENTSEU_PLATFORM_WINDOWS)
+            SRWLOCK& Get() {
+        #else
+            pthread_mutex_t& Get() {
+        #endif
+            return mMutex;
+        }
+
     private:
         static nk_uint64 GetMonotonicTimeMs() noexcept {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)

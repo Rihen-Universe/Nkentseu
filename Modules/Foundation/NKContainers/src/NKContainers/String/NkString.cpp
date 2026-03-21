@@ -1104,6 +1104,10 @@ namespace nkentseu {
             return lhs.Compare(rhs) != 0;
         }
 
+        Bool operator!=(const NkString& lhs, const Char* rhs) NK_NOEXCEPT {
+            return lhs.Compare(rhs) != 0;
+        }
+
         Bool operator<(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT {
             return lhs.Compare(rhs) < 0;
         }

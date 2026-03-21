@@ -38,6 +38,8 @@
 #include "NKCore/NkTraits.h"
 #include "NKMemory/NkUniquePtr.h"
 
+#include "NKTime/NkChrono.h"
+
 #define NK_EVENTSYS_ANDROID_TRACE(...) logger.Infof(__VA_ARGS__)
 
 #if defined(NKENTSEU_PLATFORM_UWP)
@@ -78,7 +80,7 @@ namespace nkentseu {
 
     using NkGlobalEventCallback = NkEventCallback;
     using NkTypedEventCallback  = NkEventCallback;
-    using NkRemoverCallback     = NkFunction<void>;
+    using NkRemoverCallback     = NkFunction<void()>;
 
     struct NkEventDelete {
         void operator()(NkEvent* event) const noexcept { delete event; }

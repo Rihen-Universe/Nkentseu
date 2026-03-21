@@ -22,6 +22,7 @@
 #include <X11/keysym.h>
 
 namespace nkentseu {
+    using namespace math;
 
     // =============================================================================
     // Helpers
@@ -268,15 +269,37 @@ namespace nkentseu {
                 // Resize / move
                 // ------------------------------------------------------------
                 case ConfigureNotify: {
-                    NkWindowResizeEvent e(
-                        static_cast<uint32>(xev.xconfigure.width),
-                        static_cast<uint32>(xev.xconfigure.height),
-                        window ? window->GetConfig().width : 0u,
-                        window ? window->GetConfig().height : 0u);
-                    Enqueue(e, winId);
-
-                    NkWindowMoveEvent em(xev.xconfigure.x, xev.xconfigure.y);
-                    Enqueue(em, winId);
+                    // Drain burst: keep only the last ConfigureNotify for this window
+                    {
+                        XEvent next;
+                        while (XCheckTypedWindowEvent(display, xev.xany.window, ConfigureNotify, &next)) {
+                            xev = next;
+                        }
+                    }
+                    {
+                        NkWindowResizeBeginEvent beginEvt;
+                        Enqueue(beginEvt, winId);
+                    }
+                    {
+                        NkWindowResizeEvent e(
+                            static_cast<uint32>(xev.xconfigure.width),
+                            static_cast<uint32>(xev.xconfigure.height),
+                            window ? window->GetConfig().width : 0u,
+                            window ? window->GetConfig().height : 0u);
+                        Enqueue(e, winId);
+                    }
+                    {
+                        NkWindowResizeEndEvent endEvt;
+                        Enqueue(endEvt, winId);
+                    }
+                    {
+                        NkWindowMoveBeginEvent moveBegin;
+                        Enqueue(moveBegin, winId);
+                        NkWindowMoveEvent em(xev.xconfigure.x, xev.xconfigure.y);
+                        Enqueue(em, winId);
+                        NkWindowMoveEndEvent moveEnd;
+                        Enqueue(moveEnd, winId);
+                    }
                     break;
                 }
 

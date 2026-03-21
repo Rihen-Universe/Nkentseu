@@ -6,7 +6,7 @@
 // =============================================================================
 
 
-#include "NKMath/NkTypes.h"
+#include "NKMath/NKMath.h"
 
 namespace nkentseu {
 

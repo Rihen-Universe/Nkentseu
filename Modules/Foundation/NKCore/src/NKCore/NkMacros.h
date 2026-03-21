@@ -232,7 +232,7 @@
  * @warning Évalue les arguments plusieurs fois
  * @ingroup MathMacros
  */
-#define NkMin(a, b) (((a) < (b)) ? (a) : (b))
+#define NK_MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 /**
  * @brief Retourne le maximum de deux valeurs
@@ -241,7 +241,7 @@
  * @return La plus grande des deux valeurs
  * @ingroup MathMacros
  */
-#define NkMax(a, b) (((a) > (b)) ? (a) : (b))
+#define NK_MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 /**
  * @brief Limite une valeur entre min et max
@@ -251,7 +251,7 @@
  * @return Valeur clampée dans [min, max]
  * @ingroup MathMacros
  */
-#define NkClamp(value, min, max) (((value) < (min)) ? (min) : (((value) > (max)) ? (max) : (value)))
+#define NK_CLAMP(value, min, max) (((value) < (min)) ? (min) : (((value) > (max)) ? (max) : (value)))
 
 /**
  * @brief Retourne la valeur absolue
@@ -259,7 +259,7 @@
  * @return Valeur absolue
  * @ingroup MathMacros
  */
-#define NkAbs(x) (((x) < 0) ? -(x) : (x))
+#define NK_ABS(x) (((x) < 0) ? -(x) : (x))
 
 // ============================================================
 // MACROS SWAP
@@ -277,7 +277,7 @@
  * @param type Type des variables
  * @ingroup UtilityMacros
  */
-#define NkSwap(a, b, type)                                                                                             \
+#define NK_SWAP(a, b, type)                                                                                             \
 	do {                                                                                                               \
 		type NkConcat(tmp_, __LINE__) = (a);                                                                           \
 		(a) = (b);                                                                                                     \

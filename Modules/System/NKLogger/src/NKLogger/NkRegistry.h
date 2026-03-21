@@ -197,7 +197,7 @@ namespace nkentseu {
 			NkString m_GlobalPattern;
 
 			/// Mutex pour la synchronisation thread-safe
-			mutable logger_sync::NkMutex m_Mutex;
+			mutable threading::NkMutex m_Mutex;
 
 			/// Indicateur d'initialisation
 			bool m_Initialized;

@@ -99,12 +99,12 @@ namespace nkentseu {
 
             /**
              * @brief Fast Exp approximation using Chebyshev polynomial (AVX2)
-             * Range: [0, 1] normalized via range reduction
+             * NkRange: [0, 1] normalized via range reduction
              * Accuracy: ~7 ULP (Units in Last Place)
              * Much faster than Taylor series!
              */
             NK_FORCE_INLINE nk_simd_vec8f NkExpFastVec8(nk_simd_vec8f x) noexcept {
-                // Range reduction: e^x = 2^n * e^r
+                // NkRange reduction: e^x = 2^n * e^r
                 // where x = n*ln(2) + r, r in [0, ln(2))
                 const nk_simd_vec8f ln2_inv = _mm256_set1_ps(1.44269504f);
                 const nk_simd_vec8f ln2 = _mm256_set1_ps(0.693147182f);
@@ -140,7 +140,7 @@ namespace nkentseu {
 
             /**
              * @brief Fast Sin approximation with LUT (Lookup Table) AVX2
-             * Range: any float (uses modulo reduction)
+             * NkRange: any float (uses modulo reduction)
              * Bins: 4096 precomputed values
              * Accuracy: ~5 ULP with Chebyshev refinement
              * Much faster than continued fractions!

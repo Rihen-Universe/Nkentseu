@@ -115,7 +115,7 @@ namespace nkentseu {
 			return;
 		}
 
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 
 		// Vérifier si le fichier est ouvert
 		if (m_FileStream == nullptr) {
@@ -141,7 +141,7 @@ namespace nkentseu {
 	 * @brief Force l'écriture des données en attente
 	 */
 	void NkFileSink::Flush() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		if (m_FileStream != nullptr) {
 			(void)::fflush(m_FileStream);
 		}
@@ -151,7 +151,7 @@ namespace nkentseu {
 	 * @brief Définit le formatter pour ce sink
 	 */
 	void NkFileSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Formatter = traits::NkMove(formatter);
 	}
 
@@ -159,7 +159,7 @@ namespace nkentseu {
 	 * @brief Définit le pattern de formatage
 	 */
 	void NkFileSink::SetPattern(const NkString &pattern) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			m_Formatter->SetPattern(pattern);
 		}
@@ -169,7 +169,7 @@ namespace nkentseu {
 	 * @brief Obtient le formatter courant
 	 */
 	NkFormatter *NkFileSink::GetFormatter() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Formatter.Get();
 	}
 
@@ -177,7 +177,7 @@ namespace nkentseu {
 	 * @brief Obtient le pattern courant
 	 */
 	NkString NkFileSink::GetPattern() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			return m_Formatter->GetPattern();
 		}
@@ -188,7 +188,7 @@ namespace nkentseu {
 	 * @brief Ouvre le fichier
 	 */
 	bool NkFileSink::Open() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return OpenUnlocked();
 	}
 
@@ -196,7 +196,7 @@ namespace nkentseu {
 	 * @brief Ferme le fichier
 	 */
 	void NkFileSink::Close() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		CloseUnlocked();
 	}
 
@@ -204,7 +204,7 @@ namespace nkentseu {
 	 * @brief Vérifie si le fichier est ouvert
 	 */
 	bool NkFileSink::IsOpen() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_FileStream != nullptr;
 	}
 
@@ -212,7 +212,7 @@ namespace nkentseu {
 	 * @brief Obtient le nom du fichier
 	 */
 	NkString NkFileSink::GetFilename() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Filename;
 	}
 
@@ -220,7 +220,7 @@ namespace nkentseu {
 	 * @brief Définit un nouveau nom de fichier
 	 */
 	void NkFileSink::SetFilename(const NkString &filename) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 
 		if (m_Filename != filename) {
 			// Fermer l'ancien fichier
@@ -241,7 +241,7 @@ namespace nkentseu {
 	 * @brief Obtient la taille actuelle du fichier
 	 */
 	usize NkFileSink::GetFileSize() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return NkGetPathFileSize(m_Filename);
 	}
 
@@ -249,7 +249,7 @@ namespace nkentseu {
 	 * @brief Définit le mode d'ouverture
 	 */
 	void NkFileSink::SetTruncate(bool truncate) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 
 		if (m_Truncate != truncate) {
 			m_Truncate = truncate;
@@ -266,7 +266,7 @@ namespace nkentseu {
 	 * @brief Obtient le mode d'ouverture
 	 */
 	bool NkFileSink::GetTruncate() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Truncate;
 	}
 

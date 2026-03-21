@@ -11,6 +11,7 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkTypes.h"
 #include "NkIterator.h" // Pour NkConstIterator et NkReverseIterator
+#include <initializer_list>
 
 /**
  * - nkentseu : Regroupe les composants de base du framework Nkentseu.
@@ -104,6 +105,18 @@ namespace nkentseu {
          * NkInitializerList<int32_t> list; // Liste vide
          */
         constexpr NkInitializerList() noexcept : m_begin(nullptr), m_end(nullptr) {}
+
+        /**
+         * - NkInitializerList : Constructeur depuis std::initializer_list.
+         *
+         * @Description :
+         * Permet d'utiliser les appels explicites avec std::initializer_list
+         * et facilite l'interopérabilité STL -> Nkentseu.
+         *
+         * @param (std::initializer_list<T>) init : Liste standard source.
+         */
+        constexpr NkInitializerList(std::initializer_list<T> init) noexcept
+            : m_begin(init.begin()), m_end(init.end()) {}
 
         /**
          * - NkInitializerList : Constructeur avec plage de pointeurs.
@@ -403,6 +416,24 @@ namespace nkentseu {
             return !(*this == other);
         }
 
+        [[nodiscard]] constexpr NkInitializerList<T> operator=(const NkInitializerList<T>& other) noexcept {
+            m_begin = other.m_begin;
+            m_end = other.m_end;
+            return *this;
+        }
+
+        [[nodiscard]] constexpr NkInitializerList<T> operator=(std::initializer_list<T> init) noexcept {
+            m_begin = init.begin();
+            m_end = init.end();
+            return *this;
+        }
+
+        [[nodiscard]] constexpr NkInitializerList<T> operator=(const std::initializer_list<T>& init) noexcept {
+            m_begin = init.begin();
+            m_end = init.end();
+            return *this;
+        }
+
     private:
         const T* m_begin;
         const T* m_end;
@@ -545,6 +576,11 @@ namespace nkentseu {
     template <typename T>
     constexpr NkInitializerList<T> NkMakeInitializerList() noexcept {
         return NkInitializerList<T>();
+    }
+
+    template <typename T>
+    constexpr NkInitializerList<T> NkMakeInitializerList(std::initializer_list<T> init) noexcept {
+        return NkInitializerList<T>(init);
     }
 
     NKENTSEU_CONTAINERS_API template <class _Elem>

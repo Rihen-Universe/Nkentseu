@@ -15,6 +15,7 @@
 #endif
 
 namespace nkentseu {
+    using namespace math;
 
     bool NkEventSystem::Init() {
         if (mReady) {

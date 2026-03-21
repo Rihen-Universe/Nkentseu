@@ -152,19 +152,19 @@ namespace nkentseu {
 			uint32 m_FlushInterval;
 
 			/// Thread de traitement
-			logger_sync::NkThread m_WorkerThread;
+			loggersync::NkThread m_WorkerThread;
 
 			/// Mutex pour la file d'attente
-			mutable logger_sync::NkMutex m_QueueMutex;
+			mutable threading::NkMutex m_QueueMutex;
 
 			/// Condition variable pour la synchronisation
-			logger_sync::NkConditionVariable m_Condition;
+			loggersync::NkConditionVariable m_Condition;
 
 			/// Indicateur d'exécution
-			logger_sync::NkAtomicBool m_Running;
+			loggersync::NkAtomicBool m_Running;
 
 			/// Indicateur d'arrêt demandé
-			logger_sync::NkAtomicBool m_StopRequested;
+			loggersync::NkAtomicBool m_StopRequested;
 	};
 
 } // namespace nkentseu

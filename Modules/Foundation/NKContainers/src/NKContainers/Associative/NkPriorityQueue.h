@@ -114,7 +114,26 @@ namespace nkentseu {
                     Push(val);
                 }
             }
-            
+
+            NkPriorityQueue(std::initializer_list<T> init, Allocator* allocator = nullptr)
+                : mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHeap(mAllocator)
+                , mCompare() {
+                for (auto& val : init) { Push(val); }
+            }
+
+            NkPriorityQueue& operator=(NkInitializerList<T> init) {
+                Clear();
+                for (auto& val : init) Push(val);
+                return *this;
+            }
+
+            NkPriorityQueue& operator=(std::initializer_list<T> init) {
+                Clear();
+                for (auto& val : init) Push(val);
+                return *this;
+            }
+
             // Element access
             ConstReference Top() const {
                 NK_ASSERT(!Empty());

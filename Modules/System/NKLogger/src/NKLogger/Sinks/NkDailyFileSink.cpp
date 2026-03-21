@@ -186,7 +186,7 @@ namespace nkentseu {
 	 * @brief Définit l'heure de rotation
 	 */
 	void NkDailyFileSink::SetRotationTime(int hour, int minute) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_RotationHour = hour;
 		m_RotationMinute = minute;
 	}
@@ -195,7 +195,7 @@ namespace nkentseu {
 	 * @brief Obtient l'heure de rotation
 	 */
 	int NkDailyFileSink::GetRotationHour() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_RotationHour;
 	}
 
@@ -203,7 +203,7 @@ namespace nkentseu {
 	 * @brief Obtient la minute de rotation
 	 */
 	int NkDailyFileSink::GetRotationMinute() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_RotationMinute;
 	}
 
@@ -211,7 +211,7 @@ namespace nkentseu {
 	 * @brief Définit le nombre maximum de jours à conserver
 	 */
 	void NkDailyFileSink::SetMaxDays(usize maxDays) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_MaxDays = maxDays;
 	}
 
@@ -219,7 +219,7 @@ namespace nkentseu {
 	 * @brief Obtient le nombre maximum de jours à conserver
 	 */
 	usize NkDailyFileSink::GetMaxDays() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_MaxDays;
 	}
 
@@ -227,7 +227,7 @@ namespace nkentseu {
 	 * @brief Force la rotation du fichier
 	 */
 	bool NkDailyFileSink::Rotate() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		PerformRotation();
 		return true;
 	}

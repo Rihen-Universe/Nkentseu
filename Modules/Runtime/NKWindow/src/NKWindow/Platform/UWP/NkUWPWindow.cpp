@@ -18,6 +18,7 @@
 #include <algorithm>
 
 namespace nkentseu {
+    using namespace math;
 
     NkWindow::NkWindow() = default;
 

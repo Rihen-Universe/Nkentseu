@@ -14,6 +14,7 @@
 #include "NKWindow/Events/NkEventSystem.h"
 
 namespace nkentseu {
+    using namespace math;
 
     bool NkEventSystem::Init() {
         if (mReady) {

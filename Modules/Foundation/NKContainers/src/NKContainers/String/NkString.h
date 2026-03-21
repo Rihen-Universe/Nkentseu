@@ -395,6 +395,7 @@ namespace nkentseu {
         Bool operator==(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT;
         Bool operator==(const NkString& lhs, const Char* rhs) NK_NOEXCEPT;
         Bool operator!=(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT;
+        Bool operator!=(const NkString& lhs, const Char* rhs) NK_NOEXCEPT;
         Bool operator<(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT;
         Bool operator<=(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT;
         Bool operator>(const NkString& lhs, const NkString& rhs) NK_NOEXCEPT;

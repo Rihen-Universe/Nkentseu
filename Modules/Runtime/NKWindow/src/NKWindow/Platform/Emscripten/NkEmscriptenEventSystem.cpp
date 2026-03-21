@@ -25,6 +25,7 @@
 #include <cstring>
 
 namespace nkentseu {
+    using namespace math;
 
     static NkEventSystem* gWASMEventSystem = nullptr;
     static NkWindowId gFocusedWindowId = NK_INVALID_WINDOW_ID;

@@ -6,14 +6,14 @@
 using namespace nkentseu;
 using namespace nkentseu::math;
 
-TEST_CASE(NKMathSmoke, ScalarFunctions) {
+TEST_CASE(NKmathmoke, ScalarFunctions) {
     ASSERT_NEAR(3.0f, NkSqrt(9.0f), 0.0001f);
     ASSERT_NEAR(8.0f, NkPowInt(2.0f, 3), 0.0001f);
     ASSERT_NEAR(180.0f, NkToDegrees(PI_F), 0.001f);
     ASSERT_EQUAL(16u, static_cast<unsigned int>(NkNextPowerOf2(13u)));
 }
 
-TEST_CASE(NKMathSmoke, VectorAndRectTypes) {
+TEST_CASE(NKmathmoke, VectorAndRectTypes) {
     NkVec2f v1(2.0f, 3.0f);
     NkVec2f v2(1.0f, 5.0f);
 
@@ -26,7 +26,7 @@ TEST_CASE(NKMathSmoke, VectorAndRectTypes) {
     ASSERT_FALSE(r.Contains(200, 40));
 }
 
-TEST_CASE(NKMathSmoke, BitAndIntegerUtilities) {
+TEST_CASE(NKmathmoke, BitAndIntegerUtilities) {
     ASSERT_TRUE(NkIsPowerOf2(16u));
     ASSERT_FALSE(NkIsPowerOf2(18u));
 
@@ -38,7 +38,7 @@ TEST_CASE(NKMathSmoke, BitAndIntegerUtilities) {
     ASSERT_EQUAL(4u, static_cast<unsigned int>(NkPopcount(static_cast<nkentseu::nk_uint32>(0b10110100u))));
 }
 
-TEST_CASE(NKMathSmoke, DivisionAndInterpolationEdges) {
+TEST_CASE(NKmathmoke, DivisionAndInterpolationEdges) {
     const DivResult64 normal = NkDivI64(10, 3);
     ASSERT_EQUAL(3, static_cast<int>(normal.quot));
     ASSERT_EQUAL(1, static_cast<int>(normal.rem));

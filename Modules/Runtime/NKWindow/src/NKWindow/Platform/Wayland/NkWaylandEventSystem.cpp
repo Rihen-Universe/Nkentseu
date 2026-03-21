@@ -44,8 +44,10 @@
 #include <linux/input-event-codes.h>
 #include <poll.h>
 #include <cstring>
+#include <cstdlib>
 
 namespace nkentseu {
+    using namespace math;
 
     // =========================================================================
     // Helpers xkb
@@ -169,21 +171,73 @@ namespace nkentseu {
 
     static void OnKeyboardKeymap(void* data, wl_keyboard*, uint32_t format, int fd, uint32_t size) {
         auto* ctx = static_cast<NkWaylandSeatCtx*>(data);
+        if (fd < 0 || size == 0u) { if (fd >= 0) close(fd); return; }
         if (!ctx || format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) { close(fd); return; }
         if (!ctx->xkbCtx) { close(fd); return; }
 
-        char* raw = static_cast<char*>(mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0));
-        close(fd);
-        if (raw == MAP_FAILED) return;
+        // Some compositors/bridges can fail MAP_SHARED here (WSL/remote stacks).
+        // Fallback to plain read() to keep keyboard support alive.
+        size_t keymapBytes = 0;
+        char* keymapText = nullptr;
+        char* mapped = static_cast<char*>(mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0));
+        if (mapped != MAP_FAILED) {
+            keymapText = static_cast<char*>(std::malloc(static_cast<size_t>(size) + 1u));
+            if (keymapText) {
+                keymapBytes = static_cast<size_t>(size);
+                std::memcpy(keymapText, mapped, keymapBytes);
+                keymapText[keymapBytes] = '\0';
+            }
+            munmap(mapped, size);
+            close(fd);
+        } else {
+            keymapText = static_cast<char*>(std::malloc(static_cast<size_t>(size) + 1u));
+            if (keymapText) {
+                while (keymapBytes < static_cast<size_t>(size)) {
+                    const ssize_t r = ::read(fd,
+                                             keymapText + keymapBytes,
+                                             static_cast<size_t>(size) - keymapBytes);
+                    if (r <= 0) break;
+                    keymapBytes += static_cast<size_t>(r);
+                }
+                keymapText[keymapBytes] = '\0';
+            }
+            close(fd);
+        }
 
         if (ctx->xkbKeymap) { xkb_keymap_unref(ctx->xkbKeymap); ctx->xkbKeymap = nullptr; }
         if (ctx->xkbState)  { xkb_state_unref(ctx->xkbState);   ctx->xkbState  = nullptr; }
 
-        ctx->xkbKeymap = xkb_keymap_new_from_string(ctx->xkbCtx, raw,
+        if (!keymapText || keymapBytes == 0u) {
+            if (keymapText) std::free(keymapText);
+            const xkb_rule_names fallbackNames{};
+            ctx->xkbKeymap = xkb_keymap_new_from_names(
+                ctx->xkbCtx, &fallbackNames, XKB_KEYMAP_COMPILE_NO_FLAGS);
+            if (ctx->xkbKeymap) {
+                ctx->xkbState = xkb_state_new(ctx->xkbKeymap);
+                logger.Warn("[NkWayland] keyboard keymap load failed; using default xkb layout fallback.");
+            } else {
+                logger.Warn("[NkWayland] keyboard keymap load failed; keyboard mapping disabled for this seat.");
+            }
+            return;
+        }
+
+        ctx->xkbKeymap = xkb_keymap_new_from_string(ctx->xkbCtx, keymapText,
             XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-        munmap(raw, size);
+        std::free(keymapText);
+
+        if (!ctx->xkbKeymap) {
+            const xkb_rule_names fallbackNames{};
+            ctx->xkbKeymap = xkb_keymap_new_from_names(
+                ctx->xkbCtx, &fallbackNames, XKB_KEYMAP_COMPILE_NO_FLAGS);
+            if (ctx->xkbKeymap) {
+                logger.Warn("[NkWayland] compositor keymap parse failed; using default xkb layout fallback.");
+            }
+        }
 
         if (ctx->xkbKeymap) ctx->xkbState = xkb_state_new(ctx->xkbKeymap);
+        if (!ctx->xkbState) {
+            logger.Warn("[NkWayland] keyboard state init failed; keyboard input will be limited.");
+        }
     }
 
     static void OnKeyboardEnter(void* data, wl_keyboard*, uint32_t,

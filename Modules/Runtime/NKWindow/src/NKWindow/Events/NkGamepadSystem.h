@@ -131,9 +131,9 @@ namespace nkentseu {
 	// Callbacks
 	// ---------------------------------------------------------------------------
 
-	using NkGamepadConnectCallback = NkFunction<void, const NkGamepadInfo&, bool>;
-	using NkGamepadButtonCallback  = NkFunction<void, uint32, NkGamepadButton, NkButtonState>;
-	using NkGamepadAxisCallback    = NkFunction<void, uint32, NkGamepadAxis, float32>;
+	using NkGamepadConnectCallback = NkFunction<void(const NkGamepadInfo&, bool)>;
+	using NkGamepadButtonCallback  = NkFunction<void(uint32, NkGamepadButton, NkButtonState)>;
+	using NkGamepadAxisCallback    = NkFunction<void(uint32, NkGamepadAxis, float32)>;
 
 	// ===========================================================================
 	// NkIGamepad â€” interface PIMPL du backend manette

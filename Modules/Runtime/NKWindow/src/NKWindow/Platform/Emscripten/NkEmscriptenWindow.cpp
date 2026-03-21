@@ -18,6 +18,7 @@
 #include <emscripten/html5.h>
 
 namespace nkentseu {
+    using namespace math;
 
     static NkSpinLock sWasmWindowsMutex;
     static NkWindow* sWasmLastWindow = nullptr;
@@ -30,6 +31,9 @@ namespace nkentseu {
     }
     static NkUnorderedMap<NkWindowId, NkWindow*>& WasmWindowById() {
         static NkUnorderedMap<NkWindowId, NkWindow*> sMap;
+        if (sMap.BucketCount() == 0) {
+            sMap.Rehash(32);
+        }
         return sMap;
     }
 
@@ -242,6 +246,51 @@ namespace nkentseu {
         }, static_cast<int>(orientation));
     }
 
+    // =========================================================================
+    // Fonctions de synchronisation mData ↔ mConfig
+    // =========================================================================
+
+    static void SyncConfigFromWindow(const NkEmscriptenWindowData& data, NkWindowConfig& config) {
+        config.width = data.mWidth;
+        config.height = data.mHeight;
+        config.visible = data.mVisible;
+        config.fullscreen = data.mFullscreen;
+        // Le titre n'est pas récupérable depuis JavaScript facilement, on garde config.title
+        // La position n'est pas pertinente en WASM, on garde config.x/config.y
+    }
+
+    static void SyncWindowFromConfig(NkEmscriptenWindowData& data, const NkWindowConfig& config) {
+        data.mVisible = config.visible;
+        data.mFullscreen = config.fullscreen;
+        
+        const char* canvasSelector = NormalizeCanvasSelector(data.mCanvasId);
+        
+        // Appliquer la visibilité
+        EM_ASM({
+            var sel = UTF8ToString($0);
+            var target = document.querySelector(sel);
+            if (!target && typeof Module !== 'undefined' && Module['canvas']) {
+                target = Module['canvas'];
+            }
+            if (!target) return;
+            target.style.display = $1 ? "" : "none";
+        }, canvasSelector, config.visible ? 1 : 0);
+        
+        // Appliquer le plein écran si nécessaire
+        if (data.mFullscreen != config.fullscreen) {
+            if (config.fullscreen) {
+                EmscriptenFullscreenStrategy strategy{};
+                strategy.scaleMode = EMSCRIPTEN_FULLSCREEN_SCALE_STRETCH;
+                strategy.canvasResolutionScaleMode = EMSCRIPTEN_FULLSCREEN_CANVAS_SCALE_NONE;
+                strategy.filteringMode = EMSCRIPTEN_FULLSCREEN_FILTERING_DEFAULT;
+                emscripten_enter_soft_fullscreen(canvasSelector, &strategy);
+            } else {
+                emscripten_exit_soft_fullscreen();
+            }
+            data.mFullscreen = config.fullscreen;
+        }
+    }
+
     NkWindow* NkEmscriptenFindWindowById(NkWindowId id) {
         NkScopedSpinLock lock(sWasmWindowsMutex);
         NkWindow** found = WasmWindowById().Find(id);
@@ -395,6 +444,10 @@ namespace nkentseu {
         mData.mVisible = config.visible;
         mData.mFullscreen = config.fullscreen;
 
+        // Synchroniser mConfig avec les dimensions réelles
+        mConfig.width = mData.mWidth;
+        mConfig.height = mData.mHeight;
+
         SetDocumentTitle(config.title);
         ApplyDocumentIcon(config.iconPath);
         InstallCanvasKeyboardFocus(canvasSelector);
@@ -483,6 +536,10 @@ namespace nkentseu {
     }
 
     NkWindowConfig NkWindow::GetConfig() const {
+        // Synchroniser avant de retourner
+        if (mIsOpen) {
+            SyncConfigFromWindow(mData, const_cast<NkWindow*>(this)->mConfig);
+        }
         return mConfig;
     }
 
@@ -491,7 +548,15 @@ namespace nkentseu {
     }
 
     NkVec2u NkWindow::GetSize() const {
-        return QueryCanvasSizeSafe(NormalizeCanvasSelector(mData.mCanvasId));
+        NkVec2u size = QueryCanvasSizeSafe(NormalizeCanvasSelector(mData.mCanvasId));
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mData.mWidth = size.x;
+        const_cast<NkWindow*>(this)->mData.mHeight = size.y;
+        const_cast<NkWindow*>(this)->mConfig.width = size.x;
+        const_cast<NkWindow*>(this)->mConfig.height = size.y;
+        
+        return size;
     }
 
     NkVec2u NkWindow::GetPosition() const {
@@ -537,12 +602,18 @@ namespace nkentseu {
         const NkVec2u size = QueryCanvasSizeSafe(NormalizeCanvasSelector(mData.mCanvasId));
         mData.mWidth = size.x;
         mData.mHeight = size.y;
+        
+        // S'assurer que mConfig est à jour
+        mConfig.width = mData.mWidth;
+        mConfig.height = mData.mHeight;
     }
 
     void NkWindow::SetPosition(int32, int32) {}
 
     void NkWindow::SetVisible(bool visible) {
         mData.mVisible = visible;
+        mConfig.visible = visible;
+        
         EM_ASM({
             var sel = UTF8ToString($0);
             var target = document.querySelector(sel);
@@ -581,6 +652,13 @@ namespace nkentseu {
         } else {
             emscripten_exit_soft_fullscreen();
         }
+        
+        // La taille peut changer en plein écran, on la met à jour
+        const NkVec2u size = QueryCanvasSizeSafe(canvasSelector);
+        mData.mWidth = size.x;
+        mData.mHeight = size.y;
+        mConfig.width = mData.mWidth;
+        mConfig.height = mData.mHeight;
     }
 
     bool NkWindow::SupportsOrientationControl() const {
@@ -655,7 +733,7 @@ namespace nkentseu {
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc desc;
-        const NkVec2u size = GetSize();
+        const NkVec2u size = GetSize();  // GetSize synchronise déjà mConfig
         desc.width = size.x;
         desc.height = size.y;
         desc.dpi = GetDpiScale();

@@ -413,7 +413,7 @@ auto result = NKBENCH_RESULT();
    - Feuille de route pour 2-3x plus rapide
    - Visualisation des gains
 
-### ✅ SIMD Declarations (NkMathSIMD.h)
+### ✅ SIMD Declarations (NkmathIMD.h)
 
 **Préparation pour vectorisation :**
 
@@ -483,7 +483,7 @@ Test Results saved to: test_results.json ✅
 
 **Tasks:**
 ```
-[ ] 1. NkMathSIMDImpl.cpp
+[ ] 1. NkmathIMDImpl.cpp
     - Implement SqrtVec8 avec Newton method SIMD
     - Implement ExpFastVec8 avec Chebyshev polynomials
     - Implement SinFastVec8, CosFastVec8 avec continued fractions
@@ -494,7 +494,7 @@ Test Results saved to: test_results.json ✅
     - Measure speedup achieved
     
 [ ] 3. Production Integration
-    - Add SIMD builds to NKMathSIMD.jenga
+    - Add SIMD builds to NKmathIMD.jenga
     - Platform-specific optimizations (AVX2, SSE4.2, NEON)
 ```
 
@@ -641,12 +641,12 @@ Modules/Foundation/
 ├── NKMath/
 │   ├── include/NKMath/
 │   │   ├── NkMath.h              # 36+ math functions
-│   │   ├── NkMathSIMD.h          # SIMD declarations
+│   │   ├── NkmathIMD.h          # SIMD declarations
 │   │   ├── NkMathLUT.h           # Lookup tables (TODO)
 │   │   └── NkMathChebyshev.h     # Chebyshev approx (TODO)
 │   ├── src/
 │   │   ├── NkMath.cpp
-│   │   └── NkMathSIMDImpl.cpp     # (TODO)
+│   │   └── NkmathIMDImpl.cpp     # (TODO)
 │   ├── tests/
 │   │   └── NKMath_Tests.cpp      # 40+ tests
 │   ├── bench/

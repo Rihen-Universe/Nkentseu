@@ -17,11 +17,11 @@ namespace nkentseu {
 
     class NkAndroidDropTarget {
         public:
-            using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
-            using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
-            using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
-            using DropOverCallback  = NkFunction<void, const NkDropOverEvent&>;
-            using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
+            using DropFileCallback  = NkFunction<void(const NkDropFileEvent&)>;
+            using DropTextCallback  = NkFunction<void(const NkDropTextEvent&)>;
+            using DropEnterCallback = NkFunction<void(const NkDropEnterEvent&)>;
+            using DropOverCallback  = NkFunction<void(const NkDropOverEvent&)>;
+            using DropLeaveCallback = NkFunction<void(const NkDropLeaveEvent&)>;
 
             explicit NkAndroidDropTarget(NkWindowId windowId = NK_INVALID_WINDOW_ID) {
                 BindWindow(windowId);
@@ -194,6 +194,9 @@ namespace nkentseu {
         private:
             static NkUnorderedMap<NkWindowId, NkAndroidDropTarget*>& Registry() {
                 static NkUnorderedMap<NkWindowId, NkAndroidDropTarget*> map;
+                if (map.BucketCount() == 0) {
+                    map.Rehash(32);
+                }
                 return map;
             }
 

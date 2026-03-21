@@ -48,7 +48,7 @@ namespace nkentseu {
     // =========================================================================
 
     template<typename T>
-    using NkEventHandler = NkFunction<bool, T&>;
+    using NkEventHandler = NkFunction<bool(T&)>;
 
     class NkEventDispatcher {
     public:
@@ -287,11 +287,11 @@ namespace nkentseu {
     };
 
     // Signature : (actionName, code, isPressed, isRepeat)
-    using NkActionSubscriber = NkFunction<void,
+    using NkActionSubscriber = NkFunction<void(
                                           const NkString&,
                                           const NkInputCode&,
                                           bool,
-                                          bool>;
+                                          bool)>;
 
     // -------------------------------------------------------------------------
     // NkAxisCommand — analogue exact d'AxisCommand
@@ -319,10 +319,10 @@ namespace nkentseu {
     };
 
     // Signature : (axisName, code, value)
-    using NkAxisSubscriber = NkFunction<void,
+    using NkAxisSubscriber = NkFunction<void(
                                         const NkString&,
                                         const NkInputCode&,
-                                        float>;
+                                        float)>;
 
     // -------------------------------------------------------------------------
     // NkActionManager — analogue exact d'ActionManager
@@ -364,7 +364,7 @@ namespace nkentseu {
     //           return NkInput.GamepadAxis(0, static_cast<NkGamepadAxis>(code));
     //       return 0.f;
     //   }
-    using NkAxisResolver = NkFunction<float, NkInputDevice, uint32>;
+    using NkAxisResolver = NkFunction<float(NkInputDevice, uint32)>;
 
     class NkAxisManager {
         public:

@@ -43,7 +43,7 @@ namespace threading {
 
     class NKTHREADING_API NkThread {
     public:
-        using ThreadFunc = NkFunction<void>;
+        using ThreadFunc = NkFunction<void()>;
         using ThreadId = nk_uint64;
 
         NkThread() noexcept

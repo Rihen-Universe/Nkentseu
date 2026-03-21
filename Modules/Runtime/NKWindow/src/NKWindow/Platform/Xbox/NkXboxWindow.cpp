@@ -134,6 +134,7 @@ namespace {
 } // namespace
 
 namespace nkentseu {
+    using namespace math;
 
     NkWindow::NkWindow() = default;
 
