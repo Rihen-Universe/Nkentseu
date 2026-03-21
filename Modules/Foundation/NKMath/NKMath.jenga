@@ -24,9 +24,11 @@ with project("NKMath"):
         "src",
         "%{NKCore.location}/src",
         "%{NKPlatform.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMemory.location}/src",
     ])
 
-    dependson(["NKCore", "NKPlatform"])
+    dependson(["NKCore", "NKPlatform", "NKContainers", "NKMemory"])
 
     files([
         "src/NKMath/**.cpp",

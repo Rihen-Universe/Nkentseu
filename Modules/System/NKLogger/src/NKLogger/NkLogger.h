@@ -376,7 +376,7 @@ namespace nkentseu {
 			m_Name = name;
 		}
 		/// Mutex pour la synchronisation thread-safe
-		mutable logger_sync::NkMutex m_Mutex;
+		mutable threading::NkMutex m_Mutex;
 
 		/// Liste des sinks attachés
 		NkVector<memory::NkSharedPtr<NkISink>> m_Sinks;

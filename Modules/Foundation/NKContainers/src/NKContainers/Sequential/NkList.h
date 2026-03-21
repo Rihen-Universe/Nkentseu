@@ -184,6 +184,12 @@ namespace nkentseu {
                     PushBack(val);
                 }
             }
+
+            NkList(std::initializer_list<T> init, Allocator* allocator = nullptr)
+                : mHead(nullptr), mTail(nullptr), mSize(0)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                for (auto& val : init) { PushBack(val); }
+            }
             
             NkList(const NkList& other)
                 : mHead(nullptr), mTail(nullptr), mSize(0)
@@ -233,7 +239,21 @@ namespace nkentseu {
                 return *this;
             }
             #endif
-            
+
+            NkList& operator=(NkInitializerList<T> init) {
+                Clear();
+                for (auto& val : init) {
+                    PushBack(val);
+                }
+                return *this;
+            }
+
+            NkList& operator=(std::initializer_list<T> init) {
+                Clear();
+                for (auto& val : init) { PushBack(val); }
+                return *this;
+            }
+
             // Element access
             Reference Front() { NK_ASSERT(mHead); return mHead->Data; }
             ConstReference Front() const { NK_ASSERT(mHead); return mHead->Data; }

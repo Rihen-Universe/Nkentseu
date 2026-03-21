@@ -91,7 +91,7 @@ namespace nkentseu {
         }
 
         float64 NkLog(float64 x) noexcept {
-            return (x <= 0.0) ? -1.0e308 : log(x);
+            return (x <= 0.0) ? -1.0e308 : log2f(x);
         }
 
         float32 NkPow(float32 x, float32 y) noexcept {
@@ -446,6 +446,14 @@ namespace nkentseu {
                 return 1.0;
             }
             return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+        }
+
+        int32 NkILogb(float32 x) noexcept {
+            return ilogbf(x);
+        }
+
+        float32 NkCopysign(float32 number, float32 sign) noexcept {
+            return static_cast<float32>(copysign(number, sign));
         }
 
     } // namespace math

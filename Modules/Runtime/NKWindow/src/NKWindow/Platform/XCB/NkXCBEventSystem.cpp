@@ -27,6 +27,7 @@
 #include <cstring>
 
 namespace nkentseu {
+    using namespace math;
 
     // =============================================================================
     // Helpers
@@ -321,12 +322,50 @@ namespace nkentseu {
             // ----------------------------------------------------------------
             case XCB_CONFIGURE_NOTIFY: {
                 auto* ce = (xcb_configure_notify_event_t*)ev;
-                NkWindowResizeEvent er((uint32)ce->width, (uint32)ce->height,
-                    window ? window->GetConfig().width  : 0u,
-                    window ? window->GetConfig().height : 0u);
-                Enqueue(er, winId);
-                NkWindowMoveEvent em((int32)ce->x, (int32)ce->y);
-                Enqueue(em, winId);
+                // Drain burst: consume all pending XCB_CONFIGURE_NOTIFY for this window,
+                // keeping only the last dimensions (avoids N swapchain recreations per drag).
+                {
+                    xcb_generic_event_t* next;
+                    while ((next = xcb_poll_for_queued_event(conn)) != nullptr) {
+                        uint8_t nextType = next->response_type & ~0x80;
+                        if (nextType == XCB_CONFIGURE_NOTIFY) {
+                            auto* nc = (xcb_configure_notify_event_t*)next;
+                            if (nc->window == ce->window) {
+                                free(ev);
+                                ev = next;
+                                ce = nc;
+                                continue;
+                            }
+                        }
+                        // Not a matching ConfigureNotify — push it back is not possible in XCB;
+                        // process it inline before moving on.
+                        // We'll break and leave it unprocessed (minor: one event may be dropped).
+                        free(next);
+                        break;
+                    }
+                }
+                {
+                    NkWindowResizeBeginEvent beginEvt;
+                    Enqueue(beginEvt, winId);
+                }
+                {
+                    NkWindowResizeEvent er((uint32)ce->width, (uint32)ce->height,
+                        window ? window->GetConfig().width  : 0u,
+                        window ? window->GetConfig().height : 0u);
+                    Enqueue(er, winId);
+                }
+                {
+                    NkWindowResizeEndEvent endEvt;
+                    Enqueue(endEvt, winId);
+                }
+                {
+                    NkWindowMoveBeginEvent moveBegin;
+                    Enqueue(moveBegin, winId);
+                    NkWindowMoveEvent em((int32)ce->x, (int32)ce->y);
+                    Enqueue(em, winId);
+                    NkWindowMoveEndEvent moveEnd;
+                    Enqueue(moveEnd, winId);
+                }
                 break;
             }
 

@@ -1,0 +1,75 @@
+{
+  "base_directory": "E:\\Projets\\MacShared\\Projets\\Jenga\\Jenga\\Exemples\\Nkentseu\\Modules\\Runtime\\NKContext",
+  "included_extensions": [],
+  "excluded_extensions": [],
+  "included_paths": [],
+  "excluded_paths": [],
+  "included_files": [],
+  "excluded_files": [],
+  "structure": {
+    ".": [
+      "NKContext.jenga"
+    ],
+    "pch": [
+      "pch\\pch.cpp",
+      "pch\\pch.h"
+    ],
+    "src\\NKContext\\Compute": [
+      "src\\NKContext\\Compute\\NkDX11ComputeContext.cpp",
+      "src\\NKContext\\Compute\\NkDX11ComputeContext.h",
+      "src\\NKContext\\Compute\\NkDX12ComputeContext.cpp",
+      "src\\NKContext\\Compute\\NkDX12ComputeContext.h",
+      "src\\NKContext\\Compute\\NkIComputeContext.h",
+      "src\\NKContext\\Compute\\NkMetalComputeContext.h",
+      "src\\NKContext\\Compute\\NkMetalComputeContext.mm",
+      "src\\NKContext\\Compute\\NkOpenGLComputeContext.cpp",
+      "src\\NKContext\\Compute\\NkOpenGLComputeContext.h",
+      "src\\NKContext\\Compute\\NkSoftwareComputeContext.cpp",
+      "src\\NKContext\\Compute\\NkSoftwareComputeContext.h",
+      "src\\NKContext\\Compute\\NkVulkanComputeContext.cpp",
+      "src\\NKContext\\Compute\\NkVulkanComputeContext.h"
+    ],
+    "src\\NKContext\\Core": [
+      "src\\NKContext\\Core\\NkContextDesc.h",
+      "src\\NKContext\\Core\\NkContextInfo.h",
+      "src\\NKContext\\Core\\NkGpuPolicy.cpp",
+      "src\\NKContext\\Core\\NkGpuPolicy.h",
+      "src\\NKContext\\Core\\NkGraphicsApi.h",
+      "src\\NKContext\\Core\\NkIGraphicsContext.h",
+      "src\\NKContext\\Core\\NkNativeContextAccess.h",
+      "src\\NKContext\\Core\\NkOpenGLDesc.h",
+      "src\\NKContext\\Core\\NkSurfaceDesc.h",
+      "src\\NKContext\\Core\\NkWGLPixelFormat.h"
+    ],
+    "src\\NKContext\\Factory": [
+      "src\\NKContext\\Factory\\NkContextFactory.cpp",
+      "src\\NKContext\\Factory\\NkContextFactory.h"
+    ],
+    "src\\NKContext\\Graphics\\DirectX": [
+      "src\\NKContext\\Graphics\\DirectX\\NkDirectXContextData.h",
+      "src\\NKContext\\Graphics\\DirectX\\NkDX11Context.cpp",
+      "src\\NKContext\\Graphics\\DirectX\\NkDX12Context.cpp",
+      "src\\NKContext\\Graphics\\DirectX\\NkDXContext.h"
+    ],
+    "src\\NKContext\\Graphics\\Metal": [
+      "src\\NKContext\\Graphics\\Metal\\NkMetalContext.h",
+      "src\\NKContext\\Graphics\\Metal\\NkMetalContext.mm"
+    ],
+    "src\\NKContext\\Graphics\\OpenGL": [
+      "src\\NKContext\\Graphics\\OpenGL\\NkOpenGLContext.cpp",
+      "src\\NKContext\\Graphics\\OpenGL\\NkOpenGLContext.h",
+      "src\\NKContext\\Graphics\\OpenGL\\NkOpenGLContextData.h",
+      "src\\NKContext\\Graphics\\OpenGL\\NkOpenGLContextMacOS.mm"
+    ],
+    "src\\NKContext\\Graphics\\Software": [
+      "src\\NKContext\\Graphics\\Software\\NkSoftwareContext.cpp",
+      "src\\NKContext\\Graphics\\Software\\NkSoftwareContext.h"
+    ],
+    "src\\NKContext\\Graphics\\Vulkan": [
+      "src\\NKContext\\Graphics\\Vulkan\\NkVulkanContext.cpp",
+      "src\\NKContext\\Graphics\\Vulkan\\NkVulkanContext.h",
+      "src\\NKContext\\Graphics\\Vulkan\\NkVulkanContextData.h"
+    ]
+  },
+  "timestamp": "1773640447.7116556"
+}

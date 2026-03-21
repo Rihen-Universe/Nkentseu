@@ -54,7 +54,8 @@ namespace nkentseu {
         NK_API_DIRECTX12  = NK_GFX_API_D3D12,
         NK_API_METAL      = NK_GFX_API_METAL,
         NK_API_WEBGL      = NK_GFX_API_WEBGL,
-        NK_API_SOFTWARE   = NK_GFX_API_SOFTWARE
+        NK_API_SOFTWARE   = NK_GFX_API_SOFTWARE,
+        NK_API_COUNT      = NK_GFX_API_MAX
     };
 
     inline const char* NkGraphicsApiToString(NkGraphicsApi api) noexcept {

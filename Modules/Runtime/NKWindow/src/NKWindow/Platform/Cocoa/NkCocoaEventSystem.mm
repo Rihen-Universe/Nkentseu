@@ -26,6 +26,7 @@
 #include "NKWindow/Core/NkWindow.h"
 
 namespace nkentseu {
+    using namespace math;
 
     // =============================================================================
     // Helpers

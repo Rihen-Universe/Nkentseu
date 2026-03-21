@@ -126,6 +126,7 @@
 @end
 
 namespace nkentseu {
+    using namespace math;
 
     static NkVec2u QueryViewSizePx(UIView* view) {
         if (!view) {
@@ -179,6 +180,24 @@ namespace nkentseu {
                 window.opaque = YES;
             }
         }
+    }
+
+    // =========================================================================
+    // Fonctions de synchronisation mData ↔ mConfig
+    // =========================================================================
+
+    static void SyncConfigFromWindow(const NkUIKitWindowData& data, NkWindowConfig& config) {
+        config.width = data.mWidth;
+        config.height = data.mHeight;
+        config.visible = data.mVisible;
+        config.fullscreen = data.mFullscreen;
+        // Le titre n'est pas récupérable depuis UIKit facilement, on garde config.title
+        // La position n'est pas pertinente, on garde config.x/config.y
+    }
+
+    static void SyncWindowFromConfig(NkUIKitWindowData& data, const NkWindowConfig& config) {
+        data.mVisible = config.visible;
+        data.mFullscreen = config.fullscreen;
     }
 
     NkWindow::NkWindow() = default;
@@ -303,6 +322,10 @@ namespace nkentseu {
             mData.mWidth = sizePx.x;
             mData.mHeight = sizePx.y;
 
+            // Synchroniser mConfig avec les dimensions réelles
+            mConfig.width = mData.mWidth;
+            mConfig.height = mData.mHeight;
+
             mId = NkSystem::Instance().RegisterWindow(this);
             if (mId == NK_INVALID_WINDOW_ID) {
                 mLastError = NkError(1, "UIKit: failed to register window");
@@ -398,6 +421,10 @@ namespace nkentseu {
     }
 
     NkWindowConfig NkWindow::GetConfig() const {
+        // Synchroniser avant de retourner
+        if (mIsOpen) {
+            SyncConfigFromWindow(mData, const_cast<NkWindow*>(this)->mConfig);
+        }
         return mConfig;
     }
 
@@ -407,10 +434,18 @@ namespace nkentseu {
 
     void NkWindow::SetTitle(const NkString& title) {
         mConfig.title = title;
+        // Sur iOS, le titre n'est pas directement modifiable après création
     }
 
     NkVec2u NkWindow::GetSize() const {
         const NkVec2u sizePx = QueryViewSizePx(mData.mUIView);
+        
+        // Synchroniser mData et mConfig
+        const_cast<NkWindow*>(this)->mData.mWidth = sizePx.x;
+        const_cast<NkWindow*>(this)->mData.mHeight = sizePx.y;
+        const_cast<NkWindow*>(this)->mConfig.width = sizePx.x;
+        const_cast<NkWindow*>(this)->mConfig.height = sizePx.y;
+        
         return sizePx;
     }
 
@@ -471,6 +506,7 @@ namespace nkentseu {
         }
         mData.mVisible = visible;
         mConfig.visible = visible;
+        
         if (mData.mOwnsWindow && mData.mUIWindow) {
             mData.mUIWindow.hidden = !visible;
         } else if (mData.mUIView) {
@@ -563,7 +599,7 @@ namespace nkentseu {
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc desc;
-        const NkVec2u size = GetSize();
+        const NkVec2u size = GetSize();  // GetSize synchronise déjà mConfig
         desc.width = size.x;
         desc.height = size.y;
         desc.dpi = GetDpiScale();

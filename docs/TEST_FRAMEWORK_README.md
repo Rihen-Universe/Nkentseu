@@ -276,7 +276,7 @@ Nkentseu/
 │   │   │   ├── bench/
 │   │   │   │   └── NKMath_Bench.cpp          ✅
 │   │   │   └── src/NKMath/
-│   │   │       ├── NkMathSIMD.h              ✅
+│   │   │       ├── NkmathIMD.h              ✅
 │   │   │       └── (implementations TODO)
 │   │   ├── NKMemory/
 │   │   │   └── tests/
@@ -330,7 +330,7 @@ Nkentseu/
 
 ## 🔄 Next Steps (Future Sessions)
 
-1. **Implement SIMD kernels** (NkMathSIMDImpl.cpp)
+1. **Implement SIMD kernels** (NkmathIMDImpl.cpp)
    - AVX2 versions of Sqrt, Exp, Sin, Cos
    - SSE4.2 fallback for older CPUs
    - Estimated gain: **10-15x** for batched operations

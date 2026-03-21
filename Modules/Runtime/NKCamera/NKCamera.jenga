@@ -62,7 +62,7 @@ with project("NKCamera"):
         "%{NKThreading.location}/src",
         "%{NKTime.location}/src",
         "%{NKWindow.location}/src",
-        "%{NKRenderer.location}/src",
+        "%{NKContext.location}/src",
     ])
 
     dependson([
@@ -75,7 +75,7 @@ with project("NKCamera"):
         "NKThreading",
         "NKTime",
         "NKWindow",
-        "NKRenderer",
+        "NKContext",
     ])
 
     files([
@@ -211,7 +211,7 @@ with project("NKCamera"):
             # Force explicit static link order for GNU/MinGW linkers.
             links([
                 "NKCamera",
-                "NKRenderer",
+                "NKContext",
                 "NKWindow",
                 "NKLogger",
                 "NKContainers",

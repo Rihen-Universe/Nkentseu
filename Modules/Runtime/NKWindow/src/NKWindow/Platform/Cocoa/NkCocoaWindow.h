@@ -23,6 +23,11 @@ namespace nkentseu {
             NSView*        mNSView     = nullptr;
             CAMetalLayer*  mMetalLayer = nullptr;
             NSWindow*      mParentWindow = nullptr;
+#ifdef __OBJC__
+            id             mDelegate   = nil;   // NkCocoaWindowDelegate*
+#else
+            void*          mDelegate   = nullptr;
+#endif
             NkSurfaceHints mAppliedHints{};
             uint32 mWidth      = 0;
             uint32 mHeight     = 0;

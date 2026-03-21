@@ -34,6 +34,7 @@
 #define NKLOGD(...) logger.Debugf(__VA_ARGS__)
 
 namespace nkentseu {
+    using namespace math;
 
     extern android_app* nk_android_global_app;
 

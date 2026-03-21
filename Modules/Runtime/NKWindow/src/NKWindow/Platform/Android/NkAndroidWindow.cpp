@@ -20,6 +20,7 @@
 #include <jni.h>
 
 namespace nkentseu {
+    using namespace math;
 
     android_app* nk_android_global_app = nullptr;
     static NkSpinLock sAndroidWindowsMutex;
@@ -32,6 +33,9 @@ namespace nkentseu {
     }
     static NkUnorderedMap<NkWindowId, NkWindow*>& AndroidWindowById() {
         static NkUnorderedMap<NkWindowId, NkWindow*> sMap;
+        if (sMap.BucketCount() == 0) {
+            sMap.Rehash(32);
+        }
         return sMap;
     }
 
@@ -275,6 +279,26 @@ namespace nkentseu {
         return ok;
     }
 
+    // =========================================================================
+    // Fonctions de synchronisation mData ↔ mConfig
+    // =========================================================================
+
+    static void SyncConfigFromWindow(const NkAndroidWindowData& data, NkWindowConfig& config) {
+        config.width = data.mWidth;
+        config.height = data.mHeight;
+        config.screenOrientation = data.mOrientation;
+        config.fullscreen = data.mFullscreen;
+        // La visibilité est implicite sur Android, on garde config.visible
+        // Le titre n'est pas récupérable, on garde config.title
+        // La position n'est pas pertinente, on garde config.x/config.y
+    }
+
+    static void SyncWindowFromConfig(NkAndroidWindowData& data, const NkWindowConfig& config) {
+        data.mOrientation = config.screenOrientation;
+        data.mFullscreen = config.fullscreen;
+        // Les autres propriétés seront appliquées via les méthodes dédiées
+    }
+
     NkWindow::NkWindow() = default;
 
     NkWindow::NkWindow(const NkWindowConfig& config) {
@@ -329,6 +353,10 @@ namespace nkentseu {
         mData.mHeight = static_cast<uint32>(ANativeWindow_getHeight(mData.mNativeWindow));
         mData.mPrevWidth = mData.mWidth;
         mData.mPrevHeight = mData.mHeight;
+
+        // Synchroniser mConfig avec les dimensions réelles
+        mConfig.width = mData.mWidth;
+        mConfig.height = mData.mHeight;
 
         if (mData.mAConfig) {
             AConfiguration_delete(mData.mAConfig);
@@ -419,16 +447,28 @@ namespace nkentseu {
 
     NkError NkWindow::GetLastError() const { return mLastError; }
 
-    NkWindowConfig NkWindow::GetConfig() const { return mConfig; }
+    NkWindowConfig NkWindow::GetConfig() const {
+        // Synchroniser avant de retourner
+        if (mIsOpen) {
+            SyncConfigFromWindow(mData, const_cast<NkWindow*>(this)->mConfig);
+        }
+        return mConfig;
+    }
 
     NkString NkWindow::GetTitle() const { return mConfig.title; }
 
     NkVec2u NkWindow::GetSize() const {
         if (mData.mNativeWindow) {
-            return {
-                static_cast<uint32>(ANativeWindow_getWidth(mData.mNativeWindow)),
-                static_cast<uint32>(ANativeWindow_getHeight(mData.mNativeWindow)),
-            };
+            uint32 width = static_cast<uint32>(ANativeWindow_getWidth(mData.mNativeWindow));
+            uint32 height = static_cast<uint32>(ANativeWindow_getHeight(mData.mNativeWindow));
+            
+            // Synchroniser mData et mConfig
+            const_cast<NkWindow*>(this)->mData.mWidth = width;
+            const_cast<NkWindow*>(this)->mData.mHeight = height;
+            const_cast<NkWindow*>(this)->mConfig.width = width;
+            const_cast<NkWindow*>(this)->mConfig.height = height;
+            
+            return {width, height};
         }
         return {mConfig.width, mConfig.height};
     }
@@ -459,13 +499,23 @@ namespace nkentseu {
 
     NkVec2u NkWindow::GetDisplayPosition() const { return {0, 0}; }
 
-    void NkWindow::SetTitle(const NkString& title) { mConfig.title = title; }
+    void NkWindow::SetTitle(const NkString& title) { 
+        mConfig.title = title; 
+        // Sur Android, le titre n'est pas directement modifiable après création
+    }
 
-    void NkWindow::SetSize(uint32, uint32) {}
+    void NkWindow::SetSize(uint32 width, uint32 height) {
+        mConfig.width = width;
+        mConfig.height = height;
+        // Sur Android, la taille est contrôlée par le système
+    }
 
     void NkWindow::SetPosition(int32, int32) {}
 
-    void NkWindow::SetVisible(bool) {}
+    void NkWindow::SetVisible(bool visible) {
+        mConfig.visible = visible;
+        // Sur Android, la visibilité est contrôlée par le système
+    }
 
     void NkWindow::Minimize() {}
 
@@ -475,6 +525,8 @@ namespace nkentseu {
 
     void NkWindow::SetFullscreen(bool fullscreen) {
         mConfig.fullscreen = fullscreen;
+        mData.mFullscreen = fullscreen;
+        // Sur Android, le plein écran est géré par le système
     }
 
     bool NkWindow::SupportsOrientationControl() const { return true; }
@@ -531,7 +583,7 @@ namespace nkentseu {
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc desc;
-        const auto size = GetSize();
+        const auto size = GetSize();  // GetSize synchronise déjà mConfig
         desc.width = size.x;
         desc.height = size.y;
         desc.dpi = GetDpiScale();

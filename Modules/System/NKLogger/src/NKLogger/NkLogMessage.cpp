@@ -58,7 +58,7 @@ namespace nkentseu {
 		timestamp = static_cast<uint64>(NkGetNowNs());
 
 		// Obtention de l'ID du thread
-		threadId = static_cast<uint32>(logger_sync::GetCurrentThreadId());
+		threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
 	}
 
 	/**
@@ -103,7 +103,7 @@ namespace nkentseu {
 		timestamp = static_cast<uint64>(NkGetNowNs());
 
 		// Recalcul de l'ID du thread
-		threadId = static_cast<uint32>(logger_sync::GetCurrentThreadId());
+		threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
 	}
 
 	/**

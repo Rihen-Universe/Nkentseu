@@ -5,6 +5,7 @@
 // - donnees natives dans NkWindow::mData
 // - Display global partage entre fenetres
 // - registre backend xid -> NkWindow* expose via helpers
+// - Synchronisation complète entre mData et mConfig (v2)
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
@@ -24,6 +25,7 @@
 #include <unordered_map>
 
 namespace nkentseu {
+    using namespace math;
 
     // =============================================================================
     // Globals partages (backend registry)
@@ -38,6 +40,9 @@ namespace nkentseu {
     // Function-local static avoids static init order fiasco with NkAllocator.
     static NkUnorderedMap<::Window, NkWindow*>& XLibWindowMap() {
         static NkUnorderedMap<::Window, NkWindow*> sMap;
+        if (sMap.BucketCount() == 0) {
+            sMap.Rehash(32);
+        }
         return sMap;
     }
 
@@ -72,6 +77,107 @@ namespace nkentseu {
 
     NkWindow* NkXLibGetLastWindow() {
         return sXLibLastWindow;
+    }
+
+    // =============================================================================
+    // Fonctions de synchronisation mData ↔ mConfig
+    // =============================================================================
+
+    static void SyncConfigFromWindow(Display* display, ::Window xid, NkWindowConfig& config, const NkWindowData& data) {
+        if (!display || !xid) return;
+
+        // Récupérer la position
+        ::Window child;
+        int x = 0, y = 0;
+        if (XTranslateCoordinates(display, xid, DefaultRootWindow(display), 0, 0, &x, &y, &child)) {
+            config.x = x;
+            config.y = y;
+        }
+
+        // Récupérer la taille
+        XWindowAttributes attrs;
+        if (XGetWindowAttributes(display, xid, &attrs)) {
+            config.width = attrs.width;
+            config.height = attrs.height;
+        }
+
+        // Récupérer le titre
+        char* title = nullptr;
+        if (XFetchName(display, xid, &title) && title) {
+            config.title = title;
+            XFree(title);
+        }
+
+        // Visibilité (approximative)
+        XWindowAttributes rootAttrs;
+        if (XGetWindowAttributes(display, xid, &rootAttrs)) {
+            config.visible = (rootAttrs.map_state == IsViewable);
+        }
+
+        // État plein écran (via _NET_WM_STATE)
+        Atom wmState = XInternAtom(display, "_NET_WM_STATE", True);
+        if (wmState != None) {
+            Atom actualType;
+            int actualFormat;
+            unsigned long numItems, bytesAfter;
+            unsigned char* data = nullptr;
+            
+            if (XGetWindowProperty(display, xid, wmState, 0, 1024, False, XA_ATOM,
+                                   &actualType, &actualFormat, &numItems, &bytesAfter, &data) == Success) {
+                if (actualType == XA_ATOM && actualFormat == 32) {
+                    Atom* atoms = reinterpret_cast<Atom*>(data);
+                    Atom wmFs = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", True);
+                    config.fullscreen = false;
+                    
+                    for (unsigned long i = 0; i < numItems; ++i) {
+                        if (atoms[i] == wmFs) {
+                            config.fullscreen = true;
+                            break;
+                        }
+                    }
+                }
+                XFree(data);
+            }
+        }
+    }
+
+    static void SyncWindowFromConfig(Display* display, ::Window xid, const NkWindowConfig& config) {
+        if (!display || !xid) return;
+
+        // Titre
+        XStoreName(display, xid, config.title.CStr());
+
+        // Taille
+        XWindowAttributes currentAttrs;
+        if (XGetWindowAttributes(display, xid, &currentAttrs)) {
+            if (currentAttrs.width != (int)config.width || currentAttrs.height != (int)config.height) {
+                XResizeWindow(display, xid, config.width, config.height);
+            }
+        }
+
+        // Position
+        ::Window child;
+        int currentX = 0, currentY = 0;
+        if (XTranslateCoordinates(display, xid, DefaultRootWindow(display), 0, 0, &currentX, &currentY, &child)) {
+            if (currentX != config.x || currentY != config.y) {
+                XMoveWindow(display, xid, config.x, config.y);
+            }
+        }
+
+        // Visibilité
+        XWindowAttributes rootAttrs;
+        if (XGetWindowAttributes(display, xid, &rootAttrs)) {
+            bool isVisible = (rootAttrs.map_state == IsViewable);
+            if (isVisible != config.visible) {
+                if (config.visible) {
+                    XMapWindow(display, xid);
+                } else {
+                    XUnmapWindow(display, xid);
+                }
+            }
+        }
+
+        XFlush(display);
     }
 
     // =============================================================================
@@ -138,6 +244,10 @@ namespace nkentseu {
             }
             NkXLibRegisterWindow(mData.mXid, this);
             mId = NkSystem::Instance().RegisterWindow(this);
+            
+            // Synchroniser mConfig depuis l'état réel de la fenêtre externe
+            SyncConfigFromWindow(sDisplay, mData.mXid, mConfig, mData);
+            
             mIsOpen = true;
             return true;
         }
@@ -148,6 +258,12 @@ namespace nkentseu {
         int y = config.centered
             ? (DisplayHeight(sDisplay, mData.mScreen) - static_cast<int>(config.height)) / 2
             : config.y;
+
+        // Mettre à jour mConfig avec les coordonnées calculées si centré
+        if (config.centered) {
+            mConfig.x = x;
+            mConfig.y = y;
+        }
 
         // Valeurs par défaut (sans hint)
         Visual*       visual = DefaultVisual(sDisplay, mData.mScreen);
@@ -278,6 +394,9 @@ namespace nkentseu {
             }));
         }
 
+        // Synchronisation initiale : mConfig reflète l'état réel
+        SyncConfigFromWindow(sDisplay, mData.mXid, mConfig, mData);
+
         mIsOpen = true;
         return true;
     }
@@ -330,9 +449,33 @@ namespace nkentseu {
     bool NkWindow::IsOpen() const { return mIsOpen; }
     bool NkWindow::IsValid() const { return mIsOpen && mData.mXid != 0; }
 
-    NkString NkWindow::GetTitle() const { return mConfig.title; }
     NkError NkWindow::GetLastError() const { return mLastError; }
-    NkWindowConfig NkWindow::GetConfig() const { return mConfig; }
+
+    NkWindowConfig NkWindow::GetConfig() const { 
+        // Synchroniser avant de retourner
+        if (mIsOpen && mData.mDisplay && mData.mXid) {
+            // Appel à la fonction libre, pas à une méthode de classe
+            SyncConfigFromWindow(mData.mDisplay, mData.mXid, const_cast<NkWindow*>(this)->mConfig, mData);
+        }
+        return mConfig; 
+    }
+
+    NkString NkWindow::GetTitle() const {
+        if (!mData.mDisplay || !mData.mXid) {
+            return mConfig.title;
+        }
+        char* title = nullptr;
+        if (XFetchName(mData.mDisplay, mData.mXid, &title) && title) {
+            NkString result = title;
+            XFree(title);
+            
+            // Synchroniser mConfig
+            const_cast<NkWindow*>(this)->mConfig.title = result;
+            
+            return result;
+        }
+        return mConfig.title;
+    }
 
     NkVec2u NkWindow::GetSize() const {
         if (!mData.mDisplay || !mData.mXid) {
@@ -340,7 +483,13 @@ namespace nkentseu {
         }
         XWindowAttributes a;
         XGetWindowAttributes(mData.mDisplay, mData.mXid, &a);
-        return { static_cast<uint32>(a.width), static_cast<uint32>(a.height) };
+        NkVec2u size = { static_cast<uint32>(a.width), static_cast<uint32>(a.height) };
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mConfig.width = size.x;
+        const_cast<NkWindow*>(this)->mConfig.height = size.y;
+        
+        return size;
     }
 
     NkVec2u NkWindow::GetPosition() const {
@@ -348,13 +497,18 @@ namespace nkentseu {
             return { static_cast<uint32>(mConfig.x), static_cast<uint32>(mConfig.y) };
         }
         ::Window child;
-        int x = 0;
-        int y = 0;
+        int x = 0, y = 0;
         XTranslateCoordinates(
             mData.mDisplay, mData.mXid,
             DefaultRootWindow(mData.mDisplay),
             0, 0, &x, &y, &child);
-        return { static_cast<uint32>(x), static_cast<uint32>(y) };
+        NkVec2u pos = { static_cast<uint32>(x), static_cast<uint32>(y) };
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mConfig.x = pos.x;
+        const_cast<NkWindow*>(this)->mConfig.y = pos.y;
+        
+        return pos;
     }
 
     float NkWindow::GetDpiScale() const { return 1.0f; }
@@ -399,6 +553,7 @@ namespace nkentseu {
     }
 
     void NkWindow::SetVisible(bool visible) {
+        mConfig.visible = visible;
         if (!mData.mDisplay || !mData.mXid) {
             return;
         }
@@ -414,6 +569,8 @@ namespace nkentseu {
         if (mData.mDisplay && mData.mXid) {
             XIconifyWindow(mData.mDisplay, mData.mXid, mData.mScreen);
         }
+        // L'état de visibilité change
+        mConfig.visible = false;
     }
 
     void NkWindow::Maximize() {
@@ -438,6 +595,13 @@ namespace nkentseu {
             SubstructureNotifyMask | SubstructureRedirectMask,
             &ev);
         XFlush(mData.mDisplay);
+        
+        // Mettre à jour la taille après maximisation
+        XWindowAttributes attrs;
+        XGetWindowAttributes(mData.mDisplay, mData.mXid, &attrs);
+        mConfig.width = attrs.width;
+        mConfig.height = attrs.height;
+        mConfig.visible = true;
     }
 
     void NkWindow::Restore() {
@@ -445,6 +609,12 @@ namespace nkentseu {
             XMapWindow(mData.mDisplay, mData.mXid);
             XFlush(mData.mDisplay);
         }
+        // Mettre à jour après restauration
+        XWindowAttributes attrs;
+        XGetWindowAttributes(mData.mDisplay, mData.mXid, &attrs);
+        mConfig.width = attrs.width;
+        mConfig.height = attrs.height;
+        mConfig.visible = true;
     }
 
     void NkWindow::SetFullscreen(bool fullscreen) {
@@ -452,6 +622,7 @@ namespace nkentseu {
             return;
         }
         mConfig.fullscreen = fullscreen;
+        
         Atom wmState = XInternAtom(mData.mDisplay, "_NET_WM_STATE", False);
         Atom wmFs = XInternAtom(mData.mDisplay, "_NET_WM_STATE_FULLSCREEN", False);
         XEvent ev = {};
@@ -468,6 +639,17 @@ namespace nkentseu {
             SubstructureNotifyMask | SubstructureRedirectMask,
             &ev);
         XFlush(mData.mDisplay);
+        
+        // Mettre à jour la taille
+        if (fullscreen) {
+            mConfig.width = DisplayWidth(mData.mDisplay, mData.mScreen);
+            mConfig.height = DisplayHeight(mData.mDisplay, mData.mScreen);
+        } else {
+            XWindowAttributes attrs;
+            XGetWindowAttributes(mData.mDisplay, mData.mXid, &attrs);
+            mConfig.width = attrs.width;
+            mConfig.height = attrs.height;
+        }
     }
 
     // =============================================================================
@@ -532,14 +714,14 @@ namespace nkentseu {
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc sd;
-        auto sz         = GetSize();
+        auto sz         = GetSize();  // GetSize synchronise déjà mConfig
         sd.width        = sz.x;
         sd.height       = sz.y;
         sd.dpi          = GetDpiScale();
         sd.display      = mData.mDisplay;
         sd.window       = mData.mXid;
         sd.screen       = mData.mScreen;
-        sd.appliedHints = mData.mAppliedHints;   // ← ajout
+        sd.appliedHints = mData.mAppliedHints;
         return sd;
     }
 

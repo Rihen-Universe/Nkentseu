@@ -238,6 +238,13 @@ namespace nkentseu {
                 , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
                 for (auto& val : init) PushBack(val);
             }
+
+            NkDeque(std::initializer_list<T> init, Allocator* allocator = nullptr)
+                : mChunks(nullptr), mChunkCount(0), mChunkCapacity(0)
+                , mFrontChunk(0), mFrontOffset(0), mSize(0)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator()) {
+                for (auto& val : init) PushBack(val);
+            }
             
             NkDeque(const NkDeque& other)
                 : mChunks(nullptr)
@@ -295,7 +302,7 @@ namespace nkentseu {
                 }
                 Clear();
                 ReleaseChunkStorage();
-                
+
                 mChunks = other.mChunks;
                 mChunkCount = other.mChunkCount;
                 mChunkCapacity = other.mChunkCapacity;
@@ -303,7 +310,7 @@ namespace nkentseu {
                 mFrontOffset = other.mFrontOffset;
                 mSize = other.mSize;
                 mAllocator = other.mAllocator;
-                
+
                 other.mChunks = nullptr;
                 other.mChunkCount = 0;
                 other.mChunkCapacity = 0;
@@ -313,7 +320,21 @@ namespace nkentseu {
                 return *this;
             }
             #endif
-            
+
+            NkDeque& operator=(NkInitializerList<T> init) {
+                Clear();
+                ReleaseChunkStorage();
+                for (auto& val : init) PushBack(val);
+                return *this;
+            }
+
+            NkDeque& operator=(std::initializer_list<T> init) {
+                Clear();
+                ReleaseChunkStorage();
+                for (auto& val : init) PushBack(val);
+                return *this;
+            }
+
             // Element access
             Reference operator[](SizeType index) {
                 NK_ASSERT(index < mSize);

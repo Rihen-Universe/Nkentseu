@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "NKMath/NkTypes.h"
+#include "NKMath/NKMath.h"
 #include "NKCore/NkTraits.h"
 #include "NKCore/NkRendererApi.h"
 #include "NKContainers/String/NkStringUtils.h"

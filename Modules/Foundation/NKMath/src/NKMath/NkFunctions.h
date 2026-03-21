@@ -15,6 +15,8 @@
 #define NKENTSEU_NKMATH_NKFUNCTIONS_H_INCLUDED
 
 #include "NKCore/NkTypes.h"
+#include "NKCore/NkInline.h"
+#include <initializer_list>
 
 // NkMacros.h may define legacy function-like macros (NkMin/NkMax/NkClamp).
 // Undefine them here so NkMath keeps callable Nk* functions.
@@ -31,100 +33,100 @@
 #undef NkAbs
 #endif
 
+// Map NK_FORCE_INLINE to the platform force-inline macro from NkInline.h
+#ifndef NK_FORCE_INLINE
+#   define NK_FORCE_INLINE NKENTSEU_FORCE_INLINE
+#endif
+
 namespace nkentseu {
     namespace math {
-
-    #ifndef NK_FORCE_INLINE
-    #   define NK_FORCE_INLINE inline
-    #endif
-
         // -------------------------------------------------------------------------
         // Constants (canonical names)
         // -------------------------------------------------------------------------
         namespace constants {
             // Math
-            constexpr float32  kPiF        = 3.14159265358979323846f;
-            constexpr float64 kPi         = 3.14159265358979323846;
-            constexpr float32  kHalfPiF    = 1.57079632679489661923f;
-            constexpr float64 kHalfPi     = 1.57079632679489661923;
-            constexpr float32  kQuarterPiF = 0.78539816339744830961f;
-            constexpr float64 kQuarterPi  = 0.78539816339744830961;
-            constexpr float32  kTauF       = 6.28318530717958647692f;
-            constexpr float64 kTau        = 6.28318530717958647692;
+            constexpr float32   kPiF        = 3.14159265358979323846f;
+            constexpr float64   kPi         = 3.14159265358979323846;
+            constexpr float32   kHalfPiF    = 1.57079632679489661923f;
+            constexpr float64   kHalfPi     = 1.57079632679489661923;
+            constexpr float32   kQuarterPiF = 0.78539816339744830961f;
+            constexpr float64   kQuarterPi  = 0.78539816339744830961;
+            constexpr float32   kTauF       = 6.28318530717958647692f;
+            constexpr float64   kTau        = 6.28318530717958647692;
 
-            constexpr float32  kInvPiF     = 0.31830988618379067154f;
-            constexpr float64 kInvPi      = 0.31830988618379067154;
-            constexpr float32  kEpsilonF   = 1.0e-6f;
-            constexpr float64 kEpsilonD   = 1.0e-15;
-            constexpr float32  kCompareAbsEpsilonF = 1.0e-6f;
-            constexpr float64 kCompareAbsEpsilonD = 1.0e-12;
-            constexpr float32  kCompareRelEpsilonF = 1.0e-5f;
-            constexpr float64 kCompareRelEpsilonD = 1.0e-12;
+            constexpr float32   kInvPiF     = 0.31830988618379067154f;
+            constexpr float64   kInvPi      = 0.31830988618379067154;
+            constexpr float32   kEpsilonF   = 1.0e-6f;
+            constexpr float64   kEpsilonD   = 1.0e-15;
+            constexpr float32   kCompareAbsEpsilonF = 1.0e-6f;
+            constexpr float64   kCompareAbsEpsilonD = 1.0e-12;
+            constexpr float32   kCompareRelEpsilonF = 1.0e-5f;
+            constexpr float64   kCompareRelEpsilonD = 1.0e-12;
 
-            constexpr float32  kEF         = 2.71828182845904523536f;
-            constexpr float64 kE          = 2.71828182845904523536;
-            constexpr float32  kLn2F       = 0.69314718055994530942f;
-            constexpr float64 kLn2        = 0.69314718055994530942;
-            constexpr float32  kLn10F      = 2.30258509299404568402f;
-            constexpr float64 kLn10       = 2.30258509299404568402;
-            constexpr float32  kSqrt2F     = 1.41421356237309504880f;
-            constexpr float64 kSqrt2      = 1.41421356237309504880;
-            constexpr float32  kSqrt3F     = 1.73205080756887729353f;
-            constexpr float64 kSqrt3      = 1.73205080756887729353;
+            constexpr float32   kEF         = 2.71828182845904523536f;
+            constexpr float64   kE          = 2.71828182845904523536;
+            constexpr float32   kLn2F       = 0.69314718055994530942f;
+            constexpr float64   kLn2        = 0.69314718055994530942;
+            constexpr float32   kLn10F      = 2.30258509299404568402f;
+            constexpr float64   kLn10       = 2.30258509299404568402;
+            constexpr float32   kSqrt2F     = 1.41421356237309504880f;
+            constexpr float64   kSqrt2      = 1.41421356237309504880;
+            constexpr float32   kSqrt3F     = 1.73205080756887729353f;
+            constexpr float64   kSqrt3      = 1.73205080756887729353;
 
             // Physics/Chemistry
-            constexpr float64 kGravity      = 9.80665;
-            constexpr float64 kLightSpeed   = 299792458.0;
-            constexpr float64 kGravConstant = 6.67430e-11;
-            constexpr float64 kPlanck       = 6.62607015e-34;
-            constexpr float64 kBoltzmann    = 1.380649e-23;
-            constexpr float64 kAvogadro     = 6.02214076e23;
-            constexpr float64 kGasConstant  = 8.314462618;
+            constexpr float64   kGravity      = 9.80665;
+            constexpr float64   kLightSpeed   = 299792458.0;
+            constexpr float64   kGravConstant = 6.67430e-11;
+            constexpr float64   kPlanck       = 6.62607015e-34;
+            constexpr float64   kBoltzmann    = 1.380649e-23;
+            constexpr float64   kAvogadro     = 6.02214076e23;
+            constexpr float64   kGasConstant  = 8.314462618;
         } // namespace constants
 
         // -------------------------------------------------------------------------
         // Compatibility constants (legacy names used in older code)
         // -------------------------------------------------------------------------
-        constexpr float32  NK_PI_F     = constants::kPiF;
-        constexpr float64 NK_PI_D     = constants::kPi;
-        constexpr float32  NK_PI_2_F   = constants::kHalfPiF;
-        constexpr float64 NK_PI_2_D   = constants::kHalfPi;
-        constexpr float32  NK_PI_4_F   = constants::kQuarterPiF;
-        constexpr float64 NK_PI_4_D   = constants::kQuarterPi;
-        constexpr float32  NK_2PI_F    = constants::kTauF;
-        constexpr float64 NK_2PI_D    = constants::kTau;
-        constexpr float32  NK_INV_PI_F = constants::kInvPiF;
-        constexpr float64 NK_INV_PI_D = constants::kInvPi;
-        constexpr float32  NK_E_F      = constants::kEF;
-        constexpr float64 NK_E_D      = constants::kE;
-        constexpr float32  NK_LN2_F    = constants::kLn2F;
-        constexpr float64 NK_LN2_D    = constants::kLn2;
-        constexpr float32  NK_LN10_F   = constants::kLn10F;
-        constexpr float64 NK_LN10_D   = constants::kLn10;
-        constexpr float32  NK_COMPARE_ABS_EPSILON_F = constants::kCompareAbsEpsilonF;
-        constexpr float64 NK_COMPARE_ABS_EPSILON_D = constants::kCompareAbsEpsilonD;
-        constexpr float32  NK_COMPARE_REL_EPSILON_F = constants::kCompareRelEpsilonF;
-        constexpr float64 NK_COMPARE_REL_EPSILON_D = constants::kCompareRelEpsilonD;
+        constexpr float32   NK_PI_F     = constants::kPiF;
+        constexpr float64   NK_PI_D     = constants::kPi;
+        constexpr float32   NK_PI_2_F   = constants::kHalfPiF;
+        constexpr float64   NK_PI_2_D   = constants::kHalfPi;
+        constexpr float32   NK_PI_4_F   = constants::kQuarterPiF;
+        constexpr float64   NK_PI_4_D   = constants::kQuarterPi;
+        constexpr float32   NK_2PI_F    = constants::kTauF;
+        constexpr float64   NK_2PI_D    = constants::kTau;
+        constexpr float32   NK_INV_PI_F = constants::kInvPiF;
+        constexpr float64   NK_INV_PI_D = constants::kInvPi;
+        constexpr float32   NK_E_F      = constants::kEF;
+        constexpr float64   NK_E_D      = constants::kE;
+        constexpr float32   NK_LN2_F    = constants::kLn2F;
+        constexpr float64   NK_LN2_D    = constants::kLn2;
+        constexpr float32   NK_LN10_F   = constants::kLn10F;
+        constexpr float64   NK_LN10_D   = constants::kLn10;
+        constexpr float32   NK_COMPARE_ABS_EPSILON_F = constants::kCompareAbsEpsilonF;
+        constexpr float64   NK_COMPARE_ABS_EPSILON_D = constants::kCompareAbsEpsilonD;
+        constexpr float32   NK_COMPARE_REL_EPSILON_F = constants::kCompareRelEpsilonF;
+        constexpr float64   NK_COMPARE_REL_EPSILON_D = constants::kCompareRelEpsilonD;
 
-        constexpr float32  PI_F        = constants::kPiF;
-        constexpr float64 PI          = constants::kPi;
+        constexpr float32   PI_F        = constants::kPiF;
+        constexpr float64   PI          = constants::kPi;
 
         // Existing exported physics constants
-        constexpr float64 NK_C        = constants::kLightSpeed;
-        constexpr float64 NK_G        = constants::kGravConstant;
-        constexpr float64 NK_H        = constants::kPlanck;
-        constexpr float64 NK_K_B      = constants::kBoltzmann;
-        constexpr float64 NK_NA       = constants::kAvogadro;
-        constexpr float64 NK_R        = constants::kGasConstant;
-        constexpr float64 NK_G_ACCEL  = constants::kGravity;
+        constexpr float64   NK_C        = constants::kLightSpeed;
+        constexpr float64   NK_G        = constants::kGravConstant;
+        constexpr float64   NK_H        = constants::kPlanck;
+        constexpr float64   NK_K_B      = constants::kBoltzmann;
+        constexpr float64   NK_NA       = constants::kAvogadro;
+        constexpr float64   NK_R        = constants::kGasConstant;
+        constexpr float64   NK_G_ACCEL  = constants::kGravity;
 
         // -------------------------------------------------------------------------
-        // Angle helpers
+        // NkAngle helpers
         // -------------------------------------------------------------------------
-        constexpr float32  DEG_TO_RAD_F = constants::kPiF / 180.0f;
-        constexpr float64 DEG_TO_RAD   = constants::kPi  / 180.0;
-        constexpr float32  RAD_TO_DEG_F = 180.0f / constants::kPiF;
-        constexpr float64 RAD_TO_DEG   = 180.0  / constants::kPi;
+        constexpr float32   DEG_TO_RAD_F = constants::kPiF / 180.0f;
+        constexpr float64   DEG_TO_RAD   = constants::kPi  / 180.0;
+        constexpr float32   RAD_TO_DEG_F = 180.0f / constants::kPiF;
+        constexpr float64   RAD_TO_DEG   = 180.0  / constants::kPi;
 
         NK_FORCE_INLINE float32 NkRadiansFromDegrees(float32 degrees) noexcept {
             return degrees * DEG_TO_RAD_F;
@@ -166,6 +168,32 @@ namespace nkentseu {
 
         template <typename T>
         NK_FORCE_INLINE T NkMax(T a, T b) noexcept { return (a > b) ? a : b; }
+
+        template<typename T>
+        NK_FORCE_INLINE T NkMin(std::initializer_list<T> list) noexcept {
+            if (list.size() == 0) return T{};
+            auto it = list.begin();
+            T minVal = *it++;
+            for (; it != list.end(); ++it) {
+                if (*it < minVal) {
+                    minVal = *it;
+                }
+            }
+            return minVal;
+        }
+
+        template<typename T>
+        NK_FORCE_INLINE T NkMax(std::initializer_list<T> list) noexcept {
+            if (list.size() == 0) return T{};
+            auto it = list.begin();
+            T maxVal = *it++;
+            for (; it != list.end(); ++it) {
+                if (*it > maxVal) {
+                    maxVal = *it;
+                }
+            }
+            return maxVal;
+        }
 
         template <typename T>
         NK_FORCE_INLINE T NkClamp(T v, T lo, T hi) noexcept {
@@ -366,6 +394,49 @@ namespace nkentseu {
         float64 NkSmoothstep(float64 t) noexcept;
         float32 NkSmootherstep(float32 t) noexcept;
         float64 NkSmootherstep(float64 t) noexcept;
+
+        // -------------------------------------------------------------------------
+        // Floating-point exponent / sign utils
+        // -------------------------------------------------------------------------
+        int32   NkILogb(float32 x) noexcept;
+        float32 NkCopysign(float32 number, float32 sign) noexcept;
+
+        // -------------------------------------------------------------------------
+        // Backward-compat constants (legacy short names)
+        // -------------------------------------------------------------------------
+        constexpr float64 NkPi              = constants::kPi;
+        constexpr float64 NkPis2           = constants::kHalfPi;
+        constexpr float64 NkPi2            = constants::kTau;
+        constexpr float64 NkSqrt2          = constants::kSqrt2;
+        constexpr float64 NkSqrt3          = constants::kSqrt3;
+        constexpr float64 NkDEG2RAD        = constants::kPi / 180.0;
+        constexpr float64 NkRAD2DEG        = 180.0 / constants::kPi;
+        constexpr float64 NkPuissanceApprox = 8192.0;
+        constexpr float64 NkEpsilon        = constants::kCompareAbsEpsilonD;
+        constexpr float64 NkVectorEpsilon  = constants::kCompareAbsEpsilonD;
+        constexpr float64 NkMatrixEpsilon  = constants::kCompareAbsEpsilonD;
+        constexpr float64 NkQuatEpsilon    = constants::kCompareAbsEpsilonD;
+
+        // -------------------------------------------------------------------------
+        // Primitive type tag
+        // -------------------------------------------------------------------------
+        enum class NkPrimitiveType {
+            NK_CHAR,
+            NK_SIGNED_CHAR,
+            NK_UNSIGNED_CHAR,
+            NK_SHORT,
+            NK_UNSIGNED_SHORT,
+            NK_INT,
+            NK_UNSIGNED_INT,
+            NK_LONG,
+            NK_UNSIGNED_LONG,
+            NK_LONG_LONG,
+            NK_UNSIGNED_LONG_LONG,
+            NK_FLOAT,
+            NK_DOUBLE,
+            NK_LONG_DOUBLE,
+            NK_BOOL
+        };
 
     } // namespace math
 } // namespace nkentseu

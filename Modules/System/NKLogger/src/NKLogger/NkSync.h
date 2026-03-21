@@ -11,6 +11,7 @@
 #include "NKCore/NkAtomic.h"
 #include "NKCore/NkTypes.h"
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKThreading/NkMutex.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     #ifndef WIN32_LEAN_AND_MEAN
@@ -32,66 +33,66 @@
 #endif
 
 namespace nkentseu {
-namespace logger_sync {
+namespace loggersync {
 
-    class NkMutex {
-    public:
-        NkMutex() noexcept
-            : mInitialized(true) {
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-            InitializeSRWLock(&mMutex);
-#else
-            mInitialized = (pthread_mutex_init(&mMutex, nullptr) == 0);
-#endif
-        }
+//     class threading::NkMutex {
+//     public:
+//         threading::NkMutex() noexcept
+//             : mInitialized(true) {
+// #if defined(NKENTSEU_PLATFORM_WINDOWS)
+//             InitializeSRWLock(&mMutex);
+// #else
+//             mInitialized = (pthread_mutex_init(&mMutex, nullptr) == 0);
+// #endif
+//         }
 
-        ~NkMutex() {
-#if !defined(NKENTSEU_PLATFORM_WINDOWS)
-            if (mInitialized) {
-                (void)pthread_mutex_destroy(&mMutex);
-            }
-#endif
-        }
+//         ~threading::NkMutex() {
+// #if !defined(NKENTSEU_PLATFORM_WINDOWS)
+//             if (mInitialized) {
+//                 (void)pthread_mutex_destroy(&mMutex);
+//             }
+// #endif
+//         }
 
-        NkMutex(const NkMutex&) = delete;
-        NkMutex& operator=(const NkMutex&) = delete;
+//         threading::NkMutex(const threading::NkMutex&) = delete;
+//         threading::NkMutex& operator=(const threading::NkMutex&) = delete;
 
-        void Lock() noexcept {
-            if (!mInitialized) {
-                return;
-            }
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-            AcquireSRWLockExclusive(&mMutex);
-#else
-            (void)pthread_mutex_lock(&mMutex);
-#endif
-        }
+//         void Lock() noexcept {
+//             if (!mInitialized) {
+//                 return;
+//             }
+// #if defined(NKENTSEU_PLATFORM_WINDOWS)
+//             AcquireSRWLockExclusive(&mMutex);
+// #else
+//             (void)pthread_mutex_lock(&mMutex);
+// #endif
+//         }
 
-        void Unlock() noexcept {
-            if (!mInitialized) {
-                return;
-            }
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-            ReleaseSRWLockExclusive(&mMutex);
-#else
-            (void)pthread_mutex_unlock(&mMutex);
-#endif
-        }
+//         void Unlock() noexcept {
+//             if (!mInitialized) {
+//                 return;
+//             }
+// #if defined(NKENTSEU_PLATFORM_WINDOWS)
+//             ReleaseSRWLockExclusive(&mMutex);
+// #else
+//             (void)pthread_mutex_unlock(&mMutex);
+// #endif
+//         }
 
-    private:
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-        SRWLOCK mMutex;
-#else
-        pthread_mutex_t mMutex;
-#endif
-        nk_bool mInitialized;
+//     private:
+// #if defined(NKENTSEU_PLATFORM_WINDOWS)
+//         SRWLOCK mMutex;
+// #else
+//         pthread_mutex_t mMutex;
+// #endif
+//         nk_bool mInitialized;
 
-        friend class NkConditionVariable;
-    };
+//         friend class NkConditionVariable;
+//     };
 
     class NkScopedLock {
     public:
-        explicit NkScopedLock(NkMutex& mutex) noexcept
+        explicit NkScopedLock(threading::NkMutex& mutex) noexcept
             : mMutex(&mutex) {
             mMutex->Lock();
         }
@@ -128,12 +129,12 @@ namespace logger_sync {
             }
         }
 
-        [[nodiscard]] NkMutex* GetMutex() noexcept {
+        [[nodiscard]] threading::NkMutex* GetMutex() noexcept {
             return mMutex;
         }
 
     private:
-        NkMutex* mMutex;
+        threading::NkMutex* mMutex;
     };
 
     class NkConditionVariable {
@@ -159,25 +160,25 @@ namespace logger_sync {
         NkConditionVariable& operator=(const NkConditionVariable&) = delete;
 
         void Wait(NkScopedLock& lock) noexcept {
-            NkMutex* mutex = lock.GetMutex();
+            threading::NkMutex* mutex = lock.GetMutex();
             if (mutex == nullptr || !mInitialized) {
                 return;
             }
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-            (void)SleepConditionVariableSRW(&mCondVar, &mutex->mMutex, INFINITE, 0);
+            (void)SleepConditionVariableSRW(&mCondVar, &mutex->Get(), INFINITE, 0);
 #else
-            (void)pthread_cond_wait(&mCondVar, &mutex->mMutex);
+            (void)pthread_cond_wait(&mCondVar, &mutex->Get());
 #endif
         }
 
         [[nodiscard]] nk_bool WaitFor(NkScopedLock& lock, nk_uint32 milliseconds) noexcept {
-            NkMutex* mutex = lock.GetMutex();
+            threading::NkMutex* mutex = lock.GetMutex();
             if (mutex == nullptr || !mInitialized) {
                 return false;
             }
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-            const BOOL woke = SleepConditionVariableSRW(&mCondVar, &mutex->mMutex, milliseconds, 0);
+            const BOOL woke = SleepConditionVariableSRW(&mCondVar, &mutex->Get(), milliseconds, 0);
             if (woke) {
                 return true;
             }
@@ -197,7 +198,7 @@ namespace logger_sync {
 
             int result = 0;
             do {
-                result = pthread_cond_timedwait(&mCondVar, &mutex->mMutex, &deadline);
+                result = pthread_cond_timedwait(&mCondVar, &mutex->Get(), &deadline);
             } while (result == EINTR);
 
             return result == 0;
@@ -395,7 +396,7 @@ namespace logger_sync {
         nk_bool mJoinable;
     };
 
-} // namespace logger_sync
+} // namespace loggersync
 } // namespace nkentseu
 
 #endif // NKENTSEU_LOGGER_NKSYNC_H_INCLUDED

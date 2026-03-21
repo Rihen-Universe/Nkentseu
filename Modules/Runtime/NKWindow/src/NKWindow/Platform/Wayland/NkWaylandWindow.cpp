@@ -17,6 +17,7 @@
 //   - GetDpiScale()    : depuis wl_output scale ou DPI physique
 //   - GetDisplaySize() : depuis wl_output mode courant
 //   - GetSurfaceDesc() : surface descriptor pour le renderer
+//   - Synchronisation complète entre mData et mConfig (v2)
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
@@ -75,6 +76,7 @@
 #include <algorithm>
 
 namespace nkentseu {
+    using namespace math;
 
     // =========================================================================
     // wl_output info (DPI, résolution display)
@@ -140,6 +142,9 @@ namespace nkentseu {
 
     static NkUnorderedMap<::wl_surface*, NkWindow*>& WaylandSurfaceMap() {
         static NkUnorderedMap<::wl_surface*, NkWindow*> sMap;
+        if (sMap.BucketCount() == 0) {
+            sMap.Rehash(32);
+        }
         return sMap;
     }
 
@@ -181,44 +186,65 @@ namespace nkentseu {
                                  ::wl_registry* registry,
                                  uint32_t            name,
                                  const char*         iface,
-                                 uint32_t            /*version*/) {
+                                 uint32_t            version) {
         NkWindow* window = static_cast<NkWindow*>(data);
 
         if (::strcmp(iface, wl_compositor_interface.name) == 0) {
-            window->mData.mCompositor = static_cast<::wl_compositor*>(
-                wl_registry_bind(registry, name, &wl_compositor_interface, 4));
+            const uint32_t bindVersion = version < 4u ? version : 4u;
+            if (bindVersion > 0u) {
+                window->mData.mCompositor = static_cast<::wl_compositor*>(
+                    wl_registry_bind(registry, name, &wl_compositor_interface, bindVersion));
+            }
 
         } else if (::strcmp(iface, xdg_wm_base_interface.name) == 0) {
-            window->mData.mWmBase = static_cast<::xdg_wm_base*>(
-                wl_registry_bind(registry, name, &xdg_wm_base_interface, 1));
+            const uint32_t bindVersion = version < 1u ? version : 1u;
+            if (bindVersion > 0u) {
+                window->mData.mWmBase = static_cast<::xdg_wm_base*>(
+                    wl_registry_bind(registry, name, &xdg_wm_base_interface, bindVersion));
+            }
 
         } else if (::strcmp(iface, wl_shm_interface.name) == 0) {
-            window->mData.mShm = static_cast<::wl_shm*>(
-                wl_registry_bind(registry, name, &wl_shm_interface, 1));
+            const uint32_t bindVersion = version < 1u ? version : 1u;
+            if (bindVersion > 0u) {
+                window->mData.mShm = static_cast<::wl_shm*>(
+                    wl_registry_bind(registry, name, &wl_shm_interface, bindVersion));
+            }
 
         } else if (::strcmp(iface, wl_seat_interface.name) == 0) {
-            window->mData.mSeat = static_cast<::wl_seat*>(
-                wl_registry_bind(registry, name, &wl_seat_interface, 7));
+            const uint32_t bindVersion = version < 7u ? version : 7u;
+            if (bindVersion > 0u) {
+                window->mData.mSeat = static_cast<::wl_seat*>(
+                    wl_registry_bind(registry, name, &wl_seat_interface, bindVersion));
+            }
             if (window->mData.mSeat && NkSystem::Instance().IsInitialised()) {
                 NkWaylandAttachSeatListener(&NkSystem::Events(), window->mData.mSeat);
             }
 
         } else if (::strcmp(iface, wl_data_device_manager_interface.name) == 0) {
-            window->mData.mDataDeviceManager = static_cast<::wl_data_device_manager*>(
-                wl_registry_bind(registry, name, &wl_data_device_manager_interface, 3));
+            const uint32_t bindVersion = version < 3u ? version : 3u;
+            if (bindVersion > 0u) {
+                window->mData.mDataDeviceManager = static_cast<::wl_data_device_manager*>(
+                    wl_registry_bind(registry, name, &wl_data_device_manager_interface, bindVersion));
+            }
 
         } else if (::strcmp(iface, wl_output_interface.name) == 0) {
             // On ne bind que le premier output (écran principal)
             if (!gOutputInfo.output) {
-                gOutputInfo.output = static_cast<::wl_output*>(
-                    wl_registry_bind(registry, name, &wl_output_interface, 3));
-                wl_output_add_listener(gOutputInfo.output, &kOutputListener, &gOutputInfo);
+                const uint32_t bindVersion = version < 3u ? version : 3u;
+                if (bindVersion > 0u) {
+                    gOutputInfo.output = static_cast<::wl_output*>(
+                        wl_registry_bind(registry, name, &wl_output_interface, bindVersion));
+                    wl_output_add_listener(gOutputInfo.output, &kOutputListener, &gOutputInfo);
+                }
             }
 
 #if __has_include("xdg-decoration-client-protocol.h") || __has_include(<xdg-decoration-client-protocol.h>)
         } else if (::strcmp(iface, zxdg_decoration_manager_v1_interface.name) == 0) {
-            window->mData.mDecorationManager = static_cast<::zxdg_decoration_manager_v1*>(
-                wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, 1));
+            const uint32_t bindVersion = version < 1u ? version : 1u;
+            if (bindVersion > 0u) {
+                window->mData.mDecorationManager = static_cast<::zxdg_decoration_manager_v1*>(
+                    wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, bindVersion));
+            }
 #endif
         }
     }
@@ -248,8 +274,13 @@ namespace nkentseu {
                                       ::xdg_surface* surface,
                                       uint32_t            serial) {
         NkWindow* window = static_cast<NkWindow*>(data);
+        logger.Warnf("[NkWayland][DBG] xdg_surface.configure: window=%p serial=%u",
+                     static_cast<void*>(window), static_cast<unsigned>(serial));
         xdg_surface_ack_configure(surface, serial);
-        window->mData.mConfigured = true;
+        if (window) {
+            window->mData.mConfigured = true;
+        }
+        logger.Warn("[NkWayland][DBG] xdg_surface.configure acked");
     }
 
     static const ::xdg_surface_listener kXdgSurfaceListener = {
@@ -268,6 +299,8 @@ namespace nkentseu {
                                     int32_t              height,
                                     ::wl_array*     states) {
         NkWindow* window = static_cast<NkWindow*>(data);
+        logger.Warnf("[NkWayland][DBG] toplevel.configure: window=%p w=%d h=%d states=%p",
+                     static_cast<void*>(window), width, height, static_cast<void*>(states));
 
         // Lecture des états
         bool isFullscreen = false;
@@ -290,15 +323,27 @@ namespace nkentseu {
                 static_cast<uint32_t>(width),
                 static_cast<uint32_t>(height));
         }
+        logger.Warn("[NkWayland][DBG] toplevel.configure done");
     }
 
     static void OnToplevelClose(void* data, ::xdg_toplevel* /*toplevel*/) {
+        logger.Warn("[NkWayland][DBG] toplevel.close");
         static_cast<NkWindow*>(data)->mData.mWantsClose = true;
+    }
+
+    static void OnToplevelConfigureBounds(void* /*data*/,
+                                          ::xdg_toplevel* /*toplevel*/,
+                                          int32_t /*width*/,
+                                          int32_t /*height*/) {
+        logger.Warn("[NkWayland][DBG] toplevel.configure_bounds");
+        // Optional hint (xdg-shell v4+). We keep geometry control in
+        // configure/apply path, so this is intentionally a no-op.
     }
 
     static const ::xdg_toplevel_listener kToplevelListener = {
         OnToplevelConfigure,
         OnToplevelClose,
+        OnToplevelConfigureBounds,
     };
 
     static void ApplyConfiguredSize(NkWindow* window, uint32_t width, uint32_t height) {
@@ -310,6 +355,10 @@ namespace nkentseu {
         }
         window->mData.mWidth  = width;
         window->mData.mHeight = height;
+        
+        // Synchroniser mConfig
+        window->mConfig.width = width;
+        window->mConfig.height = height;
     }
 
     // =========================================================================
@@ -405,6 +454,10 @@ namespace nkentseu {
                                              uint32_t       height,
                                              uint32_t       stride,
                                              void**         pixels) {
+        if (pixels) {
+            *pixels = nullptr;
+        }
+
         const size_t size = static_cast<size_t>(stride) * height;
 
         char path[] = "/tmp/nk-wl-shm-XXXXXX";
@@ -418,12 +471,23 @@ namespace nkentseu {
         if (data == MAP_FAILED) { close(fd); return nullptr; }
 
         ::wl_shm_pool* pool = wl_shm_create_pool(shm, fd, static_cast<int32_t>(size));
+        if (!pool) {
+            munmap(data, size);
+            close(fd);
+            return nullptr;
+        }
+
         ::wl_buffer*   buf  = wl_shm_pool_create_buffer(
             pool, 0,
             static_cast<int32_t>(width), static_cast<int32_t>(height),
             static_cast<int32_t>(stride), WL_SHM_FORMAT_ARGB8888);
         wl_shm_pool_destroy(pool);
         close(fd);
+
+        if (!buf) {
+            munmap(data, size);
+            return nullptr;
+        }
 
         *pixels = data;
         return buf;
@@ -523,6 +587,25 @@ namespace nkentseu {
     }
 
     // =========================================================================
+    // Fonctions de synchronisation mData ↔ mConfig
+    // =========================================================================
+
+    static void SyncConfigFromWindow(const NkWindowData& data, NkWindowConfig& config) {
+        // Taille depuis mData (mise à jour par les callbacks configure)
+        config.width = data.mWidth;
+        config.height = data.mHeight;
+        
+        // État plein écran
+        config.fullscreen = data.mFullscreen;
+        
+        // Visibilité
+        config.visible = data.mVisible;
+        
+        // Le titre n'est pas récupérable depuis Wayland, on garde config.title
+        // La position n'est pas récupérable, on garde config.x/config.y
+    }
+
+    // =========================================================================
     // NkWindow — constructeurs / destructeur
     // =========================================================================
 
@@ -596,7 +679,9 @@ namespace nkentseu {
         // ------------------------------------------------------------------
         // 2. Thème de curseur et surface curseur
         // ------------------------------------------------------------------
-        if (mData.mShm && mData.mCompositor) {
+        const bool enableCursorTheme =
+            (::getenv("NK_WAYLAND_NO_CURSOR_THEME") == nullptr);
+        if (enableCursorTheme && mData.mShm && mData.mCompositor) {
             mData.mCursorTheme   = wl_cursor_theme_load(nullptr, 24, mData.mShm);
             mData.mCursorSurface = wl_compositor_create_surface(mData.mCompositor);
         }
@@ -613,49 +698,56 @@ namespace nkentseu {
         bool usedLibdecor = false;
 
 #if NKENTSEU_HAS_LIBDECOR
-        mData.mLibdecor = libdecor_new(mData.mDisplay, &kLibdecorInterface);
-        if (mData.mLibdecor) {
-            mData.mLibdecorFrame =
-                libdecor_decorate(mData.mLibdecor, mData.mSurface, &kLibdecorFrameInterface, this);
-            if (mData.mLibdecorFrame) {
-                usedLibdecor       = true;
-                mData.mUsingLibdecor = true;
-                mData.mXdgSurface  = libdecor_frame_get_xdg_surface(mData.mLibdecorFrame);
-                mData.mXdgToplevel = libdecor_frame_get_xdg_toplevel(mData.mLibdecorFrame);
+        const bool requestDecorations = config.frame;
+        const bool forceLibdecor = (::getenv("NK_WAYLAND_LIBDECOR") != nullptr);
+        const bool disableLibdecor = (::getenv("NK_WAYLAND_NO_LIBDECOR") != nullptr);
+        const bool enableLibdecor = (forceLibdecor || requestDecorations) &&
+            !disableLibdecor;
+        if (enableLibdecor) {
+            mData.mLibdecor = libdecor_new(mData.mDisplay, &kLibdecorInterface);
+            if (mData.mLibdecor) {
+                mData.mLibdecorFrame =
+                    libdecor_decorate(mData.mLibdecor, mData.mSurface, &kLibdecorFrameInterface, this);
+                if (mData.mLibdecorFrame) {
+                    usedLibdecor       = true;
+                    mData.mUsingLibdecor = true;
+                    mData.mXdgSurface  = libdecor_frame_get_xdg_surface(mData.mLibdecorFrame);
+                    mData.mXdgToplevel = libdecor_frame_get_xdg_toplevel(mData.mLibdecorFrame);
 
-                libdecor_frame_set_title(mData.mLibdecorFrame, config.title.CStr());
-                libdecor_frame_set_app_id(mData.mLibdecorFrame, config.name.CStr());
-                if (requestedParent && mData.mXdgToplevel) {
-                    xdg_toplevel_set_parent(mData.mXdgToplevel, requestedParent);
-                }
+                    libdecor_frame_set_title(mData.mLibdecorFrame, config.title.CStr());
+                    libdecor_frame_set_app_id(mData.mLibdecorFrame, config.name.CStr());
+                    if (requestedParent && mData.mXdgToplevel) {
+                        xdg_toplevel_set_parent(mData.mXdgToplevel, requestedParent);
+                    }
 
-                if (!config.resizable) {
-                    libdecor_frame_set_min_content_size(
-                        mData.mLibdecorFrame,
-                        static_cast<int32_t>(config.width),
-                        static_cast<int32_t>(config.height));
-                    libdecor_frame_set_max_content_size(
-                        mData.mLibdecorFrame,
-                        static_cast<int32_t>(config.width),
-                        static_cast<int32_t>(config.height));
+                    if (!config.resizable) {
+                        libdecor_frame_set_min_content_size(
+                            mData.mLibdecorFrame,
+                            static_cast<int32_t>(config.width),
+                            static_cast<int32_t>(config.height));
+                        libdecor_frame_set_max_content_size(
+                            mData.mLibdecorFrame,
+                            static_cast<int32_t>(config.width),
+                            static_cast<int32_t>(config.height));
+                    } else {
+                        ApplySizeConstraints(mData, config);
+                    }
+
+                    if (config.fullscreen && mData.mXdgToplevel) {
+                        xdg_toplevel_set_fullscreen(mData.mXdgToplevel, nullptr);
+                        mData.mFullscreen = true;
+                    }
+
+                    libdecor_frame_map(mData.mLibdecorFrame);
+                    wl_display_roundtrip(mData.mDisplay);
                 } else {
-                    ApplySizeConstraints(mData, config);
+                    logger.Warn("[NkWindow] Wayland: libdecor_decorate failed, fallback xdg-shell.");
+                    libdecor_unref(mData.mLibdecor);
+                    mData.mLibdecor = nullptr;
                 }
-
-                if (config.fullscreen && mData.mXdgToplevel) {
-                    xdg_toplevel_set_fullscreen(mData.mXdgToplevel, nullptr);
-                    mData.mFullscreen = true;
-                }
-
-                libdecor_frame_map(mData.mLibdecorFrame);
-                wl_display_roundtrip(mData.mDisplay);
             } else {
-                logger.Warn("[NkWindow] Wayland: libdecor_decorate failed, fallback xdg-shell.");
-                libdecor_unref(mData.mLibdecor);
-                mData.mLibdecor = nullptr;
+                logger.Warn("[NkWindow] Wayland: libdecor unavailable, fallback xdg-shell.");
             }
-        } else {
-            logger.Warn("[NkWindow] Wayland: libdecor unavailable, fallback xdg-shell.");
         }
 #endif
 
@@ -704,9 +796,11 @@ namespace nkentseu {
                         mData.mToplevelDecoration, &kToplevelDecorationListener, this);
                     zxdg_toplevel_decoration_v1_set_mode(
                         mData.mToplevelDecoration,
-                        ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+                        config.frame
+                            ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+                            : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
                 }
-            } else {
+            } else if (config.frame) {
                 logger.Warn("[NkWindow] Wayland: zxdg_decoration_manager_v1 absent - SSD non disponibles.");
             }
 #endif
@@ -714,8 +808,11 @@ namespace nkentseu {
             // ------------------------------------------------------------------
             // 5. Premier commit vide — déclenche le configure du compositeur
             // ------------------------------------------------------------------
+            logger.Warn("[NkWayland][DBG] pre-initial-roundtrip commit");
             wl_surface_commit(mData.mSurface);
+            logger.Warn("[NkWayland][DBG] pre-initial-roundtrip dispatch begin");
             wl_display_roundtrip(mData.mDisplay);
+            logger.Warn("[NkWayland][DBG] pre-initial-roundtrip dispatch end");
         }
 
         // Ensure xdg_surface is configured before any buffer attach/commit.
@@ -744,11 +841,17 @@ namespace nkentseu {
         // ------------------------------------------------------------------
         if (mData.mWidth  == 0) mData.mWidth  = config.width;
         if (mData.mHeight == 0) mData.mHeight = config.height;
+        
+        // Synchroniser mConfig avec les dimensions finales
+        mConfig.width = mData.mWidth;
+        mConfig.height = mData.mHeight;
 
         // ------------------------------------------------------------------
         // 7. Buffer logiciel initial
         // ------------------------------------------------------------------
-        if (mData.mShm) {
+        const bool enableShmBootstrap =
+            (::getenv("NK_WAYLAND_DISABLE_SHM") == nullptr);
+        if (enableShmBootstrap && mData.mShm) {
             mData.mStride = mData.mWidth * 4;
             mData.mBuffer = CreateShmBuffer(
                 mData.mShm, mData.mWidth, mData.mHeight, mData.mStride, &mData.mPixels);
@@ -778,6 +881,7 @@ namespace nkentseu {
         // ------------------------------------------------------------------
         // 9. Drag & drop (optionnel)
         // ------------------------------------------------------------------
+        logger.Warn("[NkWayland][DBG] before drop init");
         if (config.dropEnabled) {
             mData.mDropTarget = new NkWaylandDropTarget(
                 mData.mDisplay, mData.mSeat, mData.mSurface);
@@ -802,7 +906,9 @@ namespace nkentseu {
                 }));
             }
         }
+        logger.Warn("[NkWayland][DBG] after drop init");
 
+        logger.Warn("[NkWayland][DBG] before mIsOpen=true");
         mIsOpen = true;
         return true;
     }
@@ -834,10 +940,26 @@ namespace nkentseu {
     bool           NkWindow::IsOpen()      const { return mIsOpen; }
     bool           NkWindow::IsValid()     const { return mIsOpen && mData.mSurface != nullptr; }
     NkError        NkWindow::GetLastError() const { return mLastError; }
-    NkWindowConfig NkWindow::GetConfig()    const { return mConfig; }
-    NkString NkWindow::GetTitle()     const { return mConfig.title; }
+
+    NkWindowConfig NkWindow::GetConfig()    const { 
+        // Synchroniser avant de retourner
+        if (mIsOpen) {
+            // Appel à la fonction libre
+            SyncConfigFromWindow(mData, const_cast<NkWindow*>(this)->mConfig);
+        }
+        return mConfig; 
+    }
+
+    NkString NkWindow::GetTitle() const { 
+        return mConfig.title; 
+    }
 
     NkVec2u NkWindow::GetSize() const {
+        // Synchroniser mConfig avant de retourner
+        if (mIsOpen) {
+            const_cast<NkWindow*>(this)->mConfig.width = mData.mWidth;
+            const_cast<NkWindow*>(this)->mConfig.height = mData.mHeight;
+        }
         return {
             mData.mWidth  ? mData.mWidth  : mConfig.width,
             mData.mHeight ? mData.mHeight : mConfig.height,
@@ -948,6 +1070,7 @@ namespace nkentseu {
     void NkWindow::SetVisible(bool visible) {
         if (mData.mVisible == visible) return;
         mData.mVisible = visible;
+        mConfig.visible = visible;
 
         if (!mData.mSurface || !mData.mDisplay) return;
         if (!mData.mConfigured) return;
@@ -975,6 +1098,9 @@ namespace nkentseu {
         if (!mData.mXdgToplevel || !mData.mDisplay) return;
         xdg_toplevel_set_minimized(mData.mXdgToplevel);
         wl_display_flush(mData.mDisplay);
+        // L'état de visibilité change
+        mData.mVisible = false;
+        mConfig.visible = false;
     }
 
     void NkWindow::Maximize() {
@@ -982,9 +1108,14 @@ namespace nkentseu {
         if (mData.mFullscreen) {
             xdg_toplevel_unset_fullscreen(mData.mXdgToplevel);
             mData.mFullscreen = false;
+            mConfig.fullscreen = false;
         }
         xdg_toplevel_set_maximized(mData.mXdgToplevel);
         wl_display_flush(mData.mDisplay);
+        
+        // La taille sera mise à jour via le callback configure
+        mData.mVisible = true;
+        mConfig.visible = true;
     }
 
     void NkWindow::Restore() {
@@ -992,9 +1123,14 @@ namespace nkentseu {
         if (mData.mFullscreen) {
             xdg_toplevel_unset_fullscreen(mData.mXdgToplevel);
             mData.mFullscreen = false;
+            mConfig.fullscreen = false;
         }
         xdg_toplevel_unset_maximized(mData.mXdgToplevel);
         wl_display_flush(mData.mDisplay);
+        
+        // La taille sera mise à jour via le callback configure
+        mData.mVisible = true;
+        mConfig.visible = true;
     }
 
     void NkWindow::SetFullscreen(bool fullscreen) {
@@ -1067,7 +1203,7 @@ namespace nkentseu {
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc desc;
-        const auto size  = GetSize();
+        const auto size  = GetSize();  // GetSize synchronise déjà mConfig
         desc.width       = size.x;
         desc.height      = size.y;
         desc.dpi         = GetDpiScale();

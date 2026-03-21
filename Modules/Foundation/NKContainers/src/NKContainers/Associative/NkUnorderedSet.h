@@ -152,6 +152,16 @@ namespace nkentseu {
                 InitBuckets(16);
                 for (auto& val : init) Insert(val);
             }
+
+            NkUnorderedSet(std::initializer_list<T> init, Allocator* allocator = nullptr)
+                : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                , mMaxLoadFactor(0.75f)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHasher()
+                , mEqual() {
+                InitBuckets(16);
+                for (auto& val : init) Insert(val);
+            }
             
             NkUnorderedSet(const NkUnorderedSet& other)
                 : mBuckets(nullptr)
@@ -230,14 +240,26 @@ namespace nkentseu {
                 mAllocator = other.mAllocator;
                 mHasher = traits::NkMove(other.mHasher);
                 mEqual = traits::NkMove(other.mEqual);
-                
+
                 other.mBuckets = nullptr;
                 other.mBucketCount = 0;
                 other.mSize = 0;
                 return *this;
             }
             #endif
-            
+
+            NkUnorderedSet& operator=(NkInitializerList<T> init) {
+                Clear();
+                for (auto& val : init) Insert(val);
+                return *this;
+            }
+
+            NkUnorderedSet& operator=(std::initializer_list<T> init) {
+                Clear();
+                for (auto& val : init) Insert(val);
+                return *this;
+            }
+
             // Capacity
             bool Empty() const NK_NOEXCEPT { return mSize == 0; }
             SizeType Size() const NK_NOEXCEPT { return mSize; }

@@ -51,9 +51,9 @@ for (int i = 0; i < 1024; i += 8) {
 ```
 
 **Files to Create:**
-- `NkMathSIMD.h` - SIMD declarations ✅ (Already created)
-- `NkMathSIMDImpl.cpp` - Implementations (TODO)
-- `NkMathSIMDBatch.h` - Batch processing helpers (TODO)
+- `NkmathIMD.h` - SIMD declarations ✅ (Already created)
+- `NkmathIMDImpl.cpp` - Implementations (TODO)
+- `NkmathIMDBatch.h` - Batch processing helpers (TODO)
 
 **Expected Gain:** **10-15x for batched workloads**
 
@@ -200,7 +200,7 @@ cl /arch:AVX2 ...
 ## 📝 Implementation Roadmap
 
 ### Week 1: SIMD Foundation
-- [ ] Implement `NkMathSIMDImpl.cpp` with SSE4.2/AVX2 kernels
+- [ ] Implement `NkmathIMDImpl.cpp` with SSE4.2/AVX2 kernels
 - [ ] Create `SqrtVec8`, `ExpVec8`, `SinVec8`, `CosVec8`
 - [ ] Unit tests for vector operations
 - [ ] Benchmark vs scalar baseline
@@ -267,8 +267,8 @@ cl /arch:AVX2 ...
 
 ## 🔗 Related Files
 
-- **SIMD Header:** `NkMathSIMD.h` ✅
-- **Impl (TODO):** `NkMathSIMDImpl.cpp`
+- **SIMD Header:** `NkmathIMD.h` ✅
+- **Impl (TODO):** `NkmathIMDImpl.cpp`
 - **Tests:** `tests/NKMath_Tests.cpp` ✅
 - **Benchmarks:** `bench/NKMath_Bench.cpp` ✅
 - **Build Config:** `NKMath.jenga` ✅

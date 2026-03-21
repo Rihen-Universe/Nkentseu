@@ -22,6 +22,7 @@
 #include "NkSurface.h"
 #include "NkWindowId.h"
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKMath/NKMath.h"
 #include <string>
 
 // Platform-specific NkWindowData struct definition
@@ -80,19 +81,21 @@ namespace nkentseu {
             NkWindowId GetId() const { return mId; }
 
             // --- PropriÃ©tÃ©s ---
-            NkString    GetTitle() const;
-            void           SetTitle(const NkString& title);
-            NkVec2u        GetSize() const;
-            NkVec2u        GetPosition() const;
-            float          GetDpiScale() const;
-            NkVec2u        GetDisplaySize() const;
-            NkVec2u        GetDisplayPosition() const;
-            NkError        GetLastError() const;
-            NkWindowConfig GetConfig() const;
+            NkString            GetTitle() const;
+            void                SetTitle(const NkString& title);
+            math::NkVec2u       GetSize() const;
+            math::NkVec2u       GetPosition() const;
+            float32             GetDpiScale() const;
+            math::NkVec2u       GetDisplaySize() const;
+            math::NkVec2u       GetDisplayPosition() const;
+            NkError             GetLastError() const;
+            NkWindowConfig      GetConfig() const;
 
             // --- Manipulation ---
             void SetSize(uint32 width, uint32 height);
+            void SetSize(const math::NkVec2u& size) { SetSize(size.x, size.y); }
             void SetPosition(int32 x, int32 y);
+            void SetPosition(const math::NkVec2u& pos) { SetPosition(pos.x, pos.y); }
             void SetVisible(bool visible);
             void Minimize();
             void Maximize();
@@ -106,6 +109,7 @@ namespace nkentseu {
 
             // --- Souris ---
             void SetMousePosition(uint32 x, uint32 y);
+            void SetMousePosition(const math::NkVec2u& pos) { SetMousePosition(pos.x, pos.y); }
             void ShowMouse(bool show);
             void CaptureMouse(bool capture);
 

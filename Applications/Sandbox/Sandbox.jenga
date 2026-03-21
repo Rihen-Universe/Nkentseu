@@ -6,7 +6,7 @@ Sandbox â€” Application de dÃ©monstration multi-plateformes
 Illustre l'utilisation complÃ¨te du framework Nkentseu :
   â€¢ CrÃ©ation de fenÃªtre et boucle principale cross-platform
   â€¢ Gestion des Ã©vÃ©nements : clavier, souris, touch, drag & drop
-  â€¢ Rendu pixel software via NKRenderer (NkSoftwareRenderer)
+  â€¢ Rendu pixel software via NKContext (NkSoftwareRenderer)
   â€¢ Gamepad, safe area, transforms 2D
 
 Un seul fichier src/main.cpp compile pour TOUTES les plateformes.
@@ -34,8 +34,8 @@ def _pkg_exists(pkg_name: str) -> bool:
 def _norm(path: str) -> str:
     return path.replace("\\", "/") if path else path
 
-_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL"]
-_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL"]
+_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL", "GLESv2"]
 _WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
 if _pkg_exists("libdecor-0"):
     _WAYLAND_LINKS.append("decor-0")
@@ -45,8 +45,16 @@ if _pkg_exists("libdecor-0"):
 _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
 
-def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: str, needs_camera: bool = False):
+
+def sandboxusenkcontext(project_name: str, source_file: str, app_id_suffix: str, needs_camera: bool = False):
     with project(project_name):
         windowedapp()
         language("C++")
@@ -60,9 +68,8 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         _SANDBOX_INCLUDE_DIRS = [
             "src",
             "%{wks.location}/Externals",
-            "%{Glad.location}/include",
+            "%{NKGlad.location}/include",
             "%{NKWindow.location}/src",
-            "%{NKRenderer.location}/src",
             "%{NKLogger.location}/src",
             "%{NKCore.location}/src",
             "%{NKPlatform.location}/src",
@@ -71,20 +78,24 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             "%{NKStream.location}/src",
             "%{NKMemory.location}/src",
             "%{NKContainers.location}/src",
+            "%{NKThreading.location}/src",
+            "%{NKContext.location}/src",
         ]
+        
         if _VULKAN_INCLUDE:
             _SANDBOX_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
         includedirs(_SANDBOX_INCLUDE_DIRS)
 
-        links([
-            "Glad", "NKWindow", "NKRenderer", "NKLogger",
+        _BASE_LINKS = [
+            "NKWindow", "NKContext", "NKGlad", "NKLogger",
             "NKMath", "NKTime", "NKStream",
-            "NKContainers", "NKMemory", "NKCore", "NKPlatform"
-        ])
-        dependson([
-            "Glad", "NKWindow", "NKRenderer", "NKLogger",
-            "NKMath", "NKTime", "NKStream",
-            "NKContainers", "NKMemory", "NKCore", "NKPlatform"
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
+        ]
+        
+        links(_BASE_LINKS)
+        dependson(_BASE_LINKS)
+        defines([
+            f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
         ])
 
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -104,12 +115,15 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
             ])
             if _VULKAN_LIB:
                 libdirs([_VULKAN_LIB])
-            links([
+            _WIN_LINKS = [
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                 "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
                 "uuid", "ole32", "dinput8", "dxguid",
-                "d3d11", "d3d12", "dxgi", "d3dcompiler", "vulkan-1"
-            ])
+                "d3d11", "d3d12", "dxgi", "d3dcompiler"
+            ]
+            if _WANT_VULKAN:
+                _WIN_LINKS.append("vulkan-1")
+            links(_WIN_LINKS)
 
         # ===== UWP ====================================================================
         with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
@@ -163,7 +177,10 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         with filter("system:Android"):
             windowedapp()
             usetoolchain("android-ndk")
-            links(["android", "log", "EGL", "GLESv3", "vulkan"])
+            _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
+            if _WANT_VULKAN:
+                _ANDROID_LINKS.append("vulkan")
+            links(_ANDROID_LINKS)
             androidapplicationid(f"com.nkentseu.{app_id_suffix}")
             androidminsdk(24)
             androidtargetsdk(34)
@@ -242,27 +259,236 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
                 with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
                     if _VULKAN_LIB:
                         libdirs([_VULKAN_LIB])
-                    links([
+                    _WIN_TEST_LINKS = [
                         "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                         "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
                         "uuid", "ole32", "dinput8", "dxguid",
-                        "d3d11", "d3d12", "dxgi", "d3dcompiler", "vulkan-1"
-                    ])
+                        "d3d11", "d3d12", "dxgi", "d3dcompiler"
+                    ]
+                    if _WANT_VULKAN:
+                        _WIN_TEST_LINKS.append("vulkan-1")
+                    links(_WIN_TEST_LINKS)
 
-# configure_sandbox_app("Sandbox", "src/main.cpp", "sandbox")
-# configure_sandbox_app("SandboxDBase", "src/main1.cpp", "sandbox.base")
-# configure_sandbox_app("SandboxDiagnostic", "src/main2.cpp", "sandbox.diagnostic")
-# configure_sandbox_app("SandboxPatternDispatcher", "src/main3.cpp", "sandbox.pattern.dispatcher")
-# configure_sandbox_app("SandboxPatternPolling", "src/main4.cpp", "sandbox.pattern.polling")
-# configure_sandbox_app("SandboxPatternCallback", "src/main5.cpp", "sandbox.pattern.callback")
-# configure_sandbox_app("SandboxMultiWindow", "src/main6.cpp", "sandbox.multiwindow")
-# configure_sandbox_app("SandboxStressRingBuffer", "src/main7.cpp", "sandbox.stress.ringbuffer")
-# configure_sandbox_app("SandboxGamepadPS3", "src/main8.cpp", "sandbox.gamepad.ps3")
-# configure_sandbox_app("SandboxContextAll", "src/main9.cpp", "sandbox.context.all")
-# configure_sandbox_app("SandboxOpenGLOnly", "src/main10.cpp", "sandbox.opengl.only")
-# configure_sandbox_app("SandboxVulkanOnly", "src/main11.cpp", "sandbox.vulkan.only")
-# configure_sandbox_app("SandboxDX11Only", "src/main12.cpp", "sandbox.dx11.only")
-# configure_sandbox_app("SandboxDX12Only", "src/main13.cpp", "sandbox.dx12.only")
-# configure_sandbox_app("SandboxMetalOnly", "src/main14.cpp", "sandbox.metal.only")
-# configure_sandbox_app("SandboxSoftwareOnly", "src/main15.cpp", "sandbox.software.only")
-configure_sandbox_app("NewGeneration", "src/NkGraphicsDemos.cpp", "sandbox.newgen")
+
+def sandboxusenkrenderer(project_name: str, source_file: str, app_id_suffix: str, needs_camera: bool = False):
+    with project(project_name):
+        windowedapp()
+        language("C++")
+        cppdialect("C++17")
+        location(".")
+
+        _TC_WINDOWS = "nk-windows-clang-mingw"
+
+        files([source_file])
+
+        _SANDBOX_INCLUDE_DIRS = [
+            "src",
+            "%{wks.location}/Externals",
+            "%{NKGlad.location}/include",
+            "%{NKWindow.location}/src",
+            "%{NKLogger.location}/src",
+            "%{NKCore.location}/src",
+            "%{NKPlatform.location}/src",
+            "%{NKMath.location}/src",
+            "%{NKTime.location}/src",
+            "%{NKStream.location}/src",
+            "%{NKMemory.location}/src",
+            "%{NKContainers.location}/src",
+            "%{NKThreading.location}/src",
+            "%{NKRHI.location}/src",
+        ]
+        
+        if _VULKAN_INCLUDE:
+            _SANDBOX_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
+        includedirs(_SANDBOX_INCLUDE_DIRS)
+
+        _BASE_LINKS = [
+            "NKWindow", "NKGlad", "NKLogger",
+            "NKMath", "NKTime", "NKStream",
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI"
+        ]
+        
+        links(_BASE_LINKS)
+        dependson(_BASE_LINKS)
+        defines([
+            f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+        ])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+        with filter("system:Windows && options:windows-runtime=uwp"):
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+
+        # ===== Windows ================================================================
+        with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+            windowedapp()
+            usetoolchain(_TC_WINDOWS)
+            defines([
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE", "UNICODE",
+            ])
+            if _VULKAN_LIB:
+                libdirs([_VULKAN_LIB])
+            _WIN_LINKS = [
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32", "dinput8", "dxguid",
+                "d3d11", "d3d12", "dxgi", "d3dcompiler"
+            ]
+            if _WANT_VULKAN:
+                _WIN_LINKS.append("vulkan-1")
+            links(_WIN_LINKS)
+
+        # ===== UWP ====================================================================
+        with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            defines(["NKENTSEU_PLATFORM_UWP"])
+            links(["d3d12", "dxgi", "dxguid", "windowsapp"])
+
+        # ===== Linux headless =========================================================
+        with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+            links(["pthread"])
+
+        # ===== Linux XLib =============================================================
+        with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+            links(["pthread", "X11", "Xext", "GL"])
+
+        # ===== Linux XCB ==============================================================
+        with filter("system:Linux && options:linux-backend=xcb"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+            defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+            links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+            ldflags(["-fuse-ld=lld"])
+
+        # ===== Linux Wayland ==========================================================
+        with filter("system:Linux && options:linux-backend=wayland"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            defines(_WAYLAND_DEFINES)
+            links(_WAYLAND_LINKS)
+
+        # ===== macOS ==================================================================
+        with filter("system:macOS"):
+            windowedapp()
+            usetoolchain("clang-native")
+            frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+        # ===== Android ================================================================
+        with filter("system:Android"):
+            windowedapp()
+            usetoolchain("android-ndk")
+            _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
+            if _WANT_VULKAN:
+                _ANDROID_LINKS.append("vulkan")
+            links(_ANDROID_LINKS)
+            androidapplicationid(f"com.nkentseu.{app_id_suffix}")
+            androidminsdk(24)
+            androidtargetsdk(34)
+            androidcompilesdk(34)
+            androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+            androidnativeactivity(True)
+            androidallowrotation(True)
+            androidstl("c++_shared")
+            if needs_camera:
+                androidpermissions([
+                    "android.permission.CAMERA",
+                ])
+
+        # ===== iOS ====================================================================
+        with filter("system:iOS"):
+            windowedapp()
+            frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+            iosbundleid(f"com.nkentseu.{app_id_suffix}")
+            iosversion("1.0")
+            iosminsdk("14.0")
+            iosbuildnumber(1)
+
+        # ===== Web ====================================================================
+        with filter("system:Web"):
+            consoleapp()
+            usetoolchain("emscripten")
+            emscriptenshellfile("web/emscripten_fullscreen_nofavicon.html")
+            emscriptencanvasid("canvas")
+            emscripteninitialmemory(32)
+            emscriptenextraflags([
+                "-s", "ASYNCIFY",
+                "-s", "DYNAMIC_EXECUTION",
+                "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']",
+                "-s", "INITIAL_MEMORY=67108864",
+                "-s", "ALLOW_MEMORY_GROWTH=1",
+                "-s", "FULL_ES3=1",
+                "-s", "USE_WEBGL2=1",
+                "-s", "ASSERTIONS=1",
+                "-s", "NO_EXIT_RUNTIME=1",
+                "-s", "SAFE_HEAP=1",
+            ])
+
+        # ===== HarmonyOS ==============================================================
+        with filter("system:HarmonyOS"):
+            windowedapp()
+            links(["log", "EGL", "GLESv3"])
+
+        # ===== Xbox ===================================================================
+        with filter("system:XboxSeries || system:XboxOne"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+        with filter("config:Debug"):
+            defines(["_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+        # Tests unitaires/benchmarks (desktop uniquement)
+        with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+            with test():
+                testfiles(["tests/**.cpp"])
+                with filter("system:Linux && options:linux-backend=wayland"):
+                    defines(_WAYLAND_DEFINES)
+                    links(_WAYLAND_TEST_LINKS)
+                with filter("system:Linux && options:linux-backend=xcb"):
+                    defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+                    links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+                with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+                    defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+                    links(["pthread", "X11", "Xext", "GL"])
+                with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                    if _VULKAN_LIB:
+                        libdirs([_VULKAN_LIB])
+                    _WIN_TEST_LINKS = [
+                        "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                        "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                        "uuid", "ole32", "dinput8", "dxguid",
+                        "d3d11", "d3d12", "dxgi", "d3dcompiler"
+                    ]
+                    if _WANT_VULKAN:
+                        _WIN_TEST_LINKS.append("vulkan-1")
+                    links(_WIN_TEST_LINKS)
+
+
+sandboxusenkcontext("NewGeneration", "src/DemoNkentseu/Base02/NkGraphicsDemos.cpp", "sandbox.newgen")
+
+# =================================== Renderer RHI =======================================================
+sandboxusenkrenderer("NkRHIDemoFull", "src/DemoNkentseu/Base03/NkRHIDemoFull.cpp", "sandbox.rhidemo.full")
+# sandboxusenkrenderer("RendererRHI", "src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp", "sandbox.rhidemo.fullsl")
+sandboxusenkrenderer("RendererRHI", "src/DemoNkentseu/Base03/RendererRHI.cpp", "sandbox.nkentseu.base03")

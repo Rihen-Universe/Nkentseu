@@ -38,6 +38,7 @@
 #endif
 
 namespace nkentseu {
+    using namespace math;
 
     // =============================================================================
     // Init
@@ -184,13 +185,13 @@ namespace nkentseu {
             case WM_CREATE: {
                 NkWindowCreateEvent evt(
                     owner ? owner->GetConfig().width  : 0u,
-                    owner ? owner->GetConfig().height : 0u);
+                    owner ? owner->GetConfig().height : 0u, winId);
                 EnqueueForWindow(evt);
                 break;
             }
 
             case WM_CLOSE: {
-                NkWindowCloseEvent evt(false);
+                NkWindowCloseEvent evt(false, winId);
                 EnqueueForWindow(evt);
                 suppressDefaultProc = true;
                 break;
@@ -199,7 +200,7 @@ namespace nkentseu {
             case WM_DESTROY: {
                 // Point 4 : l'event porte le winId de la fenêtre détruite.
                 // PostQuitMessage seulement si c'est la dernière fenêtre enregistrée.
-                NkWindowDestroyEvent evt;
+                NkWindowDestroyEvent evt(winId);
                 EnqueueForWindow(evt);
 
                 // On désenregistre la fenêtre avant de vérifier le compte
@@ -219,7 +220,7 @@ namespace nkentseu {
                 NkWindowPaintEvent evt(
                     (int32)ps.rcPaint.left, (int32)ps.rcPaint.top,
                     (uint32)(ps.rcPaint.right  - ps.rcPaint.left),
-                    (uint32)(ps.rcPaint.bottom - ps.rcPaint.top));
+                    (uint32)(ps.rcPaint.bottom - ps.rcPaint.top), winId);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -231,22 +232,31 @@ namespace nkentseu {
             // =====================================================================
             // Fenêtre — focus / visibilité
             // =====================================================================
+            case WM_ACTIVATE:
+                if (wp == WA_ACTIVE) {
+                    NkWindowFocusGainedEvent evt(winId);
+                    EnqueueForWindow(evt);
+                } else if (wp == WA_INACTIVE) {
+                    NkWindowFocusLostEvent evt(winId);
+                    EnqueueForWindow(evt);
+                }
+                break;
 
             case WM_SETFOCUS: {
-                NkWindowFocusGainedEvent evt;
+                NkWindowFocusGainedEvent evt(winId);
                 EnqueueForWindow(evt);
                 break;
             }
 
             case WM_KILLFOCUS: {
-                NkWindowFocusLostEvent evt;
+                NkWindowFocusLostEvent evt(winId);
                 EnqueueForWindow(evt);
                 break;
             }
 
             case WM_SHOWWINDOW: {
-                if (wp) { NkWindowShownEvent  e; EnqueueForWindow(e); }
-                else    { NkWindowHiddenEvent e; EnqueueForWindow(e); }
+                if (wp) { NkWindowShownEvent  e(winId); EnqueueForWindow(e); }
+                else    { NkWindowHiddenEvent e(winId); EnqueueForWindow(e); }
                 break;
             }
 
@@ -254,11 +264,52 @@ namespace nkentseu {
             // Fenêtre — taille / position
             // =====================================================================
 
+            case WM_SIZING: {
+                RECT* r = reinterpret_cast<RECT*>(lp);
+                if (r) {
+                    RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_NOERASE | RDW_INTERNALPAINT | RDW_UPDATENOW);
+
+                    NkWindowResizeEvent::ResizeState state;
+                    
+                    float32 newarea = owner->GetConfig().width * owner->GetConfig().height;
+                    float32 area = (uint32)(r->right - r->left) * (float32)(r->bottom - r->top);
+
+                    if (newarea > area) {
+                        state = NkWindowResizeEvent::ResizeState::NK_EXPANDED;
+                    }
+                    else if (newarea < area) {
+                        state = NkWindowResizeEvent::ResizeState::NK_REDUCED;
+                    }
+
+                    NkWindowResizeEvent evt(
+                        (uint32)(r->right - r->left), (uint32)(r->bottom - r->top),
+                        owner ? owner->GetConfig().width  : 0u,
+                        owner ? owner->GetConfig().height : 0u, winId, state);
+                    EnqueueForWindow(evt);
+                }
+                break;
+            }
+
             case WM_SIZE: {
+                RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_NOERASE | RDW_INTERNALPAINT | RDW_UPDATENOW);
+
                 uint32 nw = LOWORD(lp), nh = HIWORD(lp);
+
+                NkWindowResizeEvent::ResizeState state;
+                
+                float32 newarea = owner->GetConfig().width * owner->GetConfig().height;
+                float32 area = nw * (float32)nh;
+
+                if (newarea > area) {
+                    state = NkWindowResizeEvent::ResizeState::NK_EXPANDED;
+                }
+                else if (newarea < area) {
+                    state = NkWindowResizeEvent::ResizeState::NK_REDUCED;
+                }
+
                 NkWindowResizeEvent evt(nw, nh,
                     owner ? owner->GetConfig().width  : 0u,
-                    owner ? owner->GetConfig().height : 0u);
+                    owner ? owner->GetConfig().height : 0u, winId, state);
                 EnqueueForWindow(evt);
                 if      (wp == SIZE_MINIMIZED) { NkWindowMinimizeEvent e; EnqueueForWindow(e); }
                 else if (wp == SIZE_MAXIMIZED) { NkWindowMaximizeEvent e; EnqueueForWindow(e); }
@@ -266,8 +317,24 @@ namespace nkentseu {
                 break;
             }
 
+            case WM_ENTERSIZEMOVE: {
+                NkWindowResizeBeginEvent beginResize(winId);
+                EnqueueForWindow(beginResize);
+                NkWindowMoveBeginEvent beginMove(winId);
+                EnqueueForWindow(beginMove);
+                break;
+            }
+
+            case WM_EXITSIZEMOVE: {
+                NkWindowResizeEndEvent endResize(winId);
+                EnqueueForWindow(endResize);
+                NkWindowMoveEndEvent endMove(winId);
+                EnqueueForWindow(endMove);
+                break;
+            }
+
             case WM_MOVE: {
-                NkWindowMoveEvent evt((int32)LOWORD(lp), (int32)HIWORD(lp));
+                NkWindowMoveEvent evt((int32)LOWORD(lp), (int32)HIWORD(lp), 0, 0, winId);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -277,7 +344,7 @@ namespace nkentseu {
                 NkWindowDpiEvent evt(
                     (float32)dpi / USER_DEFAULT_SCREEN_DPI,
                     owner ? owner->GetDpiScale() : 1.f,
-                    (uint32)dpi);
+                    (uint32)dpi, winId);
                 EnqueueForWindow(evt);
                 const RECT* r = reinterpret_cast<const RECT*>(lp);
                 if (r) SetWindowPos(hwnd, nullptr,
@@ -299,7 +366,7 @@ namespace nkentseu {
                     if (TrackMouseEvent(&tme)) {
                         owner->mData.mMouseTracking = true;
                     }
-                    NkMouseEnterEvent enterEvt;
+                    NkMouseEnterEvent enterEvt(winId);
                     EnqueueForWindow(enterEvt);
                 }
 
@@ -313,7 +380,7 @@ namespace nkentseu {
                 if (mk & MK_XBUTTON1) buttons.Set(NkMouseButton::NK_MB_BACK);
                 if (mk & MK_XBUTTON2) buttons.Set(NkMouseButton::NK_MB_FORWARD);
                 NkMouseMoveEvent evt(x, y, (int32)pt.x, (int32)pt.y,
-                    x - mData.mPrevMouseX, y - mData.mPrevMouseY, buttons, CurrentMods());
+                    x - mData.mPrevMouseX, y - mData.mPrevMouseY, buttons, CurrentMods(), winId);
                 mData.mPrevMouseX = x;
                 mData.mPrevMouseY = y;
                 EnqueueForWindow(evt);
@@ -331,7 +398,7 @@ namespace nkentseu {
                         auto* raw = reinterpret_cast<const RAWINPUT*>(buf.Data());
                         if (raw->header.dwType == RIM_TYPEMOUSE) {
                             NkMouseRawEvent evt(raw->data.mouse.lLastX,
-                                            raw->data.mouse.lLastY, 0);
+                                            raw->data.mouse.lLastY, 0, winId);
                             EnqueueForWindow(evt);
                         }
                     }
@@ -347,7 +414,7 @@ namespace nkentseu {
                 NkModifierState mods;
                 mods.ctrl  = !!(mk & MK_CONTROL);
                 mods.shift = !!(mk & MK_SHIFT);
-                NkMouseWheelVerticalEvent evt(delta, (int32)pt.x, (int32)pt.y, 0.0, false, mods);
+                NkMouseWheelVerticalEvent evt(delta, (int32)pt.x, (int32)pt.y, 0.0, false, mods, winId);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -356,7 +423,7 @@ namespace nkentseu {
                 POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
                 ScreenToClient(hwnd, &pt);
                 double delta = GET_WHEEL_DELTA_WPARAM(wp) / (double)WHEEL_DELTA;
-                NkMouseWheelHorizontalEvent evt(delta, (int32)pt.x, (int32)pt.y);
+                NkMouseWheelHorizontalEvent evt(delta, (int32)pt.x, (int32)pt.y, winId);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -365,13 +432,13 @@ namespace nkentseu {
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};                           \
         POINT sp = pt; ClientToScreen(hwnd, &sp);                                   \
         NkMouseButtonPressEvent evt(NkMouseButton::Button,                          \
-            pt.x, pt.y, sp.x, sp.y, 1, CurrentMods()); EnqueueForWindow(evt); } break
+            pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId); EnqueueForWindow(evt); } break
 
     #define NK_MB_RELEASE(Button) {                                                 \
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};                           \
         POINT sp = pt; ClientToScreen(hwnd, &sp);                                   \
         NkMouseButtonReleaseEvent evt(NkMouseButton::Button,                        \
-            pt.x, pt.y, sp.x, sp.y, 1, CurrentMods()); EnqueueForWindow(evt); } break
+            pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId); EnqueueForWindow(evt); } break
 
             case WM_LBUTTONDOWN: NK_MB_PRESS(NK_MB_LEFT);
             case WM_LBUTTONUP:   NK_MB_RELEASE(NK_MB_LEFT);
@@ -392,7 +459,7 @@ namespace nkentseu {
                     (msg == WM_LBUTTONDBLCLK) ? NkMouseButton::NK_MB_LEFT   :
                     (msg == WM_RBUTTONDBLCLK) ? NkMouseButton::NK_MB_RIGHT   :
                                                 NkMouseButton::NK_MB_MIDDLE;
-                NkMouseDoubleClickEvent evt(btn, pt.x, pt.y, sp.x, sp.y, CurrentMods());
+                NkMouseDoubleClickEvent evt(btn, pt.x, pt.y, sp.x, sp.y, CurrentMods(), winId);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -404,10 +471,10 @@ namespace nkentseu {
                 NkMouseButton btn = (HIWORD(wp) & XBUTTON1)
                     ? NkMouseButton::NK_MB_BACK : NkMouseButton::NK_MB_FORWARD;
                 if (msg == WM_XBUTTONDOWN) {
-                    NkMouseButtonPressEvent   e(btn, pt.x, pt.y, sp.x, sp.y, 1, CurrentMods());
+                    NkMouseButtonPressEvent   e(btn, pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId);
                     EnqueueForWindow(e);
                 } else {
-                    NkMouseButtonReleaseEvent e(btn, pt.x, pt.y, sp.x, sp.y, 1, CurrentMods());
+                    NkMouseButtonReleaseEvent e(btn, pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId);
                     EnqueueForWindow(e);
                 }
                 break;
@@ -417,7 +484,7 @@ namespace nkentseu {
                 if (owner) {
                     owner->mData.mMouseTracking = false;
                 }
-                NkMouseLeaveEvent evt;
+                NkMouseLeaveEvent evt(winId);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -442,13 +509,13 @@ namespace nkentseu {
                     NkModifierState mods    = CurrentMods();
                     UINT            nativeKey = (UINT)wp;
                     if (isPress && isRep) {
-                        NkKeyRepeatEvent e(k, 1, nkSc, mods, nativeKey, isExt);
+                        NkKeyRepeatEvent e(k, 1, nkSc, mods, nativeKey, isExt, winId);
                         EnqueueForWindow(e);
                     } else if (isPress) {
-                        NkKeyPressEvent e(k, nkSc, mods, nativeKey, isExt);
+                        NkKeyPressEvent e(k, nkSc, mods, nativeKey, isExt, winId);
                         EnqueueForWindow(e);
                     } else {
-                        NkKeyReleaseEvent e(k, nkSc, mods, nativeKey, isExt);
+                        NkKeyReleaseEvent e(k, nkSc, mods, nativeKey, isExt, winId);
                         EnqueueForWindow(e);
                     }
                 }
@@ -458,7 +525,7 @@ namespace nkentseu {
             case WM_CHAR: {
                 UINT cp = (UINT)wp;
                 if (cp >= 32 && cp != 127) {
-                    NkTextInputEvent evt(cp);
+                    NkTextInputEvent evt(cp, winId);
                     EnqueueForWindow(evt);
                 }
                 break;

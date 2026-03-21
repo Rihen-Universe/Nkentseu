@@ -97,7 +97,7 @@ namespace {
 			return;
 		}
 
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 
 		// Formater le message
 		NkString formatted = m_Formatter->Format(message, m_UseColors && SupportsColors());
@@ -131,7 +131,7 @@ namespace {
 	 * @brief Force l'écriture des données en attente
 	 */
 	void NkConsoleSink::Flush() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 		// Logcat gère son propre buffering.
@@ -151,7 +151,7 @@ namespace {
 	 * @brief Définit le formatter pour ce sink
 	 */
 	void NkConsoleSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Formatter = traits::NkMove(formatter);
 	}
 
@@ -159,7 +159,7 @@ namespace {
 	 * @brief Définit le pattern de formatage
 	 */
 	void NkConsoleSink::SetPattern(const NkString &pattern) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			m_Formatter->SetPattern(pattern);
 		}
@@ -169,7 +169,7 @@ namespace {
 	 * @brief Obtient le formatter courant
 	 */
 	NkFormatter *NkConsoleSink::GetFormatter() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Formatter.Get();
 	}
 
@@ -177,7 +177,7 @@ namespace {
 	 * @brief Obtient le pattern courant
 	 */
 	NkString NkConsoleSink::GetPattern() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		if (m_Formatter) {
 			return m_Formatter->GetPattern();
 		}
@@ -188,7 +188,7 @@ namespace {
 	 * @brief Active ou désactive les couleurs
 	 */
 	void NkConsoleSink::SetColorEnabled(bool enable) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_UseColors = enable;
 	}
 
@@ -196,7 +196,7 @@ namespace {
 	 * @brief Vérifie si les couleurs sont activées
 	 */
 	bool NkConsoleSink::IsColorEnabled() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_UseColors;
 	}
 
@@ -204,7 +204,7 @@ namespace {
 	 * @brief Définit le flux de console
 	 */
 	void NkConsoleSink::SetStream(NkConsoleStream stream) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Stream = stream;
 	}
 
@@ -212,7 +212,7 @@ namespace {
 	 * @brief Obtient le flux de console courant
 	 */
 	NkConsoleStream NkConsoleSink::GetStream() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Stream;
 	}
 
@@ -220,7 +220,7 @@ namespace {
 	 * @brief Définit si le sink doit utiliser stderr pour les niveaux d'erreur
 	 */
 	void NkConsoleSink::SetUseStderrForErrors(bool enable) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_UseStderrForErrors = enable;
 	}
 
@@ -228,7 +228,7 @@ namespace {
 	 * @brief Vérifie si le sink utilise stderr pour les erreurs
 	 */
 	bool NkConsoleSink::IsUsingStderrForErrors() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_UseStderrForErrors;
 	}
 

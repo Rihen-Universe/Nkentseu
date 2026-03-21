@@ -6,7 +6,7 @@ Ce flux remplace l'équivalent GLFW/SDL (`WindowHint` / `MakeCurrent` / `GetProc
 
 ```cpp
 #include "NKWindow/Core/NkWindow.h"
-#include "NKRenderer/Deprecate/Context/NkSimpleGraphicsContext.h"
+#include "NKContext/Deprecate/Context/NkSimpleGraphicsContext.h"
 
 nkentseu::NkWindowConfig wcfg;
 wcfg.title = "OpenGL App";

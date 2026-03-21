@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-NKRenderer â€” Backends de rendu graphique (C++17)
-================================================
-BibliothÃ¨que de rendu indÃ©pendante de NKWindow. Elle fournit :
-  - NkIRenderer       : interface commune Ã  tous les backends
-  - NkSoftwareRenderer: rendu pixel software (SetPixel, blit OS)
-  - NkRendererTypes.h : types partagÃ©s (NkSurfaceDesc, NkFramebufferInfo,
-                        NkRendererConfig, NkRendererApiâ€¦)
-
-Pas de PIMPL : le code utilisateur crÃ©e directement un NkSoftwareRenderer
-(ou un autre backend concret qui implÃ©mente NkIRenderer) et l'utilise
-via la NkWindowPaintEvent.
-
-Architecture de rendu :
-  NkWindow â†’ Ã©met NkWindowPaintEvent(NkSurfaceDesc)
-    â””â”€â–º NkIRenderer::Present(surface) â€” appelÃ© par le renderer concret
+NKRenderer - Runtime renderer module (multi-API ready, C++17)
+==============================================================
+Module prepared for future renderer
+keeps the current production context system.
 """
 
 from Jenga import *
@@ -39,8 +28,8 @@ def _norm(path: str) -> str:
     return path.replace("\\", "/") if path else path
 
 _HAS_LIBDECOR = _pkg_exists("libdecor-0")
-_WAYLAND_LINKS = ["pthread", "wayland-client", "xkbcommon", "wayland-cursor"]
-_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "xkbcommon"]
+_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL", "GLESv2"]
 _WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
 if _HAS_LIBDECOR:
     _WAYLAND_LINKS.append("decor-0")
@@ -51,6 +40,16 @@ _TC_WINDOWS = "nk-windows-clang-mingw"
 _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
+
+_RENDERER_GLAD_OPT = os.getenv("NK_RENDERER_USE_NKGLAD", "on").strip().lower()
+_USE_NKGLAD = _RENDERER_GLAD_OPT not in ("0", "false", "off", "no")
 
 with project("NKRenderer"):
     staticlib()
@@ -58,9 +57,10 @@ with project("NKRenderer"):
     cppdialect("C++17")
     location(".")
 
-    _RENDERER_INCLUDE_DIRS = [
+    _INCLUDE_DIRS = [
         "src",
-        "%{Glad.location}/include",
+        "pch",
+        "%{wks.location}/Externals",
         "%{NKCore.location}/src",
         "%{NKPlatform.location}/src",
         "%{NKMath.location}/src",
@@ -69,13 +69,29 @@ with project("NKRenderer"):
         "%{NKContainers.location}/src",
         "%{NKMemory.location}/src",
         "%{NKWindow.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKContext.location}/src",
     ]
+    if _USE_NKGLAD:
+        _INCLUDE_DIRS.append("%{NKGlad.location}/include")
     if _VULKAN_INCLUDE:
-        _RENDERER_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
-    includedirs(_RENDERER_INCLUDE_DIRS)
+        _INCLUDE_DIRS.append(_VULKAN_INCLUDE)
+    includedirs(_INCLUDE_DIRS)
 
-    dependson(["Glad", "NKMath", "NKTime", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform"])
-    links(["Glad"])
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    _DEPS = ["NKMath", "NKTime", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKContext"]
+    if _USE_NKGLAD:
+        _DEPS.append("NKGlad")
+    dependson(_DEPS)
+    _RENDERER_DEFINES = [
+        f"NKRENDERER_USE_NKGLAD={1 if _USE_NKGLAD else 0}",
+        f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+    ]
+    if _WANT_VULKAN:
+        _RENDERER_DEFINES.append("NK_RHI_VK_ENABLED")
+    defines(_RENDERER_DEFINES)
 
     files([
         "src/NKRenderer/**.cpp",
@@ -89,82 +105,91 @@ with project("NKRenderer"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
-    # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         usetoolchain(_TC_WINDOWS)
-        defines([
-            "WIN32_LEAN_AND_MEAN",
-        ])
+        defines(["WIN32_LEAN_AND_MEAN", "NK_RHI_DX11_ENABLED", "NK_RHI_DX12_ENABLED"])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
-        links(["gdi32", "user32", "vulkan-1"])
+        _WIN_LINKS = [
+            "gdi32", "user32", "opengl32", "dwmapi", "shell32",
+            "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
+            "uuid", "ole32",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
 
-    # ===== UWP ====================================================================
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
         defines(["NKENTSEU_PLATFORM_UWP"])
         links(["d3d12", "dxgi", "dxguid", "windowsapp"])
 
-    # ===== Linux XLib =============================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
-        links(["X11", "Xext", "GL"])
+        links(["pthread", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        if _WANT_VULKAN:
+            links(["vulkan"])
 
-    # ===== Linux headless =========================================================
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
         defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+        links(["pthread"])
 
-    # ===== Linux XCB ==============================================================
     with filter("system:Linux && options:linux-backend=xcb"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
-        links(["xcb", "xcb-image", "X11", "Xext", "GL"])
+        links(["pthread", "xcb", "xcb-image", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        if _WANT_VULKAN:
+            links(["vulkan"])
 
-    # ===== Linux Wayland ==========================================================
     with filter("system:Linux && options:linux-backend=wayland"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
         defines(_WAYLAND_DEFINES)
         links(_WAYLAND_LINKS)
+        if _WANT_VULKAN:
+            links(["vulkan"])
 
-    # ===== macOS ==================================================================
     with filter("system:macOS"):
         usetoolchain("clang-native")
-        frameworks(["Metal", "QuartzCore"])
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
 
-    # ===== Android ================================================================
     with filter("system:Android"):
         usetoolchain("android-ndk")
-        links(["android", "EGL", "GLESv3", "vulkan"])
+        _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
+        if _WANT_VULKAN:
+            _ANDROID_LINKS.append("vulkan")
+        links(_ANDROID_LINKS)
 
-    # ===== iOS ====================================================================
     with filter("system:iOS"):
-        frameworks(["Metal", "QuartzCore"])
+        frameworks(["UIKit", "QuartzCore", "OpenGLES", "Metal"])
 
-    # ===== Web ====================================================================
     with filter("system:Web"):
         usetoolchain("emscripten")
 
-    # ===== Xbox ===================================================================
     with filter("system:XboxSeries || system:XboxOne"):
         usetoolchain("xbox-clang")
+        links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
 
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])
         optimize("Off")
         symbols(True)
+
     with filter("config:Release"):
         defines(["NDEBUG"])
         optimize("Speed")
         symbols(False)
 
-    # Tests unitaires/benchmarks (desktop uniquement)
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            # Ensure static link resolution for symbols pulled from NKWindow.
-            links(["NKRenderer", "NKWindow", "NKTime"])
+            _TEST_LINKS = ["NKRenderer", "NKContext", "NKWindow", "NKTime"]
+            if _USE_NKGLAD:
+                _TEST_LINKS.append("NKGlad")
+            links(_TEST_LINKS)
             with filter("system:Linux && options:linux-backend=wayland"):
                 defines(_WAYLAND_DEFINES)
                 links(_WAYLAND_TEST_LINKS)
@@ -177,8 +202,11 @@ with project("NKRenderer"):
             with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
                 if _VULKAN_LIB:
                     libdirs([_VULKAN_LIB])
-                links([
+                _WIN_TEST_LINKS = [
                     "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                    "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
-                    "uuid", "ole32", "dinput8", "dxguid", "vulkan-1"
-                ])
+                    "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
+                    "uuid", "ole32",
+                ]
+                if _WANT_VULKAN:
+                    _WIN_TEST_LINKS.append("vulkan-1")
+                links(_WIN_TEST_LINKS)

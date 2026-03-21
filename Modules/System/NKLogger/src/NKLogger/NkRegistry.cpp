@@ -61,7 +61,7 @@ namespace nkentseu {
 	void NkRegistry::Initialize() {
 		auto &instance = Instance();
 
-		logger_sync::NkScopedLock lock(instance.m_Mutex);
+		loggersync::NkScopedLock lock(instance.m_Mutex);
 		if (!instance.m_Initialized) {
 			instance.CreateDefaultLogger();
 			instance.m_Initialized = true;
@@ -84,7 +84,7 @@ namespace nkentseu {
 		if (!logger.IsValid())
 			return false;
 
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		NkString name = logger->GetName();
 		if (NkFindLoggerIndex(m_Loggers, name) != static_cast<usize>(-1)) {
 			return false; // Nom déjà existant
@@ -98,7 +98,7 @@ namespace nkentseu {
 	 * @brief Désenregistre un logger du registre
 	 */
 	bool NkRegistry::Unregister(const NkString &name) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		const usize index = NkFindLoggerIndex(m_Loggers, name);
 		if (index != static_cast<usize>(-1)) {
 			m_Loggers.Erase(m_Loggers.begin() + index);
@@ -112,7 +112,7 @@ namespace nkentseu {
 	 * @brief Obtient un logger par son nom
 	 */
 	memory::NkSharedPtr<NkLogger> NkRegistry::Get(const NkString &name) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		const usize index = NkFindLoggerIndex(m_Loggers, name);
 		if (index != static_cast<usize>(-1)) {
 			return m_Loggers[index].Second;
@@ -125,7 +125,7 @@ namespace nkentseu {
 	 * @brief Obtient un logger par son nom (crée si non existant)
 	 */
 	memory::NkSharedPtr<NkLogger> NkRegistry::GetOrCreate(const NkString &name) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		const usize index = NkFindLoggerIndex(m_Loggers, name);
 		if (index != static_cast<usize>(-1)) {
 			return m_Loggers[index].Second;
@@ -144,7 +144,7 @@ namespace nkentseu {
 	 * @brief Vérifie si un logger existe
 	 */
 	bool NkRegistry::Exists(const NkString &name) const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return NkFindLoggerIndex(m_Loggers, name) != static_cast<usize>(-1);
 	}
 
@@ -152,7 +152,7 @@ namespace nkentseu {
 	 * @brief Supprime tous les loggers du registre
 	 */
 	void NkRegistry::Clear() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_Loggers.Clear();
 		m_DefaultLogger.Reset();
 	}
@@ -161,7 +161,7 @@ namespace nkentseu {
 	 * @brief Obtient la liste de tous les noms de loggers
 	 */
 	NkVector<NkString> NkRegistry::GetLoggerNames() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		NkVector<NkString> names;
 		names.Reserve(m_Loggers.Size());
 
@@ -176,7 +176,7 @@ namespace nkentseu {
 	 * @brief Obtient le nombre de loggers enregistrés
 	 */
 	usize NkRegistry::GetLoggerCount() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_Loggers.Size();
 	}
 
@@ -184,7 +184,7 @@ namespace nkentseu {
 	 * @brief Définit le niveau de log global
 	 */
 	void NkRegistry::SetGlobalLevel(NkLogLevel level) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_GlobalLevel = level;
 
 		// Appliquer à tous les loggers existants
@@ -199,7 +199,7 @@ namespace nkentseu {
 	 * @brief Obtient le niveau de log global
 	 */
 	NkLogLevel NkRegistry::GetGlobalLevel() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_GlobalLevel;
 	}
 
@@ -207,7 +207,7 @@ namespace nkentseu {
 	 * @brief Définit le pattern global
 	 */
 	void NkRegistry::SetGlobalPattern(const NkString &pattern) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_GlobalPattern = pattern;
 
 		// Appliquer à tous les loggers existants
@@ -222,7 +222,7 @@ namespace nkentseu {
 	 * @brief Obtient le pattern global
 	 */
 	NkString NkRegistry::GetGlobalPattern() const {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		return m_GlobalPattern;
 	}
 
@@ -230,7 +230,7 @@ namespace nkentseu {
 	 * @brief Force le flush de tous les loggers
 	 */
 	void NkRegistry::FlushAll() {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 
 		for (auto &pair : m_Loggers) {
 			if (pair.Second.IsValid()) {
@@ -243,7 +243,7 @@ namespace nkentseu {
 	 * @brief Définit le logger par défaut
 	 */
 	void NkRegistry::SetDefaultLogger(memory::NkSharedPtr<NkLogger> logger) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 		m_DefaultLogger = logger;
 
 		// S'assurer qu'il est aussi dans le registre
@@ -257,7 +257,7 @@ namespace nkentseu {
 	 */
 	memory::NkSharedPtr<NkLogger> NkRegistry::GetDefaultLogger() {
 		{
-			logger_sync::NkScopedLock lock(m_Mutex);
+			loggersync::NkScopedLock lock(m_Mutex);
 			if (m_DefaultLogger.IsValid()) {
 				return m_DefaultLogger;
 			}

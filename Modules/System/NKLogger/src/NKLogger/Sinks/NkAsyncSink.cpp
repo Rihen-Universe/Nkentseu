@@ -52,7 +52,7 @@ namespace nkentseu {
 			return;
 
 		NkLogMessage msg;
-		msg.threadId = static_cast<uint32>(logger_sync::GetCurrentThreadId());
+		msg.threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
 		msg.level = level;
 		msg.message = message;
 		msg.loggerName = GetName();
@@ -112,7 +112,7 @@ namespace nkentseu {
 	 * @brief Obtient la taille actuelle de la file
 	 */
 	usize NkAsyncLogger::GetQueueSize() const {
-		logger_sync::NkScopedLock lock(m_QueueMutex);
+		loggersync::NkScopedLock lock(m_QueueMutex);
 		return m_MessageQueue.Size();
 	}
 
@@ -120,7 +120,7 @@ namespace nkentseu {
 	 * @brief Définit la taille maximum de la file
 	 */
 	void NkAsyncLogger::SetMaxQueueSize(usize size) {
-		logger_sync::NkScopedLock lock(m_QueueMutex);
+		loggersync::NkScopedLock lock(m_QueueMutex);
 		m_MaxQueueSize = size;
 	}
 
@@ -128,7 +128,7 @@ namespace nkentseu {
 	 * @brief Obtient la taille maximum de la file
 	 */
 	usize NkAsyncLogger::GetMaxQueueSize() const {
-		logger_sync::NkScopedLock lock(m_QueueMutex);
+		loggersync::NkScopedLock lock(m_QueueMutex);
 		return m_MaxQueueSize;
 	}
 
@@ -136,7 +136,7 @@ namespace nkentseu {
 	 * @brief Définit l'intervalle de flush
 	 */
 	void NkAsyncLogger::SetFlushInterval(uint32 ms) {
-		logger_sync::NkScopedLock lock(m_QueueMutex);
+		loggersync::NkScopedLock lock(m_QueueMutex);
 		m_FlushInterval = ms;
 	}
 
@@ -144,7 +144,7 @@ namespace nkentseu {
 	 * @brief Obtient l'intervalle de flush
 	 */
 	uint32 NkAsyncLogger::GetFlushInterval() const {
-		logger_sync::NkScopedLock lock(m_QueueMutex);
+		loggersync::NkScopedLock lock(m_QueueMutex);
 		return m_FlushInterval;
 	}
 
@@ -157,7 +157,7 @@ namespace nkentseu {
 			bool hasMessage = false;
 
 			{
-				logger_sync::NkScopedLock lock(m_QueueMutex);
+				loggersync::NkScopedLock lock(m_QueueMutex);
 
 				while (m_MessageQueue.Empty() && !m_StopRequested.Load()) {
 					if (m_FlushInterval == 0) {
@@ -199,7 +199,7 @@ namespace nkentseu {
 	 * @brief Ajoute un message à la file
 	 */
 	bool NkAsyncLogger::Enqueue(const NkLogMessage &message) {
-		logger_sync::NkScopedLock lock(m_QueueMutex);
+		loggersync::NkScopedLock lock(m_QueueMutex);
 
 		if (m_MessageQueue.Size() >= m_MaxQueueSize) {
 			return false; // File pleine
@@ -214,7 +214,7 @@ namespace nkentseu {
 	 * @brief Traite un message de la file
 	 */
 	void NkAsyncLogger::ProcessMessage(const NkLogMessage &message) {
-		logger_sync::NkScopedLock lock(m_Mutex);
+		loggersync::NkScopedLock lock(m_Mutex);
 
 		for (auto &sink : m_Sinks) {
 			if (sink) {
@@ -232,7 +232,7 @@ namespace nkentseu {
 			bool hasMessage = false;
 
 			{
-				logger_sync::NkScopedLock lock(m_QueueMutex);
+				loggersync::NkScopedLock lock(m_QueueMutex);
 				if (!m_MessageQueue.Empty()) {
 					msg = m_MessageQueue.Front();
 					m_MessageQueue.Pop();

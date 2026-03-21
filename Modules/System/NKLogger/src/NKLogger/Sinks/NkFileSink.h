@@ -173,7 +173,7 @@ namespace nkentseu {
 
 		protected:
 			/// Mutex pour la synchronisation thread-safe
-			mutable logger_sync::NkMutex m_Mutex;
+			mutable threading::NkMutex m_Mutex;
 	};
 
 } // namespace nkentseu

@@ -25,6 +25,7 @@
 #include "NKWindow/Core/NkWindow.h"
 
 namespace nkentseu {
+    using namespace math;
 
     // =============================================================================
     // NkEventSystem — méthodes platform-spécifiques UIKit

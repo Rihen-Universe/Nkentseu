@@ -19,6 +19,7 @@
 #include "NKMath/NkFunctions.h"
 
 namespace nkentseu {
+    using namespace math;
 
     NkWindow::NkWindow() = default;
 

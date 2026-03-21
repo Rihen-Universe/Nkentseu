@@ -45,23 +45,21 @@ Plateformes supportees :
   XboxOne     => UWP GameCore                    (xbox-clang)
 
 Usage :
-  jenga build                                            # Hote (XLib)
-  jenga build --platform windows                         # Windows
-  jenga build --platform linux                           # Linux XLib (defaut)
+  jenga build                                                   # Hote (XLib)
+  jenga build --platform windows                                # Windows
+  jenga build --platform linux                                  # Linux XLib (defaut)
   jenga build --platform linux --linux-backend xcb
   jenga build --platform linux --linux-backend wayland
-  jenga build --platform linux --linux-backend headless  # Linux headless
-  jenga build --platform macos                           # macOS Cocoa
-  jenga build --platform android                         # Android (NDK)
-  jenga build --platform ios                             # iOS (UIKit)
-  jenga build --platform web                             # Web (Emscripten)
-  jenga build --platform windows --windows-runtime desktop
-                                                        # Windows desktop (Win32)
-  jenga build --platform windows --windows-runtime uwp
-                                                        # UWP (Windows Runtime)
-  jenga build --platform xboxseries                      # Xbox Series
-  jenga build --platform xboxone                         # Xbox One
-  jenga build --config Release                           # Build Release
+  jenga build --platform linux --linux-backend headless         # Linux headless
+  jenga build --platform macos                                  # macOS Cocoa
+  jenga build --platform android                                # Android (NDK)
+  jenga build --platform ios                                    # iOS (UIKit)
+  jenga build --platform web                                    # Web (Emscripten)
+  jenga build --platform windows --windows-runtime desktop      # Windows desktop (Win32)
+  jenga build --platform windows --windows-runtime uwp          # UWP (Windows Runtime)
+  jenga build --platform xboxseries                             # Xbox Series
+  jenga build --platform xboxone                                # Xbox One
+  jenga build --config Release                                  # Build Release
 
   Notes Wayland :
     Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols, libdecor-0-dev
@@ -283,13 +281,19 @@ with workspace("Nkentseu", location="."):
     with include("Modules/System/NKSerialization/NKSerialization.jenga"):
         pass
 
+    with include("Externals/Libs/NKGlad/NKGlad.jenga"):
+        pass
+
     with include("Modules/Runtime/NKWindow/NKWindow.jenga"):
         pass
 
-    with include("Externals/Libs/Glad/Glad.jenga"):
+    with include("Modules/Runtime/NKContext/NKContext.jenga"):
         pass
 
-    with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
+    # with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
+    #     pass
+
+    with include("Modules/Runtime/NKRHI/NKRHI.jenga"):
         pass
 
     with include("Modules/Runtime/NKCamera/NKCamera.jenga"):

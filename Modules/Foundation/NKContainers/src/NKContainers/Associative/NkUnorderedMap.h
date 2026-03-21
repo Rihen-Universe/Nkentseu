@@ -146,6 +146,18 @@ namespace nkentseu {
                     Insert(pair.First, pair.Second);
                 }
             }
+
+            NkUnorderedMap(std::initializer_list<ValueType> init, Allocator* allocator = nullptr)
+                : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                , mMaxLoadFactor(0.75f)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHasher()
+                , mEqual() {
+                InitBuckets(16);
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+            }
             
             NkUnorderedMap(const NkUnorderedMap& other)
                 : mBuckets(nullptr)
@@ -224,14 +236,30 @@ namespace nkentseu {
                 mAllocator = other.mAllocator;
                 mHasher = traits::NkMove(other.mHasher);
                 mEqual = traits::NkMove(other.mEqual);
-                
+
                 other.mBuckets = nullptr;
                 other.mBucketCount = 0;
                 other.mSize = 0;
                 return *this;
             }
             #endif
-            
+
+            NkUnorderedMap& operator=(NkInitializerList<ValueType> init) {
+                Clear();
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+                return *this;
+            }
+
+            NkUnorderedMap& operator=(std::initializer_list<ValueType> init) {
+                Clear();
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+                return *this;
+            }
+
             void Rehash(SizeType newBucketCount) {
                 if (newBucketCount < 1) {
                     newBucketCount = 1;
@@ -390,6 +418,88 @@ namespace nkentseu {
                     }
                 }
             }
+
+            // ── Itérateur forward (compatible range-for) ───────────────────
+            struct Iterator {
+                Node**   mBuckets;
+                SizeType mBucketCount;
+                SizeType mBucketIdx;
+                Node*    mNode;
+
+                Iterator(Node** buckets, SizeType count, SizeType idx, Node* node)
+                    : mBuckets(buckets), mBucketCount(count), mBucketIdx(idx), mNode(node) {}
+
+                NkPair<const Key, Value>& operator*()  const { return mNode->Data; }
+                NkPair<const Key, Value>* operator->() const { return &mNode->Data; }
+
+                Iterator& operator++() {
+                    mNode = mNode->Next;
+                    while (!mNode && ++mBucketIdx < mBucketCount)
+                        mNode = mBuckets[mBucketIdx];
+                    return *this;
+                }
+                Iterator operator++(int) { Iterator tmp=*this; ++(*this); return tmp; }
+                bool operator==(const Iterator& o) const { return mNode == o.mNode; }
+                bool operator!=(const Iterator& o) const { return mNode != o.mNode; }
+            };
+
+            struct ConstIterator {
+                const Node* const* mBuckets;
+                SizeType           mBucketCount;
+                SizeType           mBucketIdx;
+                const Node*        mNode;
+
+                ConstIterator(const Node* const* buckets, SizeType count, SizeType idx, const Node* node)
+                    : mBuckets(buckets), mBucketCount(count), mBucketIdx(idx), mNode(node) {}
+
+                const NkPair<const Key, Value>& operator*()  const { return mNode->Data; }
+                const NkPair<const Key, Value>* operator->() const { return &mNode->Data; }
+
+                ConstIterator& operator++() {
+                    mNode = mNode->Next;
+                    while (!mNode && ++mBucketIdx < mBucketCount)
+                        mNode = mBuckets[mBucketIdx];
+                    return *this;
+                }
+                ConstIterator operator++(int) { ConstIterator tmp=*this; ++(*this); return tmp; }
+                bool operator==(const ConstIterator& o) const { return mNode == o.mNode; }
+                bool operator!=(const ConstIterator& o) const { return mNode != o.mNode; }
+            };
+
+        private:
+            Iterator _MakeBegin() {
+                for (SizeType i = 0; i < mBucketCount; ++i)
+                    if (mBuckets[i]) return {mBuckets, mBucketCount, i, mBuckets[i]};
+                return _MakeEnd();
+            }
+            Iterator _MakeEnd() { return {mBuckets, mBucketCount, mBucketCount, nullptr}; }
+            ConstIterator _MakeCBegin() const {
+                for (SizeType i = 0; i < mBucketCount; ++i)
+                    if (mBuckets[i]) return {mBuckets, mBucketCount, i, mBuckets[i]};
+                return _MakeCEnd();
+            }
+            ConstIterator _MakeCEnd() const {
+                return {mBuckets, mBucketCount, mBucketCount, nullptr};
+            }
+        public:
+            // PascalCase (convention NKEngine)
+            Iterator      Begin()  { return _MakeBegin(); }
+            Iterator      End()    { return _MakeEnd();   }
+            ConstIterator Begin()  const { return _MakeCBegin(); }
+            ConstIterator End()    const { return _MakeCEnd();   }
+            ConstIterator CBegin() const { return _MakeCBegin(); }
+            ConstIterator CEnd()   const { return _MakeCEnd();   }
+
+            // lowercase (compatible range-for et STL)
+            Iterator      begin()  { return _MakeBegin(); }
+            Iterator      end()    { return _MakeEnd();   }
+            ConstIterator begin()  const { return _MakeCBegin(); }
+            ConstIterator end()    const { return _MakeCEnd();   }
+            ConstIterator cbegin() const { return _MakeCBegin(); }
+            ConstIterator cend()   const { return _MakeCEnd();   }
+
+            bool empty() const NK_NOEXCEPT { return mSize == 0; }
+            SizeType size() const NK_NOEXCEPT { return mSize; }
         };
         
     

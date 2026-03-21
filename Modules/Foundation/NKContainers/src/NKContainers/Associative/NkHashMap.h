@@ -284,6 +284,18 @@ namespace nkentseu {
                 }
             }
 
+            NkHashMap(std::initializer_list<ValueType> init, Allocator* allocator = nullptr)
+                : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                , mMaxLoadFactor(0.75f)
+                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                , mHasher()
+                , mEqual() {
+                InitBuckets(16);
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+            }
+
             NkHashMap(const NkHashMap& other)
                 : mBuckets(nullptr), mBucketCount(16), mSize(0)
                 , mMaxLoadFactor(other.mMaxLoadFactor)
@@ -357,7 +369,23 @@ namespace nkentseu {
                 other.mSize = 0;
                 return *this;
             }
-            
+
+            NkHashMap& operator=(NkInitializerList<ValueType> init) {
+                Clear();
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+                return *this;
+            }
+
+            NkHashMap& operator=(std::initializer_list<ValueType> init) {
+                Clear();
+                for (auto& pair : init) {
+                    Insert(pair.First, pair.Second);
+                }
+                return *this;
+            }
+
             ~NkHashMap() {
                 Clear();
                 if (mBuckets) mAllocator->Deallocate(mBuckets);

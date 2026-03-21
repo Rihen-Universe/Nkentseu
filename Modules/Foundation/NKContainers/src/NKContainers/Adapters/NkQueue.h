@@ -16,6 +16,7 @@
 #include "NKCore/NkTraits.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKContainers/Sequential/NkDeque.h"
+#include "NKContainers/Iterators/NkInitializerList.h"
 
 namespace nkentseu {
     
@@ -54,12 +55,32 @@ namespace nkentseu {
         public:
             // Constructors
             NkQueue() {}
-            
+
             explicit NkQueue(const Container& cont) : mContainer(cont) {}
-            
+
             #if defined(NK_CPP11)
             explicit NkQueue(Container&& cont) : mContainer(traits::NkMove(cont)) {}
             #endif
+
+            NkQueue(NkInitializerList<T> init) {
+                for (auto& val : init) Push(val);
+            }
+
+            NkQueue(std::initializer_list<T> init) {
+                for (auto& val : init) Push(val);
+            }
+
+            NkQueue& operator=(NkInitializerList<T> init) {
+                while (!Empty()) Pop();
+                for (auto& val : init) Push(val);
+                return *this;
+            }
+
+            NkQueue& operator=(std::initializer_list<T> init) {
+                while (!Empty()) Pop();
+                for (auto& val : init) Push(val);
+                return *this;
+            }
             
             // Element access
             Reference Front() {

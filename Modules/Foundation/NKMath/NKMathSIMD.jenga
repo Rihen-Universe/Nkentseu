@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-NKMathSIMD.jenga => SIMD-optimized math library (SSE4.2 / AVX2)
+NKmathIMD.jenga => SIMD-optimized math library (SSE4.2 / AVX2)
 =============================================================================
 
 Performance-critical math functions with vectorization:
@@ -20,7 +20,7 @@ Date: 2026-03-05
 
 from Jenga import *
 
-project("NKMathSIMD"):
+project("NKmathIMD"):
     # SIMD Math Library
     namespace("nkentseu::math::simd")
     kind("StaticLib")
@@ -63,10 +63,10 @@ project("NKMathSIMD"):
     
     -- Tests
     with group("Tests"):
-        project("NKMathSIMD_Tests"):
+        project("NKmathIMD_Tests"):
             kind("ConsoleApp")
             language("C++")
-            linkeddeps(["NKMathSIMD", "NKCore"])
+            linkeddeps(["NKmathIMD", "NKCore"])
             includedirs(["$(ProjectDir)/../NKMath/src"])
             
             files({
@@ -79,10 +79,10 @@ project("NKMathSIMD"):
     
     -- Benchmarks
     with group("Benchmarks"):
-        project("NKMathSIMD_Bench"):
+        project("NKmathIMD_Bench"):
             kind("ConsoleApp")
             language("C++")
-            linkeddeps(["NKMathSIMD", "NKCore", "NKTime"])
+            linkeddeps(["NKmathIMD", "NKCore", "NKTime"])
             
             files({
                 "bench/**/*.h",

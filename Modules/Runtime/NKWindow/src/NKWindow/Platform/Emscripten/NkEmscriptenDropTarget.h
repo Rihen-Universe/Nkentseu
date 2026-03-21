@@ -17,11 +17,11 @@ namespace nkentseu {
 
     class NkEmscriptenDropTarget {
         public:
-            using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
-            using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
-            using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
-            using DropOverCallback  = NkFunction<void, const NkDropOverEvent&>;
-            using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
+            using DropFileCallback  = NkFunction<void(const NkDropFileEvent&)>;
+            using DropTextCallback  = NkFunction<void(const NkDropTextEvent&)>;
+            using DropEnterCallback = NkFunction<void(const NkDropEnterEvent&)>;
+            using DropOverCallback  = NkFunction<void(const NkDropOverEvent&)>;
+            using DropLeaveCallback = NkFunction<void(const NkDropLeaveEvent&)>;
 
             explicit NkEmscriptenDropTarget(NkWindowId windowId = NK_INVALID_WINDOW_ID,
                                       NkString canvasId = "#canvas")
@@ -202,6 +202,9 @@ namespace nkentseu {
         private:
             static NkUnorderedMap<NkWindowId, NkEmscriptenDropTarget*>& Registry() {
                 static NkUnorderedMap<NkWindowId, NkEmscriptenDropTarget*> map;
+                if (map.BucketCount() == 0) {
+                    map.Rehash(32);
+                }
                 return map;
             }
 

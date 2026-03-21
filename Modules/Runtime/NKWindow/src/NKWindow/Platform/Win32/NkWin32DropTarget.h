@@ -47,10 +47,10 @@ namespace nkentseu {
 
     class NkWin32DropTarget : public IDropTarget {
 		public:
-			using DropFileCallback  = NkFunction<void, const NkDropFileEvent&>;
-			using DropTextCallback  = NkFunction<void, const NkDropTextEvent&>;
-			using DropEnterCallback = NkFunction<void, const NkDropEnterEvent&>;
-			using DropLeaveCallback = NkFunction<void, const NkDropLeaveEvent&>;
+			using DropFileCallback  = NkFunction<void(const NkDropFileEvent&)>;
+			using DropTextCallback  = NkFunction<void(const NkDropTextEvent&)>;
+			using DropEnterCallback = NkFunction<void(const NkDropEnterEvent&)>;
+			using DropLeaveCallback = NkFunction<void(const NkDropLeaveEvent&)>;
 
 			// Point 6 : le constructeur ne touche plus à OLE.
 			// OleInitialize a déjà été appelé par NkSystem::Initialise().

@@ -20,7 +20,87 @@
 
 #include <algorithm>
 
+// =============================================================================
+// NkCocoaWindowDelegate — captures live-resize lifecycle events
+// =============================================================================
+@interface NkCocoaWindowDelegate : NSObject <NSWindowDelegate>
+@property (nonatomic, assign) nkentseu::NkWindow* nkWindow;
+@end
+
+@implementation NkCocoaWindowDelegate
+
+- (void)windowWillStartLiveResize:(NSNotification*)notification {
+    (void)notification;
+    nkentseu::NkWindow* win = self.nkWindow;
+    if (!win) return;
+    nkentseu::NkWindowResizeBeginEvent e;
+    nkentseu::NkSystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+- (void)windowDidResize:(NSNotification*)notification {
+    (void)notification;
+    nkentseu::NkWindow* win = self.nkWindow;
+    if (!win) return;
+    NSWindow* nswin = win->mData.mNSWindow;
+    if (!nswin) return;
+
+    NSRect contentRect = [nswin contentRectForFrameRect:nswin.frame];
+    const float scale = static_cast<float>(nswin.backingScaleFactor);
+    uint32 newW = static_cast<uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.width))  * scale);
+    uint32 newH = static_cast<uint32>(nkentseu::math::NkMax(0.0f, static_cast<float>(contentRect.size.height)) * scale);
+
+    // Mettre à jour mData
+    win->mData.mWidth  = newW;
+    win->mData.mHeight = newH;
+    
+    // Synchroniser mConfig
+    win->mConfig.width = newW;
+    win->mConfig.height = newH;
+
+    nkentseu::NkWindowResizeEvent e(newW, newH, win->mData.mWidth, win->mData.mHeight);
+    nkentseu::NkSystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+- (void)windowDidEndLiveResize:(NSNotification*)notification {
+    (void)notification;
+    nkentseu::NkWindow* win = self.nkWindow;
+    if (!win) return;
+    nkentseu::NkWindowResizeEndEvent e;
+    nkentseu::NkSystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+- (void)windowWillMove:(NSNotification*)notification {
+    (void)notification;
+    nkentseu::NkWindow* win = self.nkWindow;
+    if (!win) return;
+    nkentseu::NkWindowMoveBeginEvent e;
+    nkentseu::NkSystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+- (void)windowDidMove:(NSNotification*)notification {
+    (void)notification;
+    nkentseu::NkWindow* win = self.nkWindow;
+    if (!win) return;
+    NSWindow* nswin = win->mData.mNSWindow;
+    if (!nswin) return;
+    NSRect frame = nswin.frame;
+    
+    // Mettre à jour mConfig avec la nouvelle position
+    win->mConfig.x = static_cast<int32>(frame.origin.x);
+    win->mConfig.y = static_cast<int32>(frame.origin.y);
+    
+    nkentseu::NkWindowMoveEvent mv(
+        static_cast<int32>(frame.origin.x),
+        static_cast<int32>(frame.origin.y));
+    nkentseu::NkSystem::Events().Enqueue_Public(mv, win->GetId());
+    nkentseu::NkWindowMoveEndEvent e;
+    nkentseu::NkSystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+@end
+
 namespace nkentseu {
+    using namespace math;
 
     static NkVec2u QueryContentSizePx(NSWindow* window) {
         if (!window) {
@@ -89,6 +169,25 @@ namespace nkentseu {
         return metalLayer;
     }
 
+    // =========================================================================
+    // Fonctions de synchronisation mData ↔ mConfig
+    // =========================================================================
+
+    static void SyncConfigFromWindow(const NkCocoaWindowData& data, NkWindowConfig& config) {
+        config.width = data.mWidth;
+        config.height = data.mHeight;
+        config.visible = data.mVisible;
+        config.fullscreen = data.mFullscreen;
+        // La position est mise à jour dans windowDidMove
+        // Le titre est mis à jour dans GetTitle/SetTitle
+    }
+
+    static void SyncWindowFromConfig(NkCocoaWindowData& data, const NkWindowConfig& config) {
+        data.mVisible = config.visible;
+        data.mFullscreen = config.fullscreen;
+        // Les autres propriétés seront appliquées via les méthodes dédiées
+    }
+
     NkWindow::NkWindow() = default;
 
     NkWindow::NkWindow(const NkWindowConfig& config) {
@@ -155,45 +254,49 @@ namespace nkentseu {
                     [window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
                 }
             } else {
-            NSWindowStyleMask style = NSWindowStyleMaskBorderless;
-            if (config.frame) {
-                style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
-                if (config.resizable) {
-                    style |= NSWindowStyleMaskResizable;
+                NSWindowStyleMask style = NSWindowStyleMaskBorderless;
+                if (config.frame) {
+                    style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
+                    if (config.resizable) {
+                        style |= NSWindowStyleMaskResizable;
+                    }
+                    if (config.minimizable) {
+                        style |= NSWindowStyleMaskMiniaturizable;
+                    }
                 }
-                if (config.minimizable) {
-                    style |= NSWindowStyleMaskMiniaturizable;
-                }
-            }
 #ifdef NSWindowStyleMaskUtilityWindow
                 if (config.native.utilityWindow) {
                     style |= NSWindowStyleMaskUtilityWindow;
                 }
 #endif
 
-            NSRect frame = NSMakeRect(config.x, config.y, config.width, config.height);
-            if (config.centered) {
+                NSRect frame = NSMakeRect(config.x, config.y, config.width, config.height);
+                if (config.centered) {
                     NSRect screen = targetScreen ? [targetScreen frame] : [[NSScreen mainScreen] frame];
-                frame.origin.x = (screen.size.width - config.width) * 0.5;
-                frame.origin.y = (screen.size.height - config.height) * 0.5;
-            }
+                    frame.origin.x = (screen.size.width - config.width) * 0.5;
+                    frame.origin.y = (screen.size.height - config.height) * 0.5;
+                    
+                    // Mettre à jour mConfig avec les coordonnées calculées
+                    mConfig.x = static_cast<int32>(frame.origin.x);
+                    mConfig.y = static_cast<int32>(frame.origin.y);
+                }
 
                 window = [[NSWindow alloc] initWithContentRect:frame
-                                                            styleMask:style
-                                                              backing:NSBackingStoreBuffered
-                                                                defer:NO];
-            if (!window) {
-                mLastError = NkError(1, "Cocoa: failed to create NSWindow");
-                return false;
-            }
+                                                      styleMask:style
+                                                        backing:NSBackingStoreBuffered
+                                                          defer:NO];
+                if (!window) {
+                    mLastError = NkError(1, "Cocoa: failed to create NSWindow");
+                    return false;
+                }
 
                 view = [[NSView alloc] initWithFrame:frame];
                 metalLayer = EnsureCocoaMetalLayer(view);
 
-            [window setContentView:view];
-            [window setReleasedWhenClosed:NO];
-            [window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
-            [window setAcceptsMouseMovedEvents:YES];
+                [window setContentView:view];
+                [window setReleasedWhenClosed:NO];
+                [window setTitle:[NSString stringWithUTF8String:config.title.c_str()]];
+                [window setAcceptsMouseMovedEvents:YES];
             }
 
 #ifdef NSWindowStyleMaskUtilityWindow
@@ -230,6 +333,10 @@ namespace nkentseu {
             const NkVec2u sizePx = QueryContentSizePx(window);
             mData.mWidth = sizePx.x;
             mData.mHeight = sizePx.y;
+            
+            // Synchroniser mConfig avec les dimensions réelles
+            mConfig.width = mData.mWidth;
+            mConfig.height = mData.mHeight;
 
             mId = NkSystem::Instance().RegisterWindow(this);
             if (mId == NK_INVALID_WINDOW_ID) {
@@ -246,6 +353,14 @@ namespace nkentseu {
                 mData.mNSView = nil;
                 mData.mMetalLayer = nil;
                 return false;
+            }
+
+            // Attach live-resize delegate
+            {
+                NkCocoaWindowDelegate* delegate = [[NkCocoaWindowDelegate alloc] init];
+                delegate.nkWindow = this;
+                [window setDelegate:delegate];
+                mData.mDelegate = delegate;
             }
 
             if (config.fullscreen) {
@@ -280,6 +395,10 @@ namespace nkentseu {
         NkSystem::Events().Enqueue_Public(closeEvent, closingId);
 
         @autoreleasepool {
+            if (mData.mNSWindow && mData.mDelegate) {
+                [mData.mNSWindow setDelegate:nil];
+                mData.mDelegate = nil;
+            }
             if (mData.mParentWindow && mData.mNSWindow) {
                 [mData.mParentWindow removeChildWindow:mData.mNSWindow];
             }
@@ -323,6 +442,10 @@ namespace nkentseu {
     }
 
     NkWindowConfig NkWindow::GetConfig() const {
+        // Synchroniser avant de retourner
+        if (mIsOpen) {
+            SyncConfigFromWindow(mData, const_cast<NkWindow*>(this)->mConfig);
+        }
         return mConfig;
     }
 
@@ -331,7 +454,12 @@ namespace nkentseu {
             return mConfig.title;
         }
         const char* utf8 = mData.mNSWindow.title.UTF8String;
-        return utf8 ? NkString(utf8) : NkString();
+        NkString title = utf8 ? NkString(utf8) : NkString();
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mConfig.title = title;
+        
+        return title;
     }
 
     void NkWindow::SetTitle(const NkString& title) {
@@ -345,7 +473,15 @@ namespace nkentseu {
         if (!mData.mNSWindow) {
             return {0u, 0u};
         }
-        return QueryContentSizePx(mData.mNSWindow);
+        NkVec2u size = QueryContentSizePx(mData.mNSWindow);
+        
+        // Synchroniser mData et mConfig
+        const_cast<NkWindow*>(this)->mData.mWidth = size.x;
+        const_cast<NkWindow*>(this)->mData.mHeight = size.y;
+        const_cast<NkWindow*>(this)->mConfig.width = size.x;
+        const_cast<NkWindow*>(this)->mConfig.height = size.y;
+        
+        return size;
     }
 
     NkVec2u NkWindow::GetPosition() const {
@@ -353,10 +489,16 @@ namespace nkentseu {
             return {0u, 0u};
         }
         NSRect frame = mData.mNSWindow.frame;
-        return {
+        NkVec2u pos = {
             static_cast<uint32>(math::NkMax(0.0, frame.origin.x)),
             static_cast<uint32>(math::NkMax(0.0, frame.origin.y))
         };
+        
+        // Synchroniser mConfig
+        const_cast<NkWindow*>(this)->mConfig.x = static_cast<int32>(frame.origin.x);
+        const_cast<NkWindow*>(this)->mConfig.y = static_cast<int32>(frame.origin.y);
+        
+        return pos;
     }
 
     float NkWindow::GetDpiScale() const {
@@ -410,6 +552,8 @@ namespace nkentseu {
         if (!mData.mNSWindow) {
             return;
         }
+        mConfig.x = x;
+        mConfig.y = y;
         [mData.mNSWindow setFrameOrigin:NSMakePoint(x, y)];
     }
 
@@ -516,7 +660,7 @@ namespace nkentseu {
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {
         NkSurfaceDesc desc;
-        const NkVec2u size = GetSize();
+        const NkVec2u size = GetSize();  // GetSize synchronise déjà mConfig
         desc.width = size.x;
         desc.height = size.y;
         desc.dpi = GetDpiScale();
