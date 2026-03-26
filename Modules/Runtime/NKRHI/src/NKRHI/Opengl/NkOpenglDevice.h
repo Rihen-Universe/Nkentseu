@@ -115,7 +115,7 @@ public:
     void          WaitIdle()                                   override;
 
     // ── Frame management ──────────────────────────────────────────────────────
-    void   BeginFrame(NkFrameContext& frame) override;
+    bool   BeginFrame(NkFrameContext& frame) override;
     void   EndFrame  (NkFrameContext& frame) override;
     uint32 GetFrameIndex()        const override { return mFrameIndex; }
     uint32 GetMaxFramesInFlight() const override { return MAX_FRAMES; }

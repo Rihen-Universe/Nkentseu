@@ -20,7 +20,7 @@
 #include "NkWindowConfig.h"
 #include "NkSafeArea.h"
 #include "NkSurface.h"
-#include "NkWindowId.h"
+#include "NKEvent/NkWindowId.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKMath/NKMath.h"
 #include <string>

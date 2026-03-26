@@ -18,7 +18,7 @@ public:
     NkMetalCommandBuffer(NkMetalDevice* dev, NkCommandBufferType type);
     ~NkMetalCommandBuffer() override;
 
-    void Begin()  override;
+    bool Begin()  override;
     void End()    override;
     void Reset()  override;
     bool IsValid()              const override { return mCmdBuf != nullptr; }
@@ -27,7 +27,7 @@ public:
     void CommitAndWait();
     void CommitAndPresent(void* drawable);
 
-    void BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
+    bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
     void EndRenderPass() override;
     void SetViewport (const NkViewport& vp) override;
     void SetViewports(const NkViewport* vps, uint32 n) override;

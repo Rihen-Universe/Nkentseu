@@ -838,14 +838,19 @@ namespace nkentseu {
             if (w.texture.IsValid()) {
                 auto tit=mTextures.Find(w.texture.id);
                 if(tit) {
-                    slot->kind=NkDX11DescSet::Slot::Texture;
                     slot->srv=tit->srv;
                     slot->uav=tit->uav;
+                    slot->kind = slot->ss ? NkDX11DescSet::Slot::TextureAndSampler
+                                          : NkDX11DescSet::Slot::Texture;
                 }
             }
             if (w.sampler.IsValid()) {
                 auto sit2=mSamplers.Find(w.sampler.id);
-                if(sit2) { slot->kind=NkDX11DescSet::Slot::Sampler; slot->ss=sit2->ss; }
+                if(sit2) {
+                    slot->ss=sit2->ss;
+                    slot->kind = slot->srv ? NkDX11DescSet::Slot::TextureAndSampler
+                                           : NkDX11DescSet::Slot::Sampler;
+                }
             }
         }
     }
@@ -870,6 +875,14 @@ namespace nkentseu {
                     mContext->CSSetShaderResources(s.slot,1,&s.srv);
                     break;
                 case NkDX11DescSet::Slot::Sampler:
+                    mContext->VSSetSamplers(s.slot,1,&s.ss);
+                    mContext->PSSetSamplers(s.slot,1,&s.ss);
+                    mContext->CSSetSamplers(s.slot,1,&s.ss);
+                    break;
+                case NkDX11DescSet::Slot::TextureAndSampler:
+                    mContext->VSSetShaderResources(s.slot,1,&s.srv);
+                    mContext->PSSetShaderResources(s.slot,1,&s.srv);
+                    mContext->CSSetShaderResources(s.slot,1,&s.srv);
                     mContext->VSSetSamplers(s.slot,1,&s.ss);
                     mContext->PSSetSamplers(s.slot,1,&s.ss);
                     mContext->CSSetSamplers(s.slot,1,&s.ss);
@@ -946,8 +959,9 @@ namespace nkentseu {
     void NkDirectX11Device::WaitIdle() { mContext->Flush(); }
 
     // Frame
-    void NkDirectX11Device::BeginFrame(NkFrameContext& frame) {
+    bool NkDirectX11Device::BeginFrame(NkFrameContext& frame) {
         frame.frameIndex=mFrameIndex; frame.frameNumber=mFrameNumber;
+        return true;
     }
     void NkDirectX11Device::EndFrame(NkFrameContext&) {
         mFrameIndex=(mFrameIndex+1)%MAX_FRAMES; ++mFrameNumber;

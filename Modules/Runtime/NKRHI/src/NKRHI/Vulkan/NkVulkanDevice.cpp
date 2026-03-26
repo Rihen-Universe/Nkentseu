@@ -5,6 +5,7 @@
 #include "NkVulkanDevice.h"
 #include "NkVulkanCommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
+#include "NKRHI/SL/NkGLSLCompiler.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Associative/NkSet.h"
 #include <cstring>
@@ -57,6 +58,7 @@ namespace nkentseu {
 
     // =============================================================================
     bool NkVulkanDevice::Initialize(const NkDeviceInitInfo& init) {
+        NkGLSLCompilerInit();
         mInit = init;
         NkGpuPolicy::ApplyPreContext(mInit.context);
         const NkVulkanDesc& vkdesc = mInit.context.vulkan;
@@ -72,6 +74,15 @@ namespace nkentseu {
         appInfo.pEngineName = vkdesc.engineName ? vkdesc.engineName : "NkEngine";
         appInfo.engineVersion = 1;
         appInfo.apiVersion = vkdesc.apiVersion != 0 ? vkdesc.apiVersion : VK_API_VERSION_1_1;
+
+        uint32_t extensionCount = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+        mExtensions.Resize(extensionCount);
+        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, mExtensions.Data());
+
+        for (const auto& extension : mExtensions) {
+            logger.Info("{0}", extension.extensionName);
+        }
 
         NkVector<const char*> instanceExts;
         instanceExts.PushBack(VK_KHR_SURFACE_EXTENSION_NAME);
@@ -101,6 +112,16 @@ namespace nkentseu {
             if (ext && !HasCStr(instanceExts, ext)) {
                 instanceExts.PushBack(ext);
             }
+        }
+
+        uint32_t layerCount;
+        vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+        
+        std::vector<VkLayerProperties> availableLayers(layerCount);
+        vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+        for (const auto& layer : availableLayers) {
+            logger.Info("{0}", layer.layerName);
         }
 
         NkVector<const char*> layers;
@@ -359,6 +380,7 @@ namespace nkentseu {
 
     // =============================================================================
     void NkVulkanDevice::Shutdown() {
+        NkGLSLCompilerShutdown();
         WaitIdle();
         DestroySwapchain();
 
@@ -423,7 +445,9 @@ namespace nkentseu {
         VkColorSpaceKHR colorSpace = fmts[0].colorSpace;
         for (auto& f:fmts) {
             if (f.format==VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                mSwapFormat=f.format; colorSpace=f.colorSpace; break;
+                mSwapFormat = f.format; 
+                colorSpace = f.colorSpace; 
+                break;
             }
         }
 
@@ -484,9 +508,20 @@ namespace nkentseu {
     void NkVulkanDevice::CreateSwapchainRenderPassAndFramebuffers() {
         // Render pass swapchain
         NkRenderPassDesc rpd;
-        NkAttachmentDesc col; col.format=GetSwapchainFormat(); col.loadOp=NkLoadOp::NK_CLEAR;
-        rpd.AddColor(col).SetDepth(NkAttachmentDesc::Depth());
+        NkAttachmentDesc col; 
+        col.format = GetSwapchainFormat();
+        col.loadOp = NkLoadOp::NK_CLEAR;
+        col.loadOp = NkLoadOp::NK_CLEAR;
+        col.storeOp = NkStoreOp::NK_STORE;
+    
+        NkAttachmentDesc depth;
+        depth.format = NkGPUFormat::NK_D32_FLOAT;  // Profondeur 32 bits
+        depth.loadOp = NkLoadOp::NK_CLEAR;
+        depth.storeOp = NkStoreOp::NK_DONT_CARE;
+
+        rpd.AddColor(col).SetDepth(depth);
         mCreatingSwapchainRenderPass = true;
+
         mSwapchainRP = CreateRenderPass(rpd);
         mCreatingSwapchainRenderPass = false;
 
@@ -977,18 +1012,53 @@ namespace nkentseu {
     NkShaderHandle NkVulkanDevice::CreateShader(const NkShaderDesc& desc) {
         threading::NkScopedLock lock(mMutex);
         NkVkShader sh;
+        bool shaderBuildFailed = false;
         for (uint32 i=0;i<desc.stages.Size();i++) {
             auto& s=desc.stages[i];
-            if (!s.spirvData || s.spirvSize==0) {
-                NK_VK_ERR("Vulkan nécessite SPIR-V (stage %d)\n",i);
-                continue;
+
+            // Données SPIR-V définitives (soit fournies, soit compilées depuis GLSL)
+            const void* spirvPtr  = s.spirvBinary.Data();
+            uint64      spirvSz   = s.spirvBinary.Size();
+            NkGLSLCompileResult compiled; // maintenu en vie jusqu'à vkCreateShaderModule
+
+            if ((!spirvPtr || spirvSz == 0) && s.glslSource) {
+                // Fallback : compile GLSL → SPIR-V à la volée
+                compiled = NkGLSLToSPIRV(s.stage, s.glslSource, s.entryPoint);
+                if (!compiled.success) {
+                    NK_VK_ERR("GLSL→SPIR-V échoué (stage %d): %s\n", i,
+                              compiled.errorLog ? compiled.errorLog : "?");
+                    shaderBuildFailed = true;
+                    break;
+                }
+                spirvPtr = compiled.spirv.Data();
+                spirvSz  = (uint64)(compiled.spirv.Size() * sizeof(uint32));
+                NK_VK_LOG("GLSL→SPIR-V OK (stage %d, %u mots)\n",
+                          i, (uint32)compiled.spirv.Size());
             }
+
+            if (!spirvPtr || spirvSz == 0) {
+                NK_VK_ERR("Vulkan nécessite SPIR-V ou GLSL (stage %d)\n", i);
+                shaderBuildFailed = true;
+                break;
+            }
+
             VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-            smci.codeSize=(size_t)s.spirvSize;
-            smci.pCode=(const uint32*)s.spirvData;
+            smci.codeSize=(size_t)spirvSz;
+            smci.pCode=(const uint32*)spirvPtr;
             VkShaderModule mod=VK_NULL_HANDLE;
-            NK_VK_CHECK(vkCreateShaderModule(mDevice,&smci,nullptr,&mod));
+            const VkResult modRes = vkCreateShaderModule(mDevice,&smci,nullptr,&mod);
+            if (modRes != VK_SUCCESS || mod == VK_NULL_HANDLE) {
+                NK_VK_ERR("vkCreateShaderModule échoué (stage %d, err=%d)\n", i, (int)modRes);
+                shaderBuildFailed = true;
+                break;
+            }
             sh.stages.PushBack({mod,ToVkShaderStage(s.stage),s.entryPoint?s.entryPoint:"main"});
+        }
+        if (shaderBuildFailed || sh.stages.Empty()) {
+            for (auto& st : sh.stages) {
+                vkDestroyShaderModule(mDevice, st.module, nullptr);
+            }
+            return {};
         }
         uint64 hid=NextId(); mShaders[hid]=sh;
         NkShaderHandle h; h.id=hid; return h;
@@ -1390,28 +1460,43 @@ namespace nkentseu {
     }
 
     void NkVulkanDevice::SubmitAndPresent(NkICommandBuffer* cb) {
-        auto& frame=mFrames[mFrameIndex];
-        vkWaitForFences(mDevice,1,&frame.inFlightFence,VK_TRUE,UINT64_MAX);
-        vkResetFences(mDevice,1,&frame.inFlightFence);
+        if (!mFrameAcquired || mSwapchain == VK_NULL_HANDLE) return;
 
-        auto* vkcb=dynamic_cast<NkVulkanCommandBuffer*>(cb);
-        VkCommandBuffer cmdBuf=vkcb?vkcb->GetVkCommandBuffer():VK_NULL_HANDLE;
+        auto& frame = mFrames[mFrameIndex];
+        auto* vkcb = dynamic_cast<NkVulkanCommandBuffer*>(cb);
+        VkCommandBuffer cmdBuf = vkcb ? vkcb->GetVkCommandBuffer() : VK_NULL_HANDLE;
+        if (cmdBuf == VK_NULL_HANDLE) return;
 
-        VkPipelineStageFlags waitStage=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        // Fence must be unsignaled before vkQueueSubmit.
+        vkResetFences(mDevice, 1, &frame.inFlightFence);
+
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        si.waitSemaphoreCount=1; si.pWaitSemaphores=&frame.imageAvailable; si.pWaitDstStageMask=&waitStage;
-        si.commandBufferCount=1; si.pCommandBuffers=&cmdBuf;
-        si.signalSemaphoreCount=1; si.pSignalSemaphores=&frame.renderFinished;
-        vkQueueSubmit(mGraphicsQueue,1,&si,frame.inFlightFence);
+        si.waitSemaphoreCount = 1;
+        si.pWaitSemaphores = &frame.imageAvailable;
+        si.pWaitDstStageMask = &waitStage;
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &cmdBuf;
+        si.signalSemaphoreCount = 1;
+        si.pSignalSemaphores = &frame.renderFinished;
+        if (vkQueueSubmit(mGraphicsQueue, 1, &si, frame.inFlightFence) != VK_SUCCESS) {
+            return;
+        }
 
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-        pi.waitSemaphoreCount=1; pi.pWaitSemaphores=&frame.renderFinished;
-        pi.swapchainCount=1; pi.pSwapchains=&mSwapchain; pi.pImageIndices=&mCurrentImageIdx;
-        VkResult r=vkQueuePresentKHR(mPresentQueue,&pi);
-        if (r==VK_ERROR_OUT_OF_DATE_KHR||r==VK_SUBOPTIMAL_KHR) RecreateSwapchain(mWidth,mHeight);
+        pi.waitSemaphoreCount = 1;
+        pi.pWaitSemaphores = &frame.renderFinished;
+        pi.swapchainCount = 1;
+        pi.pSwapchains = &mSwapchain;
+        pi.pImageIndices = &mCurrentImageIdx;
+        VkResult r = vkQueuePresentKHR(mPresentQueue, &pi);
+        if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+            RecreateSwapchain(mWidth, mHeight);
+        }
 
-        // Serialize for stability with externally-owned command buffers reused every frame.
-        vkWaitForFences(mDevice,1,&frame.inFlightFence,VK_TRUE,UINT64_MAX);
+        // External command buffer is reused every frame. Keep submission serialized.
+        vkWaitForFences(mDevice, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+        mFrameSubmitted = true;
     }
 
     // =============================================================================
@@ -1446,16 +1531,65 @@ namespace nkentseu {
     // =============================================================================
     // Frame
     // =============================================================================
-    void NkVulkanDevice::BeginFrame(NkFrameContext& frame) {
-        auto& fd=mFrames[mFrameIndex];
-        vkWaitForFences(mDevice,1,&fd.inFlightFence,VK_TRUE,UINT64_MAX);
-        VkResult r=vkAcquireNextImageKHR(mDevice,mSwapchain,UINT64_MAX,fd.imageAvailable,VK_NULL_HANDLE,&mCurrentImageIdx);
-        if (r==VK_ERROR_OUT_OF_DATE_KHR) { RecreateSwapchain(mWidth,mHeight); }
-        frame.frameIndex=mFrameIndex; frame.frameNumber=mFrameNumber;
-        frame.frameFence = NkFenceHandle::Null();
+    bool NkVulkanDevice::BeginFrame(NkFrameContext& frame) {
+        if (mSwapchain == VK_NULL_HANDLE || mWidth == 0 || mHeight == 0) return false;
+
+        auto& fd = mFrames[mFrameIndex];
+        // Wait previous usage of this frame slot.
+        vkWaitForFences(mDevice, 1, &fd.inFlightFence, VK_TRUE, UINT64_MAX);
+
+        constexpr uint64 kAcquireTimeoutNs = 1000000000ull; // 1s
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            VkResult r = vkAcquireNextImageKHR(
+                mDevice,
+                mSwapchain,
+                kAcquireTimeoutNs,
+                fd.imageAvailable,
+                VK_NULL_HANDLE,
+                &mCurrentImageIdx);
+
+            if (r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR) {
+                frame.frameIndex = mFrameIndex;
+                frame.frameNumber = mFrameNumber;
+                frame.frameFence = NkFenceHandle::Null();
+                mFrameAcquired = true;
+                mFrameSubmitted = false;
+                return true;
+            }
+            if (r == VK_ERROR_OUT_OF_DATE_KHR) {
+                RecreateSwapchain(mWidth, mHeight);
+                continue;
+            }
+            return false;
+        }
+        return false;
     }
     void NkVulkanDevice::EndFrame(NkFrameContext&) {
-        mFrameIndex=(mFrameIndex+1)%MAX_FRAMES;
+        auto& frame = mFrames[mFrameIndex];
+
+        // If BeginFrame succeeded but rendering path aborted, consume the acquire semaphore
+        // and rebuild swapchain to avoid acquire starvation and signaled-semaphore reuse.
+        if (mFrameAcquired && !mFrameSubmitted && mSwapchain != VK_NULL_HANDLE) {
+            VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            si.waitSemaphoreCount = 1;
+            si.pWaitSemaphores = &frame.imageAvailable;
+            si.pWaitDstStageMask = &waitStage;
+            si.commandBufferCount = 0;
+            si.pCommandBuffers = nullptr;
+            si.signalSemaphoreCount = 0;
+            si.pSignalSemaphores = nullptr;
+            if (vkQueueSubmit(mGraphicsQueue, 1, &si, VK_NULL_HANDLE) == VK_SUCCESS) {
+                vkQueueWaitIdle(mGraphicsQueue);
+            }
+            if (mWidth > 0 && mHeight > 0) {
+                RecreateSwapchain(mWidth, mHeight);
+            }
+        }
+
+        mFrameAcquired = false;
+        mFrameSubmitted = false;
+        mFrameIndex = (mFrameIndex + 1) % MAX_FRAMES;
         ++mFrameNumber;
     }
     void NkVulkanDevice::OnResize(uint32 w, uint32 h) {

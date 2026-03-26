@@ -4,12 +4,17 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
-#include "NKImage/NkSVGDOM.h"
-#include <cstring>
-#include <cstdlib>
+#include "NKImage/Codecs/SVG/NkSVGDOM.h"
 #include <cstdio>
 #include <cmath>
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKMath/NkFunctions.h"
 namespace nkentseu {
+
+using namespace nkentseu::memory;
+using namespace nkentseu::math;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Table de noms de couleurs CSS (140 couleurs)
@@ -75,10 +80,10 @@ NkSVGPaint NkSVGPaint::Parse(const char* str, const NkSVGPaint& currentColor) no
     if(!str||!*str) return NkSVGPaint::None();
     while(*str==' ') ++str;
 
-    if(::strcmp(str,"none")==0||::strcmp(str,"transparent")==0)
+    if(NkStringView(str)=="none"||NkStringView(str)=="transparent")
         return NkSVGPaint::None();
-    if(::strcmp(str,"inherit")==0) return NkSVGPaint::Inherit();
-    if(::strcmp(str,"currentColor")==0) return currentColor;
+    if(NkStringView(str)=="inherit") return NkSVGPaint::Inherit();
+    if(NkStringView(str)=="currentColor") return currentColor;
 
     if(::strncmp(str,"url(#",5)==0||::strncmp(str,"url(\"#",6)==0){
         NkSVGPaint p; p.type=Type::URL;
@@ -96,7 +101,7 @@ NkSVGPaint NkSVGPaint::Parse(const char* str, const NkSVGPaint& currentColor) no
             if(c>='a'&&c<='f')return (uint8)(c-'a'+10);
             if(c>='A'&&c<='F')return (uint8)(c-'A'+10);
             return 0;};
-        const int32 len=(int32)::strlen(str);
+        const int32 len=(int32)NkStringView(str).Length();
         NkSVGPaint p; p.type=Type::Color;
         if(len>=8){
             p.r=static_cast<uint8>((h(str[0])<<4)|h(str[1]));
@@ -144,8 +149,8 @@ NkSVGPaint NkSVGPaint::Parse(const char* str, const NkSVGPaint& currentColor) no
         float hue=0,sat=0,lgt=0;
         ::sscanf(str+4,"%f,%f%%,%f%%",&hue,&sat,&lgt);
         sat/=100.f; lgt/=100.f;
-        const float c=(1.f-::fabsf(2*lgt-1))*sat;
-        const float x=c*(1.f-::fabsf(::fmodf(hue/60.f,2.f)-1.f));
+        const float c=(1.f-NkFabs(2*lgt-1))*sat;
+        const float x=c*(1.f-NkFabs(::fmodf(hue/60.f,2.f)-1.f));
         const float m=lgt-c/2.f;
         float r,g,b;
         if(hue<60){r=c;g=x;b=0;}else if(hue<120){r=x;g=c;b=0;}
@@ -161,7 +166,7 @@ NkSVGPaint NkSVGPaint::Parse(const char* str, const NkSVGPaint& currentColor) no
 
     // Noms CSS
     for(int32 i=0;kCSSColors[i].name;++i){
-        if(::strcmp(str,kCSSColors[i].name)==0){
+        if(NkStringView(str)==NkStringView(kCSSColors[i].name)){
             NkSVGPaint p; p.type=Type::Color;
             p.r=(kCSSColors[i].rgb>>16)&0xFF;
             p.g=(kCSSColors[i].rgb>>8)&0xFF;
@@ -178,8 +183,8 @@ NkSVGPaint NkSVGPaint::Parse(const char* str, const NkSVGPaint& currentColor) no
 // ─────────────────────────────────────────────────────────────────────────────
 
 NkSVGMatrix NkSVGMatrix::Rotate(float deg,float cx,float cy) noexcept {
-    const float rad=deg*3.14159265f/180.f;
-    const float co=::cosf(rad), si=::sinf(rad);
+    const float rad=deg*math::constants::kPiF/180.f;
+    const float co=NkCos(rad), si=NkSin(rad);
     NkSVGMatrix r{co,si,-si,co,0,0};
     if(cx!=0||cy!=0){
         r.e=cx*(1-co)+cy*si;
@@ -195,7 +200,7 @@ NkSVGMatrix NkSVGMatrix::SkewY(float deg) noexcept {
 }
 NkSVGMatrix NkSVGMatrix::Inverse() const noexcept {
     const float det=a*d-b*c;
-    if(::fabsf(det)<1e-10f) return Identity();
+    if(NkFabs(det)<1e-10f) return Identity();
     const float id=1.f/det;
     return {d*id,-b*id,-c*id,a*id,(c*f-d*e)*id,(b*e-a*f)*id};
 }
@@ -277,7 +282,7 @@ NkSVGMatrix NkSVGViewBox::ToMatrix(float vpW, float vpH) const noexcept {
     const float sx=vpW/w, sy=vpH/h;
     float scale,tx=0,ty=0;
     if(align==Align::None){ scale=1; return NkSVGMatrix::Scale(sx,sy)*NkSVGMatrix::Translate(-x,-y); }
-    scale=meet?::fminf(sx,sy):::fmaxf(sx,sy);
+    scale=meet? ::fminf(sx,sy) : ::fmaxf(sx,sy);
     const float scaledW=w*scale, scaledH=h*scale;
     switch(align){
         case Align::XMinYMin: tx=0;              ty=0;              break;
@@ -307,17 +312,17 @@ float NkSVGStyle::ParseLength(const char* str, float vpW, float vpH,
     const char* unit=end;
     while(*unit==' ') ++unit;
     if(*unit==0)          return v;           // px implicite
-    if(::strcmp(unit,"px")==0)  return v;
-    if(::strcmp(unit,"pt")==0)  return v*1.3333f;   // 1pt = 1.333px à 96dpi
-    if(::strcmp(unit,"mm")==0)  return v*3.7795f;   // 1mm = 3.7795px à 96dpi
-    if(::strcmp(unit,"cm")==0)  return v*37.795f;
-    if(::strcmp(unit,"in")==0)  return v*96.f;
-    if(::strcmp(unit,"em")==0)  return v*fontSize;
-    if(::strcmp(unit,"ex")==0)  return v*fontSize*0.5f;
-    if(::strcmp(unit,"rem")==0) return v*16.f;
+    if(NkStringView(unit)=="px")  return v;
+    if(NkStringView(unit)=="pt")  return v*1.3333f;   // 1pt = 1.333px à 96dpi
+    if(NkStringView(unit)=="mm")  return v*3.7795f;   // 1mm = 3.7795px à 96dpi
+    if(NkStringView(unit)=="cm")  return v*37.795f;
+    if(NkStringView(unit)=="in")  return v*96.f;
+    if(NkStringView(unit)=="em")  return v*fontSize;
+    if(NkStringView(unit)=="ex")  return v*fontSize*0.5f;
+    if(NkStringView(unit)=="rem") return v*16.f;
     if(*unit=='%'){
         // Dépend du contexte — on utilise la diagonale pour les cas ambigus
-        const float diag=::sqrtf(vpW*vpW+vpH*vpH)/::sqrtf(2.f);
+        const float diag=NkSqrt(vpW*vpW+vpH*vpH)/NkSqrt(2.f);
         return v*diag/100.f;
     }
     return v;
@@ -334,32 +339,32 @@ void NkSVGStyle::ApplyProperty(const char* prop, const char* value,
     // Trim value
     while(*value==' ') ++value;
 
-    if(::strcmp(prop,"fill")==0){
+    if(NkStringView(prop)=="fill"){
         out.fill=NkSVGPaint::Parse(value);
-    } else if(::strcmp(prop,"stroke")==0){
+    } else if(NkStringView(prop)=="stroke"){
         out.stroke=NkSVGPaint::Parse(value);
-    } else if(::strcmp(prop,"stroke-width")==0){
+    } else if(NkStringView(prop)=="stroke-width"){
         out.strokeWidth=ParseLength(value,vpW,vpH,out.fontSize);
-    } else if(::strcmp(prop,"stroke-miterlimit")==0){
+    } else if(NkStringView(prop)=="stroke-miterlimit"){
         out.strokeMiterLimit=::strtof(value,nullptr);
-    } else if(::strcmp(prop,"opacity")==0){
+    } else if(NkStringView(prop)=="opacity"){
         out.opacity=::strtof(value,nullptr);
-    } else if(::strcmp(prop,"fill-opacity")==0){
+    } else if(NkStringView(prop)=="fill-opacity"){
         out.fillOpacity=::strtof(value,nullptr);
-    } else if(::strcmp(prop,"stroke-opacity")==0){
+    } else if(NkStringView(prop)=="stroke-opacity"){
         out.strokeOpacity=::strtof(value,nullptr);
-    } else if(::strcmp(prop,"fill-rule")==0){
-        out.fillRule=(::strncmp(value,"evenodd",7)==0)?NkSVGFillRule::EvenOdd:NkSVGFillRule::NonZero;
-    } else if(::strcmp(prop,"stroke-linecap")==0){
-        if(::strcmp(value,"round")==0)  out.lineCap=NkSVGLineCap::Round;
-        else if(::strcmp(value,"square")==0) out.lineCap=NkSVGLineCap::Square;
-        else out.lineCap=NkSVGLineCap::Butt;
-    } else if(::strcmp(prop,"stroke-linejoin")==0){
-        if(::strcmp(value,"round")==0) out.lineJoin=NkSVGLineJoin::Round;
-        else if(::strcmp(value,"bevel")==0) out.lineJoin=NkSVGLineJoin::Bevel;
-        else out.lineJoin=NkSVGLineJoin::Miter;
-    } else if(::strcmp(prop,"stroke-dasharray")==0){
-        if(::strcmp(value,"none")==0){out.dashCount=0;return;}
+    } else if(NkStringView(prop)=="fill-rule"){
+        out.fillRule=(::strncmp(value,"evenodd",7)==0)?NkSVGFillRule::NK_EVEN_ODD:NkSVGFillRule::NK_NON_ZERO;
+    } else if(NkStringView(prop)=="stroke-linecap"){
+        if(NkStringView(value)=="round")  out.lineCap=NkSVGLineCap::NK_ROUND;
+        else if(NkStringView(value)=="square") out.lineCap=NkSVGLineCap::NK_SQUARE;
+        else out.lineCap=NkSVGLineCap::NK_BUTT;
+    } else if(NkStringView(prop)=="stroke-linejoin"){
+        if(NkStringView(value)=="round") out.lineJoin=NkSVGLineJoin::NK_ROUND;
+        else if(NkStringView(value)=="bevel") out.lineJoin=NkSVGLineJoin::NK_BEVEL;
+        else out.lineJoin=NkSVGLineJoin::NK_MITER;
+    } else if(NkStringView(prop)=="stroke-dasharray"){
+        if(NkStringView(value)=="none"){out.dashCount=0;return;}
         const char* p=value; out.dashCount=0;
         while(*p&&out.dashCount<8){
             while(*p==' '||*p==',') ++p;
@@ -367,23 +372,23 @@ void NkSVGStyle::ApplyProperty(const char* prop, const char* value,
             if(e==p) break;
             out.dashArray[out.dashCount++]=v; p=e;
         }
-    } else if(::strcmp(prop,"stroke-dashoffset")==0){
+    } else if(NkStringView(prop)=="stroke-dashoffset"){
         out.dashOffset=ParseLength(value,vpW,vpH,out.fontSize);
-    } else if(::strcmp(prop,"font-size")==0){
+    } else if(NkStringView(prop)=="font-size"){
         out.fontSize=ParseLength(value,vpW,vpH,out.fontSize);
-    } else if(::strcmp(prop,"font-family")==0){
+    } else if(NkStringView(prop)=="font-family"){
         ::strncpy(out.fontFamily,value,sizeof(out.fontFamily)-1);
-    } else if(::strcmp(prop,"font-weight")==0){
-        if(::strcmp(value,"bold")==0||::strcmp(value,"bolder")==0) out.fontWeight=700;
-        else if(::strcmp(value,"normal")==0) out.fontWeight=400;
+    } else if(NkStringView(prop)=="font-weight"){
+        if(NkStringView(value)=="bold"||NkStringView(value)=="bolder") out.fontWeight=700;
+        else if(NkStringView(value)=="normal") out.fontWeight=400;
         else out.fontWeight=::strtof(value,nullptr);
-    } else if(::strcmp(prop,"display")==0){
-        out.display=(::strcmp(value,"none")==0)?NkSVGDisplay::None:NkSVGDisplay::Inline;
-    } else if(::strcmp(prop,"visibility")==0){
-        if(::strcmp(value,"hidden")==0)   out.visibility=NkSVGVisibility::Hidden;
-        else if(::strcmp(value,"collapse")==0) out.visibility=NkSVGVisibility::Collapse;
-        else out.visibility=NkSVGVisibility::Visible;
-    } else if(::strcmp(prop,"clip-path")==0){
+    } else if(NkStringView(prop)=="display"){
+        out.display=(NkStringView(value)=="none")?NkSVGDisplay::NK_NONE:NkSVGDisplay::NK_DISPLAY_INLINE;
+    } else if(NkStringView(prop)=="visibility"){
+        if(NkStringView(value)=="hidden")   out.visibility=NkSVGVisibility::NK_HIDDEN;
+        else if(NkStringView(value)=="collapse") out.visibility=NkSVGVisibility::NK_COLLAPSE;
+        else out.visibility=NkSVGVisibility::NK_VISIBLE;
+    } else if(NkStringView(prop)=="clip-path"){
         // url(#id)
         if(::strncmp(value,"url(#",5)==0){
             const char* id=value+5; int32 i=0;
@@ -462,12 +467,12 @@ NkSVGStyle NkSVGStyle::Compute(const NkSVGStyle& parent,
 void NkSVGGradient::Sample(float t, uint8& R,uint8& G,uint8& B,uint8& A) const noexcept {
     if(!firstStop||numStops==0){R=G=B=0;A=255;return;}
     // Gestion du spread method
-    if(spread==NkSVGSpreadMethod::Repeat){
-        t=t-::floorf(t);
-    } else if(spread==NkSVGSpreadMethod::Reflect){
-        t=t-::floorf(t);
-        if(static_cast<int32>(::floorf(t/0.5f))&1) t=1.f-t;
-        t=t-::floorf(t);
+    if(spread==NkSVGSpreadMethod::NK_REPEAT){
+        t=t-NkFloor(t);
+    } else if(spread==NkSVGSpreadMethod::NK_REFLECT){
+        t=t-NkFloor(t);
+        if(static_cast<int32>(NkFloor(t/0.5f))&1) t=1.f-t;
+        t=t-NkFloor(t);
     } else {
         if(t<0) t=0; if(t>1) t=1;
     }
@@ -506,7 +511,7 @@ float NkSVGGradient::LinearT(float x, float y) const noexcept {
 float NkSVGGradient::RadialT(float x, float y) const noexcept {
     // Distance au focal point normalisée par le rayon
     const float dx=x-fx, dy=y-fy;
-    return ::sqrtf(dx*dx+dy*dy)/r;
+    return NkSqrt(dx*dx+dy*dy)/r;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -540,19 +545,19 @@ void NkSVGDefs::RegisterElement(const char* id, NkXMLNode* node) noexcept {
 NkSVGGradient* NkSVGDefs::FindGradient(const char* id) const noexcept {
     if(!id) return nullptr;
     for(GradEntry* e=grads[Hash(id)];e;e=e->next)
-        if(::strcmp(e->id,id)==0) return e->grad;
+        if(NkStringView(e->id)==NkStringView(id)) return e->grad;
     return nullptr;
 }
 NkSVGClipPath* NkSVGDefs::FindClipPath(const char* id) const noexcept {
     if(!id) return nullptr;
     for(ClipEntry* e=clips[Hash(id)];e;e=e->next)
-        if(::strcmp(e->id,id)==0) return e->clip;
+        if(NkStringView(e->id)==NkStringView(id)) return e->clip;
     return nullptr;
 }
 NkXMLNode* NkSVGDefs::FindElement(const char* id) const noexcept {
     if(!id) return nullptr;
     for(ElemEntry* e=elems[Hash(id)];e;e=e->next)
-        if(::strcmp(e->id,id)==0) return e->node;
+        if(NkStringView(e->id)==NkStringView(id)) return e->node;
     return nullptr;
 }
 
@@ -570,7 +575,7 @@ void NkSVGDefs::ResolveHrefs() noexcept {
                 g->numStops=parent->numStops;
             }
             // Hérite de la géométrie si non spécifiée
-            if(g->type==NkSVGGradientType::Linear&&g->x1==0&&g->y1==0&&g->x2==0&&g->y2==0){
+            if(g->type==NkSVGGradientType::NK_LINEAR&&g->x1==0&&g->y1==0&&g->x2==0&&g->y2==0){
                 g->x1=parent->x1; g->y1=parent->y1;
                 g->x2=parent->x2; g->y2=parent->y2;
             }
@@ -648,23 +653,23 @@ void NkSVGDOMBuilder::ParseGeometry(NkXMLNode* node, NkSVGElement* elem,
     const char* tag=node->localName;
     if(!tag) return;
 
-    if(::strcmp(tag,"rect")==0){
+    if(NkStringView(tag)=="rect"){
         elem->x=f("x");elem->y=f("y");elem->width=f("width");elem->height=f("height");
         elem->rx=f("rx");elem->ry=f("ry");
         if(elem->rx>0&&elem->ry==0) elem->ry=elem->rx;
         if(elem->ry>0&&elem->rx==0) elem->rx=elem->ry;
-    } else if(::strcmp(tag,"circle")==0){
+    } else if(NkStringView(tag)=="circle"){
         elem->cx=f("cx");elem->cy=f("cy");elem->r=f("r");
-    } else if(::strcmp(tag,"ellipse")==0){
+    } else if(NkStringView(tag)=="ellipse"){
         elem->cx=f("cx");elem->cy=f("cy");elem->rx2=f("rx");elem->ry2=f("ry");
-    } else if(::strcmp(tag,"line")==0){
+    } else if(NkStringView(tag)=="line"){
         elem->x1=f("x1");elem->y1=f("y1");elem->x2=f("x2");elem->y2=f("y2");
-    } else if(::strcmp(tag,"polyline")||::strcmp(tag,"polygon")==0){
+    } else if(NkStringView(tag)=="polyline"||NkStringView(tag)=="polygon"){
         s("points",elem->points,sizeof(elem->points));
-    } else if(::strcmp(tag,"path")==0){
+    } else if(NkStringView(tag)=="path"){
         s("d",elem->d,sizeof(elem->d));
-    } else if(::strcmp(tag,"svg")==0||::strcmp(tag,"symbol")==0||
-              ::strcmp(tag,"image")==0||::strcmp(tag,"use")==0){
+    } else if(NkStringView(tag)=="svg"||NkStringView(tag)=="symbol"||
+              NkStringView(tag)=="image"||NkStringView(tag)=="use"){
         elem->x=f("x");elem->y=f("y");
         // width/height en % ou valeur absolue
         const char* wv=node->GetAttr("width");
@@ -677,7 +682,7 @@ void NkSVGDOMBuilder::ParseGeometry(NkXMLNode* node, NkSVGElement* elem,
             char* e; float v=::strtof(hv,&e);
             elem->height=(*e=='%')?v*vpH/100.f:ParseSVGLength(hv,vpW,vpH);
         }
-    } else if(::strcmp(tag,"text")==0){
+    } else if(NkStringView(tag)=="text"){
         elem->x=f("x");elem->y=f("y");
     }
 }
@@ -690,8 +695,8 @@ void NkSVGDOMBuilder::BuildGradient(NkXMLNode* node, BuildCtx& ctx) noexcept {
     NkSVGGradient* g=ctx.arena->Alloc<NkSVGGradient>();
     if(!g) return;
     const char* tag=node->localName;
-    g->type=(tag&&::strcmp(tag,"radialGradient")==0)?
-            NkSVGGradientType::Radial:NkSVGGradientType::Linear;
+    g->type=(tag&&NkStringView(tag)=="radialGradient")?
+            NkSVGGradientType::NK_RADIAL:NkSVGGradientType::NK_LINEAR;
 
     // ID
     const char* id=node->GetAttr("id");
@@ -707,14 +712,14 @@ void NkSVGDOMBuilder::BuildGradient(NkXMLNode* node, BuildCtx& ctx) noexcept {
 
     // gradientUnits
     const char* gu=node->GetAttr("gradientUnits");
-    g->units=(gu&&::strcmp(gu,"userSpaceOnUse")==0)?
-             NkSVGGradientUnits::UserSpace:NkSVGGradientUnits::ObjectBoundingBox;
+    g->units=(gu&&NkStringView(gu)=="userSpaceOnUse")?
+             NkSVGGradientUnits::NK_USER_SPACE:NkSVGGradientUnits::NK_OBJECT_BOUNDING_BOX;
 
     // spreadMethod
     const char* sm=node->GetAttr("spreadMethod");
     if(sm){
-        if(::strcmp(sm,"reflect")==0) g->spread=NkSVGSpreadMethod::Reflect;
-        else if(::strcmp(sm,"repeat")==0) g->spread=NkSVGSpreadMethod::Repeat;
+        if(NkStringView(sm)=="reflect") g->spread=NkSVGSpreadMethod::NK_REFLECT;
+        else if(NkStringView(sm)=="repeat") g->spread=NkSVGSpreadMethod::NK_REPEAT;
     }
 
     // gradientTransform
@@ -724,7 +729,7 @@ void NkSVGDOMBuilder::BuildGradient(NkXMLNode* node, BuildCtx& ctx) noexcept {
     // Géométrie
     auto gf=[&](const char* n,float def)->float{
         const char* v=node->GetAttr(n); return v?::strtof(v,nullptr):def;};
-    if(g->type==NkSVGGradientType::Linear){
+    if(g->type==NkSVGGradientType::NK_LINEAR){
         const char* v=node->GetAttr("x1"); if(v){char*e;float f=::strtof(v,&e);g->x1=(*e=='%')?f/100.f:f;}else g->x1=0.f;
         const char* v2=node->GetAttr("y1");if(v2){char*e;float f=::strtof(v2,&e);g->y1=(*e=='%')?f/100.f:f;}else g->y1=0.f;
         const char* v3=node->GetAttr("x2");if(v3){char*e;float f=::strtof(v3,&e);g->x2=(*e=='%')?f/100.f:f;}else g->x2=1.f;
@@ -741,8 +746,8 @@ void NkSVGDOMBuilder::BuildGradient(NkXMLNode* node, BuildCtx& ctx) noexcept {
     // Stops
     NkSVGGradientStop* lastStop=nullptr;
     for(NkXMLNode* c=node->firstChild;c;c=c->nextSibling){
-        if(c->type!=NkXMLNodeType::Element||!c->localName) continue;
-        if(::strcmp(c->localName,"stop")!=0) continue;
+        if(c->type!=NkXMLNodeType::NK_ELEMENT||!c->localName) continue;
+        if(NkStringView(c->localName)!="stop") continue;
         NkSVGGradientStop* stop=ctx.arena->Alloc<NkSVGGradientStop>();
         if(!stop) break;
         // offset
@@ -778,11 +783,11 @@ void NkSVGDOMBuilder::BuildClipPath(NkXMLNode* node, BuildCtx& ctx) noexcept {
 
 void NkSVGDOMBuilder::BuildDefs(NkXMLNode* defsNode, BuildCtx& ctx) noexcept {
     for(NkXMLNode* c=defsNode->firstChild;c;c=c->nextSibling){
-        if(c->type!=NkXMLNodeType::Element||!c->localName) continue;
+        if(c->type!=NkXMLNodeType::NK_ELEMENT||!c->localName) continue;
         const char* tag=c->localName;
-        if(::strcmp(tag,"linearGradient")==0||::strcmp(tag,"radialGradient")==0)
+        if(NkStringView(tag)=="linearGradient"||NkStringView(tag)=="radialGradient")
             BuildGradient(c,ctx);
-        else if(::strcmp(tag,"clipPath")==0)
+        else if(NkStringView(tag)=="clipPath")
             BuildClipPath(c,ctx);
         // Tout élément avec un id peut être référencé par <use>
         const char* id=c->GetAttr("id");
@@ -797,12 +802,12 @@ void NkSVGDOMBuilder::BuildDefs(NkXMLNode* defsNode, BuildCtx& ctx) noexcept {
 NkSVGElement* NkSVGDOMBuilder::BuildElement(NkXMLNode* node, NkSVGElement* parent,
                                               BuildCtx& ctx) noexcept
 {
-    if(!node||node->type!=NkXMLNodeType::Element) return nullptr;
+    if(!node||node->type!=NkXMLNodeType::NK_ELEMENT) return nullptr;
     const char* tag=node->localName;
     if(!tag) return nullptr;
 
     // <defs> : traitement spécial
-    if(::strcmp(tag,"defs")==0){
+    if(NkStringView(tag)=="defs"){
         BuildCtx defsCtx=ctx; defsCtx.inDefs=true;
         BuildDefs(node,defsCtx);
         // Enregistre aussi les éléments avec id directement dans le corps
@@ -810,8 +815,8 @@ NkSVGElement* NkSVGDOMBuilder::BuildElement(NkXMLNode* node, NkSVGElement* paren
     }
 
     // Ignore les éléments non-rendus
-    if(::strcmp(tag,"title")==0||::strcmp(tag,"desc")==0||
-       ::strcmp(tag,"metadata")==0) return nullptr;
+    if(NkStringView(tag)=="title"||NkStringView(tag)=="desc"||
+       NkStringView(tag)=="metadata") return nullptr;
 
     NkSVGElement* elem=AllocElem(*ctx.arena);
     if(!elem) return nullptr;
@@ -854,7 +859,7 @@ NkSVGElement* NkSVGDOMBuilder::BuildElement(NkXMLNode* node, NkSVGElement* paren
     childCtx.currentCTM=elem->ctm;
 
     // Ajuste le viewport pour svg/symbol imbriqués
-    if(::strcmp(tag,"svg")==0||::strcmp(tag,"symbol")==0){
+    if(NkStringView(tag)=="svg"||NkStringView(tag)=="symbol"){
         if(elem->width>0) childCtx.vpW=elem->width;
         if(elem->height>0) childCtx.vpH=elem->height;
         // Applique le viewBox si présent
@@ -865,7 +870,7 @@ NkSVGElement* NkSVGDOMBuilder::BuildElement(NkXMLNode* node, NkSVGElement* paren
     }
 
     // <use> : instancie l'élément référencé
-    if(::strcmp(tag,"use")==0){
+    if(NkStringView(tag)=="use"){
         const char* href=node->GetAttr("xlink:href");
         if(!href) href=node->GetAttr("href");
         if(href){
@@ -928,7 +933,7 @@ bool NkSVGDOMBuilder::Build(NkXMLDocument& xmlDoc, NkSVGDOM& dom,
     if(!svgNode->Is("svg")){
         NkXMLNode* found=nullptr;
         xmlDoc.ForEach([](NkXMLNode* n, void* ud)->bool{
-            if(n->type==NkXMLNodeType::Element&&n->Is("svg")){
+            if(n->type==NkXMLNodeType::NK_ELEMENT&&n->Is("svg")){
                 *static_cast<NkXMLNode**>(ud)=n; return false;}
             return true;},&found);
         if(!found) return false;
@@ -940,7 +945,7 @@ bool NkSVGDOMBuilder::Build(NkXMLDocument& xmlDoc, NkSVGDOM& dom,
 
     // Premier scan pour les <defs> globaux (avant de construire l'arbre visuel)
     for(NkXMLNode* c=svgNode->firstChild;c;c=c->nextSibling){
-        if(c->type==NkXMLNodeType::Element&&c->Is("defs")){
+        if(c->type==NkXMLNodeType::NK_ELEMENT&&c->Is("defs")){
             BuildCtx preCtx;
             preCtx.defs=&dom.defs; preCtx.arena=&dom.arena;
             preCtx.vpW=dom.viewportW; preCtx.vpH=dom.viewportH;
@@ -965,8 +970,8 @@ bool NkSVGDOMBuilder::Build(NkXMLDocument& xmlDoc, NkSVGDOM& dom,
     ctx.currentStyle.fillOpacity=1.f;
     ctx.currentStyle.strokeOpacity=1.f;
     ctx.currentStyle.fontSize=16.f;
-    ctx.currentStyle.display=NkSVGDisplay::Inline;
-    ctx.currentStyle.visibility=NkSVGVisibility::Visible;
+    ctx.currentStyle.display=NkSVGDisplay::NK_DISPLAY_INLINE;
+    ctx.currentStyle.visibility=NkSVGVisibility::NK_VISIBLE;
 
     // CTM racine : applique viewBox si présent
     ctx.currentCTM=NkSVGMatrix::Identity();

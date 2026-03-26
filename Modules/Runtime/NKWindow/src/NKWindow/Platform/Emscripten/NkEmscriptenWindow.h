@@ -4,7 +4,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkWindowId.h"
+#include "NKEvent/NkWindowId.h"
 #include "NKWindow/Core/NkSurfaceHint.h"
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN) || defined(__EMSCRIPTEN__)

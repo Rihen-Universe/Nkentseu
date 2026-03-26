@@ -3,9 +3,12 @@
  * @Brief   Codec QOI (Quite OK Image Format) — lecture et écriture.
  *          Spec: https://qoiformat.org/
  */
-#include "NKImage/NkQOICodec.h"
-#include <cstring>
+#include "NKImage/Codecs/QOI/NkQOICodec.h"
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
 namespace nkentseu {
+
+using namespace nkentseu::memory;
 
 static constexpr uint8  QOI_OP_INDEX = 0x00;
 static constexpr uint8  QOI_OP_DIFF  = 0x40;
@@ -28,7 +31,7 @@ NkImage* NkQOICodec::Decode(const uint8* data, usize size) noexcept {
     (void)colorSpace;
     if (w==0||h==0||channels<3||channels>4) return nullptr;
 
-    NkPixelFormat fmt = channels==4 ? NkPixelFormat::RGBA32 : NkPixelFormat::RGB24;
+    NkImagePixelFormat fmt = channels==4 ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24;
     NkImage* img = NkImage::Alloc(w, h, fmt);
     if (!img) return nullptr;
 
@@ -47,7 +50,7 @@ NkImage* NkQOICodec::Decode(const uint8* data, usize size) noexcept {
                 } else if (b1 == QOI_OP_RGBA) {
                     px[0]=s.ReadU8(); px[1]=s.ReadU8(); px[2]=s.ReadU8(); px[3]=s.ReadU8();
                 } else if ((b1 & QOI_MASK2) == QOI_OP_INDEX) {
-                    ::memcpy(px, index[b1&0x3F], 4);
+                    NkCopy(px, index[b1&0x3F], 4);
                 } else if ((b1 & QOI_MASK2) == QOI_OP_DIFF) {
                     px[0] += ((b1>>4)&3)-2; px[1] += ((b1>>2)&3)-2; px[2] += (b1&3)-2;
                 } else if ((b1 & QOI_MASK2) == QOI_OP_LUMA) {
@@ -57,7 +60,7 @@ NkImage* NkQOICodec::Decode(const uint8* data, usize size) noexcept {
                 } else { // RUN
                     run = (b1&0x3F);
                 }
-                ::memcpy(index[QOI_HASH(px[0],px[1],px[2],px[3])], px, 4);
+                NkCopy(index[QOI_HASH(px[0],px[1],px[2],px[3])], px, 4);
             }
             uint8* dst = row + x * channels;
             dst[0]=px[0]; dst[1]=px[1]; dst[2]=px[2];
@@ -72,7 +75,7 @@ bool NkQOICodec::Encode(const NkImage& img, uint8*& out, usize& outSize) noexcep
     const NkImage* src = &img;
     NkImage* conv = nullptr;
     if (img.Channels()!=3&&img.Channels()!=4) {
-        conv=img.Convert(NkPixelFormat::RGB24);
+        conv=img.Convert(NkImagePixelFormat::NK_RGB24);
         if(!conv) return false; src=conv;
     }
     const int32 w=src->Width(),h=src->Height(),ch=src->Channels();
@@ -96,16 +99,16 @@ bool NkQOICodec::Encode(const NkImage& img, uint8*& out, usize& outSize) noexcep
             const uint8* p = row + x*ch;
             uint8 px[4]={p[0],p[1],p[2],ch==4?p[3]:uint8(255)};
 
-            if (::memcmp(px,prev,4)==0) {
+            if (NkCompare(px,prev,4)==0) {
                 ++run;
                 if (run==62||( x==w-1&&y==h-1)) flush();
             } else {
                 flush();
                 const uint32 hi = QOI_HASH(px[0],px[1],px[2],px[3]);
-                if (::memcmp(index[hi],px,4)==0) {
+                if (NkCompare(index[hi],px,4)==0) {
                     s.WriteU8(static_cast<uint8>(QOI_OP_INDEX|hi));
                 } else {
-                    ::memcpy(index[hi],px,4);
+                    NkCopy(index[hi],px,4);
                     if (px[3]==prev[3]) {
                         const int32 dr=px[0]-prev[0],dg=px[1]-prev[1],db=px[2]-prev[2];
                         const int32 drdg=dr-dg, dbdg=db-dg;
@@ -123,7 +126,7 @@ bool NkQOICodec::Encode(const NkImage& img, uint8*& out, usize& outSize) noexcep
                         s.WriteU8(px[0]);s.WriteU8(px[1]);s.WriteU8(px[2]);s.WriteU8(px[3]);
                     }
                 }
-                ::memcpy(prev,px,4);
+                NkCopy(prev,px,4);
             }
         }
     }

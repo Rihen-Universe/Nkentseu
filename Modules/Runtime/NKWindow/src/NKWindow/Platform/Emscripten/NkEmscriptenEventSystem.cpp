@@ -7,12 +7,12 @@
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkKeyboardEvent.h"
-#include "NKWindow/Events/NkMouseEvent.h"
-#include "NKWindow/Events/NkTouchEvent.h"
-#include "NKWindow/Events/NkWindowEvent.h"
-#include "NKWindow/Events/NkKeycodeMap.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkKeyboardEvent.h"
+#include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkTouchEvent.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkKeycodeMap.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenDropTarget.h"
@@ -607,6 +607,9 @@ namespace nkentseu {
             return true;
         }
 
+        mData = new NkEventSystemData;
+        if (mData == nullptr) return false;
+
         mTotalEventCount = 0;
         {
             NkScopedSpinLock lock(mQueueMutex);
@@ -669,6 +672,9 @@ namespace nkentseu {
         mPumping = false;
         mPumpThreadId = 0;
         mReady = false;
+
+        delete mData;
+        mData = nullptr;
     }
 
     void NkEventSystem::PumpOS() {

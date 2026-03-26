@@ -19,9 +19,11 @@ namespace nkentseu {
         if (mDeferred) { mDeferred->Release(); mDeferred = nullptr; }
     }
 
-    void NkDirectX11CommandBuffer::Begin() {
+    bool NkDirectX11CommandBuffer::Begin() {
+        if (!mDeferred) return false;
         if (mCmdList) { mCmdList->Release(); mCmdList = nullptr; }
         // Le contexte différé est déjà prêt à enregistrer après CreateDeferredContext
+        return true;
     }
 
     void NkDirectX11CommandBuffer::End() {
@@ -40,11 +42,12 @@ namespace nkentseu {
     // =============================================================================
     // Render Pass
     // =============================================================================
-    void NkDirectX11CommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/,
+    bool NkDirectX11CommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/,
                                                 NkFramebufferHandle fb,
                                                 const NkRect2D& area) {
+        if (!mDeferred || !fb.IsValid() || area.width <= 0 || area.height <= 0) return false;
         auto* fbo = mDev->GetFBO(fb.id);
-        if (!fbo) return;
+        if (!fbo) return false;
 
         mDeferred->OMSetRenderTargets(fbo->rtvCount, fbo->rtvs, fbo->dsv);
 
@@ -59,6 +62,7 @@ namespace nkentseu {
         D3D11_VIEWPORT vp{ (float)area.x, (float)area.y,
                             (float)area.width, (float)area.height, 0.f, 1.f };
         mDeferred->RSSetViewports(1, &vp);
+        return true;
     }
 
     // =============================================================================
@@ -150,6 +154,14 @@ namespace nkentseu {
                     if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
                     break;
                 case NkDX11DescSet::Slot::Sampler:
+                    mDeferred->VSSetSamplers(slot, 1, &s.ss);
+                    mDeferred->PSSetSamplers(slot, 1, &s.ss);
+                    mDeferred->CSSetSamplers(slot, 1, &s.ss);
+                    break;
+                case NkDX11DescSet::Slot::TextureAndSampler:
+                    mDeferred->VSSetShaderResources(slot, 1, &s.srv);
+                    mDeferred->PSSetShaderResources(slot, 1, &s.srv);
+                    mDeferred->CSSetShaderResources(slot, 1, &s.srv);
                     mDeferred->VSSetSamplers(slot, 1, &s.ss);
                     mDeferred->PSSetSamplers(slot, 1, &s.ss);
                     mDeferred->CSSetSamplers(slot, 1, &s.ss);
@@ -298,3 +310,5 @@ namespace nkentseu {
 
 } // namespace nkentseu
 #endif // NK_RHI_DX11_ENABLED
+
+

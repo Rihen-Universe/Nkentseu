@@ -4,10 +4,10 @@
 // ============================================================================
 
 #include "NKWindow/Core/NkContext.h"
-#include "NKWindow/Core/NkEvents.h"
+#include "NKWindow/Core/NkEvent.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKWindow/Core/NkWindow.h"
-#include "NKWindow/Events/NkWindowEvent.h"
+#include "NKEvent/NkWindowEvent.h"
 #include "NKLogger/NkLog.h"
 
 namespace {
@@ -101,10 +101,8 @@ int nkmain(const nkentseu::NkEntryState&) {
         return -3;
     }
 
-    NkGLClearColorFn glClearColorFn =
-        reinterpret_cast<NkGLClearColorFn>(NkContextGetProcAddress(context, "glClearColor"));
-    NkGLClearFn glClearFn =
-        reinterpret_cast<NkGLClearFn>(NkContextGetProcAddress(context, "glClear"));
+    NkGLClearColorFn glClearColorFn = reinterpret_cast<NkGLClearColorFn>(NkContextGetProcAddress(context, "glClearColor"));
+    NkGLClearFn glClearFn = reinterpret_cast<NkGLClearFn>(NkContextGetProcAddress(context, "glClear"));
 
     if (!glClearColorFn || !glClearFn) {
         logger.Error("[main10] Missing OpenGL symbols (glClearColor/glClear).");

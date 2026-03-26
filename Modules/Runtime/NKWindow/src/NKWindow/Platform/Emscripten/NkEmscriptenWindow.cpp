@@ -10,7 +10,7 @@
 #include "NKWindow/Platform/Emscripten/NkEmscriptenDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKCore/NkAtomic.h"
 #include "NKMath/NkFunctions.h"
 

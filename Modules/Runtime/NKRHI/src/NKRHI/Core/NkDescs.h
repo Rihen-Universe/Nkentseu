@@ -40,6 +40,11 @@ namespace nkentseu {
                     NkBindFlags::NK_INDEX_BUFFER, data};
         }
 
+        static NkBufferDesc IndexDynamic(uint64 sz) {
+            return {sz, NkBufferType::NK_INDEX, NkResourceUsage::NK_UPLOAD,
+                    NkBindFlags::NK_INDEX_BUFFER};
+        }
+
         static NkBufferDesc Uniform(uint64 sz) {
             return {sz, NkBufferType::NK_UNIFORM, NkResourceUsage::NK_UPLOAD,
                     NkBindFlags::NK_UNIFORM_BUFFER};
@@ -304,8 +309,7 @@ namespace nkentseu {
         const char*   glslSource  = nullptr;   // GLSL pour OpenGL
         const char*   hlslSource  = nullptr;   // HLSL pour DX11/DX12
         const char*   mslSource   = nullptr;   // MSL pour Metal
-        const void*   spirvData   = nullptr;   // SPIR-V pour Vulkan
-        uint64        spirvSize   = 0;
+        NkVector<uint8> spirvBinary;
         const void*   dxilData    = nullptr;   // DXIL bytecode précompilé
         uint64        dxilSize    = 0;
         const void*   metalIRData = nullptr;   // Metal IR précompilé
@@ -342,7 +346,10 @@ namespace nkentseu {
         }
 
         NkShaderDesc& AddSPIRV(NkShaderStage stage, const void* data, uint64 sz) {
-            NkShaderStageDesc s{}; s.stage=stage; s.spirvData=data; s.spirvSize=sz;
+            NkShaderStageDesc s{}; 
+            s.stage=stage; 
+            s.spirvBinary.Resize((uint32)sz);
+            memcpy(s.spirvBinary.Data(), data, (size_t)sz);
             return AddStage(s);
         }
     };

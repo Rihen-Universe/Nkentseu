@@ -6,7 +6,7 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/Core/NkSafeArea.h"
 #include "NKWindow/Core/NkWindowConfig.h"
-#include "NKWindow/Core/NkWindowId.h"
+#include "NKEvent/NkWindowId.h"
 
 #if defined(NKENTSEU_PLATFORM_ANDROID)
 

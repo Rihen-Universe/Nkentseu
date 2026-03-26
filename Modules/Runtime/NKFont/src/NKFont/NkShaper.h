@@ -151,19 +151,25 @@ namespace nkentseu {
     };
 
     // =========================================================================
+    // =========================================================================
+    //  NkShaperOptions — options partagées (hors classe pour éviter CWG 1664)
+    // =========================================================================
+
+    struct NKENTSEU_FONT_API NkShaperOptions {
+        uint32  features    = 0xFFFFFFFFu; ///< Masque GSUB features
+        bool    enableKern  = true;
+        bool    enableBidi  = true;
+        int32   baseLevel   = -1;          ///< -1 = auto-détecté
+        uint16  ppem        = 16;
+    };
+
     //  NkShaper — pipeline complet
     // =========================================================================
 
     class NKENTSEU_FONT_API NkShaper {
     public:
 
-        struct Options {
-            uint32  features    = 0xFFFFFFFFu; ///< Masque GSUB features
-            bool    enableKern  = true;
-            bool    enableBidi  = true;
-            int32   baseLevel   = -1;          ///< -1 = auto-détecté
-            uint16  ppem        = 16;
-        };
+        using Options = NkShaperOptions;
 
         /**
          * @Brief Pipeline complet : UTF-8 → NkGlyphRun.
@@ -180,7 +186,7 @@ namespace nkentseu {
             usize            byteLen,
             NkMemArena&      arena,
             NkGlyphRun&      out,
-            const Options&   opts = {}
+            const Options&   opts = NkShaperOptions{}
         ) noexcept;
 
         /// Version pratique avec C-string (null-terminated).
@@ -189,7 +195,7 @@ namespace nkentseu {
             const char*      text,
             NkMemArena&      arena,
             NkGlyphRun&      out,
-            const Options&   opts = {}
+            const Options&   opts = NkShaperOptions{}
         ) noexcept;
     };
 

@@ -1,5 +1,4 @@
-#include "NKImage/NkPPMCodec.h"
-#include <cstring>
+#include "NKImage/Codecs/PPM/NkPPMCodec.h"
 #include <cstdio>
 namespace nkentseu {
 
@@ -35,7 +34,7 @@ NkImage* NkPPMCodec::Decode(const uint8* data, usize size) noexcept {
     const bool isGray   = (magic=='2'||magic=='5');
     const bool isBit    = (magic=='1'||magic=='4');
     const int32 ch = (isGray || isBit) ? 1 : 3;
-    NkPixelFormat fmt = ch == 1 ? NkPixelFormat::Gray8 : NkPixelFormat::RGB24;
+    NkImagePixelFormat fmt = ch == 1 ? NkImagePixelFormat::NK_GRAY8 : NkImagePixelFormat::NK_RGB24;
     NkImage* img = NkImage::Alloc(w, h, fmt);
     if (!img) return nullptr;
 
@@ -69,7 +68,7 @@ bool NkPPMCodec::Encode(const NkImage& img, const char* path) noexcept {
         ::fprintf(f, "P5\n%d %d\n255\n", img.Width(), img.Height());
     } else {
         if (img.Channels() != 3) {
-            conv = img.Convert(NkPixelFormat::RGB24);
+            conv = img.Convert(NkImagePixelFormat::NK_RGB24);
             if (!conv) { ::fclose(f); return false; }
             src = conv;
         }

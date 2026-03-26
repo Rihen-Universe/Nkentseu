@@ -142,6 +142,7 @@ namespace nkentseu {
         static bool ParsePrivateDict(const uint8* data, uint32 size, NkCFFTopDict& out) noexcept;
         static uint32 CalcSubrBias(uint32 count) noexcept;
 
+    public:
         // Interpréteur Type 2
         struct T2State {
             float  stack[48];        // Stack Type 2 (max 48 pour CFF2)

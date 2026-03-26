@@ -782,26 +782,38 @@ namespace nkentseu {
             }
 
             /// Projection orthogonale (largeur × hauteur)
-            static NkMat4T Orthogonal(T width, T height, T zNear, T zFar) noexcept {
+            static NkMat4T Orthogonal(T width, T height, T zNear, T zFar,
+                                     bool depthZeroToOne = false) noexcept {
                 NkMat4T r(T(1));
                 r.mat[0][0] = T(2) / width;
                 r.mat[1][1] = T(2) / height;
-                r.mat[2][2] = T(2) / (zNear - zFar);
-                r.mat[3][2] = (zFar + zNear) / (zNear - zFar);
+                if (depthZeroToOne) {
+                    r.mat[2][2] = T(1) / (zNear - zFar);
+                    r.mat[3][2] = zNear / (zNear - zFar);
+                } else {
+                    r.mat[2][2] = T(2) / (zNear - zFar);
+                    r.mat[3][2] = (zFar + zNear) / (zNear - zFar);
+                }
                 return r;
             }
 
             /// Projection orthogonale avec coins explicites
             static NkMat4T Orthogonal(const NkVec2T<T>& bottomLeft,
                                      const NkVec2T<T>& topRight,
-                                     T zNear, T zFar) noexcept {
+                                     T zNear, T zFar,
+                                     bool depthZeroToOne = false) noexcept {
                 NkMat4T r(T(1));
                 r.mat[0][0] = T(2) / (topRight.x - bottomLeft.x);
                 r.mat[1][1] = T(2) / (topRight.y - bottomLeft.y);
-                r.mat[2][2] = T(2) / (zNear - zFar);
                 r.mat[3][0] = -(topRight.x + bottomLeft.x) / (topRight.x - bottomLeft.x);
                 r.mat[3][1] = -(topRight.y + bottomLeft.y) / (topRight.y - bottomLeft.y);
-                r.mat[3][2] =  (zFar + zNear) / (zNear - zFar);
+                if (depthZeroToOne) {
+                    r.mat[2][2] = T(1) / (zNear - zFar);
+                    r.mat[3][2] = zNear / (zNear - zFar);
+                } else {
+                    r.mat[2][2] = T(2) / (zNear - zFar);
+                    r.mat[3][2] = (zFar + zNear) / (zNear - zFar);
+                }
                 return r;
             }
 

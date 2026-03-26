@@ -7,7 +7,7 @@
 
 #if defined(NKENTSEU_PLATFORM_MACOS)
 
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkGamepadSystem.h"
 
 
 namespace nkentseu {

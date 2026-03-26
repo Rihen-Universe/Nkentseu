@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // NkWin32Window.cpp
 // Implémentation Win32 de NkWindow sans PIMPL.
 //
@@ -17,7 +17,8 @@
 #include "NKWindow/Platform/Win32/NkWin32DropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKWindow/Platform/Win32/NkWin32EventSystem.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include "NKContainers/String/NkWString.h"
 
@@ -356,7 +357,7 @@ namespace nkentseu {
             ::SetLastError(0);
             mData.mPrevWndProc = reinterpret_cast<WNDPROC>(
                 SetWindowLongPtrW(hwnd, GWLP_WNDPROC,
-                                  reinterpret_cast<LONG_PTR>(NkSystem::Events().WindowProcStatic)));
+                                  reinterpret_cast<LONG_PTR>(NkWin32WndProc)));
             if (!mData.mPrevWndProc && ::GetLastError() != 0) {
                 mLastError = NkError(2, NkString::Fmtf("Subclass external HWND failed (%lu)", ::GetLastError()));
                 NkSystem::Instance().UnregisterWindow(mId);
@@ -430,7 +431,7 @@ namespace nkentseu {
         WNDCLASSEXW wc = {};
         wc.cbSize = sizeof(WNDCLASSEXW);
         wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-        wc.lpfnWndProc = NkSystem::Events().WindowProcStatic;
+        wc.lpfnWndProc = NkWin32WndProc;
         wc.hInstance = mData.mHInstance;
         wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
@@ -531,7 +532,7 @@ namespace nkentseu {
         if (hwnd) {
             if (mData.mExternal) {
                 if (mData.mPrevWndProc &&
-                    mData.mPrevWndProc != NkSystem::Events().WindowProcStatic) {
+                    mData.mPrevWndProc != NkWin32WndProc) {
                     SetWindowLongPtrW(hwnd, GWLP_WNDPROC,
                                       reinterpret_cast<LONG_PTR>(mData.mPrevWndProc));
                 }

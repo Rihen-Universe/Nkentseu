@@ -3,7 +3,7 @@
 // NkNoopGamepad.h - fallback no-op gamepad backend
 // =============================================================================
 
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkGamepadSystem.h"
 
 
 namespace nkentseu {

@@ -40,13 +40,6 @@ namespace nkentseu {
                 usize  dataOffset;
             };
 
-        // Helpers mathématiques internes
-        static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
-        static uint32  Average2(uint32 a, uint32 b) noexcept;
-        static uint32  AddPixels(uint32 a, uint32 b) noexcept;
-        static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
-        static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
-
             // ── VP8L (lossless) ───────────────────────────────────────────────────
             struct VP8LBitReader {
                 const uint8* data;
@@ -60,13 +53,6 @@ namespace nkentseu {
                 uint32  ReadBits(int32 n) noexcept;
                 bool    IsEOF() const noexcept { return bytePos >= size && bitCount <= 0; }
             };
-
-        // Helpers mathématiques internes
-        static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
-        static uint32  Average2(uint32 a, uint32 b) noexcept;
-        static uint32  AddPixels(uint32 a, uint32 b) noexcept;
-        static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
-        static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
 
             struct VP8LHuffTree {
                 static constexpr int32 MAX_SYMS = 256 + 24 + 1; // RGBA + distance codes
@@ -83,19 +69,12 @@ namespace nkentseu {
                 int32 Decode(VP8LBitReader& br) const noexcept;
             };
 
-        // Helpers mathématiques internes
-        static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
-        static uint32  Average2(uint32 a, uint32 b) noexcept;
-        static uint32  AddPixels(uint32 a, uint32 b) noexcept;
-        static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
-        static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
-
             // Contexte de décodage VP8L
             struct VP8LDecoder {
                 int32  width, height;
                 bool   hasAlpha;
                 uint32* pixels;           // sortie ARGB
-                NkMemArena* arena;        // scratch
+                void*   arena;            // scratch (non utilisé directement)
 
                 // Transformations à appliquer après décodage
                 struct Transform {
@@ -103,23 +82,25 @@ namespace nkentseu {
                     int32  bits;
                     uint32* data;         // données de la transformation
                 };
-
-        // Helpers mathématiques internes
-        static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
-        static uint32  Average2(uint32 a, uint32 b) noexcept;
-        static uint32  AddPixels(uint32 a, uint32 b) noexcept;
-        static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
-        static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
                 Transform transforms[4];
                 int32 numTransforms;
             };
 
-        // Helpers mathématiques internes
-        static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
-        static uint32  Average2(uint32 a, uint32 b) noexcept;
-        static uint32  AddPixels(uint32 a, uint32 b) noexcept;
-        static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
-        static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
+            // ── VP8L encodeur (lossless) ──────────────────────────────────────────
+            struct VP8LBitWriter {
+                NkImageStream* s;
+                uint64 buf  = 0;
+                int32  bits = 0;
+                void WriteBits(uint32 val, int32 n) noexcept;
+                void Flush() noexcept;
+            };
+
+            // Helpers mathématiques internes
+            static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
+            static uint32  Average2(uint32 a, uint32 b) noexcept;
+            static uint32  AddPixels(uint32 a, uint32 b) noexcept;
+            static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
+            static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
 
             static NkImage* DecodeVP8L(const uint8* data, usize size) noexcept;
             static NkImage* DecodeVP8 (const uint8* data, usize size) noexcept;
@@ -139,22 +120,6 @@ namespace nkentseu {
             static void ApplyColorIndexing(const uint32* table, uint32* pixels,
                                             int32 w, int32 h, int32 bits) noexcept;
 
-            // ── VP8L encodeur (lossless) ──────────────────────────────────────────
-            struct VP8LBitWriter {
-                NkImageStream* s;
-                uint64 buf  = 0;
-                int32  bits = 0;
-                void WriteBits(uint32 val, int32 n) noexcept;
-                void Flush() noexcept;
-            };
-
-        // Helpers mathématiques internes
-        static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
-        static uint32  Average2(uint32 a, uint32 b) noexcept;
-        static uint32  AddPixels(uint32 a, uint32 b) noexcept;
-        static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
-        static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
-
             static bool EncodeVP8L(const NkImage& img, NkImageStream& out) noexcept;
             static void BuildCanonicalHuff(const uint32* freqs, int32 n,
                                             uint8* codeLens) noexcept;
@@ -172,13 +137,4 @@ namespace nkentseu {
             }
     };
 
-    // Helpers mathématiques internes
-    static int8    ColorTransformDelta(int8 a, uint8 b) noexcept;
-    static uint32  Average2(uint32 a, uint32 b) noexcept;
-    static uint32  AddPixels(uint32 a, uint32 b) noexcept;
-    static uint32  Select(uint32 L, uint32 T, uint32 TL) noexcept;
-    static uint32  ClampedAdd(uint32 a, uint32 b, uint32 sub) noexcept;
-
 } // namespace nkentseu
-// Forward declarations des helpers (définis dans .cpp)
-// Note : ces méthodes sont utilisées en interne par ApplyTransforms

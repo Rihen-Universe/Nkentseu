@@ -36,4 +36,6 @@
 #include "NKMath/NkRectangle.h"
 #include "NKMath/NkSegment.h"
 
+#include "NKMath/NkColor.h"
+
 #endif // NKENTSEU_NKMATH_H_INCLUDED

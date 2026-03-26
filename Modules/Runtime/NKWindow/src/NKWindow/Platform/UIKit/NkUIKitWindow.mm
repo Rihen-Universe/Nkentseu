@@ -13,9 +13,9 @@
 #include "NKWindow/Platform/UIKit/NkUIKitWindow.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkWindowEvent.h"
-#include "NKWindow/Events/NkTouchEvent.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkTouchEvent.h"
 #include "NKMath/NkFunctions.h"
 
 #include <cstdint>

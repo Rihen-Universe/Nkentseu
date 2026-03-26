@@ -4,11 +4,14 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
-#include "NKImage/NkXMLParser.h"
+#include "NKImage/Core/NkXMLParser.h"
 #include <cstring>
-#include <cstdlib>
-#include <cstdio>
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
 namespace nkentseu {
+
+using namespace nkentseu::memory;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  NkXMLDocument::QuerySelector — sélecteur CSS minimal
@@ -25,7 +28,7 @@ NkXMLNode* NkXMLDocument::QuerySelector(const char* sel) const noexcept {
     QCtx qc{sel,nullptr};
     ForEach([](NkXMLNode* node, void* ud)->bool{
         auto* q=static_cast<QCtx*>(ud);
-        if(node->type!=NkXMLNodeType::Element) return true;
+        if(node->type!=NkXMLNodeType::NK_ELEMENT) return true;
         const char* sel2=q->sel;
         // Parse le sélecteur
         char tag[64]={},cls[64]={},id2[64]={};
@@ -39,8 +42,8 @@ NkXMLNode* NkXMLDocument::QuerySelector(const char* sel) const noexcept {
             else ++p;
         }
         bool match=true;
-        if(tag[0]&&::strcmp(tag,"*")!=0)
-            match=match&&node->localName&&::strcmp(node->localName,tag)==0;
+        if(tag[0]&&NkStringView(tag)!="*")
+            match=match&&node->localName&&NkStringView(node->localName)==NkStringView(tag);
         if(cls[0]){
             const char* cv=node->GetAttr("class");
             if(!cv){match=false;}
@@ -51,7 +54,7 @@ NkXMLNode* NkXMLDocument::QuerySelector(const char* sel) const noexcept {
                 while(*c2){
                     while(*c2==' ') ++c2;
                     const char* e=c2; while(*e&&*e!=' ') ++e;
-                    if(static_cast<int32>(e-c2)==(int32)::strlen(cls)&&
+                    if(static_cast<int32>(e-c2)==(int32)NkStringView(cls).Length()&&
                        ::strncmp(c2,cls,e-c2)==0){found=true;break;}
                     c2=e;
                 }
@@ -60,7 +63,7 @@ NkXMLNode* NkXMLDocument::QuerySelector(const char* sel) const noexcept {
         }
         if(id2[0]){
             const char* iv=node->GetAttr("id");
-            match=match&&iv&&::strcmp(iv,id2)==0;
+            match=match&&iv&&NkStringView(iv)==NkStringView(id2);
         }
         if(match){q->result=node;return false;} // arrête la traversée
         return true;
@@ -82,9 +85,9 @@ void NkXMLParser::SkipWS(Ctx& c) noexcept {
 }
 
 bool NkXMLParser::Match(Ctx& c, const char* str) noexcept {
-    const int32 len=static_cast<int32>(::strlen(str));
+    const int32 len=static_cast<int32>(NkStringView(str).Length());
     if(c.pos+len>c.size) return false;
-    if(::memcmp(c.data+c.pos,str,len)!=0) return false;
+    if(NkCompare(c.data+c.pos,str,len)!=0) return false;
     for(int32 i=0;i<len;++i){if(c.data[c.pos+i]=='\n')++c.line;}
     c.pos+=len;
     return true;
@@ -249,7 +252,7 @@ void NkXMLParser::ResolveNamespaces(Ctx& c, NkXMLNode* node) noexcept {
     // 1. Scanne les attributs xmlns et xmlns:prefix
     for(NkXMLAttr* a=node->attrs;a;a=a->next){
         if(!a->name) continue;
-        if(::strcmp(a->name,"xmlns")==0){
+        if(NkStringView(a->name)=="xmlns"){
             c.nsCtx.Push(nullptr,a->value,*c.arena);
         } else if(::strncmp(a->name,"xmlns:",6)==0){
             c.nsCtx.Push(c.arena->Dup(a->name+6),a->value,*c.arena);
@@ -330,7 +333,7 @@ bool NkXMLParser::ParseCDATA(Ctx& c, NkXMLNode* parent) noexcept {
     // On est après "<![CDATA["
     const char* text=ReadText(c,true);
     if(c.pos+2<c.size) c.pos+=3; // saute "]]>"
-    NkXMLNode* node=AllocNode(c,NkXMLNodeType::CDATA);
+    NkXMLNode* node=AllocNode(c,NkXMLNodeType::NK_CDATA);
     if(node){ node->text=text; AppendChild(parent,node); }
     return true;
 }
@@ -381,7 +384,7 @@ bool NkXMLParser::ParseElement(Ctx& c) noexcept {
         return false;
     }
 
-    NkXMLNode* node=AllocNode(c,NkXMLNodeType::Element);
+    NkXMLNode* node=AllocNode(c,NkXMLNodeType::NK_ELEMENT);
     if(!node) return false;
     node->tagName=name;
 
@@ -441,7 +444,7 @@ bool NkXMLParser::ParseText(Ctx& c, NkXMLNode* parent) noexcept {
         if(*p!=' '&&*p!='\t'&&*p!='\n'&&*p!='\r') allWS=false;
     if(allWS) return true; // texte blanc seul → ignore
 
-    NkXMLNode* node=AllocNode(c,NkXMLNodeType::Text);
+    NkXMLNode* node=AllocNode(c,NkXMLNodeType::NK_TEXT);
     if(node){ node->text=text; AppendChild(parent,node); }
     return true;
 }
@@ -504,7 +507,7 @@ bool NkXMLParser::ParseContent(Ctx& c, NkXMLNode* parent) noexcept {
 
 bool NkXMLParser::ParseDocument(Ctx& c) noexcept {
     // Crée la racine Document
-    c.doc->root=AllocNode(c,NkXMLNodeType::Document);
+    c.doc->root=AllocNode(c,NkXMLNodeType::NK_DOCUMENT);
     if(!c.doc->root) return false;
     c.current=c.doc->root;
 
@@ -520,7 +523,7 @@ bool NkXMLParser::ParseDocument(Ctx& c) noexcept {
     }
 
     // DOCTYPE éventuel
-    if(c.pos+8<c.size&&::memcmp(c.data+c.pos,"<!DOCTYPE",9)==0){
+    if(c.pos+8<c.size&&NkCompare(c.data+c.pos,"<!DOCTYPE",9)==0){
         c.pos+=9; ParseDoctype(c); SkipWS(c);
     }
     // Commentaires avant la racine
@@ -582,13 +585,13 @@ bool NkXMLParser::ParseFile(const char* path, NkXMLDocument& doc) noexcept {
     if(!f) return false;
     ::fseek(f,0,SEEK_END); const long sz=::ftell(f); ::fseek(f,0,SEEK_SET);
     if(sz<=0){::fclose(f);return false;}
-    uint8* buf=static_cast<uint8*>(::malloc(sz));
+    uint8* buf=static_cast<uint8*>(NkAlloc(sz));
     if(!buf){::fclose(f);return false;}
     const bool readOK=(::fread(buf,1,sz,f)==static_cast<usize>(sz));
     ::fclose(f);
     bool ok=false;
     if(readOK) ok=Parse(buf,sz,doc);
-    ::free(buf);
+    NkFree(buf);
     return ok;
 }
 

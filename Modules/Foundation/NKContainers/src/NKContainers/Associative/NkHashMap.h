@@ -67,544 +67,566 @@ namespace nkentseu {
                  typename Hasher = NkHashMapDefaultHasher<Key>,
                  typename KeyEqual = NkHashMapDefaultEqual<Key>>
         class NkHashMap {
-        private:
-            struct Node {
-                NkPair<const Key, Value> Data;
-                Node* Next;
-                usize Hash;
-
-                #if defined(NK_CPP11)
-                template<typename K, typename V>
-                Node(usize hash, K&& key, V&& value, Node* next = nullptr)
-                    : Data(traits::NkForward<K>(key), traits::NkForward<V>(value))
-                    , Next(next)
-                    , Hash(hash) {
-                }
-                #else
-                Node(usize hash, const Key& key, const Value& value, Node* next = nullptr)
-                    : Data(key, value), Next(next), Hash(hash) {
-                }
-                #endif
-            };
-
-        public:
-            using KeyType = Key;
-            using ValueType = NkPair<const Key, Value>;
-            using SizeType = usize;
-            using Reference = ValueType&;
-            using ConstReference = const ValueType&;
-            using MappedType = Value;
-
-            class Iterator {
             private:
-                NkHashMap* mMap;
-                Node* mNode;
-                SizeType mBucket;
-                friend class NkHashMap;
+                struct Node {
+                    NkPair<const Key, Value> Data;
+                    Node* Next;
+                    usize Hash;
 
-                Iterator(NkHashMap* map, Node* node, SizeType bucket)
-                    : mMap(map), mNode(node), mBucket(bucket) {}
-
-                void Advance() {
-                    if (!mMap || !mNode) {
-                        mNode = nullptr;
-                        mBucket = 0;
-                        return;
+                    #if defined(NK_CPP11)
+                    template<typename K, typename V>
+                    Node(usize hash, K&& key, V&& value, Node* next = nullptr)
+                        : Data(traits::NkForward<K>(key), traits::NkForward<V>(value))
+                        , Next(next)
+                        , Hash(hash) {
                     }
-                    if (mNode->Next) {
-                        mNode = mNode->Next;
-                        return;
+                    #else
+                    Node(usize hash, const Key& key, const Value& value, Node* next = nullptr)
+                        : Data(key, value), Next(next), Hash(hash) {
                     }
-                    ++mBucket;
-                    while (mBucket < mMap->mBucketCount && mMap->mBuckets[mBucket] == nullptr) {
-                        ++mBucket;
-                    }
-                    mNode = (mBucket < mMap->mBucketCount) ? mMap->mBuckets[mBucket] : nullptr;
-                }
+                    #endif
+                };
 
             public:
-                Iterator() : mMap(nullptr), mNode(nullptr), mBucket(0) {}
+                using KeyType = Key;
+                using ValueType = NkPair<const Key, Value>;
+                using SizeType = usize;
+                using Reference = ValueType&;
+                using ConstReference = const ValueType&;
+                using MappedType = Value;
 
-                Reference operator*() const { return mNode->Data; }
-                ValueType* operator->() const { return &mNode->Data; }
+                class Iterator {
+                    private:
+                        NkHashMap* mMap;
+                        Node* mNode;
+                        SizeType mBucket;
+                        friend class NkHashMap;
 
-                Iterator& operator++() {
-                    Advance();
-                    return *this;
-                }
+                        Iterator(NkHashMap* map, Node* node, SizeType bucket)
+                            : mMap(map), mNode(node), mBucket(bucket) {}
 
-                Iterator operator++(int) {
-                    Iterator temp = *this;
-                    Advance();
-                    return temp;
-                }
+                        void Advance() {
+                            if (!mMap || !mNode) {
+                                mNode = nullptr;
+                                mBucket = 0;
+                                return;
+                            }
+                            if (mNode->Next) {
+                                mNode = mNode->Next;
+                                return;
+                            }
+                            ++mBucket;
+                            while (mBucket < mMap->mBucketCount && mMap->mBuckets[mBucket] == nullptr) {
+                                ++mBucket;
+                            }
+                            mNode = (mBucket < mMap->mBucketCount) ? mMap->mBuckets[mBucket] : nullptr;
+                        }
 
-                bool operator==(const Iterator& other) const { return mNode == other.mNode; }
-                bool operator!=(const Iterator& other) const { return mNode != other.mNode; }
-            };
+                    public:
+                        Iterator() : mMap(nullptr), mNode(nullptr), mBucket(0) {}
 
-            class ConstIterator {
-            private:
-                const NkHashMap* mMap;
-                const Node* mNode;
-                SizeType mBucket;
-                friend class NkHashMap;
+                        Reference operator*() const { return mNode->Data; }
+                        ValueType* operator->() const { return &mNode->Data; }
 
-                ConstIterator(const NkHashMap* map, const Node* node, SizeType bucket)
-                    : mMap(map), mNode(node), mBucket(bucket) {}
+                        Iterator& operator++() {
+                            Advance();
+                            return *this;
+                        }
 
-                void Advance() {
-                    if (!mMap || !mNode) {
-                        mNode = nullptr;
-                        mBucket = 0;
-                        return;
-                    }
-                    if (mNode->Next) {
-                        mNode = mNode->Next;
-                        return;
-                    }
-                    ++mBucket;
-                    while (mBucket < mMap->mBucketCount && mMap->mBuckets[mBucket] == nullptr) {
+                        Iterator operator++(int) {
+                            Iterator temp = *this;
+                            Advance();
+                            return temp;
+                        }
+
+                        bool operator==(const Iterator& other) const { return mNode == other.mNode; }
+                        bool operator!=(const Iterator& other) const { return mNode != other.mNode; }
+                };
+
+                class ConstIterator {
+                private:
+                    const NkHashMap* mMap;
+                    const Node* mNode;
+                    SizeType mBucket;
+                    friend class NkHashMap;
+
+                    ConstIterator(const NkHashMap* map, const Node* node, SizeType bucket)
+                        : mMap(map), mNode(node), mBucket(bucket) {}
+
+                    void Advance() {
+                        if (!mMap || !mNode) {
+                            mNode = nullptr;
+                            mBucket = 0;
+                            return;
+                        }
+                        if (mNode->Next) {
+                            mNode = mNode->Next;
+                            return;
+                        }
                         ++mBucket;
+                        while (mBucket < mMap->mBucketCount && mMap->mBuckets[mBucket] == nullptr) {
+                            ++mBucket;
+                        }
+                        mNode = (mBucket < mMap->mBucketCount) ? mMap->mBuckets[mBucket] : nullptr;
                     }
-                    mNode = (mBucket < mMap->mBucketCount) ? mMap->mBuckets[mBucket] : nullptr;
+
+                public:
+                    ConstIterator() : mMap(nullptr), mNode(nullptr), mBucket(0) {}
+                    ConstIterator(const Iterator& it) : mMap(it.mMap), mNode(it.mNode), mBucket(it.mBucket) {}
+
+                    ConstReference operator*() const { return mNode->Data; }
+                    const ValueType* operator->() const { return &mNode->Data; }
+
+                    ConstIterator& operator++() {
+                        Advance();
+                        return *this;
+                    }
+
+                    ConstIterator operator++(int) {
+                        ConstIterator temp = *this;
+                        Advance();
+                        return temp;
+                    }
+
+                    bool operator==(const ConstIterator& other) const { return mNode == other.mNode; }
+                    bool operator!=(const ConstIterator& other) const { return mNode != other.mNode; }
+                };
+                
+            private:
+                Node** mBuckets;
+                SizeType mBucketCount;
+                SizeType mSize;
+                float mMaxLoadFactor;
+                Allocator* mAllocator;
+                Hasher mHasher;
+                KeyEqual mEqual;
+                
+                // Hash function
+                usize HashKey(const Key& key) const {
+                    return mHasher(key);
+                }
+                
+                usize GetBucketIndex(usize hash) const {
+                    return hash % mBucketCount;
+                }
+                
+                void InitBuckets(SizeType bucketCount) {
+                    mBucketCount = bucketCount > 0 ? bucketCount : 1;
+                    mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*)));
+                    NK_ASSERT(mBuckets != nullptr);
+                    memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
                 }
 
+                void RehashInternal(SizeType newBucketCount) {
+                    if (newBucketCount < 1) {
+                        newBucketCount = 1;
+                    }
+                    Node** newBuckets = static_cast<Node**>(mAllocator->Allocate(newBucketCount * sizeof(Node*)));
+                    NK_ASSERT(newBuckets != nullptr);
+                    memory::NkMemZero(newBuckets, newBucketCount * sizeof(Node*));
+                    
+                    // Reinsert all nodes
+                    for (SizeType i = 0; i < mBucketCount; ++i) {
+                        Node* node = mBuckets[i];
+                        while (node) {
+                            Node* next = node->Next;
+                            SizeType newIdx = node->Hash % newBucketCount;
+                            node->Next = newBuckets[newIdx];
+                            newBuckets[newIdx] = node;
+                            node = next;
+                        }
+                    }
+                    
+                    mAllocator->Deallocate(mBuckets);
+                    mBuckets = newBuckets;
+                    mBucketCount = newBucketCount;
+                }
+                
+                void CheckLoadFactor() {
+                    if (mSize > mBucketCount * mMaxLoadFactor) {
+                        RehashInternal(mBucketCount * 2);
+                    }
+                }
+
+                Node* FindNode(const Key& key) const {
+                    usize hash = HashKey(key);
+                    SizeType idx = GetBucketIndex(hash);
+                    Node* node = mBuckets[idx];
+                    while (node) {
+                        if (mEqual(node->Data.First, key)) {
+                            return node;
+                        }
+                        node = node->Next;
+                    }
+                    return nullptr;
+                }
+                
             public:
-                ConstIterator() : mMap(nullptr), mNode(nullptr), mBucket(0) {}
-                ConstIterator(const Iterator& it) : mMap(it.mMap), mNode(it.mNode), mBucket(it.mBucket) {}
-
-                ConstReference operator*() const { return mNode->Data; }
-                const ValueType* operator->() const { return &mNode->Data; }
-
-                ConstIterator& operator++() {
-                    Advance();
-                    return *this;
-                }
-
-                ConstIterator operator++(int) {
-                    ConstIterator temp = *this;
-                    Advance();
-                    return temp;
-                }
-
-                bool operator==(const ConstIterator& other) const { return mNode == other.mNode; }
-                bool operator!=(const ConstIterator& other) const { return mNode != other.mNode; }
-            };
-            
-        private:
-            Node** mBuckets;
-            SizeType mBucketCount;
-            SizeType mSize;
-            float mMaxLoadFactor;
-            Allocator* mAllocator;
-            Hasher mHasher;
-            KeyEqual mEqual;
-            
-            // Hash function
-            usize HashKey(const Key& key) const {
-                return mHasher(key);
-            }
-            
-            usize GetBucketIndex(usize hash) const {
-                return hash % mBucketCount;
-            }
-            
-            void InitBuckets(SizeType bucketCount) {
-                mBucketCount = bucketCount > 0 ? bucketCount : 1;
-                mBuckets = static_cast<Node**>(mAllocator->Allocate(mBucketCount * sizeof(Node*)));
-                NK_ASSERT(mBuckets != nullptr);
-                memory::NkMemZero(mBuckets, mBucketCount * sizeof(Node*));
-            }
-
-            void RehashInternal(SizeType newBucketCount) {
-                if (newBucketCount < 1) {
-                    newBucketCount = 1;
-                }
-                Node** newBuckets = static_cast<Node**>(mAllocator->Allocate(newBucketCount * sizeof(Node*)));
-                NK_ASSERT(newBuckets != nullptr);
-                memory::NkMemZero(newBuckets, newBucketCount * sizeof(Node*));
-                
-                // Reinsert all nodes
-                for (SizeType i = 0; i < mBucketCount; ++i) {
-                    Node* node = mBuckets[i];
-                    while (node) {
-                        Node* next = node->Next;
-                        SizeType newIdx = node->Hash % newBucketCount;
-                        node->Next = newBuckets[newIdx];
-                        newBuckets[newIdx] = node;
-                        node = next;
-                    }
+                // Constructors
+                explicit NkHashMap(Allocator* allocator = nullptr)
+                    : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                    , mMaxLoadFactor(0.75f)
+                    , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                    , mHasher()
+                    , mEqual() {
+                    InitBuckets(16);
                 }
                 
-                mAllocator->Deallocate(mBuckets);
-                mBuckets = newBuckets;
-                mBucketCount = newBucketCount;
-            }
-            
-            void CheckLoadFactor() {
-                if (mSize > mBucketCount * mMaxLoadFactor) {
-                    RehashInternal(mBucketCount * 2);
-                }
-            }
-
-            Node* FindNode(const Key& key) const {
-                usize hash = HashKey(key);
-                SizeType idx = GetBucketIndex(hash);
-                Node* node = mBuckets[idx];
-                while (node) {
-                    if (mEqual(node->Data.First, key)) {
-                        return node;
-                    }
-                    node = node->Next;
-                }
-                return nullptr;
-            }
-            
-        public:
-            // Constructors
-            explicit NkHashMap(Allocator* allocator = nullptr)
-                : mBuckets(nullptr), mBucketCount(16), mSize(0)
-                , mMaxLoadFactor(0.75f)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
-                , mHasher()
-                , mEqual() {
-                InitBuckets(16);
-            }
-            
-            NkHashMap(NkInitializerList<ValueType> init, Allocator* allocator = nullptr)
-                : mBuckets(nullptr), mBucketCount(16), mSize(0)
-                , mMaxLoadFactor(0.75f)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
-                , mHasher()
-                , mEqual() {
-                InitBuckets(16);
-                for (auto& pair : init) {
-                    Insert(pair.First, pair.Second);
-                }
-            }
-
-            NkHashMap(std::initializer_list<ValueType> init, Allocator* allocator = nullptr)
-                : mBuckets(nullptr), mBucketCount(16), mSize(0)
-                , mMaxLoadFactor(0.75f)
-                , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
-                , mHasher()
-                , mEqual() {
-                InitBuckets(16);
-                for (auto& pair : init) {
-                    Insert(pair.First, pair.Second);
-                }
-            }
-
-            NkHashMap(const NkHashMap& other)
-                : mBuckets(nullptr), mBucketCount(16), mSize(0)
-                , mMaxLoadFactor(other.mMaxLoadFactor)
-                , mAllocator(other.mAllocator)
-                , mHasher(other.mHasher)
-                , mEqual(other.mEqual) {
-                InitBuckets(other.mBucketCount);
-                for (SizeType i = 0; i < other.mBucketCount; ++i) {
-                    Node* node = other.mBuckets[i];
-                    while (node) {
-                        Insert(node->Data.First, node->Data.Second);
-                        node = node->Next;
+                NkHashMap(NkInitializerList<ValueType> init, Allocator* allocator = nullptr)
+                    : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                    , mMaxLoadFactor(0.75f)
+                    , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                    , mHasher()
+                    , mEqual() {
+                    InitBuckets(16);
+                    for (auto& pair : init) {
+                        Insert(pair.First, pair.Second);
                     }
                 }
-            }
 
-            NkHashMap(NkHashMap&& other) NK_NOEXCEPT
-                : mBuckets(other.mBuckets)
-                , mBucketCount(other.mBucketCount)
-                , mSize(other.mSize)
-                , mMaxLoadFactor(other.mMaxLoadFactor)
-                , mAllocator(other.mAllocator)
-                , mHasher(traits::NkMove(other.mHasher))
-                , mEqual(traits::NkMove(other.mEqual)) {
-                other.mBuckets = nullptr;
-                other.mBucketCount = 0;
-                other.mSize = 0;
-            }
+                NkHashMap(std::initializer_list<ValueType> init, Allocator* allocator = nullptr)
+                    : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                    , mMaxLoadFactor(0.75f)
+                    , mAllocator(allocator ? allocator : &memory::NkGetDefaultAllocator())
+                    , mHasher()
+                    , mEqual() {
+                    InitBuckets(16);
+                    for (auto& pair : init) {
+                        Insert(pair.First, pair.Second);
+                    }
+                }
 
-            NkHashMap& operator=(const NkHashMap& other) {
-                if (this == &other) {
+                NkHashMap(const NkHashMap& other)
+                    : mBuckets(nullptr), mBucketCount(16), mSize(0)
+                    , mMaxLoadFactor(other.mMaxLoadFactor)
+                    , mAllocator(other.mAllocator)
+                    , mHasher(other.mHasher)
+                    , mEqual(other.mEqual) {
+                    InitBuckets(other.mBucketCount);
+                    for (SizeType i = 0; i < other.mBucketCount; ++i) {
+                        Node* node = other.mBuckets[i];
+                        while (node) {
+                            Insert(node->Data.First, node->Data.Second);
+                            node = node->Next;
+                        }
+                    }
+                }
+
+                NkHashMap(NkHashMap&& other) NK_NOEXCEPT
+                    : mBuckets(other.mBuckets)
+                    , mBucketCount(other.mBucketCount)
+                    , mSize(other.mSize)
+                    , mMaxLoadFactor(other.mMaxLoadFactor)
+                    , mAllocator(other.mAllocator)
+                    , mHasher(traits::NkMove(other.mHasher))
+                    , mEqual(traits::NkMove(other.mEqual)) {
+                    other.mBuckets = nullptr;
+                    other.mBucketCount = 0;
+                    other.mSize = 0;
+                }
+
+                NkHashMap& operator=(const NkHashMap& other) {
+                    if (this == &other) {
+                        return *this;
+                    }
+                    Clear();
+                    if (mBuckets) {
+                        mAllocator->Deallocate(mBuckets);
+                    }
+                    mAllocator = other.mAllocator;
+                    mMaxLoadFactor = other.mMaxLoadFactor;
+                    mHasher = other.mHasher;
+                    mEqual = other.mEqual;
+                    InitBuckets(other.mBucketCount);
+                    for (SizeType i = 0; i < other.mBucketCount; ++i) {
+                        Node* node = other.mBuckets[i];
+                        while (node) {
+                            Insert(node->Data.First, node->Data.Second);
+                            node = node->Next;
+                        }
+                    }
                     return *this;
                 }
-                Clear();
-                if (mBuckets) {
-                    mAllocator->Deallocate(mBuckets);
-                }
-                mAllocator = other.mAllocator;
-                mMaxLoadFactor = other.mMaxLoadFactor;
-                mHasher = other.mHasher;
-                mEqual = other.mEqual;
-                InitBuckets(other.mBucketCount);
-                for (SizeType i = 0; i < other.mBucketCount; ++i) {
-                    Node* node = other.mBuckets[i];
-                    while (node) {
-                        Insert(node->Data.First, node->Data.Second);
-                        node = node->Next;
-                    }
-                }
-                return *this;
-            }
 
-            NkHashMap& operator=(NkHashMap&& other) NK_NOEXCEPT {
-                if (this == &other) {
+                NkHashMap& operator=(NkHashMap&& other) NK_NOEXCEPT {
+                    if (this == &other) {
+                        return *this;
+                    }
+                    Clear();
+                    if (mBuckets) {
+                        mAllocator->Deallocate(mBuckets);
+                    }
+                    mBuckets = other.mBuckets;
+                    mBucketCount = other.mBucketCount;
+                    mSize = other.mSize;
+                    mMaxLoadFactor = other.mMaxLoadFactor;
+                    mAllocator = other.mAllocator;
+                    mHasher = traits::NkMove(other.mHasher);
+                    mEqual = traits::NkMove(other.mEqual);
+
+                    other.mBuckets = nullptr;
+                    other.mBucketCount = 0;
+                    other.mSize = 0;
                     return *this;
                 }
-                Clear();
-                if (mBuckets) {
-                    mAllocator->Deallocate(mBuckets);
+
+                NkHashMap& operator=(NkInitializerList<ValueType> init) {
+                    Clear();
+                    for (auto& pair : init) {
+                        Insert(pair.First, pair.Second);
+                    }
+                    return *this;
                 }
-                mBuckets = other.mBuckets;
-                mBucketCount = other.mBucketCount;
-                mSize = other.mSize;
-                mMaxLoadFactor = other.mMaxLoadFactor;
-                mAllocator = other.mAllocator;
-                mHasher = traits::NkMove(other.mHasher);
-                mEqual = traits::NkMove(other.mEqual);
 
-                other.mBuckets = nullptr;
-                other.mBucketCount = 0;
-                other.mSize = 0;
-                return *this;
-            }
-
-            NkHashMap& operator=(NkInitializerList<ValueType> init) {
-                Clear();
-                for (auto& pair : init) {
-                    Insert(pair.First, pair.Second);
+                NkHashMap& operator=(std::initializer_list<ValueType> init) {
+                    Clear();
+                    for (auto& pair : init) {
+                        Insert(pair.First, pair.Second);
+                    }
+                    return *this;
                 }
-                return *this;
-            }
 
-            NkHashMap& operator=(std::initializer_list<ValueType> init) {
-                Clear();
-                for (auto& pair : init) {
-                    Insert(pair.First, pair.Second);
+                ~NkHashMap() {
+                    Clear();
+                    if (mBuckets) mAllocator->Deallocate(mBuckets);
                 }
-                return *this;
-            }
+                
+                // Capacity
+                bool Empty() const NK_NOEXCEPT { return mSize == 0; }
+                SizeType Size() const NK_NOEXCEPT { return mSize; }
+                SizeType BucketCount() const NK_NOEXCEPT { return mBucketCount; }
+                float LoadFactor() const NK_NOEXCEPT {
+                    return mBucketCount > 0 ? static_cast<float>(mSize) / static_cast<float>(mBucketCount) : 0.0f;
+                }
+                float MaxLoadFactor() const NK_NOEXCEPT { return mMaxLoadFactor; }
+                void SetMaxLoadFactor(float factor) {
+                    NK_ASSERT(factor > 0.0f);
+                    if (factor > 0.0f) {
+                        mMaxLoadFactor = factor;
+                        CheckLoadFactor();
+                    }
+                }
 
-            ~NkHashMap() {
-                Clear();
-                if (mBuckets) mAllocator->Deallocate(mBuckets);
-            }
-            
-            // Capacity
-            bool Empty() const NK_NOEXCEPT { return mSize == 0; }
-            SizeType Size() const NK_NOEXCEPT { return mSize; }
-            SizeType BucketCount() const NK_NOEXCEPT { return mBucketCount; }
-            float LoadFactor() const NK_NOEXCEPT {
-                return mBucketCount > 0 ? static_cast<float>(mSize) / static_cast<float>(mBucketCount) : 0.0f;
-            }
-            float MaxLoadFactor() const NK_NOEXCEPT { return mMaxLoadFactor; }
-            void SetMaxLoadFactor(float factor) {
-                NK_ASSERT(factor > 0.0f);
-                if (factor > 0.0f) {
-                    mMaxLoadFactor = factor;
+                Iterator Begin() {
+                    for (SizeType i = 0; i < mBucketCount; ++i) {
+                        if (mBuckets[i]) {
+                            return Iterator(this, mBuckets[i], i);
+                        }
+                    }
+                    return End();
+                }
+                ConstIterator Begin() const {
+                    for (SizeType i = 0; i < mBucketCount; ++i) {
+                        if (mBuckets[i]) {
+                            return ConstIterator(this, mBuckets[i], i);
+                        }
+                    }
+                    return End();
+                }
+                ConstIterator CBegin() const { return Begin(); }
+
+                Iterator End() { return Iterator(this, nullptr, mBucketCount); }
+                ConstIterator End() const { return ConstIterator(this, nullptr, mBucketCount); }
+                ConstIterator CEnd() const { return End(); }
+
+                Iterator begin() {
+                    for (SizeType i = 0; i < mBucketCount; ++i) {
+                        if (mBuckets[i]) {
+                            return Iterator(this, mBuckets[i], i);
+                        }
+                    }
+                    return end();
+                }
+                ConstIterator begin() const {
+                    for (SizeType i = 0; i < mBucketCount; ++i) {
+                        if (mBuckets[i]) {
+                            return ConstIterator(this, mBuckets[i], i);
+                        }
+                    }
+                    return end();
+                }
+                ConstIterator cbegin() const { return begin(); }
+
+                Iterator end() { return Iterator(this, nullptr, mBucketCount); }
+                ConstIterator end() const { return ConstIterator(this, nullptr, mBucketCount); }
+                ConstIterator cend() const { return end(); }
+                
+                // Modifiers
+                void Clear() {
+                    for (SizeType i = 0; i < mBucketCount; ++i) {
+                        Node* node = mBuckets[i];
+                        while (node) {
+                            Node* next = node->Next;
+                            node->~Node();
+                            mAllocator->Deallocate(node);
+                            node = next;
+                        }
+                        mBuckets[i] = nullptr;
+                    }
+                    mSize = 0;
+                }
+
+                void Rehash(SizeType newBucketCount) {
+                    RehashInternal(newBucketCount);
+                }
+
+                void Reserve(SizeType elementCount) {
+                    if (elementCount == 0) {
+                        return;
+                    }
+                    SizeType requiredBuckets = static_cast<SizeType>(static_cast<float>(elementCount) / mMaxLoadFactor) + 1;
+                    if (requiredBuckets > mBucketCount) {
+                        RehashInternal(requiredBuckets);
+                    }
+                }
+
+                void Swap(NkHashMap& other) NK_NOEXCEPT {
+                    Node** tmpBuckets = mBuckets;
+                    mBuckets = other.mBuckets;
+                    other.mBuckets = tmpBuckets;
+
+                    SizeType tmpBucketCount = mBucketCount;
+                    mBucketCount = other.mBucketCount;
+                    other.mBucketCount = tmpBucketCount;
+
+                    SizeType tmpSize = mSize;
+                    mSize = other.mSize;
+                    other.mSize = tmpSize;
+
+                    float tmpLoadFactor = mMaxLoadFactor;
+                    mMaxLoadFactor = other.mMaxLoadFactor;
+                    other.mMaxLoadFactor = tmpLoadFactor;
+
+                    Allocator* tmpAllocator = mAllocator;
+                    mAllocator = other.mAllocator;
+                    other.mAllocator = tmpAllocator;
+                }
+                
+                void Insert(const Key& key, const Value& value) {
+                    usize hash = HashKey(key);
+                    SizeType idx = GetBucketIndex(hash);
+                    
+                    // Check if key exists
+                    Node* node = mBuckets[idx];
+                    while (node) {
+                        if (mEqual(node->Data.First, key)) {
+                            node->Data.Second = value;  // Update
+                            return;
+                        }
+                        node = node->Next;
+                    }
+                    
+                    // Insert new
+                    Node* newNode = static_cast<Node*>(mAllocator->Allocate(sizeof(Node)));
+                    new (newNode) Node(hash, key, value, mBuckets[idx]);
+                    mBuckets[idx] = newNode;
+                    ++mSize;
+                    
                     CheckLoadFactor();
                 }
-            }
-
-            Iterator Begin() {
-                for (SizeType i = 0; i < mBucketCount; ++i) {
-                    if (mBuckets[i]) {
-                        return Iterator(this, mBuckets[i], i);
-                    }
-                }
-                return End();
-            }
-            ConstIterator Begin() const {
-                for (SizeType i = 0; i < mBucketCount; ++i) {
-                    if (mBuckets[i]) {
-                        return ConstIterator(this, mBuckets[i], i);
-                    }
-                }
-                return End();
-            }
-            ConstIterator CBegin() const { return Begin(); }
-
-            Iterator End() { return Iterator(this, nullptr, mBucketCount); }
-            ConstIterator End() const { return ConstIterator(this, nullptr, mBucketCount); }
-            ConstIterator CEnd() const { return End(); }
-            
-            // Modifiers
-            void Clear() {
-                for (SizeType i = 0; i < mBucketCount; ++i) {
-                    Node* node = mBuckets[i];
+                
+                bool Erase(const Key& key) {
+                    usize hash = HashKey(key);
+                    SizeType idx = GetBucketIndex(hash);
+                    
+                    Node** prev = &mBuckets[idx];
+                    Node* node = mBuckets[idx];
+                    
                     while (node) {
-                        Node* next = node->Next;
-                        node->~Node();
-                        mAllocator->Deallocate(node);
-                        node = next;
+                        if (mEqual(node->Data.First, key)) {
+                            *prev = node->Next;
+                            node->~Node();
+                            mAllocator->Deallocate(node);
+                            --mSize;
+                            return true;
+                        }
+                        prev = &node->Next;
+                        node = node->Next;
                     }
-                    mBuckets[i] = nullptr;
-                }
-                mSize = 0;
-            }
-
-            void Rehash(SizeType newBucketCount) {
-                RehashInternal(newBucketCount);
-            }
-
-            void Reserve(SizeType elementCount) {
-                if (elementCount == 0) {
-                    return;
-                }
-                SizeType requiredBuckets = static_cast<SizeType>(static_cast<float>(elementCount) / mMaxLoadFactor) + 1;
-                if (requiredBuckets > mBucketCount) {
-                    RehashInternal(requiredBuckets);
-                }
-            }
-
-            void Swap(NkHashMap& other) NK_NOEXCEPT {
-                Node** tmpBuckets = mBuckets;
-                mBuckets = other.mBuckets;
-                other.mBuckets = tmpBuckets;
-
-                SizeType tmpBucketCount = mBucketCount;
-                mBucketCount = other.mBucketCount;
-                other.mBucketCount = tmpBucketCount;
-
-                SizeType tmpSize = mSize;
-                mSize = other.mSize;
-                other.mSize = tmpSize;
-
-                float tmpLoadFactor = mMaxLoadFactor;
-                mMaxLoadFactor = other.mMaxLoadFactor;
-                other.mMaxLoadFactor = tmpLoadFactor;
-
-                Allocator* tmpAllocator = mAllocator;
-                mAllocator = other.mAllocator;
-                other.mAllocator = tmpAllocator;
-            }
-            
-            void Insert(const Key& key, const Value& value) {
-                usize hash = HashKey(key);
-                SizeType idx = GetBucketIndex(hash);
-                
-                // Check if key exists
-                Node* node = mBuckets[idx];
-                while (node) {
-                    if (mEqual(node->Data.First, key)) {
-                        node->Data.Second = value;  // Update
-                        return;
-                    }
-                    node = node->Next;
-                }
-                
-                // Insert new
-                Node* newNode = static_cast<Node*>(mAllocator->Allocate(sizeof(Node)));
-                new (newNode) Node(hash, key, value, mBuckets[idx]);
-                mBuckets[idx] = newNode;
-                ++mSize;
-                
-                CheckLoadFactor();
-            }
-            
-            bool Erase(const Key& key) {
-                usize hash = HashKey(key);
-                SizeType idx = GetBucketIndex(hash);
-                
-                Node** prev = &mBuckets[idx];
-                Node* node = mBuckets[idx];
-                
-                while (node) {
-                    if (mEqual(node->Data.First, key)) {
-                        *prev = node->Next;
-                        node->~Node();
-                        mAllocator->Deallocate(node);
-                        --mSize;
-                        return true;
-                    }
-                    prev = &node->Next;
-                    node = node->Next;
-                }
-                
-                return false;
-            }
-            
-            // Lookup
-            Value* Find(const Key& key) {
-                Node* node = FindNode(key);
-                return node ? &node->Data.Second : nullptr;
-            }
-            
-            const Value* Find(const Key& key) const {
-                Node* node = FindNode(key);
-                return node ? &node->Data.Second : nullptr;
-            }
-            
-            bool Contains(const Key& key) const {
-                return Find(key) != nullptr;
-            }
-
-            Iterator FindIterator(const Key& key) {
-                usize hash = HashKey(key);
-                SizeType idx = GetBucketIndex(hash);
-                Node* node = mBuckets[idx];
-                while (node) {
-                    if (mEqual(node->Data.First, key)) {
-                        return Iterator(this, node, idx);
-                    }
-                    node = node->Next;
-                }
-                return End();
-            }
-
-            ConstIterator FindIterator(const Key& key) const {
-                usize hash = HashKey(key);
-                SizeType idx = GetBucketIndex(hash);
-                Node* node = mBuckets[idx];
-                while (node) {
-                    if (mEqual(node->Data.First, key)) {
-                        return ConstIterator(this, node, idx);
-                    }
-                    node = node->Next;
-                }
-                return End();
-            }
-
-            bool TryGet(const Key& key, Value& outValue) const {
-                const Value* value = Find(key);
-                if (!value) {
+                    
                     return false;
                 }
-                outValue = *value;
-                return true;
-            }
-
-            Value& At(const Key& key) {
-                Value* value = Find(key);
-                NK_ASSERT(value != nullptr);
-                return *value;
-            }
-
-            const Value& At(const Key& key) const {
-                const Value* value = Find(key);
-                NK_ASSERT(value != nullptr);
-                return *value;
-            }
-
-            bool InsertOrAssign(const Key& key, const Value& value) {
-                Value* current = Find(key);
-                if (current) {
-                    *current = value;
-                    return false;
-                }
-                Insert(key, value);
-                return true;
-            }
-            
-            // Operator[]
-            Value& operator[](const Key& key) {
-                Value* val = Find(key);
-                if (val) return *val;
                 
-                Insert(key, Value());
-                return *Find(key);
-            }
+                // Lookup
+                Value* Find(const Key& key) {
+                    Node* node = FindNode(key);
+                    return node ? &node->Data.Second : nullptr;
+                }
+                
+                const Value* Find(const Key& key) const {
+                    Node* node = FindNode(key);
+                    return node ? &node->Data.Second : nullptr;
+                }
+                
+                bool Contains(const Key& key) const {
+                    return Find(key) != nullptr;
+                }
+
+                Iterator FindIterator(const Key& key) {
+                    usize hash = HashKey(key);
+                    SizeType idx = GetBucketIndex(hash);
+                    Node* node = mBuckets[idx];
+                    while (node) {
+                        if (mEqual(node->Data.First, key)) {
+                            return Iterator(this, node, idx);
+                        }
+                        node = node->Next;
+                    }
+                    return End();
+                }
+
+                ConstIterator FindIterator(const Key& key) const {
+                    usize hash = HashKey(key);
+                    SizeType idx = GetBucketIndex(hash);
+                    Node* node = mBuckets[idx];
+                    while (node) {
+                        if (mEqual(node->Data.First, key)) {
+                            return ConstIterator(this, node, idx);
+                        }
+                        node = node->Next;
+                    }
+                    return End();
+                }
+
+                bool TryGet(const Key& key, Value& outValue) const {
+                    const Value* value = Find(key);
+                    if (!value) {
+                        return false;
+                    }
+                    outValue = *value;
+                    return true;
+                }
+
+                Value& At(const Key& key) {
+                    Value* value = Find(key);
+                    NK_ASSERT(value != nullptr);
+                    return *value;
+                }
+
+                const Value& At(const Key& key) const {
+                    const Value* value = Find(key);
+                    NK_ASSERT(value != nullptr);
+                    return *value;
+                }
+
+                bool InsertOrAssign(const Key& key, const Value& value) {
+                    Value* current = Find(key);
+                    if (current) {
+                        *current = value;
+                        return false;
+                    }
+                    Insert(key, value);
+                    return true;
+                }
+                
+                // Operator[]
+                Value& operator[](const Key& key) {
+                    Value* val = Find(key);
+                    if (val) return *val;
+                    
+                    Insert(key, Value());
+                    return *Find(key);
+                }
         };
         
     

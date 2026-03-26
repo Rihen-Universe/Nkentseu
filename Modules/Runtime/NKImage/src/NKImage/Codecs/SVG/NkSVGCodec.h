@@ -51,7 +51,7 @@
  *  - La précision des transformations est float32
  */
 
-#include "NKImage/NkImage.h"
+#include "NKImage/Core/NkImage.h"
 
 namespace nkentseu {
 

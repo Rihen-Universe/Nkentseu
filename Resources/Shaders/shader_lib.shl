@@ -1,0 +1,9 @@
+# Shader Library File
+# Version: 1.0
+# Author: TEUGUIA TADJUIDJE Rodolf Sederis
+# Infos: Graphics programmer
+
+Shader "resources/shaders/shader.vert" 2023-07-07_13:23:50 653 vertex
+Shader "resources/shaders/shader.frag" 2023-07-07_13:23:30 384 fragment
+shader_grid "resources/shaders\\shader_grid.frag" 2023-08-02_21:40:07 431 fragment
+shader_grid "resources/shaders\\shader_grid.vert" 2023-08-02_21:39:45 471 vertex

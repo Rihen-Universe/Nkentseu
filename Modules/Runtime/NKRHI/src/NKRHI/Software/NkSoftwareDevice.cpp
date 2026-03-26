@@ -34,6 +34,15 @@ namespace nkentseu {
         y = math::NkMin(y, h - 1);
         const uint8* p = mips[mip].Data() + (y * w + x) * bpp;
         NkSWColor c;
+        if (desc.format == NkGPUFormat::NK_D32_FLOAT) {
+            float z = 1.0f;
+            memcpy(&z, p, sizeof(float));
+            c.r = z;
+            c.g = z;
+            c.b = z;
+            c.a = 1.0f;
+            return c;
+        }
         if (bpp >= 4) { c.r = p[0]/255.f; c.g = p[1]/255.f; c.b = p[2]/255.f; c.a = p[3]/255.f; }
         else if (bpp == 3) { c.r = p[0]/255.f; c.g = p[1]/255.f; c.b = p[2]/255.f; c.a = 1.f; }
         else if (bpp == 2) { c.r = p[0]/255.f; c.g = p[1]/255.f; c.a = 1.f; }
@@ -93,6 +102,8 @@ namespace nkentseu {
     // =============================================================================
     NkSWVertex NkSWRasterizer::ClipToNDC(const NkSWVertex& v) const {
         NkSWVertex r = v;
+        r.clipZ = v.position.z;
+        r.clipW = v.position.w;
         float32 invW = v.position.w != 0.f ? 1.f / v.position.w : 0.f;
         r.position.x *= invW;
         r.position.y *= invW;
@@ -115,6 +126,8 @@ namespace nkentseu {
         r.position.y = a.position.y + (b.position.y - a.position.y) * t;
         r.position.z = a.position.z + (b.position.z - a.position.z) * t;
         r.position.w = a.position.w + (b.position.w - a.position.w) * t;
+        r.clipZ = a.clipZ + (b.clipZ - a.clipZ) * t;
+        r.clipW = a.clipW + (b.clipW - a.clipW) * t;
         r.uv.x = a.uv.x + (b.uv.x - a.uv.x) * t;
         r.uv.y = a.uv.y + (b.uv.y - a.uv.y) * t;
         r.color.r = a.color.r + (b.color.r - a.color.r) * t;
@@ -153,18 +166,19 @@ namespace nkentseu {
         if (!mState.pipeline->depthTest) return true;
 
         NkSWColor d = mState.depthTarget->Read(x, y);
-        float32 dz = d.r; // depth stocké dans le canal rouge
+        float32 dz = d.r; // depth stocke dans le canal rouge
+        constexpr float32 kDepthEpsilon = 1e-5f;
         bool pass = false;
         switch (mState.pipeline->depthOp) {
-            case NkCompareOp::NK_LESS:         pass = z < dz;  break;
-            case NkCompareOp::NK_LESS_EQUAL:    pass = z <= dz; break;
-            case NkCompareOp::NK_GREATER:      pass = z > dz;  break;
-            case NkCompareOp::NK_GREATER_EQUAL: pass = z >= dz; break;
-            case NkCompareOp::NK_EQUAL:        pass = z == dz; break;
+            case NkCompareOp::NK_LESS:          pass = z <  (dz + kDepthEpsilon); break;
+            case NkCompareOp::NK_LESS_EQUAL:    pass = z <= (dz + kDepthEpsilon); break;
+            case NkCompareOp::NK_GREATER:       pass = z >  (dz - kDepthEpsilon); break;
+            case NkCompareOp::NK_GREATER_EQUAL: pass = z >= (dz - kDepthEpsilon); break;
+            case NkCompareOp::NK_EQUAL:         pass = z == dz; break;
             case NkCompareOp::NK_NOT_EQUAL:     pass = z != dz; break;
-            case NkCompareOp::NK_ALWAYS:       pass = true;    break;
-            case NkCompareOp::NK_NEVER:        pass = false;   break;
-            default:                        pass = z < dz;  break;
+            case NkCompareOp::NK_ALWAYS:        pass = true; break;
+            case NkCompareOp::NK_NEVER:         pass = false; break;
+            default:                            pass = z <  (dz + kDepthEpsilon); break;
         }
         if (pass && mState.pipeline->depthWrite) {
             NkSWColor dc{ z, z, z, 1.f };
@@ -201,24 +215,27 @@ namespace nkentseu {
     }
 
     void NkSWRasterizer::DrawPoint(const NkSWVertex& v0) {
-        if (!mState.colorTarget) return;
+        if (!mState.colorTarget && !mState.depthTarget) return;
+        NkSWTexture* dimTarget = mState.colorTarget ? mState.colorTarget : mState.depthTarget;
         auto ndc  = ClipToNDC(v0);
-        auto scr  = NDCToScreen(ndc, (float)mState.colorTarget->Width(),
-                                    (float)mState.colorTarget->Height());
+        auto scr  = NDCToScreen(ndc, (float)dimTarget->Width(), (float)dimTarget->Height());
         uint32 x = (uint32)scr.position.x;
         uint32 y = (uint32)scr.position.y;
-        if (x >= mState.colorTarget->Width() || y >= mState.colorTarget->Height()) return;
+        if (x >= dimTarget->Width() || y >= dimTarget->Height()) return;
         if (!DepthTest(x, y, scr.position.z)) return;
-        NkSWColor c = mState.shader && mState.shader->fragFn
-            ? mState.shader->fragFn(scr, mState.uniformData, nullptr)
-            : scr.color;
-        if (mState.colorTarget) mState.colorTarget->Write(x, y, c);
+        if (mState.colorTarget) {
+            NkSWColor c = mState.shader && mState.shader->fragFn
+                ? mState.shader->fragFn(scr, mState.uniformData, mState.colorTarget)
+                : scr.color;
+            mState.colorTarget->Write(x, y, c);
+        }
     }
 
     void NkSWRasterizer::DrawLine(const NkSWVertex& v0, const NkSWVertex& v1) {
-        if (!mState.colorTarget) return;
-        float32 W = (float)mState.colorTarget->Width();
-        float32 H = (float)mState.colorTarget->Height();
+        if (!mState.colorTarget && !mState.depthTarget) return;
+        NkSWTexture* dimTarget = mState.colorTarget ? mState.colorTarget : mState.depthTarget;
+        float32 W = (float)dimTarget->Width();
+        float32 H = (float)dimTarget->Height();
         auto ndc0 = NDCToScreen(ClipToNDC(v0), W, H);
         auto ndc1 = NDCToScreen(ClipToNDC(v1), W, H);
 
@@ -233,18 +250,21 @@ namespace nkentseu {
             uint32 x = (uint32)p.position.x, y = (uint32)p.position.y;
             if (x >= (uint32)W || y >= (uint32)H) continue;
             if (!DepthTest(x, y, p.position.z)) continue;
-            NkSWColor c = mState.shader && mState.shader->fragFn
-                ? mState.shader->fragFn(p, mState.uniformData, nullptr) : p.color;
-            mState.colorTarget->Write(x, y, c);
+            if (mState.colorTarget) {
+                NkSWColor c = mState.shader && mState.shader->fragFn
+                    ? mState.shader->fragFn(p, mState.uniformData, mState.colorTarget) : p.color;
+                mState.colorTarget->Write(x, y, c);
+            }
         }
     }
 
     void NkSWRasterizer::DrawTriangle(const NkSWVertex& v0,
                                     const NkSWVertex& v1,
                                     const NkSWVertex& v2) {
-        if (!mState.colorTarget) return;
-        float32 W = (float)mState.colorTarget->Width();
-        float32 H = (float)mState.colorTarget->Height();
+        if (!mState.colorTarget && !mState.depthTarget) return;
+        NkSWTexture* dimTarget = mState.colorTarget ? mState.colorTarget : mState.depthTarget;
+        float32 W = (float)dimTarget->Width();
+        float32 H = (float)dimTarget->Height();
 
         auto s0 = NDCToScreen(ClipToNDC(v0), W, H);
         auto s1 = NDCToScreen(ClipToNDC(v1), W, H);
@@ -267,7 +287,10 @@ namespace nkentseu {
             }
         }
         if (math::NkFabs(area2) < 0.001f) return;
-        float32 invArea = 1.f / area2;
+        // Négatif car NDCToScreen flipe Y, ce qui inverse le signe du cross-product
+        // (repère écran Y-bas vs repère math Y-haut). Sans ce signe, l0 et l1
+        // sont négatifs pour les points intérieurs → tous les pixels rejetés.
+        float32 invArea = -1.f / area2;
 
         // Bounding box
         
@@ -288,32 +311,68 @@ namespace nkentseu {
                 float32 l1 = ((s2.position.x - s0.position.x)*(py - s0.position.y)
                         - (s2.position.y - s0.position.y)*(px - s0.position.x)) * invArea;
                 float32 l2 = 1.f - l0 - l1;
-                if (l0 < 0 || l1 < 0 || l2 < 0) continue;
+                constexpr float32 kInsideEpsilon = 1e-6f;
+                if (l0 < -kInsideEpsilon || l1 < -kInsideEpsilon || l2 < -kInsideEpsilon) continue;
 
-                // Interpoler
-                float32 z = l0*s0.position.z + l1*s1.position.z + l2*s2.position.z;
+                // Interpolation perspective-correcte de la profondeur.
+                // position.z est déjà en [0,1] (NDCToScreen a fait z*0.5+0.5).
+                // position.w = 1/clip_w (invW pour correction perspective).
+                const float32 invWDenom = l0*s0.position.w + l1*s1.position.w + l2*s2.position.w;
+                if (math::NkFabs(invWDenom) < 1e-8f) continue;
+                float32 z = (l0*s0.position.z*s0.position.w +
+                             l1*s1.position.z*s1.position.w +
+                             l2*s2.position.z*s2.position.w) / invWDenom;
+                z = math::NkClamp(z, 0.f, 1.f);
                 if (!DepthTest((uint32)x, (uint32)y, z)) continue;
 
-                NkSWVertex frag = BaryInterp(s0, s1, s2, l0, l1, l2);
-                frag.position.x = px; frag.position.y = py; frag.position.z = z;
+                if (mState.colorTarget) {
+                    NkSWVertex frag = BaryInterp(s0, s1, s2, l0, l1, l2);
+                    frag.position.x = px; frag.position.y = py; frag.position.z = z;
 
-                NkSWColor srcColor = (mState.shader && mState.shader->fragFn)
-                    ? mState.shader->fragFn(frag, mState.uniformData, mState.colorTarget)
-                    : frag.color;
+                    NkSWColor srcColor = (mState.shader && mState.shader->fragFn)
+                        ? mState.shader->fragFn(frag, mState.uniformData, mState.colorTarget)
+                        : frag.color;
 
-                if (mState.pipeline && mState.pipeline->blendEnable) {
-                    NkSWColor dstColor = mState.colorTarget->Read((uint32)x, (uint32)y);
-                    srcColor = BlendColor(srcColor, dstColor);
+                    if (mState.pipeline && mState.pipeline->blendEnable) {
+                        NkSWColor dstColor = mState.colorTarget->Read((uint32)x, (uint32)y);
+                        srcColor = BlendColor(srcColor, dstColor);
+                    }
+
+                    mState.colorTarget->Write((uint32)x, (uint32)y, srcColor);
                 }
-
-                mState.colorTarget->Write((uint32)x, (uint32)y, srcColor);
             }
         }
     }
 
     void NkSWRasterizer::DrawTriangles(const NkSWVertex* verts, uint32 count) {
-        for (uint32 i = 0; i + 2 < count; i += 3)
-            DrawTriangle(verts[i], verts[i+1], verts[i+2]);
+        if (!verts || count == 0) return;
+        NkPrimitiveTopology topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
+        if (mState.pipeline) topology = mState.pipeline->topology;
+
+        switch (topology) {
+            case NkPrimitiveTopology::NK_POINT_LIST:
+                for (uint32 i = 0; i < count; ++i) DrawPoint(verts[i]);
+                break;
+            case NkPrimitiveTopology::NK_LINE_LIST:
+                for (uint32 i = 0; i + 1 < count; i += 2) DrawLine(verts[i], verts[i + 1]);
+                break;
+            case NkPrimitiveTopology::NK_LINE_STRIP:
+                for (uint32 i = 1; i < count; ++i) DrawLine(verts[i - 1], verts[i]);
+                break;
+            case NkPrimitiveTopology::NK_TRIANGLE_STRIP:
+                for (uint32 i = 2; i < count; ++i) DrawTriangle(verts[i - 2], verts[i - 1], verts[i]);
+                break;
+            case NkPrimitiveTopology::NK_TRIANGLE_FAN:
+                for (uint32 i = 2; i < count; ++i) DrawTriangle(verts[0], verts[i - 1], verts[i]);
+                break;
+            case NkPrimitiveTopology::NK_PATCH_LIST:
+                // Software backend does not evaluate patches yet.
+                break;
+            case NkPrimitiveTopology::NK_TRIANGLE_LIST:
+            default:
+                for (uint32 i = 0; i + 2 < count; i += 3) DrawTriangle(verts[i], verts[i + 1], verts[i + 2]);
+                break;
+        }
     }
 
     // =============================================================================
@@ -578,7 +637,8 @@ namespace nkentseu {
         p.depthTest    = d.depthStencil.depthTestEnable;
         p.depthWrite   = d.depthStencil.depthWriteEnable;
         p.depthOp      = d.depthStencil.depthCompareOp;
-        p.cullMode     = d.rasterizer.cullMode;
+        // Keep software raster stable across APIs while winding conventions are aligned.
+        p.cullMode     = NkCullMode::NK_NONE;
         p.frontFace    = d.rasterizer.frontFace;
         p.topology     = d.topology;
         p.vertexStride = d.vertexLayout.bindings.Size() > 0 ? d.vertexLayout.bindings[0].stride : 0;
@@ -752,7 +812,7 @@ void NkSoftwareDevice::Present() {
     // =============================================================================
     // Frame
     // =============================================================================
-    void NkSoftwareDevice::BeginFrame(NkFrameContext& frame) {
+    bool NkSoftwareDevice::BeginFrame(NkFrameContext& frame) {
         // Clear depth
         auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
         if (fbit) {
@@ -766,6 +826,7 @@ void NkSoftwareDevice::Present() {
         }
         frame.frameIndex  = mFrameIndex;
         frame.frameNumber = mFrameNumber;
+        return true;
     }
     void NkSoftwareDevice::EndFrame(NkFrameContext&) { ++mFrameNumber; }
 

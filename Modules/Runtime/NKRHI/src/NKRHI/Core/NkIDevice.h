@@ -246,12 +246,10 @@ namespace nkentseu {
             virtual void            FreeDescriptorSet    (NkDescSetHandle& handle)          = 0;
 
             // Écrire les ressources dans le set
-            virtual void UpdateDescriptorSets(const NkDescriptorWrite* writes,
-                                            uint32 count)                                = 0;
+            virtual void UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 count) = 0;
 
             // Shortcut pour un seul buffer uniform
-            void BindUniformBuffer(NkDescSetHandle set, uint32 binding,
-                                    NkBufferHandle buf, uint64 range=0) {
+            void BindUniformBuffer(NkDescSetHandle set, uint32 binding, NkBufferHandle buf, uint64 range=0) {
                 NkDescriptorWrite w{};
                 w.set=set; w.binding=binding; w.type=NkDescriptorType::NK_UNIFORM_BUFFER;
                 w.buffer=buf; w.bufferRange=range;
@@ -297,7 +295,7 @@ namespace nkentseu {
             // =========================================================================
             // Frame management (triple buffering, frame index, etc.)
             // =========================================================================
-            virtual void              BeginFrame(NkFrameContext& frame)                     = 0;
+            virtual bool              BeginFrame(NkFrameContext& frame)                     = 0;
             virtual void              EndFrame  (NkFrameContext& frame)                     = 0;
             virtual uint32            GetFrameIndex()                              const     = 0;
             virtual uint32            GetMaxFramesInFlight()                       const     = 0;

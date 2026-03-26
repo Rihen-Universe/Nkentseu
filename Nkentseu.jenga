@@ -263,6 +263,12 @@ with workspace("Nkentseu", location="."):
     with include("Modules/Foundation/NKContainers/NKContainers.jenga"):
         pass
 
+    with include("Modules/Runtime/NKImage/NKImage.jenga"):
+        pass
+
+    with include("Modules/Runtime/NKFont/NKFont.jenga"):
+        pass
+
     with include("Modules/System/NKTime/NKTime.jenga"):
         pass
 
@@ -284,16 +290,25 @@ with workspace("Nkentseu", location="."):
     with include("Externals/Libs/NKGlad/NKGlad.jenga"):
         pass
 
+    with include("Externals/Libs/NKGLSlang/NKGLSlang.jenga"):
+        pass
+
+    with include("Externals/Libs/NKSPIRVCross/NKSPIRVCross.jenga"):
+        pass
+
+    with include("Modules/Runtime/NKEvent/NKEvent.jenga"):
+        pass
+
     with include("Modules/Runtime/NKWindow/NKWindow.jenga"):
         pass
 
     with include("Modules/Runtime/NKContext/NKContext.jenga"):
         pass
 
-    # with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
-    #     pass
-
     with include("Modules/Runtime/NKRHI/NKRHI.jenga"):
+        pass
+
+    with include("Modules/Runtime/NKUI/NKUI.jenga"):
         pass
 
     with include("Modules/Runtime/NKCamera/NKCamera.jenga"):
@@ -301,3 +316,9 @@ with workspace("Nkentseu", location="."):
 
     with include("Applications/Sandbox/Sandbox.jenga"):
         pass
+
+    with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
+        pass
+
+    # with include("Applications/NKPA/NKPA.jenga"):
+    #     pass

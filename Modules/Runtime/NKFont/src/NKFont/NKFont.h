@@ -88,3 +88,4 @@
 #include "NKFont/NkShaper.h"
 #include "NKFont/NkGlyphCache.h"
 #include "NKFont/NkFontFace.h"
+#include "NKFont/NkFTFontFace.h"

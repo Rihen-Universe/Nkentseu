@@ -26,11 +26,16 @@ NkMetalCommandBuffer::~NkMetalCommandBuffer() {
     if (mCmdBuf) CFRelease(mCmdBuf);
 }
 
-void NkMetalCommandBuffer::Begin() {
+bool NkMetalCommandBuffer::Begin() {
     // Obtenir un nouveau command buffer
     if (mCmdBuf) CFRelease(mCmdBuf);
     id<MTLCommandBuffer> cmd = [mDev->MtlQueue() commandBuffer];
+    if (!cmd) {
+        mCmdBuf = nullptr;
+        return false;
+    }
     mCmdBuf = (__bridge_retained void*)cmd;
+    return true;
 }
 
 void NkMetalCommandBuffer::End() { EndCurrentEncoder(); }
@@ -65,13 +70,16 @@ void NkMetalCommandBuffer::CommitAndPresent(void* drawable) {
 // =============================================================================
 // Render Pass
 // =============================================================================
-void NkMetalCommandBuffer::BeginRenderPass(NkRenderPassHandle rpH,
+bool NkMetalCommandBuffer::BeginRenderPass(NkRenderPassHandle rpH,
                                              NkFramebufferHandle fbH,
                                              const NkRect2D& /*area*/) {
+    if (!mCmdBuf || !rpH.IsValid() || !fbH.IsValid()) return false;
     EndCurrentEncoder();
 
     auto* fb  = mDev->GetFBO(fbH.id);
     auto  rpit = mDev->GetFBO(fbH.id); // même objet
+    (void)rpit;
+    if (!fb) return false;
 
     MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
 
@@ -94,7 +102,9 @@ void NkMetalCommandBuffer::BeginRenderPass(NkRenderPassHandle rpH,
     }
 
     id<MTLRenderCommandEncoder> enc = [CMD_BUF renderCommandEncoderWithDescriptor:rpd];
+    if (!enc) return false;
     mRenderEncoder = (__bridge_retained void*)enc;
+    return true;
 }
 
 void NkMetalCommandBuffer::EndRenderPass() {
@@ -402,3 +412,5 @@ void NkMetalCommandBuffer::InsertDebugLabel(const char* name) {
 
 } // namespace nkentseu
 #endif // NK_RHI_METAL_ENABLED
+
+

@@ -14,7 +14,7 @@
 // =============================================================================
 // Framework de test minimaliste
 // =============================================================================
-namespace NkSLTest {
+namespace nkslTest {
 
 static uint32 gPassed = 0;
 static uint32 gFailed = 0;
@@ -57,10 +57,10 @@ static void PrintSummary() {
     printf("=========================\n\n");
 }
 
-} // namespace NkSLTest
+} // namespace nkslTest
 
 using namespace nkentseu;
-using namespace NkSLTest;
+using namespace nkslTest;
 
 // =============================================================================
 // Helpers

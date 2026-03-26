@@ -102,27 +102,27 @@ namespace nkentseu {
     //  Style calculé SVG (après héritage en cascade)
     // ─────────────────────────────────────────────────────────────────────────────
 
-    enum class NkSVGFillRule   : uint8 { NonZero=0, EvenOdd=1 };
-    enum class NkSVGLineCap    : uint8 { Butt=0, Round=1, Square=2 };
-    enum class NkSVGLineJoin   : uint8 { Miter=0, Round=1, Bevel=2 };
-    enum class NkSVGDisplay    : uint8 { Inline=0, None=1 };
-    enum class NkSVGVisibility : uint8 { Visible=0, Hidden=1, Collapse=2 };
-    enum class NkSVGOverflow   : uint8 { Visible=0, Hidden=1, Scroll=2, Auto=3 };
+    enum class NkSVGFillRule   : uint8 { NK_NON_ZERO=0, NK_EVEN_ODD=1 };
+    enum class NkSVGLineCap    : uint8 { NK_BUTT=0, NK_ROUND=1, NK_SQUARE=2 };
+    enum class NkSVGLineJoin   : uint8 { NK_MITER=0, NK_ROUND=1, NK_BEVEL=2 };
+    enum class NkSVGDisplay    : uint8 { NK_DISPLAY_INLINE=0, NK_NONE=1 };
+    enum class NkSVGVisibility : uint8 { NK_VISIBLE=0, NK_HIDDEN=1, NK_COLLAPSE=2 };
+    enum class NkSVGOverflow   : uint8 { NK_VISIBLE=0, NK_HIDDEN=1, NK_SCROLL=2, NK_AUTO=3 };
 
     struct NKENTSEU_IMAGE_API NkSVGStyle {
             NkSVGPaint  fill         = NkSVGPaint::Black();
             NkSVGPaint  stroke       = NkSVGPaint::None();
             float       strokeWidth  = 1.f;
             float       strokeMiterLimit = 4.f;
-            NkSVGFillRule fillRule   = NkSVGFillRule::NonZero;
-            NkSVGLineCap  lineCap    = NkSVGLineCap::Butt;
-            NkSVGLineJoin lineJoin   = NkSVGLineJoin::Miter;
+            NkSVGFillRule fillRule   = NkSVGFillRule::NK_NON_ZERO;
+            NkSVGLineCap  lineCap    = NkSVGLineCap::NK_BUTT;
+            NkSVGLineJoin lineJoin   = NkSVGLineJoin::NK_MITER;
             float       opacity      = 1.f;
             float       fillOpacity  = 1.f;
             float       strokeOpacity= 1.f;
             float       fontSize     = 16.f;
-            NkSVGDisplay    display  = NkSVGDisplay::Inline;
-            NkSVGVisibility visibility= NkSVGVisibility::Visible;
+            NkSVGDisplay    display  = NkSVGDisplay::NK_DISPLAY_INLINE;
+            NkSVGVisibility visibility= NkSVGVisibility::NK_VISIBLE;
             // Dasharray simplifié (jusqu'à 8 valeurs)
             float       dashArray[8] = {};
             int32       dashCount    = 0;
@@ -134,7 +134,7 @@ namespace nkentseu {
             char        clipPathId[64] = {};
 
             bool IsVisible() const noexcept {
-                return display==NkSVGDisplay::Inline&&visibility==NkSVGVisibility::Visible;
+                return display==NkSVGDisplay::NK_DISPLAY_INLINE&&visibility==NkSVGVisibility::NK_VISIBLE;
             }
 
             /// Calcule le style hérité depuis le parent + les attributs de présentation du nœud
@@ -142,7 +142,6 @@ namespace nkentseu {
                                     NkXMLNode* node,
                                     float viewportW, float viewportH) noexcept;
 
-        private:
             static void ParseInlineStyle(const char* css, NkSVGStyle& out,
                                         float vpW, float vpH) noexcept;
             static void ApplyProperty(const char* prop, const char* value,
@@ -166,14 +165,14 @@ namespace nkentseu {
     //  NkSVGGradient — gradient linéaire ou radial
     // ─────────────────────────────────────────────────────────────────────────────
 
-    enum class NkSVGGradientType    : uint8 { Linear, Radial };
-    enum class NkSVGGradientUnits   : uint8 { UserSpace, ObjectBoundingBox };
-    enum class NkSVGSpreadMethod    : uint8 { Pad, Reflect, Repeat };
+    enum class NkSVGGradientType    : uint8 { NK_LINEAR, NK_RADIAL };
+    enum class NkSVGGradientUnits   : uint8 { NK_USER_SPACE, NK_OBJECT_BOUNDING_BOX };
+    enum class NkSVGSpreadMethod    : uint8 { NK_PAD, NK_REFLECT, NK_REPEAT };
 
     struct NKENTSEU_IMAGE_API NkSVGGradient {
-        NkSVGGradientType   type       = NkSVGGradientType::Linear;
-        NkSVGGradientUnits  units      = NkSVGGradientUnits::ObjectBoundingBox;
-        NkSVGSpreadMethod   spread     = NkSVGSpreadMethod::Pad;
+        NkSVGGradientType   type       = NkSVGGradientType::NK_LINEAR;
+        NkSVGGradientUnits  units      = NkSVGGradientUnits::NK_OBJECT_BOUNDING_BOX;
+        NkSVGSpreadMethod   spread     = NkSVGSpreadMethod::NK_PAD;
         NkSVGMatrix         transform  = NkSVGMatrix::Identity();
         // Linear
         float x1=0,y1=0,x2=1,y2=0;
@@ -294,7 +293,7 @@ namespace nkentseu {
             return xmlNode?xmlNode->localName:"";
         }
         NKIMG_NODISCARD bool Is(const char* tag) const noexcept {
-            return xmlNode&&xmlNode->localName&&::strcmp(xmlNode->localName,tag)==0;
+            return xmlNode&&xmlNode->localName&&NkStringView(xmlNode->localName)==NkStringView(tag);
         }
     };
 

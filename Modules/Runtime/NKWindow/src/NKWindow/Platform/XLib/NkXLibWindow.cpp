@@ -14,7 +14,7 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
 #include "NKWindow/Platform/XLib/NkXLibDropTarget.h"
 #include "NKCore/NkAtomic.h"

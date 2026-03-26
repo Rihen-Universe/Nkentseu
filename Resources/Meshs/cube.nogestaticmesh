@@ -1,0 +1,111 @@
+Path: resources/meshs/cube.nogestaticmesh
+BufferInfoLayout:
+  Stride: 32
+  Elements:
+    - Name: in_Position
+      Type: Float3
+      Normalized: false
+    - Name: in_Normal
+      Type: Float3
+      Normalized: false
+    - Name: in_TexCoord
+      Type: Float2
+      Normalized: false
+Models:
+  - Model:
+      Name: ""
+      Transform:
+        Position: [0, 0, 0]
+        Rotation: [0, 0, 0]
+        Scale: [1, 1, 1]
+      MeshInfos:
+        Cube:
+          Mesh:
+            Name: Cube
+            Vertices:
+              - Position: [1, 1, 1]
+                Normal: [0, 0, 1]
+                TexUV: [0.625, 0.5]
+              - Position: [-1, 1, 1]
+                Normal: [0, 0, 1]
+                TexUV: [0.875, 0.5]
+              - Position: [-1, -1, 1]
+                Normal: [0, 0, 1]
+                TexUV: [0.875, 0.25]
+              - Position: [1, -1, 1]
+                Normal: [0, 0, 1]
+                TexUV: [0.625, 0.25]
+              - Position: [1, -1, -1]
+                Normal: [0, -1, 0]
+                TexUV: [0.375, 0.25]
+              - Position: [1, -1, 1]
+                Normal: [0, -1, 0]
+                TexUV: [0.625, 0.25]
+              - Position: [-1, -1, 1]
+                Normal: [0, -1, 0]
+                TexUV: [0.625, 0]
+              - Position: [-1, -1, -1]
+                Normal: [0, -1, 0]
+                TexUV: [0.375, 0]
+              - Position: [-1, -1, -1]
+                Normal: [-1, 0, 0]
+                TexUV: [0.375, 1]
+              - Position: [-1, -1, 1]
+                Normal: [-1, 0, 0]
+                TexUV: [0.625, 1]
+              - Position: [-1, 1, 1]
+                Normal: [-1, 0, 0]
+                TexUV: [0.625, 0.75]
+              - Position: [-1, 1, -1]
+                Normal: [-1, 0, 0]
+                TexUV: [0.375, 0.75]
+              - Position: [-1, 1, -1]
+                Normal: [0, 0, -1]
+                TexUV: [0.125, 0.5]
+              - Position: [1, 1, -1]
+                Normal: [0, 0, -1]
+                TexUV: [0.375, 0.5]
+              - Position: [1, -1, -1]
+                Normal: [0, 0, -1]
+                TexUV: [0.375, 0.25]
+              - Position: [-1, -1, -1]
+                Normal: [0, 0, -1]
+                TexUV: [0.125, 0.25]
+              - Position: [1, 1, -1]
+                Normal: [1, 0, 0]
+                TexUV: [0.375, 0.5]
+              - Position: [1, 1, 1]
+                Normal: [1, 0, 0]
+                TexUV: [0.625, 0.5]
+              - Position: [1, -1, 1]
+                Normal: [1, 0, 0]
+                TexUV: [0.625, 0.25]
+              - Position: [1, -1, -1]
+                Normal: [1, 0, 0]
+                TexUV: [0.375, 0.25]
+              - Position: [-1, 1, -1]
+                Normal: [0, 1, 0]
+                TexUV: [0.375, 0.75]
+              - Position: [-1, 1, 1]
+                Normal: [0, 1, 0]
+                TexUV: [0.625, 0.75]
+              - Position: [1, 1, 1]
+                Normal: [0, 1, 0]
+                TexUV: [0.625, 0.5]
+              - Position: [1, 1, -1]
+                Normal: [0, 1, 0]
+                TexUV: [0.375, 0.5]
+            Triangles:
+              - [0, 1, 2]
+              - [0, 2, 3]
+              - [4, 5, 6]
+              - [4, 6, 7]
+              - [8, 9, 10]
+              - [8, 10, 11]
+              - [12, 13, 14]
+              - [12, 14, 15]
+              - [16, 17, 18]
+              - [16, 18, 19]
+              - [20, 21, 22]
+              - [20, 22, 23]
+          Material: resources/materials/DefaultMaterial.nogematerial

@@ -493,7 +493,7 @@ Application│                                                │
 // 2. En-tête du module courant
 #include "NKWindow/Core/NkWindow.h"
 // 3. En-têtes internes (même module)
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 // 4. En-têtes des dépendances (NKContainers, NKMath, …)
 #include "NKContainers/String/NkString.h"
 // 5. En-têtes platform (avec garde #ifdef)

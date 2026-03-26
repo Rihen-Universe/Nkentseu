@@ -19,14 +19,14 @@ namespace nkentseu {
             NkDirectX11CommandBuffer(NkDirectX11Device* dev, NkCommandBufferType type);
             ~NkDirectX11CommandBuffer() override;
 
-            void Begin()  override;
+            bool Begin()  override;
             void End()    override;
             void Reset()  override;
             bool IsValid()              const override { return mDeferred != nullptr; }
             NkCommandBufferType GetType() const override { return mType; }
             void Execute(NkDirectX11Device* dev);
 
-            void BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
+            bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
             void EndRenderPass() override {}
             void SetViewport (const NkViewport& vp) override;
             void SetViewports(const NkViewport* vps, uint32 n) override;

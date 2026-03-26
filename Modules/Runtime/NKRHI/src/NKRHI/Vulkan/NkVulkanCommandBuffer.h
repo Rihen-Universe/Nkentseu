@@ -17,14 +17,14 @@ namespace nkentseu {
             NkVulkanCommandBuffer(NkVulkanDevice* dev, NkCommandBufferType type);
             ~NkVulkanCommandBuffer() override;
 
-            void Begin()  override;
+            bool Begin()  override;
             void End()    override;
             void Reset()  override;
             bool IsValid()              const override { return mCmdBuf != VK_NULL_HANDLE; }
             NkCommandBufferType GetType() const override { return mType; }
             VkCommandBuffer GetVkCommandBuffer() const { return mCmdBuf; }
 
-            void BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
+            bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
             void EndRenderPass() override;
 
             void SetViewport(const NkViewport& vp) override;

@@ -34,7 +34,7 @@ public:
     virtual ~NkICommandBuffer() = default;
 
     // ── Cycle de vie ─────────────────────────────────────────────────────────
-    virtual void Begin()                     = 0;
+    virtual bool Begin()                     = 0;
     virtual void End()                       = 0;
     virtual void Reset()                     = 0;
     virtual bool IsValid()             const = 0;
@@ -43,7 +43,7 @@ public:
     // =========================================================================
     // Render Pass
     // =========================================================================
-    virtual void BeginRenderPass(NkRenderPassHandle rp,
+    virtual bool BeginRenderPass(NkRenderPassHandle rp,
                                   NkFramebufferHandle fb,
                                   const NkRect2D& area)         = 0;
     virtual void EndRenderPass()                                 = 0;

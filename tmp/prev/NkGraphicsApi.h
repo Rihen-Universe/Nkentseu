@@ -4,14 +4,14 @@
 // NKRenderer side adapter over the canonical enum defined by NKWindow.
 //
 // Canonical enum:
-//   NKWindow/Events/NkGraphicsEvent.h -> enum class NkGraphicsApi
+//   NKEvent/NkGraphicsEvent.h -> enum class NkGraphicsApi
 //
 // Compatibility:
 //   Keeps helper functions used by NKRenderer and allows legacy NK_API_* names
 //   via aliases declared in NkGraphicsEvent.h.
 // =============================================================================
 
-#include "NKWindow/Events/NkGraphicsEvent.h"
+#include "NKEvent/NkGraphicsEvent.h"
 
 namespace nkentseu {
 

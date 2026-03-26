@@ -1,0 +1,5 @@
+# PlayStation 3 controller mapping
+# 030000004c050000c405000000010000,PS3 Controller,a:b14,b:b13,back:b0,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b16,leftshoulder:b10,leftstick:b1,lefttrigger:b6,leftx:a0,lefty:a1,rightshoulder:b11,rightstick:b2,righttrigger:b7,rightx:a2,righty:a3,start:b3,x:b15,y:b12,
+
+# PlayStation 3 controller mapping
+050000004c050000c405000000010000,PS3 Controller (STANDARD GAMEPAD Vendor: 054c Product: 05c5),leftx:a0,lefty:a1,rightx:a3,righty:a4,

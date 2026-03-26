@@ -702,9 +702,9 @@ void NkMetalDevice::WaitIdle() {
 // =============================================================================
 // Frame
 // =============================================================================
-void NkMetalDevice::BeginFrame(NkFrameContext& frame) {
+bool NkMetalDevice::BeginFrame(NkFrameContext& frame) {
     mCurrentDrawable = [mLayer nextDrawable];
-    if (!mCurrentDrawable) return;
+    if (!mCurrentDrawable) return false;
 
     // Mettre à jour le framebuffer swapchain avec le drawable courant
     uint64 colorId = NextId();
@@ -724,6 +724,7 @@ void NkMetalDevice::BeginFrame(NkFrameContext& frame) {
 
     frame.frameIndex  = mFrameIndex;
     frame.frameNumber = mFrameNumber;
+    return true;
 }
 
 void NkMetalDevice::EndFrame(NkFrameContext&) {

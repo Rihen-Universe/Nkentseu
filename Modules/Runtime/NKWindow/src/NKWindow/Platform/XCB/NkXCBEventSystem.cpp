@@ -13,8 +13,8 @@
 
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XCB)
 
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkKeycodeMap.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkKeycodeMap.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Platform/XCB/NkXCBWindow.h"

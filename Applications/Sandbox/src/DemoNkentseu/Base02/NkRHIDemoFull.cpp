@@ -20,10 +20,10 @@
 // ── Headers NKEngine ──────────────────────────────────────────────────────────
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
-#include "NKWindow/Core/NkEvents.h"
-#include "NKWindow/Events/NkWindowEvent.h"
-#include "NKWindow/Events/NkKeyboardEvent.h"
-#include "NKWindow/Events/NkMouseEvent.h"
+#include "NKWindow/Core/NkEvent.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkKeyboardEvent.h"
+#include "NKEvent/NkMouseEvent.h"
 #include "NKTime/NkTime.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
 

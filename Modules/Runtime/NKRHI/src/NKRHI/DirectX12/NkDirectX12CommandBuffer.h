@@ -17,14 +17,14 @@ public:
     NkDirectX12CommandBuffer(NkDirectX12Device* dev, NkCommandBufferType type);
     ~NkDirectX12CommandBuffer() override;
 
-    void Begin()  override;
+    bool Begin()  override;
     void End()    override;
     void Reset()  override;
     bool IsValid()              const override { return mCmdList != nullptr; }
     NkCommandBufferType GetType() const override { return mType; }
     ID3D12GraphicsCommandList* GetCmdList() const { return mCmdList.Get(); }
 
-    void BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
+    bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
     void EndRenderPass() override;
 
     void SetViewport (const NkViewport& vp) override;
@@ -68,6 +68,7 @@ private:
     ComPtr<ID3D12CommandAllocator>      mAllocator; // propre (non partagé avec frames)
     NkCommandBufferType                 mType;
     bool                               mIsCompute = false;
+    bool                               mRecording = false;
     uint64                              mActiveColorTexIds[8]{};
     uint32                              mActiveColorCount = 0;
     uint64                              mActiveDepthTexId = 0;

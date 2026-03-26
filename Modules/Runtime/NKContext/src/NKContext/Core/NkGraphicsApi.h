@@ -1,6 +1,6 @@
 #pragma once
 // NkGraphicsApi.h
-#include "NKWindow/Events/NkGraphicsEvent.h"
+#include "NKEvent/NkGraphicsEvent.h"
 
 #if !defined(NKENTSEU_ENABLE_VULKAN_BACKEND)
 #   define NKENTSEU_ENABLE_VULKAN_BACKEND 1

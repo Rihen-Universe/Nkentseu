@@ -7,7 +7,7 @@
 
 #if defined(NKENTSEU_PLATFORM_XBOX)
 
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkGamepadSystem.h"
 #include "NKMemory/NkUtils.h"
 
 #if defined(_WIN32)

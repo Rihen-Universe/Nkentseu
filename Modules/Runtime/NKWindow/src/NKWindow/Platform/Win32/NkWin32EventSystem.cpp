@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // NkWin32EventSystem.cpp
 // Implémentation Win32 des méthodes platform-spécifiques de NkEventSystem.
 //
@@ -15,11 +15,11 @@
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
 
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkKeycodeMap.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkKeycodeMap.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Core/NkEvents.h"
+#include "NKWindow/Core/NkEvent.h"
 #include "NKWindow/Platform/Win32/NkWin32Window.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -37,8 +37,29 @@
 #   define HID_USAGE_GENERIC_MOUSE ((USHORT)0x02)
 #endif
 
+#include "NKWindow/Platform/Win32/NkWin32EventSystem.h"
+
 namespace nkentseu {
     using namespace math;
+
+    // =========================================================================
+    // Donnees Win32 statiques -- remplacent les champs de NkEventSystemData
+    // qui etaient accedes via this->mData dans les methodes membres.
+    // =========================================================================
+    namespace {
+        struct NkWin32EvtData {
+            bool  mRawInputRegistered = false;
+            int32 mPrevMouseX         = 0;
+            int32 mPrevMouseY         = 0;
+        };
+        static NkWin32EvtData sWin32Data;
+    }
+
+    // Forward déclaration unique — NkWin32WndProc appelle NkWin32_ProcessMessage
+    // qui est défini plus bas dans le fichier.
+    static LRESULT NkWin32_ProcessMessage(NkEventSystem& sys,
+                                          HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+                                          NkWindowId winId, NkWindow* owner);
 
     // =============================================================================
     // Init
@@ -68,7 +89,7 @@ namespace nkentseu {
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) break;
             TranslateMessage(&msg);
-            DispatchMessageW(&msg); // route vers WindowProcStatic
+            DispatchMessageW(&msg); // route vers NkWin32WndProc
         }
 
         mPumping = false;
@@ -87,13 +108,13 @@ namespace nkentseu {
     }
 
     // =============================================================================
-    // WindowProcStatic
+    // NkWin32WndProc — procédure de fenêtre Win32
     //
     // Point 1 : NkSystem::Events() remplace NkEventSystem::Instance()
     // Point 2 : NkWin32RegisterWindow / NkWin32FindWindow remplacent les globals
     // =============================================================================
 
-    LRESULT CALLBACK NkEventSystem::WindowProcStatic(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+    LRESULT CALLBACK NkWin32WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     {
         // Point 1 : accès via NkSystem, pas via singleton de NkEventSystem
         auto& sys = NkSystem::Events();
@@ -105,8 +126,8 @@ namespace nkentseu {
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)win);
 
                 // Raw input sur la première fenêtre
-                if (!sys.mData.mRawInputRegistered) {
-                    sys.mData.mRawInputRegistered = true;
+                if (!sWin32Data.mRawInputRegistered) {
+                    sWin32Data.mRawInputRegistered = true;
                     RAWINPUTDEVICE rid{};
                     rid.usUsagePage = HID_USAGE_PAGE_GENERIC;
                     rid.usUsage     = HID_USAGE_GENERIC_MOUSE;
@@ -132,14 +153,14 @@ namespace nkentseu {
         auto* owner  = reinterpret_cast<NkWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         NkWindowId winId = owner ? owner->GetId() : NK_INVALID_WINDOW_ID;
 
-        return sys.ProcessMessage(hwnd, msg, wp, lp, winId, owner);
+        return NkWin32_ProcessMessage(sys, hwnd, msg, wp, lp, winId, owner);
     }
 
     // =============================================================================
     // Helpers
     // =============================================================================
 
-    NkModifierState NkEventSystem::CurrentMods() {
+    static NkModifierState NkWin32_CurrentMods() {
         NkModifierState m;
         m.ctrl    = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         m.alt     = (GetKeyState(VK_MENU)    & 0x8000) != 0;
@@ -151,7 +172,7 @@ namespace nkentseu {
         return m;
     }
 
-    NkKey NkEventSystem::VkeyToNkKey(UINT vk, bool extended) noexcept {
+    static NkKey NkWin32_VkeyToNkKey(UINT vk, bool extended) noexcept {
         return NkKeycodeMap::NkKeyFromWin32VK((uint32)vk, extended);
     }
 
@@ -164,16 +185,15 @@ namespace nkentseu {
     //           de façon atomique — pas de double SetWindowId ici.
     // =============================================================================
 
-    LRESULT NkEventSystem::ProcessMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
-                                        NkWindowId winId, NkWindow* owner)
+    static LRESULT NkWin32_ProcessMessage(NkEventSystem& sys,
+                                          HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+                                          NkWindowId winId, NkWindow* owner)
     {
         LRESULT result              = 0;
         bool    suppressDefaultProc = false;
 
-        // Point 4 : macro locale qui passe winId à Enqueue
-        // Chaque event sait exactement de quelle fenêtre il provient.
         auto EnqueueForWindow = [&](NkEvent& evt) {
-            Enqueue(evt, winId);
+            sys.Enqueue_Public(evt, winId);
         };
 
         switch (msg)
@@ -380,9 +400,9 @@ namespace nkentseu {
                 if (mk & MK_XBUTTON1) buttons.Set(NkMouseButton::NK_MB_BACK);
                 if (mk & MK_XBUTTON2) buttons.Set(NkMouseButton::NK_MB_FORWARD);
                 NkMouseMoveEvent evt(x, y, (int32)pt.x, (int32)pt.y,
-                    x - mData.mPrevMouseX, y - mData.mPrevMouseY, buttons, CurrentMods(), winId);
-                mData.mPrevMouseX = x;
-                mData.mPrevMouseY = y;
+                    x - sWin32Data.mPrevMouseX, y - sWin32Data.mPrevMouseY, buttons, NkWin32_CurrentMods(), winId);
+                sWin32Data.mPrevMouseX = x;
+                sWin32Data.mPrevMouseY = y;
                 EnqueueForWindow(evt);
                 break;
             }
@@ -432,13 +452,13 @@ namespace nkentseu {
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};                           \
         POINT sp = pt; ClientToScreen(hwnd, &sp);                                   \
         NkMouseButtonPressEvent evt(NkMouseButton::Button,                          \
-            pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId); EnqueueForWindow(evt); } break
+            pt.x, pt.y, sp.x, sp.y, 1, NkWin32_CurrentMods(), winId); EnqueueForWindow(evt); } break
 
     #define NK_MB_RELEASE(Button) {                                                 \
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};                           \
         POINT sp = pt; ClientToScreen(hwnd, &sp);                                   \
         NkMouseButtonReleaseEvent evt(NkMouseButton::Button,                        \
-            pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId); EnqueueForWindow(evt); } break
+            pt.x, pt.y, sp.x, sp.y, 1, NkWin32_CurrentMods(), winId); EnqueueForWindow(evt); } break
 
             case WM_LBUTTONDOWN: NK_MB_PRESS(NK_MB_LEFT);
             case WM_LBUTTONUP:   NK_MB_RELEASE(NK_MB_LEFT);
@@ -459,7 +479,7 @@ namespace nkentseu {
                     (msg == WM_LBUTTONDBLCLK) ? NkMouseButton::NK_MB_LEFT   :
                     (msg == WM_RBUTTONDBLCLK) ? NkMouseButton::NK_MB_RIGHT   :
                                                 NkMouseButton::NK_MB_MIDDLE;
-                NkMouseDoubleClickEvent evt(btn, pt.x, pt.y, sp.x, sp.y, CurrentMods(), winId);
+                NkMouseDoubleClickEvent evt(btn, pt.x, pt.y, sp.x, sp.y, NkWin32_CurrentMods(), winId);
                 EnqueueForWindow(evt);
                 break;
             }
@@ -471,10 +491,10 @@ namespace nkentseu {
                 NkMouseButton btn = (HIWORD(wp) & XBUTTON1)
                     ? NkMouseButton::NK_MB_BACK : NkMouseButton::NK_MB_FORWARD;
                 if (msg == WM_XBUTTONDOWN) {
-                    NkMouseButtonPressEvent   e(btn, pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId);
+                    NkMouseButtonPressEvent   e(btn, pt.x, pt.y, sp.x, sp.y, 1, NkWin32_CurrentMods(), winId);
                     EnqueueForWindow(e);
                 } else {
-                    NkMouseButtonReleaseEvent e(btn, pt.x, pt.y, sp.x, sp.y, 1, CurrentMods(), winId);
+                    NkMouseButtonReleaseEvent e(btn, pt.x, pt.y, sp.x, sp.y, 1, NkWin32_CurrentMods(), winId);
                     EnqueueForWindow(e);
                 }
                 break;
@@ -503,10 +523,10 @@ namespace nkentseu {
                 NkScancode nkSc = NkScancodeFromWin32(sc, isExt);
                 NkKey k = NkScancodeToKey(nkSc);
                 if (k == NkKey::NK_UNKNOWN)
-                    k = VkeyToNkKey((UINT)wp, isExt);
+                    k = NkWin32_VkeyToNkKey((UINT)wp, isExt);
                 if (k != NkKey::NK_UNKNOWN) {
                     bool isPress = (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
-                    NkModifierState mods    = CurrentMods();
+                    NkModifierState mods    = NkWin32_CurrentMods();
                     UINT            nativeKey = (UINT)wp;
                     if (isPress && isRep) {
                         NkKeyRepeatEvent e(k, 1, nkSc, mods, nativeKey, isExt, winId);
@@ -572,7 +592,7 @@ namespace nkentseu {
         if (result) return result;
 
         if (owner && owner->mData.mExternal && owner->mData.mPrevWndProc &&
-            owner->mData.mPrevWndProc != NkEventSystem::WindowProcStatic) {
+            owner->mData.mPrevWndProc != NkWin32WndProc) {
             return CallWindowProcW(owner->mData.mPrevWndProc, hwnd, msg, wp, lp);
         }
 

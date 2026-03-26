@@ -877,9 +877,9 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
             default: continue;
         }
 
-        if (s.spirvData && s.spirvSize > 0) {
+        if (s.spirvBinary.Data() && s.spirvBinary.Size() > 0) {
             // DXIL pré-compilé
-            target->Assign(static_cast<const uint8*>(s.spirvData), static_cast<usize>(s.spirvSize));
+            target->Assign(static_cast<const uint8*>(s.spirvBinary.Data()), static_cast<usize>(s.spirvBinary.Size()));
             stageCompiled = true;
         } else if (s.hlslSource) {
             const char* entry = s.entryPoint ? s.entryPoint : "main";
@@ -1013,7 +1013,8 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
     }
 
     psd.SampleMask = UINT_MAX;
-    psd.SampleDesc = { (UINT)d.samples, 0 };
+    // SampleDesc.Count doit être >= 1 (NkSampleCount zero-init = 0, pas NK_S1=1)
+    psd.SampleDesc = { (UINT)d.samples >= 1 ? (UINT)d.samples : 1u, 0 };
 
     // Render target formats
     auto rpit = mRenderPasses.Find(d.renderPass.id);
@@ -1272,11 +1273,13 @@ void NkDirectX12Device::WaitIdle() {
 // =============================================================================
 // Frame
 // =============================================================================
-void NkDirectX12Device::BeginFrame(NkFrameContext& frame) {
+bool NkDirectX12Device::BeginFrame(NkFrameContext& frame) {
+    if (!mSwapchain) return false;
     mFrameData[mFrameIndex].WaitAndReset(mGraphicsQueue.Get());
     frame.frameIndex  = mFrameIndex;
     frame.frameNumber = mFrameNumber;
     mBackBufferIdx    = mSwapchain->GetCurrentBackBufferIndex();
+    return true;
 }
 void NkDirectX12Device::EndFrame(NkFrameContext&) {
     mFrameIndex = (mFrameIndex + 1) % MAX_FRAMES;

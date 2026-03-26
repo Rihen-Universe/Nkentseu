@@ -19,7 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "NKWindow/Events/NkDropEvent.h"
+#include "NKEvent/NkDropEvent.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKContainers/String/Encoding/NkASCII.h"
 #include "NKCore/NkTraits.h"

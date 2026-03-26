@@ -768,9 +768,10 @@ void NkOpenGLDevice::WaitIdle() { glFinish(); }
 // =============================================================================
 // Frame
 // =============================================================================
-void NkOpenGLDevice::BeginFrame(NkFrameContext& frame) {
+bool NkOpenGLDevice::BeginFrame(NkFrameContext& frame) {
     frame.frameIndex  = mFrameIndex;
     frame.frameNumber = mFrameNumber;
+    return true;
 }
 void NkOpenGLDevice::EndFrame(NkFrameContext&) {
     mFrameIndex = (mFrameIndex+1) % MAX_FRAMES;

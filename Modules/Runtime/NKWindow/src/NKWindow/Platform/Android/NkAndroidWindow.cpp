@@ -10,7 +10,7 @@
 #include "NKWindow/Platform/Android/NkAndroidDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKCore/NkAtomic.h"
 
 #include <android/configuration.h>

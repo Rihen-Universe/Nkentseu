@@ -179,6 +179,32 @@ namespace nkentseu {
                     return { v, v, v, a };
                 }
 
+                // ── Interpolation linéaire ────────────────────────────────────────
+
+                NkColor Lerp(NkColor other, float32 t) const noexcept {
+                    return {
+                        static_cast<uint8>(static_cast<float32>(r) + (static_cast<float32>(other.r) - static_cast<float32>(r)) * t),
+                        static_cast<uint8>(static_cast<float32>(g) + (static_cast<float32>(other.g) - static_cast<float32>(g)) * t),
+                        static_cast<uint8>(static_cast<float32>(b) + (static_cast<float32>(other.b) - static_cast<float32>(b)) * t),
+                        static_cast<uint8>(static_cast<float32>(a) + (static_cast<float32>(other.a) - static_cast<float32>(a)) * t)
+                    };
+                }
+
+                // ── WithAlpha ────────────────────────────────────────────────────
+
+                NkColor WithAlpha(int32 alpha) const noexcept {
+                    return { r, g, b, static_cast<uint8>(alpha) };
+                }
+
+                // ── ToU32 (ABGR — format DrawList) ───────────────────────────────
+
+                uint32 ToU32() const noexcept {
+                    return (static_cast<uint32>(a) << 24)
+                        | (static_cast<uint32>(b) << 16)
+                        | (static_cast<uint32>(g) <<  8)
+                        |  static_cast<uint32>(r);
+                }
+
                 // ── Opérateurs bit-à-bit ──────────────────────────────────────────
 
                 NkColor operator&(const NkColor& o) const noexcept { return NkColor(ToUint32A() & o.ToUint32A()); }
@@ -241,14 +267,20 @@ namespace nkentseu {
                     return os << c.ToString().CStr();
                 }
 
+                // ── Factories de base (inline, pas de static const) ──────────────
+
+                static NkColor White()  noexcept { return {255,255,255,255}; }
+                static NkColor Black(int32 alpha=255) noexcept { return {0,0,0,static_cast<uint8>(alpha)}; }
+                static NkColor Transparent() noexcept { return {0,0,0,0}; }
+                static NkColor Gray(int32 v, int32 alpha=255) noexcept {
+                    return { static_cast<uint8>(v), static_cast<uint8>(v), static_cast<uint8>(v), static_cast<uint8>(alpha) };
+                }
+
                 // ── Couleurs nommées (static const) ───────────────────────────────
                 //
                 // Définies dans NkColor.cpp via RGBf / RGBAf.
                 // Usage : NkColor::Red, NkColor::Blue, etc.
                 //
-                static const NkColor Transparent;
-                static const NkColor Black;
-                static const NkColor White;
                 static const NkColor Red;
                 static const NkColor Green;
                 static const NkColor Blue;
@@ -258,7 +290,6 @@ namespace nkentseu {
                 static const NkColor Orange;
                 static const NkColor Pink;
                 static const NkColor Purple;
-                static const NkColor Gray;
                 static const NkColor DarkGray;
                 static const NkColor Lime;
                 static const NkColor Teal;

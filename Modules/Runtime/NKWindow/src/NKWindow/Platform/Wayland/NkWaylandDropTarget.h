@@ -19,7 +19,7 @@
 #include <utility>
 #include <unistd.h>
 
-#include "NKWindow/Events/NkDropEvent.h"
+#include "NKEvent/NkDropEvent.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkTraits.h"
 

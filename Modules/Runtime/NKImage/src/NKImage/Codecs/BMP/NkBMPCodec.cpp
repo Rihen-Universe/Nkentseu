@@ -20,10 +20,12 @@
  *    Padding 4 octets par ligne
  *    Orientation : top-down (bit 0x20 dans imageDescriptor = non, on écrit bottom-up standard)
  */
-#include "NKImage/NkBMPCodec.h"
-#include <cstring>
-#include <cstdlib>
+#include "NKImage/Codecs/BMP/NkBMPCodec.h"
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
 namespace nkentseu {
+
+using namespace nkentseu::memory;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Helpers
@@ -152,7 +154,7 @@ NkImage* NkBMPCodec::Decode(const uint8* data, usize size) noexcept {
         }
     }
 
-    const NkPixelFormat fmt=hasAlpha?NkPixelFormat::RGBA32:NkPixelFormat::RGB24;
+    const NkImagePixelFormat fmt=hasAlpha?NkImagePixelFormat::NK_RGBA32:NkImagePixelFormat::NK_RGB24;
     NkImage* img=NkImage::Alloc(width,height,fmt);
     if(!img) return nullptr;
 
@@ -164,7 +166,7 @@ NkImage* NkBMPCodec::Decode(const uint8* data, usize size) noexcept {
     const int32 srcStride=((width*bpp+31)/32)*4;
 
     // Tampon d'une ligne source
-    uint8* lineBuf=static_cast<uint8*>(::malloc(srcStride+4));
+    uint8* lineBuf=static_cast<uint8*>(NkAlloc(srcStride+4));
     if(!lineBuf){img->Free();return nullptr;}
 
     if(compress==0||compress==3||compress==6){
@@ -221,7 +223,7 @@ NkImage* NkBMPCodec::Decode(const uint8* data, usize size) noexcept {
                     if(a!=0) alphaAllZero=false;
                 }
 
-                if(fmt==NkPixelFormat::RGBA32){
+                if(fmt==NkImagePixelFormat::NK_RGBA32){
                     dst[x*4+0]=r; dst[x*4+1]=g; dst[x*4+2]=b; dst[x*4+3]=a;
                 } else {
                     dst[x*3+0]=r; dst[x*3+1]=g; dst[x*3+2]=b;
@@ -261,7 +263,7 @@ NkImage* NkBMPCodec::Decode(const uint8* data, usize size) noexcept {
                         }
                         ++x;
                     }
-                    if(cnt&1) s.ReadU8(); // padding
+                    if(cnt&1) (void)s.ReadU8(); // padding
                 }
             } else { // encoded run
                 const uint8 idx=b1;
@@ -299,7 +301,7 @@ NkImage* NkBMPCodec::Decode(const uint8* data, usize size) noexcept {
                         ++x;
                     }
                     const int32 bytes=(cnt+3)/4*2; (void)bytes;
-                    if(((cnt+3)/4)&1) s.ReadU8();
+                    if(((cnt+3)/4)&1) (void)s.ReadU8();
                 }
             } else {
                 const uint8 idx0=(b1>>4)&0xF, idx1=b1&0xF;
@@ -316,7 +318,7 @@ NkImage* NkBMPCodec::Decode(const uint8* data, usize size) noexcept {
         }
     }
 
-    ::free(lineBuf);
+    NkFree(lineBuf);
     return img;
 }
 
@@ -330,9 +332,9 @@ bool NkBMPCodec::Encode(const NkImage& img, uint8*& out, usize& outSize) noexcep
     // Convertit si nécessaire
     const NkImage* src=&img;
     NkImage* conv=nullptr;
-    const bool needRGBA=(img.Format()==NkPixelFormat::RGBA32);
-    if(img.Format()!=NkPixelFormat::RGB24&&img.Format()!=NkPixelFormat::RGBA32){
-        conv=img.Convert(NkPixelFormat::RGB24);
+    const bool needRGBA=(img.Format()==NkImagePixelFormat::NK_RGBA32);
+    if(img.Format()!=NkImagePixelFormat::NK_RGB24&&img.Format()!=NkImagePixelFormat::NK_RGBA32){
+        conv=img.Convert(NkImagePixelFormat::NK_RGB24);
         if(!conv) return false; src=conv;
     }
 

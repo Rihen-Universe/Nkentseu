@@ -7,13 +7,13 @@
 
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XLIB)
 
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkKeyboardEvent.h"
-#include "NKWindow/Events/NkMouseEvent.h"
-#include "NKWindow/Events/NkWindowEvent.h"
-#include "NKWindow/Events/NkKeycodeMap.h"
+#include "NKEvent/NkKeyboardEvent.h"
+#include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkKeycodeMap.h"
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
 #include "NKWindow/Platform/XLib/NkXLibDropTarget.h"
 

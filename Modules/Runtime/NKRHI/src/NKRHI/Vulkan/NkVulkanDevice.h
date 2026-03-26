@@ -129,7 +129,11 @@ public:
     void                DestroyRenderPass(NkRenderPassHandle& h) override;
     NkFramebufferHandle CreateFramebuffer(const NkFramebufferDesc& d) override;
     void                DestroyFramebuffer(NkFramebufferHandle& h) override;
-    NkFramebufferHandle GetSwapchainFramebuffer() const override { return mSwapchainFBs[mCurrentImageIdx]; }
+    NkFramebufferHandle GetSwapchainFramebuffer() const override {
+        if (mSwapchainFBs.Empty()) return {};
+        if (mCurrentImageIdx >= mSwapchainFBs.Size()) return {};
+        return mSwapchainFBs[mCurrentImageIdx];
+    }
     NkRenderPassHandle  GetSwapchainRenderPass() const override { return mSwapchainRP; }
     NkGPUFormat GetSwapchainFormat() const override;
     NkGPUFormat GetSwapchainDepthFormat() const override { return NkGPUFormat::NK_D32_FLOAT; }
@@ -154,7 +158,7 @@ public:
     void          ResetFence(NkFenceHandle f) override;
     void          WaitIdle() override;
 
-    void   BeginFrame(NkFrameContext& frame) override;
+    bool   BeginFrame(NkFrameContext& frame) override;
     void   EndFrame(NkFrameContext& frame) override;
     uint32 GetFrameIndex() const override { return mFrameIndex; }
     uint32 GetMaxFramesInFlight() const override { return MAX_FRAMES; }
@@ -232,6 +236,8 @@ private:
     uint64 NextId() { return ++mNextId; }
     NkAtomic<uint64> mNextId{0};
 
+    NkVector<VkExtensionProperties> mExtensions;
+
     VkInstance       mInstance       = VK_NULL_HANDLE;
     VkPhysicalDevice mPhysicalDevice = VK_NULL_HANDLE;
     VkDevice         mDevice         = VK_NULL_HANDLE;
@@ -265,6 +271,8 @@ private:
     NkVkFrameData mFrames[MAX_FRAMES];
     uint32        mFrameIndex = 0;
     uint64        mFrameNumber = 0;
+    bool          mFrameAcquired = false;
+    bool          mFrameSubmitted = false;
 
     NkUnorderedMap<uint64, NkVkBuffer>       mBuffers;
     NkUnorderedMap<uint64, NkVkTexture>      mTextures;
@@ -337,7 +345,7 @@ public:
     bool IsFenceSignaled(NkFenceHandle) override { return false; }
     void ResetFence(NkFenceHandle) override {}
     void WaitIdle() override {}
-    void BeginFrame(NkFrameContext&) override {}
+    bool BeginFrame(NkFrameContext&) override { return false; }
     void EndFrame(NkFrameContext&) override {}
     uint32 GetFrameIndex() const override { return 0; }
     uint32 GetMaxFramesInFlight() const override { return 1; }
