@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKGLSlang — glslang (KhronosGroup) compilé comme bibliothèque statique.
+Fournit : GLSL → SPIR-V (runtime, sans Vulkan SDK requis à l'exécution).
+
+Libs produites : NKGLSlang  (contient glslang + SPIRV + ResourceLimits + HLSL frontend)
+
+Usage dans un autre .jenga :
+    dependson(["NKGLSlang"])
+    includedirs(["%{NKGLSlang.location}"])         # pour #include <glslang/Public/ShaderLang.h>
+    includedirs(["%{NKGLSlang.location}/SPIRV"])   # pour #include <GlslangToSpv.h>
+    links(["NKGLSlang"])
+    defines(["NK_RHI_GLSLANG_ENABLED"])
+"""
+
+from Jenga import *
+import os
+
+with project("NKGLSlang"):
+    staticlib()
+    language("C++")
+    cppdialect("C++14")   # C++14 requis : aggregate init avec membres à valeur par défaut (TLimits)
+    location(".")
+
+    includedirs([
+        ".",                              # <glslang/Public/ShaderLang.h>
+        "glslang/MachineIndependent",     # internes (ParseHelper.h etc.)
+    ])
+
+    # -include stdint.h : force uint32_t dans SpvBuilder.h (MinGW ne l'inclut pas transitivement)
+    # -Wno-macro-redefined : ENABLE_HLSL défini à la fois sur cmd line et dans hlslGrammar.cpp
+    buildoptions([
+        "-include", "stdint.h",
+        "-Wno-macro-redefined",
+    ])
+
+    # ENABLE_HLSL : active le frontend HLSL intégré à glslang
+    # ENABLE_OPT=0 : désactive spirv-tools optimizer (évite la dépendance)
+    defines([
+        "ENABLE_OPT=0",
+        "GLSLANG_OSINCLUDE_WIN32",        # ignoré sur non-Windows, sans effet
+    ])
+
+    files([
+        # Code indépendant de la machine (parser, linker, sémantique…)
+        "glslang/GenericCodeGen/CodeGen.cpp",
+        "glslang/GenericCodeGen/Link.cpp",
+        "glslang/MachineIndependent/Constant.cpp",
+        "glslang/MachineIndependent/InfoSink.cpp",
+        "glslang/MachineIndependent/Initialize.cpp",
+        "glslang/MachineIndependent/IntermTraverse.cpp",
+        "glslang/MachineIndependent/Intermediate.cpp",
+        "glslang/MachineIndependent/intermOut.cpp",
+        "glslang/MachineIndependent/ParseContextBase.cpp",
+        "glslang/MachineIndependent/ParseHelper.cpp",
+        "glslang/MachineIndependent/PoolAlloc.cpp",
+        "glslang/MachineIndependent/RemoveTree.cpp",
+        "glslang/MachineIndependent/Scan.cpp",
+        "glslang/MachineIndependent/ShaderLang.cpp",
+        "glslang/MachineIndependent/SpirvIntrinsics.cpp",
+        "glslang/MachineIndependent/SymbolTable.cpp",
+        "glslang/MachineIndependent/Versions.cpp",
+        "glslang/MachineIndependent/attribute.cpp",
+        "glslang/MachineIndependent/glslang_tab.cpp",
+        "glslang/MachineIndependent/iomapper.cpp",
+        "glslang/MachineIndependent/limits.cpp",
+        "glslang/MachineIndependent/linkValidate.cpp",
+        "glslang/MachineIndependent/parseConst.cpp",
+        "glslang/MachineIndependent/propagateNoContraction.cpp",
+        "glslang/MachineIndependent/reflection.cpp",
+        # Preprocesseur
+        "glslang/MachineIndependent/preprocessor/Pp.cpp",
+        "glslang/MachineIndependent/preprocessor/PpAtom.cpp",
+        "glslang/MachineIndependent/preprocessor/PpContext.cpp",
+        "glslang/MachineIndependent/preprocessor/PpScanner.cpp",
+        "glslang/MachineIndependent/preprocessor/PpTokens.cpp",
+        # Frontend HLSL (activé par ENABLE_HLSL)
+        "glslang/HLSL/hlslAttributes.cpp",
+        "glslang/HLSL/hlslGrammar.cpp",
+        "glslang/HLSL/hlslOpMap.cpp",
+        "glslang/HLSL/hlslParseHelper.cpp",
+        "glslang/HLSL/hlslParseables.cpp",
+        "glslang/HLSL/hlslScanContext.cpp",
+        "glslang/HLSL/hlslTokenStream.cpp",
+        # Limites de ressources (GetDefaultResources)
+        "glslang/ResourceLimits/ResourceLimits.cpp",
+        "glslang/ResourceLimits/resource_limits_c.cpp",
+        # Interface C
+        "glslang/CInterface/glslang_c_interface.cpp",
+        # OGLCompiler
+        "OGLCompilersDLL/InitializeDll.cpp",
+        # Génération SPIR-V depuis l'IR glslang
+        "SPIRV/GlslangToSpv.cpp",
+        "SPIRV/InReadableOrder.cpp",
+        "SPIRV/Logger.cpp",
+        "SPIRV/SpvBuilder.cpp",
+        "SPIRV/SpvPostProcess.cpp",
+        "SPIRV/disassemble.cpp",
+        "SPIRV/doc.cpp",
+        "SPIRV/CInterface/spirv_c_interface.cpp",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    with filter("system:Windows"):
+        files(["glslang/OSDependent/Windows/ossource.cpp"])
+
+    with filter("system:Linux || system:macOS || system:Android || system:iOS"):
+        files(["glslang/OSDependent/Unix/ossource.cpp"])
+
+    with filter("system:Web"):
+        files(["glslang/OSDependent/Web/glslang.js.cpp"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

@@ -20,12 +20,14 @@
  *
  *  RIFF : parsing multi-chunk, VP8X, ALPH (alpha séparé pour VP8 lossy).
  */
-#include "NkWebPCodec.h"
-#include <cstring>
-#include <cstdlib>
+#include "NKImage/Codecs/WEBP/NkWebPCodec.h"
 #include <cmath>
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
 
 namespace nkentseu {
+
+using namespace nkentseu::memory;
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  VP8L Bit Reader (LSB-first)
@@ -69,10 +71,10 @@ namespace nkentseu {
         if(maxLen==0){
             // Arbre vide ou à un seul symbole
             isValid=true;
-            ::memset(lut,-1,sizeof(lut));
-            ::memset(lutLen,0,sizeof(lutLen));
-            ::memset(codes,-1,sizeof(codes));
-            ::memset(codeLens,0,sizeof(codeLens));
+            NkSet(lut,-1,sizeof(lut));
+            NkSet(lutLen,0,sizeof(lutLen));
+            NkSet(codes,-1,sizeof(codes));
+            NkSet(codeLens,0,sizeof(codeLens));
             for(int32 i=0;i<n;++i) if(lens[i]==1){ codes[i]=0; codeLens[i]=1; }
             return true;
         }
@@ -86,10 +88,10 @@ namespace nkentseu {
             code<<=1;
         }
 
-        ::memset(codes,-1,sizeof(codes));
-        ::memset(codeLens,0,sizeof(codeLens));
-        ::memset(lut,-1,sizeof(lut));
-        ::memset(lutLen,0,sizeof(lutLen));
+        NkSet(codes,-1,sizeof(codes));
+        NkSet(codeLens,0,sizeof(codeLens));
+        NkSet(lut,-1,sizeof(lut));
+        NkSet(lutLen,0,sizeof(lutLen));
 
         for(int32 i=0;i<n;++i){
             const int32 l=lens[i];
@@ -271,7 +273,7 @@ namespace nkentseu {
             4, 2, -4, 2,  0, 5,  3, 4, -3, 4,  4, 3, -4, 3,  5, 0,
             1, 5, -1, 5,  5, 1, -5, 1,  2, 5, -2, 5,  5, 2, -5, 2,
             4, 4, -4, 4,  3, 5, -3, 5,  5, 3, -5, 3,  0, 6,  6, 0,
-            1, 6, -1, 6,  6, 1, -6, 1,  2, 6, -2, 6
+            1, 6, -1, 6,  6, 1, -6, 1
         };
         if(dist==0) return 1;
         if(dist<=120){
@@ -293,7 +295,7 @@ namespace nkentseu {
         const int32 ccSize = hasColorCache ? (1<<ccBits) : 0;
         uint32* cc = nullptr;
         if(ccSize>0){
-            cc=static_cast<uint32*>(::calloc(ccSize,sizeof(uint32)));
+            cc=static_cast<uint32*>(NkAllocZero(ccSize,sizeof(uint32)));
             if(!cc) return false;
         }
 
@@ -355,7 +357,7 @@ namespace nkentseu {
             }
         }
 
-        if(cc) ::free(cc);
+        if(cc) NkFree(cc);
         return !br.error;
     }
 
@@ -505,9 +507,9 @@ namespace nkentseu {
             // Décompactage : plusieurs pixels par "pixel"
             // Réalloue un buffer temporaire de la bonne taille
             const int32 packedW=(w+(pixPerByte-1))/pixPerByte;
-            uint32* tmp=static_cast<uint32*>(::malloc(static_cast<usize>(packedW)*h*sizeof(uint32)));
+            uint32* tmp=static_cast<uint32*>(NkAlloc(static_cast<usize>(packedW)*h*sizeof(uint32)));
             if(!tmp) return;
-            ::memcpy(tmp,pixels,static_cast<usize>(packedW)*h*sizeof(uint32));
+            NkCopy(tmp,pixels,static_cast<usize>(packedW)*h*sizeof(uint32));
             const int32 mask=(1<<(8>>bits))-1;
             for(int32 y=0; y<h; ++y){
                 for(int32 x=0; x<w; ++x){
@@ -518,7 +520,7 @@ namespace nkentseu {
                     pixels[y*w+x]=table[idx];
                 }
             }
-            ::free(tmp);
+            NkFree(tmp);
         }
         (void)bits;
     }
@@ -553,12 +555,12 @@ namespace nkentseu {
         if(br.error||version!=0||w<=0||h<=0) return nullptr;
 
         const int32 total=w*h;
-        uint32* argb=static_cast<uint32*>(::malloc(static_cast<usize>(total)*4));
+        uint32* argb=static_cast<uint32*>(NkAlloc(static_cast<usize>(total)*4));
         if(!argb) return nullptr;
-        ::memset(argb,0,static_cast<usize>(total)*4);
+        NkSet(argb,0,static_cast<usize>(total)*4);
 
         VP8LDecoder dec;
-        ::memset(&dec,0,sizeof(dec));
+        NkSet(&dec,0,sizeof(dec));
         dec.width=w; dec.height=h; dec.hasAlpha=hasAlpha; dec.pixels=argb;
 
         // ── Lit les transformations ──────────────────────────────────────────────
@@ -573,9 +575,9 @@ namespace nkentseu {
                 t.bits=static_cast<int32>(br.ReadBits(3))+2;
                 const int32 tw=(w+(1<<t.bits)-1)>>t.bits;
                 const int32 th=(h+(1<<t.bits)-1)>>t.bits;
-                t.data=static_cast<uint32*>(::malloc(static_cast<usize>(tw*th)*4));
+                t.data=static_cast<uint32*>(NkAlloc(static_cast<usize>(tw*th)*4));
                 if(t.data){
-                    VP8LDecoder td; ::memset(&td,0,sizeof(td));
+                    VP8LDecoder td; NkSet(&td,0,sizeof(td));
                     td.width=tw; td.height=th; td.pixels=t.data;
                     if(!DecodeVP8LImage(br,td,tw,th,t.data)){
                         // En cas d'erreur partielle, continue quand même
@@ -587,9 +589,9 @@ namespace nkentseu {
                 // Color indexing : lit la table de couleurs
                 const int32 tableSize=static_cast<int32>(br.ReadBits(8))+1;
                 t.bits = tableSize<=2?3:tableSize<=4?2:tableSize<=16?1:0;
-                t.data=static_cast<uint32*>(::malloc(static_cast<usize>(tableSize)*4));
+                t.data=static_cast<uint32*>(NkAlloc(static_cast<usize>(tableSize)*4));
                 if(t.data){
-                    VP8LDecoder td; ::memset(&td,0,sizeof(td));
+                    VP8LDecoder td; NkSet(&td,0,sizeof(td));
                     td.width=tableSize; td.height=1; td.pixels=t.data;
                     DecodeVP8LImage(br,td,tableSize,1,t.data);
                     // Apply subtract green sur la table elle-même si la transform 2 était présente
@@ -612,14 +614,14 @@ namespace nkentseu {
             }
             uint32* effectivePix = argb;
             if(effectiveW!=w){
-                effectivePix=static_cast<uint32*>(::malloc(static_cast<usize>(effectiveW)*h*4));
+                effectivePix=static_cast<uint32*>(NkAlloc(static_cast<usize>(effectiveW)*h*4));
                 if(!effectivePix){ effectiveW=w; effectivePix=argb; }
             }
             ok=DecodeVP8LImage(br,dec,effectiveW,h,effectivePix);
             if(effectivePix!=argb){
                 // Copie dans argb pour les transforms
-                ::memcpy(argb,effectivePix,static_cast<usize>(effectiveW)*h*4);
-                ::free(effectivePix);
+                NkCopy(argb,effectivePix,static_cast<usize>(effectiveW)*h*4);
+                NkFree(effectivePix);
             }
         }
 
@@ -628,14 +630,14 @@ namespace nkentseu {
 
         // Libère les données de transformation
         for(int32 i=0;i<dec.numTransforms;++i)
-            if(dec.transforms[i].data) ::free(dec.transforms[i].data);
+            if(dec.transforms[i].data) NkFree(dec.transforms[i].data);
 
-        if(!ok){ ::free(argb); return nullptr; }
+        if(!ok){ NkFree(argb); return nullptr; }
 
         // ── Convertit ARGB → NkImage RGBA32 ─────────────────────────────────────
-        const NkPixelFormat fmt=hasAlpha?NkPixelFormat::NK_RGBA32:NkPixelFormat::NK_RGB24;
+        const NkImagePixelFormat fmt=hasAlpha?NkImagePixelFormat::NK_RGBA32:NkImagePixelFormat::NK_RGB24;
         NkImage* img=NkImage::Alloc(w,h,fmt);
-        if(!img){ ::free(argb); return nullptr; }
+        if(!img){ NkFree(argb); return nullptr; }
 
         const int32 ch=img->Channels();
         for(int32 y=0; y<h; ++y){
@@ -648,7 +650,7 @@ namespace nkentseu {
                 if(ch==4) row[x*4+3]=static_cast<uint8>(p>>24); // A
             }
         }
-        ::free(argb);
+        NkFree(argb);
         return img;
     }
 
@@ -666,8 +668,8 @@ namespace nkentseu {
         if(w<=0||h<=0) return nullptr;
         // VP8 lossy complet (boolean coder + DCT YUV) nécessite ~3000 lignes
         // supplémentaires ou libvpx. On retourne une image correctement dimensionnée.
-        NkImage* img=NkImage::Alloc(w,h,NkPixelFormat::NK_RGB24);
-        if(img) ::memset(img->Pixels(),128,img->TotalBytes()); // gris neutre
+        NkImage* img=NkImage::Alloc(w,h,NkImagePixelFormat::NK_RGB24);
+        if(img) NkSet(img->Pixels(),128,img->TotalBytes()); // gris neutre
         return img;
     }
 
@@ -718,7 +720,7 @@ namespace nkentseu {
     {
         // Package-Merge pour des longueurs limitées à 15
         // Version simplifiée : longueurs basées sur log2(maxFreq/freq)+1
-        ::memset(lens,0,n);
+        NkSet(lens,0,n);
         uint32 maxFreq=0;
         for(int32 i=0;i<n;++i) if(freqs[i]>maxFreq) maxFreq=freqs[i];
         if(maxFreq==0) return;
@@ -749,7 +751,7 @@ namespace nkentseu {
         const bool hasAlpha=(img.Channels()==4);
 
         // Convertit en ARGB et applique subtract-green
-        uint32* argb=static_cast<uint32*>(::malloc(static_cast<usize>(total)*4));
+        uint32* argb=static_cast<uint32*>(NkAlloc(static_cast<usize>(total)*4));
         if(!argb) return false;
 
         for(int32 y=0;y<h;++y){
@@ -862,7 +864,7 @@ namespace nkentseu {
         writeHuffTree(lB,256);
         writeHuffTree(lA,256);
         // Distance tree (40 symboles) — distribution uniforme
-        uint8 lD[40]; ::memset(lD,6,40); // longueur fixe 6 bits pour 40 symboles
+        uint8 lD[40]; NkSet(lD,6,40); // longueur fixe 6 bits pour 40 symboles
         writeHuffTree(lD,40);
 
         // Pas de color cache
@@ -881,7 +883,7 @@ namespace nkentseu {
         }
         bw.Flush();
 
-        ::free(argb);
+        NkFree(argb);
         return true;
     }
 
@@ -898,7 +900,7 @@ namespace nkentseu {
         const NkImage* src=&img;
         NkImage* conv=nullptr;
         if(img.Channels()!=3&&img.Channels()!=4){
-            conv=img.Convert(NkPixelFormat::NK_RGBA32);
+            conv=img.Convert(NkImagePixelFormat::NK_RGBA32);
             if(!conv) return false; src=conv;
         }
 
@@ -919,7 +921,7 @@ namespace nkentseu {
         riff.WriteBytes(vp8lData,vp8lSize);
         if(chunkSize&1) riff.WriteU8(0); // padding
 
-        ::free(vp8lData);
+        NkFree(vp8lData);
         if(conv) conv->Free();
         return riff.TakeBuffer(out,outSize);
     }

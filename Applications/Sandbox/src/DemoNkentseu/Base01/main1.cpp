@@ -3,7 +3,7 @@
 // Objectif : confirmer si OUI ou NON les events remontent dans PollEvent()
 // ============================================================================
 #include "NKWindow/Core/NkWindow.h"
-#include "NKWindow/Core/NkEvents.h"        // dAfinit NkEvents() et inclut les AvAnements
+#include "NKWindow/Core/NkEvent.h"        // dAfinit NkEvents() et inclut les AvAnements
 #include "NKWindow/Core/NkContext.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkMain.h"

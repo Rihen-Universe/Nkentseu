@@ -1,5 +1,5 @@
 #pragma once
-#include "NKWindow/Events/NkGraphicsEvent.h"
+#include "NKEvent/NkGraphicsEvent.h"
 
 namespace nkentseu {
 

@@ -13,9 +13,9 @@
 // =============================================================================
 
 #include "NkTypes.h"
-#include "NkWindowId.h"
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkWindowId.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkGamepadSystem.h"
 #include "NkSurface.h"
 
 namespace nkentseu {

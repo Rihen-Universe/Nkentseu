@@ -11,7 +11,7 @@
     !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && !defined(__EMSCRIPTEN__) && \
     !(defined(NKENTSEU_PLATFORM_LINUX) && (defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB) || defined(NKENTSEU_WINDOWING_WAYLAND))))
 
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 
 namespace nkentseu {
     using namespace math;
@@ -20,6 +20,9 @@ namespace nkentseu {
         if (mReady) {
             return true;
         }
+
+        mData = new NkEventSystemData;
+        if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
         {
@@ -30,6 +33,11 @@ namespace nkentseu {
         mReady = true;
         mData.mInitialized = true;
         return true;
+    }
+
+    bool NkEventSystem::Shutdown() {
+        delete mData;
+        mData = nullptr;
     }
 
     void NkEventSystem::PumpOS() {

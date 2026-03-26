@@ -10,7 +10,7 @@
 // Compile pour NKENTSEU_WINDOWING_XCB / XLIB / WAYLAND.
 // =============================================================================
 
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkGamepadSystem.h"
 #include "NKMath/NkFunctions.h"
 #include <cstring>
 #include <cstdio>

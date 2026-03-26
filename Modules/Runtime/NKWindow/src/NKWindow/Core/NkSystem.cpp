@@ -1,11 +1,59 @@
-﻿// =============================================================================
+// =============================================================================
 // NkSystem.cpp â€” cycle de vie global + registre des fenÃªtres
 // =============================================================================
 
 #include "NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkGamepadSystem.h"
+#include "NKEvent/NkEventDispatcher.h"
 #include "NkWindow.h"
+
+// ---------------------------------------------------------------------------
+// Selection du backend gamepad par plateforme
+// (deplace depuis NkGamepadSystem.cpp pour isoler NKEvent des includes NKWindow)
+// ---------------------------------------------------------------------------
+
+#if defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)
+#   include "NKWindow/Platform/Noop/NkNoopGamepad.h"
+    using PlatformGamepad = nkentseu::NkNoopGamepad;
+
+#elif defined(NKENTSEU_PLATFORM_UWP)
+#   include "NKWindow/Platform/UWP/NkUWPGamepad.h"
+    using PlatformGamepad = nkentseu::NkUWPGamepad;
+
+#elif defined(NKENTSEU_PLATFORM_XBOX)
+#   include "NKWindow/Platform/Xbox/NkXboxGamepad.h"
+    using PlatformGamepad = nkentseu::NkXboxGamepad;
+
+#elif defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
+#   include "NKWindow/Platform/Win32/NkWin32Gamepad.h"
+    using PlatformGamepad = nkentseu::NkWin32Gamepad;
+
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+#   include "NKWindow/Platform/Cocoa/NkCocoaGamepad.h"
+    using PlatformGamepad = nkentseu::NkCocoaGamepad;
+
+#elif defined(NKENTSEU_PLATFORM_IOS)
+#   include "NKWindow/Platform/UIKit/NkUIKitGamepad.h"
+    using PlatformGamepad = nkentseu::NkUIKitGamepad;
+
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+#   include "NKWindow/Platform/Android/NkAndroidGamepad.h"
+    using PlatformGamepad = nkentseu::NkAndroidGamepad;
+
+#elif defined(NKENTSEU_WINDOWING_XCB) || defined(NKENTSEU_WINDOWING_XLIB) \
+   || defined(NKENTSEU_WINDOWING_WAYLAND)
+#   include "NKWindow/Platform/Linux/NkLinuxGamepadBackend.h"
+    using PlatformGamepad = nkentseu::NkLinuxGamepad;
+
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#   include "NKWindow/Platform/Emscripten/NkEmscriptenGamepad.h"
+    using PlatformGamepad = nkentseu::NkEmscriptenGamepad;
+
+#else
+#   include "NKWindow/Platform/Noop/NkNoopGamepad.h"
+    using PlatformGamepad = nkentseu::NkNoopGamepad;
+#endif
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
 #   ifndef WIN32_LEAN_AND_MEAN
@@ -45,7 +93,20 @@ namespace nkentseu {
         // NkEventSystem est possÃ©dÃ© ici â€” on appelle Init() directement
         if (!mEventSystem.Init()) return false;
 
-        mGamepadSystem.Init();
+        // Injection de dependances croisees (NKEvent ne depend pas de NKWindow)
+        mEventSystem.SetGamepadSystem(&mGamepadSystem);
+        mGamepadSystem.SetEventSystem(&mEventSystem);
+        NkInput.SetEventSystem(&mEventSystem);
+        NkInput.SetGamepadSystem(&mGamepadSystem);
+
+        // Cree le backend gamepad specifique a la plateforme
+        {
+            memory::NkAllocator& allocator = memory::NkGetDefaultAllocator();
+            auto backend = memory::NkUniquePtr<NkIGamepad>(
+                allocator.New<PlatformGamepad>(),
+                memory::NkDefaultDelete<NkIGamepad>(&allocator));
+            mGamepadSystem.Init(traits::NkMove(backend));
+        }
         mInitialised = true;
         return true;
     }

@@ -5,23 +5,23 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
+
 #include "Core/NkTypes.h"
 #include "Core/NkWindowConfig.h"
 #include "Core/NkSurface.h"
 #include "Core/NkContext.h"
 #include "Core/NkSystem.h"
-#include "Events/NkGamepadSystem.h"
-
-#include "Events/NkWindowEvent.h"
-#include "Events/NkKeyboardEvent.h"
-#include "Events/NkMouseEvent.h"
-#include "Events/NkTouchEvent.h"
-#include "Events/NkGamepadEvent.h"
-#include "Events/NkDropEvent.h"
-#include "Core/NkEvents.h"
-
+#include "Core/NkEvent.h"
 #include "Core/NkWindow.h"
-#include "Events/NkEventSystem.h"
+
+#include "NKEvent/NkGamepadSystem.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkKeyboardEvent.h"
+#include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkTouchEvent.h"
+#include "NKEvent/NkGamepadEvent.h"
+#include "NKEvent/NkDropEvent.h"
+#include "NKEvent/NkEventSystem.h"
 // NKRenderer is intentionally not included here to avoid reverse dependency
 // NKWindow -> NKRenderer. Include NKRenderer headers explicitly where needed.
 

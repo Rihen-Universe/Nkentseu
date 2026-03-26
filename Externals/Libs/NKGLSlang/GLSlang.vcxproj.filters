@@ -1,0 +1,918 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="External">
+      <UniqueIdentifier>{089DB854-F469-1360-1D83-010809AF48EE}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External\pthreads">
+      <UniqueIdentifier>{32A6F75A-9EBC-F5F0-E733-81125389C678}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="OGLCompilersDLL">
+      <UniqueIdentifier>{913F86A1-FDCA-F365-06DC-765A72E64F66}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="SPIRV">
+      <UniqueIdentifier>{B9110A0E-2526-32BF-EEA7-D51E5A7B2EF0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="SPIRV\CInterface">
+      <UniqueIdentifier>{7CF1AF98-68EA-CEEA-911C-B46F7D74AEF6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="StandAlone">
+      <UniqueIdentifier>{EE1C0FD4-DAD4-5021-43DC-297D2FB3EB11}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang">
+      <UniqueIdentifier>{0D19B900-79F8-379C-8210-C372EE6E9EFD}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\CInterface">
+      <UniqueIdentifier>{503C67D7-3C20-282D-A580-2280918312AF}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\GenericCodeGen">
+      <UniqueIdentifier>{4E6B79AF-3A65-A201-23D2-38120F6B086E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\HLSL">
+      <UniqueIdentifier>{6F121FCF-5B75-AE73-04FB-E629F03C7AF6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\Include">
+      <UniqueIdentifier>{60655916-CCF0-C6DA-D501-4ACF410C23DB}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\MachineIndependent">
+      <UniqueIdentifier>{BF2E5350-AB3E-FF20-14F8-633F0027EEB9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\MachineIndependent\preprocessor">
+      <UniqueIdentifier>{357C6E31-A10B-301C-AA07-113416166B28}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\OSDependent">
+      <UniqueIdentifier>{B5ECCA69-214E-A877-AABB-EE29161CDF36}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\OSDependent\Unix">
+      <UniqueIdentifier>{A8233743-9448-86C3-BD93-6B53A91785E1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\OSDependent\Web">
+      <UniqueIdentifier>{828447FA-EEBB-8F91-F7C5-F3B4637CB68A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\OSDependent\Windows">
+      <UniqueIdentifier>{EF7B002E-5B89-2E14-E46F-2AFF507CFACA}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\Public">
+      <UniqueIdentifier>{9B6BC528-8739-B92E-70CD-29555C3A9593}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="glslang\ResourceLimits">
+      <UniqueIdentifier>{D66C1272-C266-3BC4-ABD3-D1D4976CA130}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="hlsl">
+      <UniqueIdentifier>{98F1977C-8428-990D-2D15-7F10192B150F}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="External\pthreads\_ptw32.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="External\pthreads\config.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="External\pthreads\context.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="External\pthreads\implement.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="External\pthreads\need_errno.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="External\pthreads\pthread.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="External\pthreads\sched.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="External\pthreads\semaphore.h">
+      <Filter>External\pthreads</Filter>
+    </ClInclude>
+    <ClInclude Include="OGLCompilersDLL\InitializeDll.h">
+      <Filter>OGLCompilersDLL</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\GLSL.ext.AMD.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\GLSL.ext.ARM.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\GLSL.ext.EXT.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\GLSL.ext.KHR.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\GLSL.ext.NV.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\GLSL.std.450.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\GlslangToSpv.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\Logger.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\NonSemanticDebugPrintf.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\NonSemanticShaderDebugInfo100.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\SPVRemapper.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\SpvBuilder.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\SpvTools.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\bitutils.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\disassemble.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\doc.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\hex_float.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\spirv.hpp">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="SPIRV\spvIR.h">
+      <Filter>SPIRV</Filter>
+    </ClInclude>
+    <ClInclude Include="StandAlone\DirStackFileIncluder.h">
+      <Filter>StandAlone</Filter>
+    </ClInclude>
+    <ClInclude Include="StandAlone\Worklist.h">
+      <Filter>StandAlone</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslAttributes.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslGrammar.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslOpMap.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslParseHelper.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslParseables.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslScanContext.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslTokenStream.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\hlslTokens.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\HLSL\pch.h">
+      <Filter>glslang\HLSL</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\BaseTypes.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\Common.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\ConstantUnion.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\InfoSink.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\InitializeGlobals.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\PoolAlloc.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\ResourceLimits.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\ShHandle.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\SpirvIntrinsics.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\Types.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\arrays.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\glslang_c_interface.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\glslang_c_shader_types.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Include\intermediate.h">
+      <Filter>glslang\Include</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\Initialize.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\LiveTraverser.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\ParseHelper.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\RemoveTree.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\Scan.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\ScanContext.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\SymbolTable.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\Versions.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\attribute.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\gl_types.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\glslang_tab.cpp.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\iomapper.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\localintermediate.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\parseVersions.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\pch.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\preprocessor\PpContext.h">
+      <Filter>glslang\MachineIndependent\preprocessor</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\preprocessor\PpTokens.h">
+      <Filter>glslang\MachineIndependent\preprocessor</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\propagateNoContraction.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\MachineIndependent\reflection.h">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\OSDependent\osinclude.h">
+      <Filter>glslang\OSDependent</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Public\ResourceLimits.h">
+      <Filter>glslang\Public</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Public\ShaderLang.h">
+      <Filter>glslang\Public</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\Public\resource_limits_c.h">
+      <Filter>glslang\Public</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\build_info.h">
+      <Filter>glslang</Filter>
+    </ClInclude>
+    <ClInclude Include="glslang\glsl_intrinsic_header.h">
+      <Filter>glslang</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="External\pthreads\cleanup.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\create.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\dll.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\errno.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\global.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getaffinity_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getdetachstate.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getinheritsched.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getname_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getschedparam.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getschedpolicy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getscope.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getstackaddr.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_getstacksize.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setaffinity_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setdetachstate.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setinheritsched.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setname_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setschedparam.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setschedpolicy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setscope.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setstackaddr.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_attr_setstacksize.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_barrier_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_barrier_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_barrier_wait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_barrierattr_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_barrierattr_getpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_barrierattr_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_barrierattr_setpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_cancel.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_cond_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_cond_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_cond_signal.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_cond_wait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_condattr_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_condattr_getpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_condattr_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_condattr_setpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_delay_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_detach.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_equal.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_exit.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_getconcurrency.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_getname_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_getschedparam.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_getspecific.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_getunique_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_getw32threadhandle_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_join.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_key_create.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_key_delete.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_kill.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutex_consistent.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutex_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutex_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutex_lock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutex_timedlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutex_trylock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutex_unlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_getkind_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_getpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_getrobust.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_gettype.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_setkind_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_setpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_setrobust.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_mutexattr_settype.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_num_processors_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_once.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_rdlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_timedrdlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_timedwrlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_tryrdlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_trywrlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_unlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlock_wrlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlockattr_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlockattr_getpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlockattr_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_rwlockattr_setpshared.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_self.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_setaffinity.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_setcancelstate.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_setcanceltype.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_setconcurrency.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_setname_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_setschedparam.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_setspecific.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_spin_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_spin_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_spin_lock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_spin_trylock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_spin_unlock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_testcancel.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_timechange_handler_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_timedjoin_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_tryjoin_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\pthread_win32_attach_detach_np.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_MCS_lock.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_callUserDestroyRoutines.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_calloc.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_cond_check_need_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_getprocessors.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_is_attr.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_mutex_check_need_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_new.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_processInitialize.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_processTerminate.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_relmillisecs.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_reuse.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_rwlock_cancelwrwait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_rwlock_check_need_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_semwait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_spinlock_check_need_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_threadDestroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_threadStart.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_throw.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_timespec.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_tkAssocCreate.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\ptw32_tkAssocDestroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sched_get_priority_max.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sched_get_priority_min.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sched_getscheduler.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sched_setaffinity.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sched_setscheduler.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sched_yield.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_close.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_destroy.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_getvalue.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_init.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_open.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_post.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_post_multiple.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_timedwait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_trywait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_unlink.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\sem_wait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\signal.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="External\pthreads\w32_CancelableWait.c">
+      <Filter>External\pthreads</Filter>
+    </ClCompile>
+    <ClCompile Include="OGLCompilersDLL\InitializeDll.cpp">
+      <Filter>OGLCompilersDLL</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\CInterface\spirv_c_interface.cpp">
+      <Filter>SPIRV\CInterface</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\GlslangToSpv.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\InReadableOrder.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\Logger.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\SPVRemapper.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\SpvBuilder.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\SpvPostProcess.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\SpvTools.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\disassemble.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="SPIRV\doc.cpp">
+      <Filter>SPIRV</Filter>
+    </ClCompile>
+    <ClCompile Include="StandAlone\StandAlone.cpp">
+      <Filter>StandAlone</Filter>
+    </ClCompile>
+    <ClCompile Include="StandAlone\spirv-remap.cpp">
+      <Filter>StandAlone</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\CInterface\glslang_c_interface.cpp">
+      <Filter>glslang\CInterface</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\GenericCodeGen\CodeGen.cpp">
+      <Filter>glslang\GenericCodeGen</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\GenericCodeGen\Link.cpp">
+      <Filter>glslang\GenericCodeGen</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\HLSL\hlslAttributes.cpp">
+      <Filter>glslang\HLSL</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\HLSL\hlslGrammar.cpp">
+      <Filter>glslang\HLSL</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\HLSL\hlslOpMap.cpp">
+      <Filter>glslang\HLSL</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\HLSL\hlslParseHelper.cpp">
+      <Filter>glslang\HLSL</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\HLSL\hlslParseables.cpp">
+      <Filter>glslang\HLSL</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\HLSL\hlslScanContext.cpp">
+      <Filter>glslang\HLSL</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\HLSL\hlslTokenStream.cpp">
+      <Filter>glslang\HLSL</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\Constant.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\InfoSink.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\Initialize.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\IntermTraverse.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\Intermediate.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\ParseContextBase.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\ParseHelper.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\PoolAlloc.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\RemoveTree.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\Scan.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\ShaderLang.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\SpirvIntrinsics.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\SymbolTable.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\Versions.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\attribute.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\glslang_tab.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\intermOut.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\iomapper.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\limits.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\linkValidate.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\parseConst.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\preprocessor\Pp.cpp">
+      <Filter>glslang\MachineIndependent\preprocessor</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\preprocessor\PpAtom.cpp">
+      <Filter>glslang\MachineIndependent\preprocessor</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\preprocessor\PpContext.cpp">
+      <Filter>glslang\MachineIndependent\preprocessor</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\preprocessor\PpScanner.cpp">
+      <Filter>glslang\MachineIndependent\preprocessor</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\preprocessor\PpTokens.cpp">
+      <Filter>glslang\MachineIndependent\preprocessor</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\propagateNoContraction.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\MachineIndependent\reflection.cpp">
+      <Filter>glslang\MachineIndependent</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\OSDependent\Unix\ossource.cpp">
+      <Filter>glslang\OSDependent\Unix</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\OSDependent\Web\glslang.js.cpp">
+      <Filter>glslang\OSDependent\Web</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\OSDependent\Windows\main.cpp">
+      <Filter>glslang\OSDependent\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\OSDependent\Windows\ossource.cpp">
+      <Filter>glslang\OSDependent\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\ResourceLimits\ResourceLimits.cpp">
+      <Filter>glslang\ResourceLimits</Filter>
+    </ClCompile>
+    <ClCompile Include="glslang\ResourceLimits\resource_limits_c.cpp">
+      <Filter>glslang\ResourceLimits</Filter>
+    </ClCompile>
+    <ClCompile Include="hlsl\stub.cpp">
+      <Filter>hlsl</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>

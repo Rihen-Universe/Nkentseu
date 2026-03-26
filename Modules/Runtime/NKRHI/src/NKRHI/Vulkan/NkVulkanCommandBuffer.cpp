@@ -28,19 +28,29 @@ namespace nkentseu {
         if (mPool)   vkDestroyCommandPool(mDev->GetVkDevice(), mPool, nullptr);
     }
 
-    void NkVulkanCommandBuffer::Begin() {
+    bool NkVulkanCommandBuffer::Begin() {
+        if (mCmdBuf == VK_NULL_HANDLE) return false;
         VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(mCmdBuf, &bi);
+        if (vkBeginCommandBuffer(mCmdBuf, &bi) != VK_SUCCESS) {
+            mRecording = false;
+            return false;
+        }
         mRecording = true;
+        return true;
     }
     void NkVulkanCommandBuffer::End()   { vkEndCommandBuffer(mCmdBuf); mRecording = false; }
     void NkVulkanCommandBuffer::Reset() { vkResetCommandBuffer(mCmdBuf, 0); mRecording = false; }
 
     // ── Render Pass ───────────────────────────────────────────────────────────────
-    void NkVulkanCommandBuffer::BeginRenderPass(NkRenderPassHandle rp,
+    bool NkVulkanCommandBuffer::BeginRenderPass(NkRenderPassHandle rp,
                                             NkFramebufferHandle fb,
                                             const NkRect2D& area) {
+        if (!mRecording || !rp.IsValid() || !fb.IsValid()) return false;
+        const VkRenderPass vkRp = mDev->GetVkRP(rp.id);
+        const VkFramebuffer vkFb = mDev->GetVkFB(fb.id);
+        if (vkRp == VK_NULL_HANDLE || vkFb == VK_NULL_HANDLE) return false;
+
         VkClearValue clears[9];
         const uint32 colorCount = mDev->GetVkRenderPassColorCount(rp.id);
         const bool hasDepth = mDev->GetVkRenderPassHasDepth(rp.id);
@@ -54,26 +64,34 @@ namespace nkentseu {
         }
 
         VkRenderPassBeginInfo rpbi{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-        rpbi.renderPass  = mDev->GetVkRP(rp.id);
-        rpbi.framebuffer = mDev->GetVkFB(fb.id);
+        rpbi.renderPass  = vkRp;
+        rpbi.framebuffer = vkFb;
         rpbi.renderArea.offset.x = area.x;
         rpbi.renderArea.offset.y = area.y;
         rpbi.renderArea.extent.width  = area.width  > 0 ? static_cast<uint32>(area.width)  : 0u;
         rpbi.renderArea.extent.height = area.height > 0 ? static_cast<uint32>(area.height) : 0u;
+        if (rpbi.renderArea.extent.width == 0 || rpbi.renderArea.extent.height == 0) return false;
         rpbi.clearValueCount = clearCount;
         rpbi.pClearValues    = clearCount > 0 ? clears : nullptr;
         vkCmdBeginRenderPass(mCmdBuf, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+        return true;
     }
     void NkVulkanCommandBuffer::EndRenderPass() { vkCmdEndRenderPass(mCmdBuf); }
 
     // ── Viewport & Scissor ────────────────────────────────────────────────────────
     void NkVulkanCommandBuffer::SetViewport(const NkViewport& vp) {
-        VkViewport v{vp.x, vp.y+vp.height, vp.width, -vp.height, vp.minDepth, vp.maxDepth}; // Y-flip
+        VkViewport v = vp.flipY
+            ? VkViewport{vp.x, vp.y+vp.height, vp.width, -vp.height, vp.minDepth, vp.maxDepth}
+            : VkViewport{vp.x, vp.y,            vp.width,  vp.height, vp.minDepth, vp.maxDepth};
         vkCmdSetViewport(mCmdBuf, 0, 1, &v);
     }
     void NkVulkanCommandBuffer::SetViewports(const NkViewport* vps, uint32 n) {
         NkVector<VkViewport> v(n);
-        for (uint32 i=0;i<n;i++) v[i]={vps[i].x,vps[i].y+vps[i].height,vps[i].width,-vps[i].height,vps[i].minDepth,vps[i].maxDepth};
+        for (uint32 i=0;i<n;i++) {
+            v[i] = vps[i].flipY
+                ? VkViewport{vps[i].x, vps[i].y+vps[i].height, vps[i].width, -vps[i].height, vps[i].minDepth, vps[i].maxDepth}
+                : VkViewport{vps[i].x, vps[i].y,                vps[i].width,  vps[i].height, vps[i].minDepth, vps[i].maxDepth};
+        }
         vkCmdSetViewport(mCmdBuf,0,n,v.Data());
     }
     void NkVulkanCommandBuffer::SetScissor(const NkRect2D& r) {

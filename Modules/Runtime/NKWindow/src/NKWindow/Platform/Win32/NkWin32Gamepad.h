@@ -45,8 +45,8 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 
-#include "NKWindow/Events/NkGamepadEvent.h"
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkGamepadEvent.h"
+#include "NKEvent/NkGamepadSystem.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include "NKContainers/CacheFriendly/NkArray.h"

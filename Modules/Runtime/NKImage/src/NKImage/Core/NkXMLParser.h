@@ -36,9 +36,10 @@
  */
 
 #include "NkImageExport.h"
-#include <cstring>
-#include <cstdlib>
 #include <cstdio>
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
 
 namespace nkentseu {
 
@@ -53,7 +54,7 @@ namespace nkentseu {
         bool   owning = false;
 
         bool Init(usize bytes) noexcept {
-            base=static_cast<uint8*>(::malloc(bytes));
+            base=static_cast<uint8*>(nkentseu::memory::NkAlloc(bytes));
             if(!base) return false;
             size=bytes; offset=0; owning=true;
             return true;
@@ -61,24 +62,24 @@ namespace nkentseu {
         void InitView(uint8* buf, usize bytes) noexcept {
             base=buf; size=bytes; offset=0; owning=false;
         }
-        void Destroy() noexcept { if(owning&&base){::free(base);base=nullptr;} owning=false; }
+        void Destroy() noexcept { if(owning&&base){nkentseu::memory::NkFree(base);base=nullptr;} owning=false; }
         void Reset() noexcept { offset=0; }
 
         template<typename T> T* Alloc(int32 count=1) noexcept {
             const usize bytes=(sizeof(T)*count+7)&~7u;
             if(offset+bytes>size) return nullptr;
             T* p=reinterpret_cast<T*>(base+offset);
-            ::memset(p,0,bytes);
+            nkentseu::memory::NkSet(p,0,bytes);
             offset+=bytes;
             return p;
         }
         // Alloue et copie une chaîne (null-terminated)
         const char* Dup(const char* str, int32 len=-1) noexcept {
             if(!str) return nullptr;
-            const int32 n=(len<0)?(int32)::strlen(str):len;
+            const int32 n=(len<0)?(int32)NkStringView(str).Length():len;
             char* dst=Alloc<char>(n+1);
             if(!dst) return nullptr;
-            ::memcpy(dst,str,n); dst[n]=0;
+            nkentseu::memory::NkCopy(dst,str,n); dst[n]=0;
             return dst;
         }
     };
@@ -134,12 +135,12 @@ namespace nkentseu {
 
         NKIMG_NODISCARD const char* GetAttr(const char* name) const noexcept {
             for(NkXMLAttr* a=attrs;a;a=a->next)
-                if(a->name&&::strcmp(a->name,name)==0) return a->value;
+                if(a->name&&NkStringView(a->name)==NkStringView(name)) return a->value;
             return nullptr;
         }
         NKIMG_NODISCARD const char* GetAttrLocal(const char* localName_) const noexcept {
             for(NkXMLAttr* a=attrs;a;a=a->next)
-                if(a->localName&&::strcmp(a->localName,localName_)==0) return a->value;
+                if(a->localName&&NkStringView(a->localName)==NkStringView(localName_)) return a->value;
             return nullptr;
         }
         NKIMG_NODISCARD float GetAttrF(const char* name, float def=0.f) const noexcept {
@@ -155,7 +156,7 @@ namespace nkentseu {
         // Vérifie si le tagName (sans préfixe) correspond
         NKIMG_NODISCARD bool Is(const char* localTag) const noexcept {
             if(!localName) return false;
-            return ::strcmp(localName,localTag)==0;
+            return NkStringView(localName)==NkStringView(localTag);
         }
 
         // Premier enfant élément avec ce tag local
@@ -177,10 +178,10 @@ namespace nkentseu {
             int32 pos=0;
             for(NkXMLNode* c=firstChild;c&&pos<bufLen-1;c=c->nextSibling){
                 if(c->type==NkXMLNodeType::NK_TEXT||c->type==NkXMLNodeType::NK_CDATA){
-                    const int32 len=c->text?(int32)::strlen(c->text):0;
+                    const int32 len=c->text?(int32)NkStringView(c->text).Length():0;
                     const int32 rem=bufLen-1-pos;
                     const int32 n=len<rem?len:rem;
-                    if(n>0){::memcpy(buf+pos,c->text,n);pos+=n;}
+                    if(n>0){nkentseu::memory::NkCopy(buf+pos,c->text,n);pos+=n;}
                 }
             }
             buf[pos]=0;
@@ -210,7 +211,7 @@ namespace nkentseu {
         const char* Resolve(const char* prefix) const noexcept {
             for(NkXMLNSBinding* b=head;b;b=b->prev){
                 const bool match=(!prefix&&!b->prefix)||
-                                (prefix&&b->prefix&&::strcmp(prefix,b->prefix)==0);
+                                (prefix&&b->prefix&&NkStringView(prefix)==NkStringView(b->prefix));
                 if(match) return b->uri;
             }
             return nullptr;
@@ -262,7 +263,7 @@ namespace nkentseu {
             static NkXMLNode* FindById(NkXMLNode* node, const char* id) noexcept {
                 if(node->type==NkXMLNodeType::NK_ELEMENT){
                     const char* v=node->GetAttr("id");
-                    if(v&&::strcmp(v,id)==0) return node;
+                    if(v&&NkStringView(v)==NkStringView(id)) return node;
                 }
                 for(NkXMLNode* c=node->firstChild;c;c=c->nextSibling){
                     NkXMLNode* found=FindById(c,id);
@@ -273,7 +274,7 @@ namespace nkentseu {
             static void FindByTag(NkXMLNode* node, const char* tag,
                                 NkXMLNode** out, int32& cnt, int32 max) noexcept {
                 if(node->type==NkXMLNodeType::NK_ELEMENT&&
-                node->localName&&(::strcmp(tag,"*")==0||::strcmp(tag,node->localName)==0)){
+                node->localName&&(NkStringView(tag)=="*"||NkStringView(tag)==NkStringView(node->localName))){
                     if(cnt<max) out[cnt++]=node;
                 }
                 for(NkXMLNode* c=node->firstChild;c;c=c->nextSibling)
@@ -304,7 +305,7 @@ namespace nkentseu {
 
             /// Version avec C-string null-terminée.
             static bool Parse(const char* xml, NkXMLDocument& doc) noexcept {
-                return xml ? Parse(reinterpret_cast<const uint8*>(xml),::strlen(xml),doc) : false;
+                return xml ? Parse(reinterpret_cast<const uint8*>(xml),NkStringView(xml).Length(),doc) : false;
             }
 
             /// Parse un fichier.

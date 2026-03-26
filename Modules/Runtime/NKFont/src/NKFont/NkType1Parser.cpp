@@ -310,22 +310,141 @@ static void T1CurveTo(T1Ctx& ctx,
 static bool T1Execute(T1Ctx& ctx, const uint8* code, int32 len,
                         int32 depth=0) noexcept;
 
+// ─── Table StandardEncoding PostScript (PLRM 3rd ed., Appendix E) ────────────
+// Entrées null = .notdef
+static const char* const kStdEncoding[256] = {
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 0-7
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 8-15
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 16-23
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 24-31
+    "space","exclam","quotedbl","numbersign","dollar","percent",     // 32-37
+    "ampersand","quoteright","parenleft","parenright","asterisk",    // 38-42
+    "plus","comma","hyphen","period","slash",                        // 43-47
+    "zero","one","two","three","four","five","six","seven",          // 48-55
+    "eight","nine","colon","semicolon","less","equal","greater",     // 56-62
+    "question","at",                                                  // 63-64
+    "A","B","C","D","E","F","G","H","I","J","K","L","M",             // 65-77
+    "N","O","P","Q","R","S","T","U","V","W","X","Y","Z",             // 78-90
+    "bracketleft","backslash","bracketright","asciicircum",          // 91-94
+    "underscore","quoteleft",                                         // 95-96
+    "a","b","c","d","e","f","g","h","i","j","k","l","m",             // 97-109
+    "n","o","p","q","r","s","t","u","v","w","x","y","z",             // 110-122
+    "braceleft","bar","braceright","asciitilde",nullptr,             // 123-127
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 128-135
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 136-143
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 144-151
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 152-159
+    nullptr,"exclamdown","cent","sterling","fraction","yen",         // 160-165
+    "florin","section","currency","quotesingle","quotedblleft",      // 166-170
+    "guillemotleft","guilsinglleft","guilsinglright","fi","fl",      // 171-175
+    nullptr,"endash","dagger","daggerdbl","periodcentered",          // 176-180
+    nullptr,"paragraph","bullet","quotesinglbase","quotedblbase",    // 181-185
+    "quotedblright","guillemotright","ellipsis","perthousand",       // 186-189
+    nullptr,"questiondown",nullptr,"grave","acute","circumflex",     // 190-195
+    "tilde","macron","breve","dotaccent","dieresis",nullptr,"ring",  // 196-202
+    "cedilla",nullptr,"hungarumlaut","ogonek","caron","emdash",      // 203-208
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 209-216
+    nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr, // 217-224
+    "AE",nullptr,"ordfeminine",nullptr,nullptr,nullptr,nullptr,      // 225-231
+    "Lslash","Oslash","OE","ordmasculine",nullptr,nullptr,nullptr,   // 232-238
+    nullptr,"ae",nullptr,nullptr,nullptr,"dotlessi",nullptr,         // 239-245 (note: 241=ae, 245=lslash)
+    "lslash","oslash","oe","germandbls",nullptr,nullptr,nullptr,nullptr // 246-253... (fill)
+};
+
+// Cherche et exécute un charstring par nom dans les données décodées du font.
+// Retourne false si le nom n'est pas trouvé.
+static bool T1RunCharstringByName(T1Ctx& ctx, const char* name,
+                                   float xOff, float yOff) noexcept
+{
+    if(!name||!ctx.font||!ctx.font->decodedData) return false;
+    const char* text=reinterpret_cast<const char*>(ctx.font->decodedData);
+    const char* cs=::strstr(text,"/CharStrings");
+    if(!cs) return false;
+
+    const char* p=cs;
+    while(*p){
+        while(*p&&*p!='/') ++p;
+        if(!*p) break;
+        ++p;
+        // Lit le nom
+        char gname[64]; int32 ni=0;
+        while(*p&&*p!=' '&&*p!='\n'&&*p!='\t'&&ni<63) gname[ni++]=*p++;
+        gname[ni]='\0';
+        if(ni==0) continue;
+
+        // Cherche longueur
+        while(*p==' '||*p=='\t') ++p;
+        char* endp; long csLen=::strtol(p,&endp,10);
+        if(endp==p) continue;
+        p=endp;
+
+        // Cherche "RD" ou "|"
+        while(*p&&*p!='R'&&*p!='|') ++p;
+        if(*p=='R'){p+=2;} else if(*p=='|'){++p;} else continue;
+
+        if(::strcmp(gname,name)==0){
+            // Trouvé !
+            uint8* csData=ctx.arena->Alloc<uint8>(static_cast<int32>(csLen)+4);
+            if(!csData) return false;
+            ::memcpy(csData,reinterpret_cast<const uint8*>(p),csLen);
+            // Déchiffrement charstring (clé 4330, skip 4) — dupliqué car private
+            { uint16 k=4330;
+              for(long i=0;i<csLen;++i){
+                  const uint8 c=csData[i];
+                  csData[i]=static_cast<uint8>(c^(k>>8));
+                  k=static_cast<uint16>((static_cast<uint32>(c+k)*52845u+22719u)&0xFFFF);
+              }
+            }
+
+            const float savedX=ctx.x, savedY=ctx.y;
+            ctx.x+=xOff; ctx.y+=yOff;
+            ++ctx.depth;
+            T1Execute(ctx,csData+4,static_cast<int32>(csLen-4)); // depth=0 pour ce charstring
+            --ctx.depth;
+            // Restaure la position après l'accent (pour sbw/hsbw)
+            // (la position courante reste là où le charstring l'a laissée)
+            (void)savedX;(void)savedY;
+            return true;
+        }
+
+        p+=csLen;
+    }
+    return false;
+}
+
 // Résout seac : Standard Encoding Accented Character
+// seac asb adx ady bchar achar
+// - bchar : char code du glyphe de base (ex: 'e' = 101)
+// - achar : char code de l'accent (ex: acute = 194)
+// - (adx, ady) : décalage de l'accent par rapport à la bounding box de base
+// - asb : left side bearing de l'accent (pour placer le point d'origine)
 static bool T1Seac(T1Ctx& ctx, float asb, float adx, float ady,
                     uint8 bchar, uint8 achar) noexcept
 {
     if(ctx.depth>=2) return false; // sécurité anti-récursion infinie
-    // Cherche les charstrings de base (bchar) et accent (achar) dans l'encodage
-    // On utilise l'encoding standard pour trouver les noms de glyphes
-    // puis on cherche dans le dictionnaire CharStrings de la police
-    // Ici on délègue au CFF si disponible
-    (void)asb;(void)adx;(void)ady;(void)bchar;(void)achar;
-    // Dans une implémentation complète il faudrait :
-    //   1. Traduire bchar/achar via StandardEncoding → nom de glyphe
-    //   2. Chercher ce nom dans /CharStrings
-    //   3. Exécuter le charstring base, puis l'accent translaté de (adx, ady)
-    // Pour l'instant, on retourne un succès sans tracer (glyphe vide mais valide)
-    // TODO : accès au dictionnaire CharStrings depuis T1Ctx
+
+    const char* baseName  = kStdEncoding[bchar];
+    const char* accentName= kStdEncoding[achar];
+
+    // 1. Dessine le glyphe de base à la position courante (lsb du base)
+    if(baseName){
+        const float savedX=ctx.x, savedY=ctx.y;
+        // Le glyphe de base commence à x=lsb
+        ctx.x=ctx.lsb; ctx.y=0;
+        T1RunCharstringByName(ctx,baseName,0,0);
+        ctx.x=savedX; ctx.y=savedY;
+    }
+
+    // 2. Dessine l'accent translaté de (lsb + adx - asb, ady)
+    if(accentName){
+        const float savedX=ctx.x, savedY=ctx.y;
+        const float aOriginX=ctx.lsb+adx-asb;
+        const float aOriginY=ady;
+        ctx.x=aOriginX; ctx.y=aOriginY;
+        T1RunCharstringByName(ctx,accentName,0,0);
+        ctx.x=savedX; ctx.y=savedY;
+    }
+
     return true;
 }
 

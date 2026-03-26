@@ -7,7 +7,7 @@
 
 #if defined(NKENTSEU_PLATFORM_UWP)
 
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #define NKENTSEU_UWP_RUNTIME_ONLY 1
 #include "NKWindow/EntryPoints/NkUWP.h"
 
@@ -18,6 +18,9 @@ namespace nkentseu {
         if (mReady) {
             return true;
         }
+
+        mData = new NkEventSystemData;
+        if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
         {
@@ -34,6 +37,11 @@ namespace nkentseu {
         mReady = true;
         mData.mInitialized = true;
         return true;
+    }
+
+    void NkEventSystem::Shutdown() {
+        delete mData;
+        mData = nullptr;
     }
 
     void NkEventSystem::PumpOS() {

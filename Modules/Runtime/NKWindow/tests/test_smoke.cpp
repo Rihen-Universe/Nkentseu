@@ -2,9 +2,9 @@
 #include <Unitest/TestMacro.h>
 
 #include "NKWindow/Core/NkTypes.h"
-#include "NKWindow/Core/NkEvents.h"
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkKeyboardEvent.h"
+#include "NKWindow/Core/NkEvent.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkKeyboardEvent.h"
 
 #include <queue>
 

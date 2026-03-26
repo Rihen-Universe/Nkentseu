@@ -31,10 +31,14 @@ NkDirectX12CommandBuffer::NkDirectX12CommandBuffer(NkDirectX12Device* dev, NkCom
 
 NkDirectX12CommandBuffer::~NkDirectX12CommandBuffer() {}
 
-void NkDirectX12CommandBuffer::Begin() {
-    if (!mAllocator || !mCmdList) return;
-    if (FAILED(mAllocator->Reset())) return;
-    if (FAILED(mCmdList->Reset(mAllocator.Get(), nullptr))) return;
+bool NkDirectX12CommandBuffer::Begin() {
+    if (!mAllocator || !mCmdList) return false;
+    if (mRecording) {
+        mCmdList->Close();
+        mRecording = false;
+    }
+    if (FAILED(mAllocator->Reset())) return false;
+    if (FAILED(mCmdList->Reset(mAllocator.Get(), nullptr))) return false;
 
     // Binder les descriptor heaps shader-visible
     ID3D12DescriptorHeap* heaps[] = {
@@ -42,24 +46,33 @@ void NkDirectX12CommandBuffer::Begin() {
         mDev->SamplerHeap().heap.Get()
     };
     mCmdList->SetDescriptorHeaps(2, heaps);
+    mRecording = true;
+    return true;
 }
 
-void NkDirectX12CommandBuffer::End()   { if (mCmdList) mCmdList->Close(); }
+void NkDirectX12CommandBuffer::End() {
+    if (!mCmdList || !mRecording) return;
+    mCmdList->Close();
+    mRecording = false;
+}
 void NkDirectX12CommandBuffer::Reset() {
-    if (!mAllocator || !mCmdList) return;
-    if (FAILED(mAllocator->Reset())) return;
-    mCmdList->Reset(mAllocator.Get(), nullptr);
+    // Reset semantics across backends: discard recorded commands.
+    // Begin() performs the actual allocator/list reset for DX12.
+    if (mRecording && mCmdList) {
+        mCmdList->Close();
+    }
+    mRecording = false;
 }
 
 // =============================================================================
 // Render Pass (en DX12 = OMSetRenderTargets + Clear + transitions)
 // =============================================================================
-void NkDirectX12CommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/,
+bool NkDirectX12CommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/,
                                             NkFramebufferHandle fb,
                                             const NkRect2D& area) {
-    if (!mCmdList) return;
+    if (!mCmdList || !fb.IsValid() || area.width <= 0 || area.height <= 0) return false;
     auto* fbo = mDev->GetFBO(fb.id);
-    if (!fbo) return;
+    if (!fbo) return false;
 
     mActiveColorCount = fbo->rtvCount;
     for (uint32 i = 0; i < mActiveColorCount; i++) {
@@ -103,6 +116,7 @@ void NkDirectX12CommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/,
                        (LONG)(area.y + area.height) };
     mCmdList->RSSetViewports(1, &vp);
     mCmdList->RSSetScissorRects(1, &sc);
+    return true;
 }
 
 void NkDirectX12CommandBuffer::EndRenderPass() {

@@ -360,15 +360,10 @@ bool NkHinter::Execute(ExecContext& ctx) noexcept {
             case 0xFC: case 0xFD: case 0xFE: case 0xFF:
                 ok = Op_Move(ctx, op); break;
 
-            // ── IUP ───────────────────────────────────────────────────────────
-            case 0x30: case 0x31: // IUP (overlap avec SHC — géré dans Op_Align)
-                ok = Op_Align(ctx, op); break;
-
             // ── Fonctions ─────────────────────────────────────────────────────
             case 0x2C: // FDEF
             case 0x2D: // ENDF
             case 0x2B: // CALL
-            case 0xFA: // LOOPCALL
                 ok = Op_Function(ctx, op); break;
 
             // ── Delta ─────────────────────────────────────────────────────────
@@ -600,10 +595,10 @@ bool NkHinter::Op_GS(ExecContext& ctx, uint8 op) noexcept {
         case 0x03: gs.pvX = F16Dot16::Zero(); gs.pvY = F16Dot16::FromInt(1); break; // SPVTCA[y]
         case 0x04: gs.fvX = F16Dot16::FromInt(1); gs.fvY = F16Dot16::Zero(); break; // SFVTCA[x]
         case 0x05: gs.fvX = F16Dot16::Zero(); gs.fvY = F16Dot16::FromInt(1); break; // SFVTCA[y]
-        case 0x0D: // SRP0
+        case 0x10: // SRP0
             gs.rp[0] = static_cast<uint32>(vm.Pop()); break;
-        case 0x0E: gs.rp[1] = static_cast<uint32>(vm.Pop()); break; // SRP1
-        case 0x0F: gs.rp[2] = static_cast<uint32>(vm.Pop()); break; // SRP2
+        case 0x11: gs.rp[1] = static_cast<uint32>(vm.Pop()); break; // SRP1
+        case 0x12: gs.rp[2] = static_cast<uint32>(vm.Pop()); break; // SRP2
         case 0x13: gs.zp[0] = static_cast<uint32>(vm.Pop()); break; // SZP0
         case 0x14: gs.zp[1] = static_cast<uint32>(vm.Pop()); break; // SZP1
         case 0x15: gs.zp[2] = static_cast<uint32>(vm.Pop()); break; // SZP2

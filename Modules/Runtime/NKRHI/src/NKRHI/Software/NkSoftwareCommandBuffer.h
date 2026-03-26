@@ -19,7 +19,7 @@ public:
     NkSoftwareCommandBuffer(NkSoftwareDevice* dev, NkCommandBufferType type);
     ~NkSoftwareCommandBuffer() override = default;
 
-    void Begin()  override { mCommands.Clear(); ResetRecordedState(); mRecording = true; }
+    bool Begin()  override { mCommands.Clear(); ResetRecordedState(); mRecording = true; return true; }
     void End()    override { mRecording = false; }
     void Reset()  override { mCommands.Clear(); ResetRecordedState(); mRecording = false; }
     bool IsValid()              const override { return true; }
@@ -28,7 +28,7 @@ public:
     // Replay toutes les commandes enregistrées
     void Execute(NkSoftwareDevice* dev);
 
-    void BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
+    bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override;
     void EndRenderPass() override;
     void SetViewport (const NkViewport& vp) override;
     void SetViewports(const NkViewport* vps, uint32 n) override;

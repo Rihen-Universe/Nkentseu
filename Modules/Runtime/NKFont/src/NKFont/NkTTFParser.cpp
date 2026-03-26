@@ -1,19 +1,22 @@
 /**
  * @File    NkTTFParser.cpp
- * @Brief   Implémentation du parser TTF/OTF.
+ * @Brief   Implémentation du parser TTF/OTF avec support complet des tables.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
+ *
+ * Ce fichier implémente le parsing des polices TrueType et OpenType,
+ * incluant les tables essentielles pour le rendu de texte.
  */
 
 #include "pch.h"
 #include "NKFont/NkTTFParser.h"
-#include <cstring>   // memset, memcpy
+#include <cstring>
 
 namespace nkentseu {
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 //  NkTTFFont — méthodes inline
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 
 uint16 NkTTFFont::GetGlyphId(uint32 codepoint) const noexcept {
     // Recherche dichotomique dans les plages cmap
@@ -21,67 +24,118 @@ uint16 NkTTFFont::GetGlyphId(uint32 codepoint) const noexcept {
     while (lo < hi) {
         const uint32 mid = (lo + hi) >> 1;
         const NkTTFCmapRange& r = cmapRanges[mid];
-        if (codepoint < r.startCode)      hi = mid;
-        else if (codepoint > r.endCode)   lo = mid + 1;
-        else {
-            if (r.isDelta)
+        if (codepoint < r.startCode) {
+            hi = mid;
+        } else if (codepoint > r.endCode) {
+            lo = mid + 1;
+        } else {
+            if (r.isDelta) {
                 return static_cast<uint16>((codepoint + static_cast<uint32>(r.idDelta)) & 0xFFFF);
-            else
+            } else {
                 return static_cast<uint16>(r.glyphId + (codepoint - r.startCode));
+            }
         }
     }
     return 0;
 }
 
 NkTTFHMetric NkTTFFont::GetHMetric(uint16 glyphId) const noexcept {
-    if (!hmetrics || numHMetrics == 0) return {0, 0};
-    if (glyphId < numHMetrics) return hmetrics[glyphId];
+    if (!hmetrics || numHMetrics == 0) {
+        NkTTFHMetric empty = {0, 0};
+        return empty;
+    }
+    if (glyphId < numHMetrics) {
+        return hmetrics[glyphId];
+    }
     // Dernière entrée répétée pour les glyphes sans largeur individuelle
     return hmetrics[numHMetrics - 1];
 }
 
 uint32 NkTTFFont::GetGlyfOffset(uint16 glyphId) const noexcept {
-    if (!locaOffsets || glyphId >= maxp.numGlyphs) return 0xFFFFFFFFu;
+    if (!locaOffsets || glyphId >= maxp.numGlyphs) {
+        return 0xFFFFFFFFu;
+    }
     return locaOffsets[glyphId];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 //  Utilitaires
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 
-uint32 NkTTFParser::FindTable(
-    const NkTTFTableRecord* records, uint16 numTables, uint32 tag) noexcept
-{
-    for (uint16 i = 0; i < numTables; ++i)
-        if (records[i].tag == tag)
+uint32 NkTTFParser::FindTable(const NkTTFTableRecord* records, uint16 numTables, uint32 tag) noexcept {
+    for (uint16 i = 0; i < numTables; ++i) {
+        if (records[i].tag == tag) {
             return records[i].offset;
+        }
+    }
     return 0;
 }
 
-// Recherche dichotomique dans la table kern (triée par (left, right))
-uint16 NkTTFParser::BinarySearchKern(
-    const NkTTFKernPair* pairs, uint32 count, uint16 left, uint16 right) noexcept
-{
+uint16 NkTTFParser::BinarySearchKern(const NkTTFKernPair* pairs, uint32 count, uint16 left, uint16 right) noexcept {
     const uint32 key = (static_cast<uint32>(left) << 16) | right;
     uint32 lo = 0, hi = count;
     while (lo < hi) {
         const uint32 mid = (lo + hi) >> 1;
         const uint32 cur = (static_cast<uint32>(pairs[mid].left) << 16) | pairs[mid].right;
-        if      (key < cur) hi = mid;
-        else if (key > cur) lo = mid + 1;
-        else                return static_cast<uint16>(mid);
+        if (key < cur) {
+            hi = mid;
+        } else if (key > cur) {
+            lo = mid + 1;
+        } else {
+            return static_cast<uint16>(mid);
+        }
     }
     return 0xFFFF;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+void NkTTFParser::ConvertUTF16ToUTF8(const uint16* src, usize srcLen, char* dst, usize dstSize) noexcept {
+    if (!src || !dst || dstSize == 0) return;
+    
+    usize idx = 0;
+    for (usize i = 0; i < srcLen && idx < dstSize - 1; ++i) {
+        uint32 cp = src[i];
+        
+        // Surrogate pairs (UTF-16)
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < srcLen) {
+            uint32 low = src[i + 1];
+            if (low >= 0xDC00 && low <= 0xDFFF) {
+                cp = ((cp - 0xD800) << 10) + (low - 0xDC00) + 0x10000;
+                ++i;
+            }
+        }
+        
+        // Encoder en UTF-8
+        if (cp < 0x80) {
+            dst[idx++] = static_cast<char>(cp);
+        } else if (cp < 0x800) {
+            if (idx + 1 >= dstSize - 1) break;
+            dst[idx++] = static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
+            dst[idx++] = static_cast<char>(0x80 | (cp & 0x3F));
+        } else if (cp < 0x10000) {
+            if (idx + 2 >= dstSize - 1) break;
+            dst[idx++] = static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
+            dst[idx++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            dst[idx++] = static_cast<char>(0x80 | (cp & 0x3F));
+        } else if (cp < 0x110000) {
+            if (idx + 3 >= dstSize - 1) break;
+            dst[idx++] = static_cast<char>(0xF0 | ((cp >> 18) & 0x07));
+            dst[idx++] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+            dst[idx++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            dst[idx++] = static_cast<char>(0x80 | (cp & 0x3F));
+        }
+    }
+    dst[idx] = 0;
+}
+
+// ============================================================================
 //  Parse — point d'entrée principal
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 
 bool NkTTFParser::Parse(
     const uint8* data, usize size,
     NkMemArena& arena, NkTTFFont& out) noexcept
 {
+    // Initialisation
     ::memset(&out, 0, sizeof(out));
     if (!data || size < 12) return false;
 
@@ -94,47 +148,101 @@ bool NkTTFParser::Parse(
     if (sfVersion != kTTF_SFVERSION_TRUE  &&
         sfVersion != kTTF_SFVERSION_OTF   &&
         sfVersion != kTTF_SFVERSION_TRUE2 &&
-        sfVersion != kTTF_SFVERSION_TYPE1)
+        sfVersion != kTTF_SFVERSION_TYPE1) {
         return false;
+    }
 
     out.hasCFF = (sfVersion == kTTF_SFVERSION_OTF);
 
-    if (!ParseTableDirectory(s, out, arena)) return false;
-
-    // Lecture du buffer brut pour accès direct aux tables
-    NkStreamReader full(data, size);
-
-    // -- head (obligatoire) --
-    {
-        const uint32 off = FindTable(
-            reinterpret_cast<const NkTTFTableRecord*>(arena.Base()),
-            0, Tag::head);
-        // On re-parse depuis les records stockés dans arena
-        // (voir ParseTableDirectory qui stocke les records en début d'arena)
-        // Pour simplifier, on accède via NkStreamReader positionné sur la table.
+    // Parse le table directory
+    uint16 numTables = 0;
+    NkTTFTableRecord* tableRecords = nullptr;
+    if (!ParseTableDirectory(s, out, arena, numTables, tableRecords)) {
+        return false;
     }
 
-    // Re-parse propre : utilise les offsets stockés dans out via ParseTableDirectory
-    // Les tables obligatoires échouent si absentes
-    if (!out.isValid) return false;
+    const uint8* rawData = out.rawData;
+    const usize rawSize = out.rawSize;
 
+    // Macro pour les fonctions SANS arena
+    #define PARSE_TABLE_NO_ARENA(tag, parserFunc) \
+        do { \
+            uint32 off = FindTable(tableRecords, numTables, Tag::tag); \
+            if (off != 0) { \
+                NkStreamReader ts(rawData + off, (off < rawSize) ? (rawSize - off) : 0); \
+                if (!parserFunc(ts, out)) return false; \
+            } \
+        } while(0)
+
+    // Macro pour les fonctions AVEC arena
+    #define PARSE_TABLE_WITH_ARENA(tag, parserFunc) \
+        do { \
+            uint32 off = FindTable(tableRecords, numTables, Tag::tag); \
+            if (off != 0) { \
+                NkStreamReader ts(rawData + off, (off < rawSize) ? (rawSize - off) : 0); \
+                if (!parserFunc(ts, out, arena)) return false; \
+            } \
+        } while(0)
+
+    // Tables obligatoires (sans arena)
+    PARSE_TABLE_NO_ARENA(head, ParseHead);
+    PARSE_TABLE_NO_ARENA(hhea, ParseHhea);
+    PARSE_TABLE_NO_ARENA(maxp, ParseMaxp);
+    
+    // Tables obligatoires avec arena
+    PARSE_TABLE_WITH_ARENA(hmtx, ParseHmtx);
+    PARSE_TABLE_WITH_ARENA(loca, ParseLoca);
+    PARSE_TABLE_WITH_ARENA(cmap, ParseCmap);
+    
+    // Table name avec arena
+    PARSE_TABLE_WITH_ARENA(name, ParseName);
+
+    // Tables optionnelles sans arena
+    PARSE_TABLE_NO_ARENA(OS_2, ParseOS2);
+    PARSE_TABLE_NO_ARENA(post, ParsePost);
+    
+    // Tables optionnelles avec arena
+    PARSE_TABLE_WITH_ARENA(kern, ParseKern);
+    
+    // Tables optionnelles sans arena
+    PARSE_TABLE_NO_ARENA(cvt,  ParseCvt);
+    PARSE_TABLE_NO_ARENA(fpgm, ParseFpgm);
+    PARSE_TABLE_NO_ARENA(prep, ParsePrep);
+
+    #undef PARSE_TABLE_NO_ARENA
+    #undef PARSE_TABLE_WITH_ARENA
+
+    // Récupération des offsets des tables spéciales
+    for (uint16 i = 0; i < numTables; ++i) {
+        if (tableRecords[i].tag == Tag::glyf) {
+            out.glyfOffset = tableRecords[i].offset;
+            out.glyfLength = tableRecords[i].length;
+        }
+        if (tableRecords[i].tag == Tag::GPOS) out.hasGPOS = true;
+        if (tableRecords[i].tag == Tag::GSUB) out.hasGSUB = true;
+    }
+
+    out.isValid = true;
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 //  ParseTableDirectory
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 
 bool NkTTFParser::ParseTableDirectory(
-    NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept
+    NkStreamReader& s, NkTTFFont& out, NkMemArena& arena,
+    uint16& numTables, NkTTFTableRecord*& records) noexcept
 {
-    const uint16 numTables     = s.ReadU16();
+    const uint16 numTablesVal = s.ReadU16();
+    numTables = numTablesVal;
+    
     s.Skip(6); // searchRange, entrySelector, rangeShift
 
     if (numTables == 0 || numTables > 64) return false;
 
     // Alloue et lit les records
-    NkTTFTableRecord* records = arena.Alloc<NkTTFTableRecord>(numTables);
+    records = arena.Alloc<NkTTFTableRecord>(numTables);
     if (!records) return false;
 
     for (uint16 i = 0; i < numTables; ++i) {
@@ -142,140 +250,58 @@ bool NkTTFParser::ParseTableDirectory(
         records[i].checksum = s.ReadU32();
         records[i].offset   = s.ReadU32();
         records[i].length   = s.ReadU32();
-    }
-    if (s.HasError()) return false;
-
-    const uint8* data = out.rawData;
-    const usize  size = out.rawSize;
-
-    // Macro helper : positionne un NkStreamReader sur une table
-    #define SEEK_TABLE(tag_) \
-        uint32 _off_##tag_ = 0; \
-        for (uint16 _i = 0; _i < numTables; ++_i) \
-            if (records[_i].tag == Tag::tag_) { _off_##tag_ = records[_i].offset; break; } \
-        NkStreamReader ts_##tag_(data + _off_##tag_, \
-            (_off_##tag_ < size) ? (size - _off_##tag_) : 0u)
-
-    // ── Tables obligatoires ────────────────────────────────────────────────
-    { SEEK_TABLE(head); if (_off_head == 0 || !ParseHead(ts_head, out)) return false; }
-    { SEEK_TABLE(hhea); if (_off_hhea == 0 || !ParseHhea(ts_hhea, out)) return false; }
-    { SEEK_TABLE(maxp); if (_off_maxp == 0 || !ParseMaxp(ts_maxp, out)) return false; }
-
-    // ── hmtx ──────────────────────────────────────────────────────────────
-    {
-        SEEK_TABLE(hmtx);
-        if (_off_hmtx == 0 || !ParseHmtx(ts_hmtx, out, arena)) return false;
-    }
-
-    // ── loca ──────────────────────────────────────────────────────────────
-    {
-        SEEK_TABLE(loca);
-        if (_off_loca == 0 || !ParseLoca(ts_loca, out, arena)) return false;
-    }
-
-    // ── cmap ──────────────────────────────────────────────────────────────
-    {
-        SEEK_TABLE(cmap);
-        if (_off_cmap == 0 || !ParseCmap(ts_cmap, out, arena)) return false;
-    }
-
-    // ── glyf (offset seulement — parsé à la demande) ──────────────────────
-    for (uint16 i = 0; i < numTables; ++i) {
-        if (records[i].tag == Tag::glyf) {
-            out.glyfOffset = records[i].offset;
-            out.glyfLength = records[i].length;
-            break;
+        
+        // Validation basique
+        if (records[i].offset >= out.rawSize || records[i].length > out.rawSize - records[i].offset) {
+            return false;
         }
     }
-
-    // ── Tables optionnelles ────────────────────────────────────────────────
-    {
-        SEEK_TABLE(OS_2);
-        if (_off_OS_2) ParseOS2(ts_OS_2, out);
-    }
-    {
-        SEEK_TABLE(post);
-        if (_off_post) ParsePost(ts_post, out);
-    }
-    {
-        SEEK_TABLE(kern);
-        if (_off_kern) { out.hasKern = true; ParseKern(ts_kern, out, arena); }
-    }
-    {
-        SEEK_TABLE(cvt);
-        if (_off_cvt) {
-            NkStreamReader& ts = ts_cvt;
-            for (uint16 i = 0; i < numTables; ++i) {
-                if (records[i].tag == Tag::cvt) {
-                    out.cvtData   = data + records[i].offset;
-                    out.cvtLength = records[i].length;
-                    break;
-                }
-            }
-            (void)ts;
-        }
-    }
-    for (uint16 i = 0; i < numTables; ++i) {
-        if (records[i].tag == Tag::fpgm) {
-            out.fpgmData   = data + records[i].offset;
-            out.fpgmLength = records[i].length;
-        }
-        if (records[i].tag == Tag::prep) {
-            out.prepData   = data + records[i].offset;
-            out.prepLength = records[i].length;
-        }
-        if (records[i].tag == Tag::GPOS) out.hasGPOS = true;
-        if (records[i].tag == Tag::GSUB) out.hasGSUB = true;
-    }
-
-    #undef SEEK_TABLE
-
-    out.isValid = true;
-    return true;
+    
+    return !s.HasError();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 //  Tables individuelles
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 
 bool NkTTFParser::ParseHead(NkStreamReader& s, NkTTFFont& out) noexcept {
-    out.head.majorVersion     = s.ReadU16();
-    out.head.minorVersion     = s.ReadU16();
-    out.head.fontRevision     = s.ReadFixed();
+    out.head.majorVersion      = s.ReadU16();
+    out.head.minorVersion      = s.ReadU16();
+    out.head.fontRevision      = s.ReadFixed();
     s.ReadU32(); // checkSumAdjustment
     const uint32 magic = s.ReadU32();
     if (magic != 0x5F0F3CF5u) return false; // magic number obligatoire
     s.ReadU16(); // flags
-    out.head.unitsPerEm       = s.ReadU16();
+    out.head.unitsPerEm        = s.ReadU16();
     if (out.head.unitsPerEm < 16 || out.head.unitsPerEm > 16384) return false;
     s.Skip(16); // created + modified (LONGDATETIME x2)
-    out.head.xMin             = s.ReadFWord();
-    out.head.yMin             = s.ReadFWord();
-    out.head.xMax             = s.ReadFWord();
-    out.head.yMax             = s.ReadFWord();
-    out.head.macStyle         = s.ReadU16();
-    out.head.lowestRecPPEM    = s.ReadU16();
-    out.head.fontDirectionHint= s.ReadI16();
-    out.head.indexToLocFormat = s.ReadI16();
-    out.head.glyphDataFormat  = s.ReadI16();
+    out.head.xMin              = s.ReadFWord();
+    out.head.yMin              = s.ReadFWord();
+    out.head.xMax              = s.ReadFWord();
+    out.head.yMax              = s.ReadFWord();
+    out.head.macStyle          = s.ReadU16();
+    out.head.lowestRecPPEM     = s.ReadU16();
+    out.head.fontDirectionHint = s.ReadI16();
+    out.head.indexToLocFormat  = s.ReadI16();
+    out.head.glyphDataFormat   = s.ReadI16();
     return !s.HasError();
 }
 
 bool NkTTFParser::ParseHhea(NkStreamReader& s, NkTTFFont& out) noexcept {
     s.Skip(4); // version
-    out.hhea.ascender          = s.ReadFWord();
-    out.hhea.descender         = s.ReadFWord();
-    out.hhea.lineGap           = s.ReadFWord();
-    out.hhea.advanceWidthMax   = s.ReadUFWord();
-    out.hhea.minLeftSideBearing= s.ReadFWord();
-    out.hhea.minRightSideBearing=s.ReadFWord();
-    out.hhea.xMaxExtent        = s.ReadFWord();
-    out.hhea.caretSlopeRise    = s.ReadI16();
-    out.hhea.caretSlopeRun     = s.ReadI16();
-    out.hhea.caretOffset       = s.ReadI16();
+    out.hhea.ascender           = s.ReadFWord();
+    out.hhea.descender          = s.ReadFWord();
+    out.hhea.lineGap            = s.ReadFWord();
+    out.hhea.advanceWidthMax    = s.ReadUFWord();
+    out.hhea.minLeftSideBearing = s.ReadFWord();
+    out.hhea.minRightSideBearing= s.ReadFWord();
+    out.hhea.xMaxExtent         = s.ReadFWord();
+    out.hhea.caretSlopeRise     = s.ReadI16();
+    out.hhea.caretSlopeRun      = s.ReadI16();
+    out.hhea.caretOffset        = s.ReadI16();
     s.Skip(8); // reserved
-    out.hhea.metricDataFormat  = s.ReadI16();
-    out.hhea.numberOfHMetrics  = s.ReadU16();
+    out.hhea.metricDataFormat   = s.ReadI16();
+    out.hhea.numberOfHMetrics   = s.ReadU16();
     return !s.HasError();
 }
 
@@ -283,20 +309,21 @@ bool NkTTFParser::ParseMaxp(NkStreamReader& s, NkTTFFont& out) noexcept {
     const uint32 version = s.ReadU32();
     out.maxp.numGlyphs = s.ReadU16();
     if (out.maxp.numGlyphs == 0) return false;
+    
     if (version == 0x00010000u) {
-        out.maxp.maxPoints           = s.ReadU16();
-        out.maxp.maxContours         = s.ReadU16();
-        out.maxp.maxCompositePoints  = s.ReadU16();
-        out.maxp.maxCompositeContours= s.ReadU16();
-        out.maxp.maxZones            = s.ReadU16();
-        out.maxp.maxTwilightPoints   = s.ReadU16();
-        out.maxp.maxStorage          = s.ReadU16();
-        out.maxp.maxFunctionDefs     = s.ReadU16();
-        out.maxp.maxInstructionDefs  = s.ReadU16();
-        out.maxp.maxStackElements    = s.ReadU16();
-        out.maxp.maxSizeOfInstructions=s.ReadU16();
-        out.maxp.maxComponentElements= s.ReadU16();
-        out.maxp.maxComponentDepth   = s.ReadU16();
+        out.maxp.maxPoints            = s.ReadU16();
+        out.maxp.maxContours          = s.ReadU16();
+        out.maxp.maxCompositePoints   = s.ReadU16();
+        out.maxp.maxCompositeContours = s.ReadU16();
+        out.maxp.maxZones             = s.ReadU16();
+        out.maxp.maxTwilightPoints    = s.ReadU16();
+        out.maxp.maxStorage           = s.ReadU16();
+        out.maxp.maxFunctionDefs      = s.ReadU16();
+        out.maxp.maxInstructionDefs   = s.ReadU16();
+        out.maxp.maxStackElements     = s.ReadU16();
+        out.maxp.maxSizeOfInstructions= s.ReadU16();
+        out.maxp.maxComponentElements = s.ReadU16();
+        out.maxp.maxComponentDepth    = s.ReadU16();
     }
     return !s.HasError();
 }
@@ -312,13 +339,14 @@ bool NkTTFParser::ParseHmtx(NkStreamReader& s, NkTTFFont& out, NkMemArena& arena
 
     for (uint16 i = 0; i < nHM; ++i) {
         out.hmetrics[i].advanceWidth = s.ReadU16();
-        out.hmetrics[i].lsb         = s.ReadI16();
+        out.hmetrics[i].lsb          = s.ReadI16();
     }
+    
     // Glyphes sans entrée individuelle héritent du dernier advanceWidth
     const uint16 lastAW = out.hmetrics[nHM - 1].advanceWidth;
     for (uint16 i = nHM; i < nGlyphs; ++i) {
         out.hmetrics[i].advanceWidth = lastAW;
-        out.hmetrics[i].lsb         = s.ReadI16();
+        out.hmetrics[i].lsb          = s.ReadI16();
     }
     return !s.HasError();
 }
@@ -330,52 +358,57 @@ bool NkTTFParser::ParseLoca(NkStreamReader& s, NkTTFFont& out, NkMemArena& arena
 
     if (out.head.indexToLocFormat == 0) {
         // Format court : offsets / 2
-        for (uint16 i = 0; i <= n; ++i)
+        for (uint16 i = 0; i <= n; ++i) {
             out.locaOffsets[i] = static_cast<uint32>(s.ReadU16()) << 1;
+        }
     } else {
         // Format long : offsets directs
-        for (uint16 i = 0; i <= n; ++i)
+        for (uint16 i = 0; i <= n; ++i) {
             out.locaOffsets[i] = s.ReadU32();
+        }
     }
     return !s.HasError();
 }
 
 bool NkTTFParser::ParseCmap(NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept {
-    const usize tableBase = 0; // s est déjà positionné sur le début de la table cmap
+    const size_t cmapStart = s.Tell() - 4; // Revenir au début de la table cmap
     s.ReadU16(); // version
     const uint16 numSubtables = s.ReadU16();
 
-    // Cherche la meilleure sous-table : préférence format 12 (Unicode full),
-    // puis format 4 (Unicode BMP)
+    // Cherche la meilleure sous-table
     uint32 bestOffset = 0;
     uint16 bestFormat = 0;
-    uint16 bestPlatform = 0xFFFF;
+    uint16 bestPriority = 0xFFFF;
 
     for (uint16 i = 0; i < numSubtables; ++i) {
         const uint16 platformId = s.ReadU16();
         const uint16 encodingId = s.ReadU16();
         const uint32 offset     = s.ReadU32();
 
-        // Plateforme 3 = Windows, encodage 1 = Unicode BMP, 10 = Unicode full
-        // Plateforme 0 = Unicode
         const bool isUnicodeFull = (platformId == 3 && encodingId == 10)
                                  || (platformId == 0 && encodingId == 4);
         const bool isUnicodeBMP  = (platformId == 3 && encodingId ==  1)
                                  || (platformId == 0 && encodingId == 3);
 
-        if (isUnicodeFull && bestPlatform != 0) {
-            bestOffset = offset; bestFormat = 12; bestPlatform = 0;
-        } else if (isUnicodeBMP && bestPlatform > 1) {
-            bestOffset = offset; bestFormat = 4;  bestPlatform = 1;
+        uint16 priority = 0xFFFF;
+        if (isUnicodeFull) priority = 0;
+        else if (isUnicodeBMP) priority = 1;
+        
+        if (priority < bestPriority) {
+            bestOffset = offset;
+            bestFormat = (priority == 0) ? 12 : 4;
+            bestPriority = priority;
         }
     }
 
     if (bestOffset == 0) return false;
 
-    NkStreamReader sub = s.SubStream(bestOffset, s.Size() - bestOffset);
+    // Créer un sous-stream à partir des données brutes
+    const uint8* tableData = out.rawData + bestOffset;
+    NkStreamReader sub(tableData, out.rawSize - bestOffset);
     const uint16 fmt = sub.ReadU16();
 
-    if (fmt == 4)  return ParseCmapFormat4 (sub, out, arena);
+    if (fmt == 4)  return ParseCmapFormat4(sub, out, arena);
     if (fmt == 12) return ParseCmapFormat12(sub, out, arena);
     return false;
 }
@@ -404,8 +437,9 @@ bool NkTTFParser::ParseCmapFormat4(NkStreamReader& s, NkTTFFont& out, NkMemArena
 
     // Compte les plages valides (exclut le sentinel 0xFFFF)
     uint32 numRanges = 0;
-    for (uint16 i = 0; i < segCount; ++i)
+    for (uint16 i = 0; i < segCount; ++i) {
         if (startCodes[i] != 0xFFFF) numRanges++;
+    }
 
     out.cmapRanges = arena.Alloc<NkTTFCmapRange>(numRanges);
     if (!out.cmapRanges) return false;
@@ -414,8 +448,6 @@ bool NkTTFParser::ParseCmapFormat4(NkStreamReader& s, NkTTFFont& out, NkMemArena
     uint32 ri = 0;
     for (uint16 i = 0; i < segCount && ri < numRanges; ++i) {
         if (startCodes[i] == 0xFFFF) continue;
-        // Pour les segments avec idRangeOffset == 0, on utilise le delta
-        // Pour idRangeOffset != 0, on résout via la glyphIdArray (simplifié : delta = 0)
         out.cmapRanges[ri].startCode = startCodes[i];
         out.cmapRanges[ri].endCode   = endCodes[i];
         out.cmapRanges[ri].idDelta   = idDeltas[i];
@@ -458,7 +490,10 @@ bool NkTTFParser::ParseKern(NkStreamReader& s, NkTTFFont& out, NkMemArena& arena
         const uint16 format  = (coverage >> 8) & 0xFF;
         const bool   isHoriz = !(coverage & 0x01); // bit 0 = vertical
 
-        if (format != 0 || !isHoriz) { s.Skip(length - 6); continue; }
+        if (format != 0 || !isHoriz) {
+            s.Skip(length - 6);
+            continue;
+        }
 
         const uint16 nPairs = s.ReadU16();
         s.Skip(6); // searchRange, entrySelector, rangeShift
@@ -494,6 +529,7 @@ bool NkTTFParser::ParseOS2(NkStreamReader& s, NkTTFFont& out) noexcept {
     out.os2.sTypoLineGap   = s.ReadI16();
     out.os2.usWinAscent    = s.ReadU16();
     out.os2.usWinDescent   = s.ReadU16();
+    
     // Version >= 2
     if (!s.HasError() && s.Remaining() >= 10) {
         s.Skip(8); // ulCodePageRange
@@ -517,16 +553,92 @@ bool NkTTFParser::ParsePost(NkStreamReader& s, NkTTFFont& out) noexcept {
 }
 
 bool NkTTFParser::ParseCvt(NkStreamReader& s, NkTTFFont& out) noexcept {
-    (void)s; (void)out;
-    // cvt est exposé via pointeur direct (out.cvtData) dans ParseTableDirectory
+    // cvt est exposé via pointeur direct
+    out.cvtData = s.CurrentPtr();
+    out.cvtLength = static_cast<uint32>(s.Remaining());
     return true;
 }
-bool NkTTFParser::ParseFpgm(NkStreamReader& s, NkTTFFont& out) noexcept { (void)s; (void)out; return true; }
-bool NkTTFParser::ParsePrep(NkStreamReader& s, NkTTFFont& out) noexcept { (void)s; (void)out; return true; }
 
-// ─────────────────────────────────────────────────────────────────────────────
+bool NkTTFParser::ParseFpgm(NkStreamReader& s, NkTTFFont& out) noexcept {
+    out.fpgmData = s.CurrentPtr();
+    out.fpgmLength = static_cast<uint32>(s.Remaining());
+    return true;
+}
+
+bool NkTTFParser::ParsePrep(NkStreamReader& s, NkTTFFont& out) noexcept {
+    out.prepData = s.CurrentPtr();
+    out.prepLength = static_cast<uint32>(s.Remaining());
+    return true;
+}
+
+bool NkTTFParser::ParseName(NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept {
+    uint16 format = s.ReadU16();
+    
+    if (format != 0 && format != 1) return true; // Format non supporté, ignorer
+    
+    uint16 numRecords = s.ReadU16();
+    uint16 storageOffset = s.ReadU16();
+    
+    // Allouer les enregistrements
+    out.name.records = arena.Alloc<NkTTFNameRecord>(numRecords);
+    if (!out.name.records) return false;
+    out.name.numRecords = numRecords;
+    
+    // Lire tous les enregistrements
+    for (uint16 i = 0; i < numRecords; ++i) {
+        auto& rec = out.name.records[i];
+        rec.platformId = s.ReadU16();
+        rec.encodingId = s.ReadU16();
+        rec.languageId = s.ReadU16();
+        rec.nameId     = s.ReadU16();
+        rec.length     = s.ReadU16();
+        rec.offset     = s.ReadU16();
+        rec.string = nullptr;
+    }
+    
+    // Stocker les données des chaînes
+    out.name.stringData = out.rawData + storageOffset;
+    
+    // Initialiser les chaînes vides
+    out.name.familyName[0] = 0;
+    out.name.styleName[0] = 0;
+    out.name.fullName[0] = 0;
+    out.name.copyright[0] = 0;
+    
+    // Parcourir pour extraire les chaînes intéressantes
+    for (uint16 i = 0; i < numRecords; ++i) {
+        const auto& rec = out.name.records[i];
+        
+        // Platform 3 = Windows, encoding 1 = Unicode BMP, language 0x0409 = English US
+        if (rec.platformId == 3 && rec.encodingId == 1 && rec.languageId == 0x0409) {
+            const uint8* strData = out.name.stringData + rec.offset;
+            usize strLen = rec.length / 2; // UTF-16
+            
+            if (rec.nameId == 1 && strLen < 64) { // Family name
+                ConvertUTF16ToUTF8(reinterpret_cast<const uint16*>(strData), strLen, 
+                                   out.name.familyName, sizeof(out.name.familyName));
+            } 
+            else if (rec.nameId == 2 && strLen < 32) { // Style name
+                ConvertUTF16ToUTF8(reinterpret_cast<const uint16*>(strData), strLen,
+                                   out.name.styleName, sizeof(out.name.styleName));
+            }
+            else if (rec.nameId == 4 && strLen < 128) { // Full name
+                ConvertUTF16ToUTF8(reinterpret_cast<const uint16*>(strData), strLen,
+                                   out.name.fullName, sizeof(out.name.fullName));
+            }
+            else if (rec.nameId == 0 && strLen < 256) { // Copyright
+                ConvertUTF16ToUTF8(reinterpret_cast<const uint16*>(strData), strLen,
+                                   out.name.copyright, sizeof(out.name.copyright));
+            }
+        }
+    }
+    
+    return true;
+}
+
+// ============================================================================
 //  ParseGlyph
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 
 bool NkTTFParser::ParseGlyph(
     const NkTTFFont& font, uint16 glyphId,
@@ -537,12 +649,15 @@ bool NkTTFParser::ParseGlyph(
 
     const uint32 glyfOff = font.GetGlyfOffset(glyphId);
     const uint32 nextOff = font.locaOffsets[glyphId + 1];
-    if (glyfOff == nextOff) { out.numContours = 0; return true; } // glyphe vide
+    if (glyfOff == nextOff) {
+        out.numContours = 0;
+        return true; // glyphe vide
+    }
 
     if (glyfOff + 10 > font.rawSize) return false;
 
     NkStreamReader s(font.rawData + font.glyfOffset + glyfOff,
-                     font.rawSize  - font.glyfOffset - glyfOff);
+                     font.rawSize - font.glyfOffset - glyfOff);
 
     out.numContours = s.ReadI16();
     const int16 xMin = s.ReadFWord();
@@ -551,12 +666,16 @@ bool NkTTFParser::ParseGlyph(
     const int16 yMax = s.ReadFWord();
 
     if (out.numContours > 0) {
-        out.simple.xMin = xMin; out.simple.yMin = yMin;
-        out.simple.xMax = xMax; out.simple.yMax = yMax;
+        out.simple.xMin = xMin;
+        out.simple.yMin = yMin;
+        out.simple.xMax = xMax;
+        out.simple.yMax = yMax;
         return ParseSimpleGlyph(s, out.numContours, out.simple, arena);
     } else if (out.numContours < 0) {
-        out.composite.xMin = xMin; out.composite.yMin = yMin;
-        out.composite.xMax = xMax; out.composite.yMax = yMax;
+        out.composite.xMin = xMin;
+        out.composite.yMin = yMin;
+        out.composite.xMax = xMax;
+        out.composite.yMax = yMax;
         return ParseCompositeGlyph(s, out.composite, arena);
     }
     return true;
@@ -570,8 +689,9 @@ bool NkTTFParser::ParseSimpleGlyph(
 
     uint16* endPtsOfContours = arena.Alloc<uint16>(numContours);
     if (!endPtsOfContours) return false;
-    for (int16 i = 0; i < numContours; ++i)
+    for (int16 i = 0; i < numContours; ++i) {
         endPtsOfContours[i] = s.ReadU16();
+    }
 
     const uint16 numPoints = endPtsOfContours[numContours - 1] + 1;
     if (numPoints > kTTF_MAX_POINTS) return false;
@@ -584,8 +704,8 @@ bool NkTTFParser::ParseSimpleGlyph(
         s.ReadBytes(out.instructions, out.instructionLength);
     }
 
-    // Alloue les points
-    out.contours    = arena.Alloc<NkTTFContour>(numContours);
+    // Alloue les contours et points
+    out.contours = arena.Alloc<NkTTFContour>(numContours);
     NkTTFPoint* pts = arena.Alloc<NkTTFPoint>(numPoints);
     if (!out.contours || !pts) return false;
     out.numContours = numContours;
@@ -663,6 +783,7 @@ bool NkTTFParser::ParseCompositeGlyph(
             comp.dx = static_cast<int8>(s.ReadU8());
             comp.dy = static_cast<int8>(s.ReadU8());
         }
+        
         // Transformation
         if (flags & kCompFlag_WeHaveScale) {
             const int16 sc = s.ReadF2Dot14();
@@ -676,12 +797,14 @@ bool NkTTFParser::ParseCompositeGlyph(
             comp.transform.yy = F16Dot16::FromRaw(static_cast<int32>(sy) << 2);
             comp.hasTransform = true;
         } else if (flags & kCompFlag_WeHave2x2) {
-            const int16 a = s.ReadF2Dot14(), b = s.ReadF2Dot14();
-            const int16 c2= s.ReadF2Dot14(), d = s.ReadF2Dot14();
-            comp.transform.xx = F16Dot16::FromRaw(static_cast<int32>(a)  << 2);
-            comp.transform.xy = F16Dot16::FromRaw(static_cast<int32>(b)  << 2);
-            comp.transform.yx = F16Dot16::FromRaw(static_cast<int32>(c2) << 2);
-            comp.transform.yy = F16Dot16::FromRaw(static_cast<int32>(d)  << 2);
+            const int16 a = s.ReadF2Dot14();
+            const int16 b = s.ReadF2Dot14();
+            const int16 c = s.ReadF2Dot14();
+            const int16 d = s.ReadF2Dot14();
+            comp.transform.xx = F16Dot16::FromRaw(static_cast<int32>(a) << 2);
+            comp.transform.xy = F16Dot16::FromRaw(static_cast<int32>(b) << 2);
+            comp.transform.yx = F16Dot16::FromRaw(static_cast<int32>(c) << 2);
+            comp.transform.yy = F16Dot16::FromRaw(static_cast<int32>(d) << 2);
             comp.hasTransform = true;
         }
         comp.flags = flags;
@@ -694,19 +817,20 @@ bool NkTTFParser::ParseCompositeGlyph(
         out.instructionLength = s.ReadU16();
         if (out.instructionLength > 0) {
             out.instructions = arena.Alloc<uint8>(out.instructionLength);
-            if (out.instructions)
+            if (out.instructions) {
                 s.ReadBytes(out.instructions, out.instructionLength);
+            }
         }
     }
 
     out.numComponents = count;
-    out.components    = arena.AllocCopy<NkTTFComponent>(tmp, count);
+    out.components = arena.AllocCopy<NkTTFComponent>(tmp, count);
     return !s.HasError() && out.components != nullptr;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 //  DecomposeGlyph
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================================================
 
 bool NkTTFParser::DecomposeGlyph(
     const NkTTFFont& font, uint16 glyphId, uint16 ppem,
@@ -742,7 +866,6 @@ bool NkTTFParser::DecomposeGlyphRec(
 {
     if (depth > 8) return false; // protection anti-boucle infinie
 
-    NkScratchArena scratch(arena);
     NkTTFGlyphData glyph;
     if (!ParseGlyph(font, glyphId, arena, glyph)) return false;
     if (glyph.numContours == 0) return true; // glyphe vide (espace)
@@ -765,7 +888,7 @@ bool NkTTFParser::DecomposeGlyphRec(
                 px.raw += dx * scale;
                 py.raw += dy * scale;
                 points[pointCount] = {px, py};
-                tags   [pointCount] = cont.points[p].flags;
+                tags[pointCount]   = cont.points[p].flags;
                 ++pointCount;
             }
             contourEnds[contourCount++] = pointCount - 1;
@@ -775,16 +898,15 @@ bool NkTTFParser::DecomposeGlyphRec(
         const NkTTFCompositeGlyph& cg = glyph.composite;
         for (uint16 i = 0; i < cg.numComponents; ++i) {
             const NkTTFComponent& comp = cg.components[i];
-            NkMatrix2x2 combined = comp.hasTransform
-                ? xform * comp.transform
-                : xform;
+            NkMatrix2x2 combined = comp.hasTransform ? xform * comp.transform : xform;
             if (!DecomposeGlyphRec(
                     font, comp.glyphIndex, combined,
                     dx + comp.dx, dy + comp.dy, ppem, arena,
                     points, tags, contourEnds,
                     pointCount, contourCount,
-                    maxPoints, maxContours, depth + 1))
+                    maxPoints, maxContours, depth + 1)) {
                 return false;
+            }
         }
     }
     return true;

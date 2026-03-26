@@ -45,7 +45,7 @@
  *    Marqueurs (marker-start/end/mid)
  */
 
-#include "NkSVGDOM.h"
+#include "NKImage/Codecs/SVG/NkSVGDOM.h"
 #include "NKImage/Core/NkImage.h"
 
 namespace nkentseu {
@@ -86,6 +86,19 @@ namespace nkentseu {
                                             int32 outW=0, int32 outH=0,
                                             const NkSVGRenderOptions& opts = {}) noexcept;
 
+        public:
+            // ── Pipeline de forme (accessible aux helpers de fichier) ─────────────────
+            struct Shape {
+                float*  xs;
+                float*  ys;
+                int32*  contourStart;
+                int32*  contourLen;
+                int32   numPoints;
+                int32   numContours;
+                float   bboxX0,bboxY0,bboxX1,bboxY1;
+            };
+            static void ComputeBBox(Shape& s) noexcept;
+
         private:
             // ── Contexte de rendu ─────────────────────────────────────────────────────
             struct RCtx {
@@ -105,18 +118,6 @@ namespace nkentseu {
             static void RenderPath    (const NkSVGElement* e, RCtx& ctx) noexcept;
 
             // ── Pipeline de rendu d'une forme ─────────────────────────────────────────
-            struct Shape {
-                float*  xs;
-                float*  ys;
-                int32*  contourStart;   // indices de début de chaque contour
-                int32*  contourLen;     // nombre de points par contour
-                int32   numPoints;
-                int32   numContours;
-                // Bounding box calculée
-                float   bboxX0,bboxY0,bboxX1,bboxY1;
-            };
-
-            static void ComputeBBox(Shape& s) noexcept;
             static void ApplyCTM(Shape& s, const NkSVGMatrix& ctm) noexcept;
 
             static void FillShape  (NkImage& img, const Shape& s,

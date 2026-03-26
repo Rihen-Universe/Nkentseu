@@ -20,14 +20,14 @@ namespace nkentseu {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Lecture big-endian depuis un pointeur arbitraire
-static NKFONT_NODISCARD inline uint16 RU16(const uint8* p) noexcept {
+NKFONT_NODISCARD static inline uint16 RU16(const uint8* p) noexcept {
     return static_cast<uint16>((p[0]<<8)|p[1]);
 }
-static NKFONT_NODISCARD inline uint32 RU32(const uint8* p) noexcept {
+NKFONT_NODISCARD static inline uint32 RU32(const uint8* p) noexcept {
     return (static_cast<uint32>(p[0])<<24)|(static_cast<uint32>(p[1])<<16)
           |(static_cast<uint32>(p[2])<<8)|p[3];
 }
-static NKFONT_NODISCARD inline int16 RI16(const uint8* p) noexcept {
+NKFONT_NODISCARD static inline int16 RI16(const uint8* p) noexcept {
     return static_cast<int16>(RU16(p));
 }
 

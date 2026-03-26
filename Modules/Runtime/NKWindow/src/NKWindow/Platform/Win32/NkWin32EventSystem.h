@@ -1,23 +1,21 @@
 #pragma once
 // =============================================================================
-// NkWin32EventSystem.h — Win32 platform data for NkEventSystem (data only)
-// Window lookup uses GWLP_USERDATA (O(1)) — no HWND→ID map needed.
+// NkWin32EventSystem.h
+// Partie Win32 du système d'événements, séparée de NkEventSystem (NKEvent).
+//
+// NkEventSystem (NKEvent) est platform-agnostique.
+// Ce header expose uniquement ce qui est nécessaire pour enregistrer la
+// procédure de fenêtre Win32 (NkWin32WndProc) dans NkWin32Window.
 // =============================================================================
 
-#include "NKPlatform/NkPlatformDetect.h"
-
-#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
-
-#include "NKWindow/Core/NkTypes.h"
+#ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 
 namespace nkentseu {
 
-    struct NkEventSystemData {
-        bool   mRawInputRegistered = false;
-        int32  mPrevMouseX         = 0;
-        int32  mPrevMouseY         = 0;
-    };
+    // WndProc Win32 — à enregistrer dans WNDCLASSEXW.lpfnWndProc
+    LRESULT CALLBACK NkWin32WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 } // namespace nkentseu
-
-#endif // NKENTSEU_PLATFORM_WINDOWS && !NKENTSEU_PLATFORM_UWP && !NKENTSEU_PLATFORM_XBOX

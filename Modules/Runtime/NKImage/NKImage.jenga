@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKImage — Bibliothèque de chargement/sauvegarde d'images (C++17)
+================================================================
+Bibliothèque self-contained sans dépendance externe.
+Formats supportés :
+  Lecture  : PNG, JPEG, BMP, TGA, HDR, PPM/PGM/PBM, QOI, GIF, ICO, WebP, SVG
+  Écriture : PNG, JPEG, BMP, TGA, HDR, PPM, QOI, GIF, WebP, SVG
+
+Pipeline SVG complet :
+  1. NkXMLParser    — tokenizer XML + DOM
+  2. NkSVGDOM       — arbre SVG avec CSS cascade, gradients, clipPath
+  3. NkSVGRenderer  — rasterisation RGBA32
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKImage"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKContainers.location}/src",
+    ])
+
+    dependson([
+        "NKPlatform",
+        "NKCore",
+        "NKMemory",
+        "NKMath",
+        "NKContainers",
+    ])
+
+    files([
+        # Core
+        "src/NKImage/Core/NkImage.cpp",
+        "src/NKImage/Core/NkXMLParser.cpp",
+        # Codecs image natifs
+        "src/NKImage/Codecs/PNG/NkPNGCodec.cpp",
+        "src/NKImage/Codecs/JPEG/NkJPEGCodec.cpp",
+        "src/NKImage/Codecs/BMP/NkBMPCodec.cpp",
+        "src/NKImage/Codecs/TGA/NkTGACodec.cpp",
+        "src/NKImage/Codecs/HDR/NkHDRCodec.cpp",
+        "src/NKImage/Codecs/PPM/NkPPMCodec.cpp",
+        "src/NKImage/Codecs/QOI/NkQOICodec.cpp",
+        "src/NKImage/Codecs/GIF/NkGIFCodec.cpp",
+        "src/NKImage/Codecs/ICO/NkICOCodec.cpp",
+        "src/NKImage/Codecs/WEBP/NkWebPCodec.cpp",
+        # SVG
+        "src/NKImage/Codecs/SVG/NkSVGCodec.cpp",
+        "src/NKImage/Codecs/SVG/NkSVGDOM.cpp",
+        "src/NKImage/Codecs/SVG/NkSVGRenderer.cpp",
+        # Backend STB (alternatif pendant développement des codecs natifs)
+        "src/NKImage/Codecs/STB/NkSTBCodec.cpp",
+        # Headers (pour IDEs)
+        "src/NKImage/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE",
+            "UNICODE",
+        ])
+
+    # ===== Linux ==================================================================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log"])
+        androidminsdk(21)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+
+    # ===== iOS ====================================================================
+    with filter("system:iOS"):
+        iosminsdk("13.0")
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    # ===== UWP ====================================================================
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_UWP"])
+        links(["windowsapp"])
+
+    # ===== Xbox ===================================================================
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_XBOX"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    # Tests unitaires (desktop uniquement)
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            links([
+                "NKImage",
+                "NKMemory",
+                "NKCore",
+            ])

@@ -12,11 +12,11 @@
 
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_WAYLAND)
 
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkKeyboardEvent.h"
-#include "NKWindow/Events/NkMouseEvent.h"
-#include "NKWindow/Events/NkWindowEvent.h"
-#include "NKWindow/Events/NkKeycodeMap.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkKeyboardEvent.h"
+#include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkKeycodeMap.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Platform/Wayland/NkWaylandEventSystem.h"
@@ -654,6 +654,9 @@ namespace nkentseu {
     bool NkEventSystem::Init() {
         if (mReady) return true;
 
+        mData = new NkEventSystemData;
+        if (mData == nullptr) return false;
+
         mTotalEventCount = 0;
         {
             NkScopedSpinLock lock(mQueueMutex);
@@ -700,6 +703,9 @@ namespace nkentseu {
         mPumping         = false;
         mPumpThreadId    = 0;
         mReady           = false;
+
+        delete mData;
+        mData = nullptr;
     }
 
     // =========================================================================

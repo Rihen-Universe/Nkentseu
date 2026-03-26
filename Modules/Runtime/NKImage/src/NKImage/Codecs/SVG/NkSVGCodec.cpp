@@ -4,13 +4,19 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
-#include "NKImage/NkSVGCodec.h"
-#include "NKImage/NkPNGCodec.h"
-#include <cstring>
-#include <cstdlib>
+#include "NKImage/Codecs/SVG/NkSVGCodec.h"
+#include "NKImage/Codecs/PNG/NkPNGCodec.h"
 #include <cstdio>
 #include <cmath>
+#include <cstring>
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKMath/NkFunctions.h"
 namespace nkentseu {
+
+using namespace nkentseu::memory;
+using namespace nkentseu::math;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  NkSVGColor::Parse
@@ -32,10 +38,10 @@ static const struct { const char* name; uint32 rgb; } kColorNames[] = {
 NkSVGColor NkSVGColor::Parse(const char* str) noexcept {
     if(!str||!*str) return None();
     while(*str==' ') ++str;
-    if(::strcmp(str,"none")==0||::strcmp(str,"transparent")==0) return None();
+    if(NkStringView(str)=="none"||NkStringView(str)=="transparent") return None();
     // Cherche dans les noms
     for(int32 i=0;kColorNames[i].name;++i){
-        if(::strcmp(str,kColorNames[i].name)==0){
+        if(NkStringView(str)==NkStringView(kColorNames[i].name)){
             if(kColorNames[i].rgb==0&&(str[0]!='b')) return None();
             return {static_cast<uint8>(kColorNames[i].rgb>>16),
                     static_cast<uint8>(kColorNames[i].rgb>>8),
@@ -50,7 +56,7 @@ NkSVGColor NkSVGColor::Parse(const char* str) noexcept {
             if(c>='a'&&c<='f')return static_cast<uint8>(c-'a'+10);
             if(c>='A'&&c<='F')return static_cast<uint8>(c-'A'+10);
             return 0;};
-        const usize len=::strlen(str);
+        const usize len=NkStringView(str).Length();
         if(len>=6){
             return {static_cast<uint8>((hex(str[0])<<4)|hex(str[1])),
                     static_cast<uint8>((hex(str[2])<<4)|hex(str[3])),
@@ -76,8 +82,8 @@ NkSVGColor NkSVGColor::Parse(const char* str) noexcept {
 // ─────────────────────────────────────────────────────────────────────────────
 
 NkSVGTransform NkSVGTransform::Rotate(float32 deg) noexcept {
-    const float32 r=deg*3.14159265f/180.f;
-    const float32 c=::cosf(r),s=::sinf(r);
+    const float32 r=deg*math::constants::kPiF/180.f;
+    const float32 c=NkCos(r),s=NkSin(r);
     return {c,s,-s,c,0,0};
 }
 
@@ -136,13 +142,13 @@ float32 NkSVGCodec::ParseFloat(const char* s, const char** end) noexcept {
 
 float32 NkSVGCodec::GetAttr(const Attr* attrs, int32 n, const char* name, float32 defVal) noexcept {
     for(int32 i=0;i<n;++i)
-        if(::strcmp(attrs[i].name,name)==0) return ParseFloat(attrs[i].value);
+        if(NkStringView(attrs[i].name)==NkStringView(name)) return ParseFloat(attrs[i].value);
     return defVal;
 }
 
 const char* NkSVGCodec::GetAttrStr(const Attr* attrs, int32 n, const char* name) noexcept {
     for(int32 i=0;i<n;++i)
-        if(::strcmp(attrs[i].name,name)==0) return attrs[i].value;
+        if(NkStringView(attrs[i].name)==NkStringView(name)) return attrs[i].value;
     return nullptr;
 }
 
@@ -168,19 +174,19 @@ void NkSVGCodec::ParseInlineStyle(const char* css, NkSVGStyle& out) noexcept {
         // Trim
         while(vi>0&&(val[vi-1]==' '||val[vi-1]=='\t')) val[--vi]=0;
         // Applique
-        if(::strcmp(prop,"fill")==0)         out.fill=NkSVGColor::Parse(val);
-        else if(::strcmp(prop,"stroke")==0)  out.stroke=NkSVGColor::Parse(val);
-        else if(::strcmp(prop,"stroke-width")==0) out.strokeWidth=ParseFloat(val);
-        else if(::strcmp(prop,"opacity")==0)      out.opacity=ParseFloat(val);
-        else if(::strcmp(prop,"fill-opacity")==0) out.fillOpacity=ParseFloat(val);
-        else if(::strcmp(prop,"stroke-opacity")==0) out.strokeOpacity=ParseFloat(val);
-        else if(::strcmp(prop,"fill-rule")==0)
+        if(NkStringView(prop)=="fill")         out.fill=NkSVGColor::Parse(val);
+        else if(NkStringView(prop)=="stroke")  out.stroke=NkSVGColor::Parse(val);
+        else if(NkStringView(prop)=="stroke-width") out.strokeWidth=ParseFloat(val);
+        else if(NkStringView(prop)=="opacity")      out.opacity=ParseFloat(val);
+        else if(NkStringView(prop)=="fill-opacity") out.fillOpacity=ParseFloat(val);
+        else if(NkStringView(prop)=="stroke-opacity") out.strokeOpacity=ParseFloat(val);
+        else if(NkStringView(prop)=="fill-rule")
             out.fillEvenOdd=(::strncmp(val,"evenodd",7)==0);
-        else if(::strcmp(prop,"display")==0||::strcmp(prop,"visibility")==0)
-            out.visible=(::strcmp(val,"none")!=0&&::strcmp(val,"hidden")!=0);
-        else if(::strcmp(prop,"stroke-linecap")==0){
-            if(::strcmp(val,"round")==0)  out.linecap=1;
-            else if(::strcmp(val,"square")==0) out.linecap=2;
+        else if(NkStringView(prop)=="display"||NkStringView(prop)=="visibility")
+            out.visible=(NkStringView(val)!="none"&&NkStringView(val)!="hidden");
+        else if(NkStringView(prop)=="stroke-linecap"){
+            if(NkStringView(val)=="round")  out.linecap=1;
+            else if(NkStringView(val)=="square") out.linecap=2;
             else out.linecap=0;
         }
     }
@@ -230,7 +236,7 @@ void NkSVGCodec::DrawAALine(NkImage& img, float32 x0, float32 y0,
     // Pour les lignes épaisses, on dessine plusieurs lignes parallèles
     const int32 passes=static_cast<int32>(width+0.5f);
     const float32 dx=x1-x0, dy=y1-y0;
-    const float32 len=::sqrtf(dx*dx+dy*dy);
+    const float32 len=NkSqrt(dx*dx+dy*dy);
     if(len<0.001f){BlendPixel(img,static_cast<int32>(x0),static_cast<int32>(y0),col,1.f);return;}
     const float32 nx=-dy/len*0.5f, ny=dx/len*0.5f;
 
@@ -241,7 +247,7 @@ void NkSVGCodec::DrawAALine(NkImage& img, float32 x0, float32 y0,
         // Bresenham avec antialiasing Wu
         float32 sx=ax,sy=ay,ex=bx,ey=by;
         const float32 ddx=ex-sx,ddy=ey-sy;
-        const bool steep=::fabsf(ddy)>::fabsf(ddx);
+        const bool steep=NkFabs(ddy)>NkFabs(ddx);
         if(steep){float32 t=sx;sx=sy;sy=t;t=ex;ex=ey;ey=t;}
         if(sx>ex){float32 t=sx;sx=ex;ex=t;t=sy;sy=ey;ey=t;}
         const float32 grad=ddx!=0?(steep?ddx/ddy:ddy/ddx):1.f;
@@ -311,7 +317,7 @@ void NkSVGCodec::BezierFlatten(float32 x0,float32 y0,float32 x1,float32 y1,
 {
     // Test d'aplatissement : déviation maximale des points de contrôle
     const float32 dx1=x1-x0,dy1=y1-y0,dx2=x2-x3,dy2=y2-y3;
-    const float32 d=::sqrtf(dx1*dx1+dy1*dy1)+::sqrtf(dx2*dx2+dy2*dy2);
+    const float32 d=NkSqrt(dx1*dx1+dy1*dy1)+NkSqrt(dx2*dx2+dy2*dy2);
     if(d<0.5f||depth>8){
         if(n<maxN){xs[n]=x3;ys[n]=y3;++n;} return;
     }
@@ -333,24 +339,24 @@ void NkSVGCodec::ArcToLines(float32 x1,float32 y1,float32 rx,float32 ry,
 {
     // Conversion arc → Bézier (W3C SVG spec endpoint parameterization)
     if(rx<=0||ry<=0){if(n<maxN){xs[n]=x2;ys[n]=y2;++n;}return;}
-    const float32 ca=::cosf(xAngle),sa=::sinf(xAngle);
+    const float32 ca=NkCos(xAngle),sa=NkSin(xAngle);
     const float32 dx=(x1-x2)*.5f,dy=(y1-y2)*.5f;
     const float32 x1p= ca*dx+sa*dy, y1p=-sa*dx+ca*dy;
     float32 x1p2=x1p*x1p,y1p2=y1p*y1p,rx2=rx*rx,ry2=ry*ry;
     // Ajuste rx,ry si nécessaire
     const float32 lambda=x1p2/rx2+y1p2/ry2;
-    if(lambda>1){const float32 sl=::sqrtf(lambda);rx*=sl;ry*=sl;rx2=rx*rx;ry2=ry*ry;}
+    if(lambda>1){const float32 sl=NkSqrt(lambda);rx*=sl;ry*=sl;rx2=rx*rx;ry2=ry*ry;}
     float32 sq=(rx2*ry2-rx2*y1p2-ry2*x1p2)/(rx2*y1p2+ry2*x1p2);
-    sq=sq<0?0:::sqrtf(sq);
+    sq=sq<0?0:NkSqrt(sq);
     if(largeArc==sweep) sq=-sq;
     const float32 cxp= sq*rx*y1p/ry, cyp=-sq*ry*x1p/rx;
     const float32 cx=ca*cxp-sa*cyp+(x1+x2)*.5f;
     const float32 cy=sa*cxp+ca*cyp+(y1+y2)*.5f;
     // Calcule les angles de départ et d'arc
     auto angle=[](float32 ux,float32 uy,float32 vx,float32 vy)->float32{
-        const float32 n2=::sqrtf(ux*ux+uy*uy)*::sqrtf(vx*vx+vy*vy);
+        const float32 n2=NkSqrt(ux*ux+uy*uy)*NkSqrt(vx*vx+vy*vy);
         if(n2==0) return 0;
-        float32 a=::acosf((ux*vx+uy*vy)/n2);
+        float32 a=NkAcos((ux*vx+uy*vy)/n2);
         if(ux*vy-uy*vx<0) a=-a;
         return a;
     };
@@ -359,12 +365,12 @@ void NkSVGCodec::ArcToLines(float32 x1,float32 y1,float32 rx,float32 ry,
     if(!sweep&&dTheta>0) dTheta-=2*3.14159265f;
     if( sweep&&dTheta<0) dTheta+=2*3.14159265f;
     // Génère des points sur l'arc
-    const int32 steps=static_cast<int32>(::fabsf(dTheta)*::fmaxf(rx,ry)/2.f)+4;
+    const int32 steps=static_cast<int32>(NkFabs(dTheta)*::fmaxf(rx,ry)/2.f)+4;
     for(int32 i=1;i<=steps&&n<maxN;++i){
         const float32 t=static_cast<float32>(i)/steps;
         const float32 a=theta1+t*dTheta;
-        xs[n]=cx+rx*::cosf(a)*ca-ry*::sinf(a)*sa;
-        ys[n]=cy+rx*::cosf(a)*sa+ry*::sinf(a)*ca;
+        xs[n]=cx+rx*NkCos(a)*ca-ry*NkSin(a)*sa;
+        ys[n]=cy+rx*NkCos(a)*sa+ry*NkSin(a)*ca;
         ++n;
     }
 }
@@ -498,20 +504,20 @@ void NkSVGCodec::RenderCircle(RenderCtx& ctx, const Attr* a, int32 n) noexcept {
     float32 cx=GetAttr(a,n,"cx"),cy=GetAttr(a,n,"cy"),r=GetAttr(a,n,"r");
     if(r<=0) return;
     ctx.ctm.Apply(cx,cy);
-    const int32 steps=static_cast<int32>(2*3.14159265f*r/2.f)+8;
-    float32* xs=static_cast<float32*>(::malloc(sizeof(float32)*steps));
-    float32* ys=static_cast<float32*>(::malloc(sizeof(float32)*steps));
-    if(!xs||!ys){::free(xs);::free(ys);return;}
+    const int32 steps=static_cast<int32>(2*math::constants::kPiF*r/2.f)+8;
+    float32* xs=static_cast<float32*>(NkAlloc(sizeof(float32)*steps));
+    float32* ys=static_cast<float32*>(NkAlloc(sizeof(float32)*steps));
+    if(!xs||!ys){NkFree(xs);NkFree(ys);return;}
     for(int32 i=0;i<steps;++i){
-        const float32 t=2*3.14159265f*i/steps;
-        xs[i]=cx+r*::cosf(t); ys[i]=cy+r*::sinf(t);
+        const float32 t=2*math::constants::kPiF*i/steps;
+        xs[i]=cx+r*NkCos(t); ys[i]=cy+r*NkSin(t);
     }
     NkSVGStyle s=ctx.style;
     NkSVGColor fill=s.fill; ApplyStyleAlpha(fill,s.opacity,s.fillOpacity);
     NkSVGColor stroke=s.stroke; ApplyStyleAlpha(stroke,s.opacity,s.strokeOpacity);
     if(!fill.none) FillPolygon(*ctx.img,xs,ys,steps,fill,s.fillEvenOdd);
     if(!stroke.none) StrokePolyline(*ctx.img,xs,ys,steps,stroke,s.strokeWidth,true,s.linecap,s.linejoin);
-    ::free(xs);::free(ys);
+    NkFree(xs);NkFree(ys);
 }
 
 void NkSVGCodec::RenderEllipse(RenderCtx& ctx, const Attr* a, int32 n) noexcept {
@@ -519,20 +525,20 @@ void NkSVGCodec::RenderEllipse(RenderCtx& ctx, const Attr* a, int32 n) noexcept 
     float32 rx=GetAttr(a,n,"rx"),ry=GetAttr(a,n,"ry");
     if(rx<=0||ry<=0) return;
     ctx.ctm.Apply(cx,cy);
-    const int32 steps=static_cast<int32>(2*3.14159265f*::fmaxf(rx,ry)/2.f)+8;
-    float32* xs=static_cast<float32*>(::malloc(sizeof(float32)*steps));
-    float32* ys=static_cast<float32*>(::malloc(sizeof(float32)*steps));
-    if(!xs||!ys){::free(xs);::free(ys);return;}
+    const int32 steps=static_cast<int32>(2*math::constants::kPiF*::fmaxf(rx,ry)/2.f)+8;
+    float32* xs=static_cast<float32*>(NkAlloc(sizeof(float32)*steps));
+    float32* ys=static_cast<float32*>(NkAlloc(sizeof(float32)*steps));
+    if(!xs||!ys){NkFree(xs);NkFree(ys);return;}
     for(int32 i=0;i<steps;++i){
-        const float32 t=2*3.14159265f*i/steps;
-        xs[i]=cx+rx*::cosf(t); ys[i]=cy+ry*::sinf(t);
+        const float32 t=2*math::constants::kPiF*i/steps;
+        xs[i]=cx+rx*NkCos(t); ys[i]=cy+ry*NkSin(t);
     }
     NkSVGStyle s=ctx.style;
     NkSVGColor fill=s.fill; ApplyStyleAlpha(fill,s.opacity,s.fillOpacity);
     NkSVGColor stroke=s.stroke; ApplyStyleAlpha(stroke,s.opacity,s.strokeOpacity);
     if(!fill.none) FillPolygon(*ctx.img,xs,ys,steps,fill,s.fillEvenOdd);
     if(!stroke.none) StrokePolyline(*ctx.img,xs,ys,steps,stroke,s.strokeWidth,true,s.linecap,s.linejoin);
-    ::free(xs);::free(ys);
+    NkFree(xs);NkFree(ys);
 }
 
 void NkSVGCodec::RenderLine(RenderCtx& ctx, const Attr* a, int32 n) noexcept {
@@ -566,11 +572,11 @@ void NkSVGCodec::RenderPath(RenderCtx& ctx, const Attr* a, int32 n) noexcept {
     const char* d=GetAttrStr(a,n,"d");
     if(!d) return;
     static const int32 MAX_PTS=8192,MAX_CNT=256;
-    float32* xs=static_cast<float32*>(::malloc(MAX_PTS*sizeof(float32)));
-    float32* ys=static_cast<float32*>(::malloc(MAX_PTS*sizeof(float32)));
-    int32* cs=static_cast<int32*>(::malloc(MAX_CNT*sizeof(int32)));
-    int32* cl=static_cast<int32*>(::malloc(MAX_CNT*sizeof(int32)));
-    if(!xs||!ys||!cs||!cl){::free(xs);::free(ys);::free(cs);::free(cl);return;}
+    float32* xs=static_cast<float32*>(NkAlloc(MAX_PTS*sizeof(float32)));
+    float32* ys=static_cast<float32*>(NkAlloc(MAX_PTS*sizeof(float32)));
+    int32* cs=static_cast<int32*>(NkAlloc(MAX_CNT*sizeof(int32)));
+    int32* cl=static_cast<int32*>(NkAlloc(MAX_CNT*sizeof(int32)));
+    if(!xs||!ys||!cs||!cl){NkFree(xs);NkFree(ys);NkFree(cs);NkFree(cl);return;}
     int32 numPts=0,numContours=0;
     ParsePathData(d,xs,ys,cs,cl,numPts,numContours,MAX_PTS,MAX_CNT);
     // Applique la transformation courante
@@ -584,7 +590,7 @@ void NkSVGCodec::RenderPath(RenderCtx& ctx, const Attr* a, int32 n) noexcept {
         if(!fill.none) FillPolygon(*ctx.img,xs+start,ys+start,len,fill,st.fillEvenOdd);
         if(!stroke.none) StrokePolyline(*ctx.img,xs+start,ys+start,len,stroke,st.strokeWidth,false,st.linecap,st.linejoin);
     }
-    ::free(xs);::free(ys);::free(cs);::free(cl);
+    NkFree(xs);NkFree(ys);NkFree(cs);NkFree(cl);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -606,13 +612,13 @@ void NkSVGCodec::RenderElement(const char* tag, const Attr* attrs, int32 numAttr
     const char* transform=GetAttrStr(attrs,numAttrs,"transform");
     if(transform) ctx.ctm=ctx.ctm*NkSVGTransform::Parse(transform);
 
-    if     (::strcmp(tag,"rect")==0)     RenderRect    (ctx,attrs,numAttrs);
-    else if(::strcmp(tag,"circle")==0)   RenderCircle  (ctx,attrs,numAttrs);
-    else if(::strcmp(tag,"ellipse")==0)  RenderEllipse (ctx,attrs,numAttrs);
-    else if(::strcmp(tag,"line")==0)     RenderLine    (ctx,attrs,numAttrs);
-    else if(::strcmp(tag,"polyline")==0) RenderPolyline(ctx,attrs,numAttrs,false);
-    else if(::strcmp(tag,"polygon")==0)  RenderPolyline(ctx,attrs,numAttrs,true);
-    else if(::strcmp(tag,"path")==0)     RenderPath    (ctx,attrs,numAttrs);
+    if     (NkStringView(tag)=="rect")     RenderRect    (ctx,attrs,numAttrs);
+    else if(NkStringView(tag)=="circle")   RenderCircle  (ctx,attrs,numAttrs);
+    else if(NkStringView(tag)=="ellipse")  RenderEllipse (ctx,attrs,numAttrs);
+    else if(NkStringView(tag)=="line")     RenderLine    (ctx,attrs,numAttrs);
+    else if(NkStringView(tag)=="polyline") RenderPolyline(ctx,attrs,numAttrs,false);
+    else if(NkStringView(tag)=="polygon")  RenderPolyline(ctx,attrs,numAttrs,true);
+    else if(NkStringView(tag)=="path")     RenderPath    (ctx,attrs,numAttrs);
 
     ctx.style=savedStyle;
     ctx.ctm=savedCTM;
@@ -686,7 +692,7 @@ NkImage* NkSVGCodec::Decode(const uint8* data, usize size,
         const char* svgEnd=p;
         while(*svgEnd&&*svgEnd!='>') ++svgEnd;
         char tmp[512]={};
-        ::memcpy(tmp,p,::fminf(static_cast<float32>(svgEnd-p),511.f));
+        NkCopy(tmp,p,static_cast<usize>(::fminf(static_cast<float32>(svgEnd-p),511.f)));
         // viewBox
         const char* vb=::strstr(tmp,"viewBox");
         if(vb){
@@ -708,7 +714,7 @@ NkImage* NkSVGCodec::Decode(const uint8* data, usize size,
     if(outW<=0) outW=800;
     if(outH<=0) outH=600;
 
-    NkImage* img=NkImage::Alloc(outW,outH,NkPixelFormat::RGBA32);
+    NkImage* img=NkImage::Alloc(outW,outH,NkImagePixelFormat::NK_RGBA32);
     if(!img) return nullptr;
     // Fond blanc par défaut
     for(int32 y=0;y<outH;++y){
@@ -740,11 +746,11 @@ NkImage* NkSVGCodec::DecodeFromFile(const char* path, int32 outW, int32 outH) no
     if(!f) return nullptr;
     ::fseek(f,0,SEEK_END); const long sz=::ftell(f); ::fseek(f,0,SEEK_SET);
     if(sz<=0){::fclose(f);return nullptr;}
-    uint8* buf=static_cast<uint8*>(::malloc(sz+1));
+    uint8* buf=static_cast<uint8*>(NkAlloc(sz+1));
     if(!buf){::fclose(f);return nullptr;}
     ::fread(buf,1,sz,f); buf[sz]=0; ::fclose(f);
     NkImage* img=Decode(buf,sz,outW,outH);
-    ::free(buf);
+    NkFree(buf);
     return img;
 }
 
@@ -777,10 +783,10 @@ bool NkSVGCodec::Encode(const NkImage& img, uint8*& out, usize& outSize) noexcep
     if(!NkPNGCodec::Encode(img,png,pngSize)) return false;
     // Base64 du PNG
     const usize b64Len=((pngSize+2)/3)*4+1;
-    char* b64=static_cast<char*>(::malloc(b64Len));
-    if(!b64){::free(png);return false;}
+    char* b64=static_cast<char*>(NkAlloc(b64Len));
+    if(!b64){NkFree(png);return false;}
     Base64Encode(png,pngSize,b64,b64Len);
-    ::free(png);
+    NkFree(png);
     // Génère le SVG
     NkImageStream s;
     char header[256];
@@ -793,11 +799,11 @@ bool NkSVGCodec::Encode(const NkImage& img, uint8*& out, usize& outSize) noexcep
         "xlink:href=\"data:image/png;base64,",
         img.Width(),img.Height(),img.Width(),img.Height(),
         img.Width(),img.Height());
-    s.WriteBytes(reinterpret_cast<const uint8*>(header),::strlen(header));
+    s.WriteBytes(reinterpret_cast<const uint8*>(header),NkStringView(header).Length());
     s.WriteBytes(reinterpret_cast<const uint8*>(b64),b64Len-1);
     const char* footer="\"/>\n</svg>\n";
-    s.WriteBytes(reinterpret_cast<const uint8*>(footer),::strlen(footer));
-    ::free(b64);
+    s.WriteBytes(reinterpret_cast<const uint8*>(footer),NkStringView(footer).Length());
+    NkFree(b64);
     return s.TakeBuffer(out,outSize);
 }
 
@@ -805,9 +811,9 @@ bool NkSVGCodec::EncodeToFile(const NkImage& img, const char* path) noexcept {
     uint8* d=nullptr; usize sz=0;
     if(!Encode(img,d,sz)) return false;
     FILE* f=::fopen(path,"wb");
-    if(!f){::free(d);return false;}
+    if(!f){NkFree(d);return false;}
     const bool ok=(::fwrite(d,1,sz,f)==sz);
-    ::fclose(f); ::free(d); return ok;
+    ::fclose(f); NkFree(d); return ok;
 }
 
 } // namespace nkentseu

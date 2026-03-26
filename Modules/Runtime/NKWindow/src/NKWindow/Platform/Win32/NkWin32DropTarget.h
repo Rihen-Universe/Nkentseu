@@ -41,7 +41,7 @@
 #include "NKCore/NkAtomic.h"
 #include "NKCore/NkTraits.h"
 #include "NKContainers/String/NkWString.h"
-#include "NKWindow/Events/NkDropEvent.h"
+#include "NKEvent/NkDropEvent.h"
 
 namespace nkentseu {
 

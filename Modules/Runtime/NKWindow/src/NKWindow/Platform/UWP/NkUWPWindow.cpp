@@ -12,8 +12,8 @@
 #include "NKWindow/EntryPoints/NkUWP.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkWindowEvent.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkWindowEvent.h"
 
 #include <algorithm>
 

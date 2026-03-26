@@ -11,8 +11,8 @@
 #include "NKWindow/Core/NkEntry.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
-#include "NKWindow/Events/NkWindowEvent.h"
+#include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkWindowEvent.h"
 #include "NKContainers/String/NkWString.h"
 
 #ifndef WIN32_LEAN_AND_MEAN

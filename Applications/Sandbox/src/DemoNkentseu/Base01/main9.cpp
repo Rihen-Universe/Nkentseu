@@ -7,10 +7,10 @@
 // ============================================================================
 
 #include "NKWindow/Core/NkContext.h"
-#include "NKWindow/Core/NkEvents.h"
+#include "NKWindow/Core/NkEvent.h"
 #include "NKWindow/Core/NkMain.h"
 #include "NKWindow/Core/NkWindow.h"
-#include "NKWindow/Events/NkWindowEvent.h"
+#include "NKEvent/NkWindowEvent.h"
 #include "NKContext/Deprecate/NkRenderer.h"
 #include "NKContext/Deprecate/NkRendererConfig.h"
 #include "NKLogger/NkLog.h"

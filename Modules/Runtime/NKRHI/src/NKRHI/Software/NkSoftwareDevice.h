@@ -34,6 +34,9 @@ namespace nkentseu {
         NkSWVec3 normal    = {0,0,1};
         NkSWVec2 uv        = {0,0};
         NkSWVec4 color     = {1,1,1,1};
+        // Internal clip-space values used for depth interpolation in raster stage.
+        float32  clipZ     = 0.f;
+        float32  clipW     = 1.f;
         float32   attrs[16] = {};
         uint32  attrCount = 0;
 
@@ -624,7 +627,7 @@ namespace nkentseu {
             void ResetFence(NkFenceHandle f)          override;
             void WaitIdle()                           override {}
 
-            void   BeginFrame(NkFrameContext& frame) override;
+            bool   BeginFrame(NkFrameContext& frame) override;
             void   EndFrame  (NkFrameContext& frame) override;
             uint32 GetFrameIndex()        const override { return mFrameIndex; }
             uint32 GetMaxFramesInFlight() const override { return 1; }

@@ -20,10 +20,9 @@ int nkmain(const NkEntryState& state) {
     cfg.resizable   = true;
     cfg.dropEnabled = true;
 
-    NkWindow window(cfg);
-    if (!window.IsOpen()) {
+    NkWindow window;
+    if (!window.Create(cfg)) {
         logger.Error("[Sandbox] Window creation FAILED");
-        NkContextShutdown();
         return -2;
     }
 

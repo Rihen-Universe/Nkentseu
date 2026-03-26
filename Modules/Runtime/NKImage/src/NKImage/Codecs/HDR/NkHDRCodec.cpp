@@ -18,12 +18,15 @@
  *    - Sortie : float32 RGB96F ou RGBA128F
  *  Précision : conversion RGBE ↔ float32 IEEE 754 exacte.
  */
-#include "NKImage/NkHDRCodec.h"
-#include <cstring>
-#include <cstdlib>
+#include "NKImage/Codecs/HDR/NkHDRCodec.h"
 #include <cstdio>
 #include <cmath>
+#include <cstring>
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
 namespace nkentseu {
+
+using namespace nkentseu::memory;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Conversion RGBE ↔ float32 (précision complète)
@@ -143,11 +146,11 @@ NkImage* NkHDRCodec::Decode(const uint8* data, usize size) noexcept {
     flipX=(sx=='-');
 
     // ── Alloue l'image de sortie (RGB96F) ────────────────────────────────────
-    NkImage* img=NkImage::Alloc(width,height,NkPixelFormat::RGB96F);
+    NkImage* img=NkImage::Alloc(width,height,NkImagePixelFormat::NK_RGB96F);
     if(!img) return nullptr;
 
     // Buffer d'une scanline RGBE
-    uint8* scanBuf=static_cast<uint8*>(::malloc(width*4));
+    uint8* scanBuf=static_cast<uint8*>(NkAlloc(width*4));
     if(!scanBuf){img->Free();return nullptr;}
 
     for(int32 y=0;y<height;++y){
@@ -195,7 +198,7 @@ NkImage* NkHDRCodec::Decode(const uint8* data, usize size) noexcept {
         }
     }
 
-    ::free(scanBuf);
+    NkFree(scanBuf);
     return img;
 }
 
@@ -265,7 +268,7 @@ bool NkHDRCodec::Encode(const NkImage& img, const char* path) noexcept {
     ::fprintf(f,"-Y %d +X %d\n",h,w);
 
     // Buffer RGBE de sortie
-    uint8* scanBuf=static_cast<uint8*>(::malloc(w*4));
+    uint8* scanBuf=static_cast<uint8*>(NkAlloc(w*4));
     if(!scanBuf){::fclose(f);return false;}
 
     // Accumulateur pour NkImageStream (on écrit via FILE*)
@@ -305,7 +308,7 @@ bool NkHDRCodec::Encode(const NkImage& img, const char* path) noexcept {
         }
     }
 
-    ::free(scanBuf);
+    NkFree(scanBuf);
     ::fclose(f);
     return true;
 }
@@ -326,7 +329,7 @@ bool NkHDRCodec::EncodeToMemory(const NkImage& img,
     if(!f) return false;
     ::fseek(f,0,SEEK_END); const long sz=::ftell(f); ::fseek(f,0,SEEK_SET);
     if(sz<=0){::fclose(f);return false;}
-    out=static_cast<uint8*>(::malloc(sz));
+    out=static_cast<uint8*>(NkAlloc(sz));
     if(!out){::fclose(f);return false;}
     const bool ok=(::fread(out,1,sz,f)==static_cast<usize>(sz));
     outSize=ok?static_cast<usize>(sz):0;

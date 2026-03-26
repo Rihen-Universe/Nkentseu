@@ -7,7 +7,7 @@
 
 #if defined(NKENTSEU_PLATFORM_XBOX)
 
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Core/NkEntry.h"
 
 #ifndef WIN32_LEAN_AND_MEAN

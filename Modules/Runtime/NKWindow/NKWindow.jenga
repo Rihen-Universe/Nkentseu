@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 NKWindow Ã¢â‚¬â€ FenÃƒÂªtrage, ÃƒÂ©vÃƒÂ©nements, entrÃƒÂ©es (C++17)
@@ -66,18 +66,17 @@ with project("NKWindow"):
         "%{NKContainers.location}/src",
         "%{NKMemory.location}/src",
         "%{NKThreading.location}/src",
+        "%{NKEvent.location}/src",
     ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath", "NKTime", "NKContainers", "NKMemory", "NKThreading"])
+    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath", "NKTime", "NKContainers", "NKMemory", "NKThreading", "NKEvent"])
 
     # Fichiers communs (Core + Events Ã¢â‚¬â€ partagÃƒÂ©s par toutes les plateformes)
     files([
         "src/NKWindow/Core/**.cpp",
         "src/NKWindow/Core/**.h",
-        "src/NKWindow/Events/**.cpp",
-        "src/NKWindow/Events/**.h",
     ])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

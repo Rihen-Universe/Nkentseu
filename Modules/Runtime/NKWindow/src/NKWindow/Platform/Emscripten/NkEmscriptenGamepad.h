@@ -7,7 +7,7 @@
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 
-#include "NKWindow/Events/NkGamepadSystem.h"
+#include "NKEvent/NkGamepadSystem.h"
 
 #include <cstdio>
 #include <cstring>

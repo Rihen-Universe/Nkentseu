@@ -47,10 +47,11 @@
 #  define NKIMG_UNLIKELY(x) (x)
 #endif
 
-// Types de base (si NKCore n'est pas disponible)
+// Types de base (NKCore fournit les typedefs : uint8, int32, usize, float32, etc.)
 #ifndef NKENTSEU_TYPES_DEFINED
 #  define NKENTSEU_TYPES_DEFINED
-#  include <cstdint>
-#  include <cstddef>
-#include "NKCore/NkTypes.h"
+#  include "NKCore/NkTypes.h"
 #endif
+
+// FILE* est utilisé dans NkImageStream (NkImage.h)
+#include <stdio.h>

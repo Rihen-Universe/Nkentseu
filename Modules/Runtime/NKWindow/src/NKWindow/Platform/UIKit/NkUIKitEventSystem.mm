@@ -17,10 +17,10 @@
 
 #if defined(NKENTSEU_PLATFORM_IOS)
 
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Platform/UIKit/NkUIKitEventSystem.h"
-#include "NKWindow/Events/NkWindowEvent.h"
-#include "NKWindow/Events/NkTouchEvent.h"
+#include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkTouchEvent.h"
 #include "NKWindow/Core/NkSystem.h"
 #include "NKWindow/Core/NkWindow.h"
 
@@ -33,6 +33,10 @@ namespace nkentseu {
 
     bool NkEventSystem::Init() {
         if (mReady) return true;
+
+        mData = new NkEventSystemData;
+        if (mData == nullptr) return false;
+
         mTotalEventCount = 0;
         {
             NkScopedSpinLock lock(mQueueMutex);
@@ -42,6 +46,11 @@ namespace nkentseu {
         mData.mInitialized = true;
         mReady   = true;
         return true;
+    }
+
+    void NkEventSystem::Shutdown() {
+        delete mData;
+        mData = nullptr;
     }
 
     void NkEventSystem::PumpOS() {

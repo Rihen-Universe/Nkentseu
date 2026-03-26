@@ -29,7 +29,7 @@
 #include "NKWindow/Platform/Wayland/NkWaylandEventSystem.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkFunctions.h"
 #include "NKMemory/NkUtils.h"

@@ -86,8 +86,8 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
-#include "NKWindow/Core/NkEvents.h"
-#include "NKWindow/Events/NkWindowEvent.h"
+#include "NKWindow/Core/NkEvent.h"
+#include "NKEvent/NkWindowEvent.h"
 #include "NKContext/Factory/NkContextFactory.h"
 #include "NKContext/Core/NkContextDesc.h"
 #include "NKContext/Core/NkNativeContextAccess.h"

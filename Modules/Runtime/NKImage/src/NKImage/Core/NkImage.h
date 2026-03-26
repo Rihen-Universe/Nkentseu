@@ -34,17 +34,14 @@
  */
 
 #include "NkImageExport.h"
-#include <cstdlib>
-#include <cstring>
-#include <cstdio>
 
 namespace nkentseu {
 
     // =========================================================================
-    //  NkPixelFormat
+    //  NkImagePixelFormat
     // =========================================================================
 
-    enum class NkPixelFormat : uint8 {
+    enum class NkImagePixelFormat : uint8 {
         NK_UNKNOW   = 0,
         NK_GRAY8     = 1,   ///< 1 octet/pixel — luminance
         NK_GRAY_A16   = 2,   ///< 2 octets/pixel — luminance + alpha
@@ -54,26 +51,26 @@ namespace nkentseu {
         NK_RGB96F    = 6,   ///< 3 × float32/pixel — HDR sans alpha
     };
 
-    NKIMG_INLINE constexpr int32 ChannelsOf(NkPixelFormat fmt) noexcept {
+    NKIMG_INLINE constexpr int32 ChannelsOf(NkImagePixelFormat fmt) noexcept {
         switch (fmt) {
-            case NkPixelFormat::NK_GRAY8:       return 1;
-            case NkPixelFormat::NK_GRAY_A16:    return 2;
-            case NkPixelFormat::NK_RGB24:       return 3;
-            case NkPixelFormat::NK_RGBA32:      return 4;
-            case NkPixelFormat::NK_RGBA128F:    return 4;
-            case NkPixelFormat::NK_RGB96F:      return 3;
+            case NkImagePixelFormat::NK_GRAY8:       return 1;
+            case NkImagePixelFormat::NK_GRAY_A16:    return 2;
+            case NkImagePixelFormat::NK_RGB24:      return 3;
+            case NkImagePixelFormat::NK_RGBA32:      return 4;
+            case NkImagePixelFormat::NK_RGBA128F:    return 4;
+            case NkImagePixelFormat::NK_RGB96F:      return 3;
             default: return 0;
         }
     }
 
-    NKIMG_INLINE constexpr int32 BytesPerPixel(NkPixelFormat fmt) noexcept {
+    NKIMG_INLINE constexpr int32 BytesPerPixel(NkImagePixelFormat fmt) noexcept {
         switch (fmt) {
-            case NkPixelFormat::NK_GRAY8:    return 1;
-            case NkPixelFormat::NK_GRAY_A16:  return 2;
-            case NkPixelFormat::NK_RGB24:    return 3;
-            case NkPixelFormat::NK_RGBA32:   return 4;
-            case NkPixelFormat::NK_RGBA128F: return 16;
-            case NkPixelFormat::NK_RGB96F:   return 12;
+            case NkImagePixelFormat::NK_GRAY8:    return 1;
+            case NkImagePixelFormat::NK_GRAY_A16:  return 2;
+            case NkImagePixelFormat::NK_RGB24:    return 3;
+            case NkImagePixelFormat::NK_RGBA32:   return 4;
+            case NkImagePixelFormat::NK_RGBA128F: return 16;
+            case NkImagePixelFormat::NK_RGB96F:   return 12;
             default: return 0;
         }
     }
@@ -108,7 +105,7 @@ namespace nkentseu {
         public:
 
             NkImage()  noexcept = default;
-            ~NkImage() noexcept { if (mOwning && mPixels) ::free(mPixels); }
+            ~NkImage() noexcept;
 
             NkImage(const NkImage&)            = delete;
             NkImage& operator=(const NkImage&) = delete;
@@ -148,6 +145,20 @@ namespace nkentseu {
                 int32& outWidth, int32& outHeight,
                 int32& outChannels, NkImageFormat& outFormat
             ) noexcept;
+
+            // ── Backend STB (alternatif) ─────────────────────────────────────────
+
+            /** @Brief Charge via stb_image (alternatif aux codecs natifs). */
+            NKIMG_NODISCARD static NkImage* LoadSTB(
+                const char* path, int32 desiredChannels = 0
+            ) noexcept;
+
+            NKIMG_NODISCARD static NkImage* LoadFromMemorySTB(
+                const uint8* data, usize size, int32 desiredChannels = 0
+            ) noexcept;
+
+            /** @Brief Sauvegarde via stb_image_write (.png .jpg .bmp .tga .hdr). */
+            bool SaveSTB(const char* path, int32 quality = 90) const noexcept;
 
             // ── Sauvegarde ───────────────────────────────────────────────────────
 
@@ -194,7 +205,7 @@ namespace nkentseu {
              * @Brief Convertit vers un autre format de pixels.
              * @return Nouvelle NkImage allouée, nullptr si échec.
              */
-            NKIMG_NODISCARD NkImage* Convert(NkPixelFormat newFmt) const noexcept;
+            NKIMG_NODISCARD NkImage* Convert(NkImagePixelFormat newFmt) const noexcept;
 
             /**
              * @Brief Redimensionne l'image.
@@ -202,7 +213,7 @@ namespace nkentseu {
              */
             NKIMG_NODISCARD NkImage* Resize(
                 int32 newWidth, int32 newHeight,
-                NkResizeFilter filter = NkResizeFilter::Bilinear
+                NkResizeFilter filter = NkResizeFilter::NK_BILINEAR
             ) const noexcept;
 
             /**
@@ -223,15 +234,16 @@ namespace nkentseu {
             NKIMG_NODISCARD NKIMG_INLINE uint8*  Pixels()   noexcept       { return mPixels; }
             NKIMG_NODISCARD NKIMG_INLINE const uint8* Pixels() const noexcept { return mPixels; }
             NKIMG_NODISCARD NKIMG_INLINE float32* PixelsF() noexcept       { return reinterpret_cast<float32*>(mPixels); }
+            NKIMG_NODISCARD NKIMG_INLINE const float32* PixelsF() const noexcept { return reinterpret_cast<const float32*>(mPixels); }
             NKIMG_NODISCARD NKIMG_INLINE int32   Width()    const noexcept { return mWidth;  }
             NKIMG_NODISCARD NKIMG_INLINE int32   Height()   const noexcept { return mHeight; }
             NKIMG_NODISCARD NKIMG_INLINE int32   Channels() const noexcept { return ChannelsOf(mFormat); }
             NKIMG_NODISCARD NKIMG_INLINE int32   BytesPP()  const noexcept { return BytesPerPixel(mFormat); }
             NKIMG_NODISCARD NKIMG_INLINE int32   Stride()   const noexcept { return mStride; }
-            NKIMG_NODISCARD NKIMG_INLINE NkPixelFormat  Format() const noexcept { return mFormat; }
+            NKIMG_NODISCARD NKIMG_INLINE NkImagePixelFormat  Format() const noexcept { return mFormat; }
             NKIMG_NODISCARD NKIMG_INLINE NkImageFormat  SourceFormat() const noexcept { return mSourceFormat; }
             NKIMG_NODISCARD NKIMG_INLINE bool    IsValid()  const noexcept { return mPixels && mWidth > 0 && mHeight > 0; }
-            NKIMG_NODISCARD NKIMG_INLINE bool    IsHDR()    const noexcept { return mFormat == NkPixelFormat::RGBA128F || mFormat == NkPixelFormat::RGB96F; }
+            NKIMG_NODISCARD NKIMG_INLINE bool    IsHDR()    const noexcept { return mFormat == NkImagePixelFormat::NK_RGBA128F || mFormat == NkImagePixelFormat::NK_RGB96F; }
             NKIMG_NODISCARD NKIMG_INLINE usize   TotalBytes() const noexcept { return static_cast<usize>(mStride) * mHeight; }
 
             /// Pointeur sur le début d'une ligne.
@@ -268,7 +280,7 @@ namespace nkentseu {
              */
             NKIMG_NODISCARD static NkImage* Alloc(
                 int32 width, int32 height,
-                NkPixelFormat format,
+                NkImagePixelFormat format,
                 bool owning = true
             ) noexcept;
 
@@ -277,7 +289,7 @@ namespace nkentseu {
              */
             NKIMG_NODISCARD static NkImage* Wrap(
                 uint8* pixels, int32 width, int32 height,
-                NkPixelFormat format, int32 stride = 0
+                NkImagePixelFormat format, int32 stride = 0
             ) noexcept;
 
         private:
@@ -285,7 +297,7 @@ namespace nkentseu {
             int32         mWidth        = 0;
             int32         mHeight       = 0;
             int32         mStride       = 0;
-            NkPixelFormat mFormat       = NkPixelFormat::NK_UNKNOW;
+            NkImagePixelFormat mFormat       = NkImagePixelFormat::NK_UNKNOW;
             NkImageFormat mSourceFormat = NkImageFormat::NK_UNKNOW;
             bool          mOwning       = true;
 
@@ -300,7 +312,7 @@ namespace nkentseu {
                 int32 srcCh, int32 dstCh
             ) noexcept;
 
-            // Resize interne par filtre
+            // Resize interne par filtre (basé sur stb_image_resize2)
             static NkImage* ResizeNearest (const NkImage& src, int32 w, int32 h) noexcept;
             static NkImage* ResizeBilinear(const NkImage& src, int32 w, int32 h) noexcept;
             static NkImage* ResizeBicubic (const NkImage& src, int32 w, int32 h) noexcept;
@@ -418,7 +430,7 @@ namespace nkentseu {
             ) noexcept;
 
         private:
-            // Inflate (RFC 1951) — identique à NkInflate dans NKFont
+            // Inflate (RFC 1951)
             struct Context {
                 const uint8* in; usize inSize; usize inPos;
                 uint8* out; usize outSize; usize outPos;
@@ -447,12 +459,11 @@ namespace nkentseu {
             struct DeflateCtx {
                 NkImageStream* out;
                 const uint8* in; usize inSize;
-                uint32 adler; // pour zlib header
+                uint32 adler;
             };
-            static bool CompressLevel0(DeflateCtx& ctx) noexcept; // stored blocks
-            static bool CompressLevel1(DeflateCtx& ctx) noexcept; // fixed huffman
+            static bool CompressLevel0(DeflateCtx& ctx) noexcept;
+            static bool CompressLevel1(DeflateCtx& ctx) noexcept;
             static uint32 Adler32(const uint8* data, usize size, uint32 prev=1) noexcept;
     };
 
 } // namespace nkentseu
-    // (ajouts pour WebP / SVG / GIF write — déclarés dans NkImage.cpp)

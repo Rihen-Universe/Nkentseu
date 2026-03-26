@@ -7,8 +7,8 @@
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 
-#include "NKWindow/Core/NkWindowId.h"
-#include "NKWindow/Events/NkDropEvent.h"
+#include "NKEvent/NkWindowId.h"
+#include "NKEvent/NkDropEvent.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkAtomic.h"
 #include "NKCore/NkTraits.h"

@@ -57,7 +57,7 @@ namespace nkentseu {
 		class NkRectT {
 			public:
 				union {
-					struct { union { T x; T left; }; union { T y; T top; }; T width; T height; };
+					struct { union { T x; T left; }; union { T y; T top; }; union { T width; T w; }; union { T height; T h; }; };
 					struct { NkVec2T<T> position; NkVec2T<T> size; };
 				};
 

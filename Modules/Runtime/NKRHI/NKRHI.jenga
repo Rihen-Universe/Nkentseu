@@ -11,6 +11,13 @@ import os
 import shutil
 import subprocess
 
+# Détection NKGLSlang et NKSPIRVCross (compilés depuis Externals/Libs)
+_GLSLANG_OPT = os.getenv("NK_ENABLE_GLSLANG", "auto").strip().lower()
+_SPIRVCROSS_OPT = os.getenv("NK_ENABLE_SPIRVCROSS", "auto").strip().lower()
+
+_USE_NKGLSLANG    = _GLSLANG_OPT    not in ("0", "false", "off", "no")
+_USE_NKSPIRVXROSS = _SPIRVCROSS_OPT not in ("0", "false", "off", "no")
+
 def _pkg_exists(pkg_name: str) -> bool:
     if not shutil.which("pkg-config"):
         return False
@@ -40,6 +47,16 @@ _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
 _VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+
+# Libs glslang fournies par le SDK Vulkan (GLSL→SPIR-V runtime)
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+_GLSLANG_LIBS_UNIX = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
 if _VULKAN_OPT in ("0", "false", "off", "no"):
     _WANT_VULKAN = False
 elif _VULKAN_OPT in ("1", "true", "on", "yes"):
@@ -49,6 +66,10 @@ else:
 
 _RENDERER_GLAD_OPT = os.getenv("NK_RENDERER_USE_NKGLAD", "on").strip().lower()
 _USE_NKGLAD = _RENDERER_GLAD_OPT not in ("0", "false", "off", "no")
+
+_MAC_VULKAN_LIB  = _norm(os.path.join(_VULKAN_SDK, "lib")) if (_WANT_VULKAN and _VULKAN_SDK) else ""
+_MAC_GLSLANG     = _GLSLANG_LIBS_UNIX if _WANT_VULKAN else []
+_MAC_GLSLANG_DIR = [_MAC_VULKAN_LIB] if _MAC_VULKAN_LIB else []
 
 with project("NKRHI"):
     staticlib()
@@ -67,21 +88,32 @@ with project("NKRHI"):
         "%{NKLogger.location}/src",
         "%{NKContainers.location}/src",
         "%{NKMemory.location}/src",
+        "%{NKEvent.location}/src",
         "%{NKWindow.location}/src",
         "%{NKThreading.location}/src",
     ]
     if _USE_NKGLAD:
         _INCLUDE_DIRS.append("%{NKGlad.location}/include")
+    if _USE_NKGLSLANG:
+        # IMPORTANT : NKGLSlang AVANT le Vulkan SDK pour éviter le conflit entre
+        # notre glslang (NKGLSlang) et la copie dans VulkanSDK/Include/glslang/.
+        _INCLUDE_DIRS.append("%{NKGLSlang.location}")   # <glslang/Public/ShaderLang.h>, <SPIRV/GlslangToSpv.h>
     if _VULKAN_INCLUDE:
         _INCLUDE_DIRS.append(_VULKAN_INCLUDE)
+    if _USE_NKSPIRVXROSS:
+        _INCLUDE_DIRS.append("%{NKSPIRVCross.location}/src")
     includedirs(_INCLUDE_DIRS)
 
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    _DEPS = ["NKMath", "NKTime", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"]
+    _DEPS = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"]
     if _USE_NKGLAD:
         _DEPS.append("NKGlad")
+    if _USE_NKGLSLANG:
+        _DEPS.append("NKGLSlang")
+    if _USE_NKSPIRVXROSS:
+        _DEPS.append("NKSPIRVCross")
     dependson(_DEPS)
     _RENDERER_DEFINES = [
         f"NKRENDERER_USE_NKGLAD={1 if _USE_NKGLAD else 0}",
@@ -89,6 +121,12 @@ with project("NKRHI"):
     ]
     if _WANT_VULKAN:
         _RENDERER_DEFINES.append("NK_RHI_VK_ENABLED")
+    if _USE_NKGLSLANG:
+        _RENDERER_DEFINES.append("NK_RHI_GLSLANG_ENABLED")
+        _RENDERER_DEFINES.append("ENABLE_HLSL")
+        _RENDERER_DEFINES.append("ENABLE_OPT=0")
+    if _USE_NKSPIRVXROSS:
+        _RENDERER_DEFINES.append("NK_RHI_SPIRVCROSS_ENABLED")
     defines(_RENDERER_DEFINES)
 
     files([
@@ -107,6 +145,10 @@ with project("NKRHI"):
         "src/NKRHI/Vulkan/**.cpp",
         "src/NKRHI/Vulkan/**.h",
         "src/NKRHI/Metal/**.h",
+        "src/NKRHI/SL/**.cpp",
+        "src/NKRHI/SL/**.h",
+        "src/NKRHI/ShaderConvert/**.cpp",
+        "src/NKRHI/ShaderConvert/**.h",
     ])
 
     with filter("system:macOS || system:iOS"):
@@ -129,8 +171,18 @@ with project("NKRHI"):
             "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
             "uuid", "ole32",
         ]
+        _IS_MINGW = "mingw" in _TC_WINDOWS.lower()
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                # glslang.lib du Vulkan SDK est compilé MSVC — incompatible avec MinGW
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        # NKGLSlang / NKSPIRVCross sont compilés DEPUIS LES SOURCES avec le même
+        # toolchain (clang-mingw) → compatibles MinGW. Pas de garde _IS_MINGW ici.
+        if _USE_NKGLSLANG:
+            _WIN_LINKS.append("NKGLSlang")
+        if _USE_NKSPIRVXROSS:
+            _WIN_LINKS.append("NKSPIRVCross")
         links(_WIN_LINKS)
 
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
@@ -142,7 +194,11 @@ with project("NKRHI"):
         links(["pthread", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
         if _WANT_VULKAN:
-            links(["vulkan"])
+            links(["vulkan"] + _GLSLANG_LIBS_UNIX)
+        _LINUX_SC_LINKS = []
+        if _USE_NKGLSLANG:    _LINUX_SC_LINKS.append("NKGLSlang")
+        if _USE_NKSPIRVXROSS: _LINUX_SC_LINKS.append("NKSPIRVCross")
+        if _LINUX_SC_LINKS:   links(_LINUX_SC_LINKS)
 
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
@@ -156,7 +212,7 @@ with project("NKRHI"):
         links(["pthread", "xcb", "xcb-image", "X11", "Xext", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
         if _WANT_VULKAN:
-            links(["vulkan"])
+            links(["vulkan"] + _GLSLANG_LIBS_UNIX)
 
     with filter("system:Linux && options:linux-backend=wayland"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
@@ -164,17 +220,23 @@ with project("NKRHI"):
         defines(_WAYLAND_DEFINES)
         links(_WAYLAND_LINKS)
         if _WANT_VULKAN:
-            links(["vulkan"])
+            links(["vulkan"] + _GLSLANG_LIBS_UNIX)
 
     with filter("system:macOS"):
         usetoolchain("clang-native")
         frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
+        libdirs(_MAC_GLSLANG_DIR)
+        _MAC_LINKS = list(_MAC_GLSLANG)
+        if _USE_NKGLSLANG:    _MAC_LINKS.append("NKGLSlang")
+        if _USE_NKSPIRVXROSS: _MAC_LINKS.append("NKSPIRVCross")
+        links(_MAC_LINKS)
 
     with filter("system:Android"):
         usetoolchain("android-ndk")
         _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
         if _WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
+            _ANDROID_LINKS.extend(_GLSLANG_LIBS_UNIX)
         links(_ANDROID_LINKS)
 
     with filter("system:iOS"):
@@ -223,4 +285,6 @@ with project("NKRHI"):
                 ]
                 if _WANT_VULKAN:
                     _WIN_TEST_LINKS.append("vulkan-1")
+                if _USE_NKGLSLANG:    _WIN_TEST_LINKS.append("NKGLSlang")
+                if _USE_NKSPIRVXROSS: _WIN_TEST_LINKS.append("NKSPIRVCross")
                 links(_WIN_TEST_LINKS)

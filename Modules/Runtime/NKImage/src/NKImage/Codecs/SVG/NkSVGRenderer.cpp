@@ -4,13 +4,18 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
-#include "NkSVGRenderer.h"
+#include "NKImage/Codecs/SVG/NkSVGRenderer.h"
 #include "NKImage/Core/NkXMLParser.h"
-#include <cstring>
-#include <cstdlib>
 #include <cmath>
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
+#include "NKContainers/String/NkStringView.h"
+#include "NKMath/NkFunctions.h"
 
 namespace nkentseu {
+
+using namespace nkentseu::memory;
+using namespace nkentseu::math;
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  Helpers
@@ -76,11 +81,11 @@ namespace nkentseu {
                 inv.Apply(lx,ly);
             }
 
-            if(grad->units==NkSVGGradientUnits::ObjectBoundingBox&&bw>0&&bh>0){
+            if(grad->units==NkSVGGradientUnits::NK_OBJECT_BOUNDING_BOX&&bw>0&&bh>0){
                 lx=(lx-bx0)/bw; ly=(ly-by0)/bh;
             }
 
-            if(grad->type==NkSVGGradientType::Linear) t=grad->LinearT(lx,ly);
+            if(grad->type==NkSVGGradientType::NK_LINEAR) t=grad->LinearT(lx,ly);
             else                                        t=grad->RadialT(lx,ly);
 
             grad->Sample(t,R,G,B,A);
@@ -151,7 +156,7 @@ namespace nkentseu {
                                 if(xint>fx){if(ys[j]>ys[i])++w2;else --w2;}
                             }
                         }
-                        const bool inside=(rule==NkSVGFillRule::NonZero)?(w2!=0):(w2&1);
+                        const bool inside=(rule==NkSVGFillRule::NK_NON_ZERO)?(w2!=0):(w2&1);
                         if(inside) ++hits;
                     }
                 }
@@ -174,7 +179,7 @@ namespace nkentseu {
                                     float width) noexcept
     {
         const float dx=x1-x0, dy=y1-y0;
-        const float len=::sqrtf(dx*dx+dy*dy);
+        const float len=NkSqrt(dx*dx+dy*dy);
         if(len<0.001f){
             BlendPixel(img,static_cast<int32>(x0),static_cast<int32>(y0),r,g,b,a);
             return;
@@ -197,7 +202,7 @@ namespace nkentseu {
                 const float fx=px+0.5f-x0, fy=py+0.5f-y0;
                 // Distance signée le long de la ligne (t) et perpendiculaire (d)
                 const float t=(fx*dx+fy*dy)/(len*len);
-                const float d=::fabsf(fx*nx+fy*ny);
+                const float d=NkFabs(fx*nx+fy*ny);
                 // Point le plus proche sur le segment
                 if(t>=0&&t<=1){
                     // Distance perpendiculaire
@@ -208,7 +213,7 @@ namespace nkentseu {
                     // Caps
                     const float capX=(t<0)?x0:x1, capY=(t<0)?y0:y1;
                     const float cdx=px+0.5f-capX, cdy=py+0.5f-capY;
-                    const float cd=::sqrtf(cdx*cdx+cdy*cdy);
+                    const float cd=NkSqrt(cdx*cdx+cdy*cdy);
                     const float cover=Clamp01(hw+0.5f-cd);
                     if(cover>0)
                         BlendPixel(img,px,py,r,g,b,Clamp8(a*cover));
@@ -245,7 +250,7 @@ namespace nkentseu {
 
             if(useDash&&dashLen>0){
                 // Décompose le segment selon le dash pattern
-                const float segLen=::sqrtf((bx-ax)*(bx-ax)+(by-ay)*(by-ay));
+                const float segLen=NkSqrt((bx-ax)*(bx-ax)+(by-ay)*(by-ay));
                 if(segLen<0.001f) continue;
                 const float ddx=(bx-ax)/segLen, ddy=(by-ay)/segLen;
                 float t=0, phase=::fmodf(dashOffset,dashLen);
@@ -274,15 +279,15 @@ namespace nkentseu {
             }
         }
         // Round joins approximatifs
-        if(join==NkSVGLineJoin::Round||cap==NkSVGLineCap::Round){
+        if(join==NkSVGLineJoin::NK_ROUND||cap==NkSVGLineCap::NK_ROUND){
             for(int32 i=closed?0:1;i<n-(closed?0:1);++i){
                 uint8 r,g,b,a;
                 SamplePaint(paint,defs,xs[i],ys[i],bx0,by0,bx1,by1,opacity,r,g,b,a);
                 const int32 steps=static_cast<int32>(3.14159f*width)+4;
                 for(int32 s=0;s<steps;++s){
                     const float ang=2.f*3.14159f*s/steps;
-                    const float px=xs[i]+::cosf(ang)*width*0.5f;
-                    const float py=ys[i]+::sinf(ang)*width*0.5f;
+                    const float px=xs[i]+NkCos(ang)*width*0.5f;
+                    const float py=ys[i]+NkSin(ang)*width*0.5f;
                     BlendPixel(img,static_cast<int32>(px),static_cast<int32>(py),r,g,b,a);
                 }
             }
@@ -300,7 +305,7 @@ namespace nkentseu {
     {
         // Mesure la déviation
         const float d1x=x1-x0,d1y=y1-y0,d2x=x2-x3,d2y=y2-y3;
-        const float d=::sqrtf(d1x*d1x+d1y*d1y)+::sqrtf(d2x*d2x+d2y*d2y);
+        const float d=NkSqrt(d1x*d1x+d1y*d1y)+NkSqrt(d2x*d2x+d2y*d2y);
         if(d<0.5f||depth>8){if(n<max){xs[n]=x3;ys[n]=y3;++n;}return;}
         const float mx=(x0+3*x1+3*x2+x3)/8,my=(y0+3*y1+3*y2+y3)/8;
         const float l1x=(x0+x1)/2,l1y=(y0+y1)/2;
@@ -317,35 +322,35 @@ namespace nkentseu {
                                     float* xs, float* ys, int32& n, int32 max) noexcept
     {
         if(rx<=0||ry<=0){if(n<max){xs[n]=x2;ys[n]=y2;++n;}return;}
-        const float ca=::cosf(xAngle),sa=::sinf(xAngle);
+        const float ca=NkCos(xAngle),sa=NkSin(xAngle);
         const float dxH=(x1-x2)*.5f,dyH=(y1-y2)*.5f;
         const float x1p= ca*dxH+sa*dyH, y1p=-sa*dxH+ca*dyH;
         float rx_=rx,ry_=ry;
         const float lambda=x1p*x1p/(rx_*rx_)+y1p*y1p/(ry_*ry_);
-        if(lambda>1){const float sl=::sqrtf(lambda);rx_*=sl;ry_*=sl;}
+        if(lambda>1){const float sl=NkSqrt(lambda);rx_*=sl;ry_*=sl;}
         float sq=(rx_*rx_*ry_*ry_-rx_*rx_*y1p*y1p-ry_*ry_*x1p*x1p)/
                 (rx_*rx_*y1p*y1p+ry_*ry_*x1p*x1p);
-        sq=sq<0?0:::sqrtf(sq);
+        sq=sq<0?0:NkSqrt(sq);
         if(la==sw) sq=-sq;
         const float cxp= sq*rx_*y1p/ry_, cyp=-sq*ry_*x1p/rx_;
         const float cx=ca*cxp-sa*cyp+(x1+x2)*.5f;
         const float cy=sa*cxp+ca*cyp+(y1+y2)*.5f;
         auto ang=[](float ux,float uy,float vx,float vy)->float{
-            const float n2=::sqrtf(ux*ux+uy*uy)*::sqrtf(vx*vx+vy*vy);
+            const float n2=NkSqrt(ux*ux+uy*uy)*NkSqrt(vx*vx+vy*vy);
             if(n2==0) return 0;
-            float a=::acosf(::fmaxf(-1.f,::fminf(1.f,(ux*vx+uy*vy)/n2)));
+            float a=NkAcos(::fmaxf(-1.f,::fminf(1.f,(ux*vx+uy*vy)/n2)));
             if(ux*vy-uy*vx<0) a=-a; return a;
         };
         const float theta1=ang(1,0,(x1p-cxp)/rx_,(y1p-cyp)/ry_);
         float dTheta=ang((x1p-cxp)/rx_,(y1p-cyp)/ry_,(-x1p-cxp)/rx_,(-y1p-cyp)/ry_);
         if(!sw&&dTheta>0) dTheta-=2*3.14159265f;
         if( sw&&dTheta<0) dTheta+=2*3.14159265f;
-        const int32 steps=static_cast<int32>(::fabsf(dTheta)*::fmaxf(rx_,ry_)*2.f)+4;
+        const int32 steps=static_cast<int32>(NkFabs(dTheta)*::fmaxf(rx_,ry_)*2.f)+4;
         for(int32 i=1;i<=steps&&n<max;++i){
             const float t=static_cast<float>(i)/steps;
             const float a=theta1+t*dTheta;
-            xs[n]=cx+rx_*::cosf(a)*ca-ry_*::sinf(a)*sa;
-            ys[n]=cy+rx_*::cosf(a)*sa+ry_*::sinf(a)*ca;
+            xs[n]=cx+rx_*NkCos(a)*ca-ry_*NkSin(a)*sa;
+            ys[n]=cy+rx_*NkCos(a)*sa+ry_*NkSin(a)*ca;
             ++n;
         }
     }
@@ -478,7 +483,7 @@ namespace nkentseu {
         const int32 steps=static_cast<int32>(2*3.14159265f*r/2.f)+8;
         for(int32 i=0;i<steps&&n<max;++i){
             const float a=2.f*3.14159265f*i/steps;
-            xs[n]=cx+r*::cosf(a);ys[n]=cy+r*::sinf(a);++n;
+            xs[n]=cx+r*NkCos(a);ys[n]=cy+r*NkSin(a);++n;
         }
     }
 
@@ -488,7 +493,7 @@ namespace nkentseu {
         const int32 steps=static_cast<int32>(2*3.14159265f*::fmaxf(rx,ry)/2.f)+8;
         for(int32 i=0;i<steps&&n<max;++i){
             const float a=2.f*3.14159265f*i/steps;
-            xs[n]=cx+rx*::cosf(a);ys[n]=cy+ry*::sinf(a);++n;
+            xs[n]=cx+rx*NkCos(a);ys[n]=cy+ry*NkSin(a);++n;
         }
     }
 
@@ -632,11 +637,11 @@ namespace nkentseu {
 
     void NkSVGRenderer::RenderPath(const NkSVGElement* e, RCtx& ctx) noexcept {
         if(!e->d[0]) return;
-        float* xs=static_cast<float*>(::malloc(MAX_PTS*sizeof(float)));
-        float* ys=static_cast<float*>(::malloc(MAX_PTS*sizeof(float)));
-        int32* cs=static_cast<int32*>(::malloc(MAX_CNT*sizeof(int32)));
-        int32* cl=static_cast<int32*>(::malloc(MAX_CNT*sizeof(int32)));
-        if(!xs||!ys||!cs||!cl){::free(xs);::free(ys);::free(cs);::free(cl);return;}
+        float* xs=static_cast<float*>(NkAlloc(MAX_PTS*sizeof(float)));
+        float* ys=static_cast<float*>(NkAlloc(MAX_PTS*sizeof(float)));
+        int32* cs=static_cast<int32*>(NkAlloc(MAX_CNT*sizeof(int32)));
+        int32* cl=static_cast<int32*>(NkAlloc(MAX_CNT*sizeof(int32)));
+        if(!xs||!ys||!cs||!cl){NkFree(xs);NkFree(ys);NkFree(cs);NkFree(cl);return;}
         int32 np=0,nc=0;
         ParsePath(e->d,xs,ys,cs,cl,np,nc,MAX_PTS,MAX_CNT);
         for(int32 i=0;i<np;++i) e->ctm.Apply(xs[i],ys[i]);
@@ -644,7 +649,7 @@ namespace nkentseu {
         ComputeBBox(s);
         FillShape(*ctx.img,s,e->style,ctx.dom->defs,ctx.opts.superSample);
         StrokeShape(*ctx.img,s,e->style,ctx.dom->defs,ctx.opts.superSample);
-        ::free(xs);::free(ys);::free(cs);::free(cl);
+        NkFree(xs);NkFree(ys);NkFree(cs);NkFree(cl);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -658,13 +663,13 @@ namespace nkentseu {
         const char* tag=e->Tag();
         if(!tag) goto children;
 
-        if     (::strcmp(tag,"rect")==0)     RenderRect    (e,ctx);
-        else if(::strcmp(tag,"circle")==0)   RenderCircle  (e,ctx);
-        else if(::strcmp(tag,"ellipse")==0)  RenderEllipse (e,ctx);
-        else if(::strcmp(tag,"line")==0)     RenderLine    (e,ctx);
-        else if(::strcmp(tag,"polyline")==0) RenderPolyline(e,ctx,false);
-        else if(::strcmp(tag,"polygon")==0)  RenderPolyline(e,ctx,true);
-        else if(::strcmp(tag,"path")==0)     RenderPath    (e,ctx);
+        if     (NkStringView(tag)=="rect")     RenderRect    (e,ctx);
+        else if(NkStringView(tag)=="circle")   RenderCircle  (e,ctx);
+        else if(NkStringView(tag)=="ellipse")  RenderEllipse (e,ctx);
+        else if(NkStringView(tag)=="line")     RenderLine    (e,ctx);
+        else if(NkStringView(tag)=="polyline") RenderPolyline(e,ctx,false);
+        else if(NkStringView(tag)=="polygon")  RenderPolyline(e,ctx,true);
+        else if(NkStringView(tag)=="path")     RenderPath    (e,ctx);
         // <g>, <svg>, <symbol> : seulement les enfants
 
         children:
@@ -684,12 +689,12 @@ namespace nkentseu {
         const int32 H=static_cast<int32>(dom.outputH>0?dom.outputH:dom.viewportH);
         if(W<=0||H<=0) return nullptr;
 
-        NkImage* img=NkImage::Alloc(W,H,NkPixelFormat::RGBA32);
+        NkImage* img=NkImage::Alloc(W,H,NkImagePixelFormat::NK_RGBA32);
         if(!img) return nullptr;
 
         // Fond
         if(opts.transparentBg){
-            ::memset(img->Pixels(),0,img->TotalBytes());
+            NkSet(img->Pixels(),0,img->TotalBytes());
         } else {
             for(int32 y=0;y<H;++y){
                 uint8* row=img->RowPtr(y);

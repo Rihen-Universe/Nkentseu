@@ -26,9 +26,6 @@
  *    prep  — CVT Program (hinting)
  *    GSUB  — substitutions (ligatures, variantes)
  *    GPOS  — positionnement avancé (kerning GPOS)
- *
- *  Pas de support TTC (TrueType Collection) dans cette version.
- *  Support collections via NkTTCParser (Phase 2 étendue).
  */
 
 #include "NKFont/NkFontExport.h"
@@ -62,7 +59,7 @@ namespace nkentseu {
     static constexpr uint8 kPointFlag_Repeat     = 0x08;
     static constexpr uint8 kPointFlag_XSameOrPos = 0x10;
     static constexpr uint8 kPointFlag_YSameOrPos = 0x20;
-    static constexpr uint8 kPointFlag_Cubic      = 0x01; // OTF cubic flag (bit 0 repurposed)
+    static constexpr uint8 kPointFlag_Cubic      = 0x01;
 
     // Flags des composants
     static constexpr uint16 kCompFlag_ArgsAreWords    = 0x0001;
@@ -170,9 +167,29 @@ namespace nkentseu {
         uint32 maxMemType42;
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Contour de glyphe
-    // ─────────────────────────────────────────────────────────────────────────
+    /// Entrée de la table name
+    struct NkTTFNameRecord {
+        uint16 platformId;
+        uint16 encodingId;
+        uint16 languageId;
+        uint16 nameId;
+        uint16 length;
+        uint16 offset;
+        const char* string;  // Pointeur vers la chaîne UTF-16 (après parsing)
+    };
+
+    /// Résultat du parsing de la table name
+    struct NkTTFNameTable {
+        NkTTFNameRecord* records;     // Tableau des enregistrements
+        uint16           numRecords;  // Nombre d'enregistrements
+        const uint8*     stringData;  // Données brutes des chaînes
+        
+        // Chaînes communes (UTF-8 converties)
+        char familyName[64];   ///< Nom de la famille (nameId=1, platform=3, encoding=1)
+        char styleName[32];    ///< Nom du style (nameId=2, platform=3, encoding=1)
+        char fullName[128];    ///< Nom complet (nameId=4)
+        char copyright[256];   ///< Copyright (nameId=0)
+    };
 
     /// Un point de contour (on-curve ou off-curve)
     struct NkTTFPoint {
@@ -249,6 +266,7 @@ namespace nkentseu {
         NkTTFMaxp     maxp;
         NkTTFOS2      os2;
         NkTTFPost     post;
+        NkTTFNameTable name;    // Table name avec informations de police
 
         // Métriques horizontales
         NkTTFHMetric* hmetrics;     // [numGlyphs]
@@ -364,19 +382,24 @@ namespace nkentseu {
 
     private:
         // ── Parsers de tables individuelles ───────────────────────────────────
-        static bool ParseTableDirectory(NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
+        static bool ParseTableDirectory(NkStreamReader& s, NkTTFFont& out, NkMemArena& arena, uint16& numTables, NkTTFTableRecord*& records) noexcept;
+       
+        // Fonctions SANS arena
         static bool ParseHead (NkStreamReader& s, NkTTFFont& out) noexcept;
         static bool ParseHhea (NkStreamReader& s, NkTTFFont& out) noexcept;
         static bool ParseMaxp (NkStreamReader& s, NkTTFFont& out) noexcept;
-        static bool ParseHmtx (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
-        static bool ParseLoca (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
-        static bool ParseCmap (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
-        static bool ParseKern (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
         static bool ParseOS2  (NkStreamReader& s, NkTTFFont& out) noexcept;
         static bool ParsePost (NkStreamReader& s, NkTTFFont& out) noexcept;
         static bool ParseCvt  (NkStreamReader& s, NkTTFFont& out) noexcept;
         static bool ParseFpgm (NkStreamReader& s, NkTTFFont& out) noexcept;
         static bool ParsePrep (NkStreamReader& s, NkTTFFont& out) noexcept;
+
+        // Fonctions AVEC arena
+        static bool ParseHmtx (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
+        static bool ParseLoca (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
+        static bool ParseCmap (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
+        static bool ParseKern (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
+        static bool ParseName (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
 
         // ── Parsers cmap formats ──────────────────────────────────────────────
         static bool ParseCmapFormat4 (NkStreamReader& s, NkTTFFont& out, NkMemArena& arena) noexcept;
@@ -403,6 +426,7 @@ namespace nkentseu {
         // ── Utilitaires ───────────────────────────────────────────────────────
         static uint32 FindTable(const NkTTFTableRecord* records, uint16 numTables, uint32 tag) noexcept;
         static uint16 BinarySearchKern(const NkTTFKernPair* pairs, uint32 count, uint16 left, uint16 right) noexcept;
+        static void ConvertUTF16ToUTF8(const uint16* src, usize srcLen, char* dst, usize dstSize) noexcept;
     };
 
 } // namespace nkentseu

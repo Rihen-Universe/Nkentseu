@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<project version="2">
+	<pipeline>
+		<pass name="Simple" type="shader" active="true" patchverts="1">
+			<shader type="vs" path="shaders\shad_SimpleVS.glsl" entry="main" />
+			<shader type="ps" path="shaders\shad_SimplePS.glsl" entry="main" />
+			<inputlayout>
+				<item value="Position" semantic="POSITION" />
+				<item value="Normal" semantic="NORMAL" />
+				<item value="Texcoord" semantic="TEXCOORD0" />
+			</inputlayout>
+			<rendertexture />
+			<items>
+				<item name="Box" type="geometry">
+					<type>Cube</type>
+					<width>1</width>
+					<height>1</height>
+					<depth>1</depth>
+					<y>-0.0254455805</y>
+					<z>0.0144238472</z>
+					<topology>TriangleList</topology>
+				</item>
+			</items>
+			<itemvalues />
+			<variables>
+				<variable type="float4x4" name="matVP" system="ViewProjection" />
+				<variable type="float4x4" name="matGeo" system="GeometryTransform" />
+			</variables>
+			<macros />
+		</pass>
+		<pass name="shaders" type="shader" active="true" patchverts="1">
+			<shader type="vs" path="shaders\shad_shadersVS.glsl" entry="main" />
+			<shader type="ps" path="shaders\shad_shadersPS.glsl" entry="main" />
+			<inputlayout>
+				<item value="Position" semantic="POSITION" />
+				<item value="Normal" semantic="NORMAL" />
+				<item value="Texcoord" semantic="TEXCOORD0" />
+			</inputlayout>
+			<rendertexture />
+			<items />
+			<itemvalues />
+			<macros />
+		</pass>
+	</pipeline>
+	<objects />
+	<cameras />
+	<settings>
+		<entry type="property" name="Box" item="pipe" />
+		<entry type="file" name="shaders" shader="vs" />
+		<entry type="file" name="shaders" shader="ps" />
+		<entry type="camera" fp="false">
+			<distance>4</distance>
+			<pitch>8</pitch>
+			<yaw>252</yaw>
+			<roll>360</roll>
+		</entry>
+		<entry type="clearcolor" r="0" g="0" b="0" a="0" />
+		<entry type="usealpha" val="false" />
+	</settings>
+	<plugindata />
+</project>

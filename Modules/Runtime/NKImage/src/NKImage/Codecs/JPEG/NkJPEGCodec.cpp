@@ -15,12 +15,13 @@
  *  Progressive JPEG : détecté, rejeté proprement (baseline only).
  *  Multi-scan (JFIF) : scan unique uniquement.
  */
-#include "NKImage/NkJPEGCodec.h"
-#include <cstring>
-#include <cmath>
-#include <cstdlib>
+#include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
+#include "NKMemory/NkAllocator.h"
+#include "NKMemory/NkFunction.h"
 
 namespace nkentseu {
+
+using namespace nkentseu::memory;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Tables standard JFIF (RFC 2435 / ITU T.81 Annex K)
@@ -232,7 +233,7 @@ static void IDCT_Col(int32* data, uint8* out, int32 stride) {
 static void IDCT8x8(const int32* coeffs, uint8* out, int32 stride) {
     int32 workspace[64];
     // Dé-zigzag + dé-quantification déjà faite par l'appelant
-    ::memcpy(workspace, coeffs, 64*sizeof(int32));
+    NkCopy(workspace, coeffs, 64*sizeof(int32));
     // 1D IDCT sur les lignes
     for(int32 i=0;i<8;++i) IDCT_Row(workspace+i*8);
     // 1D IDCT sur les colonnes
@@ -316,9 +317,9 @@ struct HuffDec {
 
     bool Build(const uint8* bits, const uint8* vals_, int32 nv) {
         numVals=nv;
-        ::memcpy(vals,vals_,nv);
-        ::memset(lutSym,0,sizeof(lutSym));
-        ::memset(lutLen,0,sizeof(lutLen));
+        NkCopy(vals,vals_,nv);
+        NkSet(lutSym,0,sizeof(lutSym));
+        NkSet(lutLen,0,sizeof(lutLen));
         // Calcule les codes canoniques
         int32 code=0, k=0;
         int32 nextCode[17]={};
@@ -461,6 +462,8 @@ NkImage* NkJPEGCodec::Decode(const uint8* data, usize size) noexcept {
     int32 w=0,h=0,nComp=0;
     // Sous-sampling max
     int32 hMax=1,vMax=1;
+    // Orientation EXIF (1 = normal, 3 = 180°, 6 = 90° CW, 8 = 90° CCW)
+    int32 exifOrientation=1;
 
     while(!s.IsEOF()&&!s.HasError()){
         if(s.ReadU8()!=0xFF){ continue; }
@@ -474,7 +477,7 @@ NkImage* NkJPEGCodec::Decode(const uint8* data, usize size) noexcept {
         const usize segEnd=s.Tell()+segLen-2;
 
         if(marker==0xC0){ // SOF0 baseline
-            s.ReadU8(); // precision
+            (void)s.ReadU8(); // precision
             h=s.ReadU16BE(); w=s.ReadU16BE();
             nComp=s.ReadU8();
             dec.nComp=nComp;
@@ -539,7 +542,7 @@ NkImage* NkJPEGCodec::Decode(const uint8* data, usize size) noexcept {
             if(dec.progressive||w<=0||h<=0) break;
 
             // ── Crée l'image de sortie ────────────────────────────────────────
-            const NkPixelFormat fmt=(nComp==1)?NkPixelFormat::Gray8:NkPixelFormat::RGB24;
+            const NkImagePixelFormat fmt=(nComp==1)?NkImagePixelFormat::NK_GRAY8:NkImagePixelFormat::NK_RGB24;
             NkImage* img=NkImage::Alloc(w,h,fmt);
             if(!img) return nullptr;
 
@@ -567,12 +570,12 @@ NkImage* NkJPEGCodec::Decode(const uint8* data, usize size) noexcept {
             const int32 planeH=mcuRows*8*vMax;
             uint8* planes[3]={nullptr,nullptr,nullptr};
             for(int32 c=0;c<nComp&&c<3;++c){
-                planes[c]=static_cast<uint8*>(::malloc(planeStride*planeH));
+                planes[c]=static_cast<uint8*>(NkAlloc(planeStride*planeH));
                 if(!planes[c]){
-                    for(int32 cc=0;cc<c;++cc) ::free(planes[cc]);
+                    for(int32 cc=0;cc<c;++cc) NkFree(planes[cc]);
                     img->Free(); return nullptr;
                 }
-                ::memset(planes[c],nComp==1?0:128,planeStride*planeH);
+                NkSet(planes[c],nComp==1?0:128,planeStride*planeH);
             }
 
             int32 dcPrev[3]={0,0,0};
@@ -620,7 +623,7 @@ NkImage* NkJPEGCodec::Decode(const uint8* data, usize size) noexcept {
 
                                 if(ci<3&&planes[ci]){
                                     for(int32 y=0;y<8;++y)
-                                        ::memcpy(planes[ci]+(by+y)*planeStride+bx,
+                                        NkCopy(planes[ci]+(by+y)*planeStride+bx,
                                                  block+y*8, 8);
                                 }
                             }
@@ -650,10 +653,68 @@ NkImage* NkJPEGCodec::Decode(const uint8* data, usize size) noexcept {
                 }
             }
 
-            for(int32 c=0;c<nComp&&c<3;++c) if(planes[c]) ::free(planes[c]);
+            for(int32 c=0;c<nComp&&c<3;++c) if(planes[c]) NkFree(planes[c]);
 
             dec.valid=true;
+
+            // Applique l'orientation EXIF
+            if(exifOrientation==2){ img->FlipHorizontal(); }
+            else if(exifOrientation==3){ img->FlipVertical(); img->FlipHorizontal(); }
+            else if(exifOrientation==4){ img->FlipVertical(); }
+            else if(exifOrientation==6||exifOrientation==5||
+                    exifOrientation==7||exifOrientation==8){
+                // Rotation 90° CW (6) ou CCW (8) : transpose + flip
+                NkImage* rot = NkImage::Alloc(h, w, img->Format());
+                if(rot){
+                    for(int32 iy=0;iy<h;++iy){
+                        const uint8* src=img->RowPtr(iy);
+                        for(int32 ix=0;ix<w;++ix){
+                            const int32 ch2=img->Channels();
+                            uint8* dst;
+                            if(exifOrientation==6||exifOrientation==5)
+                                dst=rot->RowPtr(ix)+(h-1-iy)*ch2;   // 90° CW
+                            else
+                                dst=rot->RowPtr(w-1-ix)+iy*ch2;     // 90° CCW
+                            for(int32 c=0;c<ch2;++c) dst[c]=src[ix*ch2+c];
+                        }
+                    }
+                    img->Free();
+                    img=rot;
+                }
+            }
+
             return img;
+        }
+        else if(marker==0xE1){ // APP1 — EXIF potentiel
+            if(s.Tell()+6 <= segEnd){
+                const usize savedPos = s.Tell();
+                uint8 exifHdr[6]; s.ReadBytes(exifHdr,6);
+                if(exifHdr[0]=='E'&&exifHdr[1]=='x'&&exifHdr[2]=='i'&&
+                   exifHdr[3]=='f'&&exifHdr[4]==0&&exifHdr[5]==0){
+                    // Lit le header TIFF (offset dans APP1)
+                    const usize tiffBase = s.Tell();
+                    uint8 order[2]; s.ReadBytes(order,2);
+                    const bool le = (order[0]=='I'); // little-endian
+                    s.Skip(2); // magic 42
+                    const uint32 ifdOff = le ? s.ReadU32LE() : s.ReadU32BE();
+                    if(tiffBase+ifdOff+2 <= segEnd){
+                        s.Seek(tiffBase+ifdOff);
+                        const uint16 numEntries = le ? s.ReadU16LE() : s.ReadU16BE();
+                        for(uint16 e=0; e<numEntries && !s.HasError() && s.Tell()+12<=segEnd; ++e){
+                            const uint16 tag   = le ? s.ReadU16LE() : s.ReadU16BE();
+                            s.Skip(2); // type
+                            s.Skip(4); // count
+                            const uint32 val   = le ? s.ReadU32LE() : s.ReadU32BE();
+                            if(tag==0x0112){ // Orientation
+                                exifOrientation = static_cast<int32>(val & 0xFFFF);
+                                break;
+                            }
+                        }
+                    }
+                }
+                s.Seek(savedPos);
+            }
+            s.Seek(segEnd);
         }
         else {
             s.Seek(segEnd);
@@ -695,8 +756,8 @@ struct HuffEnc {
     uint8  lens[256];
 
     void Build(const uint8* bits, const uint8* vals, int32 nv) {
-        ::memset(codes,0,sizeof(codes));
-        ::memset(lens,0,sizeof(lens));
+        NkSet(codes,0,sizeof(codes));
+        NkSet(lens,0,sizeof(lens));
         int32 code=0, k=0;
         for(int32 l=1;l<=16;++l){
             for(int32 i=0;i<bits[l];++i,++k){
@@ -735,8 +796,8 @@ bool NkJPEGCodec::Encode(const NkImage& img, uint8*& out, usize& outSize,
     // Convertit en RGB24 ou Gray8 si nécessaire
     const NkImage* src=&img;
     NkImage* conv=nullptr;
-    if(img.Format()!=NkPixelFormat::RGB24&&img.Format()!=NkPixelFormat::Gray8){
-        conv=img.Convert(NkPixelFormat::RGB24);
+    if(img.Format()!=NkImagePixelFormat::NK_RGB24&&img.Format()!=NkImagePixelFormat::NK_GRAY8){
+        conv=img.Convert(NkImagePixelFormat::NK_RGB24);
         if(!conv) return false; src=conv;
     }
 

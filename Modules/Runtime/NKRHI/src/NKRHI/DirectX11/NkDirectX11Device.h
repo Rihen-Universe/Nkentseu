@@ -64,7 +64,7 @@ namespace nkentseu {
     struct NkDX11DescSetLayout { NkDescriptorSetLayoutDesc desc; };
     struct NkDX11DescSet {
         struct Slot {
-            enum Kind { None, Buffer, Texture, Sampler } kind=None;
+            enum Kind { None, Buffer, Texture, Sampler, TextureAndSampler } kind=None;
             ID3D11Buffer*              buf=nullptr;
             ID3D11ShaderResourceView*  srv=nullptr;
             ID3D11UnorderedAccessView* uav=nullptr;
@@ -142,7 +142,7 @@ namespace nkentseu {
             void ResetFence(NkFenceHandle f)          override;
             void WaitIdle()                           override;
 
-            void   BeginFrame(NkFrameContext& frame) override;
+            bool   BeginFrame(NkFrameContext& frame) override;
             void   EndFrame  (NkFrameContext& frame) override;
             uint32 GetFrameIndex()        const override { return mFrameIndex; }
             uint32 GetMaxFramesInFlight() const override { return MAX_FRAMES; }

@@ -25,7 +25,7 @@ public:
     ~NkOpenGLCommandBuffer() override = default;
 
     // ── Cycle de vie ─────────────────────────────────────────────────────────
-    void Begin()  override { mCmds.Clear(); mRecording=true; }
+    bool Begin()  override { mCmds.Clear(); mRecording=true; return true; }
     void End()    override { mRecording=false; }
     void Reset()  override { mCmds.Clear(); mRecording=false; }
     bool IsValid()                  const override { return mDev!=nullptr; }
@@ -37,9 +37,11 @@ public:
     // =========================================================================
     // Render Pass
     // =========================================================================
-    void BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb,
+    bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb,
                           const NkRect2D& area) override {
+        if (!mRecording || !fb.IsValid() || !rp.IsValid() || area.width <= 0 || area.height <= 0) return false;
         Push([=]{ GL_BeginRenderPass(rp,fb,area); });
+        return true;
     }
     void EndRenderPass() override {
         Push([]{ /* GL : rien à faire — FBO reste actif jusqu'au prochain bind */ });

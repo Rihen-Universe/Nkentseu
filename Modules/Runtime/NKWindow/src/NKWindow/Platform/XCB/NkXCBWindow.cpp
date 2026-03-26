@@ -18,7 +18,7 @@
 #include "NKWindow/Platform/XCB/NkXCBDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Events/NkEventSystem.h"
+#include "NKEvent/NkEventSystem.h"
 #include "NKCore/NkAtomic.h"
 
 #include <xcb/xcb.h>

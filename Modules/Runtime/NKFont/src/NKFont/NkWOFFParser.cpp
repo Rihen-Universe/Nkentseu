@@ -33,7 +33,7 @@ namespace nkentseu {
 //  Inflate zlib (RFC 1951) — identique à la version d'origine
 // ─────────────────────────────────────────────────────────────────────────────
 
-static constexpr uint32 kWOFF2_SIGNATURE = 0x774F4632u; // 'wOF2'
+// kWOFF2_SIGNATURE already defined in NkWOFFParser.h
 
 // Tables Huffman Brotli standard (prefix codes)
 // Longueurs standard de l'alphabet de commande (256 littéraux + 704 codes de longueur/distance)
@@ -305,7 +305,7 @@ static const uint32 kWOFF2Tables[]={
     0x70726570u,0x42415345u,0x47444546u,0x47504f53u,
     0x47535542u,0x45424454u,0x63726e67u,0x66706766u,
     0x6b65726eu,0x4c545348u,0x4f53322fu,0x56484541u,
-    0x766d7478u,0x776f776fu,0x454254464fu,0
+    0x766d7478u,0x776f776fu,0x45425446u,0
 };
 
 struct WOFF2TableEntry {

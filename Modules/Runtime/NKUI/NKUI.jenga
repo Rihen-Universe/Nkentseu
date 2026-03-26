@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKUI — Bibliothèque UI immediate-mode (C++17)
+=============================================
+Système UI complet sans dépendance externe :
+  • Contexte, thème, animations (tweens)
+  • DrawList vectoriel (triangles, texte, images)
+  • Layout flex-like (row, column, grid, split, scroll, tabs)
+  • Fenêtres flottantes avec titre, redimensionnement, scroll
+  • Système de docking (split, tabs, drag & drop)
+  • Widgets : Button, Checkbox, Slider, Input, Combo, Menu …
+  • Rendu software ou RHI via NkUIRenderer
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKUI"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs([
+        "src",
+        "pch",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKEvent.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKLogger.location}/src",
+    ])
+
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    dependson([
+        "NKPlatform",
+        "NKCore",
+        "NKMemory",
+        "NKMath",
+        "NKThreading",
+        "NKLogger",
+        "NKContainers",
+        "NKEvent",
+    ])
+
+    files([
+        "src/NkUI/NkUIAnimation.cpp",
+        "src/NkUI/NkUIContext.cpp",
+        "src/NkUI/NkUIDock.cpp",
+        "src/NkUI/NkUIDrawList.cpp",
+        "src/NkUI/NkUIFont.cpp",
+        "src/NkUI/NkUILayout.cpp",
+        "src/NkUI/NkUILayout2.cpp",
+        "src/NkUI/NkUIMenu.cpp",
+        "src/NkUI/NkUIMath.cpp",
+        "src/NkUI/NkUIRenderer.cpp",
+        "src/NkUI/NkUIWidgets.cpp",
+        "src/NkUI/NkUIWindow.cpp",
+        # Headers (pour IDEs)
+        "src/NkUI/**.h",
+        "pch/pch.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE",
+            "UNICODE",
+        ])
+
+    # ===== Linux headless =========================================================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        androidminsdk(21)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+
+    # ===== iOS ====================================================================
+    with filter("system:iOS"):
+        iosminsdk("13.0")
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    # ===== UWP ====================================================================
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_UWP"])
+
+    # ===== Xbox ===================================================================
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_XBOX"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    # Tests (desktop uniquement)
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            links(["NKUI", "NKMemory", "NKCore", "NKMath"])

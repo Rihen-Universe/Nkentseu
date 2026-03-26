@@ -64,12 +64,13 @@ with project("NKContext"):
         "%{NKMemory.location}/src",
         "%{NKWindow.location}/src",
         "%{NKThreading.location}/src",
+        "%{NKEvent.location}/src",
     ]
     if _VULKAN_INCLUDE:
         _CONTEXT_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
     includedirs(_CONTEXT_INCLUDE_DIRS)
 
-    dependson(["NKMath", "NKTime", "NKLogger", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"])
+    dependson(["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"])
     defines([
         "NK_NO_GLAD2",
         f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
