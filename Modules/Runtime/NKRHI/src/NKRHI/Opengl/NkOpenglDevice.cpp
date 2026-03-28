@@ -327,7 +327,12 @@ NkTextureHandle NkOpenGLDevice::CreateTexture(const NkTextureDesc& desc) {
                 glTextureStorage2D(id,mips,internal,desc.width,desc.height);
             break;
         case NkTextureType::NK_TEX2D_ARRAY:
+            glTextureStorage3D(id,mips,internal,desc.width,desc.height,desc.arrayLayers);
+            break;
         case NkTextureType::NK_CUBE:
+            // Cubemap immutable storage uses 2D allocation for the 6 faces.
+            glTextureStorage2D(id,mips,internal,desc.width,desc.height);
+            break;
         case NkTextureType::NK_CUBE_ARRAY:
             glTextureStorage3D(id,mips,internal,desc.width,desc.height,desc.arrayLayers);
             break;
@@ -448,14 +453,27 @@ GLuint NkOpenGLDevice::CompileGLStage(GLenum stage, const char* src) {
 NkShaderHandle NkOpenGLDevice::CreateShader(const NkShaderDesc& desc) {
     threading::NkScopedLock lock(mMutex);
     GLuint prog=glCreateProgram();
+    uint32 attachedCount = 0;
 
     for (uint32 i=0;i<desc.stages.Size();i++) {
         auto& s=desc.stages[i];
         const char* src = s.glslSource;
-        if (!src) { NK_GL_ERR("GL shader: missing GLSL source for stage %d\n",i); continue; }
+        // A shader descriptor may carry multiple language variants (GLSL/HLSL/MSL).
+        // OpenGL backend must only consume GLSL stages and silently skip the others.
+        if (!src || !src[0]) { continue; }
         GLenum glStage=ToGLShaderStage(s.stage);
         GLuint sh=CompileGLStage(glStage,src);
-        if (sh) { glAttachShader(prog,sh); glDeleteShader(sh); }
+        if (sh) {
+            glAttachShader(prog,sh);
+            glDeleteShader(sh);
+            ++attachedCount;
+        }
+    }
+
+    if (attachedCount == 0) {
+        NK_GL_ERR("GL shader: no GLSL stage provided\n");
+        glDeleteProgram(prog);
+        return {};
     }
 
     glLinkProgram(prog);

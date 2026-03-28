@@ -82,8 +82,8 @@ namespace nkentseu {
         SetViewport(vps[0]);
     }
     void NkSoftwareCommandBuffer::SetScissor(const NkRect2D& r) {
-        NkRect2D sc = r;
-        Push([sc](NkSoftwareDevice*) { (void)sc; });
+        mScissorRect = r;
+        mScissorEnabled = true;
     }
     void NkSoftwareCommandBuffer::SetScissors(const NkRect2D* r, uint32 n) {
         if (!r || n == 0) return;
@@ -135,33 +135,76 @@ namespace nkentseu {
     // =============================================================================
     // Draw — cœur du rasteriseur
     // =============================================================================
+    static void UnpackRGBA8(uint32 packed, NkSWVec4& outColor) {
+        outColor.r = static_cast<float32>((packed >> 0) & 0xFFu) / 255.f;
+        outColor.g = static_cast<float32>((packed >> 8) & 0xFFu) / 255.f;
+        outColor.b = static_cast<float32>((packed >> 16) & 0xFFu) / 255.f;
+        outColor.a = static_cast<float32>((packed >> 24) & 0xFFu) / 255.f;
+    }
+
     static NkSWVertex TransformVertex(const uint8* vdata, uint32 vidx, uint32 stride,
                                     NkSWShader* shader, const void* uniforms) {
-        if (shader && shader->vertFn)
+        if (shader && shader->vertFn) {
             return shader->vertFn(vdata, vidx, uniforms);
-        // Fallback : interpréter les 3 premiers floats comme position, 4 suivants comme couleur
-        NkSWVertex v;
+        }
+
+        NkSWVertex v{};
+        const uint8* src = vdata + static_cast<uint64>(vidx) * stride;
+
+        // UI fallback: float2 pos + float2 uv + uint32 packed color.
+        if (stride == 20) {
+            float32 px = 0.f;
+            float32 py = 0.f;
+            float32 u = 0.f;
+            float32 vv = 0.f;
+            uint32 packed = 0xFFFFFFFFu;
+            memcpy(&px, src + 0, 4);
+            memcpy(&py, src + 4, 4);
+            memcpy(&u, src + 8, 4);
+            memcpy(&vv, src + 12, 4);
+            memcpy(&packed, src + 16, 4);
+
+            float32 vpW = 0.f;
+            float32 vpH = 0.f;
+            if (uniforms) {
+                const float32* viewport = static_cast<const float32*>(uniforms);
+                vpW = viewport[0];
+                vpH = viewport[1];
+            }
+
+            if (vpW > 1.f && vpH > 1.f) {
+                const float32 ndcX = (px / vpW) * 2.f - 1.f;
+                const float32 ndcY = 1.f - (py / vpH) * 2.f;
+                v.position = {ndcX, ndcY, 0.f, 1.f};
+            } else {
+                v.position = {px, py, 0.f, 1.f};
+            }
+            v.uv = {u, vv};
+            UnpackRGBA8(packed, v.color);
+            return v;
+        }
+
+        // Generic fallback for non-UI pipelines.
         if (stride >= 12) {
-            memcpy(&v.position.x, vdata + vidx*stride,      4);
-            memcpy(&v.position.y, vdata + vidx*stride + 4,  4);
-            memcpy(&v.position.z, vdata + vidx*stride + 8,  4);
+            memcpy(&v.position.x, src + 0, 4);
+            memcpy(&v.position.y, src + 4, 4);
+            memcpy(&v.position.z, src + 8, 4);
             v.position.w = 1.f;
         }
         if (stride >= 28) {
-            memcpy(&v.color.r, vdata + vidx*stride + 12, 4);
-            memcpy(&v.color.g, vdata + vidx*stride + 16, 4);
-            memcpy(&v.color.b, vdata + vidx*stride + 20, 4);
-            memcpy(&v.color.a, vdata + vidx*stride + 24, 4);
+            memcpy(&v.color.r, src + 12, 4);
+            memcpy(&v.color.g, src + 16, 4);
+            memcpy(&v.color.b, src + 20, 4);
+            memcpy(&v.color.a, src + 24, 4);
         } else {
-            v.color = {1,1,1,1};
+            v.color = {1, 1, 1, 1};
         }
         if (stride >= 36) {
-            memcpy(&v.uv.x, vdata + vidx*stride + 28, 4);
-            memcpy(&v.uv.y, vdata + vidx*stride + 32, 4);
+            memcpy(&v.uv.x, src + 28, 4);
+            memcpy(&v.uv.y, src + 32, 4);
         }
         return v;
     }
-
     static const void* ResolveUniformData(NkSoftwareDevice* dev, uint64 descSetId) {
         if (!dev || descSetId == 0) return nullptr;
         auto* ds = dev->GetDescSet(descSetId);
@@ -181,13 +224,31 @@ namespace nkentseu {
         return nullptr;
     }
 
+    static const NkSWTexture* ResolveTextureData(NkSoftwareDevice* dev, uint64 descSetId) {
+        if (!dev || descSetId == 0) return nullptr;
+        auto* ds = dev->GetDescSet(descSetId);
+        if (!ds) return nullptr;
+
+        for (const auto& b : ds->bindings) {
+            if (b.type != NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER &&
+                b.type != NkDescriptorType::NK_SAMPLED_TEXTURE) {
+                continue;
+            }
+            if (b.texId == 0) continue;
+            return dev->GetTex(b.texId);
+        }
+        return nullptr;
+    }
+
     void NkSoftwareCommandBuffer::Draw(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
         const uint64 pipelineId = mBoundPipelineId;
         const uint64 descSetId = mBoundDescSetId;
         const uint64 vbId = mBoundVertexBufferIds[0];
         const uint64 vbOffset = mBoundVertexOffsets[0];
         const uint64 fbId = mCurrentFramebufferId;
-        Push([vtx, inst, firstVtx, firstInst, pipelineId, descSetId, vbId, vbOffset, fbId](NkSoftwareDevice* dev) {
+        const NkRect2D scissorRect = mScissorRect;
+        const bool scissorEnabled = mScissorEnabled;
+        Push([vtx, inst, firstVtx, firstInst, pipelineId, descSetId, vbId, vbOffset, fbId, scissorRect, scissorEnabled](NkSoftwareDevice* dev) {
             auto* pipe = dev->GetPipe(pipelineId);
             auto* sh   = pipe ? dev->GetShader(pipe->shaderId) : nullptr;
             auto* vb   = dev->GetBuf(vbId);
@@ -198,7 +259,10 @@ namespace nkentseu {
             if (!fbo) return;
             auto* color = dev->GetTex(fbo->colorId);
             auto* depth = dev->GetTex(fbo->depthId);
+            NkSWTexture* rasterTarget = color ? color : depth;
+            if (!rasterTarget) return;
             const void* uniformData = ResolveUniformData(dev, descSetId);
+            const NkSWTexture* textureData = ResolveTextureData(dev, descSetId);
 
             uint32 stride = pipe ? pipe->vertexStride : 32;
             if (stride == 0) {
@@ -227,12 +291,20 @@ namespace nkentseu {
             const uint8* vdata = vb->data.Data() + vbOffset;
 
             NkSWRasterizer raster;
+            raster.width = rasterTarget->Width();
+            raster.height = rasterTarget->Height();
+            raster.ResetClipRect();
+            if (scissorEnabled) {
+                raster.SetClipRect(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
+            }
+
             NkSWRasterState rs;
             rs.colorTarget = color;
             rs.depthTarget = depth;
             rs.pipeline    = pipe;
             rs.shader      = sh;
             rs.uniformData = uniformData;
+            rs.texSampler  = textureData;
             rs.vertexData  = vdata;
             rs.vertexStride= stride;
             raster.SetState(rs);
@@ -255,8 +327,10 @@ namespace nkentseu {
         const uint64 ibOffset = mBoundIndexOffset;
         const bool indexUint32 = mBoundIndexUint32;
         const uint64 fbId = mCurrentFramebufferId;
+        const NkRect2D scissorRect = mScissorRect;
+        const bool scissorEnabled = mScissorEnabled;
         Push([idx, inst, firstIdx, vtxOff, firstInst,
-            pipelineId, descSetId, vbId, vbOffset, ibId, ibOffset, indexUint32, fbId](NkSoftwareDevice* dev) {
+            pipelineId, descSetId, vbId, vbOffset, ibId, ibOffset, indexUint32, fbId, scissorRect, scissorEnabled](NkSoftwareDevice* dev) {
             auto* pipe = dev->GetPipe(pipelineId);
             auto* sh   = pipe ? dev->GetShader(pipe->shaderId) : nullptr;
             auto* vb   = dev->GetBuf(vbId);
@@ -268,7 +342,10 @@ namespace nkentseu {
             if (!fbo) return;
             auto* color = dev->GetTex(fbo->colorId);
             auto* depth = dev->GetTex(fbo->depthId);
+            NkSWTexture* rasterTarget = color ? color : depth;
+            if (!rasterTarget) return;
             const void* uniformData = ResolveUniformData(dev, descSetId);
+            const NkSWTexture* textureData = ResolveTextureData(dev, descSetId);
 
             uint32 stride  = pipe ? pipe->vertexStride : 32;
             if (stride == 0) {
@@ -309,12 +386,20 @@ namespace nkentseu {
             const uint8* idata = ib->data.Data() + ibOffset;
 
             NkSWRasterizer raster;
+            raster.width = rasterTarget->Width();
+            raster.height = rasterTarget->Height();
+            raster.ResetClipRect();
+            if (scissorEnabled) {
+                raster.SetClipRect(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
+            }
+
             NkSWRasterState rs;
             rs.colorTarget = color;
             rs.depthTarget = depth;
             rs.pipeline = pipe;
             rs.shader = sh;
             rs.uniformData = uniformData;
+            rs.texSampler = textureData;
             raster.SetState(rs);
 
             for (uint32 i = 0; i < inst; i++) {
@@ -459,6 +544,3 @@ namespace nkentseu {
     }
 
 } // namespace nkentseu
-
-
-

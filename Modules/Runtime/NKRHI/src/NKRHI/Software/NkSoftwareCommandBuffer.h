@@ -68,6 +68,8 @@ private:
         mBoundIndexBufferId = 0;
         mBoundIndexOffset = 0;
         mBoundIndexUint32 = true;
+        mScissorRect = {0, 0, 0, 0};
+        mScissorEnabled = false;
         for (uint32 i = 0; i < 8; ++i) {
             mBoundVertexBufferIds[i] = 0;
             mBoundVertexOffsets[i] = 0;
@@ -88,6 +90,8 @@ private:
     uint64 mBoundIndexBufferId = 0;
     uint64 mBoundIndexOffset = 0;
     bool   mBoundIndexUint32 = true;
+    NkRect2D mScissorRect = {0, 0, 0, 0};
+    bool mScissorEnabled = false;
 };
 
 } // namespace nkentseu

@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Theme, palette, metrics and animation tuning structures.
+ * Main data: Colors, spacing, radii, typography and style knobs.
+ * Change this file when: You add style options or theme presets.
+ */
 /**
  * @File    NkUITheme.h
  * @Brief   Thème NkUI — couleurs, mesures, polices, animations.

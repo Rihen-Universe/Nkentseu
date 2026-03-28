@@ -12,6 +12,7 @@
 //   • Lumières volumétriques (rayons divins)
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Mesh/NkMesh.h"
 #include "NKRenderer/Material/NkMaterial.h"
 #include "NKRenderer/Core/NkTexture.h"
@@ -25,11 +26,17 @@ namespace nkentseu {
         // Module d'émission
         // =============================================================================
         enum class NkEmitterShape : uint32 {
-            Point, Sphere, Box, Cone, Disk, Edge, Mesh
+            NK_POINT,
+            NK_SPHERE,
+            NK_BOX,
+            NK_CONE,
+            NK_DISK,
+            NK_EDGE,
+            NK_MESH
         };
 
         struct NkEmitterModule {
-            NkEmitterShape shape       = NkEmitterShape::Point;
+            NkEmitterShape shape       = NkEmitterShape::NK_POINT;
             NkVec3f        position    = {0,0,0};
             NkVec3f        rotation    = {0,0,0};
             float          radius      = 1.f;
@@ -169,7 +176,7 @@ namespace nkentseu {
             bool         randomStartFrame = true;
 
             // Rendu
-            NkBlendMode blendMode    = NkBlendMode::Additive;
+            NkBlendMode blendMode    = NkBlendMode::NK_ADDITIVE;
             bool        sortByDepth  = false;        // nécessaire pour alpha correct
             bool        castShadow   = false;
             float       emissiveBoost= 1.f;
@@ -253,7 +260,7 @@ namespace nkentseu {
             float     endWidth     = 0.f;
             NkColorGradient colorOverLife = NkColorGradient::WhiteToTransparent();
             NkTexture2D*    texture = nullptr;
-            NkBlendMode blendMode  = NkBlendMode::Additive;
+            NkBlendMode blendMode  = NkBlendMode::NK_ADDITIVE;
             bool      worldSpace   = true;
         };
 
@@ -387,6 +394,7 @@ namespace nkentseu {
                 NkPipelineHandle mTrailPipeline;
 
                 NkDescSetHandle  mLayout;
+                NkDescSetHandle  mDescSet;
                 NkBufferHandle   mCameraUBO;
 
                 NkTexture2D*     mDefaultParticleTex = nullptr;

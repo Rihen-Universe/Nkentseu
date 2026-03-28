@@ -10,6 +10,13 @@
  * - Mesure et rendu de texte (supporte UTF-8)
  * - Fallback intelligent entre atlas et bitmap
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Font rendering implementation and atlas integration.
+ * Main data: Glyph lookup, text quad emission, atlas upload paths.
+ * Change this file when: Text alignment, unicode support, or atlas behavior changes.
+ */
 #include "NkUI/NkUIFont.h"
 #include "NKMemory/NkFunction.h"
 #include "NKLogger/NkLog.h"

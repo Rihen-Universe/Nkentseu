@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Font abstraction and text rendering interface for NKUI.
+ * Main data: Glyph metrics, atlas hooks, text rendering API.
+ * Change this file when: Text shaping, glyph atlas, or font fallback changes.
+ */
 /**
  * @File    NkUIFont.h
  * @Brief   Système de polices NkUI — atlas, mesure, rendu.

@@ -2,6 +2,13 @@
  * @File    NkUIMenu.cpp
  * @Brief   MenuBar, Menu, MenuItem, Popup, Modal.
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Menu/popup/modal runtime implementation.
+ * Main data: Open/close policy, hover/click handling, popup layering.
+ * Change this file when: Menu visibility/focus/open-state regressions appear.
+ */
 #include "NkUI/NkUIMenu.h"
 #include <cstring>
 #include <cmath>
@@ -13,7 +20,9 @@ namespace nkentseu {
         //  Statics
         // ─────────────────────────────────────────────────────────────────────────────
         NkUIMenuState     NkUIMenu::sMenus[MAX_MENUS]  = {};
+        NkUIMenuState*    NkUIMenu::sMenuStack[MAX_MENUS] = {};
         int32             NkUIMenu::sMenuDepth          = 0;
+        NkUIID            NkUIMenu::sOpenTopLevelMenuId = NKUI_ID_NONE;
         NkRect            NkUIMenu::sMenuBarRect        = {};
         float32           NkUIMenu::sMenuBarCursorX     = 0.f;
         bool              NkUIMenu::sInMenuBar          = false;
@@ -24,16 +33,34 @@ namespace nkentseu {
         //  Helpers
         // ─────────────────────────────────────────────────────────────────────────────
 
-        void NkUIMenu::CloseAllMenus(NkUIContext&) noexcept {
-            for(int32 i=0;i<MAX_MENUS;++i) {
-                sMenus[i].open=false;
-                sMenus[sMenuDepth].itemCount = 0;
+        static float32 BaselineY(const NkRect& r, const NkUIFont& font) noexcept {
+            const float32 asc = (font.metrics.ascender > 0.f) ? font.metrics.ascender : (font.size * 0.8f);
+            const float32 descRaw = (font.metrics.descender >= 0.f) ? font.metrics.descender : -font.metrics.descender;
+            const float32 desc = (descRaw > 0.f) ? descRaw : (font.size * 0.2f);
+            const float32 lineH = (font.metrics.lineHeight > 0.f) ? font.metrics.lineHeight : (asc + desc);
+            const float32 top = r.y + (r.h - lineH) * 0.5f;
+            return top + asc;
+        }
+
+        void NkUIMenu::CloseAllMenus(NkUIContext& ctx) noexcept {
+            // Ferme proprement les clips des menus actuellement empilés.
+            while (sMenuDepth > 0) {
+                ctx.layers[NkUIContext::LAYER_POPUPS].PopClipRect();
+                sMenuStack[sMenuDepth - 1] = nullptr;
+                --sMenuDepth;
             }
-            sMenuDepth=0;
+            sOpenTopLevelMenuId = NKUI_ID_NONE;
+            for(int32 i=0;i<MAX_MENUS;++i) {
+                sMenus[i].open = false;
+                sMenus[i].itemCount = 0;
+                sMenuStack[i] = nullptr;
+            }
         }
 
         bool NkUIMenu::IsAnyMenuOpen(NkUIContext&) noexcept {
-            for(int32 i=0;i<sMenuDepth;++i) if(sMenus[i].open) return true;
+            for(int32 i=0;i<MAX_MENUS;++i) {
+                if (sMenus[i].open) return true;
+            }
             return false;
         }
 
@@ -54,7 +81,7 @@ namespace nkentseu {
             const NkColor bg=open?t.colors.accent:(hov&&enabled?t.colors.buttonHover:NkColor::Transparent());
             if(bg.a>0) dl.AddRectFilled(r,bg,t.metrics.cornerRadiusSm);
             const NkColor tc=!enabled?t.colors.textDisabled:(open||hov?t.colors.textOnAccent:t.colors.textPrimary);
-            font.RenderText(dl, {r.x + t.metrics.paddingX,r.y + (r.h- font.size) * 0.5f + font.metrics.ascender * 0.5f}, label, tc);
+            font.RenderText(dl, {r.x + t.metrics.paddingX, BaselineY(r, font)}, label, tc);
             return hov && enabled;
         }
 
@@ -80,17 +107,31 @@ namespace nkentseu {
 
         bool NkUIMenu::BeginMenuBar(NkUIContext& ctx,NkUIDrawList& dl,NkUIFont& font,NkRect rect) noexcept
         {
+            // Runtime stack strictement frame-local pour éviter les états "fantômes".
+            sMenuDepth = 0;
+            for (int32 i = 0; i < MAX_MENUS; ++i) {
+                sMenuStack[i] = nullptr;
+            }
             sMenuBarRect=rect; sMenuBarCursorX=rect.x+8.f; sInMenuBar=true;
             const auto& t=ctx.theme;
             dl.AddRectFilled(rect,t.colors.bgHeader);
             dl.AddLine({rect.x,rect.y+rect.h},{rect.x+rect.w,rect.y+rect.h},t.colors.border,1.f);
             (void)font;
-            // Si clic en dehors de la menubar et d'aucun panel → ferme tout
-            if(ctx.input.IsMouseClicked(0)&&!NkRectContains(rect,ctx.input.mousePos)&&!IsAnyMenuOpen(ctx)){
-                bool inPanel=false;
-                for(int32 i=0;i<sMenuDepth;++i)
-                    if(NkRectContains(sMenus[i].panelRect,ctx.input.mousePos)){inPanel=true;break;}
-                if(!inPanel) CloseAllMenus(ctx);
+            if (ctx.input.IsKeyPressed(NkKey::NK_ESCAPE)) {
+                CloseAllMenus(ctx);
+            }
+            // Clic en dehors de la menubar et des panneaux de menu -> ferme tout.
+            if(ctx.IsMouseClicked(0) && !NkRectContains(rect,ctx.input.mousePos)){
+                bool inPanel = false;
+                for (int32 i = 0; i < MAX_MENUS; ++i) {
+                    if (sMenus[i].open && NkRectContains(sMenus[i].panelRect, ctx.input.mousePos)) {
+                        inPanel = true;
+                        break;
+                    }
+                }
+                if(!inPanel) {
+                    CloseAllMenus(ctx);
+                }
             }
             return true;
         }
@@ -101,61 +142,103 @@ namespace nkentseu {
         //  BeginMenu
         // ─────────────────────────────────────────────────────────────────────────────
 
-        bool NkUIMenu::BeginMenu(NkUIContext& ctx,NkUIDrawList& dl,NkUIFont& font, const char* label, bool enabled) noexcept
+        bool NkUIMenu::BeginMenu(NkUIContext& ctx, NkUIDrawList& dl, NkUIFont& font, const char* label, bool enabled) noexcept
         {
-            const NkUIID id=ctx.GetID(label);
-            const float32 lw=font.MeasureWidth(label)+ctx.theme.metrics.paddingX*2;
+            NkUIID id = ctx.GetID(label);
+            if (sInMenuBar) {
+                // Les IDs de menubar doivent être isolés des widgets "normaux".
+                id = NkHash(label, 0x7f4a5d3bu);
+            }
+            const float32 lw = font.MeasureWidth(label)+ctx.theme.metrics.paddingX*2;
             NkRect btnR;
-            int32 depth=0;
+            int32 depth = 0;
 
             if(sInMenuBar){
-                btnR={sMenuBarCursorX,sMenuBarRect.y,lw,sMenuBarRect.h};
-                sMenuBarCursorX+=lw+4;
-                depth=0;
+                btnR = {sMenuBarCursorX,sMenuBarRect.y,lw,sMenuBarRect.h};
+                sMenuBarCursorX += lw+4;
+                depth = 0;
             } else {
                 // Sous-menu : item dans un panel existant
-                if(sMenuDepth<=0) return false;
-                const NkRect& pr=sMenus[sMenuDepth-1].panelRect;
-                btnR={pr.x+4,pr.y+8+(sMenus[sMenuDepth-1].rect.y)*ITEM_H,pr.w-8,ITEM_H};
-                depth=sMenuDepth;
+                if(sMenuDepth <= 0) return false;
+                NkUIMenuState* parent = sMenuStack[sMenuDepth - 1];
+                if (!parent) return false;
+                const NkRect& pr = parent->panelRect;
+                const float32 iy = pr.y + 8 + static_cast<float32>(parent->itemCount) * ITEM_H;
+                btnR = {pr.x + 4, iy, pr.w - 8, ITEM_H};
+                parent->itemCount += 1;
+                depth = sMenuDepth;
             }
 
             // Trouve ou crée l'entrée
-            NkUIMenuState* ms=nullptr;
-            for(int32 i=0;i<MAX_MENUS;++i) if(sMenus[i].id==id){ms=&sMenus[i];break;}
-            if(!ms) for(int32 i=0;i<MAX_MENUS;++i) if(!sMenus[i].id){ms=&sMenus[i];ms->id=id;break;}
+            NkUIMenuState* ms = nullptr;
+            for(int32 i = 0; i < MAX_MENUS; ++i) {
+                if(sMenus[i].id == id) { 
+                    ms=&sMenus[i];
+                    break;
+                }
+            }
+            if(!ms) {
+                for(int32 i=0;i<MAX_MENUS;++i) {
+                    if(!sMenus[i].id) {
+                        ms = &sMenus[i];
+                        ms->id = id;
+                        break;
+                    }
+                }
+            }
             if(!ms) return false;
 
-            ms->rect=btnR; ms->depth=depth;
+            ms->rect = btnR; 
+            ms->depth = depth;
 
-            const bool hov = DrawMenuButton(ctx,dl,font,label,btnR,ms->open,enabled);
+            if (sInMenuBar) {
+                ms->open = (sOpenTopLevelMenuId == id);
+            }
+
+            NkUIDrawList& menuDL = sInMenuBar ? dl : ctx.layers[NkUIContext::LAYER_POPUPS];
+            const bool hov = DrawMenuButton(ctx,menuDL,font,label,btnR,ms->open,enabled);
 
             // Flèche pour indiquer sous-menu si pas dans menubar
             if(!sInMenuBar){
-                dl.AddArrow({btnR.x+btnR.w-14,btnR.y+btnR.h*0.5f},6.f,0,ctx.theme.colors.textSecondary);
+                menuDL.AddArrow({btnR.x+btnR.w-14,btnR.y+btnR.h*0.5f},6.f,0,ctx.theme.colors.textSecondary);
             }
 
             // Toggle à l'hover en menubar (ou clic en sous-menu)
             if(sInMenuBar){
-                // En menubar : ouvre au clic, ou à l'hover si un autre menu est déjà ouvert
-                const bool anyOpen=IsAnyMenuOpen(ctx);
-                if(hov&&ctx.input.IsMouseClicked(0)) ms->open=!ms->open;
-                else if(hov&&anyOpen&&!ms->open){ CloseAllMenus(ctx); ms->open=true; }
+                // En menubar:
+                // - clic sur menu fermé   -> ouvre ce menu uniquement
+                // - clic sur menu ouvert  -> ferme tous les menus
+                // - hover pendant qu'un menu est ouvert -> bascule sur ce menu
+                const bool anyOpen = (sOpenTopLevelMenuId != NKUI_ID_NONE);
+                if (!enabled && sOpenTopLevelMenuId == id) {
+                    CloseAllMenus(ctx);
+                } else if (enabled && hov && ctx.ConsumeMouseClick(0)) {
+                    if (sOpenTopLevelMenuId == id) {
+                        CloseAllMenus(ctx);
+                    } else {
+                        CloseAllMenus(ctx);
+                        sOpenTopLevelMenuId = id;
+                    }
+                } else if (enabled && hov && anyOpen && sOpenTopLevelMenuId != id) {
+                    CloseAllMenus(ctx);
+                    sOpenTopLevelMenuId = id;
+                }
+                ms->open = enabled && (sOpenTopLevelMenuId == id);
             } else {
-                if(hov) ms->open=true;
+                if(hov && enabled) ms->open=true;
             }
 
             if(!ms->open) return false;
 
             // Calcule et dessine le panel
             // Compte les items (approximatif : on le fixe à 10 max pour le calcul initial)
-            ms->panelRect=CalcPanelRect(btnR,depth,10);
+            ms->panelRect = CalcPanelRect(btnR,depth,10);
             DrawMenuPanel(ctx,dl,*ms);
 
             // Empile
             if(sMenuDepth < MAX_MENUS) {
-                sMenus[sMenuDepth] = *ms;
-                sMenus[sMenuDepth].itemCount = 0;  // ← reset
+                sMenuStack[sMenuDepth] = ms;
+                ms->itemCount = 0;
                 ++sMenuDepth;
             }
             return true;
@@ -163,8 +246,10 @@ namespace nkentseu {
 
         void NkUIMenu::EndMenu(NkUIContext& ctx) noexcept {
             if(sMenuDepth>0){
-                sMenus[sMenuDepth].itemCount = 0;  // ← reset
+                NkUIMenuState* ms = sMenuStack[sMenuDepth - 1];
+                if (ms) ms->itemCount = 0;
                 ctx.layers[NkUIContext::LAYER_POPUPS].PopClipRect();
+                sMenuStack[sMenuDepth - 1] = nullptr;
                 --sMenuDepth;
             }
         }
@@ -178,46 +263,49 @@ namespace nkentseu {
                                 bool* selected,bool enabled) noexcept
         {
             if(sMenuDepth<=0) return false;
-            NkUIMenuState& ms=sMenus[sMenuDepth-1];
-            NkUIDrawList& pdl=ctx.layers[NkUIContext::LAYER_POPUPS];
+            NkUIMenuState* msPtr = sMenuStack[sMenuDepth - 1];
+            if (!msPtr) return false;
+            NkUIMenuState& ms = *msPtr;
+            NkUIDrawList& pdl = ctx.layers[NkUIContext::LAYER_POPUPS];
 
             // Position dans le panel
-            const NkRect pr=ms.panelRect;
-            const int32 itemIdx=ms.rect.y > 0 ? static_cast<int32>(ms.rect.y) : 0;
+            const NkRect pr = ms.panelRect;
+            const int32 itemIdx = ms.rect.y > 0 ? static_cast<int32>(ms.rect.y) : 0;
             (void)itemIdx;
             // Calcule Y depuis le début du panel
             // On compte les items ajoutés en utilisant un compteur stocké dans rect.y
-            const float32 iy=pr.y+8+static_cast<int32>(ms.itemCount)*ITEM_H;
-            const NkRect itemR={pr.x+4,iy,pr.w-8,ITEM_H};
+            const float32 iy = pr.y+8+static_cast<int32>(ms.itemCount)*ITEM_H;
+            const NkRect itemR = {pr.x+4,iy,pr.w-8,ITEM_H};
 
             // Avance le compteur
-            ms.itemCount+=1.f; // hack: on réutilise .w pour compter les items
+            ms.itemCount += 1;
 
-            const bool hov=ctx.IsHovered(itemR)&&enabled;
-            const bool act=hov&&ctx.input.IsMouseClicked(0);
+            const bool hov = ctx.IsHovered(itemR) && enabled;
+            const bool act = hov && ctx.ConsumeMouseClick(0);
 
             if(hov) pdl.AddRectFilled(itemR,ctx.theme.colors.accent,ctx.theme.metrics.cornerRadiusSm);
 
             // Checkmark si selected
-            if(selected&&*selected){
-                pdl.AddCheckMark({itemR.x+2,itemR.y+(itemR.h-10)*0.5f},10.f,
-                                hov?ctx.theme.colors.textOnAccent:ctx.theme.colors.accent);
+            if(selected && *selected){
+                pdl.AddCheckMark({itemR.x+2,itemR.y+(itemR.h-10)*0.5f},10.f, hov?ctx.theme.colors.textOnAccent:ctx.theme.colors.accent);
             }
 
             const NkColor tc=!enabled?ctx.theme.colors.textDisabled:
                                     (hov?ctx.theme.colors.textOnAccent:ctx.theme.colors.textPrimary);
-            font.RenderText(pdl,{itemR.x+18,itemR.y+(itemR.h-font.size)*0.5f+font.metrics.ascender*0.5f},
-                            label,tc);
+            const float32 y = BaselineY(itemR, font);
+            font.RenderText(pdl,{itemR.x+18, y}, label,tc);
 
             // Raccourci à droite
             if(shortcut&&*shortcut){
                 const float32 sw=font.MeasureWidth(shortcut);
-                font.RenderText(pdl,{itemR.x+itemR.w-sw-8,itemR.y+(itemR.h-font.size)*0.5f+font.metrics.ascender*0.5f},
+                font.RenderText(pdl,{itemR.x+itemR.w-sw-8, y},
                                 shortcut,!enabled?ctx.theme.colors.textDisabled:ctx.theme.colors.textSecondary);
             }
 
             if(act){
-                if(selected) *selected=!*selected;
+                if(selected) {
+                    *selected = !(*selected);
+                }
                 CloseAllMenus(ctx);
                 return true;
             }
@@ -227,12 +315,15 @@ namespace nkentseu {
 
         void NkUIMenu::Separator(NkUIContext& ctx,NkUIDrawList& dl) noexcept {
             if(sMenuDepth<=0){(void)dl;return;}
-            NkUIMenuState& ms=sMenus[sMenuDepth-1];
+            NkUIMenuState* msPtr = sMenuStack[sMenuDepth - 1];
+            if (!msPtr) { (void)dl; return; }
+            NkUIMenuState& ms=*msPtr;
             NkUIDrawList& pdl=ctx.layers[NkUIContext::LAYER_POPUPS];
             const NkRect pr=ms.panelRect;
             const float32 iy=pr.y+8+static_cast<int32>(ms.itemCount)*ITEM_H+ITEM_H*0.5f;
             pdl.AddLine({pr.x+8,iy},{pr.x+pr.w-8,iy},ctx.theme.colors.separator,1.f);
-            ms.itemCount+=0.5f;
+            // Le séparateur occupe une ligne logique dans la pile des items.
+            ms.itemCount += 1;
         }
 
         // ─────────────────────────────────────────────────────────────────────────────
@@ -252,10 +343,10 @@ namespace nkentseu {
         bool NkUIMenu::BeginContextMenu(NkUIContext& ctx,NkUIDrawList& dl,NkUIFont& font,const char* id) noexcept
         {
             // Ouvre automatiquement au clic droit
-            if(ctx.input.IsMouseClicked(1)) OpenContextMenu(ctx,id);
+            if(ctx.ConsumeMouseClick(1)) OpenContextMenu(ctx,id);
             if(!sContextMenuOpen||ctx.GetID(id)!=sContextMenuId) return false;
             // Ferme si clic gauche hors du menu
-            if(ctx.input.IsMouseClicked(0)){
+            if(ctx.IsMouseClicked(0)){
                 const NkRect mr={sContextMenuPos.x,sContextMenuPos.y,PANEL_W,200.f};
                 if(!NkRectContains(mr,ctx.input.mousePos)){sContextMenuOpen=false;return false;}
             }
@@ -269,6 +360,7 @@ namespace nkentseu {
             pdl.AddRect(ms.panelRect,ctx.theme.colors.border,1.f,ctx.theme.metrics.cornerRadius);
             pdl.PushClipRect(ms.panelRect);
             sMenuDepth=1;
+            sMenuStack[0] = &ms;
             (void)dl;(void)font;
             return true;
         }
@@ -276,6 +368,7 @@ namespace nkentseu {
         void NkUIMenu::EndContextMenu(NkUIContext& ctx) noexcept {
             if(sMenuDepth>0){
                 ctx.layers[NkUIContext::LAYER_POPUPS].PopClipRect();
+                sMenuStack[0] = nullptr;
                 sMenuDepth=0;
             }
         }
@@ -325,7 +418,7 @@ namespace nkentseu {
             // Ferme si Escape
             if(ctx.input.IsKeyPressed(NkKey::NK_ESCAPE)){pe->open=false;pdl.PopClipRect();return false;}
             // Ferme si clic hors du popup
-            if(ctx.input.IsMouseClicked(0)&&!NkRectContains(pr,ctx.input.mousePos)){
+            if(ctx.IsMouseClicked(0)&&!NkRectContains(pr,ctx.input.mousePos)){
                 pe->open=false;pdl.PopClipRect();return false;}
 
             if(sPopupDepth<MAX_POPUPS) ++sPopupDepth;
@@ -389,7 +482,7 @@ namespace nkentseu {
             if(xhov){
                 pdl.AddLine({xc.x-5,xc.y-5},{xc.x+5,xc.y+5},NkColor::White(),1.5f);
                 pdl.AddLine({xc.x+5,xc.y-5},{xc.x-5,xc.y+5},NkColor::White(),1.5f);
-                if(ctx.input.IsMouseClicked(0)){
+                if(ctx.ConsumeMouseClick(0)){
                     sModalOpen=false; if(open)*open=false;
                     (void)dl; return false;
                 }

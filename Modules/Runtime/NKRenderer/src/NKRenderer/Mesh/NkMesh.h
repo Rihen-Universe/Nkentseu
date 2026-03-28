@@ -83,7 +83,7 @@ namespace nkentseu {
             NkVector<uint32>      indices;
             NkVector<NkSubMesh>   subMeshes;
             NkVector<NkMaterial*> materials;
-            NkMeshTopology        topology = NkMeshTopology::Triangles;
+            NkMeshTopology        topology = NkMeshTopology::NK_TRIANGLES;
             NkAABB                aabb;
 
             // Recalculer les normales (si absentes ou incorrectes)
@@ -160,7 +160,7 @@ namespace nkentseu {
                 uint32            mVertexCount  = 0;
                 uint32            mIndexCount   = 0;
                 NkAABB            mAABB;
-                NkMeshTopology    mTopology     = NkMeshTopology::Triangles;
+                NkMeshTopology    mTopology     = NkMeshTopology::NK_TRIANGLES;
                 NkVector<NkSubMesh>   mSubMeshes;
                 NkVector<NkMaterial*> mMaterials;
                 NkVector<NkLODLevel>  mLODs;
@@ -212,7 +212,7 @@ namespace nkentseu {
                 NkVector<NkVertex3D> mCPUVerts;
                 NkVector<uint32>     mCPUIndices;
                 NkMaterial*    mMaterial     = nullptr;
-                NkMeshTopology mTopology     = NkMeshTopology::Triangles;
+                NkMeshTopology mTopology     = NkMeshTopology::NK_TRIANGLES;
         };
 
         // =============================================================================
@@ -406,7 +406,17 @@ namespace nkentseu {
                 NkIDevice*  mDevice = nullptr;
                 NkUnorderedMap<NkString, NkStaticMesh*> mByPath;
                 NkStaticMesh* mBuiltins[16] = {};
-                enum { CUBE=0, SPHERE, PLANE, CAPSULE, CYLINDER, CONE, TORUS, ARROW, SKYBOX };
+                enum {
+                    NK_CUBE = 0,
+                    NK_SPHERE,
+                    NK_PLANE,
+                    NK_CAPSULE,
+                    NK_CYLINDER,
+                    NK_CONE,
+                    NK_TORUS,
+                    NK_ARROW,
+                    NK_SKYBOX
+                };
 
                 NkStaticMesh* CreateBuiltin(uint32 type);
         };

@@ -4,11 +4,27 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Context lifecycle and state-machine implementation.
+ * Main data: BeginFrame/EndFrame, ID generation, theme/style handling.
+ * Change this file when: Frame sequencing or context behavior changes.
+ */
 #include "NkUI/NkUIContext.h"
 #include <cstring>
 #include <cstdio>
 namespace nkentseu {
     namespace nkui {
+
+        static NKUI_INLINE NkUIID MakeIDSeed(const NkUIContext& ctx) noexcept {
+            NkUIID seed = (ctx.idDepth > 0) ? ctx.idStack[ctx.idDepth - 1] : 2166136261u;
+            // Scope all generated widget IDs by current window to avoid cross-window collisions.
+            if (ctx.currentWindowId != NKUI_ID_NONE) {
+                seed = NkHashInt(static_cast<int32>(ctx.currentWindowId), seed);
+            }
+            return seed;
+        }
 
         // ─────────────────────────────────────────────────────────────────────────────
         //  Thèmes prédéfinis
@@ -124,12 +140,23 @@ namespace nkentseu {
         void NkUIContext::BeginFrame(const NkUIInputState& inp,float32 dt_) noexcept {
             input=inp; dt=dt_; time+=dt_;
             ++frameNum;
+            wheelConsumed = false;
+            wheelHConsumed = false;
+            for (int32 i = 0; i < 5; ++i) {
+                mouseClickConsumed[i] = false;
+                mouseReleaseConsumed[i] = false;
+            }
+            mouseCursor = NkUIMouseCursor::NK_ARROW;
             // Reset les DrawLists
             for(int32 i=0;i<LAYER_COUNT;++i) layers[i].Reset();
             dl=&layers[LAYER_WINDOWS];
             // Reset des états transitoires
             ClearHot();
             currentWindowId = NKUI_ID_NONE;
+            cursor = {0.f, 0.f};
+            cursorStart = cursor;
+            lineHeight = 0.f;
+            sameLine = false;
             // Advance les animations
             StepAnimations();
         }
@@ -144,16 +171,13 @@ namespace nkentseu {
         // ─────────────────────────────────────────────────────────────────────────────
 
         NkUIID NkUIContext::GetID(const char* str) const noexcept {
-            NkUIID seed=(idDepth>0)?idStack[idDepth-1]:2166136261u;
-            return NkHash(str,seed);
+            return NkHash(str, MakeIDSeed(*this));
         }
         NkUIID NkUIContext::GetID(int32 n) const noexcept {
-            NkUIID seed=(idDepth>0)?idStack[idDepth-1]:2166136261u;
-            return NkHashInt(n,seed);
+            return NkHashInt(n, MakeIDSeed(*this));
         }
         NkUIID NkUIContext::GetID(const void* p) const noexcept {
-            NkUIID seed=(idDepth>0)?idStack[idDepth-1]:2166136261u;
-            return NkHashPtr(p,seed);
+            return NkHashPtr(p, MakeIDSeed(*this));
         }
 
         void NkUIContext::PushID(const char* str) noexcept {

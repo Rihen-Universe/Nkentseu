@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Central immediate-mode context state declaration.
+ * Main data: IDs, focus/hot/active, layers, style stack, frame state.
+ * Change this file when: You modify global UI state lifecycle or context APIs.
+ */
 /**
  * @File    NkUIContext.h
  * @Brief   Contexte global NkUI — état de l'interface par frame.
@@ -38,6 +45,7 @@ namespace nkentseu {
         // Forward declarations (évite les inclusions circulaires)
         struct NkUIWindowManager;
         struct NkUILayoutStack;
+        struct NkUIFont;
 
         // Hash FNV-1a 32 bits (rapide, pas de collision pour les IDs UI)
         NKUI_INLINE NkUIID NkHash(const char* str, NkUIID seed=2166136261u) noexcept {
@@ -97,6 +105,17 @@ namespace nkentseu {
             union { float32 f = 0.f; NkColor col; } prev;
         };
 
+        // Mouse cursor hint exported by NKUI and consumed by platform adapters.
+        enum class NkUIMouseCursor : uint8 {
+            NK_ARROW = 0,
+            NK_TEXT_INPUT,
+            NK_HAND,
+            NK_RESIZE_NS,
+            NK_RESIZE_WE,
+            NK_RESIZE_NWSE,
+            NK_RESIZE_NESW
+        };
+
         // ─────────────────────────────────────────────────────────────────────────────
         //  NkUIContext
         // ─────────────────────────────────────────────────────────────────────────────
@@ -113,6 +132,11 @@ namespace nkentseu {
             float32         time     = 0.f;
             float32         dt       = 0.016f;
             uint64          frameNum = 0;
+            bool            wheelConsumed  = false;
+            bool            wheelHConsumed = false;
+            bool            mouseClickConsumed[5] = {};
+            bool            mouseReleaseConsumed[5] = {};
+            NkUIMouseCursor mouseCursor    = NkUIMouseCursor::NK_ARROW;
 
             // ── Thème ─────────────────────────────────────────────────────────────────
             NkUITheme  theme;
@@ -153,6 +177,7 @@ namespace nkentseu {
             // ── Shape overrides ───────────────────────────────────────────────────────
             NkUIShapeOverrideFn overrides[static_cast<int32>(NkUIWidgetType::NK_COUNT)] = {};
             const void*         overrideUD[static_cast<int32>(NkUIWidgetType::NK_COUNT)] = {};
+            NkUIFont*           activeFont = nullptr;
 
             // ─────────────────────────────────────────────────────────────────────────
             //  Cycle de vie
@@ -235,6 +260,34 @@ namespace nkentseu {
             void  Spacing(float32 pixels=-1.f) noexcept;
             NkVec2 GetCursor() const noexcept { return cursor; }
             NkVec2 GetCursorStart() const noexcept { return cursorStart; }
+            bool IsMouseClicked(int32 button = 0) const noexcept {
+                return button >= 0 && button < 5
+                    && input.IsMouseClicked(button)
+                    && !mouseClickConsumed[button];
+            }
+            bool IsMouseReleased(int32 button = 0) const noexcept {
+                return button >= 0 && button < 5
+                    && input.IsMouseReleased(button)
+                    && !mouseReleaseConsumed[button];
+            }
+            bool ConsumeMouseClick(int32 button = 0) noexcept {
+                if (!IsMouseClicked(button)) {
+                    return false;
+                }
+                mouseClickConsumed[button] = true;
+                return true;
+            }
+            bool ConsumeMouseRelease(int32 button = 0) noexcept {
+                if (!IsMouseReleased(button)) {
+                    return false;
+                }
+                mouseReleaseConsumed[button] = true;
+                return true;
+            }
+            void SetMouseCursor(NkUIMouseCursor cursor_) noexcept { mouseCursor = cursor_; }
+            NkUIMouseCursor GetMouseCursor() const noexcept { return mouseCursor; }
+            void SetActiveFont(NkUIFont* font) noexcept { activeFont = font; }
+            NkUIFont* GetActiveFont() const noexcept { return activeFont; }
 
             // ─────────────────────────────────────────────────────────────────────────
             //  Thème

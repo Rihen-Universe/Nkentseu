@@ -2,6 +2,13 @@
  * @File    NkUILayout.cpp
  * @Brief   Logique de layout — placement, scroll, splitter.
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Layout algorithms and scrollbar/split interaction logic.
+ * Main data: NextItemRect/AdvanceItem, scrollbars, splitter drag logic.
+ * Change this file when: Spacing, clipping, scrolling, or nested-layout bugs occur.
+ */
 #include "NkUI/NkUILayout.h"
 #include "NkUI/NkUIWindow.h"
 #include <cmath>
@@ -88,12 +95,16 @@ namespace nkentseu {
                     w=ResolveWidth(*node,{NkUIConstraint::NK_AUTO},wantW);
                     h=wantH;
                     // Limite à l'espace restant
-                    {const float32 rem=node->bounds.x+node->bounds.w-x-node->scrollX;
+                    {const float32 rem=node->bounds.x+node->bounds.w-x;
                     if(w>rem) w=rem;}
                     break;
                 case NkUILayoutType::NK_COLUMN:
                     // Vertical : pleine largeur par défaut
-                    w=(node->nextW.type==NkUIConstraint::NK_AUTO)?node->bounds.w:w;
+                    {
+                        float32 availW = node->bounds.x + node->bounds.w - x;
+                        if (availW < 1.f) availW = 1.f;
+                        w = (node->nextW.type == NkUIConstraint::NK_AUTO) ? availW : w;
+                    }
                     h=wantH;
                     break;
                 case NkUILayoutType::NK_GRID:
@@ -103,12 +114,13 @@ namespace nkentseu {
                     y=node->cursor.y-node->scrollY;
                     break;
                 case NkUILayoutType::NK_SCROLL:
-                    // w=(node->nextW.type==NkUIConstraint::NK_AUTO)?node->bounds.w:w;
-                    // h=wantH;
-                    // x et y depuis le cursor, mais offset par scrollY
-                    x = node->cursor.x;
-                    y = node->cursor.y - node->scrollY;  // ← applique le scroll ici
-                    w = (node->nextW.type == NkUIConstraint::NK_AUTO) ? node->bounds.w : w;
+                    x = node->cursor.x - node->scrollX;
+                    y = node->cursor.y - node->scrollY;
+                    {
+                        float32 availW = node->bounds.x + node->bounds.w - x;
+                        if (availW < 1.f) availW = 1.f;
+                        w = (node->nextW.type == NkUIConstraint::NK_AUTO) ? availW : w;
+                    }
                     h = wantH;
                     break;
                 default:
@@ -210,7 +222,7 @@ namespace nkentseu {
             dl.AddRectFilled(thumb,act||hov?c.scrollThumbHov:c.scrollThumb,m.cornerRadiusSm);
 
             // Interaction drag
-            if(hov&&ctx.input.IsMouseClicked(0)){
+            if(hov&&ctx.ConsumeMouseClick(0)){
                 ctx.SetActive(id);
             }
             if(act){
@@ -225,10 +237,13 @@ namespace nkentseu {
 
             // Molette souris
             const float32 wheelDelta = vertical ? ctx.input.mouseWheel : ctx.input.mouseWheelH;
-            if(canInteract&&ctx.IsHovered(track)&&wheelDelta!=0){
+            const bool wheelAvailable = vertical ? (!ctx.wheelConsumed) : (!ctx.wheelHConsumed);
+            if(canInteract&&ctx.IsHovered(track)&&wheelAvailable&&wheelDelta!=0){
                 scroll-=wheelDelta*m.itemHeight*3;
                 if(scroll<0) scroll=0;
                 if(scroll>maxScroll) scroll=maxScroll;
+                if (vertical) ctx.wheelConsumed = true;
+                else          ctx.wheelHConsumed = true;
             }
 
             return act;
@@ -262,8 +277,21 @@ namespace nkentseu {
             const bool act=ctx.IsActive(id);
 
             dl.AddRectFilled(splitter,hov||act?c.accentHover:c.separator);
+            const NkVec2 center={splitter.x+splitter.w*0.5f,splitter.y+splitter.h*0.5f};
+            const NkColor handleCol=(hov||act)?c.textOnAccent:c.textSecondary;
+            const float32 arrowSize=vertical?6.f:5.f;
+            if(vertical){
+                dl.AddArrow({center.x-3.f,center.y},arrowSize,2,handleCol);
+                dl.AddArrow({center.x+3.f,center.y},arrowSize,0,handleCol);
+            } else {
+                dl.AddArrow({center.x,center.y-3.f},arrowSize,3,handleCol);
+                dl.AddArrow({center.x,center.y+3.f},arrowSize,1,handleCol);
+            }
+            if(hov||act){
+                ctx.SetMouseCursor(vertical?NkUIMouseCursor::NK_RESIZE_WE:NkUIMouseCursor::NK_RESIZE_NS);
+            }
 
-            if(hov&&ctx.input.IsMouseClicked(0)) ctx.SetActive(id);
+            if(hov&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
             if(act){
                 const float32 d=vertical
                     ?(ctx.input.mousePos.x-rect.x)/rect.w

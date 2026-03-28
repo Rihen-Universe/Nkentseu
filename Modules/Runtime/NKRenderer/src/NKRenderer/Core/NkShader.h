@@ -3,6 +3,7 @@
 // NkShader.h — Shader compilé + pipeline graphics/compute haut niveau.
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
+#include "NKMemory/NkSharedPtr.h"
 #include "NKRHI/Core/NkIDevice.h"
 
 namespace nkentseu {
@@ -10,7 +11,7 @@ namespace nkentseu {
     // =========================================================================
     // NkShaderSource — sources multi-API pour un shader program
     // =========================================================================
-    struct NKRENDERER_API NkShaderSource {
+    struct NkShaderSource {
         // GLSL (OpenGL / Vulkan + glslang)
         const char* vertexGLSL   = nullptr;
         const char* fragmentGLSL = nullptr;
@@ -83,7 +84,7 @@ namespace nkentseu {
     // =========================================================================
     // NkShader — encapsule un NkShaderHandle compilé (prêt pour le pipeline)
     // =========================================================================
-    class NKRENDERER_API NkShader {
+    class NkShader {
         public:
             NkShader()  = default;
             ~NkShader() { Destroy(); }
@@ -110,7 +111,7 @@ namespace nkentseu {
     // =========================================================================
     // NkPipeline — pipeline graphique compilé (shader + état)
     // =========================================================================
-    class NKRENDERER_API NkPipeline {
+    class NkPipeline {
         public:
             NkPipeline()  = default;
             ~NkPipeline() { Destroy(); }

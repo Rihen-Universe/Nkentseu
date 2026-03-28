@@ -16,6 +16,22 @@
 namespace nkentseu {
     namespace renderer {
 
+        // =========================================================================
+        // NkTextureDesc — description de création (haut niveau)
+        // =========================================================================
+        struct NkTextureCreateDesc {
+            const char*     name        = nullptr;
+            NkGPUFormat     format      = NkGPUFormat::NK_RGBA8_SRGB;
+            uint32          width       = 1;
+            uint32          height      = 1;
+            uint32          mipLevels   = 0;   // 0 = génère toute la mip chain
+            NkSampleCount   samples     = NkSampleCount::NK_S1;
+            bool            isRenderTarget = false;
+            bool            isDepthBuffer  = false;
+            // Sampler par défaut
+            NkSamplerDesc   sampler     = NkSamplerDesc::Linear();
+        };
+
         // =============================================================================
         // Paramètres de création d'une texture
         // =============================================================================

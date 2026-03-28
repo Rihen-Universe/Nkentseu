@@ -37,6 +37,12 @@ namespace nkentseu {
             NkString  glslTCSrc;    // Tessellation Control
             NkString  glslTESrc;    // Tessellation Evaluation
             NkString  glslCompSrc;  // Compute
+            NkString  glslVkVertSrc;
+            NkString  glslVkFragSrc;
+            NkString  glslVkGeomSrc;
+            NkString  glslVkTCSrc;    // Tessellation Control
+            NkString  glslVkTESrc;    // Tessellation Evaluation
+            NkString  glslVkCompSrc;  // Compute
             NkString  hlslSrc;      // HLSL unifié (VS + PS dans le même fichier)
             NkString  hlslVSSrc;    // HLSL VS séparé
             NkString  hlslPSSrc;    // HLSL PS séparé
@@ -133,6 +139,7 @@ namespace nkentseu {
                 NkShaderAssetDesc      mDesc;
                 NkShaderHandle         mDefaultShader;
                 NkVector<VariantEntry> mVariants;
+                mutable NkVector<NkString> mBuildSourceCache; // Stable storage for C-string pointers passed to NkShaderDesc
                 NkShaderAssetID        mID;
                 static uint64          sIDCounter;
 
@@ -145,68 +152,88 @@ namespace nkentseu {
         // =============================================================================
         namespace NkBuiltinShaders {
             // Jeux vidéo / temps réel
-            const char* PBR_Metallic_Vert();   // Vertex PBR standard
-            const char* PBR_Metallic_Frag();   // Fragment PBR Metallic/Roughness
-            const char* PBR_SpecGloss_Frag();  // Fragment PBR Specular/Glossiness
-            const char* Principled_Frag();     // Disney Principled BSDF
-            const char* Unlit_Vert();
-            const char* Unlit_Frag();
-            const char* Toon_Frag();           // Cel shading
-            const char* Subsurface_Frag();     // SSS approximé
-            const char* Hair_Frag();           // Marschner
-            const char* Cloth_Frag();          // Ashikhmin
-            const char* Eye_Frag();            // Yeux
-            const char* Water_Frag();          // Eau
-            const char* Glass_Frag();          // Verre
+            const char* PBRMetallicVert();   // Vertex PBR standard
+            const char* PBRMetallicFrag();   // Fragment PBR Metallic/Roughness
+            const char* PBRSpecGlossFrag();  // Fragment PBR Specular/Glossiness
+            const char* PrincipledFrag();     // Disney Principled BSDF
+            const char* UnlitVert();
+            const char* UnlitFrag();
+            const char* ToonFrag();           // Cel shading
+            const char* SubsurfaceFrag();     // SSS approximé
+            const char* HairFrag();           // Marschner
+            const char* ClothFrag();          // Ashikhmin
+            const char* EyeFrag();            // Yeux
+            const char* WaterFrag();          // Eau
+            const char* GlassFrag();          // Verre
 
             // Utilitaires
-            const char* ShadowDepth_Vert();
-            const char* ShadowDepth_Frag();
-            const char* DepthOnly_Vert();
-            const char* DepthOnly_Frag();
-            const char* Skybox_Vert();
-            const char* Skybox_Frag();
-            const char* Wireframe_Geom();      // Geometry shader wireframe
+            const char* ShadowDepthVert();
+            const char* ShadowDepthFrag();
+            const char* DepthOnlyVert();
+            const char* DepthOnlyFrag();
+            const char* Basic3DVert();       // Shader 3D compatible layout Scene/Object minimal
+            const char* Basic3DFrag();
+            const char* Basic3DVertVK();     // Variante Vulkan (set/binding explicites)
+            const char* Basic3DFragVK();
+            const char* Basic3DVertHLSL();
+            const char* Basic3DFragHLSL();
+            const char* Basic3DVertMSL();
+            const char* Basic3DFragMSL();
+            const char* SkyboxVert();
+            const char* SkyboxFrag();
+            const char* WireframeGeom();      // Geometry shader wireframe
 
             // Post-processing
-            const char* Fullscreen_Vert();     // Quad plein écran
-            const char* Tonemap_Frag();        // Tonemapping (ACES, Reinhard, Filmic)
-            const char* Bloom_Frag();
-            const char* FXAA_Frag();
-            const char* SSAO_Frag();
-            const char* SSR_Frag();            // Screen Space Reflections
-            const char* DOF_Frag();            // Depth of Field
-            const char* MotionBlur_Frag();
-            const char* VignetteChromatic_Frag();
-            const char* ColorGrade_Frag();     // LUT 3D color grading
+            const char* FullscreenVert();     // Quad plein écran
+            const char* TonemapFrag();        // Tonemapping (ACES, Reinhard, Filmic)
+            const char* BloomFrag();
+            const char* FXAAFrag();
+            const char* SSAOFrag();
+            const char* SSRFrag();            // Screen Space Reflections
+            const char* DOFFrag();            // Depth of Field
+            const char* MotionBlurFrag();
+            const char* VignetteChromaticFrag();
+            const char* ColorGradeFrag();     // LUT 3D color grading
 
             // 2D / UI
-            const char* Sprite_Vert();
-            const char* Sprite_Frag();
-            const char* Text2D_Vert();
-            const char* Text2D_Frag();
-            const char* Shape2D_Vert();
-            const char* Shape2D_Frag();
+            const char* SpriteVert();
+            const char* SpriteFrag();
+            const char* SpriteVertVK();      // Variante GLSL orientee Vulkan
+            const char* SpriteFragVK();      // Variante GLSL orientee Vulkan
+            const char* SpriteVertHLSL();
+            const char* SpriteFragHLSL();
+            const char* SpriteVertMSL();
+            const char* SpriteFragMSL();
+            const char* Text2DVert();
+            const char* Text2DFrag();
+            const char* Shape2DVert();
+            const char* Shape2DFrag();
+            const char* Shape2DVertVK();     // Variante GLSL orientee Vulkan
+            const char* Shape2DFragVK();     // Variante GLSL orientee Vulkan
+            const char* Shape2DVertHLSL();
+            const char* Shape2DFragHLSL();
+            const char* Shape2DVertMSL();
+            const char* Shape2DFragMSL();
 
             // 3D Text
-            const char* Text3D_Vert();
-            const char* Text3D_Frag();
+            const char* Text3DVert();
+            const char* Text3DFrag();
 
             // IBL
-            const char* EquirectToCube_Vert();
-            const char* EquirectToCube_Frag();
-            const char* Irradiance_Vert();
-            const char* Irradiance_Frag();
-            const char* Prefilter_Vert();
-            const char* Prefilter_Frag();
-            const char* BRDF_LUT_Vert();
-            const char* BRDF_LUT_Frag();
+            const char* EquirectToCubeVert();
+            const char* EquirectToCubeFrag();
+            const char* IrradianceVert();
+            const char* IrradianceFrag();
+            const char* PrefilterVert();
+            const char* PrefilterFrag();
+            const char* BRDFLUTVert();
+            const char* BRDFLUTFrag();
 
             // Particules / VFX
-            const char* Particle_Vert();
-            const char* Particle_Frag();
-            const char* Trail_Vert();
-            const char* Trail_Frag();
+            const char* ParticleVert();
+            const char* ParticleFrag();
+            const char* TrailVert();
+            const char* TrailFrag();
         }
 
         // =============================================================================
@@ -214,7 +241,7 @@ namespace nkentseu {
         // =============================================================================
 
         // ── UBO commun à tous les shaders de scène ────────────────────────────────
-        static constexpr const char* kGLSL_SceneUBO = R"GLSL(
+        static constexpr const char* kGLSLSceneUBO = R"GLSL(
         layout(std140, binding = 0) uniform SceneUBO {
             mat4  view;
             mat4  proj;
@@ -232,7 +259,7 @@ namespace nkentseu {
         )GLSL";
 
         // ── UBO par objet ─────────────────────────────────────────────────────────
-        static constexpr const char* kGLSL_ObjectUBO = R"GLSL(
+        static constexpr const char* kGLSLObjectUBO = R"GLSL(
         layout(std140, binding = 1) uniform ObjectUBO {
             mat4  model;
             mat4  modelViewProj;
@@ -242,7 +269,7 @@ namespace nkentseu {
         )GLSL";
 
         // ── UBO par matériau ──────────────────────────────────────────────────────
-        static constexpr const char* kGLSL_MaterialUBO = R"GLSL(
+        static constexpr const char* kGLSLMaterialUBO = R"GLSL(
         layout(std140, binding = 2) uniform MaterialUBO {
             // PBR params
             vec4  albedo;          // rgb=couleur, a=alpha
@@ -268,7 +295,7 @@ namespace nkentseu {
         )GLSL";
 
         // ── PBR Fragment complet ──────────────────────────────────────────────────
-        static constexpr const char* kGLSL_PBR_Frag = R"GLSL(
+        static constexpr const char* kGLSLPBRFrag = R"GLSL(
         #version 460 core
 
         // --- Inputs ---
@@ -284,9 +311,9 @@ namespace nkentseu {
         layout(location = 0) out vec4 fragColor;
 
         // --- UBOs ---
-        )" NKSTR(kGLSL_SceneUBO) R"GLSL(
-        )" NKSTR(kGLSL_ObjectUBO) R"GLSL(
-        )" NKSTR(kGLSL_MaterialUBO) R"GLSL(
+        )" NKSTR(kGLSLSceneUBO) R"GLSL(
+        )" NKSTR(kGLSLObjectUBO) R"GLSL(
+        )" NKSTR(kGLSLMaterialUBO) R"GLSL(
 
         // --- Textures ---
         layout(binding = 3)  uniform sampler2D       uAlbedoMap;
@@ -297,14 +324,14 @@ namespace nkentseu {
         layout(binding = 8)  uniform sampler2DShadow uShadowMap;
         layout(binding = 9)  uniform samplerCube     uIrradianceMap; // IBL diffuse
         layout(binding = 10) uniform samplerCube     uPrefilterMap;  // IBL specular
-        layout(binding = 11) uniform sampler2D       uBRDF_LUT;      // IBL BRDF LUT
+        layout(binding = 11) uniform sampler2D       uBRDFLUT;      // IBL BRDF LUT
         layout(binding = 12) uniform sampler3D       uColorLUT;      // Color grading LUT
 
         // =============================================================================
         // Constantes
         // =============================================================================
         const float PI = 3.14159265359;
-        const float INV_PI = 0.31830988618;
+        const float INVPI = 0.31830988618;
         const float EPSILON = 1e-5;
 
         // =============================================================================
@@ -348,7 +375,7 @@ namespace nkentseu {
         // Normal Mapping
         // =============================================================================
         vec3 GetNormal(vec2 uv) {
-        #ifdef USE_NORMAL_MAP
+        #ifdef USENORMALMAP
             vec3 tn = texture(uNormalMap, uv).rgb * 2.0 - 1.0;
             mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
             return normalize(TBN * tn);
@@ -360,7 +387,7 @@ namespace nkentseu {
         // =============================================================================
         // Parallax Occlusion Mapping
         // =============================================================================
-        #ifdef USE_PARALLAX_MAP
+        #ifdef USEPARALLAXMAP
         vec2 ParallaxMapping(vec2 uv, vec3 viewDir) {
             const float heightScale = material.flags2.y;
             const int   numLayers   = 32;
@@ -401,16 +428,16 @@ namespace nkentseu {
         // =============================================================================
         // IBL (Image Based Lighting)
         // =============================================================================
-        vec3 IBL_Diffuse(vec3 N, vec3 albedo, float ao) {
+        vec3 IBLDiffuse(vec3 N, vec3 albedo, float ao) {
             vec3 irradiance = texture(uIrradianceMap, N).rgb;
             return irradiance * albedo * ao;
         }
 
-        vec3 IBL_Specular(vec3 N, vec3 V, vec3 F0, float roughness, float ao) {
+        vec3 IBLSpecular(vec3 N, vec3 V, vec3 F0, float roughness, float ao) {
             vec3 R = reflect(-V, N);
-            const float MAX_REFLECTION_LOD = 4.0;
-            vec3 prefilteredColor = textureLod(uPrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-            vec2 brdf = texture(uBRDF_LUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+            const float MAXREFLECTIONLOD = 4.0;
+            vec3 prefilteredColor = textureLod(uPrefilterMap, R, roughness * MAXREFLECTIONLOD).rgb;
+            vec2 brdf = texture(uBRDFLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
             vec3 F = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
             return prefilteredColor * (F * brdf.x + brdf.y) * ao;
         }
@@ -422,7 +449,7 @@ namespace nkentseu {
             // UV avec tiling/offset
             vec2 uv = vUV0 * material.uvTilingOffset.xy + material.uvTilingOffset.zw;
 
-        #ifdef USE_PARALLAX_MAP
+        #ifdef USEPARALLAXMAP
             vec3 viewTangent = normalize(/* tbd */vec3(0));
             uv = ParallaxMapping(uv, viewTangent);
         #endif
@@ -462,8 +489,8 @@ namespace nkentseu {
             vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
             // --- IBL (éclairage ambiant global) ---
-            vec3 ambient = IBL_Diffuse(N, albedo * (1.0 - metallic), ao)
-                        + IBL_Specular(N, V, F0, roughness, ao);
+            vec3 ambient = IBLDiffuse(N, albedo * (1.0 - metallic), ao)
+                        + IBLSpecular(N, V, F0, roughness, ao);
 
             // --- Éclairage direct (lumières de scène) ---
             // Simplifié: 1 lumière directionnelle principale avec shadow
@@ -485,13 +512,13 @@ namespace nkentseu {
 
                 float NdotL = max(dot(N, L), 0.0);
                 float shadow = ShadowPCF(vShadowCoord, mix(0.005, 0.0005, NdotL));
-                Lo += (kD * albedo * INV_PI + specular) * radiance * NdotL * max(shadow, 0.3);
+                Lo += (kD * albedo * INVPI + specular) * radiance * NdotL * max(shadow, 0.3);
             }
 
             vec3 color = ambient * scene.ambientColor.w + Lo + emissive;
 
             // Color grading LUT
-        #ifdef USE_COLOR_LUT
+        #ifdef USECOLORLUT
             vec3 lutUV = clamp(color, 0.0, 1.0);
             color = texture(uColorLUT, lutUV * (15.0/16.0) + 0.5/16.0).rgb;
         #endif
@@ -501,7 +528,7 @@ namespace nkentseu {
         )GLSL";
 
         // ── PBR Vertex ────────────────────────────────────────────────────────────
-        static constexpr const char* kGLSL_PBR_Vert = R"GLSL(
+        static constexpr const char* kGLSLPBRVert = R"GLSL(
         #version 460 core
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec3 aNormal;
@@ -513,8 +540,8 @@ namespace nkentseu {
         layout(location = 7) in vec4 aJoints;
         layout(location = 8) in vec4 aWeights;
 
-        )" NKSTR(kGLSL_SceneUBO) R"GLSL(
-        )" NKSTR(kGLSL_ObjectUBO) R"GLSL(
+        )" NKSTR(kGLSLSceneUBO) R"GLSL(
+        )" NKSTR(kGLSLObjectUBO) R"GLSL(
 
         layout(location = 0) out vec3 vWorldPos;
         layout(location = 1) out vec3 vNormal;
@@ -525,7 +552,7 @@ namespace nkentseu {
         layout(location = 6) out vec4 vColor;
         layout(location = 7) out vec4 vShadowCoord;
 
-        #ifdef USE_SKINNING
+        #ifdef USESKINNING
         layout(std430, binding = 13) readonly buffer SkinMatrices {
             mat4 bones[];
         };
@@ -534,7 +561,7 @@ namespace nkentseu {
         void main() {
             vec4 localPos = vec4(aPos, 1.0);
 
-        #ifdef USE_SKINNING
+        #ifdef USESKINNING
             mat4 skinMatrix =
                 aWeights.x * bones[int(aJoints.x)] +
                 aWeights.y * bones[int(aJoints.y)] +
@@ -563,12 +590,12 @@ namespace nkentseu {
         )GLSL";
 
         // ── Unlit Vertex / Fragment ───────────────────────────────────────────────
-        static constexpr const char* kGLSL_Unlit_Vert = R"GLSL(
+        static constexpr const char* kGLSLUnlitVert = R"GLSL(
         #version 460 core
         layout(location = 0) in vec3  aPos;
         layout(location = 4) in vec2  aUV0;
         layout(location = 6) in vec4  aColor;
-        )" NKSTR(kGLSL_ObjectUBO) R"GLSL(
+        )" NKSTR(kGLSLObjectUBO) R"GLSL(
         layout(location = 0) out vec2 vUV;
         layout(location = 1) out vec4 vColor;
         void main() {
@@ -578,12 +605,12 @@ namespace nkentseu {
         }
         )GLSL";
 
-        static constexpr const char* kGLSL_Unlit_Frag = R"GLSL(
+        static constexpr const char* kGLSLUnlitFrag = R"GLSL(
         #version 460 core
         layout(location = 0) in vec2  vUV;
         layout(location = 1) in vec4  vColor;
         layout(binding = 3) uniform sampler2D uAlbedoMap;
-        )" NKSTR(kGLSL_MaterialUBO) R"GLSL(
+        )" NKSTR(kGLSLMaterialUBO) R"GLSL(
         layout(location = 0) out vec4 fragColor;
         void main() {
             vec4 tex = (material.flags.x > 0.5) ? texture(uAlbedoMap, vUV) : vec4(1.0);
@@ -593,8 +620,356 @@ namespace nkentseu {
         }
         )GLSL";
 
+        // —— Basic 3D (layout scene/object minimal) ————————————————————————————————
+        static constexpr const char* kGLSLBasic3DVert = R"GLSL(
+        #version 460 core
+        layout(location = 0) in vec3 aPos;
+        layout(location = 1) in vec3 aNormal;
+        layout(location = 2) in vec3 aTangent;
+        layout(location = 3) in vec3 aBitangent;
+        layout(location = 4) in vec2 aUV0;
+        layout(location = 5) in vec2 aUV1;
+        layout(location = 6) in vec4 aColor;
+        layout(location = 7) in vec4 aJoints;
+        layout(location = 8) in vec4 aWeights;
+
+        layout(std140, binding = 0) uniform SceneUBO {
+            mat4 view;
+            mat4 proj;
+            mat4 viewProj;
+            vec4 cameraPos;
+            vec4 ambient;
+        } scene;
+
+        layout(std140, binding = 1) uniform ObjectUBO {
+            mat4 model;
+        } object;
+
+        layout(location = 0) out vec3 vNormal;
+        layout(location = 1) out vec4 vColor;
+
+        void main() {
+            vec4 world = object.model * vec4(aPos, 1.0);
+            gl_Position = scene.viewProj * world;
+            vNormal = normalize((object.model * vec4(aNormal, 0.0)).xyz);
+            vColor = aColor;
+        }
+        )GLSL";
+
+        static constexpr const char* kGLSLBasic3DFrag = R"GLSL(
+        #version 460 core
+        layout(std140, binding = 0) uniform SceneUBO {
+            mat4 view;
+            mat4 proj;
+            mat4 viewProj;
+            vec4 cameraPos;
+            vec4 ambient;
+        } scene;
+
+        layout(location = 0) in vec3 vNormal;
+        layout(location = 1) in vec4 vColor;
+        layout(location = 0) out vec4 fragColor;
+
+        void main() {
+            vec3 n = normalize(vNormal);
+            float ndl = max(dot(n, normalize(vec3(0.35, 0.8, 0.2))), 0.15);
+            vec3 amb = scene.ambient.rgb * scene.ambient.a;
+            vec3 lit = amb + vec3(ndl);
+            fragColor = vec4(vColor.rgb * lit, vColor.a);
+        }
+        )GLSL";
+
+        static constexpr const char* kGLSLVulkanBasic3DVert = R"GLSL(
+        #version 450
+        layout(location = 0) in vec3 aPos;
+        layout(location = 1) in vec3 aNormal;
+        layout(location = 2) in vec3 aTangent;
+        layout(location = 3) in vec3 aBitangent;
+        layout(location = 4) in vec2 aUV0;
+        layout(location = 5) in vec2 aUV1;
+        layout(location = 6) in vec4 aColor;
+        layout(location = 7) in vec4 aJoints;
+        layout(location = 8) in vec4 aWeights;
+
+        layout(set = 0, binding = 0, std140) uniform SceneUBO {
+            mat4 view;
+            mat4 proj;
+            mat4 viewProj;
+            vec4 cameraPos;
+            vec4 ambient;
+        } scene;
+
+        layout(set = 0, binding = 1, std140) uniform ObjectUBO {
+            mat4 model;
+        } object;
+
+        layout(location = 0) out vec3 vNormal;
+        layout(location = 1) out vec4 vColor;
+
+        void main() {
+            vec4 world = object.model * vec4(aPos, 1.0);
+            gl_Position = scene.viewProj * world;
+            vNormal = normalize((object.model * vec4(aNormal, 0.0)).xyz);
+            vColor = aColor;
+        }
+        )GLSL";
+
+        static constexpr const char* kGLSLVulkanBasic3DFrag = R"GLSL(
+        #version 450
+        layout(set = 0, binding = 0, std140) uniform SceneUBO {
+            mat4 view;
+            mat4 proj;
+            mat4 viewProj;
+            vec4 cameraPos;
+            vec4 ambient;
+        } scene;
+
+        layout(location = 0) in vec3 vNormal;
+        layout(location = 1) in vec4 vColor;
+        layout(location = 0) out vec4 fragColor;
+
+        void main() {
+            vec3 n = normalize(vNormal);
+            float ndl = max(dot(n, normalize(vec3(0.35, 0.8, 0.2))), 0.15);
+            vec3 amb = scene.ambient.rgb * scene.ambient.a;
+            vec3 lit = amb + vec3(ndl);
+            fragColor = vec4(vColor.rgb * lit, vColor.a);
+        }
+        )GLSL";
+
+        static constexpr const char* kHLSLBasic3DVert = R"HLSL(
+cbuffer SceneUBO : register(b0) {
+    float4x4 view;
+    float4x4 proj;
+    float4x4 viewProj;
+    float4 cameraPos;
+    float4 ambient;
+};
+cbuffer ObjectUBO : register(b1) {
+    float4x4 model;
+};
+
+struct VSIn {
+    float3 pos   : POSITION;
+    float3 normal: NORMAL;
+    float3 tangent : TANGENT;
+    float3 bitangent : BITANGENT;
+    float2 uv0   : TEXCOORD0;
+    float2 uv1   : TEXCOORD1;
+    float4 color : COLOR0;
+    float4 joints: BLENDINDICES;
+    float4 weights: BLENDWEIGHT;
+};
+
+struct VSOut {
+    float4 pos   : SV_POSITION;
+    float3 normal: TEXCOORD0;
+    float4 color : COLOR0;
+};
+
+VSOut VSMain(VSIn i) {
+    VSOut o;
+    float4 world = mul(float4(i.pos, 1.0), model);
+    o.pos = mul(world, viewProj);
+    o.normal = normalize(mul(float4(i.normal, 0.0), model).xyz);
+    o.color = i.color;
+    return o;
+}
+)HLSL";
+
+        static constexpr const char* kHLSLBasic3DFrag = R"HLSL(
+cbuffer SceneUBO : register(b0) {
+    float4x4 view;
+    float4x4 proj;
+    float4x4 viewProj;
+    float4 cameraPos;
+    float4 ambient;
+};
+
+struct PSIn {
+    float4 pos   : SV_POSITION;
+    float3 normal: TEXCOORD0;
+    float4 color : COLOR0;
+};
+
+float4 PSMain(PSIn i) : SV_TARGET {
+    float3 n = normalize(i.normal);
+    float ndl = max(dot(n, normalize(float3(0.35, 0.8, 0.2))), 0.15);
+    float3 amb = ambient.rgb * ambient.a;
+    float3 lit = amb + ndl.xxx;
+    return float4(i.color.rgb * lit, i.color.a);
+}
+)HLSL";
+
+        static constexpr const char* kMSLBasic3DVert = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+
+struct VSIn {
+    float3 pos [[attribute(0)]];
+    float3 normal [[attribute(1)]];
+    float3 tangent [[attribute(2)]];
+    float3 bitangent [[attribute(3)]];
+    float2 uv0 [[attribute(4)]];
+    float2 uv1 [[attribute(5)]];
+    float4 color [[attribute(6)]];
+    float4 joints [[attribute(7)]];
+    float4 weights [[attribute(8)]];
+};
+
+struct SceneUBO {
+    float4x4 view;
+    float4x4 proj;
+    float4x4 viewProj;
+    float4 cameraPos;
+    float4 ambient;
+};
+
+struct ObjectUBO {
+    float4x4 model;
+};
+
+struct VSOut {
+    float4 pos [[position]];
+    float3 normal;
+    float4 color;
+};
+
+vertex VSOut VSMain(VSIn in [[stage_in]],
+                    constant SceneUBO& scene [[buffer(0)]],
+                    constant ObjectUBO& object [[buffer(1)]]) {
+    VSOut out;
+    float4 world = object.model * float4(in.pos, 1.0);
+    out.pos = scene.viewProj * world;
+    out.normal = normalize((object.model * float4(in.normal, 0.0)).xyz);
+    out.color = in.color;
+    return out;
+}
+)MSL";
+
+        static constexpr const char* kMSLBasic3DFrag = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+
+struct SceneUBO {
+    float4x4 view;
+    float4x4 proj;
+    float4x4 viewProj;
+    float4 cameraPos;
+    float4 ambient;
+};
+
+struct VSOut {
+    float4 pos [[position]];
+    float3 normal;
+    float4 color;
+};
+
+fragment float4 PSMain(VSOut in [[stage_in]],
+                       constant SceneUBO& scene [[buffer(0)]]) {
+    float3 n = normalize(in.normal);
+    float ndl = max(dot(n, normalize(float3(0.35, 0.8, 0.2))), 0.15);
+    float3 amb = scene.ambient.rgb * scene.ambient.a;
+    float3 lit = amb + float3(ndl);
+    return float4(in.color.rgb * lit, in.color.a);
+}
+)MSL";
+
+        static constexpr const char* kHLSLSpriteVert = R"HLSL(
+cbuffer SpriteUBO : register(b0) {
+    float4x4 viewProj;
+};
+
+struct VSIn {
+    float2 pos   : POSITION;
+    float2 uv    : TEXCOORD0;
+    float4 color : COLOR0;
+};
+
+struct VSOut {
+    float4 pos   : SV_POSITION;
+    float2 uv    : TEXCOORD0;
+    float4 color : COLOR0;
+};
+
+VSOut VSMain(VSIn i) {
+    VSOut o;
+    o.pos = mul(float4(i.pos, 0.0, 1.0), viewProj);
+    o.uv = i.uv;
+    o.color = i.color;
+    return o;
+}
+)HLSL";
+
+        static constexpr const char* kHLSLSpriteFrag = R"HLSL(
+Texture2D    uSpriteTex : register(t1);
+SamplerState uSpriteSamp : register(s1);
+
+struct PSIn {
+    float4 pos   : SV_POSITION;
+    float2 uv    : TEXCOORD0;
+    float4 color : COLOR0;
+};
+
+float4 PSMain(PSIn i) : SV_TARGET {
+    float4 c = uSpriteTex.Sample(uSpriteSamp, i.uv) * i.color;
+    clip(c.a - 0.001f);
+    return c;
+}
+)HLSL";
+
+        static constexpr const char* kMSLSpriteVert = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+
+struct VSIn {
+    float2 pos   [[attribute(0)]];
+    float2 uv    [[attribute(1)]];
+    float4 color [[attribute(2)]];
+};
+
+struct SpriteUBO {
+    float4x4 viewProj;
+};
+
+struct VSOut {
+    float4 pos [[position]];
+    float2 uv;
+    float4 color;
+};
+
+vertex VSOut VSMain(VSIn in [[stage_in]], constant SpriteUBO& ubo [[buffer(0)]]) {
+    VSOut out;
+    out.pos = ubo.viewProj * float4(in.pos, 0.0, 1.0);
+    out.uv = in.uv;
+    out.color = in.color;
+    return out;
+}
+)MSL";
+
+        static constexpr const char* kMSLSpriteFrag = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+
+struct VSOut {
+    float4 pos [[position]];
+    float2 uv;
+    float4 color;
+};
+
+fragment float4 PSMain(VSOut in [[stage_in]],
+                       texture2d<float> tex [[texture(1)]],
+                       sampler samp [[sampler(1)]]) {
+    float4 c = tex.sample(samp, in.uv) * in.color;
+    if (c.a < 0.001) {
+        discard_fragment();
+    }
+    return c;
+}
+)MSL";
+
         // ── Sprite 2D ─────────────────────────────────────────────────────────────
-        static constexpr const char* kGLSL_Sprite_Vert = R"GLSL(
+        static constexpr const char* kGLSLSpriteVert = R"GLSL(
         #version 460 core
         layout(location = 0) in vec2  aPos;
         layout(location = 1) in vec2  aUV;
@@ -611,7 +986,7 @@ namespace nkentseu {
         }
         )GLSL";
 
-        static constexpr const char* kGLSL_Sprite_Frag = R"GLSL(
+        static constexpr const char* kGLSLSpriteFrag = R"GLSL(
         #version 460 core
         layout(location = 0) in vec2 vUV;
         layout(location = 1) in vec4 vColor;
@@ -624,8 +999,39 @@ namespace nkentseu {
         }
         )GLSL";
 
+        // Variante GLSL Vulkan (set/binding explicites, #version 450)
+        static constexpr const char* kGLSLVulkanSpriteVert = R"GLSL(
+        #version 450
+        layout(location = 0) in vec2  aPos;
+        layout(location = 1) in vec2  aUV;
+        layout(location = 2) in vec4  aColor;
+        layout(set = 0, binding = 0, std140) uniform SpriteUBO {
+            mat4 viewProj;
+        } ubo;
+        layout(location = 0) out vec2 vUV;
+        layout(location = 1) out vec4 vColor;
+        void main() {
+            vUV = aUV;
+            vColor = aColor;
+            gl_Position = ubo.viewProj * vec4(aPos, 0.0, 1.0);
+        }
+        )GLSL";
+
+        static constexpr const char* kGLSLVulkanSpriteFrag = R"GLSL(
+        #version 450
+        layout(location = 0) in vec2 vUV;
+        layout(location = 1) in vec4 vColor;
+        layout(set = 0, binding = 1) uniform sampler2D uSpriteTex;
+        layout(location = 0) out vec4 fragColor;
+        void main() {
+            vec4 tex = texture(uSpriteTex, vUV);
+            fragColor = tex * vColor;
+            if (fragColor.a < 0.001) discard;
+        }
+        )GLSL";
+
         // ── Skybox ────────────────────────────────────────────────────────────────
-        static constexpr const char* kGLSL_Skybox_Vert = R"GLSL(
+        static constexpr const char* kGLSLSkyboxVert = R"GLSL(
         #version 460 core
         layout(location = 0) in vec3 aPos;
         layout(std140, binding = 0) uniform SkyUBO {
@@ -639,7 +1045,7 @@ namespace nkentseu {
         }
         )GLSL";
 
-        static constexpr const char* kGLSL_Skybox_Frag = R"GLSL(
+        static constexpr const char* kGLSLSkyboxFrag = R"GLSL(
         #version 460 core
         layout(location = 0) in vec3 vTexCoord;
         layout(binding = 1) uniform samplerCube uSkybox;
@@ -654,7 +1060,7 @@ namespace nkentseu {
         )GLSL";
 
         // ── Tonemap fullscreen ─────────────────────────────────────────────────────
-        static constexpr const char* kGLSL_Fullscreen_Vert = R"GLSL(
+        static constexpr const char* kGLSLFullscreenVert = R"GLSL(
         #version 460 core
         // Génère un triangle plein écran sans VBO
         void main() {
@@ -664,7 +1070,7 @@ namespace nkentseu {
         }
         )GLSL";
 
-        static constexpr const char* kGLSL_Tonemap_Frag = R"GLSL(
+        static constexpr const char* kGLSLTonemapFrag = R"GLSL(
         #version 460 core
         layout(binding = 0) uniform sampler2D uHDRBuffer;
         layout(std140, binding = 0) uniform TonemapUBO {

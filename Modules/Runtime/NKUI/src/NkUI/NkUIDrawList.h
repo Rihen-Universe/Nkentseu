@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Draw command stream and primitive emission contract.
+ * Main data: Vertices, indices, draw commands, clip stack definitions.
+ * Change this file when: Renderer command model or primitive format changes.
+ */
 /**
  * @File    NkUIDrawList.h
  * @Brief   Liste de commandes de dessin — le cœur du rendu NkUI.

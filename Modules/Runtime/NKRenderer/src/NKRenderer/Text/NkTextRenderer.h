@@ -15,6 +15,7 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
 #include "NKRenderer/Core/NkTexture.h"
+#include "NKRenderer/Renderer/NkRenderer2D.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKFont/NkFontFace.h"
@@ -46,8 +47,8 @@ namespace nkentseu {
         // =============================================================================
         // Alignement du texte
         // =============================================================================
-        enum class NkTextAlign  : uint32 { Left, Center, Right, Justify };
-        enum class NkTextVAlign : uint32 { Top, Middle, Bottom, Baseline };
+        enum class NkTextAlign  : uint32 { NK_LEFT, NK_CENTER, NK_RIGHT, NK_JUSTIFY };
+        enum class NkTextVAlign : uint32 { NK_TOP, NK_MIDDLE, NK_BOTTOM, NK_BASELINE };
 
         // =============================================================================
         // NkFont — une police chargée avec atlas de glyphes GPU
@@ -85,6 +86,8 @@ namespace nkentseu {
 
                 // ── Accès glyphes ─────────────────────────────────────────────────────────
                 const NkFTGlyph* GetGlyph(uint32 codepoint) const;
+                bool GetGlyphUV(uint32 codepoint, NkVec2f& uvMin, NkVec2f& uvMax,
+                                NkVec2f& bearing, int32& xAdvance, uint32& w, uint32& h) const;
                 NkTexture2D*     GetAtlas() const { return mAtlasTex; }
                 NkSamplerHandle  GetSampler() const;
 
@@ -104,6 +107,8 @@ namespace nkentseu {
                 NkString         mPath;
                 NkFontID         mID;
                 static uint64    sIDCounter;
+                NkVector<uint8>  mFontBytes;
+                mutable NkFTGlyph mScratchGlyph{};
 
                 // Glyph cache (UV dans l'atlas pour chaque codepoint)
                 struct GlyphUV {
@@ -135,7 +140,7 @@ namespace nkentseu {
 
         NkTextMesh BuildTextMesh(const NkFont* font, const char* text,
                                 const NkTextStyle& style = {},
-                                NkTextAlign align = NkTextAlign::Left,
+                                NkTextAlign align = NkTextAlign::NK_LEFT,
                                 float maxWidth = 0.f);   // 0 = pas de wrap
 
         // =============================================================================
@@ -184,15 +189,15 @@ namespace nkentseu {
                 void DrawText2D(NkFont* font, const char* text,
                                 float x, float y,
                                 const NkTextStyle& style = {},
-                                NkTextAlign align   = NkTextAlign::Left,
-                                NkTextVAlign valign = NkTextVAlign::Top,
+                                NkTextAlign align   = NkTextAlign::NK_LEFT,
+                                NkTextVAlign valign = NkTextVAlign::NK_TOP,
                                 float depth         = 0.f);
 
                 // Avec wrap automatique
                 void DrawText2DWrapped(NkFont* font, const char* text,
                                     float x, float y, float maxWidth,
                                     const NkTextStyle& style = {},
-                                    NkTextAlign align = NkTextAlign::Left,
+                                    NkTextAlign align = NkTextAlign::NK_LEFT,
                                     float depth = 0.f);
 
                 // Mesurer sans rendre
@@ -205,7 +210,7 @@ namespace nkentseu {
                                         const NkMat4f& view, const NkMat4f& proj,
                                         float worldSize = 0.5f,
                                         const NkTextStyle& style = {},
-                                        NkTextAlign align = NkTextAlign::Center);
+                                        NkTextAlign align = NkTextAlign::NK_CENTER);
 
                 // ── Texte 3D ancré (reste à une position world, pas de rotation) ──────────
                 void DrawText3DAnchored(NkFont* font, const char* text,
@@ -213,7 +218,7 @@ namespace nkentseu {
                                         const NkMat4f& viewProj,
                                         float worldSize = 0.5f,
                                         const NkTextStyle& style = {},
-                                        NkTextAlign align = NkTextAlign::Center,
+                                        NkTextAlign align = NkTextAlign::NK_CENTER,
                                         bool clipBehindCamera = true);
 
                 // ── Texte 3D extrudé (mesh volumique) ─────────────────────────────────────
@@ -261,6 +266,7 @@ namespace nkentseu {
                 NkShaderHandle     mShader;
                 NkPipelineHandle   mPipeline;
                 NkDescSetHandle    mLayout;
+                NkUnorderedMap<uint64, NkDescSetHandle> mFontDescSets;
 
                 // Batches par font
                 NkVector<TextQuadBatch> mBatches;

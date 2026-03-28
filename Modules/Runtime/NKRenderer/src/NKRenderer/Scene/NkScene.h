@@ -21,6 +21,7 @@
 //   NkOccluderComponent      — occulteur pour culling
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Mesh/NkMesh.h"
 #include "NKRenderer/Material/NkMaterial.h"
 #include "NKRenderer/Core/NkTexture.h"
@@ -141,7 +142,7 @@ namespace nkentseu {
             uint32   priority       = 0;    // ordre de rendu (highest = dernier rendu)
             NkRenderTarget* target  = nullptr; // null = swapchain
             NkPostProcessSettings postProcess;
-            NkRenderMode      renderMode = NkRenderMode::Solid;
+            NkRenderMode      renderMode = NkRenderMode::NK_SOLID;
 
             const char* TypeName() const override { return "Camera"; }
 
@@ -176,14 +177,14 @@ namespace nkentseu {
         // =============================================================================
         // Composant Texte 3D
         // =============================================================================
-        enum class NkText3DMode { Billboard, Anchored, Extruded };
+        enum class NkText3DMode { NK_BILLBOARD, NK_ANCHORED, NK_EXTRUDED };
 
         struct NkText3DComponent : NkComponent {
             NkString     text;
             NkFont*      font         = nullptr;
-            NkText3DMode mode         = NkText3DMode::Billboard;
+            NkText3DMode mode         = NkText3DMode::NK_BILLBOARD;
             NkTextStyle  style;
-            NkTextAlign  align        = NkTextAlign::Center;
+            NkTextAlign  align        = NkTextAlign::NK_CENTER;
             float        worldSize    = 0.5f;
             NkText3DParams extrudeParams;
             // Mesh généré (pour mode Extruded)
@@ -320,7 +321,7 @@ namespace nkentseu {
                 NkEntity CreateEntity   (const char* name = "Entity");
                 NkEntity CreateMesh     (const char* name, NkStaticMesh* mesh, NkMaterial* mat,
                                         const NkVec3f& pos = {0,0,0});
-                NkEntity CreateLight    (const char* name, NkLightType type = NkLightType::Point,
+                NkEntity CreateLight    (const char* name, NkLightType type = NkLightType::NK_POINT,
                                         const NkVec3f& pos = {0,1,0});
                 NkEntity CreateCamera   (const char* name, const NkVec3f& pos = {0,1,5});
                 NkEntity CreateParticles(const char* name, NkParticleSystem* sys,
@@ -345,7 +346,7 @@ namespace nkentseu {
                 // ── Rendu (prépare une NkRenderScene) ────────────────────────────────────
                 void CollectRenderScene(NkRenderScene& outScene,
                                         const NkCamera& camera,
-                                        NkRenderMode mode = NkRenderMode::Solid);
+                                        NkRenderMode mode = NkRenderMode::NK_SOLID);
 
                 // ── Sérialisation ─────────────────────────────────────────────────────────
                 bool SaveToFile(const char* path) const;
@@ -378,6 +379,8 @@ namespace nkentseu {
                 NkVector<NkText3DComponent*>&    GetTexts3D()     { return mTexts3D; }
 
             private:
+                friend class NkEntity;
+
                 NkIDevice*   mDevice  = nullptr;
                 NkString     mName;
                 bool         mIsValid = false;
@@ -499,6 +502,211 @@ namespace nkentseu {
         }
         template<> inline bool NkScene::HasComponent<NkCameraComponent>(NkEntityID id) const {
             return mCameraMap.Find(id) != nullptr;
+        }
+
+        // Particle
+        template<> inline NkParticleComponent* NkScene::AddComponent<NkParticleComponent>(NkEntityID id) {
+            auto* c = new NkParticleComponent(); c->owner = id;
+            mParticles.PushBack(c); mParticleMap[id] = c; return c;
+        }
+        template<> inline NkParticleComponent* NkScene::GetComponent<NkParticleComponent>(NkEntityID id) {
+            auto* p = mParticleMap.Find(id); return p ? *p : nullptr;
+        }
+        template<> inline bool NkScene::HasComponent<NkParticleComponent>(NkEntityID id) const {
+            return mParticleMap.Find(id) != nullptr;
+        }
+
+        // Trail
+        template<> inline NkTrailComponent* NkScene::AddComponent<NkTrailComponent>(NkEntityID id) {
+            auto* c = new NkTrailComponent(); c->owner = id;
+            mTrails.PushBack(c); mTrailMap[id] = c; return c;
+        }
+        template<> inline NkTrailComponent* NkScene::GetComponent<NkTrailComponent>(NkEntityID id) {
+            auto* p = mTrailMap.Find(id); return p ? *p : nullptr;
+        }
+        template<> inline bool NkScene::HasComponent<NkTrailComponent>(NkEntityID id) const {
+            return mTrailMap.Find(id) != nullptr;
+        }
+
+        // Text3D
+        template<> inline NkText3DComponent* NkScene::AddComponent<NkText3DComponent>(NkEntityID id) {
+            auto* c = new NkText3DComponent(); c->owner = id;
+            mTexts3D.PushBack(c); mText3DMap[id] = c; return c;
+        }
+        template<> inline NkText3DComponent* NkScene::GetComponent<NkText3DComponent>(NkEntityID id) {
+            auto* p = mText3DMap.Find(id); return p ? *p : nullptr;
+        }
+        template<> inline bool NkScene::HasComponent<NkText3DComponent>(NkEntityID id) const {
+            return mText3DMap.Find(id) != nullptr;
+        }
+
+        // Sky
+        template<> inline NkSkyComponent* NkScene::AddComponent<NkSkyComponent>(NkEntityID id) {
+            auto* c = new NkSkyComponent(); c->owner = id;
+            mSkies.PushBack(c); mSkyMap[id] = c; return c;
+        }
+        template<> inline NkSkyComponent* NkScene::GetComponent<NkSkyComponent>(NkEntityID id) {
+            auto* p = mSkyMap.Find(id); return p ? *p : nullptr;
+        }
+        template<> inline bool NkScene::HasComponent<NkSkyComponent>(NkEntityID id) const {
+            return mSkyMap.Find(id) != nullptr;
+        }
+
+        // Reflection probe
+        template<> inline NkReflectionProbeComponent* NkScene::AddComponent<NkReflectionProbeComponent>(NkEntityID id) {
+            auto* c = new NkReflectionProbeComponent(); c->owner = id;
+            mProbes.PushBack(c); mProbeMap[id] = c; return c;
+        }
+        template<> inline NkReflectionProbeComponent* NkScene::GetComponent<NkReflectionProbeComponent>(NkEntityID id) {
+            auto* p = mProbeMap.Find(id); return p ? *p : nullptr;
+        }
+        template<> inline bool NkScene::HasComponent<NkReflectionProbeComponent>(NkEntityID id) const {
+            return mProbeMap.Find(id) != nullptr;
+        }
+
+        // Occluder
+        template<> inline NkOccluderComponent* NkScene::AddComponent<NkOccluderComponent>(NkEntityID id) {
+            auto* c = new NkOccluderComponent(); c->owner = id;
+            mOccluders.PushBack(c); mOccluderMap[id] = c; return c;
+        }
+        template<> inline NkOccluderComponent* NkScene::GetComponent<NkOccluderComponent>(NkEntityID id) {
+            auto* p = mOccluderMap.Find(id); return p ? *p : nullptr;
+        }
+        template<> inline bool NkScene::HasComponent<NkOccluderComponent>(NkEntityID id) const {
+            return mOccluderMap.Find(id) != nullptr;
+        }
+
+        // Script
+        template<> inline NkScriptComponent* NkScene::AddComponent<NkScriptComponent>(NkEntityID id) {
+            auto* c = new NkScriptComponent(); c->owner = id;
+            mScripts.PushBack(c); mScriptMap[id] = c; return c;
+        }
+        template<> inline NkScriptComponent* NkScene::GetComponent<NkScriptComponent>(NkEntityID id) {
+            auto* p = mScriptMap.Find(id); return p ? *p : nullptr;
+        }
+        template<> inline bool NkScene::HasComponent<NkScriptComponent>(NkEntityID id) const {
+            return mScriptMap.Find(id) != nullptr;
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkTransformComponent>(NkEntityID id) {
+            auto* p = mTransformMap.Find(id);
+            if (!p) return;
+            NkTransformComponent* c = *p;
+            for (usize i = 0; i < mTransforms.Size(); ++i) {
+                if (mTransforms[i] == c) { mTransforms.Erase(mTransforms.Begin() + i); break; }
+            }
+            delete c;
+            mTransformMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkMeshComponent>(NkEntityID id) {
+            auto* p = mMeshMap.Find(id);
+            if (!p) return;
+            NkMeshComponent* c = *p;
+            for (usize i = 0; i < mMeshes.Size(); ++i) {
+                if (mMeshes[i] == c) { mMeshes.Erase(mMeshes.Begin() + i); break; }
+            }
+            delete c;
+            mMeshMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkLightComponent>(NkEntityID id) {
+            auto* p = mLightMap.Find(id);
+            if (!p) return;
+            NkLightComponent* c = *p;
+            for (usize i = 0; i < mLights.Size(); ++i) {
+                if (mLights[i] == c) { mLights.Erase(mLights.Begin() + i); break; }
+            }
+            delete c;
+            mLightMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkCameraComponent>(NkEntityID id) {
+            auto* p = mCameraMap.Find(id);
+            if (!p) return;
+            NkCameraComponent* c = *p;
+            for (usize i = 0; i < mCameras.Size(); ++i) {
+                if (mCameras[i] == c) { mCameras.Erase(mCameras.Begin() + i); break; }
+            }
+            delete c;
+            mCameraMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkParticleComponent>(NkEntityID id) {
+            auto* p = mParticleMap.Find(id);
+            if (!p) return;
+            NkParticleComponent* c = *p;
+            for (usize i = 0; i < mParticles.Size(); ++i) {
+                if (mParticles[i] == c) { mParticles.Erase(mParticles.Begin() + i); break; }
+            }
+            delete c;
+            mParticleMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkTrailComponent>(NkEntityID id) {
+            auto* p = mTrailMap.Find(id);
+            if (!p) return;
+            NkTrailComponent* c = *p;
+            for (usize i = 0; i < mTrails.Size(); ++i) {
+                if (mTrails[i] == c) { mTrails.Erase(mTrails.Begin() + i); break; }
+            }
+            delete c;
+            mTrailMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkText3DComponent>(NkEntityID id) {
+            auto* p = mText3DMap.Find(id);
+            if (!p) return;
+            NkText3DComponent* c = *p;
+            for (usize i = 0; i < mTexts3D.Size(); ++i) {
+                if (mTexts3D[i] == c) { mTexts3D.Erase(mTexts3D.Begin() + i); break; }
+            }
+            delete c;
+            mText3DMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkSkyComponent>(NkEntityID id) {
+            auto* p = mSkyMap.Find(id);
+            if (!p) return;
+            NkSkyComponent* c = *p;
+            for (usize i = 0; i < mSkies.Size(); ++i) {
+                if (mSkies[i] == c) { mSkies.Erase(mSkies.Begin() + i); break; }
+            }
+            delete c;
+            mSkyMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkReflectionProbeComponent>(NkEntityID id) {
+            auto* p = mProbeMap.Find(id);
+            if (!p) return;
+            NkReflectionProbeComponent* c = *p;
+            for (usize i = 0; i < mProbes.Size(); ++i) {
+                if (mProbes[i] == c) { mProbes.Erase(mProbes.Begin() + i); break; }
+            }
+            delete c;
+            mProbeMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkOccluderComponent>(NkEntityID id) {
+            auto* p = mOccluderMap.Find(id);
+            if (!p) return;
+            NkOccluderComponent* c = *p;
+            for (usize i = 0; i < mOccluders.Size(); ++i) {
+                if (mOccluders[i] == c) { mOccluders.Erase(mOccluders.Begin() + i); break; }
+            }
+            delete c;
+            mOccluderMap.Erase(id);
+        }
+
+        template<> inline void NkScene::RemoveComponent<NkScriptComponent>(NkEntityID id) {
+            auto* p = mScriptMap.Find(id);
+            if (!p) return;
+            NkScriptComponent* c = *p;
+            for (usize i = 0; i < mScripts.Size(); ++i) {
+                if (mScripts[i] == c) { mScripts.Erase(mScripts.Begin() + i); break; }
+            }
+            delete c;
+            mScriptMap.Erase(id);
         }
 
         // NkEntity raccourcis

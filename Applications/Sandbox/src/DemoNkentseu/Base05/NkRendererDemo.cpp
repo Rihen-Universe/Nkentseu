@@ -60,6 +60,81 @@ struct AppState {
     NkEntityID selectedEntity = NK_INVALID_ENTITY;
 };
 
+static NkGraphicsApi ParseBackend(const NkVector<NkString>& args, bool& explicitBackend) {
+    explicitBackend = false;
+    for (usize i = 1; i < args.Size(); ++i) {
+        const NkString& a = args[i];
+        if (a == "--backend=opengl" || a == "--api=opengl" || a == "-bgl") {
+            explicitBackend = true;
+            return NkGraphicsApi::NK_API_OPENGL;
+        }
+        if (a == "--backend=vulkan" || a == "--api=vulkan" || a == "-bvk") {
+            explicitBackend = true;
+            return NkGraphicsApi::NK_API_VULKAN;
+        }
+        if (a == "--backend=dx11" || a == "--api=dx11" || a == "-bdx11") {
+            explicitBackend = true;
+            return NkGraphicsApi::NK_API_DIRECTX11;
+        }
+        if (a == "--backend=dx12" || a == "--api=dx12" || a == "-bdx12") {
+            explicitBackend = true;
+            return NkGraphicsApi::NK_API_DIRECTX12;
+        }
+        if (a == "--backend=metal" || a == "--api=metal" || a == "-bmtl") {
+            explicitBackend = true;
+            return NkGraphicsApi::NK_API_METAL;
+        }
+        if (a == "--backend=sw" || a == "--api=sw" || a == "-bsw") {
+            explicitBackend = true;
+            return NkGraphicsApi::NK_API_SOFTWARE;
+        }
+        if (a == "--backend=auto" || a == "--api=auto" || a == "-bauto") {
+            explicitBackend = false;
+            return NkGraphicsApi::NK_API_NONE;
+        }
+    }
+    return NkGraphicsApi::NK_API_NONE;
+}
+
+static NkIDevice* CreateDeviceWithBackendFallback(const NkDeviceInitInfo& info,
+                                                  NkGraphicsApi requestedApi,
+                                                  bool explicitBackend) {
+    if (explicitBackend && requestedApi != NkGraphicsApi::NK_API_NONE) {
+        NkIDevice* explicitDev = NkDeviceFactory::CreateForApi(requestedApi, info);
+        if (explicitDev && explicitDev->IsValid()) {
+            return explicitDev;
+        }
+        if (explicitDev) {
+            NkDeviceFactory::Destroy(explicitDev);
+        }
+        logger.Warn("[Demo] Backend demande indisponible: {0} - fallback auto",
+                    NkGraphicsApiName(requestedApi));
+    }
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+    return NkDeviceFactory::CreateWithFallback(info, {
+        NkGraphicsApi::NK_API_OPENGL,
+        NkGraphicsApi::NK_API_DIRECTX12,
+        NkGraphicsApi::NK_API_DIRECTX11,
+        NkGraphicsApi::NK_API_VULKAN,
+        NkGraphicsApi::NK_API_SOFTWARE
+    });
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+    return NkDeviceFactory::CreateWithFallback(info, {
+        NkGraphicsApi::NK_API_METAL,
+        NkGraphicsApi::NK_API_VULKAN,
+        NkGraphicsApi::NK_API_OPENGL,
+        NkGraphicsApi::NK_API_SOFTWARE
+    });
+#else
+    return NkDeviceFactory::CreateWithFallback(info, {
+        NkGraphicsApi::NK_API_VULKAN,
+        NkGraphicsApi::NK_API_OPENGL,
+        NkGraphicsApi::NK_API_SOFTWARE
+    });
+#endif
+}
+
 // =============================================================================
 // nkmain — point d'entrée
 // =============================================================================
@@ -76,13 +151,17 @@ int nkmain(const NkEntryState& state) {
     if (!window.Create(winCfg)) { logger.Error("Window failed"); return 1; }
 
     // ── Device RHI ────────────────────────────────────────────────────────────
+    bool explicitBackend = false;
+    const NkGraphicsApi requestedApi = ParseBackend(state.GetArgs(), explicitBackend);
+
     NkDeviceInitInfo devInfo;
-    devInfo.api         = NkGraphicsApi::NK_API_OPENGL;
+    devInfo.api         = requestedApi;
     devInfo.surface     = window.GetSurfaceDesc();
     devInfo.width       = window.GetSize().width;
     devInfo.height      = window.GetSize().height;
-    NkIDevice* device   = NkDeviceFactory::Create(devInfo);
+    NkIDevice* device   = CreateDeviceWithBackendFallback(devInfo, requestedApi, explicitBackend);
     if (!device || !device->IsValid()) { logger.Error("Device failed"); return 1; }
+    logger.Info("[Demo] Backend RHI actif: {0}", NkGraphicsApiName(device->GetApi()));
 
     // ── NKRenderer ────────────────────────────────────────────────────────────
     NkRendererConfig rendCfg;
@@ -123,41 +202,36 @@ int nkmain(const NkEntryState& state) {
 
     // ── Charger des textures ──────────────────────────────────────────────────
     auto& texMgr = renderer.Textures();
-    NkTexture2D* texBrickAlbedo  = texMgr.LoadTexture2D("Resources/Textures/brick_albedo.jpg",  NkTextureParams::Albedo());
-    NkTexture2D* texBrickNormal  = texMgr.LoadTexture2D("Resources/Textures/brick_normal.jpg",  NkTextureParams::Normal());
-    NkTexture2D* texBrickORM     = texMgr.LoadTexture2D("Resources/Textures/brick_orm.jpg",     NkTextureParams::Linear());
-    NkTexture2D* texWoodAlbedo   = texMgr.LoadTexture2D("Resources/Textures/wood_albedo.jpg",   NkTextureParams::Albedo());
-    NkTexture2D* texWoodNormal   = texMgr.LoadTexture2D("Resources/Textures/wood_normal.jpg",   NkTextureParams::Normal());
-    NkTexture2D* texGrassAlbedo  = texMgr.LoadTexture2D("Resources/Textures/grass_albedo.jpg",  NkTextureParams::Albedo());
-    NkTexture2D* texLeafAlbedo   = texMgr.LoadTexture2D("Resources/Textures/leaf_albedo.png",   NkTextureParams::Albedo());
-    NkTexture2D* texSkinAlbedo   = texMgr.LoadTexture2D("Resources/Textures/skin_albedo.jpg",   NkTextureParams::Albedo());
-    NkTexture2D* texSkinNormal   = texMgr.LoadTexture2D("Resources/Textures/skin_normal.jpg",   NkTextureParams::Normal());
-    NkTexture2D* texWaterNormal  = texMgr.LoadTexture2D("Resources/Textures/water_normal.jpg",  NkTextureParams::Normal());
-    NkTexture2D* texSprite       = texMgr.LoadTexture2D("Resources/Textures/sprite_sheet.png",  NkTextureParams::UISprite());
+    NkTexture2D* texBrickAlbedo  = texMgr.LoadTexture2D("Resources/Textures/PBR/gold/albedo.png",  NkTextureParams::Albedo());
+    NkTexture2D* texBrickNormal  = texMgr.LoadTexture2D("Resources/Textures/PBR/gold/normal.png",  NkTextureParams::Normal());
+    NkTexture2D* texBrickORM     = texMgr.LoadTexture2D("Resources/Textures/PBR/gold/ao.png",     NkTextureParams::Linear());
+    NkTexture2D* texWoodAlbedo   = texMgr.LoadTexture2D("Resources/Textures/PBR/wall/albedo.png",   NkTextureParams::Albedo());
+    NkTexture2D* texWoodNormal   = texMgr.LoadTexture2D("Resources/Textures/PBR/wall/normal.png",   NkTextureParams::Normal());
+    NkTexture2D* texGrassAlbedo  = texMgr.LoadTexture2D("Resources/Textures/PBR/grass/albedo.png",  NkTextureParams::Albedo());
+    NkTexture2D* texLeafAlbedo   = texMgr.LoadTexture2D("Resources/Textures/PBR/grass/albedo.png",   NkTextureParams::Albedo());
+    NkTexture2D* texSkinAlbedo   = texMgr.LoadTexture2D("Resources/Textures/PBR/platic/albedo.png",   NkTextureParams::Albedo());
+    NkTexture2D* texSkinNormal   = texMgr.LoadTexture2D("Resources/Textures/PBR/gold/normal.png",   NkTextureParams::Normal());
+    NkTexture2D* texWaterNormal  = texMgr.LoadTexture2D("Resources/Textures/PBR/gold/normal.png",  NkTextureParams::Normal());
+    NkTexture2D* texSprite       = texMgr.LoadTexture2D("Resources/Spritesheet/sp0.jpeg",  NkTextureParams::UISprite());
 
     // ── Créer les matériaux ───────────────────────────────────────────────────
 
     // PBR brique (matériau complet avec ORM)
-    NkMaterial* matBrick = renderer.CreatePBRMaterial("Brick",
-        {1,1,1,1}, 0.f, 0.5f, texBrickAlbedo, texBrickNormal, texBrickORM);
+    NkMaterial* matBrick = renderer.CreatePBRMaterial("Brick", {1,1,1,1}, 0.f, 0.5f, texBrickAlbedo, texBrickNormal, texBrickORM);
     matBrick->SetUVTiling(3.f, 3.f);
 
     // PBR bois (roughness élevée)
-    NkMaterial* matWood = renderer.CreatePBRMaterial("Wood",
-        {0.8f,0.6f,0.3f,1}, 0.f, 0.7f, texWoodAlbedo, texWoodNormal);
+    NkMaterial* matWood = renderer.CreatePBRMaterial("Wood", {0.8f,0.6f,0.3f,1}, 0.f, 0.7f, texWoodAlbedo, texWoodNormal);
     matWood->SetRoughness(0.75f);
 
     // Métal poli (chrome)
-    NkMaterial* matChrome = renderer.CreatePBRMaterial("Chrome",
-        {0.9f,0.9f,0.95f,1}, 1.f, 0.05f);
+    NkMaterial* matChrome = renderer.CreatePBRMaterial("Chrome", {0.9f,0.9f,0.95f,1}, 1.f, 0.05f);
 
     // Métal rouillé (rough + low metallic)
-    NkMaterial* matRustedMetal = renderer.CreatePBRMaterial("RustedMetal",
-        {0.6f,0.3f,0.2f,1}, 0.7f, 0.85f);
+    NkMaterial* matRustedMetal = renderer.CreatePBRMaterial("RustedMetal", {0.6f,0.3f,0.2f,1}, 0.7f, 0.85f);
 
     // Plastique rouge
-    NkMaterial* matPlastic = renderer.CreatePBRMaterial("Plastic",
-        {0.9f,0.1f,0.1f,1}, 0.f, 0.3f);
+    NkMaterial* matPlastic = renderer.CreatePBRMaterial("Plastic", {0.9f,0.1f,0.1f,1}, 0.f, 0.3f);
     matPlastic->SetSpecular(0.5f);
 
     // Verre (transmission + IOR)
@@ -206,9 +280,9 @@ int nkmain(const NkEntryState& state) {
     auto& meshLib = renderer.Meshes();
 
     // Modèles externes (si disponibles)
-    NkStaticMesh* meshSuzanne = meshLib.Load("Resources/Models/suzanne.obj");
-    NkStaticMesh* meshCar     = meshLib.Load("Resources/Models/car.glb");
-    NkStaticMesh* meshTree    = meshLib.Load("Resources/Models/tree.obj");
+    NkStaticMesh* meshSuzanne = meshLib.Load("Resources/Models/nanosuit/nanosuit.obj");
+    NkStaticMesh* meshCar     = meshLib.Load("Resources/Models/LowPolyCars.obj");
+    NkStaticMesh* meshTree    = meshLib.Load("Resources/Models/rock/rock.obj");
 
     // Primitives built-in
     NkStaticMesh* meshCube     = meshLib.GetCube();
@@ -231,29 +305,29 @@ int nkmain(const NkEntryState& state) {
     auto* camComp  = camEntity.GetCamera();
     camComp->isMainCamera = true;
     camComp->camera.fovDeg = 60.f;
-    camComp->renderMode    = NkRenderMode::Solid;
+    camComp->renderMode    = NkRenderMode::NK_SOLID;
 
     // ── Lumières ──────────────────────────────────────────────────────────────
 
     // Soleil (directionnel principal)
-    auto sunEntity = scene.CreateLight("Sun", NkLightType::Directional, {0,10,-5});
+    auto sunEntity = scene.CreateLight("Sun", NkLightType::NK_DIRECTIONAL, {0,10,-5});
     auto* sunLight = sunEntity.GetLight();
-    sunLight->SetType(NkLightType::Directional);
+    sunLight->SetType(NkLightType::NK_DIRECTIONAL);
     sunLight->SetColor({1.0f,0.95f,0.85f,1.f});
     sunLight->SetIntensity(3.f);
     sunLight->CastShadow(true);
     sunLight->light.direction = {0.3f,-1.f,0.5f};
 
     // Point light rouge (accentuation)
-    auto redLight = scene.CreateLight("RedPoint", NkLightType::Point, {-3, 1.5f, 0});
+    auto redLight = scene.CreateLight("RedPoint", NkLightType::NK_POINT, {-3, 1.5f, 0});
     redLight.GetLight()->SetColor({1,0.2f,0.1f,1});
     redLight.GetLight()->SetIntensity(5.f);
     redLight.GetLight()->SetRange(8.f);
     redLight.GetLight()->CastShadow(false);
 
     // Spot bleu (ambiance)
-    auto blueSpot = scene.CreateLight("BlueSpot", NkLightType::Spot, {3, 3, 2});
-    blueSpot.GetLight()->SetType(NkLightType::Spot);
+    auto blueSpot = scene.CreateLight("BlueSpot", NkLightType::NK_SPOT, {3, 3, 2});
+    blueSpot.GetLight()->SetType(NkLightType::NK_SPOT);
     blueSpot.GetLight()->SetColor({0.3f,0.5f,1.f,1});
     blueSpot.GetLight()->SetIntensity(8.f);
     blueSpot.GetLight()->SetRange(10.f);
@@ -365,15 +439,15 @@ int nkmain(const NkEntryState& state) {
 
     // Modes de rendu cyclés
     const NkRenderMode renderModes[] = {
-        NkRenderMode::Solid,
-        NkRenderMode::Wireframe,
-        NkRenderMode::Points,
-        NkRenderMode::Normals,
-        NkRenderMode::UV,
-        NkRenderMode::Albedo,
-        NkRenderMode::Roughness,
-        NkRenderMode::Metallic,
-        NkRenderMode::AmbientOcclusion,
+        NkRenderMode::NK_SOLID,
+        NkRenderMode::NK_WIREFRAME,
+        NkRenderMode::NK_POINTS,
+        NkRenderMode::NK_NORMALS,
+        NkRenderMode::NK_UV,
+        NkRenderMode::NK_ALBEDO,
+        NkRenderMode::NK_ROUGHNESS,
+        NkRenderMode::NK_METALLIC,
+        NkRenderMode::NK_AMBIENT_OCCLUSION,
     };
     const char* modeNames[] = {
         "Solid PBR", "Wireframe", "Points", "Normals",
@@ -489,6 +563,10 @@ int nkmain(const NkEntryState& state) {
         // ── Mise à jour de la scène ───────────────────────────────────────────
         scene.Update(app.dt);
         vfx.Update(app.dt);
+        // NkScene::Update resynchronise les cameras depuis leurs transforms.
+        // On reapplique donc la camera orbitale juste apres pour le rendu de cette frame.
+        camComp->camera.position = {cx, cy, cz};
+        camComp->camera.target   = {0, 0, 0};
 
         // ── Rendu ─────────────────────────────────────────────────────────────
         NkFrameContext frame;
@@ -500,194 +578,6 @@ int nkmain(const NkEntryState& state) {
         NkICommandBuffer* cmd = device->CreateCommandBuffer();
         cmd->Begin();
 
-        // ── Passe 3D ──────────────────────────────────────────────────────────
-        NkRenderScene rs;
-        rs.SetCamera(camComp->camera);
-        scene.CollectRenderScene(rs, camComp->camera, renderModes[currentMode]);
-
-        // Overlay outline sur l'entité sélectionnée
-        if (app.selectedEntity != NK_INVALID_ENTITY) {
-            NkEntity selEnt = scene.Find(app.selectedEntity);
-            if (selEnt.IsValid() && selEnt.HasComponent<NkMeshComponent>()) {
-                selEnt.GetMesh()->drawOutline = true;
-            }
-        }
-
-        renderer.Render3D(cmd, rs);
-
-        // Trail
-        if (trailSys->HasGeometry()) {
-            vfx.Render(cmd, camComp->camera,
-                       camComp->camera.GetView(),
-                       camComp->camera.GetProjection((float)W/(float)H));
-        }
-
-        // Gizmos debug (axes, grille)
-        if (app.showGizmos) {
-            renderer.DrawGrid(cmd, camComp->camera, 20.f, 20);
-            renderer.DrawAxis(cmd, NkMat4f::Identity(), 1.f);
-
-            // AABB de l'entité sélectionnée
-            if (app.selectedEntity != NK_INVALID_ENTITY) {
-                NkEntity selEnt = scene.Find(app.selectedEntity);
-                if (selEnt.IsValid() && selEnt.HasComponent<NkMeshComponent>()) {
-                    auto* mc = selEnt.GetMesh();
-                    if (mc->mesh) {
-                        auto* t = selEnt.GetTransform();
-                        renderer.DrawAABB(cmd, mc->mesh->GetAABB(),
-                                           t ? t->worldMatrix : NkMat4f::Identity(),
-                                           {1,0.8f,0,1});
-                    }
-                }
-            }
-
-            // Gizmo lumières
-            for (auto* lc : scene.GetLights()) {
-                if (lc->visualize) {
-                    auto* tc = scene.GetComponent<NkTransformComponent>(lc->owner);
-                    NkVec3f lpos = tc ? tc->GetWorldPosition() : lc->light.position;
-                    renderer.DrawLightGizmo(cmd, lc->light, lpos, lc->light.color);
-                }
-            }
-        }
-
-        // ── Passe 2D (overlay) ────────────────────────────────────────────────
-        renderer.Render2D(cmd, [&](NkRenderer2D& r2d) {
-            // Fond du panneau stats
-            if (app.showStats) {
-                r2d.DrawRoundedRect(5, 5, 280, 130, 8,
-                    NkShapeStyle{{0,0,0,0.6f}, {}, 0, true, false, 0.f});
-            }
-
-            // Barre de progression FPS
-            float fps = app.dt > 0 ? 1.f/app.dt : 60.f;
-            float fpsBarW = NkClamp(fps/120.f, 0.f, 1.f) * 260.f;
-            // r2d.DrawRect(10, 70, fpsBarW, 8, {0.2f,0.8f,0.3f,0.8f}, 0.f);
-            // r2d.DrawRect(10, 70, 260, 8, NkColor4f{0,0,0,0}); // border
-
-            NkShapeStyle barStyle;
-            barStyle.fillColor = {0.2f, 0.8f, 0.3f, 0.8f};
-            barStyle.filled = true;
-            barStyle.stroked = false;
-            r2d.DrawRect(10, 70, fpsBarW, 8, barStyle);
-
-            NkShapeStyle borderStyle;
-            borderStyle.fillColor = {0,0,0,0};
-            borderStyle.strokeColor = {0,0,0,0.5f};
-            borderStyle.strokeWidth = 1.f;
-            borderStyle.filled = false;
-            borderStyle.stroked = true;
-            r2d.DrawRect(10, 70, 260, 8, borderStyle);
-
-            // Logo NKRenderer
-            r2d.DrawCircle(W-40, 40, 25, NkShapeStyle{
-                {0.1f,0.3f,0.9f,0.8f}, {1,1,1,1}, 2.f, true, true
-            });
-
-            // Indicateur mode de rendu (coin haut droit)
-            r2d.DrawRoundedRect((float)W-200, 5, 195, 40, 6,
-                NkShapeStyle{{0,0,0.5f,0.7f}, {}, 0, true, false});
-
-            // Grille UV debug si mode UV
-            if (renderModes[currentMode] == NkRenderMode::UV) {
-                const int G = 8;
-                for (int i=0; i<=G; i++) {
-                    float x = 200.f + (float)i * 200.f/G;
-                    float y = (float)H - 210.f + (float)i * 200.f/G;
-                    r2d.DrawLine(200, (float)H-210, 400, (float)H-210+(float)i*200/G,
-                                 {0.5f,0.5f,1,0.3f}, 1.f);
-                }
-            }
-
-            // Sprite UI (si texture disponible)
-            if (texSprite) r2d.DrawSprite(uiSprite);
-
-            // Cercles décoratifs animés
-            for (int i=0; i<5; i++) {
-                float t = app.time + i * 0.4f;
-                float x = (float)W - 80.f + NkCos(t * 2.f) * 30.f;
-                float y = (float)H - 80.f + NkSin(t * 2.f) * 30.f;
-                r2d.DrawCircle(x, y, 5.f + i*2.f,
-                    NkShapeStyle{{(float)i/5.f, 0.3f, 1-i/5.f, 0.6f}});
-            }
-        });
-
-        // ── Texte 2D ──────────────────────────────────────────────────────────
-        renderer.RenderText(cmd, [&](NkTextRenderer& tr) {
-            if (!font24) return;
-
-            NkTextStyle white  = {};
-            NkTextStyle yellow;  yellow.color  = {1,1,0,1};
-            NkTextStyle green;   green.color   = {0.3f,1,0.3f,1};
-            NkTextStyle shadow;  shadow.shadow = true; shadow.shadowOffset = {2,2};
-            NkTextStyle outline; outline.outlineWidth = 2.f; outline.outlineColor = {0,0,0,1};
-
-            if (app.showStats) {
-                float fps = app.dt > 0 ? 1.f/app.dt : 60.f;
-                char buf[128];
-
-                // FPS
-                snprintf(buf, sizeof(buf), "FPS: %.0f  (%.2f ms)", fps, app.dt*1000.f);
-                tr.DrawText2D(font24, buf, 15, 15, yellow);
-
-                // Mode de rendu
-                snprintf(buf, sizeof(buf), "Mode: %s", modeNames[currentMode]);
-                tr.DrawText2D(font24, buf, 15, 40, green);
-
-                // Stats de rendu
-                auto stats = renderer.GetStats();
-                snprintf(buf, sizeof(buf), "Draw: %u  Tris: %u  Inst: %u",
-                         stats.drawCalls, stats.triangles, stats.instances);
-                tr.DrawText2D(font24, buf, 15, 65, white);
-
-                // Aide clavier
-                // tr.DrawText2D(font24, "TAB:Mode  G:Gizmos  F5:Screenshot  Q/E:Zoom", 15, 95, {0.7f,0.7f,0.7f,1});
-                // tr.DrawText2D(font24, "WASD:Cam  F1-F4:Presets  F11:Bloom  Click:Pick", 15, 115, {0.7f,0.7f,0.7f,1});
-                NkTextStyle grayStyle;
-                grayStyle.color = {0.7f, 0.7f, 0.7f, 1.f};
-                // tr.DrawText2D(font24, buf, 15, 95, grayStyle);
-                // tr.DrawText2D(font24, buf, 15, 115, grayStyle);
-                tr.DrawText2D(font24, "TAB:Mode  G:Gizmos  F5:Screenshot  Q/E:Zoom", 15, 95, grayStyle);
-                tr.DrawText2D(font24, "WASD:Cam  F1-F4:Presets  F11:Bloom  Click:Pick", 15, 115, grayStyle);
-            }
-
-            // Titre en haut à droite avec ombre
-            NkTextStyle titleStyle;
-            titleStyle.shadow = true;
-            titleStyle.shadowOffset = {3,3};
-            titleStyle.shadowColor  = {0,0,0,0.5f};
-            titleStyle.gradient = true;
-            titleStyle.gradientTop = {1,1,1,1};
-            titleStyle.gradientBot = {0.7f,0.8f,1,1};
-            tr.DrawText2D(font24, "NKRenderer", (float)W-195, 10,
-                          titleStyle, NkTextAlign::Left);
-
-            // Mode courant en haut à droite
-            tr.DrawText2D(font24, modeNames[currentMode], (float)W-195, 32,
-                          outline, NkTextAlign::Left);
-
-            // Texte 3D billboard (synchronisé avec la caméra)
-            auto matView = camComp->camera.GetView();
-            auto matProj = camComp->camera.GetProjection((float)W/(float)H);
-
-            if (font48) {
-                NkTextStyle lblStyle;
-                lblStyle.shadow = true; lblStyle.shadowColor = {0,0,0,0.5f};
-
-                tr.DrawText3DBillboard(font48, "CUBE",
-                    {0, 1.4f, 0}, matView, matProj, 0.6f, lblStyle);
-                tr.DrawText3DBillboard(font48, "CHROME",
-                    {2.5f, 1.2f, 0}, matView, matProj, 0.5f, lblStyle);
-                tr.DrawText3DBillboard(font48, "GLASS",
-                    {-2.5f, 1.2f, 0}, matView, matProj, 0.5f, lblStyle);
-                tr.DrawText3DBillboard(font48, "TOON",
-                    {4.f, 1.4f, -2}, matView, matProj, 0.5f, lblStyle);
-
-                // Texte 3D ancré (reste à une position world)
-                tr.DrawText3DAnchored(font24, "NKRenderer Demo",
-                    {0, 5, -10}, matView * matProj, 0.8f, yellow, NkTextAlign::Center);
-            }
-        });
 
         cmd->End();
         device->SubmitAndPresent(cmd);

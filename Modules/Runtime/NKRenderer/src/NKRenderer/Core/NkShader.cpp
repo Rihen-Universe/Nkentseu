@@ -1,9 +1,9 @@
 // =============================================================================
 // NkShader.cpp
 // =============================================================================
-#include "pch/pch.h"
-#include "NKRenderer/Core/NkShader.h"
+#include "NkShader.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
+#include <cstring>
 
 namespace nkentseu {
 
@@ -46,8 +46,10 @@ namespace nkentseu {
             sd.glslSource  = glsl;
             sd.hlslSource  = hlsl;
             sd.mslSource   = msl;
-            sd.spirvData   = spv;
-            sd.spirvSize   = spvSz;
+            if (spv && spvSz > 0) {
+                sd.spirvBinary.Resize((uint32)spvSz);
+                std::memcpy(sd.spirvBinary.Data(), spv, (size_t)spvSz);
+            }
             sd.cpuVertFn   = cpuV;
             sd.cpuFragFn   = cpuF;
             sd.cpuCompFn   = cpuC;

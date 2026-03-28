@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: CPU/reference renderer interface and structures.
+ * Main data: Renderer abstraction consuming NkUIDrawList commands.
+ * Change this file when: New render backends need contract updates.
+ */
 /**
  * @File    NkUIRenderer.h
  * @Brief   Interface abstraite NkUIRenderer + implémentation CPU (offline).

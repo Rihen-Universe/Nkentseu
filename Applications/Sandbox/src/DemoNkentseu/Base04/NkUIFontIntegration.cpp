@@ -268,9 +268,25 @@ namespace nkentseu {
                     loaded++;
                 }
             }
+
+            static const uint32 kCommonEmoji[] = {
+                0x1F600, 0x1F601, 0x1F602, 0x1F603, 0x1F604,
+                0x1F605, 0x1F606, 0x1F609, 0x1F60A, 0x1F60D,
+                0x1F618, 0x1F60E, 0x1F622, 0x1F44D, 0x1F64F,
+                0x1F525, 0x1F389, 0x1F680, 0x1F3AE, 0x2705,
+                0x2764, 0x1F44C, 0x1F914, 0x1F44E, 0x1F4A1
+            };
+            int32 emojiLoaded = 0;
+            for (uint32 cp : kCommonEmoji) {
+                NkUIGlyph glyph;
+                if (RasterizeGlyphToAtlas(face, cp, glyph)) {
+                    ++emojiLoaded;
+                }
+            }
             
             mAtlas->dirty = true;
-            logger.Infof("[NkUI] Preloaded %d ASCII glyphs\n", loaded);
+            logger.Infof("[NkUI] Preloaded %d ASCII glyphs, %d common emoji glyphs\n",
+                        loaded, emojiLoaded);
         }
 
         bool NkUIFontLoader::RasterizeGlyphToAtlas(NkFontFace* face, uint32 codepoint, NkUIGlyph& outGlyph) noexcept {
@@ -341,9 +357,25 @@ namespace nkentseu {
                     loaded++;
                 }
             }
+
+            static const uint32 kCommonEmoji[] = {
+                0x1F600, 0x1F601, 0x1F602, 0x1F603, 0x1F604,
+                0x1F605, 0x1F606, 0x1F609, 0x1F60A, 0x1F60D,
+                0x1F618, 0x1F60E, 0x1F622, 0x1F44D, 0x1F64F,
+                0x1F525, 0x1F389, 0x1F680, 0x1F3AE, 0x2705,
+                0x2764, 0x1F44C, 0x1F914, 0x1F44E, 0x1F4A1
+            };
+            int32 emojiLoaded = 0;
+            for (uint32 cp : kCommonEmoji) {
+                NkUIGlyph glyph;
+                if (RasterizeGlyphToAtlas(face, cp, glyph)) {
+                    ++emojiLoaded;
+                }
+            }
             
             mAtlas->dirty = true;
-            logger.Infof("[NkUI] Preloaded %d ASCII glyphs\n", loaded);
+            logger.Infof("[NkUI] Preloaded %d ASCII glyphs, %d common emoji glyphs\n",
+                        loaded, emojiLoaded);
         }
 
         bool NkUIFontLoader::RasterizeGlyphToAtlas(NkFTFontFace* face, uint32 codepoint, NkUIGlyph& outGlyph) noexcept {

@@ -3,6 +3,13 @@
  * @Brief   SaveLayout/LoadLayout, ColorPicker complet, NKFont intégration,
  *          NkUIOpenGLRenderer.
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: OpenGL renderer adapter implementation.
+ * Main data: GL pipeline state, texture upload, clip/scissor draw loop.
+ * Change this file when: OpenGL backend artifacts or text/texture issues appear.
+ */
 #include "NkUI/NkUILayout2.h"
 #include "NkUI/NkUIWidgets.h"
 #include <cstring>
@@ -223,7 +230,7 @@ namespace nkentseu {
             dl.AddCircle(cursor,7.f,NkColor::Black(),1.f);
             // Interaction
             const NkUIID id=NkHashPtr(&s,0xAB);
-            if(ctx.IsHovered(r)&&ctx.input.IsMouseClicked(0)) ctx.SetActive(id);
+            if(ctx.IsHovered(r)&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
             if(ctx.IsActive(id)){
                 s=(ctx.input.mousePos.x-r.x)/r.w;
                 v=1.f-(ctx.input.mousePos.y-r.y)/r.h;
@@ -246,7 +253,7 @@ namespace nkentseu {
             dl.AddRect({r.x-1,cy-3,r.w+2,6},NkColor::White(),2.f);
             // Interaction
             const NkUIID id=NkHashPtr(&h,0xCD);
-            if(ctx.IsHovered(r)&&ctx.input.IsMouseClicked(0)) ctx.SetActive(id);
+            if(ctx.IsHovered(r)&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
             if(ctx.IsActive(id)){
                 h=(ctx.input.mousePos.y-r.y)/r.h;
                 h=h<0?0:h>1?1:h;
@@ -272,7 +279,7 @@ namespace nkentseu {
             const float32 cx=r.x+a*r.w;
             dl.AddRect({cx-3,r.y-1,6,r.h+2},NkColor::White(),2.f);
             const NkUIID id=NkHashPtr(&a,0xEF);
-            if(ctx.IsHovered(r)&&ctx.input.IsMouseClicked(0)) ctx.SetActive(id);
+            if(ctx.IsHovered(r)&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
             if(ctx.IsActive(id)){
                 a=(ctx.input.mousePos.x-r.x)/r.w;
                 a=a<0?0:a>1?1:a;

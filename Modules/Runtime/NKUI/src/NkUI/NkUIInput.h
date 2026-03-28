@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Frame input state abstraction for keyboard/mouse/text input.
+ * Main data: Button/key transitions, mouse wheel, typed chars.
+ * Change this file when: Input events mapping or capture semantics evolve.
+ */
 /**
  * @File    NkUIInput.h
  * @Brief   Abstraction input clavier/souris/touch — platform-agnostic.

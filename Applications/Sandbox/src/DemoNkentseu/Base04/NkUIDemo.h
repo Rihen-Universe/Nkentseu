@@ -49,16 +49,23 @@ namespace nkentseu {
                 bool mResetLayout = true;
                 float32 mTime = 0.f;
 
-                bool mShowControl = true;
-                bool mShowWidgets = true;
-                bool mShowLayout = true;
-                bool mShowData = true;
-                bool mShowTextures = true;
-                bool mShowViewport = true;
-                bool mShowInput = true;
-                bool mShowUnicode = true;
-                bool mShowZOrder = true;
-                bool mShowAbout = true;
+                bool mShowControl = false;
+                bool mShowWidgets = false;
+                bool mShowLayout = false;
+                bool mShowData = false;
+                bool mShowTextures = false;
+                bool mShowViewport = false;
+                bool mShowInput = false;
+                bool mShowUnicode = false;
+                bool mShowZOrder = false;
+                bool mShowAbout = false;
+                bool mShowMenuBar = true;
+                bool mShowDocking = false;
+                bool mPrevShowDocking = false;
+                bool mDockBootstrap = false;
+                bool mShowDockInspector = false;
+                bool mShowDockConsole = false;
+                bool mShowDockAssets = false;
 
                 bool mOverlapOpen[3] = {true, true, true};
                 int32 mOverlapClicks[3] = {0, 0, 0};
@@ -73,6 +80,10 @@ namespace nkentseu {
                 int32 mDragInt = 42;
                 int32 mCombo = 1;
                 int32 mList = 0;
+                bool mListMultiSelect = false;
+                bool mListRequireCtrl = false;
+                bool mListToggleSelection = true;
+                bool mListMask[10] = {};
                 float32 mProgress = 0.3f;
                 bool mProgressAnim = true;
 
@@ -80,6 +91,7 @@ namespace nkentseu {
                 char mInputMulti[1024] = "Line 1\nLine 2\nLine 3";
                 int32 mInputInt = 123;
                 float32 mInputFloat = 3.14f;
+                NkUITextInputOptions mTextInputOpts = {};
 
                 float32 mInnerScrollX = 0.f;
                 float32 mInnerScrollY = 0.f;
@@ -122,6 +134,11 @@ namespace nkentseu {
                 void WinAbout(NkUIContext& ctx, NkUIWindowManager& wm, NkUILayoutStack& ls);
                 void WinOverlap(NkUIContext& ctx, NkUIWindowManager& wm, NkUILayoutStack& ls,
                                 int32 idx, const char* name, NkVec2 pos, NkVec2 size);
+                void RenderMainMenuBar(NkUIContext& ctx, NkUIDrawList& dl);
+                void WinDockInspector(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls);
+                void WinDockConsole(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls);
+                void WinDockAssets(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls);
+                void WinDocking(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls);
 
                 void DrawViewportPreview(NkUIDrawList& dl, NkRect area, NkUIContext& ctx, float32 dt);
                 void DrawGrid(NkUIDrawList& dl, NkRect r, NkColor col, int32 div);
@@ -158,23 +175,57 @@ namespace nkentseu {
             mFont = mFontLoader.DefaultFont();
             if (mFont) return;
 
-            const char* candidates[] = {
+            const char* primaryCandidates[] = {
+                "Resources/Fonts/ProggyClean.ttf",
+                "Resources/Fonts/ProggyTiny.ttf",
+                "Resources/Fonts/Roboto-Medium.ttf",
+                "Resources/Fonts/Karla-Regular.ttf",
+                "Resources/Fonts/DroidSans.ttf",
+                "Resources/Fonts/Cousine-Regular.ttf",
                 "C:/Windows/Fonts/segoeui.ttf",
                 "C:/Windows/Fonts/arial.ttf",
                 "C:/Windows/Fonts/consola.ttf",
                 nullptr
             };
+            const char* emojiCandidates[] = {
+                "C:/Windows/Fonts/seguiemj.ttf",
+                "C:/Windows/Fonts/seguisym.ttf",
+                "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+                "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+                nullptr
+            };
 
-            uint32 idx = 0;
-            for (int32 i = 0; candidates[i]; ++i) {
-                idx = mFontLoader.LoadFontFromFile(candidates[i], 16.f, true);
-                if (idx != 0) {
+            auto tryLoad = [&](const char* path, NkUIFont** outLoaded) -> bool {
+                const uint32 before = mFontLoader.GetFontCount();
+                (void)mFontLoader.LoadFontFromFile(path, 16.f, true);
+                const uint32 after = mFontLoader.GetFontCount();
+                if (after <= before) {
+                    return false;
+                }
+                if (outLoaded) {
+                    *outLoaded = mFontLoader.GetFont(after - 1u);
+                }
+                return true;
+            };
+
+            NkUIFont* primary = nullptr;
+            for (int32 i = 0; primaryCandidates[i]; ++i) {
+                if (tryLoad(primaryCandidates[i], &primary)) {
                     break;
                 }
             }
 
-            if (idx != 0) {
-                mFont = mFontLoader.GetFont(idx);
+            // Merge a second font into the same atlas for emoji/symbol fallback glyphs.
+            // NkUIFont::RenderChar resolves glyphs from the atlas by codepoint.
+            for (int32 i = 0; emojiCandidates[i]; ++i) {
+                NkUIFont* ignored = nullptr;
+                if (tryLoad(emojiCandidates[i], &ignored)) {
+                    break;
+                }
+            }
+
+            if (primary) {
+                mFont = primary;
                 mFontLoader.UploadAtlas();
             }
 
@@ -265,6 +316,12 @@ namespace nkentseu {
             EnsureFont();
             GenerateTexture();
             UploadTextureIfNeeded();
+            mTextInputOpts.repeatBackspace = true;
+            mTextInputOpts.repeatDelete = true;
+            mTextInputOpts.allowEnterNewLine = true;
+            mTextInputOpts.multilineLineSpacing = 1.2f;
+            mTextInputOpts.multilineCharSpacing = 0.35f;
+            mTextInputOpts.multilineWrap = true;
 
             PushLog("NkUI Test Lab initialized");
             PushLog("Drag windows, resize borders, test scroll and input");
@@ -390,13 +447,36 @@ namespace nkentseu {
                 NkUI::DragFloat(ctx, ls, dl, *mFont, "Drag Float", mDrag, 0.02f, -10.f, 10.f);
                 NkUI::DragInt(ctx, ls, dl, *mFont, "Drag Int", mDragInt, 1.f, -100, 100);
 
-                NkUI::InputText(ctx, ls, dl, *mFont, "Input", mInputText, static_cast<int32>(sizeof(mInputText)));
-                NkUI::InputInt(ctx, ls, dl, *mFont, "Input Int", mInputInt);
-                NkUI::InputFloat(ctx, ls, dl, *mFont, "Input Float", mInputFloat);
-                NkUI::InputMultiline(ctx, ls, dl, *mFont, "Multiline", mInputMulti, static_cast<int32>(sizeof(mInputMulti)), {0.f, 110.f});
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "Repeat Backspace", mTextInputOpts.repeatBackspace);
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "Repeat Delete", mTextInputOpts.repeatDelete);
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "Multiline Enter Newline", mTextInputOpts.allowEnterNewLine);
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "Multiline Wrap", mTextInputOpts.multilineWrap);
+                NkUI::SliderFloat(ctx, ls, dl, *mFont, "Multiline Spacing",
+                                  mTextInputOpts.multilineLineSpacing, 1.0f, 1.8f, "%.2f");
+                NkUI::SliderFloat(ctx, ls, dl, *mFont, "Multiline Char Spacing",
+                                  mTextInputOpts.multilineCharSpacing, 0.0f, 3.0f, "%.2f");
+
+                NkUI::InputText(ctx, ls, dl, *mFont, "Input", mInputText,
+                                static_cast<int32>(sizeof(mInputText)), 0.f, &mTextInputOpts);
+                NkUI::InputInt(ctx, ls, dl, *mFont, "Input Int", mInputInt, &mTextInputOpts);
+                NkUI::InputFloat(ctx, ls, dl, *mFont, "Input Float", mInputFloat, "%.3f", &mTextInputOpts);
+                NkUI::InputMultiline(ctx, ls, dl, *mFont, "Multiline", mInputMulti,
+                                     static_cast<int32>(sizeof(mInputMulti)), {0.f, 110.f}, &mTextInputOpts);
 
                 NkUI::Combo(ctx, ls, dl, *mFont, "Combo", mCombo, comboItems, 4);
-                NkUI::ListBox(ctx, ls, dl, *mFont, "List", mList, listItems, 10, 6);
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "List Multi-select", mListMultiSelect);
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "List Toggle Selection", mListToggleSelection);
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "List Require Ctrl", mListRequireCtrl);
+                if (NkUI::Button(ctx, ls, dl, *mFont, "Clear List Selection")) {
+                    for (int32 i = 0; i < 10; ++i) mListMask[i] = false;
+                }
+                NkUIListBoxOptions listOpts{};
+                listOpts.multiSelect = mListMultiSelect;
+                listOpts.toggleSelection = mListToggleSelection;
+                listOpts.requireCtrlForMulti = mListRequireCtrl;
+                listOpts.selectedMask = mListMask;
+                listOpts.selectedMaskCount = 10;
+                NkUI::ListBox(ctx, ls, dl, *mFont, "List", mList, listItems, 10, 6, &listOpts);
 
                 if (mProgressAnim) {
                     mProgress += ctx.dt * 0.15f;
@@ -404,6 +484,10 @@ namespace nkentseu {
                 }
                 NkUI::Checkbox(ctx, ls, dl, *mFont, "Animate Progress", mProgressAnim);
                 NkUI::ProgressBar(ctx, ls, dl, mProgress, {0.f, 0.f}, "Progress");
+                NkUI::ProgressBarVertical(ctx, ls, dl, mProgress, {30.f, 110.f}, "V");
+                char circularLabel[24];
+                ::snprintf(circularLabel, sizeof(circularLabel), "%d%%", static_cast<int32>(mProgress * 100.f));
+                NkUI::ProgressBarCircular(ctx, ls, dl, *mFont, mProgress, 72.f, circularLabel);
 
                 NkUIWindow::End(ctx, wm, dl, ls);
             }
@@ -648,22 +732,326 @@ namespace nkentseu {
             }
         }
 
+        inline void NkUIDemo::RenderMainMenuBar(NkUIContext& ctx, NkUIDrawList& dl) {
+            if (!mFont) return;
+            (void)dl;
+            // Menubar sur l'overlay: évite toute interaction avec des clips de fenêtres.
+            NkUIDrawList& menuDL = ctx.layers[NkUIContext::LAYER_OVERLAY];
+            const NkRect barR = {0.f, 0.f, static_cast<float32>(ctx.viewW), ctx.theme.metrics.titleBarHeight};
+            if (!NkUIMenu::BeginMenuBar(ctx, menuDL, *mFont, barR)) return;
+
+            if (NkUIMenu::BeginMenu(ctx, menuDL, *mFont, "File")) {
+                if (NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Reset Layout")) {
+                    mResetLayout = true;
+                    mDockBootstrap = true;
+                    PushLog("Layout reset from menu");
+                }
+                if (NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Regenerate Texture")) {
+                    GenerateTexture();
+                    UploadTextureIfNeeded();
+                    PushLog("Texture regenerated from menu");
+                }
+                NkUIMenu::EndMenu(ctx);
+            }
+
+            if (NkUIMenu::BeginMenu(ctx, menuDL, *mFont, "View")) {
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Docking Demo", nullptr, &mShowDocking);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "UI Test Lab", nullptr, &mShowControl);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Widgets", nullptr, &mShowWidgets);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Layout + Scroll", nullptr, &mShowLayout);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Data", nullptr, &mShowData);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Textures", nullptr, &mShowTextures);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Viewport", nullptr, &mShowViewport);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Input", nullptr, &mShowInput);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Unicode", nullptr, &mShowUnicode);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Z-Order", nullptr, &mShowZOrder);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "About", nullptr, &mShowAbout);
+                NkUIMenu::EndMenu(ctx);
+            }
+
+            if (NkUIMenu::BeginMenu(ctx, menuDL, *mFont, "Dock")) {
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Inspector", nullptr, &mShowDockInspector);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Console", nullptr, &mShowDockConsole);
+                NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Assets", nullptr, &mShowDockAssets);
+                if (NkUIMenu::MenuItem(ctx, menuDL, *mFont, "Redock All")) {
+                    mDockBootstrap = true;
+                }
+                NkUIMenu::EndMenu(ctx);
+            }
+
+            NkUIMenu::EndMenuBar(ctx);
+        }
+
+        inline void NkUIDemo::WinDockInspector(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls) {
+            if (!mShowDocking || !mShowDockInspector || !mFont) return;
+            NkUIWindowState* ws = wm.Find("Dock Inspector");
+            NkUIDrawList& dl = ctx.layers[NkUIContext::LAYER_WINDOWS];
+            if (ws && ws->isDocked) {
+                if (!ws->isOpen) {
+                    mShowDockInspector = false;
+                    return;
+                }
+                if (dock.BeginDocked(ctx, wm, dl, "Dock Inspector")) {
+                    char ids[160];
+                    ::snprintf(ids, sizeof(ids), "hover=%u active=%u focus=%u", ctx.hotId, ctx.activeId, ctx.focusId);
+                    NkUI::Text(ctx, ls, dl, *mFont, "Dock Inspector");
+                    NkUI::Text(ctx, ls, dl, *mFont, ids);
+                    NkUI::Checkbox(ctx, ls, dl, *mFont, "Auto Rotate Viewport", mViewportAutoRotate);
+                    NkUI::SliderFloat(ctx, ls, dl, *mFont, "Yaw", mViewportYaw, -180.f, 180.f);
+                    NkUI::SliderFloat(ctx, ls, dl, *mFont, "Pitch", mViewportPitch, -89.f, 89.f);
+                    dock.EndDocked(ctx, dl);
+                }
+                return;
+            }
+
+            if (mResetLayout) {
+                NkUIWindow::SetNextWindowPos({20.f, 110.f});
+                NkUIWindow::SetNextWindowSize({320.f, 260.f});
+            }
+            if (NkUIWindow::Begin(ctx, wm, dl, *mFont, ls, "Dock Inspector", &mShowDockInspector)) {
+                char ids[160];
+                ::snprintf(ids, sizeof(ids), "hover=%u active=%u focus=%u", ctx.hotId, ctx.activeId, ctx.focusId);
+                NkUI::Text(ctx, ls, dl, *mFont, "Dock Inspector");
+                NkUI::Text(ctx, ls, dl, *mFont, ids);
+                NkUI::Checkbox(ctx, ls, dl, *mFont, "Auto Rotate Viewport", mViewportAutoRotate);
+                NkUI::SliderFloat(ctx, ls, dl, *mFont, "Yaw", mViewportYaw, -180.f, 180.f);
+                NkUI::SliderFloat(ctx, ls, dl, *mFont, "Pitch", mViewportPitch, -89.f, 89.f);
+                NkUIWindow::End(ctx, wm, dl, ls);
+            }
+        }
+
+        inline void NkUIDemo::WinDockConsole(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls) {
+            if (!mShowDocking || !mShowDockConsole || !mFont) return;
+            NkUIWindowState* ws = wm.Find("Dock Console");
+            NkUIDrawList& dl = ctx.layers[NkUIContext::LAYER_WINDOWS];
+            if (ws && ws->isDocked) {
+                if (!ws->isOpen) {
+                    mShowDockConsole = false;
+                    return;
+                }
+                if (dock.BeginDocked(ctx, wm, dl, "Dock Console")) {
+                    NkUI::Text(ctx, ls, dl, *mFont, "Dock Console");
+                    for (int32 i = (mLogCount > 10 ? mLogCount - 10 : 0); i < mLogCount; ++i) {
+                        NkUI::Text(ctx, ls, dl, *mFont, mLog[i]);
+                    }
+                    dock.EndDocked(ctx, dl);
+                }
+                return;
+            }
+
+            if (mResetLayout) {
+                NkUIWindow::SetNextWindowPos({20.f, 380.f});
+                NkUIWindow::SetNextWindowSize({500.f, 220.f});
+            }
+            if (NkUIWindow::Begin(ctx, wm, dl, *mFont, ls, "Dock Console", &mShowDockConsole)) {
+                NkUI::Text(ctx, ls, dl, *mFont, "Dock Console");
+                for (int32 i = (mLogCount > 10 ? mLogCount - 10 : 0); i < mLogCount; ++i) {
+                    NkUI::Text(ctx, ls, dl, *mFont, mLog[i]);
+                }
+                NkUIWindow::End(ctx, wm, dl, ls);
+            }
+        }
+
+        inline void NkUIDemo::WinDockAssets(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls) {
+            if (!mShowDocking || !mShowDockAssets || !mFont) return;
+            NkUIWindowState* ws = wm.Find("Dock Assets");
+            NkUIDrawList& dl = ctx.layers[NkUIContext::LAYER_WINDOWS];
+            if (ws && ws->isDocked) {
+                if (!ws->isOpen) {
+                    mShowDockAssets = false;
+                    return;
+                }
+                if (dock.BeginDocked(ctx, wm, dl, "Dock Assets")) {
+                    static const char* assets[] = {
+                        "textures/checker.png",
+                        "textures/gradient.png",
+                        "models/cube.mesh",
+                        "models/sphere.mesh",
+                        "scenes/demo_scene.json",
+                        "fonts/arial.ttf"
+                    };
+                    NkUI::Text(ctx, ls, dl, *mFont, "Dock Assets");
+                    for (int32 i = 0; i < 6; ++i) {
+                        char label[96];
+                        ::snprintf(label, sizeof(label), "Open##asset_%d", i);
+                        NkUI::LabelValue(ctx, ls, dl, *mFont, assets[i], "");
+                        if (NkUI::Button(ctx, ls, dl, *mFont, label, {80.f, 0.f})) {
+                            PushLog("Asset action: %s", assets[i]);
+                        }
+                    }
+                    dock.EndDocked(ctx, dl);
+                }
+                return;
+            }
+
+            if (mResetLayout) {
+                NkUIWindow::SetNextWindowPos({530.f, 380.f});
+                NkUIWindow::SetNextWindowSize({360.f, 220.f});
+            }
+            if (NkUIWindow::Begin(ctx, wm, dl, *mFont, ls, "Dock Assets", &mShowDockAssets)) {
+                static const char* assets[] = {
+                    "textures/checker.png",
+                    "textures/gradient.png",
+                    "models/cube.mesh",
+                    "models/sphere.mesh",
+                    "scenes/demo_scene.json",
+                    "fonts/arial.ttf"
+                };
+                NkUI::Text(ctx, ls, dl, *mFont, "Dock Assets");
+                for (int32 i = 0; i < 6; ++i) {
+                    char label[96];
+                    ::snprintf(label, sizeof(label), "Open##asset_%d", i);
+                    NkUI::LabelValue(ctx, ls, dl, *mFont, assets[i], "");
+                    if (NkUI::Button(ctx, ls, dl, *mFont, label, {80.f, 0.f})) {
+                        PushLog("Asset action: %s", assets[i]);
+                    }
+                }
+                NkUIWindow::End(ctx, wm, dl, ls);
+            }
+        }
+
+        inline void NkUIDemo::WinDocking(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDockManager& dock, NkUILayoutStack& ls) {
+            if (!mShowDocking || !mFont) return;
+            (void)ctx;
+            (void)ls;
+
+            if (mDockBootstrap && dock.rootIdx >= 0) {
+                bool didDock = false;
+                if (mShowDockInspector) {
+                    NkUIWindowState* wi = wm.Find("Dock Inspector");
+                    if (wi && !wi->isDocked) {
+                        didDock |= dock.DockWindow(wm, wi->id, dock.rootIdx, NkUIDockDrop::NK_CENTER);
+                    }
+                }
+                if (mShowDockConsole) {
+                    NkUIWindowState* wc = wm.Find("Dock Console");
+                    if (wc && !wc->isDocked) {
+                        didDock |= dock.DockWindow(wm, wc->id, dock.rootIdx, NkUIDockDrop::NK_CENTER);
+                    }
+                }
+                if (mShowDockAssets) {
+                    NkUIWindowState* wa = wm.Find("Dock Assets");
+                    if (wa && !wa->isDocked) {
+                        didDock |= dock.DockWindow(wm, wa->id, dock.rootIdx, NkUIDockDrop::NK_CENTER);
+                    }
+                }
+                mDockBootstrap = false;
+                if (didDock) {
+                    PushLog("Dock layout initialized");
+                }
+            }
+        }
+
         inline void NkUIDemo::Render(NkUIContext& ctx,
                                      NkUIWindowManager& wm,
                                      NkUIDockManager& dock,
                                      NkUILayoutStack& ls,
                                      float32 dt) {
-            (void)dock;
             if (!mInitialized) return;
             if (!mFont) {
                 EnsureFont();
                 if (!mFont) return;
             }
+            ctx.SetActiveFont(mFont);
 
             mTime += dt;
 
             NkUIDrawList& bg = ctx.layers[NkUIContext::LAYER_BG];
             bg.AddRectFilled({0.f, 0.f, static_cast<float32>(ctx.viewW), static_cast<float32>(ctx.viewH)}, ctx.theme.colors.bgPrimary);
+            NkUIDrawList& dl = ctx.layers[NkUIContext::LAYER_WINDOWS];
+
+            const float32 menuH = mShowMenuBar ? ctx.theme.metrics.titleBarHeight : 0.f;
+            if (mShowMenuBar) {
+                RenderMainMenuBar(ctx, dl);
+            }
+
+            if (mShowDocking && !mPrevShowDocking) {
+                mShowDockInspector = true;
+                mShowDockConsole = true;
+                mShowDockAssets = true;
+                mDockBootstrap = true;
+            }
+            mPrevShowDocking = mShowDocking;
+
+            if (mResetLayout) {
+                mDockBootstrap = true;
+            }
+
+            if (mShowDocking) {
+                const NkRect dockRect = {0.f, menuH, static_cast<float32>(ctx.viewW), static_cast<float32>(ctx.viewH) - menuH};
+                dock.SetViewport(dockRect);
+                dock.BeginFrame(ctx, wm, dl, *mFont);
+                dock.Render(ctx, dl, *mFont, wm, ls);
+            }
+
+            // Root widgets (outside any window) to validate non-window UI path.
+            // Keep them on the windows layer so popup layers (menus/combos) stay visible on top.
+            {
+                NkUIDrawList& root = ctx.layers[NkUIContext::LAYER_WINDOWS];
+                NkUIDrawList* savedDl = ctx.dl;
+                NkVec2 savedCursor = ctx.cursor;
+                NkVec2 savedCursorStart = ctx.cursorStart;
+                const NkUIID savedWindowId = ctx.currentWindowId;
+
+                ctx.dl = &root;
+                ctx.currentWindowId = NKUI_ID_NONE;
+                ctx.SetCursor({8.f, menuH + 6.f});
+                ctx.cursorStart = ctx.cursor;
+
+                static bool rootToggle = true;
+                static float32 rootOpacity = 0.75f;
+                static int32 rootClicks = 0;
+                static int32 rootValuePlacement = 0;
+                static const char* rootValuePlacementItems[] = {
+                    "Above thumb",
+                    "Below thumb",
+                    "Left of slider",
+                    "Right of slider",
+                    "In label",
+                    "Hidden"
+                };
+
+                NkUISliderValueOptions rootValueOpts{};
+                switch (rootValuePlacement) {
+                    default:
+                    case 0: rootValueOpts.placement = NkUISliderValuePlacement::NK_ABOVE_THUMB; break;
+                    case 1: rootValueOpts.placement = NkUISliderValuePlacement::NK_BELOW_THUMB; break;
+                    case 2: rootValueOpts.placement = NkUISliderValuePlacement::NK_LEFT_OF_SLIDER; break;
+                    case 3: rootValueOpts.placement = NkUISliderValuePlacement::NK_RIGHT_OF_SLIDER; break;
+                    case 4: rootValueOpts.placement = NkUISliderValuePlacement::NK_IN_LABEL; break;
+                    case 5: rootValueOpts.placement = NkUISliderValuePlacement::NK_HIDDEN; break;
+                }
+                rootValueOpts.followThumb = true;
+                rootValueOpts.gap = 4.f;
+
+                NkUI::BeginRow(ctx, ls, 24.f);
+                if (NkUI::Button(ctx, ls, root, *mFont, "Root Button##root_btn")) {
+                    ++rootClicks;
+                }
+                NkUI::Checkbox(ctx, ls, root, *mFont, "Root Toggle##root_toggle", rootToggle);
+                NkUI::SliderFloat(
+                    ctx, ls, root, *mFont,
+                    "Root Opacity##root_opacity", rootOpacity, 0.f, 1.f,
+                    "%.2f", 260.f, &rootValueOpts);
+                NkUI::EndRow(ctx, ls);
+
+                NkUI::Combo(
+                    ctx, ls, root, *mFont,
+                    "Root Value Pos##root_value_pos",
+                    rootValuePlacement,
+                    rootValuePlacementItems,
+                    6,
+                    220.f);
+
+                char rootInfo[96];
+                ::snprintf(rootInfo, sizeof(rootInfo), "Root clicks: %d", rootClicks);
+                NkUI::Text(ctx, ls, root, *mFont, rootInfo);
+
+                ctx.dl = savedDl;
+                ctx.cursor = savedCursor;
+                ctx.cursorStart = savedCursorStart;
+                ctx.currentWindowId = savedWindowId;
+            }
 
             enum class TaskId : uint8 {
                 Control,
@@ -674,6 +1062,9 @@ namespace nkentseu {
                 Viewport,
                 Input,
                 Unicode,
+                DockInspector,
+                DockConsole,
+                DockAssets,
                 ZOrder,
                 OverlapA,
                 OverlapB,
@@ -685,7 +1076,7 @@ namespace nkentseu {
                 int32 order;
             };
 
-            Task tasks[16] = {};
+            Task tasks[24] = {};
             int32 taskCount = 0;
             int32 fallbackOrder = 0;
 
@@ -712,6 +1103,9 @@ namespace nkentseu {
             pushTask(TaskId::Viewport, "Viewport Preview",   mShowViewport);
             pushTask(TaskId::Input,    "Input Diagnostics",  mShowInput);
             pushTask(TaskId::Unicode,  "Unicode + Font",     mShowUnicode);
+            pushTask(TaskId::DockInspector, "Dock Inspector", mShowDocking && mShowDockInspector);
+            pushTask(TaskId::DockConsole,   "Dock Console",   mShowDocking && mShowDockConsole);
+            pushTask(TaskId::DockAssets,    "Dock Assets",    mShowDocking && mShowDockAssets);
             pushTask(TaskId::ZOrder,   "Z-Order Test",       mShowZOrder);
             pushTask(TaskId::OverlapA, "Overlap A",          mShowZOrder);
             pushTask(TaskId::OverlapB, "Overlap B",          mShowZOrder);
@@ -748,6 +1142,15 @@ namespace nkentseu {
                     case TaskId::Unicode: {
                         WinUnicode(ctx, wm, ls);
                     } break;
+                    case TaskId::DockInspector: {
+                        WinDockInspector(ctx, wm, dock, ls);
+                    } break;
+                    case TaskId::DockConsole: {
+                        WinDockConsole(ctx, wm, dock, ls);
+                    } break;
+                    case TaskId::DockAssets: {
+                        WinDockAssets(ctx, wm, dock, ls);
+                    } break;
                     case TaskId::ZOrder: {
                         WinZOrder(ctx, wm, ls);
                     } break;
@@ -765,6 +1168,8 @@ namespace nkentseu {
                     } break;
                 }
             }
+
+            WinDocking(ctx, wm, dock, ls);
 
             mResetLayout = false;
         }

@@ -336,7 +336,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
             _BASE_LINKS.append("NKImage")
         if use_nkfont:
             _BASE_LINKS.append("NKFont")
-        if use_nkfont:
+        if use_nkui:
             _BASE_LINKS.append("NKUI")
 
         links(_BASE_LINKS)
@@ -577,7 +577,7 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             _BASE_LINKS.append("NKImage")
         if use_nkfont:
             _BASE_LINKS.append("NKFont")
-        if use_nkfont:
+        if use_nkui:
             _BASE_LINKS.append("NKUI")
 
         links(_BASE_LINKS)
@@ -793,4 +793,7 @@ sandboxusenkrhi("NkUIDemoNKEngine", [
 
 
 # =================================== NKRenderer UI =======================================================
-# sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)
+sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)
+
+
+sandboxusenkcontext("firsttriangle", ["src/Opengl/firsttriangle.cpp"], "sandbox.nkentseu.firsttriangle")

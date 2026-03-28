@@ -1,3 +1,10 @@
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Demo-only NKRHI adapter implementation for NKUI rendering.
+ * Main data: Shader setup, geometry upload, layer submit and texture binds.
+ * Change this file when: Cross-backend UI artifacts, scissor, or texture bugs appear.
+ */
 #include "NkUINKRHIBackend.h"
 
 #include "NKRHI/ShaderConvert/NkShaderConvert.h"
@@ -413,36 +420,116 @@ float4 PSMain(PSIn i) : SV_Target {
             mBoundTexId = resolvedId;
         }
 
+        void NkUINKRHIBackend::RetireTextureEntry(const TextureEntry& entry) {
+            if (!entry.texture.IsValid() && !entry.descSet.IsValid()) {
+                return;
+            }
+            RetiredTextureEntry retired{};
+            retired.entry = entry;
+            retired.retireFrame = mFrameIndex;
+            mRetiredTextures.PushBack(retired);
+        }
+
+        void NkUINKRHIBackend::CollectRetiredTextures() {
+            if (!mDevice || mRetiredTextures.Empty()) {
+                return;
+            }
+
+            usize writeIndex = 0;
+            for (usize i = 0; i < mRetiredTextures.Size(); ++i) {
+                RetiredTextureEntry& retired = mRetiredTextures[i];
+                const uint64 age = mFrameIndex - retired.retireFrame;
+                if (age >= kRetireDelayFrames) {
+                    if (retired.entry.descSet.IsValid()) {
+                        mDevice->FreeDescriptorSet(retired.entry.descSet);
+                    }
+                    if (retired.entry.texture.IsValid()) {
+                        mDevice->DestroyTexture(retired.entry.texture);
+                    }
+                    continue;
+                }
+
+                if (writeIndex != i) {
+                    mRetiredTextures[writeIndex] = retired;
+                }
+                ++writeIndex;
+            }
+            mRetiredTextures.Resize(writeIndex);
+        }
+
         void NkUINKRHIBackend::Submit(NkICommandBuffer* cmd, const NkUIContext& ctx, uint32 fbW, uint32 fbH) {
             if (!cmd || !mPipeline.IsValid() || !mVBO.IsValid() || !mIBO.IsValid() || !mUBO.IsValid() || fbW == 0 || fbH == 0) {
                 return;
             }
 
-            uint64 maxVsize = 0;
-            uint64 maxIsize = 0;
+            ++mFrameIndex;
+            CollectRetiredTextures();
+
+            uint32 layerBaseVtx[NkUIContext::LAYER_COUNT] = {};
+            uint32 layerBaseIdx[NkUIContext::LAYER_COUNT] = {};
+            uint64 totalVtxCount = 0;
+            uint64 totalIdxCount = 0;
             for (int32 layer = 0; layer < NkUIContext::LAYER_COUNT; ++layer) {
                 const NkUIDrawList& dl = ctx.layers[layer];
                 if (!dl.vtx || !dl.idx || dl.vtxCount == 0 || dl.idxCount == 0 || dl.cmdCount == 0) {
                     continue;
                 }
-                const uint64 vsize = static_cast<uint64>(dl.vtxCount) * sizeof(NkUIVertex);
-                const uint64 isize = static_cast<uint64>(dl.idxCount) * sizeof(uint32);
-                if (vsize > maxVsize) maxVsize = vsize;
-                if (isize > maxIsize) maxIsize = isize;
+                layerBaseVtx[layer] = static_cast<uint32>(totalVtxCount);
+                layerBaseIdx[layer] = static_cast<uint32>(totalIdxCount);
+                totalVtxCount += static_cast<uint64>(dl.vtxCount);
+                totalIdxCount += static_cast<uint64>(dl.idxCount);
             }
 
-            if (maxVsize <= (mVBOCap / 4ull) && maxIsize <= (mIBOCap / 4ull)) {
+            if (totalVtxCount == 0 || totalIdxCount == 0) {
+                return;
+            }
+            if (totalVtxCount > 0xFFFFFFFFull || totalIdxCount > 0xFFFFFFFFull) {
+                logger.Warn("[NkUINKRHIBackend] UI geometry overflow: vtx=%llu idx=%llu\n",
+                            static_cast<unsigned long long>(totalVtxCount),
+                            static_cast<unsigned long long>(totalIdxCount));
+                return;
+            }
+
+            const uint64 requiredVtxBytes = totalVtxCount * sizeof(NkUIVertex);
+            const uint64 requiredIdxBytes = totalIdxCount * sizeof(uint32);
+
+            if (requiredVtxBytes <= (mVBOCap / 4ull) && requiredIdxBytes <= (mIBOCap / 4ull)) {
                 ++mLowUsageFrames;
             } else {
                 mLowUsageFrames = 0;
             }
             const bool allowShrink = (mLowUsageFrames >= kShrinkDelayFrames);
-            if (!EnsureGeometryBuffers(maxVsize, maxIsize, allowShrink)) {
+            if (!EnsureGeometryBuffers(requiredVtxBytes, requiredIdxBytes, allowShrink)) {
                 return;
             }
             if (allowShrink) {
                 mLowUsageFrames = 0;
             }
+
+            mScratchVtx.Resize(static_cast<usize>(totalVtxCount));
+            mScratchIdx.Resize(static_cast<usize>(totalIdxCount));
+
+            for (int32 layer = 0; layer < NkUIContext::LAYER_COUNT; ++layer) {
+                const NkUIDrawList& dl = ctx.layers[layer];
+                if (!dl.vtx || !dl.idx || dl.vtxCount == 0 || dl.idxCount == 0 || dl.cmdCount == 0) {
+                    continue;
+                }
+
+                const uint32 baseVtx = layerBaseVtx[layer];
+                const uint32 baseIdx = layerBaseIdx[layer];
+
+                std::memcpy(
+                    mScratchVtx.Data() + static_cast<usize>(baseVtx),
+                    dl.vtx,
+                    static_cast<usize>(dl.vtxCount) * sizeof(NkUIVertex));
+
+                for (uint32 i = 0; i < dl.idxCount; ++i) {
+                    mScratchIdx[static_cast<usize>(baseIdx + i)] = dl.idx[i] + baseVtx;
+                }
+            }
+
+            mDevice->WriteBuffer(mVBO, mScratchVtx.Data(), requiredVtxBytes);
+            mDevice->WriteBuffer(mIBO, mScratchIdx.Data(), requiredIdxBytes);
 
             const float32 vp[4] = {static_cast<float32>(fbW), static_cast<float32>(fbH), 0.f, 0.f};
             mDevice->WriteBuffer(mUBO, vp, sizeof(vp));
@@ -453,25 +540,17 @@ float4 PSMain(PSIn i) : SV_Target {
 
             NkViewport viewport{0.f, 0.f, static_cast<float32>(fbW), static_cast<float32>(fbH), 0.f, 1.f};
             cmd->SetViewport(viewport);
+            mBoundTexId = 0xFFFFFFFFu;
 
             for (int32 layer = 0; layer < NkUIContext::LAYER_COUNT; ++layer) {
                 const NkUIDrawList& dl = ctx.layers[layer];
                 if (!dl.vtx || !dl.idx || dl.vtxCount == 0 || dl.idxCount == 0 || dl.cmdCount == 0) {
                     continue;
                 }
-
-                const uint64 vsize = static_cast<uint64>(dl.vtxCount) * sizeof(NkUIVertex);
-                const uint64 isize = static_cast<uint64>(dl.idxCount) * sizeof(uint32);
-                if (vsize > mVBOCap || isize > mIBOCap) {
-                    continue;
-                }
-
-                mDevice->WriteBuffer(mVBO, dl.vtx, vsize);
-                mDevice->WriteBuffer(mIBO, dl.idx, isize);
+                const uint32 layerIndexBase = layerBaseIdx[layer];
 
                 NkRect2D scissor{0, 0, static_cast<int32>(fbW), static_cast<int32>(fbH)};
                 cmd->SetScissor(scissor);
-                mBoundTexId = 0xFFFFFFFFu;
 
                 for (uint32 ci = 0; ci < dl.cmdCount; ++ci) {
                     const NkUIDrawCmd& dc = dl.cmds[ci];
@@ -481,10 +560,20 @@ float4 PSMain(PSIn i) : SV_Target {
                         const float32 y0 = ::fmaxf(dc.clipRect.y, 0.f);
                         const float32 x1 = ::fminf(dc.clipRect.x + dc.clipRect.w, static_cast<float32>(fbW));
                         const float32 y1 = ::fminf(dc.clipRect.y + dc.clipRect.h, static_cast<float32>(fbH));
+                        const int32 clipW = static_cast<int32>(::fmaxf(0.f, x1 - x0));
+                        const int32 clipH = static_cast<int32>(::fmaxf(0.f, y1 - y0));
                         scissor.x = static_cast<int32>(x0);
-                        scissor.y = static_cast<int32>(y0);
-                        scissor.w = static_cast<int32>(::fmaxf(0.f, x1 - x0));
-                        scissor.h = static_cast<int32>(::fmaxf(0.f, y1 - y0));
+                        scissor.w = clipW;
+                        scissor.h = clipH;
+                        if (mApi == NkGraphicsApi::NK_API_OPENGL) {
+                            // NkUI clip rects are top-left based; OpenGL scissor is bottom-left based.
+                            scissor.y = static_cast<int32>(fbH) - static_cast<int32>(y1);
+                            if (scissor.y < 0) {
+                                scissor.y = 0;
+                            }
+                        } else {
+                            scissor.y = static_cast<int32>(y0);
+                        }
                         cmd->SetScissor(scissor);
                         continue;
                     }
@@ -495,7 +584,7 @@ float4 PSMain(PSIn i) : SV_Target {
 
                     const uint32 texId = (dc.type == NkUIDrawCmdType::NK_TEXTURED_TRIS) ? dc.texId : 0u;
                     BindTexture(cmd, texId);
-                    cmd->DrawIndexed(dc.idxCount, 1, dc.idxOffset, 0, 0);
+                    cmd->DrawIndexed(dc.idxCount, 1, layerIndexBase + dc.idxOffset, 0, 0);
                 }
             }
         }
@@ -563,12 +652,7 @@ float4 PSMain(PSIn i) : SV_Target {
             }
 
             if (existing) {
-                if (existing->descSet.IsValid()) {
-                    mDevice->FreeDescriptorSet(existing->descSet);
-                }
-                if (existing->texture.IsValid()) {
-                    mDevice->DestroyTexture(existing->texture);
-                }
+                RetireTextureEntry(*existing);
                 existing->texture = texture;
                 existing->descSet = descSet;
                 existing->width = width;
@@ -615,6 +699,16 @@ float4 PSMain(PSIn i) : SV_Target {
             }
             mTextures.Clear();
 
+            for (auto& retired : mRetiredTextures) {
+                if (retired.entry.descSet.IsValid()) {
+                    mDevice->FreeDescriptorSet(retired.entry.descSet);
+                }
+                if (retired.entry.texture.IsValid()) {
+                    mDevice->DestroyTexture(retired.entry.texture);
+                }
+            }
+            mRetiredTextures.Clear();
+
             if (mWhiteDescSet.IsValid()) {
                 mDevice->FreeDescriptorSet(mWhiteDescSet);
             }
@@ -655,6 +749,7 @@ float4 PSMain(PSIn i) : SV_Target {
             mVBOCap = 0;
             mIBOCap = 0;
             mLowUsageFrames = 0;
+            mFrameIndex = 0;
             mDevice = nullptr;
             mBoundTexId = 0xFFFFFFFFu;
         }

@@ -4,6 +4,13 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Primitive tessellation and draw command generation.
+ * Main data: Rect/line/circle/path/image emission and clip handling.
+ * Change this file when: Rendering artifacts or primitive generation bugs appear.
+ */
 #include "NkUI/NkUIDrawList.h"
 #include <cstring>
 #include <cmath>

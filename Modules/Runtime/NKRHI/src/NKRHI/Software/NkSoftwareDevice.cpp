@@ -222,11 +222,23 @@ namespace nkentseu {
         uint32 x = (uint32)scr.position.x;
         uint32 y = (uint32)scr.position.y;
         if (x >= dimTarget->Width() || y >= dimTarget->Height()) return;
+        const uint32 clipMinXVal = (this->clipMaxX > this->clipMinX) ? this->clipMinX : 0u;
+        const uint32 clipMinYVal = (this->clipMaxY > this->clipMinY) ? this->clipMinY : 0u;
+        const uint32 clipMaxXSafe = (this->clipMaxX > this->clipMinX) ? this->clipMaxX : dimTarget->Width();
+        const uint32 clipMaxYSafe = (this->clipMaxY > this->clipMinY) ? this->clipMaxY : dimTarget->Height();
+        if (x < clipMinXVal || y < clipMinYVal || x >= clipMaxXSafe || y >= clipMaxYSafe) return;
         if (!DepthTest(x, y, scr.position.z)) return;
         if (mState.colorTarget) {
-            NkSWColor c = mState.shader && mState.shader->fragFn
-                ? mState.shader->fragFn(scr, mState.uniformData, mState.colorTarget)
-                : scr.color;
+            NkSWColor c = scr.color;
+            if (mState.shader && mState.shader->fragFn) {
+                c = mState.shader->fragFn(scr, mState.uniformData, mState.texSampler);
+            } else if (mState.texSampler && scr.uv.x >= 0.f && scr.uv.y >= 0.f) {
+                const NkSWTexture* tex = static_cast<const NkSWTexture*>(mState.texSampler);
+                const float32 su = math::NkClamp(scr.uv.x, 0.f, 1.f);
+                const float32 sv = math::NkClamp(scr.uv.y, 0.f, 1.f);
+                const NkSWColor tc = tex->Sample(su, sv);
+                c = {c.r * tc.r, c.g * tc.g, c.b * tc.b, c.a * tc.a};
+            }
             mState.colorTarget->Write(x, y, c);
         }
     }
@@ -249,10 +261,23 @@ namespace nkentseu {
             NkSWVertex p = Interpolate(ndc0, ndc1, t);
             uint32 x = (uint32)p.position.x, y = (uint32)p.position.y;
             if (x >= (uint32)W || y >= (uint32)H) continue;
+            const uint32 clipMinXVal = (this->clipMaxX > this->clipMinX) ? this->clipMinX : 0u;
+            const uint32 clipMinYVal = (this->clipMaxY > this->clipMinY) ? this->clipMinY : 0u;
+            const uint32 clipMaxXSafe = (this->clipMaxX > this->clipMinX) ? this->clipMaxX : static_cast<uint32>(W);
+            const uint32 clipMaxYSafe = (this->clipMaxY > this->clipMinY) ? this->clipMaxY : static_cast<uint32>(H);
+            if (x < clipMinXVal || y < clipMinYVal || x >= clipMaxXSafe || y >= clipMaxYSafe) continue;
             if (!DepthTest(x, y, p.position.z)) continue;
             if (mState.colorTarget) {
-                NkSWColor c = mState.shader && mState.shader->fragFn
-                    ? mState.shader->fragFn(p, mState.uniformData, mState.colorTarget) : p.color;
+                NkSWColor c = p.color;
+                if (mState.shader && mState.shader->fragFn) {
+                    c = mState.shader->fragFn(p, mState.uniformData, mState.texSampler);
+                } else if (mState.texSampler && p.uv.x >= 0.f && p.uv.y >= 0.f) {
+                    const NkSWTexture* tex = static_cast<const NkSWTexture*>(mState.texSampler);
+                    const float32 su = math::NkClamp(p.uv.x, 0.f, 1.f);
+                    const float32 sv = math::NkClamp(p.uv.y, 0.f, 1.f);
+                    const NkSWColor tc = tex->Sample(su, sv);
+                    c = {c.r * tc.r, c.g * tc.g, c.b * tc.b, c.a * tc.a};
+                }
                 mState.colorTarget->Write(x, y, c);
             }
         }
@@ -298,8 +323,15 @@ namespace nkentseu {
         int maxX = (int)math::NkCeil (math::NkMax({s0.position.x, s1.position.x, s2.position.x}));
         int minY = (int)math::NkFloor(math::NkMin({s0.position.y, s1.position.y, s2.position.y}));
         int maxY = (int)math::NkCeil (math::NkMax({s0.position.y, s1.position.y, s2.position.y}));
-        minX = math::NkMax(minX, 0); maxX = math::NkMin(maxX, (int)W-1);
-        minY = math::NkMax(minY, 0); maxY = math::NkMin(maxY, (int)H-1);
+        const uint32 clipMinXVal = (this->clipMaxX > this->clipMinX) ? this->clipMinX : 0u;
+        const uint32 clipMinYVal = (this->clipMaxY > this->clipMinY) ? this->clipMinY : 0u;
+        const uint32 clipMaxXSafe = (this->clipMaxX > this->clipMinX) ? this->clipMaxX : static_cast<uint32>(W);
+        const uint32 clipMaxYSafe = (this->clipMaxY > this->clipMinY) ? this->clipMaxY : static_cast<uint32>(H);
+        minX = math::NkMax(minX, static_cast<int>(clipMinXVal));
+        maxX = math::NkMin(maxX, static_cast<int>(clipMaxXSafe) - 1);
+        minY = math::NkMax(minY, static_cast<int>(clipMinYVal));
+        maxY = math::NkMin(maxY, static_cast<int>(clipMaxYSafe) - 1);
+        if (minX > maxX || minY > maxY) return;
 
         // Rasterisation par scanline
         for (int y = minY; y <= maxY; y++) {
@@ -329,9 +361,21 @@ namespace nkentseu {
                     NkSWVertex frag = BaryInterp(s0, s1, s2, l0, l1, l2);
                     frag.position.x = px; frag.position.y = py; frag.position.z = z;
 
-                    NkSWColor srcColor = (mState.shader && mState.shader->fragFn)
-                        ? mState.shader->fragFn(frag, mState.uniformData, mState.colorTarget)
-                        : frag.color;
+                    NkSWColor srcColor = frag.color;
+                    if (mState.shader && mState.shader->fragFn) {
+                        srcColor = mState.shader->fragFn(frag, mState.uniformData, mState.texSampler);
+                    } else if (mState.texSampler && frag.uv.x >= 0.f && frag.uv.y >= 0.f) {
+                        const NkSWTexture* tex = static_cast<const NkSWTexture*>(mState.texSampler);
+                        const float32 su = math::NkClamp(frag.uv.x, 0.f, 1.f);
+                        const float32 sv = math::NkClamp(frag.uv.y, 0.f, 1.f);
+                        const NkSWColor tc = tex->Sample(su, sv);
+                        srcColor = {
+                            srcColor.r * tc.r,
+                            srcColor.g * tc.g,
+                            srcColor.b * tc.b,
+                            srcColor.a * tc.a
+                        };
+                    }
 
                     if (mState.pipeline && mState.pipeline->blendEnable) {
                         NkSWColor dstColor = mState.colorTarget->Read((uint32)x, (uint32)y);
@@ -616,8 +660,7 @@ namespace nkentseu {
             }
         }
         // Shader par défaut si non fourni : couleur de vertex passthrough
-        if (!sh.fragFn && !sh.isCompute)
-            sh.fragFn = [](const NkSWVertex& v, const void*, const void*) { return v.color; };
+        // Keep fragFn null when no CPU pixel shader is provided.
 
         uint64 hid = NextId(); mShaders[hid] = traits::NkMove(sh);
         NkShaderHandle h; h.id = hid; return h;
