@@ -387,10 +387,10 @@ namespace nkentseu {
                     p += 2; cur->ior = ParseFloat(p);
                 } else if (strncmp(p, "d ", 2) == 0) {
                     p += 2; cur->albedo.a = ParseFloat(p);
-                    if (cur->albedo.a < 1.f) cur->blendMode = NkBlendMode::Translucent;
+                    if (cur->albedo.a < 1.f) cur->blendMode = NkBlendMode::NK_TRANSLUCENT;
                 } else if (strncmp(p, "Tr", 2) == 0) {
                     p += 2; cur->albedo.a = 1.f - ParseFloat(p);
-                    if (cur->albedo.a < 1.f) cur->blendMode = NkBlendMode::Translucent;
+                    if (cur->albedo.a < 1.f) cur->blendMode = NkBlendMode::NK_TRANSLUCENT;
                 } else if (strncmp(p, "illum", 5) == 0) {
                     p += 5; cur->shadingModel = OBJIllumToShading((int)ParseFloat(p));
                 } else if (strncmp(p, "map_Kd", 6) == 0) {
@@ -417,13 +417,13 @@ namespace nkentseu {
 
         NkShadingModel NkModelLoader::OBJIllumToShading(int illum) {
             switch (illum) {
-                case 0: return NkShadingModel::Unlit;
-                case 1: return NkShadingModel::Phong;
-                case 2: return NkShadingModel::Phong;
-                case 4: return NkShadingModel::GlassBSDF;
-                case 6: return NkShadingModel::GlassBSDF;
-                case 9: return NkShadingModel::GlassBSDF;
-                default: return NkShadingModel::DefaultLit;
+                case 0: return NkShadingModel::NK_UNLIT;
+                case 1: return NkShadingModel::NK_PHONG;
+                case 2: return NkShadingModel::NK_PHONG;
+                case 4: return NkShadingModel::NK_GLASS_BSDF;
+                case 6: return NkShadingModel::NK_GLASS_BSDF;
+                case 9: return NkShadingModel::NK_GLASS_BSDF;
+                default: return NkShadingModel::NK_DEFAULT_LIT;
             }
         }
 
@@ -955,6 +955,29 @@ namespace nkentseu {
                 if (t) out->SetHeightMap(t);
             }
             out->FlushToGPU();
+        }
+
+        // =============================================================================
+        // NkModelLoader private helpers (class wrappers)
+        // =============================================================================
+        NkVector<uint8> NkModelLoader::ReadFile(const char* path) {
+            return ReadFileBin(path);
+        }
+
+        NkString NkModelLoader::ReadTextFile(const char* path) {
+            return ReadFileTxt(path);
+        }
+
+        NkString NkModelLoader::ExtractDir(const NkString& path) {
+            return renderer::ExtractDir(path);
+        }
+
+        NkString NkModelLoader::ExtractExt(const NkString& path) {
+            return renderer::ExtractExt(path);
+        }
+
+        NkString NkModelLoader::ResolveTexPath(const NkString& dir, const NkString& rel) {
+            return ResolvePath(dir, rel);
         }
 
     } // namespace renderer

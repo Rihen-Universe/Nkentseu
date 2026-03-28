@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Window manager data model and window API declarations.
+ * Main data: Window state, z-order, move/resize flags and contracts.
+ * Change this file when: Window interaction model or API shape changes.
+ */
 /**
  * @File    NkUIWindow.h
  * @Brief   Fenêtres flottantes NkUI — titre, resize, move, scroll, z-order.
@@ -59,6 +66,9 @@ namespace nkentseu {
             NkUIID           movingId    = NKUI_ID_NONE;
             NkUIID           resizingId  = NKUI_ID_NONE;
             NkVec2           moveOffset  = {};
+            NkVec2           resizeStartMouse = {};
+            NkVec2           resizeStartPos   = {};
+            NkVec2           resizeStartSize  = {};
             uint8            resizeEdge  = 0;
 
             void Init() noexcept;
@@ -69,7 +79,7 @@ namespace nkentseu {
             NkUIWindowState* Find(const char* name) noexcept;
             void BringToFront(NkUIID id) noexcept;
             void SortZOrder() noexcept;
-            NkUIWindowState* HitTest(NkVec2 pos) noexcept;
+            NkUIWindowState* HitTest(NkVec2 pos, float32 titleBarHeight) noexcept;
             void BeginFrame(NkUIContext& ctx) noexcept;
             void EndFrame(NkUIContext& ctx) noexcept;
         };

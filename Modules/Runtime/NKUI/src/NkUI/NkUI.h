@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Public NKUI umbrella API and module-level usage contract.
+ * Main data: Top-level includes and integration notes.
+ * Change this file when: You add/remove exposed NKUI subsystems or update public integration examples.
+ */
 /**
  * @File    NkUI.h
  * @Brief   Include unique NkUI — bibliothèque UI complète v1.0.

@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Docking data structures and docking API.
+ * Main data: Dock nodes, split model, docking operations contract.
+ * Change this file when: Docking behavior or node model needs extension.
+ */
 /**
  * @File    NkUIDock.h
  * @Brief   Système de docking NkUI — zones, drag & drop, tabs, split, detach.

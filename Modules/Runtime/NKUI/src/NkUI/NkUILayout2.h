@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: OpenGL renderer adapter declarations used by NKUI demos/tests.
+ * Main data: GL resources, shaders, upload and submit interface.
+ * Change this file when: OpenGL-specific UI rendering path changes.
+ */
 /**
  * @File    NkUILayout2.h
  * @Brief   SaveLayout / LoadLayout JSON + ColorPicker complet.

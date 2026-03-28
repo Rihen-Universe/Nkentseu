@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Layout stack/node model and layout algorithm API.
+ * Main data: Row/column/grid/scroll/split node definitions and helpers.
+ * Change this file when: Widget placement rules or scroll/split contracts evolve.
+ */
 /**
  * @File    NkUILayout.h
  * @Brief   Système de layout NkUI — Row, Column, Tab, Group, Splitter, Scroll.

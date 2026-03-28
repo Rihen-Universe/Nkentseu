@@ -16,6 +16,7 @@
 //   • Collada/DAE— partiel (squelette + mesh)
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Mesh/NkMesh.h"
 #include "NKRenderer/Material/NkMaterial.h"
 #include "NKRenderer/Core/NkTexture.h"
@@ -29,8 +30,8 @@ namespace nkentseu {
         // =============================================================================
         struct NkImportedMaterial {
             NkString  name;
-            NkShadingModel shadingModel = NkShadingModel::DefaultLit;
-            NkBlendMode    blendMode    = NkBlendMode::Opaque;
+            NkShadingModel shadingModel = NkShadingModel::NK_DEFAULT_LIT;
+            NkBlendMode    blendMode    = NkBlendMode::NK_OPAQUE;
 
             // PBR Metallic/Roughness
             NkColor4f albedo            = {1,1,1,1};
@@ -92,13 +93,13 @@ namespace nkentseu {
             NkVec4f value4; // pour les rotations quaternion
         };
 
-        enum class NkAnimChannel { Translation, Rotation, Scale, Weights };
+        enum class NkAnimChannel { NK_TRANSLATION, NK_ROTATION, NK_SCALE, NK_WEIGHTS };
 
         struct NkImportedChannel {
             uint32              targetNode  = 0;
-            NkAnimChannel       property    = NkAnimChannel::Translation;
+            NkAnimChannel       property    = NkAnimChannel::NK_TRANSLATION;
             NkVector<NkImportedKeyframe> keyframes;
-            enum class Interp { Linear, Step, CubicSpline } interpolation = Interp::Linear;
+            enum class Interp { NK_LINEAR, NK_STEP, NK_CUBIC_SPLINE } interpolation = Interp::NK_LINEAR;
         };
 
         struct NkImportedAnimation {

@@ -82,10 +82,40 @@ static int32 ToUiMouseButton(nkentseu::NkMouseButton b) {
     }
 }
 
+#if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
+static HCURSOR UiCursorToWin32(nkui::NkUIMouseCursor cursor) {
+    switch (cursor) {
+        case nkui::NkUIMouseCursor::NK_TEXT_INPUT:  return LoadCursorW(nullptr, IDC_IBEAM);
+        case nkui::NkUIMouseCursor::NK_HAND:        return LoadCursorW(nullptr, IDC_HAND);
+        case nkui::NkUIMouseCursor::NK_RESIZE_NS:   return LoadCursorW(nullptr, IDC_SIZENS);
+        case nkui::NkUIMouseCursor::NK_RESIZE_WE:   return LoadCursorW(nullptr, IDC_SIZEWE);
+        case nkui::NkUIMouseCursor::NK_RESIZE_NWSE: return LoadCursorW(nullptr, IDC_SIZENWSE);
+        case nkui::NkUIMouseCursor::NK_RESIZE_NESW: return LoadCursorW(nullptr, IDC_SIZENESW);
+        case nkui::NkUIMouseCursor::NK_ARROW:
+        default:                                    return LoadCursorW(nullptr, IDC_ARROW);
+    }
+}
+
+static void ApplyUiCursor(NkWindow& window, const nkui::NkUIContext& ctx) {
+    const HCURSOR cursor = UiCursorToWin32(ctx.GetMouseCursor());
+    if (!cursor || !window.mData.mHwnd) return;
+
+    POINT p{};
+    if (!GetCursorPos(&p)) return;
+    RECT wr{};
+    if (!GetWindowRect(window.mData.mHwnd, &wr)) return;
+    if (p.x < wr.left || p.x >= wr.right || p.y < wr.top || p.y >= wr.bottom) return;
+
+    SetCursor(cursor);
+}
+#else
+static void ApplyUiCursor(NkWindow&, const nkui::NkUIContext&) {}
+#endif
+
 int nkmain(const nkentseu::NkEntryState& state) {
     logger.Infof("Begin");
     const NkGraphicsApi api = ParseBackend(state.GetArgs());
-    logger.Infof("[NkUIDemoEngine] Backend: %s\n", NkGraphicsApiName(api));
+    logger.Info("[NkUIDemoEngine] Backend: {0}\n", NkGraphicsApiName(api));
 
     {
         NkShaderCache& cache = NkShaderCache::Global();
@@ -93,7 +123,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
     }
 
     NkWindowConfig winCfg;
-    winCfg.title = NkFormat("NkUI Demo - %s", NkGraphicsApiName(api));
+    winCfg.title = NkFormat("Nkentseu UI Demo - {0}", NkGraphicsApiName(api));
     winCfg.width = 1600;
     winCfg.height = 900;
     winCfg.centered = true;
@@ -209,14 +239,17 @@ int nkmain(const nkentseu::NkEntryState& state) {
         input.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
     });
     events.AddEventCallback<NkMouseButtonPressEvent>([&](NkMouseButtonPressEvent* e) {
+        input.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
         const int32 btn = ToUiMouseButton(e->GetButton());
         if (btn >= 0 && btn < 5) input.SetMouseButton(btn, true);
     });
     events.AddEventCallback<NkMouseButtonReleaseEvent>([&](NkMouseButtonReleaseEvent* e) {
+        input.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
         const int32 btn = ToUiMouseButton(e->GetButton());
         if (btn >= 0 && btn < 5) input.SetMouseButton(btn, false);
     });
     events.AddEventCallback<NkMouseDoubleClickEvent>([&](NkMouseDoubleClickEvent* e) {
+        input.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
         const int32 btn = ToUiMouseButton(e->GetButton());
         if (btn >= 0 && btn < 5) {
             input.SetMouseButton(btn, true);
@@ -224,9 +257,11 @@ int nkmain(const nkentseu::NkEntryState& state) {
         }
     });
     events.AddEventCallback<NkMouseWheelVerticalEvent>([&](NkMouseWheelVerticalEvent* e) {
+        input.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
         input.AddMouseWheel(static_cast<float32>(e->GetOffsetY()), static_cast<float32>(e->GetOffsetX()));
     });
     events.AddEventCallback<NkMouseWheelHorizontalEvent>([&](NkMouseWheelHorizontalEvent* e) {
+        input.SetMousePos(static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY()));
         input.AddMouseWheel(0.f, static_cast<float32>(e->GetOffsetX()));
     });
     events.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent* e) {
@@ -258,9 +293,11 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
         ctx.BeginFrame(input, dt);
         wm.BeginFrame(ctx);
+        ls.depth = 0; // layout stack is immediate/frame-local state
         demo->Render(ctx, wm, dock, ls, dt);
         ctx.EndFrame();
         wm.EndFrame(ctx);
+        ApplyUiCursor(window, ctx);
 
         fontLoader.UploadAtlas();
 

@@ -68,7 +68,7 @@ namespace nkentseu {
             bool            flipX        = false;
             bool            flipY        = false;
             NkVec4f         uvRect       = {0,0,1,1}; // sub-rect UV (x,y,w,h)
-            NkBlendMode     blendMode    = NkBlendMode::Translucent;
+            NkBlendMode     blendMode    = NkBlendMode::NK_TRANSLUCENT;
             bool            visible      = true;
         };
 
@@ -112,7 +112,7 @@ namespace nkentseu {
             bool      filled      = true;
             bool      stroked     = false;
             float     depth       = 0.f;
-            NkBlendMode blendMode = NkBlendMode::Translucent;
+            NkBlendMode blendMode = NkBlendMode::NK_TRANSLUCENT;
         };
 
         // =============================================================================
@@ -131,7 +131,7 @@ namespace nkentseu {
         struct NkBatch2D {
             NkTextureHandle  textureHandle;
             NkSamplerHandle  samplerHandle;
-            NkBlendMode      blendMode   = NkBlendMode::Translucent;
+            NkBlendMode      blendMode   = NkBlendMode::NK_TRANSLUCENT;
             uint32           firstVertex = 0;
             uint32           vertexCount = 0;
             uint32           firstIndex  = 0;
@@ -358,7 +358,7 @@ namespace nkentseu {
                 void FlushBatch();
                 void StartNewBatch(NkTextureHandle tex, NkSamplerHandle samp, NkBlendMode blend, float depth);
                 void EnsureBatch(NkTextureHandle tex, NkSamplerHandle samp, NkBlendMode blend, float depth);
-                void EnsureWhiteBatch(NkBlendMode blend = NkBlendMode::Translucent, float depth = 0.f);
+                void EnsureWhiteBatch(NkBlendMode blend = NkBlendMode::NK_TRANSLUCENT, float depth = 0.f);
 
                 void PushQuadVerts(NkVec2f p0, NkVec2f p1, NkVec2f p2, NkVec2f p3,
                                 NkVec2f uv0, NkVec2f uv1, NkVec2f uv2, NkVec2f uv3,

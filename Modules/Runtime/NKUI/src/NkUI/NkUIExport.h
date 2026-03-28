@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Export/import macros for shared/static builds.
+ * Main data: NKUI_API and visibility/compiler switches.
+ * Change this file when: Build/link visibility changes are required.
+ */
 /**
  * @File    NkUIExport.h
  * @Brief   Macros d'export/import + types de base NkUI.

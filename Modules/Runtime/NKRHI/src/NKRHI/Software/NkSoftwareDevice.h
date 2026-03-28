@@ -144,6 +144,7 @@ namespace nkentseu {
         NkSWPipeline*  pipeline    = nullptr;
         NkSWShader*    shader      = nullptr;
         const void*    uniformData = nullptr;
+        const void*    texSampler  = nullptr;
         const void*    vertexData  = nullptr;
         uint32         vertexStride= 0;
         bool           wireframe   = false;

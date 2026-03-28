@@ -23,6 +23,7 @@
 //   • VR : rendu stéréoscopique, reprojection
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Mesh/NkMesh.h"
 #include "NKRenderer/Material/NkMaterial.h"
 #include "NKRenderer/Core/NkTexture.h"
@@ -176,7 +177,7 @@ namespace nkentseu {
         // Paramètres du ciel / skybox
         // =============================================================================
         struct NkSkySettings {
-            enum class Type { Color, Gradient, HDRI, Procedural } type = Type::Color;
+            enum class Type { NK_COLOR, NK_GRADIENT, NK_HDRI, NK_PROCEDURAL } type = Type::NK_COLOR;
             NkColor4f     topColor    = {0.2f,0.4f,0.8f,1.f};
             NkColor4f     bottomColor = {0.8f,0.7f,0.6f,1.f};
             NkTextureCube* hdri        = nullptr;
@@ -327,9 +328,11 @@ namespace nkentseu {
                 uint32      mWidth   = 0;
                 uint32      mHeight  = 0;
                 bool        mIsValid = false;
+                NkRenderPassHandle mActiveRenderPass;
+                NkRenderPassHandle mPipelineRenderPass;
 
                 // ── Mode ──────────────────────────────────────────────────────────────────
-                NkRenderMode        mRenderMode  = NkRenderMode::Solid;
+                NkRenderMode        mRenderMode  = NkRenderMode::NK_SOLID;
                 NkPostProcessSettings mPPSettings;
                 NkShadowSettings    mShadowSettings;
 

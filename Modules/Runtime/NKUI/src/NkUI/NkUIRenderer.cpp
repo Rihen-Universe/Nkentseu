@@ -11,6 +11,13 @@
  *  Anti-aliasing : bord de triangle en coverage partielle (simple).
  *  Textures : bilinéaire.
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: CPU/reference renderer implementation.
+ * Main data: Software raster path for NKUI draw commands.
+ * Change this file when: Software backend rendering mismatch is investigated.
+ */
 #include "NkUI/NkUIRenderer.h"
 #include <cstring>
 #include <cmath>

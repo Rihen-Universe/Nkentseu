@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Animation helper declarations and value smoothing interfaces.
+ * Main data: Animation utility API used by widgets/window effects.
+ * Change this file when: You introduce a new animation primitive or API.
+ */
 /**
  * @File    NkUIAnimation.h
  * @Brief   Système d'animations — easing, transitions, keyframes.

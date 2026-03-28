@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Public widget API declarations.
+ * Main data: Buttons, sliders, combo, table, text inputs, helpers.
+ * Change this file when: Adding/removing widget APIs or signatures.
+ */
 /**
  * @File    NkUIWidgets.h
  * @Brief   Tous les widgets NkUI — API immédiat-mode.
@@ -40,6 +47,42 @@ namespace nkentseu {
         };
         NKUI_API NkUILabelParts NkParseLabel(const char* raw) noexcept;
         NKUI_API NkUIID         NkLabelToID(NkUIContext& ctx, const char* raw) noexcept;
+
+        enum class NkUISliderValuePlacement : uint8 {
+            NK_ABOVE_THUMB = 0,
+            NK_BELOW_THUMB,
+            NK_LEFT_OF_SLIDER,
+            NK_RIGHT_OF_SLIDER,
+            NK_IN_LABEL,
+            NK_HIDDEN
+        };
+
+        struct NkUISliderValueOptions {
+            NkUISliderValuePlacement placement = NkUISliderValuePlacement::NK_ABOVE_THUMB;
+            NkVec2 offset = {0.f, 0.f};     // Décalage relatif final (pixels)
+            float32 gap = 4.f;              // Espacement de base vis-à-vis du slider
+            bool followThumb = true;        // Above/Below: suit le thumb si true, sinon centré sur slider
+        };
+
+        struct NkUITextInputOptions {
+            bool allowTextInput = true;
+            bool repeatBackspace = true;
+            bool repeatDelete = true;
+            bool allowEnterNewLine = true;
+            float32 repeatDelay = 0.35f;
+            float32 repeatRate = 0.05f;
+            float32 multilineLineSpacing = 1.2f;
+            float32 multilineCharSpacing = 0.35f;
+            bool multilineWrap = true;
+        };
+
+        struct NkUIListBoxOptions {
+            bool multiSelect = false;
+            bool toggleSelection = true;
+            bool requireCtrlForMulti = false;
+            bool* selectedMask = nullptr;
+            int32 selectedMaskCount = 0;
+        };
 
         // ─────────────────────────────────────────────────────────────────────────────
         //  NkUIWidgets — namespace de tous les widgets
@@ -136,17 +179,20 @@ namespace nkentseu {
                                     const char* label,
                                     float32& value, float32 vmin, float32 vmax,
                                     const char* fmt="%.2f",
-                                    float32 width=0) noexcept;
+                                    float32 width=0,
+                                    const NkUISliderValueOptions* valueOpts=nullptr) noexcept;
             static bool SliderInt    (NkUIContext& ctx, NkUILayoutStack& ls,
                                     NkUIDrawList& dl, NkUIFont& font,
                                     const char* label,
                                     int32& value, int32 vmin, int32 vmax,
-                                    float32 width=0) noexcept;
+                                    float32 width=0,
+                                    const NkUISliderValueOptions* valueOpts=nullptr) noexcept;
             static bool SliderFloat2 (NkUIContext& ctx, NkUILayoutStack& ls,
                                     NkUIDrawList& dl, NkUIFont& font,
                                     const char* label,
                                     float32* values, float32 vmin, float32 vmax,
-                                    float32 width=0) noexcept;
+                                    float32 width=0,
+                                    const NkUISliderValueOptions* valueOpts=nullptr) noexcept;
             static bool DragFloat    (NkUIContext& ctx, NkUILayoutStack& ls,
                                     NkUIDrawList& dl, NkUIFont& font,
                                     const char* label, float32& value,
@@ -163,19 +209,23 @@ namespace nkentseu {
                                     NkUIDrawList& dl, NkUIFont& font,
                                     const char* label,
                                     char* buf, int32 bufSize,
-                                    float32 width=0) noexcept;
+                                    float32 width=0,
+                                    const NkUITextInputOptions* opts=nullptr) noexcept;
             static bool InputInt     (NkUIContext& ctx, NkUILayoutStack& ls,
                                     NkUIDrawList& dl, NkUIFont& font,
-                                    const char* label, int32& value) noexcept;
+                                    const char* label, int32& value,
+                                    const NkUITextInputOptions* opts=nullptr) noexcept;
             static bool InputFloat   (NkUIContext& ctx, NkUILayoutStack& ls,
                                     NkUIDrawList& dl, NkUIFont& font,
                                     const char* label, float32& value,
-                                    const char* fmt="%.3f") noexcept;
+                                    const char* fmt="%.3f",
+                                    const NkUITextInputOptions* opts=nullptr) noexcept;
             static bool InputMultiline(NkUIContext& ctx, NkUILayoutStack& ls,
                                         NkUIDrawList& dl, NkUIFont& font,
                                         const char* label,
                                         char* buf, int32 bufSize,
-                                        NkVec2 size={0,0}) noexcept;
+                                        NkVec2 size={0,0},
+                                        const NkUITextInputOptions* opts=nullptr) noexcept;
 
             // ── Combo / List ──────────────────────────────────────────────────────────
             static bool Combo        (NkUIContext& ctx, NkUILayoutStack& ls,
@@ -189,7 +239,8 @@ namespace nkentseu {
                                     const char* label,
                                     int32& selected,
                                     const char* const* items, int32 numItems,
-                                    int32 visibleCount=6) noexcept;
+                                    int32 visibleCount=6,
+                                    const NkUIListBoxOptions* opts=nullptr) noexcept;
 
             // ── ProgressBar ───────────────────────────────────────────────────────────
             static void ProgressBar  (NkUIContext& ctx, NkUILayoutStack& ls,
@@ -197,6 +248,16 @@ namespace nkentseu {
                                     float32 fraction,
                                     NkVec2 size={0,0},
                                     const char* overlay=nullptr) noexcept;
+            static void ProgressBarVertical(NkUIContext& ctx, NkUILayoutStack& ls,
+                                            NkUIDrawList& dl,
+                                            float32 fraction,
+                                            NkVec2 size={0,0},
+                                            const char* overlay=nullptr) noexcept;
+            static void ProgressBarCircular(NkUIContext& ctx, NkUILayoutStack& ls,
+                                            NkUIDrawList& dl, NkUIFont& font,
+                                            float32 fraction,
+                                            float32 diameter=0.f,
+                                            const char* overlay=nullptr) noexcept;
 
             // ── ColorPicker ───────────────────────────────────────────────────────────
             static bool ColorButton  (NkUIContext& ctx, NkUILayoutStack& ls,

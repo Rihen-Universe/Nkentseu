@@ -1,4 +1,11 @@
 #pragma once
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Menu bar, menu, popup and modal API declarations.
+ * Main data: Menu stack state and menu item contracts.
+ * Change this file when: Menu APIs or menu state model must evolve.
+ */
 /**
  * @File    NkUIMenu.h
  * @Brief   MenuBar, Menu, MenuItem, ContextMenu, Popup, Modal.
@@ -127,7 +134,12 @@ namespace nkentseu {
             static constexpr float32 PANEL_W   = 200.f;
 
             static NkUIMenuState sMenus[MAX_MENUS];
+            // Pile runtime des menus actuellement "BeginMenu ouverts" cette frame.
+            // Séparée de sMenus (état persistant par ID) pour éviter la corruption d'état.
+            static NkUIMenuState* sMenuStack[MAX_MENUS];
             static int32         sMenuDepth;
+            // Un seul menu top-level (menubar) peut être ouvert à la fois.
+            static NkUIID        sOpenTopLevelMenuId;
             static NkRect        sMenuBarRect;
             static float32       sMenuBarCursorX;
             static bool          sInMenuBar;

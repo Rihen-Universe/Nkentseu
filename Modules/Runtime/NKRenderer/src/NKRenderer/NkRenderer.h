@@ -18,7 +18,7 @@
 //   NkScene scene;
 //   scene.Create(device, "MyScene");
 //   auto entity = scene.CreateMesh("Suzanne", mesh, mat, {0,0,0});
-//   auto light  = scene.CreateLight("Sun", NkLightType::Directional, {0,10,0});
+//   auto light  = scene.CreateLight("Sun", NkLightType::NK_DIRECTIONAL, {0,10,0});
 //   auto cam    = scene.CreateCamera("MainCam", {0,2,5});
 //
 //   // Boucle de rendu
@@ -41,6 +41,7 @@
 //   renderer.Shutdown();
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkTexture.h"
 #include "NKRenderer/Core/NkShaderAsset.h"
 #include "NKRenderer/Material/NkMaterial.h"
@@ -75,7 +76,7 @@ namespace nkentseu {
             uint32  shadowMapSize     = 2048;
             uint32  maxParticles      = 100000;
             uint32  maxLights         = 256;
-            NkRenderMode defaultMode  = NkRenderMode::Solid;
+            NkRenderMode defaultMode  = NkRenderMode::NK_SOLID;
             const char* defaultHDRI   = nullptr;
             const char* fontSearchPath= "Resources/Fonts";
             const char* textureSearchPath = "Resources/Textures";
@@ -295,7 +296,7 @@ namespace nkentseu {
             NkTexture2D* albedoTex, NkTexture2D* normalTex, NkTexture2D* ormTex) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::DefaultLit, NkBlendMode::Opaque);
+            mat->Create(mDevice, NkShadingModel::NK_DEFAULT_LIT, NkBlendMode::NK_OPAQUE);
             mat->SetName(name);
             mat->SetAlbedo(albedo);
             mat->SetMetallic(metallic);
@@ -312,7 +313,7 @@ namespace nkentseu {
             const char* name, const NkColor4f& color, NkTexture2D* tex) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::Unlit, NkBlendMode::Opaque);
+            mat->Create(mDevice, NkShadingModel::NK_UNLIT, NkBlendMode::NK_OPAQUE);
             mat->SetName(name);
             mat->SetAlbedo(color);
             if (tex) mat->SetAlbedoMap(tex);
@@ -325,7 +326,7 @@ namespace nkentseu {
             const char* name, float ior, const NkColor4f& tint) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::GlassBSDF, NkBlendMode::Translucent);
+            mat->Create(mDevice, NkShadingModel::NK_GLASS_BSDF, NkBlendMode::NK_TRANSLUCENT);
             mat->SetName(name);
             mat->SetAlbedo(tint);
             mat->SetTransmission(1.f, ior, 0.f);
@@ -341,7 +342,7 @@ namespace nkentseu {
             const char* name, const NkColor4f& color, float intensity) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::Unlit, NkBlendMode::Additive);
+            mat->Create(mDevice, NkShadingModel::NK_UNLIT, NkBlendMode::NK_ADDITIVE);
             mat->SetName(name);
             mat->SetAlbedo({0,0,0,1});
             mat->SetEmissive(color, intensity);
@@ -354,7 +355,7 @@ namespace nkentseu {
             const char* name, const NkColor4f& color, int bands, bool outline) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::Toon, NkBlendMode::Opaque);
+            mat->Create(mDevice, NkShadingModel::NK_TOON, NkBlendMode::NK_OPAQUE);
             mat->SetName(name);
             mat->SetAlbedo(color);
             mat->SetToonBands(bands, 0.02f);
@@ -369,7 +370,7 @@ namespace nkentseu {
             const NkColor4f& sssColor) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::Subsurface, NkBlendMode::Opaque);
+            mat->Create(mDevice, NkShadingModel::NK_SUBSURFACE, NkBlendMode::NK_OPAQUE);
             mat->SetName(name);
             mat->SetMetallic(0.f);
             mat->SetRoughness(0.6f);
@@ -386,7 +387,7 @@ namespace nkentseu {
             const char* name, NkTexture2D* normalMap, const NkColor4f& tint) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::SingleLayerWater, NkBlendMode::Translucent);
+            mat->Create(mDevice, NkShadingModel::NK_SINGLE_LAYER_WATER, NkBlendMode::NK_TRANSLUCENT);
             mat->SetName(name);
             mat->SetAlbedo(tint);
             mat->SetMetallic(0.f);
@@ -403,14 +404,14 @@ namespace nkentseu {
             const char* name, const NkColor4f& color, NkTexture2D* alphaMap) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::Hair, NkBlendMode::Masked);
+            mat->Create(mDevice, NkShadingModel::NK_HAIR, NkBlendMode::NK_MASKED);
             mat->SetName(name);
             mat->SetAlbedo(color);
             mat->SetRoughness(0.4f);
             mat->SetMetallic(0.f);
             mat->SetTwoSided(true);
             mat->SetAlphaCutoff(0.5f);
-            if (alphaMap) mat->SetTexture(NkTexSlot::Albedo, alphaMap);
+            if (alphaMap) mat->SetTexture(NkTexSlot::NK_ALBEDO, alphaMap);
             mat->FlushToGPU();
             NkMaterialLibrary::Get().Register(mat);
             return mat;
@@ -421,7 +422,7 @@ namespace nkentseu {
             NkTexture2D* normalMap, float clearCoat) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::ClearCoat, NkBlendMode::Opaque);
+            mat->Create(mDevice, NkShadingModel::NK_CLEAR_COAT, NkBlendMode::NK_OPAQUE);
             mat->SetName(name);
             mat->SetAlbedo(bodyColor);
             mat->SetMetallic(0.f);
@@ -438,7 +439,7 @@ namespace nkentseu {
             const char* name, NkTexture2D* albedo, NkTexture2D* normal, float subsurface) {
 
             auto* mat = new NkMaterial();
-            mat->Create(mDevice, NkShadingModel::TwoSidedFoliage, NkBlendMode::Masked);
+            mat->Create(mDevice, NkShadingModel::NK_TWO_SIDED_FOLIAGE, NkBlendMode::NK_MASKED);
             mat->SetName(name);
             mat->SetMetallic(0.f);
             mat->SetRoughness(0.85f);

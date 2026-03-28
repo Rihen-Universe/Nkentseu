@@ -2,6 +2,13 @@
  * @File    NkUIAnimation.cpp
  * @Brief   Easing functions implémentation.
  */
+
+/*
+ * NKUI_MAINTENANCE_GUIDE
+ * Responsibility: Animation helper implementation.
+ * Main data: Interpolation, easing and animation stepping logic.
+ * Change this file when: Animation timing or easing behavior needs adjustment.
+ */
 #include "NkUI/NkUIAnimation.h"
 #include <cmath>
 
