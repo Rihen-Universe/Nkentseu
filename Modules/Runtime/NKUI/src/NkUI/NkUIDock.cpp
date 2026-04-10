@@ -493,173 +493,311 @@ namespace nkentseu {
         //  RenderNode — cœur du rendu dock
         // ─────────────────────────────────────────────────────────────────────────────
 
-        void NkUIDockManager::RenderNode(NkUIContext&    ctx,
-                                          NkUIDrawList&   dl,
-                                          NkUIFont&       font,
-                                          NkUIWindowManager& wm,
-                                          int32           idx,
-                                          NkUILayoutStack& ls) noexcept
+        void NkUIDockManager::RenderNode(NkUIContext& ctx,
+                                        NkUIDrawList& /*dl_unused*/,
+                                        NkUIFont& font,
+                                        NkUIWindowManager& wm,
+                                        int32 idx,
+                                        NkUILayoutStack& ls) noexcept
         {
             if (idx < 0 || idx >= numNodes) return;
             NkUIDockNode& node = nodes[idx];
-
-            // ── SPLIT : dessine splitter et récurse ────────────────────────────────
+        
+            // ── Nœuds split : déléguer aux enfants ────────────────────────────────────
             if (node.type == NkUIDockNodeType::NK_SPLIT_H ||
                 node.type == NkUIDockNodeType::NK_SPLIT_V)
             {
                 const bool vertical = (node.type == NkUIDockNodeType::NK_SPLIT_H);
-                const NkUIID splitId = NkHashInt(idx, 0xD0CCC);
-
-                NkUILayout::DrawSplitter(ctx, dl, node.rect, vertical,
-                                          node.splitRatio, splitId);
-                node.splitRatio = std::clamp(node.splitRatio, 0.05f, 0.95f);
+                const NkUIID splitId = NkHashInt(idx, 0xDC);
+        
+                // Dessine le splitter (interaction + dessin) dans LAYER_BG
+                NkUIDrawList& bgDl = ctx.layers[NkUIContext::LAYER_BG];
+                NkUILayout::DrawSplitter(ctx, bgDl, node.rect, vertical,
+                                        node.splitRatio, splitId);
+                if (node.splitRatio < 0.05f) node.splitRatio = 0.05f;
+                if (node.splitRatio > 0.95f) node.splitRatio = 0.95f;
                 RecalcRects(idx);
-
-                // Ligne de séparation visuelle
-                const NkColor sepCol = ctx.theme.colors.separator.WithAlpha(180);
-                if (node.children[0] >= 0) {
+        
+                // Ligne séparatrice
+                const NkColor splitLineCol = ctx.theme.colors.separator.WithAlpha(200);
+                if (node.children[0] >= 0 && node.children[0] < numNodes) {
                     const NkRect& a = nodes[node.children[0]].rect;
-                    if (vertical)
-                        dl.AddLine({a.x+a.w, node.rect.y}, {a.x+a.w, node.rect.y+node.rect.h},
-                                    sepCol, 1.f);
-                    else
-                        dl.AddLine({node.rect.x, a.y+a.h}, {node.rect.x+node.rect.w, a.y+a.h},
-                                    sepCol, 1.f);
-                }
-                RenderNode(ctx, dl, font, wm, node.children[0], ls);
-                RenderNode(ctx, dl, font, wm, node.children[1], ls);
-                return;
-            }
-
-            // ── LEAF / ROOT avec fenêtres ──────────────────────────────────────────
-            if (node.numWindows <= 0) return;
-            const NkRect& r    = node.rect;
-            const float32 tabH = ctx.theme.metrics.dockTabHeight;
-            const NkColor sep  = ctx.theme.colors.separator.WithAlpha(180);
-
-            // Fond de la zone dockée
-            dl.AddRectFilled(r, ctx.theme.colors.bgWindow);
-
-            // ── BARRE DE TABS ──────────────────────────────────────────────────────
-            const float32 tabW  = r.w / static_cast<float32>(node.numWindows);
-            const NkRect  tabBarR = {r.x, r.y, r.w, tabH};
-            dl.AddRectFilled(tabBarR, ctx.theme.colors.bgHeader);
-            dl.AddLine({r.x, r.y + tabH}, {r.x + r.w, r.y + tabH}, sep, 1.f);
-
-            for (int32 t = 0; t < node.numWindows; ++t) {
-                NkUIWindowState* ws = wm.Find(node.windows[t]);
-                if (!ws) continue;
-
-                const NkRect tabR = {r.x + t * tabW, r.y, tabW, tabH};
-                const bool   active = (t == node.activeTab);
-                const bool   hov    = NkRectContains(tabR, ctx.input.mousePos);
-
-                // Fond du tab
-                NkColor tabBg = active ? ctx.theme.colors.tabActive
-                                       : (hov ? ctx.theme.colors.buttonHover
-                                              : ctx.theme.colors.tabBg);
-                dl.AddRectFilled(tabR, tabBg);
-
-                // Indicateur "tab actif" : petite ligne en bas du tab
-                if (active)
-                    dl.AddLine({tabR.x+2, tabR.y+tabR.h-1.f},
-                                {tabR.x+tabR.w-2, tabR.y+tabR.h-1.f},
-                                ctx.theme.colors.accent, 2.f);
-
-                // Séparateur vertical entre tabs
-                if (t > 0)
-                    dl.AddLine({tabR.x, tabR.y+3}, {tabR.x, tabR.y+tabH-3}, sep, 1.f);
-
-                // Texte du tab
-                const float32 closeW = 14.f;
-                const float32 padX   = ctx.theme.metrics.paddingX;
-                const NkColor txtCol = active ? ctx.theme.colors.tabActiveText
-                                              : ctx.theme.colors.tabText;
-                font.RenderText(dl, {tabR.x + padX, DockBaselineY(tabR, font)},
-                                ws->name, txtCol,
-                                tabW - padX - closeW - 4.f, true);
-
-                // Bouton [x] de fermeture du tab
-                const NkRect closeR = {tabR.x + tabW - closeW, tabR.y + (tabH - 12.f) * .5f, 12.f, 12.f};
-                const bool   clHov  = NkRectContains(closeR, ctx.input.mousePos);
-                if (active || hov) {
-                    const NkColor cx = clHov ? NkColor{220, 60, 60, 255}
-                                              : ctx.theme.colors.tabText.WithAlpha(180);
-                    const float32 cx2 = closeR.x+6, cy2 = closeR.y+6, d = 3.5f;
-                    dl.AddLine({cx2-d,cy2-d},{cx2+d,cy2+d}, cx, 1.5f);
-                    dl.AddLine({cx2+d,cy2-d},{cx2-d,cy2+d}, cx, 1.5f);
-                    if (clHov && ctx.ConsumeMouseClick(0)) {
-                        UndockWindow(wm, node.windows[t]);
-                        ws->isOpen = false;
-                        return; // node modifié, on stop
+                    if (vertical) {
+                        const float32 x = a.x + a.w;
+                        bgDl.AddLine({x, node.rect.y}, {x, node.rect.y + node.rect.h},
+                                    splitLineCol, 1.f);
+                    } else {
+                        const float32 y = a.y + a.h;
+                        bgDl.AddLine({node.rect.x, y}, {node.rect.x + node.rect.w, y},
+                                    splitLineCol, 1.f);
                     }
                 }
-
-                // Clic sur le tab (hors bouton close) → sélection
-                if (hov && !NkRectContains(closeR, ctx.input.mousePos) &&
-                    ctx.ConsumeMouseClick(0))
-                {
-                    node.activeTab = t;
-                    wm.activeId    = ws->id;
-                    // Démarre un éventuel drag de tab
-                    isDraggingTab = true;
-                    dragWindowId  = ws->id;
+        
+                RenderNode(ctx, bgDl, font, wm, node.children[0], ls);
+                RenderNode(ctx, bgDl, font, wm, node.children[1], ls);
+                return;
+            }
+        
+            if (node.type != NkUIDockNodeType::NK_LEAF &&
+                node.type != NkUIDockNodeType::NK_ROOT) return;
+            if (node.numWindows <= 0) return;
+        
+            // ── Tout le dock est dessiné dans LAYER_BG ────────────────────────────────
+            // Les fenêtres flottantes (LAYER_WINDOWS) sont toujours par-dessus.
+            NkUIDrawList& dl = ctx.layers[NkUIContext::LAYER_BG];
+        
+            const NkRect& r   = node.rect;
+            const float32 tabH = ctx.theme.metrics.dockTabHeight;
+            const auto&   col  = ctx.theme.colors;
+            const auto&   met  = ctx.theme.metrics;
+            const NkColor sepCol = col.separator.WithAlpha(200);
+        
+            // ── Fond global du nœud ───────────────────────────────────────────────────
+            dl.AddRectFilled({r.x, r.y + tabH, r.w, r.h - tabH}, col.bgWindow);
+        
+            // =========================================================================
+            // BARRE D'ONGLETS — style navigateur
+            //
+            // Disposition :
+            //   [Tab0][Tab1][Tab2]___espace_drag___
+            //
+            // Chaque onglet :
+            //   - largeur = MeasureWidth(name) + paddingX*2 + closeBtn(14px)
+            //   - onglet actif : fond tabActive, pas de bordure basse
+            //   - onglet inactif : fond tabBg, bordure basse séparatrice
+            //   - max largeur d'onglet : 200px (ellipsis si plus long)
+            // =========================================================================
+        
+            // Fond de toute la barre d'onglets
+            dl.AddRectFilled({r.x, r.y, r.w, tabH}, col.bgHeader);
+        
+            // Calcul des largeurs d'onglets
+            constexpr float32 kTabPadX   = 10.f;  // padding horizontal de chaque côté
+            constexpr float32 kCloseBtnW = 18.f;  // espace bouton fermeture
+            constexpr float32 kTabMaxW   = 200.f; // largeur max d'un onglet
+            constexpr float32 kTabMinW   = 60.f;  // largeur min d'un onglet
+        
+            float32 tabWidths[NkUIDockNode::MAX_WINDOWS] = {};
+            float32 totalTabsW = 0.f;
+        
+            for (int32 t = 0; t < node.numWindows; ++t) {
+                const NkUIWindowState* ws = wm.Find(node.windows[t]);
+                const float32 textW = ws ? font.MeasureWidth(ws->name) : 40.f;
+                float32 w = textW + kTabPadX * 2.f + kCloseBtnW;
+                if (w > kTabMaxW) w = kTabMaxW;
+                if (w < kTabMinW) w = kTabMinW;
+                tabWidths[t] = w;
+                totalTabsW  += w;
+            }
+        
+            // ── Traitement du clic d'onglet (AVANT rendu du contenu) ─────────────────
+            // On parcourt les onglets une première fois pour détecter les clics
+            // et mettre à jour activeTab immédiatement.
+            {
+                float32 tabX = r.x;
+                for (int32 t = 0; t < node.numWindows; ++t) {
+                    const float32 tw  = tabWidths[t];
+                    const NkRect  tabR = {tabX, r.y, tw, tabH};
+                    const NkRect  closeR = {tabX + tw - kCloseBtnW, r.y + (tabH - 14.f) * 0.5f, 14.f, 14.f};
+                    const NkVec2  mp = ctx.input.mousePos;
+        
+                    // Clic sur le bouton X (fermeture/undock)
+                    if (NkRectContains(closeR, mp) && ctx.ConsumeMouseClick(0)) {
+                        NkUIWindowState* ws = wm.Find(node.windows[t]);
+                        UndockWindow(wm, node.windows[t]);
+                        if (ws) ws->isOpen = false;
+                        tabX += tw;
+                        // node.numWindows a diminué, on sort
+                        break;
+                    }
+        
+                    // Clic sur l'onglet (hors X) → sélection
+                    if (NkRectContains(tabR, mp) &&
+                        !NkRectContains(closeR, mp) &&
+                        ctx.ConsumeMouseClick(0))
+                    {
+                        node.activeTab  = t;
+                        wm.activeId     = node.windows[t];
+                        isDraggingTab   = true;
+                        dragWindowId    = node.windows[t];
+                    }
+        
+                    tabX += tw;
                 }
-
-                // Drag de tab → undock si déplacement suffisant
-                if (isDraggingTab && dragWindowId == ws->id &&
-                    ctx.input.IsMouseDown(0) &&
-                    wm.movingId == NKUI_ID_NONE)
+            }
+        
+            // Clamp activeTab au cas où une fenêtre a été undockée
+            if (node.activeTab >= node.numWindows && node.numWindows > 0)
+                node.activeTab = node.numWindows - 1;
+        
+            // ── Rendu des onglets ─────────────────────────────────────────────────────
+            {
+                float32 tabX = r.x;
+                for (int32 t = 0; t < node.numWindows; ++t) {
+                    const float32 tw     = tabWidths[t];
+                    const NkRect  tabR   = {tabX, r.y, tw, tabH};
+                    const bool    active = (t == node.activeTab);
+                    const bool    hov    = NkRectContains(tabR, ctx.input.mousePos);
+                    const NkRect  closeR = {tabX + tw - kCloseBtnW, r.y + (tabH - 14.f) * 0.5f, 14.f, 14.f};
+                    const bool    closeHov = NkRectContains(closeR, ctx.input.mousePos);
+        
+                    NkUIWindowState* ws = wm.Find(node.windows[t]);
+        
+                    // Fond de l'onglet
+                    NkColor tabBg;
+                    if (active)       tabBg = col.tabActive;
+                    else if (hov)     tabBg = col.buttonHover;
+                    else              tabBg = col.tabBg;
+        
+                    if (active) {
+                        // Onglet actif : fond + pas de bordure basse (fusionné avec le contenu)
+                        dl.AddRectFilledCorners(tabR, tabBg, met.cornerRadiusSm, 0x3); // TL+TR arrondis
+                    } else {
+                        dl.AddRectFilled(tabR, tabBg);
+                        // Ligne de bas sur les onglets inactifs
+                        dl.AddLine({tabR.x, r.y + tabH - 1.f},
+                                    {tabR.x + tabR.w, r.y + tabH - 1.f},
+                                    sepCol, 1.f);
+                    }
+        
+                    // Séparateur vertical entre onglets
+                    if (t > 0) {
+                        dl.AddLine({tabR.x, r.y + 4.f},
+                                    {tabR.x, r.y + tabH - 4.f},
+                                    sepCol, 1.f);
+                    }
+        
+                    // Texte de l'onglet (avec ellipsis si trop large)
+                    if (ws) {
+                        const float32 textMaxW = tw - kTabPadX * 2.f - kCloseBtnW;
+                        const float32 asc  = (font.metrics.ascender > 0.f) ? font.metrics.ascender : font.size * 0.8f;
+                        const float32 descR = (font.metrics.descender >= 0.f) ? font.metrics.descender : -font.metrics.descender;
+                        const float32 lineH = (font.metrics.lineHeight > 0.f) ? font.metrics.lineHeight : (asc + (descR > 0.f ? descR : font.size * 0.2f));
+                        const float32 textY = tabR.y + (tabH - lineH) * 0.5f + asc;
+        
+                        font.RenderText(dl,
+                            {tabR.x + kTabPadX, textY},
+                            ws->name,
+                            active ? col.tabActiveText : col.tabText,
+                            textMaxW, true);
+        
+                        // Bouton X (visible si hover ou actif)
+                        if (hov || active) {
+                            const NkVec2 cx = {closeR.x + closeR.w * 0.5f,
+                                            closeR.y + closeR.h * 0.5f};
+                            const float32 d = 4.f;
+                            const NkColor xCol = closeHov ? NkColor{220, 60, 60, 255}
+                                                        : col.tabText;
+                            if (closeHov) {
+                                dl.AddCircleFilled(cx, 7.f, {200, 50, 50, 180});
+                            }
+                            dl.AddLine({cx.x - d, cx.y - d}, {cx.x + d, cx.y + d}, xCol, 1.5f);
+                            dl.AddLine({cx.x + d, cx.y - d}, {cx.x - d, cx.y + d}, xCol, 1.5f);
+                        }
+                    }
+        
+                    tabX += tw;
+                }
+        
+                // Ligne de bas sur l'espace vide à droite des onglets
+                if (totalTabsW < r.w) {
+                    dl.AddLine({r.x + totalTabsW, r.y + tabH - 1.f},
+                                {r.x + r.w,        r.y + tabH - 1.f},
+                                sepCol, 1.f);
+                }
+            }
+        
+            // ── Séparateur bas de la barre d'onglets ──────────────────────────────────
+            // (Sauf sous l'onglet actif qui est visuellement fusionné)
+            {
+                float32 tabX = r.x;
+                for (int32 t = 0; t < node.numWindows; ++t) {
+                    const float32 tw = tabWidths[t];
+                    if (t != node.activeTab) {
+                        // Déjà fait dans la boucle précédente
+                    }
+                    tabX += tw;
+                }
+            }
+        
+            // ── Zone de drag dans l'espace vide à droite des onglets ─────────────────
+            // Permet de déplacer la fenêtre dockée active en tirant l'espace vide.
+            const NkRect dragEmptyR = {r.x + totalTabsW, r.y, r.w - totalTabsW, tabH};
+            if (dragEmptyR.w > 8.f &&
+                NkRectContains(dragEmptyR, ctx.input.mousePos) &&
+                ctx.input.IsMouseDown(0) &&
+                wm.movingId == NKUI_ID_NONE &&
+                wm.resizingId == NKUI_ID_NONE)
+            {
+                const float32 dx = ctx.input.mouseDelta.x;
+                const float32 dy = ctx.input.mouseDelta.y;
+                if (dx * dx + dy * dy > 25.f && node.activeTab < node.numWindows) {
+                    NkUIWindowState* ws = wm.Find(node.windows[node.activeTab]);
+                    if (ws) {
+                        UndockWindow(wm, ws->id);
+                        ws->isOpen = true;
+                        ws->pos    = {ctx.input.mousePos.x - ws->size.x * 0.5f,
+                                    ctx.input.mousePos.y - 10.f};
+                        wm.activeId   = ws->id;
+                        wm.movingId   = ws->id;
+                        wm.moveOffset = {ws->size.x * 0.5f, 10.f};
+                        wm.BringToFront(ws->id);
+                    }
+                }
+            }
+        
+            // ── Détachement par drag d'onglet ─────────────────────────────────────────
+            if (isDraggingTab && dragWindowId != NKUI_ID_NONE) {
+                if (ctx.input.IsMouseDown(0) &&
+                    wm.movingId   == NKUI_ID_NONE &&
+                    wm.resizingId == NKUI_ID_NONE)
                 {
                     const float32 dx = ctx.input.mouseDelta.x;
                     const float32 dy = ctx.input.mouseDelta.y;
-                    if (dx*dx + dy*dy > 36.f) { // 6px threshold
-                        // Position au centre de la fenêtre undockée
-                        const float32 winW = ws->size.x > 10.f ? ws->size.x : 300.f;
-                        const float32 winH = ws->size.y > 10.f ? ws->size.y : 200.f;
-                        UndockWindow(wm, ws->id);
-                        ws->isOpen  = true;
-                        ws->pos     = {ctx.input.mousePos.x - winW * .5f,
+                    if (dx * dx + dy * dy > 25.f) {
+                        NkUIWindowState* ws = wm.Find(dragWindowId);
+                        if (ws) {
+                            UndockWindow(wm, ws->id);
+                            ws->isOpen = true;
+                            ws->pos    = {ctx.input.mousePos.x - ws->size.x * 0.5f,
                                         ctx.input.mousePos.y - 10.f};
-                        ws->size    = {winW, winH};
-                        wm.activeId = ws->id;
-                        wm.movingId = ws->id;
-                        wm.moveOffset = {winW * .5f, 10.f};
-                        wm.BringToFront(ws->id);
-                        isDraggingTab = false;
-                        dragWindowId  = NKUI_ID_NONE;
-                        return;
+                            wm.activeId   = ws->id;
+                            wm.movingId   = ws->id;
+                            wm.moveOffset = {ws->size.x * 0.5f, 10.f};
+                            wm.BringToFront(ws->id);
+                            isDraggingTab = false;
+                            dragWindowId  = NKUI_ID_NONE;
+                        }
                     }
                 }
+                if (!ctx.input.mouseDown[0]) {
+                    isDraggingTab = false;
+                    dragWindowId  = NKUI_ID_NONE;
+                }
             }
-
-            if (!ctx.input.mouseDown[0]) {
-                isDraggingTab = false;
-                dragWindowId  = NKUI_ID_NONE;
-            }
-
-            // ── CONTENU DE L'ONGLET ACTIF ──────────────────────────────────────────
-            if (node.activeTab >= 0 && node.activeTab < node.numWindows) {
+        
+            // ── Contenu de l'onglet actif ─────────────────────────────────────────────
+            if (node.activeTab < node.numWindows) {
                 NkUIWindowState* ws = wm.Find(node.windows[node.activeTab]);
                 if (ws && ws->isOpen) {
-                    // La zone client est tout ce qui est en dessous des tabs
                     const NkRect clientR = {r.x, r.y + tabH, r.w, r.h - tabH};
-
-                    // Clip et fond du client
+        
+                    // Focus au clic dans le contenu
+                    if (NkRectContains(clientR, ctx.input.mousePos) &&
+                        ctx.IsMouseClicked(0)) {
+                        wm.activeId = ws->id;
+                    }
+        
                     dl.PushClipRect(clientR, true);
-                    dl.AddRectFilled(clientR, ctx.theme.colors.bgWindow);
-                    dl.PopClipRect();
-
-                    // Bordure autour de la zone client
-                    dl.AddRect(clientR, ctx.theme.colors.separator.WithAlpha(100), 1.f);
-
-                    // Met à jour pos/size de la fenêtre pour que Begin() place les widgets
+                    dl.AddRectFilled(clientR, col.bgWindow);
+                    dl.AddRect({r.x, r.y, r.w, r.h}, col.separator.WithAlpha(120), 1.f);
+        
+                    // Synchronise pos/size pour que Begin/End de la fenêtre dockée
+                    // sachent où dessiner son contenu.
                     ws->pos  = {r.x, r.y + tabH};
                     ws->size = {r.w, r.h - tabH};
-
-                    // Focus au clic dans la zone client
-                    if (NkRectContains(clientR, ctx.input.mousePos) && ctx.IsMouseClicked(0))
-                        wm.activeId = ws->id;
+        
+                    dl.PopClipRect();
                 }
             }
         }
