@@ -643,39 +643,47 @@ namespace nkentseu
             return false;
         }
 
-        static bool WindowAllowsInputForWidget(const NkUIContext& ctx, NkUIID windowId, NkUIID widgetId) noexcept
-        {
-            if (!ctx.wm)
-            {
+        static bool WindowAllowsInputForWidget(const NkUIContext& ctx, NkUIID windowId, NkUIID widgetId) noexcept {
+            // [A] Widget déjà actif → conserve toujours la capture.
+            if (ctx.activeId != NKUI_ID_NONE && ctx.activeId == widgetId) {
                 return true;
             }
-            if (windowId == NKUI_ID_NONE)
-            {
-                // Widget racine : ne pas capturer si une fenêtre flottante est sous le curseur
-                if (ctx.wm->movingId != NKUI_ID_NONE || ctx.wm->resizingId != NKUI_ID_NONE)
-                {
-                    return false;
-                }
-                return ctx.wm->hoveredId == NKUI_ID_NONE;
+        
+            // Sans window manager, pas de filtrage possible.
+            if (!ctx.wm) {
+                return true;
             }
-            if (ctx.activeId != NKUI_ID_NONE && ctx.activeId != widgetId && ctx.input.mouseDown[0])
-            {
+        
+            // [B] Move/resize en cours → seule la fenêtre concernée interagit.
+            if (ctx.wm->movingId != NKUI_ID_NONE) {
+                return windowId != NKUI_ID_NONE && ctx.wm->movingId == windowId;
+            }
+            if (ctx.wm->resizingId != NKUI_ID_NONE) {
+                return windowId != NKUI_ID_NONE && ctx.wm->resizingId == windowId;
+            }
+        
+            // Si un autre widget est actif et la souris est enfoncée, bloquer.
+            // (ex: drag d'un slider dans une autre fenêtre)
+            if (ctx.activeId != NKUI_ID_NONE && ctx.input.mouseDown[0]) {
                 return false;
             }
-
-            if (ctx.wm->movingId != NKUI_ID_NONE)
-            {
-                return ctx.wm->movingId == windowId;
+        
+            // [C] Widget root (hors fenêtre) → autorisé seulement si aucune fenêtre flottante
+            //     n'est sous le curseur.
+            if (windowId == NKUI_ID_NONE) {
+                return ctx.wm->hoveredId == NKUI_ID_NONE;
             }
-            if (ctx.wm->resizingId != NKUI_ID_NONE)
-            {
-                return ctx.wm->resizingId == windowId;
+        
+            // Cherche l'état de la fenêtre pour savoir si elle est dockée.
+            const NkUIWindowState* ws = const_cast<NkUIWindowManager*>(ctx.wm)->Find(windowId);
+        
+            // [D] Fenêtre dockée → autorisée seulement si aucune fenêtre flottante devant.
+            if (ws && ws->isDocked) {
+                return ctx.wm->hoveredId == NKUI_ID_NONE;
             }
-            if (ctx.wm->hoveredId != NKUI_ID_NONE && ctx.wm->hoveredId != windowId)
-            {
-                return (widgetId != NKUI_ID_NONE) && ctx.IsActive(widgetId);
-            }
-            return true;
+        
+            // [E] Fenêtre flottante → autorisée seulement si c'est bien la top-most.
+            return ctx.wm->hoveredId == windowId;
         }
 
         static float32 TextBaselineY(const NkRect& r, const NkUIFont& f) noexcept
@@ -717,26 +725,34 @@ namespace nkentseu
         // CalcState – état d’un widget (hover, actif, focus)
         // ---------------------------------------------------------------------
 
-        NkUIWidgetState NkUI::CalcState(NkUIContext& ctx, NkUIID id, NkRect r, bool enabled) noexcept
-        {
+        NkUIWidgetState NkUI::CalcState(NkUIContext& ctx, NkUIID id, NkRect r, bool enabled) noexcept {
             NkUIWidgetState s = NkUIWidgetState::NK_NORMAL;
             if (!enabled) return NkUIWidgetState::NK_DISABLED;
-
-            const bool windowAllowsInput = WindowAllowsInputForWidget(ctx, ctx.currentWindowId, id);
-            const bool activeOtherWidget = (ctx.activeId != NKUI_ID_NONE && ctx.activeId != id && ctx.input.mouseDown[0]);
-            const bool canHover = windowAllowsInput && !activeOtherWidget;
-
-            if (canHover && ctx.IsHovered(r))
-            {
+        
+            const bool canInteract = WindowAllowsInputForWidget(ctx, ctx.currentWindowId, id);
+        
+            // Hover : seulement si la fenêtre est autorisée à recevoir les événements.
+            if (canInteract && ctx.IsHovered(r)) {
                 ctx.SetHot(id);
                 s = s | NkUIWidgetState::NK_HOVERED;
-                if (ctx.IsMouseClicked(0) && (ctx.activeId == NKUI_ID_NONE || ctx.activeId == id))
-                {
+        
+                // Début de clic : prend le focus actif seulement si libre.
+                if (ctx.IsMouseClicked(0) &&
+                    (ctx.activeId == NKUI_ID_NONE || ctx.activeId == id)) {
                     ctx.SetActive(id);
                 }
             }
-            if (ctx.IsActive(id)) s = s | NkUIWidgetState::NK_ACTIVE;
-            if (ctx.IsFocused(id)) s = s | NkUIWidgetState::NK_FOCUSED;
+        
+            // Active : widget maintenu actif (drag, etc.).
+            if (ctx.IsActive(id)) {
+                s = s | NkUIWidgetState::NK_ACTIVE;
+            }
+        
+            // Focus clavier.
+            if (ctx.IsFocused(id)) {
+                s = s | NkUIWidgetState::NK_FOCUSED;
+            }
+        
             return s;
         }
 
