@@ -33,7 +33,7 @@
  *    NkUI::EndScrollRegion(ctx)
  *    Affiche une scrollbar si le contenu dépasse le rect.
  */
-#include "NkUI/NkUIContext.h"
+#include "NKUI/NkUIContext.h"
 
 namespace nkentseu {
     namespace nkui {

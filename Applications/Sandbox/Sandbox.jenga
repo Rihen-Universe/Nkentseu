@@ -71,6 +71,73 @@ _USE_NKGLSLANG    = _NKGLSLANG_OPT    not in ("0", "false", "off", "no")
 _USE_NKSPIRVXROSS = _NKSPIRVXROSS_OPT not in ("0", "false", "off", "no")
 
 
+def sandboxnkfont(project_name: str, source_files: list):
+    with project(project_name):
+        windowedapp()
+        language("C++")
+        cppdialect("C++17")
+        location(".")
+
+        _TC_WINDOWS = "nk-windows-clang-mingw"
+
+        files(source_files)  # Now accepts a list of strings
+
+        _SANDBOX_INCLUDE_DIRS = [
+            "src",
+            "%{wks.location}/Externals",
+            "%{NKLogger.location}/src",
+            "%{NKCore.location}/src",
+            "%{NKPlatform.location}/src",
+            "%{NKMath.location}/src",
+            "%{NKTime.location}/src",
+            "%{NKStream.location}/src",
+            "%{NKMemory.location}/src",
+            "%{NKContainers.location}/src",
+            "%{NKThreading.location}/src"
+        ]
+        
+        includedirs(_SANDBOX_INCLUDE_DIRS)
+
+        _BASE_LINKS = [
+            "NKLogger", "NKMath", "NKTime", "NKStream",
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
+        ]
+        
+        links(_BASE_LINKS)
+        dependson(_BASE_LINKS)
+        defines([
+            f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+        ])
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+        # ===== Windows ================================================================
+        with filter("system:Windows"):
+            windowedapp()
+            usetoolchain(_TC_WINDOWS)
+            defines([
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE", "UNICODE",
+            ])
+            _WIN_LINKS = [
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32", "dinput8", "dxguid",
+                "d3d11", "d3d12", "dxgi", "d3dcompiler", "freetype"
+            ]
+            links(_WIN_LINKS)
+
+        with filter("config:Debug"):
+            defines(["_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+
 def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False):
     with project(project_name):
         windowedapp()
@@ -98,6 +165,7 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
             "%{NKContainers.location}/src",
             "%{NKThreading.location}/src",
             "%{NKContext.location}/src",
+            "%{NKFont.location}/src",
         ]
         
         if _VULKAN_INCLUDE:
@@ -106,7 +174,7 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
 
         _BASE_LINKS = [
             "NKEvent", "NKWindow", "NKContext", "NKGlad", "NKLogger",
-            "NKMath", "NKTime", "NKStream",
+            "NKMath", "NKTime", "NKStream", "NKFont",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
         ]
         
@@ -137,8 +205,10 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                 "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
                 "uuid", "ole32", "dinput8", "dxguid",
-                "d3d11", "d3d12", "dxgi", "d3dcompiler"
+                "d3d11", "d3d12", "dxgi", "d3dcompiler", "freetype"
             ]
+            libdirs(["%{NKFont.location}/lib"])
+        
             if _WANT_VULKAN:
                 _WIN_LINKS.append("vulkan-1")
             links(_WIN_LINKS)
@@ -768,32 +838,40 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
                         _WIN_TEST_LINKS.append("vulkan-1")
                     links(_WIN_TEST_LINKS)
 
+sandboxnkfont("FontLoad", ["src/Font/LoadTTF/**.cpp"])
 
 # Now all calls pass lists of source files
 sandboxusenkcontext("NewGeneration", ["src/DemoNkentseu/Base02/NkGraphicsDemos.cpp"], "sandbox.newgen")
 sandboxusenkcontext("Gamepad", ["src/DemoNkentseu/Base01/main8.cpp"], "sandbox.nkentseu.base03")
+sandboxusenkcontext("NKRHIDemo", ["src/DemoNkentseu/Base03/NKRHIDemo.cpp"], "sandbox.nkentseu.rhidemo")
+sandboxusenkcontext("CR2D", ["src/Context/Renderer2D/Renderer2dExample.cpp"], "sandbox.nkentseu.r2dexemples")
+sandboxusenkcontext("firsttriangle", ["src/Opengl/firsttriangle.cpp"], "sandbox.nkentseu.firsttriangle")
+# sandboxusenkcontext("oglfont", ["src/Opengl/Nkfontgltest.cpp"], "sandbox.nkentseu.oglfont")
 
 # =================================== Renderer RHI =======================================================
 sandboxusenkrhi("NkRHIDemoFull", ["src/DemoNkentseu/Base03/NkRHIDemoFull.cpp"], "sandbox.rhidemo.full")
 sandboxusenkrhi("NkSWRasterPrimitives", ["src/DemoNkentseu/Base03/NkSWRasterPrimitives.cpp"], "sandbox.sw.raster.primitives")
 sandboxusenkrhi("NkRHIDemoFullImage", ["src/DemoNkentseu/Base03/NkRHIDemoFullImage.cpp"], "sandbox.rhidemo.fullimage", use_nkimage=True)
-sandboxusenkrhi("NkFontDemo", ["src/DemoNkentseu/Base03/NkFontDemo.cpp"], "sandbox.nkfont.demo", use_nkfont=True)
-sandboxusenkrhi("NkRHIDemoFullText", ["src/DemoNkentseu/Base03/NkRHIDemoFullText.cpp"], "sandbox.rhidemo.fulltext", use_nkimage=True, use_nkfont=True)
-sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
+sandboxusenkrhi("NkFontDemo", ["src/DemoNkentseu/Base03/NkFontDemoFromScratch.cpp"], "sandbox.nkfont.demo", use_nkfont=True)
+sandboxusenkrhi("NkFDV2", ["src/DemoNkentseu/Base03/NkFontDemoVI.cpp"], "sandbox.nkfont.demov2", use_nkfont=True)
+# sandboxusenkrhi("NkRHIDemoFullText", ["src/DemoNkentseu/Base03/NkRHIDemoFullText.cpp"], "sandbox.rhidemo.fulltext", use_nkimage=True, use_nkfont=True)
+sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
+# sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl")
+sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 
 
 # =================================== Renderer UI =======================================================
-sandboxusenkrhi("NkUIDemoNKEngine", [
+sandboxusenkrhi("NKUIDemo", [
     "src/DemoNkentseu/Base04/NkUIDemoNKEngine.cpp",
-    "src/DemoNkentseu/Base04/NkUIFontIntegration.cpp",
+    # "src/DemoNkentseu/Base04/NkUIFontIntegration.cpp",
     "src/DemoNkentseu/Base04/NkUINKRHIBackend.cpp"
-], "sandbox.nkentseu.base03", use_nkimage=True, use_nkfont=True, use_nkui=True)
+], "sandbox.nkentseu.nkuidemo", use_nkimage=True, use_nkfont=True, use_nkui=True)
 
+sandboxusenkrhi("NKUID", [
+    "src/DemoNkentseu/Base04/NkUIDemo.cpp"
+], "sandbox.nkentseu.nkuid", use_nkimage=True, use_nkfont=True, use_nkui=True)
 
 # =================================== NKRenderer UI =======================================================
-sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)
-
-
-sandboxusenkcontext("firsttriangle", ["src/Opengl/firsttriangle.cpp"], "sandbox.nkentseu.firsttriangle")
+# sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)

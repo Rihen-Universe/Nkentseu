@@ -7,6 +7,9 @@
 // =============================================================================
 #include "NKRHI/Core/NkTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/Functional/NkFunction.h"
+#include "NKContainers/Functional/NkFunctional.h"
+
 #include <cstring>
 
 namespace nkentseu {
@@ -26,34 +29,28 @@ namespace nkentseu {
 
         // Helpers statiques
         static NkBufferDesc Vertex(uint64 sz, const void* data=nullptr) {
-            return {sz, NkBufferType::NK_VERTEX, NkResourceUsage::NK_IMMUTABLE,
-                    NkBindFlags::NK_VERTEX_BUFFER, data};
+            return {sz, NkBufferType::NK_VERTEX, NkResourceUsage::NK_IMMUTABLE, NkBindFlags::NK_VERTEX_BUFFER, data};
         }
 
         static NkBufferDesc VertexDynamic(uint64 sz) {
-            return {sz, NkBufferType::NK_VERTEX, NkResourceUsage::NK_UPLOAD,
-                    NkBindFlags::NK_VERTEX_BUFFER};
+            return {sz, NkBufferType::NK_VERTEX, NkResourceUsage::NK_UPLOAD, NkBindFlags::NK_VERTEX_BUFFER};
         }
 
         static NkBufferDesc Index(uint64 sz, const void* data=nullptr) {
-            return {sz, NkBufferType::NK_INDEX, NkResourceUsage::NK_IMMUTABLE,
-                    NkBindFlags::NK_INDEX_BUFFER, data};
+            return {sz, NkBufferType::NK_INDEX, NkResourceUsage::NK_IMMUTABLE, NkBindFlags::NK_INDEX_BUFFER, data};
         }
 
         static NkBufferDesc IndexDynamic(uint64 sz) {
-            return {sz, NkBufferType::NK_INDEX, NkResourceUsage::NK_UPLOAD,
-                    NkBindFlags::NK_INDEX_BUFFER};
+            return {sz, NkBufferType::NK_INDEX, NkResourceUsage::NK_UPLOAD, NkBindFlags::NK_INDEX_BUFFER};
         }
 
         static NkBufferDesc Uniform(uint64 sz) {
-            return {sz, NkBufferType::NK_UNIFORM, NkResourceUsage::NK_UPLOAD,
-                    NkBindFlags::NK_UNIFORM_BUFFER};
+            return {sz, NkBufferType::NK_UNIFORM, NkResourceUsage::NK_UPLOAD, NkBindFlags::NK_UNIFORM_BUFFER};
         }
 
         static NkBufferDesc Storage(uint64 sz, bool cpuRead=false) {
             NkResourceUsage usage = cpuRead ? NkResourceUsage::NK_READBACK : NkResourceUsage::NK_DEFAULT;
-            return {sz, NkBufferType::NK_STORAGE, usage,
-                    NkBindFlags::NK_STORAGE_BUFFER | NkBindFlags::NK_UNORDERED_ACCESS};
+            return {sz, NkBufferType::NK_STORAGE, usage, NkBindFlags::NK_STORAGE_BUFFER | NkBindFlags::NK_UNORDERED_ACCESS};
         }
 
         static NkBufferDesc Staging(uint64 sz) {
@@ -66,7 +63,7 @@ namespace nkentseu {
     // =============================================================================
     struct NkTextureDesc {
         NkTextureType  type        = NkTextureType::NK_TEX2D;
-        NkGPUFormat       format      = NkGPUFormat::NK_RGBA8_UNORM;
+        NkGPUFormat    format      = NkGPUFormat::NK_RGBA8_UNORM;
         uint32         width       = 1;
         uint32         height      = 1;
         uint32         depth       = 1;       // 1 pour Tex1D/Tex2D/Cube
@@ -198,6 +195,50 @@ namespace nkentseu {
         }
     };
 
+    // =====================================================================
+    // ================== For Software rendering ===========================
+    // =====================================================================
+    struct NkVertexSoftware {
+        math::NkVec4 position  = {0,0,0,1};
+        math::NkVec3 normal    = {0,0,1};
+        math::NkVec2 uv        = {0,0};
+        math::NkVec4 color     = {1,1,1,1};
+
+        float32  clipZ     = 0.f;
+        float32  clipW     = 1.f;
+        float32  attrs[16] = {};
+        uint32   attrCount = 0;
+
+        void SetAttrVec3(uint32 base, float32 x, float32 y, float32 z) {
+            if (base+2 < 16) { 
+                attrs[base]     = x; 
+                attrs[base+1]   = y; 
+                attrs[base+2]   = z;
+                attrCount       = math::NkMax(attrCount, base+3); 
+            }
+        }
+
+        void SetAttrVec4(uint32 base, float32 x, float32 y, float32 z, float32 w) {
+            if (base+3 < 16) { attrs[base]=x; attrs[base+1]=y; attrs[base+2]=z; attrs[base+3]=w;
+                                attrCount = math::NkMax(attrCount, base+4); }
+        }
+
+        math::NkVec3 GetAttrVec3(uint32 base) const {
+            return (base+2 < 16) ? math::NkVec3{attrs[base],attrs[base+1],attrs[base+2]} : math::NkVec3{};
+        }
+
+        math::NkVec4 GetAttrVec4(uint32 base) const {
+            return (base+3 < 16) ? math::NkVec4{attrs[base],attrs[base+1],attrs[base+2],attrs[base+3]} : math::NkVec4{};
+        }
+    };
+
+    // Signature des shaders logiciels
+    using NkVertexShaderSoftware = NkFunction<NkVertexSoftware(const void* vertexData, uint32 vertexIndex, const void* uniformData)>;
+
+    using NkPixelShaderSoftware = NkFunction<math::NkVec4f(const NkVertexSoftware& interpolated, const void* uniformData, const void* texSampler)>;
+
+    using NkComputeShaderSoftware = NkFunction<void(uint32 groupCountX, uint32 groupCountY, uint32 groupCountZ, const void* uniformData)>;
+
     // =============================================================================
     // Rasterizer state
     // =============================================================================
@@ -309,49 +350,116 @@ namespace nkentseu {
         const char*   glslSource  = nullptr;   // GLSL pour OpenGL
         const char*   hlslSource  = nullptr;   // HLSL pour DX11/DX12
         const char*   mslSource   = nullptr;   // MSL pour Metal
+        const char*   swSource    = nullptr;   // SW pour CPP
+
         NkVector<uint8> spirvBinary;
+
         const void*   dxilData    = nullptr;   // DXIL bytecode précompilé
         uint64        dxilSize    = 0;
+
         const void*   metalIRData = nullptr;   // Metal IR précompilé
         uint64        metalIRSize = 0;
-        const char*   entryPoint  = "main";    // "VSMain"/"PSMain" pour HLSL
 
         // Backend Software — fonctions CPU (opaques, castées dans NkSoftwareDevice)
-        const void*   cpuVertFn   = nullptr;   // NkSWVertexShader* (software rasterizer)
-        const void*   cpuFragFn   = nullptr;   // NkSWPixelShader*
-        const void*   cpuCompFn   = nullptr;   // NkSWComputeShader*
+        const void*   cpuFn   = nullptr;   // NkSWVertexShader* / NkPixelShaderSoftware* / NkSWComputeShader* (software rasterizer)
+
+        // SkSL blob binaire (.nsksl)
+        NkVertexShaderSoftware  swVertFn = nullptr;   // shader software vertex (déjà compilé)
+        NkPixelShaderSoftware   swFragFn = nullptr;   // shader software fragment
+        bool                    hasSwFn  = false;
+
+        const char*   entryPoint  = "main";    // "VSMain"/"PSMain" pour HLSL
     };
 
     struct NkShaderDesc {
-        NkVector<NkShaderStageDesc> stages;
-        const char*                 debugName = nullptr;
+            NkVector<NkShaderStageDesc> stages;
+            const char*                 debugName = nullptr;
 
-        NkShaderDesc& AddStage(const NkShaderStageDesc& s) {
-            stages.PushBack(s); return *this;
-        }
+            NkShaderDesc& AddStage(const NkShaderStageDesc& s) {
+                stages.PushBack(s); 
+                return *this;
+            }
 
-        NkShaderDesc& AddGLSL(NkShaderStage stage, const char* src, const char* entry="main") {
-            NkShaderStageDesc s{}; s.stage=stage; s.glslSource=src; s.entryPoint=entry;
-            return AddStage(s);
-        }
+            NkShaderDesc& AddGLSL(NkShaderStage stage, const char* src, const char* entry="main") {
+                NkShaderStageDesc s{}; 
+                s.stage=stage; 
+                s.glslSource=src; 
+                s.entryPoint=entry;
+                return AddStage(s);
+            }
 
-        NkShaderDesc& AddHLSL(NkShaderStage stage, const char* src, const char* entry="main") {
-            NkShaderStageDesc s{}; s.stage=stage; s.hlslSource=src; s.entryPoint=entry;
-            return AddStage(s);
-        }
+            NkShaderDesc& AddHLSL(NkShaderStage stage, const char* src, const char* entry="main") {
+                NkShaderStageDesc s{}; 
+                s.stage=stage; 
+                s.hlslSource=src; 
+                s.entryPoint=entry;
+                return AddStage(s);
+            }
 
-        NkShaderDesc& AddMSL(NkShaderStage stage, const char* src, const char* entry="main") {
-            NkShaderStageDesc s{}; s.stage=stage; s.mslSource=src; s.entryPoint=entry;
-            return AddStage(s);
-        }
+            NkShaderDesc& AddMSL(NkShaderStage stage, const char* src, const char* entry="main") {
+                NkShaderStageDesc s{}; 
+                s.stage=stage; 
+                s.mslSource=src; 
+                s.entryPoint=entry;
+                return AddStage(s);
+            }
 
-        NkShaderDesc& AddSPIRV(NkShaderStage stage, const void* data, uint64 sz) {
-            NkShaderStageDesc s{}; 
-            s.stage=stage; 
-            s.spirvBinary.Resize((uint32)sz);
-            memcpy(s.spirvBinary.Data(), data, (size_t)sz);
-            return AddStage(s);
-        }
+            NkShaderDesc& AddSPIRV(NkShaderStage stage, const void* data, uint64 sz) {
+                NkShaderStageDesc s{}; 
+                s.stage = stage;
+                s.spirvBinary.Resize((uint32)sz);
+                memcpy(s.spirvBinary.Data(), data, (size_t)sz);
+                return AddStage(s);
+            }
+
+            NkShaderDesc& AddSW(NkShaderStage stage, const char* src) {
+                NkShaderStageDesc s{}; 
+                s.stage = stage; 
+                s.swSource = src;
+                return AddStage(s);
+            }
+
+            NkShaderDesc& AddSWFn(NkShaderStage stage, const void* data) {
+                NkShaderStageDesc s{}; 
+                s.stage = stage;
+                s.cpuFn = data;
+                return AddStage(s);
+            }
+
+            NkShaderDesc& AddSWVertex(const NkVertexShaderSoftware& fn) {
+                NkShaderStageDesc s;
+                s.stage  = NkShaderStage::NK_VERTEX;
+                s.cpuFn  = new NkVertexShaderSoftware(fn);  // libéré dans CreateShader
+                stages.PushBack(s);
+                return AddStage(s);
+            }
+        
+            NkShaderDesc& AddSWFragment(const NkPixelShaderSoftware& fn) {
+                NkShaderStageDesc s;
+                s.stage  = NkShaderStage::NK_FRAGMENT;
+                s.cpuFn  = new NkPixelShaderSoftware(fn);
+                stages.PushBack(s);
+                return AddStage(s);
+            }
+        
+            NkShaderDesc& AddSWCompute(const NkComputeShaderSoftware& fn) {
+                NkShaderStageDesc s;
+                s.stage  = NkShaderStage::NK_COMPUTE;
+                s.cpuFn  = new NkComputeShaderSoftware(fn);
+                stages.PushBack(s);
+                return AddStage(s);
+            }
+
+            // ── SkSL Software Shaders ─────────────────────────────────────────────────
+
+            // Option A : depuis un fichier .nsksl pré-compilé (pipeline d'assets)
+            // bool AddSWSkSLFile(const char* nsklPath, uint32 stride = 20);
+
+            // // Option B : depuis un blob binaire en mémoire (assets embarqués / chargés)
+            // bool AddSWSkSL(const uint8* data, usize size, uint32 stride = 20);
+
+            // // Option C : depuis source SkSL inline (dev / prototypage)
+            // bool AddSWSkSLSource(const char* skslText, uint32 stride = 20);
     };
 
     // =============================================================================
@@ -404,8 +512,14 @@ namespace nkentseu {
                                         NkGPUFormat depth=NkGPUFormat::NK_D32_FLOAT,
                                         NkSampleCount msaa=NkSampleCount::NK_S1) {
             NkRenderPassDesc rp;
-            NkAttachmentDesc c; c.format=color; c.samples=msaa; rp.AddColor(c);
-            NkAttachmentDesc d; d.format=depth; d.samples=msaa; rp.SetDepth(d);
+            NkAttachmentDesc c; 
+            c.format=color; 
+            c.samples=msaa; 
+            rp.AddColor(c);
+            NkAttachmentDesc d; 
+            d.format=depth; 
+            d.samples=msaa; 
+            rp.SetDepth(d);
             return rp;
         }
 

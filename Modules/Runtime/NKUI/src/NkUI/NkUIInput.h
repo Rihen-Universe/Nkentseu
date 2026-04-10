@@ -25,7 +25,7 @@
  *    state.SetKey(NkKey::NK_TAB, true);   // touche enfoncée
  *    ctx.Feed(state);                  // transmis au contexte UI
  */
-#include "NkUI/NkUIExport.h"
+#include "NKUI/NkUIExport.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 

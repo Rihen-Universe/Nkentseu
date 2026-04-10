@@ -5,11 +5,95 @@
 #include "NkSoftwareDevice.h"
 #include "NKLogger/NkLog.h"
 #include "NKCore/NkTraits.h"
+#include "NkSWFastPath.h"
 #include <cstring>
 
 namespace nkentseu {
 
     #define NK_SW_CMD_LOG(...) logger_src.Infof("[NkRHI_SW] " __VA_ARGS__)
+    thread_local static NkVector<NkVertexSoftware> sTempVerts;
+
+    // Clear couleur ultra-rapide avec memset SIMD
+    static void FastClearColor(uint8* pixels, uint32 w, uint32 h,
+                                uint8 r, uint8 g, uint8 b, uint8 a) {
+        const uint32 px = nkentseu::sw_detail::PackNative(r, g, b, a);
+    #ifdef NK_SW_AVX2
+        const __m256i vpx = _mm256_set1_epi32((int)px);
+        uint8* p = pixels;
+        usize n = (usize)w * h;
+        while (n >= 8) {
+            _mm256_storeu_si256((__m256i*)p, vpx);
+            p += 32; n -= 8;
+        }
+        uint32* p32 = (uint32*)p;
+        while (n-- > 0) *p32++ = px;
+    #elif defined(NK_SW_SSE2)
+        const __m128i vpx = _mm_set1_epi32((int)px);
+        uint8* p = pixels;
+        usize n = (usize)w * h;
+        while (n >= 4) {
+            _mm_storeu_si128((__m128i*)p, vpx);
+            p += 16; n -= 4;
+        }
+        uint32* p32 = (uint32*)p;
+        while (n-- > 0) *p32++ = px;
+    #else
+        // Fallback : remplir le premier pixel et copier par doublements
+        uint32* p32 = (uint32*)pixels;
+        const usize total = (usize)w * h;
+        p32[0] = px;
+        for (usize i = 1; i < total; i *= 2)
+            memcpy(p32 + i, p32, (i * 2 > total ? total - i : i) * 4);
+    #endif
+    }
+
+    // ── Helpers clip rect ────────────────────────────────────────────────────────
+    static void ComputeClipRect(NkSoftwareDevice* dev, uint64 fbId,
+                                const NkRect2D& sc, bool scEn,
+                                int32& cx0, int32& cy0, int32& cx1, int32& cy1)
+    {
+        uint32 W=dev->GetSwapchainWidth(), H=dev->GetSwapchainHeight();
+        if (fbId) {
+            if (auto* fbo=dev->GetFBO(fbId)) {
+                if (auto* ct=fbo->colorId?dev->GetTex(fbo->colorId):nullptr)
+                    {W=ct->Width();H=ct->Height();}
+                else if (auto* dt=fbo->depthId?dev->GetTex(fbo->depthId):nullptr)
+                    {W=dt->Width();H=dt->Height();}
+            }
+        }
+        cx0=0; cy0=0; cx1=(int32)W; cy1=(int32)H;
+        if (scEn&&sc.width>0&&sc.height>0) {
+            cx0=sc.x; cy0=sc.y; cx1=sc.x+sc.width; cy1=sc.y+sc.height;
+            if (cx0<0)cx0=0; if(cy0<0)cy0=0;
+            if(cx1>(int32)W)cx1=(int32)W;
+            if(cy1>(int32)H)cy1=(int32)H;
+        }
+    }
+    
+    // Clear depth rapide (1.0f = 0x3F800000)
+    static void FastClearDepth(float32* depthBuf, uint32 w, uint32 h) {
+        // 1.0f → bits = 0x3F800000 → répétable comme uint32
+        const uint32 one = 0x3F800000u;
+        uint32* p = (uint32*)depthBuf;
+        const usize total = (usize)w * h;
+    #ifdef NK_SW_AVX2
+        const __m256i v1 = _mm256_set1_epi32((int)one);
+        usize i = 0;
+        for (; i+8 <= total; i+=8)
+            _mm256_storeu_si256((__m256i*)(p+i), v1);
+        for (; i < total; ++i) p[i] = one;
+    #elif defined(NK_SW_SSE2)
+        const __m128i v1 = _mm_set1_epi32((int)one);
+        usize i = 0;
+        for (; i+4 <= total; i+=4)
+            _mm_storeu_si128((__m128i*)(p+i), v1);
+        for (; i < total; ++i) p[i] = one;
+    #else
+        p[0] = one;
+        for (usize i = 1; i < total; i *= 2)
+            memcpy(p+i, p, (i*2>total?total-i:i)*4);
+    #endif
+    }
 
     // État d'exécution local (non persistant entre frames)
     struct NkSWExecState {
@@ -29,8 +113,7 @@ namespace nkentseu {
         NkSWRasterizer raster;
     };
 
-    NkSoftwareCommandBuffer::NkSoftwareCommandBuffer(NkSoftwareDevice* dev, NkCommandBufferType type)
-        : mDev(dev), mType(type) {}
+    NkSoftwareCommandBuffer::NkSoftwareCommandBuffer(NkSoftwareDevice* dev, NkCommandBufferType type) : mDev(dev), mType(type) {}
 
     void NkSoftwareCommandBuffer::Execute(NkSoftwareDevice* dev) {
         for (auto& cmd : mCommands) cmd(dev);
@@ -39,32 +122,40 @@ namespace nkentseu {
     // =============================================================================
     // Render Pass
     // =============================================================================
-    bool NkSoftwareCommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/,
-                                            NkFramebufferHandle fb,
-                                            const NkRect2D& area) {
+    bool NkSoftwareCommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/, NkFramebufferHandle fb, const NkRect2D& area) {
         if (!mRecording || !fb.IsValid() || area.width <= 0 || area.height <= 0) return false;
+
         mCurrentFramebufferId = fb.id;
         uint64 fbId = fb.id;
         NkRect2D a  = area;
-        Push([fbId, a](NkSoftwareDevice* dev) {
+
+        // Capturer les valeurs de clear dynamiques au moment de l'enregistrement
+        uint8 cr = (uint8)(mClearR * 255.f);
+        uint8 cg = (uint8)(mClearG * 255.f);
+        uint8 cb = (uint8)(mClearB * 255.f);
+        uint8 ca = (uint8)(mClearA * 255.f);
+        float cdepth = mClearDepth;
+
+        Push([fbId, a, cr, cg, cb, ca, cdepth](NkSoftwareDevice* dev) {
             auto* fbo = dev->GetFBO(fbId);
             if (!fbo) return;
             auto* color = dev->GetTex(fbo->colorId);
             auto* depth = dev->GetTex(fbo->depthId);
-            // Clear color
+
+            // ── Clear couleur SIMD ────────────────────────────────────────────────────
             if (color && !color->mips.Empty()) {
-                NkVector<uint8>& colorMip = color->mips[0];
-                for (usize i = 0; i < colorMip.Size(); ++i) colorMip[i] = 0;
+                swfast::FastClearColor(color->mips[0].Data(), color->Width(), color->Height(), cr, cg, cb, ca);
             }
-            // Clear depth à 1.0
+
+            // ── Clear depth ───────────────────────────────────────────────────────────
             if (depth && !depth->mips.Empty()) {
-                float32 one = 1.0f;
-                for (uint32 i = 0; i < depth->Width() * depth->Height(); i++)
-                    memcpy(depth->mips[0].Data() + i*4, &one, 4);
+                swfast::FastClearDepth(reinterpret_cast<float32*>(depth->mips[0].Data()), depth->Width(), depth->Height());
             }
         });
+
         return true;
     }
+
     void NkSoftwareCommandBuffer::EndRenderPass() {
         mCurrentFramebufferId = 0;
         Push([](NkSoftwareDevice*) {});
@@ -77,14 +168,17 @@ namespace nkentseu {
         NkViewport v = vp;
         Push([v](NkSoftwareDevice*) { /* stocké dans NkSWExecState si multi-pass */ (void)v; });
     }
+
     void NkSoftwareCommandBuffer::SetViewports(const NkViewport* vps, uint32 n) {
         if (!vps || n == 0) return;
         SetViewport(vps[0]);
     }
+
     void NkSoftwareCommandBuffer::SetScissor(const NkRect2D& r) {
         mScissorRect = r;
         mScissorEnabled = true;
     }
+
     void NkSoftwareCommandBuffer::SetScissors(const NkRect2D* r, uint32 n) {
         if (!r || n == 0) return;
         SetScissor(r[0]);
@@ -96,6 +190,7 @@ namespace nkentseu {
     void NkSoftwareCommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
         mBoundPipelineId = p.id;
     }
+
     void NkSoftwareCommandBuffer::BindComputePipeline(NkPipelineHandle p) {
         BindGraphicsPipeline(p);
     }
@@ -122,10 +217,12 @@ namespace nkentseu {
         mBoundVertexBufferIds[binding] = buf.id;
         mBoundVertexOffsets[binding] = off;
     }
+
     void NkSoftwareCommandBuffer::BindVertexBuffers(uint32 first, const NkBufferHandle* bufs,
                                                 const uint64* offs, uint32 n) {
         for (uint32 i=0;i<n;i++) BindVertexBuffer(first+i, bufs[i], offs[i]);
     }
+
     void NkSoftwareCommandBuffer::BindIndexBuffer(NkBufferHandle buf, NkIndexFormat fmt, uint64 off) {
         mBoundIndexBufferId = buf.id;
         mBoundIndexOffset = off;
@@ -142,13 +239,15 @@ namespace nkentseu {
         outColor.a = static_cast<float32>((packed >> 24) & 0xFFu) / 255.f;
     }
 
-    static NkSWVertex TransformVertex(const uint8* vdata, uint32 vidx, uint32 stride,
+    static NkVertexSoftware TransformVertex(const uint8* vdata, uint32 vidx, uint32 stride,
                                     NkSWShader* shader, const void* uniforms) {
         if (shader && shader->vertFn) {
-            return shader->vertFn(vdata, vidx, uniforms);
+            NkVertexSoftware vertex = {};
+            vertex = shader->vertFn(vdata, vidx, uniforms);
+            return vertex;
         }
 
-        NkSWVertex v{};
+        NkVertexSoftware v{};
         const uint8* src = vdata + static_cast<uint64>(vidx) * stride;
 
         // UI fallback: float2 pos + float2 uv + uint32 packed color.
@@ -205,6 +304,7 @@ namespace nkentseu {
         }
         return v;
     }
+
     static const void* ResolveUniformData(NkSoftwareDevice* dev, uint64 descSetId) {
         if (!dev || descSetId == 0) return nullptr;
         auto* ds = dev->GetDescSet(descSetId);
@@ -240,192 +340,104 @@ namespace nkentseu {
         return nullptr;
     }
 
-    void NkSoftwareCommandBuffer::Draw(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
-        const uint64 pipelineId = mBoundPipelineId;
-        const uint64 descSetId = mBoundDescSetId;
-        const uint64 vbId = mBoundVertexBufferIds[0];
-        const uint64 vbOffset = mBoundVertexOffsets[0];
-        const uint64 fbId = mCurrentFramebufferId;
+    void NkSoftwareCommandBuffer::Draw(uint32 vtx, uint32 inst,
+                                    uint32 firstVtx, uint32 /*firstInst*/) {
+        const uint64   pipeId=mBoundPipelineId, descId=mBoundDescSetId;
+        const uint64   vbId=mBoundVertexBufferIds[0], vbOff=mBoundVertexOffsets[0];
+        const uint64   fbId=mCurrentFramebufferId;
+        const NkRect2D sc=mScissorRect; const bool scEn=mScissorEnabled;
+    
+        Push([vtx,inst,firstVtx,pipeId,descId,vbId,vbOff,fbId,sc,scEn](NkSoftwareDevice* dev){
+            int32 cx0,cy0,cx1,cy1;
+            ComputeClipRect(dev,fbId,sc,scEn,cx0,cy0,cx1,cy1);
+            swfast::ExecuteDrawFast(dev,pipeId,descId,vbId,vbOff,fbId, firstVtx,vtx,inst,cx0,cy0,cx1,cy1);
+        });
+    }
+
+    void NkSoftwareCommandBuffer::DrawIndexed(uint32 idx, uint32 inst,
+                                            uint32 firstIdx, int32 vtxOff,
+                                            uint32 /*firstInst*/) {
+        const uint64   pipeId=mBoundPipelineId, descId=mBoundDescSetId;
+        const uint64   vbId=mBoundVertexBufferIds[0], vbOff=mBoundVertexOffsets[0];
+        const uint64   ibId=mBoundIndexBufferId, ibOff=mBoundIndexOffset;
+        const bool     ibU32=mBoundIndexUint32;
+        const uint64   fbId=mCurrentFramebufferId;
+        const NkRect2D sc=mScissorRect; const bool scEn=mScissorEnabled;
+    
+        Push([idx,inst,firstIdx,vtxOff,pipeId,descId,vbId,vbOff,
+            ibId,ibOff,ibU32,fbId,sc,scEn](NkSoftwareDevice* dev){
+            int32 cx0,cy0,cx1,cy1;
+            ComputeClipRect(dev,fbId,sc,scEn,cx0,cy0,cx1,cy1);
+            swfast::ExecuteDrawIndexedFast(dev,pipeId,descId,vbId,vbOff,
+                                            ibId,ibOff,ibU32,fbId,
+                                            firstIdx,idx,vtxOff,inst,
+                                            cx0,cy0,cx1,cy1);
+        });
+    }
+
+    void NkSoftwareCommandBuffer::DrawIndirect(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount, uint32 stride) {
+        const uint64 pipelineId    = mBoundPipelineId;
+        const uint64 descSetId     = mBoundDescSetId;
+        const uint64 vbId          = mBoundVertexBufferIds[0];
+        const uint64 vbOffset      = mBoundVertexOffsets[0];
+        const uint64 fbId          = mCurrentFramebufferId;
         const NkRect2D scissorRect = mScissorRect;
-        const bool scissorEnabled = mScissorEnabled;
-        Push([vtx, inst, firstVtx, firstInst, pipelineId, descSetId, vbId, vbOffset, fbId, scissorRect, scissorEnabled](NkSoftwareDevice* dev) {
-            auto* pipe = dev->GetPipe(pipelineId);
-            auto* sh   = pipe ? dev->GetShader(pipe->shaderId) : nullptr;
-            auto* vb   = dev->GetBuf(vbId);
-            if (!vb) return;
+        const bool   scissorEnabled = mScissorEnabled;
+        const uint64 indirectBufId = indirectBuf.id;
+        const uint32 drawStride    = (stride == 0) ? 16 : stride; // standard D3D12/Vulkan
 
-            auto* fbo = dev->GetFBO(fbId);
-            if (!fbo) fbo = dev->GetFBO(dev->GetSwapchainFramebuffer().id);
-            if (!fbo) return;
-            auto* color = dev->GetTex(fbo->colorId);
-            auto* depth = dev->GetTex(fbo->depthId);
-            NkSWTexture* rasterTarget = color ? color : depth;
-            if (!rasterTarget) return;
-            const void* uniformData = ResolveUniformData(dev, descSetId);
-            const NkSWTexture* textureData = ResolveTextureData(dev, descSetId);
+        Push([pipelineId, descSetId, vbId, vbOffset, indirectBufId, offset, drawCount, drawStride,
+            fbId, scissorRect, scissorEnabled](NkSoftwareDevice* dev) {
 
-            uint32 stride = pipe ? pipe->vertexStride : 32;
-            if (stride == 0) {
-                NK_SW_CMD_LOG("Draw ignore: stride=0 (pipeline=%llu)\n", (unsigned long long)pipelineId);
-                return;
-            }
-            if (vbOffset >= vb->data.Size()) {
-                NK_SW_CMD_LOG("Draw ignore: vbOffset out of range (offset=%llu size=%llu)\n",
-                              (unsigned long long)vbOffset,
-                              (unsigned long long)vb->data.Size());
-                return;
-            }
+            // swfast::tl_vertPool.Reset();
 
-            const uint64 vertexCapacity = (vb->data.Size() - vbOffset) / stride;
-            if ((uint64)firstVtx >= vertexCapacity) {
-                NK_SW_CMD_LOG("Draw ignore: firstVtx out of range (first=%u cap=%llu)\n",
-                              firstVtx, (unsigned long long)vertexCapacity);
-                return;
-            }
-
-            uint64 safeVertexCount64 = vertexCapacity - (uint64)firstVtx;
-            if (safeVertexCount64 > (uint64)vtx) safeVertexCount64 = (uint64)vtx;
-            if (safeVertexCount64 == 0) return;
-            const uint32 safeVertexCount = (uint32)safeVertexCount64;
-
-            const uint8* vdata = vb->data.Data() + vbOffset;
-
-            NkSWRasterizer raster;
-            raster.width = rasterTarget->Width();
-            raster.height = rasterTarget->Height();
-            raster.ResetClipRect();
-            if (scissorEnabled) {
-                raster.SetClipRect(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
-            }
-
-            NkSWRasterState rs;
-            rs.colorTarget = color;
-            rs.depthTarget = depth;
-            rs.pipeline    = pipe;
-            rs.shader      = sh;
-            rs.uniformData = uniformData;
-            rs.texSampler  = textureData;
-            rs.vertexData  = vdata;
-            rs.vertexStride= stride;
-            raster.SetState(rs);
-
-            for (uint32 i = 0; i < inst; i++) {
-                NkVector<NkSWVertex> verts(safeVertexCount);
-                for (uint32 j = 0; j < safeVertexCount; j++)
-                    verts[j] = TransformVertex(vdata, firstVtx + j, stride, sh, uniformData);
-                raster.DrawTriangles(verts.Data(), safeVertexCount);
+            for (uint32 i = 0; i < drawCount; ++i) {
+                uint64 cmdOffset = offset + i * drawStride;
+                swfast::ExecuteDrawIndirectFast(
+                    dev,
+                    pipelineId, descSetId,
+                    vbId, vbOffset,
+                    indirectBufId, cmdOffset,
+                    fbId,
+                    drawStride,
+                    scissorRect, scissorEnabled);
             }
         });
     }
-    void NkSoftwareCommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 firstIdx,
-                                        int32 vtxOff, uint32 firstInst) {
-        const uint64 pipelineId = mBoundPipelineId;
-        const uint64 descSetId = mBoundDescSetId;
-        const uint64 vbId = mBoundVertexBufferIds[0];
-        const uint64 vbOffset = mBoundVertexOffsets[0];
-        const uint64 ibId = mBoundIndexBufferId;
-        const uint64 ibOffset = mBoundIndexOffset;
-        const bool indexUint32 = mBoundIndexUint32;
-        const uint64 fbId = mCurrentFramebufferId;
+
+    void NkSoftwareCommandBuffer::DrawIndexedIndirect(NkBufferHandle indirectBuf, uint64 offset, uint32 drawCount, uint32 stride) {
+        const uint64 pipelineId    = mBoundPipelineId;
+        const uint64 descSetId     = mBoundDescSetId;
+        const uint64 vbId          = mBoundVertexBufferIds[0];
+        const uint64 vbOffset      = mBoundVertexOffsets[0];
+        const uint64 ibId          = mBoundIndexBufferId;
+        const uint64 ibOffset      = mBoundIndexOffset;
+        const bool   indexUint32   = mBoundIndexUint32;
+        const uint64 fbId          = mCurrentFramebufferId;
         const NkRect2D scissorRect = mScissorRect;
-        const bool scissorEnabled = mScissorEnabled;
-        Push([idx, inst, firstIdx, vtxOff, firstInst,
-            pipelineId, descSetId, vbId, vbOffset, ibId, ibOffset, indexUint32, fbId, scissorRect, scissorEnabled](NkSoftwareDevice* dev) {
-            auto* pipe = dev->GetPipe(pipelineId);
-            auto* sh   = pipe ? dev->GetShader(pipe->shaderId) : nullptr;
-            auto* vb   = dev->GetBuf(vbId);
-            auto* ib   = dev->GetBuf(ibId);
-            if (!vb || !ib) return;
+        const bool   scissorEnabled = mScissorEnabled;
+        const uint64 indirectBufId = indirectBuf.id;
+        const uint32 drawStride    = (stride == 0) ? 20 : stride; // standard pour indexed
 
-            auto* fbo = dev->GetFBO(fbId);
-            if (!fbo) fbo = dev->GetFBO(dev->GetSwapchainFramebuffer().id);
-            if (!fbo) return;
-            auto* color = dev->GetTex(fbo->colorId);
-            auto* depth = dev->GetTex(fbo->depthId);
-            NkSWTexture* rasterTarget = color ? color : depth;
-            if (!rasterTarget) return;
-            const void* uniformData = ResolveUniformData(dev, descSetId);
-            const NkSWTexture* textureData = ResolveTextureData(dev, descSetId);
+        Push([pipelineId, descSetId, vbId, vbOffset, ibId, ibOffset, indexUint32,
+            indirectBufId, offset, drawCount, drawStride,
+            fbId, scissorRect, scissorEnabled](NkSoftwareDevice* dev) {
 
-            uint32 stride  = pipe ? pipe->vertexStride : 32;
-            if (stride == 0) {
-                NK_SW_CMD_LOG("DrawIndexed ignore: stride=0 (pipeline=%llu)\n", (unsigned long long)pipelineId);
-                return;
-            }
-            if (vbOffset >= vb->data.Size()) {
-                NK_SW_CMD_LOG("DrawIndexed ignore: vbOffset out of range (offset=%llu size=%llu)\n",
-                              (unsigned long long)vbOffset,
-                              (unsigned long long)vb->data.Size());
-                return;
-            }
-            const uint64 vertexCapacity = (vb->data.Size() - vbOffset) / stride;
-            if (vertexCapacity == 0) {
-                NK_SW_CMD_LOG("DrawIndexed ignore: vertexCapacity=0\n");
-                return;
-            }
+            // swfast::tl_vertPool.Reset();
 
-            const uint64 indexStride = indexUint32 ? 4ull : 2ull;
-            if (ibOffset >= ib->data.Size()) {
-                NK_SW_CMD_LOG("DrawIndexed ignore: ibOffset out of range (offset=%llu size=%llu)\n",
-                              (unsigned long long)ibOffset,
-                              (unsigned long long)ib->data.Size());
-                return;
-            }
-            const uint64 indexCapacity = (ib->data.Size() - ibOffset) / indexStride;
-            if ((uint64)firstIdx >= indexCapacity) {
-                NK_SW_CMD_LOG("DrawIndexed ignore: firstIdx out of range (first=%u cap=%llu)\n",
-                              firstIdx, (unsigned long long)indexCapacity);
-                return;
-            }
-            uint64 safeIndexCount64 = indexCapacity - (uint64)firstIdx;
-            if (safeIndexCount64 > (uint64)idx) safeIndexCount64 = (uint64)idx;
-            if (safeIndexCount64 == 0) return;
-            const uint32 safeIndexCount = (uint32)safeIndexCount64;
-
-            const uint8* vdata = vb->data.Data() + vbOffset;
-            const uint8* idata = ib->data.Data() + ibOffset;
-
-            NkSWRasterizer raster;
-            raster.width = rasterTarget->Width();
-            raster.height = rasterTarget->Height();
-            raster.ResetClipRect();
-            if (scissorEnabled) {
-                raster.SetClipRect(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
-            }
-
-            NkSWRasterState rs;
-            rs.colorTarget = color;
-            rs.depthTarget = depth;
-            rs.pipeline = pipe;
-            rs.shader = sh;
-            rs.uniformData = uniformData;
-            rs.texSampler = textureData;
-            raster.SetState(rs);
-
-            for (uint32 i = 0; i < inst; i++) {
-                NkVector<NkSWVertex> verts(safeIndexCount);
-                for (uint32 j = 0; j < safeIndexCount; j++) {
-                    uint32 rawIndex = indexUint32
-                        ? ((const uint32*)idata)[firstIdx + j]
-                        : (uint32)((const uint16_t*)idata)[firstIdx + j];
-                    const int64 signedIndex = (int64)rawIndex + (int64)vtxOff;
-                    if (signedIndex < 0 || (uint64)signedIndex >= vertexCapacity) {
-                        NK_SW_CMD_LOG("DrawIndexed ignore: index out of range (raw=%u base=%d cap=%llu)\n",
-                                      rawIndex, vtxOff, (unsigned long long)vertexCapacity);
-                        return;
-                    }
-                    const uint32 vi = (uint32)signedIndex;
-                    verts[j] = TransformVertex(vdata, vi, stride, sh, uniformData);
-                }
-                raster.DrawTriangles(verts.Data(), safeIndexCount);
+            for (uint32 i = 0; i < drawCount; ++i) {
+                uint64 cmdOffset = offset + i * drawStride;
+                swfast::ExecuteDrawIndexedIndirectFast(
+                    dev,
+                    pipelineId, descSetId,
+                    vbId, vbOffset,
+                    ibId, ibOffset, indexUint32,
+                    indirectBufId, cmdOffset,
+                    fbId,
+                    drawStride,
+                    scissorRect, scissorEnabled);
             }
         });
-    }
-    void NkSoftwareCommandBuffer::DrawIndirect(NkBufferHandle, uint64, uint32, uint32) {
-        Push([](NkSoftwareDevice*) { NK_SW_CMD_LOG("DrawIndirect non supporte\n"); });
-    }
-    void NkSoftwareCommandBuffer::DrawIndexedIndirect(NkBufferHandle, uint64, uint32, uint32) {
-        Push([](NkSoftwareDevice*) { NK_SW_CMD_LOG("DrawIndexedIndirect non supporte\n"); });
     }
 
     // =============================================================================
@@ -441,6 +453,7 @@ namespace nkentseu {
             sh->computeFn(gx, gy, gz, nullptr);
         });
     }
+
     void NkSoftwareCommandBuffer::DispatchIndirect(NkBufferHandle buf, uint64 off) {
         uint64 bid = buf.id;
         Push([bid, off](NkSoftwareDevice* dev) {
@@ -468,6 +481,7 @@ namespace nkentseu {
                 (size_t)copySize);
         });
     }
+
     void NkSoftwareCommandBuffer::CopyBufferToTexture(NkBufferHandle src, NkTextureHandle dst,
                                                 const NkBufferTextureCopyRegion& r) {
         uint64 s=src.id, d=dst.id; NkBufferTextureCopyRegion reg=r;
@@ -483,6 +497,7 @@ namespace nkentseu {
                     reg.width * bpp);
         });
     }
+
     void NkSoftwareCommandBuffer::CopyTextureToBuffer(NkTextureHandle src, NkBufferHandle dst,
                                                 const NkBufferTextureCopyRegion& r) {
         uint64 s=src.id, d=dst.id; NkBufferTextureCopyRegion reg=r;
@@ -498,6 +513,7 @@ namespace nkentseu {
                     reg.width * bpp);
         });
     }
+
     void NkSoftwareCommandBuffer::CopyTexture(NkTextureHandle src, NkTextureHandle dst,
                                         const NkTextureCopyRegion& r) {
         uint64 s=src.id, d=dst.id; NkTextureCopyRegion reg=r;
@@ -511,8 +527,8 @@ namespace nkentseu {
                     reg.width * bpp);
         });
     }
-    void NkSoftwareCommandBuffer::BlitTexture(NkTextureHandle src, NkTextureHandle dst,
-                                        const NkTextureCopyRegion& r, NkFilter f) {
+
+    void NkSoftwareCommandBuffer::BlitTexture(NkTextureHandle src, NkTextureHandle dst, const NkTextureCopyRegion& r, NkFilter f) {
         uint64 s=src.id, d=dst.id;
         Push([s, d](NkSoftwareDevice* dev) {
             auto* st = dev->GetTex(s), *dt = dev->GetTex(d);
@@ -525,6 +541,7 @@ namespace nkentseu {
                 }
         });
     }
+
     void NkSoftwareCommandBuffer::GenerateMipmaps(NkTextureHandle tex, NkFilter f) {
         uint64 tid = tex.id;
         Push([tid](NkSoftwareDevice* dev) { dev->GenerateMipmaps({tid}, NkFilter::NK_LINEAR); });
@@ -536,9 +553,11 @@ namespace nkentseu {
     void NkSoftwareCommandBuffer::BeginDebugGroup(const char* name, float, float, float) {
         NK_SW_CMD_LOG(">>> %s\n", name ? name : "");
     }
+
     void NkSoftwareCommandBuffer::EndDebugGroup() {
         NK_SW_CMD_LOG("<<<\n");
     }
+    
     void NkSoftwareCommandBuffer::InsertDebugLabel(const char* name) {
         NK_SW_CMD_LOG("--- %s\n", name ? name : "");
     }

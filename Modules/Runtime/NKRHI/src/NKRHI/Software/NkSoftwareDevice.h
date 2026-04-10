@@ -6,16 +6,46 @@
 // =============================================================================
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKRHI/Core/NkDescs.h"
+
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include "NKThreading/NkMutex.h"
 #include "NKCore/NkAtomic.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKMath/NKMath.h"
+
+#include "NkSWPixel.h"
+
 #include <memory>
 #include <cmath>
 #include <thread>
 #include <algorithm>
+
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+#   ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN
+#   endif
+#   include <windows.h>
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+#   include <X11/Xlib.h>
+#   include <X11/Xutil.h>
+#   include <X11/extensions/XShm.h>
+#   include <sys/ipc.h>
+#   include <sys/shm.h>
+#elif defined(NKENTSEU_WINDOWING_XCB)
+#   include <xcb/xcb.h>
+#   include <xcb/xcb_image.h>
+#elif defined(NKENTSEU_WINDOWING_WAYLAND)
+#   include <wayland-client.h>
+#   include <sys/mman.h>
+#   include <unistd.h>
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+#   include <android/native_window.h>
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+#   include <emscripten.h>
+#   include <emscripten/html5.h>
+#endif
 
 namespace nkentseu {
 
@@ -29,50 +59,6 @@ namespace nkentseu {
     using NkSWVec2  = math::NkVec2;
     using NkSWColor = math::NkVec4;
 
-    struct NkSWVertex {
-        NkSWVec4 position  = {0,0,0,1};
-        NkSWVec3 normal    = {0,0,1};
-        NkSWVec2 uv        = {0,0};
-        NkSWVec4 color     = {1,1,1,1};
-        // Internal clip-space values used for depth interpolation in raster stage.
-        float32  clipZ     = 0.f;
-        float32  clipW     = 1.f;
-        float32   attrs[16] = {};
-        uint32  attrCount = 0;
-
-        void SetAttrVec3(uint32 base, float32 x, float32 y, float32 z) {
-            if (base+2 < 16) { attrs[base]=x; attrs[base+1]=y; attrs[base+2]=z;
-                                attrCount = math::NkMax(attrCount, base+3); }
-        }
-        void SetAttrVec4(uint32 base, float32 x, float32 y, float32 z, float32 w) {
-            if (base+3 < 16) { attrs[base]=x; attrs[base+1]=y; attrs[base+2]=z; attrs[base+3]=w;
-                                attrCount = math::NkMax(attrCount, base+4); }
-        }
-        NkSWVec3 GetAttrVec3(uint32 base) const {
-            return (base+2 < 16) ? NkSWVec3{attrs[base],attrs[base+1],attrs[base+2]} : NkSWVec3{};
-        }
-        NkSWVec4 GetAttrVec4(uint32 base) const {
-            return (base+3 < 16) ? NkSWVec4{attrs[base],attrs[base+1],attrs[base+2],attrs[base+3]} : NkSWVec4{};
-        }
-    };
-
-    // Signature des shaders logiciels
-    using NkSWVertexShader = NkFunction<NkSWVertex(
-        const void* vertexData,
-        uint32 vertexIndex,
-        const void* uniformData)>;
-
-    using NkSWPixelShader = NkFunction<NkSWColor(
-        const NkSWVertex& interpolated,
-        const void* uniformData,
-        const void* texSampler)>;
-
-    using NkSWComputeShader = NkFunction<void(
-        uint32 groupCountX,
-        uint32 groupCountY,
-        uint32 groupCountZ,
-        const void* uniformData)>;
-
     // =============================================================================
     struct NkSWBuffer {
         NkVector<uint8> data;
@@ -82,9 +68,7 @@ namespace nkentseu {
 
     struct NkSWSampler {
         NkSamplerDesc desc;
-        NkSWColor Sample(const NkVector<uint8>& pixels,
-                        uint32 width, uint32 height, uint32 bpp,
-                        float32 u, float32 v) const;
+        NkSWColor Sample(const NkVector<uint8>& pixels, uint32 width, uint32 height, uint32 bpp, float32 u, float32 v) const;
     };
 
     struct NkSWTexture {
@@ -101,10 +85,10 @@ namespace nkentseu {
     };
 
     struct NkSWShader {
-        NkSWVertexShader  vertFn;
-        NkSWPixelShader   fragFn;
+        NkVertexShaderSoftware  vertFn;
+        NkPixelShaderSoftware   fragFn;
         bool isCompute = false;
-        NkSWComputeShader computeFn;
+        NkComputeShaderSoftware computeFn;
     };
 
     struct NkSWPipeline {
@@ -123,18 +107,47 @@ namespace nkentseu {
     };
 
     struct NkSWRenderPass   { NkRenderPassDesc desc; };
+
     struct NkSWFramebuffer  {
         uint64 colorId   = 0;
         uint64 depthId   = 0;
         uint32 w=0, h=0;
     };
+
     struct NkSWDescSetLayout { NkDescriptorSetLayoutDesc desc; };
+
     struct NkSWDescSet {
         struct Binding { uint32 slot=0; NkDescriptorType type{}; uint64 bufId=0; uint64 texId=0; uint64 sampId=0; };
         NkVector<Binding> bindings;
     };
+
     struct NkSWFence { bool signaled=false; };
 
+
+    // =============================================================================
+    // Batch de textures pour le fragment shader (jusqu'à 8 textures)
+    // =============================================================================
+    static constexpr uint32 kMaxTextures = 8;
+    static constexpr uint32 kMaxUBOs     = 8;
+
+    struct NkSWTextureBatch {
+        const NkSWTexture* tex[kMaxTextures] = {};
+        uint32             count = 0;
+
+        const NkSWTexture* operator[](uint32 i) const {
+            return i < count ? tex[i] : nullptr;
+        }
+    };
+
+    struct NkSWUniformBatch {
+        const void* ubo[kMaxUBOs] = {};
+        uint32      sizes[kMaxUBOs] = {};
+        uint32      count = 0;
+
+        const void* operator[](uint32 i) const {
+            return i < count ? ubo[i] : nullptr;
+        }
+    };
     // =============================================================================
     // Rastériseur interne
     // =============================================================================
@@ -153,10 +166,10 @@ namespace nkentseu {
     struct NkSWRasterizer {
             void SetState(const NkSWRasterState& state) { mState = state; }
 
-            void DrawTriangles(const NkSWVertex* vertices, uint32 count);
-            void DrawTriangle (const NkSWVertex& v0, const NkSWVertex& v1, const NkSWVertex& v2);
-            void DrawLine     (const NkSWVertex& v0, const NkSWVertex& v1);
-            void DrawPoint    (const NkSWVertex& v0);
+            void DrawTriangles(const NkVertexSoftware* vertices, uint32 count);
+            void DrawTriangle (const NkVertexSoftware& v0, const NkVertexSoftware& v1, const NkVertexSoftware& v2);
+            void DrawLine     (const NkVertexSoftware& v0, const NkVertexSoftware& v1);
+            void DrawPoint    (const NkVertexSoftware& v0);
 
             using Vertex = math::NkVec3;
             using Color  = math::NkColor;
@@ -202,16 +215,10 @@ namespace nkentseu {
             }
 
             void Clear(uint8 r = 0, uint8 g = 0, uint8 b = 0, uint8 a = 255) {
-                for (usize i = 0; i < pixels.Size(); i += 4) {
-                    pixels[i + 0] = r;
-                    pixels[i + 1] = g;
-                    pixels[i + 2] = b;
-                    pixels[i + 3] = a;
+                for (uint32 y = 0; y < height; ++y) {
+                    nkentseu::sw_detail::ClearRow(RowPtr(y), width, r, g, b, a);
                 }
-
-                if (depthEnabled) {
-                    ClearDepth(1.0f);
-                }
+                if (depthEnabled) ClearDepth(1.0f);
             }
 
             void ClearDepth(float32 clearValue = 1.0f) {
@@ -301,36 +308,28 @@ namespace nkentseu {
                         uint8 r, uint8 g, uint8 b, uint8 a = 255,
                         float32 z = 0.0f, bool blend = true) {
                 if (w <= 0 || h <= 0 || width == 0 || height == 0) return;
-
                 int32 x0 = MaxInt(x, static_cast<int32>(clipMinX));
                 int32 y0 = MaxInt(y, static_cast<int32>(clipMinY));
                 int32 x1 = MinInt(x + w, static_cast<int32>(clipMaxX));
                 int32 y1 = MinInt(y + h, static_cast<int32>(clipMaxY));
                 if (x0 >= x1 || y0 >= y1) return;
-
                 for (int32 py = y0; py < y1; ++py) {
-                    for (int32 px = x0; px < x1; ++px) {
-                        const uint32 ux = static_cast<uint32>(px);
-                        const uint32 uy = static_cast<uint32>(py);
-                        if (!DepthPass(ux, uy, z)) continue;
-                        PutPixelUnchecked(ux, uy, r, g, b, a, blend);
-                    }
+                    uint8* row = RowPtr(static_cast<uint32>(py));
+                    if (!blend || a == 255u)
+                        nkentseu::sw_detail::FillSpanOpaque(row, x0, x1, r, g, b);
+                    else
+                        nkentseu::sw_detail::BlendSpanAlpha(row, x0, x1, r, g, b, a);
                 }
             }
 
             void DrawTriangle(const Vertex& v0, const Vertex& v1, const Vertex& v2,
                             uint8 r, uint8 g, uint8 b, uint8 a = 255, bool blend = true) {
-                DrawLine(RoundToInt(v0.x), RoundToInt(v0.y), RoundToInt(v1.x), RoundToInt(v1.y),
-                        r, g, b, a, v0.z, v1.z, blend);
-                DrawLine(RoundToInt(v1.x), RoundToInt(v1.y), RoundToInt(v2.x), RoundToInt(v2.y),
-                        r, g, b, a, v1.z, v2.z, blend);
-                DrawLine(RoundToInt(v2.x), RoundToInt(v2.y), RoundToInt(v0.x), RoundToInt(v0.y),
-                        r, g, b, a, v2.z, v0.z, blend);
+                DrawLine(RoundToInt(v0.x), RoundToInt(v0.y), RoundToInt(v1.x), RoundToInt(v1.y), r, g, b, a, v0.z, v1.z, blend);
+                DrawLine(RoundToInt(v1.x), RoundToInt(v1.y), RoundToInt(v2.x), RoundToInt(v2.y), r, g, b, a, v1.z, v2.z, blend);
+                DrawLine(RoundToInt(v2.x), RoundToInt(v2.y), RoundToInt(v0.x), RoundToInt(v0.y), r, g, b, a, v2.z, v0.z, blend);
             }
 
-            void DrawTriangle(int32 x0, int32 y0, int32 x1, int32 y1, int32 x2, int32 y2,
-                            uint8 r, uint8 g, uint8 b, uint8 a = 255,
-                            float32 z0 = 0.0f, float32 z1 = 0.0f, float32 z2 = 0.0f, bool blend = true) {
+            void DrawTriangle(int32 x0, int32 y0, int32 x1, int32 y1, int32 x2, int32 y2, uint8 r, uint8 g, uint8 b, uint8 a = 255, float32 z0 = 0.0f, float32 z1 = 0.0f, float32 z2 = 0.0f, bool blend = true) {
                 DrawTriangle(Vertex{static_cast<float32>(x0), static_cast<float32>(y0), z0},
                             Vertex{static_cast<float32>(x1), static_cast<float32>(y1), z1},
                             Vertex{static_cast<float32>(x2), static_cast<float32>(y2), z2},
@@ -425,7 +424,12 @@ namespace nkentseu {
                         const uint8 outA = ToByte(b0 * ColorTo255(c0.a) +
                                                 b1 * ColorTo255(c1.a) +
                                                 b2 * ColorTo255(c2.a));
-                        PutPixelUnchecked(ux, uy, outR, outG, outB, outA, blend);
+                        uint8* p = RowPtr(uy) + ux * 4u;
+                        if (blend && outA < 255u) {
+                            nkentseu::sw_detail::BlendPixel(p, outR, outG, outB, outA);
+                        } else {
+                            nkentseu::sw_detail::StorePixel(p, outR, outG, outB, outA);
+                        }
                     }
                 }
             }
@@ -474,10 +478,10 @@ namespace nkentseu {
             bool IsValid() const { return width > 0 && height > 0 && !pixels.Empty(); }
 
         private:
-            NkSWVertex ClipToNDC(const NkSWVertex& vertex) const;
-            NkSWVertex NDCToScreen(const NkSWVertex& vertex, float32 width, float32 height) const;
-            NkSWVertex Interpolate(const NkSWVertex& a, const NkSWVertex& b, float32 t) const;
-            NkSWVertex BaryInterp(const NkSWVertex& v0, const NkSWVertex& v1, const NkSWVertex& v2,
+            NkVertexSoftware ClipToNDC(const NkVertexSoftware& vertex) const;
+            NkVertexSoftware NDCToScreen(const NkVertexSoftware& vertex, float32 width, float32 height) const;
+            NkVertexSoftware Interpolate(const NkVertexSoftware& a, const NkVertexSoftware& b, float32 t) const;
+            NkVertexSoftware BaryInterp(const NkVertexSoftware& v0, const NkVertexSoftware& v1, const NkVertexSoftware& v2,
                                 float32 l0, float32 l1, float32 l2) const;
             bool DepthTest(uint32 x, uint32 y, float32 z);
             NkSWColor BlendColor(const NkSWColor& src, const NkSWColor& dst) const;
@@ -544,21 +548,51 @@ namespace nkentseu {
             void PutPixelUnchecked(uint32 x, uint32 y, uint8 r, uint8 g, uint8 b, uint8 a, bool blend) {
                 uint8* p = RowPtr(y) + x * 4u;
                 if (!blend || a == 255u) {
-                    p[0] = r;
-                    p[1] = g;
-                    p[2] = b;
-                    p[3] = a;
+                    nkentseu::sw_detail::StorePixel(p, r, g, b, a);
                     return;
                 }
-
                 if (a == 0u) return;
-                const uint32 srcA = static_cast<uint32>(a);
-                const uint32 invA = 255u - srcA;
-                p[0] = static_cast<uint8>((static_cast<uint32>(r) * srcA + static_cast<uint32>(p[0]) * invA + 127u) / 255u);
-                p[1] = static_cast<uint8>((static_cast<uint32>(g) * srcA + static_cast<uint32>(p[1]) * invA + 127u) / 255u);
-                p[2] = static_cast<uint8>((static_cast<uint32>(b) * srcA + static_cast<uint32>(p[2]) * invA + 127u) / 255u);
-                p[3] = 255u;
+                nkentseu::sw_detail::BlendPixel(p, r, g, b, a);
             }
+    };
+
+    struct NkSoftwareContextData {
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+        void* hwnd      = nullptr;  // HWND
+        void* hdc       = nullptr;  // HDC
+        void* dibBitmap = nullptr;  // HBITMAP DIBSection
+        void* dibDC     = nullptr;  // HDC mémoire
+        void* dibBits   = nullptr;  // Pointeur pixels DIB
+#elif defined(NKENTSEU_WINDOWING_XLIB)
+        void*         display  = nullptr;
+        unsigned long window   = 0;
+        void*         gc       = nullptr;  // GC
+        void*         ximage   = nullptr;  // XImage
+        void*         shmInfo  = nullptr;  // XShmSegmentInfo*
+        bool          useSHM   = false;
+        int           shmid    = -1;
+#elif defined(NKENTSEU_WINDOWING_XCB)
+        void*    connection = nullptr;
+        unsigned long window= 0;
+        uint32   gc         = 0;   // xcb_gcontext_t
+#elif defined(NKENTSEU_WINDOWING_WAYLAND)
+        void*  wlDisplay  = nullptr;
+        void*  wlSurface  = nullptr;
+        void*  wlBuffer   = nullptr;
+        void*  shmPixels  = nullptr;
+        bool   waylandConfigured = false;
+        uint32 shmStride  = 0;
+        uint64 shmSize    = 0;
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+        void*  nativeWindow = nullptr;
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+        void*  nsView    = nullptr;
+        void*  cgContext = nullptr;
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+        const char* canvasId = "#canvas";
+#endif
+        uint32 width  = 0;
+        uint32 height = 0;
     };
 
     // =============================================================================
@@ -569,90 +603,91 @@ namespace nkentseu {
             NkSoftwareDevice()  = default;
             ~NkSoftwareDevice() override;
 
-            bool          Initialize(const NkDeviceInitInfo& init) override;
-            void          Shutdown()                          override;
-            bool          IsValid()                     const override { return mIsValid; }
-            NkGraphicsApi GetApi()                      const override { return NkGraphicsApi::NK_API_SOFTWARE; }
-            const NkDeviceCaps& GetCaps()               const override { return mCaps; }
+            bool                        Initialize(const NkDeviceInitInfo& init) override;
+            void                        Shutdown()                          override;
+            bool                        IsValid()                     const override { return mIsValid; }
+            NkGraphicsApi               GetApi()                      const override { return NkGraphicsApi::NK_API_SOFTWARE; }
+            const NkDeviceCaps&         GetCaps()               const override { return mCaps; }
 
-            NkBufferHandle  CreateBuffer (const NkBufferDesc& d)                      override;
-            void            DestroyBuffer(NkBufferHandle& h)                          override;
-            bool WriteBuffer(NkBufferHandle,const void*,uint64,uint64)                override;
-            bool WriteBufferAsync(NkBufferHandle,const void*,uint64,uint64)           override;
-            bool ReadBuffer(NkBufferHandle,void*,uint64,uint64)                       override;
-            NkMappedMemory MapBuffer(NkBufferHandle,uint64,uint64)                    override;
-            void           UnmapBuffer(NkBufferHandle)                                override;
+            NkBufferHandle              CreateBuffer (const NkBufferDesc& d)                      override;
+            void                        DestroyBuffer(NkBufferHandle& h)                          override;
+            bool                        WriteBuffer(NkBufferHandle,const void*,uint64,uint64)                override;
+            bool                        WriteBufferAsync(NkBufferHandle,const void*,uint64,uint64)           override;
+            bool                        ReadBuffer(NkBufferHandle,void*,uint64,uint64)                       override;
+            NkMappedMemory              MapBuffer(NkBufferHandle,uint64,uint64)                    override;
+            void                        UnmapBuffer(NkBufferHandle)                                override;
 
-            NkTextureHandle  CreateTexture (const NkTextureDesc& d)                   override;
-            void             DestroyTexture(NkTextureHandle& h)                        override;
-            bool WriteTexture(NkTextureHandle,const void*,uint32)                     override;
-            bool WriteTextureRegion(NkTextureHandle,const void*,uint32,uint32,uint32,uint32,uint32,uint32,uint32,uint32,uint32) override;
-            bool GenerateMipmaps(NkTextureHandle, NkFilter)                           override;
+            NkTextureHandle             CreateTexture (const NkTextureDesc& d)                   override;
+            void                        DestroyTexture(NkTextureHandle& h)                        override;
+            bool                        WriteTexture(NkTextureHandle,const void*,uint32)                     override;
+            bool                        WriteTextureRegion(NkTextureHandle,const void*,uint32,uint32,uint32,uint32,uint32,uint32,uint32,uint32,uint32) override;
+            bool                        GenerateMipmaps(NkTextureHandle, NkFilter)                           override;
 
-            NkSamplerHandle  CreateSampler (const NkSamplerDesc& d)                   override;
-            void             DestroySampler(NkSamplerHandle& h)                        override;
+            NkSamplerHandle             CreateSampler (const NkSamplerDesc& d)                   override;
+            void                        DestroySampler(NkSamplerHandle& h)                        override;
 
-            NkShaderHandle   CreateShader (const NkShaderDesc& d)                     override;
-            void             DestroyShader(NkShaderHandle& h)                          override;
+            NkShaderHandle              CreateShader (const NkShaderDesc& d)                     override;
+            void                        DestroyShader(NkShaderHandle& h)                          override;
 
-            NkPipelineHandle CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d)  override;
-            NkPipelineHandle CreateComputePipeline (const NkComputePipelineDesc& d)   override;
-            void             DestroyPipeline(NkPipelineHandle& h)                     override;
+            NkPipelineHandle            CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d)  override;
+            NkPipelineHandle            CreateComputePipeline (const NkComputePipelineDesc& d)   override;
+            void                        DestroyPipeline(NkPipelineHandle& h)                     override;
 
-            NkRenderPassHandle  CreateRenderPass  (const NkRenderPassDesc& d)         override;
-            void                DestroyRenderPass (NkRenderPassHandle& h)              override;
-            NkFramebufferHandle CreateFramebuffer (const NkFramebufferDesc& d)        override;
-            void                DestroyFramebuffer(NkFramebufferHandle& h)             override;
-            NkFramebufferHandle GetSwapchainFramebuffer() const override { return mSwapchainFB; }
-            NkRenderPassHandle  GetSwapchainRenderPass()  const override { return mSwapchainRP; }
-            NkGPUFormat GetSwapchainFormat()      const override { return NkGPUFormat::NK_RGBA8_UNORM; }
-            NkGPUFormat GetSwapchainDepthFormat() const override { return NkGPUFormat::NK_D32_FLOAT;   }
-            uint32   GetSwapchainWidth()       const override { return mWidth; }
-            uint32   GetSwapchainHeight()      const override { return mHeight; }
+            NkRenderPassHandle          CreateRenderPass  (const NkRenderPassDesc& d)         override;
+            void                        DestroyRenderPass (NkRenderPassHandle& h)              override;
+            NkFramebufferHandle         CreateFramebuffer (const NkFramebufferDesc& d)        override;
+            void                        DestroyFramebuffer(NkFramebufferHandle& h)             override;
+            NkFramebufferHandle         GetSwapchainFramebuffer() const override { return mSwapchainFB; }
+            NkRenderPassHandle          GetSwapchainRenderPass()  const override { return mSwapchainRP; }
+            NkGPUFormat                 GetSwapchainFormat()      const override { return NkGPUFormat::NK_RGBA8_UNORM; }
+            NkGPUFormat                 GetSwapchainDepthFormat() const override { return NkGPUFormat::NK_D32_FLOAT;   }
+            uint32                      GetSwapchainWidth()       const override { return mWidth; }
+            uint32                      GetSwapchainHeight()      const override { return mHeight; }
 
-            NkDescSetHandle CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) override;
-            void            DestroyDescriptorSetLayout(NkDescSetHandle& h)                override;
-            NkDescSetHandle AllocateDescriptorSet(NkDescSetHandle layoutHandle)           override;
-            void            FreeDescriptorSet    (NkDescSetHandle& h)                     override;
-            void            UpdateDescriptorSets(const NkDescriptorWrite* w, uint32 n)   override;
+            NkDescSetHandle             CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) override;
+            void                        DestroyDescriptorSetLayout(NkDescSetHandle& h)                override;
+            NkDescSetHandle             AllocateDescriptorSet(NkDescSetHandle layoutHandle)           override;
+            void                        FreeDescriptorSet    (NkDescSetHandle& h)                     override;
+            void                        UpdateDescriptorSets(const NkDescriptorWrite* w, uint32 n)   override;
 
-            NkICommandBuffer* CreateCommandBuffer(NkCommandBufferType t)                  override;
-            void              DestroyCommandBuffer(NkICommandBuffer*& cb)                 override;
+            NkICommandBuffer*           CreateCommandBuffer(NkCommandBufferType t)                  override;
+            void                        DestroyCommandBuffer(NkICommandBuffer*& cb)                 override;
 
-            void Submit(NkICommandBuffer* const* cbs, uint32 n, NkFenceHandle fence)     override;
-            void SubmitAndPresent(NkICommandBuffer* cb)                                   override;
-            NkFenceHandle CreateFence(bool signaled)  override;
-            void DestroyFence(NkFenceHandle& h)       override;
-            bool WaitFence(NkFenceHandle f,uint64 to) override;
-            bool IsFenceSignaled(NkFenceHandle f)     override;
-            void ResetFence(NkFenceHandle f)          override;
-            void WaitIdle()                           override {}
+            void                        Submit(NkICommandBuffer* const* cbs, uint32 n, NkFenceHandle fence)     override;
+            void                        SubmitAndPresent(NkICommandBuffer* cb)                                   override;
+            NkFenceHandle               CreateFence(bool signaled)  override;
+            void                        DestroyFence(NkFenceHandle& h)       override;
+            bool                        WaitFence(NkFenceHandle f,uint64 to) override;
+            bool                        IsFenceSignaled(NkFenceHandle f)     override;
+            void                        ResetFence(NkFenceHandle f)          override;
+            void                        WaitIdle()                           override {}
 
-            bool   BeginFrame(NkFrameContext& frame) override;
-            void   EndFrame  (NkFrameContext& frame) override;
-            uint32 GetFrameIndex()        const override { return mFrameIndex; }
-            uint32 GetMaxFramesInFlight() const override { return 1; }
-            uint64 GetFrameNumber()       const override { return mFrameNumber; }
-            void   OnResize(uint32 w, uint32 h) override;
+            bool                        BeginFrame(NkFrameContext& frame) override;
+            void                        EndFrame  (NkFrameContext& frame) override;
+            uint32                      GetFrameIndex()        const override { return mFrameIndex; }
+            uint32                      GetMaxFramesInFlight() const override { return 1; }
+            uint64                      GetFrameNumber()       const override { return mFrameNumber; }
+            void                        OnResize(uint32 w, uint32 h) override;
 
-            void* GetNativeDevice()       const override { return nullptr; }
-            void* GetNativeCommandQueue() const override { return nullptr; }
+            void*                       GetNativeDevice()       const override { return nullptr; }
+            void*                       GetNativeCommandQueue() const override { return nullptr; }
 
             // Accès interne
-            NkSWBuffer*      GetBuf  (uint64 id);
-            NkSWTexture*     GetTex  (uint64 id);
-            NkSWSampler*     GetSamp (uint64 id);
-            NkSWShader*      GetShader(uint64 id);
-            NkSWPipeline*    GetPipe (uint64 id);
-            NkSWDescSet*     GetDescSet(uint64 id);
-            NkSWFramebuffer* GetFBO  (uint64 id);
+            NkSWBuffer*                 GetBuf  (uint64 id);
+            NkSWTexture*                GetTex  (uint64 id);
+            NkSWSampler*                GetSamp (uint64 id);
+            NkSWShader*                 GetShader(uint64 id);
+            NkSWPipeline*               GetPipe (uint64 id);
+            NkSWDescSet*                GetDescSet(uint64 id);
+            NkSWFramebuffer*            GetFBO  (uint64 id);
 
             // Présentation — copie le color buffer vers la surface native
-            void Present();
+            void                        Present();
             // Accès direct au backbuffer pour présentation (lecture seule)
-            const uint8* BackbufferPixels() const;
-            uint32 BackbufferWidth()  const { return mWidth; }
-            uint32 BackbufferHeight() const { return mHeight; }
+            const uint8*                BackbufferPixels() const;
+            const uint8*                BackbufferSize() const;
+            uint32                      BackbufferWidth()  const { return mWidth; }
+            uint32                      BackbufferHeight() const { return mHeight; }
 
         private:
             void CreateSwapchainObjects();
@@ -682,6 +717,10 @@ namespace nkentseu {
             uint64              mFrameNumber = 0;
             uint32              mThreadCount = 0;
             bool                mUseSse = true;
+
+            NkSoftwareContextData  mData;
+            bool InitNativePresenter (const NkSurfaceDesc& surf);
+            void ShutdownNativePresenter();
     };
 
 } // namespace nkentseu

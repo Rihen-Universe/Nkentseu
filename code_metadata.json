@@ -1,42 +1,31 @@
 {
-  "base_directory": "E:\\Projets\\MacShared\\Projets\\Jenga\\Jenga\\Exemples\\Nkentseu\\Modules\\Runtime\\NKUI\\src\\NkUI",
+  "base_directory": "E:\\Projets\\2026\\Nkentseu\\Nkentseu\\Modules\\Runtime\\NKUI\\src",
   "included_extensions": [],
-  "excluded_extensions": [],
+  "excluded_extensions": [
+    "h"
+  ],
   "included_paths": [],
-  "excluded_paths": [],
+  "excluded_paths": [
+    "NkUI\\Tools"
+  ],
   "included_files": [],
   "excluded_files": [],
   "structure": {
-    ".": [
-      "NkUI.h",
-      "NkUIAnimation.cpp",
-      "NkUIAnimation.h",
-      "NkUIContext.cpp",
-      "NkUIContext.h",
-      "NkUIDock.cpp",
-      "NkUIDock.h",
-      "NkUIDrawList.cpp",
-      "NkUIDrawList.h",
-      "NkUIExport.h",
-      "NkUIFont.cpp",
-      "NkUIFont.h",
-      "NkUIInput.h",
-      "NkUILayout.cpp",
-      "NkUILayout.h",
-      "NkUILayout2.cpp",
-      "NkUILayout2.h",
-      "NkUIMath.cpp",
-      "NkUIMath.h",
-      "NkUIMenu.cpp",
-      "NkUIMenu.h",
-      "NkUIRenderer.cpp",
-      "NkUIRenderer.h",
-      "NkUITheme.h",
-      "NkUIWidgets.cpp",
-      "NkUIWidgets.h",
-      "NkUIWindow.cpp",
-      "NkUIWindow.h"
+    "NkUI": [
+      "NkUI\\NkUIAnimation.cpp",
+      "NkUI\\NkUIContext.cpp",
+      "NkUI\\NkUIDock.cpp",
+      "NkUI\\NkUIDrawList.cpp",
+      "NkUI\\NkUIFont.cpp",
+      "NkUI\\NkUIFontBridge.cpp",
+      "NkUI\\NkUILayout.cpp",
+      "NkUI\\NkUILayout2.cpp",
+      "NkUI\\NkUIMath.cpp",
+      "NkUI\\NkUIMenu.cpp",
+      "NkUI\\NkUIRenderer.cpp",
+      "NkUI\\NkUIWidgets.cpp",
+      "NkUI\\NkUIWindow.cpp"
     ]
   },
-  "timestamp": "1773640447.7116556"
+  "timestamp": "1774764260.3436792"
 }

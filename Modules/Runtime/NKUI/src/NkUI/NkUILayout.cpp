@@ -9,8 +9,8 @@
  * Main data: NextItemRect/AdvanceItem, scrollbars, splitter drag logic.
  * Change this file when: Spacing, clipping, scrolling, or nested-layout bugs occur.
  */
-#include "NkUI/NkUILayout.h"
-#include "NkUI/NkUIWindow.h"
+#include "NKUI/NkUILayout.h"
+#include "NKUI/NkUIWindow.h"
 #include <cmath>
 
 namespace nkentseu {

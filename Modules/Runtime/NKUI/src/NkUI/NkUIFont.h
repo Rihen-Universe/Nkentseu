@@ -44,11 +44,14 @@
  *    font.size = 16;
  *    font.metrics = ...; // Récupérer depuis NKFont
  */
-#include "NkUI/NkUIDrawList.h"
+#include "NKUI/NkUIDrawList.h"
+// #include "NkUIFontBridge.h"
+// #include "NKFont/NkFont.h"
 
 namespace nkentseu {
     namespace nkui {
-
+        struct NkUIFontBridge;
+        struct NkUIFontLoaderDesc;   // défini dans NkUIFontBridge.h
         // ============================================================================
         // Configuration globale du système de polices
         // ============================================================================
@@ -289,67 +292,115 @@ namespace nkentseu {
          * et atlas si vous préférez. Il fournit juste un conteneur pratique.
          */
         struct NKUI_API NkUIFontManager {
-            static constexpr int32 MAX_FONTS  = 16;   ///< Nombre max de polices
-            static constexpr int32 MAX_ATLAS  = 4;    ///< Nombre max d'atlas
+                static constexpr int32 MAX_FONTS  = 16;   ///< Nombre max de polices
+                static constexpr int32 MAX_ATLAS  = 4;    ///< Nombre max d'atlas
 
-            NkUIFont       fonts[MAX_FONTS]  = {};    ///< Tableau des polices
-            int32          numFonts          = 0;     ///< Nombre de polices chargées
-            NkUIFontAtlas  atlases[MAX_ATLAS]= {};    ///< Tableau des atlas
-            int32          numAtlases        = 0;     ///< Nombre d'atlas créés
-            NkUIFontConfig defaultConfig;              ///< Configuration par défaut
+                NkUIFont       fonts[MAX_FONTS]  = {};    ///< Tableau des polices
+                int32          numFonts          = 0;     ///< Nombre de polices chargées
+                NkUIFontAtlas  atlases[MAX_ATLAS]= {};    ///< Tableau des atlas
+                int32          numAtlases        = 0;     ///< Nombre d'atlas créés
+                NkUIFontConfig defaultConfig;              ///< Configuration par défaut
 
-            /**
-             * @brief Initialise le gestionnaire avec la police bitmap intégrée
-             * @param config Configuration
-             * @return true si succès
-             */
-            bool Init(const NkUIFontConfig& config = NkUIFontConfig()) noexcept;
+                /**
+                 * @brief Initialise le gestionnaire avec la police bitmap intégrée
+                 * @param config Configuration
+                 * @return true si succès
+                 */
+                bool Init(const NkUIFontConfig& config = NkUIFontConfig()) noexcept;
 
-            /**
-             * @brief Détruit toutes les polices et atlas
-             */
-            void Destroy() noexcept;
+                /**
+                 * @brief Détruit toutes les polices et atlas
+                 */
+                void Destroy() noexcept;
 
-            /**
-             * @brief Ajoute la police bitmap intégrée
-             * @param size Taille en pixels
-             * @return Index de la police
-             */
-            uint32 AddBuiltin(float32 size = 14.f) noexcept;
+                /**
+                 * @brief Ajoute la police bitmap intégrée
+                 * @param size Taille en pixels
+                 * @return Index de la police
+                 */
+                uint32 AddBuiltin(float32 size = 14.f) noexcept;
 
-            /**
-             * @brief Crée une police à partir d'un atlas existant
-             * @param name Nom de la police
-             * @param size Taille
-             * @param atlas Atlas associé
-             * @param metrics Métriques
-             * @return Index de la police
-             */
-            uint32 AddFromAtlas(const char* name, float32 size, 
-                                NkUIFontAtlas* atlas, const NkUIFontMetrics& metrics) noexcept;
+                /**
+                 * @brief Crée une police à partir d'un atlas existant
+                 * @param name Nom de la police
+                 * @param size Taille
+                 * @param atlas Atlas associé
+                 * @param metrics Métriques
+                 * @return Index de la police
+                 */
+                uint32 AddFromAtlas(const char* name, float32 size, 
+                                    NkUIFontAtlas* atlas, const NkUIFontMetrics& metrics) noexcept;
 
-            /**
-             * @brief Récupère une police par son index
-             */
-            NkUIFont* Get(uint32 idx) noexcept {
-                return (idx < static_cast<uint32>(numFonts)) ? &fonts[idx] : 
-                       (numFonts > 0 ? &fonts[0] : nullptr);
-            }
+                /**
+                 * @brief Récupère une police par son index
+                 */
+                NkUIFont* Get(uint32 idx) noexcept {
+                    return (idx < static_cast<uint32>(numFonts)) ? &fonts[idx] : 
+                        (numFonts > 0 ? &fonts[0] : nullptr);
+                }
 
-            /**
-             * @brief Récupère la police par défaut
-             */
-            NkUIFont* Default() noexcept { return numFonts > 0 ? &fonts[0] : nullptr; }
+                /**
+                 * @brief Récupère la police par défaut
+                 */
+                NkUIFont* Default() noexcept { return numFonts > 0 ? &fonts[0] : nullptr; }
 
-            /**
-             * @brief Upload tous les atlas sales sur le GPU
-             */
-            void UploadDirtyAtlases(void* uploadFunc = nullptr) noexcept;
+                /**
+                 * @brief Upload tous les atlas sales sur le GPU
+                 */
+                void UploadDirtyAtlases(void* uploadFunc = nullptr) noexcept;
 
-            /**
-             * @brief Définit globalement l'orientation Y
-             */
-            void SetGlobalYAxisUp(bool yUp) noexcept;
+                /**
+                 * @brief Définit globalement l'orientation Y
+                 */
+                void SetGlobalYAxisUp(bool yUp) noexcept;
+
+                // Tableau des bridges (géré en interne, un par police TTF chargée)
+                // On utilise un stockage opaque pour ne pas exposer NkUIFontBridge dans ce header.
+                static constexpr int32 MAX_BRIDGES = MAX_FONTS;
+
+            private:
+                // Stockage opaque — aligné sur NkUIFontBridge, taille vérifiée dans le .cpp
+                alignas(8) uint8 mBridgeStorage[MAX_BRIDGES][256] = {};
+                bool             mBridgeUsed[MAX_BRIDGES]          = {};
+                int32            mNumBridges                       = 0;
+
+                static int32 AllocFontSlot(NkUIFontManager& mgr);
+                static NkUIFontBridge* BridgeAt(NkUIFontManager& mgr, int32 idx);
+                static int32 CommitFontSlot(NkUIFontManager& mgr, int32 idx, const char* name, float32 sizePx);
+            public:
+                /**
+                 * @brief Charge une police TTF/OTF depuis un fichier via NKFont.
+                 * @param path    Chemin vers le fichier de police.
+                 * @param sizePx  Taille en pixels.
+                 * @param name    Nom de la police (optionnel).
+                 * @param ranges  Plages Unicode (nullptr = ASCII + Latin-1).
+                 * @return Index de la police dans fonts[], ou -1 si échec.
+                 */
+                int32 LoadFromFile(const char* path, float32 sizePx,
+                                const char* name   = nullptr,
+                                const uint32* ranges = nullptr) noexcept;
+
+                /**
+                 * @brief Charge une police depuis un buffer mémoire via NKFont.
+                 */
+                int32 LoadFromMemory(const uint8* data, usize dataSize,
+                                    float32 sizePx,
+                                    const char* name   = nullptr,
+                                    const uint32* ranges = nullptr) noexcept;
+
+                /**
+                 * @brief Charge une police via un backend custom (FreeType, DirectWrite…).
+                 * @param path    Chemin passé tel quel au loader custom.
+                 * @param sizePx  Taille en pixels.
+                 * @param desc    Descripteur du loader custom.
+                 * @param name    Nom de la police (optionnel).
+                 * @param ranges  Plages Unicode.
+                 * @return Index de la police, ou -1 si échec.
+                 */
+                int32 LoadCustom(const char* path, float32 sizePx,
+                                const NkUIFontLoaderDesc& desc,
+                                const char* name   = nullptr,
+                                const uint32* ranges = nullptr) noexcept;
         };
     }
 }

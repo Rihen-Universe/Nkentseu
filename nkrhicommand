@@ -1,0 +1,365 @@
+ANALYSE DE CODE - COLLECTION AVEC MÉTADONNÉES
+Répertoire de base: E:\Projets\2026\Nkentseu\Nkentseu\Modules\Runtime\NKRHI\src\NKRHI\Commands
+MÉTADONNÉES POUR RECONSTRUCTION:
+{
+  "base_directory": "E:\\Projets\\2026\\Nkentseu\\Nkentseu\\Modules\\Runtime\\NKRHI\\src\\NKRHI\\Commands",
+  "included_extensions": [],
+  "excluded_extensions": [],
+  "included_paths": [],
+  "excluded_paths": [],
+  "included_files": [],
+  "excluded_files": [],
+  "structure": {
+    ".": [
+      "NkCommandPool.h",
+      "NkICommandBuffer.h"
+    ]
+  },
+  "timestamp": "1774764260.3436792"
+}
+================================================================================
+
+
+📁 DOSSIER: .
+──────────────────────────────────────────────────
+
+[FICHIER: NkCommandPool.h]
+==================================================
+#pragma once
+// =============================================================================
+// NkCommandPool.h
+// Pool de command buffers — évite les new/delete à chaque frame.
+//
+// Principe : Acquire() retourne un CB libre (ou en crée un nouveau),
+// Release() le remet dans le pool libre, Reset() détruit tout.
+//
+// Utilisation typique (par frame) :
+//   auto* cmd = mPool.Acquire();
+//   cmd->Begin();
+//   // ... record ...
+//   cmd->End();
+//   device->Submit(&cmd, 1, fence);
+//   // Après WaitFence :
+//   mPool.Release(cmd);
+//
+// Thread-safety : Acquire/Release sont protégés par mutex.
+// =============================================================================
+#include "NKRHI/Core/NkIDevice.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKThreading/NkMutex.h"
+
+namespace nkentseu {
+
+class NkCommandPool {
+public:
+    // ── Construction ──────────────────────────────────────────────────────────
+    NkCommandPool() = default;
+
+    explicit NkCommandPool(NkIDevice* device,
+                            NkCommandBufferType type = NkCommandBufferType::NK_GRAPHICS)
+        : mDevice(device), mType(type) {}
+
+    ~NkCommandPool() { Reset(); }
+
+    // Non-copiable, déplaçable
+    NkCommandPool(const NkCommandPool&) = delete;
+    NkCommandPool& operator=(const NkCommandPool&) = delete;
+
+    NkCommandPool(NkCommandPool&& o) noexcept
+        : mDevice(o.mDevice), mType(o.mType)
+        , mFree(traits::NkMove(o.mFree)), mInFlight(traits::NkMove(o.mInFlight)) {
+        o.mDevice = nullptr;
+    }
+
+    // ── Init tardive (si construit par défaut) ─────────────────────────────
+    void Init(NkIDevice* device,
+               NkCommandBufferType type = NkCommandBufferType::NK_GRAPHICS) {
+        mDevice = device;
+        mType   = type;
+    }
+
+    // ── Acquire — obtenir un CB prêt à l'emploi (Reset() appelé dessus) ───
+    NkICommandBuffer* Acquire() {
+        threading::NkScopedLock lock(mMutex);
+        NkICommandBuffer* cb = nullptr;
+        if (!mFree.IsEmpty()) {
+            cb = mFree.Back();
+            mFree.PopBack();
+            cb->Reset();
+        } else {
+            cb = mDevice->CreateCommandBuffer(mType);
+        }
+        mInFlight.PushBack(cb);
+        return cb;
+    }
+
+    // ── Release — remettre un CB terminé dans le pool libre ───────────────
+    void Release(NkICommandBuffer* cb) {
+        threading::NkScopedLock lock(mMutex);
+        for (usize i = 0; i < mInFlight.Size(); i++) {
+            if (mInFlight[i] == cb) {
+                mInFlight.Erase(mInFlight.Begin() + i);
+                mFree.PushBack(cb);
+                break;
+            }
+        }
+    }
+
+    // ── ReleaseAll — libérer tous les CBs en vol (après WaitIdle) ─────────
+    void ReleaseAll() {
+        threading::NkScopedLock lock(mMutex);
+        for (usize i = 0; i < mInFlight.Size(); i++) mFree.PushBack(mInFlight[i]);
+        mInFlight.Clear();
+    }
+
+    // ── Reset — détruire tous les CBs (à l'arrêt du device) ──────────────
+    void Reset() {
+        if (!mDevice) return;
+        threading::NkScopedLock lock(mMutex);
+        for (usize i = 0; i < mInFlight.Size(); i++) mDevice->DestroyCommandBuffer(mInFlight[i]);
+        for (usize i = 0; i < mFree.Size(); i++)     mDevice->DestroyCommandBuffer(mFree[i]);
+        mInFlight.Clear();
+        mFree.Clear();
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────
+    uint32 FreeCount()     const { return (uint32)mFree.Size(); }
+    uint32 InFlightCount() const { return (uint32)mInFlight.Size(); }
+    uint32 TotalCount()    const { return FreeCount() + InFlightCount(); }
+
+private:
+    NkIDevice*           mDevice = nullptr;
+    NkCommandBufferType  mType   = NkCommandBufferType::NK_GRAPHICS;
+    mutable threading::NkMutex      mMutex;
+    NkVector<NkICommandBuffer*> mFree;
+    NkVector<NkICommandBuffer*> mInFlight;
+};
+
+} // namespace nkentseu
+==================================================
+
+
+[FICHIER: NkICommandBuffer.h]
+==================================================
+#pragma once
+// =============================================================================
+// NkICommandBuffer.h
+// Interface abstraite du command buffer RHI.
+//
+// Le command buffer est l'objet central du RHI :
+//   - Enregistre toutes les commandes GPU (draw, dispatch, copy, barriers)
+//   - Thread-safe à l'enregistrement : plusieurs threads peuvent enregistrer
+//     des command buffers différents en parallèle
+//   - Soumis au device via NkIDevice::Submit()
+//
+// Cycle de vie :
+//   Begin() → [commandes] → End() → Submit() → [WaitFence si besoin]
+//   Reset() → Begin() → ...
+//
+// Types :
+//   Graphics   — draw calls, render passes, copy
+//   Compute    — dispatch compute, copy, barriers
+//   Transfer   — copy uniquement (DMA engine dédié sur certains GPU)
+// =============================================================================
+#include "NKRHI/Core/NkTypes.h"
+#include "NKRHI/Core/NkDescs.h"
+
+namespace nkentseu {
+
+enum class NkCommandBufferType : uint32 {
+    NK_GRAPHICS,   // peut aussi faire compute et copy
+    NK_COMPUTE,    // compute + copy uniquement (queue dédiée)
+    NK_TRANSFER,   // copy uniquement (DMA engine)
+};
+
+class NkICommandBuffer {
+public:
+    virtual ~NkICommandBuffer() = default;
+
+    // ── Cycle de vie ─────────────────────────────────────────────────────────
+    virtual bool Begin()                     = 0;
+    virtual void End()                       = 0;
+    virtual void Reset()                     = 0;
+    virtual bool IsValid()             const = 0;
+    virtual NkCommandBufferType GetType() const = 0;
+
+    // =========================================================================
+    // Render Pass
+    // =========================================================================
+    virtual bool BeginRenderPass(NkRenderPassHandle rp,
+                                  NkFramebufferHandle fb,
+                                  const NkRect2D& area)         = 0;
+    virtual void EndRenderPass()                                 = 0;
+
+    // ── Sous-passes (Vulkan subpasses / Metal render encoder chains) ──
+    virtual void NextSubpass() {}  // optionnel — no-op sur DX/GL
+
+    // =========================================================================
+    // Viewport & Scissor
+    // =========================================================================
+    virtual void SetViewport(const NkViewport& vp)               = 0;
+    virtual void SetViewports(const NkViewport* vps, uint32 n)   = 0;
+    virtual void SetScissor(const NkRect2D& rect)                = 0;
+    virtual void SetScissors(const NkRect2D* rects, uint32 n)    = 0;
+
+    // =========================================================================
+    // Clear dynamique (analogues à glClearColor + glClearDepth + glClear)
+    // À appeler avant BeginRenderPass pour surcharger la couleur/profondeur
+    // de clear définie dans le NkRenderPassDesc.
+    // La valeur reste active jusqu'au prochain appel (persistante par frame).
+    //   SetClearColor(0.1f, 0.2f, 0.4f) → fond bleu nuit
+    //   SetClearDepth(1.0f)             → buffer depth remis à 1.0 (loin)
+    // =========================================================================
+    virtual void SetClearColor(float r, float g, float b, float a = 1.f) {}
+    virtual void SetClearDepth(float depth = 1.f, uint32 stencil = 0)   {}
+
+    // =========================================================================
+    // Pipeline & Descriptors
+    // =========================================================================
+    virtual void BindGraphicsPipeline(NkPipelineHandle pipeline) = 0;
+    virtual void BindComputePipeline (NkPipelineHandle pipeline) = 0;
+
+    // Descriptor sets — binding uniforms, textures, storage buffers
+    // set     : numéro de set (0=par frame, 1=par pass, 2=par material, 3=par objet)
+    // offsets : pour les descriptors dynamiques (UniformBufferDynamic)
+    virtual void BindDescriptorSet(NkDescSetHandle set, uint32 setIndex,
+                                    uint32* dynamicOffsets=nullptr,
+                                    uint32  dynamicOffsetCount=0)    = 0;
+
+    // Push constants — données petites passées directement dans le command buffer
+    // Plus rapide que les uniform buffers pour les données qui changent par draw call
+    virtual void PushConstants(NkShaderStage stages,
+                                uint32 offset,
+                                uint32 size,
+                                const void* data)                = 0;
+
+    // =========================================================================
+    // Vertex & Index Buffers
+    // =========================================================================
+    virtual void BindVertexBuffer(uint32 binding,
+                                   NkBufferHandle buf,
+                                   uint64 offset=0)              = 0;
+    virtual void BindVertexBuffers(uint32 firstBinding,
+                                    const NkBufferHandle* bufs,
+                                    const uint64* offsets,
+                                    uint32 count)                = 0;
+    virtual void BindIndexBuffer(NkBufferHandle buf,
+                                  NkIndexFormat fmt,
+                                  uint64 offset=0)               = 0;
+
+    // =========================================================================
+    // Draw calls
+    // =========================================================================
+    virtual void Draw(uint32 vertexCount,
+                      uint32 instanceCount=1,
+                      uint32 firstVertex=0,
+                      uint32 firstInstance=0)                    = 0;
+
+    virtual void DrawIndexed(uint32 indexCount,
+                              uint32 instanceCount=1,
+                              uint32 firstIndex=0,
+                              int32  vertexOffset=0,
+                              uint32 firstInstance=0)            = 0;
+
+    // Indirect — args dans un buffer GPU (occlusion culling, etc.)
+    virtual void DrawIndirect(NkBufferHandle argsBuffer,
+                               uint64 offset,
+                               uint32 drawCount,
+                               uint32 stride=sizeof(NkDrawIndirectArgs)) = 0;
+
+    virtual void DrawIndexedIndirect(NkBufferHandle argsBuffer,
+                                      uint64 offset,
+                                      uint32 drawCount,
+                                      uint32 stride=sizeof(NkDrawIndexedIndirectArgs)) = 0;
+
+    // Multi-draw indirect avec count GPU (DX12/Vulkan/Metal)
+    virtual void DrawIndirectCount(NkBufferHandle argsBuffer, uint64 argsOffset,
+                                    NkBufferHandle countBuffer, uint64 countOffset,
+                                    uint32 maxDrawCount) {}
+
+    // =========================================================================
+    // Compute dispatch
+    // =========================================================================
+    virtual void Dispatch(uint32 groupsX, uint32 groupsY=1, uint32 groupsZ=1) = 0;
+
+    virtual void DispatchIndirect(NkBufferHandle argsBuffer, uint64 offset) = 0;
+
+    // =========================================================================
+    // Copies
+    // =========================================================================
+    virtual void CopyBuffer(NkBufferHandle src, NkBufferHandle dst,
+                             const NkBufferCopyRegion& region)   = 0;
+
+    virtual void CopyBufferToTexture(NkBufferHandle  src,
+                                      NkTextureHandle dst,
+                                      const NkBufferTextureCopyRegion& region) = 0;
+
+    virtual void CopyTextureToBuffer(NkTextureHandle src,
+                                      NkBufferHandle  dst,
+                                      const NkBufferTextureCopyRegion& region) = 0;
+
+    virtual void CopyTexture(NkTextureHandle src, NkTextureHandle dst,
+                              const NkTextureCopyRegion& region)  = 0;
+
+    // Blit avec filtrage (resize, mip generation)
+    virtual void BlitTexture(NkTextureHandle src, NkTextureHandle dst,
+                              const NkTextureCopyRegion& region,
+                              NkFilter filter=NkFilter::NK_LINEAR)   = 0;
+
+    // =========================================================================
+    // Resource barriers (transitions d'état)
+    // =========================================================================
+    virtual void Barrier(const NkBufferBarrier*  bufBarriers,  uint32 bufCount,
+                          const NkTextureBarrier* texBarriers,  uint32 texCount) = 0;
+
+    // Shortcut : une seule texture
+    void TextureBarrier(NkTextureHandle tex,
+                        NkResourceState before, NkResourceState after,
+                        NkPipelineStage src=NkPipelineStage::NK_ALL_COMMANDS,
+                        NkPipelineStage dst=NkPipelineStage::NK_ALL_COMMANDS) {
+        NkTextureBarrier b{tex,before,after,src,dst};
+        Barrier(nullptr,0,&b,1);
+    }
+
+    // Shortcut : une seule barrière UAV (après compute write)
+    void UAVBarrier(NkBufferHandle buf) {
+        NkBufferBarrier b{buf,NkResourceState::NK_UNORDERED_ACCESS,
+                          NkResourceState::NK_UNORDERED_ACCESS};
+        Barrier(&b,1,nullptr,0);
+    }
+
+    // =========================================================================
+    // Génération de mip-maps GPU
+    // =========================================================================
+    virtual void GenerateMipmaps(NkTextureHandle texture,
+                                  NkFilter filter=NkFilter::NK_LINEAR) = 0;
+
+    // =========================================================================
+    // Debug markers (RenderDoc, PIX, Xcode GPU Frame Capture)
+    // =========================================================================
+    virtual void BeginDebugGroup(const char* name, float r=1,float g=1,float b=1) {}
+    virtual void EndDebugGroup()   {}
+    virtual void InsertDebugLabel(const char* name) {}
+
+    // =========================================================================
+    // Clear explicite (hors render pass — pour les textures storage)
+    // =========================================================================
+    virtual void ClearTexture(NkTextureHandle texture,
+                               const NkClearValue& value,
+                               uint32 baseMip=0, uint32 mipCount=UINT32_MAX,
+                               uint32 baseLayer=0, uint32 layerCount=UINT32_MAX) {}
+
+    virtual void ClearBuffer(NkBufferHandle buffer,
+                              uint32 value=0,
+                              uint64 offset=0, uint64 size=UINT64_MAX) {}
+
+    // =========================================================================
+    // Timestamp queries (GPU timing)
+    // =========================================================================
+    virtual void WriteTimestamp(uint32 queryIndex) {}
+    virtual void ResetQueryPool(uint32 firstQuery, uint32 count) {}
+};
+
+} // namespace nkentseu
+==================================================
+

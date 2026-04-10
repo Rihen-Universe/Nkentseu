@@ -1,5 +1,13 @@
 
 /*
+    * NkUINKRHIBackend.cpp
+    *
+    * Implémentation de backend NKRHI pour les draw lists NKUI.
+    *
+    * Ce fichier fait partie de Nkentseu.
+*/
+
+/*
  * NKUI_MAINTENANCE_GUIDE
  * Responsibility: Demo-only NKRHI adapter implementation for NKUI rendering.
  * Main data: Shader setup, geometry upload, layer submit and texture binds.

@@ -204,9 +204,9 @@ private:
 // =============================================================================
 // C++ Software Rasterizer
 // =============================================================================
-class NkSLCodeGen_CPP : public NkSLCodeGenBase {
+class NkSLCodeGenCPP : public NkSLCodeGenBase {
 public:
-    NkSLCodeGen_CPP() : NkSLCodeGenBase(NkSLTarget::NK_CPLUSPLUS) {}
+    NkSLCodeGenCPP() : NkSLCodeGenBase(NkSLTarget::NK_CPLUSPLUS) {}
     NkSLCompileResult Generate(NkSLProgramNode* ast, NkSLStage stage,
                                 const NkSLCompileOptions& opts) override;
 private:

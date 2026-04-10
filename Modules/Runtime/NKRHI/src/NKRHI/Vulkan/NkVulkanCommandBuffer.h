@@ -31,6 +31,12 @@ namespace nkentseu {
             void SetViewports(const NkViewport* vps, uint32 n) override;
             void SetScissor(const NkRect2D& r) override;
             void SetScissors(const NkRect2D* rects, uint32 n) override;
+            void SetClearColor(float r, float g, float b, float a = 1.f) override {
+                mClearColor[0]=r; mClearColor[1]=g; mClearColor[2]=b; mClearColor[3]=a;
+            }
+            void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
+                mClearDepth=depth; mClearStencil=stencil;
+            }
 
             void BindGraphicsPipeline(NkPipelineHandle p) override;
             void BindComputePipeline (NkPipelineHandle p) override;
@@ -73,6 +79,9 @@ namespace nkentseu {
             bool               mRecording = false;
             VkPipelineLayout   mBoundLayout = VK_NULL_HANDLE;
             bool               mIsCompute   = false;
+            float              mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
+            float              mClearDepth    = 1.f;
+            uint32             mClearStencil  = 0;
     };
 
 } // namespace nkentseu

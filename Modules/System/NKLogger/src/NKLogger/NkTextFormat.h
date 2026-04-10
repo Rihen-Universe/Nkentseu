@@ -182,13 +182,12 @@ template <typename T>
 NkString NkFormatValueImpl(const T& value, NkStringView props) {
     using D = traits::NkDecay_t<T>;
 
-    if constexpr (traits::NkIsSame_v<D, NkString>) {
+    if constexpr (traits::NkIsSame_v<D, const nk_char*> || traits::NkIsSame_v<D, char*>) {
+        return NkApplyStringProperties(value ? NkString(value) : NkString(), props);
+    } else if constexpr (traits::NkIsSame_v<D, NkString>) {
         return NkApplyStringProperties(value, props);
     } else if constexpr (traits::NkIsSame_v<D, NkStringView>) {
         return NkApplyStringProperties(NkString(value), props);
-    } else if constexpr (traits::NkIsSame_v<D, const char*> ||
-                         traits::NkIsSame_v<D, char*>) {
-        return NkApplyStringProperties(value ? NkString(value) : NkString(), props);
     } else if constexpr (traits::NkIsSame_v<D, bool>) {
         const NkString p = NkToLowerCopy(props);
         if (p == "d" || p == "int" || p == "num") {

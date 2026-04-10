@@ -41,7 +41,7 @@
 #include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
 #include "NKImage/Core/NkImage.h"
-#include "NKFont/NkFontFace.h"
+#include "NKFont/NKFont.h"
 
 // ── NkSL : le seul include shader nécessaire ─────────────────────────────────
 #include "NKRHI/SL/NkSLIntegration.h"
@@ -713,39 +713,38 @@ static std::vector<uint8_t> LoadFileBytes(const std::string& path){
     return buf;
 }
 
-static std::vector<uint8_t> BuildStringBitmap(NkFTFontFace* face,const char* text,
-                                               uint32& outW,uint32& outH){
+static std::vector<uint8_t> BuildStringBitmap(NkFontFace* face,const char* text, uint32& outW,uint32& outH){
     if(!face||!text||!*text){outW=outH=0;return{};}
     const int32 asc=face->GetAscender(),desc=face->GetDescender();
     const int32 rowH=asc-desc;
     if(rowH<=0){outW=outH=0;return{};}
     uint32 totalW=0;
-    for(const char* p=text;*p;++p){NkFTGlyph g{};if(face->GetGlyph((uint8_t)*p,g))totalW+=(uint32)g.xAdvance;}
-    if(!totalW)totalW=1;
-    outW=totalW;outH=(uint32)rowH;
+    // for(const char* p=text;*p;++p){NkGlyph g{};if(face->GetGlyph((uint8_t)*p,g))totalW+=(uint32)g.xAdvance;}
+    // if(!totalW)totalW=1;
+    // outW=totalW;outH=(uint32)rowH;
     std::vector<uint8_t> bmp(outW*outH,0u);
-    int32 penX=0;
-    for(const char* p=text;*p;++p){
-        NkFTGlyph g{};
-        if(!face->GetGlyph((uint8_t)*p,g)||g.isEmpty||!g.bitmap){
-            if(face->GetGlyph((uint8_t)*p,g))penX+=g.xAdvance;
-            continue;
-        }
-        int32 dstX=penX+g.bearingX,dstY=asc-g.bearingY;
-        for(int32 gy=0;gy<g.height;++gy){
-            int32 dy=dstY+gy;
-            if(dy<0||dy>=(int32)outH)continue;
-            const uint8_t* sr=g.bitmap+gy*g.pitch;
-            uint8_t* dr=bmp.data()+dy*outW;
-            for(int32 gx=0;gx<g.width;++gx){
-                int32 dx=dstX+gx;
-                if(dx<0||dx>=(int32)outW)continue;
-                uint32 s=sr[gx],d=dr[dx];
-                dr[dx]=(uint8_t)(d+s-(d*s)/255u);
-            }
-        }
-        penX+=g.xAdvance;
-    }
+    // int32 penX=0;
+    // for(const char* p=text;*p;++p){
+    //     NkGlyph g{};
+    //     if(!face->GetGlyph((uint8_t)*p,g)||g.isEmpty||!g.bitmap){
+    //         if(face->GetGlyph((uint8_t)*p,g))penX+=g.xAdvance;
+    //         continue;
+    //     }
+    //     int32 dstX=penX+g.bearingX,dstY=asc-g.bearingY;
+    //     for(int32 gy=0;gy<g.height;++gy){
+    //         int32 dy=dstY+gy;
+    //         if(dy<0||dy>=(int32)outH)continue;
+    //         const uint8_t* sr=g.bitmap+gy*g.pitch;
+    //         uint8_t* dr=bmp.data()+dy*outW;
+    //         for(int32 gx=0;gx<g.width;++gx){
+    //             int32 dx=dstX+gx;
+    //             if(dx<0||dx>=(int32)outW)continue;
+    //             uint32 s=sr[gx],d=dr[dx];
+    //             dr[dx]=(uint8_t)(d+s-(d*s)/255u);
+    //         }
+    //     }
+    //     penX+=g.xAdvance;
+    // }
     return bmp;
 }
 
@@ -785,7 +784,7 @@ static void Billboard3DMVP(const NkVec3f& worldPos,float worldW,float worldH,
 }
 
 static NkTextQuad CreateTextQuad(NkIDevice* device,NkDescSetHandle hTextLayout,
-                                  NkFTFontFace* face,const char* text,bool flipV=false){
+                                  NkFontFace* face,const char* text,bool flipV=false){
     NkTextQuad q{};
     if(!device||!face||!text||!*text)return q;
     uint32 bmpW=0,bmpH=0;
@@ -1123,7 +1122,8 @@ int nkmain(const NkEntryState& state) {
     std::string loadedTexturePath=FindTextureInResources();
 
     if(!loadedTexturePath.empty())
-        loadedTextureImage=NkImage::LoadSTB(loadedTexturePath.c_str(),4);
+        loadedTextureImage = NkImage::Load(loadedTexturePath.c_str(), 4);
+        // loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
 
     if(!loadedTextureImage||!loadedTextureImage->IsValid()){
         if(loadedTextureImage){loadedTextureImage->Free();loadedTextureImage=nullptr;}
@@ -1174,10 +1174,10 @@ int nkmain(const NkEntryState& state) {
         if(hShadowShader.IsValid()){
             NkSWShader* swSh=swDev->GetShader(hShadowShader.id);
             if(swSh){
-                swSh->vertFn=[](const void* vdata,uint32 idx,const void* udata)->NkSWVertex{
+                swSh->vertFn=[](const void* vdata,uint32 idx,const void* udata)->NkVertexSoftware{
                     const Vtx3D* v=static_cast<const Vtx3D*>(vdata)+idx;
                     const UboData* ubo=static_cast<const UboData*>(udata);
-                    NkSWVertex out;
+                    NkVertexSoftware out;
                     auto mul4=[](const float m[16],float x,float y,float z,float w)->NkVec4f{
                         return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w,
                                        m[1]*x+m[5]*y+m[9]*z+m[13]*w,
@@ -1185,7 +1185,7 @@ int nkmain(const NkEntryState& state) {
                                        m[3]*x+m[7]*y+m[11]*z+m[15]*w);
                     };
                     NkVec4f wp=mul4(ubo->model,v->pos.x,v->pos.y,v->pos.z,1.f);
-                    out.position=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
+                    // out.position=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
                     return out;
                 };
                 swSh->fragFn=nullptr;
@@ -1197,10 +1197,10 @@ int nkmain(const NkEntryState& state) {
         NkSWTexture* swAlbedoTex =hAlbedoTex.IsValid()?swDev->GetTex(hAlbedoTex.id):nullptr;
 
         if(sw){
-            sw->vertFn=[](const void* vdata,uint32 idx,const void* udata)->NkSWVertex{
+            sw->vertFn=[](const void* vdata,uint32 idx,const void* udata)->NkVertexSoftware{
                 const Vtx3D* v=static_cast<const Vtx3D*>(vdata)+idx;
                 const UboData* ubo=static_cast<const UboData*>(udata);
-                NkSWVertex out;
+                NkVertexSoftware out;
                 auto mul4=[](const float m[16],float x,float y,float z,float w)->NkVec4f{
                     return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w,
                                    m[1]*x+m[5]*y+m[9]*z+m[13]*w,
@@ -1209,63 +1209,64 @@ int nkmain(const NkEntryState& state) {
                 };
                 NkVec4f wp=mul4(ubo->model, v->pos.x,v->pos.y,v->pos.z,1.f);
                 NkVec4f vp=mul4(ubo->view,  wp.x,wp.y,wp.z,wp.w);
-                out.position=mul4(ubo->proj,vp.x,vp.y,vp.z,vp.w);
-                float nx=ubo->model[0]*v->normal.x+ubo->model[4]*v->normal.y+ubo->model[8]*v->normal.z;
-                float ny=ubo->model[1]*v->normal.x+ubo->model[5]*v->normal.y+ubo->model[9]*v->normal.z;
-                float nz=ubo->model[2]*v->normal.x+ubo->model[6]*v->normal.y+ubo->model[10]*v->normal.z;
-                float nl=NkSqrt(nx*nx+ny*ny+nz*nz);
-                if(nl>0.001f){nx/=nl;ny/=nl;nz/=nl;}
-                out.normal={nx,ny,nz};
-                out.color={v->color.x,v->color.y,v->color.z,1.f};
-                out.attrs[0]=wp.x;out.attrs[1]=wp.y;out.attrs[2]=wp.z;
-                NkVec4f lsc=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
-                out.attrs[3]=lsc.x;out.attrs[4]=lsc.y;
-                out.attrs[5]=lsc.z;out.attrs[6]=lsc.w;
-                out.attrs[7]=v->uv.x;out.attrs[8]=v->uv.y;
-                out.attrs[9]=v->color.w; // hasTexture
+                // out.position=mul4(ubo->proj,vp.x,vp.y,vp.z,vp.w);
+                // float nx=ubo->model[0]*v->normal.x+ubo->model[4]*v->normal.y+ubo->model[8]*v->normal.z;
+                // float ny=ubo->model[1]*v->normal.x+ubo->model[5]*v->normal.y+ubo->model[9]*v->normal.z;
+                // float nz=ubo->model[2]*v->normal.x+ubo->model[6]*v->normal.y+ubo->model[10]*v->normal.z;
+                // float nl=NkSqrt(nx*nx+ny*ny+nz*nz);
+                // if(nl>0.001f){nx/=nl;ny/=nl;nz/=nl;}
+                // out.normal={nx,ny,nz};
+                // out.color={v->color.x,v->color.y,v->color.z,1.f};
+                // out.attrs[0]=wp.x;out.attrs[1]=wp.y;out.attrs[2]=wp.z;
+                // NkVec4f lsc=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
+                // out.attrs[3]=lsc.x;out.attrs[4]=lsc.y;
+                // out.attrs[5]=lsc.z;out.attrs[6]=lsc.w;
+                // out.attrs[7]=v->uv.x;out.attrs[8]=v->uv.y;
+                // out.attrs[9]=v->color.w; // hasTexture
                 return out;
             };
-            sw->fragFn=[swShadowTex,swAlbedoTex](const NkSWVertex& frag,const void* udata,const void*)->math::NkVec4f{
-                const UboData* ubo=static_cast<const UboData*>(udata);
-                float nx=frag.normal.x,ny=frag.normal.y,nz=frag.normal.z;
-                float lx=-ubo->lightDirW[0],ly=-ubo->lightDirW[1],lz=-ubo->lightDirW[2];
-                float ll2=lx*lx+ly*ly+lz*lz;
-                if(ll2>1e-6f){float il=1.f/NkSqrt(ll2);lx*=il;ly*=il;lz*=il;}
-                float diff=nx*lx+ny*ly+nz*lz;if(diff<0.f)diff=0.f;
-                float vx=ubo->eyePosW[0]-frag.attrs[0],vy=ubo->eyePosW[1]-frag.attrs[1],vz=ubo->eyePosW[2]-frag.attrs[2];
-                float vl2=vx*vx+vy*vy+vz*vz;
-                if(vl2>1e-6f){float iv=1.f/NkSqrt(vl2);vx*=iv;vy*=iv;vz*=iv;}
-                float hx=lx+vx,hy=ly+vy,hz=lz+vz,hl2=hx*hx+hy*hy+hz*hz;
-                if(hl2>1e-6f){float ih=1.f/NkSqrt(hl2);hx*=ih;hy*=ih;hz*=ih;}
-                float sp=nx*hx+ny*hy+nz*hz;if(sp<0.f)sp=0.f;
-                float spec=sp*sp;spec*=spec;spec*=spec;spec*=spec;
-                float br=frag.color.x,bg=frag.color.y,bb=frag.color.z;
-                if(swAlbedoTex&&frag.attrs[9]>0.5f){
-                    float u=NkFmod(NkClamp(frag.attrs[7],0.f,1.f)*kPlaneUVScale,1.f);
-                    float v=NkFmod(NkClamp(frag.attrs[8],0.f,1.f)*kPlaneUVScale,1.f);
-                    NkVec4f tex=swAlbedoTex->Sample(u,v,0);
-                    br*=tex.x;bg*=tex.y;bb*=tex.z;
-                }
-                float shadow=1.f;
-                if(swShadowTex){
-                    float sw4=frag.attrs[6],invW=(sw4!=0.f)?1.f/sw4:1.f;
-                    float su=frag.attrs[3]*invW*.5f+.5f;
-                    float sv=-frag.attrs[4]*invW*.5f+.5f;
-                    float sz=frag.attrs[5]*invW*.5f+.5f-.002f;
-                    if(su>=0.f&&su<=1.f&&sv>=0.f&&sv<=1.f&&sz<=1.f){
-                        uint32 px=(uint32)(su*(float)swShadowTex->Width());
-                        uint32 py=(uint32)(sv*(float)swShadowTex->Height());
-                        if(px>=swShadowTex->Width())px=swShadowTex->Width()-1;
-                        if(py>=swShadowTex->Height())py=swShadowTex->Height()-1;
-                        shadow=(sz<=swShadowTex->Read(px,py).r)?1.f:0.f;
-                    }
-                }
-                shadow=shadow<.35f?.35f:shadow;
-                float r=.15f*br+shadow*(diff*br+spec*.4f);
-                float g=.15f*bg+shadow*(diff*bg+spec*.4f);
-                float b=.15f*bb+shadow*(diff*bb+spec*.4f);
-                r=r<0.f?0.f:(r>1.f?1.f:r);g=g<0.f?0.f:(g>1.f?1.f:g);b=b<0.f?0.f:(b>1.f?1.f:b);
-                return{r,g,b,1.f};
+            sw->fragFn=[swShadowTex,swAlbedoTex](const NkVertexSoftware& frag,const void* udata,const void*)->math::NkVec4f{
+                // const UboData* ubo=static_cast<const UboData*>(udata);
+                // float nx=frag.normal.x,ny=frag.normal.y,nz=frag.normal.z;
+                // float lx=-ubo->lightDirW[0],ly=-ubo->lightDirW[1],lz=-ubo->lightDirW[2];
+                // float ll2=lx*lx+ly*ly+lz*lz;
+                // if(ll2>1e-6f){float il=1.f/NkSqrt(ll2);lx*=il;ly*=il;lz*=il;}
+                // float diff=nx*lx+ny*ly+nz*lz;if(diff<0.f)diff=0.f;
+                // float vx=ubo->eyePosW[0]-frag.attrs[0],vy=ubo->eyePosW[1]-frag.attrs[1],vz=ubo->eyePosW[2]-frag.attrs[2];
+                // float vl2=vx*vx+vy*vy+vz*vz;
+                // if(vl2>1e-6f){float iv=1.f/NkSqrt(vl2);vx*=iv;vy*=iv;vz*=iv;}
+                // float hx=lx+vx,hy=ly+vy,hz=lz+vz,hl2=hx*hx+hy*hy+hz*hz;
+                // if(hl2>1e-6f){float ih=1.f/NkSqrt(hl2);hx*=ih;hy*=ih;hz*=ih;}
+                // float sp=nx*hx+ny*hy+nz*hz;if(sp<0.f)sp=0.f;
+                // float spec=sp*sp;spec*=spec;spec*=spec;spec*=spec;
+                // float br=frag.color.x,bg=frag.color.y,bb=frag.color.z;
+                // if(swAlbedoTex&&frag.attrs[9]>0.5f){
+                //     float u=NkFmod(NkClamp(frag.attrs[7],0.f,1.f)*kPlaneUVScale,1.f);
+                //     float v=NkFmod(NkClamp(frag.attrs[8],0.f,1.f)*kPlaneUVScale,1.f);
+                //     NkVec4f tex=swAlbedoTex->Sample(u,v,0);
+                //     br*=tex.x;bg*=tex.y;bb*=tex.z;
+                // }
+                // float shadow=1.f;
+                // if(swShadowTex){
+                //     float sw4=frag.attrs[6],invW=(sw4!=0.f)?1.f/sw4:1.f;
+                //     float su=frag.attrs[3]*invW*.5f+.5f;
+                //     float sv=-frag.attrs[4]*invW*.5f+.5f;
+                //     float sz=frag.attrs[5]*invW*.5f+.5f-.002f;
+                //     if(su>=0.f&&su<=1.f&&sv>=0.f&&sv<=1.f&&sz<=1.f){
+                //         uint32 px=(uint32)(su*(float)swShadowTex->Width());
+                //         uint32 py=(uint32)(sv*(float)swShadowTex->Height());
+                //         if(px>=swShadowTex->Width())px=swShadowTex->Width()-1;
+                //         if(py>=swShadowTex->Height())py=swShadowTex->Height()-1;
+                //         shadow=(sz<=swShadowTex->Read(px,py).r)?1.f:0.f;
+                //     }
+                // }
+                // shadow=shadow<.35f?.35f:shadow;
+                // float r=.15f*br+shadow*(diff*br+spec*.4f);
+                // float g=.15f*bg+shadow*(diff*bg+spec*.4f);
+                // float b=.15f*bb+shadow*(diff*bb+spec*.4f);
+                // r=r<0.f?0.f:(r>1.f?1.f:r);g=g<0.f?0.f:(g>1.f?1.f:g);b=b<0.f?0.f:(b>1.f?1.f:b);
+                // return{r,g,b,1.f};
+                return {0, 0, 0, 1.0f};
             };
         }
     }
@@ -1296,8 +1297,8 @@ int nkmain(const NkEntryState& state) {
     }
 
     // ── Police + quads texte ─────────────────────────────────────────────────
-    NkFTFontLibrary ftLib;
-    NkFTFontFace*   ftFace18=nullptr, *ftFace32=nullptr;
+    NkFontLibrary ftLib;
+    NkFontFace*   ftFace18=nullptr, *ftFace32=nullptr;
     std::vector<uint8_t> fontBytes;
     {
         const std::string fp=FindFontFile();
@@ -1314,17 +1315,17 @@ int nkmain(const NkEntryState& state) {
     NkTextQuad tqNkSL={};
     const bool textOk=hTextPipe.IsValid()&&hTextLayout.IsValid();
     if(textOk){
-        NkFTFontFace* f18=(ftFace18&&ftFace18->IsValid())?ftFace18:nullptr;
-        NkFTFontFace* f32=(ftFace32&&ftFace32->IsValid())?ftFace32:nullptr;
-        if(f32){
-            NkString backendLabel=NkFormat("NkSL → {0}",NkSLTargetName(slTarget));
-            tqBackend=CreateTextQuad(device,hTextLayout,f32,apiName,false);
-            tqNkSL   =CreateTextQuad(device,hTextLayout,f32,backendLabel.CStr(),false);
-            tqCube   =CreateTextQuad(device,hTextLayout,f32,"CUBE",  true);
-            tqSphere =CreateTextQuad(device,hTextLayout,f32,"SPHERE",true);
-            tqFloor  =CreateTextQuad(device,hTextLayout,f32,"FLOOR", true);
-        }
-        if(f18)tqFPS=CreateTextQuad(device,hTextLayout,f18,"FPS: --",false);
+        // NkFontFace* f18=(ftFace18&&ftFace18->IsValid())?ftFace18:nullptr;
+        // NkFontFace* f32=(ftFace32&&ftFace32->IsValid())?ftFace32:nullptr;
+        // if(f32){
+        //     NkString backendLabel=NkFormat("NkSL → {0}",NkSLTargetName(slTarget));
+        //     tqBackend=CreateTextQuad(device,hTextLayout,f32,apiName,false);
+        //     tqNkSL   =CreateTextQuad(device,hTextLayout,f32,backendLabel.CStr(),false);
+        //     tqCube   =CreateTextQuad(device,hTextLayout,f32,"CUBE",  true);
+        //     tqSphere =CreateTextQuad(device,hTextLayout,f32,"SPHERE",true);
+        //     tqFloor  =CreateTextQuad(device,hTextLayout,f32,"FLOOR", true);
+        // }
+        // if(f18)tqFPS=CreateTextQuad(device,hTextLayout,f18,"FPS: --",false);
     }
 
     float fpsTimer=0.f;uint32 fpsFrameCount=0;
@@ -1380,11 +1381,11 @@ int nkmain(const NkEntryState& state) {
         if(fpsTimer>=0.5f&&textOk){
             float fps=(fpsTimer>0.f)?(float)fpsFrameCount/fpsTimer:0.f;
             fpsFrameCount=0;fpsTimer=0.f;
-            if(ftFace18&&ftFace18->IsValid()&&hTextLayout.IsValid()){
-                char buf[32];snprintf(buf,sizeof(buf),"FPS: %.0f",fps);
-                DestroyTextQuad(device,tqFPS);
-                tqFPS=CreateTextQuad(device,hTextLayout,ftFace18,buf,false);
-            }
+            // if(ftFace18&&ftFace18->IsValid()&&hTextLayout.IsValid()){
+            //     char buf[32];snprintf(buf,sizeof(buf),"FPS: %.0f",fps);
+            //     DestroyTextQuad(device,tqFPS);
+            //     tqFPS=CreateTextQuad(device,hTextLayout,ftFace18,buf,false);
+            // }
         }
 
         const float camSpd=60.f,lightSpd=90.f;
@@ -1611,8 +1612,8 @@ int nkmain(const NkEntryState& state) {
     if(hTextPipe.IsValid())    device->DestroyPipeline(hTextPipe);
     if(hTextShader.IsValid())  device->DestroyShader(hTextShader);
     if(hTextLayout.IsValid())  device->DestroyDescriptorSetLayout(hTextLayout);
-    if(ftFace18)ftLib.FreeFont(ftFace18);
-    if(ftFace32)ftLib.FreeFont(ftFace32);
+    // if(ftFace18)ftLib.FreeFont(ftFace18);
+    // if(ftFace32)ftLib.FreeFont(ftFace32);
     ftLib.Destroy();
 
     // ── Arrêt du compilateur NkSL (flush du cache disque) ────────────────────

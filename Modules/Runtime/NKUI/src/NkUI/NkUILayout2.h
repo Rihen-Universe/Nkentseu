@@ -12,9 +12,9 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
-#include "NkUI/NkUIWindow.h"
-#include "NkUI/NkUIDock.h"
-#include "NkUI/NkUIFont.h"
+#include "NKUI/NkUIWindow.h"
+#include "NKUI/NkUIDock.h"
+#include "NKUI/NkUIFont.h"
 
 namespace nkentseu {
     namespace nkui {

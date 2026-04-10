@@ -31,6 +31,8 @@ with project("NKImage"):
         "%{NKMemory.location}/src",
         "%{NKMath.location}/src",
         "%{NKContainers.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKThreading.location}/src",
     ])
 
     dependson([
@@ -39,6 +41,8 @@ with project("NKImage"):
         "NKMemory",
         "NKMath",
         "NKContainers",
+        "NKLogger",
+        "NKThreading",
     ])
 
     files([
@@ -61,7 +65,7 @@ with project("NKImage"):
         "src/NKImage/Codecs/SVG/NkSVGDOM.cpp",
         "src/NKImage/Codecs/SVG/NkSVGRenderer.cpp",
         # Backend STB (alternatif pendant développement des codecs natifs)
-        "src/NKImage/Codecs/STB/NkSTBCodec.cpp",
+        # "src/NKImage/Codecs/STB/NkSTBCodec.cpp",
         # Headers (pour IDEs)
         "src/NKImage/**.h",
     ])

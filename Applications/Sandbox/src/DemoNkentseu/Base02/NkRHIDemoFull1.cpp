@@ -445,15 +445,15 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
     // ── Dimensions swapchain ──────────────────────────────────────────────────
     uint32 W = device->GetSwapchainWidth();
-    logger.Info("");
+    
     uint32 H = device->GetSwapchainHeight();
-    logger.Info("");
+    
 
     // ── Shader ───────────────────────────────────────────────────────────────
     NkShaderDesc shaderDesc = MakeShaderDesc(targetApi);
-    logger.Info("");
+    
     NkShaderHandle hShader = device->CreateShader(shaderDesc);
-    logger.Info("");
+    
     if (!hShader.IsValid()) {
         logger.Info("[RHIFullDemo] Échec compilation shader\n");
         NkDeviceFactory::Destroy(device);
@@ -461,7 +461,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
         window.Close();
         return 1;
     }
-    logger.Info("");
+    
 
     // ── Vertex Layout (pos:float3 + normal:float3 + color:float3) ─────────────
     NkVertexLayout vtxLayout;
@@ -472,11 +472,11 @@ int nkmain(const nkentseu::NkEntryState& state) {
         .AddBinding(0, sizeof(Vtx3D));
 
     // ── Render Pass ───────────────────────────────────────────────────────────
-    logger.Info("");
+    
     NkRenderPassHandle  hRP  = device->GetSwapchainRenderPass();
-    logger.Info("");
+    
     NkFramebufferHandle hFBO = device->GetSwapchainFramebuffer();
-    logger.Info("");
+    
 
     // ── Shadow map (OpenGL uniquement — shaders GLSL avec sampler2DShadow) ────
     static constexpr uint32 kShadowSize = 1024;
@@ -495,9 +495,9 @@ int nkmain(const nkentseu::NkEntryState& state) {
     layoutDesc.Add(0, NkDescriptorType::NK_UNIFORM_BUFFER,          NkShaderStage::NK_ALL_GRAPHICS);
     if (hasShadowMap)
         layoutDesc.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, NkShaderStage::NK_FRAGMENT);
-    logger.Info("");
+    
     NkDescSetHandle hLayout = device->CreateDescriptorSetLayout(layoutDesc);
-    logger.Info("");
+    
 
     // ── Pipeline ──────────────────────────────────────────────────────────────
     NkGraphicsPipelineDesc pipeDesc;
@@ -510,13 +510,13 @@ int nkmain(const nkentseu::NkEntryState& state) {
     pipeDesc.renderPass   = hRP;
     pipeDesc.debugName    = "PipelinePhong3D";
     // Vulkan : le pipeline layout doit connaître le descriptor set layout
-    logger.Info("");
+    
     if (hLayout.IsValid())
         pipeDesc.descriptorSetLayouts.PushBack(hLayout);
-    logger.Info("");
+    
 
     NkPipelineHandle hPipe = device->CreateGraphicsPipeline(pipeDesc);
-    logger.Info("");
+    
     if (!hPipe.IsValid()) {
         logger.Info("[RHIFullDemo] Échec création pipeline\n");
         device->DestroyShader(hShader);
@@ -525,15 +525,15 @@ int nkmain(const nkentseu::NkEntryState& state) {
         window.Close();
         return 1;
     }
-    logger.Info("");
+    
 
     // ── Géométrie ─────────────────────────────────────────────────────────────
     auto cubeVerts   = MakeCube();
-    logger.Info("");
+    
     auto sphereVerts = MakeSphere();
-    logger.Info("");
+    
     auto planeVerts  = MakePlane();
-    logger.Info("");
+    
 
     auto uploadVBO = [&](const NkVector<Vtx3D>& v) -> NkBufferHandle {
     logger.Info("00");
@@ -544,36 +544,36 @@ int nkmain(const nkentseu::NkEntryState& state) {
         return h;
     };
 
-    logger.Info("");
+    
     NkBufferHandle hCube   = uploadVBO(cubeVerts);
-    logger.Info("");
+    
     NkBufferHandle hSphere = uploadVBO(sphereVerts);
-    logger.Info("");
+    
     NkBufferHandle hPlane  = uploadVBO(planeVerts);
-    logger.Info("");
+    
 
     // ── Uniform Buffers (3 — un par objet pour éviter les conflits d'écriture immédiate) ──
     // WriteBuffer est immédiat mais Draw est différé : 3 UBO séparés évite l'écrasement
     NkBufferHandle hUBO[3];
     for (int i = 0; i < 3; i++) {
-    logger.Info("");
+    
         hUBO[i] = device->CreateBuffer(NkBufferDesc::Uniform(sizeof(UboData)));
-    logger.Info("");
+    
         if (!hUBO[i].IsValid())
             printf("[RHIFullDemo] Échec création UBO[%d]\n", i);
     }
-    logger.Info("");
+    
 
     // ── Descriptor Sets (3 — un par objet, chacun lié à son propre UBO) ────────
 
     NkDescSetHandle hDescSet[3];
-    logger.Info("");
+    
     for (int i = 0; i < 3; i++) {
-    logger.Info("");
+    
         hDescSet[i] = device->AllocateDescriptorSet(hLayout);
-    logger.Info("");
+    
         if (hLayout.IsValid() && hDescSet[i].IsValid() && hUBO[i].IsValid()) {
-    logger.Info("");
+    
             NkDescriptorWrite w;
             w.set          = hDescSet[i];
             w.binding      = 0;
@@ -581,13 +581,13 @@ int nkmain(const nkentseu::NkEntryState& state) {
             w.buffer       = hUBO[i];
             w.bufferOffset = 0;
             w.bufferRange  = sizeof(UboData);
-    logger.Info("");
+    
             device->UpdateDescriptorSets(&w, 1);
-    logger.Info("");
+    
         }
-    logger.Info("");
+    
     }
-    logger.Info("");
+    
 
     // ── Ressources shadow (si backend supporte les shadow shaders GLSL) ───────
     if (hasShadowMap) {

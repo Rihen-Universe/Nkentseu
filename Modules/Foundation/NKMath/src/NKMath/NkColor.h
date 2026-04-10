@@ -65,6 +65,8 @@ namespace nkentseu {
         // initialisées une seule fois (ODR-safe avec inline static depuis C++17).
         // =====================================================================
 
+        constexpr float32 c1_255 = 1.0f / 255.0f;
+
         class NkColor {
             public:
 
@@ -106,15 +108,15 @@ namespace nkentseu {
                 // ── Conversions ───────────────────────────────────────────────────
 
                 static NK_FORCE_INLINE float32 ToFloat(uint8 v) noexcept {
-                    return static_cast<float32>(v) / 255.0f;
+                    return static_cast<float32>(v) * c1_255;
                 }
 
                 explicit operator NkVector4f() const noexcept {
-                    return { r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f };
+                    return { r * c1_255, g * c1_255, b * c1_255, a * c1_255 };
                 }
 
                 explicit operator NkVector3f() const noexcept {
-                    return { r / 255.0f, g / 255.0f, b / 255.0f };
+                    return { r * c1_255, g * c1_255, b * c1_255 };
                 }
 
                 explicit operator uint32() const noexcept { return ToUint32A(); }

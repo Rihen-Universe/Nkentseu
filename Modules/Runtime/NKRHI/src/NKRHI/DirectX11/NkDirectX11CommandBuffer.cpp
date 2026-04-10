@@ -51,13 +51,12 @@ namespace nkentseu {
 
         mDeferred->OMSetRenderTargets(fbo->rtvCount, fbo->rtvs, fbo->dsv);
 
-        // Clear (on utilise les clear values par défaut; une vraie impl lirait le NkRenderPassDesc)
-        float clearColor[4] = {0.f, 0.f, 0.f, 1.f};
+        // Clear avec les valeurs dynamiques (SetClearColor / SetClearDepth)
         for (uint32 i = 0; i < fbo->rtvCount; i++)
-            if (fbo->rtvs[i]) mDeferred->ClearRenderTargetView(fbo->rtvs[i], clearColor);
+            if (fbo->rtvs[i]) mDeferred->ClearRenderTargetView(fbo->rtvs[i], mClearColor);
         if (fbo->dsv)
             mDeferred->ClearDepthStencilView(fbo->dsv,
-                D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
+                D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, mClearDepth, (UINT8)mClearStencil);
 
         D3D11_VIEWPORT vp{ (float)area.x, (float)area.y,
                             (float)area.width, (float)area.height, 0.f, 1.f };

@@ -17,9 +17,12 @@
  * Main data: Glyph lookup, text quad emission, atlas upload paths.
  * Change this file when: Text alignment, unicode support, or atlas behavior changes.
  */
-#include "NkUI/NkUIFont.h"
+#include "NKUI/NkUIFont.h"
 #include "NKMemory/NkFunction.h"
 #include "NKLogger/NkLog.h"
+
+#include "NkUIFontBridge.h"
+// #include "NKFont/NkFont.h"
 
 namespace nkentseu {
     namespace nkui {
@@ -274,7 +277,7 @@ namespace nkentseu {
             
             // Vérifier si l'atlas est plein
             if (shelfY + h + 1 >= ATLAS_H) {
-                logger.Error("[NkUI] Atlas full! Cannot allocate %dx%d glyph\n", w, h);
+                logger.Errorf("[NkUI] Atlas full! Cannot allocate %dx%d glyph\n", w, h);
                 return false;
             }
             
@@ -296,7 +299,7 @@ namespace nkentseu {
         bool NkUIFontAtlas::AddGlyph(uint32 codepoint, int32 x, int32 y, int32 w, int32 h,
                                       float32 advanceX, float32 bearingX, float32 bearingY) noexcept {
             if (numGlyphs >= MAX_GLYPHS) {
-                logger.Error("[NkUI] Too many glyphs! Max %d\n", MAX_GLYPHS);
+                logger.Errorf("[NkUI] Too many glyphs! Max %d\n", MAX_GLYPHS);
                 return false;
             }
             
@@ -334,10 +337,10 @@ namespace nkentseu {
             if (texId == 0) {
                 static uint32 s_nextTexId = 1;
                 texId = s_nextTexId++;
-                logger.Info("[NkUI] Generated temporary texId=%u for atlas\n", texId);
+                logger.Infof("[NkUI] Generated temporary texId=%u for atlas\n", texId);
             }
             
-            logger.Info("[NkUI] Uploading atlas to GPU, texId=%u, size=%dx%d, glyphs=%d\n", 
+            logger.Infof("[NkUI] Uploading atlas to GPU, texId=%u, size=%dx%d, glyphs=%d\n", 
                         texId, ATLAS_W, ATLAS_H, numGlyphs);
             
             // Vérifier que les pixels ne sont pas tous vides
@@ -358,11 +361,11 @@ namespace nkentseu {
             }
             
             dirty = false;
-            logger.Info("[NkUI] Atlas uploaded to GPU (texId=%u, glyphs=%d)\n", texId, numGlyphs);
+            logger.Infof("[NkUI] Atlas uploaded to GPU (texId=%u, glyphs=%d)\n", texId, numGlyphs);
         }
 
         void NkUIFontAtlas::DumpStats() const noexcept {
-            logger.Info("[NkUI] Atlas stats: texId=%u, glyphs=%d/%d, dirty=%d\n",
+            logger.Infof("[NkUI] Atlas stats: texId=%u, glyphs=%d/%d, dirty=%d\n",
                        texId, numGlyphs, MAX_GLYPHS, dirty);
         }
 
@@ -380,26 +383,35 @@ namespace nkentseu {
                 NkUIFontAtlas* atlas = &atlases[numAtlases++];
                 atlas->Clear();
                 atlas->yAxisUp = defaultConfig.yAxisUp;
-                logger.Info("[NkUI] Created default atlas (%dx%d)\n", 
+                logger.Infof("[NkUI] Created default atlas (%dx%d)\n", 
                            NkUIFontAtlas::ATLAS_W, NkUIFontAtlas::ATLAS_H);
             }
             
             // Ajouter la police bitmap intégrée
             AddBuiltin(defaultConfig.defaultFontSize);
             
-            logger.Info("[NkUI] Font manager initialized (atlas=%d, yUp=%d)\n", 
+            logger.Infof("[NkUI] Font manager initialized (atlas=%d, yUp=%d)\n", 
                        numAtlases, defaultConfig.yAxisUp);
             
             return numFonts > 0;
         }
 
         void NkUIFontManager::Destroy() noexcept {
+            for (int32 i = 0; i < MAX_BRIDGES; ++i) {
+                if (mBridgeUsed[i]) {
+                    BridgeAt(*this, i)->Destroy();
+                    BridgeAt(*this, i)->~NkUIFontBridge();
+                    mBridgeUsed[i] = false;
+                }
+            }
+            mNumBridges = 0;
+
             for (int32 i = 0; i < numAtlases; ++i) {
                 atlases[i].Clear();
             }
             numFonts = 0;
             numAtlases = 0;
-            logger.Info("[NkUI] Font manager destroyed\n");
+            logger.Infof("[NkUI] Font manager destroyed\n");
         }
 
         uint32 NkUIFontManager::AddBuiltin(float32 size) noexcept {
@@ -426,7 +438,7 @@ namespace nkentseu {
             f.metrics.spaceWidth = size * 0.45f;
             f.metrics.tabWidth = size * 1.6f;
             
-            logger.Info("[NkUI] Added builtin font '%s' size=%.1f (atlas=%s)\n", 
+            logger.Infof("[NkUI] Added builtin font '%s' size=%.1f (atlas=%s)\n", 
                        f.name, size, f.atlas ? "yes" : "no");
             
             return static_cast<uint32>(numFonts++);
@@ -450,7 +462,7 @@ namespace nkentseu {
             f.config = defaultConfig;
             f.metrics = metrics;
             
-            logger.Info("[NkUI] Added font '%s' from atlas size=%.1f\n", f.name, size);
+            logger.Infof("[NkUI] Added font '%s' from atlas size=%.1f\n", f.name, size);
             
             return static_cast<uint32>(numFonts++);
         }
@@ -468,43 +480,160 @@ namespace nkentseu {
             for (int32 i = 0; i < numAtlases; ++i) {
                 atlases[i].yAxisUp = yUp;
             }
-            logger.Info("[NkUI] Global Y axis set to %s\n", yUp ? "up" : "down");
+            logger.Infof("[NkUI] Global Y axis set to %s\n", yUp ? "up" : "down");
+        }
+
+        // Vérifie à la compilation que notre stockage opaque est assez grand
+        static_assert(sizeof(NkUIFontBridge) <= 256,
+            "bridgeStorage_ trop petit : augmentez la taille à sizeof(NkUIFontBridge)");
+        static_assert(alignof(NkUIFontBridge) <= 8,
+            "Alignement NkUIFontBridge incompatible");
+
+        // ── Helpers internes ──────────────────────────────────────────────────────
+
+        // Alloue un slot (atlas + police + bridge) et retourne l'index, ou -1
+        int32 NkUIFontManager::AllocFontSlot(NkUIFontManager& mgr) {
+            if (mgr.numFonts  >= NkUIFontManager::MAX_FONTS)  return -1;
+            if (mgr.numAtlases >= NkUIFontManager::MAX_ATLAS)  return -1;
+            if (mgr.mNumBridges >= NkUIFontManager::MAX_BRIDGES) return -1;
+            return mgr.numFonts;   // index commun fonts/atlases/bridges
+        }
+
+        NkUIFontBridge* NkUIFontManager::BridgeAt(NkUIFontManager& mgr, int32 idx) {
+            // Reinterpret le stockage opaque en NkUIFontBridge
+            return reinterpret_cast<NkUIFontBridge*>(&mgr.mBridgeStorage[idx]);
+        }
+
+        // Finalise l'ajout d'un slot après un Init réussi
+        int32 NkUIFontManager::CommitFontSlot(NkUIFontManager& mgr, int32 idx,
+                                    const char* name, float32 sizePx)
+        {
+            // Le bridge a déjà rempli fonts[idx] et atlases[idx] —
+            // on incrémente juste les compteurs et on pose le nom.
+            NkUIFont& f = mgr.fonts[idx];
+            if (name) memory::NkCopy(f.name, name, sizeof(f.name));
+            f.config = mgr.defaultConfig;
+
+            mgr.numFonts++;
+            mgr.numAtlases++;
+            mgr.mBridgeUsed[idx] = true;
+            mgr.mNumBridges++;
+
+            logger.Infof("[NkUIFontManager] Police '%s' %.0fpx chargée (idx=%d)\n",
+                        f.name, (double)sizePx, idx);
+            return idx;
+        }
+
+        // ── LoadFromFile ──────────────────────────────────────────────────────────
+
+        int32 NkUIFontManager::LoadFromFile(const char* path, float32 sizePx,
+                                            const char* name,
+                                            const nkft_uint32* ranges) noexcept
+        {
+            const int32 idx = AllocFontSlot(*this);
+            if (idx < 0) {
+                logger.Errorf("[NkUIFontManager] Slots pleins, impossible de charger '%s'\n",
+                            path ? path : "?");
+                return -1;
+            }
+
+            // Initialise le bridge dans le stockage opaque (placement new)
+            NkUIFontBridge* bridge = new (BridgeAt(*this, idx)) NkUIFontBridge{};
+
+            atlases[numAtlases].Clear();
+            atlases[numAtlases].yAxisUp = defaultConfig.yAxisUp;
+
+            if (!bridge->InitFromFile(&atlases[numAtlases], &fonts[numFonts],
+                                    path, sizePx, ranges))
+            {
+                logger.Errorf("[NkUIFontManager] Échec LoadFromFile: %s\n",
+                            path ? path : "?");
+                bridge->~NkUIFontBridge();   // destruction manuelle (placement new)
+                return -1;
+            }
+
+            return CommitFontSlot(*this, idx, name, sizePx);
+        }
+
+        // ── LoadFromMemory ────────────────────────────────────────────────────────
+
+        int32 NkUIFontManager::LoadFromMemory(const nkft_uint8* data, nkft_size dataSize,
+                                            float32 sizePx,
+                                            const char* name,
+                                            const nkft_uint32* ranges) noexcept
+        {
+            const int32 idx = AllocFontSlot(*this);
+            if (idx < 0) return -1;
+
+            NkUIFontBridge* bridge = new (BridgeAt(*this, idx)) NkUIFontBridge{};
+
+            atlases[numAtlases].Clear();
+            atlases[numAtlases].yAxisUp = defaultConfig.yAxisUp;
+
+            if (!bridge->InitFromMemory(&atlases[numAtlases], &fonts[numFonts],
+                                        data, dataSize, sizePx, ranges))
+            {
+                bridge->~NkUIFontBridge();
+                return -1;
+            }
+
+            return CommitFontSlot(*this, idx, name, sizePx);
+        }
+
+        // ── LoadCustom ────────────────────────────────────────────────────────────
+
+        int32 NkUIFontManager::LoadCustom(const char* path, float32 sizePx,
+                                        const NkUIFontLoaderDesc& desc,
+                                        const char* name,
+                                        const nkft_uint32* ranges) noexcept
+        {
+            if (!desc.IsValid()) {
+                logger.Error("[NkUIFontManager] LoadCustom: descripteur invalide\n");
+                return -1;
+            }
+
+            const int32 idx = AllocFontSlot(*this);
+            if (idx < 0) return -1;
+
+            NkUIFontBridge* bridge = new (BridgeAt(*this, idx)) NkUIFontBridge{};
+
+            atlases[numAtlases].Clear();
+            atlases[numAtlases].yAxisUp = defaultConfig.yAxisUp;
+
+            if (!bridge->InitCustom(&atlases[numAtlases], &fonts[numFonts],
+                                    path, sizePx, desc, ranges))
+            {
+                bridge->~NkUIFontBridge();
+                return -1;
+            }
+
+            return CommitFontSlot(*this, idx, name, sizePx);
         }
 
         // ============================================================================
         // NkUIFont - Rendu avec atlas texture
         // ============================================================================
-
-void NkUIFont::RenderCharAtlas(NkUIDrawList& dl, NkVec2 pos, 
+        void NkUIFont::RenderCharAtlas(NkUIDrawList& dl, NkVec2 pos,
                                 const NkUIGlyph* g, NkColor col) const noexcept {
-    if (!g || !atlas) return;
-    
-    // Vérifier que la texture est valide
-    if (atlas->texId == 0) {
-        logger.Warn("[Font] RenderCharAtlas: atlas->texId is 0, using fallback\n");
-        // Fallback sur le bitmap
-        RenderCharBitmap(dl, pos, g->codepoint, col);
-        return;
-    }
-    
-    float32 yPos;
-    
-    if (config.yAxisUp) {
-        yPos = pos.y - g->bearingY;
-    } else {
-        // In top-left UI coordinates (Y-down), glyph top is baseline - bearingY.
-        yPos = pos.y - g->bearingY;
-    }
-    
-    dl.AddImage(atlas->texId,
-                {pos.x + g->bearingX, 
-                 yPos,
-                 g->x1 - g->x0, 
-                 g->y1 - g->y0},
-                {g->u0, g->v0},
-                {g->u1, g->v1},
-                col);
-}
+            if (!g || !atlas) return;
+            if (atlas->texId == 0) {
+                RenderCharBitmap(dl, pos, g->codepoint, col);
+                return;
+            }
+        
+            // pos.y == baseline Y (coordonnées Y-down)
+            // top du glyphe = baseline - bearingY
+            const float32 glyphTop  = pos.y - g->bearingY;
+            const float32 glyphLeft = pos.x + g->bearingX;
+            const float32 glyphW    = g->x1 - g->x0;
+            const float32 glyphH    = g->y1 - g->y0;
+        
+            dl.AddImage(atlas->texId,
+                        { glyphLeft, glyphTop, glyphW, glyphH },
+                        { g->u0, g->v0 },
+                        { g->u1, g->v1 },
+                        col);
+        }
         // ============================================================================
         // NkUIFont - Rendu avec bitmap fallback
         // ============================================================================
@@ -515,76 +644,40 @@ void NkUIFont::RenderCharAtlas(NkUIDrawList& dl, NkVec2 pos,
                    ((x & 0x04) << 1) | ((x & 0x02) << 3) | ((x & 0x01) << 5);
         }
 
-        void NkUIFont::RenderCharBitmap(NkUIDrawList& dl,
-                                        NkVec2 pos, uint32 cp, NkColor col) const noexcept {
+        void NkUIFont::RenderCharBitmap(NkUIDrawList& dl, NkVec2 pos, uint32 cp, NkColor col) const noexcept {
             if (cp < 32 || cp > 127) cp = '?';
             const int32 idx = static_cast<int32>(cp) - kBitmapFirst;
             if (idx < 0 || idx >= kBitmapCount) return;
-            
+        
             const uint8* bmp = kBitmapFont + idx * kBitmapFontH;
-            const float32 scale = size / kBitmapFontH;
+            const float32 scale = size / static_cast<float32>(kBitmapFontH);
+            // Taille exacte d'un pixel bitmap → pas d'overlap
             const float32 pw = scale;
             const float32 ph = scale;
-            
-            // Utiliser l'anti-aliasing par interpolation
-            constexpr int32 SUBPIXELS = 4;  // 4x4 = 16 sous-pixels pour un lissage optimal
-            const float32 subPw = pw / SUBPIXELS;
-            const float32 subPh = ph / SUBPIXELS;
-            
-            // Précalculer les intensités pour tous les sous-pixels
-            float32 intensities[SUBPIXELS][SUBPIXELS];
-            for (int32 sy = 0; sy < SUBPIXELS; ++sy) {
-                for (int32 sx = 0; sx < SUBPIXELS; ++sx) {
-                    // Distribution gaussienne pour un lissage naturel
-                    const float32 dx = (sx - (SUBPIXELS - 1) * 0.5f) / SUBPIXELS;
-                    const float32 dy = (sy - (SUBPIXELS - 1) * 0.5f) / SUBPIXELS;
-                    const float32 dist = dx*dx + dy*dy;
-                    intensities[sy][sx] = 1.0f - dist * 1.2f;
-                    intensities[sy][sx] = intensities[sy][sx] < 0.2f ? 0.2f : 
-                                        (intensities[sy][sx] > 1.0f ? 1.0f : intensities[sy][sx]);
-                }
-            }
-            
-            if (config.yAxisUp) {
+        
+            if (!config.yAxisUp) {
+                // Y vers le bas (UI standard)
                 for (int32 row = 0; row < kBitmapFontH; ++row) {
-                    uint8 line = Reverse6Bits(bmp[row]);
-                    const float32 yPos = pos.y - (row + 1) * ph;
-                    
+                    const uint8 line = Reverse6Bits(bmp[row]);
+                    const float32 yPos = pos.y + row * ph;
                     for (int32 col2 = 0; col2 < kBitmapFontW; ++col2) {
                         if ((line >> col2) & 1) {
-                            // Dessiner avec interpolation bilinéaire
-                            for (int32 sy = 0; sy < SUBPIXELS; ++sy) {
-                                for (int32 sx = 0; sx < SUBPIXELS; ++sx) {
-                                    const float32 xPos = pos.x + col2 * pw + sx * subPw;
-                                    const float32 ySubPos = yPos + sy * subPh;
-                                    
-                                    NkColor subCol = col;
-                                    subCol.a = static_cast<uint8>(col.a * intensities[sy][sx]);
-                                    
-                                    dl.AddRectFilled({xPos, ySubPos, subPw + 0.5f, subPh + 0.5f}, subCol);
-                                }
-                            }
+                            dl.AddRectFilled(
+                                { pos.x + col2 * pw, yPos, pw, ph },
+                                col);
                         }
                     }
                 }
             } else {
+                // Y vers le haut
                 for (int32 row = 0; row < kBitmapFontH; ++row) {
-                    uint8 line = Reverse6Bits(bmp[row]);
-                    const float32 yPos = pos.y + row * ph;
-                    
+                    const uint8 line = Reverse6Bits(bmp[row]);
+                    const float32 yPos = pos.y - (row + 1) * ph;
                     for (int32 col2 = 0; col2 < kBitmapFontW; ++col2) {
                         if ((line >> col2) & 1) {
-                            for (int32 sy = 0; sy < SUBPIXELS; ++sy) {
-                                for (int32 sx = 0; sx < SUBPIXELS; ++sx) {
-                                    const float32 xPos = pos.x + col2 * pw + sx * subPw;
-                                    const float32 ySubPos = yPos + sy * subPh;
-                                    
-                                    NkColor subCol = col;
-                                    subCol.a = static_cast<uint8>(col.a * intensities[sy][sx]);
-                                    
-                                    dl.AddRectFilled({xPos, ySubPos, subPw + 0.5f, subPh + 0.5f}, subCol);
-                                }
-                            }
+                            dl.AddRectFilled(
+                                { pos.x + col2 * pw, yPos, pw, ph },
+                                col);
                         }
                     }
                 }
@@ -594,10 +687,11 @@ void NkUIFont::RenderCharAtlas(NkUIDrawList& dl, NkVec2 pos,
         // ============================================================================
         // NkUIFont - Rendu unifié
         // ============================================================================
-
         void NkUIFont::RenderChar(NkUIDrawList& dl, NkVec2 pos,
-                                   uint32 cp, NkColor col) const noexcept {
-            // Priorité 1 : Atlas texture
+                                uint32 cp, NkColor col) const noexcept {
+            // pos.y = baseline
+        
+            // Atlas en priorité
             if (atlas && config.enableAtlas) {
                 const NkUIGlyph* g = atlas->Find(cp);
                 if (g) {
@@ -605,10 +699,12 @@ void NkUIFont::RenderCharAtlas(NkUIDrawList& dl, NkVec2 pos,
                     return;
                 }
             }
-            
-            // Priorité 2 : Bitmap fallback
+        
+            // Bitmap fallback : convertit baseline → top
             if (config.enableBitmapFallback) {
-                RenderCharBitmap(dl, pos, cp, col);
+                const float32 asc = metrics.ascender > 0.f ? metrics.ascender : (size * 0.8f);
+                NkVec2 bitmapPos = { pos.x, pos.y - asc };
+                RenderCharBitmap(dl, bitmapPos, cp, col);
             }
         }
 
@@ -630,8 +726,8 @@ void NkUIFont::RenderCharAtlas(NkUIDrawList& dl, NkVec2 pos,
                     normalLine[col] = bitNormal ? '#' : '.';
                     reversedLine[col] = bitReversed ? '#' : '.';
                 }
-                logger.Info("  Normal  : %s\n", normalLine);
-                logger.Info("  Reversed: %s\n", reversedLine);
+                logger.Infof("  Normal  : %s\n", normalLine);
+                logger.Infof("  Reversed: %s\n", reversedLine);
             }
             
             debugEnabled = false;

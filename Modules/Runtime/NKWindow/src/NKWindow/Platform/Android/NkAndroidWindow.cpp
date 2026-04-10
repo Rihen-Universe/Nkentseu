@@ -283,7 +283,7 @@ namespace nkentseu {
     // Fonctions de synchronisation mData ↔ mConfig
     // =========================================================================
 
-    static void SyncConfigFromWindow(const NkAndroidWindowData& data, NkWindowConfig& config) {
+    static void SyncConfigFromWindow(const NkWindowData& data, NkWindowConfig& config) {
         config.width = data.mWidth;
         config.height = data.mHeight;
         config.screenOrientation = data.mOrientation;
@@ -293,7 +293,7 @@ namespace nkentseu {
         // La position n'est pas pertinente, on garde config.x/config.y
     }
 
-    static void SyncWindowFromConfig(NkAndroidWindowData& data, const NkWindowConfig& config) {
+    static void SyncWindowFromConfig(NkWindowData& data, const NkWindowConfig& config) {
         data.mOrientation = config.screenOrientation;
         data.mFullscreen = config.fullscreen;
         // Les autres propriétés seront appliquées via les méthodes dédiées

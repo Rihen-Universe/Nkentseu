@@ -552,11 +552,11 @@ static bool HasArg(const nkentseu::NkVector<nkentseu::NkString>& args,
 }
 
 static bool IsSupportedImageExtension(const std::string& extLower) {
-    return extLower == ".png"  || extLower == ".jpg"  || extLower == ".jpeg" ||
+    return extLower == ".png"  /*|| extLower == ".jpg"  || extLower == ".jpeg" ||
            extLower == ".bmp"  || extLower == ".tga"  || extLower == ".hdr"  ||
            extLower == ".ppm"  || extLower == ".pgm"  || extLower == ".pbm"  ||
            extLower == ".qoi"  || extLower == ".gif"  || extLower == ".ico"  ||
-           extLower == ".webp" || extLower == ".svg";
+           extLower == ".webp" || extLower == ".svg"*/;
 }
 
 static std::string ToLowerCopy(std::string s) {
@@ -1092,24 +1092,49 @@ int nkmain(const nkentseu::NkEntryState& state) {
     }
 
     // Charge une texture depuis Resources (tous formats supportes par NKImage)
-    loadedTexturePath = FindTextureInResources();
+    // loadedTexturePath = FindTextureInResources();
+    // loadedTexturePath = "Resources/Textures/bricks2.jpg";
+    // loadedTexturePath = "Resources/Textures/marble.jpg";
+    // loadedTexturePath = "Resources/Textures/giz-logo.gif";
+    // loadedTexturePath = "Resources/Textures/ScreenSpaceReflectionPBR_SpeedRejectionSmooth.gif";
+    // loadedTexturePath = "Resources/Textures/architecture-biologique-dévoilé-bâtiment-futuriste-avec-des-formes-sinueuses-empilées-et-du-verre-incurvé-vers-un-ciel-394868255.webp";
+    // loadedTexturePath = "Resources/Textures/this-photo-that-has-two-260nw-2622058673.webp";
+    // loadedTexturePath = "Resources/Textures/HDR/newport_loft.hdr";
+    loadedTexturePath = "Resources/Textures/HDR/rihen-logo.svg";
+    // loadedTexturePath = "Resources/Textures/awesomeface.png";
+    // loadedTexturePath = "Resources/Textures/concreteTexture.png";
+    // loadedTexturePath = "Resources/Textures/StreaksRotationPattern.bmp";
+    // loadedTexturePath = "Resources/Textures/gamepad_front.bmp";
     if (!loadedTexturePath.empty()) {
-        logger.Info("[RHIFullDemoImage] Texture candidate: {0}\\n", loadedTexturePath.c_str());
-        loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
+        logger.Info("[RHIFullDemoImage] Texture candidate: {0}\n", loadedTexturePath.c_str());
+        loadedTextureImage = NkImage::Load(loadedTexturePath.c_str(), 4);
+        // loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
         if (loadedTextureImage && loadedTextureImage->IsValid()) {
-            logger.Info("[RHIFullDemoImage] Texture chargee: {0} ({1}x{2}, ch={3})\\n",
+
+            // NkImage* rgbaImage = NkImage::ConvertToTexture(*loadedTextureImage);
+
+            // if (rgbaImage && rgbaImage->IsValid()) {
+            //     if (rgbaImage != loadedTextureImage) {
+            //         loadedTextureImage->Free();
+            //         loadedTextureImage = rgbaImage;
+            //     }
+            // } else {
+            //     if (rgbaImage) { rgbaImage->Free(); }
+            //     logger.Info("[RHIFullDemoImage] Echec conversion texture candidate en RGBA32: {0}\n", loadedTexturePath.c_str());
+            // }
+
+            logger.Info("[RHIFullDemoImage] Texture chargee: {0} ({1}x{2}, ch={3})\n",
                         loadedTexturePath.c_str(),
                         loadedTextureImage->Width(),
                         loadedTextureImage->Height(),
                         loadedTextureImage->Channels());
         } else {
-            logger.Info("[RHIFullDemoImage] Echec chargement texture candidate: {0}\\n",
-                        loadedTexturePath.c_str());
+            logger.Info("[RHIFullDemoImage] Echec chargement texture candidate: {0}\n", loadedTexturePath.c_str());
         }
     }
     if (!loadedTextureImage || !loadedTextureImage->IsValid()) {
         if (loadedTextureImage) { loadedTextureImage->Free(); loadedTextureImage = nullptr; }
-        loadedTextureImage = NkImage::Alloc(256, 256, NkImagePixelFormat::NK_RGBA32, true);
+        loadedTextureImage = NkImage::Alloc(256, 256, NkImagePixelFormat::NK_RGBA32);
         if (loadedTextureImage && loadedTextureImage->IsValid()) {
             for (int y = 0; y < loadedTextureImage->Height(); ++y) {
                 uint8* row = loadedTextureImage->RowPtr(y);
@@ -1182,10 +1207,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         if (hShadowShader.IsValid()) {
             NkSWShader* swSh = swDev->GetShader(hShadowShader.id);
             if (swSh) {
-                swSh->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkSWVertex {
+                swSh->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware {
                     const Vtx3D* v = static_cast<const Vtx3D*>(vdata) + idx;
                     const UboData* ubo = static_cast<const UboData*>(udata);
-                    NkSWVertex out;
+                    NkVertexSoftware out;
                     auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
                         return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w, m[1]*x+m[5]*y+m[9]*z+m[13]*w,
                                        m[2]*x+m[6]*y+m[10]*z+m[14]*w, m[3]*x+m[7]*y+m[11]*z+m[15]*w);
@@ -1204,10 +1229,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         NkSWTexture* swAlbedoTex = hAlbedoTex.IsValid() ? swDev->GetTex(hAlbedoTex.id) : nullptr;
 
         if (sw) {
-            sw->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkSWVertex {
+            sw->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware {
                 const Vtx3D*   v   = static_cast<const Vtx3D*>(vdata) + idx;
                 const UboData* ubo = static_cast<const UboData*>(udata);
-                NkSWVertex out;
+                NkVertexSoftware out;
                 if (!ubo) {
                     out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f};
                     out.normal   = v->normal;
@@ -1240,7 +1265,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
                 return out;
             };
 
-            sw->fragFn = [swShadowTex, swAlbedoTex](const NkSWVertex& frag, const void* udata, const void*) -> math::NkVec4f {
+            sw->fragFn = [swShadowTex, swAlbedoTex](const NkVertexSoftware& frag, const void* udata, const void*) -> math::NkVec4f {
                 const UboData* ubo = static_cast<const UboData*>(udata);
                 float nx = frag.normal.x, ny = frag.normal.y, nz = frag.normal.z;
 
@@ -1598,7 +1623,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
             device->WriteBuffer(hUBO[2], &ubo, sizeof(ubo));
             if (hDescSet[2].IsValid()) cmd->BindDescriptorSet(hDescSet[2], 0);
             cmd->BindVertexBuffer(0, hPlane);
-            cmd->Draw((uint32)planeVerts.Size());
+            cmd->Draw((uint32)planeVerts.Size(), 2u);
         }
 
         cmd->EndRenderPass();

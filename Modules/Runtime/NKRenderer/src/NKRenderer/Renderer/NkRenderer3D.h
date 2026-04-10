@@ -24,11 +24,10 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
 #include "NKRenderer/Core/NkCamera.h"
-#include "NKRenderer/Mesh/NkMesh.h"
-#include "NKRenderer/Material/NkMaterial.h"
-#include "NKRenderer/Core/NkTexture.h"
+#include "NKRenderer/Resources/NkMesh.h"
+#include "NKRenderer/Resources/NkMaterial.h"
+#include "NKRenderer/Resources/NkTexture.h"
 #include "NKRenderer/Core/NkShaderAsset.h"
-#include "NKRenderer/Core/NkTexture.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 

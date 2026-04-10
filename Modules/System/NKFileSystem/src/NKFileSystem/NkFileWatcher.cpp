@@ -26,7 +26,7 @@ namespace nkentseu {
     namespace entseu {
         
         NkFileChangeEvent::NkFileChangeEvent()
-            : Type(NkFileChangeType::Modified)
+            : Type(NkFileChangeType::NK_MODIFIED)
             , Path()
             , OldPath()
             , Timestamp(0) {
@@ -136,17 +136,17 @@ namespace nkentseu {
                             
                             switch (info->Action) {
                                 case FILE_ACTION_ADDED:
-                                    event.Type = NkFileChangeType::Created;
+                                    event.Type = NkFileChangeType::NK_CREATED;
                                     break;
                                 case FILE_ACTION_REMOVED:
-                                    event.Type = NkFileChangeType::Deleted;
+                                    event.Type = NkFileChangeType::NK_DELETED;
                                     break;
                                 case FILE_ACTION_MODIFIED:
-                                    event.Type = NkFileChangeType::Modified;
+                                    event.Type = NkFileChangeType::NK_MODIFIED;
                                     break;
                                 case FILE_ACTION_RENAMED_OLD_NAME:
                                 case FILE_ACTION_RENAMED_NEW_NAME:
-                                    event.Type = NkFileChangeType::Renamed;
+                                    event.Type = NkFileChangeType::NK_RENAMED;
                                     break;
                             }
                             

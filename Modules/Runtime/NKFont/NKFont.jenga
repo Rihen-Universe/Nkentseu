@@ -56,30 +56,7 @@ with project("NKFont"):
 
     files([
         # Fondations
-        "src/NKFont/NkMemArena.cpp",
-        "src/NKFont/NkFixed26_6.cpp",
-        "src/NKFont/NkBitmap.cpp",
-        "src/NKFont/NkBezier.cpp",
-        # Parsers natifs
-        "src/NKFont/NkStreamReader.cpp",
-        "src/NKFont/NkTTFParser.cpp",
-        "src/NKFont/NkCFFParser.cpp",
-        "src/NKFont/NkBDFParser.cpp",
-        "src/NKFont/NkType1Parser.cpp",
-        "src/NKFont/NkWOFFParser.cpp",
-        # Rasterizer natif
-        "src/NKFont/NkOutline.cpp",
-        "src/NKFont/NkScanline.cpp",
-        "src/NKFont/NkHinter.cpp",
-        # Shaping + cache + API publique
-        "src/NKFont/NkUnicode.cpp",
-        "src/NKFont/NkShaper.cpp",
-        "src/NKFont/NkGlyphCache.cpp",
-        "src/NKFont/NkFontFace.cpp",
-        # Backend FreeType (alternatif pendant développement des parsers natifs)
-        "src/NKFont/NkFTFontFace.cpp",
-        # Headers (pour IDEs)
-        "src/NKFont/**.h",
+        "src/**.cpp"
     ])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -100,8 +77,8 @@ with project("NKFont"):
         includedirs([
             "src/NKFont",  # ft2build.h + FreeType/ (sous-dossier avec freetype/freetype.h)
         ])
-        libdirs(["lib"])
-        links(["freetype"])
+        # libdirs(["lib"])
+        # links(["freetype"])
 
     # ===== Linux ==================================================================
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):

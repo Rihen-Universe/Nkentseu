@@ -1,140 +1,197 @@
 /**
  * @File    NkQOICodec.cpp
- * @Brief   Codec QOI (Quite OK Image Format) — lecture et écriture.
- *          Spec: https://qoiformat.org/
+ * @Brief   Codec QOI (Quite OK Image Format) — spec v1.0 exacte.
+ *          https://qoiformat.org/qoi-specification.pdf
+ * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
+ * @License Apache-2.0
+ *
+ * @Spec
+ *  Header : "qoif" + uint32 width + uint32 height + uint8 channels + uint8 colorspace
+ *  Chunks : QOI_OP_RGB(0xFE), QOI_OP_RGBA(0xFF), QOI_OP_INDEX(00xxxxxx),
+ *           QOI_OP_DIFF(01xxxxxx), QOI_OP_LUMA(10xxxxxx), QOI_OP_RUN(11xxxxxx)
+ *  End    : 7 bytes 0x00 + 1 byte 0x01
  */
 #include "NKImage/Codecs/QOI/NkQOICodec.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
+
 namespace nkentseu {
+    using namespace nkentseu::memory;
 
-using namespace nkentseu::memory;
+    static inline void* qM(usize n)  noexcept { return NkAlloc(n); }
+    static inline void  qF(void* p)  noexcept { if(p) NkFree(p); }
+    static inline void  qCp(void* d,const void* s,usize n) noexcept { NkCopy(static_cast<uint8*>(d),static_cast<const uint8*>(s),n); }
+    static inline void  qSt(void* d,int v,usize n) noexcept { NkSet(static_cast<uint8*>(d),uint8(v),n); }
 
-static constexpr uint8  QOI_OP_INDEX = 0x00;
-static constexpr uint8  QOI_OP_DIFF  = 0x40;
-static constexpr uint8  QOI_OP_LUMA  = 0x80;
-static constexpr uint8  QOI_OP_RUN   = 0xC0;
-static constexpr uint8  QOI_OP_RGB   = 0xFE;
-static constexpr uint8  QOI_OP_RGBA  = 0xFF;
-static constexpr uint8  QOI_MASK2    = 0xC0;
-
-static NKIMG_INLINE uint32 QOI_HASH(uint8 r,uint8 g,uint8 b,uint8 a){
-    return static_cast<uint32>(r*3+g*5+b*7+a*11)%64u;
-}
-
-NkImage* NkQOICodec::Decode(const uint8* data, usize size) noexcept {
-    if (size < 14+8) return nullptr;
-    NkImageStream s(data, size);
-    if (s.ReadU32BE() != 0x716F6966u) return nullptr; // "qoif"
-    const uint32 w = s.ReadU32BE(), h = s.ReadU32BE();
-    const uint8 channels = s.ReadU8(), colorSpace = s.ReadU8();
-    (void)colorSpace;
-    if (w==0||h==0||channels<3||channels>4) return nullptr;
-
-    NkImagePixelFormat fmt = channels==4 ? NkImagePixelFormat::NK_RGBA32 : NkImagePixelFormat::NK_RGB24;
-    NkImage* img = NkImage::Alloc(w, h, fmt);
-    if (!img) return nullptr;
-
-    uint8 index[64][4] = {};
-    uint8 px[4] = {0,0,0,255};
-    int32 run = 0;
-
-    for (uint32 y = 0; y < h; ++y) {
-        uint8* row = img->RowPtr(y);
-        for (uint32 x = 0; x < w; ++x) {
-            if (run > 0) { --run; }
-            else {
-                const uint8 b1 = s.ReadU8();
-                if (b1 == QOI_OP_RGB) {
-                    px[0]=s.ReadU8(); px[1]=s.ReadU8(); px[2]=s.ReadU8();
-                } else if (b1 == QOI_OP_RGBA) {
-                    px[0]=s.ReadU8(); px[1]=s.ReadU8(); px[2]=s.ReadU8(); px[3]=s.ReadU8();
-                } else if ((b1 & QOI_MASK2) == QOI_OP_INDEX) {
-                    NkCopy(px, index[b1&0x3F], 4);
-                } else if ((b1 & QOI_MASK2) == QOI_OP_DIFF) {
-                    px[0] += ((b1>>4)&3)-2; px[1] += ((b1>>2)&3)-2; px[2] += (b1&3)-2;
-                } else if ((b1 & QOI_MASK2) == QOI_OP_LUMA) {
-                    const uint8 b2 = s.ReadU8();
-                    const int32 dg = (b1&0x3F)-32;
-                    px[0] += dg-8+((b2>>4)&0xF); px[1] += dg; px[2] += dg-8+(b2&0xF);
-                } else { // RUN
-                    run = (b1&0x3F);
-                }
-                NkCopy(index[QOI_HASH(px[0],px[1],px[2],px[3])], px, 4);
-            }
-            uint8* dst = row + x * channels;
-            dst[0]=px[0]; dst[1]=px[1]; dst[2]=px[2];
-            if (channels==4) dst[3]=px[3];
-        }
+    // Hash QOI : (r*3 + g*5 + b*7 + a*11) % 64
+    static NKIMG_INLINE int32 qHash(uint8 r,uint8 g,uint8 b,uint8 a) noexcept {
+        return (int32(r)*3+int32(g)*5+int32(b)*7+int32(a)*11)%64;
     }
-    return img;
-}
 
-bool NkQOICodec::Encode(const NkImage& img, uint8*& out, usize& outSize) noexcept {
-    if (!img.IsValid()) return false;
-    const NkImage* src = &img;
-    NkImage* conv = nullptr;
-    if (img.Channels()!=3&&img.Channels()!=4) {
-        conv=img.Convert(NkImagePixelFormat::NK_RGB24);
-        if(!conv) return false; src=conv;
-    }
-    const int32 w=src->Width(),h=src->Height(),ch=src->Channels();
+    static const uint8 kEnd[8]={0,0,0,0,0,0,0,1};
 
-    NkImageStream s;
-    s.WriteU32BE(0x716F6966u);
-    s.WriteU32BE(static_cast<uint32>(w));
-    s.WriteU32BE(static_cast<uint32>(h));
-    s.WriteU8(static_cast<uint8>(ch));
-    s.WriteU8(1); // sRGB+linear alpha
+    //=============================================================================
+    // NkQOICodec::Decode
+    //=============================================================================
+    NkImage* NkQOICodec::Decode(const uint8* data,usize size) noexcept {
+        if(size<14) return nullptr;
+        if(data[0]!='q'||data[1]!='o'||data[2]!='i'||data[3]!='f') return nullptr;
 
-    uint8 index[64][4] = {};
-    uint8 prev[4]={0,0,0,255};
-    int32 run=0;
+        const int32 w = int32((uint32(data[4])<<24)|(uint32(data[5])<<16)|(uint32(data[6])<<8)|data[7]);
+        const int32 h = int32((uint32(data[8])<<24)|(uint32(data[9])<<16)|(uint32(data[10])<<8)|data[11]);
+        const int32 channels = data[12]; // 3=RGB, 4=RGBA
+        // data[13] = colorspace (0=sRGB, 1=linear) — ignored for decoding
 
-    auto flush = [&](){ if(run>0){s.WriteU8(static_cast<uint8>(QOI_OP_RUN|(run-1)));run=0;} };
+        if(w<=0||h<=0||channels<3||channels>4) return nullptr;
 
-    for (int32 y = 0; y < h; ++y) {
-        const uint8* row = src->RowPtr(y);
-        for (int32 x = 0; x < w; ++x) {
-            const uint8* p = row + x*ch;
-            uint8 px[4]={p[0],p[1],p[2],ch==4?p[3]:uint8(255)};
+        const NkImagePixelFormat fmt=(channels==4)?NkImagePixelFormat::NK_RGBA32:NkImagePixelFormat::NK_RGB24;
+        NkImage* img=NkImage::Alloc(w,h,fmt);
+        if(!img) return nullptr;
 
-            if (NkCompare(px,prev,4)==0) {
-                ++run;
-                if (run==62||( x==w-1&&y==h-1)) flush();
-            } else {
-                flush();
-                const uint32 hi = QOI_HASH(px[0],px[1],px[2],px[3]);
-                if (NkCompare(index[hi],px,4)==0) {
-                    s.WriteU8(static_cast<uint8>(QOI_OP_INDEX|hi));
+        // Table d'index couleurs (64 entrees RGBA)
+        uint8 table[64*4];
+        qSt(table,0,sizeof(table));
+
+        uint8 r=0,g=0,b=0,a=255; // pixel courant
+        int32 run=0;
+        usize pos=14; // apres le header de 14 bytes
+        const usize limit=size-8; // exclut les 8 bytes de fin
+
+        for(int32 y=0;y<h;++y){
+            uint8* row=img->RowPtr(y);
+            for(int32 x=0;x<w;++x){
+                if(run>0){
+                    --run;
                 } else {
-                    NkCopy(index[hi],px,4);
-                    if (px[3]==prev[3]) {
-                        const int32 dr=px[0]-prev[0],dg=px[1]-prev[1],db=px[2]-prev[2];
-                        const int32 drdg=dr-dg, dbdg=db-dg;
-                        if (dr>=-2&&dr<=1&&dg>=-2&&dg<=1&&db>=-2&&db<=1) {
-                            s.WriteU8(static_cast<uint8>(QOI_OP_DIFF|((dr+2)<<4)|((dg+2)<<2)|(db+2)));
-                        } else if (dg>=-32&&dg<=31&&drdg>=-8&&drdg<=7&&dbdg>=-8&&dbdg<=7) {
-                            s.WriteU8(static_cast<uint8>(QOI_OP_LUMA|(dg+32)));
-                            s.WriteU8(static_cast<uint8>(((drdg+8)<<4)|(dbdg+8)));
-                        } else {
-                            s.WriteU8(QOI_OP_RGB);
-                            s.WriteU8(px[0]);s.WriteU8(px[1]);s.WriteU8(px[2]);
-                        }
+                    if(pos>=limit) goto done;
+                    const uint8 b0=data[pos++];
+
+                    if(b0==0xFE){ // QOI_OP_RGB
+                        if(pos+3>limit) goto done;
+                        r=data[pos++];g=data[pos++];b=data[pos++];
+                    } else if(b0==0xFF){ // QOI_OP_RGBA
+                        if(pos+4>limit) goto done;
+                        r=data[pos++];g=data[pos++];b=data[pos++];a=data[pos++];
                     } else {
-                        s.WriteU8(QOI_OP_RGBA);
-                        s.WriteU8(px[0]);s.WriteU8(px[1]);s.WriteU8(px[2]);s.WriteU8(px[3]);
+                        const uint8 tag=b0>>6;
+                        if(tag==0){ // QOI_OP_INDEX
+                            const int32 idx=(b0&0x3F)*4;
+                            r=table[idx];g=table[idx+1];b=table[idx+2];a=table[idx+3];
+                        } else if(tag==1){ // QOI_OP_DIFF
+                            r=uint8(r+((b0>>4)&3)-2);
+                            g=uint8(g+((b0>>2)&3)-2);
+                            b=uint8(b+(b0&3)-2);
+                        } else if(tag==2){ // QOI_OP_LUMA
+                            if(pos>=limit) goto done;
+                            const uint8 b1=data[pos++];
+                            const int32 dg=(b0&0x3F)-32;
+                            r=uint8(r+dg+((b1>>4)&0xF)-8);
+                            g=uint8(g+dg);
+                            b=uint8(b+dg+(b1&0xF)-8);
+                        } else { // QOI_OP_RUN (tag==3)
+                            run=(b0&0x3F); // run-1 (0=1 pixel, 61=62 pixels)
+                        }
                     }
+                    // Met a jour la table d'index
+                    const int32 idx=qHash(r,g,b,a)*4;
+                    table[idx]=r;table[idx+1]=g;table[idx+2]=b;table[idx+3]=a;
                 }
-                NkCopy(prev,px,4);
+                // Ecrit le pixel
+                if(channels==4){uint8* p=row+x*4;p[0]=r;p[1]=g;p[2]=b;p[3]=a;}
+                else            {uint8* p=row+x*3;p[0]=r;p[1]=g;p[2]=b;}
             }
         }
+        done:
+        return img;
     }
-    flush();
-    // End marker
-    const uint8 end[8]={0,0,0,0,0,0,0,1};
-    s.WriteBytes(end,8);
-    if (conv) conv->Free();
-    return s.TakeBuffer(out,outSize);
-}
+
+    //=============================================================================
+    // NkQOICodec::Encode
+    //=============================================================================
+    bool NkQOICodec::Encode(const NkImage& img,uint8*& out,usize& outSize) noexcept {
+        if(!img.IsValid()) return false;
+
+        // Normalise vers RGB24 ou RGBA32
+        const NkImage* src=&img; NkImage* conv=nullptr;
+        const int32 ch=img.Channels();
+        if(ch!=3&&ch!=4){
+            const NkImagePixelFormat tgt=(ch==1||ch==2)?NkImagePixelFormat::NK_RGBA32:NkImagePixelFormat::NK_RGB24;
+            conv=img.Convert(tgt);if(!conv)return false;src=conv;
+        }
+        const int32 w=src->Width(),h=src->Height(),sch=src->Channels();
+        const bool hasAlpha=(sch==4);
+
+        // Pire cas : chaque pixel prend 5 octets (RGBA) + header(14) + end(8)
+        const usize maxSz=14+usize(w)*h*5+8;
+        uint8* buf=static_cast<uint8*>(qM(maxSz));
+        if(!buf){if(conv)conv->Free();return false;}
+
+        // Header
+        buf[0]='q';buf[1]='o';buf[2]='i';buf[3]='f';
+        buf[4]=uint8(w>>24);buf[5]=uint8(w>>16);buf[6]=uint8(w>>8);buf[7]=uint8(w);
+        buf[8]=uint8(h>>24);buf[9]=uint8(h>>16);buf[10]=uint8(h>>8);buf[11]=uint8(h);
+        buf[12]=uint8(sch);  // 3 ou 4
+        buf[13]=0;           // colorspace: sRGB
+        usize pos=14;
+
+        uint8 table[64*4]; qSt(table,0,sizeof(table));
+        uint8 pr=0,pg=0,pb=0,pa=255; // pixel precedent
+        int32 run=0;
+
+        auto flushRun=[&](){
+            if(run>0){buf[pos++]=uint8(0xC0|(run-1));run=0;}
+        };
+
+        for(int32 y=0;y<h;++y){
+            const uint8* row=src->RowPtr(y);
+            for(int32 x=0;x<w;++x){
+                const uint8* p=row+x*sch;
+                const uint8 r=p[0],g=p[1],b=p[2],a=(hasAlpha?p[3]:255);
+
+                if(r==pr&&g==pg&&b==pb&&a==pa){
+                    // QOI_OP_RUN
+                    ++run;
+                    if(run==62){flushRun();}
+                } else {
+                    flushRun();
+                    // Essaie QOI_OP_INDEX
+                    const int32 hi=qHash(r,g,b,a)*4;
+                    if(table[hi]==r&&table[hi+1]==g&&table[hi+2]==b&&table[hi+3]==a){
+                        buf[pos++]=uint8(hi/4); // tag 00 + index 6 bits
+                    } else {
+                        table[hi]=r;table[hi+1]=g;table[hi+2]=b;table[hi+3]=a;
+                        const int32 dr=int32(r)-pr,dg=int32(g)-pg,db=int32(b)-pb;
+                        if(a==pa){
+                            // Essaie QOI_OP_DIFF : dr,dg,db in [-2,1]
+                            if(dr>=-2&&dr<=1&&dg>=-2&&dg<=1&&db>=-2&&db<=1){
+                                buf[pos++]=uint8(0x40|((dr+2)<<4)|((dg+2)<<2)|(db+2));
+                            } else {
+                                // Essaie QOI_OP_LUMA : dg in [-32,31], dr-dg in [-8,7], db-dg in [-8,7]
+                                const int32 drdg=dr-dg,dbdg=db-dg;
+                                if(dg>=-32&&dg<=31&&drdg>=-8&&drdg<=7&&dbdg>=-8&&dbdg<=7){
+                                    buf[pos++]=uint8(0x80|(dg+32));
+                                    buf[pos++]=uint8(((drdg+8)<<4)|(dbdg+8));
+                                } else {
+                                    // QOI_OP_RGB
+                                    buf[pos++]=0xFE;buf[pos++]=r;buf[pos++]=g;buf[pos++]=b;
+                                }
+                            }
+                        } else {
+                            // QOI_OP_RGBA
+                            buf[pos++]=0xFF;buf[pos++]=r;buf[pos++]=g;buf[pos++]=b;buf[pos++]=a;
+                        }
+                    }
+                    pr=r;pg=g;pb=b;pa=a;
+                }
+            }
+        }
+        flushRun();
+        // End marker
+        qCp(buf+pos,kEnd,8); pos+=8;
+
+        if(conv)conv->Free();
+        out=buf; outSize=pos;
+        return true;
+    }
+
 } // namespace nkentseu

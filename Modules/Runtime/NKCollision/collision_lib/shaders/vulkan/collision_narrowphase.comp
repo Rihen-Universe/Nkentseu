@@ -1,0 +1,68 @@
+// collision_narrowphase.comp — Vulkan GLSL narrowphase
+// Compile: glslangValidator -V collision_narrowphase.comp -o collision_narrowphase.spv
+#version 450
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+struct BodyAABB {
+    vec4  minPad;   // xyz=min
+    vec4  maxPad;   // xyz=max
+    uvec2 bodyId;
+    uvec2 pad2;
+};
+
+struct Pair    { uint idxA; uint idxB; };
+struct Contact {
+    vec4  posA;     // xyz=position, w=pad
+    vec4  posB;
+    vec4  normal;   // xyz=normal, w=penetration depth
+    uvec2 bodyA;
+    uvec2 bodyB;
+};
+
+layout(set=0, binding=0) readonly  buffer AABBBuf    { BodyAABB aabbs[]; };
+layout(set=0, binding=1) readonly  buffer PairBuf    { Pair pairs[]; };
+layout(set=0, binding=2)           buffer ContactBuf { Contact contacts[]; };
+layout(set=0, binding=3)           buffer CountBuf   { uint contactCount; };
+
+layout(push_constant) uniform PC {
+    uint pairCount;
+    uint maxContacts;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Sphere vs Sphere (using bounding sphere approximation from AABB)
+// ─────────────────────────────────────────────────────────────────────────────
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    if(tid >= pairCount) return;
+
+    uint iA = pairs[tid].idxA;
+    uint iB = pairs[tid].idxB;
+
+    vec3 minA = aabbs[iA].minPad.xyz, maxA = aabbs[iA].maxPad.xyz;
+    vec3 minB = aabbs[iB].minPad.xyz, maxB = aabbs[iB].maxPad.xyz;
+
+    vec3 cA = (minA + maxA) * 0.5;
+    vec3 cB = (minB + maxB) * 0.5;
+    float rA = length(maxA - cA);
+    float rB = length(maxB - cB);
+
+    vec3  d     = cB - cA;
+    float dist  = length(d);
+    float radSum= rA + rB;
+
+    if(dist >= radSum) return;  // no contact
+
+    float depth = radSum - dist;
+    vec3  n     = dist > 1e-6 ? d / dist : vec3(0,1,0);
+
+    uint idx = atomicAdd(contactCount, 1u);
+    if(idx >= maxContacts) return;
+
+    contacts[idx].posA    = vec4(cA + n * rA, 0.0);
+    contacts[idx].posB    = vec4(cB - n * rB, 0.0);
+    contacts[idx].normal  = vec4(n, depth);
+    contacts[idx].bodyA   = aabbs[iA].bodyId;
+    contacts[idx].bodyB   = aabbs[iB].bodyId;
+}

@@ -23,6 +23,8 @@
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKContainers/Sequential/NkVector.h"
 
+#include "NkAndroidEventSystem.h"
+
 #include <android/input.h>
 #include <android/keycodes.h>
 #include <android/looper.h>
@@ -511,7 +513,7 @@ namespace nkentseu {
     }
 
     void NkEventSystem::Shutdown() {
-        android_app* app = mData.mAndroidApp ? mData.mAndroidApp : nk_android_global_app;
+        android_app* app = mData->mAndroidApp ? mData->mAndroidApp : nk_android_global_app;
         if (app) {
             if (app->onAppCmd == OnAndroidAppCmd) {
                 app->onAppCmd = nullptr;
@@ -523,7 +525,7 @@ namespace nkentseu {
 
         gAndroidEventSystem = nullptr;
         gFocusedWindowId = NK_INVALID_WINDOW_ID;
-        mData.mAndroidApp = nullptr;
+        mData->mAndroidApp = nullptr;
 
         ClearAllCallbacks();
         mHidMapper.Clear();
@@ -548,7 +550,7 @@ namespace nkentseu {
         }
         mPumping = true;
 
-        android_app* app = mData.mAndroidApp ? mData.mAndroidApp : nk_android_global_app;
+        android_app* app = mData->mAndroidApp ? mData->mAndroidApp : nk_android_global_app;
         if (!app) {
             mPumping = false;
             return;

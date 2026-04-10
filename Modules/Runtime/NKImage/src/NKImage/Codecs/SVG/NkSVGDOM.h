@@ -28,7 +28,7 @@
  *    viewBox + preserveAspectRatio (xMidYMid meet/slice)
  */
 
-#include "NKImage/Core/NkXMLParser.h"
+#include "NKImage/Codecs/SVG/NkXMLParser.h"
 #include "NKImage/Core/NkImageExport.h"
 #include <cstring>
 #include <cmath>
@@ -114,6 +114,8 @@ namespace nkentseu {
             NkSVGPaint  stroke       = NkSVGPaint::None();
             float       strokeWidth  = 1.f;
             float       strokeMiterLimit = 4.f;
+            float32    miterLimit   = 4.f;
+            bool       fillEvenOdd  = false;  // fill-rule evenodd
             NkSVGFillRule fillRule   = NkSVGFillRule::NK_NON_ZERO;
             NkSVGLineCap  lineCap    = NkSVGLineCap::NK_BUTT;
             NkSVGLineJoin lineJoin   = NkSVGLineJoin::NK_MITER;
@@ -123,6 +125,7 @@ namespace nkentseu {
             float       fontSize     = 16.f;
             NkSVGDisplay    display  = NkSVGDisplay::NK_DISPLAY_INLINE;
             NkSVGVisibility visibility= NkSVGVisibility::NK_VISIBLE;
+            bool       visible      = true;
             // Dasharray simplifié (jusqu'à 8 valeurs)
             float       dashArray[8] = {};
             int32       dashCount    = 0;

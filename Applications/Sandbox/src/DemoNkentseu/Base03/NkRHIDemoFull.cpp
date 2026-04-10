@@ -921,10 +921,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         if (hShadowShader.IsValid()) {
             NkSWShader* swSh = swDev->GetShader(hShadowShader.id);
             if (swSh) {
-                swSh->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkSWVertex {
+                swSh->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware {
                     const Vtx3D*   v   = static_cast<const Vtx3D*>(vdata) + idx;
                     const UboData* ubo = static_cast<const UboData*>(udata);
-                    NkSWVertex out;
+                    NkVertexSoftware out;
                     if (!ubo) { out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f}; return out; }
                     auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
                         return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w, m[1]*x+m[5]*y+m[9]*z+m[13]*w,
@@ -947,94 +947,105 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
         if (sw) {
             // Vertex shader CPU
-            sw->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkSWVertex {
+            static bool s_vertLoggedOnce = false;
+            static uint32 s_fragCallCount = 0;
+            static bool   s_loggedOnce    = false;
+
+            sw->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware
+            {
                 const Vtx3D*   v   = static_cast<const Vtx3D*>(vdata) + idx;
                 const UboData* ubo = static_cast<const UboData*>(udata);
-                NkSWVertex out;
+            
+                NkVertexSoftware out;
                 if (!ubo) {
                     out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f};
                     out.normal   = v->normal;
                     out.color    = {v->color.r, v->color.g, v->color.b, 1.f};
                     return out;
                 }
+            
                 auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
-                    return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w, m[1]*x+m[5]*y+m[9]*z+m[13]*w,
-                                   m[2]*x+m[6]*y+m[10]*z+m[14]*w, m[3]*x+m[7]*y+m[11]*z+m[15]*w);
+                    return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w,
+                                m[1]*x+m[5]*y+m[9]*z+m[13]*w,
+                                m[2]*x+m[6]*y+m[10]*z+m[14]*w,
+                                m[3]*x+m[7]*y+m[11]*z+m[15]*w);
                 };
+            
                 NkVec4f wp  = mul4(ubo->model,   v->pos.x, v->pos.y, v->pos.z, 1.f);
                 NkVec4f vp  = mul4(ubo->view,    wp.x,  wp.y,  wp.z,  wp.w);
                 NkVec4f cp  = mul4(ubo->proj,    vp.x,  vp.y,  vp.z,  vp.w);
                 out.position = cp;
-                // Normale en world space (matrice model 3x3)
+            
                 float nx = ubo->model[0]*v->normal.x + ubo->model[4]*v->normal.y + ubo->model[8]*v->normal.z;
                 float ny = ubo->model[1]*v->normal.x + ubo->model[5]*v->normal.y + ubo->model[9]*v->normal.z;
                 float nz = ubo->model[2]*v->normal.x + ubo->model[6]*v->normal.y + ubo->model[10]*v->normal.z;
                 float nl = NkSqrt(nx*nx + ny*ny + nz*nz);
-                if (nl > 0.001f) { nx /= nl; ny /= nl; nz /= nl; }
+                if (nl > 0.001f) { nx/=nl; ny/=nl; nz/=nl; }
                 out.normal = {nx, ny, nz};
                 out.color  = {v->color.r, v->color.g, v->color.b, 1.f};
-                // attrs[0..2] = world pos, attrs[3..6] = shadow coord (light space clip)
+            
                 out.attrs[0] = wp.x; out.attrs[1] = wp.y; out.attrs[2] = wp.z;
                 NkVec4f lsc = mul4(ubo->lightVP, wp.x, wp.y, wp.z, wp.w);
                 out.attrs[3] = lsc.x; out.attrs[4] = lsc.y;
                 out.attrs[5] = lsc.z; out.attrs[6] = lsc.w;
+                out.attrCount = 7;  // ← CRUCIAL : déclarer explicitement le nombre d'attrs
+            
+                if (!s_vertLoggedOnce && idx == 0) {
+                    s_vertLoggedOnce = true;
+                    logger.Infof("[VERT_DIAG] idx=0 pos=%.3f,%.3f,%.3f,%.3f",
+                                cp.x, cp.y, cp.z, cp.w);
+                    logger.Infof("[VERT_DIAG] wp=%.3f,%.3f,%.3f", wp.x, wp.y, wp.z);
+                    logger.Infof("[VERT_DIAG] lsc=%.3f,%.3f,%.3f,%.3f", lsc.x,lsc.y,lsc.z,lsc.w);
+                    logger.Infof("[VERT_DIAG] attrCount=%u", out.attrCount);
+                }
+            
                 return out;
             };
 
             // Fragment shader CPU — 1-tap shadow pour limiter le coût CPU
-            sw->fragFn = [swShadowTex](const NkSWVertex& frag, const void* udata, const void*) -> math::NkVec4f {
-                const UboData* ubo = static_cast<const UboData*>(udata);
-
-                // Normale (déjà normalisée par le vertex shader, évite sqrt)
-                float nx = frag.normal.x, ny = frag.normal.y, nz = frag.normal.z;
-
-                // Direction lumière (constante par frame — idéalement précalculée,
-                // mais ici on normalise une fois par fragment)
-                float lx = -ubo->lightDirW[0], ly = -ubo->lightDirW[1], lz = -ubo->lightDirW[2];
-                float ll2 = lx*lx + ly*ly + lz*lz;
-                if (ll2 > 1e-6f) { float il = 1.f / NkSqrt(ll2); lx*=il; ly*=il; lz*=il; }
-
-                float diff = nx*lx + ny*ly + nz*lz; if (diff < 0.f) diff = 0.f;
-
-                // Spéculaire (half-vector)
-                float vx = ubo->eyePosW[0]-frag.attrs[0];
-                float vy = ubo->eyePosW[1]-frag.attrs[1];
-                float vz = ubo->eyePosW[2]-frag.attrs[2];
-                float vl2 = vx*vx + vy*vy + vz*vz;
-                if (vl2 > 1e-6f) { float iv = 1.f / NkSqrt(vl2); vx*=iv; vy*=iv; vz*=iv; }
-                float hx = lx+vx, hy = ly+vy, hz = lz+vz;
-                float hl2 = hx*hx + hy*hy + hz*hz;
-                if (hl2 > 1e-6f) { float ih = 1.f / NkSqrt(hl2); hx*=ih; hy*=ih; hz*=ih; }
-                float sp = nx*hx + ny*hy + nz*hz; if (sp < 0.f) sp = 0.f;
-                float spec = sp*sp; spec *= spec; spec *= spec; spec *= spec; // sp^16 ≈ rapide
-
-                // Shadow 1-tap (coût minimal CPU — pas de PCF)
-                float shadow = 1.f;
-                if (swShadowTex) {
-                    float sw4 = frag.attrs[6];
-                    float invW = (sw4 != 0.f) ? 1.f / sw4 : 1.f;
-                    float sx = frag.attrs[3] * invW;
-                    float sy = frag.attrs[4] * invW;
-                    float sz = frag.attrs[5] * invW;
-                    float u = sx * 0.5f + 0.5f;
-                    float v = -sy * 0.5f + 0.5f; // Y-flip (NDCToScreen flip Y)
-                    float cmpZ = sz * 0.5f + 0.5f - 0.002f; // bias fixe
-                    if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f && cmpZ <= 1.f) {
-                        uint32 px = (uint32)(u * (float)swShadowTex->Width());
-                        uint32 py = (uint32)(v * (float)swShadowTex->Height());
-                        if (px >= swShadowTex->Width())  px = swShadowTex->Width()-1;
-                        if (py >= swShadowTex->Height()) py = swShadowTex->Height()-1;
-                        shadow = (cmpZ <= swShadowTex->Read(px, py).r) ? 1.f : 0.f;
+            sw->fragFn = [swShadowTex](const NkVertexSoftware& frag,
+                            const void* udata, const void* texPtr) -> math::NkVec4f
+            {
+                ++s_fragCallCount;
+            
+                // Log une seule fois pour voir ce qu'on reçoit
+                if (!s_loggedOnce) {
+                    s_loggedOnce = true;
+                    logger.Infof("[FRAG_DIAG] attrCount=%u", frag.attrCount);
+                    logger.Infof("[FRAG_DIAG] attrs[0..6] = %.3f %.3f %.3f | %.3f %.3f %.3f %.3f",
+                                frag.attrs[0], frag.attrs[1], frag.attrs[2],
+                                frag.attrs[3], frag.attrs[4], frag.attrs[5], frag.attrs[6]);
+                    logger.Infof("[FRAG_DIAG] normal = %.3f %.3f %.3f",
+                                frag.normal.x, frag.normal.y, frag.normal.z);
+                    logger.Infof("[FRAG_DIAG] color  = %.3f %.3f %.3f",
+                                frag.color.r, frag.color.g, frag.color.b);
+                    logger.Infof("[FRAG_DIAG] udata=%p texPtr=%p swShadowTex=%p",
+                                udata, texPtr, (void*)swShadowTex);
+                    if (swShadowTex) {
+                        logger.Infof("[FRAG_DIAG] shadowTex size=%ux%u format=%d mips=%u",
+                                    swShadowTex->Width(), swShadowTex->Height(),
+                                    (int)swShadowTex->desc.format,
+                                    (uint32)swShadowTex->mips.Size());
+                        // Lire quelques pixels de la shadow map pour voir si elle est remplie
+                        if (!swShadowTex->mips.Empty()) {
+                            float d0 = swShadowTex->Read(1024, 1024).r;
+                            float d1 = swShadowTex->Read(0, 0).r;
+                            float d2 = swShadowTex->Read(2047, 2047).r;
+                            logger.Infof("[FRAG_DIAG] shadowMap samples: center=%.4f corner0=%.4f corner1=%.4f",
+                                        d0, d1, d2);
+                        }
                     }
                 }
-                shadow = shadow < 0.35f ? 0.35f : shadow;
-                float r = 0.15f*frag.color.x + shadow*(diff*frag.color.x + spec*0.4f);
-                float g = 0.15f*frag.color.y + shadow*(diff*frag.color.y + spec*0.4f);
-                float b = 0.15f*frag.color.z + shadow*(diff*frag.color.z + spec*0.4f);
-                r = r < 0.f ? 0.f : (r > 1.f ? 1.f : r);
-                g = g < 0.f ? 0.f : (g > 1.f ? 1.f : g);
-                b = b < 0.f ? 0.f : (b > 1.f ? 1.f : b);
-                return {r, g, b, 1.f};
+            
+                // Retourner une couleur de debug pour voir si le shader est appelé du tout
+                // Rouge = shader appelé, attrs[0] non nul = worldPos correct
+                if (frag.attrs[0] == 0.f && frag.attrs[1] == 0.f && frag.attrs[2] == 0.f) {
+                    return {1.f, 0.f, 0.f, 1.f}; // ROUGE = attrs perdus
+                }
+                if (frag.normal.x == 0.f && frag.normal.y == 0.f && frag.normal.z == 0.f) {
+                    return {1.f, 1.f, 0.f, 1.f}; // JAUNE = normale perdue
+                }
+                return {0.f, 1.f, 0.f, 1.f}; // VERT = tout est là
             };
         }
     }
@@ -1381,6 +1392,3 @@ int nkmain(const nkentseu::NkEntryState& state) {
     logger.Info("[RHIFullDemo] Terminé proprement.\n");
     return 0;
 }
-
-
-

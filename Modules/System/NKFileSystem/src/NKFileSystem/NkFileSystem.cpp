@@ -37,7 +37,7 @@ namespace nkentseu {
         NkDriveInfo::NkDriveInfo()
             : Name()
             , Label()
-            , Type(NkFileSystemType::Unknown)
+            , Type(NkFileSystemType::NK_UNKNOW)
             , TotalSize(0)
             , FreeSpace(0)
             , AvailableSpace(0)
@@ -82,11 +82,11 @@ namespace nkentseu {
                             info.Label = volumeName;
                             
                             if (strcmp(fileSystemName, "NTFS") == 0) {
-                                info.Type = NkFileSystemType::NTFS;
+                                info.Type = NkFileSystemType::NK_NTFS;
                             } else if (strcmp(fileSystemName, "FAT32") == 0) {
-                                info.Type = NkFileSystemType::FAT32;
+                                info.Type = NkFileSystemType::NK_FAT32;
                             } else if (strcmp(fileSystemName, "exFAT") == 0) {
-                                info.Type = NkFileSystemType::exFAT;
+                                info.Type = NkFileSystemType::NK_EXFAT;
                             }
                         }
                         

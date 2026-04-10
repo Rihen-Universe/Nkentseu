@@ -1,6 +1,6 @@
 //
 // NkMatrix.h
-// Matrices 2x2, 3x3 et 4x4 génériques — variantes f=float32 et d=float64.
+// Matrices 2x2, 3x3 et 4x4 génériques — variantes f=float64 et d=float64.
 //
 // ── Convention de stockage ────────────────────────────────────────────────────
 //
@@ -147,8 +147,8 @@ namespace nkentseu {
 
             bool operator==(const NkMat2T& o) const noexcept {
                 for (int i = 0; i < 4; ++i) {
-                    if (NkFabs(static_cast<float32>(data[i] - o.data[i]))
-                            > static_cast<float32>(NkMatrixEpsilon)) { return false; }
+                    if (NkFabs(static_cast<float64>(data[i] - o.data[i]))
+                            > static_cast<float64>(NkMatrixEpsilon)) { return false; }
                 }
                 return true;
             }
@@ -169,7 +169,7 @@ namespace nkentseu {
 
             NkMat2T Inverse() const noexcept {
                 T det = Determinant();
-                if (NkFabs(static_cast<float32>(det)) < static_cast<float32>(NkMatrixEpsilon)) {
+                if (NkFabs(static_cast<float64>(det)) < static_cast<float64>(NkMatrixEpsilon)) {
                     return Identity(); // Matrice singulière → identité de secours
                 }
                 T inv = T(1) / det;
@@ -319,8 +319,8 @@ namespace nkentseu {
 
             bool operator==(const NkMat3T& o) const noexcept {
                 for (int i = 0; i < 9; ++i) {
-                    if (NkFabs(static_cast<float32>(data[i] - o.data[i]))
-                            > static_cast<float32>(NkMatrixEpsilon)) { return false; }
+                    if (NkFabs(static_cast<float64>(data[i] - o.data[i]))
+                            > static_cast<float64>(NkMatrixEpsilon)) { return false; }
                 }
                 return true;
             }
@@ -347,7 +347,7 @@ namespace nkentseu {
 
             NkMat3T Inverse() const noexcept {
                 T det = Determinant();
-                if (NkFabs(static_cast<float32>(det)) < static_cast<float32>(NkMatrixEpsilon)) {
+                if (NkFabs(static_cast<float64>(det)) < static_cast<float64>(NkMatrixEpsilon)) {
                     return Identity();
                 }
                 T inv = T(1) / det;
@@ -526,7 +526,9 @@ namespace nkentseu {
             // ── Comparaison ───────────────────────────────────────────────────
 
             bool operator==(const NkMat4T& o) const noexcept {
-                for (int i = 0; i < 16; ++i) { if (data[i] != o.data[i]) { return false; } }
+                for (int i = 0; i < 16; ++i) {
+                    if (NkFabs(static_cast<float64>(data[i] - o.data[i])) > static_cast<float64>(NkMatrixEpsilon)) { return false; }
+                }
                 return true;
             }
 
@@ -645,7 +647,7 @@ namespace nkentseu {
                     for (int r = 0; r < 4; ++r) { inv.mat[c][r] = Cofactor(r, c); }
                 }
                 T det = Determinant();
-                if (NkFabs(static_cast<float32>(det)) < static_cast<float32>(NkMatrixEpsilon)) {
+                if (NkFabs(static_cast<float64>(det)) < static_cast<float64>(NkMatrixEpsilon)) {
                     return Identity(); // Matrice singulière → identité de secours
                 }
                 T invDet = T(1) / det;
@@ -654,14 +656,50 @@ namespace nkentseu {
             }
 
             void OrthoNormalize() noexcept {
-                right.Normalize();
-                up.Normalize();
-                forward.Normalize();
+                // On travaille sur les vecteurs colonnes (right, up, forward)
+                NkVec3T<T> r(right.x, right.y, right.z);
+                NkVec3T<T> u(up.x, up.y, up.z);
+                NkVec3T<T> f(forward.x, forward.y, forward.z);
+
+                // Étape 1 : normaliser right
+                r.Normalize();
+
+                // Étape 2 : projeter up sur right et soustraire, puis normaliser
+                u = (u - u.Dot(r) * r).Normalized();
+
+                // Étape 3 : projeter forward sur r et u, soustraire, puis normaliser
+                f = (f - f.Dot(r) * r - f.Dot(u) * u).Normalized();
+
+                // Reconstruire la matrice
+                right   = NkVec4T<T>(r, T(0));
+                up      = NkVec4T<T>(u, T(0));
+                forward = NkVec4T<T>(f, T(0));
+            }
+
+            void OrthoNormalizeScaled() noexcept {
+                NkVec3T<T> r(right.x, right.y, right.z);
+                NkVec3T<T> u(up.x, up.y, up.z);
+                NkVec3T<T> f(forward.x, forward.y, forward.z);
+                NkVec3T<T> scale = NkVec3T<T>(r.Len(), u.Len(), f.Len());
+                
+                r.Normalize();
+                u = (u - u.Dot(r) * r).Normalized();
+                f = (f - f.Dot(r) * r - f.Dot(u) * u).Normalized();
+                
+                right   = NkVec4T<T>(r * scale.x, T(0));
+                up      = NkVec4T<T>(u * scale.y, T(0));
+                forward = NkVec4T<T>(f * scale.z, T(0));
             }
 
             NkMat4T OrthoNormalized() const noexcept {
                 NkMat4T t(*this);
                 t.OrthoNormalize();
+                return t;
+            }
+
+            NkMat4T OrthoNormalizeScaled() const noexcept {
+                NkMat4T t(*this);
+                t.OrthoNormalizeScaled();
                 return t;
             }
 
@@ -723,9 +761,9 @@ namespace nkentseu {
 
             /// Rotation autour d'un axe arbitraire (Rodrigues)
             static NkMat4T Rotation(const NkVec3T<T>& axis, const NkAngle& angle) noexcept {
-                float32 c   = NkCos(angle.Rad());
-                float32 s   = NkSin(angle.Rad());
-                float32 omc = 1.0f - c;
+                float64 c   = NkCos(angle.Rad());
+                float64 s   = NkSin(angle.Rad());
+                float64 omc = 1.0f - c;
                 NkVec3T<T> v = axis.Normalized();
                 NkMat4T r(T(1));
                 r.mat[0][0] = T(c + v.x * v.x * omc);
@@ -741,15 +779,15 @@ namespace nkentseu {
             }
 
             static NkMat4T RotationX(const NkAngle& pitch) noexcept {
-                float32 c = NkCos(pitch.Rad()), s = NkSin(pitch.Rad());
+                float64 c = NkCos(pitch.Rad()), s = NkSin(pitch.Rad());
                 NkMat4T r(T(1));
-                r.mat[1][1] = T(c);  r.mat[1][2] = T(s);
-                r.mat[2][1] = T(-s); r.mat[2][2] = T(c);
+                r.mat[1][1] = T(c);  r.mat[1][2] = T(-s);
+                r.mat[2][1] = T(s); r.mat[2][2] = T(c);
                 return r;
             }
 
             static NkMat4T RotationY(const NkAngle& yaw) noexcept {
-                float32 c = NkCos(yaw.Rad()), s = NkSin(yaw.Rad());
+                float64 c = NkCos(yaw.Rad()), s = NkSin(yaw.Rad());
                 NkMat4T r(T(1));
                 r.mat[0][0] = T(c);  r.mat[0][2] = T(-s);
                 r.mat[2][0] = T(s);  r.mat[2][2] = T(c);
@@ -757,7 +795,7 @@ namespace nkentseu {
             }
 
             static NkMat4T RotationZ(const NkAngle& roll) noexcept {
-                float32 c = NkCos(roll.Rad()), s = NkSin(roll.Rad());
+                float64 c = NkCos(roll.Rad()), s = NkSin(roll.Rad());
                 NkMat4T r(T(1));
                 r.mat[0][0] = T(c);  r.mat[0][1] = T(s);
                 r.mat[1][0] = T(-s); r.mat[1][1] = T(c);
@@ -770,14 +808,22 @@ namespace nkentseu {
             }
 
             /// Projection perspective (fov vertical en degrés, aspect = largeur/hauteur)
-            static NkMat4T Perspective(const NkAngle& fovY, T aspect, T zNear, T zFar) noexcept {
-                float32 tanHalf = NkTan(fovY.Rad() * 0.5f);
+            static NkMat4T Perspective(const NkAngle& fovY, T aspect, T zNear, T zFar, bool depthZeroToOne = false) noexcept {
+                float64 tanHalf = NkTan(fovY.Rad() * 0.5f);
                 NkMat4T r;
                 r.mat[0][0] = T(1.0f / (aspect * tanHalf));
                 r.mat[1][1] = T(1.0f / tanHalf);
-                r.mat[2][2] = T((zFar + zNear) / (zNear - zFar));
-                r.mat[3][2] = T(2.0f * zFar * zNear / (zNear - zFar));
                 r.mat[2][3] = T(-1);
+                
+                if (depthZeroToOne) {
+                    // Vulkan / DirectX 11/12 style : depth range [0,1]
+                    r.mat[2][2] = T(zFar / (zNear - zFar));
+                    r.mat[3][2] = T(zFar * zNear / (zNear - zFar));
+                } else {
+                    // OpenGL style : depth range [-1,1]
+                    r.mat[2][2] = T((zFar + zNear) / (zNear - zFar));
+                    r.mat[3][2] = T(2.0f * zFar * zNear / (zNear - zFar));
+                }
                 return r;
             }
 
@@ -819,19 +865,16 @@ namespace nkentseu {
 
             /// Vue "regardant" center depuis eye (convention OpenGL, colonne-major)
             static NkMat4T LookAt(const NkVec3T<T>& eye,
-                                 const NkVec3T<T>& center,
-                                 const NkVec3T<T>& up) noexcept {
-                NkVec3T<T> f = (eye - center).Normalized();      // forward (de cible vers œil)
-                NkVec3T<T> r = up.Cross(f).Normalized();          // right
-                NkVec3T<T> u = f.Cross(r).Normalized();           // up reorthogonalisé
+                      const NkVec3T<T>& center,
+                      const NkVec3T<T>& up) noexcept {
+                NkVec3T<T> f = (center - eye).Normalized();   // direction avant
+                NkVec3T<T> r = f.Cross(up).Normalized();      // right
+                NkVec3T<T> u = r.Cross(f);                    // up reorthogonalisé
                 NkMat4T res;
-                res.mat[0][0] = r.x;  res.mat[0][1] = u.x;  res.mat[0][2] = f.x;  res.mat[0][3] = T(0);
-                res.mat[1][0] = r.y;  res.mat[1][1] = u.y;  res.mat[1][2] = f.y;  res.mat[1][3] = T(0);
-                res.mat[2][0] = r.z;  res.mat[2][1] = u.z;  res.mat[2][2] = f.z;  res.mat[2][3] = T(0);
-                res.mat[3][0] = -r.Dot(eye);
-                res.mat[3][1] = -u.Dot(eye);
-                res.mat[3][2] = -f.Dot(eye);
-                res.mat[3][3] = T(1);
+                res.col[0] = NkVec4T<T>(r, T(0));
+                res.col[1] = NkVec4T<T>(u, T(0));
+                res.col[2] = NkVec4T<T>(-f, T(0));            // axe Z = -f
+                res.col[3] = NkVec4T<T>(-r.Dot(eye), -u.Dot(eye), f.Dot(eye), T(1));
                 return res;
             }
 
@@ -922,47 +965,47 @@ namespace nkentseu {
             outPosition = NkVec3T<T>(mat[3][0], mat[3][1], mat[3][2]);
 
             // ── 3. Matrice de rotation pure (colonnes normalisées) ─────────────
-            float32 invSx = (outScale.x > T(0)) ? T(1) / outScale.x : T(0);
-            float32 invSy = (outScale.y > T(0)) ? T(1) / outScale.y : T(0);
-            float32 invSz = (outScale.z > T(0)) ? T(1) / outScale.z : T(0);
+            float64 invSx = (outScale.x > T(0)) ? T(1) / outScale.x : T(0);
+            float64 invSy = (outScale.y > T(0)) ? T(1) / outScale.y : T(0);
+            float64 invSz = (outScale.z > T(0)) ? T(1) / outScale.z : T(0);
 
-            float32 r00 = static_cast<float32>(mat[0][0]) * invSx;
-            float32 r01 = static_cast<float32>(mat[0][1]) * invSx;
-            float32 r02 = static_cast<float32>(mat[0][2]) * invSx;
-            float32 r10 = static_cast<float32>(mat[1][0]) * invSy;
-            float32 r11 = static_cast<float32>(mat[1][1]) * invSy;
-            float32 r12 = static_cast<float32>(mat[1][2]) * invSy;
-            float32 r20 = static_cast<float32>(mat[2][0]) * invSz;
-            float32 r21 = static_cast<float32>(mat[2][1]) * invSz;
-            float32 r22 = static_cast<float32>(mat[2][2]) * invSz;
+            float64 r00 = static_cast<float64>(mat[0][0]) * invSx;
+            float64 r01 = static_cast<float64>(mat[0][1]) * invSx;
+            float64 r02 = static_cast<float64>(mat[0][2]) * invSx;
+            float64 r10 = static_cast<float64>(mat[1][0]) * invSy;
+            float64 r11 = static_cast<float64>(mat[1][1]) * invSy;
+            float64 r12 = static_cast<float64>(mat[1][2]) * invSy;
+            float64 r20 = static_cast<float64>(mat[2][0]) * invSz;
+            float64 r21 = static_cast<float64>(mat[2][1]) * invSz;
+            float64 r22 = static_cast<float64>(mat[2][2]) * invSz;
 
             // ── 4. Quaternion depuis la matrice de rotation (Shoemake 1994) ────
             //
             // On choisit la composante dominante (la plus grande en valeur absolue)
             // comme dénominateur pour éviter la division par zéro.
-            float32 trace = r00 + r11 + r22;
-            float32 qx, qy, qz, qw;
+            float64 trace = r00 + r11 + r22;
+            float64 qx, qy, qz, qw;
 
             if (trace > 0.0f) {
-                float32 s = 0.5f / NkSqrt(trace + 1.0f);
+                float64 s = 0.5f / NkSqrt(trace + 1.0f);
                 qw = 0.25f / s;
                 qx = (r21 - r12) * s;
                 qy = (r02 - r20) * s;
                 qz = (r10 - r01) * s;
             } else if (r00 > r11 && r00 > r22) {
-                float32 s = 2.0f * NkSqrt(1.0f + r00 - r11 - r22);
+                float64 s = 2.0f * NkSqrt(1.0f + r00 - r11 - r22);
                 qw = (r21 - r12) / s;
                 qx = 0.25f * s;
                 qy = (r01 + r10) / s;
                 qz = (r02 + r20) / s;
             } else if (r11 > r22) {
-                float32 s = 2.0f * NkSqrt(1.0f + r11 - r00 - r22);
+                float64 s = 2.0f * NkSqrt(1.0f + r11 - r00 - r22);
                 qw = (r02 - r20) / s;
                 qx = (r01 + r10) / s;
                 qy = 0.25f * s;
                 qz = (r12 + r21) / s;
             } else {
-                float32 s = 2.0f * NkSqrt(1.0f + r22 - r00 - r11);
+                float64 s = 2.0f * NkSqrt(1.0f + r22 - r00 - r11);
                 qw = (r10 - r01) / s;
                 qx = (r02 + r20) / s;
                 qy = (r12 + r21) / s;
@@ -970,9 +1013,9 @@ namespace nkentseu {
             }
 
             // Normalisation du quaternion
-            float32 qlen = NkSqrt(qx * qx + qy * qy + qz * qz + qw * qw);
-            if (qlen > static_cast<float32>(NkEpsilon)) {
-                float32 invQ = 1.0f / qlen;
+            float64 qlen = NkSqrt(qx * qx + qy * qy + qz * qz + qw * qw);
+            if (qlen > static_cast<float64>(NkEpsilon)) {
+                float64 invQ = 1.0f / qlen;
                 qx *= invQ;
                 qy *= invQ;
                 qz *= invQ;
@@ -984,40 +1027,40 @@ namespace nkentseu {
             // Détection du pôle de Gimbal : t = qy*qx + qz*qw
             //   t > +0.499 → singularité Nord (+90° Yaw)
             //   t < -0.499 → singularité Sud  (−90° Yaw)
-            float32 gimbalTest = qy * qx + qz * qw;
+            float64 gimbalTest = qy * qx + qz * qw;
 
             if (gimbalTest > 0.499f) {
                 // Pôle Nord : yaw = +90°, roll dégénère avec pitch
-                outEuler.yaw   = NkAngle::FromRad( static_cast<float32>(NkPis2));
+                outEuler.yaw   = NkAngle::FromRad( static_cast<float64>(NkPis2));
                 outEuler.pitch = NkAngle::FromRad( 2.0f * NkAtan2(qx, qw));
                 outEuler.roll  = NkAngle(0.0f);
             } else if (gimbalTest < -0.499f) {
                 // Pôle Sud : yaw = −90°, roll dégènere avec pitch
-                outEuler.yaw   = NkAngle::FromRad(-static_cast<float32>(NkPis2));
+                outEuler.yaw   = NkAngle::FromRad(-static_cast<float64>(NkPis2));
                 outEuler.pitch = NkAngle::FromRad(-2.0f * NkAtan2(qx, qw));
                 outEuler.roll  = NkAngle(0.0f);
             } else {
                 // Cas général — pas de singularité
                 // Pitch (X)
-                float32 sinr = 2.0f * (qw * qx + qy * qz);
-                float32 cosr = 1.0f - 2.0f * (qx * qx + qy * qy);
+                float64 sinr = 2.0f * (qw * qx + qy * qz);
+                float64 cosr = 1.0f - 2.0f * (qx * qx + qy * qy);
                 outEuler.pitch = NkAngle::FromRad(NkAtan2(sinr, cosr));
 
                 // Yaw (Y)
-                float32 sinp = 2.0f * (qw * qy - qz * qx);
-                sinp = NkClamp(sinp, -1.0f, 1.0f); // protection NaN
+                float64 sinp = 2.0f * (qw * qy - qz * qx);
+                sinp = NkClamp(sinp, -1.0, 1.0); // protection NaN
                 outEuler.yaw = NkAngle::FromRad(NkAsin(sinp));
 
                 // Roll (Z)
-                float32 siny = 2.0f * (qw * qz + qx * qy);
-                float32 cosy = 1.0f - 2.0f * (qy * qy + qz * qz);
+                float64 siny = 2.0f * (qw * qz + qx * qy);
+                float64 cosy = 1.0f - 2.0f * (qy * qy + qz * qz);
                 outEuler.roll = NkAngle::FromRad(NkAtan2(siny, cosy));
             }
         }
 
 
         // =====================================================================
-        // Aliases de types — f=float32, d=float64 (matrices: pas de i/u)
+        // Aliases de types — f=float64, d=float64 (matrices: pas de i/u)
         // =====================================================================
 
         using NkMatrix2f    = NkMat2T<float32>;

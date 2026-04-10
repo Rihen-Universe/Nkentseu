@@ -34,6 +34,7 @@ with project("NKUI"):
         "%{NKEvent.location}/src",
         "%{NKThreading.location}/src",
         "%{NKLogger.location}/src",
+        "%{NKFont.location}/src",
     ])
 
     pchheader("pch/pch.h")
@@ -48,24 +49,11 @@ with project("NKUI"):
         "NKLogger",
         "NKContainers",
         "NKEvent",
+        "NKFont",
     ])
 
     files([
-        "src/NkUI/NkUIAnimation.cpp",
-        "src/NkUI/NkUIContext.cpp",
-        "src/NkUI/NkUIDock.cpp",
-        "src/NkUI/NkUIDrawList.cpp",
-        "src/NkUI/NkUIFont.cpp",
-        "src/NkUI/NkUILayout.cpp",
-        "src/NkUI/NkUILayout2.cpp",
-        "src/NkUI/NkUIMenu.cpp",
-        "src/NkUI/NkUIMath.cpp",
-        "src/NkUI/NkUIRenderer.cpp",
-        "src/NkUI/NkUIWidgets.cpp",
-        "src/NkUI/NkUIWindow.cpp",
-        # Headers (pour IDEs)
-        "src/NkUI/**.h",
-        "pch/pch.h",
+        "src/**.cpp",
     ])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

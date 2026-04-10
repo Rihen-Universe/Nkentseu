@@ -1,0 +1,43 @@
+// collision_broadphase.comp — Vulkan GLSL compute shader
+// Compile: glslangValidator -V collision_broadphase.comp -o collision_broadphase.spv
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct BodyAABB {
+    vec4  minPad;
+    vec4  maxPad;
+    uvec2 bodyId;
+    uvec2 pad2;
+};
+struct Pair { uint idxA; uint idxB; };
+
+layout(set=0, binding=0) readonly  buffer AABBBuffer  { BodyAABB aabbs[]; };
+layout(set=0, binding=1)           buffer PairBuffer  { Pair pairs[]; };
+layout(set=0, binding=2)           buffer CountBuffer { uint pairCount; };
+
+layout(push_constant) uniform PushConst {
+    uint count;
+    uint maxPairs;
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+
+    // 1D dispatch over N*(N-1)/2 pairs
+    // Decode (i,j) from linear index
+    uint i = uint(floor((1.0 + sqrt(1.0 + 8.0*float(tid))) * 0.5));
+    uint j = tid - i*(i-1)/2u;
+    if(i >= count || j >= count) return;
+
+    vec3 minA = aabbs[i].minPad.xyz, maxA = aabbs[i].maxPad.xyz;
+    vec3 minB = aabbs[j].minPad.xyz, maxB = aabbs[j].maxPad.xyz;
+
+    if(all(lessThanEqual(minA, maxB)) && all(greaterThanEqual(maxA, minB))) {
+        uint idx = atomicAdd(pairCount, 1u);
+        if(idx < maxPairs) {
+            pairs[idx].idxA = i;
+            pairs[idx].idxB = j;
+        }
+    }
+}

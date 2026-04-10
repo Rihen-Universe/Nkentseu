@@ -11,7 +11,7 @@
  * Main data: Rect/line/circle/path/image emission and clip handling.
  * Change this file when: Rendering artifacts or primitive generation bugs appear.
  */
-#include "NkUI/NkUIDrawList.h"
+#include "NKUI/NkUIDrawList.h"
 #include <cstring>
 #include <cmath>
 
@@ -324,6 +324,27 @@ namespace nkentseu {
                 PathLineTo({c.x+::cosf(a)*rx,c.y+::sinf(a)*ry});
             }
             PathFill(col);
+        }
+
+        void NkUIDrawList::AddEllipse(NkVec2 center, float32 rx, float32 ry, NkColor col, float32 thickness, int32 segs) noexcept {
+            if (rx <= 0 || ry <= 0) return;
+            if (col.a <= 1) return;  // alpha threshold
+
+            NkRect bb = { center.x - rx, center.y - ry, rx * 2, ry * 2 };
+            NkRect clipped = NkRectIntersect(bb, GetClipRect());
+            if (clipped.w <= 0 || clipped.h <= 0) return;
+
+            if (segs <= 0) segs = CalcCircleSegs((rx + ry) * 0.5f);
+
+            // Generate points along the ellipse
+            NkVec2 pts[256]; // stack buffer, enough for typical segs (max 128)
+            if (segs > 256) segs = 256; // clamp to stack size
+
+            for (int32 i = 0; i <= segs; ++i) {
+                float32 a = 2.f * NKUI_PI * i / segs;
+                pts[i] = { center.x + cosf(a) * rx, center.y + sinf(a) * ry };
+            }
+            AddPolyline(pts, segs + 1, col, thickness, true);
         }
 
         void NkUIDrawList::AddArc(NkVec2 c,float32 r,float32 a0,float32 a1,

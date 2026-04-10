@@ -21,11 +21,11 @@ namespace nkentseu {
         
         const char* NkFile::GetModeString() const {
             switch (mMode) {
-                case NkFileMode::Read: return "rb";
-                case NkFileMode::Write: return "wb";
-                case NkFileMode::Append: return "ab";
-                case NkFileMode::ReadWrite: return "rb+";
-                case NkFileMode::ReadAppend: return "ab+";
+                case NkFileMode::NK_READ: return "rb";
+                case NkFileMode::NK_WRITE: return "wb";
+                case NkFileMode::NK_APPEND: return "ab";
+                case NkFileMode::NK_READ_WRITE: return "rb+";
+                case NkFileMode::NK_READ_APPEND: return "ab+";
                 default: return "rb";
             }
         }
@@ -33,7 +33,7 @@ namespace nkentseu {
         NkFile::NkFile()
             : mHandle(nullptr)
             , mPath()
-            , mMode(NkFileMode::Read)
+            , mMode(NkFileMode::NK_READ)
             , mIsOpen(false) {
         }
         
@@ -196,9 +196,9 @@ namespace nkentseu {
             
             int whence;
             switch (origin) {
-                case NkSeekOrigin::Begin: whence = SEEK_SET; break;
-                case NkSeekOrigin::Current: whence = SEEK_CUR; break;
-                case NkSeekOrigin::End: whence = SEEK_END; break;
+                case NkSeekOrigin::NK_BEGIN: whence = SEEK_SET; break;
+                case NkSeekOrigin::NK_CURRENT: whence = SEEK_CUR; break;
+                case NkSeekOrigin::NK_END: whence = SEEK_END; break;
                 default: whence = SEEK_SET;
             }
             
@@ -206,11 +206,11 @@ namespace nkentseu {
         }
         
         bool NkFile::SeekToBegin() {
-            return Seek(0, NkSeekOrigin::Begin);
+            return Seek(0, NkSeekOrigin::NK_BEGIN);
         }
         
         bool NkFile::SeekToEnd() {
-            return Seek(0, NkSeekOrigin::End);
+            return Seek(0, NkSeekOrigin::NK_END);
         }
         
         nk_int64 NkFile::GetSize() const {
@@ -277,10 +277,10 @@ namespace nkentseu {
                 return false;
             }
             
-            NkFile src(source, NkFileMode::Read);
+            NkFile src(source, NkFileMode::NK_READ);
             if (!src.IsOpen()) return false;
             
-            NkFile dst(dest, NkFileMode::Write);
+            NkFile dst(dest, NkFileMode::NK_WRITE);
             if (!dst.IsOpen()) return false;
             
             char buffer[8192];
@@ -308,7 +308,7 @@ namespace nkentseu {
         }
         
         nk_int64 NkFile::GetFileSize(const char* path) {
-            NkFile file(path, NkFileMode::Read);
+            NkFile file(path, NkFileMode::NK_READ);
             if (!file.IsOpen()) return -1;
             return file.GetSize();
         }
@@ -318,7 +318,7 @@ namespace nkentseu {
         }
         
         NkString NkFile::ReadAllText(const char* path) {
-            NkFile file(path, NkFileMode::Read);
+            NkFile file(path, NkFileMode::NK_READ);
             if (!file.IsOpen()) return NkString();
             return file.ReadAll();
         }
@@ -328,7 +328,7 @@ namespace nkentseu {
         }
         
         NkVector<nk_uint8> NkFile::ReadAllBytes(const char* path) {
-            NkFile file(path, NkFileMode::Read);
+            NkFile file(path, NkFileMode::NK_READ);
             if (!file.IsOpen()) return NkVector<nk_uint8>();
             
             nk_int64 size = file.GetSize();
@@ -346,7 +346,7 @@ namespace nkentseu {
         }
         
         bool NkFile::WriteAllText(const char* path, const char* text) {
-            NkFile file(path, NkFileMode::Write);
+            NkFile file(path, NkFileMode::NK_WRITE);
             if (!file.IsOpen()) return false;
             
             usize len = strlen(text);
@@ -358,7 +358,7 @@ namespace nkentseu {
         }
         
         bool NkFile::WriteAllBytes(const char* path, const NkVector<nk_uint8>& data) {
-            NkFile file(path, NkFileMode::Write);
+            NkFile file(path, NkFileMode::NK_WRITE);
             if (!file.IsOpen()) return false;
             
             return file.Write(data.Data(), data.Size()) == data.Size();

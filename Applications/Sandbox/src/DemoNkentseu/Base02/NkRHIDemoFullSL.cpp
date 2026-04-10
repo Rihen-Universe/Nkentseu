@@ -305,7 +305,7 @@ static NkVector<Vtx3D> MakePlane(float sz=3.f,float r=0.35f,float g=0.65f,float 
 // En cas d'échec (NkSL non disponible ou erreur de compilation), utilise
 // le fallback GLSL/HLSL/MSL hardcodé.
 //
-// Pour le backend Software, génère un NkSWShader CPU via NkSLCodeGen_CPP.
+// Pour le backend Software, génère un NkSWShader CPU via NkSLCodeGenCPP.
 // =============================================================================
 class NkSLShaderProvider {
 public:

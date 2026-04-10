@@ -25,6 +25,7 @@
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkTraits.h"
 #include "NKCore/NkTypes.h"
+#include "NKCore/NkCGXDetect.h"
 
 namespace nkentseu {
 
@@ -32,32 +33,7 @@ namespace nkentseu {
     // NkGraphicsApi — API graphique active
     // =========================================================================
 
-    enum class NkGraphicsApi : uint32 {
-        // Canonical names used by NKWindow events.
-        NK_GFX_API_NONE    = 0,
-        NK_GFX_API_OPENGL,       ///< OpenGL 3.3+
-        NK_GFX_API_OPENGLES,     ///< OpenGL ES 2.0 / 3.x (mobile)
-        NK_GFX_API_VULKAN,       ///< Vulkan 1.0+
-        NK_GFX_API_D3D11,        ///< Direct3D 11
-        NK_GFX_API_D3D12,        ///< Direct3D 12
-        NK_GFX_API_METAL,        ///< Metal (macOS / iOS)
-        NK_GFX_API_WEBGL,        ///< WebGL (navigateur / WASM)
-        NK_GFX_API_WEBGPU,       ///< WebGPU (navigateur / WASM)
-        NK_GFX_API_SOFTWARE,     ///< Rasterisation logicielle (fallback)
-        NK_GFX_API_MAX,
-
-        // Compatibility aliases used by NKRenderer.
-        NK_API_NONE       = NK_GFX_API_NONE,
-        NK_API_OPENGL     = NK_GFX_API_OPENGL,
-        NK_API_OPENGLES   = NK_GFX_API_OPENGLES,
-        NK_API_VULKAN     = NK_GFX_API_VULKAN,
-        NK_API_DIRECTX11  = NK_GFX_API_D3D11,
-        NK_API_DIRECTX12  = NK_GFX_API_D3D12,
-        NK_API_METAL      = NK_GFX_API_METAL,
-        NK_API_WEBGL      = NK_GFX_API_WEBGL,
-        NK_API_SOFTWARE   = NK_GFX_API_SOFTWARE,
-        NK_API_COUNT      = NK_GFX_API_MAX
-    };
+    using NkGraphicsApi = platform::graphics::NkGraphicsApi;
 
     inline const char* NkGraphicsApiToString(NkGraphicsApi api) noexcept {
         switch (api) {

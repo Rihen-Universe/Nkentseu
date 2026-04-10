@@ -79,6 +79,14 @@ public:
         });
     }
 
+    // Clear dynamique — stocké comme état du CB, lu dans GL_BeginRenderPass
+    void SetClearColor(float r, float g, float b, float a = 1.f) override {
+        Push([this, r, g, b, a]{ mClearR=r; mClearG=g; mClearB=b; mClearA=a; });
+    }
+    void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
+        Push([this, depth, stencil]{ mClearDepth=depth; mClearStencil=stencil; });
+    }
+
     // =========================================================================
     // Pipeline
     // =========================================================================
@@ -339,6 +347,11 @@ private:
     NkCommandBufferType mType;
     NkVector<Cmd>   mCmds;
     bool               mRecording   = false;
+
+    // Valeurs de clear dynamiques (SetClearColor / SetClearDepth)
+    float   mClearR = 0.f, mClearG = 0.f, mClearB = 0.f, mClearA = 1.f;
+    float   mClearDepth   = 1.f;
+    uint32  mClearStencil = 0;
 
     // État courant (mis à jour par les commandes Bind*)
     NkPipelineHandle   mBoundPipeline;

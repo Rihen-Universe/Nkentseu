@@ -1,0 +1,32 @@
+// triangle.sw.sksl
+// Source NkSL compilée par NkSLCompiler vers C++ (NK_CPLUSPLUS target)
+// Compatible avec NkSoftwareDevice via NkSWVertexShader / NkSWPixelShader
+//
+// Layout NkVertex2D (stride=20) :
+//   offset 0  : float x, y    (position écran en pixels)
+//   offset 8  : float u, v    (UV [0,1])
+//   offset 16 : uint8 r,g,b,a (couleur — converti float [0,1] dans le vertex shader)
+//
+// Push constant (uniform block) :
+//   mat4 proj  — matrice ortho NkView2D::ToProjectionMatrix() column-major
+
+@location(0) in vec2 aPosition;
+@location(1) in vec3 aColor;
+
+@location(0) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void vert_main() {
+    vColor = aColor;
+    gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+
+@location(0) in vec3 vColor;
+@location(0) out vec4 FragColor;
+
+@stage(fragment)
+@entry
+void frag_main() {
+    FragColor = vec4(vColor, 1.0);
+}

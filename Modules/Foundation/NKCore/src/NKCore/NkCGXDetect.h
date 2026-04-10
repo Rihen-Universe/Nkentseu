@@ -212,120 +212,130 @@ NKENTSEU_SWITCH_ONLY(
 
 namespace nkentseu {
 /**
- * @brief Namespace platform.
- */
-namespace platform {
-/**
- * @brief Namespace graphics.
- */
-namespace graphics {
+     * @brief Namespace platform.
+     */
+    namespace platform {
+        /**
+         * @brief Namespace graphics.
+         */
+        namespace graphics {
 
-/**
- * @brief Types d'API graphiques supportées
- * @ingroup GraphicsEnums
- */
-enum class NkGraphicsAPI : uint8_t {
-	NK_UNKNOWN = 0,
+            /**
+             * @brief Types d'API graphiques supportées
+             * @ingroup GraphicsEnums
+             */
+            enum class NkGraphicsApi : uint32 {
+                // Canonical names used by NKWindow events.
+                NK_GFX_API_NONE    = 0,
+                NK_GFX_API_OPENGL,       ///< OpenGL 3.3+
+                NK_GFX_API_OPENGLES,     ///< OpenGL ES 2.0 / 3.x (mobile)
+                NK_GFX_API_VULKAN,       ///< Vulkan 1.0+
+                NK_GFX_API_D3D11,        ///< Direct3D 11
+                NK_GFX_API_D3D12,        ///< Direct3D 12
+                NK_GFX_API_METAL,        ///< Metal (macOS / iOS)
+                NK_GFX_API_WEBGL,        ///< WebGL (navigateur / WASM)
+                NK_GFX_API_WEBGL2,       ///< WebGL 2.0
+                NK_GFX_API_WEBGPU,       ///< WebGPU (navigateur / WASM)
+                NK_GFX_API_SOFTWARE,     ///< Rasterisation logicielle (fallback)
+                NK_GFX_API_GNM,          ///< GNM (PlayStation)
+                NK_GFX_API_NVN,          ///< NVN (Nintendo Switch)
+                NK_GFX_API_MAX,
 
-	// Desktop APIs
-	NK_OPENGL,	   ///< OpenGL (Desktop)
-	NK_OPENGL_ES,  ///< OpenGL ES (Mobile/Embedded)
-	NK_DIRECT3D11, ///< Direct3D 11
-	NK_DIRECT3D12, ///< Direct3D 12
-	NK_VULKAN,	   ///< Vulkan
-	NK_METAL,	   ///< Metal (Apple)
+                // Compatibility aliases used by NKRenderer.
+                NK_API_NONE       = NK_GFX_API_NONE,
+                NK_API_OPENGL     = NK_GFX_API_OPENGL,
+                NK_API_OPENGLES   = NK_GFX_API_OPENGLES,
+                NK_API_VULKAN     = NK_GFX_API_VULKAN,
+                NK_API_DIRECTX11  = NK_GFX_API_D3D11,
+                NK_API_DIRECTX12  = NK_GFX_API_D3D12,
+                NK_API_METAL      = NK_GFX_API_METAL,
+                NK_API_WEBGL      = NK_GFX_API_WEBGL,
+                NK_API_WEBGL2     = NK_GFX_API_WEBGL2,
+                NK_API_WEBGPU     = NK_GFX_API_WEBGPU,
+                NK_API_SOFTWARE   = NK_GFX_API_SOFTWARE,
+                NK_API_GNM        = NK_GFX_API_GNM,
+                NK_API_NVN        = NK_GFX_API_NVN,
+                NK_API_COUNT      = NK_GFX_API_MAX
+            };
 
-	// Web APIs
-	NK_WEBGL,  ///< WebGL 1.0
-	NK_WEBGL2, ///< WebGL 2.0
-	NK_WEBGPU, ///< WebGPU
+            /**
+             * @brief Fabricants de GPU
+             * @ingroup GraphicsEnums
+             */
+            enum class NkGPUVendor : uint16_t {
+                NK_UNKNOWN = 0,
+                NK_NVIDIA = 0x10DE,	  ///< NVIDIA Corporation
+                NK_AMD = 0x1002,	  ///< AMD/ATI
+                NK_INTEL = 0x8086,	  ///< Intel Corporation
+                NK_ARM = 0x13B5,	  ///< ARM Holdings
+                NK_QUALCOMM = 0x5143, ///< Qualcomm
+                NK_APPLE = 0x106B,	  ///< Apple (M-series)
+                NK_IMGTEC = 0x1010,	  ///< Imagination Technologies
+                NK_BROADCOM = 0x14E4, ///< Broadcom (Raspberry Pi)
+                NK_MICROSOFT = 0x1414 ///< Microsoft (Software renderer)
+            };
 
-	// Console APIs
-	NK_GNM, ///< GNM (PlayStation)
-	NK_NVN, ///< NVN (Nintendo Switch)
+            /**
+             * @brief Types de GPU
+             * @ingroup GraphicsEnums
+             */
+            enum class NkGPUType : uint8_t {
+                NK_UNKNOWN = 0,
+                NK_DISCRETE,   ///< GPU dédié
+                NK_INTEGRATED, ///< GPU intégré
+                NK_VIRTUAL,	   ///< GPU virtuel
+                NK_SOFTWARE	   ///< Renderer software
+            };
 
-	// Software
-	NK_SOFTWARE ///< CPU Renderer
-};
+            // ============================================================
+            // FONCTIONS TEMPLATE UTILITAIRES (IMPLÉMENTATION FUTURE)
+            // ============================================================
 
-/**
- * @brief Fabricants de GPU
- * @ingroup GraphicsEnums
- */
-enum class NkGPUVendor : uint16_t {
-	NK_UNKNOWN = 0,
-	NK_NVIDIA = 0x10DE,	  ///< NVIDIA Corporation
-	NK_AMD = 0x1002,	  ///< AMD/ATI
-	NK_INTEL = 0x8086,	  ///< Intel Corporation
-	NK_ARM = 0x13B5,	  ///< ARM Holdings
-	NK_QUALCOMM = 0x5143, ///< Qualcomm
-	NK_APPLE = 0x106B,	  ///< Apple (M-series)
-	NK_IMGTEC = 0x1010,	  ///< Imagination Technologies
-	NK_BROADCOM = 0x14E4, ///< Broadcom (Raspberry Pi)
-	NK_MICROSOFT = 0x1414 ///< Microsoft (Software renderer)
-};
+            /**
+             * @brief Convertit une enum NkGraphicsAPI en string
+             * @param api L'API graphique
+             * @return Nom de l'API en chaîne
+             * @note Implémentation à fournir dans le .cpp
+             */
+            template <typename CharT = char> inline constexpr const CharT *ToString(NkGraphicsAPI api) noexcept;
 
-/**
- * @brief Types de GPU
- * @ingroup GraphicsEnums
- */
-enum class NkGPUType : uint8_t {
-	NK_UNKNOWN = 0,
-	NK_DISCRETE,   ///< GPU dédié
-	NK_INTEGRATED, ///< GPU intégré
-	NK_VIRTUAL,	   ///< GPU virtuel
-	NK_SOFTWARE	   ///< Renderer software
-};
+            /**
+             * @brief Convertit une enum NkGPUVendor en string
+             * @param vendor Le fabricant de GPU
+             * @return Nom du fabricant
+             * @note Implémentation à fournir dans le .cpp
+             */
+            template <typename CharT = char> inline constexpr const CharT *ToString(NkGPUVendor vendor) noexcept;
 
-// ============================================================
-// FONCTIONS TEMPLATE UTILITAIRES (IMPLÉMENTATION FUTURE)
-// ============================================================
+            /**
+             * @brief Convertit une enum NkGPUType en string
+             * @param type Le type de GPU
+             * @return Nom du type
+             * @note Implémentation à fournir dans le .cpp
+             */
+            template <typename CharT = char> inline constexpr const CharT *ToString(NkGPUType type) noexcept;
 
-/**
- * @brief Convertit une enum NkGraphicsAPI en string
- * @param api L'API graphique
- * @return Nom de l'API en chaîne
- * @note Implémentation à fournir dans le .cpp
- */
-template <typename CharT = char> inline constexpr const CharT *ToString(NkGraphicsAPI api) noexcept;
+            /**
+             * @brief Vérifie si une API graphique est disponible
+             * @tparam API L'API à vérifier
+             * @return true si l'API est disponible
+             */
+            template <NkGraphicsAPI API> inline constexpr bool IsAPIAvailable() noexcept;
 
-/**
- * @brief Convertit une enum NkGPUVendor en string
- * @param vendor Le fabricant de GPU
- * @return Nom du fabricant
- * @note Implémentation à fournir dans le .cpp
- */
-template <typename CharT = char> inline constexpr const CharT *ToString(NkGPUVendor vendor) noexcept;
+            /**
+             * @brief Obtient l'API graphique par défaut pour la plateforme
+             * @return L'API recommandée
+             */
+            template <typename = void> inline constexpr NkGraphicsAPI GetDefaultAPI() noexcept;
 
-/**
- * @brief Convertit une enum NkGPUType en string
- * @param type Le type de GPU
- * @return Nom du type
- * @note Implémentation à fournir dans le .cpp
- */
-template <typename CharT = char> inline constexpr const CharT *ToString(NkGPUType type) noexcept;
+            /**
+             * @brief Obtient l'API graphique moderne pour la plateforme
+             * @return L'API la plus récente disponible
+             */
+            template <typename = void> inline constexpr NkGraphicsAPI GetModernAPI() noexcept;
 
-/**
- * @brief Vérifie si une API graphique est disponible
- * @tparam API L'API à vérifier
- * @return true si l'API est disponible
- */
-template <NkGraphicsAPI API> inline constexpr bool IsAPIAvailable() noexcept;
-
-/**
- * @brief Obtient l'API graphique par défaut pour la plateforme
- * @return L'API recommandée
- */
-template <typename = void> inline constexpr NkGraphicsAPI GetDefaultAPI() noexcept;
-
-/**
- * @brief Obtient l'API graphique moderne pour la plateforme
- * @return L'API la plus récente disponible
- */
-template <typename = void> inline constexpr NkGraphicsAPI GetModernAPI() noexcept;
-
-} // namespace graphics
-} // namespace platform
+        } // namespace graphics
+    } // namespace platform
 } // namespace nkentseu
 
 // ============================================================

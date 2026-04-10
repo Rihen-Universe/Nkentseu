@@ -31,7 +31,7 @@
  *    DrawList : tableau de DrawCmd + vertex/index buffers
  *    La sérialisation pour le GPU est faite par le backend.
  */
-#include "NkUI/NkUIExport.h"
+#include "NKUI/NkUIExport.h"
 
 namespace nkentseu {
     namespace nkui {
@@ -125,7 +125,8 @@ namespace nkentseu {
             // ── Cercles / Ellipses ────────────────────────────────────────────────────
             void AddCircle(NkVec2 c,float32 r,NkColor col, float32 thickness=1.f,int32 segs=0) noexcept;
             void AddCircleFilled(NkVec2 c,float32 r,NkColor col,int32 segs=0) noexcept;
-            void AddEllipseFilled(NkVec2 c,float32 rx,float32 ry, NkColor col,int32 segs=0) noexcept;
+            void AddEllipseFilled(NkVec2 c,float32 rx, float32 ry, NkColor col, int32 segs=0) noexcept;
+            void AddEllipse(NkVec2 center, float32 rx, float32 ry, NkColor col, float32 thickness = 1.f, int32 segs = 0) noexcept;
 
             // ── Arcs ──────────────────────────────────────────────────────────────────
             void AddArc(NkVec2 c,float32 r,float32 a0,float32 a1, NkColor col,float32 thickness=1.f,int32 segs=0) noexcept;

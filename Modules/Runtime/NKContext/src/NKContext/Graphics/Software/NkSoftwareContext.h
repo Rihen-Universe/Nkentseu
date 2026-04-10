@@ -8,6 +8,8 @@
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NKMath.h"
 
+#include "NkSWPixel.h"
+
 namespace nkentseu {
 
     // -------------------------------------------------------------------------
@@ -56,16 +58,11 @@ namespace nkentseu {
         }
 
         void Clear(uint8 r = 0, uint8 g = 0, uint8 b = 0, uint8 a = 255) {
-            for (usize i = 0; i < pixels.Size(); i += 4) {
-                pixels[i + 0] = r;
-                pixels[i + 1] = g;
-                pixels[i + 2] = b;
-                pixels[i + 3] = a;
+            // SIMD clear : 4 pixels/cycle (SSE2)
+            for (uint32 y = 0; y < height; ++y) {
+                nkentseu::sw_detail::ClearRow(RowPtr(y), width, r, g, b, a);
             }
-
-            if (depthEnabled) {
-                ClearDepth(1.0f);
-            }
+            if (depthEnabled) ClearDepth(1.0f);
         }
 
         void ClearDepth(float32 clearValue = 1.0f) {
@@ -104,6 +101,14 @@ namespace nkentseu {
         void SetPixel(uint32 x, uint32 y, uint8 r, uint8 g, uint8 b, uint8 a = 255) {
             if (x >= width || y >= height) return;
             PutPixelUnchecked(x, y, r, g, b, a, false);
+        }
+
+        math::NkColor GetPixel(uint32 x, uint32 y) {
+            if (x >= width || y >= height) return math::NkColor();
+            uint8* p = RowPtr(y) + x * 4u;
+            uint8 r, g, b, a;
+            nkentseu::sw_detail::LoadPixel(p, r, g, b, a);
+            return math::NkColor(r, g, b, a);
         }
 
         void DrawPoint(int32 x, int32 y, uint8 r, uint8 g, uint8 b, uint8 a = 255,
@@ -152,22 +157,22 @@ namespace nkentseu {
         }
 
         void FillRect(int32 x, int32 y, int32 w, int32 h,
-                      uint8 r, uint8 g, uint8 b, uint8 a = 255,
-                      float32 z = 0.0f, bool blend = true) {
+                    uint8 r, uint8 g, uint8 b, uint8 a = 255,
+                    float32 z = 0.0f, bool blend = true) {
             if (w <= 0 || h <= 0 || width == 0 || height == 0) return;
-
+        
             int32 x0 = MaxInt(x, static_cast<int32>(clipMinX));
             int32 y0 = MaxInt(y, static_cast<int32>(clipMinY));
             int32 x1 = MinInt(x + w, static_cast<int32>(clipMaxX));
             int32 y1 = MinInt(y + h, static_cast<int32>(clipMaxY));
             if (x0 >= x1 || y0 >= y1) return;
-
+        
             for (int32 py = y0; py < y1; ++py) {
-                for (int32 px = x0; px < x1; ++px) {
-                    const uint32 ux = static_cast<uint32>(px);
-                    const uint32 uy = static_cast<uint32>(py);
-                    if (!DepthPass(ux, uy, z)) continue;
-                    PutPixelUnchecked(ux, uy, r, g, b, a, blend);
+                uint8* row = RowPtr(static_cast<uint32>(py));
+                if (!blend || a == 255u) {
+                    nkentseu::sw_detail::FillSpanOpaque(row, x0, x1, r, g, b);
+                } else {
+                    nkentseu::sw_detail::BlendSpanAlpha(row, x0, x1, r, g, b, a);
                 }
             }
         }
@@ -279,7 +284,12 @@ namespace nkentseu {
                     const uint8 outA = ToByte(b0 * ColorTo255(c0.a) +
                                               b1 * ColorTo255(c1.a) +
                                               b2 * ColorTo255(c2.a));
-                    PutPixelUnchecked(ux, uy, outR, outG, outB, outA, blend);
+                    uint8* p = RowPtr(uy) + ux * 4u;
+                    if (blend && outA < 255u) {
+                        nkentseu::sw_detail::BlendPixel(p, outR, outG, outB, outA);
+                    } else {
+                        nkentseu::sw_detail::StorePixel(p, outR, outG, outB, outA);
+                    }
                 }
             }
         }
@@ -387,20 +397,11 @@ namespace nkentseu {
         void PutPixelUnchecked(uint32 x, uint32 y, uint8 r, uint8 g, uint8 b, uint8 a, bool blend) {
             uint8* p = RowPtr(y) + x * 4u;
             if (!blend || a == 255u) {
-                p[0] = r;
-                p[1] = g;
-                p[2] = b;
-                p[3] = a;
+                nkentseu::sw_detail::StorePixel(p, r, g, b, a);
                 return;
             }
-
             if (a == 0u) return;
-            const uint32 srcA = static_cast<uint32>(a);
-            const uint32 invA = 255u - srcA;
-            p[0] = static_cast<uint8>((static_cast<uint32>(r) * srcA + static_cast<uint32>(p[0]) * invA + 127u) / 255u);
-            p[1] = static_cast<uint8>((static_cast<uint32>(g) * srcA + static_cast<uint32>(p[1]) * invA + 127u) / 255u);
-            p[2] = static_cast<uint8>((static_cast<uint32>(b) * srcA + static_cast<uint32>(p[2]) * invA + 127u) / 255u);
-            p[3] = 255u;
+            nkentseu::sw_detail::BlendPixel(p, r, g, b, a);
         }
     };
 
@@ -446,40 +447,40 @@ namespace nkentseu {
 
     // -------------------------------------------------------------------------
     class NkSoftwareContext final : public NkIGraphicsContext {
-    public:
-        NkSoftwareContext()  = default;
-        ~NkSoftwareContext() override;
+        public:
+            NkSoftwareContext()  = default;
+            ~NkSoftwareContext() override;
 
-        bool          Initialize(const NkWindow& w, const NkContextDesc& d) override;
-        void          Shutdown()                                             override;
-        bool          IsValid()   const                                      override;
-        bool          BeginFrame()                                           override;
-        void          EndFrame()                                             override;
-        void          Present()                                              override;
-        bool          OnResize(uint32 w, uint32 h)                           override;
-        void          SetVSync(bool enabled)                                 override;
-        bool          GetVSync() const                                       override;
-        NkGraphicsApi GetApi()   const                                       override;
-        NkContextInfo GetInfo()  const                                       override;
-        NkContextDesc GetDesc()  const                                       override;
-        void*         GetNativeContextData()                                 override;
-        bool          SupportsCompute() const                                override;
+            bool          Initialize(const NkWindow& w, const NkContextDesc& d) override;
+            void          Shutdown()                                             override;
+            bool          IsValid()   const                                      override;
+            bool          BeginFrame()                                           override;
+            void          EndFrame()                                             override;
+            void          Present()                                              override;
+            bool          OnResize(uint32 w, uint32 h)                           override;
+            void          SetVSync(bool enabled)                                 override;
+            bool          GetVSync() const                                       override;
+            NkGraphicsApi GetApi()   const                                       override;
+            NkContextInfo GetInfo()  const                                       override;
+            NkContextDesc GetDesc()  const                                       override;
+            void*         GetNativeContextData()                                 override;
+            bool          SupportsCompute() const                                override;
 
-        NkSoftwareFramebuffer& GetBackBuffer()  { return mBackBuffer; }
-        NkSoftwareFramebuffer& GetFrontBuffer() { return mFrontBuffer; }
+            NkSoftwareFramebuffer& GetBackBuffer()  { return mBackBuffer; }
+            NkSoftwareFramebuffer& GetFrontBuffer() { return mFrontBuffer; }
 
-    private:
-        bool InitNativePresenter (const NkSurfaceDesc& surf);
-        void ShutdownNativePresenter();
-        void PresentNative();
+        private:
+            bool InitNativePresenter (const NkSurfaceDesc& surf);
+            void ShutdownNativePresenter();
+            void PresentNative();
 
-        NkSoftwareFramebuffer  mBackBuffer;
-        NkSoftwareFramebuffer  mFrontBuffer;
-        NkSoftwareContextData  mData;
-        NkContextDesc          mDesc;
-        NkSurfaceDesc          mCachedSurface; // PATCH OnResize : stocké pour réinit
-        bool                   mIsValid = false;
-        bool                   mVSync   = false;
+            NkSoftwareFramebuffer  mBackBuffer;
+            NkSoftwareFramebuffer  mFrontBuffer;
+            NkSoftwareContextData  mData;
+            NkContextDesc          mDesc;
+            NkSurfaceDesc          mCachedSurface; // PATCH OnResize : stocké pour réinit
+            bool                   mIsValid = false;
+            bool                   mVSync   = false;
     };
 
 } // namespace nkentseu

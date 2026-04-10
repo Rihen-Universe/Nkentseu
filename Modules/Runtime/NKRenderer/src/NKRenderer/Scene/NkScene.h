@@ -22,6 +22,7 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRenderTypes.h"
 #include "NKRenderer/Core/NkCamera.h"
+#include "NKRenderer/Core/NkLight.h"
 #include "NKRenderer/Mesh/NkMesh.h"
 #include "NKRenderer/Material/NkMaterial.h"
 #include "NKRenderer/Core/NkTexture.h"
@@ -44,10 +45,32 @@ namespace nkentseu {
         // Composant de base
         // =============================================================================
         struct NkComponent {
-            NkEntityID owner   = NK_INVALID_ENTITY;
-            bool       enabled = true;
-            virtual ~NkComponent() = default;
-            virtual const char* TypeName() const = 0;
+                friend class NkEntity;
+
+            private:
+                class NkEntity*     mOwner      = nullptr;
+
+            public:
+                NkEntityID          mOwnerID    = NK_INVALID_ENTITY;
+                nk_bool             enabled     = true;
+
+                virtual             ~NkComponent() = default;
+                virtual const char* TypeName() const = 0;
+
+                // ── Cycle de vie (ordre garanti par la Scene) ───────────────
+                virtual void        Awake() {} // 1. juste après attachement
+                virtual void        Start() {} // 2. avant le 1er Update()
+                virtual void        Update(float32 dt) {} // 3. chaque frame
+                virtual void        LateUpdate(float32 dt){} // 4. après tous les Update()
+                virtual void        OnDestroy() {} // 5. avant destruction
+
+                class NkEntity*     GetGameObject() const { return mOwner; }
+                nk_bool             IsEnabled() const { return enabled; }
+                void                SetEnabled(nk_bool v) { enabled = v; }
+
+                // ── Raccourci cross-composant ─────────────────────────────────
+                template<typename T>
+                T* GetComponent(); // délégue vers mOwner->GetComponent<T>()
         };
 
         // =============================================================================

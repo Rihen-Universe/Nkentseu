@@ -37,9 +37,9 @@
  *        NkUIMenu::EndMenuBar(ctx);
  *    }
  */
-#include "NkUI/NkUIContext.h"
-#include "NkUI/NkUIFont.h"
-#include "NkUI/NkUILayout.h"
+#include "NKUI/NkUIContext.h"
+#include "NKUI/NkUIFont.h"
+#include "NKUI/NkUILayout.h"
 
 namespace nkentseu {
     namespace nkui {

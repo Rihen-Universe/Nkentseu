@@ -52,6 +52,7 @@
  */
 
 #include "NKImage/Core/NkImage.h"
+// #include "NkSVGDOM.h"
 
 namespace nkentseu {
 

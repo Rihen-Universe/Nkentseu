@@ -31,6 +31,12 @@ public:
     void SetViewports(const NkViewport* vps, uint32 n) override;
     void SetScissor  (const NkRect2D& r) override;
     void SetScissors (const NkRect2D* r, uint32 n) override;
+    void SetClearColor(float r, float g, float b, float a = 1.f) override {
+        mClearColor[0]=r; mClearColor[1]=g; mClearColor[2]=b; mClearColor[3]=a;
+    }
+    void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
+        mClearDepth=depth; mClearStencil=stencil;
+    }
 
     void BindGraphicsPipeline(NkPipelineHandle p) override;
     void BindComputePipeline (NkPipelineHandle p) override;
@@ -73,6 +79,9 @@ private:
     uint32                              mActiveColorCount = 0;
     uint64                              mActiveDepthTexId = 0;
     uint32                              mVertexStrides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT]{};
+    float                              mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
+    float                              mClearDepth    = 1.f;
+    uint32                             mClearStencil  = 0;
 };
 
 } // namespace nkentseu

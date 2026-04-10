@@ -1,3 +1,24 @@
+// -----------------------------------------------------------------------------
+// @File    NkUITheme.h
+// @Brief   Thème NkUI — couleurs, mesures, polices, animations.
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis
+// @License Apache-2.0
+//
+// @Design
+//  NkUITheme contient TOUTES les valeurs visuelles de l'interface.
+//  Il peut être :
+//    - Construit manuellement (valeurs C++)
+//    - Chargé depuis un fichier JSON (via NkUIThemeJSON)
+//    - Hot-reloadé en runtime (NkUITheme::LoadJSON retourne un nouveau thème)
+//
+//  NkUIStyle est le style calculé d'un widget spécifique.
+//  Il hérite du thème mais peut être surchargé localement via NkUI::PushStyle().
+//
+//  ShapeOverride : l'utilisateur peut enregistrer un callback pour dessiner
+//  n'importe quel widget d'une façon entièrement personnalisée, sans toucher
+//  au reste du système.
+// -----------------------------------------------------------------------------
+
 #pragma once
 
 /*
@@ -6,35 +27,19 @@
  * Main data: Colors, spacing, radii, typography and style knobs.
  * Change this file when: You add style options or theme presets.
  */
-/**
- * @File    NkUITheme.h
- * @Brief   Thème NkUI — couleurs, mesures, polices, animations.
- * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
- *
- * @Design
- *  NkUITheme contient TOUTES les valeurs visuelles de l'interface.
- *  Il peut être :
- *    - Construit manuellement (valeurs C++)
- *    - Chargé depuis un fichier JSON (via NkUIThemeJSON)
- *    - Hot-reloadé en runtime (NkUITheme::LoadJSON retourne un nouveau thème)
- *
- *  NkUIStyle est le style calculé d'un widget spécifique.
- *  Il hérite du thème mais peut être surchargé localement via NkUI::PushStyle().
- *
- *  ShapeOverride : l'utilisateur peut enregistrer un callback pour dessiner
- *  n'importe quel widget d'une façon entièrement personnalisée, sans toucher
- *  au reste du système.
- */
-#include "NkUI/NkUIExport.h"
 
-namespace nkentseu {
-    namespace nkui {
+#include "NKUI/NkUIExport.h"
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  Palette de couleurs sémantiques
-        // ─────────────────────────────────────────────────────────────────────────────
-        struct NKUI_API NkUIColorPalette {
+namespace nkentseu
+{
+    namespace nkui
+    {
+        // ============================================================
+        // Palette de couleurs sémantiques
+        // ============================================================
+
+        struct NKUI_API NkUIColorPalette
+        {
             // Fond
             NkColor bgPrimary       = NkColor::Gray(245);
             NkColor bgSecondary     = NkColor::Gray(235);
@@ -102,29 +107,36 @@ namespace nkentseu {
             NkColor overlay         = NkColor::Gray(0,160);
         };
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  Mesures (espacements, tailles, coins)
-        // ─────────────────────────────────────────────────────────────────────────────
-        struct NKUI_API NkUIMetrics {
+        // ============================================================
+        // Mesures (espacements, tailles, coins)
+        // ============================================================
+
+        struct NKUI_API NkUIMetrics
+        {
             // Padding intérieur des widgets
             float32 paddingX        = 10.f;
             float32 paddingY        = 6.f;
+
             // Espacement entre widgets dans un layout
             float32 spacingX        = 8.f;
             float32 spacingY        = 6.f;
             float32 itemSpacing     = 6.f;
             float32 sectionSpacing  = 14.f;
+
             // Coins arrondis
             float32 cornerRadius    = 5.f;
             float32 cornerRadiusLg  = 9.f;
             float32 cornerRadiusSm  = 3.f;
+
             // Bordures
             float32 borderWidth     = 1.f;
             float32 borderWidthFocus= 2.f;
+
             // Hauteurs standard
             float32 itemHeight      = 28.f;
             float32 itemHeightSm    = 22.f;
             float32 itemHeightLg    = 36.f;
+
             // Fenêtres
             float32 titleBarHeight  = 32.f;
             float32 titleBarPadX    = 12.f;
@@ -135,10 +147,12 @@ namespace nkentseu {
             float32 windowPadY      = 8.f;
             float32 windowMinW      = 100.f;
             float32 windowMinH      = 60.f;
+
             // Dock
-            float32 dockZoneSize    = 60.f;  // zone de dépôt
+            float32 dockZoneSize    = 60.f;     // zone de dépôt
             float32 dockTabHeight   = 28.f;
             float32 dockSplitW      = 4.f;
+
             // Widgets spécifiques
             float32 checkboxSize    = 16.f;
             float32 radioSize       = 16.f;
@@ -147,16 +161,18 @@ namespace nkentseu {
             float32 colorPickerW    = 200.f;
             float32 comboArrowW     = 22.f;
             float32 treeIndent      = 18.f;
-            float32 tooltipDelay    = 0.5f;  // secondes
+            float32 tooltipDelay    = 0.5f;    // secondes
             float32 tooltipPadX     = 8.f;
             float32 tooltipPadY     = 5.f;
         };
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  Polices (références — résolues par NkUIFont)
-        // ─────────────────────────────────────────────────────────────────────────────
-        struct NKUI_API NkUIFontDef {
-            char    family[64]  = "sans-serif";  // nom ou chemin
+        // ============================================================
+        // Polices (références — résolues par NkUIFont)
+        // ============================================================
+
+        struct NKUI_API NkUIFontDef
+        {
+            char    family[64]  = "sans-serif";   // nom ou chemin
             float32 size        = 14.f;
             bool    bold        = false;
             bool    italic      = false;
@@ -164,34 +180,40 @@ namespace nkentseu {
             float32 letterSpacing = 0.f;
         };
 
-        struct NKUI_API NkUIFonts {
+        struct NKUI_API NkUIFonts
+        {
             NkUIFontDef body;
-            NkUIFontDef small    = {.size=11.f};
-            NkUIFontDef large    = {.size=17.f};
-            NkUIFontDef heading  = {.size=16.f,.bold=true};
-            NkUIFontDef mono     = {.family="monospace",.size=13.f};
-            NkUIFontDef icon     = {};            // police d'icônes (optionnel)
+            NkUIFontDef small    = { .size = 11.f };
+            NkUIFontDef large    = { .size = 17.f };
+            NkUIFontDef heading  = { .size = 16.f, .bold = true };
+            NkUIFontDef mono     = { .family = "monospace", .size = 13.f };
+            NkUIFontDef icon     = {};   // police d'icônes (optionnel)
         };
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  Animations
-        // ─────────────────────────────────────────────────────────────────────────────
-        struct NKUI_API NkUIAnimDef {
+        // ============================================================
+        // Animations
+        // ============================================================
+
+        struct NKUI_API NkUIAnimDef
+        {
             float32 hoverDuration   = 0.12f;
             float32 pressDuration   = 0.08f;
             float32 openDuration    = 0.18f;
             float32 closeDuration   = 0.14f;
             float32 scrollDuration  = 0.25f;
+
             // Easing : 0=linear, 1=ease-in, 2=ease-out, 3=ease-in-out
             uint8   hoverEasing     = 2;
             uint8   openEasing      = 3;
             bool    enabled         = true;
         };
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  NkUITheme — thème complet
-        // ─────────────────────────────────────────────────────────────────────────────
-        struct NKUI_API NkUITheme {
+        // ============================================================
+        // NkUITheme — thème complet
+        // ============================================================
+
+        struct NKUI_API NkUITheme
+        {
             char            name[64]    = "NkDefault";
             bool            darkMode    = false;
             NkUIColorPalette colors;
@@ -200,59 +222,93 @@ namespace nkentseu {
             NkUIAnimDef      anim;
 
             // Thèmes prédéfinis
-            static NkUITheme Default()  noexcept;
-            static NkUITheme Dark()     noexcept;
-            static NkUITheme Minimal()  noexcept;
+            static NkUITheme Default()      noexcept;
+            static NkUITheme Dark()         noexcept;
+            static NkUITheme Minimal()      noexcept;
             static NkUITheme HighContrast() noexcept;
         };
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  NkUIWidgetType — liste de tous les types de widgets
-        // ─────────────────────────────────────────────────────────────────────────────
-        enum class NkUIWidgetType : uint8 {
-            NK_NONE=0,
-            NK_BUTTON, NK_BUTTON_SMALL, NK_BUTTON_LARGE,
-            NK_CHECKBOX, NK_RADIO, NK_TOGGLE,
-            NK_SLIDER_FLOAT, NK_SLIDER_INT, NK_SLIDER_FLOAT2,
-            NK_INPUT_TEXT, NK_INPUT_INT, NK_INPUT_FLOAT, NK_INPUT_MULTILINE,
-            NK_COMBO, NK_COMBO_MULTI,
+        // ============================================================
+        // NkUIWidgetType — liste de tous les types de widgets
+        // ============================================================
+
+        enum class NkUIWidgetType : uint8
+        {
+            NK_NONE = 0,
+            NK_BUTTON,
+            NK_BUTTON_SMALL,
+            NK_BUTTON_LARGE,
+            NK_CHECKBOX,
+            NK_RADIO,
+            NK_TOGGLE,
+            NK_SLIDER_FLOAT,
+            NK_SLIDER_INT,
+            NK_SLIDER_FLOAT2,
+            NK_INPUT_TEXT,
+            NK_INPUT_INT,
+            NK_INPUT_FLOAT,
+            NK_INPUT_MULTILINE,
+            NK_COMBO,
+            NK_COMBO_MULTI,
             NK_LIST_BOX,
-            NK_TREE_NODE, NK_TREE_LEAF,
-            NK_TABLE, NK_TABLE_ROW, NK_TABLE_CELL,
-            NK_PROGRESS_BAR, NK_PROGRESS_CIRCLE,
-            NK_SEPARATOR, NK_SPACER,
-            NK_LABEL, NK_LABEL_SMALL, NK_LABEL_LARGE,
-            NK_IMAGE, NK_CANVAS,
-            NK_COLOR_PICKER, NK_COLOR_BUTTON,
+            NK_TREE_NODE,
+            NK_TREE_LEAF,
+            NK_TABLE,
+            NK_TABLE_ROW,
+            NK_TABLE_CELL,
+            NK_PROGRESS_BAR,
+            NK_PROGRESS_CIRCLE,
+            NK_SEPARATOR,
+            NK_SPACER,
+            NK_LABEL,
+            NK_LABEL_SMALL,
+            NK_LABEL_LARGE,
+            NK_IMAGE,
+            NK_CANVAS,
+            NK_COLOR_PICKER,
+            NK_COLOR_BUTTON,
             NK_SCROLLBAR,
-            NK_TITLE_BAR, NK_CLOSE_BUTTON, NK_MIN_BUTTON, NK_MAX_BUTTON,
-            NK_TAB, NK_TAB_BAR,
-            NK_MENU_BAR, NK_MENU_ITEM, NK_MENU,
+            NK_TITLE_BAR,
+            NK_CLOSE_BUTTON,
+            NK_MIN_BUTTON,
+            NK_MAX_BUTTON,
+            NK_TAB,
+            NK_TAB_BAR,
+            NK_MENU_BAR,
+            NK_MENU_ITEM,
+            NK_MENU,
             NK_TOOLTIP,
             NK_MODAL,
             NK_CUSTOM,
             NK_COUNT
         };
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        //  NkUIWidgetState — état combiné d'un widget
-        // ─────────────────────────────────────────────────────────────────────────────
-        enum class NkUIWidgetState : uint8 {
+        // ============================================================
+        // NkUIWidgetState — état combiné d'un widget
+        // ============================================================
+
+        enum class NkUIWidgetState : uint8
+        {
             NK_NORMAL   = 0,
-            NK_HOVERED  = 1<<0,
-            NK_ACTIVE   = 1<<1,
-            NK_FOCUSED  = 1<<2,
-            NK_DISABLED = 1<<3,
-            NK_SELECTED = 1<<4,
-            NK_CHECKED  = 1<<5,
+            NK_HOVERED  = 1 << 0,
+            NK_ACTIVE   = 1 << 1,
+            NK_FOCUSED  = 1 << 2,
+            NK_DISABLED = 1 << 3,
+            NK_SELECTED = 1 << 4,
+            NK_CHECKED  = 1 << 5,
         };
-        
-        NKUI_INLINE NkUIWidgetState operator|(NkUIWidgetState a,NkUIWidgetState b)noexcept{
-            return static_cast<NkUIWidgetState>(static_cast<uint8>(a)|static_cast<uint8>(b));
+
+        // Opérateur OU binaire pour NkUIWidgetState
+        NKUI_INLINE NkUIWidgetState operator|(NkUIWidgetState a, NkUIWidgetState b) noexcept
+        {
+            return static_cast<NkUIWidgetState>(static_cast<uint8>(a) | static_cast<uint8>(b));
         }
 
-        NKUI_INLINE bool HasState(NkUIWidgetState s,NkUIWidgetState flag)noexcept{
-            return (static_cast<uint8>(s)&static_cast<uint8>(flag))!=0;
+        // Vérifie si un état contient un drapeau donné
+        NKUI_INLINE bool HasState(NkUIWidgetState s, NkUIWidgetState flag) noexcept
+        {
+            return (static_cast<uint8>(s) & static_cast<uint8>(flag)) != 0;
         }
-    }
+
+    } // namespace nkui
 } // namespace nkentseu

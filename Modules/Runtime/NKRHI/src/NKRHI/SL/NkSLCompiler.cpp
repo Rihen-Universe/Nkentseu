@@ -257,7 +257,7 @@ NkSLCompileResult NkSLCompiler::Compile(
             NkSLCodeGenMSLSpirvCross gen; res = gen.Generate(ast, stage, opts); break;
         }
         case NkSLTarget::NK_CPLUSPLUS: {
-            NkSLCodeGen_CPP gen; res = gen.Generate(ast, stage, opts); break;
+            NkSLCodeGenCPP gen; res = gen.Generate(ast, stage, opts); break;
         }
         default:
             res.success = false; res.AddError(0, "Unsupported target"); break;
@@ -351,7 +351,7 @@ NkSLCompileResultWithReflection NkSLCompiler::CompileWithReflection(
             break;
         }
         case NkSLTarget::NK_CPLUSPLUS: {
-            NkSLCodeGen_CPP gen;
+            NkSLCodeGenCPP gen;
             out.result = gen.Generate(ast, stage, opts); break;
         }
         default:
@@ -683,7 +683,7 @@ NkSLCompileResult NkSLCompiler::CompileWithSemantic(
             } else { NkSLCodeGen_MSL gen; res = gen.Generate(ast, stage, opts); }
             break;
         }
-        case NkSLTarget::NK_CPLUSPLUS: { NkSLCodeGen_CPP gen; res = gen.Generate(ast, stage, opts); break; }
+        case NkSLTarget::NK_CPLUSPLUS: { NkSLCodeGenCPP gen; res = gen.Generate(ast, stage, opts); break; }
         default: res.success=false; res.AddError(0, "Unsupported target"); break;
     }
 

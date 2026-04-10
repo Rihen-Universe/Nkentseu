@@ -37,8 +37,8 @@ namespace nkentseu {
          * @brief Search options for directory enumeration
          */
         enum class NkSearchOption {
-            TopDirectoryOnly,   // Only search current directory
-            AllDirectories      // Search recursively
+            NK_TOP_DIRECTORY_ONLY,   // Only search current directory
+            NK_ALL_DIRECTORIES      // Search recursively
         };
         
         /**
@@ -75,37 +75,37 @@ namespace nkentseu {
                 static NkVector<NkString> GetFiles(
                     const char* path,
                     const char* pattern = "*",
-                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                    NkSearchOption option = NkSearchOption::NK_TOP_DIRECTORY_ONLY
                 );
                 
                 static NkVector<NkString> GetFiles(
                     const NkPath& path,
                     const char* pattern = "*",
-                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                    NkSearchOption option = NkSearchOption::NK_TOP_DIRECTORY_ONLY
                 );
                 
                 static NkVector<NkString> GetDirectories(
                     const char* path,
                     const char* pattern = "*",
-                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                    NkSearchOption option = NkSearchOption::NK_TOP_DIRECTORY_ONLY
                 );
                 
                 static NkVector<NkString> GetDirectories(
                     const NkPath& path,
                     const char* pattern = "*",
-                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                    NkSearchOption option = NkSearchOption::NK_TOP_DIRECTORY_ONLY
                 );
                 
                 static NkVector<NkDirectoryEntry> GetEntries(
                     const char* path,
                     const char* pattern = "*",
-                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                    NkSearchOption option = NkSearchOption::NK_TOP_DIRECTORY_ONLY
                 );
                 
                 static NkVector<NkDirectoryEntry> GetEntries(
                     const NkPath& path,
                     const char* pattern = "*",
-                    NkSearchOption option = NkSearchOption::TopDirectoryOnly
+                    NkSearchOption option = NkSearchOption::NK_TOP_DIRECTORY_ONLY
                 );
                 
                 // Copy/Move

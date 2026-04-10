@@ -100,13 +100,12 @@ bool NkDirectX12CommandBuffer::BeginRenderPass(NkRenderPassHandle /*rp*/,
 
     mCmdList->OMSetRenderTargets(fbo->rtvCount, rtvHandles, FALSE, pDsv);
 
-    // Clear
-    float clearColor[4] = { 0.f, 0.f, 0.f, 1.f };
+    // Clear avec les valeurs dynamiques (SetClearColor / SetClearDepth)
     for (uint32 i = 0; i < fbo->rtvCount; i++)
-        mCmdList->ClearRenderTargetView(rtvHandles[i], clearColor, 0, nullptr);
+        mCmdList->ClearRenderTargetView(rtvHandles[i], mClearColor, 0, nullptr);
     if (pDsv)
         mCmdList->ClearDepthStencilView(dsvHandle,
-            D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.f, 0, 0, nullptr);
+            D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, mClearDepth, (UINT8)mClearStencil, 0, nullptr);
 
     // Viewport & scissor par défaut
     D3D12_VIEWPORT vp{ (float)area.x, (float)area.y,

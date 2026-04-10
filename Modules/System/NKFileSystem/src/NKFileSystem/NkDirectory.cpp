@@ -226,7 +226,7 @@ namespace nkentseu {
             closedir(dir);
             #endif
             
-            if (option == NkSearchOption::AllDirectories) {
+            if (option == NkSearchOption::NK_ALL_DIRECTORIES) {
                 GetFilesRecursive(path, pattern, results);
             }
             
@@ -248,7 +248,7 @@ namespace nkentseu {
         ) {
             auto dirs = GetDirectories(path);
             for (auto& dir : dirs) {
-                auto files = GetFiles(dir.CStr(), pattern, NkSearchOption::TopDirectoryOnly);
+                auto files = GetFiles(dir.CStr(), pattern, NkSearchOption::NK_TOP_DIRECTORY_ONLY);
                 for (auto& file : files) {
                     results.PushBack(file);
                 }
@@ -311,7 +311,7 @@ namespace nkentseu {
             closedir(dir);
             #endif
             
-            if (option == NkSearchOption::AllDirectories) {
+            if (option == NkSearchOption::NK_ALL_DIRECTORIES) {
                 GetDirectoriesRecursive(path, pattern, results);
             }
             
@@ -333,7 +333,7 @@ namespace nkentseu {
         ) {
             auto dirs = GetDirectories(path);
             for (auto& dir : dirs) {
-                auto subdirs = GetDirectories(dir.CStr(), pattern, NkSearchOption::TopDirectoryOnly);
+                auto subdirs = GetDirectories(dir.CStr(), pattern, NkSearchOption::NK_TOP_DIRECTORY_ONLY);
                 for (auto& subdir : subdirs) {
                     results.PushBack(subdir);
                 }
@@ -408,7 +408,7 @@ namespace nkentseu {
             closedir(dir);
             #endif
             
-            if (option == NkSearchOption::AllDirectories) {
+            if (option == NkSearchOption::NK_ALL_DIRECTORIES) {
                 GetEntriesRecursive(path, pattern, results);
             }
             
@@ -430,7 +430,7 @@ namespace nkentseu {
         ) {
             auto dirs = GetDirectories(path);
             for (auto& dir : dirs) {
-                auto entries = GetEntries(dir.CStr(), pattern, NkSearchOption::TopDirectoryOnly);
+                auto entries = GetEntries(dir.CStr(), pattern, NkSearchOption::NK_TOP_DIRECTORY_ONLY);
                 for (auto& entry : entries) {
                     results.PushBack(entry);
                 }
