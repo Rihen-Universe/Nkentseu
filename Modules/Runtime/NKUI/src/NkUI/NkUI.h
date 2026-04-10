@@ -57,7 +57,7 @@
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * @code
- *   #include "NkUI/NkUI.h"
+ *   #include "NKUI/NkUI.h"
  *   using namespace nkentseu;
  *
  *   // Initialisation
@@ -166,23 +166,23 @@
  */
 
 // ── Session 1 — Core ─────────────────────────────────────────────────────────
-#include "NkUI/NkUIExport.h"
-#include "NkUI/NkUIInput.h"
-#include "NkUI/NkUITheme.h"
-#include "NkUI/NkUIDrawList.h"
-#include "NkUI/NkUIContext.h"
-#include "NkUI/NkUIRenderer.h"
+#include "NKUI/NkUIExport.h"
+#include "NKUI/NkUIInput.h"
+#include "NKUI/NkUITheme.h"
+#include "NKUI/NkUIDrawList.h"
+#include "NKUI/NkUIContext.h"
+#include "NKUI/NkUIRenderer.h"
 
 // ── Session 2 — Layout + Font + Widgets ──────────────────────────────────────
-#include "NkUI/NkUILayout.h"
-#include "NkUI/NkUIFont.h"
-#include "NkUI/NkUIWidgets.h"
+#include "NKUI/NkUILayout.h"
+#include "NKUI/NkUIFont.h"
+#include "NKUI/NkUIWidgets.h"
 
 // ── Session 3 — Fenêtres + Docking ───────────────────────────────────────────
-#include "NkUI/NkUIWindow.h"
-#include "NkUI/NkUIDock.h"
+#include "NKUI/NkUIWindow.h"
+#include "NKUI/NkUIDock.h"
 
 // ── Session 4 — MenuBar, Animations, ColorPicker, SaveLayout, OpenGL ─────────
-#include "NkUI/NkUIMenu.h"
-#include "NkUI/NkUIAnimation.h"
-#include "NkUI/NkUILayout2.h"
+#include "NKUI/NkUIMenu.h"
+#include "NKUI/NkUIAnimation.h"
+#include "NKUI/NkUILayout2.h"

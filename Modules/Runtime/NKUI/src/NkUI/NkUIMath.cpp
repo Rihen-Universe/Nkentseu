@@ -9,7 +9,7 @@
  * Main data: Rect ops, interpolation, helper math functions.
  * Change this file when: A widget/layout needs new geometry/math behavior.
  */
-#include "NkUI/NkUITheme.h"
+#include "NKUI/NkUITheme.h"
 // Pas d'implémentation ici : NkUITheme::Default/Dark/Minimal/HighContrast
 // sont dans NkUIContext.cpp.
 namespace nkentseu {}

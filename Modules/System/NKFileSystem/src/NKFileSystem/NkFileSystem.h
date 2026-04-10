@@ -23,15 +23,15 @@ namespace nkentseu {
          * @brief File system type
          */
         enum class NkFileSystemType {
-            Unknown,
-            NTFS,       // Windows NT File System
-            FAT32,      // File Allocation Table 32
-            exFAT,      // Extended FAT
-            EXT4,       // Fourth Extended Filesystem
-            EXT3,       // Third Extended Filesystem
-            HFS,        // Hierarchical File System (macOS)
-            APFS,       // Apple File System
-            Network     // Network drive
+            NK_UNKNOW,
+            NK_NTFS,       // Windows NT File System
+            NK_FAT32,      // File Allocation Table 32
+            NK_EXFAT,      // Extended FAT
+            NK_EXT4,       // Fourth Extended Filesystem
+            NK_EXT3,       // Third Extended Filesystem
+            NK_HFS,        // Hierarchical File System (macOS)
+            NK_APFS,       // Apple File System
+            NK_NETWORK     // Network drive
         };
         
         /**
@@ -80,69 +80,69 @@ namespace nkentseu {
          * }
          */
         class NkFileSystem {
-        public:
-            // Drive operations
-            static NkVector<NkDriveInfo> GetDrives();
-            static NkDriveInfo GetDriveInfo(const char* path);
-            static NkDriveInfo GetDriveInfo(const NkPath& path);
-            
-            // Space information
-            static nk_int64 GetTotalSpace(const char* path);
-            static nk_int64 GetTotalSpace(const NkPath& path);
-            static nk_int64 GetFreeSpace(const char* path);
-            static nk_int64 GetFreeSpace(const NkPath& path);
-            static nk_int64 GetAvailableSpace(const char* path);
-            static nk_int64 GetAvailableSpace(const NkPath& path);
-            
-            // File attributes
-            static NkFileAttributes GetFileAttributes(const char* path);
-            static NkFileAttributes GetFileAttributes(const NkPath& path);
-            static bool SetFileAttributes(const char* path, const NkFileAttributes& attrs);
-            static bool SetFileAttributes(const NkPath& path, const NkFileAttributes& attrs);
-            
-            static bool SetReadOnly(const char* path, bool readOnly);
-            static bool SetReadOnly(const NkPath& path, bool readOnly);
-            static bool SetHidden(const char* path, bool hidden);
-            static bool SetHidden(const NkPath& path, bool hidden);
-            
-            // File times
-            static nk_int64 GetCreationTime(const char* path);
-            static nk_int64 GetCreationTime(const NkPath& path);
-            static nk_int64 GetLastAccessTime(const char* path);
-            static nk_int64 GetLastAccessTime(const NkPath& path);
-            static nk_int64 GetLastWriteTime(const char* path);
-            static nk_int64 GetLastWriteTime(const NkPath& path);
-            
-            static bool SetCreationTime(const char* path, nk_int64 time);
-            static bool SetCreationTime(const NkPath& path, nk_int64 time);
-            static bool SetLastAccessTime(const char* path, nk_int64 time);
-            static bool SetLastAccessTime(const NkPath& path, nk_int64 time);
-            static bool SetLastWriteTime(const char* path, nk_int64 time);
-            static bool SetLastWriteTime(const NkPath& path, nk_int64 time);
-            
-            // Path validation
-            static bool IsValidFileName(const char* name);
-            static bool IsValidPath(const char* path);
-            
-            // Path conversion
-            static NkString GetAbsolutePath(const char* path);
-            static NkString GetAbsolutePath(const NkPath& path);
-            static NkString GetRelativePath(const char* from, const char* to);
-            static NkString GetRelativePath(const NkPath& from, const NkPath& to);
-            
-            // File system info
-            static NkFileSystemType GetFileSystemType(const char* path);
-            static NkFileSystemType GetFileSystemType(const NkPath& path);
-            static bool IsCaseSensitive(const char* path);
-            static bool IsCaseSensitive(const NkPath& path);
-            
-            // Symbolic links
-            static bool IsSymbolicLink(const char* path);
-            static bool IsSymbolicLink(const NkPath& path);
-            static NkString GetSymbolicLinkTarget(const char* path);
-            static NkString GetSymbolicLinkTarget(const NkPath& path);
-            static bool CreateSymbolicLink(const char* link, const char* target);
-            static bool CreateSymbolicLink(const NkPath& link, const NkPath& target);
+            public:
+                // Drive operations
+                static NkVector<NkDriveInfo> GetDrives();
+                static NkDriveInfo GetDriveInfo(const char* path);
+                static NkDriveInfo GetDriveInfo(const NkPath& path);
+                
+                // Space information
+                static nk_int64 GetTotalSpace(const char* path);
+                static nk_int64 GetTotalSpace(const NkPath& path);
+                static nk_int64 GetFreeSpace(const char* path);
+                static nk_int64 GetFreeSpace(const NkPath& path);
+                static nk_int64 GetAvailableSpace(const char* path);
+                static nk_int64 GetAvailableSpace(const NkPath& path);
+                
+                // File attributes
+                static NkFileAttributes GetFileAttributes(const char* path);
+                static NkFileAttributes GetFileAttributes(const NkPath& path);
+                static bool SetFileAttributes(const char* path, const NkFileAttributes& attrs);
+                static bool SetFileAttributes(const NkPath& path, const NkFileAttributes& attrs);
+                
+                static bool SetReadOnly(const char* path, bool readOnly);
+                static bool SetReadOnly(const NkPath& path, bool readOnly);
+                static bool SetHidden(const char* path, bool hidden);
+                static bool SetHidden(const NkPath& path, bool hidden);
+                
+                // File times
+                static nk_int64 GetCreationTime(const char* path);
+                static nk_int64 GetCreationTime(const NkPath& path);
+                static nk_int64 GetLastAccessTime(const char* path);
+                static nk_int64 GetLastAccessTime(const NkPath& path);
+                static nk_int64 GetLastWriteTime(const char* path);
+                static nk_int64 GetLastWriteTime(const NkPath& path);
+                
+                static bool SetCreationTime(const char* path, nk_int64 time);
+                static bool SetCreationTime(const NkPath& path, nk_int64 time);
+                static bool SetLastAccessTime(const char* path, nk_int64 time);
+                static bool SetLastAccessTime(const NkPath& path, nk_int64 time);
+                static bool SetLastWriteTime(const char* path, nk_int64 time);
+                static bool SetLastWriteTime(const NkPath& path, nk_int64 time);
+                
+                // Path validation
+                static bool IsValidFileName(const char* name);
+                static bool IsValidPath(const char* path);
+                
+                // Path conversion
+                static NkString GetAbsolutePath(const char* path);
+                static NkString GetAbsolutePath(const NkPath& path);
+                static NkString GetRelativePath(const char* from, const char* to);
+                static NkString GetRelativePath(const NkPath& from, const NkPath& to);
+                
+                // File system info
+                static NkFileSystemType GetFileSystemType(const char* path);
+                static NkFileSystemType GetFileSystemType(const NkPath& path);
+                static bool IsCaseSensitive(const char* path);
+                static bool IsCaseSensitive(const NkPath& path);
+                
+                // Symbolic links
+                static bool IsSymbolicLink(const char* path);
+                static bool IsSymbolicLink(const NkPath& path);
+                static NkString GetSymbolicLinkTarget(const char* path);
+                static NkString GetSymbolicLinkTarget(const NkPath& path);
+                static bool CreateSymbolicLink(const char* link, const char* target);
+                static bool CreateSymbolicLink(const NkPath& link, const NkPath& target);
         };
         
     } // namespace entseu

@@ -1,11 +1,25 @@
 /**
  * @File    NkImage.cpp
- * @Brief   Implémentation NkImage, NkImageStream, NkDeflate.
+ * @Brief   NkImage core + NkImageStream + NkDeflate inflate/deflate.
+ *          Inflate adapté de stb_image v2.16 (public domain, Sean Barrett).
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
+ *
+ * @inflate_correctness
+ *  stb_image utilise inflate LSB-first (deflate RFC 1951) :
+ *  - fill_bits  : bits |= byte << nbits  (accumule LSB-first)
+ *  - zreceive   : v = bits & mask; bits >>= n  (consomme depuis le LSB)
+ *  - fast table : index = bits & FAST_MASK  (direct, pas bit-reversed)
+ *  - slow path  : k = bitrev16(bits) pour comparer avec maxcode[] pré-shifté
+ *  - zBuildH    : remplit la fast table avec l'index bit-reversed du code
+ *
+ *  FIX zlib header (critique PNG) :
+ *  - FDICT = bit 5 de FLG (in[1]), PAS de CMF (in[0])
+ *  - CMF=0x78 a toujours bit5=1 (CINFO=7) → ancienne version if(in[0]&0x20)
+ *    rejetait TOUS les PNG standard (0x78 0x9C, 0x78 0xDA, 0x78 0x5E, etc.)
+ *  - Corrigé : if(flg & 0x20) return false  où flg = in[1]
  */
 #include "NKImage/Core/NkImage.h"
-#include "NKImage/Codecs/STB/NkSTBCodec.h"
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
 #include "NKImage/Codecs/BMP/NkBMPCodec.h"
@@ -17,941 +31,1021 @@
 #include "NKImage/Codecs/ICO/NkICOCodec.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
-#include "NKMath/NkFunctions.h"
+#include <cstdio>
 
 namespace nkentseu {
-
     using namespace nkentseu::memory;
-    using namespace nkentseu::math;
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    //  Helpers mémoire internes
+    // ─────────────────────────────────────────────────────────────────────────────
+    static inline void* nkMalloc(usize n) noexcept {
+        return NkAlloc(n);
+    }
+
+    static inline void* nkCalloc(usize n, usize s) noexcept {
+        return NkAllocZero(n, s);
+    }
+
+    static inline void nkFree(void* p) noexcept {
+        if (p) NkFree(p);
+    }
+
+    static inline void* nkRealloc(void* p, usize o, usize n) noexcept {
+        return NkRealloc(p, o, n);
+    }
+
+    static inline void nkMemcpy(void* d, const void* s, usize n) noexcept {
+        NkCopy(static_cast<uint8*>(d), static_cast<const uint8*>(s), n);
+    }
+
+    static inline void nkMemset(void* d, int v, usize n) noexcept {
+        NkSet(static_cast<uint8*>(d), static_cast<uint8>(v), n);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  NkImageStream
     // ─────────────────────────────────────────────────────────────────────────────
+    bool NkImageStream::Grow(usize n) noexcept {
+        if (mWrSize + n <= mWrCap) return true;
+        usize nc = mWrCap ? mWrCap * 2 : 4096;
+        while (nc < mWrSize + n) nc *= 2;
+        uint8* nb = static_cast<uint8*>(nkRealloc(mWrBuf, mWrCap, nc));
+        if (!nb) return false;
+        mWrBuf = nb;
+        mWrCap = nc;
+        return true;
+    }
 
     uint8 NkImageStream::ReadU8() noexcept {
-        if (NKIMG_UNLIKELY(mPos >= mSize)) { mError = true; return 0; }
-        return mData[mPos++];
-    }
-    uint16 NkImageStream::ReadU16BE() noexcept {
-        if (NKIMG_UNLIKELY(!HasBytes(2))) { mError=true; return 0; }
-        uint16 v = (static_cast<uint16>(mData[mPos])<<8)|mData[mPos+1]; mPos+=2; return v;
-    }
-    uint16 NkImageStream::ReadU16LE() noexcept {
-        if (NKIMG_UNLIKELY(!HasBytes(2))) { mError=true; return 0; }
-        uint16 v = mData[mPos]|(static_cast<uint16>(mData[mPos+1])<<8); mPos+=2; return v;
-    }
-    uint32 NkImageStream::ReadU32BE() noexcept {
-        if (NKIMG_UNLIKELY(!HasBytes(4))) { mError=true; return 0; }
-        uint32 v = (static_cast<uint32>(mData[mPos])<<24)|(static_cast<uint32>(mData[mPos+1])<<16)
-                |(static_cast<uint32>(mData[mPos+2])<<8)|mData[mPos+3]; mPos+=4; return v;
-    }
-    uint32 NkImageStream::ReadU32LE() noexcept {
-        if (NKIMG_UNLIKELY(!HasBytes(4))) { mError=true; return 0; }
-        uint32 v = mData[mPos]|(static_cast<uint32>(mData[mPos+1])<<8)
-                |(static_cast<uint32>(mData[mPos+2])<<16)|(static_cast<uint32>(mData[mPos+3])<<24);
-        mPos+=4; return v;
-    }
-    int16  NkImageStream::ReadI16BE() noexcept { return static_cast<int16>(ReadU16BE()); }
-    int32  NkImageStream::ReadI32LE() noexcept { return static_cast<int32>(ReadU32LE()); }
-    usize  NkImageStream::ReadBytes(uint8* dst, usize count) noexcept {
-        if (mPos + count > mSize) { mError=true; count=mSize-mPos; }
-        if (dst) NkCopy(dst, mData+mPos, count);
-        mPos+=count; return count;
-    }
-    void NkImageStream::Skip(usize count) noexcept {
-        if (mPos+count>mSize) { mError=true; mPos=mSize; } else mPos+=count;
-    }
-    void NkImageStream::Seek(usize pos) noexcept {
-        if (pos>mSize) { mError=true; mPos=mSize; } else mPos=pos;
+        if (mRdPos >= mRdSize) {
+            mError = true;
+            return 0;
+        }
+        return mRdData[mRdPos++];
     }
 
-    bool NkImageStream::Grow(usize needed) noexcept {
-        if (mWriteSize + needed <= mWriteCapacity) return true;
-        usize newCap = mWriteCapacity == 0 ? 4096 : mWriteCapacity * 2;
-        while (newCap < mWriteSize + needed) newCap *= 2;
-        uint8* nb = static_cast<uint8*>(NkRealloc(mWriteBuf, mWriteCapacity, newCap));
-        if (!nb) return false;
-        mWriteBuf = nb; mWriteCapacity = newCap;
-        return true;
+    uint16 NkImageStream::ReadU16BE() noexcept {
+        if (mRdPos + 2 > mRdSize) {
+            mError = true;
+            return 0;
+        }
+        uint16 v = (uint16(mRdData[mRdPos]) << 8) | mRdData[mRdPos + 1];
+        mRdPos += 2;
+        return v;
     }
+
+    uint16 NkImageStream::ReadU16LE() noexcept {
+        if (mRdPos + 2 > mRdSize) {
+            mError = true;
+            return 0;
+        }
+        uint16 v = mRdData[mRdPos] | (uint16(mRdData[mRdPos + 1]) << 8);
+        mRdPos += 2;
+        return v;
+    }
+
+    uint32 NkImageStream::ReadU32BE() noexcept {
+        if (mRdPos + 4 > mRdSize) {
+            mError = true;
+            return 0;
+        }
+        uint32 v = (uint32(mRdData[mRdPos]) << 24) |
+                   (uint32(mRdData[mRdPos + 1]) << 16) |
+                   (uint32(mRdData[mRdPos + 2]) << 8) |
+                   mRdData[mRdPos + 3];
+        mRdPos += 4;
+        return v;
+    }
+
+    uint32 NkImageStream::ReadU32LE() noexcept {
+        if (mRdPos + 4 > mRdSize) {
+            mError = true;
+            return 0;
+        }
+        uint32 v = mRdData[mRdPos] |
+                   (uint32(mRdData[mRdPos + 1]) << 8) |
+                   (uint32(mRdData[mRdPos + 2]) << 16) |
+                   (uint32(mRdData[mRdPos + 3]) << 24);
+        mRdPos += 4;
+        return v;
+    }
+
+    int16 NkImageStream::ReadI16BE() noexcept {
+        return int16(ReadU16BE());
+    }
+
+    int32 NkImageStream::ReadI32LE() noexcept {
+        return int32(ReadU32LE());
+    }
+
+    usize NkImageStream::ReadBytes(uint8* dst, usize n) noexcept {
+        if (mRdPos + n > mRdSize) {
+            mError = true;
+            n = mRdSize - mRdPos;
+        }
+        if (dst) nkMemcpy(dst, mRdData + mRdPos, n);
+        mRdPos += n;
+        return n;
+    }
+
+    void NkImageStream::Skip(usize n) noexcept {
+        if (mRdPos + n > mRdSize) {
+            mError = true;
+            mRdPos = mRdSize;
+        } else {
+            mRdPos += n;
+        }
+    }
+
+    void NkImageStream::Seek(usize p) noexcept {
+        if (p > mRdSize) {
+            mError = true;
+            mRdPos = mRdSize;
+        } else {
+            mRdPos = p;
+        }
+    }
+
     bool NkImageStream::WriteU8(uint8 v) noexcept {
         if (!Grow(1)) return false;
-        mWriteBuf[mWriteSize++] = v;
-        if (mFile) ::fwrite(&v, 1, 1, mFile);
+        mWrBuf[mWrSize++] = v;
         return true;
     }
+
     bool NkImageStream::WriteU16BE(uint16 v) noexcept {
-        uint8 b[2] = {static_cast<uint8>(v>>8), static_cast<uint8>(v)};
+        uint8 b[2] = { uint8(v >> 8), uint8(v) };
         return WriteBytes(b, 2);
     }
+
     bool NkImageStream::WriteU16LE(uint16 v) noexcept {
-        uint8 b[2] = {static_cast<uint8>(v), static_cast<uint8>(v>>8)};
+        uint8 b[2] = { uint8(v), uint8(v >> 8) };
         return WriteBytes(b, 2);
     }
+
     bool NkImageStream::WriteU32BE(uint32 v) noexcept {
-        uint8 b[4] = {static_cast<uint8>(v>>24),static_cast<uint8>(v>>16),
-                    static_cast<uint8>(v>>8), static_cast<uint8>(v)};
+        uint8 b[4] = { uint8(v >> 24), uint8(v >> 16), uint8(v >> 8), uint8(v) };
         return WriteBytes(b, 4);
     }
+
     bool NkImageStream::WriteU32LE(uint32 v) noexcept {
-        uint8 b[4] = {static_cast<uint8>(v),static_cast<uint8>(v>>8),
-                    static_cast<uint8>(v>>16),static_cast<uint8>(v>>24)};
+        uint8 b[4] = { uint8(v), uint8(v >> 8), uint8(v >> 16), uint8(v >> 24) };
         return WriteBytes(b, 4);
     }
-    bool NkImageStream::WriteI32LE(int32 v) noexcept { return WriteU32LE(static_cast<uint32>(v)); }
-    bool NkImageStream::WriteBytes(const uint8* src, usize count) noexcept {
-        if (!Grow(count)) return false;
-        NkCopy(mWriteBuf + mWriteSize, src, count);
-        mWriteSize += count;
-        if (mFile) ::fwrite(src, 1, count, mFile);
+
+    bool NkImageStream::WriteI32LE(int32 v) noexcept {
+        return WriteU32LE(uint32(v));
+    }
+
+    bool NkImageStream::WriteBytes(const uint8* src, usize n) noexcept {
+        if (!Grow(n)) return false;
+        nkMemcpy(mWrBuf + mWrSize, src, n);
+        mWrSize += n;
         return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  NkDeflate — tables
     // ─────────────────────────────────────────────────────────────────────────────
+    const uint16 NkDeflate::kLenBase[29] = {
+        3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+        35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258
+    };
+    const uint8 NkDeflate::kLenExtra[29] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+        3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0
+    };
+    const uint16 NkDeflate::kDistBase[30] = {
+        1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+        257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577
+    };
+    const uint8 NkDeflate::kDistExtra[30] = {
+        0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+        7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13
+    };
+    const uint8 NkDeflate::kCLOrder[19] = {
+        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15
+    };
+    const uint8 NkDeflate::kZDefLen[288] = {
+        8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+        8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+        8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+        8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+        8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+        9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+        9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+        9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+        7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8
+    };
+    const uint8 NkDeflate::kZDefDist[32] = {
+        5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5
+    };
 
-    const uint16 NkDeflate::kLenBase[29]  = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
-    const uint8  NkDeflate::kLenExtra[29] = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
-    const uint16 NkDeflate::kDistBase[30] = {1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577};
-    const uint8  NkDeflate::kDistExtra[30]= {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
-    const uint8  NkDeflate::kCLOrder[19]  = {16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
+    // ─────────────────────────────────────────────────────────────────────────────
+    //  NkDeflate — inflate (stb_image stbi__zbuf LSB-first exact)
+    // ─────────────────────────────────────────────────────────────────────────────
 
-    uint32 NkDeflate::ReadBits(Context& c, int32 n) noexcept {
-        while (c.bitCount < n) {
-            if (c.inPos >= c.inSize) { c.error=true; return 0; }
-            c.bitBuf |= static_cast<uint32>(c.in[c.inPos++]) << c.bitCount;
-            c.bitCount += 8;
-        }
-        uint32 v = c.bitBuf & ((1u<<n)-1); c.bitBuf>>=n; c.bitCount-=n; return v;
+    // stbi__bit_reverse(v,16)
+    static int32 nkBR16(int32 n) noexcept {
+        n = ((n & 0xAAAA) >> 1) | ((n & 0x5555) << 1);
+        n = ((n & 0xCCCC) >> 2) | ((n & 0x3333) << 2);
+        n = ((n & 0xF0F0) >> 4) | ((n & 0x0F0F) << 4);
+        n = ((n & 0xFF00) >> 8) | ((n & 0x00FF) << 8);
+        return n;
     }
-    bool NkDeflate::BuildHuff(HuffTree& t, const uint8* lens, int32 n) noexcept {
-        NkSet(t.counts,0,sizeof(t.counts)); t.numSymbols=n;
-        for(int32 i=0;i<n;++i) if(lens[i]>0&&lens[i]<=HuffTree::MAX_BITS) ++t.counts[lens[i]];
-        int16 nc[HuffTree::MAX_BITS+1]={}, code=0;
-        for(int32 b=1;b<=HuffTree::MAX_BITS;++b){code=static_cast<int16>((code+t.counts[b-1])<<1);nc[b]=code;}
-        NkSet(t.symbols,-1,sizeof(t.symbols));
-        for(int32 i=0;i<n;++i){
-            int32 l=lens[i]; if(!l) continue;
-            int16 c2=nc[l]++; int16 rev=0;
-            for(int32 b=0;b<l;++b) rev=static_cast<int16>((rev<<1)|((c2>>b)&1));
-            if(rev<HuffTree::MAX_SYMS) t.symbols[rev]=static_cast<int16>(i);
-        }
-        return true;
+
+    static int32 nkBR(int32 v, int32 bits) noexcept {
+        return nkBR16(v) >> (16 - bits);
     }
-    int32 NkDeflate::Decode(Context& c, const HuffTree& t) noexcept {
-        int32 code=0,first=0,index=0;
-        for(int32 l=1;l<=HuffTree::MAX_BITS;++l){
-            code=(code<<1)|static_cast<int32>(ReadBits(c,1));
-            first=(first<<1)+t.counts[l]; index+=t.counts[l];
-            if(code-t.counts[l]<first){int32 s=index+(code-first);return(s>=0&&s<t.numSymbols)?s:-1;}
+
+    // stbi__fill_bits — accumule depuis le LSB
+    void NkDeflate::zFill(ZBuf& z) noexcept {
+        while (z.nbits <= 24) {
+            if (z.pos >= z.size) {
+                z.err = true;
+                return;
+            }
+            z.bits |= uint32(z.data[z.pos++]) << z.nbits;
+            z.nbits += 8;
         }
-        return -1;
     }
-    bool NkDeflate::Huffman(Context& c, const HuffTree& lt, const HuffTree& dt) noexcept {
-        for(;;){
-            if(c.error) return false;
-            int32 sym=Decode(c,lt); if(sym<0) return false;
-            if(sym<256){if(c.outPos>=c.outSize){c.error=true;return false;}c.out[c.outPos++]=static_cast<uint8>(sym);}
-            else if(sym==256) break;
-            else {
-                int32 li=sym-257; if(li<0||li>=29) return false;
-                uint32 len=kLenBase[li]+ReadBits(c,kLenExtra[li]);
-                int32 ds=Decode(c,dt); if(ds<0||ds>=30) return false;
-                uint32 dist=kDistBase[ds]+ReadBits(c,kDistExtra[ds]);
-                if(c.outPos<dist) return false;
-                usize base=c.outPos-dist;
-                for(uint32 i=0;i<len;++i){if(c.outPos>=c.outSize){c.error=true;return false;}c.out[c.outPos++]=c.out[base+(i%dist)];}
+
+    // stbi__zreceive
+    uint32 NkDeflate::zBits(ZBuf& z, int32 n) noexcept {
+        if (!n) return 0;
+        if (z.nbits < n) zFill(z);
+        uint32 v = z.bits & ((1u << n) - 1);
+        z.bits >>= n;
+        z.nbits -= n;
+        return v;
+    }
+
+    // stbi__zbuild_huffman — construit la LUT fast avec bit-reverse des codes
+    bool NkDeflate::zBuildH(ZHuff& h, const uint8* szList, int32 num) noexcept {
+        int32 i, k = 0, code, nc[16], sizes[17];
+        nkMemset(sizes, 0, sizeof(sizes));
+        nkMemset(h.fast, 0, sizeof(h.fast));
+        for (i = 0; i < num; ++i) {
+            if (szList[i]) ++sizes[szList[i]];
+        }
+        sizes[0] = 0;
+        for (i = 1; i < 16; ++i) {
+            if (sizes[i] > (1 << i)) {
+                nkMemset(&h, 0, sizeof(h));
+                return false;
             }
         }
-        return !c.error;
-    }
-    bool NkDeflate::Stored(Context& c) noexcept {
-        c.bitBuf=0;c.bitCount=0;
-        if(c.inPos+4>c.inSize) return false;
-        uint16 len =static_cast<uint16>(c.in[c.inPos])|(static_cast<uint16>(c.in[c.inPos+1])<<8);
-        uint16 nlen=static_cast<uint16>(c.in[c.inPos+2])|(static_cast<uint16>(c.in[c.inPos+3])<<8);
-        c.inPos+=4; if((len^nlen)!=0xFFFF) return false;
-        if(c.inPos+len>c.inSize||c.outPos+len>c.outSize) return false;
-        NkCopy(c.out+c.outPos,c.in+c.inPos,len); c.inPos+=len; c.outPos+=len; return true;
-    }
-    bool NkDeflate::Fixed(Context& c) noexcept {
-        uint8 ll[288],dl[30];
-        for(int i=0;i<=143;++i) ll[i]=8; for(int i=144;i<=255;++i) ll[i]=9;
-        for(int i=256;i<=279;++i) ll[i]=7; for(int i=280;i<=287;++i) ll[i]=8;
-        for(int i=0;i<30;++i) dl[i]=5;
-        HuffTree lt,dt; BuildHuff(lt,ll,288); BuildHuff(dt,dl,30);
-        return Huffman(c,lt,dt);
-    }
-    bool NkDeflate::Dynamic(Context& c) noexcept {
-        int32 hlit=static_cast<int32>(ReadBits(c,5))+257;
-        int32 hdist=static_cast<int32>(ReadBits(c,5))+1;
-        int32 hclen=static_cast<int32>(ReadBits(c,4))+4;
-        uint8 cl[19]={};
-        for(int32 i=0;i<hclen;++i) cl[kCLOrder[i]]=static_cast<uint8>(ReadBits(c,3));
-        HuffTree ct; BuildHuff(ct,cl,19);
-        uint8 lens[320]={}; int32 total=hlit+hdist,i=0;
-        while(i<total){
-            int32 s=Decode(c,ct);
-            if(s<16){lens[i++]=static_cast<uint8>(s);}
-            else if(s==16){uint8 p=i>0?lens[i-1]:0;int32 n=static_cast<int32>(ReadBits(c,2))+3;while(n--&&i<total)lens[i++]=p;}
-            else if(s==17){int32 n=static_cast<int32>(ReadBits(c,3))+3;while(n--&&i<total)lens[i++]=0;}
-            else{int32 n=static_cast<int32>(ReadBits(c,7))+11;while(n--&&i<total)lens[i++]=0;}
+        code = 0;
+        for (i = 1; i < 16; ++i) {
+            nc[i] = code;
+            h.firstcode[i] = uint16(code);
+            h.firstsym[i] = uint16(k);
+            code += sizes[i];
+            if (sizes[i] && code - 1 >= (1 << i)) {
+                nkMemset(&h, 0, sizeof(h));
+                return false;
+            }
+            h.maxcode[i] = code << (16 - i); // pré-shifté
+            code <<= 1;
+            k += sizes[i];
         }
-        HuffTree lt,dt; BuildHuff(lt,lens,hlit); BuildHuff(dt,lens+hlit,hdist);
-        return Huffman(c,lt,dt);
-    }
-    bool NkDeflate::Block(Context& c, bool& last) noexcept {
-        last=(ReadBits(c,1)!=0); uint32 bt=ReadBits(c,2);
-        if(c.error) return false;
-        switch(bt){case 0:return Stored(c);case 1:return Fixed(c);case 2:return Dynamic(c);}
-        return false;
-    }
-    bool NkDeflate::DecompressRaw(const uint8* in,usize inSz,uint8* out,usize outSz,usize& w) noexcept {
-        w=0; Context c{}; c.in=in;c.inSize=inSz;c.out=out;c.outSize=outSz;
-        bool last=false;
-        while(!last&&!c.error) if(!Block(c,last)) return false;
-        w=c.outPos; return !c.error;
-    }
-    bool NkDeflate::Decompress(const uint8* in,usize inSz,uint8* out,usize outSz,usize& w) noexcept {
-        w=0; if(inSz<2) return false;
-        if(((static_cast<uint16>(in[0])<<8)|in[1])%31!=0) return false;
-        if((in[0]&0x0F)!=8) return false;
-        if(in[0]&0x20) return false; // preset dict
-        return DecompressRaw(in+2,inSz-2,out,outSz,w);
-    }
-
-    uint32 NkDeflate::Adler32(const uint8* data,usize size,uint32 prev) noexcept {
-        uint32 s1=prev&0xFFFF, s2=(prev>>16)&0xFFFF;
-        for(usize i=0;i<size;++i){s1=(s1+data[i])%65521;s2=(s2+s1)%65521;}
-        return (s2<<16)|s1;
-    }
-
-    bool NkDeflate::CompressLevel0(DeflateCtx& ctx) noexcept {
-        // Stored blocks (no compression) — level 0
-        const uint8* src=ctx.in; usize remain=ctx.inSize;
-        while(remain>0) {
-            const uint16 blen=static_cast<uint16>(remain>65535?65535:remain);
-            const uint16 nlen=static_cast<uint16>(~blen);
-            const bool last=(blen==remain);
-            ctx.out->WriteU8(last?0x01:0x00); // BFINAL|BTYPE=00
-            ctx.out->WriteU16LE(blen);
-            ctx.out->WriteU16LE(nlen);
-            ctx.out->WriteBytes(src,blen);
-            src+=blen; remain-=blen;
+        h.maxcode[16] = 0x10000;
+        for (i = 0; i < num; ++i) {
+            int32 s = szList[i];
+            if (!s) continue;
+            int32 c = nc[s] - h.firstcode[s] + h.firstsym[s];
+            uint16 fv = uint16((s << 9) | i);
+            h.sizes[c] = uint8(s);
+            h.values[c] = uint16(i);
+            if (s <= ZHuff::FAST) {
+                // remplit toutes les entrées de la fast table avec ce préfixe bit-reversed
+                int32 j = nkBR(nc[s], s);
+                while (j < (1 << ZHuff::FAST)) {
+                    h.fast[j] = fv;
+                    j += (1 << s);
+                }
+            }
+            ++nc[s];
         }
-        ctx.adler=Adler32(ctx.in,ctx.inSize,1);
         return true;
     }
 
-    bool NkDeflate::Compress(const uint8* in,usize inSz,uint8*& outData,usize& outSz,int32 level) noexcept {
+    // stbi__zhuffman_decode
+    int32 NkDeflate::zDecode(ZBuf& z, const ZHuff& h) noexcept {
+        if (z.nbits < 16) zFill(z);
+        // fast path : index direct (bits LSB-first correspondent à l'index bit-reversed du code)
+        uint16 fv = h.fast[z.bits & ((1 << ZHuff::FAST) - 1)];
+        if (fv) {
+            int32 s = fv >> 9;
+            z.bits >>= s;
+            z.nbits -= s;
+            return fv & 511;
+        }
+        // slow path : bit-reverse pour trouver la longueur
+        int32 k = nkBR16(int32(z.bits & 0xFFFF));
+        int32 s;
+        for (s = ZHuff::FAST + 1; ; ++s) {
+            if (k < h.maxcode[s]) break;
+        }
+        if (s == 16) {
+            z.err = true;
+            return -1;
+        }
+        {
+            int32 b = (k >> (16 - s)) - h.firstcode[s] + h.firstsym[s];
+            if (b < 0 || b >= 288 || h.sizes[b] != s) {
+                z.err = true;
+                return -1;
+            }
+            z.bits >>= s;
+            z.nbits -= s;
+            return h.values[b];
+        }
+    }
+
+    bool NkDeflate::zHuffBlock(ZBuf& z, const ZHuff& zl, const ZHuff& zd) noexcept {
+        for (;;) {
+            int32 sym = zDecode(z, zl);
+            if (z.err || sym < 0) return false;
+            if (sym < 256) {
+                if (z.outPos >= z.outCap) {
+                    z.err = true;
+                    return false;
+                }
+                z.out[z.outPos++] = uint8(sym);
+            } else if (sym == 256) {
+                return true;
+            } else {
+                int32 li = sym - 257;
+                if (li < 0 || li >= 29) {
+                    z.err = true;
+                    return false;
+                }
+                uint32 len = kLenBase[li] + zBits(z, kLenExtra[li]);
+                int32 ds = zDecode(z, zd);
+                if (z.err || ds < 0 || ds >= 30) {
+                    z.err = true;
+                    return false;
+                }
+                uint32 dist = kDistBase[ds] + zBits(z, kDistExtra[ds]);
+                if (z.outPos < dist) {
+                    z.err = true;
+                    return false;
+                }
+                if (z.outPos + len > z.outCap) {
+                    z.err = true;
+                    return false;
+                }
+                for (uint32 i = 0; i < len; ++i) {
+                    z.out[z.outPos] = z.out[z.outPos - dist];
+                    ++z.outPos;
+                }
+            }
+        }
+    }
+
+    bool NkDeflate::zStored(ZBuf& z) noexcept {
+        // Aligne sur octet : jette les bits partiels
+        if (z.nbits & 7) zBits(z, z.nbits & 7);
+        // Si zFill a trop lu, on revient en arrière dans z.pos
+        {
+            int32 extra = z.nbits / 8;
+            if (int32(z.pos) >= extra) z.pos -= extra;
+        }
+        z.bits = 0;
+        z.nbits = 0;
+        if (z.pos + 4 > z.size) {
+            z.err = true;
+            return false;
+        }
+        uint16 len  = z.data[z.pos] | (uint16(z.data[z.pos + 1]) << 8);
+        z.pos += 2;
+        uint16 nlen = z.data[z.pos] | (uint16(z.data[z.pos + 1]) << 8);
+        z.pos += 2;
+        if (uint16(len ^ nlen) != 0xFFFF) {
+            z.err = true;
+            return false;
+        }
+        if (z.pos + len > z.size) {
+            z.err = true;
+            return false;
+        }
+        if (z.outPos + len > z.outCap) {
+            z.err = true;
+            return false;
+        }
+        nkMemcpy(z.out + z.outPos, z.data + z.pos, len);
+        z.pos += len;
+        z.outPos += len;
+        return true;
+    }
+
+    bool NkDeflate::zFixed(ZBuf& z) noexcept {
+        ZHuff zl, zd;
+        if (!zBuildH(zl, kZDefLen, 288)) {
+            z.err = true;
+            return false;
+        }
+        if (!zBuildH(zd, kZDefDist, 32)) {
+            z.err = true;
+            return false;
+        }
+        return zHuffBlock(z, zl, zd);
+    }
+
+    bool NkDeflate::zDynamic(ZBuf& z) noexcept {
+        int32 hlit  = int32(zBits(z, 5)) + 257;
+        int32 hdist = int32(zBits(z, 5)) + 1;
+        int32 hclen = int32(zBits(z, 4)) + 4;
+        if (z.err) return false;
+        uint8 clen[19] = {};
+        for (int32 i = 0; i < hclen; ++i) {
+            clen[kCLOrder[i]] = uint8(zBits(z, 3));
+        }
+        ZHuff zc;
+        if (!zBuildH(zc, clen, 19)) {
+            z.err = true;
+            return false;
+        }
+        uint8 lens[320] = {};
+        int32 n = 0, total = hlit + hdist;
+        while (n < total && !z.err) {
+            int32 c = zDecode(z, zc);
+            if (z.err || c < 0) return false;
+            if (c < 16) {
+                lens[n++] = uint8(c);
+            } else if (c == 16) {
+                if (n == 0) {
+                    z.err = true;
+                    return false;
+                }
+                int32 r = int32(zBits(z, 2)) + 3;
+                uint8 p = lens[n - 1];
+                while (r-- && n < total) lens[n++] = p;
+            } else if (c == 17) {
+                int32 r = int32(zBits(z, 3)) + 3;
+                while (r-- && n < total) lens[n++] = 0;
+            } else {
+                int32 r = int32(zBits(z, 7)) + 11;
+                while (r-- && n < total) lens[n++] = 0;
+            }
+        }
+        ZHuff zl, zd;
+        if (!zBuildH(zl, lens, hlit)) {
+            z.err = true;
+            return false;
+        }
+        if (!zBuildH(zd, lens + hlit, hdist)) {
+            z.err = true;
+            return false;
+        }
+        return zHuffBlock(z, zl, zd);
+    }
+
+    bool NkDeflate::zBlock(ZBuf& z, bool& last) noexcept {
+        last = bool(zBits(z, 1));
+        uint32 type = zBits(z, 2);
+        if (z.err) return false;
+        switch (type) {
+            case 0: return zStored(z);
+            case 1: return zFixed(z);
+            case 2: return zDynamic(z);
+        }
+        z.err = true;
+        return false;
+    }
+
+    bool NkDeflate::zInflate(ZBuf& z, bool hdr) noexcept {
+        if (hdr) {
+            if (z.size < 2) {
+                z.err = true;
+                return false;
+            }
+            uint8 cmf = z.data[z.pos++];
+            uint8 flg = z.data[z.pos++];
+            if ((cmf & 0x0F) != 8) {
+                z.err = true;
+                return false;
+            }
+            if (((uint16(cmf) << 8) | flg) % 31 != 0) {
+                z.err = true;
+                return false;
+            }
+            // *** FIX CRITIQUE ***
+            // FLG = in[1]. Bit 5 de FLG = FDICT (preset dictionary).
+            // ANCIEN: if(in[0] & 0x20) → lisait CMF, toujours vrai pour CMF=0x78 !
+            // CORRECT: if(flg & 0x20) → lit FLG
+            if (flg & 0x20) {
+                z.err = true;
+                return false;
+            }
+        }
+        bool last = false;
+        while (!last && !z.err) {
+            if (!zBlock(z, last)) return false;
+        }
+        return !z.err;
+    }
+
+    bool NkDeflate::Decompress(const uint8* in, usize inSz, uint8* out, usize outCap, usize& w) noexcept {
+        w = 0;
+        if (!in || !out || inSz < 2) return false;
+        ZBuf z{};
+        z.data = in;
+        z.size = inSz;
+        z.out = out;
+        z.outCap = outCap;
+        if (!zInflate(z, true)) return false;
+        w = z.outPos;
+        return true;
+    }
+
+    bool NkDeflate::DecompressRaw(const uint8* in, usize inSz, uint8* out, usize outCap, usize& w) noexcept {
+        w = 0;
+        if (!in || !out) return false;
+        ZBuf z{};
+        z.data = in;
+        z.size = inSz;
+        z.out = out;
+        z.outCap = outCap;
+        if (!zInflate(z, false)) return false;
+        w = z.outPos;
+        return true;
+    }
+
+    uint32 NkDeflate::Adler32(const uint8* d, usize s, uint32 p) noexcept {
+        uint32 s1 = p & 0xFFFF;
+        uint32 s2 = (p >> 16) & 0xFFFF;
+        for (usize i = 0; i < s; ++i) {
+            s1 = (s1 + d[i]) % 65521;
+            s2 = (s2 + s1) % 65521;
+        }
+        return (s2 << 16) | s1;
+    }
+
+    bool NkDeflate::Compress(const uint8* in, usize inSz, uint8*& outData, usize& outSz, int32) noexcept {
         NkImageStream s;
-        // zlib header : CMF=0x78 (deflate,window=32k), FLG
-        uint8 cmf=0x78, flg=static_cast<uint8>((31-((static_cast<uint16>(cmf)<<8))%31)%31);
-        s.WriteU8(cmf); s.WriteU8(flg);
-        DeflateCtx ctx{&s,in,inSz,1};
-        bool ok=(level==0)?CompressLevel0(ctx):CompressLevel0(ctx); // level>0 → still level0 for now
-        if(!ok) return false;
-        // Adler32 checksum (big-endian)
-        uint32 a=Adler32(in,inSz,1);
-        s.WriteU32BE(a);
-        return s.TakeBuffer(outData,outSz);
+        // Header zlib valide : CMF=0x78, FLG tel que (CMF*256+FLG)%31==0, FDICT=0
+        uint8 cmf = 0x78;
+        uint8 flg = uint8(31 - (uint16(cmf) * 256 % 31));
+        flg &= ~0x20u;
+        if (((uint16(cmf) << 8) | flg) % 31 != 0) flg = 0;
+        s.WriteU8(cmf);
+        s.WriteU8(flg);
+        // Blocs non-compressés (BTYPE=00)
+        usize rem = inSz;
+        const uint8* src = in;
+        while (rem > 0) {
+            uint16 bl = uint16(rem > 65535 ? 65535 : rem);
+            uint16 nl = uint16(~bl);
+            bool last = (bl == rem);
+            s.WriteU8(last ? 0x01 : 0x00);
+            s.WriteU16LE(bl);
+            s.WriteU16LE(nl);
+            s.WriteBytes(src, bl);
+            src += bl;
+            rem -= bl;
+        }
+        s.WriteU32BE(Adler32(in, inSz, 1));
+        return s.TakeBuffer(outData, outSz);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    //  NkImage — fabrique
+    //  NkImage
     // ─────────────────────────────────────────────────────────────────────────────
-
-    NkImage* NkImage::Alloc(int32 w,int32 h,NkImagePixelFormat fmt,bool owning) noexcept {
-        NkImage* img=static_cast<NkImage*>(NkAlloc(sizeof(NkImage)));
-        if(!img) return nullptr;
+    NkImage* NkImage::Alloc(int32 w, int32 h, NkImagePixelFormat fmt) noexcept {
+        if (w <= 0 || h <= 0) return nullptr;
+        const int32 bpp = BytesPerPixelOf(fmt);
+        if (!bpp) return nullptr;
+        NkImage* img = static_cast<NkImage*>(nkMalloc(sizeof(NkImage)));
+        if (!img) return nullptr;
         new(img) NkImage();
-        const int32 bpp=BytesPerPixel(fmt);
-        img->mStride=(w*bpp+3)&~3;
-        const usize bytes=static_cast<usize>(img->mStride)*h;
-        img->mPixels=static_cast<uint8*>(NkAllocZero(bytes,1));
-        if(!img->mPixels){NkFree(img);return nullptr;}
-        img->mWidth=w; img->mHeight=h; img->mFormat=fmt; img->mOwning=owning;
+        img->mStride = (w * bpp + 3) & ~3;
+        img->mPixels = static_cast<uint8*>(nkCalloc(usize(img->mStride) * h, 1));
+        if (!img->mPixels) {
+            nkFree(img);
+            return nullptr;
+        }
+        img->mWidth  = w;
+        img->mHeight = h;
+        img->mFormat = fmt;
+        img->mOwning = true;
         return img;
     }
 
-    NkImage* NkImage::Wrap(uint8* pixels,int32 w,int32 h,NkImagePixelFormat fmt,int32 stride) noexcept {
-        NkImage* img=static_cast<NkImage*>(NkAlloc(sizeof(NkImage)));
-        if(!img) return nullptr;
+    NkImage* NkImage::Wrap(uint8* px, int32 w, int32 h, NkImagePixelFormat fmt, int32 st) noexcept {
+        NkImage* img = static_cast<NkImage*>(nkMalloc(sizeof(NkImage)));
+        if (!img) return nullptr;
         new(img) NkImage();
-        img->mPixels=pixels; img->mWidth=w; img->mHeight=h; img->mFormat=fmt;
-        img->mStride=stride>0?stride:w*BytesPerPixel(fmt);
-        img->mOwning=false;
+        img->mPixels = px;
+        img->mWidth  = w;
+        img->mHeight = h;
+        img->mFormat = fmt;
+        img->mStride = (st > 0) ? st : w * BytesPerPixelOf(fmt);
+        img->mOwning = false;
         return img;
     }
+
+    NkImage* NkImage::ConvertToTexture(const NkImage& hdrImage, float exposure, float gamma) noexcept {
+        return NkHDRCodec::ConvertToTexture(hdrImage, exposure, gamma);
+    }
+
+    // bool NkImage::ConvertToTextureData(const NkImage& hdrImage, NkTextureData& outData, float exposure, float gamma) noexcept {
+    //     return NkHDRCodec::ConvertToTextureData(hdrImage, outData, exposure, gamma);
+    // }
 
     NkImage::~NkImage() noexcept {
-        if(mOwning&&mPixels) NkFree(mPixels);
+        if (mOwning && mPixels) nkFree(mPixels);
     }
 
     void NkImage::Free() noexcept {
-        if(mOwning&&mPixels) NkFree(mPixels);
-        mPixels=nullptr;
-        NkFree(this);
+        if (mOwning && mPixels) nkFree(mPixels);
+        mPixels = nullptr;
+        nkFree(this);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Détection de format
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    NkImageFormat NkImage::DetectFormat(const uint8* d,usize sz) noexcept {
-        if(sz<4) return NkImageFormat::NK_UNKNOW;
-        if(sz>=8&&d[0]==0x89&&d[1]=='P'&&d[2]=='N'&&d[3]=='G') return NkImageFormat::NK_PNG;
-        if(sz>=3&&d[0]==0xFF&&d[1]==0xD8&&d[2]==0xFF)           return NkImageFormat::NK_JPEG;
-        if(sz>=2&&d[0]=='B'&&d[1]=='M')                         return NkImageFormat::NK_BMP;
-        if(sz>=4&&d[0]=='q'&&d[1]=='o'&&d[2]=='i'&&d[3]=='f')  return NkImageFormat::NK_QOI;
-        if(sz>=4&&d[0]=='G'&&d[1]=='I'&&d[2]=='F'&&d[3]=='8')  return NkImageFormat::NK_GIF;
-        if(sz>=4&&d[0]==0x00&&d[1]==0x00&&(d[2]==0x01||d[2]==0x02)&&d[3]==0x00) return NkImageFormat::NK_ICO;
-        if(sz>=10&&d[0]=='#'&&d[1]=='?'&&d[2]=='R')             return NkImageFormat::NK_HDR;
-        if(sz>=2&&(d[0]=='P')&&d[1]>='1'&&d[1]<='6')           {
-            if(d[1]=='1'||d[1]=='4') return NkImageFormat::NK_PBM;
-            if(d[1]=='2'||d[1]=='5') return NkImageFormat::NK_PGM;
+    NkImageFormat NkImage::DetectFormat(const uint8* d, usize sz) noexcept {
+        if (sz < 4) return NkImageFormat::NK_UNKNOWN;
+        if (sz >= 8 && d[0] == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G')
+            return NkImageFormat::NK_PNG;
+        if (sz >= 3 && d[0] == 0xFF && d[1] == 0xD8 && d[2] == 0xFF)
+            return NkImageFormat::NK_JPEG;
+        if (sz >= 2 && d[0] == 'B' && d[1] == 'M')
+            return NkImageFormat::NK_BMP;
+        if (sz >= 4 && d[0] == 'q' && d[1] == 'o' && d[2] == 'i' && d[3] == 'f')
+            return NkImageFormat::NK_QOI;
+        if (sz >= 4 && d[0] == 'G' && d[1] == 'I' && d[2] == 'F' && d[3] == '8')
+            return NkImageFormat::NK_GIF;
+        if (sz >= 4 && d[0] == 0 && d[1] == 0 && (d[2] == 1 || d[2] == 2) && d[3] == 0)
+            return NkImageFormat::NK_ICO;
+        if (sz >= 10 && d[0] == '#' && d[1] == '?')
+            return NkImageFormat::NK_HDR;
+        if (sz >= 2 && d[0] == 'P' && d[1] >= '1' && d[1] <= '6') {
+            if (d[1] == '1' || d[1] == '4') return NkImageFormat::NK_PBM;
+            if (d[1] == '2' || d[1] == '5') return NkImageFormat::NK_PGM;
             return NkImageFormat::NK_PPM;
         }
-        // TGA : pas de magic byte fiable — détection heuristique
-        if(sz>=18) {
-            const uint8 imgType=d[2];
-            if(imgType==0||imgType==1||imgType==2||imgType==3||
-            imgType==9||imgType==10||imgType==11)
+        if (sz >= 18) {
+            uint8 it = d[2];
+            if (it == 0 || it == 1 || it == 2 || it == 3 || it == 9 || it == 10 || it == 11)
                 return NkImageFormat::NK_TGA;
         }
-        return NkImageFormat::NK_UNKNOW;
+        return NkImageFormat::NK_UNKNOWN;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Dispatch vers les codecs
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    NkImage* NkImage::Dispatch(const uint8* d,usize sz,int32 ch,NkImageFormat fmt) noexcept {
-        NkImage* img=nullptr;
-        switch(fmt) {
-            case NkImageFormat::NK_PNG:  img=NkPNGCodec ::Decode(d,sz); break;
-            case NkImageFormat::NK_JPEG: img=NkJPEGCodec::Decode(d,sz); break;
-            case NkImageFormat::NK_BMP:  img=NkBMPCodec ::Decode(d,sz); break;
-            case NkImageFormat::NK_TGA:  img=NkTGACodec ::Decode(d,sz); break;
-            case NkImageFormat::NK_HDR:  img=NkHDRCodec ::Decode(d,sz); break;
+    NkImage* NkImage::Dispatch(const uint8* d, usize sz, int32 ch, NkImageFormat fmt) noexcept {
+        NkImage* img = nullptr;
+        switch (fmt) {
+            case NkImageFormat::NK_PNG:  img = NkPNGCodec::Decode(d, sz); break;
+            case NkImageFormat::NK_JPEG: img = NkJPEGCodec::Decode(d, sz); break;
+            case NkImageFormat::NK_BMP:  img = NkBMPCodec::Decode(d, sz); break;
+            case NkImageFormat::NK_TGA:  img = NkTGACodec::Decode(d, sz); break;
+            case NkImageFormat::NK_HDR:  img = NkHDRCodec::Decode(d, sz); break;
             case NkImageFormat::NK_PPM:
             case NkImageFormat::NK_PGM:
-            case NkImageFormat::NK_PBM:  img=NkPPMCodec ::Decode(d,sz); break;
-            case NkImageFormat::NK_QOI:  img=NkQOICodec ::Decode(d,sz); break;
-            case NkImageFormat::NK_GIF:  img=NkGIFCodec ::Decode(d,sz); break;
-            case NkImageFormat::NK_ICO:  img=NkICOCodec ::Decode(d,sz); break;
+            case NkImageFormat::NK_PBM:  img = NkPPMCodec::Decode(d, sz); break;
+            case NkImageFormat::NK_QOI:  img = NkQOICodec::Decode(d, sz); break;
+            case NkImageFormat::NK_GIF:  img = NkGIFCodec::Decode(d, sz); break;
+            case NkImageFormat::NK_ICO:  img = NkICOCodec::Decode(d, sz); break;
             default: return nullptr;
         }
-        if(!img) return nullptr;
-        // Conversion de canaux si demandée
-        if(ch>0 && ch!=img->Channels()) {
-            const NkImagePixelFormat tgt=(ch==1)?NkImagePixelFormat::NK_GRAY8:
-                                    (ch==2)?NkImagePixelFormat::NK_GRAY_A16:
-                                    (ch==3)?NkImagePixelFormat::NK_RGB24:NkImagePixelFormat::NK_RGBA32;
-            NkImage* conv=img->Convert(tgt);
+        if (!img) return nullptr;
+        if (ch > 0 && ch != img->Channels()) {
+            NkImagePixelFormat tgt =
+                ch == 1 ? NkImagePixelFormat::NK_GRAY8 :
+                ch == 2 ? NkImagePixelFormat::NK_GRAY_A16 :
+                ch == 3 ? NkImagePixelFormat::NK_RGB24 :
+                          NkImagePixelFormat::NK_RGBA32;
+            NkImage* c = img->Convert(tgt);
             img->Free();
-            return conv;
+            return c;
         }
         return img;
     }
 
-    NkImage* NkImage::LoadFromMemory(const uint8* data,usize size,int32 ch) noexcept {
-        if(!data||size<4) return nullptr;
-        const NkImageFormat fmt=DetectFormat(data,size);
-        if(fmt==NkImageFormat::NK_UNKNOW) return nullptr;
-        NkImage* img=Dispatch(data,size,ch,fmt);
-        if(img) img->mSourceFormat=fmt;
+    NkImage* NkImage::LoadFromMemory(const uint8* data, usize size, int32 ch) noexcept {
+        if (!data || size < 4) return nullptr;
+        NkImageFormat fmt = DetectFormat(data, size);
+        if (fmt == NkImageFormat::NK_UNKNOWN) return nullptr;
+        NkImage* img = Dispatch(data, size, ch, fmt);
+        if (img) img->mSrcFmt = fmt;
         return img;
     }
 
-    NkImage* NkImage::Load(const char* path,int32 ch) noexcept {
-        if(!path) return nullptr;
-        FILE* f=::fopen(path,"rb");
-        if(!f) return nullptr;
-        ::fseek(f,0,SEEK_END);
-        const long sz=::ftell(f);
-        ::fseek(f,0,SEEK_SET);
-        if(sz<=0){::fclose(f);return nullptr;}
-        uint8* buf=static_cast<uint8*>(NkAlloc(static_cast<usize>(sz)));
-        if(!buf){::fclose(f);return nullptr;}
-        const usize read=::fread(buf,1,static_cast<usize>(sz),f);
+    NkImage* NkImage::Load(const char* path, int32 ch) noexcept {
+        if (!path) return nullptr;
+        FILE* f = ::fopen(path, "rb");
+        if (!f) return nullptr;
+        ::fseek(f, 0, SEEK_END);
+        long sz = ::ftell(f);
+        ::fseek(f, 0, SEEK_SET);
+        if (sz <= 0) {
+            ::fclose(f);
+            return nullptr;
+        }
+        uint8* buf = static_cast<uint8*>(nkMalloc(usize(sz)));
+        if (!buf) {
+            ::fclose(f);
+            return nullptr;
+        }
+        usize rd = ::fread(buf, 1, usize(sz), f);
         ::fclose(f);
-        NkImage* img=nullptr;
-        if(read==static_cast<usize>(sz))
-            img=LoadFromMemory(buf,read,ch);
-        NkFree(buf);
+        NkImage* img = nullptr;
+        if (rd == usize(sz)) img = LoadFromMemory(buf, rd, ch);
+        nkFree(buf);
         return img;
     }
 
-    bool NkImage::QueryInfo(const char* path,int32& ow,int32& oh,int32& oc,NkImageFormat& of_) noexcept {
-        NkImage* img=Load(path,0);
-        if(!img) return false;
-        ow=img->mWidth; oh=img->mHeight; oc=img->Channels(); of_=img->mSourceFormat;
-        img->Free(); return true;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Sauvegarde
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    static const char* FileExtension(const char* path) noexcept {
-        const char* dot=nullptr;
-        for(const char* p=path;*p;++p) if(*p=='.') dot=p;
-        return dot?dot+1:"";
-    }
-
-    bool NkImage::Save(const char* path,int32 quality) const noexcept {
-        const char* ext=FileExtension(path);
-        auto eq=[](const char* a,const char* b){
-            while(*a&&*b){if((*a|32)!=(*b|32))return false;++a;++b;}return *a==*b;};
-        if(eq(ext,"png"))  return SavePNG(path);
-        if(eq(ext,"jpg")||eq(ext,"jpeg")) return SaveJPEG(path,quality);
-        if(eq(ext,"bmp"))  return SaveBMP(path);
-        if(eq(ext,"tga"))  return SaveTGA(path);
-        if(eq(ext,"hdr"))  return SaveHDR(path);
-        if(eq(ext,"ppm")||eq(ext,"pgm")) return SavePPM(path);
-        if(eq(ext,"qoi"))  return SaveQOI(path);
-        return false;
-    }
-
-    static bool WriteFile(const char* path,const uint8* data,usize size) noexcept {
-        FILE* f=::fopen(path,"wb");
-        if(!f) return false;
-        const bool ok=(::fwrite(data,1,size,f)==size);
+    static bool nkWF(const char* p, const uint8* d, usize s) noexcept {
+        FILE* f = ::fopen(p, "wb");
+        if (!f) return false;
+        bool ok = (::fwrite(d, 1, s, f) == s);
         ::fclose(f);
         return ok;
     }
 
-    bool NkImage::SavePNG(const char* path)  const noexcept {
-        uint8* d=nullptr; usize sz=0;
-        if(!EncodePNG(d,sz)) return false;
-        bool ok=WriteFile(path,d,sz); NkFree(d); return ok;
-    }
-    bool NkImage::SaveJPEG(const char* path,int32 q) const noexcept {
-        uint8* d=nullptr; usize sz=0;
-        if(!EncodeJPEG(d,sz,q)) return false;
-        bool ok=WriteFile(path,d,sz); NkFree(d); return ok;
-    }
-    bool NkImage::SaveBMP(const char* path)  const noexcept {
-        uint8* d=nullptr; usize sz=0;
-        if(!EncodeBMP(d,sz)) return false;
-        bool ok=WriteFile(path,d,sz); NkFree(d); return ok;
-    }
-    bool NkImage::SaveTGA(const char* path)  const noexcept {
-        uint8* d=nullptr; usize sz=0;
-        if(!EncodeTGA(d,sz)) return false;
-        bool ok=WriteFile(path,d,sz); NkFree(d); return ok;
-    }
-    bool NkImage::SaveHDR(const char* path)  const noexcept { return NkHDRCodec::Encode(*this,path); }
-    bool NkImage::SavePPM(const char* path)  const noexcept { return NkPPMCodec::Encode(*this,path); }
-    bool NkImage::SaveQOI(const char* path)  const noexcept {
-        uint8* d=nullptr; usize sz=0;
-        if(!EncodeQOI(d,sz)) return false;
-        bool ok=WriteFile(path,d,sz); NkFree(d); return ok;
+    static const char* nkExt(const char* p) noexcept {
+        const char* e = nullptr;
+        for (const char* q = p; *q; ++q) {
+            if (*q == '.') e = q;
+        }
+        return e ? e + 1 : "";
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Backend STB
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    NkImage* NkImage::LoadSTB(const char* path, int32 ch) noexcept {
-        return NkSTBCodec::Load(path, ch);
+    static bool nkEq(const char* a, const char* b) noexcept {
+        while (*a && *b) {
+            if (((*a) | 32) != ((*b) | 32)) return false;
+            ++a; ++b;
+        }
+        return *a == *b;
     }
 
-    NkImage* NkImage::LoadFromMemorySTB(const uint8* data, usize size, int32 ch) noexcept {
-        return NkSTBCodec::LoadFromMemory(data, size, ch);
+    bool NkImage::Save(const char* p, int32 q) const noexcept {
+        const char* e = nkExt(p);
+        if (nkEq(e, "png")) return SavePNG(p);
+        if (nkEq(e, "jpg") || nkEq(e, "jpeg")) return SaveJPEG(p, q);
+        if (nkEq(e, "bmp")) return SaveBMP(p);
+        if (nkEq(e, "tga")) return SaveTGA(p);
+        if (nkEq(e, "ppm") || nkEq(e, "pgm")) return SavePPM(p);
+        if (nkEq(e, "hdr")) return SaveHDR(p);
+        if (nkEq(e, "qoi")) return SaveQOI(p);
+        return false;
     }
 
-    bool NkImage::SaveSTB(const char* path, int32 quality) const noexcept {
-        return NkSTBCodec::Save(*this, path, quality);
+    bool NkImage::SavePNG(const char* p) const noexcept {
+        uint8* d = nullptr;
+        usize s = 0;
+        if (!EncodePNG(d, s)) return false;
+        bool ok = nkWF(p, d, s);
+        nkFree(d);
+        return ok;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Encode
-    // ─────────────────────────────────────────────────────────────────────────────
+    bool NkImage::SaveJPEG(const char* p, int32 q) const noexcept {
+        uint8* d = nullptr;
+        usize s = 0;
+        if (!EncodeJPEG(d, s, q)) return false;
+        bool ok = nkWF(p, d, s);
+        nkFree(d);
+        return ok;
+    }
 
-    bool NkImage::EncodePNG (uint8*& d,usize& s)             const noexcept { return NkPNGCodec ::Encode(*this,d,s); }
-    bool NkImage::EncodeJPEG(uint8*& d,usize& s,int32 q)     const noexcept { return NkJPEGCodec::Encode(*this,d,s,q); }
-    bool NkImage::EncodeBMP (uint8*& d,usize& s)             const noexcept { return NkBMPCodec ::Encode(*this,d,s); }
-    bool NkImage::EncodeTGA (uint8*& d,usize& s)             const noexcept { return NkTGACodec ::Encode(*this,d,s); }
-    bool NkImage::EncodeQOI (uint8*& d,usize& s)             const noexcept { return NkQOICodec ::Encode(*this,d,s); }
+    bool NkImage::SaveBMP(const char* p) const noexcept {
+        uint8* d = nullptr;
+        usize s = 0;
+        if (!EncodeBMP(d, s)) return false;
+        bool ok = nkWF(p, d, s);
+        nkFree(d);
+        return ok;
+    }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Manipulation
-    // ─────────────────────────────────────────────────────────────────────────────
+    bool NkImage::SaveTGA(const char* p) const noexcept {
+        uint8* d = nullptr;
+        usize s = 0;
+        if (!EncodeTGA(d, s)) return false;
+        bool ok = nkWF(p, d, s);
+        nkFree(d);
+        return ok;
+    }
+
+    bool NkImage::SavePPM(const char* p) const noexcept {
+        return NkPPMCodec::Encode(*this, p);
+    }
+
+    bool NkImage::SaveHDR(const char* p) const noexcept {
+        return NkHDRCodec::Encode(*this, p);
+    }
+
+    bool NkImage::SaveQOI(const char* p) const noexcept {
+        uint8* d = nullptr;
+        usize s = 0;
+        if (!EncodeQOI(d, s)) return false;
+        bool ok = nkWF(p, d, s);
+        nkFree(d);
+        return ok;
+    }
+
+    bool NkImage::SaveGIF(const char*) const noexcept {
+        return false; // not implemented
+    }
+
+    bool NkImage::SaveWebP(const char*, bool, int32) const noexcept {
+        return false;
+    }
+
+    bool NkImage::SaveSVG(const char*) const noexcept {
+        return false;
+    }
+
+    bool NkImage::EncodePNG(uint8*& d, usize& s) const noexcept {
+        return NkPNGCodec::Encode(*this, d, s);
+    }
+
+    bool NkImage::EncodeJPEG(uint8*& d, usize& s, int32 q) const noexcept {
+        return NkJPEGCodec::Encode(*this, d, s, q);
+    }
+
+    bool NkImage::EncodeBMP(uint8*& d, usize& s) const noexcept {
+        return NkBMPCodec::Encode(*this, d, s);
+    }
+
+    bool NkImage::EncodeTGA(uint8*& d, usize& s) const noexcept {
+        return NkTGACodec::Encode(*this, d, s);
+    }
+
+    bool NkImage::EncodeQOI(uint8*& d, usize& s) const noexcept {
+        return NkQOICodec::Encode(*this, d, s);
+    }
+
+    static uint8 nkY(uint8 r, uint8 g, uint8 b) noexcept {
+        return uint8((uint32(r) * 77 + g * 150 + b * 29) >> 8);
+    }
+
+    uint8* NkImage::ConvertChannels(const uint8* src, int32 w, int32 h, int32 sc, int32 dc, int32 ss) noexcept {
+        const int32 ds = (w * dc + 3) & ~3;
+        uint8* dst = static_cast<uint8*>(nkCalloc(usize(ds) * h, 1));
+        if (!dst) return nullptr;
+        for (int32 y = 0; y < h; ++y) {
+            const uint8* sr = src + usize(y) * ss;
+            uint8* dr = dst + usize(y) * ds;
+            for (int32 x = 0; x < w; ++x) {
+                const uint8* sp = sr + x * sc;
+                uint8* dp = dr + x * dc;
+                uint8 r = sp[0];
+                uint8 g = (sc > 1) ? sp[1] : r;
+                uint8 b = (sc > 2) ? sp[2] : r;
+                uint8 a = (sc > 3) ? sp[3] : 255;
+                switch (dc) {
+                    case 1: dp[0] = nkY(r, g, b); break;
+                    case 2: dp[0] = nkY(r, g, b); dp[1] = a; break;
+                    case 3: dp[0] = r; dp[1] = g; dp[2] = b; break;
+                    case 4: dp[0] = r; dp[1] = g; dp[2] = b; dp[3] = a; break;
+                }
+            }
+        }
+        return dst;
+    }
+
+    NkImage* NkImage::Convert(NkImagePixelFormat nf) const noexcept {
+        if (!IsValid()) return nullptr;
+        if (nf == mFormat) {
+            NkImage* c = Alloc(mWidth, mHeight, mFormat);
+            if (c) nkMemcpy(c->mPixels, mPixels, TotalBytes());
+            return c;
+        }
+        const int32 dc = ChannelsOf(nf);
+        if (!dc) return nullptr;
+        uint8* pix = ConvertChannels(mPixels, mWidth, mHeight, Channels(), dc, mStride);
+        if (!pix) return nullptr;
+        NkImage* img = static_cast<NkImage*>(nkMalloc(sizeof(NkImage)));
+        if (!img) {
+            nkFree(pix);
+            return nullptr;
+        }
+        new(img) NkImage();
+        img->mPixels = pix;
+        img->mWidth  = mWidth;
+        img->mHeight = mHeight;
+        img->mFormat = nf;
+        img->mStride = (mWidth * BytesPerPixelOf(nf) + 3) & ~3;
+        img->mOwning = true;
+        return img;
+    }
 
     void NkImage::FlipVertical() noexcept {
-        if(!IsValid()) return;
-        uint8* tmp=static_cast<uint8*>(NkAlloc(mStride));
-        if(!tmp) return;
-        for(int32 y=0;y<mHeight/2;++y){
-            NkCopy(tmp, RowPtr(y), mStride);
-            NkCopy(RowPtr(y), RowPtr(mHeight-1-y), mStride);
-            NkCopy(RowPtr(mHeight-1-y), tmp, mStride);
+        if (!IsValid()) return;
+        uint8* tmp = static_cast<uint8*>(nkMalloc(mStride));
+        if (!tmp) return;
+        for (int32 y = 0; y < mHeight / 2; ++y) {
+            nkMemcpy(tmp, RowPtr(y), mStride);
+            nkMemcpy(RowPtr(y), RowPtr(mHeight - 1 - y), mStride);
+            nkMemcpy(RowPtr(mHeight - 1 - y), tmp, mStride);
         }
-        NkFree(tmp);
+        nkFree(tmp);
     }
 
     void NkImage::FlipHorizontal() noexcept {
-        if(!IsValid()) return;
-        const int32 bpp=BytesPP();
-        for(int32 y=0;y<mHeight;++y){
-            uint8* row=RowPtr(y);
-            for(int32 x=0;x<mWidth/2;++x){
-                uint8* a=row+x*bpp, *b=row+(mWidth-1-x)*bpp;
-                for(int32 i=0;i<bpp;++i){ uint8 t=a[i];a[i]=b[i];b[i]=t; }
+        if (!IsValid()) return;
+        const int32 bpp = BytesPP();
+        for (int32 y = 0; y < mHeight; ++y) {
+            uint8* row = RowPtr(y);
+            for (int32 x = 0; x < mWidth / 2; ++x) {
+                uint8* a = row + x * bpp;
+                uint8* b = row + (mWidth - 1 - x) * bpp;
+                for (int32 i = 0; i < bpp; ++i) {
+                    uint8 t = a[i];
+                    a[i] = b[i];
+                    b[i] = t;
+                }
             }
         }
     }
 
     void NkImage::PremultiplyAlpha() noexcept {
-        if(!IsValid()||mFormat!=NkImagePixelFormat::NK_RGBA32) return;
-        for(int32 y=0;y<mHeight;++y){
-            uint8* p=RowPtr(y);
-            for(int32 x=0;x<mWidth;++x,p+=4){
-                const uint32 a=p[3];
-                p[0]=static_cast<uint8>((p[0]*a+127)/255);
-                p[1]=static_cast<uint8>((p[1]*a+127)/255);
-                p[2]=static_cast<uint8>((p[2]*a+127)/255);
+        if (!IsValid() || mFormat != NkImagePixelFormat::NK_RGBA32) return;
+        for (int32 y = 0; y < mHeight; ++y) {
+            uint8* p = RowPtr(y);
+            for (int32 x = 0; x < mWidth; ++x, p += 4) {
+                uint32 a = p[3];
+                p[0] = uint8((p[0] * a + 127) / 255);
+                p[1] = uint8((p[1] * a + 127) / 255);
+                p[2] = uint8((p[2] * a + 127) / 255);
             }
         }
     }
 
-    void NkImage::Blit(const NkImage& src,int32 dstX,int32 dstY) noexcept {
-        if(!IsValid()||!src.IsValid()||mFormat!=src.mFormat) return;
-        int32 sx=0,sy=0,dx=dstX,dy=dstY,w=src.mWidth,h=src.mHeight;
-        if(dx<0){sx-=dx;w+=dx;dx=0;} if(dy<0){sy-=dy;h+=dy;dy=0;}
-        if(dx+w>mWidth)  w=mWidth-dx;
-        if(dy+h>mHeight) h=mHeight-dy;
-        if(w<=0||h<=0) return;
-        const int32 bpp=BytesPP(), rowBytes=w*bpp;
-        for(int32 row=0;row<h;++row)
-            NkCopy(RowPtr(dy+row)+dx*bpp, src.RowPtr(sy+row)+sx*bpp, rowBytes);
+    void NkImage::Blit(const NkImage& src, int32 dx, int32 dy) noexcept {
+        if (!IsValid() || !src.IsValid() || mFormat != src.mFormat) return;
+        int32 sx = 0, sy = 0, w = src.mWidth, h = src.mHeight;
+        if (dx < 0) { sx -= dx; w += dx; dx = 0; }
+        if (dy < 0) { sy -= dy; h += dy; dy = 0; }
+        if (dx + w > mWidth)  w = mWidth - dx;
+        if (dy + h > mHeight) h = mHeight - dy;
+        if (w <= 0 || h <= 0) return;
+        const int32 bpp = BytesPP(), rb = w * bpp;
+        for (int32 row = 0; row < h; ++row) {
+            nkMemcpy(RowPtr(dy + row) + dx * bpp,
+                     src.RowPtr(sy + row) + sx * bpp,
+                     rb);
+        }
     }
 
-    NkImage* NkImage::Crop(int32 x,int32 y,int32 w,int32 h) const noexcept {
-        if(!IsValid()||x<0||y<0||x+w>mWidth||y+h>mHeight||w<=0||h<=0) return nullptr;
-        NkImage* dst=Alloc(w,h,mFormat);
-        if(!dst) return nullptr;
-        for(int32 row=0;row<h;++row)
-            NkCopy(dst->RowPtr(row), RowPtr(y+row)+x*BytesPP(), w*BytesPP());
+    NkImage* NkImage::Crop(int32 x, int32 y, int32 w, int32 h) const noexcept {
+        if (!IsValid() || x < 0 || y < 0 || x + w > mWidth || y + h > mHeight || w <= 0 || h <= 0)
+            return nullptr;
+        NkImage* dst = Alloc(w, h, mFormat);
+        if (!dst) return nullptr;
+        for (int32 row = 0; row < h; ++row) {
+            nkMemcpy(dst->RowPtr(row),
+                     RowPtr(y + row) + x * BytesPP(),
+                     w * BytesPP());
+        }
         return dst;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Conversion de canaux
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    uint8* NkImage::ConvertChannels(const uint8* src,int32 w,int32 h,int32 sc,int32 dc) noexcept {
-        const usize dstStride=static_cast<usize>((w*dc+3)&~3);
-        uint8* dst=static_cast<uint8*>(NkAllocZero(dstStride*h,1));
-        if(!dst) return nullptr;
-        for(int32 y=0;y<h;++y){
-            const uint8* sr=src+static_cast<usize>(y)*((w*sc+3)&~3);
-            uint8*       dr=dst+dstStride*y;
-            for(int32 x=0;x<w;++x){
-                const uint8* sp=sr+x*sc; uint8* dp=dr+x*dc;
-                uint8 r=sp[0],g=(sc>1)?sp[1]:r,b=(sc>2)?sp[2]:r,a=(sc>3)?sp[3]:255;
-                switch(dc){
-                    case 1: dp[0]=static_cast<uint8>((static_cast<uint32>(r)*77+g*150+b*29)>>8); break;
-                    case 2: dp[0]=static_cast<uint8>((static_cast<uint32>(r)*77+g*150+b*29)>>8);dp[1]=a; break;
-                    case 3: dp[0]=r;dp[1]=g;dp[2]=b; break;
-                    case 4: dp[0]=r;dp[1]=g;dp[2]=b;dp[3]=a; break;
+    NkImage* NkImage::Resize(int32 nw, int32 nh, NkResizeFilter f) const noexcept {
+        if (!IsValid() || nw <= 0 || nh <= 0) return nullptr;
+        NkImage* dst = Alloc(nw, nh, mFormat);
+        if (!dst) return nullptr;
+        const int32 bpp = BytesPP();
+        const float32 xs = float32(mWidth) / nw;
+        const float32 ys = float32(mHeight) / nh;
+        if (f == NkResizeFilter::NK_NEAREST) {
+            for (int32 y = 0; y < nh; ++y) {
+                const int32 sy = int32(y * ys);
+                for (int32 x = 0; x < nw; ++x) {
+                    nkMemcpy(dst->RowPtr(y) + x * bpp,
+                             RowPtr(sy) + int32(x * xs) * bpp,
+                             bpp);
+                }
+            }
+            return dst;
+        }
+        for (int32 y = 0; y < nh; ++y) {
+            const float32 fy = (y + 0.5f) * ys - 0.5f;
+            const int32 y0 = int32(fy);
+            const float32 yt = fy - y0;
+            const int32 y1 = (y0 + 1 < mHeight) ? y0 + 1 : y0;
+            for (int32 x = 0; x < nw; ++x) {
+                const float32 fx = (x + 0.5f) * xs - 0.5f;
+                const int32 x0 = int32(fx);
+                const float32 xt = fx - x0;
+                const int32 x1 = (x0 + 1 < mWidth) ? x0 + 1 : x0;
+                uint8* dp = dst->RowPtr(y) + x * bpp;
+                for (int32 c = 0; c < bpp; ++c) {
+                    float32 p00 = RowPtr(y0)[x0 * bpp + c];
+                    float32 p10 = RowPtr(y0)[x1 * bpp + c];
+                    float32 p01 = RowPtr(y1)[x0 * bpp + c];
+                    float32 p11 = RowPtr(y1)[x1 * bpp + c];
+                    float32 v = p00 * (1 - xt) * (1 - yt) +
+                                 p10 * xt * (1 - yt) +
+                                 p01 * (1 - xt) * yt +
+                                 p11 * xt * yt;
+                    dp[c] = uint8(v < 0 ? 0 : (v > 255 ? 255 : v + 0.5f));
                 }
             }
         }
         return dst;
     }
 
-    NkImage* NkImage::Convert(NkImagePixelFormat newFmt) const noexcept {
-        if(!IsValid()) return nullptr;
-        if(newFmt==mFormat){
-            NkImage* c=Alloc(mWidth,mHeight,mFormat);
-            if(c) NkCopy(c->mPixels,mPixels,TotalBytes());
-            return c;
-        }
-        const int32 dc=ChannelsOf(newFmt);
-        if(dc==0) return nullptr;
-        uint8* pix=ConvertChannels(mPixels,mWidth,mHeight,Channels(),dc);
-        if(!pix) return nullptr;
-        NkImage* img=static_cast<NkImage*>(NkAlloc(sizeof(NkImage)));
-        if(!img){NkFree(pix);return nullptr;}
-        new(img) NkImage();
-        img->mPixels=pix; img->mWidth=mWidth; img->mHeight=mHeight;
-        img->mFormat=newFmt; img->mStride=(mWidth*BytesPerPixel(newFmt)+3)&~3;
-        img->mOwning=true;
-        return img;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    //  Resize
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    NkImage* NkImage::ResizeNearest(const NkImage& src,int32 nw,int32 nh) noexcept {
-        NkImage* dst=Alloc(nw,nh,src.mFormat);
-        if(!dst) return nullptr;
-        const int32 bpp=src.BytesPP();
-        for(int32 y=0;y<nh;++y){
-            const int32 sy=(y*src.mHeight)/nh;
-            for(int32 x=0;x<nw;++x){
-                const int32 sx=(x*src.mWidth)/nw;
-                NkCopy(dst->RowPtr(y)+x*bpp, src.RowPtr(sy)+sx*bpp, bpp);
-            }
-        }
-        return dst;
-    }
-
-    NkImage* NkImage::ResizeBilinear(const NkImage& src,int32 nw,int32 nh) noexcept {
-        NkImage* dst=Alloc(nw,nh,src.mFormat);
-        if(!dst) return nullptr;
-        const int32 bpp=src.BytesPP();
-        const float32 xScale=static_cast<float32>(src.mWidth)/nw;
-        const float32 yScale=static_cast<float32>(src.mHeight)/nh;
-        for(int32 y=0;y<nh;++y){
-            const float32 fy=(y+0.5f)*yScale-0.5f;
-            const int32 y0=static_cast<int32>(fy); const float32 yt=fy-y0;
-            const int32 y1=y0+1<src.mHeight?y0+1:y0;
-            for(int32 x=0;x<nw;++x){
-                const float32 fx=(x+0.5f)*xScale-0.5f;
-                const int32 x0=static_cast<int32>(fx); const float32 xt=fx-x0;
-                const int32 x1=x0+1<src.mWidth?x0+1:x0;
-                uint8* dp=dst->RowPtr(y)+x*bpp;
-                for(int32 c=0;c<bpp;++c){
-                    const float32 p00=src.RowPtr(y0)[x0*bpp+c];
-                    const float32 p10=src.RowPtr(y0)[x1*bpp+c];
-                    const float32 p01=src.RowPtr(y1)[x0*bpp+c];
-                    const float32 p11=src.RowPtr(y1)[x1*bpp+c];
-                    dp[c]=static_cast<uint8>(p00*(1-xt)*(1-yt)+p10*xt*(1-yt)+p01*(1-xt)*yt+p11*xt*yt+0.5f);
-                }
-            }
-        }
-        return dst;
-    }
-
-    NkImage* NkImage::ResizeBicubic(const NkImage& src,int32 nw,int32 nh) noexcept {
-        // Bicubic Catmull-Rom
-        NkImage* dst=Alloc(nw,nh,src.mFormat);
-        if(!dst) return nullptr;
-        const int32 bpp=src.BytesPP();
-        auto cubic=[](float32 t)->float32 {
-            const float32 a=t<0?-t:t;
-            if(a<1) return 1.5f*a*a*a-2.5f*a*a+1;
-            if(a<2) return -0.5f*a*a*a+2.5f*a*a-4*a+2;
-            return 0;
-        };
-        const float32 xs=static_cast<float32>(src.mWidth)/nw;
-        const float32 ys=static_cast<float32>(src.mHeight)/nh;
-        for(int32 y=0;y<nh;++y){
-            const float32 fy=(y+0.5f)*ys-0.5f;
-            const int32 yf=static_cast<int32>(fy);
-            for(int32 x=0;x<nw;++x){
-                const float32 fx=(x+0.5f)*xs-0.5f;
-                const int32 xf=static_cast<int32>(fx);
-                uint8* dp=dst->RowPtr(y)+x*bpp;
-                for(int32 c=0;c<bpp;++c){
-                    float32 sum=0,wsum=0;
-                    for(int32 m=-1;m<=2;++m){
-                        const int32 sy2=yf+m<0?0:yf+m>=src.mHeight?src.mHeight-1:yf+m;
-                        const float32 wy=cubic(fy-static_cast<float32>(yf+m));
-                        for(int32 n=-1;n<=2;++n){
-                            const int32 sx2=xf+n<0?0:xf+n>=src.mWidth?src.mWidth-1:xf+n;
-                            const float32 wx=cubic(fx-static_cast<float32>(xf+n));
-                            sum+=src.RowPtr(sy2)[sx2*bpp+c]*wx*wy;
-                            wsum+=wx*wy;
-                        }
-                    }
-                    float32 v=wsum!=0?sum/wsum:0;
-                    dp[c]=static_cast<uint8>(v<0?0:v>255?255:v+0.5f);
-                }
-            }
-        }
-        return dst;
-    }
-
-    NkImage* NkImage::ResizeLanczos3(const NkImage& src,int32 nw,int32 nh) noexcept {
-        NkImage* dst=Alloc(nw,nh,src.mFormat);
-        if(!dst) return nullptr;
-        const int32 bpp=src.BytesPP();
-        auto sinc=[](float32 x)->float32 {
-            if(x==0) return 1;
-            x*=math::constants::kPiF;
-            return NkSin(x)/x;
-        };
-        auto lanczos=[&](float32 x)->float32 {
-            if(x<0)x=-x;
-            if(x<3) return sinc(x)*sinc(x/3);
-            return 0;
-        };
-        const float32 xs=static_cast<float32>(src.mWidth)/nw;
-        const float32 ys=static_cast<float32>(src.mHeight)/nh;
-        for(int32 y=0;y<nh;++y){
-            const float32 fy=(y+0.5f)*ys-0.5f;
-            const int32 yc=static_cast<int32>(fy);
-            for(int32 x=0;x<nw;++x){
-                const float32 fx=(x+0.5f)*xs-0.5f;
-                const int32 xc=static_cast<int32>(fx);
-                uint8* dp=dst->RowPtr(y)+x*bpp;
-                for(int32 c=0;c<bpp;++c){
-                    float32 sum=0,wsum=0;
-                    for(int32 m=-2;m<=3;++m){
-                        const int32 sy2=yc+m<0?0:yc+m>=src.mHeight?src.mHeight-1:yc+m;
-                        const float32 wy=lanczos(fy-static_cast<float32>(yc+m));
-                        for(int32 n=-2;n<=3;++n){
-                            const int32 sx2=xc+n<0?0:xc+n>=src.mWidth?src.mWidth-1:xc+n;
-                            const float32 wx=lanczos(fx-static_cast<float32>(xc+n));
-                            sum+=src.RowPtr(sy2)[sx2*bpp+c]*wx*wy;
-                            wsum+=wx*wy;
-                        }
-                    }
-                    float32 v=wsum!=0?sum/wsum:0;
-                    dp[c]=static_cast<uint8>(v<0?0:v>255?255:v+0.5f);
-                }
-            }
-        }
-        return dst;
-    }
-
-    NkImage* NkImage::Resize(int32 nw,int32 nh,NkResizeFilter f) const noexcept {
-        if(!IsValid()||nw<=0||nh<=0) return nullptr;
-        switch(f){
-            case NkResizeFilter::NK_NEAREST:  return ResizeNearest (*this,nw,nh);
-            case NkResizeFilter::NK_BILINEAR: return ResizeBilinear(*this,nw,nh);
-            case NkResizeFilter::NK_BICUBIC:  return ResizeBicubic (*this,nw,nh);
-            case NkResizeFilter::NK_LANCZOS3: return ResizeLanczos3(*this,nw,nh);
-        }
-        return ResizeBilinear(*this,nw,nh);
-    }
-
-    } // namespace nkentseu
-
-//     // ─────────────────────────────────────────────────────────────────────────────
-//     //  Sauvegarde WebP, SVG, GIF (ajouts)
-//     // ─────────────────────────────────────────────────────────────────────────────
-//     #include "NKImage/Codecs/WEBP/NkWebPCodec.h"
-//     #include "NKImage/Codecs/SVG/NkSVGCodec.h"
-
-//     namespace nkentseu {
-
-//     using namespace nkentseu::memory;
-
-//     bool NkImage::SaveGIF (const char* path) const noexcept {
-//         return NkGIFCodec::Save(*this, path);
-//     }
-
-//     bool NkImage::SaveWebP(const char* path, bool lossless, int32 quality) const noexcept {
-//         uint8* d=nullptr; usize sz=0;
-//         if(!NkWebPCodec::Encode(*this,d,sz,lossless,quality)) return false;
-//         FILE* f=::fopen(path,"wb");
-//         if(!f){NkFree(d);return false;}
-//         const bool ok=(::fwrite(d,1,sz,f)==sz);
-//         ::fclose(f); NkFree(d); return ok;
-//     }
-
-//     bool NkImage::SaveSVG(const char* path) const noexcept {
-//         return NkSVGCodec::EncodeToFile(*this, path);
-//     }
-
-//     // static int32 StbPixelLayoutToChannels(int32 layout) noexcept {
-//     //     // Conversion simplifiée du layout stb_image_resize2
-//     //     // STBIR_RGBA = 4, STBIR_RGB = 3, etc.
-//     //     return layout;
-//     // }
-
-//     // NkImage* NkImage::ResizeNearest(const NkImage& src, int32 nw, int32 nh) noexcept {
-//     //     if(!src.IsValid() || nw <= 0 || nh <= 0) return nullptr;
-        
-//     //     NkImage* dst = Alloc(nw, nh, src.mFormat);
-//     //     if(!dst) return nullptr;
-        
-//     //     const int32 bpp = src.BytesPP();
-//     //     const int32 sw = src.mWidth;
-//     //     const int32 sh = src.mHeight;
-        
-//     //     for(int32 y = 0; y < nh; ++y) {
-//     //         const int32 sy = (y * sh) / nh;
-//     //         for(int32 x = 0; x < nw; ++x) {
-//     //             const int32 sx = (x * sw) / nw;
-//     //             NkCopy(dst->RowPtr(y) + x * bpp, src.RowPtr(sy) + sx * bpp, bpp);
-//     //         }
-//     //     }
-        
-//     //     return dst;
-//     // }
-
-//     // NkImage* NkImage::ResizeBilinear(const NkImage& src, int32 nw, int32 nh) noexcept {
-//     //     if(!src.IsValid() || nw <= 0 || nh <= 0) return nullptr;
-        
-//     //     NkImage* dst = Alloc(nw, nh, src.mFormat);
-//     //     if(!dst) return nullptr;
-        
-//     //     const int32 bpp = src.BytesPP();
-//     //     const int32 sw = src.mWidth;
-//     //     const int32 sh = src.mHeight;
-//     //     const float32 xScale = static_cast<float32>(sw) / nw;
-//     //     const float32 yScale = static_cast<float32>(sh) / nh;
-        
-//     //     for(int32 y = 0; y < nh; ++y) {
-//     //         const float32 fy = (y + 0.5f) * yScale - 0.5f;
-//     //         const int32 y0 = static_cast<int32>(fy);
-//     //         const float32 yt = fy - y0;
-//     //         const int32 y1 = (y0 + 1 < sh) ? y0 + 1 : y0;
-            
-//     //         for(int32 x = 0; x < nw; ++x) {
-//     //             const float32 fx = (x + 0.5f) * xScale - 0.5f;
-//     //             const int32 x0 = static_cast<int32>(fx);
-//     //             const float32 xt = fx - x0;
-//     //             const int32 x1 = (x0 + 1 < sw) ? x0 + 1 : x0;
-                
-//     //             uint8* dstPixel = dst->RowPtr(y) + x * bpp;
-                
-//     //             for(int32 c = 0; c < bpp; ++c) {
-//     //                 const float32 p00 = src.RowPtr(y0)[x0 * bpp + c];
-//     //                 const float32 p10 = src.RowPtr(y0)[x1 * bpp + c];
-//     //                 const float32 p01 = src.RowPtr(y1)[x0 * bpp + c];
-//     //                 const float32 p11 = src.RowPtr(y1)[x1 * bpp + c];
-                    
-//     //                 const float32 val = p00 * (1 - xt) * (1 - yt) +
-//     //                                     p10 * xt * (1 - yt) +
-//     //                                     p01 * (1 - xt) * yt +
-//     //                                     p11 * xt * yt;
-                    
-//     //                 dstPixel[c] = static_cast<uint8>(val < 0 ? 0 : val > 255 ? 255 : val + 0.5f);
-//     //             }
-//     //         }
-//     //     }
-        
-//     //     return dst;
-//     // }
-
-//     // NkImage* NkImage::ResizeBicubic(const NkImage& src, int32 nw, int32 nh) noexcept {
-//     //     if(!src.IsValid() || nw <= 0 || nh <= 0) return nullptr;
-        
-//     //     NkImage* dst = Alloc(nw, nh, src.mFormat);
-//     //     if(!dst) return nullptr;
-        
-//     //     const int32 bpp = src.BytesPP();
-//     //     const int32 sw = src.mWidth;
-//     //     const int32 sh = src.mHeight;
-//     //     const float32 xScale = static_cast<float32>(sw) / nw;
-//     //     const float32 yScale = static_cast<float32>(sh) / nh;
-        
-//     //     auto cubic = [](float32 t) -> float32 {
-//     //         const float32 a = (t < 0) ? -t : t;
-//     //         if(a < 1) return 1.5f * a * a * a - 2.5f * a * a + 1;
-//     //         if(a < 2) return -0.5f * a * a * a + 2.5f * a * a - 4 * a + 2;
-//     //         return 0;
-//     //     };
-        
-//     //     for(int32 y = 0; y < nh; ++y) {
-//     //         const float32 fy = (y + 0.5f) * yScale - 0.5f;
-//     //         const int32 yf = static_cast<int32>(fy);
-            
-//     //         for(int32 x = 0; x < nw; ++x) {
-//     //             const float32 fx = (x + 0.5f) * xScale - 0.5f;
-//     //             const int32 xf = static_cast<int32>(fx);
-                
-//     //             uint8* dstPixel = dst->RowPtr(y) + x * bpp;
-                
-//     //             for(int32 c = 0; c < bpp; ++c) {
-//     //                 float32 sum = 0, wsum = 0;
-                    
-//     //                 for(int32 m = -1; m <= 2; ++m) {
-//     //                     const int32 sy = (yf + m < 0) ? 0 : (yf + m >= sh) ? sh - 1 : yf + m;
-//     //                     const float32 wy = cubic(fy - static_cast<float32>(yf + m));
-                        
-//     //                     for(int32 n = -1; n <= 2; ++n) {
-//     //                         const int32 sx = (xf + n < 0) ? 0 : (xf + n >= sw) ? sw - 1 : xf + n;
-//     //                         const float32 wx = cubic(fx - static_cast<float32>(xf + n));
-                            
-//     //                         sum += src.RowPtr(sy)[sx * bpp + c] * wx * wy;
-//     //                         wsum += wx * wy;
-//     //                     }
-//     //                 }
-                    
-//     //                 float32 val = (wsum != 0) ? sum / wsum : 0;
-//     //                 dstPixel[c] = static_cast<uint8>(val < 0 ? 0 : val > 255 ? 255 : val + 0.5f);
-//     //             }
-//     //         }
-//     //     }
-        
-//     //     return dst;
-//     // }
-
-//     // NkImage* NkImage::ResizeLanczos3(const NkImage& src, int32 nw, int32 nh) noexcept {
-//     //     if(!src.IsValid() || nw <= 0 || nh <= 0) return nullptr;
-        
-//     //     NkImage* dst = Alloc(nw, nh, src.mFormat);
-//     //     if(!dst) return nullptr;
-        
-//     //     const int32 bpp = src.BytesPP();
-//     //     const int32 sw = src.mWidth;
-//     //     const int32 sh = src.mHeight;
-//     //     const float32 xScale = static_cast<float32>(sw) / nw;
-//     //     const float32 yScale = static_cast<float32>(sh) / nh;
-        
-//     //     auto sinc = [](float32 x) -> float32 {
-//     //         if(x == 0) return 1;
-//     //         x *= 3.14159265358979323846f;
-//     //         return math::NkSin(x) / x;
-//     //     };
-        
-//     //     auto lanczos = [&](float32 x) -> float32 {
-//     //         if(x < 0) x = -x;
-//     //         if(x < 3) return sinc(x) * sinc(x / 3);
-//     //         return 0;
-//     //     };
-        
-//     //     for(int32 y = 0; y < nh; ++y) {
-//     //         const float32 fy = (y + 0.5f) * yScale - 0.5f;
-//     //         const int32 yc = static_cast<int32>(fy);
-            
-//     //         for(int32 x = 0; x < nw; ++x) {
-//     //             const float32 fx = (x + 0.5f) * xScale - 0.5f;
-//     //             const int32 xc = static_cast<int32>(fx);
-                
-//     //             uint8* dstPixel = dst->RowPtr(y) + x * bpp;
-                
-//     //             for(int32 c = 0; c < bpp; ++c) {
-//     //                 float32 sum = 0, wsum = 0;
-                    
-//     //                 for(int32 m = -2; m <= 3; ++m) {
-//     //                     const int32 sy = (yc + m < 0) ? 0 : (yc + m >= sh) ? sh - 1 : yc + m;
-//     //                     const float32 wy = lanczos(fy - static_cast<float32>(yc + m));
-                        
-//     //                     for(int32 n = -2; n <= 3; ++n) {
-//     //                         const int32 sx = (xc + n < 0) ? 0 : (xc + n >= sw) ? sw - 1 : xc + n;
-//     //                         const float32 wx = lanczos(fx - static_cast<float32>(xc + n));
-                            
-//     //                         sum += src.RowPtr(sy)[sx * bpp + c] * wx * wy;
-//     //                         wsum += wx * wy;
-//     //                     }
-//     //                 }
-                    
-//     //                 float32 val = (wsum != 0) ? sum / wsum : 0;
-//     //                 dstPixel[c] = static_cast<uint8>(val < 0 ? 0 : val > 255 ? 255 : val + 0.5f);
-//     //             }
-//     //         }
-//     //     }
-        
-//     //     return dst;
-//     // }
-
-//     // NkImage* NkImage::Resize(int32 nw, int32 nh, NkResizeFilter filter) const noexcept {
-//     //     if(!IsValid() || nw <= 0 || nh <= 0) return nullptr;
-        
-//     //     switch(filter) {
-//     //         case NkResizeFilter::NK_NEAREST:
-//     //             return ResizeNearest(*this, nw, nh);
-//     //         case NkResizeFilter::NK_BILINEAR:
-//     //             return ResizeBilinear(*this, nw, nh);
-//     //         case NkResizeFilter::NK_BICUBIC:
-//     //             return ResizeBicubic(*this, nw, nh);
-//     //         case NkResizeFilter::NK_LANCZOS3:
-//     //             return ResizeLanczos3(*this, nw, nh);
-//     //         default:
-//     //             return ResizeBilinear(*this, nw, nh);
-//     //     }
-//     // }
-
-// } // namespace nkentseu
+} // namespace nkentseu

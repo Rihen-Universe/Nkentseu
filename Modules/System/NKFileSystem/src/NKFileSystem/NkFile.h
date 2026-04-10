@@ -23,20 +23,20 @@ namespace nkentseu {
          * @brief File access modes
          */
         enum class NkFileMode {
-            Read,           // Open for reading
-            Write,          // Open for writing (truncate)
-            Append,         // Open for writing (append)
-            ReadWrite,      // Open for reading and writing
-            ReadAppend      // Open for reading and appending
+            NK_READ,           // Open for reading
+            NK_WRITE,          // Open for writing (truncate)
+            NK_APPEND,         // Open for writing (append)
+            NK_READ_WRITE,      // Open for reading and writing
+            NK_READ_APPEND      // Open for reading and appending
         };
         
         /**
          * @brief File seek origin
          */
         enum class NkSeekOrigin {
-            Begin,          // From beginning of file
-            Current,        // From current position
-            End             // From end of file
+            NK_BEGIN,          // From beginning of file
+            NK_CURRENT,        // From current position
+            NK_END             // From end of file
         };
         
         /**
@@ -53,85 +53,85 @@ namespace nkentseu {
          * }
          */
         class NkFile {
-        private:
-            void* mHandle;  // FILE* hidden behind void*
-            NkPath mPath;
-            NkFileMode mMode;
-            bool mIsOpen;
-            
-            const char* GetModeString() const;
-            
-        public:
-            // Constructors
-            NkFile();
-            explicit NkFile(const char* path, NkFileMode mode = NkFileMode::Read);
-            explicit NkFile(const NkPath& path, NkFileMode mode = NkFileMode::Read);
-            ~NkFile();
-            
-            // Non-copyable
-            NkFile(const NkFile&) = delete;
-            NkFile& operator=(const NkFile&) = delete;
-            
-            // Movable (C++11)
-            #if defined(NK_CPP11)
-            NkFile(NkFile&& other) noexcept;
-            NkFile& operator=(NkFile&& other) noexcept;
-            #endif
-            
-            // File operations
-            bool Open(const char* path, NkFileMode mode = NkFileMode::Read);
-            bool Open(const NkPath& path, NkFileMode mode = NkFileMode::Read);
-            void Close();
-            bool IsOpen() const;
-            
-            // Reading
-            usize Read(void* buffer, usize size);
-            NkString ReadLine();
-            NkString ReadAll();
-            NkVector<NkString> ReadLines();
-            
-            // Writing
-            usize Write(const void* data, usize size);
-            bool WriteLine(const char* text);
-            bool Write(const NkString& text);
-            
-            // Position
-            nk_int64 Tell() const;
-            bool Seek(nk_int64 offset, NkSeekOrigin origin = NkSeekOrigin::Begin);
-            bool SeekToBegin();
-            bool SeekToEnd();
-            nk_int64 GetSize() const;
-            
-            // Buffering
-            void Flush();
-            
-            // Properties
-            const NkPath& GetPath() const;
-            NkFileMode GetMode() const;
-            bool IsEOF() const;
-            
-            // Static utilities
-            static bool Exists(const char* path);
-            static bool Exists(const NkPath& path);
-            static bool Delete(const char* path);
-            static bool Delete(const NkPath& path);
-            static bool Copy(const char* source, const char* dest, bool overwrite = false);
-            static bool Copy(const NkPath& source, const NkPath& dest, bool overwrite = false);
-            static bool Move(const char* source, const char* dest);
-            static bool Move(const NkPath& source, const NkPath& dest);
-            
-            static nk_int64 GetFileSize(const char* path);
-            static nk_int64 GetFileSize(const NkPath& path);
-            
-            static NkString ReadAllText(const char* path);
-            static NkString ReadAllText(const NkPath& path);
-            static NkVector<nk_uint8> ReadAllBytes(const char* path);
-            static NkVector<nk_uint8> ReadAllBytes(const NkPath& path);
-            
-            static bool WriteAllText(const char* path, const char* text);
-            static bool WriteAllText(const NkPath& path, const NkString& text);
-            static bool WriteAllBytes(const char* path, const NkVector<nk_uint8>& data);
-            static bool WriteAllBytes(const NkPath& path, const NkVector<nk_uint8>& data);
+            private:
+                void* mHandle;  // FILE* hidden behind void*
+                NkPath mPath;
+                NkFileMode mMode;
+                bool mIsOpen;
+                
+                const char* GetModeString() const;
+                
+            public:
+                // Constructors
+                NkFile();
+                explicit NkFile(const char* path, NkFileMode mode = NkFileMode::NK_READ);
+                explicit NkFile(const NkPath& path, NkFileMode mode = NkFileMode::NK_READ);
+                ~NkFile();
+                
+                // Non-copyable
+                NkFile(const NkFile&) = delete;
+                NkFile& operator=(const NkFile&) = delete;
+                
+                // Movable (C++11)
+                #if defined(NK_CPP11)
+                NkFile(NkFile&& other) noexcept;
+                NkFile& operator=(NkFile&& other) noexcept;
+                #endif
+                
+                // File operations
+                bool Open(const char* path, NkFileMode mode = NkFileMode::NK_READ);
+                bool Open(const NkPath& path, NkFileMode mode = NkFileMode::NK_READ);
+                void Close();
+                bool IsOpen() const;
+                
+                // Reading
+                usize Read(void* buffer, usize size);
+                NkString ReadLine();
+                NkString ReadAll();
+                NkVector<NkString> ReadLines();
+                
+                // Writing
+                usize Write(const void* data, usize size);
+                bool WriteLine(const char* text);
+                bool Write(const NkString& text);
+                
+                // Position
+                nk_int64 Tell() const;
+                bool Seek(nk_int64 offset, NkSeekOrigin origin = NkSeekOrigin::NK_BEGIN);
+                bool SeekToBegin();
+                bool SeekToEnd();
+                nk_int64 GetSize() const;
+                
+                // Buffering
+                void Flush();
+                
+                // Properties
+                const NkPath& GetPath() const;
+                NkFileMode GetMode() const;
+                bool IsEOF() const;
+                
+                // Static utilities
+                static bool Exists(const char* path);
+                static bool Exists(const NkPath& path);
+                static bool Delete(const char* path);
+                static bool Delete(const NkPath& path);
+                static bool Copy(const char* source, const char* dest, bool overwrite = false);
+                static bool Copy(const NkPath& source, const NkPath& dest, bool overwrite = false);
+                static bool Move(const char* source, const char* dest);
+                static bool Move(const NkPath& source, const NkPath& dest);
+                
+                static nk_int64 GetFileSize(const char* path);
+                static nk_int64 GetFileSize(const NkPath& path);
+                
+                static NkString ReadAllText(const char* path);
+                static NkString ReadAllText(const NkPath& path);
+                static NkVector<nk_uint8> ReadAllBytes(const char* path);
+                static NkVector<nk_uint8> ReadAllBytes(const NkPath& path);
+                
+                static bool WriteAllText(const char* path, const char* text);
+                static bool WriteAllText(const NkPath& path, const NkString& text);
+                static bool WriteAllBytes(const char* path, const NkVector<nk_uint8>& data);
+                static bool WriteAllBytes(const NkPath& path, const NkVector<nk_uint8>& data);
         };
         
     } // namespace entseu

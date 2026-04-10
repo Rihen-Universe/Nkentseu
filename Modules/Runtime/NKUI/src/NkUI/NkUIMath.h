@@ -12,7 +12,7 @@
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
  * @License Apache-2.0
  */
-#include "NkUI/NkUIExport.h"
+#include "NKUI/NkUIExport.h"
 #include <cmath>
 #include <cstring>
 

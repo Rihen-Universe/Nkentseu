@@ -6,17 +6,14 @@
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKLogger/NkLog.h"
 #include "NKCore/NkTraits.h"
+#include "NkSWFastPath.h"
+
+// #include "NKRHI/Core/NkSkSL.h"
+
 #include <cstring>
 #include <cmath>
 #include <algorithm>
 #include <cassert>
-
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-#   ifndef WIN32_LEAN_AND_MEAN
-#   define WIN32_LEAN_AND_MEAN
-#   endif
-#   include <windows.h>
-#endif
 
 #define NK_SW_LOG(...) logger_src.Infof("[NkRHI_SW] " __VA_ARGS__)
 
@@ -100,8 +97,8 @@ namespace nkentseu {
     // =============================================================================
     // NkSWRasterizer
     // =============================================================================
-    NkSWVertex NkSWRasterizer::ClipToNDC(const NkSWVertex& v) const {
-        NkSWVertex r = v;
+    NkVertexSoftware NkSWRasterizer::ClipToNDC(const NkVertexSoftware& v) const {
+        NkVertexSoftware r = v;
         r.clipZ = v.position.z;
         r.clipW = v.position.w;
         float32 invW = v.position.w != 0.f ? 1.f / v.position.w : 0.f;
@@ -112,16 +109,16 @@ namespace nkentseu {
         return r;
     }
 
-    NkSWVertex NkSWRasterizer::NDCToScreen(const NkSWVertex& v, float32 w, float32 h) const {
-        NkSWVertex r = v;
+    NkVertexSoftware NkSWRasterizer::NDCToScreen(const NkVertexSoftware& v, float32 w, float32 h) const {
+        NkVertexSoftware r = v;
         r.position.x = (v.position.x + 1.f) * 0.5f * w;
         r.position.y = (1.f - v.position.y) * 0.5f * h; // Y-flip
         r.position.z = v.position.z * 0.5f + 0.5f;       // [-1,1] → [0,1]
         return r;
     }
 
-    NkSWVertex NkSWRasterizer::Interpolate(const NkSWVertex& a, const NkSWVertex& b, float32 t) const {
-        NkSWVertex r;
+    NkVertexSoftware NkSWRasterizer::Interpolate(const NkVertexSoftware& a, const NkVertexSoftware& b, float32 t) const {
+        NkVertexSoftware r;
         r.position.x = a.position.x + (b.position.x - a.position.x) * t;
         r.position.y = a.position.y + (b.position.y - a.position.y) * t;
         r.position.z = a.position.z + (b.position.z - a.position.z) * t;
@@ -138,13 +135,13 @@ namespace nkentseu {
         return r;
     }
 
-    NkSWVertex NkSWRasterizer::BaryInterp(const NkSWVertex& v0, const NkSWVertex& v1,
-                                        const NkSWVertex& v2,
+    NkVertexSoftware NkSWRasterizer::BaryInterp(const NkVertexSoftware& v0, const NkVertexSoftware& v1,
+                                        const NkVertexSoftware& v2,
                                         float32 l0, float32 l1, float32 l2) const {
         // Interpolation perspective-correcte avec 1/w stocké dans position.w
         float32 w = l0 * v0.position.w + l1 * v1.position.w + l2 * v2.position.w;
         float32 invW = w != 0.f ? 1.f / w : 0.f;
-        NkSWVertex r;
+        NkVertexSoftware r;
         auto lerp3 = [&](float a, float32 b, float32 c) {
             return (l0*a*v0.position.w + l1*b*v1.position.w + l2*c*v2.position.w) * invW;
         };
@@ -214,7 +211,7 @@ namespace nkentseu {
         return r;
     }
 
-    void NkSWRasterizer::DrawPoint(const NkSWVertex& v0) {
+    void NkSWRasterizer::DrawPoint(const NkVertexSoftware& v0) {
         if (!mState.colorTarget && !mState.depthTarget) return;
         NkSWTexture* dimTarget = mState.colorTarget ? mState.colorTarget : mState.depthTarget;
         auto ndc  = ClipToNDC(v0);
@@ -243,7 +240,7 @@ namespace nkentseu {
         }
     }
 
-    void NkSWRasterizer::DrawLine(const NkSWVertex& v0, const NkSWVertex& v1) {
+    void NkSWRasterizer::DrawLine(const NkVertexSoftware& v0, const NkVertexSoftware& v1) {
         if (!mState.colorTarget && !mState.depthTarget) return;
         NkSWTexture* dimTarget = mState.colorTarget ? mState.colorTarget : mState.depthTarget;
         float32 W = (float)dimTarget->Width();
@@ -258,7 +255,7 @@ namespace nkentseu {
         float32 inv = 1.f / steps;
         for (float s = 0; s <= steps; s++) {
             float32 t = s * inv;
-            NkSWVertex p = Interpolate(ndc0, ndc1, t);
+            NkVertexSoftware p = Interpolate(ndc0, ndc1, t);
             uint32 x = (uint32)p.position.x, y = (uint32)p.position.y;
             if (x >= (uint32)W || y >= (uint32)H) continue;
             const uint32 clipMinXVal = (this->clipMaxX > this->clipMinX) ? this->clipMinX : 0u;
@@ -283,112 +280,222 @@ namespace nkentseu {
         }
     }
 
-    void NkSWRasterizer::DrawTriangle(const NkSWVertex& v0,
-                                    const NkSWVertex& v1,
-                                    const NkSWVertex& v2) {
+    void NkSWRasterizer::DrawTriangle(const NkVertexSoftware& v0, const NkVertexSoftware& v1, const NkVertexSoftware& v2) {
         if (!mState.colorTarget && !mState.depthTarget) return;
-        NkSWTexture* dimTarget = mState.colorTarget ? mState.colorTarget : mState.depthTarget;
-        float32 W = (float)dimTarget->Width();
-        float32 H = (float)dimTarget->Height();
+        NkSWTexture* target = mState.colorTarget ? mState.colorTarget : mState.depthTarget;
 
+        const float32 W = (float32)target->Width();
+        const float32 H = (float32)target->Height();
+
+        // Transformer vers l'espace écran
         auto s0 = NDCToScreen(ClipToNDC(v0), W, H);
         auto s1 = NDCToScreen(ClipToNDC(v1), W, H);
         auto s2 = NDCToScreen(ClipToNDC(v2), W, H);
 
-        // Wireframe
         if (mState.wireframe) { DrawLine(s0,s1); DrawLine(s1,s2); DrawLine(s2,s0); return; }
 
-        // Culling — calcul de l'aire signée (cross product 2D)
-        float32 area2 = (s1.position.x-s0.position.x)*(s2.position.y-s0.position.y)
-                    - (s2.position.x-s0.position.x)*(s1.position.y-s0.position.y);
+        // Aire signée (cross product 2D)
+        float32 area2 =
+            (s1.position.x - s0.position.x) *
+            (s2.position.y - s0.position.y) -
+            (s2.position.x - s0.position.x) *
+            (s1.position.y - s0.position.y);
 
-        if (mState.pipeline) {
-            NkCullMode cm = mState.pipeline->cullMode;
-            bool ccw      = mState.pipeline->frontFace == NkFrontFace::NK_CCW;
-            if (cm != NkCullMode::NK_NONE) {
-                bool isFront = ccw ? (area2 > 0) : (area2 < 0);
-                if ((cm == NkCullMode::NK_BACK  && !isFront) ||
-                    (cm == NkCullMode::NK_FRONT &&  isFront)) return;
-            }
+        if (fabsf(area2) < 0.1f) return;  // triangle dégénéré
+
+        // Culling
+        if (mState.pipeline && mState.pipeline->cullMode != NkCullMode::NK_NONE) {
+            bool ccw = mState.pipeline->frontFace == NkFrontFace::NK_CCW;
+            bool isFront = ccw ? (area2 > 0) : (area2 < 0);
+            if ((mState.pipeline->cullMode == NkCullMode::NK_BACK  && !isFront) ||
+                (mState.pipeline->cullMode == NkCullMode::NK_FRONT &&  isFront))
+                return;
         }
-        if (math::NkFabs(area2) < 0.001f) return;
-        // Négatif car NDCToScreen flipe Y, ce qui inverse le signe du cross-product
-        // (repère écran Y-bas vs repère math Y-haut). Sans ce signe, l0 et l1
-        // sont négatifs pour les points intérieurs → tous les pixels rejetés.
-        float32 invArea = -1.f / area2;
 
-        // Bounding box
-        
-        int minX = (int)math::NkFloor(math::NkMin({s0.position.x, s1.position.x, s2.position.x}));
-        int maxX = (int)math::NkCeil (math::NkMax({s0.position.x, s1.position.x, s2.position.x}));
-        int minY = (int)math::NkFloor(math::NkMin({s0.position.y, s1.position.y, s2.position.y}));
-        int maxY = (int)math::NkCeil (math::NkMax({s0.position.y, s1.position.y, s2.position.y}));
-        const uint32 clipMinXVal = (this->clipMaxX > this->clipMinX) ? this->clipMinX : 0u;
-        const uint32 clipMinYVal = (this->clipMaxY > this->clipMinY) ? this->clipMinY : 0u;
-        const uint32 clipMaxXSafe = (this->clipMaxX > this->clipMinX) ? this->clipMaxX : static_cast<uint32>(W);
-        const uint32 clipMaxYSafe = (this->clipMaxY > this->clipMinY) ? this->clipMaxY : static_cast<uint32>(H);
-        minX = math::NkMax(minX, static_cast<int>(clipMinXVal));
-        maxX = math::NkMin(maxX, static_cast<int>(clipMaxXSafe) - 1);
-        minY = math::NkMax(minY, static_cast<int>(clipMinYVal));
-        maxY = math::NkMin(maxY, static_cast<int>(clipMaxYSafe) - 1);
-        if (minX > maxX || minY > maxY) return;
+        // ── Trier par Y croissant ─────────────────────────────────────────────────
+        // On a besoin de 3 pointeurs pour le tri stable sans copie
+        const NkVertexSoftware* pa = &s0;
+        const NkVertexSoftware* pb = &s1;
+        const NkVertexSoftware* pc = &s2;
+        if (pa->position.y > pb->position.y) std::swap(pa, pb);
+        if (pb->position.y > pc->position.y) std::swap(pb, pc);
+        if (pa->position.y > pb->position.y) std::swap(pa, pb);
 
-        // Rasterisation par scanline
-        for (int y = minY; y <= maxY; y++) {
-            for (int x = minX; x <= maxX; x++) {
-                float32 px = x + 0.5f, py = y + 0.5f;
-                // Coordonnées barycentriques
-                float32 l0 = ((s1.position.x - s2.position.x)*(py - s2.position.y)
-                        - (s1.position.y - s2.position.y)*(px - s2.position.x)) * invArea;
-                float32 l1 = ((s2.position.x - s0.position.x)*(py - s0.position.y)
-                        - (s2.position.y - s0.position.y)*(px - s0.position.x)) * invArea;
-                float32 l2 = 1.f - l0 - l1;
-                constexpr float32 kInsideEpsilon = 1e-6f;
-                if (l0 < -kInsideEpsilon || l1 < -kInsideEpsilon || l2 < -kInsideEpsilon) continue;
+        // Bornes viewport
+        const int32 clipX0 = (clipMaxX > clipMinX) ? (int32)clipMinX : 0;
+        const int32 clipY0 = (clipMaxY > clipMinY) ? (int32)clipMinY : 0;
+        const int32 clipX1 = (clipMaxX > clipMinX) ? (int32)clipMaxX : (int32)W;
+        const int32 clipY1 = (clipMaxY > clipMinY) ? (int32)clipMaxY : (int32)H;
 
-                // Interpolation perspective-correcte de la profondeur.
-                // position.z est déjà en [0,1] (NDCToScreen a fait z*0.5+0.5).
-                // position.w = 1/clip_w (invW pour correction perspective).
-                const float32 invWDenom = l0*s0.position.w + l1*s1.position.w + l2*s2.position.w;
-                if (math::NkFabs(invWDenom) < 1e-8f) continue;
-                float32 z = (l0*s0.position.z*s0.position.w +
-                             l1*s1.position.z*s1.position.w +
-                             l2*s2.position.z*s2.position.w) / invWDenom;
-                z = math::NkClamp(z, 0.f, 1.f);
-                if (!DepthTest((uint32)x, (uint32)y, z)) continue;
+        const int32 yMin = math::NkClamp((int32)ceilf(pa->position.y),  clipY0, clipY1 - 1);
+        const int32 yMax = math::NkClamp((int32)floorf(pc->position.y), clipY0, clipY1 - 1);
+        if (yMin > yMax) return;
 
-                if (mState.colorTarget) {
-                    NkSWVertex frag = BaryInterp(s0, s1, s2, l0, l1, l2);
-                    frag.position.x = px; frag.position.y = py; frag.position.z = z;
+        // Helper : interpoler attributs d'une arête à hauteur targetY
+        // Retourne x + couleur + uv interpolés
+        struct EdgePoint {
+            float32 x;
+            float32 r, g, b, a;
+            float32 u, v_coord;
+            float32 z;
+        };
 
-                    NkSWColor srcColor = frag.color;
-                    if (mState.shader && mState.shader->fragFn) {
-                        srcColor = mState.shader->fragFn(frag, mState.uniformData, mState.texSampler);
-                    } else if (mState.texSampler && frag.uv.x >= 0.f && frag.uv.y >= 0.f) {
-                        const NkSWTexture* tex = static_cast<const NkSWTexture*>(mState.texSampler);
-                        const float32 su = math::NkClamp(frag.uv.x, 0.f, 1.f);
-                        const float32 sv = math::NkClamp(frag.uv.y, 0.f, 1.f);
-                        const NkSWColor tc = tex->Sample(su, sv);
-                        srcColor = {
-                            srcColor.r * tc.r,
-                            srcColor.g * tc.g,
-                            srcColor.b * tc.b,
-                            srcColor.a * tc.a
-                        };
-                    }
+        auto EdgeStep = [](const NkVertexSoftware& va, const NkVertexSoftware& vb, float32 ty, EdgePoint& out) {
+            const float32 dy = vb.position.y - va.position.y;
+            if (fabsf(dy) < 1e-6f) {
+                out.x = va.position.x;
+                out.r = va.color.r; out.g = va.color.g;
+                out.b = va.color.b; out.a = va.color.a;
+                out.u = va.uv.x;   out.v_coord = va.uv.y;
+                out.z = va.position.z;
+                return;
+            }
+            const float32 t = (ty - va.position.y) / dy;
+            out.x = va.position.x + (vb.position.x - va.position.x) * t;
+            out.r = va.color.r + (vb.color.r - va.color.r) * t;
+            out.g = va.color.g + (vb.color.g - va.color.g) * t;
+            out.b = va.color.b + (vb.color.b - va.color.b) * t;
+            out.a = va.color.a + (vb.color.a - va.color.a) * t;
+            out.u = va.uv.x    + (vb.uv.x    - va.uv.x)    * t;
+            out.v_coord = va.uv.y + (vb.uv.y - va.uv.y)    * t;
+            out.z = va.position.z + (vb.position.z - va.position.z) * t;
+        };
 
-                    if (mState.pipeline && mState.pipeline->blendEnable) {
-                        NkSWColor dstColor = mState.colorTarget->Read((uint32)x, (uint32)y);
-                        srcColor = BlendColor(srcColor, dstColor);
-                    }
+        // Pixel/fragment shader
+        const bool hasShader  = mState.shader && mState.shader->fragFn;
+        const bool hasTex     = !hasShader && mState.texSampler;
+        const NkSWTexture* tex = hasTex ? static_cast<const NkSWTexture*>(mState.texSampler) : nullptr;
+        const int32 texW = tex ? (int32)tex->Width()  : 0;
+        const int32 texH = tex ? (int32)tex->Height() : 0;
 
-                    mState.colorTarget->Write((uint32)x, (uint32)y, srcColor);
+        const bool useBlend   = mState.pipeline && mState.pipeline->blendEnable;
+        const bool hasDepth   = mState.depthTarget && mState.pipeline &&
+                                (mState.pipeline->depthTest || mState.pipeline->depthWrite);
+
+        // ── Scan-line loop ────────────────────────────────────────────────────────
+        for (int32 y = yMin; y <= yMax; ++y) {
+            const float32 fy = (float32)y + 0.5f;
+
+            // Côté long pa→pc
+            EdgePoint eL, eR;
+            EdgeStep(*pa, *pc, fy, eL);
+
+            // Côté court : pa→pb ou pb→pc
+            if (fy <= pb->position.y)
+                EdgeStep(*pa, *pb, fy, eR);
+            else
+                EdgeStep(*pb, *pc, fy, eR);
+
+            // Assurer L ≤ R
+            if (eL.x > eR.x) { EdgePoint tmp = eL; eL = eR; eR = tmp; }
+
+            const int32 xStart = math::NkClamp((int32)ceilf(eL.x - 0.5f), clipX0, clipX1 - 1);
+            const int32 xEnd   = math::NkClamp((int32)floorf(eR.x + 0.5f), clipX0, clipX1 - 1);
+            if (xStart > xEnd) continue;
+
+            // Deltas par pixel
+            const float32 spanW = eR.x - eL.x;
+            const float32 inv   = (spanW > 1e-6f) ? 1.f / spanW : 0.f;
+            const float32 off   = (float32)xStart - eL.x + 0.5f;
+
+            const float32 drDx = (eR.r - eL.r) * inv;
+            const float32 dgDx = (eR.g - eL.g) * inv;
+            const float32 dbDx = (eR.b - eL.b) * inv;
+            const float32 daDx = (eR.a - eL.a) * inv;
+            const float32 duDx = (eR.u - eL.u) * inv;
+            const float32 dvDx = (eR.v_coord - eL.v_coord) * inv;
+            const float32 dzDx = (eR.z - eL.z) * inv;
+
+            float32 cr = eL.r + drDx * off;
+            float32 cg = eL.g + dgDx * off;
+            float32 cb = eL.b + dbDx * off;
+            float32 ca = eL.a + daDx * off;
+            float32 cu = eL.u + duDx * off;
+            float32 cv = eL.v_coord + dvDx * off;
+            float32 cz = eL.z + dzDx * off;
+
+            const int32 count = xEnd - xStart + 1;
+
+            // Couleur uniforme + opaque sur le span → SIMD fill
+            const bool uniformColor = (fabsf(drDx) < 1e-4f && fabsf(dgDx) < 1e-4f &&
+                                    fabsf(dbDx) < 1e-4f && fabsf(daDx) < 1e-4f);
+            const uint8 ca8 = (uint8)math::NkClamp((int32)(ca * 255.f + 0.5f), 0, 255);
+
+            uint8* colorRow = mState.colorTarget
+                ? mState.colorTarget->mips[0].Data() + y * (int32)W * 4
+                : nullptr;
+
+            if (colorRow && !hasShader && !hasTex && uniformColor && !hasDepth) {
+                const uint8 sr = (uint8)math::NkClamp((int32)(cr * 255.f + 0.5f), 0, 255);
+                const uint8 sg = (uint8)math::NkClamp((int32)(cg * 255.f + 0.5f), 0, 255);
+                const uint8 sb = (uint8)math::NkClamp((int32)(cb * 255.f + 0.5f), 0, 255);
+
+                if (ca8 == 255u) {
+                    nkentseu::sw_detail::FillSpanOpaque(colorRow, xStart, xEnd + 1, sr, sg, sb);
+                } else if (ca8 > 0u && useBlend) {
+                    nkentseu::sw_detail::BlendSpanAlpha(colorRow, xStart, xEnd + 1, sr, sg, sb, ca8);
                 }
+                continue;
+            }
+
+            // ── Chemin général pixel par pixel ────────────────────────────────────
+            for (int32 x = xStart; x <= xEnd; ++x) {
+                // Depth test
+                if (hasDepth) {
+                    if (!DepthTest((uint32)x, (uint32)y, cz)) {
+                        cr += drDx; cg += dgDx; cb += dbDx; ca += daDx;
+                        cu += duDx; cv += dvDx; cz += dzDx;
+                        continue;
+                    }
+                }
+
+                // Couleur du fragment
+                uint8 sr, sg, sb, sa;
+
+                if (hasShader) {
+                    // Appeler le pixel shader
+                    NkVertexSoftware frag;
+                    frag.position = {(float32)x + 0.5f, (float32)y + 0.5f, cz, 1.f};
+                    frag.color    = {cr, cg, cb, ca};
+                    frag.uv       = {cu, cv};
+                    auto c = mState.shader->fragFn(frag, mState.uniformData, mState.texSampler);
+                    sr = (uint8)math::NkClamp((int32)(c.r * 255.f + 0.5f), 0, 255);
+                    sg = (uint8)math::NkClamp((int32)(c.g * 255.f + 0.5f), 0, 255);
+                    sb = (uint8)math::NkClamp((int32)(c.b * 255.f + 0.5f), 0, 255);
+                    sa = (uint8)math::NkClamp((int32)(c.a * 255.f + 0.5f), 0, 255);
+                } else if (hasTex && tex) {
+                    // Sample texture (nearest-neighbor)
+                    const int32 tx = math::NkClamp((int32)(cu * texW), 0, texW - 1);
+                    const int32 ty = math::NkClamp((int32)(cv * texH), 0, texH - 1);
+                    NkSWColor tc = tex->Read((uint32)tx, (uint32)ty, 0);
+                    sr = (uint8)math::NkClamp((int32)((tc.r * cr) * 255.f + 0.5f), 0, 255);
+                    sg = (uint8)math::NkClamp((int32)((tc.g * cg) * 255.f + 0.5f), 0, 255);
+                    sb = (uint8)math::NkClamp((int32)((tc.b * cb) * 255.f + 0.5f), 0, 255);
+                    sa = (uint8)math::NkClamp((int32)((tc.a * ca) * 255.f + 0.5f), 0, 255);
+                } else {
+                    sr = (uint8)math::NkClamp((int32)(cr * 255.f + 0.5f), 0, 255);
+                    sg = (uint8)math::NkClamp((int32)(cg * 255.f + 0.5f), 0, 255);
+                    sb = (uint8)math::NkClamp((int32)(cb * 255.f + 0.5f), 0, 255);
+                    sa = (uint8)math::NkClamp((int32)(ca * 255.f + 0.5f), 0, 255);
+                }
+
+                // Écrire dans la texture couleur
+                if (colorRow && sa > 0u) {
+                    uint8* p = colorRow + x * 4;
+                    if (!useBlend || sa == 255u) {
+                        nkentseu::sw_detail::StorePixel(p, sr, sg, sb, sa);
+                    } else {
+                        nkentseu::sw_detail::BlendPixel(p, sr, sg, sb, sa);
+                    }
+                }
+
+                cr += drDx; cg += dgDx; cb += dbDx; ca += daDx;
+                cu += duDx; cv += dvDx; cz += dzDx;
             }
         }
     }
 
-    void NkSWRasterizer::DrawTriangles(const NkSWVertex* verts, uint32 count) {
+    void NkSWRasterizer::DrawTriangles(const NkVertexSoftware* verts, uint32 count) {
         if (!verts || count == 0) return;
         NkPrimitiveTopology topology = NkPrimitiveTopology::NK_TRIANGLE_LIST;
         if (mState.pipeline) topology = mState.pipeline->topology;
@@ -425,14 +532,16 @@ namespace nkentseu {
     NkSoftwareDevice::~NkSoftwareDevice() { if (mIsValid) Shutdown(); }
 
     bool NkSoftwareDevice::Initialize(const NkDeviceInitInfo& init) {
+        InitNativePresenter(init.surface);
+
         mInit   = init;
         NkGpuPolicy::ApplyPreContext(mInit.context);
 
         const NkSoftwareDesc& swCfg = mInit.context.software;
         mWidth  = NkDeviceInitWidth(init);
         mHeight = NkDeviceInitHeight(init);
-        if (mWidth == 0)  mWidth  = 512;
-        if (mHeight == 0) mHeight = 512;
+        if (mWidth == 0)  mData.width = mWidth  = 512;
+        if (mHeight == 0) mData.height = mHeight = 512;
         mUseSse = swCfg.useSSE;
         mThreadCount = swCfg.threadCount > 0
             ? swCfg.threadCount
@@ -453,8 +562,8 @@ namespace nkentseu {
         mCaps.maxPushConstantBytes=256;
 
         mIsValid = true;
-        NK_SW_LOG("Initialisé (%u×%u, %u threads, SSE=%s)\n", mWidth, mHeight,
-                mThreadCount, mUseSse ? "on" : "off");
+        // swfast::GetThreadPool().Init(mThreadCount);
+        NK_SW_LOG("Initialisé (%u×%u, %u threads, SSE=%s)\n", mWidth, mHeight, mThreadCount, mUseSse ? "on" : "off");
         return true;
     }
 
@@ -486,14 +595,23 @@ namespace nkentseu {
         fbd.renderPass = mSwapchainRP;
         fbd.colorAttachments.PushBack(colorH);
         fbd.depthAttachment = depthH;
-        fbd.width = mWidth; fbd.height = mHeight;
+        fbd.width = mWidth; 
+        fbd.height = mHeight;
         mSwapchainFB = CreateFramebuffer(fbd);
     }
 
     void NkSoftwareDevice::Shutdown() {
-        mBuffers.Clear(); mTextures.Clear(); mSamplers.Clear();
-        mShaders.Clear(); mPipelines.Clear(); mRenderPasses.Clear();
-        mFramebuffers.Clear(); mDescLayouts.Clear(); mDescSets.Clear();
+        // swfast::GetThreadPool().Shutdown();
+        mBuffers.Clear(); 
+        mTextures.Clear(); 
+        mSamplers.Clear();
+        mShaders.Clear(); 
+        mPipelines.Clear(); 
+        mRenderPasses.Clear();
+        mFramebuffers.Clear(); 
+        mDescLayouts.Clear(); 
+        mDescSets.Clear();
+        ShutdownNativePresenter();
         mIsValid = false;
         NK_SW_LOG("Shutdown\n");
     }
@@ -550,22 +668,22 @@ namespace nkentseu {
 
         uint32 bpp = NkFormatBytesPerPixel(desc.format);
         uint32 mipCount = desc.mipLevels == 0
-            ? (uint32)(math::NkFloor(
-                    math::NkLog2(static_cast<float32>(math::NkMax(desc.width, desc.height))))
-                + 1.0f)
+            ? (uint32)(math::NkFloor(math::NkLog2(static_cast<float32>(math::NkMax(desc.width, desc.height)))) + 1.0f)
             : desc.mipLevels;
 
         uint32 w = desc.width, hgt = desc.height;
         for (uint32 m = 0; m < mipCount; m++) {
-            uint32 sz = math::NkMax(1u,w) * math::NkMax(1u,hgt) * bpp;
-            t.mips.EmplaceBack(sz, (uint8)(desc.format==NkGPUFormat::NK_D32_FLOAT ? 0x3F : 0));
+            uint32 sz = math::NkMax(1u, w) * math::NkMax(1u, hgt) * bpp;
+            uint8 value = (uint8)(desc.format == NkGPUFormat::NK_D32_FLOAT ? 0x3F : 0);
+            t.mips.EmplaceBack(sz, value);
             // Init depth à 1.0
             if (desc.format == NkGPUFormat::NK_D32_FLOAT) {
                 float32 one = 1.0f;
-                for (uint32 i = 0; i < math::NkMax(1u,w)*math::NkMax(1u,hgt); i++)
+                for (uint32 i = 0; i < math::NkMax(1u,w) * math::NkMax(1u, hgt); i++)
                     memcpy(t.mips[m].Data() + i*4, &one, 4);
             }
-            w >>= 1; hgt >>= 1;
+            w >>= 1; 
+            hgt >>= 1;
         }
 
         if (desc.initialData) {
@@ -647,24 +765,39 @@ namespace nkentseu {
     NkShaderHandle NkSoftwareDevice::CreateShader(const NkShaderDesc& desc) {
         threading::NkScopedLock lock(mMutex);
         NkSWShader sh;
-        // Shaders CPU passés via pointeurs de callbacks (stockés dans void*).
-        for (uint32 i = 0; i < desc.stages.Size(); i++) {
-            auto& s = desc.stages[i];
-            if (s.stage == NkShaderStage::NK_VERTEX   && s.cpuVertFn)
-                sh.vertFn = *static_cast<const NkSWVertexShader*>(s.cpuVertFn);
-            if (s.stage == NkShaderStage::NK_FRAGMENT && s.cpuFragFn)
-                sh.fragFn = *static_cast<const NkSWPixelShader*>(s.cpuFragFn);
-            if (s.stage == NkShaderStage::NK_COMPUTE  && s.cpuCompFn) {
+
+        for (uint32 i = 0; i < (uint32)desc.stages.Size(); i++) {
+            const auto& s = desc.stages[i];
+
+            // ── Cas SkSL (fonctions déjà compilées, stockées par valeur) ──────────
+            // if (s.hasSwFn) {
+            //     if (s.stage == NkShaderStage::NK_VERTEX   && s.swVertFn) sh.vertFn = s.swVertFn;
+            //     if (s.stage == NkShaderStage::NK_FRAGMENT && s.swFragFn) sh.fragFn = s.swFragFn;
+            //     continue;
+            // }
+
+            // ── Cas AddSWFn (ancien API via pointeur heap) ────────────────────────
+            if (s.cpuFn == nullptr) continue;
+            
+            if (s.stage == NkShaderStage::NK_VERTEX) {
+                sh.vertFn = *static_cast<const NkVertexShaderSoftware*>(s.cpuFn);
+                delete static_cast<const NkVertexShaderSoftware*>(s.cpuFn);
+            } else if (s.stage == NkShaderStage::NK_FRAGMENT) {
+                sh.fragFn = *static_cast<const NkPixelShaderSoftware*>(s.cpuFn);
+                delete static_cast<const NkPixelShaderSoftware*>(s.cpuFn);
+            } else if (s.stage == NkShaderStage::NK_COMPUTE) {
                 sh.isCompute = true;
-                sh.computeFn = *static_cast<const NkSWComputeShader*>(s.cpuCompFn);
+                sh.computeFn = *static_cast<const NkComputeShaderSoftware*>(s.cpuFn);
+                delete static_cast<const NkComputeShaderSoftware*>(s.cpuFn);
             }
         }
-        // Shader par défaut si non fourni : couleur de vertex passthrough
-        // Keep fragFn null when no CPU pixel shader is provided.
 
-        uint64 hid = NextId(); mShaders[hid] = traits::NkMove(sh);
-        NkShaderHandle h; h.id = hid; return h;
+        uint64 hid = NextId();
+        mShaders[hid] = traits::NkMove(sh);
+        NkShaderHandle h; h.id = hid;
+        return h;
     }
+
     void NkSoftwareDevice::DestroyShader(NkShaderHandle& h) {
         threading::NkScopedLock lock(mMutex); mShaders.Erase(h.id); h.id = 0;
     }
@@ -715,18 +848,27 @@ namespace nkentseu {
         uint64 hid = NextId(); mRenderPasses[hid] = { d };
         NkRenderPassHandle h; h.id = hid; return h;
     }
+
     void NkSoftwareDevice::DestroyRenderPass(NkRenderPassHandle& h) {
         threading::NkScopedLock lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
     }
+
     NkFramebufferHandle NkSoftwareDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
         threading::NkScopedLock lock(mMutex);
+
         NkSWFramebuffer fb;
         fb.colorId = d.colorAttachments.Size() > 0 ? d.colorAttachments[0].id : 0;
         fb.depthId = d.depthAttachment.id;
         fb.w = d.width; fb.h = d.height;
-        uint64 hid = NextId(); mFramebuffers[hid] = fb;
-        NkFramebufferHandle h; h.id = hid; return h;
+
+        uint64 hid = NextId(); 
+        mFramebuffers[hid] = fb;
+
+        NkFramebufferHandle h; 
+        h.id = hid; 
+        return h;
     }
+
     void NkSoftwareDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
         threading::NkScopedLock lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
     }
@@ -769,6 +911,7 @@ namespace nkentseu {
     NkICommandBuffer* NkSoftwareDevice::CreateCommandBuffer(NkCommandBufferType t) {
         return new NkSoftwareCommandBuffer(this, t);
     }
+
     void NkSoftwareDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) { delete cb; cb = nullptr; }
 
     // =============================================================================
@@ -779,6 +922,7 @@ namespace nkentseu {
             auto* sw = dynamic_cast<NkSoftwareCommandBuffer*>(cbs[i]);
             if (sw) sw->Execute(this);
         }
+        
         if (fence.IsValid()) {
             auto* it = mFences.Find(fence.id); if (it) it->signaled = true;
         }
@@ -790,47 +934,184 @@ namespace nkentseu {
         Present();
     }
 
-void NkSoftwareDevice::Present() {
-    if (mInit.presentCallback) {
-        mInit.presentCallback();
-        return;
+    void NkSoftwareDevice::Present() {
+        if (mInit.presentCallback) {
+            mInit.presentCallback();
+            return;
+        }
+        
+        const uint8* pixels = BackbufferPixels();
+        if (!pixels || mWidth == 0 || mHeight == 0) return;
+
+        usize pixelSize = mWidth * mHeight * 4u;
+
+    #if defined(NKENTSEU_PLATFORM_WINDOWS)
+        // Copier pixels vers DIBSection puis BitBlt vers l'ecran
+        if (mData.dibBits && mData.dibDC && mData.hdc) {
+            // DIRECT memcpy : le framebuffer est déjà en BGRA (ordre GDI)
+            // grâce à NK_SW_PIXEL_BGRA dans NkSWPixel.h
+            memcpy(mData.dibBits, pixels, pixelSize);
+            BitBlt(static_cast<HDC>(mData.hdc), 0, 0, (int)mWidth, (int)mHeight, static_cast<HDC>(mData.dibDC), 0, 0, SRCCOPY);
+        }
+
+    #elif defined(NKENTSEU_WINDOWING_XLIB)
+        Display* disp = static_cast<Display*>(mData.display);
+        XImage*  img  = static_cast<XImage*>(mData.ximage);
+        GC       gc   = static_cast<GC>(mData.gc);
+        if (!img) return;
+
+        // Copier pixels (RGBA â†’ BGRA si nÃ©cessaire selon le visual)
+        if (img->byte_order == LSBFirst) {
+            // Convertir RGBA8 â†’ BGRA8 pour X11
+            uint32 count = mWidth * mHeight;
+            uint32* src  = (uint32*)pixels;
+            uint32* dst  = (uint32*)img->data;
+            for (uint32 i = 0; i < count; ++i) {
+                uint32 p = src[i];
+                dst[i] = ((p & 0x000000FF) << 16) |  // Râ†’B
+                        ( p & 0x0000FF00)         |  // G
+                        ((p & 0x00FF0000) >> 16)   |  // Bâ†’R
+                        ( p & 0xFF000000);             // A
+            }
+        } else {
+            memcpy(img->data, pixels, pixelSize);
+        }
+
+        if (mData.useSHM) {
+            XShmSegmentInfo shm;
+            shm.shmid   = mData.shmid;
+            shm.shmaddr = img->data;
+            XShmPutImage(disp, (::Window)mData.window, gc, img,
+                        0, 0, 0, 0, mWidth, mHeight, False);
+        } else {
+            XPutImage(disp, (::Window)mData.window, gc, img,
+                    0, 0, 0, 0, mWidth, mHeight);
+        }
+        XFlush(disp);
+
+    #elif defined(NKENTSEU_WINDOWING_XCB)
+        xcb_connection_t* conn = static_cast<xcb_connection_t*>(mData.connection);
+        if (!conn) return;
+        xcb_put_image(conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+                    (xcb_window_t)mData.window,
+                    (xcb_gcontext_t)mData.gc,
+                    (uint16_t)mWidth, (uint16_t)mHeight,
+                    0, 0, 0, 24,
+                    (uint32_t)pixelSize,
+                    (const uint8_t*)pixels);
+        xcb_flush(conn);
+
+    #elif defined(NKENTSEU_WINDOWING_WAYLAND)
+        auto* wlDisplay = static_cast<wl_display*>(mData.wlDisplay);
+        auto* wlSurface = static_cast<wl_surface*>(mData.wlSurface);
+        auto* wlBuffer  = static_cast<wl_buffer*>(mData.wlBuffer);
+        auto* shmPixels = static_cast<uint8*>(mData.shmPixels);
+        if (!mData.waylandConfigured || !wlSurface || !wlBuffer || !shmPixels) return;
+
+        const uint32 stride = mData.shmStride ? mData.shmStride : (mWidth * 4u);
+        if (stride < 4u) return;
+
+        const uint32 maxRows = static_cast<uint32>(mData.shmSize / stride);
+        const uint32 rows = math::NkMin(mHeight, maxRows);
+        const uint32 cols = math::NkMin(mWidth, stride / 4u);
+
+        // Wayland SHM ARGB8888 on little-endian is stored as BGRA bytes.
+        for (uint32 y = 0; y < rows; ++y) {
+            const uint8* src = pixels + y * (4u * mWidth);
+            uint8* dst = shmPixels + static_cast<uint64>(y) * static_cast<uint64>(stride);
+            for (uint32 x = 0; x < cols; ++x) {
+                dst[x * 4u + 0u] = src[x * 4u + 2u]; // B <- R
+                dst[x * 4u + 1u] = src[x * 4u + 1u]; // G
+                dst[x * 4u + 2u] = src[x * 4u + 0u]; // R <- B
+                dst[x * 4u + 3u] = 255u;             // A
+            }
+        }
+
+        wl_surface_attach(wlSurface, wlBuffer, 0, 0);
+        wl_surface_damage(wlSurface, 0, 0, (int32_t)mWidth, (int32_t)mHeight);
+        wl_surface_commit(wlSurface);
+        if (wlDisplay) {
+            wl_display_flush(wlDisplay);
+        }
+
+    #elif defined(NKENTSEU_PLATFORM_ANDROID)
+        ANativeWindow* win = static_cast<ANativeWindow*>(mData.nativeWindow);
+
+        if (!win) return;
+
+        ANativeWindow_Buffer buf;
+        ARect bounds = {0, 0, (int32_t)mWidth, (int32_t)mHeight};
+
+        if (ANativeWindow_lock(win, &buf, &bounds) == 0) {
+            uint32 copyW = math::NkMin((uint32)buf.stride, mWidth);
+
+            for (uint32 y = 0; y < mHeight && y < (uint32)buf.height; ++y) {
+                memcpy((uint8_t*)buf.bits + y*buf.stride*4, pixels + y * (4u * mWidth), copyW*4);
+            }
+
+            ANativeWindow_unlockAndPost(win);
+        }
+
+    #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+        EM_ASM({
+            var id = UTF8ToString($0);
+            var canvas = null;
+            if (id && id.length > 0) {
+                canvas = document.getElementById(id.charAt(0) === '#' ? id.substring(1) : id);
+            }
+            if (!canvas && Module['canvas']) {
+                canvas = Module['canvas'];
+            }
+            if (!canvas) return;
+
+            var ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            var imgData = ctx.createImageData($1, $2);
+            var src = new Uint8Array(Module.HEAPU8.buffer, $3, $1 * $2 * 4);
+            imgData.data.set(src);
+            ctx.putImageData(imgData, 0, 0);
+        },
+        mData.canvasId,
+        (int)mWidth, (int)mHeight,
+        (int)(uintptr_t)pixels);
+    #endif
+
+    // #if defined(NKENTSEU_PLATFORM_WINDOWS)
+    //     HWND hwnd = mInit.surface.hwnd;
+    //     const uint8* pixels = BackbufferPixels();
+    //     if (!hwnd || !pixels || mWidth == 0 || mHeight == 0) return;
+    
+    //     HDC hdc = GetDC(hwnd);
+    //     if (!hdc) return;
+    
+    //     BITMAPINFO bmi{};
+    //     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    //     bmi.bmiHeader.biWidth       = static_cast<LONG>(mWidth);
+    //     bmi.bmiHeader.biHeight      = -static_cast<LONG>(mHeight);  // top-down
+    //     bmi.bmiHeader.biPlanes      = 1;
+    //     bmi.bmiHeader.biBitCount    = 32;
+    //     bmi.bmiHeader.biCompression = BI_RGB
+    
+    //     // BI_RGB avec 32 bpp : GDI interprète les pixels comme BGRX
+    //     // Le framebuffer est maintenant en BGRA → compatible direct !
+    //     StretchDIBits(hdc,
+    //         0, 0, static_cast<int>(mWidth), static_cast<int>(mHeight),
+    //         0, 0, static_cast<int>(mWidth), static_cast<int>(mHeight),
+    //         pixels, &bmi, DIB_RGB_COLORS, SRCCOPY);
+    //     ReleaseDC(hwnd, hdc);
+    // #endif
     }
-
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-    HWND hwnd = mInit.surface.hwnd;
-    const uint8* pixels = BackbufferPixels();
-    if (!hwnd || !pixels || mWidth == 0 || mHeight == 0) {
-        return;
-    }
-
-    HDC hdc = GetDC(hwnd);
-    if (!hdc) return;
-
-    BITMAPINFO bmi{};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = static_cast<LONG>(mWidth);
-    bmi.bmiHeader.biHeight = -static_cast<LONG>(mHeight);
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-
-    StretchDIBits(
-        hdc,
-        0, 0, static_cast<int>(mWidth), static_cast<int>(mHeight),
-        0, 0, static_cast<int>(mWidth), static_cast<int>(mHeight),
-        pixels,
-        &bmi,
-        DIB_RGB_COLORS,
-        SRCCOPY);
-    ReleaseDC(hwnd, hdc);
-#endif
-}
 
     const uint8* NkSoftwareDevice::BackbufferPixels() const {
         const auto* fbit = mFramebuffers.Find(mSwapchainFB.id);
+
         if (!fbit) return nullptr;
+
         const auto* tit = mTextures.Find(fbit->colorId);
+
         if (!tit || tit->mips.Empty()) return nullptr;
+
         return tit->mips[0].Data();
     }
 
@@ -871,18 +1152,36 @@ void NkSoftwareDevice::Present() {
         frame.frameNumber = mFrameNumber;
         return true;
     }
+
     void NkSoftwareDevice::EndFrame(NkFrameContext&) { ++mFrameNumber; }
 
-void NkSoftwareDevice::OnResize(uint32 w, uint32 h) {
-    if (w == 0 || h == 0) return;
-    mWidth = w; mHeight = h;
-    DestroyFramebuffer(mSwapchainFB);
-    DestroyRenderPass(mSwapchainRP);
-    CreateSwapchainObjects();
-    if (mInit.resizeCallback) {
-        mInit.resizeCallback(w, h);
+    void NkSoftwareDevice::OnResize(uint32 w, uint32 h) {
+        if (w == 0 || h == 0) return;
+        ShutdownNativePresenter();
+
+        mInit.surface.height = h;
+        mInit.surface.width = w;
+
+        if (!InitNativePresenter(mInit.surface)) {
+            NK_SW_LOG("OnResize: InitNativePresenter failed\n");
+            mIsValid = false;
+        }
+
+        mData.width = w;
+        mData.height = h;
+        mWidth = w; 
+        mHeight = h;
+
+
+        DestroyFramebuffer(mSwapchainFB);
+        DestroyRenderPass(mSwapchainRP);
+
+        CreateSwapchainObjects();
+
+        if (mInit.resizeCallback) {
+            mInit.resizeCallback(w, h);
+        }
     }
-}
 
     // =============================================================================
     // Accesseurs
@@ -895,4 +1194,226 @@ void NkSoftwareDevice::OnResize(uint32 w, uint32 h) {
     NkSWDescSet*     NkSoftwareDevice::GetDescSet(uint64 id){ return mDescSets.Find(id); }
     NkSWFramebuffer* NkSoftwareDevice::GetFBO  (uint64 id) { return mFramebuffers.Find(id); }
 
+        // =============================================================================
+    //  InitNativePresenter â€” par plateforme
+    // =============================================================================
+    bool NkSoftwareDevice::InitNativePresenter(const NkSurfaceDesc& surf) {
+        uint32 w = surf.width, h = surf.height;
+
+    // â”€â”€ Windows â€” GDI DIBSection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    #if defined(NKENTSEU_PLATFORM_WINDOWS)
+        mData.hwnd = surf.hwnd;
+        HWND hwnd  = static_cast<HWND>(surf.hwnd);
+        mData.hdc  = GetDC(hwnd);
+
+        BITMAPINFO bmi = {};
+        bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth       = (LONG)w;
+        bmi.bmiHeader.biHeight      = -(LONG)h; // top-down
+        bmi.bmiHeader.biPlanes      = 1;
+        bmi.bmiHeader.biBitCount    = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        void* bits = nullptr;
+        mData.dibBitmap = CreateDIBSection(
+            static_cast<HDC>(mData.hdc), &bmi,
+            DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!mData.dibBitmap) { NK_SW_LOG("CreateDIBSection failed\n"); return false; }
+
+        mData.dibBits = bits;
+        mData.dibDC   = CreateCompatibleDC(static_cast<HDC>(mData.hdc));
+        SelectObject(static_cast<HDC>(mData.dibDC), static_cast<HBITMAP>(mData.dibBitmap));
+        return true;
+
+    // â”€â”€ Linux XLib â€” XShm (shared memory) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    #elif defined(NKENTSEU_WINDOWING_XLIB)
+        Display*      display = static_cast<Display*>(surf.display);
+        ::Window      xwin    = (::Window)surf.window;
+        mData.display = display;
+        mData.window  = xwin;
+
+        // CrÃ©er un GC
+        GC gc = XCreateGC(display, xwin, 0, nullptr);
+        mData.gc = (void*)gc;
+        mData.shmInfo = nullptr;
+
+        // Essayer XShm (shared memory â€” plus rapide)
+        int shmMajor, shmMinor; Bool pixmaps;
+        mData.useSHM = (XShmQueryVersion(display, &shmMajor, &shmMinor, &pixmaps) == True);
+        if (mData.useSHM) {
+            const char* wslInterop = std::getenv("WSL_INTEROP");
+            const char* wslDistro  = std::getenv("WSL_DISTRO_NAME");
+            if ((wslInterop && *wslInterop) || (wslDistro && *wslDistro) ||
+                (std::getenv("NK_X11_DISABLE_SHM") != nullptr)) {
+                mData.useSHM = false;
+            }
+        }
+
+        if (mData.useSHM) {
+            XShmSegmentInfo* shm = new XShmSegmentInfo();
+            Visual* vis  = DefaultVisual(display, DefaultScreen(display));
+            int     depth= DefaultDepth(display, DefaultScreen(display));
+            XImage* img  = XShmCreateImage(display, vis, depth, ZPixmap,
+                                            nullptr, shm, w, h);
+            if (!img) { mData.useSHM = false; delete shm; goto fallback_xlib; }
+            shm->shmid = shmget(IPC_PRIVATE, img->bytes_per_line * img->height,
+                                IPC_CREAT | 0777);
+            if (shm->shmid < 0) { XDestroyImage(img); mData.useSHM=false; delete shm; goto fallback_xlib; }
+            shm->shmaddr = img->data = (char*)shmat(shm->shmid, nullptr, 0);
+            if (shm->shmaddr == (char*)-1) {
+                img->data = nullptr;
+                XDestroyImage(img);
+                shmctl(shm->shmid, IPC_RMID, nullptr);
+                mData.useSHM = false;
+                delete shm;
+                goto fallback_xlib;
+            }
+            shm->readOnly = False;
+            if (!XShmAttach(display, shm)) {
+                shmdt(shm->shmaddr);
+                shmctl(shm->shmid, IPC_RMID, nullptr);
+                img->data = nullptr;
+                XDestroyImage(img);
+                mData.useSHM = false;
+                delete shm;
+                goto fallback_xlib;
+            }
+            mData.ximage = img;
+            mData.shmInfo = shm;
+            mData.shmid  = shm->shmid;
+            NK_SW_LOG("XShm presenter OK (%ux%u)\n", w, h);
+            return true;
+        }
+
+        fallback_xlib: {
+            // Fallback : XImage classique
+            Visual* vis   = DefaultVisual(display, DefaultScreen(display));
+            int     depth = DefaultDepth(display, DefaultScreen(display));
+            char*   data  = new char[w * h * 4];
+            XImage* img   = XCreateImage(display, vis, depth, ZPixmap, 0,
+                                        data, w, h, 32, 0);
+            mData.ximage = img;
+            NK_SW_LOG("XImage (no SHM) presenter OK (%ux%u)\n", w, h);
+            return img != nullptr;
+        }
+
+    // â”€â”€ Linux XCB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    #elif defined(NKENTSEU_WINDOWING_XCB)
+        xcb_connection_t* conn = static_cast<xcb_connection_t*>(surf.connection);
+        mData.connection = conn;
+        mData.window     = surf.window;
+
+        xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
+        uint32 gcMask   = XCB_GC_FOREGROUND | XCB_GC_BACKGROUND;
+        uint32 gcValues[2] = { screen->black_pixel, screen->white_pixel };
+        xcb_gcontext_t gc = xcb_generate_id(conn);
+        xcb_create_gc(conn, gc, (xcb_window_t)surf.window, gcMask, gcValues);
+        mData.gc = gc;
+        xcb_flush(conn);
+        return true;
+
+    // â”€â”€ Wayland â€” wl_shm â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    #elif defined(NKENTSEU_WINDOWING_WAYLAND)
+        mData.wlDisplay = surf.display;
+        mData.wlSurface = surf.surface;
+        mData.wlBuffer  = surf.shmBuffer;
+        mData.shmPixels = surf.shmPixels;
+        mData.waylandConfigured = surf.waylandConfigured;
+        mData.shmStride = surf.shmStride ? surf.shmStride : (w * 4u);
+        mData.shmSize   = (uint64)mData.shmStride * (uint64)h;
+        return (surf.display != nullptr &&
+                surf.surface != nullptr &&
+                surf.shmBuffer != nullptr &&
+                surf.shmPixels != nullptr);
+
+    // â”€â”€ Android â€” ANativeWindow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    #elif defined(NKENTSEU_PLATFORM_ANDROID)
+        mData.nativeWindow = surf.nativeWindow;
+        ANativeWindow_setBuffersGeometry(
+            static_cast<ANativeWindow*>(surf.nativeWindow),
+            (int32_t)w, (int32_t)h,
+            WINDOW_FORMAT_RGBA_8888);
+        return surf.nativeWindow != nullptr;
+
+    // â”€â”€ macOS â€” CGContext â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    #elif defined(NKENTSEU_PLATFORM_MACOS)
+        mData.nsView = surf.view;
+        // CGContext est recrÃ©Ã© Ã  chaque Present depuis drawRect: â€” pas de state ici
+        return surf.view != nullptr;
+
+    // â”€â”€ WebAssembly â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+        mData.canvasId = surf.canvasId;
+        return surf.canvasId != nullptr;
+
+    #else
+        return false;
+    #endif
+    }
+
+    // =============================================================================
+    //  ShutdownNativePresenter
+    // =============================================================================
+    void NkSoftwareDevice::ShutdownNativePresenter() {
+    #if defined(NKENTSEU_PLATFORM_WINDOWS)
+        if (mData.dibDC)     { DeleteDC(static_cast<HDC>(mData.dibDC));         mData.dibDC = nullptr; }
+        if (mData.dibBitmap) { DeleteObject(static_cast<HBITMAP>(mData.dibBitmap)); mData.dibBitmap = nullptr; }
+        if (mData.hdc && mData.hwnd) {
+            ReleaseDC(static_cast<HWND>(mData.hwnd), static_cast<HDC>(mData.hdc));
+            mData.hdc = nullptr;
+        }
+
+    #elif defined(NKENTSEU_WINDOWING_XLIB)
+        if (mData.ximage) {
+            Display* disp = static_cast<Display*>(mData.display);
+            XImage* img   = static_cast<XImage*>(mData.ximage);
+            auto* shm = static_cast<XShmSegmentInfo*>(mData.shmInfo);
+            if (mData.useSHM && shm) {
+                XShmDetach(disp, shm);
+                if (shm->shmaddr && shm->shmaddr != (char*)-1) {
+                    shmdt(shm->shmaddr);
+                }
+                if (shm->shmid >= 0) {
+                    shmctl(shm->shmid, IPC_RMID, nullptr);
+                }
+                delete shm;
+                mData.shmInfo = nullptr;
+                mData.shmid = -1;
+                img->data = nullptr;
+            } else {
+                delete[] img->data;
+                img->data = nullptr;
+            }
+            XDestroyImage(img);
+            mData.ximage = nullptr;
+        }
+        if (mData.shmInfo) {
+            delete static_cast<XShmSegmentInfo*>(mData.shmInfo);
+            mData.shmInfo = nullptr;
+        }
+        mData.useSHM = false;
+        if (mData.gc && mData.display) {
+            XFreeGC(static_cast<Display*>(mData.display),
+                    static_cast<GC>(mData.gc));
+            mData.gc = nullptr;
+        }
+
+    #elif defined(NKENTSEU_WINDOWING_XCB)
+        if (mData.gc && mData.connection) {
+            xcb_free_gc(static_cast<xcb_connection_t*>(mData.connection),
+                        (xcb_gcontext_t)mData.gc);
+            mData.gc = 0;
+        }
+
+    #elif defined(NKENTSEU_WINDOWING_WAYLAND)
+        // Wayland : mÃ©moire gÃ©rÃ©e par wl_shm â€” pas de libÃ©ration ici
+        mData.wlDisplay = nullptr;
+        mData.shmPixels = nullptr;
+        mData.wlSurface = nullptr;
+        mData.wlBuffer = nullptr;
+        mData.waylandConfigured = false;
+        mData.shmStride = 0;
+        mData.shmSize = 0;
+    #endif
+    }
 } // namespace nkentseu

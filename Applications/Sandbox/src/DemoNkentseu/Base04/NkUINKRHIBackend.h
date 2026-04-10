@@ -1,3 +1,11 @@
+/*
+    * NkUINKRHIBackend.h
+    *
+    * Interface de backend NKRHI pour les draw lists NKUI.
+    *
+    * Ce fichier fait partie de Nkentseu.
+*/
+
 #pragma once
 
 /*
@@ -9,7 +17,7 @@
 
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "NkUI/NkUI.h"
+#include "NKUI/NKUI.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/Sequential/NkVector.h"
 

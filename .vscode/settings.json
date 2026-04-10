@@ -94,5 +94,6 @@
     "terminal.integrated.shellArgs.windows": ["-NoExit", "chcp 65001 > $null"],
     "terminal.integrated.env.windows": {
         "PYTHONIOENCODING": "utf-8"
-    }
+    },
+    "cmake.sourceDirectory": "E:/Projets/2026/Nkentseu/Nkentseu/Externals/Libs/NKGLSlang"
 }

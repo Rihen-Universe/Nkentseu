@@ -5,7 +5,7 @@
  * @License Apache-2.0
  */
 #include "NKImage/Codecs/SVG/NkSVGRenderer.h"
-#include "NKImage/Core/NkXMLParser.h"
+#include "NKImage/Codecs/SVG/NkXMLParser.h"
 #include <cmath>
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"

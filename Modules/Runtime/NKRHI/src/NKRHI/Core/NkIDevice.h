@@ -228,8 +228,8 @@ namespace nkentseu {
             // Framebuffer du swapchain (fenêtre principale) pour le frame courant
             virtual NkFramebufferHandle GetSwapchainFramebuffer() const                     = 0;
             virtual NkRenderPassHandle  GetSwapchainRenderPass()  const                     = 0;
-            virtual NkGPUFormat            GetSwapchainFormat()      const                     = 0;
-            virtual NkGPUFormat            GetSwapchainDepthFormat() const                     = 0;
+            virtual NkGPUFormat         GetSwapchainFormat()      const                     = 0;
+            virtual NkGPUFormat         GetSwapchainDepthFormat() const                     = 0;
             virtual uint32              GetSwapchainWidth()       const                     = 0;
             virtual uint32              GetSwapchainHeight()      const                     = 0;
 
@@ -364,7 +364,7 @@ namespace nkentseu {
             // Semaphores — synchronisation GPU-GPU (sans retour CPU)
             // =========================================================================
         #ifdef CreateGpuSemaphore
-        #   undef CreateGpuSemaphore
+            #undef CreateGpuSemaphore
         #endif
             virtual NkSemaphoreHandle CreateGpuSemaphore() {
                 return {};

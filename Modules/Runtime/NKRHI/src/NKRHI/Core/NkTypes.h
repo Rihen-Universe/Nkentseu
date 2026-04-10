@@ -364,6 +364,10 @@ namespace nkentseu {
         float32 width=0, height=0;
         float32 minDepth=0.f, maxDepth=1.f;
         bool    flipY=true;  ///< Vulkan : inverse Y pour passer en convention OpenGL. Mettre false pour shadow pass.
+
+        NkViewport() = default;
+        NkViewport(float32 x, float32 y, float32 w, float32 h, float32 minD=0.f, float32 maxD=1.f, bool flipY=true)
+            : x(x), y(y), width(w), height(h), minDepth(minD), maxDepth(maxD), flipY(flipY) {}
     };
 
     using NkRect2D = math::NkIntRect;

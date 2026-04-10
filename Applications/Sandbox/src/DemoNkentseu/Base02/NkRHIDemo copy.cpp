@@ -5,9 +5,9 @@
 //   2. Entraînement d'un MLP simple (XOR, MNIST stub)
 //   3. Benchmark MatMul GPU vs CPU
 // =============================================================================
-#include "../Core/NkIDevice.h"
-#include "../Core/NkDeviceFactory.h"
-#include "../Core/NkRHI_ML.h"
+#include "NKRHI/Core/NkIDevice.h"
+#include "NKRHI/Core/NkDeviceFactory.h"
+#include "NKRHI/Core/NkRHI_ML.h"
 #include "../../NkFinal_work/Factory/NkContextFactory.h"
 #include <cstdio>
 #include <cmath>

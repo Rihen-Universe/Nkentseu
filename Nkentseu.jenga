@@ -317,7 +317,10 @@ with workspace("Nkentseu", location="."):
     with include("Applications/Sandbox/Sandbox.jenga"):
         pass
 
-    with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
+    # with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
+    #     pass
+
+    with include("Applications/Model/Model.jenga"):
         pass
 
     # with include("Applications/NKPA/NKPA.jenga"):

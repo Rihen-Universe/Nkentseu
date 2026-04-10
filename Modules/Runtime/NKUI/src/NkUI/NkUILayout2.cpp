@@ -10,12 +10,16 @@
  * Main data: GL pipeline state, texture upload, clip/scissor draw loop.
  * Change this file when: OpenGL backend artifacts or text/texture issues appear.
  */
-#include "NkUI/NkUILayout2.h"
-#include "NkUI/NkUIWidgets.h"
+#include "NKUI/NkUILayout2.h"
+#include "NKUI/NkUIWidgets.h"
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
 #include <cmath>
+
+#ifdef NKUI_WITH_OPENGL
+    #include <GL/gl.h>
+#endif
 
 namespace nkentseu {
     namespace nkui {
@@ -410,7 +414,6 @@ namespace nkentseu {
         })";
 
         #ifdef NKUI_WITH_OPENGL
-        #include <GL/gl.h>
 
         uint32 NkUIOpenGLRenderer::CompileShader(uint32 type,const char* src) noexcept {
             const uint32 s=glCreateShader(type);

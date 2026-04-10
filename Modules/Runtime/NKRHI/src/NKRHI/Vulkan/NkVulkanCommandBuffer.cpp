@@ -57,10 +57,10 @@ namespace nkentseu {
         uint32 clearCount = colorCount + (hasDepth ? 1u : 0u);
         if (clearCount > 9u) clearCount = 9u;
         for (uint32 i = 0; i < clearCount; ++i) {
-            clears[i].color = {{0.f,0.f,0.f,1.f}};
+            clears[i].color = {{mClearColor[0], mClearColor[1], mClearColor[2], mClearColor[3]}};
         }
         if (hasDepth && clearCount > 0) {
-            clears[colorCount].depthStencil = {1.f, 0};
+            clears[colorCount].depthStencil = {mClearDepth, mClearStencil};
         }
 
         VkRenderPassBeginInfo rpbi{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};

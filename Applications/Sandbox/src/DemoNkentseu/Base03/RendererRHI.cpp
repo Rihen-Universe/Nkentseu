@@ -3,6 +3,16 @@
 
 using namespace nkentseu;
 
+NKENTSEU_DEFINE_APP_DATA(([]() {
+    nkentseu::NkAppData d{};
+    d.appName = "Sandbox";
+    d.appVersion = "1.0.0";
+    d.enableEventLogging = false;
+    d.enableRendererDebug = false;
+    d.enableMultiWindow = true;
+    return d;
+})());
+
 // =============================================================================
 // Point d'entrée — nkmain (appelé par NkMetalEntryPoint.mm sur Apple,
 //                           ou directement depuis main() sur Windows/Linux)

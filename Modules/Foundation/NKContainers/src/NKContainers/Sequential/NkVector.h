@@ -229,6 +229,14 @@ namespace nkentseu {
                     mAllocator->Deallocate(mData);
                 }
             }
+            
+            void Reverse() {
+                // implemente la methode Reverse() pour inverser l'ordre des éléments dans le vecteur
+                if (mSize <= 1) return;
+                for (SizeType i = 0; i < mSize / 2; ++i) {
+                    traits::NkSwap(mData[i], mData[mSize - 1 - i]);
+                }
+            }
 
             // ── Affectation ────────────────────────────────────────────────────────
 
@@ -407,7 +415,7 @@ namespace nkentseu {
                 ++mSize;
             }
 
-    #if defined(NK_CPP11)
+    // #if defined(NK_CPP11)
             void PushBack(T&& value) {
                 if (mSize >= mCapacity) {
                     Reserve(mCapacity == 0 ? 1 : CalculateGrowth(mSize + 1));
@@ -424,7 +432,7 @@ namespace nkentseu {
                 ConstructAt(mData + mSize, traits::NkForward<Args>(args)...);
                 ++mSize;
             }
-    #endif
+    // #endif
 
             void PopBack() {
                 NK_ASSERT(mSize > 0);

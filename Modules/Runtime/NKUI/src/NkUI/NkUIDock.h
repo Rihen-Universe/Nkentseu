@@ -3,14 +3,15 @@
 /*
  * NKUI_MAINTENANCE_GUIDE
  * Responsibility: Docking data structures and docking API.
- * Main data: Dock nodes, split model, docking operations contract.
+ * Main data: Dock nodes, split model, tabs conditionnel, child docking, edge highlight.
  * Change this file when: Docking behavior or node model needs extension.
  */
 /**
  * @File    NkUIDock.h
- * @Brief   Système de docking NkUI — zones, drag & drop, tabs, split, detach.
+ * @Brief   Systeme de docking NkUI v2 — zones, drag & drop, tabs conditionnels,
+ *          split, detach, child docking, surbrillance directionnelle.
  */
-#include "NkUI/NkUIWindow.h"
+#include "NKUI/NkUIWindow.h"
 
 namespace nkentseu {
     namespace nkui {
@@ -34,6 +35,8 @@ namespace nkentseu {
             int32            numWindows = 0;
             int32            activeTab  = 0;
             float32          scrollY    = 0.f;
+            // v2
+            NkUIID           parentWindowId = NKUI_ID_NONE; // pour child docking
         };
 
         struct NKUI_API NkUIDockManager {
@@ -46,6 +49,8 @@ namespace nkentseu {
             bool          isDraggingTab  = false;
             NkUIID        dragWindowId   = NKUI_ID_NONE;
             int32         dragTargetNode = -1;
+            // v2 — child docking
+            NkUIID        childWindowId  = NKUI_ID_NONE; // fenetre parente courante (si child dock actif)
 
             void  Init(NkRect viewport) noexcept;
             void  Destroy() noexcept;
@@ -55,33 +60,58 @@ namespace nkentseu {
             void  RecalcRects(int32 idx) noexcept;
             void  RecalcRectsAll() noexcept;
 
-            /// Ancre une fenêtre dans un nœud avec la direction donnée
+            /// Ancre une fenetre dans un noeud avec la direction donnee.
+            /// Respecte NK_NO_TABS : si tabs interdits et drop == CENTER/TAB, degrade en NK_BOTTOM.
+            /// Respecte NK_NO_DOCK  : refuse le docking si la fenetre a ce flag.
             bool  DockWindow(NkUIWindowManager& wm, NkUIID windowId,
-                            int32 nodeIdx, NkUIDockDrop drop) noexcept;
-            /// Détache une fenêtre du dock
+                             int32 nodeIdx, NkUIDockDrop drop) noexcept;
+            /// Detache une fenetre du dock
             void  UndockWindow(NkUIWindowManager& wm, NkUIID windowId) noexcept;
+
+            /// Retourne true si le noeud accepte les tabs
+            /// (aucune fenetre du node n'a NK_NO_TABS, et la fenetre draggee non plus).
+            bool  NodeAllowsTabs(const NkUIWindowManager& wm,
+                                 int32 nodeIdx,
+                                 NkUIID draggedWindowId = NKUI_ID_NONE) const noexcept;
+
+            /// Dessine une ligne de surbrillance sur le bord cible pendant le drag.
+            void  DrawDirectionalHighlight(NkUIDrawList& dl,
+                                           int32 nodeIdx,
+                                           NkUIDockDrop drop,
+                                           NkColor color = {100,180,255,220}) const noexcept;
 
             /// Trouve le Leaf sous un point
             int32 FindNodeAt(NkVec2 pos) const noexcept;
-            /// Nœud racine
+            /// Noeud racine
             NkUIDockNode* Root() noexcept { return rootIdx>=0?&nodes[rootIdx]:nullptr; }
 
-            /// Dessine les dropzones et retourne la zone survolée
+            /// Dessine les dropzones et retourne la zone survolee.
+            /// Filtre NK_CENTER si les tabs sont interdits pour ce node/fenetre.
             NkUIDockDrop DrawDropZones(NkUIContext& ctx, NkUIDrawList& dl,
-                                        int32 nodeIdx) noexcept;
+                                       int32 nodeIdx) noexcept;
 
-            /// Traitement des inputs dock (appelé chaque frame avant Begin)
+            /// Traitement des inputs dock (appele chaque frame avant Begin)
             void BeginFrame(NkUIContext& ctx, NkUIWindowManager& wm,
                             NkUIDrawList& dl, NkUIFont& font) noexcept;
 
             /// Dessine tout l'arbre de dock (tabs + contenu)
             void Render(NkUIContext& ctx, NkUIDrawList& dl,
                         NkUIFont& font, NkUIWindowManager& wm,
-                        NkUILayoutStack& ls) noexcept;
+                        NkUILayoutStack& ls,
+                        int32 rootOverride = -1) noexcept;
 
-            /// Ouvre un nœud ancré pour dessiner son contenu
-            bool BeginDocked(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDrawList& dl, const char* name) noexcept;
+            /// Ouvre un noeud ancre pour dessiner son contenu
+            bool BeginDocked(NkUIContext& ctx, NkUIWindowManager& wm,
+                             NkUIDrawList& dl, const char* name) noexcept;
             void EndDocked(NkUIContext& ctx, NkUIDrawList& dl) noexcept;
+
+            /// Child docking : cree un sous-arbre de dock dans la zone cliente d'une fenetre.
+            /// La fenetre parente doit avoir le flag NK_ALLOW_DOCK_CHILD.
+            bool BeginChildDock(NkUIContext& ctx, NkUIWindowManager& wm,
+                                NkUIDrawList& dl, NkUIFont& font,
+                                NkUILayoutStack& ls,
+                                NkUIID parentWindowId, NkRect childViewport) noexcept;
+            void EndChildDock(NkUIContext& ctx, NkUIDrawList& dl) noexcept;
 
             /// Persistance du layout
             void SaveLayout(const char* path) const noexcept;
@@ -92,5 +122,6 @@ namespace nkentseu {
                             NkUIFont& font, NkUIWindowManager& wm,
                             int32 idx, NkUILayoutStack& ls) noexcept;
         };
-    }
+
+    } // namespace nkui
 } // namespace nkentseu

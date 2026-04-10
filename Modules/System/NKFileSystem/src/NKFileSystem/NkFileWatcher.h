@@ -23,11 +23,11 @@ namespace nkentseu {
          * @brief File change types
          */
         enum class NkFileChangeType {
-            Created,        // File or directory created
-            Deleted,        // File or directory deleted
-            Modified,       // File content modified
-            Renamed,        // File or directory renamed
-            AttributeChanged // File attributes changed
+            NK_CREATED,        // File or directory created
+            NK_DELETED,        // File or directory deleted
+            NK_MODIFIED,       // File content modified
+            NK_RENAMED,        // File or directory renamed
+            NK_ATTRIBUTE_CHANGED // File attributes changed
         };
         
         /**

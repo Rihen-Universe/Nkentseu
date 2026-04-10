@@ -18,9 +18,9 @@
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
 
-#include "../Core/NkSurfaceDesc.h"
-#include "../Core/NkContextDesc.h"
-#include "../Factory/NkContextFactory.h"
+#include "NKWindow/Core/NkSurfaceDesc.h"
+#include "NKWindow/Core/NkContextDesc.h"
+// #include "Factory/NkContextFactory.h"
 
 // Forward-declare nkmain — défini dans votre code applicatif
 namespace nkentseu { struct NkEntryState {}; }

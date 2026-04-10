@@ -1,0 +1,11 @@
+// triangle.frag.sw.sksl — Stage FRAGMENT uniquement
+
+@location(0) in vec3 vColor;
+
+@location(0) out vec4 FragColor;
+
+@stage(fragment)
+@entry
+void frag_main() {
+    FragColor = vec4(vColor, 1.0);
+}

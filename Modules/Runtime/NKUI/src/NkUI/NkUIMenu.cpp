@@ -9,7 +9,7 @@
  * Main data: Open/close policy, hover/click handling, popup layering.
  * Change this file when: Menu visibility/focus/open-state regressions appear.
  */
-#include "NkUI/NkUIMenu.h"
+#include "NKUI/NkUIMenu.h"
 #include <cstring>
 #include <cmath>
 
@@ -230,9 +230,10 @@ namespace nkentseu {
 
             if(!ms->open) return false;
 
-            // Calcule et dessine le panel
-            // Compte les items (approximatif : on le fixe à 10 max pour le calcul initial)
-            ms->panelRect = CalcPanelRect(btnR,depth,10);
+            // itemCount contient le compte réel du frame précédent.
+            // Premier frame : estimation 24 ; frames suivants : taille exacte.
+            const int32 estCount = (ms->itemCount > 0) ? ms->itemCount : 24;
+            ms->panelRect = CalcPanelRect(btnR,depth,estCount);
             DrawMenuPanel(ctx,dl,*ms);
 
             // Empile

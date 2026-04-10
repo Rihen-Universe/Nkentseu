@@ -383,7 +383,7 @@ NkSLCompileResult NkSLCompiler::CompileWithSemantic(
             break;
         }
         case NkSLTarget::NK_CPLUSPLUS: {
-            NkSLCodeGen_CPP gen;
+            NkSLCodeGenCPP gen;
             res = gen.Generate(ast, stage, opts);
             break;
         }

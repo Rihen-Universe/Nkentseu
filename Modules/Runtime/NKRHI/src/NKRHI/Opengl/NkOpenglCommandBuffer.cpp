@@ -51,9 +51,10 @@ void NkOpenGLCommandBuffer::GL_BeginRenderPass(NkRenderPassHandle rp,
 
     glViewport(area.x, area.y, (GLsizei)area.width, (GLsizei)area.height);
 
-    // Clear color[0] avec la valeur par défaut (noir transparent)
-    glClearColor(0.f, 0.f, 0.f, 1.f);
-    glClearDepthf(1.f);
+    // Clear avec les valeurs dynamiques (SetClearColor / SetClearDepth)
+    glClearColor(mClearR, mClearG, mClearB, mClearA);
+    glClearDepthf(mClearDepth);
+    glClearStencil((GLint)mClearStencil);
     glClear(clearBits);
 
     (void)rp;

@@ -38,7 +38,6 @@
 // â”€â”€ NKLogger â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #include "NKLogger/NkLog.h"
 #include "NKImage/Core/NkImage.h"
-#include "NKFont/NkFontFace.h"
 
 // â”€â”€ std â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #include <algorithm>
@@ -958,7 +957,7 @@ static std::vector<uint8_t> LoadFileBytes(const std::string& path) {
 }
 
 // Rasterise une chaîne en bitmap Gray8 via NkFTFontFace
-static std::vector<uint8_t> BuildStringBitmap(NkFTFontFace* face, const char* text, uint32& outW, uint32& outH) {
+static std::vector<uint8_t> BuildStringBitmap(NkFontFace* face, const char* text, uint32& outW, uint32& outH) {
     if (!face || !text || !*text) { outW = outH = 0; return {}; }
     const int32 ascender  = face->GetAscender();
     const int32 descender = face->GetDescender();
@@ -968,8 +967,8 @@ static std::vector<uint8_t> BuildStringBitmap(NkFTFontFace* face, const char* te
     // Mesurer la largeur totale
     uint32 totalW = 0;
     for (const char* p = text; *p; ++p) {
-        NkFTGlyph g{};
-        if (face->GetGlyph((uint8_t)*p, g)) totalW += (uint32)g.xAdvance;
+        NkGlyph g{};
+        // if (face->GetGlyph((uint8_t)*p, g)) totalW += (uint32)g.xAdvance;
     }
     if (totalW == 0) totalW = 1;
 
@@ -978,28 +977,28 @@ static std::vector<uint8_t> BuildStringBitmap(NkFTFontFace* face, const char* te
     std::vector<uint8_t> bmp(outW * outH, 0u);
 
     int32 penX = 0;
-    for (const char* p = text; *p; ++p) {
-        NkFTGlyph g{};
-        if (!face->GetGlyph((uint8_t)*p, g) || g.isEmpty || !g.bitmap) {
-            if (face->GetGlyph((uint8_t)*p, g)) penX += g.xAdvance;
-            continue;
-        }
-        int32 dstX = penX + g.bearingX;
-        int32 dstY = ascender - g.bearingY;
-        for (int32 gy = 0; gy < g.height; ++gy) {
-            int32 dy = dstY + gy;
-            if (dy < 0 || dy >= (int32)outH) continue;
-            const uint8_t* srcRow = g.bitmap + gy * g.pitch;
-            uint8_t* dstRow = bmp.data() + dy * outW;
-            for (int32 gx = 0; gx < g.width; ++gx) {
-                int32 dx = dstX + gx;
-                if (dx < 0 || dx >= (int32)outW) continue;
-                uint32 s = srcRow[gx], d = dstRow[dx];
-                dstRow[dx] = (uint8_t)(d + s - (d * s) / 255u);
-            }
-        }
-        penX += g.xAdvance;
-    }
+    // for (const char* p = text; *p; ++p) {
+    //     NkGlyph g{};
+    //     if (!face->GetGlyph((uint8_t)*p, g) || g.isEmpty || !g.bitmap) {
+    //         if (face->GetGlyph((uint8_t)*p, g)) penX += g.xAdvance;
+    //         continue;
+    //     }
+    //     int32 dstX = penX + g.bearingX;
+    //     int32 dstY = ascender - g.bearingY;
+    //     for (int32 gy = 0; gy < g.height; ++gy) {
+    //         int32 dy = dstY + gy;
+    //         if (dy < 0 || dy >= (int32)outH) continue;
+    //         const uint8_t* srcRow = g.bitmap + gy * g.pitch;
+    //         uint8_t* dstRow = bmp.data() + dy * outW;
+    //         for (int32 gx = 0; gx < g.width; ++gx) {
+    //             int32 dx = dstX + gx;
+    //             if (dx < 0 || dx >= (int32)outW) continue;
+    //             uint32 s = srcRow[gx], d = dstRow[dx];
+    //             dstRow[dx] = (uint8_t)(d + s - (d * s) / 255u);
+    //         }
+    //     }
+    //     penX += g.xAdvance;
+    // }
     return bmp;
 }
 
@@ -1094,7 +1093,7 @@ static NkShaderDesc MakeTextShaderDesc(NkGraphicsApi api) {
 //   flipV=true  : V=1 en bas du quad, V=0 en haut.
 //                 Correct pour billboard 3D (y=1=haut ecran, V=0=ascender).
 static NkTextQuad CreateTextQuad(NkIDevice* device, NkDescSetHandle hTextLayout,
-                                  NkFTFontFace* face, const char* text, bool flipV = false) {
+                                  NkFontFace* face, const char* text, bool flipV = false) {
     NkTextQuad q{};
     if (!device || !face || !text || !*text) return q;
     uint32 bmpW = 0, bmpH = 0;
@@ -1468,7 +1467,8 @@ int nkmain(const nkentseu::NkEntryState& state) {
     loadedTexturePath = FindTextureInResources();
     if (!loadedTexturePath.empty()) {
         logger.Info("[RHIFullDemoImage] Texture candidate: {0}\\n", loadedTexturePath.c_str());
-        loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
+        loadedTextureImage = NkImage::Load(loadedTexturePath.c_str(), 4);
+        // loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
         if (loadedTextureImage && loadedTextureImage->IsValid()) {
             logger.Info("[RHIFullDemoImage] Texture chargee: {0} ({1}x{2}, ch={3})\\n",
                         loadedTexturePath.c_str(),
@@ -1555,10 +1555,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         if (hShadowShader.IsValid()) {
             NkSWShader* swSh = swDev->GetShader(hShadowShader.id);
             if (swSh) {
-                swSh->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkSWVertex {
+                swSh->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware {
                     const Vtx3D* v = static_cast<const Vtx3D*>(vdata) + idx;
                     const UboData* ubo = static_cast<const UboData*>(udata);
-                    NkSWVertex out;
+                    NkVertexSoftware out;
                     auto mul4 = [](const float m[16], float x, float y, float z, float w) -> NkVec4f {
                         return NkVec4f(m[0]*x+m[4]*y+m[8]*z+m[12]*w, m[1]*x+m[5]*y+m[9]*z+m[13]*w,
                                        m[2]*x+m[6]*y+m[10]*z+m[14]*w, m[3]*x+m[7]*y+m[11]*z+m[15]*w);
@@ -1577,10 +1577,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         NkSWTexture* swAlbedoTex = hAlbedoTex.IsValid() ? swDev->GetTex(hAlbedoTex.id) : nullptr;
 
         if (sw) {
-            sw->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkSWVertex {
+            sw->vertFn = [](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware {
                 const Vtx3D*   v   = static_cast<const Vtx3D*>(vdata) + idx;
                 const UboData* ubo = static_cast<const UboData*>(udata);
-                NkSWVertex out;
+                NkVertexSoftware out;
                 if (!ubo) {
                     out.position = {v->pos.x, v->pos.y, v->pos.z, 1.f};
                     out.normal   = v->normal;
@@ -1613,7 +1613,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
                 return out;
             };
 
-            sw->fragFn = [swShadowTex, swAlbedoTex](const NkSWVertex& frag, const void* udata, const void*) -> math::NkVec4f {
+            sw->fragFn = [swShadowTex, swAlbedoTex](const NkVertexSoftware& frag, const void* udata, const void*) -> math::NkVec4f {
                 const UboData* ubo = static_cast<const UboData*>(udata);
                 float nx = frag.normal.x, ny = frag.normal.y, nz = frag.normal.z;
 
@@ -1680,9 +1680,9 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
     // Charger une police via FreeType
     // NkFTFontLibrary ftLib;
-    NkFTFontLibrary ftLib;
-    NkFTFontFace*   ftFace18 = nullptr;
-    NkFTFontFace*   ftFace32 = nullptr;
+    NkFontLibrary ftLib;
+    NkFontFace*   ftFace18 = nullptr;
+    NkFontFace*   ftFace32 = nullptr;
     std::vector<uint8_t> fontBytes;
     {
         const std::string fontPath = FindFontFile();
@@ -1695,8 +1695,8 @@ int nkmain(const nkentseu::NkEntryState& state) {
             ftFace18 = ftLib.LoadFont(fontBytes.data(), (usize)fontBytes.size(), 18);
             ftFace32 = ftLib.LoadFont(fontBytes.data(), (usize)fontBytes.size(), 32);
         }
-        if (!ftFace18 || !ftFace18->IsValid())
-            logger.Info("[RHIFullText] Avertissement: police 18px non chargee");
+        // if (!ftFace18 || !ftFace18->IsValid())
+        //     logger.Info("[RHIFullText] Avertissement: police 18px non chargee");
     }
 
     // Descriptor set layout texte (binding 0 = UBO, binding 1 = sampler2D)
@@ -1742,22 +1742,22 @@ int nkmain(const nkentseu::NkEntryState& state) {
     NkTextQuad tqFloor   = {};
     bool textOk = hTextPipe.IsValid() && hTextLayout.IsValid();
     if (textOk) {
-        NkFTFontFace* f18 = (ftFace18 && ftFace18->IsValid()) ? ftFace18 : nullptr;
-        NkFTFontFace* f32 = (ftFace32 && ftFace32->IsValid()) ? ftFace32 : nullptr;
-        // 2D overlay : flipV=false (V=0=ascender en haut apres flipOrthoY)
-        // 3D billboard : flipV=true (V=0=ascender en haut apres flipBillY)
-        const bool flipBillboard = (targetApi == NkGraphicsApi::NK_API_VULKAN ||
-                                    targetApi == NkGraphicsApi::NK_API_DIRECTX12);
-        (void)flipBillboard; // utilise dans le render loop
-        if (f32) {
-            tqBackend = CreateTextQuad(device, hTextLayout, f32, apiName, false);
-            tqCube    = CreateTextQuad(device, hTextLayout, f32, "CUBE",   true);
-            tqSphere  = CreateTextQuad(device, hTextLayout, f32, "SPHERE", true);
-            tqFloor   = CreateTextQuad(device, hTextLayout, f32, "FLOOR",  true);
-        }
-        if (f18) {
-            tqFPS = CreateTextQuad(device, hTextLayout, f18, "FPS: --", false);
-        }
+        // NkFontFace* f18 = (ftFace18 && ftFace18->IsValid()) ? ftFace18 : nullptr;
+        // NkFontFace* f32 = (ftFace32 && ftFace32->IsValid()) ? ftFace32 : nullptr;
+        // // 2D overlay : flipV=false (V=0=ascender en haut apres flipOrthoY)
+        // // 3D billboard : flipV=true (V=0=ascender en haut apres flipBillY)
+        // const bool flipBillboard = (targetApi == NkGraphicsApi::NK_API_VULKAN ||
+        //                             targetApi == NkGraphicsApi::NK_API_DIRECTX12);
+        // (void)flipBillboard; // utilise dans le render loop
+        // if (f32) {
+        //     tqBackend = CreateTextQuad(device, hTextLayout, f32, apiName, false);
+        //     tqCube    = CreateTextQuad(device, hTextLayout, f32, "CUBE",   true);
+        //     tqSphere  = CreateTextQuad(device, hTextLayout, f32, "SPHERE", true);
+        //     tqFloor   = CreateTextQuad(device, hTextLayout, f32, "FLOOR",  true);
+        // }
+        // if (f18) {
+        //     tqFPS = CreateTextQuad(device, hTextLayout, f18, "FPS: --", false);
+        // }
     }
     float  fpsTimer      = 0.f;
     uint32 fpsFrameCount = 0;
@@ -1846,12 +1846,12 @@ int nkmain(const nkentseu::NkEntryState& state) {
             fpsValue = (fpsTimer > 0.f) ? (float)fpsFrameCount / fpsTimer : 0.f;
             fpsFrameCount = 0;
             fpsTimer = 0.f;
-            if (ftFace18 && ftFace18->IsValid() && hTextLayout.IsValid()) {
-                char fpsBuf[32];
-                snprintf(fpsBuf, sizeof(fpsBuf), "FPS: %.0f", fpsValue);
-                DestroyTextQuad(device, tqFPS);
-                tqFPS = CreateTextQuad(device, hTextLayout, ftFace18, fpsBuf, false);
-            }
+            // if (ftFace18 && ftFace18->IsValid() && hTextLayout.IsValid()) {
+            //     char fpsBuf[32];
+            //     snprintf(fpsBuf, sizeof(fpsBuf), "FPS: %.0f", fpsValue);
+            //     DestroyTextQuad(device, tqFPS);
+            //     tqFPS = CreateTextQuad(device, hTextLayout, ftFace18, fpsBuf, false);
+            // }
         }
 
 
@@ -2204,8 +2204,8 @@ int nkmain(const nkentseu::NkEntryState& state) {
     if (hTextPipe.IsValid())   device->DestroyPipeline(hTextPipe);
     if (hTextShader.IsValid()) device->DestroyShader(hTextShader);
     if (hTextLayout.IsValid()) device->DestroyDescriptorSetLayout(hTextLayout);
-    if (ftFace18) ftLib.FreeFont(ftFace18);
-    if (ftFace32) ftLib.FreeFont(ftFace32);
+    // if (ftFace18) ftLib.FreeFont(ftFace18);
+    // if (ftFace32) ftLib.FreeFont(ftFace32);
     ftLib.Destroy();
 
     NkDeviceFactory::Destroy(device);

@@ -31,64 +31,64 @@ namespace nkentseu {
          * NkString ext = path.GetExtension();     // ".txt"
          */
         class NkPath {
-        private:
-            NkString mPath;
-            
-            static constexpr char PREFERRED_SEPARATOR = '/';
-            static constexpr char WINDOWS_SEPARATOR = '\\';
-            
-            void NormalizeSeparators();
-            
-        public:
-            // Constructors
-            NkPath();
-            NkPath(const char* path);
-            NkPath(const NkString& path);
-            NkPath(const NkPath& other);
-            
-            // Assignment
-            NkPath& operator=(const NkPath& other);
-            NkPath& operator=(const char* path);
-            
-            // Path operations
-            NkPath& Append(const char* component);
-            NkPath& Append(const NkPath& other);
-            NkPath operator/(const char* component) const;
-            NkPath operator/(const NkPath& other) const;
-            
-            // Path components
-            NkString GetDirectory() const;
-            NkString GetFileName() const;
-            NkString GetFileNameWithoutExtension() const;
-            NkString GetExtension() const;
-            NkString GetRoot() const;
-            
-            // Path properties
-            bool IsAbsolute() const;
-            bool IsRelative() const;
-            bool HasExtension() const;
-            bool HasFileName() const;
-            
-            // Path modification
-            NkPath& ReplaceExtension(const char* newExt);
-            NkPath& ReplaceFileName(const char* newName);
-            NkPath& RemoveFileName();
-            NkPath GetParent() const;
-            
-            // Conversion
-            const char* CStr() const;
-            NkString ToString() const;
-            NkString ToNative() const;  // With platform-specific separators
-            
-            // Comparison
-            bool operator==(const NkPath& other) const;
-            bool operator!=(const NkPath& other) const;
-            
-            // Static helpers
-            static NkPath GetCurrentDirectory();
-            static NkPath GetTempDirectory();
-            static NkPath Combine(const char* path1, const char* path2);
-            static bool IsValidPath(const char* path);
+            private:
+                NkString mPath;
+                
+                static constexpr char PREFERRED_SEPARATOR = '/';
+                static constexpr char WINDOWS_SEPARATOR = '\\';
+                
+                void NormalizeSeparators();
+                
+            public:
+                // Constructors
+                NkPath();
+                NkPath(const char* path);
+                NkPath(const NkString& path);
+                NkPath(const NkPath& other);
+                
+                // Assignment
+                NkPath& operator=(const NkPath& other);
+                NkPath& operator=(const char* path);
+                
+                // Path operations
+                NkPath& Append(const char* component);
+                NkPath& Append(const NkPath& other);
+                NkPath operator/(const char* component) const;
+                NkPath operator/(const NkPath& other) const;
+                
+                // Path components
+                NkString GetDirectory() const;
+                NkString GetFileName() const;
+                NkString GetFileNameWithoutExtension() const;
+                NkString GetExtension() const;
+                NkString GetRoot() const;
+                
+                // Path properties
+                bool IsAbsolute() const;
+                bool IsRelative() const;
+                bool HasExtension() const;
+                bool HasFileName() const;
+                
+                // Path modification
+                NkPath& ReplaceExtension(const char* newExt);
+                NkPath& ReplaceFileName(const char* newName);
+                NkPath& RemoveFileName();
+                NkPath GetParent() const;
+                
+                // Conversion
+                const char* CStr() const;
+                NkString ToString() const;
+                NkString ToNative() const;  // With platform-specific separators
+                
+                // Comparison
+                bool operator==(const NkPath& other) const;
+                bool operator!=(const NkPath& other) const;
+                
+                // Static helpers
+                static NkPath GetCurrentDirectory();
+                static NkPath GetTempDirectory();
+                static NkPath Combine(const char* path1, const char* path2);
+                static bool IsValidPath(const char* path);
         };
         
     } // namespace entseu

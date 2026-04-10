@@ -9,13 +9,13 @@
 #include "UI/NkPAUI.h"
 
 // ── Headers NKUI (isolés ici via pimpl) ──────────────────────────────────────
-#include "NkUI/NkUIContext.h"
-#include "NkUI/NkUILayout.h"
-#include "NkUI/NkUIFont.h"
-#include "NkUI/NkUIWidgets.h"
-#include "NkUI/NkUIWindow.h"
-#include "NkUI/NkUITheme.h"
-#include "NkUI/NkUIInput.h"
+#include "NKUI/NkUIContext.h"
+#include "NKUI/NkUILayout.h"
+#include "NKUI/NkUIFont.h"
+#include "NKUI/NkUIWidgets.h"
+#include "NKUI/NkUIWindow.h"
+#include "NKUI/NkUITheme.h"
+#include "NKUI/NkUIInput.h"
 
 #include <cstring>
 

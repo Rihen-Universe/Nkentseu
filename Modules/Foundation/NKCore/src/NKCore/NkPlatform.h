@@ -19,6 +19,7 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKPlatform/NkArchDetect.h"
 #include "NKPlatform/NkCompilerDetect.h"
+#include "NKPlatform/NkEndianness.h"
 #include "NkTypes.h"
 #include "NkExport.h"
 #include "NkCoreExport.h"
@@ -159,12 +160,6 @@ namespace nkentseu {
 		 * @ingroup PlatformTypes
 		 */
 		enum class NkGraphicsAPI : nk_uint8 { NK_NONE = 0, NK_VULKAN, NK_METAL, NK_OPENGL, NK_DIRECTX, NK_SOFTWARE };
-
-		/**
-		 * @brief Type d'endianness
-		 * @ingroup PlatformTypes
-		 */
-		enum class NkEndianness : nk_uint8 { NK_UNKNOWN = 0, NK_LITTLE = 1, NK_BIG = 2 };
 
 		// ============================================================
 		// STRUCTURES - INFORMATIONS VERSION

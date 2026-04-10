@@ -1,0 +1,2190 @@
+
+[FillCoverage] START: width=10 height=54 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=10 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=22 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=22 srcH=22 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=22 segCount=18
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=18
+Before Downsample: srcW=10 srcH=22 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=34 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=34 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=34 segCount=54
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=54
+Before Downsample: srcW=34 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=28 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=16 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=10 segCount=30
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=30
+Before Downsample: srcW=34 srcH=10 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=16 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=10 srcH=16 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=66 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=66 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=40 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=10 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=54 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=16 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=34 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=40 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=22 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=40 srcH=22 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=34 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=40 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=22 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=60 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=66 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=66 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=10 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=48 srcH=10 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=16 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=16 srcH=16 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=60 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=16 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=72 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=60 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=16 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=40 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=48 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=54 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=28 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=40 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=48 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=72 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=72 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=10 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=72 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=16 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=48 srcH=16 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=42 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=8 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=18 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=18 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=18 segCount=18
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=18
+Before Downsample: srcW=8 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=28 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=28 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=28 segCount=54
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=54
+Before Downsample: srcW=28 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=24 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=14 srcH=24 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=8 segCount=30
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=30
+Before Downsample: srcW=28 srcH=8 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=14 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=8 srcH=14 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=52 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=52 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=32 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=8 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=42 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=14 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=28 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=32 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=18 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=32 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=28 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=32 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=18 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=24 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=48 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=52 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=52 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=8 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=38 srcH=8 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=14 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=14 srcH=14 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=48 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=14 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=56 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=24 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=48 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=14 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=32 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=38 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=42 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=24 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=32 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=38 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=56 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=56 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=8 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=56 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=14 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=38 srcH=14 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=36 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=28 srcH=36 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=20 height=36 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=20 srcH=36 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=12 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=12 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=28 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=24 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=28 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=24 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=28 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=8 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=36 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=24 srcH=36 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=40 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=24 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=40 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=24 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=28 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=24 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=44 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=30 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=44 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=26 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=44 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=26 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=18 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=30 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=44 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=26 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=40 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=26 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=52 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=8 srcH=52 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=36 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=36 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=40 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=22 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=40 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=26 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=54 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=10 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=22 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=22 srcH=22 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=22 segCount=18
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=18
+Before Downsample: srcW=10 srcH=22 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=34 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=34 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=34 segCount=54
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=54
+Before Downsample: srcW=34 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=28 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=16 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=10 segCount=30
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=30
+Before Downsample: srcW=34 srcH=10 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=16 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=10 srcH=16 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=66 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=66 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=40 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=10 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=54 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=16 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=34 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=40 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=22 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=40 srcH=22 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=34 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=40 srcH=34 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=22 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=54 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=60 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=54 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=48 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=40 height=54 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=40 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=66 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=66 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=72 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=22 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=10 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=48 srcH=10 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=16 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=16 srcH=16 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=60 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=16 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=72 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=16 height=60 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=16 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=40 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=48 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=54 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=28 srcH=54 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=40 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=48 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=60 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=34 srcH=60 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=72 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=10 height=72 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=10 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=34 height=72 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=34 srcH=72 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=48 height=16 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=48 srcH=16 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=42 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=8 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=18 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=18 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=18 segCount=18
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=18
+Before Downsample: srcW=8 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=28 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=28 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=28 segCount=54
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=54
+Before Downsample: srcW=28 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=24 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=14 srcH=24 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=8 segCount=30
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=30
+Before Downsample: srcW=28 srcH=8 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=14 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=8 srcH=14 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=52 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=52 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=32 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=8 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=42 segCount=36
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=36
+Before Downsample: srcW=14 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=28 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=32 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=18 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=32 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=28 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=32 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=18 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=24 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=156
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=156
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=42 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=48 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=42 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=38 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=32 height=42 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=32 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=52 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=52 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=18 height=56 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=18 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=8 segCount=42
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=42
+Before Downsample: srcW=38 srcH=8 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=14 segCount=12
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=12
+Before Downsample: srcW=14 srcH=14 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=48 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=14 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=56 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=24 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=14 height=48 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=14 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=32 segCount=120
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=120
+Before Downsample: srcW=38 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=42 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=24 srcH=42 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=32 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=38 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=48 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=28 srcH=48 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=32 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=32 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=56 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=56 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=8 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=56 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=28 srcH=56 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=38 height=14 segCount=48
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=48
+Before Downsample: srcW=38 srcH=14 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=28 height=36 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=28 srcH=36 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=20 height=36 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=20 srcH=36 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=12 height=40 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=12 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=28 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=24 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=28 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=24 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=28 segCount=24
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=24
+Before Downsample: srcW=8 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=36 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=24 srcH=36 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=40 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=24 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=40 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=24 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=24 height=28 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=24 srcH=28 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=44 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=30 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=44 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=26 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=44 segCount=126
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=126
+Before Downsample: srcW=26 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=18 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=30 srcH=18 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=96
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=96
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=44 segCount=114
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=114
+Before Downsample: srcW=26 srcH=44 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=108
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=108
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=40 segCount=72
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=72
+Before Downsample: srcW=26 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=102
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=102
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=8 height=52 segCount=66
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=66
+Before Downsample: srcW=8 srcH=52 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=36 height=40 segCount=84
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=84
+Before Downsample: srcW=36 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=30 segCount=60
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=60
+Before Downsample: srcW=26 srcH=30 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=22 height=40 segCount=78
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=78
+Before Downsample: srcW=22 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=30 height=40 segCount=144
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=144
+Before Downsample: srcW=30 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000
+
+[FillCoverage] START: width=26 height=40 segCount=90
+FillCoverage DONE: nonZeroPixels=0 maxCoverage=0.000000 segCount=90
+Before Downsample: srcW=26 srcH=40 ss=2
+  MaxCoverageBefore= 0.000000

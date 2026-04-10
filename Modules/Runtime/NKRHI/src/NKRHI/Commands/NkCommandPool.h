@@ -23,89 +23,87 @@
 
 namespace nkentseu {
 
-class NkCommandPool {
-public:
-    // ── Construction ──────────────────────────────────────────────────────────
-    NkCommandPool() = default;
+    class NkCommandPool {
+        public:
+            // ── Construction ──────────────────────────────────────────────────────────
+            NkCommandPool() = default;
 
-    explicit NkCommandPool(NkIDevice* device,
-                            NkCommandBufferType type = NkCommandBufferType::NK_GRAPHICS)
-        : mDevice(device), mType(type) {}
+            explicit NkCommandPool(NkIDevice* device, NkCommandBufferType type = NkCommandBufferType::NK_GRAPHICS) : mDevice(device), mType(type) {}
 
-    ~NkCommandPool() { Reset(); }
+            ~NkCommandPool() { Reset(); }
 
-    // Non-copiable, déplaçable
-    NkCommandPool(const NkCommandPool&) = delete;
-    NkCommandPool& operator=(const NkCommandPool&) = delete;
+            // Non-copiable, déplaçable
+            NkCommandPool(const NkCommandPool&) = delete;
+            NkCommandPool& operator=(const NkCommandPool&) = delete;
 
-    NkCommandPool(NkCommandPool&& o) noexcept
-        : mDevice(o.mDevice), mType(o.mType)
-        , mFree(traits::NkMove(o.mFree)), mInFlight(traits::NkMove(o.mInFlight)) {
-        o.mDevice = nullptr;
-    }
-
-    // ── Init tardive (si construit par défaut) ─────────────────────────────
-    void Init(NkIDevice* device,
-               NkCommandBufferType type = NkCommandBufferType::NK_GRAPHICS) {
-        mDevice = device;
-        mType   = type;
-    }
-
-    // ── Acquire — obtenir un CB prêt à l'emploi (Reset() appelé dessus) ───
-    NkICommandBuffer* Acquire() {
-        threading::NkScopedLock lock(mMutex);
-        NkICommandBuffer* cb = nullptr;
-        if (!mFree.IsEmpty()) {
-            cb = mFree.Back();
-            mFree.PopBack();
-            cb->Reset();
-        } else {
-            cb = mDevice->CreateCommandBuffer(mType);
-        }
-        mInFlight.PushBack(cb);
-        return cb;
-    }
-
-    // ── Release — remettre un CB terminé dans le pool libre ───────────────
-    void Release(NkICommandBuffer* cb) {
-        threading::NkScopedLock lock(mMutex);
-        for (usize i = 0; i < mInFlight.Size(); i++) {
-            if (mInFlight[i] == cb) {
-                mInFlight.Erase(mInFlight.Begin() + i);
-                mFree.PushBack(cb);
-                break;
+            NkCommandPool(NkCommandPool&& o) noexcept
+                : mDevice(o.mDevice), mType(o.mType)
+                , mFree(traits::NkMove(o.mFree)), mInFlight(traits::NkMove(o.mInFlight)) {
+                o.mDevice = nullptr;
             }
-        }
-    }
 
-    // ── ReleaseAll — libérer tous les CBs en vol (après WaitIdle) ─────────
-    void ReleaseAll() {
-        threading::NkScopedLock lock(mMutex);
-        for (usize i = 0; i < mInFlight.Size(); i++) mFree.PushBack(mInFlight[i]);
-        mInFlight.Clear();
-    }
+            // ── Init tardive (si construit par défaut) ─────────────────────────────
+            void Init(NkIDevice* device,
+                    NkCommandBufferType type = NkCommandBufferType::NK_GRAPHICS) {
+                mDevice = device;
+                mType   = type;
+            }
 
-    // ── Reset — détruire tous les CBs (à l'arrêt du device) ──────────────
-    void Reset() {
-        if (!mDevice) return;
-        threading::NkScopedLock lock(mMutex);
-        for (usize i = 0; i < mInFlight.Size(); i++) mDevice->DestroyCommandBuffer(mInFlight[i]);
-        for (usize i = 0; i < mFree.Size(); i++)     mDevice->DestroyCommandBuffer(mFree[i]);
-        mInFlight.Clear();
-        mFree.Clear();
-    }
+            // ── Acquire — obtenir un CB prêt à l'emploi (Reset() appelé dessus) ───
+            NkICommandBuffer* Acquire() {
+                threading::NkScopedLock lock(mMutex);
+                NkICommandBuffer* cb = nullptr;
+                if (!mFree.IsEmpty()) {
+                    cb = mFree.Back();
+                    mFree.PopBack();
+                    cb->Reset();
+                } else {
+                    cb = mDevice->CreateCommandBuffer(mType);
+                }
+                mInFlight.PushBack(cb);
+                return cb;
+            }
 
-    // ── Stats ─────────────────────────────────────────────────────────────
-    uint32 FreeCount()     const { return (uint32)mFree.Size(); }
-    uint32 InFlightCount() const { return (uint32)mInFlight.Size(); }
-    uint32 TotalCount()    const { return FreeCount() + InFlightCount(); }
+            // ── Release — remettre un CB terminé dans le pool libre ───────────────
+            void Release(NkICommandBuffer* cb) {
+                threading::NkScopedLock lock(mMutex);
+                for (usize i = 0; i < mInFlight.Size(); i++) {
+                    if (mInFlight[i] == cb) {
+                        mInFlight.Erase(mInFlight.Begin() + i);
+                        mFree.PushBack(cb);
+                        break;
+                    }
+                }
+            }
 
-private:
-    NkIDevice*           mDevice = nullptr;
-    NkCommandBufferType  mType   = NkCommandBufferType::NK_GRAPHICS;
-    mutable threading::NkMutex      mMutex;
-    NkVector<NkICommandBuffer*> mFree;
-    NkVector<NkICommandBuffer*> mInFlight;
-};
+            // ── ReleaseAll — libérer tous les CBs en vol (après WaitIdle) ─────────
+            void ReleaseAll() {
+                threading::NkScopedLock lock(mMutex);
+                for (usize i = 0; i < mInFlight.Size(); i++) mFree.PushBack(mInFlight[i]);
+                mInFlight.Clear();
+            }
+
+            // ── Reset — détruire tous les CBs (à l'arrêt du device) ──────────────
+            void Reset() {
+                if (!mDevice) return;
+                threading::NkScopedLock lock(mMutex);
+                for (usize i = 0; i < mInFlight.Size(); i++) mDevice->DestroyCommandBuffer(mInFlight[i]);
+                for (usize i = 0; i < mFree.Size(); i++)     mDevice->DestroyCommandBuffer(mFree[i]);
+                mInFlight.Clear();
+                mFree.Clear();
+            }
+
+            // ── Stats ─────────────────────────────────────────────────────────────
+            uint32 FreeCount()     const { return (uint32)mFree.Size(); }
+            uint32 InFlightCount() const { return (uint32)mInFlight.Size(); }
+            uint32 TotalCount()    const { return FreeCount() + InFlightCount(); }
+
+        private:
+            NkIDevice*                      mDevice = nullptr;
+            NkCommandBufferType             mType   = NkCommandBufferType::NK_GRAPHICS;
+            mutable threading::NkMutex      mMutex;
+            NkVector<NkICommandBuffer*>     mFree;
+            NkVector<NkICommandBuffer*>     mInFlight;
+    };
 
 } // namespace nkentseu

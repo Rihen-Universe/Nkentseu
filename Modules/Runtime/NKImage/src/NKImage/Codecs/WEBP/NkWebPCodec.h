@@ -33,6 +33,8 @@ namespace nkentseu {
                                 bool lossless = true, int32 quality = 90) noexcept;
 
         private:
+            // static bool isDegenerate;
+
             // ── Structures RIFF / WebP ────────────────────────────────────────────
             struct RIFFChunk {
                 uint32 fourcc;
