@@ -237,6 +237,7 @@ with project("NKRHI"):
         if _WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
             _ANDROID_LINKS.extend(_GLSLANG_LIBS_UNIX)
+            defines(["VK_USE_PLATFORM_ANDROID_KHR", "NK_OPENGL_ES"] )
         links(_ANDROID_LINKS)
 
     with filter("system:iOS"):

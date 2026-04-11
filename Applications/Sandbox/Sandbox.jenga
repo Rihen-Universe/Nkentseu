@@ -409,6 +409,9 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
         if use_nkui:
             _BASE_LINKS.append("NKUI")
 
+        _BASE_LINKS.append("NKGLSlang")
+        _BASE_LINKS.append("NKSPIRVCross")
+
         links(_BASE_LINKS)
         dependson(_BASE_LINKS)
         defines([
@@ -505,7 +508,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
         with filter("system:Android"):
             windowedapp()
             usetoolchain("android-ndk")
-            _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
+            _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3", "NKGlad"]   # ← AJOUTER NKGlad
             if _WANT_VULKAN:
                 _ANDROID_LINKS.append("vulkan")
             links(_ANDROID_LINKS)

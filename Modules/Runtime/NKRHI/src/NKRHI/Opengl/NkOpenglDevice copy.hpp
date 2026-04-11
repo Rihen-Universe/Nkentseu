@@ -1,12 +1,11 @@
 // =============================================================================
 // NkRHI_Device_GL.cpp — Implémentation OpenGL 4.3+ du NkIDevice
-// Utilise Direct State Access (GL 4.5+) avec fallback OpenGL ES sur Android
+// Utilise Direct State Access (GL 4.5+) avec fallback GL 4.3
 // =============================================================================
 #include "NkOpenglDevice.h"
 #include "NkOpenglCommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/Associative/NkUnorderedMap.h"
 #include <cmath>
 #include <cstring>
 
@@ -113,22 +112,14 @@ bool NkOpenGLDevice::Initialize(const NkDeviceInitInfo& init) {
     }
 #endif
 
-    // Vérifier GL 4.3 minimum (compute shaders) ou OpenGL ES 3.1+
+    // Vérifier GL 4.3 minimum (compute shaders)
     GLint major=0, minor=0;
     glGetIntegerv(GL_MAJOR_VERSION, &major);
     glGetIntegerv(GL_MINOR_VERSION, &minor);
-#if defined(NK_OPENGL_ES)
-    // Sur Android, on accepte OpenGL ES 3.0+
-    if (major < 3) {
-        NK_GL_ERR("OpenGL ES 3.0+ required (got %d.%d)\n", major, minor);
-        return false;
-    }
-#else
     if (major < 4 || (major == 4 && minor < 3)) {
         NK_GL_ERR("OpenGL 4.3+ required (got %d.%d)\n", major, minor);
         return false;
     }
-#endif
 
     mWidth  = NkDeviceInitWidth(init);
     mHeight = NkDeviceInitHeight(init);
@@ -239,22 +230,10 @@ NkBufferHandle NkOpenGLDevice::CreateBuffer(const NkBufferDesc& desc) {
     threading::NkScopedLock lock(mMutex);
 
     GLuint id=0;
-#if defined(NK_OPENGL_ES)
-    glGenBuffers(1, &id);
-    GLenum target = (NkHasFlag(desc.bindFlags, NkBindFlags::NK_UNIFORM_BUFFER)) ? GL_UNIFORM_BUFFER :
-                    (NkHasFlag(desc.bindFlags, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER :
-                    (NkHasFlag(desc.bindFlags, NkBindFlags::NK_VERTEX_BUFFER))  ? GL_ARRAY_BUFFER :
-                    (NkHasFlag(desc.bindFlags, NkBindFlags::NK_INDEX_BUFFER))   ? GL_ELEMENT_ARRAY_BUFFER :
-                    GL_COPY_READ_BUFFER; // fallback
-    glBindBuffer(target, id);
-    GLenum usage = ToGLBufferUsage(desc.usage, desc.bindFlags);
-    glBufferData(target, (GLsizeiptr)desc.sizeBytes, desc.initialData, usage);
-    glBindBuffer(target, 0);
-#else
     glCreateBuffers(1,&id);
+
     GLenum usage = ToGLBufferUsage(desc.usage, desc.bindFlags);
     glNamedBufferData(id, (GLsizeiptr)desc.sizeBytes, desc.initialData, usage);
-#endif
 
     if (desc.debugName) {
         glObjectLabel(GL_BUFFER, id, -1, desc.debugName);
@@ -280,71 +259,32 @@ bool NkOpenGLDevice::WriteBuffer(NkBufferHandle buf, const void* data,
     threading::NkScopedLock lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer || !data) return false;
-#if defined(NK_OPENGL_ES)
-    GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER)) ? GL_UNIFORM_BUFFER :
-                    (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER :
-                    (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))  ? GL_ARRAY_BUFFER :
-                    GL_ELEMENT_ARRAY_BUFFER;
-    glBindBuffer(target, buffer->id);
-    glBufferSubData(target, (GLintptr)offset, (GLsizeiptr)size, data);
-    glBindBuffer(target, 0);
-#else
     glNamedBufferSubData(buffer->id, (GLintptr)offset, (GLsizeiptr)size, data);
-#endif
     return true;
 }
 
 bool NkOpenGLDevice::WriteBufferAsync(NkBufferHandle buf, const void* data,
                                     uint64 size, uint64 offset) {
+    // GL : async via glMapNamedBufferRange + UNSYNCHRONIZED
     threading::NkScopedLock lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer || !data) return false;
-#if defined(NK_OPENGL_ES)
-    GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER)) ? GL_UNIFORM_BUFFER :
-                    (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER :
-                    (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))  ? GL_ARRAY_BUFFER :
-                    GL_ELEMENT_ARRAY_BUFFER;
-    glBindBuffer(target, buffer->id);
-    void* ptr = glMapBufferRange(target, (GLintptr)offset, (GLsizeiptr)size,
-        GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT|GL_MAP_INVALIDATE_RANGE_BIT);
-    if (!ptr) { glBindBuffer(target, 0); return false; }
-    memcpy(ptr, data, (size_t)size);
-    glUnmapBuffer(target);
-    glBindBuffer(target, 0);
-#else
     void* ptr = glMapNamedBufferRange(buffer->id, (GLintptr)offset,
         (GLsizeiptr)size,
         GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT|GL_MAP_INVALIDATE_RANGE_BIT);
     if (!ptr) return false;
     memcpy(ptr, data, (size_t)size);
     glUnmapNamedBuffer(buffer->id);
-#endif
     return true;
 }
 
 bool NkOpenGLDevice::ReadBuffer(NkBufferHandle buf, void* out,
-                                uint64 size, uint64 offset) {
+                              uint64 size, uint64 offset) {
     threading::NkScopedLock lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer) return false;
-
-#if defined(NK_OPENGL_ES)
-    GLenum target = NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER) ? GL_UNIFORM_BUFFER :
-                    NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER) ? GL_SHADER_STORAGE_BUFFER :
-                    NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER)  ? GL_ARRAY_BUFFER :
-                    GL_ELEMENT_ARRAY_BUFFER;
-    glBindBuffer(target, buffer->id);
-    void* ptr = glMapBufferRange(target, (GLintptr)offset, (GLsizeiptr)size, GL_MAP_READ_BIT);
-    if (ptr) {
-        memcpy(out, ptr, (size_t)size);
-        glUnmapBuffer(target);
-    }
-    glBindBuffer(target, 0);
-    return ptr != nullptr;
-#else
     glGetNamedBufferSubData(buffer->id, (GLintptr)offset, (GLsizeiptr)size, out);
     return true;
-#endif
 }
 
 NkMappedMemory NkOpenGLDevice::MapBuffer(NkBufferHandle buf, uint64 off, uint64 sz) {
@@ -352,38 +292,14 @@ NkMappedMemory NkOpenGLDevice::MapBuffer(NkBufferHandle buf, uint64 off, uint64 
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer) return {};
     uint64 mapSz = sz>0 ? sz : buffer->size-off;
-#if defined(NK_OPENGL_ES)
-    GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER)) ? GL_UNIFORM_BUFFER :
-                    (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER :
-                    (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))  ? GL_ARRAY_BUFFER :
-                    GL_ELEMENT_ARRAY_BUFFER;
-    glBindBuffer(target, buffer->id);
-    void* ptr=glMapBufferRange(target,(GLintptr)off,(GLsizeiptr)mapSz,
-        GL_MAP_WRITE_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT);
-    glBindBuffer(target, 0);
-    return {ptr, mapSz};
-#else
     void* ptr=glMapNamedBufferRange(buffer->id,(GLintptr)off,(GLsizeiptr)mapSz,
         GL_MAP_WRITE_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT);
     return {ptr, mapSz};
-#endif
 }
 
 void NkOpenGLDevice::UnmapBuffer(NkBufferHandle buf) {
     GLBuffer* buffer = mBuffers.Find(buf.id);
-    if (buffer) {
-#if defined(NK_OPENGL_ES)
-        GLenum target = (NkHasFlag(buffer->bind, NkBindFlags::NK_UNIFORM_BUFFER)) ? GL_UNIFORM_BUFFER :
-                        (NkHasFlag(buffer->bind, NkBindFlags::NK_STORAGE_BUFFER)) ? GL_SHADER_STORAGE_BUFFER :
-                        (NkHasFlag(buffer->bind, NkBindFlags::NK_VERTEX_BUFFER))  ? GL_ARRAY_BUFFER :
-                        GL_ELEMENT_ARRAY_BUFFER;
-        glBindBuffer(target, buffer->id);
-        glUnmapBuffer(target);
-        glBindBuffer(target, 0);
-#else
-        glUnmapNamedBuffer(buffer->id);
-#endif
-    }
+    if (buffer) glUnmapNamedBuffer(buffer->id);
 }
 
 // =============================================================================
@@ -393,12 +309,7 @@ NkTextureHandle NkOpenGLDevice::CreateTexture(const NkTextureDesc& desc) {
     threading::NkScopedLock lock(mMutex);
     GLuint id=0;
     GLenum target = ToGLTextureTarget(desc.type, desc.samples);
-#if defined(NK_OPENGL_ES)
-    glGenTextures(1, &id);
-    glBindTexture(target, id);
-#else
     glCreateTextures(target, 1, &id);
-#endif
 
     const uint32 maxDim = desc.width > desc.height ? desc.width : desc.height;
     uint32 mips = desc.mipLevels==0 ?
@@ -409,58 +320,27 @@ NkTextureHandle NkOpenGLDevice::CreateTexture(const NkTextureDesc& desc) {
 
     switch(desc.type) {
         case NkTextureType::NK_TEX2D:
-            if (desc.samples > NkSampleCount::NK_S1) {
-#if defined(NK_OPENGL_ES)
-                // OpenGL ES n'a pas de texture storage multisample, on utilise renderbuffer ou on ignore
-                // Pour simplifier, on stocke comme texture normale
-                glTexStorage2D(target, mips, internal, desc.width, desc.height);
-#else
+            if (desc.samples > NkSampleCount::NK_S1)
                 glTextureStorage2DMultisample(id,(GLsizei)desc.samples,
                     internal,desc.width,desc.height,GL_TRUE);
-#endif
-            } else {
-#if defined(NK_OPENGL_ES)
-                glTexStorage2D(target, mips, internal, desc.width, desc.height);
-#else
+            else
                 glTextureStorage2D(id,mips,internal,desc.width,desc.height);
-#endif
-            }
             break;
         case NkTextureType::NK_TEX2D_ARRAY:
-#if defined(NK_OPENGL_ES)
-            glTexStorage3D(target, mips, internal, desc.width, desc.height, desc.arrayLayers);
-#else
             glTextureStorage3D(id,mips,internal,desc.width,desc.height,desc.arrayLayers);
-#endif
             break;
         case NkTextureType::NK_CUBE:
-#if defined(NK_OPENGL_ES)
-            glTexStorage2D(target, mips, internal, desc.width, desc.height);
-#else
+            // Cubemap immutable storage uses 2D allocation for the 6 faces.
             glTextureStorage2D(id,mips,internal,desc.width,desc.height);
-#endif
             break;
         case NkTextureType::NK_CUBE_ARRAY:
-#if defined(NK_OPENGL_ES)
-            glTexStorage3D(target, mips, internal, desc.width, desc.height, desc.arrayLayers);
-#else
             glTextureStorage3D(id,mips,internal,desc.width,desc.height,desc.arrayLayers);
-#endif
             break;
         case NkTextureType::NK_TEX3D:
-#if defined(NK_OPENGL_ES)
-            glTexStorage3D(target, mips, internal, desc.width, desc.height, desc.depth);
-#else
             glTextureStorage3D(id,mips,internal,desc.width,desc.height,desc.depth);
-#endif
             break;
         case NkTextureType::NK_TEX1D:
-#if defined(NK_OPENGL_ES)
-            // OpenGL ES ne supporte pas 1D textures
-            NK_GL_ERR("1D textures not supported on OpenGL ES\n");
-#else
             glTextureStorage1D(id,mips,internal,desc.width);
-#endif
             break;
     }
 
@@ -469,24 +349,10 @@ NkTextureHandle NkOpenGLDevice::CreateTexture(const NkTextureDesc& desc) {
         uint32 rp=desc.rowPitch>0?desc.rowPitch:desc.width*NkFormatBytesPerPixel(desc.format);
         const uint32 bpp = NkFormatBytesPerPixel(desc.format);
         glPixelStorei(GL_UNPACK_ROW_LENGTH, rp / (bpp > 0 ? bpp : 1u));
-#if defined(NK_OPENGL_ES)
-        glTexSubImage2D(target,0,0,0,desc.width,desc.height,base,type2,desc.initialData);
-#else
         glTextureSubImage2D(id,0,0,0,desc.width,desc.height,base,type2,desc.initialData);
-#endif
         glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
-        if (mips>1) {
-#if defined(NK_OPENGL_ES)
-            glGenerateMipmap(target);
-#else
-            glGenerateTextureMipmap(id);
-#endif
-        }
+        if (mips>1) glGenerateTextureMipmap(id);
     }
-
-#if defined(NK_OPENGL_ES)
-    glBindTexture(target, 0);
-#endif
 
     if (desc.debugName) glObjectLabel(GL_TEXTURE,id,-1,desc.debugName);
 
@@ -521,19 +387,10 @@ bool NkOpenGLDevice::WriteTextureRegion(NkTextureHandle t, const void* pixels,
     uint32 bpp=NkFormatBytesPerPixel(desc.format);
     uint32 rp2=rowPitch>0?rowPitch:w*bpp;
     glPixelStorei(GL_UNPACK_ROW_LENGTH, rp2/(bpp > 0 ? bpp : 1u));
-#if defined(NK_OPENGL_ES)
-    glBindTexture(texture->target, texture->id);
-    if (desc.type==NkTextureType::NK_TEX2D)
-        glTexSubImage2D(texture->target,(GLint)mip,(GLint)x,(GLint)y,(GLsizei)w,(GLsizei)h,base,type2,pixels);
-    else if (desc.type==NkTextureType::NK_TEX3D || desc.type==NkTextureType::NK_TEX2D_ARRAY)
-        glTexSubImage3D(texture->target,(GLint)mip,(GLint)x,(GLint)y,(GLint)(layer+z),(GLsizei)w,(GLsizei)h,(GLsizei)d2,base,type2,pixels);
-    glBindTexture(texture->target, 0);
-#else
     if (desc.type==NkTextureType::NK_TEX2D)
         glTextureSubImage2D(texture->id,(GLint)mip,(GLint)x,(GLint)y,(GLsizei)w,(GLsizei)h,base,type2,pixels);
     else if (desc.type==NkTextureType::NK_TEX3D || desc.type==NkTextureType::NK_TEX2D_ARRAY)
         glTextureSubImage3D(texture->id,(GLint)mip,(GLint)x,(GLint)y,(GLint)(layer+z),(GLsizei)w,(GLsizei)h,(GLsizei)d2,base,type2,pixels);
-#endif
     glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
     return true;
 }
@@ -541,13 +398,7 @@ bool NkOpenGLDevice::WriteTextureRegion(NkTextureHandle t, const void* pixels,
 bool NkOpenGLDevice::GenerateMipmaps(NkTextureHandle t, NkFilter) {
     GLTexture* texture = mTextures.Find(t.id);
     if (!texture) return false;
-#if defined(NK_OPENGL_ES)
-    glBindTexture(texture->target, texture->id);
-    glGenerateMipmap(texture->target);
-    glBindTexture(texture->target, 0);
-#else
     glGenerateTextureMipmap(texture->id);
-#endif
     return true;
 }
 
@@ -556,12 +407,7 @@ bool NkOpenGLDevice::GenerateMipmaps(NkTextureHandle t, NkFilter) {
 // =============================================================================
 NkSamplerHandle NkOpenGLDevice::CreateSampler(const NkSamplerDesc& d) {
     threading::NkScopedLock lock(mMutex);
-    GLuint id=0;
-#if defined(NK_OPENGL_ES)
-    glGenSamplers(1,&id);
-#else
-    glCreateSamplers(1,&id);
-#endif
+    GLuint id=0; glCreateSamplers(1,&id);
     glSamplerParameteri(id,GL_TEXTURE_MAG_FILTER,(GLint)ToGLFilter(d.magFilter,NkMipFilter::NK_NONE));
     glSamplerParameteri(id,GL_TEXTURE_MIN_FILTER,(GLint)ToGLFilter(d.minFilter,d.mipFilter));
     glSamplerParameteri(id,GL_TEXTURE_WRAP_S,(GLint)ToGLWrap(d.addressU));
@@ -612,6 +458,8 @@ NkShaderHandle NkOpenGLDevice::CreateShader(const NkShaderDesc& desc) {
     for (uint32 i=0;i<desc.stages.Size();i++) {
         auto& s=desc.stages[i];
         const char* src = s.glslSource;
+        // A shader descriptor may carry multiple language variants (GLSL/HLSL/MSL).
+        // OpenGL backend must only consume GLSL stages and silently skip the others.
         if (!src || !src[0]) { continue; }
         GLenum glStage=ToGLShaderStage(s.stage);
         GLuint sh=CompileGLStage(glStage,src);
@@ -664,27 +512,10 @@ NkPipelineHandle NkOpenGLDevice::CreateGraphicsPipeline(const NkGraphicsPipeline
     p.isCompute   = false;
 
     // Créer le VAO correspondant au vertex layout
-#if defined(NK_OPENGL_ES)
-    glGenVertexArrays(1,&p.vao);
-    glBindVertexArray(p.vao);
-#else
     glCreateVertexArrays(1,&p.vao);
-#endif
-    // NkUnorderedMap<uint32, uint32> bindingStride;
-    // for (const auto& b : d.vertexLayout.bindings) {
-    //     bindingStride[b.binding] = b.stride;
-    // }
-
-    for (uint32 i = 0; i < d.vertexLayout.attributes.Size(); i++) {
+    for (uint32 i=0;i<d.vertexLayout.attributes.Size();i++) {
         auto& a=d.vertexLayout.attributes[i];
-        auto& b = d.vertexLayout.bindings[a.binding];
-        // uint32 stride = bindingStride[a.binding]; // Stride du binding associé
-        uint32 stride = b.stride; // Stride du binding associé
-#if defined(NK_OPENGL_ES)
-        glEnableVertexAttribArray(a.location);
-#else
         glEnableVertexArrayAttrib(p.vao,a.location);
-#endif
         GLint  compCount  = 3;
         GLenum compType   = GL_FLOAT;
         GLboolean norm    = GL_FALSE;
@@ -711,40 +542,20 @@ NkPipelineHandle NkOpenGLDevice::CreateGraphicsPipeline(const NkGraphicsPipeline
                 break;
         }
         if (isInteger) {
-#if defined(NK_OPENGL_ES)
-            glVertexAttribIPointer(a.location, compCount, compType, (GLsizei)stride, (const void*)(uintptr_t)a.offset);
-#else
             glVertexArrayAttribIFormat(p.vao, a.location, compCount, compType, (GLuint)a.offset);
-#endif
         } else {
-#if defined(NK_OPENGL_ES)
-            glVertexAttribPointer(a.location, compCount, compType, norm, (GLsizei)stride, (const void*)(uintptr_t)a.offset);
-#else
             glVertexArrayAttribFormat(p.vao, a.location, compCount, compType, norm, (GLuint)a.offset);
-#endif
         }
-#if !defined(NK_OPENGL_ES)
         glVertexArrayAttribBinding(p.vao,a.location,a.binding);
-#endif
     }
     for (uint32 i=0;i<d.vertexLayout.bindings.Size();i++) {
         auto& b=d.vertexLayout.bindings[i];
-#if defined(NK_OPENGL_ES)
-        // Sur ES, on configure le binding lors du BindVertexBuffer
-#else
         if (b.perInstance)
             glVertexArrayBindingDivisor(p.vao,b.binding,1);
-#endif
     }
-#if defined(NK_OPENGL_ES)
-    glBindVertexArray(0);
-#endif
 
-    uint64 hid=NextId(); 
-    mPipelines[hid]=p;
-    NkPipelineHandle h; 
-    h.id=hid; 
-    return h;
+    uint64 hid=NextId(); mPipelines[hid]=p;
+    NkPipelineHandle h; h.id=hid; return h;
 }
 
 NkPipelineHandle NkOpenGLDevice::CreateComputePipeline(const NkComputePipelineDesc& d) {
@@ -785,22 +596,12 @@ void NkOpenGLDevice::DestroyRenderPass(NkRenderPassHandle& h) {
 NkFramebufferHandle NkOpenGLDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
     threading::NkScopedLock lock(mMutex);
     GLuint fbo=0;
-#if defined(NK_OPENGL_ES)
-    glGenFramebuffers(1,&fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-#else
     glCreateFramebuffers(1,&fbo);
-#endif
 
     for (uint32 i=0;i<d.colorAttachments.Size();i++) {
         GLTexture* texture = mTextures.Find(d.colorAttachments[i].id);
-        if (texture) {
-#if defined(NK_OPENGL_ES)
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0+i, texture->target, texture->id, 0);
-#else
+        if (texture)
             glNamedFramebufferTexture(fbo,GL_COLOR_ATTACHMENT0+i,texture->id,0);
-#endif
-        }
     }
     if (d.depthAttachment.IsValid()) {
         GLTexture* texture = mTextures.Find(d.depthAttachment.id);
@@ -808,20 +609,11 @@ NkFramebufferHandle NkOpenGLDevice::CreateFramebuffer(const NkFramebufferDesc& d
             const NkTextureDesc& desc = texture->desc;
             GLenum att = NkFormatHasStencil(desc.format)
                 ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
-#if defined(NK_OPENGL_ES)
-            glFramebufferTexture2D(GL_FRAMEBUFFER, att, texture->target, texture->id, 0);
-#else
             glNamedFramebufferTexture(fbo,att,texture->id,0);
-#endif
         }
     }
 
-#if defined(NK_OPENGL_ES)
-    GLenum status=glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#else
     GLenum status=glCheckNamedFramebufferStatus(fbo,GL_FRAMEBUFFER);
-#endif
     if (status!=GL_FRAMEBUFFER_COMPLETE)
         NK_GL_ERR("Framebuffer incomplete: 0x%X\n",(unsigned)status);
 
@@ -901,18 +693,8 @@ void NkOpenGLDevice::ApplyDescriptors(const GLDescSet& ds) {
                 break;
             case NkDescriptorType::NK_SAMPLED_TEXTURE:
             case NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER:
-                if (b.textureId) {
-            #if defined(NK_OPENGL_ES)
-                    glActiveTexture(GL_TEXTURE0 + lb.binding);
-                    // Note : on suppose que la texture est 2D. Une amélioration future stockerait la cible.
-                    glBindTexture(GL_TEXTURE_2D, b.textureId);
-            #else
-                    glBindTextureUnit(lb.binding, b.textureId);
-            #endif
-                }
-                if (b.samplerId) {
-                    glBindSampler(lb.binding, b.samplerId);
-                }
+                if (b.textureId) { glBindTextureUnit(lb.binding,b.textureId); }
+                if (b.samplerId) { glBindSampler(lb.binding,b.samplerId); }
                 break;
             case NkDescriptorType::NK_STORAGE_TEXTURE:
                 if (b.textureId) glBindImageTexture(lb.binding,b.textureId,0,GL_FALSE,0,GL_READ_WRITE,GL_RGBA32F);

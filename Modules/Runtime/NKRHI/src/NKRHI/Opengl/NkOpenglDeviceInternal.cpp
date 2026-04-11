@@ -85,11 +85,18 @@ void NkOpenglApplyRenderState(NkOpenGLDevice* dev, uint64 pipelineId) {
     auto& bl = d.blend;
 
     // ── Rasterizer ────────────────────────────────────────────────────────────
+#if defined(NK_OPENGL_ES)
+    // OpenGL ES ne supporte pas glPolygonMode. Le mode fill est le seul disponible.
+    // On ignore simplement les autres modes.
+    (void)rs.fillMode;
+#else
     switch (rs.fillMode) {
         case NkFillMode::NK_SOLID:      glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);  break;
         case NkFillMode::NK_WIREFRAME:  glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);  break;
         case NkFillMode::NK_POINT:      glPolygonMode(GL_FRONT_AND_BACK,GL_POINT); break;
     }
+#endif
+
     if (rs.cullMode == NkCullMode::NK_NONE) {
         glDisable(GL_CULL_FACE);
     } else {
@@ -98,8 +105,12 @@ void NkOpenglApplyRenderState(NkOpenGLDevice* dev, uint64 pipelineId) {
     }
     glFrontFace(rs.frontFace==NkFrontFace::NK_CCW ? GL_CCW : GL_CW);
 
+#if defined(NK_OPENGL_ES)
+    // GL_DEPTH_CLAMP n'existe pas en OpenGL ES. On ignore.
+#else
     if (rs.depthClip) glDisable(GL_DEPTH_CLAMP);
     else              glEnable(GL_DEPTH_CLAMP);
+#endif
 
     if (rs.scissorTest) glEnable(GL_SCISSOR_TEST);
     else                glDisable(GL_SCISSOR_TEST);
@@ -194,6 +205,25 @@ void NkOpenglApplyRenderState(NkOpenGLDevice* dev, uint64 pipelineId) {
     if (bl.alphaToCoverage) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
     else                    glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 
+#if defined(NK_OPENGL_ES)
+    // OpenGL ES ne supporte pas glEnablei / glBlendFuncSeparatei.
+    // On applique les réglages du premier attachment pour tous.
+    if (bl.attachments.Size() > 0) {
+        auto& a = bl.attachments[0];
+        if (a.blendEnable) {
+            glEnable(GL_BLEND);
+            glBlendFuncSeparate(toGLBF(a.srcColor), toGLBF(a.dstColor),
+                                toGLBF(a.srcAlpha), toGLBF(a.dstAlpha));
+            glBlendEquationSeparate(toGLBO(a.colorOp), toGLBO(a.alphaOp));
+        } else {
+            glDisable(GL_BLEND);
+        }
+        glColorMask((a.colorWriteMask&1)?GL_TRUE:GL_FALSE,
+                    (a.colorWriteMask&2)?GL_TRUE:GL_FALSE,
+                    (a.colorWriteMask&4)?GL_TRUE:GL_FALSE,
+                    (a.colorWriteMask&8)?GL_TRUE:GL_FALSE);
+    }
+#else
     for (uint32 i=0; i<bl.attachments.Size(); i++) {
         auto& a=bl.attachments[i];
         if (a.blendEnable) {
@@ -210,12 +240,18 @@ void NkOpenglApplyRenderState(NkOpenGLDevice* dev, uint64 pipelineId) {
             (a.colorWriteMask&4)?GL_TRUE:GL_FALSE,
             (a.colorWriteMask&8)?GL_TRUE:GL_FALSE);
     }
+#endif
     glBlendColor(bl.blendConstants[0],bl.blendConstants[1],
                  bl.blendConstants[2],bl.blendConstants[3]);
 
     // ── Patch size (tessellation) ─────────────────────────────────────────────
+#if defined(NK_OPENGL_ES)
+    // OpenGL ES ne supporte pas les tessellation shaders.
+    (void)d;
+#else
     if (d.topology==NkPrimitiveTopology::NK_PATCH_LIST)
         glPatchParameteri(GL_PATCH_VERTICES,(GLint)d.patchControlPoints);
+#endif
 }
 
 // =============================================================================

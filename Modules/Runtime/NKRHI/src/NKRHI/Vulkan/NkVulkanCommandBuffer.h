@@ -5,8 +5,17 @@
 // =============================================================================
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
+#include "NKPlatform/NkPlatformDetect.h"
+
 #ifdef NK_RHI_VK_ENABLED
 #include <vulkan/vulkan.h>
+
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    #ifdef NKENTSEU_PLATFORM_ANDROID
+        #include <vulkan/vulkan_android.h>
+        #include <android/native_window.h>
+    #endif
+#endif
 
 namespace nkentseu {
 

@@ -692,6 +692,5 @@ namespace nkentseu
             ::fprintf(f, "}\n");
             ::fclose(f);
         }
-
     } // namespace nkui
 } // namespace nkentseu

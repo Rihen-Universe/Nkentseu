@@ -152,6 +152,8 @@ namespace nkentseu {
              */
             static const NkEmbeddedFontData* GetAll(nkft_int32* outCount);
 
+            static nkft_uint8* DecompressData(const NkEmbeddedFontData& data, nkft_uint32* outSize = nullptr);
+            static void FreeDecompressedData(nkft_uint8* ptr);
         private:
             static nkft_uint8* Decompress(const NkEmbeddedFontData& data);
             static void        DecompressFree(nkft_uint8* ptr);

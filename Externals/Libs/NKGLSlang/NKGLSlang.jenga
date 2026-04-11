@@ -39,6 +39,7 @@ with project("NKGLSlang"):
     # ENABLE_OPT=0 : désactive spirv-tools optimizer (évite la dépendance)
     defines([
         "ENABLE_OPT=0",
+        "ENABLE_HLSL",
         "GLSLANG_OSINCLUDE_WIN32",        # ignoré sur non-Windows, sans effet
     ])
 
@@ -104,19 +105,60 @@ with project("NKGLSlang"):
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
 
+    # ==================== Windows ====================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain("nk-windows-clang-mingw")
+        files(["glslang/OSDependent/Windows/ossource.cpp"])
+
     with filter("system:Windows && options:windows-runtime=uwp"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
-
-    with filter("system:Windows"):
         files(["glslang/OSDependent/Windows/ossource.cpp"])
 
-    with filter("system:Linux || system:macOS || system:Android || system:iOS"):
+    # ==================== Linux ====================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
         files(["glslang/OSDependent/Unix/ossource.cpp"])
 
+    with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+        files(["glslang/OSDependent/Unix/ossource.cpp"])
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+        files(["glslang/OSDependent/Unix/ossource.cpp"])
+
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        files(["glslang/OSDependent/Unix/ossource.cpp"])
+
+    # ==================== macOS / iOS ====================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        files(["glslang/OSDependent/Unix/ossource.cpp"])
+
+    with filter("system:iOS"):
+        files(["glslang/OSDependent/Unix/ossource.cpp"])
+
+    # ==================== Android ====================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        files(["glslang/OSDependent/Unix/ossource.cpp"])
+        buildoptions(["-fPIC"])
+
+    # ==================== Web ====================
     with filter("system:Web"):
+        usetoolchain("emscripten")
         files(["glslang/OSDependent/Web/glslang.js.cpp"])
 
+    # ==================== Xbox ====================
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+        files(["glslang/OSDependent/Windows/ossource.cpp"])
+
+    # ==================== Debug/Release ====================
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])
         optimize("Off")

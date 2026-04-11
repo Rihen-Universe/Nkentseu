@@ -181,12 +181,16 @@ static void LoadFonts(NkUIFontManager& mgr) {
             kCandidates[i].name);
 
         if (idx >= 0) {
-            logger.Infof("[nkmain] Police chargée: %s (%.0fpx, idx=%d)\n",
-                         kCandidates[i].path, kCandidates[i].size, idx);
+            logger.Infof("[nkmain] Police chargée: %s (%.0fpx, idx=%d)\n", kCandidates[i].path, kCandidates[i].size, idx);
             ++loaded;
             // On s'arrête après avoir chargé au moins une police de taille 16
             // et une de taille 13 (ou deux polices minimum).
         }
+    }
+
+    if (loaded == 0) {
+        int32 fontIdx = mgr.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 18.0f, "ProggyCleanEmbedded");
+        ++loaded;
     }
 
     if (loaded == 0) {
