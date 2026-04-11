@@ -20508,6 +20508,16 @@ namespace nkentseu {
         return true;
     }
 
+    nkft_uint8* NkFontEmbedded::DecompressData(const NkEmbeddedFontData& data, nkft_uint32* outSize) {
+        nkft_uint8* out = Decompress(data);
+        if (out && outSize) *outSize = data.originalSize;
+        return out;
+    }
+
+    void NkFontEmbedded::FreeDecompressedData(nkft_uint8* ptr) {
+        DecompressFree(ptr);
+    }
+
 } // namespace nkentseu
 
 // ============================================================

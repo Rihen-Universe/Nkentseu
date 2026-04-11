@@ -489,281 +489,465 @@ namespace nkentseu {
             return hovered;
         }
 
+        // =============================================================================
+        // SECTION B : Implémentation des méthodes — ajouter dans NkUIContext.cpp
+        // =============================================================================
+        bool NkUIDockManager::AddTabDecoration(NkTabDecoFn fn, void* userData,
+                                        float32 width, NkUIID id) noexcept {
+            if (!fn || numTabDecos >= MAX_TAB_DECOS) return false;
+            NkTabDecoration& d = tabDecos[numTabDecos++];
+            d.fn       = fn;
+            d.userData = userData;
+            d.width    = width;
+            d.enabled  = true;
+            // d.id       = id ? id : NkHashPtr(fn, static_cast<NkUIID>(numTabDecos));
+            d.id = id ? id : NkHashPtr(reinterpret_cast<const void*>(fn), static_cast<NkUIID>(numTabDecos));
+            return true;
+        }
+        
+        void NkUIDockManager::RemoveTabDecoration(NkUIID id) noexcept {
+            for (int32 i = 0; i < numTabDecos; ++i) {
+                if (tabDecos[i].id == id) {
+                    for (int32 j = i; j < numTabDecos - 1; ++j)
+                        tabDecos[j] = tabDecos[j + 1];
+                    --numTabDecos;
+                    return;
+                }
+            }
+        }
+        
+        void NkUIDockManager::EnableTabDecoration(NkUIID id, bool enabled) noexcept {
+            for (int32 i = 0; i < numTabDecos; ++i)
+                if (tabDecos[i].id == id) { tabDecos[i].enabled = enabled; return; }
+        }
+        
+        void NkUIDockManager::SetDockOverflowButton(bool show) noexcept {
+            dockOverflowButton = show;
+        }
+
         // ─────────────────────────────────────────────────────────────────────────────
         //  RenderNode — cœur du rendu dock
         // ─────────────────────────────────────────────────────────────────────────────
 
-        void NkUIDockManager::RenderNode(NkUIContext& ctx,
-                                        NkUIDrawList& /*dl_unused*/,
-                                        NkUIFont& font,
+        void NkUIDockManager::RenderNode(NkUIContext&       ctx,
+                                        NkUIDrawList&      /*dl_unused*/,
+                                        NkUIFont&          font,
                                         NkUIWindowManager& wm,
-                                        int32 idx,
-                                        NkUILayoutStack& ls) noexcept
+                                        int32              idx,
+                                        NkUILayoutStack&   ls) noexcept
         {
             if (idx < 0 || idx >= numNodes) return;
             NkUIDockNode& node = nodes[idx];
         
-            // ── Nœuds split : déléguer aux enfants ────────────────────────────────────
+            // ── Nœuds split ───────────────────────────────────────────────────────────
             if (node.type == NkUIDockNodeType::NK_SPLIT_H ||
                 node.type == NkUIDockNodeType::NK_SPLIT_V)
             {
-                const bool vertical = (node.type == NkUIDockNodeType::NK_SPLIT_H);
-                const NkUIID splitId = NkHashInt(idx, 0xDC);
+                NkUIDrawList& bgDl  = ctx.layers[NkUIContext::LAYER_BG];
+                const bool    vert  = (node.type == NkUIDockNodeType::NK_SPLIT_H);
+                const NkUIID  spId  = NkHashInt(idx, 0xDC);
         
-                // Dessine le splitter (interaction + dessin) dans LAYER_BG
-                NkUIDrawList& bgDl = ctx.layers[NkUIContext::LAYER_BG];
-                NkUILayout::DrawSplitter(ctx, bgDl, node.rect, vertical,
-                                        node.splitRatio, splitId);
-                if (node.splitRatio < 0.05f) node.splitRatio = 0.05f;
-                if (node.splitRatio > 0.95f) node.splitRatio = 0.95f;
+                NkUILayout::DrawSplitter(ctx, bgDl, node.rect, vert, node.splitRatio, spId);
+                node.splitRatio = (node.splitRatio < 0.05f) ? 0.05f
+                                : (node.splitRatio > 0.95f) ? 0.95f
+                                : node.splitRatio;
                 RecalcRects(idx);
         
-                // Ligne séparatrice
-                const NkColor splitLineCol = ctx.theme.colors.separator.WithAlpha(200);
-                if (node.children[0] >= 0 && node.children[0] < numNodes) {
+                const NkColor lc = ctx.theme.colors.separator.WithAlpha(200);
+                if (node.children[0] >= 0) {
                     const NkRect& a = nodes[node.children[0]].rect;
-                    if (vertical) {
-                        const float32 x = a.x + a.w;
-                        bgDl.AddLine({x, node.rect.y}, {x, node.rect.y + node.rect.h},
-                                    splitLineCol, 1.f);
-                    } else {
-                        const float32 y = a.y + a.h;
-                        bgDl.AddLine({node.rect.x, y}, {node.rect.x + node.rect.w, y},
-                                    splitLineCol, 1.f);
-                    }
+                    if (vert)
+                        bgDl.AddLine({a.x+a.w, node.rect.y},
+                                    {a.x+a.w, node.rect.y+node.rect.h}, lc, 1.f);
+                    else
+                        bgDl.AddLine({node.rect.x, a.y+a.h},
+                                    {node.rect.x+node.rect.w, a.y+a.h}, lc, 1.f);
                 }
-        
                 RenderNode(ctx, bgDl, font, wm, node.children[0], ls);
                 RenderNode(ctx, bgDl, font, wm, node.children[1], ls);
                 return;
             }
         
-            if (node.type != NkUIDockNodeType::NK_LEAF &&
-                node.type != NkUIDockNodeType::NK_ROOT) return;
-            if (node.numWindows <= 0) return;
+            if ((node.type != NkUIDockNodeType::NK_LEAF &&
+                node.type != NkUIDockNodeType::NK_ROOT) ||
+                node.numWindows <= 0) return;
         
-            // ── Tout le dock est dessiné dans LAYER_BG ────────────────────────────────
-            // Les fenêtres flottantes (LAYER_WINDOWS) sont toujours par-dessus.
-            NkUIDrawList& dl = ctx.layers[NkUIContext::LAYER_BG];
-        
-            const NkRect& r   = node.rect;
+            // Dock dans LAYER_BG — flottantes (LAYER_WINDOWS) toujours au-dessus
+            NkUIDrawList& dl   = ctx.layers[NkUIContext::LAYER_BG];
+            const NkRect& r    = node.rect;
             const float32 tabH = ctx.theme.metrics.dockTabHeight;
             const auto&   col  = ctx.theme.colors;
             const auto&   met  = ctx.theme.metrics;
-            const NkColor sepCol = col.separator.WithAlpha(200);
+            const NkColor sep  = col.separator.WithAlpha(200);
+            const NkVec2  mp   = ctx.input.mousePos;
         
-            // ── Fond global du nœud ───────────────────────────────────────────────────
             dl.AddRectFilled({r.x, r.y + tabH, r.w, r.h - tabH}, col.bgWindow);
         
             // =========================================================================
-            // BARRE D'ONGLETS — style navigateur
-            //
-            // Disposition :
-            //   [Tab0][Tab1][Tab2]___espace_drag___
-            //
-            // Chaque onglet :
-            //   - largeur = MeasureWidth(name) + paddingX*2 + closeBtn(14px)
-            //   - onglet actif : fond tabActive, pas de bordure basse
-            //   - onglet inactif : fond tabBg, bordure basse séparatrice
-            //   - max largeur d'onglet : 200px (ellipsis si plus long)
+            // CALCUL DE L'ESPACE DÉCORATIONS (lu depuis ctx)
             // =========================================================================
         
-            // Fond de toute la barre d'onglets
-            dl.AddRectFilled({r.x, r.y, r.w, tabH}, col.bgHeader);
+            const float32 kOverflowW = dockOverflowButton ? 22.f : 0.f;
         
-            // Calcul des largeurs d'onglets
-            constexpr float32 kTabPadX   = 10.f;  // padding horizontal de chaque côté
-            constexpr float32 kCloseBtnW = 18.f;  // espace bouton fermeture
-            constexpr float32 kTabMaxW   = 200.f; // largeur max d'un onglet
-            constexpr float32 kTabMinW   = 60.f;  // largeur min d'un onglet
+            float32 decoTotalW = kOverflowW;
+            for (int32 i = 0; i < numTabDecos; ++i)
+                if (tabDecos[i].enabled && tabDecos[i].fn)
+                    decoTotalW += tabDecos[i].width;
         
-            float32 tabWidths[NkUIDockNode::MAX_WINDOWS] = {};
-            float32 totalTabsW = 0.f;
+            const float32 tabsAvailW = r.w - decoTotalW;
+        
+            // =========================================================================
+            // CALCUL DES LARGEURS D'ONGLETS (adaptatif + troncature proportionnelle)
+            // =========================================================================
+        
+            constexpr float32 kPadX    = 10.f;
+            constexpr float32 kCloseW  = 18.f;
+            constexpr float32 kMinTabW = 40.f;
+        
+            float32 natW[NkUIDockNode::MAX_WINDOWS] = {};
+            float32 finW[NkUIDockNode::MAX_WINDOWS] = {};
+            float32 totalNat = 0.f;
         
             for (int32 t = 0; t < node.numWindows; ++t) {
                 const NkUIWindowState* ws = wm.Find(node.windows[t]);
-                const float32 textW = ws ? font.MeasureWidth(ws->name) : 40.f;
-                float32 w = textW + kTabPadX * 2.f + kCloseBtnW;
-                if (w > kTabMaxW) w = kTabMaxW;
-                if (w < kTabMinW) w = kTabMinW;
-                tabWidths[t] = w;
-                totalTabsW  += w;
+                const float32 tw = (ws ? font.MeasureWidth(ws->name) : 40.f)
+                                + kPadX * 2.f + kCloseW;
+                natW[t]   = tw;
+                totalNat += tw;
             }
         
-            // ── Traitement du clic d'onglet (AVANT rendu du contenu) ─────────────────
-            // On parcourt les onglets une première fois pour détecter les clics
-            // et mettre à jour activeTab immédiatement.
-            {
-                float32 tabX = r.x;
-                for (int32 t = 0; t < node.numWindows; ++t) {
-                    const float32 tw  = tabWidths[t];
-                    const NkRect  tabR = {tabX, r.y, tw, tabH};
-                    const NkRect  closeR = {tabX + tw - kCloseBtnW, r.y + (tabH - 14.f) * 0.5f, 14.f, 14.f};
-                    const NkVec2  mp = ctx.input.mousePos;
+            const float32 avail = (tabsAvailW > 1.f) ? tabsAvailW : 1.f;
+            if (totalNat <= avail) {
+                for (int32 t = 0; t < node.numWindows; ++t) finW[t] = natW[t];
+            } else {
+                const float32 ratio = avail / totalNat;
+                for (int32 t = 0; t < node.numWindows; ++t)
+                    finW[t] = (natW[t] * ratio < kMinTabW) ? kMinTabW : natW[t] * ratio;
+            }
         
-                    // Clic sur le bouton X (fermeture/undock)
-                    if (NkRectContains(closeR, mp) && ctx.ConsumeMouseClick(0)) {
+            float32 totalFin = 0.f;
+            for (int32 t = 0; t < node.numWindows; ++t) totalFin += finW[t];
+        
+            // =========================================================================
+            // DÉTECTION DROP SUR BARRE D'ONGLETS
+            // (quand isDragging et curseur sur la tabBar de ce nœud)
+            // Avant/après selon la moitié de l'onglet survolé.
+            // =========================================================================
+        
+            const NkRect tabBarR = {r.x, r.y, avail, tabH};
+            bool  tabDropActive  = false;
+            int32 insertBefore   = node.numWindows; // défaut : à la fin
+        
+            if (isDragging && dragWindowId != NKUI_ID_NONE &&
+                NkRectContains(tabBarR, mp))
+            {
+                tabDropActive = true;
+                float32 tx = r.x;
+                for (int32 t = 0; t < node.numWindows; ++t) {
+                    const float32 mid = tx + finW[t] * 0.5f;
+                    if (mp.x < mid) { insertBefore = t; break; }
+                    // Si on dépasse la moitié → insertion après cet onglet
+                    if (mp.x >= mid && mp.x < tx + finW[t]) {
+                        insertBefore = t + 1;
+                        break;
+                    }
+                    tx += finW[t];
+                }
+            }
+        
+            // =========================================================================
+            // TRAITEMENT DES CLICS (avant rendu du contenu)
+            // =========================================================================
+        
+            if (!tabDropActive) {
+                float32 tx = r.x;
+                for (int32 t = 0; t < node.numWindows; ++t) {
+                    const float32 tw    = finW[t];
+                    const NkRect  tabR  = {tx, r.y, tw, tabH};
+                    const NkRect  clR   = {tx + tw - kCloseW,
+                                        r.y + (tabH - 14.f) * 0.5f, 14.f, 14.f};
+        
+                    // Bouton X
+                    if (NkRectContains(clR, mp) && ctx.ConsumeMouseClick(0)) {
                         NkUIWindowState* ws = wm.Find(node.windows[t]);
                         UndockWindow(wm, node.windows[t]);
                         if (ws) ws->isOpen = false;
-                        tabX += tw;
-                        // node.numWindows a diminué, on sort
                         break;
                     }
-        
-                    // Clic sur l'onglet (hors X) → sélection
-                    if (NkRectContains(tabR, mp) &&
-                        !NkRectContains(closeR, mp) &&
+                    // Sélection d'onglet
+                    if (NkRectContains(tabR, mp) && !NkRectContains(clR, mp) &&
                         ctx.ConsumeMouseClick(0))
                     {
-                        node.activeTab  = t;
-                        wm.activeId     = node.windows[t];
-                        isDraggingTab   = true;
-                        dragWindowId    = node.windows[t];
+                        node.activeTab = t;
+                        wm.activeId    = node.windows[t];
+                        isDraggingTab  = true;
+                        dragWindowId   = node.windows[t];
                     }
-        
-                    tabX += tw;
+                    tx += tw;
                 }
             }
         
-            // Clamp activeTab au cas où une fenêtre a été undockée
-            if (node.activeTab >= node.numWindows && node.numWindows > 0)
+            if (node.numWindows > 0 && node.activeTab >= node.numWindows)
                 node.activeTab = node.numWindows - 1;
         
-            // ── Rendu des onglets ─────────────────────────────────────────────────────
+            // =========================================================================
+            // RENDU DES ONGLETS
+            // =========================================================================
+        
+            dl.AddRectFilled(tabBarR, col.bgHeader);
+        
             {
-                float32 tabX = r.x;
+                float32 tx = r.x;
                 for (int32 t = 0; t < node.numWindows; ++t) {
-                    const float32 tw     = tabWidths[t];
-                    const NkRect  tabR   = {tabX, r.y, tw, tabH};
-                    const bool    active = (t == node.activeTab);
-                    const bool    hov    = NkRectContains(tabR, ctx.input.mousePos);
-                    const NkRect  closeR = {tabX + tw - kCloseBtnW, r.y + (tabH - 14.f) * 0.5f, 14.f, 14.f};
-                    const bool    closeHov = NkRectContains(closeR, ctx.input.mousePos);
+                    const float32 tw    = finW[t];
+                    const NkRect  tabR  = {tx, r.y, tw, tabH};
+                    const bool    act   = (t == node.activeTab);
+                    const bool    hov   = !tabDropActive && NkRectContains(tabR, mp);
+                    const NkRect  clR   = {tx + tw - kCloseW,
+                                        r.y + (tabH - 14.f) * 0.5f, 14.f, 14.f};
+                    const bool    clHov = hov && NkRectContains(clR, mp);
+                    const NkUIWindowState* ws = wm.Find(node.windows[t]);
         
-                    NkUIWindowState* ws = wm.Find(node.windows[t]);
-        
-                    // Fond de l'onglet
-                    NkColor tabBg;
-                    if (active)       tabBg = col.tabActive;
-                    else if (hov)     tabBg = col.buttonHover;
-                    else              tabBg = col.tabBg;
-        
-                    if (active) {
-                        // Onglet actif : fond + pas de bordure basse (fusionné avec le contenu)
-                        dl.AddRectFilledCorners(tabR, tabBg, met.cornerRadiusSm, 0x3); // TL+TR arrondis
+                    // Fond
+                    const NkColor bg = act  ? col.tabActive
+                                    : hov  ? col.buttonHover
+                                            : col.tabBg;
+                    if (act) {
+                        dl.AddRectFilledCorners(tabR, bg, met.cornerRadiusSm, 0x3);
                     } else {
-                        dl.AddRectFilled(tabR, tabBg);
-                        // Ligne de bas sur les onglets inactifs
-                        dl.AddLine({tabR.x, r.y + tabH - 1.f},
-                                    {tabR.x + tabR.w, r.y + tabH - 1.f},
-                                    sepCol, 1.f);
+                        dl.AddRectFilled(tabR, bg);
+                        dl.AddLine({tx, r.y + tabH - 1.f},
+                                    {tx + tw, r.y + tabH - 1.f}, sep, 1.f);
                     }
         
-                    // Séparateur vertical entre onglets
-                    if (t > 0) {
-                        dl.AddLine({tabR.x, r.y + 4.f},
-                                    {tabR.x, r.y + tabH - 4.f},
-                                    sepCol, 1.f);
-                    }
+                    // Séparateur vertical
+                    if (t > 0)
+                        dl.AddLine({tx, r.y + 4.f}, {tx, r.y + tabH - 4.f}, sep, 1.f);
         
-                    // Texte de l'onglet (avec ellipsis si trop large)
+                    // Texte
                     if (ws) {
-                        const float32 textMaxW = tw - kTabPadX * 2.f - kCloseBtnW;
-                        const float32 asc  = (font.metrics.ascender > 0.f) ? font.metrics.ascender : font.size * 0.8f;
-                        const float32 descR = (font.metrics.descender >= 0.f) ? font.metrics.descender : -font.metrics.descender;
-                        const float32 lineH = (font.metrics.lineHeight > 0.f) ? font.metrics.lineHeight : (asc + (descR > 0.f ? descR : font.size * 0.2f));
-                        const float32 textY = tabR.y + (tabH - lineH) * 0.5f + asc;
+                        const float32 maxTW = tw - kPadX * 2.f - kCloseW;
+                        const float32 asc   = font.metrics.ascender > 0.f
+                                            ? font.metrics.ascender : font.size * 0.8f;
+                        const float32 dsc   = font.metrics.descender >= 0.f
+                                            ? font.metrics.descender
+                                            : -font.metrics.descender;
+                        const float32 lh    = font.metrics.lineHeight > 0.f
+                                            ? font.metrics.lineHeight
+                                            : asc + (dsc > 0.f ? dsc : font.size * 0.2f);
+                        font.RenderText(dl, {tx + kPadX, r.y + (tabH - lh) * 0.5f + asc},
+                                        ws->name,
+                                        act ? col.tabActiveText : col.tabText,
+                                        maxTW, /*ellipsis=*/true);
+                    }
         
-                        font.RenderText(dl,
-                            {tabR.x + kTabPadX, textY},
-                            ws->name,
-                            active ? col.tabActiveText : col.tabText,
-                            textMaxW, true);
+                    // Bouton X
+                    if (hov || act) {
+                        const NkVec2  cx  = {clR.x + clR.w * 0.5f, clR.y + clR.h * 0.5f};
+                        const float32 d   = 3.5f;
+                        const NkColor xc  = clHov ? NkColor{220,60,60,255} : col.tabText;
+                        if (clHov) dl.AddCircleFilled(cx, 7.f, {200,50,50,180});
+                        dl.AddLine({cx.x-d,cx.y-d},{cx.x+d,cx.y+d}, xc, 1.5f);
+                        dl.AddLine({cx.x+d,cx.y-d},{cx.x-d,cx.y+d}, xc, 1.5f);
+                    }
         
-                        // Bouton X (visible si hover ou actif)
-                        if (hov || active) {
-                            const NkVec2 cx = {closeR.x + closeR.w * 0.5f,
-                                            closeR.y + closeR.h * 0.5f};
-                            const float32 d = 4.f;
-                            const NkColor xCol = closeHov ? NkColor{220, 60, 60, 255}
-                                                        : col.tabText;
-                            if (closeHov) {
-                                dl.AddCircleFilled(cx, 7.f, {200, 50, 50, 180});
-                            }
-                            dl.AddLine({cx.x - d, cx.y - d}, {cx.x + d, cx.y + d}, xCol, 1.5f);
-                            dl.AddLine({cx.x + d, cx.y - d}, {cx.x - d, cx.y + d}, xCol, 1.5f);
+                    // ── Indicateur drop (trait bleu avant/après) ──────────────────────
+                    if (tabDropActive) {
+                        // Indicateur avant l'onglet t
+                        if (insertBefore == t) {
+                            const float32 ix = tx - 1.5f;
+                            dl.AddLine({ix, r.y + 2.f}, {ix, r.y + tabH - 2.f},
+                                    {80,180,255,255}, 3.f);
+                            // Petite flèche vers le bas
+                            dl.AddTriangleFilled({ix - 5.f, r.y + 2.f},
+                                                {ix + 5.f, r.y + 2.f},
+                                                {ix, r.y + 9.f},
+                                                {80,180,255,220});
+                        }
+                        // Indicateur après le dernier onglet (insérer en fin)
+                        if (t == node.numWindows - 1 && insertBefore == node.numWindows) {
+                            const float32 ix = tx + tw - 1.5f;
+                            dl.AddLine({ix, r.y + 2.f}, {ix, r.y + tabH - 2.f},
+                                    {80,180,255,255}, 3.f);
+                            dl.AddTriangleFilled({ix - 5.f, r.y + 2.f},
+                                                {ix + 5.f, r.y + 2.f},
+                                                {ix, r.y + 9.f},
+                                                {80,180,255,220});
                         }
                     }
         
-                    tabX += tw;
+                    tx += tw;
                 }
         
-                // Ligne de bas sur l'espace vide à droite des onglets
-                if (totalTabsW < r.w) {
-                    dl.AddLine({r.x + totalTabsW, r.y + tabH - 1.f},
-                                {r.x + r.w,        r.y + tabH - 1.f},
-                                sepCol, 1.f);
-                }
+                // Ligne basse sur l'espace vide
+                if (totalFin < avail)
+                    dl.AddLine({r.x + totalFin, r.y + tabH - 1.f},
+                                {r.x + avail,   r.y + tabH - 1.f}, sep, 1.f);
             }
         
-            // ── Séparateur bas de la barre d'onglets ──────────────────────────────────
-            // (Sauf sous l'onglet actif qui est visuellement fusionné)
-            {
-                float32 tabX = r.x;
-                for (int32 t = 0; t < node.numWindows; ++t) {
-                    const float32 tw = tabWidths[t];
-                    if (t != node.activeTab) {
-                        // Déjà fait dans la boucle précédente
-                    }
-                    tabX += tw;
-                }
-            }
-        
-            // ── Zone de drag dans l'espace vide à droite des onglets ─────────────────
-            // Permet de déplacer la fenêtre dockée active en tirant l'espace vide.
-            const NkRect dragEmptyR = {r.x + totalTabsW, r.y, r.w - totalTabsW, tabH};
-            if (dragEmptyR.w > 8.f &&
-                NkRectContains(dragEmptyR, ctx.input.mousePos) &&
-                ctx.input.IsMouseDown(0) &&
-                wm.movingId == NKUI_ID_NONE &&
-                wm.resizingId == NKUI_ID_NONE)
-            {
-                const float32 dx = ctx.input.mouseDelta.x;
-                const float32 dy = ctx.input.mouseDelta.y;
-                if (dx * dx + dy * dy > 25.f && node.activeTab < node.numWindows) {
-                    NkUIWindowState* ws = wm.Find(node.windows[node.activeTab]);
-                    if (ws) {
-                        UndockWindow(wm, ws->id);
-                        ws->isOpen = true;
-                        ws->pos    = {ctx.input.mousePos.x - ws->size.x * 0.5f,
-                                    ctx.input.mousePos.y - 10.f};
-                        wm.activeId   = ws->id;
-                        wm.movingId   = ws->id;
-                        wm.moveOffset = {ws->size.x * 0.5f, 10.f};
-                        wm.BringToFront(ws->id);
+            // ── DROP EFFECTIF SUR BARRE D'ONGLETS ─────────────────────────────────────
+            if (tabDropActive && !ctx.input.mouseDown[0]) {
+                const int32 prevN = node.numWindows;
+                if (DockWindow(wm, dragWindowId, idx, NkUIDockDrop::NK_CENTER)) {
+                    // Réordonne : amène la nouvelle fenêtre (dernier slot) à insertBefore
+                    if (node.numWindows > prevN && insertBefore < prevN) {
+                        const NkUIID nw = node.windows[node.numWindows - 1];
+                        for (int32 i = node.numWindows - 1; i > insertBefore; --i)
+                            node.windows[i] = node.windows[i - 1];
+                        node.windows[insertBefore] = nw;
+                        node.activeTab = insertBefore;
                     }
                 }
+                wm.movingId    = NKUI_ID_NONE;
+                isDragging     = false;
+                dragWindowId   = NKUI_ID_NONE;
+                dragTargetNode = -1;
             }
         
-            // ── Détachement par drag d'onglet ─────────────────────────────────────────
-            if (isDraggingTab && dragWindowId != NKUI_ID_NONE) {
-                if (ctx.input.IsMouseDown(0) &&
-                    wm.movingId   == NKUI_ID_NONE &&
-                    wm.resizingId == NKUI_ID_NONE)
+            // =========================================================================
+            // DÉCORATIONS À DROITE (lues depuis ctx, rendues de droite à gauche)
+            // Ordre : [decos user N-1..0] [overflow ▶]
+            // =========================================================================
+            {
+                float32 decoX = r.x + r.w;
+        
+                // ── Décorations utilisateur (de droite à gauche) ──────────────────────
+                for (int32 i = numTabDecos - 1; i >= 0; --i) {
+                    NkTabDecoration& deco = tabDecos[i];
+                    if (!deco.enabled || !deco.fn) continue;
+                    decoX -= deco.width;
+                    const NkRect decoR = {decoX, r.y, deco.width, tabH};
+                    dl.AddLine({decoX, r.y + 2.f}, {decoX, r.y + tabH - 2.f}, sep, 1.f);
+                    deco.fn(ctx, dl, font, idx, decoR, deco.userData);
+                }
+        
+                // ── Bouton overflow ▶ ─────────────────────────────────────────────────
+                if (dockOverflowButton) {
+                    decoX -= kOverflowW;
+                    const NkRect ovR  = {decoX, r.y, kOverflowW, tabH};
+                    const bool   hov  = NkRectContains(ovR, mp);
+        
+                    // ID unique par nœud pour l'état ouvert/fermé
+                    static NkUIID sOpenNode = NKUI_ID_NONE;
+                    const NkUIID  nodeUid   = NkHashInt(idx, 0x9E3779B9u);
+                    const bool    open      = (sOpenNode == nodeUid);
+        
+                    dl.AddLine({decoX, r.y + 2.f}, {decoX, r.y + tabH - 2.f}, sep, 1.f);
+                    dl.AddRectFilled(ovR, (hov || open) ? col.buttonHover : col.bgHeader);
+                    // Flèche bas (indique "voir plus d'onglets")
+                    dl.AddArrow({ovR.x + ovR.w * 0.5f, ovR.y + ovR.h * 0.5f},
+                                6.f, 1, col.textSecondary);
+        
+                    if (hov && ctx.ConsumeMouseClick(0))
+                        sOpenNode = open ? NKUI_ID_NONE : nodeUid;
+        
+                    // Menu déroulant
+                    if (open) {
+                        NkUIDrawList& popDl = ctx.layers[NkUIContext::LAYER_POPUPS];
+                        const float32 iH   = ctx.theme.metrics.itemHeight;
+                        const float32 mH   = iH * node.numWindows + 8.f;
+                        const float32 mW   = 200.f;
+                        float32 mX = decoX + kOverflowW - mW;
+                        if (mX < r.x) mX = r.x;
+                        const NkRect menuR = {mX, r.y + tabH, mW, mH};
+        
+                        popDl.AddRectFilled(menuR, col.bgPopup, met.cornerRadius);
+                        popDl.AddRect(menuR, col.border, 1.f, met.cornerRadius);
+                        popDl.PushClipRect(menuR);
+        
+                        for (int32 t = 0; t < node.numWindows; ++t) {
+                            const NkUIWindowState* ws = wm.Find(node.windows[t]);
+                            if (!ws) continue;
+                            const NkRect iR = {menuR.x + 4.f,
+                                            menuR.y + 4.f + t * iH,
+                                            menuR.w - 8.f, iH};
+                            const bool iHov = NkRectContains(iR, mp);
+                            const bool iSel = (t == node.activeTab);
+        
+                            if (iSel || iHov)
+                                popDl.AddRectFilled(iR,
+                                    iSel ? col.accent : col.buttonHover,
+                                    met.cornerRadiusSm);
+        
+                            const float32 asc  = font.metrics.ascender > 0.f
+                                                ? font.metrics.ascender : font.size*0.8f;
+                            const float32 dsc  = font.metrics.descender >= 0.f
+                                                ? font.metrics.descender
+                                                : -font.metrics.descender;
+                            const float32 lh   = font.metrics.lineHeight > 0.f
+                                                ? font.metrics.lineHeight
+                                                : asc + (dsc > 0.f ? dsc : font.size*0.2f);
+                            font.RenderText(popDl,
+                                {iR.x + 8.f, iR.y + (iH - lh) * 0.5f + asc},
+                                ws->name,
+                                (iSel || iHov) ? col.textOnAccent : col.textPrimary,
+                                iR.w - 12.f, /*ellipsis=*/true);
+        
+                            if (iHov && ctx.ConsumeMouseClick(0)) {
+                                node.activeTab = t;
+                                wm.activeId    = node.windows[t];
+                                sOpenNode      = NKUI_ID_NONE;
+                            }
+                        }
+                        popDl.PopClipRect();
+        
+                        if (ctx.IsMouseClicked(0) &&
+                            !NkRectContains(menuR, mp) &&
+                            !NkRectContains(ovR, mp))
+                        {
+                            sOpenNode = NKUI_ID_NONE;
+                        }
+                    }
+                }
+            }
+        
+            // =========================================================================
+            // ZONE VIDE = DRAG DE L'ONGLET ACTIF (undock)
+            // =========================================================================
+            {
+                const NkRect emptyR = {r.x + totalFin, r.y,
+                                    avail - totalFin, tabH};
+                if (emptyR.w > 8.f &&
+                    NkRectContains(emptyR, mp) &&
+                    ctx.input.IsMouseDown(0) &&
+                    wm.movingId == NKUI_ID_NONE &&
+                    node.activeTab < node.numWindows)
                 {
                     const float32 dx = ctx.input.mouseDelta.x;
                     const float32 dy = ctx.input.mouseDelta.y;
-                    if (dx * dx + dy * dy > 25.f) {
-                        NkUIWindowState* ws = wm.Find(dragWindowId);
+                    if (dx*dx + dy*dy > 25.f) {
+                        NkUIWindowState* ws = wm.Find(node.windows[node.activeTab]);
                         if (ws) {
+                            const float32 ww = ws->size.x > 10.f ? ws->size.x : 300.f;
                             UndockWindow(wm, ws->id);
                             ws->isOpen = true;
-                            ws->pos    = {ctx.input.mousePos.x - ws->size.x * 0.5f,
-                                        ctx.input.mousePos.y - 10.f};
+                            ws->pos    = {mp.x - ww * 0.5f, mp.y - 10.f};
                             wm.activeId   = ws->id;
                             wm.movingId   = ws->id;
-                            wm.moveOffset = {ws->size.x * 0.5f, 10.f};
+                            wm.moveOffset = {ww * 0.5f, 10.f};
+                            wm.BringToFront(ws->id);
+                        }
+                    }
+                }
+            }
+        
+            // =========================================================================
+            // DRAG D'ONGLET → UNDOCK
+            // =========================================================================
+            if (isDraggingTab && dragWindowId != NKUI_ID_NONE) {
+                if (ctx.input.IsMouseDown(0) && wm.movingId == NKUI_ID_NONE) {
+                    const float32 dx = ctx.input.mouseDelta.x;
+                    const float32 dy = ctx.input.mouseDelta.y;
+                    if (dx*dx + dy*dy > 25.f) {
+                        NkUIWindowState* ws = wm.Find(dragWindowId);
+                        if (ws) {
+                            const float32 ww = ws->size.x > 10.f ? ws->size.x : 300.f;
+                            UndockWindow(wm, ws->id);
+                            ws->isOpen = true;
+                            ws->pos    = {mp.x - ww * 0.5f, mp.y - 10.f};
+                            wm.activeId   = ws->id;
+                            wm.movingId   = ws->id;
+                            wm.moveOffset = {ww * 0.5f, 10.f};
                             wm.BringToFront(ws->id);
                             isDraggingTab = false;
                             dragWindowId  = NKUI_ID_NONE;
@@ -776,42 +960,29 @@ namespace nkentseu {
                 }
             }
         
-            // ── Contenu de l'onglet actif ─────────────────────────────────────────────
-            if (node.activeTab < node.numWindows) {
+            // =========================================================================
+            // CONTENU DE L'ONGLET ACTIF
+            // =========================================================================
+            if (node.activeTab >= 0 && node.activeTab < node.numWindows) {
                 NkUIWindowState* ws = wm.Find(node.windows[node.activeTab]);
                 if (ws && ws->isOpen) {
                     const NkRect clientR = {r.x, r.y + tabH, r.w, r.h - tabH};
-        
-                    // Focus au clic dans le contenu
-                    if (NkRectContains(clientR, ctx.input.mousePos) &&
-                        ctx.IsMouseClicked(0)) {
+                    if (NkRectContains(clientR, mp) && ctx.IsMouseClicked(0))
                         wm.activeId = ws->id;
-                    }
-        
                     dl.PushClipRect(clientR, true);
                     dl.AddRectFilled(clientR, col.bgWindow);
+                    dl.PopClipRect();
                     dl.AddRect({r.x, r.y, r.w, r.h}, col.separator.WithAlpha(120), 1.f);
-        
-                    // Synchronise pos/size pour que Begin/End de la fenêtre dockée
-                    // sachent où dessiner son contenu.
                     ws->pos  = {r.x, r.y + tabH};
                     ws->size = {r.w, r.h - tabH};
-        
-                    dl.PopClipRect();
                 }
             }
         }
-
         // ─────────────────────────────────────────────────────────────────────────────
         //  BeginFrame
         // ─────────────────────────────────────────────────────────────────────────────
-
-        void NkUIDockManager::BeginFrame(NkUIContext&     ctx,
-                                          NkUIWindowManager& wm,
-                                          NkUIDrawList&    dl,
-                                          NkUIFont&) noexcept
-        {
-            // Démarre un drag depuis le WindowManager (fenêtre dockable en mouvement)
+        
+        void NkUIDockManager::BeginFrame(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDrawList& dl, NkUIFont&) noexcept {
             if (!isDragging && wm.movingId != NKUI_ID_NONE) {
                 NkUIWindowState* dws = wm.Find(wm.movingId);
                 if (dws && !HasFlag(dws->flags, NkUIWindowFlags::NK_NO_DOCK)) {
@@ -819,24 +990,37 @@ namespace nkentseu {
                     dragWindowId = wm.movingId;
                 }
             }
-
-            // Drop zones sur la zone survolée
+        
             if (isDragging && dragWindowId != NKUI_ID_NONE) {
                 const int32 nodeUnder = FindNodeAt(ctx.input.mousePos);
                 if (nodeUnder >= 0) {
                     dragTargetNode = nodeUnder;
-                    NkUIDrawList& overlayDl = ctx.layers[NkUIContext::LAYER_OVERLAY];
-                    overlayDl.AddRectFilled(nodes[nodeUnder].rect,
-                                             ctx.theme.colors.dockZone.WithAlpha(35));
-                    const NkUIDockDrop drop = DrawDropZones(ctx, overlayDl, nodeUnder);
-                    if (!ctx.input.mouseDown[0] && drop != NkUIDockDrop::NK_NONE) {
-                        DockWindow(wm, dragWindowId, nodeUnder, drop);
-                        wm.movingId    = NKUI_ID_NONE;
-                        isDragging     = false;
-                        dragWindowId   = NKUI_ID_NONE;
-                        dragTargetNode = -1;
+        
+                    // ── NOUVEAU : drop sur tabBar → indicateur géré par RenderNode
+                    const float32 tabH = ctx.theme.metrics.dockTabHeight;
+                    const NkRect  tabBarR = { nodes[nodeUnder].rect.x,
+                                            nodes[nodeUnder].rect.y,
+                                            nodes[nodeUnder].rect.w,
+                                            tabH };
+                    const bool onTabBar = NkRectContains(tabBarR, ctx.input.mousePos);
+        
+                    if (!onTabBar) {
+                        // Comportement normal : drop zones L/R/T/B/Center
+                        NkUIDrawList& overlay = ctx.layers[NkUIContext::LAYER_OVERLAY];
+                        overlay.AddRectFilled(nodes[nodeUnder].rect,
+                                            ctx.theme.colors.dockZone.WithAlpha(35));
+                        const NkUIDockDrop drop = DrawDropZones(ctx, overlay, nodeUnder);
+                        if (!ctx.input.mouseDown[0] && drop != NkUIDockDrop::NK_NONE) {
+                            DockWindow(wm, dragWindowId, nodeUnder, drop);
+                            wm.movingId    = NKUI_ID_NONE;
+                            isDragging     = false;
+                            dragWindowId   = NKUI_ID_NONE;
+                            dragTargetNode = -1;
+                        }
                     }
+                    // Si onTabBar : RenderNode() gère le drop d'insertion d'onglet
                 }
+        
                 if (!ctx.input.mouseDown[0]) {
                     isDragging     = false;
                     dragWindowId   = NKUI_ID_NONE;
@@ -994,3 +1178,23 @@ namespace nkentseu {
 
     } // namespace nkui
 } // namespace nkentseu
+
+
+// Exemple d'utilisation (côté app) :
+//
+//   // Ajouter un bouton "+" pour créer un nouvel onglet
+//   dock.AddTabDecoration([](NkUIContext& ctx, NkUIDrawList& dl, NkUIFont& font,
+//                            int32 nodeIdx, NkRect r, void* ud) -> float32 {
+//       bool hov = NkRectContains(r, ctx.input.mousePos);
+//       dl.AddRectFilled(r, hov ? ctx.theme.colors.buttonHover
+//                               : ctx.theme.colors.bgHeader);
+//       font.RenderText(dl, {r.x + 6.f, r.y + r.h * 0.5f}, "+",
+//                       ctx.theme.colors.textPrimary);
+//       if (hov && ctx.ConsumeMouseClick(0)) {
+//           // ... créer une nouvelle fenêtre et la docker
+//       }
+//       return r.w;
+//   }, nullptr, 24.f, NkHash("btn_new_tab"));
+//
+//   // Désactiver le bouton overflow
+//   dock.SetOverflowButton(false);

@@ -878,5 +878,45 @@ namespace nkentseu {
             }
         }
 
+        int32 NkUIFontManager::LoadEmbedded(NkEmbeddedFontId id, float32 sizePx,
+                                    const char* name,
+                                    const nkft_uint32* ranges) noexcept
+        {
+            if (!NkFontEmbedded::IsAvailable(id)) {
+                logger.Error("[NkUIFontManager] Police embarquée id=%d non disponible\n", (int)id);
+                return -1;
+            }
+
+            const NkEmbeddedFontData* data = NkFontEmbedded::GetData(id);
+            if (!data || !data->compressedData || data->originalSize == 0) {
+                logger.Error("[NkUIFontManager] Données invalides pour id=%d\n", (int)id);
+                return -1;
+            }
+
+            // Décompression
+            nkft_uint32 decompressedSize = 0;
+            nkft_uint8* decompressed = NkFontEmbedded::DecompressData(*data, &decompressedSize);
+            if (!decompressed) {
+                logger.Error("[NkUIFontManager] Échec décompression police id=%d\n", (int)id);
+                return -1;
+            }
+
+            // Chargement via LoadFromMemory (qui copie les données)
+            int32 idx = LoadFromMemory(decompressed, decompressedSize, sizePx, name, ranges);
+
+            // Nettoyage
+            NkFontEmbedded::FreeDecompressedData(decompressed);
+
+            if (idx >= 0) {
+                // Optionnel : forcer le nom si non fourni
+                if (!name || name[0] == '\0') {
+                    NkUIFont& f = fonts[idx];
+                    memory::NkCopy(f.name, data->name, sizeof(f.name));
+                }
+                logger.Info("[NkUIFontManager] Police embarquée '%s' chargée (id=%d, taille=%.1f)\n",
+                            data->name, (int)id, (double)sizePx);
+            }
+            return idx;
+        }
     }
 }

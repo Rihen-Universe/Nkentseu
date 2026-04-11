@@ -7,6 +7,15 @@
 #include <cstring>
 #include "NKContainers/Sequential/NkVector.h"
 
+#include "NKPlatform/NkPlatformDetect.h"
+
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    #ifdef NKENTSEU_PLATFORM_ANDROID
+        #include <vulkan/vulkan_android.h>
+        #include <android/native_window.h>
+    #endif
+#endif
+
 namespace nkentseu {
 
     NkVulkanCommandBuffer::NkVulkanCommandBuffer(NkVulkanDevice* dev, NkCommandBufferType type)
@@ -143,11 +152,13 @@ namespace nkentseu {
     // ── Vertex / Index ────────────────────────────────────────────────────────────
     void NkVulkanCommandBuffer::BindVertexBuffer(uint32 binding, NkBufferHandle buf, uint64 off) {
         VkBuffer b = mDev->GetVkBuffer(buf.id);
-        vkCmdBindVertexBuffers(mCmdBuf, binding, 1, &b, &off);
+        VkDeviceSize vkOff = static_cast<VkDeviceSize>(off);
+        vkCmdBindVertexBuffers(mCmdBuf, binding, 1, &b, &vkOff);
     }
     void NkVulkanCommandBuffer::BindVertexBuffers(uint32 first, const NkBufferHandle* bufs,
                                                 const uint64* offs, uint32 n) {
-        NkVector<VkBuffer> vb(static_cast<NkVector<VkBuffer>::SizeType>(n));
+        NkVector<VkBuffer> vb;
+        vb.Resize(static_cast<NkVector<VkBuffer>::SizeType>(n));
         NkVector<VkDeviceSize> vo;
         vo.Resize(static_cast<NkVector<VkDeviceSize>::SizeType>(n), VkDeviceSize(0));
         for (uint32 i=0;i<n;i++) { vb[i]=mDev->GetVkBuffer(bufs[i].id); vo[i]=offs[i]; }

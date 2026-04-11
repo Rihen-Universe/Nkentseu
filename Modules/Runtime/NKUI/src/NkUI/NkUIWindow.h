@@ -134,67 +134,66 @@ namespace nkentseu
         // API d'une fenêtre (Begin/End)
         // ============================================================
 
-        struct NKUI_API NkUIWindow
-        {
-            // ── API principale ────────────────────────────────────────────────────────
-            // Démarre une fenêtre (retourne true si le contenu doit être dessiné)
-            static bool Begin(NkUIContext& ctx,
-                              NkUIWindowManager& wm,
-                              NkUIDrawList& dl,
-                              NkUIFont& font,
-                              NkUILayoutStack& ls,
-                              const char* name,
-                              bool* pOpen = nullptr,
-                              NkUIWindowFlags flags = NkUIWindowFlags::NK_NONE) noexcept;
+        struct NKUI_API NkUIWindow {
+                // ── API principale ────────────────────────────────────────────────────────
+                // Démarre une fenêtre (retourne true si le contenu doit être dessiné)
+                static bool Begin(NkUIContext& ctx,
+                                NkUIWindowManager& wm,
+                                NkUIDrawList& dl,
+                                NkUIFont& font,
+                                NkUILayoutStack& ls,
+                                const char* name,
+                                bool* pOpen = nullptr,
+                                NkUIWindowFlags flags = NkUIWindowFlags::NK_NONE) noexcept;
 
-            // Termine la fenêtre courante
-            static void End(NkUIContext& ctx,
-                            NkUIWindowManager& wm,
-                            NkUIDrawList& dl,
-                            NkUILayoutStack& ls) noexcept;
+                // Termine la fenêtre courante
+                static void End(NkUIContext& ctx,
+                                NkUIWindowManager& wm,
+                                NkUIDrawList& dl,
+                                NkUILayoutStack& ls) noexcept;
 
-            // ── Helpers ───────────────────────────────────────────────────────────────
-            static void SetNextWindowPos(NkVec2 pos) noexcept;     // Position pour la prochaine fenêtre
-            static void SetNextWindowSize(NkVec2 size) noexcept;   // Taille pour la prochaine fenêtre
+                // ── Helpers ───────────────────────────────────────────────────────────────
+                static void SetNextWindowPos(NkVec2 pos) noexcept;     // Position pour la prochaine fenêtre
+                static void SetNextWindowSize(NkVec2 size) noexcept;   // Taille pour la prochaine fenêtre
 
-            static NkVec2 GetWindowPos(NkUIWindowManager& wm, const char* name) noexcept;
-            static NkVec2 GetWindowSize(NkUIWindowManager& wm, const char* name) noexcept;
-            static bool IsWindowFocused(NkUIWindowManager& wm, const char* name) noexcept;
-            static bool IsWindowHovered(NkUIContext& ctx, NkUIWindowManager& wm, const char* name) noexcept;
-            static void SetWindowPos(NkUIWindowManager& wm, const char* name, NkVec2 pos) noexcept;
-            static void SetWindowSize(NkUIWindowManager& wm, const char* name, NkVec2 size) noexcept;
-            static void SetWindowCollapsed(NkUIWindowManager& wm, const char* name, bool collapsed) noexcept;
-            static void CloseWindow(NkUIWindowManager& wm, const char* name) noexcept;
+                static NkVec2 GetWindowPos(NkUIWindowManager& wm, const char* name) noexcept;
+                static NkVec2 GetWindowSize(NkUIWindowManager& wm, const char* name) noexcept;
+                static bool IsWindowFocused(NkUIWindowManager& wm, const char* name) noexcept;
+                static bool IsWindowHovered(NkUIContext& ctx, NkUIWindowManager& wm, const char* name) noexcept;
+                static void SetWindowPos(NkUIWindowManager& wm, const char* name, NkVec2 pos) noexcept;
+                static void SetWindowSize(NkUIWindowManager& wm, const char* name, NkVec2 size) noexcept;
+                static void SetWindowCollapsed(NkUIWindowManager& wm, const char* name, bool collapsed) noexcept;
+                static void CloseWindow(NkUIWindowManager& wm, const char* name) noexcept;
 
-            // ── Rendu ─────────────────────────────────────────────────────────────────
-            // Affiche toutes les fenêtres (utilisé si on ne gère pas Begin/End)
-            static void RenderAll(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDrawList& dl, NkUIFont& font) noexcept;
+                // ── Rendu ─────────────────────────────────────────────────────────────────
+                // Affiche toutes les fenêtres (utilisé si on ne gère pas Begin/End)
+                static void RenderAll(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDrawList& dl, NkUIFont& font) noexcept;
 
-        private:
-            // État courant (pile) pour gérer les fenêtres imbriquées
-            struct Current
-            {
-                NkUIWindowState*  ws;           // Fenêtre courante
-                NkUIWindowManager* wm;          // Gestionnaire associé
-                NkVec2             startCursor; // Curseur au début de la fenêtre
-                NkVec2             reserved;    // Réservé pour alignement
-                NkUIDrawList*      savedDL;     // Sauvegarde du draw list courant
-                int32              savedLSDepth;// Profondeur de layout stack sauvegardée
-                NkUILayoutStack*   ls;          // Pointeur vers la pile de layout
-                NkUIID             savedWindowId; // Ancien ID de fenêtre
-            };
+            private:
+                // État courant (pile) pour gérer les fenêtres imbriquées
+                struct Current
+                {
+                    NkUIWindowState*  ws;           // Fenêtre courante
+                    NkUIWindowManager* wm;          // Gestionnaire associé
+                    NkVec2             startCursor; // Curseur au début de la fenêtre
+                    NkVec2             reserved;    // Réservé pour alignement
+                    NkUIDrawList*      savedDL;     // Sauvegarde du draw list courant
+                    int32              savedLSDepth;// Profondeur de layout stack sauvegardée
+                    NkUILayoutStack*   ls;          // Pointeur vers la pile de layout
+                    NkUIID             savedWindowId; // Ancien ID de fenêtre
+                };
 
-            static Current sStack[8];   // Pile d'états
-            static int32   sDepth;      // Profondeur de pile
-            static NkVec2  sNextPos;    // Position forcée pour la prochaine fenêtre
-            static NkVec2  sNextSize;   // Taille forcée pour la prochaine fenêtre
-            static bool    sHasNextPos; // true si sNextPos est valide
-            static bool    sHasNextSize;// true si sNextSize est valide
+                static Current sStack[8];   // Pile d'états
+                static int32   sDepth;      // Profondeur de pile
+                static NkVec2  sNextPos;    // Position forcée pour la prochaine fenêtre
+                static NkVec2  sNextSize;   // Taille forcée pour la prochaine fenêtre
+                static bool    sHasNextPos; // true si sNextPos est valide
+                static bool    sHasNextSize;// true si sNextSize est valide
 
-            static void DrawShadow(NkUIDrawList& dl, const NkUIWindowState& ws, bool focused) noexcept;
-            static void DrawTitleBar(NkUIContext& ctx, NkUIDrawList& dl, NkUIFont& font, NkUIWindowState& ws) noexcept;
-            static void HandleResize(NkUIContext& ctx, NkUIDrawList& dl, NkUIWindowState& ws) noexcept;
-            static void DrawResizeBorders(NkUIDrawList& dl, const NkUIContext& ctx, const NkUIWindowState& ws) noexcept;
+                static void DrawShadow(NkUIDrawList& dl, const NkUIWindowState& ws, bool focused) noexcept;
+                static void DrawTitleBar(NkUIContext& ctx, NkUIDrawList& dl, NkUIFont& font, NkUIWindowState& ws) noexcept;
+                static void HandleResize(NkUIContext& ctx, NkUIDrawList& dl, NkUIWindowState& ws) noexcept;
+                static void DrawResizeBorders(NkUIDrawList& dl, const NkUIContext& ctx, const NkUIWindowState& ws) noexcept;
         };
 
         // Remarque : le pointeur vers le gestionnaire de fenêtres est passé explicitement

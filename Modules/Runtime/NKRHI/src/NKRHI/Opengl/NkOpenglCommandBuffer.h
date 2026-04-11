@@ -58,11 +58,18 @@ public:
     }
     void SetViewports(const NkViewport* vps, uint32 n) override {
         NkVector<NkViewport> v = CopyArray(vps, n);
-        Push([v=traits::NkMove(v)]{
-            for (uint32 i=0;i<(uint32)v.size();i++) {
-                GLfloat vp[]={(float)v[i].x,(float)v[i].y,v[i].width,v[i].height};
-                glViewportIndexedfv(i,vp);
+        Push([v = traits::NkMove(v)] {
+    #if defined(NK_OPENGL_ES)
+            if (!v.empty()) {
+                glViewport((GLint)v[0].x, (GLint)v[0].y, (GLsizei)v[0].width, (GLsizei)v[0].height);
+                glDepthRangef(v[0].minDepth, v[0].maxDepth);
             }
+    #else
+            for (uint32 i = 0; i < (uint32)v.size(); i++) {
+                GLfloat vp[] = {(float)v[i].x, (float)v[i].y, v[i].width, v[i].height};
+                glViewportIndexedfv(i, vp);
+            }
+    #endif
         });
     }
     void SetScissor(const NkRect2D& r) override {
@@ -73,9 +80,15 @@ public:
     }
     void SetScissors(const NkRect2D* rects, uint32 n) override {
         NkVector<NkRect2D> v = CopyArray(rects, n);
-        Push([v=traits::NkMove(v)]{
-            for (uint32 i=0;i<(uint32)v.size();i++)
-                glScissorIndexed(i,v[i].x,v[i].y,(GLsizei)v[i].width,(GLsizei)v[i].height);
+        Push([v = traits::NkMove(v)] {
+    #if defined(NK_OPENGL_ES)
+            if (!v.empty()) {
+                glScissor(v[0].x, v[0].y, (GLsizei)v[0].width, (GLsizei)v[0].height);
+            }
+    #else
+            for (uint32 i = 0; i < (uint32)v.size(); i++)
+                glScissorIndexed(i, v[i].x, v[i].y, (GLsizei)v[i].width, (GLsizei)v[i].height);
+    #endif
         });
     }
 
@@ -141,39 +154,60 @@ public:
     // Draw
     // =========================================================================
     void Draw(uint32 vertCnt, uint32 instCnt, uint32 firstVert, uint32 firstInst) override {
-        Push([this,vertCnt,instCnt,firstVert,firstInst]{
-            if (instCnt>1)
-                glDrawArraysInstancedBaseInstance(mPrimitive,firstVert,vertCnt,instCnt,firstInst);
-            else
-                glDrawArrays(mPrimitive,firstVert,vertCnt);
+        Push([this, vertCnt, instCnt, firstVert, firstInst] {
+            if (instCnt > 1) {
+    #if defined(NK_OPENGL_ES)
+                glDrawArraysInstanced(mPrimitive, firstVert, vertCnt, instCnt);
+    #else
+                glDrawArraysInstancedBaseInstance(mPrimitive, firstVert, vertCnt, instCnt, firstInst);
+    #endif
+            } else {
+                glDrawArrays(mPrimitive, firstVert, vertCnt);
+            }
         });
     }
     void DrawIndexed(uint32 idxCnt, uint32 instCnt, uint32 firstIdx,
-                      int32 vtxOff, uint32 firstInst) override {
-        Push([this,idxCnt,instCnt,firstIdx,vtxOff,firstInst]{
-            GLenum idxFmt = mIndexFormat==NkIndexFormat::NK_UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
-            uint64 byteOff = firstIdx*(mIndexFormat==NkIndexFormat::NK_UINT16?2:4) + mIndexOffset;
-            if (instCnt>1)
-                glDrawElementsInstancedBaseVertexBaseInstance(mPrimitive,idxCnt,idxFmt,
-                    (const void*)byteOff,instCnt,vtxOff,firstInst);
-            else
-                glDrawElementsBaseVertex(mPrimitive,idxCnt,idxFmt,
-                    (const void*)byteOff,vtxOff);
+                    int32 vtxOff, uint32 firstInst) override {
+        Push([this, idxCnt, instCnt, firstIdx, vtxOff, firstInst] {
+            GLenum idxFmt = mIndexFormat == NkIndexFormat::NK_UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+            uint64 byteOff = firstIdx * (mIndexFormat == NkIndexFormat::NK_UINT16 ? 2 : 4) + mIndexOffset;
+            if (instCnt > 1) {
+    #if defined(NK_OPENGL_ES)
+                glDrawElementsInstanced(mPrimitive, idxCnt, idxFmt, (const void*)byteOff, instCnt);
+    #else
+                glDrawElementsInstancedBaseVertexBaseInstance(mPrimitive, idxCnt, idxFmt,
+                    (const void*)byteOff, instCnt, vtxOff, firstInst);
+    #endif
+            } else {
+                glDrawElementsBaseVertex(mPrimitive, idxCnt, idxFmt, (const void*)byteOff, vtxOff);
+            }
         });
     }
     void DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override {
-        Push([this,buf,off,cnt,stride]{
+        Push([this, buf, off, cnt, stride] {
             GL_BindForIndirect(buf);
-            if (cnt>1) glMultiDrawArraysIndirect(mPrimitive,(const void*)off,cnt,(GLsizei)stride);
-            else       glDrawArraysIndirect(mPrimitive,(const void*)off);
+    #if defined(NK_OPENGL_ES)
+            for (uint32 i = 0; i < cnt; ++i) {
+                glDrawArraysIndirect(mPrimitive, (const void*)(off + i * stride));
+            }
+    #else
+            if (cnt > 1) glMultiDrawArraysIndirect(mPrimitive, (const void*)off, cnt, (GLsizei)stride);
+            else         glDrawArraysIndirect(mPrimitive, (const void*)off);
+    #endif
         });
     }
     void DrawIndexedIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) override {
-        Push([this,buf,off,cnt,stride]{
+        Push([this, buf, off, cnt, stride] {
             GL_BindForIndirect(buf);
-            GLenum fmt=mIndexFormat==NkIndexFormat::NK_UINT16?GL_UNSIGNED_SHORT:GL_UNSIGNED_INT;
-            if (cnt>1) glMultiDrawElementsIndirect(mPrimitive,fmt,(const void*)off,cnt,(GLsizei)stride);
-            else       glDrawElementsIndirect(mPrimitive,fmt,(const void*)off);
+            GLenum fmt = mIndexFormat == NkIndexFormat::NK_UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+    #if defined(NK_OPENGL_ES)
+            for (uint32 i = 0; i < cnt; ++i) {
+                glDrawElementsIndirect(mPrimitive, fmt, (const void*)(off + i * stride));
+            }
+    #else
+            if (cnt > 1) glMultiDrawElementsIndirect(mPrimitive, fmt, (const void*)off, cnt, (GLsizei)stride);
+            else         glDrawElementsIndirect(mPrimitive, fmt, (const void*)off);
+    #endif
         });
     }
 
@@ -283,7 +317,12 @@ public:
     // Timestamp
     // =========================================================================
     void WriteTimestamp(uint32 idx) override {
-        Push([idx]{ glQueryCounter(idx,GL_TIMESTAMP); });
+    #if defined(NK_OPENGL_ES)
+        (void)idx;
+        // OpenGL ES ne supporte pas les timestamp queries de cette manière.
+    #else
+        Push([idx] { glQueryCounter(idx, GL_TIMESTAMP); });
+    #endif
     }
 
 private:

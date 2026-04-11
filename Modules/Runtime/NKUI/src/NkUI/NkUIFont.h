@@ -45,6 +45,7 @@
  *    font.metrics = ...; // Récupérer depuis NKFont
  */
 #include "NKUI/NkUIDrawList.h"
+#include "NKFont/Embedded/NkFontEmbedded.h"
 // #include "NkUIFontBridge.h"
 // #include "NKFont/NkFont.h"
 
@@ -400,6 +401,18 @@ namespace nkentseu {
                 int32 LoadCustom(const char* path, float32 sizePx,
                                 const NkUIFontLoaderDesc& desc,
                                 const char* name   = nullptr,
+                                const uint32* ranges = nullptr) noexcept;
+
+                /**
+                 * @brief Charge une police embarquée (TTF compressé dans le binaire).
+                 * @param id      Identifiant de la police embarquée (ex: NkEmbeddedFontId::Roboto).
+                 * @param sizePx  Taille en pixels.
+                 * @param name    Nom de la police (optionnel).
+                 * @param ranges  Plages Unicode (nullptr = ASCII + Latin-1).
+                 * @return Index de la police dans fonts[], ou -1 si échec.
+                 */
+                int32 LoadEmbedded(NkEmbeddedFontId id, float32 sizePx,
+                                const char* name = nullptr,
                                 const uint32* ranges = nullptr) noexcept;
         };
     }

@@ -12,6 +12,15 @@
 #include <algorithm>
 #include <cmath>
 
+#include "NKPlatform/NkPlatformDetect.h"
+
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    #ifdef NKENTSEU_PLATFORM_ANDROID
+        #include <vulkan/vulkan_android.h>
+        #include <android/native_window.h>
+    #endif
+#endif
+
 #define NK_VK_LOG(...)  logger_src.Infof("[NkRHI_VK] " __VA_ARGS__)
 #define NK_VK_ERR(...)  logger_src.Infof("[NkRHI_VK][ERR] " __VA_ARGS__)
 #define NK_VK_CHECK(r)  do { VkResult _r=(r); if(_r!=VK_SUCCESS) { NK_VK_ERR("VkResult=%d at %s:%d\n",(int)_r,__FILE__,__LINE__); } } while(0)

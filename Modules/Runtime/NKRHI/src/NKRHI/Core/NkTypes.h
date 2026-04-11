@@ -180,6 +180,18 @@ namespace nkentseu {
         return (NkBindFlags)((uint32)a|(uint32)b);
     }
 
+    inline NkBindFlags operator&(NkBindFlags a, NkBindFlags b) {
+        return (NkBindFlags)((uint32)a&(uint32)b);
+    }
+
+    inline NkBindFlags operator~(NkBindFlags a) {
+        return (NkBindFlags)(~(uint32)a);
+    }
+
+    // inline operator bool(NkBindFlags f) {
+    //     return ((uint32)f) != 0;
+    // }
+
     inline bool NkHasFlag(NkBindFlags flags, NkBindFlags bit) {
         return ((uint32)flags & (uint32)bit) != 0;
     }
