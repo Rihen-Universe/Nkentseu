@@ -1166,7 +1166,7 @@ namespace nkentseu {
 
             if (mShowDocking) {
                 const NkRect dockRect = {0.f, menuH, static_cast<float32>(ctx.viewW), static_cast<float32>(ctx.viewH) - menuH};
-                dock.SetViewport(dockRect);
+                dock.SetViewport(dockRect, &wm);
                 dock.BeginFrame(ctx, wm, dl, *mFont);
                 dock.Render(ctx, dl, *mFont, wm, ls);
             }

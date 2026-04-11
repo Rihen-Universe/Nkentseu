@@ -139,6 +139,7 @@ namespace nkentseu {
             isDraggingTab  = false;
             dragWindowId   = NKUI_ID_NONE;
             dragTargetNode = -1;
+            dragSourceNode = -1;
             childWindowId  = NKUI_ID_NONE;
             ::memset(nodes, 0, sizeof(nodes));
 
@@ -151,9 +152,10 @@ namespace nkentseu {
 
         void NkUIDockManager::Destroy() noexcept { numNodes = 0; rootIdx = -1; }
 
-        void NkUIDockManager::SetViewport(NkRect r) noexcept {
+        void NkUIDockManager::SetViewport(NkRect r, NkUIWindowManager* wm) noexcept {
             if (rootIdx >= 0) nodes[rootIdx].rect = r;
             RecalcRectsAll();
+            if (wm) SyncDockedWindowRects(*wm);  // sync immédiat
         }
 
         int32 NkUIDockManager::AllocNode() noexcept {
@@ -525,6 +527,31 @@ namespace nkentseu {
             dockOverflowButton = show;
         }
 
+        void NkUIDockManager::SyncDockedWindowRects(NkUIWindowManager& wm) noexcept {
+            for (int32 i = 0; i < numNodes; ++i) {
+                NkUIDockNode& node = nodes[i];
+                if (node.type != NkUIDockNodeType::NK_LEAF && node.type != NkUIDockNodeType::NK_ROOT) continue;
+                if (node.numWindows <= 0) continue;
+
+                // Calcule le clientRect (sous la tabBar) 
+                // identique à ce que fait RenderNode
+                const float32 tabH = 0.f; // sera lu depuis ctx.theme dans RenderNode,
+                                        // ici on utilise la valeur stockée ou une constante
+                // Pour éviter de dépendre de ctx ici, stocker tabH dans NkUIDockNode
+                // ou passer la valeur. Solution simple : mettre à jour pos/size
+                // pour TOUTES les fenêtres du node avec le rect du node.
+                // RenderNode raffinera ensuite avec le vrai tabH.
+                for (int32 j = 0; j < node.numWindows; ++j) {
+                    NkUIWindowState* ws = wm.Find(node.windows[j]);
+                    if (ws && ws->isDocked) {
+                        // Approximation sans tabH — sera corrigée au rendu
+                        ws->pos  = { node.rect.x, node.rect.y };
+                        ws->size = { node.rect.w, node.rect.h };
+                    }
+                }
+            }
+        }
+
         // ─────────────────────────────────────────────────────────────────────────────
         //  RenderNode — cœur du rendu dock
         // ─────────────────────────────────────────────────────────────────────────────
@@ -540,9 +567,7 @@ namespace nkentseu {
             NkUIDockNode& node = nodes[idx];
         
             // ── Nœuds split ───────────────────────────────────────────────────────────
-            if (node.type == NkUIDockNodeType::NK_SPLIT_H ||
-                node.type == NkUIDockNodeType::NK_SPLIT_V)
-            {
+            if (node.type == NkUIDockNodeType::NK_SPLIT_H || node.type == NkUIDockNodeType::NK_SPLIT_V) {
                 NkUIDrawList& bgDl  = ctx.layers[NkUIContext::LAYER_BG];
                 const bool    vert  = (node.type == NkUIDockNodeType::NK_SPLIT_H);
                 const NkUIID  spId  = NkHashInt(idx, 0xDC);
@@ -568,9 +593,7 @@ namespace nkentseu {
                 return;
             }
         
-            if ((node.type != NkUIDockNodeType::NK_LEAF &&
-                node.type != NkUIDockNodeType::NK_ROOT) ||
-                node.numWindows <= 0) return;
+            if ((node.type != NkUIDockNodeType::NK_LEAF && node.type != NkUIDockNodeType::NK_ROOT) || node.numWindows <= 0) return;
         
             // Dock dans LAYER_BG — flottantes (LAYER_WINDOWS) toujours au-dessus
             NkUIDrawList& dl   = ctx.layers[NkUIContext::LAYER_BG];
@@ -637,10 +660,18 @@ namespace nkentseu {
             const NkRect tabBarR = {r.x, r.y, avail, tabH};
             bool  tabDropActive  = false;
             int32 insertBefore   = node.numWindows; // défaut : à la fin
+
+            // APRÈS — ne pas activer tabDrop si on est sur notre propre node source
+            // et que la fenêtre y est déjà (évite l'auto-dock)
+            const bool dragIsFromThisNode = (dragSourceNode == idx);
+            const bool dragWinAlreadyHere = [&]() -> bool {
+                for (int32 t = 0; t < node.numWindows; ++t)
+                    if (node.windows[t] == dragWindowId) return true;
+                return false;
+            }();
         
-            if (isDragging && dragWindowId != NKUI_ID_NONE &&
-                NkRectContains(tabBarR, mp))
-            {
+            // if (isDragging && dragWindowId != NKUI_ID_NONE && NkRectContains(tabBarR, mp) && !(dragIsFromThisNode && dragWinAlreadyHere)) {
+            if (isDragging && dragWindowId != NKUI_ID_NONE && NkRectContains(tabBarR, mp)) {
                 tabDropActive = true;
                 float32 tx = r.x;
                 for (int32 t = 0; t < node.numWindows; ++t) {
@@ -666,22 +697,33 @@ namespace nkentseu {
                     const NkRect  tabR  = {tx, r.y, tw, tabH};
                     const NkRect  clR   = {tx + tw - kCloseW,
                                         r.y + (tabH - 14.f) * 0.5f, 14.f, 14.f};
+
+                    const bool dockCanReceiveInput = (ctx.wm == nullptr || ctx.wm->hoveredId == NKUI_ID_NONE);
         
                     // Bouton X
-                    if (NkRectContains(clR, mp) && ctx.ConsumeMouseClick(0)) {
+                    // if (NkRectContains(clR, mp) && ctx.ConsumeMouseClick(0)) {
+                    if (dockCanReceiveInput && NkRectContains(clR, mp) && ctx.ConsumeMouseClick(0)) {
                         NkUIWindowState* ws = wm.Find(node.windows[t]);
                         UndockWindow(wm, node.windows[t]);
                         if (ws) ws->isOpen = false;
                         break;
                     }
                     // Sélection d'onglet
-                    if (NkRectContains(tabR, mp) && !NkRectContains(clR, mp) &&
-                        ctx.ConsumeMouseClick(0))
-                    {
+                    // if (NkRectContains(tabR, mp) && !NkRectContains(clR, mp) &&
+                    //     ctx.ConsumeMouseClick(0))
+                    // {
+                    //     node.activeTab = t;
+                    //     wm.activeId    = node.windows[t];
+                    //     isDraggingTab  = true;
+                    //     dragWindowId   = node.windows[t];
+                    // }
+
+                    if (dockCanReceiveInput && NkRectContains(tabR, mp) && !NkRectContains(clR, mp) && ctx.ConsumeMouseClick(0)) {
                         node.activeTab = t;
                         wm.activeId    = node.windows[t];
                         isDraggingTab  = true;
                         dragWindowId   = node.windows[t];
+                        dragSourceNode = idx;   // ← stocker le nœud source
                     }
                     tx += tw;
                 }
@@ -784,23 +826,57 @@ namespace nkentseu {
                     dl.AddLine({r.x + totalFin, r.y + tabH - 1.f},
                                 {r.x + avail,   r.y + tabH - 1.f}, sep, 1.f);
             }
-        
+
             // ── DROP EFFECTIF SUR BARRE D'ONGLETS ─────────────────────────────────────
             if (tabDropActive && !ctx.input.mouseDown[0]) {
-                const int32 prevN = node.numWindows;
-                if (DockWindow(wm, dragWindowId, idx, NkUIDockDrop::NK_CENTER)) {
-                    // Réordonne : amène la nouvelle fenêtre (dernier slot) à insertBefore
-                    if (node.numWindows > prevN && insertBefore < prevN) {
-                        const NkUIID nw = node.windows[node.numWindows - 1];
-                        for (int32 i = node.numWindows - 1; i > insertBefore; --i)
-                            node.windows[i] = node.windows[i - 1];
-                        node.windows[insertBefore] = nw;
-                        node.activeTab = insertBefore;
+
+                // Cherche si dragWindowId est déjà dans ce nœud
+                int32 srcTabIdx = -1;
+                for (int32 t = 0; t < node.numWindows; ++t) {
+                    if (node.windows[t] == dragWindowId) {
+                        srcTabIdx = t;
+                        break;
                     }
                 }
+
+                if (srcTabIdx >= 0) {
+                    // CAS 1 : réordre interne — la fenêtre est déjà dans ce nœud
+                    // Ne réordonner que si la position change vraiment
+                    if (insertBefore != srcTabIdx && insertBefore != srcTabIdx + 1) {
+                        const NkUIID moved = node.windows[srcTabIdx];
+                        for (int32 i = srcTabIdx; i < node.numWindows - 1; ++i)
+                            node.windows[i] = node.windows[i + 1];
+                        node.numWindows--;
+                        int32 dest = insertBefore;
+                        if (srcTabIdx < insertBefore) dest--;
+                        dest = (dest < 0) ? 0 : (dest > node.numWindows ? node.numWindows : dest);
+                        for (int32 i = node.numWindows; i > dest; --i)
+                            node.windows[i] = node.windows[i - 1];
+                        node.windows[dest] = moved;
+                        node.numWindows++;
+                        node.activeTab = dest;
+                    }
+                } else {
+                    // CAS 2 : ajout depuis un autre nœud ou depuis une fenêtre flottante
+                    const int32 prevN = node.numWindows;
+                    if (DockWindow(wm, dragWindowId, idx, NkUIDockDrop::NK_CENTER)) {
+                        // Réordre si insertBefore n'est pas en fin
+                        if (node.numWindows > prevN && insertBefore < prevN) {
+                            const NkUIID nw = node.windows[node.numWindows - 1];
+                            for (int32 i = node.numWindows - 1; i > insertBefore; --i)
+                                node.windows[i] = node.windows[i - 1];
+                            node.windows[insertBefore] = nw;
+                            node.activeTab = insertBefore;
+                        }
+                    }
+                }
+
+                // Reset complet dans tous les cas
                 wm.movingId    = NKUI_ID_NONE;
                 isDragging     = false;
+                isDraggingTab  = false;
                 dragWindowId   = NKUI_ID_NONE;
+                dragSourceNode = -1;
                 dragTargetNode = -1;
             }
         
@@ -949,23 +1025,29 @@ namespace nkentseu {
                             wm.movingId   = ws->id;
                             wm.moveOffset = {ww * 0.5f, 10.f};
                             wm.BringToFront(ws->id);
-                            isDraggingTab = false;
-                            dragWindowId  = NKUI_ID_NONE;
+                            isDraggingTab  = false;
+                            isDragging     = false;   // ← ajout
+                            dragWindowId   = NKUI_ID_NONE;
+                            dragSourceNode = -1;      // ← ajout
                         }
                     }
                 }
                 if (!ctx.input.mouseDown[0]) {
-                    isDraggingTab = false;
-                    dragWindowId  = NKUI_ID_NONE;
+                    isDraggingTab  = false;
+                    isDragging     = false;   // ← ajout
+                    dragWindowId   = NKUI_ID_NONE;
+                    dragSourceNode = -1;      // ← ajout
                 }
             }
         
             // =========================================================================
             // CONTENU DE L'ONGLET ACTIF
             // =========================================================================
-            if (node.activeTab >= 0 && node.activeTab < node.numWindows) {
-                NkUIWindowState* ws = wm.Find(node.windows[node.activeTab]);
-                if (ws && ws->isOpen) {
+
+            for (int32 t = 0; t < node.numWindows; ++t) {
+                NkUIWindowState* ws = wm.Find(node.windows[t]);
+                if (!ws) continue;
+                if (t == node.activeTab && ws->isOpen) {
                     const NkRect clientR = {r.x, r.y + tabH, r.w, r.h - tabH};
                     if (NkRectContains(clientR, mp) && ctx.IsMouseClicked(0))
                         wm.activeId = ws->id;
@@ -975,37 +1057,48 @@ namespace nkentseu {
                     dl.AddRect({r.x, r.y, r.w, r.h}, col.separator.WithAlpha(120), 1.f);
                     ws->pos  = {r.x, r.y + tabH};
                     ws->size = {r.w, r.h - tabH};
+                    ws->isActiveTab = true;   // ← marqué actif
+                } else {
+                    ws->isActiveTab = false;  // ← marqué inactif
+                    // On garde pos/size intacts pour ne pas avoir {0,0}
+                    // mais isActiveTab = false suffit à bloquer Begin
                 }
             }
         }
         // ─────────────────────────────────────────────────────────────────────────────
         //  BeginFrame
         // ─────────────────────────────────────────────────────────────────────────────
-        
         void NkUIDockManager::BeginFrame(NkUIContext& ctx, NkUIWindowManager& wm, NkUIDrawList& dl, NkUIFont&) noexcept {
             if (!isDragging && wm.movingId != NKUI_ID_NONE) {
                 NkUIWindowState* dws = wm.Find(wm.movingId);
                 if (dws && !HasFlag(dws->flags, NkUIWindowFlags::NK_NO_DOCK)) {
-                    isDragging   = true;
-                    dragWindowId = wm.movingId;
+                    isDragging     = true;
+                    dragWindowId   = wm.movingId;
+                    dragSourceNode = -1;
                 }
             }
-        
+
+            if (!isDragging && isDraggingTab && dragWindowId != NKUI_ID_NONE) {
+                isDragging = true;
+            }
+
             if (isDragging && dragWindowId != NKUI_ID_NONE) {
                 const int32 nodeUnder = FindNodeAt(ctx.input.mousePos);
                 if (nodeUnder >= 0) {
                     dragTargetNode = nodeUnder;
-        
-                    // ── NOUVEAU : drop sur tabBar → indicateur géré par RenderNode
+
                     const float32 tabH = ctx.theme.metrics.dockTabHeight;
-                    const NkRect  tabBarR = { nodes[nodeUnder].rect.x,
-                                            nodes[nodeUnder].rect.y,
-                                            nodes[nodeUnder].rect.w,
-                                            tabH };
-                    const bool onTabBar = NkRectContains(tabBarR, ctx.input.mousePos);
-        
-                    if (!onTabBar) {
-                        // Comportement normal : drop zones L/R/T/B/Center
+                    const NkRect tabBarR = {
+                        nodes[nodeUnder].rect.x,
+                        nodes[nodeUnder].rect.y,
+                        nodes[nodeUnder].rect.w,
+                        tabH
+                    };
+                    const bool mouseOnTabBar = NkRectContains(tabBarR, ctx.input.mousePos);
+
+                    // RenderNode gère TOUS les drops sur tabBar (réordre ET ajout d'onglet)
+                    // BeginFrame ne gère que les drops hors tabBar
+                    if (!mouseOnTabBar) {
                         NkUIDrawList& overlay = ctx.layers[NkUIContext::LAYER_OVERLAY];
                         overlay.AddRectFilled(nodes[nodeUnder].rect,
                                             ctx.theme.colors.dockZone.WithAlpha(35));
@@ -1014,17 +1107,31 @@ namespace nkentseu {
                             DockWindow(wm, dragWindowId, nodeUnder, drop);
                             wm.movingId    = NKUI_ID_NONE;
                             isDragging     = false;
+                            isDraggingTab  = false;
                             dragWindowId   = NKUI_ID_NONE;
+                            dragSourceNode = -1;
+                            dragTargetNode = -1;
+                        }
+                        // Si bouton relâché HORS tabBar et SANS drop valide → reset
+                        if (!ctx.input.mouseDown[0] && drop == NkUIDockDrop::NK_NONE) {
+                            isDragging     = false;
+                            isDraggingTab  = false;
+                            dragWindowId   = NKUI_ID_NONE;
+                            dragSourceNode = -1;
                             dragTargetNode = -1;
                         }
                     }
-                    // Si onTabBar : RenderNode() gère le drop d'insertion d'onglet
-                }
-        
-                if (!ctx.input.mouseDown[0]) {
-                    isDragging     = false;
-                    dragWindowId   = NKUI_ID_NONE;
-                    dragTargetNode = -1;
+                    // Si mouseOnTabBar : RenderNode gère tout (réordre + ajout onglet externe)
+                    // Ne PAS resetter ici — laisser RenderNode consommer l'événement
+                } else {
+                    // Souris hors de tout nœud
+                    if (!ctx.input.mouseDown[0]) {
+                        isDragging     = false;
+                        isDraggingTab  = false;
+                        dragWindowId   = NKUI_ID_NONE;
+                        dragTargetNode = -1;
+                        dragSourceNode = -1;
+                    }
                 }
             }
         }

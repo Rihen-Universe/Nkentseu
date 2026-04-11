@@ -73,9 +73,11 @@ namespace nkentseu {
                 // v2 — child docking
                 NkUIID        childWindowId  = NKUI_ID_NONE; // fenetre parente courante (si child dock actif)
 
+                int32 dragSourceNode = -1; // node source du drag (pour éviter les highlights sur le node source)
+
                 void  Init(NkRect viewport) noexcept;
                 void  Destroy() noexcept;
-                void  SetViewport(NkRect r) noexcept;
+                void  SetViewport(NkRect r, NkUIWindowManager* wm) noexcept;
 
                 int32 AllocNode() noexcept;
                 void  RecalcRects(int32 idx) noexcept;
@@ -166,6 +168,8 @@ namespace nkentseu {
                 void RemoveTabDecoration(NkUIID id) noexcept;
                 void EnableTabDecoration(NkUIID id, bool enabled) noexcept;
                 void SetDockOverflowButton(bool show) noexcept;
+
+                void SyncDockedWindowRects(NkUIWindowManager& wm) noexcept;
 
             private:
                 void RenderNode(NkUIContext& ctx, NkUIDrawList& dl, NkUIFont& font, NkUIWindowManager& wm, int32 idx, NkUILayoutStack& ls) noexcept;
