@@ -84,6 +84,7 @@ namespace nkentseu
             bool             isDocked      = false;    // Ancrée ?
             NkUIID           dockNodeId    = 0;        // Identifiant du nœud d'ancrage
             int32            childDockRoot = -1;       // Index du nœud racine du dock enfant (-1 = aucun)
+            bool             isActiveTab   = false;
         };
 
         // ============================================================

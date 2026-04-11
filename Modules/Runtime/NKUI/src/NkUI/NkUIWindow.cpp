@@ -600,10 +600,8 @@ namespace nkentseu
             }
 
             // Drag pour déplacement (uniquement si on n'est pas sur un bord de redimensionnement)
-            if (canInteract && NkRectContains(dragR, ctx.input.mousePos)
-                && ctx.IsMouseClicked(0)
-                && !HasFlag(ws.flags, NkUIWindowFlags::NK_NO_MOVE))
-            {
+            // if (canInteract && NkRectContains(dragR, ctx.input.mousePos) && ctx.IsMouseClicked(0) && !HasFlag(ws.flags, NkUIWindowFlags::NK_NO_MOVE)) {
+            if (canInteract && !ws.isDocked && NkRectContains(dragR, ctx.input.mousePos) && ctx.IsMouseClicked(0) && !HasFlag(ws.flags, NkUIWindowFlags::NK_NO_MOVE)) {
                 const float32 rb = ctx.theme.metrics.resizeBorder;
                 const uint8 edge = ComputeResizeEdge({ ws.pos.x, ws.pos.y, ws.size.x, ws.size.y },
                                                      ctx.input.mousePos, rb, true);
@@ -647,8 +645,8 @@ namespace nkentseu
             }
 
             // Démarrer le redimensionnement si un bord est détecté et que le clic n'a pas été consommé
-            if (edge && ctx.ConsumeMouseClick(0) && ctx.wm)
-            {
+            // if (edge && ctx.ConsumeMouseClick(0) && ctx.wm) {
+            if (!ws.isDocked && edge && ctx.ConsumeMouseClick(0) && ctx.wm) {
                 ctx.wm->resizingId = ws.id;
                 ctx.wm->resizeEdge = edge;
                 ctx.wm->resizeStartMouse = mp;
@@ -717,9 +715,14 @@ namespace nkentseu
                 return false;
             }
 
-            if (ws->isDocked)
-            {
+            if (ws->isDocked) {
                 ws->isCollapsed = false;
+
+                if (!ws->isActiveTab) {
+                    ctx.currentWindowId = prevWindowId;
+                    return false;
+                }
+                
                 const NkRect clientR = { ws->pos.x, ws->pos.y, ws->size.x, ws->size.y };
                 dl.PushClipRect(clientR, true);
 
