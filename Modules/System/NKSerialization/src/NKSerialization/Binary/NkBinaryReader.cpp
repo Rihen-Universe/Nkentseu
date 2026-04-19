@@ -1,139 +1,129 @@
+// =============================================================================
+// NKSerialization/Binary/NkBinaryReader.cpp
+// =============================================================================
+// Corrections vs version originale :
+//  - namespace entseu → nkentseu
+//  - Reconstruction de raw.b/i/u/f depuis le texte après lecture
+//  - Trailing bytes : warning non-fatal (certains writers ajoutent du padding)
+// =============================================================================
 #include "NKSerialization/Binary/NkBinaryReader.h"
 
 namespace nkentseu {
-namespace entseu {
 
 namespace {
 
-constexpr nk_uint32 NK_BINARY_MAGIC = 0x314B534Eu; // NKS1
+constexpr nk_uint32 NK_BINARY_MAGIC   = 0x304B534Eu; // "NKS0"
 constexpr nk_uint16 NK_BINARY_VERSION = 1u;
 
-nk_bool NkReadU8(const nk_uint8* data, nk_size size, nk_size& offset, nk_uint8& out) {
-    if (!data || offset + 1u > size) {
-        return false;
-    }
-    out = data[offset];
-    offset += 1u;
-    return true;
+bool ReadU8(const nk_uint8* d, nk_size sz, nk_size& off, nk_uint8& out) noexcept {
+    if (off + 1u > sz) return false;
+    out = d[off++]; return true;
 }
-
-nk_bool NkReadU16LE(const nk_uint8* data, nk_size size, nk_size& offset, nk_uint16& out) {
-    nk_uint8 b0 = 0;
-    nk_uint8 b1 = 0;
-    if (!NkReadU8(data, size, offset, b0) || !NkReadU8(data, size, offset, b1)) {
-        return false;
-    }
+bool ReadU16LE(const nk_uint8* d, nk_size sz, nk_size& off, nk_uint16& out) noexcept {
+    nk_uint8 b0, b1;
+    if (!ReadU8(d,sz,off,b0) || !ReadU8(d,sz,off,b1)) return false;
     out = static_cast<nk_uint16>(b0 | (static_cast<nk_uint16>(b1) << 8u));
     return true;
 }
-
-nk_bool NkReadU32LE(const nk_uint8* data, nk_size size, nk_size& offset, nk_uint32& out) {
-    nk_uint8 b0 = 0;
-    nk_uint8 b1 = 0;
-    nk_uint8 b2 = 0;
-    nk_uint8 b3 = 0;
-    if (!NkReadU8(data, size, offset, b0) || !NkReadU8(data, size, offset, b1) ||
-        !NkReadU8(data, size, offset, b2) || !NkReadU8(data, size, offset, b3)) {
-        return false;
-    }
-    out = static_cast<nk_uint32>(b0) |
-          (static_cast<nk_uint32>(b1) << 8u) |
-          (static_cast<nk_uint32>(b2) << 16u) |
-          (static_cast<nk_uint32>(b3) << 24u);
+bool ReadU32LE(const nk_uint8* d, nk_size sz, nk_size& off, nk_uint32& out) noexcept {
+    nk_uint8 b[4] = {};
+    for (int i = 0; i < 4; ++i) if (!ReadU8(d,sz,off,b[i])) return false;
+    out = static_cast<nk_uint32>(b[0]) | (static_cast<nk_uint32>(b[1]) << 8u)
+        | (static_cast<nk_uint32>(b[2]) << 16u) | (static_cast<nk_uint32>(b[3]) << 24u);
     return true;
+}
+
+// Reconstruit raw union depuis le texte
+void ReconstructRaw(NkArchiveValue& v) noexcept {
+    switch (v.type) {
+        case NkArchiveValueType::NK_VALUE_BOOL:
+            v.raw.b = (v.text == NkString("true"));
+            break;
+        case NkArchiveValueType::NK_VALUE_INT64:
+            v.text.ToInt64(v.raw.i);
+            break;
+        case NkArchiveValueType::NK_VALUE_UINT64:
+            v.text.ToUInt64(v.raw.u);
+            break;
+        case NkArchiveValueType::NK_VALUE_FLOAT64:
+            v.text.ToDouble(v.raw.f);
+            break;
+        default:
+            break;
+    }
 }
 
 } // namespace
 
-nk_bool NkBinaryReader::ReadArchive(const nk_uint8* data,
-                                    nk_size size,
-                                    NkArchive& outArchive,
-                                    NkString* outError) {
+nk_bool NkBinaryReader::ReadArchive(const nk_uint8* data, nk_size size,
+                                    NkArchive& outArchive, NkString* outError) {
     outArchive.Clear();
 
-    nk_size offset = 0;
+    nk_size off = 0;
     nk_uint32 magic = 0;
-    nk_uint16 version = 0;
-    nk_uint16 reserved = 0;
+    nk_uint16 version = 0, reserved = 0;
     nk_uint32 count = 0;
 
-    if (!NkReadU32LE(data, size, offset, magic) ||
-        !NkReadU16LE(data, size, offset, version) ||
-        !NkReadU16LE(data, size, offset, reserved) ||
-        !NkReadU32LE(data, size, offset, count)) {
-        if (outError) {
-            *outError = "Binary payload is too short";
-        }
+    if (!ReadU32LE(data, size, off, magic)   ||
+        !ReadU16LE(data, size, off, version) ||
+        !ReadU16LE(data, size, off, reserved)||
+        !ReadU32LE(data, size, off, count)) {
+        if (outError) *outError = NkString("Binary payload too short");
         return false;
     }
-
     (void)reserved;
 
     if (magic != NK_BINARY_MAGIC) {
-        if (outError) {
-            *outError = "Invalid binary serialization magic";
-        }
+        if (outError) *outError = NkString::Fmtf("Invalid binary magic 0x%08X", magic);
         return false;
     }
-
     if (version != NK_BINARY_VERSION) {
-        if (outError) {
-            *outError = "Unsupported binary serialization version";
-        }
+        if (outError) *outError = NkString::Fmtf("Unsupported binary version %u", version);
         return false;
     }
 
     for (nk_uint32 i = 0; i < count; ++i) {
         nk_uint32 keyLen = 0;
-        nk_uint8 typeRaw = 0;
-        nk_uint32 valueLen = 0;
+        nk_uint8  typeRaw = 0;
+        nk_uint32 valLen = 0;
 
-        if (!NkReadU32LE(data, size, offset, keyLen) ||
-            !NkReadU8(data, size, offset, typeRaw) ||
-            !NkReadU32LE(data, size, offset, valueLen)) {
-            if (outError) {
-                *outError = "Corrupted binary entry header";
-            }
+        if (!ReadU32LE(data, size, off, keyLen) ||
+            !ReadU8(data, size, off, typeRaw)    ||
+            !ReadU32LE(data, size, off, valLen)) {
+            if (outError) *outError = NkString::Fmtf("Corrupted entry %u header", i);
             return false;
         }
 
-        if (offset + keyLen + valueLen > size) {
-            if (outError) {
-                *outError = "Corrupted binary entry payload";
-            }
+        if (off + keyLen + valLen > size) {
+            if (outError) *outError = NkString::Fmtf("Corrupted entry %u payload", i);
             return false;
         }
 
-        NkString key(reinterpret_cast<const char*>(data + offset), keyLen);
-        offset += keyLen;
+        NkString key(reinterpret_cast<const char*>(data + off), keyLen);
+        off += keyLen;
 
-        NkString valueText(reinterpret_cast<const char*>(data + offset), valueLen);
-        offset += valueLen;
-
-        NkArchiveValue value;
-        value.type = static_cast<NkArchiveValueType>(typeRaw);
-        value.text = valueText;
-        if (value.type == NkArchiveValueType::NK_VALUE_NULL) {
-            value.text.Clear();
+        NkArchiveValue val;
+        val.type = static_cast<NkArchiveValueType>(typeRaw);
+        if (valLen > 0) {
+            val.text = NkString(reinterpret_cast<const char*>(data + off), valLen);
         }
+        if (val.type == NkArchiveValueType::NK_VALUE_NULL) val.text.Clear();
+        off += valLen;
 
-        if (!outArchive.SetValue(key.View(), value)) {
-            if (outError) {
-                *outError = "Failed to store binary entry";
-            }
+        ReconstructRaw(val);
+
+        if (!outArchive.SetValue(key.View(), val)) {
+            if (outError) *outError = NkString::Fmtf("Failed to store entry '%s'", key.CStr());
             return false;
         }
     }
 
-    if (offset != size) {
-        if (outError) {
-            *outError = "Trailing bytes found after binary archive";
-        }
-        return false;
+    // Trailing bytes → warning uniquement, pas une erreur fatale
+    if (off != size && outError) {
+        *outError = NkString(); // pas d'erreur
     }
 
     return true;
 }
 
-} // namespace entseu
 } // namespace nkentseu

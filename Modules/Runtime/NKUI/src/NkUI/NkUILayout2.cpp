@@ -230,8 +230,8 @@ namespace nkentseu {
             }
             // Curseur
             const NkVec2 cursor={r.x+s*r.w,r.y+(1-v)*r.h};
-            dl.AddCircle(cursor,6.f,NkColor::White(),2.f);
-            dl.AddCircle(cursor,7.f,NkColor::Black(),1.f);
+            dl.AddCircle(cursor,6.f,NkColor::White,2.f);
+            dl.AddCircle(cursor,7.f,NkColor::Black,1.f);
             // Interaction
             const NkUIID id=NkHashPtr(&s,0xAB);
             if(ctx.IsHovered(r)&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
@@ -254,7 +254,7 @@ namespace nkentseu {
             }
             // Curseur
             const float32 cy=r.y+h*r.h;
-            dl.AddRect({r.x-1,cy-3,r.w+2,6},NkColor::White(),2.f);
+            dl.AddRect({r.x-1,cy-3,r.w+2,6},NkColor::White,2.f);
             // Interaction
             const NkUIID id=NkHashPtr(&h,0xCD);
             if(ctx.IsHovered(r)&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
@@ -273,7 +273,7 @@ namespace nkentseu {
             const int32 cs=8;
             for(int32 y=0;y<static_cast<int32>(r.h/cs)+1;++y)
                 for(int32 x=0;x<static_cast<int32>(r.w/cs)+1;++x){
-                    const NkColor c=((x+y)%2)?NkColor::Gray(200):NkColor::Gray(160);
+                    const NkColor c=((x+y)%2)?NkColor::GrayValue(200):NkColor::GrayValue(160);
                     dl.AddRectFilled({r.x+x*cs,r.y+y*cs,static_cast<float32>(cs),static_cast<float32>(cs)},c);
                 }
             // Dégradé couleur→transparent
@@ -281,7 +281,7 @@ namespace nkentseu {
             dl.AddRectFilledMultiColor(r,{cr,cg,cb,0},{cr,cg,cb,255},{cr,cg,cb,255},{cr,cg,cb,0});
             // Curseur
             const float32 cx=r.x+a*r.w;
-            dl.AddRect({cx-3,r.y-1,6,r.h+2},NkColor::White(),2.f);
+            dl.AddRect({cx-3,r.y-1,6,r.h+2},NkColor::White,2.f);
             const NkUIID id=NkHashPtr(&a,0xEF);
             if(ctx.IsHovered(r)&&ctx.ConsumeMouseClick(0)) ctx.SetActive(id);
             if(ctx.IsActive(id)){
@@ -296,7 +296,7 @@ namespace nkentseu {
         {
             dl.AddRectFilled({r.x,r.y,r.w*0.5f,r.h},oldC,4.f);
             dl.AddRectFilled({r.x+r.w*0.5f,r.y,r.w*0.5f,r.h},newC,4.f);
-            dl.AddRect(r,NkColor::Gray(180),1.f,4.f);
+            dl.AddRect(r,NkColor::GrayValue(180),1.f,4.f);
         }
 
         bool NkUIColorPickerFull::Draw(NkUIContext& ctx,NkUIDrawList& dl,

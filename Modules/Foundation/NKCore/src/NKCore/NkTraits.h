@@ -602,6 +602,17 @@ namespace nkentseu {
 
         template<typename T>
         inline constexpr bool NkIsTriviallyMoveConstructible_v = NkIsTriviallyMoveConstructible<T>::value;
+
+        template <typename T>
+        inline constexpr bool NkIsTriviallyDestructible = __is_trivially_destructible(T);
+
+        template <typename T>
+        struct NkIsTriviallyConstructible : NkBoolConstant<__is_trivially_destructible(T)> {
+            // determine whether remove_all_extents_t<_Ty> is a reference type or can trivially be explicitly destroyed
+        };
+
+        template <typename T>
+        inline constexpr bool NkIsTriviallyConstructible_v = __is_trivially_constructible(T);
     } // namespace traits
 
     namespace traits_alias {

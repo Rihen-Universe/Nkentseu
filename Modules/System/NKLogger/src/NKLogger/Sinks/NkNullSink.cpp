@@ -11,59 +11,59 @@
  * @brief Namespace nkentseu.
  */
 namespace nkentseu {
-		
-	/**
-	 * @brief Constructeur par défaut
-	 */
-	NkNullSink::NkNullSink() {
-	}
+        
+    /**
+     * @brief Constructeur par défaut
+     */
+    NkNullSink::NkNullSink() {
+    }
 
-	/**
-	 * @brief Destructeur
-	 */
-	NkNullSink::~NkNullSink() {
-	}
+    /**
+     * @brief Destructeur
+     */
+    NkNullSink::~NkNullSink() {
+    }
 
-	/**
-	 * @brief Ignore le message (no-op)
-	 */
-	void NkNullSink::Log(const NkLogMessage &message) {
-		// No-op
-	}
+    /**
+     * @brief Ignore le message (no-op)
+     */
+    void NkNullSink::Log(const NkLogMessage &message) {
+        // No-op
+    }
 
-	/**
-	 * @brief No-op
-	 */
-	void NkNullSink::Flush() {
-		// No-op
-	}
+    /**
+     * @brief No-op
+     */
+    void NkNullSink::Flush() {
+        // No-op
+    }
 
-	/**
-	 * @brief No-op
-	 */
-	void NkNullSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
-		// No-op
-	}
+    /**
+     * @brief No-op
+     */
+    void NkNullSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+        // No-op
+    }
 
-	/**
-	 * @brief No-op
-	 */
-	void NkNullSink::SetPattern(const NkString &pattern) {
-		// No-op
-	}
+    /**
+     * @brief No-op
+     */
+    void NkNullSink::SetPattern(const NkString &pattern) {
+        // No-op
+    }
 
-	/**
-	 * @brief Retourne nullptr
-	 */
-	NkFormatter *NkNullSink::GetFormatter() const {
-		return nullptr;
-	}
+    /**
+     * @brief Retourne nullptr
+     */
+    NkFormatter *NkNullSink::GetFormatter() const {
+        return nullptr;
+    }
 
-	/**
-	 * @brief Retourne une chaîne vide
-	 */
-	NkString NkNullSink::GetPattern() const {
-		return "";
-	}
+    /**
+     * @brief Retourne une chaîne vide
+     */
+    NkString NkNullSink::GetPattern() const {
+        return "";
+    }
 
 } // namespace nkentseu

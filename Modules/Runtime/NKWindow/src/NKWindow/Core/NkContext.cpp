@@ -36,20 +36,20 @@ namespace nkentseu {
         static NkContextConfig gHints{};
         static bool            gInit = false;
 
-        static uint32 ClampU32Min(uint32 value, uint32 minValue) {
+        static uint32 NkClampU32Min(uint32 value, uint32 minValue) {
             return value < minValue ? minValue : value;
         }
 
-        static void SetContextError(NkContext& context, uint32 code, const char* msg) {
+        static void NkSetContextError(NkContext& context, uint32 code, const char* msg) {
             context.lastError.code = code;
             context.lastError.message = msg;
         }
 
-        static void ClearContextError(NkContext& context) {
+        static void NkClearContextError(NkContext& context) {
             context.lastError = NkError::Ok();
         }
 
-        static bool IsSurfaceOnlyApi(NkRendererApi api) {
+        static bool NkIsSurfaceOnlyApi(NkRendererApi api) {
             return api == NkRendererApi::NK_VULKAN ||
                    api == NkRendererApi::NK_DIRECTX11 ||
                    api == NkRendererApi::NK_DIRECTX12 ||
@@ -57,7 +57,7 @@ namespace nkentseu {
                    api == NkRendererApi::NK_SOFTWARE;
         }
 
-        static bool ShouldRequestExplicitOpenGLContext(const NkContextConfig& config) {
+        static bool NkShouldRequestExplicitOpenGLContext(const NkContextConfig& config) {
             return config.versionMajor >= 3u ||
                    config.versionMinor > 0u ||
                    config.profile != NkContextProfile::NK_CONTEXT_PROFILE_ANY ||
@@ -76,14 +76,14 @@ namespace nkentseu {
 
         using NkWglCreateContextAttribsProc = HGLRC(WINAPI*)(HDC, HGLRC, const int*);
 
-        static BYTE ToByte(uint32 value) {
+        static BYTE NkToByte(uint32 value) {
             return static_cast<BYTE>(value > 255u ? 255u : value);
         }
 
-        static void BuildWglContextAttribs(const NkContextConfig& config, int (&attrs)[16]) {
+        static void NkBuildWglContextAttribs(const NkContextConfig& config, int (&attrs)[16]) {
             int i = 0;
             attrs[i++] = kWglContextMajorVersion;
-            attrs[i++] = static_cast<int>(ClampU32Min(config.versionMajor, 1u));
+            attrs[i++] = static_cast<int>(NkClampU32Min(config.versionMajor, 1u));
             attrs[i++] = kWglContextMinorVersion;
             attrs[i++] = static_cast<int>(config.versionMinor);
 
@@ -116,13 +116,13 @@ namespace nkentseu {
             attrs[i++] = 0;
         }
 
-        static BYTE ToLayerByte(int32 layerType) {
+        static BYTE NkToLayerByte(int32 layerType) {
             if (layerType > 0) return static_cast<BYTE>(PFD_OVERLAY_PLANE);
             if (layerType < 0) return static_cast<BYTE>(PFD_UNDERLAY_PLANE);
             return static_cast<BYTE>(PFD_MAIN_PLANE);
         }
 
-        static PIXELFORMATDESCRIPTOR BuildPixelFormatDescriptor(const NkContextConfig& config) {
+        static PIXELFORMATDESCRIPTOR NkBuildPixelFormatDescriptor(const NkContextConfig& config) {
             PIXELFORMATDESCRIPTOR pfd = {};
             pfd.nSize = sizeof(PIXELFORMATDESCRIPTOR);
             pfd.nVersion = 1;
@@ -139,26 +139,25 @@ namespace nkentseu {
                 if (custom.genericAccelerated) flags |= PFD_GENERIC_ACCELERATED;
                 pfd.dwFlags = flags;
 
-                pfd.iPixelType = static_cast<BYTE>(
-                    custom.pixelType == 1u ? PFD_TYPE_COLORINDEX : PFD_TYPE_RGBA);
-                pfd.cColorBits      = ToByte(custom.colorBits);
-                pfd.cRedBits        = ToByte(custom.redBits);
-                pfd.cRedShift       = ToByte(custom.redShift);
-                pfd.cGreenBits      = ToByte(custom.greenBits);
-                pfd.cGreenShift     = ToByte(custom.greenShift);
-                pfd.cBlueBits       = ToByte(custom.blueBits);
-                pfd.cBlueShift      = ToByte(custom.blueShift);
-                pfd.cAlphaBits      = ToByte(custom.alphaBits);
-                pfd.cAlphaShift     = ToByte(custom.alphaShift);
-                pfd.cAccumBits      = ToByte(custom.accumBits);
-                pfd.cAccumRedBits   = ToByte(custom.accumRedBits);
-                pfd.cAccumGreenBits = ToByte(custom.accumGreenBits);
-                pfd.cAccumBlueBits  = ToByte(custom.accumBlueBits);
-                pfd.cAccumAlphaBits = ToByte(custom.accumAlphaBits);
-                pfd.cDepthBits      = ToByte(custom.depthBits);
-                pfd.cStencilBits    = ToByte(custom.stencilBits);
-                pfd.cAuxBuffers     = ToByte(custom.auxBuffers);
-                pfd.iLayerType      = ToLayerByte(custom.layerType);
+                pfd.iPixelType = static_cast<BYTE>(custom.pixelType == 1u ? PFD_TYPE_COLORINDEX : PFD_TYPE_RGBA);
+                pfd.cColorBits      = NkToByte(custom.colorBits);
+                pfd.cRedBits        = NkToByte(custom.redBits);
+                pfd.cRedShift       = NkToByte(custom.redShift);
+                pfd.cGreenBits      = NkToByte(custom.greenBits);
+                pfd.cGreenShift     = NkToByte(custom.greenShift);
+                pfd.cBlueBits       = NkToByte(custom.blueBits);
+                pfd.cBlueShift      = NkToByte(custom.blueShift);
+                pfd.cAlphaBits      = NkToByte(custom.alphaBits);
+                pfd.cAlphaShift     = NkToByte(custom.alphaShift);
+                pfd.cAccumBits      = NkToByte(custom.accumBits);
+                pfd.cAccumRedBits   = NkToByte(custom.accumRedBits);
+                pfd.cAccumGreenBits = NkToByte(custom.accumGreenBits);
+                pfd.cAccumBlueBits  = NkToByte(custom.accumBlueBits);
+                pfd.cAccumAlphaBits = NkToByte(custom.accumAlphaBits);
+                pfd.cDepthBits      = NkToByte(custom.depthBits);
+                pfd.cStencilBits    = NkToByte(custom.stencilBits);
+                pfd.cAuxBuffers     = NkToByte(custom.auxBuffers);
+                pfd.iLayerType      = NkToLayerByte(custom.layerType);
                 pfd.bReserved       = 0;
                 pfd.dwLayerMask     = custom.layerMask;
                 pfd.dwVisibleMask   = custom.visibleMask;
@@ -172,20 +171,19 @@ namespace nkentseu {
             pfd.dwFlags = flags;
             pfd.iPixelType = PFD_TYPE_RGBA;
 
-            const uint32 totalColorBits =
-                ClampU32Min(config.redBits + config.greenBits + config.blueBits + config.alphaBits, 24u);
-            pfd.cColorBits      = ToByte(totalColorBits);
-            pfd.cRedBits        = ToByte(config.redBits);
-            pfd.cGreenBits      = ToByte(config.greenBits);
-            pfd.cBlueBits       = ToByte(config.blueBits);
-            pfd.cAlphaBits      = ToByte(config.alphaBits);
-            pfd.cAccumRedBits   = ToByte(config.accumRedBits);
-            pfd.cAccumGreenBits = ToByte(config.accumGreenBits);
-            pfd.cAccumBlueBits  = ToByte(config.accumBlueBits);
-            pfd.cAccumAlphaBits = ToByte(config.accumAlphaBits);
-            pfd.cDepthBits      = ToByte(config.depthBits);
-            pfd.cStencilBits    = ToByte(config.stencilBits);
-            pfd.cAuxBuffers     = ToByte(config.auxBuffers);
+            const uint32 totalColorBits = NkClampU32Min(config.redBits + config.greenBits + config.blueBits + config.alphaBits, 24u);
+            pfd.cColorBits      = NkToByte(totalColorBits);
+            pfd.cRedBits        = NkToByte(config.redBits);
+            pfd.cGreenBits      = NkToByte(config.greenBits);
+            pfd.cBlueBits       = NkToByte(config.blueBits);
+            pfd.cAlphaBits      = NkToByte(config.alphaBits);
+            pfd.cAccumRedBits   = NkToByte(config.accumRedBits);
+            pfd.cAccumGreenBits = NkToByte(config.accumGreenBits);
+            pfd.cAccumBlueBits  = NkToByte(config.accumBlueBits);
+            pfd.cAccumAlphaBits = NkToByte(config.accumAlphaBits);
+            pfd.cDepthBits      = NkToByte(config.depthBits);
+            pfd.cStencilBits    = NkToByte(config.stencilBits);
+            pfd.cAuxBuffers     = NkToByte(config.auxBuffers);
             pfd.iLayerType      = PFD_MAIN_PLANE;
             return pfd;
         }
@@ -243,7 +241,7 @@ namespace nkentseu {
         static void BuildGlxContextAttribs(const NkContextConfig& config, int (&attrs)[16]) {
             int i = 0;
             attrs[i++] = kGlxContextMajorVersion;
-            attrs[i++] = static_cast<int>(ClampU32Min(config.versionMajor, 1u));
+            attrs[i++] = static_cast<int>(NkClampU32Min(config.versionMajor, 1u));
             attrs[i++] = kGlxContextMinorVersion;
             attrs[i++] = static_cast<int>(config.versionMinor);
 
@@ -289,9 +287,9 @@ namespace nkentseu {
                 GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
                 GLX_RENDER_TYPE, GLX_RGBA_BIT,
                 GLX_X_VISUAL_TYPE, GLX_TRUE_COLOR,
-                GLX_RED_SIZE, static_cast<int>(ClampU32Min(config.redBits, 1u)),
-                GLX_GREEN_SIZE, static_cast<int>(ClampU32Min(config.greenBits, 1u)),
-                GLX_BLUE_SIZE, static_cast<int>(ClampU32Min(config.blueBits, 1u)),
+                GLX_RED_SIZE, static_cast<int>(NkClampU32Min(config.redBits, 1u)),
+                GLX_GREEN_SIZE, static_cast<int>(NkClampU32Min(config.greenBits, 1u)),
+                GLX_BLUE_SIZE, static_cast<int>(NkClampU32Min(config.blueBits, 1u)),
                 GLX_ALPHA_SIZE, static_cast<int>(config.alphaBits),
                 GLX_DEPTH_SIZE, static_cast<int>(config.depthBits),
                 GLX_STENCIL_SIZE, static_cast<int>(config.stencilBits),
@@ -385,9 +383,9 @@ namespace nkentseu {
             if (!dpy) return;
 
             const int screen = DefaultScreen(dpy);
-            const int redBits = static_cast<int>(ClampU32Min(hints.redBits, 1u));
-            const int greenBits = static_cast<int>(ClampU32Min(hints.greenBits, 1u));
-            const int blueBits = static_cast<int>(ClampU32Min(hints.blueBits, 1u));
+            const int redBits = static_cast<int>(NkClampU32Min(hints.redBits, 1u));
+            const int greenBits = static_cast<int>(NkClampU32Min(hints.greenBits, 1u));
+            const int blueBits = static_cast<int>(NkClampU32Min(hints.blueBits, 1u));
             const int alphaBits = static_cast<int>(hints.alphaBits);
             const int depthBits = static_cast<int>(hints.depthBits);
             const int stencilBits = static_cast<int>(hints.stencilBits);
@@ -445,7 +443,7 @@ namespace nkentseu {
         #if defined(NKENTSEU_PLATFORM_WINDOWS)
             HDC hdc = GetDC(surface.hwnd);
             if (!hdc) {
-                SetContextError(context, 1001, "GetDC failed.");
+                NkSetContextError(context, 1001, "GetDC failed.");
                 return false;
             }
 
@@ -458,14 +456,14 @@ namespace nkentseu {
                     HWND shareHwnd = reinterpret_cast<HWND>(shareHwndHint);
                     if (!IsWindow(shareHwnd)) {
                         ReleaseDC(surface.hwnd, hdc);
-                        SetContextError(context, 1002, "Invalid share HWND for WGL pixel format.");
+                        NkSetContextError(context, 1002, "Invalid share HWND for WGL pixel format.");
                         return false;
                     }
 
                     HDC shareDC = GetDC(shareHwnd);
                     if (!shareDC) {
                         ReleaseDC(surface.hwnd, hdc);
-                        SetContextError(context, 1002, "GetDC failed for share HWND.");
+                        NkSetContextError(context, 1002, "GetDC failed for share HWND.");
                         return false;
                     }
 
@@ -480,14 +478,14 @@ namespace nkentseu {
 
                     if (!canDescribe || !SetPixelFormat(hdc, sharePixelFormat, &sharePfd)) {
                         ReleaseDC(surface.hwnd, hdc);
-                        SetContextError(context, 1002, "SetPixelFormat failed from shared HWND.");
+                        NkSetContextError(context, 1002, "SetPixelFormat failed from shared HWND.");
                         return false;
                     }
                     appliedSharedPixelFormat = true;
                 }
 
                 if (!appliedSharedPixelFormat) {
-                    PIXELFORMATDESCRIPTOR requested = BuildPixelFormatDescriptor(context.config);
+                    PIXELFORMATDESCRIPTOR requested = NkBuildPixelFormatDescriptor(context.config);
                     PIXELFORMATDESCRIPTOR selected = requested;
 
                     int pf = 0;
@@ -500,7 +498,7 @@ namespace nkentseu {
                             selected = described;
                         } else {
                             ReleaseDC(surface.hwnd, hdc);
-                            SetContextError(context, 1002, "DescribePixelFormat failed for forced index.");
+                            NkSetContextError(context, 1002, "DescribePixelFormat failed for forced index.");
                             return false;
                         }
                     } else {
@@ -517,25 +515,25 @@ namespace nkentseu {
 
                     if (pf == 0 || !SetPixelFormat(hdc, pf, &selected)) {
                         ReleaseDC(surface.hwnd, hdc);
-                        SetContextError(context, 1002, "SetPixelFormat failed.");
+                        NkSetContextError(context, 1002, "SetPixelFormat failed.");
                         return false;
                     }
                 }
             }
 
             HGLRC rc = nullptr;
-            if (ShouldRequestExplicitOpenGLContext(context.config)) {
+            if (NkShouldRequestExplicitOpenGLContext(context.config)) {
                 HGLRC bootstrap = wglCreateContext(hdc);
                 if (!bootstrap) {
                     ReleaseDC(surface.hwnd, hdc);
-                    SetContextError(context, 1003, "wglCreateContext bootstrap failed.");
+                    NkSetContextError(context, 1003, "wglCreateContext bootstrap failed.");
                     return false;
                 }
 
                 if (!wglMakeCurrent(hdc, bootstrap)) {
                     wglDeleteContext(bootstrap);
                     ReleaseDC(surface.hwnd, hdc);
-                    SetContextError(context, 1004, "wglMakeCurrent bootstrap failed.");
+                    NkSetContextError(context, 1004, "wglMakeCurrent bootstrap failed.");
                     return false;
                 }
 
@@ -545,25 +543,25 @@ namespace nkentseu {
                     wglMakeCurrent(nullptr, nullptr);
                     wglDeleteContext(bootstrap);
                     ReleaseDC(surface.hwnd, hdc);
-                    SetContextError(context, 1005, "WGL_ARB_create_context unavailable for requested OpenGL version/profile.");
+                    NkSetContextError(context, 1005, "WGL_ARB_create_context unavailable for requested OpenGL version/profile.");
                     return false;
                 }
 
                 int attribs[16] = {};
-                BuildWglContextAttribs(context.config, attribs);
+                NkBuildWglContextAttribs(context.config, attribs);
                 rc = createAttribs(hdc, nullptr, attribs);
                 wglMakeCurrent(nullptr, nullptr);
                 wglDeleteContext(bootstrap);
                 if (!rc) {
                     ReleaseDC(surface.hwnd, hdc);
-                    SetContextError(context, 1006, "wglCreateContextAttribsARB failed for requested OpenGL version/profile.");
+                    NkSetContextError(context, 1006, "wglCreateContextAttribsARB failed for requested OpenGL version/profile.");
                     return false;
                 }
             } else {
                 rc = wglCreateContext(hdc);
                 if (!rc) {
                     ReleaseDC(surface.hwnd, hdc);
-                    SetContextError(context, 1003, "wglCreateContext failed.");
+                    NkSetContextError(context, 1003, "wglCreateContext failed.");
                     return false;
                 }
             }
@@ -589,7 +587,7 @@ namespace nkentseu {
         #endif
 
             if (!dpy) {
-                SetContextError(context, 1101, "XOpenDisplay failed for GLX context.");
+                NkSetContextError(context, 1101, "XOpenDisplay failed for GLX context.");
                 return false;
             }
 
@@ -598,11 +596,11 @@ namespace nkentseu {
                 surface.appliedHints.Get(NkSurfaceHintKey::NK_GLX_VISUAL_ID));
             GLXContext glx = nullptr;
 
-            if (ShouldRequestExplicitOpenGLContext(context.config)) {
+            if (NkShouldRequestExplicitOpenGLContext(context.config)) {
                 const char* extensions = glXQueryExtensionsString(dpy, screen);
                 if (!HasOpenGLExtension(extensions, "GLX_ARB_create_context")) {
                     if (ownDisplay) XCloseDisplay(dpy);
-                    SetContextError(context, 1104, "GLX_ARB_create_context unavailable for requested OpenGL version/profile.");
+                    NkSetContextError(context, 1104, "GLX_ARB_create_context unavailable for requested OpenGL version/profile.");
                     return false;
                 }
 
@@ -610,14 +608,14 @@ namespace nkentseu {
                     glXGetProcAddressARB(reinterpret_cast<const GLubyte*>("glXCreateContextAttribsARB")));
                 if (!createAttribs) {
                     if (ownDisplay) XCloseDisplay(dpy);
-                    SetContextError(context, 1105, "glXCreateContextAttribsARB symbol unavailable.");
+                    NkSetContextError(context, 1105, "glXCreateContextAttribsARB symbol unavailable.");
                     return false;
                 }
 
                 GLXFBConfig fbConfig = ChooseGlxFBConfig(dpy, screen, context.config, hinted);
                 if (!fbConfig) {
                     if (ownDisplay) XCloseDisplay(dpy);
-                    SetContextError(context, 1106, "No GLXFBConfig matches requested surface/context attributes.");
+                    NkSetContextError(context, 1106, "No GLXFBConfig matches requested surface/context attributes.");
                     return false;
                 }
 
@@ -626,7 +624,7 @@ namespace nkentseu {
                 glx = createAttribs(dpy, fbConfig, nullptr, True, attribs);
                 if (!glx) {
                     if (ownDisplay) XCloseDisplay(dpy);
-                    SetContextError(context, 1107, "glXCreateContextAttribsARB failed for requested OpenGL version/profile.");
+                    NkSetContextError(context, 1107, "glXCreateContextAttribsARB failed for requested OpenGL version/profile.");
                     return false;
                 }
             } else {
@@ -644,9 +642,9 @@ namespace nkentseu {
                 if (!vi) {
                     const int attrs[] = {
                         GLX_RGBA,
-                        GLX_RED_SIZE, static_cast<int>(ClampU32Min(context.config.redBits, 1u)),
-                        GLX_GREEN_SIZE, static_cast<int>(ClampU32Min(context.config.greenBits, 1u)),
-                        GLX_BLUE_SIZE, static_cast<int>(ClampU32Min(context.config.blueBits, 1u)),
+                        GLX_RED_SIZE, static_cast<int>(NkClampU32Min(context.config.redBits, 1u)),
+                        GLX_GREEN_SIZE, static_cast<int>(NkClampU32Min(context.config.greenBits, 1u)),
+                        GLX_BLUE_SIZE, static_cast<int>(NkClampU32Min(context.config.blueBits, 1u)),
                         GLX_ALPHA_SIZE, static_cast<int>(context.config.alphaBits),
                         GLX_DOUBLEBUFFER, context.config.doubleBuffer ? True : False,
                         GLX_DEPTH_SIZE, static_cast<int>(context.config.depthBits),
@@ -662,7 +660,7 @@ namespace nkentseu {
 
                 if (!vi) {
                     if (ownDisplay) XCloseDisplay(dpy);
-                    SetContextError(context, 1102, "No GLX visual available.");
+                    NkSetContextError(context, 1102, "No GLX visual available.");
                     return false;
                 }
 
@@ -670,7 +668,7 @@ namespace nkentseu {
                 XFree(vi);
                 if (!glx) {
                     if (ownDisplay) XCloseDisplay(dpy);
-                    SetContextError(context, 1103, "glXCreateContext failed.");
+                    NkSetContextError(context, 1103, "glXCreateContext failed.");
                     return false;
                 }
             }
@@ -686,7 +684,7 @@ namespace nkentseu {
             ::wl_display* wlDisplay = surface.display;
             ::wl_surface* wlSurface = surface.surface;
             if (!wlDisplay || !wlSurface) {
-                SetContextError(context, 1151, "Wayland surface/display is invalid.");
+                NkSetContextError(context, 1151, "Wayland surface/display is invalid.");
                 return false;
             }
 
@@ -697,21 +695,21 @@ namespace nkentseu {
                 : eglGetDisplay(reinterpret_cast<EGLNativeDisplayType>(wlDisplay));
 
             if (eglDisplay == EGL_NO_DISPLAY) {
-                SetContextError(context, 1152, "eglGetDisplay failed for Wayland.");
+                NkSetContextError(context, 1152, "eglGetDisplay failed for Wayland.");
                 return false;
             }
 
             EGLint eglMajor = 0;
             EGLint eglMinor = 0;
             if (eglInitialize(eglDisplay, &eglMajor, &eglMinor) != EGL_TRUE) {
-                SetContextError(context, 1153, "eglInitialize failed.");
+                NkSetContextError(context, 1153, "eglInitialize failed.");
                 return false;
             }
 
             const EGLenum bindApi = IsEglEsProfile(context.config) ? EGL_OPENGL_ES_API : EGL_OPENGL_API;
             if (eglBindAPI(bindApi) != EGL_TRUE) {
                 if (!externalDisplay) eglTerminate(eglDisplay);
-                SetContextError(context, 1154, "eglBindAPI failed.");
+                NkSetContextError(context, 1154, "eglBindAPI failed.");
                 return false;
             }
 
@@ -719,16 +717,16 @@ namespace nkentseu {
                 surface.appliedHints.Get(NkSurfaceHintKey::NK_EGL_CONFIG, 0));
             if (!eglConfig && !ChooseWaylandEglConfig(eglDisplay, context.config, &eglConfig)) {
                 if (!externalDisplay) eglTerminate(eglDisplay);
-                SetContextError(context, 1155, "eglChooseConfig failed.");
+                NkSetContextError(context, 1155, "eglChooseConfig failed.");
                 return false;
             }
 
-            const int width = static_cast<int>(ClampU32Min(surface.width, 1u));
-            const int height = static_cast<int>(ClampU32Min(surface.height, 1u));
+            const int width = static_cast<int>(NkClampU32Min(surface.width, 1u));
+            const int height = static_cast<int>(NkClampU32Min(surface.height, 1u));
             ::wl_egl_window* eglWindow = wl_egl_window_create(wlSurface, width, height);
             if (!eglWindow) {
                 if (!externalDisplay) eglTerminate(eglDisplay);
-                SetContextError(context, 1156, "wl_egl_window_create failed.");
+                NkSetContextError(context, 1156, "wl_egl_window_create failed.");
                 return false;
             }
 
@@ -740,14 +738,14 @@ namespace nkentseu {
             if (eglSurface == EGL_NO_SURFACE) {
                 wl_egl_window_destroy(eglWindow);
                 if (!externalDisplay) eglTerminate(eglDisplay);
-                SetContextError(context, 1157, "eglCreateWindowSurface failed.");
+                NkSetContextError(context, 1157, "eglCreateWindowSurface failed.");
                 return false;
             }
 
             EGLContext eglContext = EGL_NO_CONTEXT;
             if (IsEglEsProfile(context.config)) {
                 const EGLint ctxAttrs[] = {
-                    EGL_CONTEXT_CLIENT_VERSION, static_cast<EGLint>(ClampU32Min(context.config.versionMajor, 2u)),
+                    EGL_CONTEXT_CLIENT_VERSION, static_cast<EGLint>(NkClampU32Min(context.config.versionMajor, 2u)),
                     EGL_NONE
                 };
                 eglContext = eglCreateContext(eglDisplay, eglConfig, EGL_NO_CONTEXT, ctxAttrs);
@@ -759,7 +757,7 @@ namespace nkentseu {
                 eglDestroySurface(eglDisplay, eglSurface);
                 wl_egl_window_destroy(eglWindow);
                 if (!externalDisplay) eglTerminate(eglDisplay);
-                SetContextError(context, 1158, "eglCreateContext failed.");
+                NkSetContextError(context, 1158, "eglCreateContext failed.");
                 return false;
             }
 
@@ -779,11 +777,11 @@ namespace nkentseu {
             return true;
 
         #elif defined(NKENTSEU_WINDOWING_WAYLAND)
-            SetContextError(context, 1150, "Wayland EGL headers are missing (EGL/egl.h + wayland-egl.h).");
+            NkSetContextError(context, 1150, "Wayland EGL headers are missing (EGL/egl.h + wayland-egl.h).");
             return false;
 
         #else
-            SetContextError(context, 1199, "OpenGL context creation unsupported on this platform.");
+            NkSetContextError(context, 1199, "OpenGL context creation unsupported on this platform.");
             return false;
         #endif
         }
@@ -946,19 +944,18 @@ namespace nkentseu {
     }
 
     NkContextMode NkContextGetModeForApi(NkRendererApi api) {
-        return IsSurfaceOnlyApi(api)
+        return NkIsSurfaceOnlyApi(api)
             ? NkContextMode::NK_CONTEXT_MODE_SURFACE_ONLY
             : NkContextMode::NK_CONTEXT_MODE_GRAPHICS_CONTEXT;
     }
 
-    bool NkContextCreate(NkWindow& window, NkContext& outContext,
-                         const NkContextConfig* overrideConfig) {
+    bool NkContextCreate(NkWindow& window, NkContext& outContext, const NkContextConfig* overrideConfig) {
         if (!gInit && !NkContextInit()) {
             return false;
         }
         if (!window.IsOpen()) {
             outContext = {};
-            SetContextError(outContext, 1201, "NkContextCreate requires an open window.");
+            NkSetContextError(outContext, 1201, "NkContextCreate requires an open window.");
             return false;
         }
 
@@ -967,10 +964,10 @@ namespace nkentseu {
         outContext.surface = window.GetSurfaceDesc();
         outContext.mode = NkContextGetModeForApi(outContext.config.api);
         outContext.valid = false;
-        ClearContextError(outContext);
+        NkClearContextError(outContext);
 
         if (!outContext.surface.IsValid()) {
-            SetContextError(outContext, 1202, "Window surface is invalid.");
+            NkSetContextError(outContext, 1202, "Window surface is invalid.");
             return false;
         }
 
@@ -980,7 +977,7 @@ namespace nkentseu {
         }
 
         if (outContext.config.api != NkRendererApi::NK_OPENGL) {
-            SetContextError(outContext, 1203, "Only OpenGL uses native context mode in NKWindow.");
+            NkSetContextError(outContext, 1203, "Only OpenGL uses native context mode in NKWindow.");
             return false;
         }
 
@@ -1055,7 +1052,7 @@ namespace nkentseu {
         if (context.mode == NkContextMode::NK_CONTEXT_MODE_SURFACE_ONLY) return true;
 
         if (context.config.api != NkRendererApi::NK_OPENGL) {
-            SetContextError(context, 1301, "MakeCurrent is only available for OpenGL contexts.");
+            NkSetContextError(context, 1301, "MakeCurrent is only available for OpenGL contexts.");
             return false;
         }
 
@@ -1063,7 +1060,7 @@ namespace nkentseu {
         HDC hdc = static_cast<HDC>(context.nativeDeviceContext);
         HGLRC rc = static_cast<HGLRC>(context.nativeContext);
         if (!hdc || !rc || !wglMakeCurrent(hdc, rc)) {
-            SetContextError(context, 1302, "wglMakeCurrent failed.");
+            NkSetContextError(context, 1302, "wglMakeCurrent failed.");
             return false;
         }
         return true;
@@ -1073,7 +1070,7 @@ namespace nkentseu {
         GLXContext glx = reinterpret_cast<GLXContext>(context.nativeContext);
         GLXDrawable draw = static_cast<GLXDrawable>(context.nativeDrawable);
         if (!dpy || !glx || draw == 0 || !glXMakeCurrent(dpy, draw, glx)) {
-            SetContextError(context, 1303, "glXMakeCurrent failed.");
+            NkSetContextError(context, 1303, "glXMakeCurrent failed.");
             return false;
         }
         return true;
@@ -1083,7 +1080,7 @@ namespace nkentseu {
         EGLContext eglContext = reinterpret_cast<EGLContext>(context.nativeContext);
         EGLSurface eglSurface = reinterpret_cast<EGLSurface>(context.nativeDrawable);
         if (eglDisplay == EGL_NO_DISPLAY || eglContext == EGL_NO_CONTEXT || eglSurface == EGL_NO_SURFACE) {
-            SetContextError(context, 1304, "Wayland EGL context is incomplete.");
+            NkSetContextError(context, 1304, "Wayland EGL context is incomplete.");
             return false;
         }
 
@@ -1091,14 +1088,14 @@ namespace nkentseu {
         if (eglWindow) {
             wl_egl_window_resize(
                 eglWindow,
-                static_cast<int>(ClampU32Min(context.surface.width, 1u)),
-                static_cast<int>(ClampU32Min(context.surface.height, 1u)),
+                static_cast<int>(NkClampU32Min(context.surface.width, 1u)),
+                static_cast<int>(NkClampU32Min(context.surface.height, 1u)),
                 0,
                 0);
         }
 
         if (eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext) != EGL_TRUE) {
-            SetContextError(context, 1305, "eglMakeCurrent failed.");
+            NkSetContextError(context, 1305, "eglMakeCurrent failed.");
             return false;
         }
 
@@ -1106,11 +1103,11 @@ namespace nkentseu {
         return true;
 
     #elif defined(NKENTSEU_WINDOWING_WAYLAND)
-        SetContextError(context, 1306, "Wayland EGL headers are missing (EGL/egl.h + wayland-egl.h).");
+        NkSetContextError(context, 1306, "Wayland EGL headers are missing (EGL/egl.h + wayland-egl.h).");
         return false;
 
     #else
-        SetContextError(context, 1399, "MakeCurrent unsupported on this platform.");
+        NkSetContextError(context, 1399, "MakeCurrent unsupported on this platform.");
         return false;
     #endif
     }

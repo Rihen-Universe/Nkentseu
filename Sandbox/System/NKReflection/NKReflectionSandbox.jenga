@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SandboxNKReflection
+===================
+Projet sandbox cible pour valider NKReflection avec ses dependances
+Foundation + System en build isole.
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("SandboxNKReflection"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files([
+        "src/main.cpp",
+    ])
+
+    includedirs([
+        "src",
+        "%{NKReflection.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKPlatform.location}/src",
+    ])
+
+    _LINKS = [
+        "NKReflection",
+        "NKLogger",
+        "NKThreading",
+        "NKContainers",
+        "NKMemory",
+        "NKCore",
+        "NKPlatform",
+    ]
+
+    links(_LINKS)
+    dependson(_LINKS)
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+        links(["user32", "shell32"])
+
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread"])
+
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        links(["pthread"])
+
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["log"])
+
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

@@ -400,3 +400,13 @@ namespace loggersync {
 } // namespace nkentseu
 
 #endif // NKENTSEU_LOGGER_NKSYNC_H_INCLUDED
+
+// =============================================================================
+// EXEMPLES D'UTILISATION - NkSync
+// =============================================================================
+//
+//   threading::NkMutex m;
+//   loggersync::NkLockGuard guard(m);
+//   // section critique
+//
+// =============================================================================

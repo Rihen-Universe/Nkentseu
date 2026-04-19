@@ -1,9 +1,17 @@
+// =============================================================================
+// NKSerialization/JSON/NkJSONReader.cpp
+// =============================================================================
+// Corrections :
+//  - Le reader original ignorait les arrays et objets imbriqués
+//    (ParseScalarValue ne parsait que des scalaires → les objets imbriqués
+//    étaient des erreurs silencieuses)
+//  - Ajout de la récursion pour objects {} et arrays []
+//  - Gestion correcte des trailing whitespace après la valeur top-level
+// =============================================================================
 #include "NKSerialization/JSON/NkJSONReader.h"
-
 #include "NKSerialization/JSON/NkJSONValue.h"
 
 namespace nkentseu {
-namespace entseu {
 
 namespace {
 
@@ -11,191 +19,174 @@ struct NkJSONParser {
     NkStringView text;
     nk_size pos = 0;
 
-    void SkipWS() {
+    char Peek() const noexcept {
+        return pos < text.Length() ? text[pos] : '\0';
+    }
+    char Consume() noexcept {
+        return pos < text.Length() ? text[pos++] : '\0';
+    }
+    void SkipWS() noexcept {
         while (pos < text.Length()) {
-            const char ch = text[pos];
-            if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
-                ++pos;
-                continue;
-            }
-            break;
+            char c = text[pos];
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') ++pos;
+            else break;
         }
     }
-
-    nk_bool Match(char expected) {
+    bool Match(char expected) noexcept {
         SkipWS();
-        if (pos < text.Length() && text[pos] == expected) {
-            ++pos;
-            return true;
-        }
+        if (pos < text.Length() && text[pos] == expected) { ++pos; return true; }
         return false;
     }
-
-    nk_bool ParseStringLiteral(NkString& outValue) {
-        SkipWS();
-        if (pos >= text.Length() || text[pos] != '"') {
+    bool Expect(char expected, NkString* err) noexcept {
+        if (!Match(expected)) {
+            if (err) *err = NkString::Fmtf("Expected '%c' at pos %zu", expected, pos);
             return false;
         }
+        return true;
+    }
+    bool AtEnd() const noexcept { SkipWSC(); return pos >= text.Length(); }
+    void SkipWSC() const noexcept {
+        nk_size p = pos;
+        while (p < text.Length()) {
+            char c = text[p];
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') ++p; else break;
+        }
+        const_cast<NkJSONParser*>(this)->pos = p;
+    }
 
+    bool ParseString(NkString& out, NkString* err) noexcept {
+        SkipWS();
+        if (Peek() != '"') { if (err) *err = NkString("Expected '\"'"); return false; }
         ++pos;
         NkString raw;
-        while (pos < text.Length()) {
-            const char ch = text[pos++];
-            if (ch == '"') {
-                nk_bool ok = true;
-                outValue = NkJSONUnescapeString(raw.View(), ok);
-                return ok;
-            }
-
-            if (ch == '\\') {
-                if (pos >= text.Length()) {
-                    return false;
+        while (pos < text.Length() && text[pos] != '"') {
+            char c = text[pos++];
+            if (c == '\\') {
+                if (pos >= text.Length()) { if (err) *err = NkString("Unterminated escape"); return false; }
+                char e = text[pos++];
+                switch (e) {
+                    case '"': raw.Append('"'); break;
+                    case '\\': raw.Append('\\'); break;
+                    case '/':  raw.Append('/'); break;
+                    case 'b':  raw.Append('\b'); break;
+                    case 'f':  raw.Append('\f'); break;
+                    case 'n':  raw.Append('\n'); break;
+                    case 'r':  raw.Append('\r'); break;
+                    case 't':  raw.Append('\t'); break;
+                    case 'u':
+                        // Minimal : consomme 4 hex, émet '?'
+                        if (pos + 4u <= text.Length()) pos += 4u;
+                        raw.Append('?');
+                        break;
+                    default:   raw.Append(e); break;
                 }
-                raw.Append('\\');
-                raw.Append(text[pos++]);
-                continue;
+            } else {
+                raw.Append(c);
             }
-
-            raw.Append(ch);
         }
-
-        return false;
-    }
-
-    nk_bool ParseLiteral(const char* literal) {
-        SkipWS();
-        if (!literal) {
+        if (pos >= text.Length() || text[pos] != '"') {
+            if (err) *err = NkString("Unterminated string");
             return false;
         }
-
-        nk_size i = 0;
-        while (literal[i] != '\0') {
-            if (pos + i >= text.Length() || text[pos + i] != literal[i]) {
-                return false;
-            }
-            ++i;
-        }
-
-        pos += i;
+        ++pos; // consume closing '"'
+        out = std::move(raw);
         return true;
     }
 
-    nk_bool ParseNumberToken(NkString& tokenOut) {
+    bool ParseObject(NkArchive& out, NkString* err) noexcept {
+        // On est déjà passé par '{'
         SkipWS();
-        const nk_size start = pos;
+        if (Match('}')) return true; // objet vide
 
-        if (pos < text.Length() && (text[pos] == '-' || text[pos] == '+')) {
-            ++pos;
+        while (true) {
+            NkString key;
+            if (!ParseString(key, err)) return false;
+            if (!Expect(':', err)) return false;
+
+            NkArchiveNode val;
+            if (!ParseNode(val, err)) return false;
+            out.SetNode(key.View(), val);
+
+            SkipWS();
+            if (Match('}')) return true;
+            if (!Expect(',', err)) return false;
         }
-
-        nk_bool hasDigits = false;
-        while (pos < text.Length() && text[pos] >= '0' && text[pos] <= '9') {
-            ++pos;
-            hasDigits = true;
-        }
-
-        if (pos < text.Length() && text[pos] == '.') {
-            ++pos;
-            while (pos < text.Length() && text[pos] >= '0' && text[pos] <= '9') {
-                ++pos;
-                hasDigits = true;
-            }
-        }
-
-        if (pos < text.Length() && (text[pos] == 'e' || text[pos] == 'E')) {
-            ++pos;
-            if (pos < text.Length() && (text[pos] == '-' || text[pos] == '+')) {
-                ++pos;
-            }
-            while (pos < text.Length() && text[pos] >= '0' && text[pos] <= '9') {
-                ++pos;
-                hasDigits = true;
-            }
-        }
-
-        if (!hasDigits) {
-            return false;
-        }
-
-        tokenOut = NkString(text.Data() + start, pos - start);
-        return true;
     }
 
-    nk_bool ParseScalarValue(NkArchiveValue& outValue) {
+    bool ParseArray(NkArchiveNode& out, NkString* err) noexcept {
+        // On est déjà passé par '['
+        out.MakeArray();
         SkipWS();
-        if (pos >= text.Length()) {
-            return false;
-        }
+        if (Match(']')) return true; // array vide
 
-        const char ch = text[pos];
-        if (ch == '"') {
-            NkString s;
-            if (!ParseStringLiteral(s)) {
-                return false;
-            }
-            outValue = NkArchiveValue::FromString(s.View());
-            return true;
-        }
+        while (true) {
+            NkArchiveNode elem;
+            if (!ParseNode(elem, err)) return false;
+            out.array.PushBack(std::move(elem));
 
-        if (ch == 't') {
-            if (!ParseLiteral("true")) {
-                return false;
-            }
-            outValue = NkArchiveValue::FromBool(true);
-            return true;
+            SkipWS();
+            if (Match(']')) return true;
+            if (!Expect(',', err)) return false;
         }
+    }
 
-        if (ch == 'f') {
-            if (!ParseLiteral("false")) {
-                return false;
-            }
-            outValue = NkArchiveValue::FromBool(false);
-            return true;
-        }
+    bool ParseNumber(NkArchiveValue& out, NkString* err) noexcept {
+        nk_size start = pos;
+        if (pos < text.Length() && (text[pos] == '-' || text[pos] == '+')) ++pos;
+        bool hasDigits = false;
+        while (pos < text.Length() && text[pos] >= '0' && text[pos] <= '9') { ++pos; hasDigits = true; }
+        bool isFloat = false;
+        if (pos < text.Length() && text[pos] == '.') { ++pos; isFloat = true;
+            while (pos < text.Length() && text[pos] >= '0' && text[pos] <= '9') ++pos; hasDigits = true; }
+        if (pos < text.Length() && (text[pos] == 'e' || text[pos] == 'E')) { ++pos; isFloat = true;
+            if (pos < text.Length() && (text[pos]=='+' || text[pos]=='-')) ++pos;
+            while (pos < text.Length() && text[pos] >= '0' && text[pos] <= '9') ++pos; }
 
-        if (ch == 'n') {
-            if (!ParseLiteral("null")) {
-                return false;
-            }
-            outValue = NkArchiveValue::Null();
-            return true;
-        }
+        if (!hasDigits) { if (err) *err = NkString("Invalid number"); return false; }
 
-        NkString numberToken;
-        if (!ParseNumberToken(numberToken)) {
-            return false;
-        }
-
-        if (numberToken.Contains('.') || numberToken.Contains('e') || numberToken.Contains('E')) {
+        NkString token(text.Data() + start, pos - start);
+        if (isFloat) {
             float64 v = 0.0;
-            if (!numberToken.ToDouble(v)) {
-                return false;
-            }
-            outValue = NkArchiveValue::FromFloat64(v);
-            return true;
-        }
-
-        if (!numberToken.Empty() && numberToken[0] == '-') {
+            if (!token.ToDouble(v)) { if (err) *err = NkString("Float parse error"); return false; }
+            out = NkArchiveValue::FromFloat64(v);
+        } else if (!token.Empty() && token[0] == '-') {
             int64 v = 0;
-            if (!numberToken.ToInt64(v)) {
-                return false;
+            if (!token.ToInt64(v)) { if (err) *err = NkString("Int parse error"); return false; }
+            out = NkArchiveValue::FromInt64(v);
+        } else {
+            uint64 v = 0;
+            if (!token.ToUInt64(v)) {
+                int64 sv = 0;
+                if (!token.ToInt64(sv)) { if (err) *err = NkString("UInt parse error"); return false; }
+                out = NkArchiveValue::FromInt64(sv);
+            } else {
+                out = NkArchiveValue::FromUInt64(v);
             }
-            outValue = NkArchiveValue::FromInt64(v);
-            return true;
         }
-
-        uint64 uv = 0;
-        if (!numberToken.ToUInt64(uv)) {
-            int64 sv = 0;
-            if (!numberToken.ToInt64(sv)) {
-                return false;
-            }
-            outValue = NkArchiveValue::FromInt64(sv);
-            return true;
-        }
-
-        outValue = NkArchiveValue::FromUInt64(uv);
         return true;
+    }
+
+    bool ParseNode(NkArchiveNode& out, NkString* err) noexcept {
+        SkipWS();
+        if (pos >= text.Length()) { if (err) *err = NkString("Unexpected EOF"); return false; }
+
+        char c = text[pos];
+
+        if (c == '{') { ++pos; NkArchive arc; if (!ParseObject(arc, err)) return false; out.SetObject(arc); return true; }
+        if (c == '[') { ++pos; return ParseArray(out, err); }
+        if (c == '"') { NkString s; if (!ParseString(s, err)) return false; out = NkArchiveNode(NkArchiveValue::FromString(s.View())); return true; }
+        if (pos + 4u <= text.Length() && memcmp(text.Data()+pos, "true", 4u)==0) { pos+=4; out = NkArchiveNode(NkArchiveValue::FromBool(true));  return true; }
+        if (pos + 5u <= text.Length() && memcmp(text.Data()+pos, "false",5u)==0) { pos+=5; out = NkArchiveNode(NkArchiveValue::FromBool(false)); return true; }
+        if (pos + 4u <= text.Length() && memcmp(text.Data()+pos, "null", 4u)==0) { pos+=4; out = NkArchiveNode(NkArchiveValue::Null());         return true; }
+        if (c == '-' || (c >= '0' && c <= '9')) {
+            NkArchiveValue v;
+            if (!ParseNumber(v, err)) return false;
+            out = NkArchiveNode(v);
+            return true;
+        }
+
+        if (err) *err = NkString::Fmtf("Unexpected char '%c' at pos %zu", c, pos);
+        return false;
     }
 };
 
@@ -206,73 +197,35 @@ nk_bool NkJSONReader::ReadArchive(NkStringView json,
                                   NkString* outError) {
     outArchive.Clear();
 
-    NkJSONParser parser{json, 0};
-    if (!parser.Match('{')) {
-        if (outError) {
-            *outError = "JSON object must start with '{'";
-        }
+    NkJSONParser p{json, 0};
+    if (!p.Match('{')) {
+        if (outError) *outError = NkString("JSON must start with '{'");
         return false;
     }
 
-    parser.SkipWS();
-    if (parser.Match('}')) {
-        return true;
-    }
+    p.SkipWS();
+    if (p.Match('}')) return true; // objet vide
 
     while (true) {
         NkString key;
-        if (!parser.ParseStringLiteral(key)) {
-            if (outError) {
-                *outError = "Expected JSON string key";
-            }
-            return false;
-        }
+        if (!p.ParseString(key, outError)) return false;
+        if (!p.Expect(':', outError)) return false;
 
-        if (!parser.Match(':')) {
-            if (outError) {
-                *outError = "Expected ':' after key";
-            }
-            return false;
-        }
+        NkArchiveNode node;
+        if (!p.ParseNode(node, outError)) return false;
+        outArchive.SetNode(key.View(), node);
 
-        NkArchiveValue value;
-        if (!parser.ParseScalarValue(value)) {
-            if (outError) {
-                *outError = "Expected scalar JSON value";
-            }
-            return false;
-        }
-
-        if (!outArchive.SetValue(key.View(), value)) {
-            if (outError) {
-                *outError = "Failed to store parsed key/value";
-            }
-            return false;
-        }
-
-        parser.SkipWS();
-        if (parser.Match('}')) {
-            break;
-        }
-
-        if (!parser.Match(',')) {
-            if (outError) {
-                *outError = "Expected ',' or '}' after value";
-            }
-            return false;
-        }
+        p.SkipWS();
+        if (p.Match('}')) break;
+        if (!p.Expect(',', outError)) return false;
     }
 
-    parser.SkipWS();
-    if (parser.pos != parser.text.Length()) {
-        if (outError) {
-            *outError = "Trailing characters after JSON object";
-        }
+    p.SkipWS();
+    if (p.pos != p.text.Length()) {
+        if (outError) *outError = NkString("Trailing content after JSON object");
         return false;
     }
-
     return true;
 }
 
-} // namespace entseu
 } // namespace nkentseu

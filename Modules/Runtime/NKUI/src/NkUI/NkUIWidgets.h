@@ -138,7 +138,7 @@ namespace nkentseu
             // ── Boutons ───────────────────────────────────────────────────────────────
             static bool Button        (NkUIContext& ctx, NkUILayoutStack& ls, NkUIDrawList& dl, NkUIFont& font, const char* label, NkVec2 size = {0,0}) noexcept;
             static bool ButtonSmall   (NkUIContext& ctx, NkUILayoutStack& ls, NkUIDrawList& dl, NkUIFont& font, const char* label) noexcept;
-            static bool ButtonImage   (NkUIContext& ctx, NkUILayoutStack& ls, NkUIDrawList& dl, uint32 texId, NkVec2 size, NkColor tint = NkColor::White()) noexcept;
+            static bool ButtonImage   (NkUIContext& ctx, NkUILayoutStack& ls, NkUIDrawList& dl, uint32 texId, NkVec2 size, NkColor tint = NkColor::White) noexcept;
             static bool InvisibleButton (NkUIContext& ctx, NkUILayoutStack& ls, const char* id, NkVec2 size) noexcept;
 
             // ── Checkbox / Radio / Toggle ─────────────────────────────────────────────

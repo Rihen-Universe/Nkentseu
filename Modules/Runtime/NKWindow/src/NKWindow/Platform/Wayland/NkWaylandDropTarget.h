@@ -38,8 +38,7 @@ namespace nkentseu {
             using DropEnterDataCallback = NkFunction<void(const NkDropEnterData&)>;
             using DropLeaveDataCallback = NkFunction<void()>;
 
-            NkWaylandDropTarget(wl_display* display, wl_seat* seat, wl_surface* surface)
-                : mDisplay(display), mSeat(seat), mSurface(surface) {}
+            NkWaylandDropTarget(wl_display* display, wl_seat* seat, wl_surface* surface) : mDisplay(display), mSeat(seat), mSurface(surface) {}
 
             ~NkWaylandDropTarget() {
                 if (mOffer) {

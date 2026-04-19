@@ -1,0 +1,178 @@
+// =============================================================================
+// pbr_metallic.nksl — PBR Metallic-Roughness en langage NkSL universel
+// Ce fichier se compile vers GL/VK/DX11/DX12/MSL via NkSLCompiler.
+// =============================================================================
+
+// ── Bindings ──────────────────────────────────────────────────────────────────
+@binding(set=0, binding=0) uniform SceneBlock {
+    mat4  uModel;
+    mat4  uView;
+    mat4  uProj;
+    mat4  uLightVP;
+    vec4  uLightDir;
+    vec4  uEyePos;
+    float uTime;
+    float uDeltaTime;
+    float uNdcZScale;
+    float uNdcZOffset;
+};
+
+@binding(set=2, binding=0) uniform MaterialBlock {
+    vec4  uBaseColor;
+    vec4  uEmissiveColor;
+    float uMetallic;
+    float uRoughness;
+    float uOcclusion;
+    float uNormalScale;
+    float uAlphaClip;
+    float uEmissiveScale;
+    float uClearcoat;
+    float uClearcoatRoughness;
+    float uTransmission;
+    float uIOR;
+};
+
+@binding(set=1, binding=0) uniform sampler2D   uAlbedoMap;
+@binding(set=1, binding=1) uniform sampler2D   uNormalMap;
+@binding(set=1, binding=2) uniform sampler2D   uORMMap;
+@binding(set=1, binding=3) uniform sampler2D   uEmissiveMap;
+@binding(set=1, binding=4) uniform sampler2D   uShadowMap;
+@binding(set=1, binding=5) uniform samplerCube uEnvIrradiance;
+@binding(set=1, binding=6) uniform samplerCube uEnvPrefilter;
+@binding(set=1, binding=7) uniform sampler2D   uBRDF_LUT;
+
+// ── Entrées ───────────────────────────────────────────────────────────────────
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+@location(2) in vec3 aTangent;
+@location(3) in vec2 aUV;
+@location(4) in vec4 aColor;
+
+// ── Sorties vertex ────────────────────────────────────────────────────────────
+@location(0) out vec3 vFragPos;
+@location(1) out vec3 vNormal;
+@location(2) out vec3 vTangent;
+@location(3) out vec3 vBitangent;
+@location(4) out vec2 vUV;
+@location(5) out vec4 vColor;
+@location(6) out vec4 vFragPosLS;
+
+// ── Vertex shader ─────────────────────────────────────────────────────────────
+@stage(vertex)
+@entry
+void vert_main() {
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    vFragPos  = worldPos.xyz;
+
+    mat3 nm   = mat3(uModel);  // NkSL auto-transpose
+    vNormal   = normalize(nm * aNormal);
+    vTangent  = normalize(nm * aTangent);
+    vBitangent= normalize(cross(vNormal, vTangent));
+    vUV       = aUV;
+    vColor    = aColor;
+    vFragPosLS= uLightVP * worldPos;
+
+    @builtin(position) = uProj * uView * worldPos;
+}
+
+// ── Sorties fragment ──────────────────────────────────────────────────────────
+@location(0) out vec4 oFragColor;
+
+// ── Fonctions PBR ─────────────────────────────────────────────────────────────
+float D_GGX(vec3 N, vec3 H, float rough) {
+    float a2 = rough*rough*rough*rough;
+    float NdH= max(dot(N,H), 0.0);
+    float d  = NdH*NdH*(a2-1.0)+1.0;
+    return a2/(3.14159265*d*d);
+}
+
+float G_Schlick(float NdV, float rough) {
+    float k = (rough+1.0)*(rough+1.0)/8.0;
+    return NdV/(NdV*(1.0-k)+k);
+}
+
+float G_Smith(vec3 N, vec3 V, vec3 L, float rough) {
+    return G_Schlick(max(dot(N,V),0.0),rough) *
+           G_Schlick(max(dot(N,L),0.0),rough);
+}
+
+vec3 F_Schlick(float c, vec3 F0) {
+    return F0 + (1.0-F0) * pow(clamp(1.0-c,0.0,1.0), 5.0);
+}
+
+vec3 F_SchlickR(float c, vec3 F0, float rough) {
+    return F0 + (max(vec3(1.0-rough), F0)-F0) * pow(clamp(1.0-c,0.0,1.0),5.0);
+}
+
+vec3 GetNormal(vec2 uv) {
+    vec3 tn = texture(uNormalMap, uv).xyz * 2.0 - 1.0;
+    tn.xy *= uNormalScale;
+    mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
+    return normalize(TBN * tn);
+}
+
+float ComputeShadow(vec4 ls, vec3 N, vec3 L) {
+    vec3 p = ls.xyz / ls.w;
+    p = p * uNdcZScale + uNdcZOffset;
+    if (any(lessThan(p, vec3(0.0))) || any(greaterThan(p, vec3(1.0)))) return 0.0;
+    float bias = max(0.005*(1.0-dot(N,L)), 0.0005);
+    float shadow = 0.0;
+    vec2 ts = 1.0 / vec2(textureSize(uShadowMap, 0));
+    for (int x = -1; x <= 1; ++x)
+    for (int y = -1; y <= 1; ++y) {
+        float d = texture(uShadowMap, p.xy + vec2(x,y)*ts).r;
+        shadow += p.z - bias > d ? 1.0 : 0.0;
+    }
+    return shadow / 9.0;
+}
+
+// ── Fragment shader ───────────────────────────────────────────────────────────
+@stage(fragment)
+@entry
+void frag_main() {
+    vec4 albedoT = pow(texture(uAlbedoMap, vUV), vec4(2.2));
+    vec3 orm     = texture(uORMMap, vUV).rgb;
+    vec3 emitT   = pow(texture(uEmissiveMap, vUV).rgb, vec3(2.2));
+
+    vec4 albedo = albedoT * uBaseColor * vColor;
+    if (albedo.a < uAlphaClip) discard;
+
+    float ao    = orm.r * uOcclusion;
+    float rough = clamp(orm.g * uRoughness, 0.04, 1.0);
+    float metal = orm.b * uMetallic;
+
+    vec3 N  = GetNormal(vUV);
+    vec3 V  = normalize(uEyePos.xyz - vFragPos);
+    vec3 R  = reflect(-V, N);
+    vec3 F0 = mix(vec3(0.04), albedo.rgb, metal);
+
+    // Lumière directionnelle
+    vec3 Lo = vec3(0.0);
+    {
+        vec3 L  = normalize(-uLightDir.xyz);
+        vec3 H  = normalize(V + L);
+        float NdL = max(dot(N, L), 0.0);
+        float D   = D_GGX(N, H, rough);
+        float G   = G_Smith(N, V, L, rough);
+        vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
+        vec3 spec = D*G*F / (4.0*max(dot(N,V),0.0)*NdL + 0.0001);
+        vec3 kD   = (vec3(1.0)-F)*(1.0-metal);
+        float shad= ComputeShadow(vFragPosLS, N, L);
+        Lo += (kD*albedo.rgb/3.14159265 + spec) * vec3(5.0) * NdL * (1.0-shad);
+    }
+
+    // IBL
+    vec3 F_ibl  = F_SchlickR(max(dot(N,V),0.0), F0, rough);
+    vec3 kD_ibl = (vec3(1.0)-F_ibl)*(1.0-metal);
+    vec3 irrad  = texture(uEnvIrradiance, N).rgb;
+    vec3 diffIBL= irrad * albedo.rgb;
+    vec3 prefilt= textureLod(uEnvPrefilter, R, rough*4.0).rgb;
+    vec2 brdf   = texture(uBRDF_LUT, vec2(max(dot(N,V),0.0), rough)).rg;
+    vec3 specIBL= prefilt * (F_ibl*brdf.x + brdf.y);
+    vec3 ambient= (kD_ibl*diffIBL + specIBL) * ao;
+
+    // Émission
+    vec3 emit = (emitT + uEmissiveColor.rgb) * uEmissiveScale;
+
+    oFragColor = vec4(ambient + Lo + emit, albedo.a);
+}

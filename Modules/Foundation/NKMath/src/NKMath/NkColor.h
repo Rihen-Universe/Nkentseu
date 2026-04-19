@@ -271,10 +271,10 @@ namespace nkentseu {
 
                 // ── Factories de base (inline, pas de static const) ──────────────
 
-                static NkColor White()  noexcept { return {255,255,255,255}; }
-                static NkColor Black(int32 alpha=255) noexcept { return {0,0,0,static_cast<uint8>(alpha)}; }
-                static NkColor Transparent() noexcept { return {0,0,0,0}; }
-                static NkColor Gray(int32 v, int32 alpha=255) noexcept {
+                // static NkColor White()  noexcept { return {255,255,255,255}; }
+                // static NkColor Black(int32 alpha=255) noexcept { return {0,0,0,static_cast<uint8>(alpha)}; }
+                // static NkColor Transparent() noexcept { return {0,0,0,0}; }
+                static NkColor GrayValue(int32 v, int32 alpha=255) noexcept {
                     return { static_cast<uint8>(v), static_cast<uint8>(v), static_cast<uint8>(v), static_cast<uint8>(alpha) };
                 }
 
@@ -283,6 +283,10 @@ namespace nkentseu {
                 // Définies dans NkColor.cpp via RGBf / RGBAf.
                 // Usage : NkColor::Red, NkColor::Blue, etc.
                 //
+                static const NkColor White;
+                static const NkColor Black;
+                static const NkColor Transparent;
+                static const NkColor Gray;
                 static const NkColor Red;
                 static const NkColor Green;
                 static const NkColor Blue;

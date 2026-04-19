@@ -1,0 +1,42 @@
+// =============================================================================
+// toon.nksl — Shader Toon NkSL universel
+// =============================================================================
+@binding(set=0,binding=0) uniform SceneBlock { mat4 uModel,uView,uProj,uLightVP; vec4 uLightDir,uEyePos; float uTime,uDt,uNdcZS,uNdcZO; };
+@binding(set=1,binding=0) uniform sampler2D uAlbedoMap;
+@binding(set=2,binding=0) uniform ToonMat {
+    vec4 uBaseColor,uShadowColor,uOutlineColor;
+    float uOutlineWidth,uShadowThreshold,uShadowSmoothness;
+    float uSpecThreshold,uSpecSmoothness; uint uShadeSteps;
+};
+
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+@location(3) in vec2 aUV;
+@location(4) in vec4 aColor;
+
+@location(0) out vec3 vNormal;
+@location(1) out vec3 vFragPos;
+@location(2) out vec2 vUV;
+@location(3) out vec4 vColor;
+
+@stage(vertex) @entry
+void vert_main() {
+    vec4 wp=uModel*vec4(aPos,1.0);
+    vFragPos=wp.xyz;
+    vNormal=normalize(mat3(uModel)*aNormal);
+    vUV=aUV; vColor=aColor;
+    @builtin(position)=uProj*uView*wp;
+}
+
+@location(0) out vec4 oColor;
+@stage(fragment) @entry
+void frag_main() {
+    vec4 albedo=texture(uAlbedoMap,vUV)*uBaseColor*vColor;
+    vec3 N=normalize(vNormal),L=normalize(-uLightDir.xyz),V=normalize(uEyePos.xyz-vFragPos);
+    float NdL=dot(N,L);
+    float shadow=smoothstep(uShadowThreshold-uShadowSmoothness,uShadowThreshold+uShadowSmoothness,NdL);
+    if(uShadeSteps>1u){ float s=float(uShadeSteps); shadow=floor(shadow*s+0.5)/s; }
+    float spec=smoothstep(uSpecThreshold-uSpecSmoothness,uSpecThreshold+uSpecSmoothness,dot(N,normalize(V+L)));
+    vec3 color=mix(uShadowColor.rgb,albedo.rgb,shadow)+vec3(spec);
+    oColor=vec4(color,albedo.a);
+}

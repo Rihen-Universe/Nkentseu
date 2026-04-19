@@ -17,7 +17,10 @@ namespace nkentseu {
         // Chaque couleur est initialisée via RGBf / RGBAf (valeurs [0,1]).
         // Certaines couleurs "exactes" utilisent le constructeur (r,g,b) direct.
         // =====================================================================
-
+        static const NkColor White              = NkColor::RGBf( 1.00f, 1.00f, 1.00f);
+        static const NkColor Black              = NkColor::RGBf( 0.00f, 0.00f, 0.00f);
+        static const NkColor Transparent        = NkColor::RGBf( 0.00f, 0.00f, 0.00f);
+        static const NkColor Gray               = NkColor::RGBf( 0.50f, 0.50f, 0.50f);
         const NkColor NkColor::Red              = NkColor::RGBf( 1.00f, 0.00f, 0.00f);
         const NkColor NkColor::Green            = NkColor::RGBf( 0.00f, 1.00f, 0.00f);
         const NkColor NkColor::Blue             = NkColor::RGBf( 0.00f, 0.00f, 1.00f);
@@ -169,13 +172,9 @@ namespace nkentseu {
         // =====================================================================
 
         const NkColor& NkColor::FromName(const NkString& name) noexcept {
-            static const NkColor sTransparent = Transparent();
-            static const NkColor sBlack      = Black();
-            static const NkColor sWhite      = White();
-            static const NkColor sGray       = Gray(128);
-            if (name == "Transparent")       { return sTransparent;     }
-            if (name == "Black")             { return sBlack;           }
-            if (name == "White")             { return sWhite;           }
+            if (name == "Transparent")       { return Transparent;     }
+            if (name == "Black")             { return Black;           }
+            if (name == "White")             { return White;           }
             if (name == "Red")               { return Red;              }
             if (name == "Green")             { return Green;            }
             if (name == "Blue")              { return Blue;             }
@@ -185,7 +184,7 @@ namespace nkentseu {
             if (name == "Orange")            { return Orange;           }
             if (name == "Pink")              { return Pink;             }
             if (name == "Purple")            { return Purple;           }
-            if (name == "Gray")              { return sGray;            }
+            if (name == "Gray")              { return Gray;            }
             if (name == "DarkGray")          { return DarkGray;         }
             if (name == "Lime")              { return Lime;             }
             if (name == "Teal")              { return Teal;             }

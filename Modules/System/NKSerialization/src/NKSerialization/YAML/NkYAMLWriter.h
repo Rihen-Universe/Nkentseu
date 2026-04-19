@@ -6,18 +6,11 @@
 #include "NKSerialization/NkArchive.h"
 
 namespace nkentseu {
-namespace entseu {
-
-class NkYAMLWriter {
-public:
-    static nk_bool WriteArchive(const NkArchive& archive, NkString& outYaml);
-    static NkString WriteArchive(const NkArchive& archive);
-};
-
-} // namespace entseu
-
-using NkYAMLWriter = entseu::NkYAMLWriter;
-
+    class NkYAMLWriter {
+        public:
+            static nk_bool WriteArchive(const NkArchive& archive, NkString& outYaml);
+            static NkString WriteArchive(const NkArchive& archive);
+    };
 } // namespace nkentseu
 
-#endif // NKENTSEU_SERIALIZATION_YAML_NKYAMLWRITER_H_INCLUDED
+#endif

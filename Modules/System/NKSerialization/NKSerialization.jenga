@@ -43,11 +43,7 @@ with project("NKSerialization"):
 
     files([
         "src/NKSerialization/**.cpp",
-        "src/NKSerialization/**.h",
-        "src/NKSerialization/Binary/**.h",
-        "src/NKSerialization/JSON/**.h",
-        "src/NKSerialization/XML/**.h",
-        "src/NKSerialization/YAML/**.h",
+        "src/NKSerialization/**.h"
     ])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

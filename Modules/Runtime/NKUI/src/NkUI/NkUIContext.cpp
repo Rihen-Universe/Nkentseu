@@ -105,8 +105,8 @@ namespace nkentseu
             ::strcpy(t.name, "NkMinimal");
             t.metrics.cornerRadius = 2.f;
             t.metrics.borderWidth = 1.f;
-            t.colors.border = NkColor::Gray(210);
-            t.colors.buttonBg = NkColor::White();
+            t.colors.border = NkColor::GrayValue(210);
+            t.colors.buttonBg = NkColor::White;
             return t;
         }
 
@@ -114,10 +114,10 @@ namespace nkentseu
         {
             NkUITheme t;
             ::strcpy(t.name, "NkHighContrast");
-            t.colors.bgPrimary = NkColor::White();
-            t.colors.bgWindow = NkColor::White();
-            t.colors.border = NkColor::Black();
-            t.colors.textPrimary = NkColor::Black();
+            t.colors.bgPrimary = NkColor::White;
+            t.colors.bgWindow = NkColor::White;
+            t.colors.border = NkColor::Black;
+            t.colors.textPrimary = NkColor::Black;
             t.colors.accent = { 0, 0, 180, 255 };
             t.metrics.borderWidth = 2.f;
             t.metrics.cornerRadius = 0.f;

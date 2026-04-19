@@ -284,6 +284,9 @@ with workspace("Nkentseu", location="."):
     with include("Modules/System/NKReflection/NKReflection.jenga"):
         pass
 
+    with include("Modules/System/NKNetwork/NKNetwork.jenga"):
+        pass
+
     with include("Modules/System/NKSerialization/NKSerialization.jenga"):
         pass
 
@@ -317,6 +320,15 @@ with workspace("Nkentseu", location="."):
     with include("Applications/Sandbox/Sandbox.jenga"):
         pass
 
+    with include("Sandbox/System/NKFileSystem/NKFileSystemSandbox.jenga"):
+        pass
+
+    with include("Sandbox/System/NKLogger/NKLoggerSandbox.jenga"):
+        pass
+
+    with include("Sandbox/System/NKReflection/NKReflectionSandbox.jenga"):
+        pass
+
     # with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
     #     pass
 
@@ -325,3 +337,12 @@ with workspace("Nkentseu", location="."):
 
     # with include("Applications/NKPA/NKPA.jenga"):
     #     pass
+
+    with include("Engine/Nkentseu/Nkentseu.jenga"):
+        pass
+
+    with include("Applications/Unkeny/Unkeny.jenga"):
+        pass
+
+    with include("Applications/PV3DE/PV3DE.jenga"):
+        pass

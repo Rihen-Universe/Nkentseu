@@ -15,99 +15,99 @@
 // -----------------------------------------------------------------------------
 namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// CLASSE: NkLog
-	// DESCRIPTION: NkLogger par défaut singleton avec API fluide
-	// -------------------------------------------------------------------------
-	class NKLOGGER_API NkLog : public NkLogger {
-		public:
-			// ---------------------------------------------------------------------
-			// MÉTHODES STATIQUES (SINGLETON)
-			// ---------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // CLASSE: NkLog
+    // DESCRIPTION: NkLogger par défaut singleton avec API fluide
+    // -------------------------------------------------------------------------
+    class NKLOGGER_API NkLog : public NkLogger {
+        public:
+            // ---------------------------------------------------------------------
+            // MÉTHODES STATIQUES (SINGLETON)
+            // ---------------------------------------------------------------------
 
-			/**
-			 * @brief Obtient l'instance singleton du logger par défaut
-			 * @return Référence à l'instance du logger par défaut
-			 */
-			static NkLog &Instance();
+            /**
+             * @brief Obtient l'instance singleton du logger par défaut
+             * @return Référence à l'instance du logger par défaut
+             */
+            static NkLog &Instance();
 
-			/**
-			 * @brief Initialise le logger par défaut
-			 * @param name Nom du logger (optionnel, "default" par défaut)
-			 * @param pattern Pattern de formatage (optionnel)
-			 * @param level Niveau de log (optionnel, Info par défaut)
-			 */
-			static void Initialize(const NkString &name = "default", const NkString &pattern = NkFormatter::NK_DETAILED_PATTERN,
-								NkLogLevel level = NkLogLevel::NK_INFO);
+            /**
+             * @brief Initialise le logger par défaut
+             * @param name Nom du logger (optionnel, "default" par défaut)
+             * @param pattern Pattern de formatage (optionnel)
+             * @param level Niveau de log (optionnel, Info par défaut)
+             */
+            static void Initialize(const NkString &name = "default", const NkString &pattern = NkFormatter::NK_DETAILED_PATTERN,
+                                NkLogLevel level = NkLogLevel::NK_INFO);
 
-			/**
-			 * @brief Nettoie et détruit le logger par défaut
-			 */
-			static void Shutdown();
+            /**
+             * @brief Nettoie et détruit le logger par défaut
+             */
+            static void Shutdown();
 
-			// ---------------------------------------------------------------------
-			// API FLUIDE
-			// ---------------------------------------------------------------------
+            // ---------------------------------------------------------------------
+            // API FLUIDE
+            // ---------------------------------------------------------------------
 
-			/**
-			 * @brief Configure les informations de source pour le prochain log
-			 * @param file Fichier source
-			 * @param line Ligne source
-			 * @param function Fonction source
-			 * @return Objet SourceContext pour chaînage
-			 */
-			// SourceContext Source(const char* file, int line, const char* function) const;
+            /**
+             * @brief Configure les informations de source pour le prochain log
+             * @param file Fichier source
+             * @param line Ligne source
+             * @param function Fonction source
+             * @return Objet SourceContext pour chaînage
+             */
+            // SourceContext Source(const char* file, int line, const char* function) const;
 
-			/**
-			 * @brief Configure le nom du logger (retourne *this pour chaînage)
-			 */
-			NkLog &Named(const NkString &name);
+            /**
+             * @brief Configure le nom du logger (retourne *this pour chaînage)
+             */
+            NkLog &Named(const NkString &name);
 
-			/**
-			 * @brief Configure le niveau de log (retourne *this pour chaînage)
-			 */
-			NkLog &Level(NkLogLevel level);
+            /**
+             * @brief Configure le niveau de log (retourne *this pour chaînage)
+             */
+            NkLog &Level(NkLogLevel level);
 
-			/**
-			 * @brief Configure le pattern (retourne *this pour chaînage)
-			 */
-			NkLog &Pattern(const NkString &pattern);
+            /**
+             * @brief Configure le pattern (retourne *this pour chaînage)
+             */
+            NkLog &Pattern(const NkString &pattern);
 
-			virtual NkLog &Source(const char *sourceFile = nullptr, uint32 sourceLine = 0,
-										const char *functionName = nullptr) override;
+            virtual NkLog &Source(const char *sourceFile = nullptr, uint32 sourceLine = 0,
+                                        const char *functionName = nullptr) override;
 
-		private:
-			// ---------------------------------------------------------------------
-			// CONSTRUCTEURS PRIVÉS (SINGLETON)
-			// ---------------------------------------------------------------------
+        private:
+            // ---------------------------------------------------------------------
+            // CONSTRUCTEURS PRIVÉS (SINGLETON)
+            // ---------------------------------------------------------------------
 
-			/**
-			 * @brief Constructeur privé
-			 */
-			explicit NkLog(const NkString &name = "default");
+            /**
+             * @brief Constructeur privé
+             */
+            explicit NkLog(const NkString &name = "default");
 
-			/**
-			 * @brief Destructeur privé
-			 */
-			~NkLog();
+            /**
+             * @brief Destructeur privé
+             */
+            ~NkLog();
 
-			/**
-			 * @brief Constructeur de copie supprimé
-			 */
-			NkLog(const NkLog &) = delete;
+            /**
+             * @brief Constructeur de copie supprimé
+             */
+            NkLog(const NkLog &) = delete;
 
-			/**
-			 * @brief Opérateur d'affectation supprimé
-			 */
-			NkLog &operator=(const NkLog &) = delete;
+            /**
+             * @brief Opérateur d'affectation supprimé
+             */
+            NkLog &operator=(const NkLog &) = delete;
 
-			// ---------------------------------------------------------------------
-			// VARIABLES MEMBRE
-			// ---------------------------------------------------------------------
+            // ---------------------------------------------------------------------
+            // VARIABLES MEMBRE
+            // ---------------------------------------------------------------------
 
-			/// Indicateur d'initialisation
-			static bool s_Initialized;
-	};
+            /// Indicateur d'initialisation
+            static bool s_Initialized;
+    };
 
 } // namespace nkentseu
 
@@ -120,3 +120,18 @@ namespace nkentseu {
 
 /// Variante explicite avec source context quand nécessaire.
 #define logger_src logger
+
+// =============================================================================
+// EXEMPLES D'UTILISATION - NkLog
+// =============================================================================
+//
+//   NkLog::Initialize(
+//       "default",
+//       NkFormatter::NK_DETAILED_PATTERN,
+//       NkLogLevel::NK_INFO
+//   );
+//
+//   logger.Info("Hello depuis le logger global");
+//   NkLog::Shutdown();
+//
+// =============================================================================

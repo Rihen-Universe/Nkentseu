@@ -13,107 +13,116 @@
 // NAMESPACE: nkentseu::logger
 // -----------------------------------------------------------------------------
 namespace nkentseu {
-		
-	// -------------------------------------------------------------------------
-	// CLASSE: NkRotatingFileSink
-	// DESCRIPTION: Sink avec rotation de fichier basée sur la taille
-	// -------------------------------------------------------------------------
-	class NKLOGGER_API NkRotatingFileSink : public NkFileSink {
-		public:
-			// ---------------------------------------------------------------------
-			// CONSTRUCTEURS
-			// ---------------------------------------------------------------------
+        
+    // -------------------------------------------------------------------------
+    // CLASSE: NkRotatingFileSink
+    // DESCRIPTION: Sink avec rotation de fichier basée sur la taille
+    // -------------------------------------------------------------------------
+    class NKLOGGER_API NkRotatingFileSink : public NkFileSink {
+        public:
+            // ---------------------------------------------------------------------
+            // CONSTRUCTEURS
+            // ---------------------------------------------------------------------
 
-			/**
-			 * @brief Constructeur avec configuration de rotation
-			 * @param filename Chemin du fichier
-			 * @param maxSize Taille maximum par fichier (octets)
-			 * @param maxFiles Nombre maximum de fichiers conservés
-			 */
-			NkRotatingFileSink(const NkString &filename, usize maxSize, usize maxFiles);
+            /**
+             * @brief Constructeur avec configuration de rotation
+             * @param filename Chemin du fichier
+             * @param maxSize Taille maximum par fichier (octets)
+             * @param maxFiles Nombre maximum de fichiers conservés
+             */
+            NkRotatingFileSink(const NkString &filename, usize maxSize, usize maxFiles);
 
-			/**
-			 * @brief Destructeur
-			 */
-			~NkRotatingFileSink() override;
+            /**
+             * @brief Destructeur
+             */
+            ~NkRotatingFileSink() override;
 
-			// ---------------------------------------------------------------------
-			// IMPLÉMENTATION DE NkFileSink
-			// ---------------------------------------------------------------------
+            // ---------------------------------------------------------------------
+            // IMPLÉMENTATION DE NkFileSink
+            // ---------------------------------------------------------------------
 
-			/**
-			 * @brief Logge un message avec vérification de rotation
-			 */
-			void Log(const NkLogMessage &message) override;
+            /**
+             * @brief Logge un message avec vérification de rotation
+             */
+            void Log(const NkLogMessage &message) override;
 
-			// ---------------------------------------------------------------------
-			// CONFIGURATION DE LA ROTATION
-			// ---------------------------------------------------------------------
+            // ---------------------------------------------------------------------
+            // CONFIGURATION DE LA ROTATION
+            // ---------------------------------------------------------------------
 
-			/**
-			 * @brief Définit la taille maximum des fichiers
-			 * @param maxSize Taille en octets
-			 */
-			void SetMaxSize(usize maxSize);
+            /**
+             * @brief Définit la taille maximum des fichiers
+             * @param maxSize Taille en octets
+             */
+            void SetMaxSize(usize maxSize);
 
-			/**
-			 * @brief Obtient la taille maximum des fichiers
-			 * @return Taille en octets
-			 */
-			usize GetMaxSize() const;
+            /**
+             * @brief Obtient la taille maximum des fichiers
+             * @return Taille en octets
+             */
+            usize GetMaxSize() const;
 
-			/**
-			 * @brief Définit le nombre maximum de fichiers
-			 * @param maxFiles Nombre maximum
-			 */
-			void SetMaxFiles(usize maxFiles);
+            /**
+             * @brief Définit le nombre maximum de fichiers
+             * @param maxFiles Nombre maximum
+             */
+            void SetMaxFiles(usize maxFiles);
 
-			/**
-			 * @brief Obtient le nombre maximum de fichiers
-			 * @return Nombre maximum
-			 */
-			usize GetMaxFiles() const;
+            /**
+             * @brief Obtient le nombre maximum de fichiers
+             * @return Nombre maximum
+             */
+            usize GetMaxFiles() const;
 
-			/**
-			 * @brief Force la rotation du fichier
-			 * @return true si rotation réussie, false sinon
-			 */
-			bool Rotate();
+            /**
+             * @brief Force la rotation du fichier
+             * @return true si rotation réussie, false sinon
+             */
+            bool Rotate();
 
-		private:
-			// ---------------------------------------------------------------------
-			// MÉTHODES PRIVÉES
-			// ---------------------------------------------------------------------
+        private:
+            // ---------------------------------------------------------------------
+            // MÉTHODES PRIVÉES
+            // ---------------------------------------------------------------------
 
-			/**
-			 * @brief Vérifie et effectue la rotation si nécessaire
-			 */
-			void CheckRotation() override;
+            /**
+             * @brief Vérifie et effectue la rotation si nécessaire
+             */
+            void CheckRotation() override;
 
-			/**
-			 * @brief Effectue la rotation des fichiers
-			 */
-			void PerformRotation();
+            /**
+             * @brief Effectue la rotation des fichiers
+             */
+            void PerformRotation();
 
-			/**
-			 * @brief Génère le nom de fichier pour un index donné
-			 * @param index Index du fichier
-			 * @return Nom de fichier
-			 */
-			NkString GetFilenameForIndex(usize index) const;
+            /**
+             * @brief Génère le nom de fichier pour un index donné
+             * @param index Index du fichier
+             * @return Nom de fichier
+             */
+            NkString GetFilenameForIndex(usize index) const;
 
-			// ---------------------------------------------------------------------
-			// VARIABLES MEMBRE PRIVÉES
-			// ---------------------------------------------------------------------
+            // ---------------------------------------------------------------------
+            // VARIABLES MEMBRE PRIVÉES
+            // ---------------------------------------------------------------------
 
-			/// Taille maximum par fichier (octets)
-			usize m_MaxSize;
+            /// Taille maximum par fichier (octets)
+            usize m_MaxSize;
 
-			/// Nombre maximum de fichiers conservés
-			usize m_MaxFiles;
+            /// Nombre maximum de fichiers conservés
+            usize m_MaxFiles;
 
-			/// Taille courante du fichier
-			usize m_CurrentSize;
-	};
+            /// Taille courante du fichier
+            usize m_CurrentSize;
+    };
 
 } // namespace nkentseu
+
+// =============================================================================
+// EXEMPLES D'UTILISATION - NkRotatingFileSink
+// =============================================================================
+//
+//   NkRotatingFileSink sink("app.log", 5 * 1024 * 1024, 5);
+//   sink.SetPattern("[%l] %v");
+//
+// =============================================================================
