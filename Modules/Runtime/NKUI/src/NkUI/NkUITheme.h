@@ -41,70 +41,70 @@ namespace nkentseu
         struct NKUI_API NkUIColorPalette
         {
             // Fond
-            NkColor bgPrimary       = NkColor::Gray(245);
-            NkColor bgSecondary     = NkColor::Gray(235);
-            NkColor bgTertiary      = NkColor::Gray(220);
-            NkColor bgWindow        = NkColor::Gray(250);
-            NkColor bgPopup         = NkColor::Gray(252);
-            NkColor bgHeader        = NkColor::Gray(60);
+            NkColor bgPrimary       = NkColor::GrayValue(245);
+            NkColor bgSecondary     = NkColor::GrayValue(235);
+            NkColor bgTertiary      = NkColor::GrayValue(220);
+            NkColor bgWindow        = NkColor::GrayValue(250);
+            NkColor bgPopup         = NkColor::GrayValue(252);
+            NkColor bgHeader        = NkColor::GrayValue(60);
 
             // Bordures
-            NkColor border          = NkColor::Gray(200);
+            NkColor border          = NkColor::GrayValue(200);
             NkColor borderFocus     = {0,120,255,255};
-            NkColor borderHover     = NkColor::Gray(170);
+            NkColor borderHover     = NkColor::GrayValue(170);
 
             // Texte
-            NkColor textPrimary     = NkColor::Gray(20);
-            NkColor textSecondary   = NkColor::Gray(100);
-            NkColor textDisabled    = NkColor::Gray(180);
-            NkColor textOnAccent    = NkColor::White();
+            NkColor textPrimary     = NkColor::GrayValue(20);
+            NkColor textSecondary   = NkColor::GrayValue(100);
+            NkColor textDisabled    = NkColor::GrayValue(180);
+            NkColor textOnAccent    = NkColor::White;
 
             // Accents
             NkColor accent          = {0,120,255,255};
             NkColor accentHover     = {0,100,230,255};
             NkColor accentActive    = {0,80,200,255};
-            NkColor accentDisabled  = NkColor::Gray(180);
+            NkColor accentDisabled  = NkColor::GrayValue(180);
 
             // Widgets
-            NkColor buttonBg        = NkColor::Gray(230);
-            NkColor buttonHover     = NkColor::Gray(215);
-            NkColor buttonActive    = NkColor::Gray(195);
-            NkColor buttonText      = NkColor::Gray(20);
-            NkColor checkBg         = NkColor::White();
+            NkColor buttonBg        = NkColor::GrayValue(230);
+            NkColor buttonHover     = NkColor::GrayValue(215);
+            NkColor buttonActive    = NkColor::GrayValue(195);
+            NkColor buttonText      = NkColor::GrayValue(20);
+            NkColor checkBg         = NkColor::White;
             NkColor checkMark       = {0,120,255,255};
-            NkColor sliderTrack     = NkColor::Gray(210);
+            NkColor sliderTrack     = NkColor::GrayValue(210);
             NkColor sliderThumb     = {0,120,255,255};
-            NkColor inputBg         = NkColor::White();
-            NkColor inputText       = NkColor::Gray(20);
-            NkColor inputPlaceholder= NkColor::Gray(160);
+            NkColor inputBg         = NkColor::White;
+            NkColor inputText       = NkColor::GrayValue(20);
+            NkColor inputPlaceholder= NkColor::GrayValue(160);
             NkColor inputCursor     = {0,120,255,255};
             NkColor inputSelection  = {0,120,255,80};
-            NkColor scrollBg        = NkColor::Gray(230);
-            NkColor scrollThumb     = NkColor::Gray(180);
-            NkColor scrollThumbHov  = NkColor::Gray(150);
+            NkColor scrollBg        = NkColor::GrayValue(230);
+            NkColor scrollThumb     = NkColor::GrayValue(180);
+            NkColor scrollThumbHov  = NkColor::GrayValue(150);
 
             // Fenêtres / Dock
-            NkColor titleBarBg      = NkColor::Gray(55);
-            NkColor titleBarActive  = NkColor::Gray(40);
-            NkColor titleBarText    = NkColor::White();
-            NkColor titleBarBtn     = NkColor::Gray(120);
-            NkColor titleBarBtnHov  = NkColor::Gray(160);
-            NkColor separator       = NkColor::Gray(200);
+            NkColor titleBarBg      = NkColor::GrayValue(55);
+            NkColor titleBarActive  = NkColor::GrayValue(40);
+            NkColor titleBarText    = NkColor::White;
+            NkColor titleBarBtn     = NkColor::GrayValue(120);
+            NkColor titleBarBtnHov  = NkColor::GrayValue(160);
+            NkColor separator       = NkColor::GrayValue(200);
             NkColor dockZone        = {0,120,255,60};
             NkColor dockZoneBorder  = {0,120,255,200};
-            NkColor tabBg           = NkColor::Gray(225);
-            NkColor tabActive       = NkColor::Gray(250);
-            NkColor tabText         = NkColor::Gray(60);
-            NkColor tabActiveText   = NkColor::Gray(20);
+            NkColor tabBg           = NkColor::GrayValue(225);
+            NkColor tabActive       = NkColor::GrayValue(250);
+            NkColor tabText         = NkColor::GrayValue(60);
+            NkColor tabActiveText   = NkColor::GrayValue(20);
 
             // États spéciaux
             NkColor success         = {40,180,40,255};
             NkColor warning         = {220,160,0,255};
             NkColor danger          = {220,50,50,255};
             NkColor info            = {0,120,255,255};
-            NkColor tooltip         = NkColor::Gray(50);
-            NkColor tooltipText     = NkColor::White();
-            NkColor overlay         = NkColor::Gray(0,160);
+            NkColor tooltip         = NkColor::GrayValue(50);
+            NkColor tooltipText     = NkColor::White;
+            NkColor overlay         = NkColor::GrayValue(0,160);
         };
 
         // ============================================================

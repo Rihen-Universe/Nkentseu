@@ -1,52 +1,105 @@
-#include <Unitest/Unitest.h>
-#include <Unitest/TestMacro.h>
-
-#include "NKPlatform/NkFoundationLog.h"
+// =============================================================================
+// tests/benchmark_smoke.cpp
+// =============================================================================
+// Benchmark minimal standalone (sans framework de test).
+// =============================================================================
 #include "NKSerialization/NkArchive.h"
 #include "NKSerialization/JSON/NkJSONReader.h"
 #include "NKSerialization/JSON/NkJSONWriter.h"
-
+#include "NKSerialization/Binary/NkBinaryWriter.h"
+#include "NKSerialization/Binary/NkBinaryReader.h"
+#include "NKSerialization/Native/NkNativeFormat.h"
 #include <cstdio>
-#include <ctime>
+#include <chrono>
 
 using namespace nkentseu;
+using Clock = std::chrono::high_resolution_clock;
+using Ms    = std::chrono::duration<double, std::milli>;
 
-static double NkToNs(const timespec& ts) {
-    return (static_cast<double>(ts.tv_sec) * 1000000000.0) + static_cast<double>(ts.tv_nsec);
-}
-
-TEST_CASE(NKSerializationBenchmark, JsonEncodeDecodeFlatArchive) {
-    constexpr int kIters = 300000;
-
+static void BenchJSON(int iters) {
     NkArchive archive;
-    archive.SetString("name", "Nkentseu");
-    archive.SetUInt64("build", 20260311ull);
-    archive.SetBool("debug", true);
-    archive.SetFloat64("scale", 1.25);
+    archive.SetString("name",  "Nkentseu");
+    archive.SetUInt64("build", 20260413ull);
+    archive.SetBool("debug",   true);
+    archive.SetFloat64("scale",1.25);
 
-    nk_size sink = 0;
     NkString payload;
+    NkArchive decoded;
+    size_t sink = 0;
 
-    timespec t0 {};
-    timespec t1 {};
-    timespec_get(&t0, TIME_UTC);
-    for (int i = 0; i < kIters; ++i) {
+    auto t0 = Clock::now();
+    for (int i = 0; i < iters; ++i) {
         archive.SetInt64("iter", static_cast<int64>(i));
         NkJSONWriter::WriteArchive(archive, payload, false);
         sink += payload.Length();
-
-        NkArchive decoded;
         NkJSONReader::ReadArchive(payload.View(), decoded, nullptr);
-        int64 iter = 0;
-        if (decoded.GetInt64("iter", iter)) {
-            sink += static_cast<nk_size>(iter & 0x1);
-        }
+        int64 v = 0;
+        if (decoded.GetInt64("iter", v)) sink += static_cast<size_t>(v & 1);
     }
-    timespec_get(&t1, TIME_UTC);
+    auto t1 = Clock::now();
+    double ms = Ms(t1 - t0).count();
+    printf("[Bench] JSON encode+decode x%d: %.2f ms total  (%.4f ms/op)  sink=%zu\n",
+           iters, ms, ms / iters, sink);
+}
 
-    const double ns = NkToNs(t1) - NkToNs(t0);
-    ASSERT_TRUE(ns > 0.0);
-    ASSERT_TRUE(sink > 0);
-    NK_FOUNDATION_LOG_INFO("[NKSerialization Benchmark] json encode/decode loop: %.2f ns total (sink=%zu)",
-                           ns, static_cast<size_t>(sink));
+static void BenchBinary(int iters) {
+    NkArchive archive;
+    archive.SetInt64("a",  -42);
+    archive.SetString("b", "hello binary world");
+
+    NkVector<nk_uint8> bytes;
+    NkArchive decoded;
+    size_t sink = 0;
+
+    auto t0 = Clock::now();
+    for (int i = 0; i < iters; ++i) {
+        archive.SetInt64("iter", static_cast<int64>(i));
+        NkBinaryWriter::WriteArchive(archive, bytes);
+        sink += bytes.Size();
+        NkBinaryReader::ReadArchive(bytes.Data(), bytes.Size(), decoded, nullptr);
+        int64 v = 0;
+        if (decoded.GetInt64("iter", v)) sink += static_cast<size_t>(v & 1);
+    }
+    auto t1 = Clock::now();
+    double ms = Ms(t1 - t0).count();
+    printf("[Bench] Binary encode+decode x%d: %.2f ms total  (%.4f ms/op)  sink=%zu\n",
+           iters, ms, ms / iters, sink);
+}
+
+static void BenchNative(int iters) {
+    NkArchive archive;
+    archive.SetString("label",  "native benchmark");
+    archive.SetUInt64("id",     0xDEADBEEFull);
+    archive.SetFloat64("ratio", 0.12345678901234);
+
+    NkVector<nk_uint8> data;
+    NkArchive decoded;
+    NkString err;
+    size_t sink = 0;
+
+    auto t0 = Clock::now();
+    for (int i = 0; i < iters; ++i) {
+        archive.SetInt64("iter", static_cast<int64>(i));
+        native::NkNativeWriter::WriteArchive(archive, data);
+        sink += data.Size();
+        native::NkNativeReader::ReadArchive(data.Data(), data.Size(), decoded, &err);
+        int64 v = 0;
+        if (decoded.GetInt64("iter", v)) sink += static_cast<size_t>(v & 1);
+    }
+    auto t1 = Clock::now();
+    double ms = Ms(t1 - t0).count();
+    printf("[Bench] NkNative encode+decode x%d: %.2f ms total  (%.4f ms/op)  sink=%zu\n",
+           iters, ms, ms / iters, sink);
+}
+
+int main() {
+    const int ITERS = 100000;
+    printf("======================================================\n");
+    printf("  NKSerialization Benchmark  (%d iterations)\n", ITERS);
+    printf("======================================================\n");
+    BenchJSON(ITERS);
+    BenchBinary(ITERS);
+    BenchNative(ITERS);
+    printf("======================================================\n");
+    return 0;
 }

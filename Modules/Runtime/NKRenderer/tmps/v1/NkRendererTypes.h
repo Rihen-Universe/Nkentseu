@@ -85,10 +85,12 @@ namespace renderer {
     };
 
     enum class NkShaderBackend : uint8 {
-        OpenGL  = 0,  // GLSL 4.6 / 4.3
-        Vulkan  = 1,  // GLSL-VK (set/binding decorators), compilé SPIRV
-        DX11    = 2,  // HLSL SM 5.0 — fxc
-        DX12    = 3,  // HLSL SM 6.x — dxc
+        OpenGL      = 0,  // GLSL 4.6 / 4.3
+        Vulkan      = 1,  // GLSL-VK (set/binding decorators), compilé SPIRV
+        DX11        = 2,  // HLSL SM 5.0 — fxc
+        DX12        = 3,  // HLSL SM 6.x — dxc
+        Software    = 4,  // Software fallback (CPU), compilé en bytecode par le moteur
+        Metal       = 5,  // Metal Shading Language
     };
 
     struct NkShaderStageDesc {

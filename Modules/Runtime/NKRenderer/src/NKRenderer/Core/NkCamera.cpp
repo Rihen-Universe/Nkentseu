@@ -1,190 +1,146 @@
-#include "NkCamera.h"
-#include "NKMath/NkFunctions.h"
+// =============================================================================
+// NkCamera.cpp — Implémentation des caméras 2D et 3D
+// =============================================================================
+#include "NKRenderer/Core/NkCamera.h"
+#include <cmath>
+#include <algorithm>
 
-namespace nkentseu
-{
-    namespace renderer
-    {
-        // ── ortho column-major (convention OpenGL / GLSL) ─────────────────────────
-        // Projection NDC [-1,1] → ajustée pour [0,1] si nécessaire via flip
-        static NkMat4 OrthoGL(float32 l, float32 r, float32 b, float32 t,
-                            float32 n, float32 f) noexcept {
-            NkMat4 m;
-            m.col[0] = {2.f/(r-l),    0,          0,          0};
-            m.col[1] = {0,            2.f/(t-b),  0,          0};
-            m.col[2] = {0,            0,          -2.f/(f-n), 0};
-            m.col[3] = {-(r+l)/(r-l),-(t+b)/(t-b),-(f+n)/(f-n), 1};
-            return m;
-        }
+namespace nkentseu {
+    namespace renderer {
 
-        // ── ortho NDC [0,1] (Vulkan / DX) ──────────────────────────────────────
-        static NkMat4 OrthoVK(float32 l, float32 r, float32 b, float32 t,
-                            float32 n, float32 f) noexcept {
-            NkMat4 m;
-            m.col[0] = {2.f/(r-l),    0,          0,         0};
-            m.col[1] = {0,            2.f/(t-b),  0,         0};
-            m.col[2] = {0,            0,          1.f/(f-n), 0};
-            m.col[3] = {-(r+l)/(r-l),-(t+b)/(t-b),  -n/(f-n),  1};
-            return m;
-        }
-
-        // ── perspective NDC [0,1] (Vulkan / DX, reverse-Z option) ─────────────────
-        static NkMat4 PerspVK(float32 fovY, float32 aspect, float32 n, float32 f) noexcept {
-            float32 tanHalf = math::NkTan(math::DEG_TO_RAD_F * (fovY) * 0.5f);
-            NkMat4 m;
-            m.col[0] = {1.f/(aspect*tanHalf), 0,           0,           0};
-            m.col[1] = {0,                     1.f/tanHalf, 0,           0};
-            m.col[2] = {0,                     0,           f/(f-n),     1};
-            m.col[3] = {0,                     0,          -f*n/(f-n),   0};
-            return m;
-        }
-
-        // ── perspective NDC [-1,1] (OpenGL) ────────────────────────────────────
-        static NkMat4 PerspGL(float32 fovY, float32 aspect, float32 n, float32 f) noexcept {
-            float32 tanHalf = math::NkTan(math::DEG_TO_RAD_F * (fovY) * 0.5f);
-            NkMat4 m;
-            m.col[0] = {1.f/(aspect*tanHalf), 0,           0,              0};
-            m.col[1] = {0,                     1.f/tanHalf, 0,              0};
-            m.col[2] = {0,                     0,          -(f+n)/(f-n),   -1};
-            m.col[3] = {0,                     0,          -2.f*f*n/(f-n),  0};
-            return m;
-        }
-        // ── LookAt column-major (right-hand) ──────────────────────────────────────
-        static NkMat4 LookAtRH(NkVec3 eye, NkVec3 center, NkVec3 up) noexcept {
-            NkVec3 f = (center - eye).Normalized();
-            NkVec3 s = f.Cross(up).Normalized();
-            NkVec3 u = s.Cross(f);
-
-            NkMat4 m;
-            m.col[0] = { s.x,  u.x, -f.x, 0};
-            m.col[1] = { s.y,  u.y, -f.y, 0};
-            m.col[2] = { s.z,  u.z, -f.z, 0};
-            m.col[3] = {-s.Dot(eye), -u.Dot(eye), f.Dot(eye), 1};
-            return NkMat4::LookAt(eye, center, up);
-        }
-
-        // =========================================================================
-        // NkCamera2D
-        // =========================================================================
-
-        NkCamera2D::NkCamera2D(float32 width, float32 height,
-                                float32 nearZ, float32 farZ) noexcept {
-            SetOrtho(width, height, nearZ, farZ);
-        }
-
-        void NkCamera2D::SetOrtho(float32 width, float32 height,
-                                float32 nearZ, float32 farZ) noexcept {
-            mWidth  = width;
-            mHeight = height;
-            mNearZ  = nearZ;
-            mFarZ   = farZ;
-            mDirty  = true;
-        }
-
-        // NkMat4 NkCamera2D::GetViewProjection() const noexcept {
-        //     RebuildIfDirty();
-        //     return mProjection * mView;
-        // }
-
-        NkVec2 NkCamera2D::ScreenToWorld(NkVec2 sp) const noexcept {
-            // Normalise → NDC → inverse VP
-            float32 ndcX =  2.f * sp.x / mWidth  - 1.f;
-            float32 ndcY = -2.f * sp.y / mHeight + 1.f;
-            NkMat4 invVP = GetViewProjectionMatrix(10).Inverse();
-            math::NkVec4f v = invVP * math::NkVec4f{ndcX, ndcY, 0.f, 1.f};
-            return {v.x, v.y};
-        }
-
-        NkVec2 NkCamera2D::WorldToScreen(NkVec2 wp) const noexcept {
-            math::NkVec4f clip = GetViewProjectionMatrix(10) * math::NkVec4f{wp.x, wp.y, 0.f, 1.f};
-            return {(clip.x * 0.5f + 0.5f) * mWidth, (1.f - clip.y * 0.5f - 0.5f) * mHeight};
-        }
-
-        void NkCamera2D::RebuildIfDirty() const noexcept {
-            if (!mDirty) return;
-            mDirty = false;
-
-            // Projection ortho : Y vers le bas (convention UI/2D standard)
-            mProjection = OrthoVK(0.f, mWidth * (1.f/mZoom), mHeight * (1.f/mZoom), 0.f, mNearZ, mFarZ);
-
-            // View = translate + rotate autour de Z
-            float32 rad = math::DEG_TO_RAD * (mRotation);
-            float32 cosR = math::NkCos(rad);
-            float32 sinR = math::NkSin(rad);
-            NkMat4 rot;
-            rot.col[0] = { cosR, sinR, 0, 0};
-            rot.col[1] = {-sinR, cosR, 0, 0};
-            rot.col[2] = {    0,    0, 1, 0};
-            rot.col[3] = {    0,    0, 0, 1};
-            NkMat4 trans;
-            trans.col[3] = {-mPosition.x, -mPosition.y, 0, 1};
-            mView = rot * trans;
-        }
-
-        // =========================================================================
+        // =============================================================================
         // NkCamera3D
-        // =========================================================================
-
-        NkCamera3D::NkCamera3D(float32 fovDeg, float32 aspect,
-                                float32 nearZ, float32 farZ) noexcept {
-            SetPerspective(fovDeg, aspect, nearZ, farZ);
-        }
-
-        void NkCamera3D::SetPerspective(float32 fovDeg, float32 aspect,
-                                        float32 nearZ, float32 farZ) noexcept {
-            mIsPerspective = true;
-            mFovDeg = fovDeg; mAspect = aspect;
-            mNearZ  = nearZ;  mFarZ   = farZ;
-            mDirty  = true;
-        }
-
-        void NkCamera3D::SetOrthographic(float32 l, float32 r, float32 b, float32 t,
-                                        float32 nearZ, float32 farZ) noexcept {
-            mIsPerspective = false;
-            mOrthoLeft = l; mOrthoRight = r;
-            mOrthoBottom = b; mOrthoTop = t;
-            mNearZ = nearZ; mFarZ = farZ;
-            mDirty = true;
-        }
-
-        void NkCamera3D::LookAt(NkVec3 eye, NkVec3 target, NkVec3 up) noexcept {
-            mPosition = eye; mTarget = target; mUp = up;
-            mDirty = true;
-        }
-
-        NkVec3 NkCamera3D::GetForward() const {
-            return (mTarget - mPosition).Normalized();
-        }
-
-        NkVec3 NkCamera3D::GetRight() const {
-            return GetForward().Cross(mUp).Normalized();
-        }
-
-        // NkMat4 NkCamera3D::GetViewProjection() const noexcept {
-        //     RebuildIfDirty();
-        //     return mProjection * mView;
-        // }
-
-        void NkCamera3D::RebuildIfDirty() const noexcept {
-            if (!mDirty) return;
-            mDirty = false;
-            RebuildPerspective();
-            RebuildView();
-        }
-
-        void NkCamera3D::RebuildPerspective() const noexcept {
-            bool gl = (mProjSpace == NkProjectionSpace::NK_NDC_NEG_ONE);
-            if (mIsPerspective) {
-                mProjection = gl ? PerspGL(mFovDeg, mAspect, mNearZ, mFarZ)
-                                : PerspVK(mFovDeg, mAspect, mNearZ, mFarZ);
-            } else {
-                mProjection = gl ? OrthoGL(mOrthoLeft, mOrthoRight, mOrthoBottom, mOrthoTop, mNearZ, mFarZ)
-                                : OrthoVK(mOrthoLeft, mOrthoRight, mOrthoBottom, mOrthoTop, mNearZ, mFarZ);
+        // =============================================================================
+        NkMat4f NkCamera3D::Projection() const {
+            if (type == NkProjType::NK_PERSPECTIVE) {
+                return NkMat4f::Perspective(NkAngle(fovDeg), aspect, nearZ, farZ);
             }
+            return NkMat4f::Orthogonal(
+                NkVec2f(orthoLeft,  orthoBottom),
+                NkVec2f(orthoRight, orthoTop),
+                orthoNear, orthoFar, depthZeroToOne);
         }
 
-        void NkCamera3D::RebuildView() const noexcept {
-            mView = LookAtRH(mPosition, mTarget, mUp);
+        NkVec3f NkCamera3D::Forward() const {
+            NkVec3f d = target - position;
+            float l = sqrtf(d.x*d.x + d.y*d.y + d.z*d.z);
+            return l > 1e-6f ? NkVec3f{d.x/l, d.y/l, d.z/l} : NkVec3f{0,0,-1};
         }
-    }
-}
+
+        NkVec3f NkCamera3D::Right() const {
+            NkVec3f f = Forward();
+            NkVec3f r{
+                f.y*up.z - f.z*up.y,
+                f.z*up.x - f.x*up.z,
+                f.x*up.y - f.y*up.x
+            };
+            float l = sqrtf(r.x*r.x + r.y*r.y + r.z*r.z);
+            return l > 1e-6f ? NkVec3f{r.x/l, r.y/l, r.z/l} : NkVec3f{1,0,0};
+        }
+
+        void NkCamera3D::Orbit(const NkVec3f& center,
+                                 float32 yawDeg, float32 pitchDeg, float32 dist) {
+            pitchDeg = std::max(-89.f, std::min(89.f, pitchDeg));
+            const float y = yawDeg   * (3.14159265f / 180.f);
+            const float p = pitchDeg * (3.14159265f / 180.f);
+            position.x = center.x + dist * cosf(p) * sinf(y);
+            position.y = center.y + dist * sinf(p);
+            position.z = center.z + dist * cosf(p) * cosf(y);
+            target = center;
+            up = fabsf(sinf(p)) > 0.98f
+                ? NkVec3f{cosf(y), 0, sinf(y)}
+                : NkVec3f{0, 1, 0};
+        }
+
+        void NkCamera3D::Pan(float32 dx, float32 dy) {
+            NkVec3f r = Right();
+            NkVec3f u = up;
+            position.x += r.x*dx + u.x*dy; target.x += r.x*dx + u.x*dy;
+            position.y += r.y*dx + u.y*dy; target.y += r.y*dx + u.y*dy;
+            position.z += r.z*dx + u.z*dy; target.z += r.z*dx + u.z*dy;
+        }
+
+        void NkCamera3D::Zoom(float32 delta) {
+            NkVec3f f = Forward();
+            position.x += f.x*delta;
+            position.y += f.y*delta;
+            position.z += f.z*delta;
+        }
+
+        NkCamera3D::Ray NkCamera3D::ScreenRay(float32 ndcX, float32 ndcY) const {
+            Ray r;
+            r.origin = position;
+            NkVec3f f  = Forward();
+            NkVec3f ri = Right();
+            float tanH = tanf(fovDeg * (3.14159265f / 180.f) * .5f);
+            r.direction.x = f.x + ri.x*ndcX*tanH*aspect + up.x*(-ndcY)*tanH;
+            r.direction.y = f.y + ri.y*ndcX*tanH*aspect + up.y*(-ndcY)*tanH;
+            r.direction.z = f.z + ri.z*ndcX*tanH*aspect + up.z*(-ndcY)*tanH;
+            float l = sqrtf(r.direction.x*r.direction.x +
+                            r.direction.y*r.direction.y +
+                            r.direction.z*r.direction.z);
+            if (l > 1e-6f) {
+                r.direction.x /= l;
+                r.direction.y /= l;
+                r.direction.z /= l;
+            }
+            return r;
+        }
+
+        NkCamera3D NkCamera3D::ShadowLight(const NkVec3f& dir,
+                                              const NkVec3f& center,
+                                              float32 radius, bool z01) {
+            NkVec3f nd = dir;
+            float l = sqrtf(nd.x*nd.x + nd.y*nd.y + nd.z*nd.z);
+            if (l > 1e-6f) { nd.x/=l; nd.y/=l; nd.z/=l; }
+            NkCamera3D c = Orthographic(-radius, radius, -radius, radius,
+                                          1.f, radius*3.f, z01);
+            c.position = {
+                center.x - nd.x*radius*2,
+                center.y - nd.y*radius*2,
+                center.z - nd.z*radius*2
+            };
+            c.target = center;
+            c.up = fabsf(nd.y) > .9f ? NkVec3f{1,0,0} : NkVec3f{0,1,0};
+            return c;
+        }
+
+        // =============================================================================
+        // NkCamera2D
+        // =============================================================================
+        NkMat4f NkCamera2D::View() const {
+            NkMat4f T = NkMat4f::Translation({-position.x, -position.y, 0});
+            NkMat4f R = NkMat4f::RotationZ(NkAngle(-rotation));
+            return R * T;
+        }
+
+        NkMat4f NkCamera2D::Projection() const {
+            const float hw = (width  * .5f) / zoom;
+            const float hh = (height * .5f) / zoom;
+            return NkMat4f::Orthogonal(
+                NkVec2f(-hw, yFlip ?  -hh :  hh),
+                NkVec2f( hw, yFlip ?   hh : -hh),
+                -1.f, 1.f, false);
+        }
+
+        NkVec2f NkCamera2D::ScreenToWorld(float32 sx, float32 sy) const {
+            const float ndcX = (sx / (width  * .5f) - 1.f) / zoom;
+            const float ndcY = yFlip
+                ? (1.f - sy / (height * .5f)) / zoom
+                : (sy / (height * .5f) - 1.f) / zoom;
+            return {position.x + ndcX * (width * .5f),
+                    position.y + ndcY * (height * .5f)};
+        }
+
+        NkVec2f NkCamera2D::WorldToScreen(float32 wx, float32 wy) const {
+            const float rx = (wx - position.x) * zoom;
+            const float ry = (wy - position.y) * zoom;
+            const float sx = (rx / (width  * .5f) + 1.f) * (width  * .5f);
+            const float sy = yFlip
+                ? (1.f - ry / (height * .5f)) * (height * .5f)
+                : (ry / (height * .5f) + 1.f) * (height * .5f);
+            return {sx, sy};
+        }
+
+    } // namespace renderer
+} // namespace nkentseu

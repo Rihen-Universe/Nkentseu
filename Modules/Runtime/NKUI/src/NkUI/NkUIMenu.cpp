@@ -78,7 +78,7 @@ namespace nkentseu {
         {
             const auto& t=ctx.theme;
             const bool hov=ctx.IsHovered(r);
-            const NkColor bg=open?t.colors.accent:(hov&&enabled?t.colors.buttonHover:NkColor::Transparent());
+            const NkColor bg=open?t.colors.accent:(hov&&enabled?t.colors.buttonHover:NkColor::Transparent);
             if(bg.a>0) dl.AddRectFilled(r,bg,t.metrics.cornerRadiusSm);
             const NkColor tc=!enabled?t.colors.textDisabled:(open||hov?t.colors.textOnAccent:t.colors.textPrimary);
             font.RenderText(dl, {r.x + t.metrics.paddingX, BaselineY(r, font)}, label, tc);
@@ -94,7 +94,7 @@ namespace nkentseu {
             NkRect pr=ms.panelRect;
             pr.h*=anim;
             NkUIDrawList& pdl=ctx.layers[NkUIContext::LAYER_POPUPS];
-            pdl.AddShadow(pr,8,NkColor::Gray(0,60),{2,2});
+            pdl.AddShadow(pr,8,NkColor::GrayValue(0,60),{2,2});
             pdl.AddRectFilled(pr,t.colors.bgPopup,t.metrics.cornerRadius);
             pdl.AddRect(pr,t.colors.border,1.f,t.metrics.cornerRadius);
             pdl.PushClipRect(pr);
@@ -409,9 +409,9 @@ namespace nkentseu {
 
             // Overlay semi-transparent
             NkUIDrawList& pdl=ctx.layers[NkUIContext::LAYER_POPUPS];
-            pdl.AddRectFilled({0,0,(float32)ctx.viewW,(float32)ctx.viewH},NkColor::Gray(0,80));
+            pdl.AddRectFilled({0,0,(float32)ctx.viewW,(float32)ctx.viewH},NkColor::GrayValue(0,80));
             // Panel popup
-            pdl.AddShadow(pr,12,NkColor::Gray(0,80),{3,3});
+            pdl.AddShadow(pr,12,NkColor::GrayValue(0,80),{3,3});
             pdl.AddRectFilled(pr,ctx.theme.colors.bgPopup,ctx.theme.metrics.cornerRadiusLg);
             pdl.AddRect(pr,ctx.theme.colors.border,1.f,ctx.theme.metrics.cornerRadiusLg);
             pdl.PushClipRect(pr);
@@ -461,10 +461,10 @@ namespace nkentseu {
 
             NkUIDrawList& pdl=ctx.layers[NkUIContext::LAYER_OVERLAY];
             // Overlay opaque qui bloque l'UI sous-jacente
-            pdl.AddRectFilled({0,0,(float32)ctx.viewW,(float32)ctx.viewH},NkColor::Gray(0,160));
+            pdl.AddRectFilled({0,0,(float32)ctx.viewW,(float32)ctx.viewH},NkColor::GrayValue(0,160));
 
             // Fenêtre modale
-            pdl.AddShadow(pr,16,NkColor::Gray(0,100),{4,4});
+            pdl.AddShadow(pr,16,NkColor::GrayValue(0,100),{4,4});
             pdl.AddRectFilled(pr,ctx.theme.colors.bgWindow,ctx.theme.metrics.cornerRadiusLg);
             pdl.AddRect(pr,ctx.theme.colors.border,1.f,ctx.theme.metrics.cornerRadiusLg);
 
@@ -481,8 +481,8 @@ namespace nkentseu {
             const bool xhov=ctx.IsHoveredCircle(xc,tbH*0.25f);
             pdl.AddCircleFilled(xc,tbH*0.22f,xhov?NkColor{220,60,60,255}:ctx.theme.colors.titleBarBtn);
             if(xhov){
-                pdl.AddLine({xc.x-5,xc.y-5},{xc.x+5,xc.y+5},NkColor::White(),1.5f);
-                pdl.AddLine({xc.x+5,xc.y-5},{xc.x-5,xc.y+5},NkColor::White(),1.5f);
+                pdl.AddLine({xc.x-5,xc.y-5},{xc.x+5,xc.y+5},NkColor::White,1.5f);
+                pdl.AddLine({xc.x+5,xc.y-5},{xc.x-5,xc.y+5},NkColor::White,1.5f);
                 if(ctx.ConsumeMouseClick(0)){
                     sModalOpen=false; if(open)*open=false;
                     (void)dl; return false;

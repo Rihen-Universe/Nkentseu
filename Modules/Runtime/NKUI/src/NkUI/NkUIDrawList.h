@@ -89,8 +89,8 @@ namespace nkentseu {
             int32   opaqueCount     = 0;
 
             // Style courant
-            NkColor fillColor    = NkColor::White();
-            NkColor strokeColor  = NkColor::Black();
+            NkColor fillColor    = NkColor::White;
+            NkColor strokeColor  = NkColor::Black;
             float32 strokeWidth  = 1.f;
             float32 cornerRadius = 4.f;
             uint32  fontId       = 0;
@@ -141,8 +141,8 @@ namespace nkentseu {
             void AddTextWrapped(NkRect bounds,const char* text,NkColor col, float32 size=0.f,uint32 fontId=0) noexcept;
 
             // ── Images / Textures ─────────────────────────────────────────────────────
-            void AddImage(uint32 texId,NkRect dst, NkVec2 uvMin={0,0},NkVec2 uvMax={1,1}, NkColor tint=NkColor::White()) noexcept;
-            void AddImageRounded(uint32 texId,NkRect dst, float32 radius,NkColor tint=NkColor::White()) noexcept;
+            void AddImage(uint32 texId,NkRect dst, NkVec2 uvMin={0,0},NkVec2 uvMax={1,1}, NkColor tint=NkColor::White) noexcept;
+            void AddImageRounded(uint32 texId,NkRect dst, float32 radius,NkColor tint=NkColor::White) noexcept;
 
             // ── Path builder (SVG-like) ───────────────────────────────────────────────
             void PathClear() noexcept;

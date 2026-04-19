@@ -1,0 +1,500 @@
+{
+  "version": 1,
+  "count": 50,
+  "diseases": [
+    {
+      "id": 100, "name": "Infarctus du myocarde", "severity": 0.95,
+      "category": "Cardiologie", "icd10": "I21",
+      "criteria": [
+        {"symptom_id": 1,  "weight": 0.90, "required": true},
+        {"symptom_id": 10, "weight": 0.80, "required": false},
+        {"symptom_id": 9,  "weight": 0.50, "required": false},
+        {"symptom_id": 11, "weight": 0.60, "required": false},
+        {"symptom_id": 2,  "weight": 0.40, "required": false},
+        {"symptom_id": 3,  "weight": 0.30, "required": false}
+      ]
+    },
+    {
+      "id": 101, "name": "Pneumonie", "severity": 0.70,
+      "category": "Pneumologie", "icd10": "J18",
+      "criteria": [
+        {"symptom_id": 5,  "weight": 0.85, "required": true},
+        {"symptom_id": 13, "weight": 0.75, "required": true},
+        {"symptom_id": 2,  "weight": 0.65, "required": false},
+        {"symptom_id": 14, "weight": 0.55, "required": false},
+        {"symptom_id": 6,  "weight": 0.40, "required": false}
+      ]
+    },
+    {
+      "id": 102, "name": "Attaque de panique", "severity": 0.45,
+      "category": "Psychiatrie", "icd10": "F41.0",
+      "criteria": [
+        {"symptom_id": 9,  "weight": 0.75, "required": true},
+        {"symptom_id": 1,  "weight": 0.55, "required": false},
+        {"symptom_id": 8,  "weight": 0.65, "required": false},
+        {"symptom_id": 2,  "weight": 0.50, "required": false},
+        {"symptom_id": 11, "weight": 0.45, "required": false}
+      ]
+    },
+    {
+      "id": 103, "name": "Appendicite aiguë", "severity": 0.80,
+      "category": "Chirurgie", "icd10": "K37",
+      "criteria": [
+        {"symptom_id": 7,  "weight": 0.90, "required": true},
+        {"symptom_id": 5,  "weight": 0.60, "required": false},
+        {"symptom_id": 3,  "weight": 0.55, "required": false},
+        {"symptom_id": 12, "weight": 0.50, "required": false},
+        {"symptom_id": 6,  "weight": 0.40, "required": false}
+      ]
+    },
+    {
+      "id": 104, "name": "Migraine", "severity": 0.40,
+      "category": "Neurologie", "icd10": "G43",
+      "criteria": [
+        {"symptom_id": 4,  "weight": 0.95, "required": true},
+        {"symptom_id": 17, "weight": 0.70, "required": false},
+        {"symptom_id": 3,  "weight": 0.60, "required": false},
+        {"symptom_id": 12, "weight": 0.45, "required": false}
+      ]
+    },
+    {
+      "id": 105, "name": "Embolie pulmonaire", "severity": 0.92,
+      "category": "Pneumologie", "icd10": "I26",
+      "criteria": [
+        {"symptom_id": 2,  "weight": 0.90, "required": true},
+        {"symptom_id": 1,  "weight": 0.70, "required": false},
+        {"symptom_id": 14, "weight": 0.75, "required": false},
+        {"symptom_id": 20, "weight": 0.55, "required": false},
+        {"symptom_id": 9,  "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 106, "name": "Méningite bactérienne", "severity": 0.95,
+      "category": "Infectiologie", "icd10": "G00",
+      "criteria": [
+        {"symptom_id": 18, "weight": 0.90, "required": true},
+        {"symptom_id": 5,  "weight": 0.85, "required": true},
+        {"symptom_id": 4,  "weight": 0.80, "required": false},
+        {"symptom_id": 17, "weight": 0.70, "required": false},
+        {"symptom_id": 15, "weight": 0.60, "required": false}
+      ]
+    },
+    {
+      "id": 107, "name": "AVC ischémique", "severity": 0.95,
+      "category": "Neurologie", "icd10": "I63",
+      "criteria": [
+        {"symptom_id": 25, "weight": 0.85, "required": false},
+        {"symptom_id": 26, "weight": 0.80, "required": false},
+        {"symptom_id": 15, "weight": 0.75, "required": false},
+        {"symptom_id": 4,  "weight": 0.50, "required": false},
+        {"symptom_id": 8,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 108, "name": "Insuffisance cardiaque", "severity": 0.80,
+      "category": "Cardiologie", "icd10": "I50",
+      "criteria": [
+        {"symptom_id": 2,  "weight": 0.85, "required": true},
+        {"symptom_id": 19, "weight": 0.80, "required": false},
+        {"symptom_id": 6,  "weight": 0.65, "required": false},
+        {"symptom_id": 1,  "weight": 0.45, "required": false}
+      ]
+    },
+    {
+      "id": 109, "name": "Gastro-entérite aiguë", "severity": 0.30,
+      "category": "Gastro-entérologie", "icd10": "K59",
+      "criteria": [
+        {"symptom_id": 12, "weight": 0.85, "required": true},
+        {"symptom_id": 3,  "weight": 0.80, "required": false},
+        {"symptom_id": 7,  "weight": 0.65, "required": false},
+        {"symptom_id": 5,  "weight": 0.50, "required": false},
+        {"symptom_id": 6,  "weight": 0.40, "required": false}
+      ]
+    },
+    {
+      "id": 110, "name": "Pyélonéphrite aiguë", "severity": 0.65,
+      "category": "Urologie", "icd10": "N10",
+      "criteria": [
+        {"symptom_id": 5,  "weight": 0.85, "required": true},
+        {"symptom_id": 22, "weight": 0.75, "required": false},
+        {"symptom_id": 29, "weight": 0.80, "required": false},
+        {"symptom_id": 27, "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 111, "name": "Angor instable", "severity": 0.85,
+      "category": "Cardiologie", "icd10": "I20.0",
+      "criteria": [
+        {"symptom_id": 1,  "weight": 0.90, "required": true},
+        {"symptom_id": 2,  "weight": 0.55, "required": false},
+        {"symptom_id": 6,  "weight": 0.40, "required": false},
+        {"symptom_id": 9,  "weight": 0.45, "required": false}
+      ]
+    },
+    {
+      "id": 112, "name": "Sepsis", "severity": 0.90,
+      "category": "Réanimation", "icd10": "A41",
+      "criteria": [
+        {"symptom_id": 5,  "weight": 0.90, "required": true},
+        {"symptom_id": 27, "weight": 0.75, "required": false},
+        {"symptom_id": 11, "weight": 0.70, "required": false},
+        {"symptom_id": 15, "weight": 0.65, "required": false},
+        {"symptom_id": 6,  "weight": 0.55, "required": false},
+        {"symptom_id": 9,  "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 113, "name": "Dissection aortique", "severity": 0.98,
+      "category": "Cardiologie", "icd10": "I71.0",
+      "criteria": [
+        {"symptom_id": 1,  "weight": 0.90, "required": true},
+        {"symptom_id": 29, "weight": 0.70, "required": false},
+        {"symptom_id": 11, "weight": 0.60, "required": false},
+        {"symptom_id": 30, "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 114, "name": "Pneumothorax spontané", "severity": 0.75,
+      "category": "Pneumologie", "icd10": "J93",
+      "criteria": [
+        {"symptom_id": 1,  "weight": 0.85, "required": true},
+        {"symptom_id": 2,  "weight": 0.90, "required": true},
+        {"symptom_id": 14, "weight": 0.65, "required": false}
+      ]
+    },
+    {
+      "id": 115, "name": "Hémorragie digestive haute", "severity": 0.88,
+      "category": "Gastro-entérologie", "icd10": "K92.2",
+      "criteria": [
+        {"symptom_id": 21, "weight": 0.90, "required": true},
+        {"symptom_id": 3,  "weight": 0.60, "required": false},
+        {"symptom_id": 8,  "weight": 0.55, "required": false},
+        {"symptom_id": 30, "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 116, "name": "Crise épileptique", "severity": 0.80,
+      "category": "Neurologie", "icd10": "G40",
+      "criteria": [
+        {"symptom_id": 15, "weight": 0.90, "required": true},
+        {"symptom_id": 4,  "weight": 0.60, "required": false},
+        {"symptom_id": 30, "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 117, "name": "Choc anaphylactique", "severity": 0.98,
+      "category": "Allergologie", "icd10": "T78.2",
+      "criteria": [
+        {"symptom_id": 2,  "weight": 0.90, "required": true},
+        {"symptom_id": 24, "weight": 0.85, "required": false},
+        {"symptom_id": 9,  "weight": 0.70, "required": false},
+        {"symptom_id": 11, "weight": 0.65, "required": false},
+        {"symptom_id": 30, "weight": 0.60, "required": false}
+      ]
+    },
+    {
+      "id": 118, "name": "Insuffisance rénale aiguë", "severity": 0.85,
+      "category": "Néphrologie", "icd10": "N17",
+      "criteria": [
+        {"symptom_id": 3,  "weight": 0.70, "required": false},
+        {"symptom_id": 6,  "weight": 0.65, "required": false},
+        {"symptom_id": 19, "weight": 0.75, "required": false},
+        {"symptom_id": 15, "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 119, "name": "Colique néphrétique", "severity": 0.60,
+      "category": "Urologie", "icd10": "N23",
+      "criteria": [
+        {"symptom_id": 29, "weight": 0.90, "required": true},
+        {"symptom_id": 3,  "weight": 0.65, "required": false},
+        {"symptom_id": 12, "weight": 0.55, "required": false},
+        {"symptom_id": 22, "weight": 0.60, "required": false}
+      ]
+    },
+    {
+      "id": 120, "name": "Polyarthrite rhumatoïde", "severity": 0.50,
+      "category": "Rhumatologie", "icd10": "M05",
+      "criteria": [
+        {"symptom_id": 23, "weight": 0.90, "required": true},
+        {"symptom_id": 6,  "weight": 0.60, "required": false},
+        {"symptom_id": 5,  "weight": 0.40, "required": false}
+      ]
+    },
+    {
+      "id": 121, "name": "Péritonite", "severity": 0.92,
+      "category": "Chirurgie", "icd10": "K65",
+      "criteria": [
+        {"symptom_id": 7,  "weight": 0.95, "required": true},
+        {"symptom_id": 5,  "weight": 0.80, "required": false},
+        {"symptom_id": 11, "weight": 0.65, "required": false},
+        {"symptom_id": 3,  "weight": 0.55, "required": false},
+        {"symptom_id": 12, "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 122, "name": "Diabète décompensé", "severity": 0.75,
+      "category": "Endocrinologie", "icd10": "E11.9",
+      "criteria": [
+        {"symptom_id": 6,  "weight": 0.75, "required": false},
+        {"symptom_id": 3,  "weight": 0.65, "required": false},
+        {"symptom_id": 15, "weight": 0.55, "required": false},
+        {"symptom_id": 8,  "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 123, "name": "Hyperthyroïdie", "severity": 0.55,
+      "category": "Endocrinologie", "icd10": "E05",
+      "criteria": [
+        {"symptom_id": 9,  "weight": 0.80, "required": false},
+        {"symptom_id": 6,  "weight": 0.50, "required": false},
+        {"symptom_id": 27, "weight": 0.55, "required": false},
+        {"symptom_id": 8,  "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 124, "name": "Intoxication au CO", "severity": 0.90,
+      "category": "Toxicologie", "icd10": "T58",
+      "criteria": [
+        {"symptom_id": 4,  "weight": 0.85, "required": true},
+        {"symptom_id": 3,  "weight": 0.70, "required": false},
+        {"symptom_id": 15, "weight": 0.75, "required": false},
+        {"symptom_id": 8,  "weight": 0.65, "required": false}
+      ]
+    },
+    {
+      "id": 125, "name": "Asthme aigu grave", "severity": 0.88,
+      "category": "Pneumologie", "icd10": "J46",
+      "criteria": [
+        {"symptom_id": 2,  "weight": 0.95, "required": true},
+        {"symptom_id": 1,  "weight": 0.55, "required": false},
+        {"symptom_id": 9,  "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 126, "name": "Cholécystite aiguë", "severity": 0.70,
+      "category": "Chirurgie", "icd10": "K81.0",
+      "criteria": [
+        {"symptom_id": 7,  "weight": 0.85, "required": true},
+        {"symptom_id": 5,  "weight": 0.65, "required": false},
+        {"symptom_id": 3,  "weight": 0.55, "required": false},
+        {"symptom_id": 12, "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 127, "name": "Pneumopathie COVID-19", "severity": 0.75,
+      "category": "Infectiologie", "icd10": "U07.1",
+      "criteria": [
+        {"symptom_id": 5,  "weight": 0.80, "required": false},
+        {"symptom_id": 2,  "weight": 0.75, "required": false},
+        {"symptom_id": 13, "weight": 0.70, "required": false},
+        {"symptom_id": 6,  "weight": 0.65, "required": false}
+      ]
+    },
+    {
+      "id": 128, "name": "Hépatite virale aiguë", "severity": 0.60,
+      "category": "Gastro-entérologie", "icd10": "B15",
+      "criteria": [
+        {"symptom_id": 3,  "weight": 0.80, "required": false},
+        {"symptom_id": 6,  "weight": 0.70, "required": false},
+        {"symptom_id": 16, "weight": 0.65, "required": false},
+        {"symptom_id": 5,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 129, "name": "Paludisme", "severity": 0.80,
+      "category": "Infectiologie", "icd10": "B50",
+      "criteria": [
+        {"symptom_id": 5,  "weight": 0.90, "required": true},
+        {"symptom_id": 27, "weight": 0.80, "required": false},
+        {"symptom_id": 4,  "weight": 0.65, "required": false},
+        {"symptom_id": 23, "weight": 0.55, "required": false},
+        {"symptom_id": 6,  "weight": 0.60, "required": false}
+      ]
+    },
+    {
+      "id": 130, "name": "Leucémie aiguë", "severity": 0.90,
+      "category": "Hématologie", "icd10": "C91",
+      "criteria": [
+        {"symptom_id": 6,  "weight": 0.85, "required": true},
+        {"symptom_id": 5,  "weight": 0.70, "required": false},
+        {"symptom_id": 27, "weight": 0.60, "required": false},
+        {"symptom_id": 23, "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 131, "name": "Thrombose veineuse profonde", "severity": 0.70,
+      "category": "Vasculaire", "icd10": "I80",
+      "criteria": [
+        {"symptom_id": 19, "weight": 0.85, "required": true},
+        {"symptom_id": 23, "weight": 0.65, "required": false},
+        {"symptom_id": 2,  "weight": 0.40, "required": false}
+      ]
+    },
+    {
+      "id": 132, "name": "Hypothyroïdie", "severity": 0.40,
+      "category": "Endocrinologie", "icd10": "E03",
+      "criteria": [
+        {"symptom_id": 6,  "weight": 0.80, "required": true},
+        {"symptom_id": 19, "weight": 0.55, "required": false},
+        {"symptom_id": 15, "weight": 0.45, "required": false}
+      ]
+    },
+    {
+      "id": 133, "name": "Crise de goutte", "severity": 0.35,
+      "category": "Rhumatologie", "icd10": "M10",
+      "criteria": [
+        {"symptom_id": 23, "weight": 0.95, "required": true},
+        {"symptom_id": 5,  "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 134, "name": "Pancréatite aiguë", "severity": 0.85,
+      "category": "Gastro-entérologie", "icd10": "K85",
+      "criteria": [
+        {"symptom_id": 16, "weight": 0.90, "required": true},
+        {"symptom_id": 3,  "weight": 0.70, "required": false},
+        {"symptom_id": 12, "weight": 0.65, "required": false},
+        {"symptom_id": 5,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 135, "name": "Dépression sévère", "severity": 0.55,
+      "category": "Psychiatrie", "icd10": "F32.2",
+      "criteria": [
+        {"symptom_id": 6,  "weight": 0.85, "required": true},
+        {"symptom_id": 4,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 136, "name": "Cancer du poumon", "severity": 0.90,
+      "category": "Oncologie", "icd10": "C34",
+      "criteria": [
+        {"symptom_id": 13, "weight": 0.80, "required": false},
+        {"symptom_id": 20, "weight": 0.70, "required": false},
+        {"symptom_id": 2,  "weight": 0.65, "required": false},
+        {"symptom_id": 6,  "weight": 0.60, "required": false}
+      ]
+    },
+    {
+      "id": 137, "name": "Occlusion intestinale", "severity": 0.88,
+      "category": "Chirurgie", "icd10": "K56",
+      "criteria": [
+        {"symptom_id": 7,  "weight": 0.90, "required": true},
+        {"symptom_id": 12, "weight": 0.80, "required": true},
+        {"symptom_id": 3,  "weight": 0.65, "required": false}
+      ]
+    },
+    {
+      "id": 138, "name": "Zona", "severity": 0.45,
+      "category": "Dermatologie", "icd10": "B02",
+      "criteria": [
+        {"symptom_id": 24, "weight": 0.85, "required": true},
+        {"symptom_id": 4,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 139, "name": "Polyradiculonévrite (Guillain-Barré)", "severity": 0.88,
+      "category": "Neurologie", "icd10": "G61.0",
+      "criteria": [
+        {"symptom_id": 23, "weight": 0.80, "required": false},
+        {"symptom_id": 2,  "weight": 0.65, "required": false},
+        {"symptom_id": 28, "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 140, "name": "Maladie de Crohn", "severity": 0.55,
+      "category": "Gastro-entérologie", "icd10": "K50",
+      "criteria": [
+        {"symptom_id": 7,  "weight": 0.80, "required": true},
+        {"symptom_id": 6,  "weight": 0.65, "required": false},
+        {"symptom_id": 5,  "weight": 0.55, "required": false},
+        {"symptom_id": 3,  "weight": 0.50, "required": false}
+      ]
+    },
+    {
+      "id": 141, "name": "Lymphome Hodgkin", "severity": 0.80,
+      "category": "Hématologie", "icd10": "C81",
+      "criteria": [
+        {"symptom_id": 6,  "weight": 0.80, "required": true},
+        {"symptom_id": 27, "weight": 0.70, "required": false},
+        {"symptom_id": 5,  "weight": 0.65, "required": false}
+      ]
+    },
+    {
+      "id": 142, "name": "Crise hypertensive", "severity": 0.85,
+      "category": "Cardiologie", "icd10": "I10",
+      "criteria": [
+        {"symptom_id": 4,  "weight": 0.80, "required": false},
+        {"symptom_id": 8,  "weight": 0.70, "required": false},
+        {"symptom_id": 15, "weight": 0.55, "required": false},
+        {"symptom_id": 3,  "weight": 0.45, "required": false}
+      ]
+    },
+    {
+      "id": 143, "name": "Recto-colite hémorragique", "severity": 0.60,
+      "category": "Gastro-entérologie", "icd10": "K51",
+      "criteria": [
+        {"symptom_id": 7,  "weight": 0.80, "required": true},
+        {"symptom_id": 21, "weight": 0.70, "required": false},
+        {"symptom_id": 5,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 144, "name": "Endocardite infectieuse", "severity": 0.90,
+      "category": "Cardiologie", "icd10": "I33",
+      "criteria": [
+        {"symptom_id": 5,  "weight": 0.90, "required": true},
+        {"symptom_id": 27, "weight": 0.65, "required": false},
+        {"symptom_id": 6,  "weight": 0.60, "required": false},
+        {"symptom_id": 9,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 145, "name": "Crise de tétanie", "severity": 0.45,
+      "category": "Neurologie", "icd10": "R29.0",
+      "criteria": [
+        {"symptom_id": 9,  "weight": 0.70, "required": false},
+        {"symptom_id": 2,  "weight": 0.65, "required": false},
+        {"symptom_id": 8,  "weight": 0.60, "required": false}
+      ]
+    },
+    {
+      "id": 146, "name": "Insolation / Coup de chaleur", "severity": 0.85,
+      "category": "Urgences", "icd10": "T67",
+      "criteria": [
+        {"symptom_id": 5,  "weight": 0.85, "required": true},
+        {"symptom_id": 4,  "weight": 0.70, "required": false},
+        {"symptom_id": 15, "weight": 0.65, "required": false},
+        {"symptom_id": 11, "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 147, "name": "Hypoglycémie sévère", "severity": 0.88,
+      "category": "Endocrinologie", "icd10": "E16.0",
+      "criteria": [
+        {"symptom_id": 11, "weight": 0.80, "required": true},
+        {"symptom_id": 27, "weight": 0.70, "required": false},
+        {"symptom_id": 15, "weight": 0.65, "required": false},
+        {"symptom_id": 8,  "weight": 0.60, "required": false},
+        {"symptom_id": 9,  "weight": 0.55, "required": false}
+      ]
+    },
+    {
+      "id": 148, "name": "Névralgie du trijumeau", "severity": 0.40,
+      "category": "Neurologie", "icd10": "G50.0",
+      "criteria": [
+        {"symptom_id": 4,  "weight": 0.95, "required": true}
+      ]
+    },
+    {
+      "id": 149, "name": "Salpingite / Annexite", "severity": 0.65,
+      "category": "Gynécologie", "icd10": "N70",
+      "criteria": [
+        {"symptom_id": 7,  "weight": 0.85, "required": true},
+        {"symptom_id": 5,  "weight": 0.70, "required": false},
+        {"symptom_id": 3,  "weight": 0.55, "required": false}
+      ]
+    }
+  ]
+}

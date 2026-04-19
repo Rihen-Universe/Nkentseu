@@ -780,12 +780,12 @@ namespace nkentseu
                 case NkUIWidgetType::NK_INPUT_TEXT:
                 case NkUIWidgetType::NK_INPUT_INT:
                 case NkUIWidgetType::NK_INPUT_FLOAT:
-                    bg = dis ? NkColor::Gray(240) : c.inputBg;
+                    bg = dis ? NkColor::GrayValue(240) : c.inputBg;
                     border = foc ? c.borderFocus : (hov ? c.borderHover : c.border);
                     break;
                 case NkUIWidgetType::NK_CHECKBOX:
                 case NkUIWidgetType::NK_RADIO:
-                    bg = dis ? NkColor::Gray(240) : c.checkBg;
+                    bg = dis ? NkColor::GrayValue(240) : c.checkBg;
                     border = foc ? c.borderFocus : c.border;
                     break;
                 default:
@@ -1380,7 +1380,7 @@ namespace nkentseu
 
             dl.AddRectFilled(track, trackCol, track.h * 0.5f);
             dl.AddCircleFilled({ thumb.x + thumb.w * 0.5f, thumb.y + thumb.h * 0.5f },
-                               thumb.w * 0.5f, NkColor::White());
+                               thumb.w * 0.5f, NkColor::White);
             font.RenderText(dl, { r.x + tw2 + ctx.GetPaddingX(), TextBaselineY(r, font) },
                             lp.label, ctx.theme.colors.textPrimary);
             NkUILayout::AdvanceItem(ctx, ls, r);
@@ -2537,9 +2537,9 @@ namespace nkentseu
             const NkRect box = { r.x, r.y + (r.h - size) * 0.5f, size, size };
             const NkUIWidgetState state = CalcState(ctx, id, box);
             // Damier pour l'alpha
-            dl.AddRectFilled(box, NkColor::Gray(200), ctx.theme.metrics.cornerRadiusSm);
-            dl.AddRectFilled({ box.x, box.y, box.w * 0.5f, box.h * 0.5f }, NkColor::White());
-            dl.AddRectFilled({ box.x + box.w * 0.5f, box.y + box.h * 0.5f, box.w * 0.5f, box.h * 0.5f }, NkColor::White());
+            dl.AddRectFilled(box, NkColor::GrayValue(200), ctx.theme.metrics.cornerRadiusSm);
+            dl.AddRectFilled({ box.x, box.y, box.w * 0.5f, box.h * 0.5f }, NkColor::White);
+            dl.AddRectFilled({ box.x + box.w * 0.5f, box.y + box.h * 0.5f, box.w * 0.5f, box.h * 0.5f }, NkColor::White);
             // Couleur par-dessus
             dl.AddRectFilled(box, col, ctx.theme.metrics.cornerRadiusSm);
             dl.AddRect(box, HasState(state, NkUIWidgetState::NK_HOVERED) ? ctx.theme.colors.borderHover : ctx.theme.colors.border,

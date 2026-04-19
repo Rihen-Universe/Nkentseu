@@ -46,124 +46,124 @@ namespace {
 // -----------------------------------------------------------------------------
 namespace nkentseu {
 
-	// -------------------------------------------------------------------------
-	// IMPLÉMENTATION DE NkLogMessage
-	// -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // IMPLÉMENTATION DE NkLogMessage
+    // -------------------------------------------------------------------------
 
-	/**
-	 * @brief Constructeur par défaut
-	 */
-	NkLogMessage::NkLogMessage()
-		: timestamp(0), threadId(0), sourceLine(0), level(NkLogLevel::NK_INFO) {
-		timestamp = static_cast<uint64>(NkGetNowNs());
+    /**
+     * @brief Constructeur par défaut
+     */
+    NkLogMessage::NkLogMessage()
+        : timestamp(0), threadId(0), sourceLine(0), level(NkLogLevel::NK_INFO) {
+        timestamp = static_cast<uint64>(NkGetNowNs());
 
-		// Obtention de l'ID du thread
-		threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
-	}
+        // Obtention de l'ID du thread
+        threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
+    }
 
-	/**
-	 * @brief Constructeur avec niveau et message
-	 */
-	NkLogMessage::NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &logger) : NkLogMessage() {
-		level = lvl;
-		message = msg;
-		if (!logger.Empty()) {
-			loggerName = logger;
-		}
-	}
+    /**
+     * @brief Constructeur avec niveau et message
+     */
+    NkLogMessage::NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &logger) : NkLogMessage() {
+        level = lvl;
+        message = msg;
+        if (!logger.Empty()) {
+            loggerName = logger;
+        }
+    }
 
-	/**
-	 * @brief Constructeur avec informations complètes
-	 */
-	NkLogMessage::NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &file, uint32 line,
-						const NkString &func, const NkString &logger)
-		: NkLogMessage(lvl, msg, logger) {
-		if (!file.Empty())
-			sourceFile = file;
-		if (line > 0)
-			sourceLine = line;
-		if (!func.Empty())
-			functionName = func;
-	}
+    /**
+     * @brief Constructeur avec informations complètes
+     */
+    NkLogMessage::NkLogMessage(NkLogLevel lvl, const NkString &msg, const NkString &file, uint32 line,
+                        const NkString &func, const NkString &logger)
+        : NkLogMessage(lvl, msg, logger) {
+        if (!file.Empty())
+            sourceFile = file;
+        if (line > 0)
+            sourceLine = line;
+        if (!func.Empty())
+            functionName = func;
+    }
 
-	/**
-	 * @brief Réinitialise le message
-	 */
-	void NkLogMessage::Reset() {
-		timestamp = 0;
-		threadId = 0;
-		threadName.Clear();
-		level = NkLogLevel::NK_INFO;
-		message.Clear();
-		loggerName.Clear();
-		sourceFile.Clear();
-		sourceLine = 0;
-		functionName.Clear();
+    /**
+     * @brief Réinitialise le message
+     */
+    void NkLogMessage::Reset() {
+        timestamp = 0;
+        threadId = 0;
+        threadName.Clear();
+        level = NkLogLevel::NK_INFO;
+        message.Clear();
+        loggerName.Clear();
+        sourceFile.Clear();
+        sourceLine = 0;
+        functionName.Clear();
 
-		timestamp = static_cast<uint64>(NkGetNowNs());
+        timestamp = static_cast<uint64>(NkGetNowNs());
 
-		// Recalcul de l'ID du thread
-		threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
-	}
+        // Recalcul de l'ID du thread
+        threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
+    }
 
-	/**
-	 * @brief Vérifie si le message est valide
-	 */
-	bool NkLogMessage::IsValid() const {
-		return !message.Empty() && timestamp > 0;
-	}
+    /**
+     * @brief Vérifie si le message est valide
+     */
+    bool NkLogMessage::IsValid() const {
+        return !message.Empty() && timestamp > 0;
+    }
 
-	/**
-	 * @brief Obtient l'heure sous forme de structure tm
-	 */
-	tm NkLogMessage::GetLocalTime() const {
-		time_t time = static_cast<time_t>(timestamp / 1000000000ULL);
-		tm localTime{};
+    /**
+     * @brief Obtient l'heure sous forme de structure tm
+     */
+    tm NkLogMessage::GetLocalTime() const {
+        time_t time = static_cast<time_t>(timestamp / 1000000000ULL);
+        tm localTime{};
 
-	#ifdef _WIN32
-		localtime_s(&localTime, &time);
-	#else
-		localtime_r(&time, &localTime);
-	#endif
+    #ifdef _WIN32
+        localtime_s(&localTime, &time);
+    #else
+        localtime_r(&time, &localTime);
+    #endif
 
-		return localTime;
-	}
+        return localTime;
+    }
 
-	/**
-	 * @brief Obtient l'heure sous forme de structure tm (UTC)
-	 */
-	tm NkLogMessage::GetUTCTime() const {
-		time_t time = static_cast<time_t>(timestamp / 1000000000ULL);
-		tm utcTime{};
+    /**
+     * @brief Obtient l'heure sous forme de structure tm (UTC)
+     */
+    tm NkLogMessage::GetUTCTime() const {
+        time_t time = static_cast<time_t>(timestamp / 1000000000ULL);
+        tm utcTime{};
 
-	#ifdef _WIN32
-		gmtime_s(&utcTime, &time);
-	#else
-		gmtime_r(&time, &utcTime);
-	#endif
+    #ifdef _WIN32
+        gmtime_s(&utcTime, &time);
+    #else
+        gmtime_r(&time, &utcTime);
+    #endif
 
-		return utcTime;
-	}
+        return utcTime;
+    }
 
-	/**
-	 * @brief Obtient le timestamp en millisecondes
-	 */
-	uint64 NkLogMessage::GetMillis() const {
-		return timestamp / 1000000ULL;
-	}
+    /**
+     * @brief Obtient le timestamp en millisecondes
+     */
+    uint64 NkLogMessage::GetMillis() const {
+        return timestamp / 1000000ULL;
+    }
 
-	/**
-	 * @brief Obtient le timestamp en microsecondes
-	 */
-	uint64 NkLogMessage::GetMicros() const {
-		return timestamp / 1000ULL;
-	}
+    /**
+     * @brief Obtient le timestamp en microsecondes
+     */
+    uint64 NkLogMessage::GetMicros() const {
+        return timestamp / 1000ULL;
+    }
 
-	/**
-	 * @brief Obtient le timestamp en secondes
-	 */
-	double NkLogMessage::GetSeconds() const {
-		return static_cast<double>(timestamp) / 1000000000.0;
-	}
+    /**
+     * @brief Obtient le timestamp en secondes
+     */
+    double NkLogMessage::GetSeconds() const {
+        return static_cast<double>(timestamp) / 1000000000.0;
+    }
 
 } // namespace nkentseu

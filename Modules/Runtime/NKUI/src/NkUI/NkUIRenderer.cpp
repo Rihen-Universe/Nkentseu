@@ -354,7 +354,7 @@ namespace nkentseu
                                                float32 /*v*/) const noexcept
         {
             // À surcharger avec NKImage pour une vraie texture
-            return NkColor::White();
+            return NkColor::White;
         }
 
     } // namespace nkui

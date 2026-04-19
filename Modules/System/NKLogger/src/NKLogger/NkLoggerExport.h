@@ -36,3 +36,14 @@
 
 // Macro d'inlining standard pour NkLogger
 #define NKLOGGER_INLINE inline
+
+// =============================================================================
+// EXEMPLES D'UTILISATION - NkLoggerExport
+// =============================================================================
+//
+//   class NKLOGGER_API MyLoggerExt {
+//       public:
+//           void Run();
+//   };
+//
+// =============================================================================

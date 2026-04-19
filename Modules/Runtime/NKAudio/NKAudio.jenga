@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+=============================================================================
+NKAudio.jenga — Module audio AAA du framework Nkentseu
+=============================================================================
+
+Architecture : pool de voix 256 canaux, mixage Float32 SIMD-ready,
+               effets DSP AAA (delay/reverb/compressor/EQ/biquad/chorus/distortion),
+               audio 3D HRTF, synthèse procédurale, FFT temps-réel.
+Zéro STL. Backends : WASAPI / CoreAudio / ALSA / AAudio / Null.
+
+Dépendances  : NKPlatform, NKCore, NKMemory, NKContainers
+"""
+
+from Jenga import *
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NKAudio"):
+    staticlib()
+    language("C++")
+    cppdialect("C++20")
+    location(".")
+
+    includedirs([
+        "src",
+        "pch",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKContainers.location}/src",
+    ])
+
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    dependson([
+        "NKPlatform",
+        "NKCore",
+        "NKMemory",
+        "NKContainers",
+    ])
+
+    files([
+        "src/NKAudio/**.cpp",
+        "src/NKAudio/**.h",
+        "pch/pch.h",
+        "pch/pch.cpp",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    defines(["NKENTSEU_BUILDING_AUDIO", "NKENTSEU_AUDIO_STATIC"])
+
+    # ── Configurations ────────────────────────────────────────────────────────
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
+        optimize("Off")
+        symbols(True)
+        flags(["NoRuntimeChecks"])
+
+    with filter("config:Release"):
+        defines(["NDEBUG", "RELEASE", "NKENTSEU_RELEASE"])
+        optimize("Speed")
+        symbols(False)
+        flags(["LinkTimeOptimization"])
+        vectorextensions("AVX2")    # SIMD pour le mixage Float32
+
+    with filter("config:Distribution"):
+        defines(["NDEBUG", "DISTRIBUTION", "NKENTSEU_DISTRIBUTION"])
+        optimize("Speed")
+        symbols(False)
+        flags(["LinkTimeOptimization"])
+        vectorextensions("AVX2")
+
+    # ── Toolchains par plateforme ─────────────────────────────────────────────
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+        # WASAPI requiert ole32 + mmdevapi
+        links(["ole32", "winmm", "avrt"])
+
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+        links(["ole32", "mmdevapi", "avrt"])
+
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        links([
+            "AudioToolbox.framework",
+            "CoreAudio.framework",
+            "CoreFoundation.framework",
+        ])
+
+    with filter("system:iOS"):
+        usetoolchain("clang-native-ios")
+        links([
+            "AudioToolbox.framework",
+            "AVFoundation.framework",
+            "CoreAudio.framework",
+        ])
+
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["aaudio", "OpenSLES"])
+
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["asound", "pthread", "m"])  # ALSA + pthreads + math
+
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+        # WebAudio via Emscripten
+        linkoptions(["-s", "USE_SDL=0", "-s", "ASYNCIFY"])
+
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    # ── UWP ──────────────────────────────────────────────────────────────────
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    # ── Tests (desktop uniquement) ────────────────────────────────────────────
+
+    with filter(
+        "(system:Linux || system:macOS || "
+        "(system:Windows && !options:windows-runtime=uwp && "
+        "!system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS"
+    ):
+        with test():
+            testfiles(["tests/**.cpp"])
+            includedirs(["tests"])

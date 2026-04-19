@@ -368,3 +368,13 @@ NkString NkFormatIndexed(NkStringView format, Args&&... args) {
 }
 
 } // namespace nkentseu
+
+// =============================================================================
+// EXEMPLES D'UTILISATION - NkTextFormat
+// =============================================================================
+//
+//   // Helpers de formatage texte utilises par le logger.
+//   NkString s = textformat::FormatInt(42);
+//   (void)s;
+//
+// =============================================================================

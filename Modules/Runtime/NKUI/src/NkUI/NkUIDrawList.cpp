@@ -42,8 +42,8 @@ namespace nkentseu {
             vtxCount=0;idxCount=0;cmdCount=0;
             clipDepth=0;pathCount=0;
             opaqueCount=0;
-            fillColor=NkColor::White();
-            strokeColor=NkColor::Black();
+            fillColor=NkColor::White;
+            strokeColor=NkColor::Black;
             strokeWidth=1.f;
         }
 
@@ -635,7 +635,7 @@ namespace nkentseu {
             // Point de sélection
             const float32 ax=c.x+::cosf(hue*NKUI_PI*2)*radius*0.8f;
             const float32 ay=c.y+::sinf(hue*NKUI_PI*2)*radius*0.8f;
-            AddCircle({ax,ay},6,NkColor::White(),2.f);
+            AddCircle({ax,ay},6,NkColor::White,2.f);
         }
     }
 } // namespace nkentseu

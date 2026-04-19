@@ -1,166 +1,171 @@
-// -----------------------------------------------------------------------------
-// FICHIER: Core\NKCore\src\NKCore\Reflection\NkRegistry.h
-// DESCRIPTION: Registre global de réflexion + Macros
-// AUTEUR: Rihen
-// DATE: 2026-02-07
-// VERSION: 1.0.0
-// -----------------------------------------------------------------------------
+// =============================================================================
+// FICHIER  : Modules/System/NKReflection/src/NKReflection/NkRegistry.h
+// MODULE   : NKReflection
+// AUTEUR   : Rihen
+// DATE     : 2026-02-07
+// VERSION  : 1.0.0
+// LICENCE  : Proprietaire - libre d'utilisation et de modification
+// =============================================================================
+// DESCRIPTION :
+//   Registre global des types/classes runtime + macros de declaration et
+//   d'enregistrement de reflection.
+// =============================================================================
 
 #pragma once
 
-#ifndef NKENTSEU_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKREGISTRY_H_INCLUDED
-#define NKENTSEU_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKREGISTRY_H_INCLUDED
+#ifndef NK_REFLECTION_NKREGISTRY_H_INCLUDED
+#define NK_REFLECTION_NKREGISTRY_H_INCLUDED
 
+// -- Dependances internes -----------------------------------------------------
 #include "NKReflection/NkType.h"
 #include "NKReflection/NkClass.h"
 #include "NKReflection/NkProperty.h"
 #include "NKReflection/NkMethod.h"
 #include "NKCore/NkTraits.h"
-#include <cstring>
+
+// -- En-tetes standard minimaux ----------------------------------------------
 #include <cstddef>
+#include <cstring>
 #include <typeinfo>
 
 namespace nkentseu {
-    
-        namespace reflection {
-            
-            /**
-             * @brief Registre global de réflexion
-             */
-            class NKENTSEU_CORE_API NkRegistry {
-                public:
-                    static NkRegistry& Get() {
-                        static NkRegistry instance;
-                        return instance;
+    namespace reflection {
+
+        // =====================================================================
+        // Classe : NkRegistry
+        // =====================================================================
+
+        class NKENTSEU_CORE_API NkRegistry {
+            public:
+                static NkRegistry& Get() {
+                    static NkRegistry instance;
+                    return instance;
+                }
+
+                // -- Enregistrement types --------------------------------------
+                void RegisterType(const NkType* type) {
+                    if (!type || !type->GetName()) {
+                        return;
                     }
-                    
-                    // ========================================
-                    // TYPE REGISTRATION
-                    // ========================================
-                    
-                    void RegisterType(const NkType* type) {
-                        if (type == nullptr || type->GetName() == nullptr) {
+
+                    for (usize i = 0; i < mTypeCount; ++i) {
+                        if (mTypes[i] == type) {
                             return;
                         }
-                        for (usize i = 0; i < mTypeCount; ++i) {
-                            if (mTypes[i] == type) {
-                                return;
-                            }
-                            if (mTypes[i] != nullptr &&
-                                mTypes[i]->GetName() != nullptr &&
-                                ::strcmp(mTypes[i]->GetName(), type->GetName()) == 0) {
-                                return;
-                            }
-                        }
-                        if (mTypeCount < NK_MAX_TYPES) {
-                            mTypes[mTypeCount++] = type;
-                        }
-                    }
-                    
-                    const NkType* FindType(const nk_char* name) const {
-                        if (name == nullptr || name[0] == '\0') {
-                            return nullptr;
-                        }
-                        for (usize i = 0; i < mTypeCount; ++i) {
-                            if (mTypes[i] != nullptr &&
-                                mTypes[i]->GetName() != nullptr &&
-                                ::strcmp(mTypes[i]->GetName(), name) == 0) {
-                                return mTypes[i];
-                            }
-                        }
-                        return nullptr;
-                    }
-                    
-                    template<typename T>
-                    const NkType* GetType() const {
-                        const NkType* existing = FindType(typeid(T).name());
-                        if (existing != nullptr) {
-                            return existing;
-                        }
-                        static NkType type(
-                            typeid(T).name(),
-                            sizeof(T),
-                            alignof(T),
-                            DetermineCategory<T>());
-                        return &type;
-                    }
-                    
-                    // ========================================
-                    // CLASS REGISTRATION
-                    // ========================================
-                    
-                    void RegisterClass(const NkClass* classInfo) {
-                        if (classInfo == nullptr || classInfo->GetName() == nullptr) {
+
+                        if (mTypes[i] && mTypes[i]->GetName() && ::strcmp(mTypes[i]->GetName(), type->GetName()) == 0) {
                             return;
                         }
-                        for (usize i = 0; i < mClassCount; ++i) {
-                            if (mClasses[i] == classInfo) {
-                                return;
-                            }
-                            if (mClasses[i] != nullptr &&
-                                mClasses[i]->GetName() != nullptr &&
-                                ::strcmp(mClasses[i]->GetName(), classInfo->GetName()) == 0) {
-                                return;
-                            }
-                        }
-                        if (mClassCount < NK_MAX_CLASSES) {
-                            mClasses[mClassCount++] = classInfo;
-                        }
                     }
-                    
-                    const NkClass* FindClass(const nk_char* name) const {
-                        if (name == nullptr || name[0] == '\0') {
-                            return nullptr;
-                        }
-                        for (usize i = 0; i < mClassCount; ++i) {
-                            if (mClasses[i] != nullptr &&
-                                mClasses[i]->GetName() != nullptr &&
-                                ::strcmp(mClasses[i]->GetName(), name) == 0) {
-                                return mClasses[i];
-                            }
-                        }
+
+                    if (mTypeCount < NK_MAX_TYPES) {
+                        mTypes[mTypeCount++] = type;
+                    }
+                }
+
+                const NkType* FindType(const nk_char* name) const {
+                    if (!name || name[0] == '\0') {
                         return nullptr;
                     }
-                    
-                    template<typename T>
-                    const NkClass* GetClass() const {
-                        return FindClass(typeid(T).name());
+
+                    for (usize i = 0; i < mTypeCount; ++i) {
+                        if (mTypes[i] && mTypes[i]->GetName() && ::strcmp(mTypes[i]->GetName(), name) == 0) {
+                            return mTypes[i];
+                        }
                     }
-                    
-                private:
-                    static constexpr usize NK_MAX_TYPES = 512;
-                    static constexpr usize NK_MAX_CLASSES = 512;
 
-                    NkRegistry()
-                        : mTypeCount(0)
-                        , mClassCount(0) {
-                        for (usize i = 0; i < NK_MAX_TYPES; ++i) {
-                            mTypes[i] = nullptr;
-                        }
-                        for (usize i = 0; i < NK_MAX_CLASSES; ++i) {
-                            mClasses[i] = nullptr;
-                        }
-                    } // Constructeur par défaut privé
-                    NkRegistry(const NkRegistry&) = delete;
-                    NkRegistry& operator=(const NkRegistry&) = delete;
+                    return nullptr;
+                }
 
-                    const NkType* mTypes[NK_MAX_TYPES];
-                    usize mTypeCount;
-                    const NkClass* mClasses[NK_MAX_CLASSES];
-                    usize mClassCount;
-            };
-            
-        } // namespace reflection
-    
+                template<typename T>
+                const NkType* GetType() const {
+                    const NkType* existing = FindType(typeid(T).name());
+                    if (existing) {
+                        return existing;
+                    }
+
+                    static NkType type(
+                        typeid(T).name(),
+                        sizeof(T),
+                        alignof(T),
+                        DetermineCategory<T>()
+                    );
+                    return &type;
+                }
+
+                // -- Enregistrement classes ------------------------------------
+                void RegisterClass(const NkClass* classInfo) {
+                    if (!classInfo || !classInfo->GetName()) {
+                        return;
+                    }
+
+                    for (usize i = 0; i < mClassCount; ++i) {
+                        if (mClasses[i] == classInfo) {
+                            return;
+                        }
+
+                        if (mClasses[i] && mClasses[i]->GetName() &&
+                            ::strcmp(mClasses[i]->GetName(), classInfo->GetName()) == 0) {
+                            return;
+                        }
+                    }
+
+                    if (mClassCount < NK_MAX_CLASSES) {
+                        mClasses[mClassCount++] = classInfo;
+                    }
+                }
+
+                const NkClass* FindClass(const nk_char* name) const {
+                    if (!name || name[0] == '\0') {
+                        return nullptr;
+                    }
+
+                    for (usize i = 0; i < mClassCount; ++i) {
+                        if (mClasses[i] && mClasses[i]->GetName() && ::strcmp(mClasses[i]->GetName(), name) == 0) {
+                            return mClasses[i];
+                        }
+                    }
+
+                    return nullptr;
+                }
+
+                template<typename T>
+                const NkClass* GetClass() const {
+                    return FindClass(typeid(T).name());
+                }
+
+            private:
+                static constexpr usize NK_MAX_TYPES = 512;
+                static constexpr usize NK_MAX_CLASSES = 512;
+
+                NkRegistry()
+                    : mTypeCount(0)
+                    , mClassCount(0) {
+                    for (usize i = 0; i < NK_MAX_TYPES; ++i) {
+                        mTypes[i] = nullptr;
+                    }
+
+                    for (usize i = 0; i < NK_MAX_CLASSES; ++i) {
+                        mClasses[i] = nullptr;
+                    }
+                }
+
+                NkRegistry(const NkRegistry&) = delete;
+                NkRegistry& operator=(const NkRegistry&) = delete;
+
+                const NkType* mTypes[NK_MAX_TYPES];
+                usize mTypeCount;
+                const NkClass* mClasses[NK_MAX_CLASSES];
+                usize mClassCount;
+        };
+
+    } // namespace reflection
 } // namespace nkentseu
 
-// ============================================================
-// MACROS DE RÉFLEXION
-// ============================================================
+// =============================================================================
+// Macros de reflection
+// =============================================================================
 
-/**
- * @brief Déclare une classe réfléchie
- */
 #define NKENTSEU_REFLECT_CLASS(ClassName) \
     using SelfType = ClassName; \
     public: \
@@ -177,9 +182,6 @@ namespace nkentseu {
     } \
     private:
 
-/**
- * @brief Déclare une propriété réfléchie
- */
 #define NKENTSEU_REFLECT_PROPERTY(PropertyName) \
     public: \
     static const ::nkentseu::reflection::NkProperty& Get##PropertyName##Property() { \
@@ -192,16 +194,12 @@ namespace nkentseu {
     } \
     private:
 
-
 #define NKENTSEU_PROPERTY(Type, Name) \
     Type Name; \
     NKENTSEU_REFLECT_PROPERTY(Name)
 
 #define NKENTSEU_REFLECT [[nkentseu::reflect]]
 
-/**
- * @brief Enregistre une classe dans le registre
- */
 #define NKENTSEU_REGISTER_CLASS(ClassName) \
     namespace { \
         struct ClassName##_Registrar { \
@@ -214,30 +212,28 @@ namespace nkentseu {
         static ClassName##_Registrar g_##ClassName##_registrar; \
     }
 
-/**
- * @brief Utilisation simplifiée
- * 
- * @example
- * class Player {
- *     NKENTSEU_REFLECT_CLASS(Player)
- *     
- * public:
- *     int health;
- *     NKENTSEU_REFLECT_PROPERTY(health)
- *     
- *     float speed;
- *     NKENTSEU_REFLECT_PROPERTY(speed)
- * };
- * 
- * NKENTSEU_REGISTER_CLASS(Player)
- */
+#endif // NK_REFLECTION_NKREGISTRY_H_INCLUDED
 
-#endif // NKENTSEU_CORE_NKCORE_SRC_NKCORE_REFLECTION_NKREGISTRY_H_INCLUDED
+// =============================================================================
+// Copyright (c) 2024-2026 Rihen. Tous droits reserves.
+// =============================================================================
 
-// ============================================================
-// Copyright © 2024-2026 Rihen. All rights reserved.
-// Proprietary License - Free to use and modify
+// =============================================================================
+// EXEMPLES D'UTILISATION - NkRegistry
+// =============================================================================
 //
-// Generated by Rihen on 2026-02-07
-// Creation Date: 2026-02-07
-// ============================================================
+//   class Player {
+//       NKENTSEU_REFLECT_CLASS(Player)
+//
+//       public:
+//           nkentseu::nk_int32 health;
+//           NKENTSEU_REFLECT_PROPERTY(health)
+//   };
+//
+//   NKENTSEU_REGISTER_CLASS(Player)
+//
+//   const nkentseu::reflection::NkClass* cls =
+//       nkentseu::reflection::NkRegistry::Get().FindClass("Player");
+//   (void)cls;
+//
+// =============================================================================

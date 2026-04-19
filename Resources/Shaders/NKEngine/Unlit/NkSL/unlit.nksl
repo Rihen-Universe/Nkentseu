@@ -1,0 +1,39 @@
+// =============================================================================
+// unlit.nksl — Shader Unlit NkSL universel (compile vers GL/VK/DX11/DX12/MSL)
+// =============================================================================
+@binding(set=0,binding=0) uniform SceneBlock {
+    mat4 uModel; mat4 uView; mat4 uProj; mat4 uLightVP;
+    vec4 uLightDir; vec4 uEyePos;
+    float uTime; float uDt; float uNdcZS; float uNdcZO;
+};
+@push_constant uniform ObjPC { mat4 pcModel; vec4 pcTint; };
+@binding(set=1,binding=0) uniform sampler2D uAlbedoMap;
+@binding(set=2,binding=0) uniform UnlitMat {
+    vec4 uBaseColor; vec4 uEmissiveColor;
+    float uAlphaClip; float uEmissiveScale;
+};
+
+@location(0) in vec3 aPos;
+@location(3) in vec2 aUV;
+@location(4) in vec4 aColor;
+
+@location(0) out vec2 vUV;
+@location(1) out vec4 vColor;
+
+@stage(vertex) @entry
+void vert_main() {
+    vec4 wp = pcModel * vec4(aPos, 1.0);
+    vUV    = aUV;
+    vColor = aColor * pcTint;
+    @builtin(position) = uProj * uView * wp;
+}
+
+@location(0) out vec4 oFragColor;
+
+@stage(fragment) @entry
+void frag_main() {
+    vec4 c = texture(uAlbedoMap, vUV) * uBaseColor * vColor;
+    if (c.a < uAlphaClip) discard;
+    c.rgb += uEmissiveColor.rgb * uEmissiveScale;
+    oFragColor = c;
+}
