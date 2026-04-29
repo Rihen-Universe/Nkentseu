@@ -39,8 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#if (!defined AV_SHADERS_H_INCLUDED)
-#define AV_SHADERS_H_INCLUDED
+#if (!defined AV_SHADERS_H)
+#define AV_SHADERS_H
 
 // Shader used for rendering a skybox background
 extern std::string  g_szSkyboxShader;
@@ -60,4 +60,4 @@ extern std::string  g_szPassThroughShader;
 // Shader used to draw the checker pattern background for the texture view
 extern std::string  g_szCheckerBackgroundShader;
 
-#endif // !! AV_SHADERS_H_INCLUDED
+#endif // !! AV_SHADERS_H

@@ -18,8 +18,8 @@
 // =============================================================================
 #pragma once
 
-#ifndef NKENTSEU_SERIALIZATION_ASSET_NKASSETIMPORTER_H_INCLUDED
-#define NKENTSEU_SERIALIZATION_ASSET_NKASSETIMPORTER_H_INCLUDED
+#ifndef NKENTSEU_SERIALIZATION_ASSET_NKASSETIMPORTER_H
+#define NKENTSEU_SERIALIZATION_ASSET_NKASSETIMPORTER_H
 
 #include "NKSerialization/Asset/NkAssetMetadata.h"
 #include <ctime>
@@ -362,4 +362,4 @@ public:
 
 } // namespace nkentseu
 
-#endif // NKENTSEU_SERIALIZATION_ASSET_NKASSETIMPORTER_H_INCLUDED
+#endif // NKENTSEU_SERIALIZATION_ASSET_NKASSETIMPORTER_H

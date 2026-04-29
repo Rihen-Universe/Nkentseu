@@ -66,8 +66,8 @@
  * @date 2026
  */
 
-#ifndef NKENTSEU_SERIALIZATION_NKISERIALIZABLE_H_INCLUDED
-    #define NKENTSEU_SERIALIZATION_NKISERIALIZABLE_H_INCLUDED
+#ifndef NKENTSEU_SERIALIZATION_NKISERIALIZABLE_H
+    #define NKENTSEU_SERIALIZATION_NKISERIALIZABLE_H
 
     #include "NKSerialization/NkArchive.h"
     #include "NKContainers/Sequential/NkVector.h"
@@ -129,7 +129,7 @@
          * // NK_REGISTER_SERIALIZABLE(PlayerData);
          * @endcode
          */
-        class NkISerializable {
+        class NKENTSEU_SERIALIZATION_CLASS_EXPORT NkISerializable {
             public:
                 /// Destructeur virtuel noexcept pour suppression polymorphique sûre
                 virtual ~NkISerializable() noexcept;
@@ -226,7 +226,7 @@
          * // );  // delete automatique à la destruction
          * @endcode
          */
-        class NkSerializableRegistry {
+        class NKENTSEU_SERIALIZATION_CLASS_EXPORT NkSerializableRegistry {
             public:
                 /**
                  * @typedef FactoryFn
@@ -1561,4 +1561,4 @@
 
     /** @} */ // end of NkISerializable_Examples group
 
-#endif // NKENTSEU_SERIALIZATION_NKISERIALIZABLE_H_INCLUDED
+#endif // NKENTSEU_SERIALIZATION_NKISERIALIZABLE_H

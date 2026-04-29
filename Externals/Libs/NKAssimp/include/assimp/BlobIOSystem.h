@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  redirect exporter output to a blob chain.*/
 
 #pragma once
-#ifndef AI_BLOBIOSYSTEM_H_INCLUDED
-#define AI_BLOBIOSYSTEM_H_INCLUDED
+#ifndef AI_BLOBIOSYSTEM_H
+#define AI_BLOBIOSYSTEM_H
 
 #ifdef __GNUC__
 #pragma GCC system_header

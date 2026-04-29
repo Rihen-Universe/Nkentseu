@@ -44,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the NFF importer class.
  */
 #pragma once
-#ifndef AI_NFFLOADER_H_INCLUDED
-#define AI_NFFLOADER_H_INCLUDED
+#ifndef AI_NFFLOADER_H
+#define AI_NFFLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/material.h>

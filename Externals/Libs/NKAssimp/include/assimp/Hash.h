@@ -39,8 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ----------------------------------------------------------------------
 */
 #pragma once
-#ifndef AI_HASH_H_INCLUDED
-#define AI_HASH_H_INCLUDED
+#ifndef AI_HASH_H
+#define AI_HASH_H
 
 #ifdef __GNUC__
 #   pragma GCC system_header
@@ -119,4 +119,4 @@ inline uint32_t SuperFastHash (const char * data, uint32_t len = 0, uint32_t has
     return hash;
 }
 
-#endif // !! AI_HASH_H_INCLUDED
+#endif // !! AI_HASH_H

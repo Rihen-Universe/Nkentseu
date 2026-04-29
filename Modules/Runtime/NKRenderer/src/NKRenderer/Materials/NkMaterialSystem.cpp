@@ -1,335 +1,221 @@
 // =============================================================================
-// NkMaterialSystem.cpp
+// NkMaterialSystem.cpp  — NKRenderer v4.0
 // =============================================================================
-#include "NKRenderer/Materials/NkMaterialSystem.h"
-#include "NKRenderer/Core/NkResourceManager.h"
-#include "NKRHI/Core/NkIDevice.h"
-#include "NKRHI/Core/NkDescs.h"
+#include "NkMaterialSystem.h"
 
 namespace nkentseu {
-    namespace renderer {
+namespace renderer {
+    static const char* GetShaderFolder(NkMaterialType t) {
+    switch(t) {
+        case NkMaterialType::NK_PBR_METALLIC:  return "PBR";
+        case NkMaterialType::NK_TOON:          return "Toon";
+        case NkMaterialType::NK_TOON_INK:      return "ToonInk";
+        case NkMaterialType::NK_ANIME:         return "Anime";
+        case NkMaterialType::NK_SKIN:          return "Skin";
+        case NkMaterialType::NK_HAIR:          return "Hair";
+        case NkMaterialType::NK_GLASS:         return "Glass";
+        case NkMaterialType::NK_CLOTH:         return "Cloth";
+        case NkMaterialType::NK_CAR_PAINT:     return "CarPaint";
+        case NkMaterialType::NK_FOLIAGE:       return "Foliage";
+        case NkMaterialType::NK_WATER:         return "Water";
+        case NkMaterialType::NK_TERRAIN:       return "Terrain";
+        case NkMaterialType::NK_EMISSIVE:      return "Emissive";
+        case NkMaterialType::NK_VOLUME:        return "Volume";
+        case NkMaterialType::NK_UNLIT:         return "Unlit";
+        default:                               return "PBR";
+    }
+}
 
-        bool NkMaterialSystem::Init(NkIDevice* device, NkResourceManager* resources) {
-            if (!device || !resources) return false;
-            mDevice    = device;
-            mResources = resources;
-            CreateDefaultMaterials();
-            return true;
+    NkMaterialSystem::~NkMaterialSystem() { Shutdown(); }
+
+    bool NkMaterialSystem::Init(NkIDevice* device, NkTextureLibrary* texLib) {
+        mDevice = device; mTexLib = texLib;
+        RegisterBuiltins();
+        return true;
+    }
+
+    void NkMaterialSystem::Shutdown() {
+        for (auto* inst : mInstances) delete inst;
+        mInstances.Clear();
+        mTemplates.Clear();
+    }
+
+    // ── Enregistrement ───────────────────────────────────────────────────────
+    NkMatHandle NkMaterialSystem::RegisterTemplate(const NkMaterialTemplateDesc& desc) {
+        TemplateEntry e;
+        e.desc     = desc;
+        e.compiled = false;
+        NkMatHandle h{mNextId++};
+        mTemplates.Insert(h.id, e);
+        return h;
+    }
+
+    NkMatHandle NkMaterialSystem::FindTemplate(const NkString& name) const {
+        for (auto& [id, e] : mTemplates) {
+            if (e.desc.name == name) return NkMatHandle{id};
         }
+        return NkMatHandle::Null();
+    }
 
-        void NkMaterialSystem::Shutdown() {
-            // Détruire toutes les instances
-            mInstances.ForEach([](const uint64&, InstanceEntry& e) {
-                delete e.wrapper;
-                e.wrapper = nullptr;
-            });
-            mInstances.Clear();
-            mTemplates.Clear();
-            mNamedMaterials.Clear();
-            mDevice    = nullptr;
-            mResources = nullptr;
-        }
+    // ── Built-ins ─────────────────────────────────────────────────────────────
+    void NkMaterialSystem::RegisterBuiltins() {
+        auto reg = [this](NkMaterialType t, const char* name,
+                           NkRenderQueue q = NkRenderQueue::NK_OPAQUE) {
+            NkMaterialTemplateDesc d;
+            d.type=t; d.name=name; d.queue=q;
+            return RegisterTemplate(d);
+        };
+        mTmplPBR     = reg(NkMaterialType::NK_PBR_METALLIC, "Default_PBR");
+        mTmplToon    = reg(NkMaterialType::NK_TOON,         "Default_Toon");
+        mTmplUnlit   = reg(NkMaterialType::NK_UNLIT,        "Default_Unlit");
+        mTmplWire    = reg(NkMaterialType::NK_WIREFRAME_MAT,"Default_Wireframe");
+        mTmplSkin    = reg(NkMaterialType::NK_SKIN,         "Default_Skin");
+        mTmplHair    = reg(NkMaterialType::NK_HAIR,         "Default_Hair",
+                            NkRenderQueue::NK_ALPHA_TEST);
+        mTmplAnime   = reg(NkMaterialType::NK_ANIME,        "Default_Anime");
+        mTmplArchviz = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz");
+    }
 
-        NkMaterialHandle NkMaterialSystem::CreateMaterial(const NkMaterialDesc& desc) {
-            uint64 hid = NextId();
-            TemplateEntry e{};
-            e.desc     = desc;
-            e.name     = desc.name;
-            e.compiled = false;  // lazy-compile
-            mTemplates[hid] = NkTraits::NkMove(e);
-            NkMaterialHandle h; h.id = hid; return h;
-        }
+    // ── Instance ─────────────────────────────────────────────────────────────
+    NkMaterialInstance* NkMaterialSystem::CreateInstance(NkMatHandle tmpl) {
+        auto* inst    = new NkMaterialInstance();
+        inst->mTemplate = tmpl;
+        inst->mDirty    = true;
+        // Init PBR defaults
+        inst->mPBR.albedo    = {1,1,1,1};
+        inst->mPBR.metallic  = 0.f;
+        inst->mPBR.roughness = 0.5f;
+        inst->mPBR.ao        = 1.f;
+        mInstances.PushBack(inst);
+        return inst;
+    }
 
-        NkMaterialHandle NkMaterialSystem::RegisterMaterial(const char* name,
-                                                              const NkMaterialDesc& desc) {
-            auto h = CreateMaterial(desc);
-            if (h.IsValid() && name) mNamedMaterials[NkString(name)] = h;
-            return h;
-        }
-
-        NkMaterialHandle NkMaterialSystem::FindMaterial(const char* name) const {
-            if (!name) return {};
-            auto* found = mNamedMaterials.Find(NkString(name));
-            return found ? *found : NkMaterialHandle{};
-        }
-
-        NkMaterialInstance* NkMaterialSystem::CreateInstance(NkMaterialHandle tmpl) {
-            if (!tmpl.IsValid()) return nullptr;
-
-            uint64 hid = NextId();
-            InstanceEntry e{};
-            e.templateHandle = tmpl;
-            e.dirty          = true;
-            e.wrapper        = new NkMaterialInstance();
-            e.wrapper->mHandle = NkMaterialInstHandle{hid};
-            e.wrapper->mSystem = this;
-
-            auto* tmplEntry = mTemplates.Find(tmpl.id);
-            if (tmplEntry) e.wrapper->mDesc = tmplEntry->desc;
-
-            mInstances[hid] = NkTraits::NkMove(e);
-            return mInstances[hid].wrapper;
-        }
-
-        NkMaterialInstance* NkMaterialSystem::CreateInstance(
-                const NkMaterialInstanceDesc& desc) {
-            auto* inst = CreateInstance(desc.templateHandle);
-            if (!inst) return nullptr;
-            // Appliquer les overrides
-            for (uint32 i = 0; i < (uint32)desc.overrides.Size(); ++i) {
-                const auto& p = desc.overrides[i];
-                if (p.type == NkMaterialParam::Type::TEX)
-                    inst->SetTexture(p.name.CStr(), p.texture);
-                else if (p.type == NkMaterialParam::Type::F1)
-                    inst->SetFloat(p.name.CStr(), p.val.f[0]);
-                else if (p.type == NkMaterialParam::Type::F4)
-                    inst->SetColor(p.name.CStr(), {p.val.f[0],p.val.f[1],p.val.f[2],p.val.f[3]});
+    void NkMaterialSystem::DestroyInstance(NkMaterialInstance*& inst) {
+        if (!inst) return;
+        for (uint32 i=0;i<(uint32)mInstances.Size();i++){
+            if (mInstances[i]==inst){
+                delete inst; mInstances.RemoveAt(i); break;
             }
-            return inst;
         }
+        inst=nullptr;
+    }
 
-        void NkMaterialSystem::DestroyInstance(NkMaterialInstance*& inst) {
-            if (!inst) return;
-            uint64 id = inst->mHandle.id;
-            auto* e = mInstances.Find(id);
-            if (e) {
-                if (e->rhiDescSetId) {
-                    NkDescSetHandle s; s.id = e->rhiDescSetId;
-                    mDevice->FreeDescriptorSet(s);
-                }
-                if (e->rhiUBOId) {
-                    NkBufferHandle b; b.id = e->rhiUBOId;
-                    mDevice->DestroyBuffer(b);
-                }
-                delete e->wrapper;
-                mInstances.Erase(id);
+    // ── Bind ─────────────────────────────────────────────────────────────────
+    bool NkMaterialSystem::BindInstance(NkICommandBuffer* cmd,
+                                          NkMaterialInstance* inst,
+                                          NkTextureLibrary* texLib) {
+        if (!inst) return false;
+        auto* tmplEntry = mTemplates.Find(inst->mTemplate.id);
+        if (!tmplEntry) return false;
+
+        // Compiler pipeline si nécessaire
+        if (!tmplEntry->compiled) {
+            tmplEntry->pipeline = CompilePipeline(*tmplEntry);
+            tmplEntry->compiled = true;
+        }
+        cmd->BindPipeline(tmplEntry->pipeline);
+
+        if (inst->mDirty) {
+            // Upload PBR/Toon uniforms
+            cmd->UpdateUniformBuffer(1, &inst->mPBR, sizeof(NkPBRParams));
+            // Bind textures (fallback sur built-ins si non setté)
+            auto GetTex = [&](const NkString& name) -> NkTexHandle {
+                for (auto& p : inst->mParams)
+                    if (p.kind==NkMaterialInstance::Param::Kind::TEX && p.name==name)
+                        return p.tex;
+                return texLib->GetWhite1x1();
+            };
+            cmd->BindTexture(3,  texLib->GetRHIHandle(GetTex("albedo")));
+            cmd->BindTexture(4,  texLib->GetRHIHandle(GetTex("normal")));
+            cmd->BindTexture(5,  texLib->GetRHIHandle(GetTex("orm")));
+            cmd->BindTexture(6,  texLib->GetRHIHandle(GetTex("emissive")));
+            inst->MarkClean();
+        }
+        return true;
+    }
+
+    NkPipelineHandle NkMaterialSystem::CompilePipeline(const TemplateEntry& t) {
+        // TODO: appel au ShaderCompiler + NkIDevice::CreatePipeline
+        // Placeholder — retourne handle vide que le backend gère
+        NkPipelineDesc pd;
+        pd.name = t.desc.name;
+        pd.type = t.desc.type == NkMaterialType::NK_CUSTOM ? NkPipelineType::NK_CUSTOM_SHADER : NkPipelineType::NK_BUILTIN;
+        pd.materialType = (uint16)t.desc.type;
+        pd.blendMode    = (uint8)t.desc.blendMode;
+        pd.cullMode     = (uint8)t.desc.cullMode;
+        pd.fillMode     = (uint8)t.desc.fillMode;
+        pd.depthWrite   = t.desc.depthWrite;
+        pd.depthTest    = t.desc.depthTest;
+        return mDevice->CreatePipeline(pd);
+    }
+
+    void NkMaterialSystem::FlushCompilations() {
+        for (auto& [id, e] : mTemplates) {
+            if (!e.compiled) {
+                e.pipeline = CompilePipeline(e);
+                e.compiled = true;
             }
-            inst = nullptr;
         }
+    }
 
-        void NkMaterialSystem::FlushPendingUpdates() {
-            mInstances.ForEach([this](const uint64& id, InstanceEntry& e) {
-                if (e.dirty && e.rhiDescSetId) {
-                    RebuildDescriptorSet(id, e);
-                    e.dirty = false;
-                }
-            });
-        }
+    // ── NkMaterialInstance setters ────────────────────────────────────────────
+    NkMaterialInstance* NkMaterialInstance::SetAlbedo(NkVec3f c, float32 a) {
+        mPBR.albedo={c.x,c.y,c.z,a}; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetMetallic(float32 v) {
+        mPBR.metallic=v; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetRoughness(float32 v) {
+        mPBR.roughness=v; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetEmissive(NkVec3f c, float32 str) {
+        mPBR.emissive={c.x,c.y,c.z,1}; mPBR.emissiveStrength=str; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetSubsurface(float32 v, NkVec3f c) {
+        mPBR.subsurface=v; mPBR.subsurfaceColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetClearcoat(float32 v, float32 r) {
+        mPBR.clearcoat=v; mPBR.clearcoatRough=r; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetToonThreshold(float32 v) {
+        mToon.shadowThreshold=v; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetToonShadowColor(NkVec3f c) {
+        mToon.shadowColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetOutline(float32 w, NkVec3f c) {
+        mToon.outlineWidth=w; mToon.outlineColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+    }
 
-        uint64 NkMaterialSystem::GetPipelineRHIId(NkMaterialHandle h) const {
-            auto* e = mTemplates.Find(h.id);
-            return (e && e->compiled) ? e->rhiPipelineId : 0;
-        }
+    NkMaterialInstance* NkMaterialInstance::SetTexture(const NkString& n, NkTexHandle t) {
+        for (auto& p:mParams) if(p.name==n&&p.kind==Param::Kind::TEX){p.tex=t;mDirty=true;return this;}
+        Param p; p.name=n; p.kind=Param::Kind::TEX; p.tex=t;
+        mParams.PushBack(p); mDirty=true; return this;
+    }
+    NkMaterialInstance* NkMaterialInstance::SetAlbedoMap  (NkTexHandle t){return SetTexture("albedo",t);}
+    NkMaterialInstance* NkMaterialInstance::SetNormalMap  (NkTexHandle t,float32 s){mPBR.normalStrength=s;return SetTexture("normal",t);}
+    NkMaterialInstance* NkMaterialInstance::SetORMMap     (NkTexHandle t){return SetTexture("orm",t);}
+    NkMaterialInstance* NkMaterialInstance::SetEmissiveMap(NkTexHandle t){return SetTexture("emissive",t);}
+    NkMaterialInstance* NkMaterialInstance::SetAOMap      (NkTexHandle t){return SetTexture("ao",t);}
 
-        uint64 NkMaterialSystem::GetDescSetRHIId(NkMaterialInstHandle h) const {
-            auto* e = mInstances.Find(h.id);
-            return e ? e->rhiDescSetId : 0;
-        }
+    NkMaterialInstance* NkMaterialInstance::SetFloat(const NkString& n,float32 v){
+        Param p;p.name=n;p.kind=Param::Kind::F;p.f=v;mParams.PushBack(p);mDirty=true;return this;}
+    NkMaterialInstance* NkMaterialInstance::SetVec3(const NkString& n,NkVec3f v){
+        Param p;p.name=n;p.kind=Param::Kind::V3;p.v3=v;mParams.PushBack(p);mDirty=true;return this;}
+    NkMaterialInstance* NkMaterialInstance::SetVec4(const NkString& n,NkVec4f v){
+        Param p;p.name=n;p.kind=Param::Kind::V4;p.v4=v;mParams.PushBack(p);mDirty=true;return this;}
+    NkMaterialInstance* NkMaterialInstance::SetVec2(const NkString& n,NkVec2f v){
+        Param p;p.name=n;p.kind=Param::Kind::V2;p.v2=v;mParams.PushBack(p);mDirty=true;return this;}
+    NkMaterialInstance* NkMaterialInstance::SetInt(const NkString& n,int32 v){
+        Param p;p.name=n;p.kind=Param::Kind::I;p.i=v;mParams.PushBack(p);mDirty=true;return this;}
+    NkMaterialInstance* NkMaterialInstance::SetBool(const NkString& n,bool v){
+        Param p;p.name=n;p.kind=Param::Kind::B;p.b=v;mParams.PushBack(p);mDirty=true;return this;}
+    NkMaterialInstance* NkMaterialInstance::SetColor(const NkString& n,NkVec4f c){return SetVec4(n,c);}
 
-        bool NkMaterialSystem::IsMaterialDirty(NkMaterialInstHandle h) const {
-            auto* e = mInstances.Find(h.id);
-            return e ? e->dirty : false;
-        }
+    NkRenderQueue NkMaterialInstance::GetQueue() const {
+        // TODO: lookup du template
+        return NkRenderQueue::NK_OPAQUE;
+    }
 
-        void NkMaterialSystem::CreateDefaultMaterials() {
-            mDefaultPBR       = RegisterMaterial("Default_PBR",
-                                                   NkMaterialDesc::PBR("Default_PBR"));
-            mDefaultUnlit     = RegisterMaterial("Default_Unlit",
-                                                   NkMaterialDesc::Unlit("Default_Unlit"));
-            mDefaultToon      = RegisterMaterial("Default_Toon",
-                                                   NkMaterialDesc::Toon("Default_Toon"));
-            mDefaultWireframe = RegisterMaterial("Default_Wireframe",
-                                                   NkMaterialDesc::Wireframe("Default_Wireframe"));
-            mShadowDepth      = RegisterMaterial("ShadowDepth",
-                                                   NkMaterialDesc::ShadowDepth("ShadowDepth"));
-        }
-
-        void NkMaterialSystem::RebuildDescriptorSet(uint64 id, InstanceEntry& e) {
-            if (!mDevice) return;
-            auto* tmpl = mTemplates.Find(e.templateHandle.id);
-            if (!tmpl) return;
-
-            // Préparer les écritures descriptor
-            NkVector<NkDescriptorWrite> writes;
-
-            for (uint32 i = 0; i < (uint32)e.params.Size(); ++i) {
-                const auto& p = e.params[i];
-                if (p.type != NkMaterialParam::Type::TEX) continue;
-                if (!p.texture.IsValid()) continue;
-
-                uint64 texRHI  = mResources->GetTextureRHIId(p.texture);
-                uint64 sampRHI = mResources->GetSamplerRHIId(p.texture);
-
-                // Slot convention : albedo=0, normal=1, orm=2, emissive=3, height=4
-                int32 slot = -1;
-                if (p.name == "albedo" || p.name == "uAlbedoMap")    slot = 0;
-                else if (p.name == "normal" || p.name == "uNormalMap")  slot = 1;
-                else if (p.name == "orm"    || p.name == "uORMMap")     slot = 2;
-                else if (p.name == "emissive"||p.name == "uEmissiveTex")slot = 3;
-                else if (p.name == "height"  ||p.name == "uHeightTex")  slot = 4;
-                if (slot < 0) continue;
-
-                NkDescriptorWrite w{};
-                NkDescSetHandle ds; ds.id = e.rhiDescSetId;
-                w.set     = ds;
-                w.binding = (uint32)slot;
-                w.type    = NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER;
-                NkTextureHandle th; th.id = texRHI;  w.texture = th;
-                NkSamplerHandle sh; sh.id = sampRHI; w.sampler = sh;
-                w.textureLayout = NkResourceState::NK_SHADER_READ;
-                writes.PushBack(w);
-            }
-            if (!writes.IsEmpty())
-                mDevice->UpdateDescriptorSets(writes.Data(), (uint32)writes.Size());
-        }
-
-        // =============================================================================
-        // NkMaterialInstance — API fluide
-        // =============================================================================
-        NkMaterialInstance* NkMaterialInstance::SetAlbedo(const NkColorF& c) {
-            return SetColor("albedo_color", c);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetAlbedoMap(NkTextureHandle tex) {
-            return SetTexture("albedo", tex);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetNormalMap(NkTextureHandle tex,
-                                                               float32 scale) {
-            SetTexture("normal", tex);
-            return SetFloat("normal_scale", scale);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetORMMap(NkTextureHandle tex) {
-            return SetTexture("orm", tex);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetRoughness(float32 v) {
-            return SetFloat("roughness", v);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetMetallic(float32 v) {
-            return SetFloat("metallic", v);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetEmissive(const NkColorF& c,
-                                                              float32 intensity) {
-            SetColor("emissive_color", c);
-            return SetFloat("emissive_scale", intensity);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetEmissiveMap(NkTextureHandle tex) {
-            return SetTexture("emissive", tex);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetTexture(const char* name,
-                                                             NkTextureHandle tex) {
-            if (!mSystem || !mHandle.IsValid()) return this;
-            mSystem->SetMaterialTexture(mHandle, name, tex);
-            return this;
-        }
-        NkMaterialInstance* NkMaterialInstance::SetFloat(const char* name, float32 v) {
-            if (!mSystem || !mHandle.IsValid()) return this;
-            mSystem->SetMaterialFloat(mHandle, name, v);
-            return this;
-        }
-        NkMaterialInstance* NkMaterialInstance::SetVec4(const char* name,
-                                                          float32 x, float32 y,
-                                                          float32 z, float32 w) {
-            if (!mSystem || !mHandle.IsValid()) return this;
-            mSystem->SetMaterialVec4(mHandle, name, {x,y,z,w});
-            return this;
-        }
-        NkMaterialInstance* NkMaterialInstance::SetColor(const char* name,
-                                                           const NkColorF& c) {
-            return SetVec4(name, c.r, c.g, c.b, c.a);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetOpacity(float32 v) {
-            return SetFloat("alpha", v);
-        }
-        NkMaterialInstance* NkMaterialInstance::SetTwoSided(bool v) {
-            if (!mSystem || !mHandle.IsValid()) return this;
-            mSystem->SetMaterialBool(mHandle, "two_sided", v);
-            return this;
-        }
-
-        // Helpers SetMaterial* dans NkMaterialSystem
-        bool NkMaterialSystem::SetMaterialTexture(NkMaterialInstHandle inst,
-                                                    const char* name,
-                                                    NkTextureHandle tex) {
-            auto* e = mInstances.Find(inst.id);
-            if (!e) return false;
-            // Chercher si déjà présent, sinon ajouter
-            for (uint32 i = 0; i < (uint32)e->params.Size(); ++i) {
-                if (e->params[i].name == name) {
-                    e->params[i].texture = tex;
-                    e->dirty = true;
-                    return true;
-                }
-            }
-            e->params.PushBack(NkMaterialParam::Tex(name, tex));
-            e->dirty = true;
-            return true;
-        }
-        bool NkMaterialSystem::SetMaterialFloat(NkMaterialInstHandle inst,
-                                                  const char* name, float32 v) {
-            auto* e = mInstances.Find(inst.id);
-            if (!e) return false;
-            for (uint32 i = 0; i < (uint32)e->params.Size(); ++i) {
-                if (e->params[i].name == name) { e->params[i].val.f[0]=v; e->dirty=true; return true; }
-            }
-            e->params.PushBack(NkMaterialParam::Float(name, v));
-            e->dirty = true; return true;
-        }
-        bool NkMaterialSystem::SetMaterialVec4(NkMaterialInstHandle inst,
-                                                 const char* name, NkVec4f v) {
-            auto* e = mInstances.Find(inst.id);
-            if (!e) return false;
-            for (uint32 i = 0; i < (uint32)e->params.Size(); ++i) {
-                if (e->params[i].name == name) {
-                    e->params[i].val.f[0]=v.x; e->params[i].val.f[1]=v.y;
-                    e->params[i].val.f[2]=v.z; e->params[i].val.f[3]=v.w;
-                    e->dirty=true; return true;
-                }
-            }
-            e->params.PushBack(NkMaterialParam::Float4(name, v.x,v.y,v.z,v.w));
-            e->dirty=true; return true;
-        }
-        bool NkMaterialSystem::SetMaterialBool(NkMaterialInstHandle inst,
-                                                 const char* name, bool v) {
-            auto* e = mInstances.Find(inst.id);
-            if (!e) return false;
-            for (uint32 i = 0; i < (uint32)e->params.Size(); ++i) {
-                if (e->params[i].name == name) { e->params[i].val.b=v; e->dirty=true; return true; }
-            }
-            e->params.PushBack(NkMaterialParam::Bool(name, v));
-            e->dirty=true; return true;
-        }
-        bool NkMaterialSystem::SetMaterialVec2(NkMaterialInstHandle inst,
-                                                 const char* name, NkVec2f v) {
-            return SetMaterialFloat(inst, name, v.x);
-        }
-        bool NkMaterialSystem::SetMaterialVec3(NkMaterialInstHandle inst,
-                                                 const char* name, NkVec3f v) {
-            auto* e = mInstances.Find(inst.id);
-            if (!e) return false;
-            for (uint32 i = 0; i < (uint32)e->params.Size(); ++i) {
-                if (e->params[i].name == name) {
-                    e->params[i].val.f[0]=v.x; e->params[i].val.f[1]=v.y; e->params[i].val.f[2]=v.z;
-                    e->dirty=true; return true;
-                }
-            }
-            e->params.PushBack(NkMaterialParam::Float3(name, v.x, v.y, v.z));
-            e->dirty=true; return true;
-        }
-        bool NkMaterialSystem::SetMaterialInt(NkMaterialInstHandle inst,
-                                               const char* name, int32 v) {
-            auto* e = mInstances.Find(inst.id);
-            if (!e) return false;
-            for (uint32 i = 0; i < (uint32)e->params.Size(); ++i) {
-                if (e->params[i].name == name) { e->params[i].val.i[0]=v; e->dirty=true; return true; }
-            }
-            NkMaterialParam p; p.name=name; p.type=NkMaterialParam::Type::I1; p.val.i[0]=v;
-            e->params.PushBack(p); e->dirty=true; return true;
-        }
-        void NkMaterialSystem::FlushMaterialInst(NkMaterialInstHandle inst) {
-            auto* e = mInstances.Find(inst.id);
-            if (!e || !e->dirty) return;
-            RebuildDescriptorSet(inst.id, *e);
-            e->dirty = false;
-        }
-
-    } // namespace renderer
+} // namespace renderer
 } // namespace nkentseu

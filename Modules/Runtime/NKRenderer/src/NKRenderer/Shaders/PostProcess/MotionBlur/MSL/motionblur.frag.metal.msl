@@ -1,0 +1,9 @@
+// motionblur.frag.metal.msl — Motion Blur (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct MBUBO{float shutterAngle;int numSamples;float _p[2];};struct PSIn{float4 pos[[position]];float2 uv;};
+fragment float4 mbFrag(PSIn i[[stage_in]],texture2d<float> tH[[texture(0)]],texture2d<float> tV[[texture(1)]],sampler sL[[sampler(0)]],constant MBUBO& u[[buffer(2)]]){
+    float2 vel=tV.sample(sL,i.uv).rg*u.shutterAngle;if(length(vel)<.0001f)return tH.sample(sL,i.uv);
+    float3 acc=float3(0.f);for(int li=0;li<u.numSamples;li++){float t=(float)li/(float)max(u.numSamples-1,1);acc+=tH.sample(sL,i.uv+vel*(t-.5f)).rgb;}
+    return float4(acc/(float)u.numSamples,1.f);
+}

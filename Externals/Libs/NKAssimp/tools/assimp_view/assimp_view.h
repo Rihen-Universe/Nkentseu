@@ -39,8 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#if (!defined AV_MAIN_H_INCLUDED)
-#define AV_MAIN_H_INCLUDED
+#if (!defined AV_MAIN_H)
+#define AV_MAIN_H
 
 #define AI_SHADER_COMPILE_FLAGS D3DXSHADER_USE_LEGACY_D3DX9_31_DLL
 
@@ -267,4 +267,4 @@ extern unsigned int ppsteps, ppstepsdefault;
 extern bool nopointslines;
 } // namespace AssimpView
 
-#endif // !! AV_MAIN_H_INCLUDED
+#endif // !! AV_MAIN_H

@@ -1,595 +1,506 @@
-/**
- * @File NkInitializerList.h
- * @Description Fournit une liste d'initialisation légère pour le framework Nkentseu, sans dépendances STL.
- * @Author TEUGUIA TADJUIDJE Rodolf
- * @Date 2025-06-10
- * @License Rihen
- */
+// =============================================================================
+// NKContainers/NkInitializerList.h
+// Liste d'initialisation légère, compatible STL, sans dépendance à std::initializer_list
+// (sauf pour interopérabilité optionnelle).
+//
+// Design :
+//  - Header-only : toutes les implémentations sont inline
+//  - Réutilisation directe des macros NKCore/NKPlatform
+//  - Compatible avec NkIterator.h : retourne NkConstIterator pour Begin()/End()
+//  - Vue en lecture seule sur des données existantes : ne possède pas les éléments
+//  - Interopérabilité STL : constructeur/assignation depuis std::initializer_list<T>
+//  - constexpr-friendly : toutes les méthodes sont constexpr pour évaluation compile-time
+//
+// Auteur : Rihen
+// Date : 2024-2026
+// License : Proprietary - Free to use and modify
+// =============================================================================
 
 #pragma once
 
-#include "NKPlatform/NkPlatformDetect.h"
-#include "NKCore/NkTypes.h"
-#include "NkIterator.h" // Pour NkConstIterator et NkReverseIterator
-#include <initializer_list>
+#ifndef NKENTSEU_CONTAINERS_NKINITIALIZERLIST_H
+#define NKENTSEU_CONTAINERS_NKINITIALIZERLIST_H
 
-/**
- * - nkentseu : Regroupe les composants de base du framework Nkentseu.
- *
- * @Description :
- * Ce namespace contient les classes et fonctions fondamentales pour la gestion des conteneurs,
- * des itérateurs, et des structures de données dans le framework Nkentseu. Il est conçu pour
- * être portable, performant, et indépendant de la STL.
- */
-namespace nkentseu {
+    // -------------------------------------------------------------------------
+    // SECTION 1 : DÉPENDANCES
+    // -------------------------------------------------------------------------
+    #include "NKContainers/NkContainersApi.h"  // NKENTSEU_CONTAINERS_API, etc.
+    #include "NKContainers/NkIterator.h"       // NkConstIterator, NkReverseIterator
+    #include "NKCore/NkTypes.h"                // nk_size (alias de usize)
+    #include "NKCore/NkMacros.h"               // NKENTSEU_NODISCARD, etc.
 
+    // Interopérabilité STL optionnelle
+    #include <initializer_list>  // Uniquement pour conversion, pas de dépendance runtime
+
+    // -------------------------------------------------------------------------
+    // SECTION 2 : CLASSE NkInitializerList
+    // -------------------------------------------------------------------------
     /**
-     * - NkInitializerList : Liste d'initialisation générique pour le framework Nkentseu.
-     *
-     * @Description :
-     * Cette classe template fournit une liste d'initialisation légère et constante pour stocker
-     * une séquence d'éléments contigus en lecture seule. Elle est conçue pour être utilisée avec
-     * des tableaux statiques ou dynamiques, offrant un accès via des itérateurs et des méthodes
-     * d'accès aux éléments. Optimisée pour minimiser l'empreinte mémoire et les coûts d'exécution,
-     * elle s'intègre avec les itérateurs personnalisés du framework (`NkConstIterator`, `NkReverseIterator`).
-     *
-     * @Template :
-     * - (typename T) : Type des éléments stockés dans la liste.
-     *
-     * @Members :
-     * - (const T*) m_begin : Pointeur vers le premier élément de la liste.
-     * - (const T*) m_end : Pointeur vers la position juste après le dernier élément.
+     * @defgroup ContainerInitializerList Liste d'Initialisation
+     * @brief Vue en lecture seule sur une séquence contiguë d'éléments
+     * 
+     * Caractéristiques :
+     *  - Ne possède PAS les données : référence à un buffer externe
+     *  - Lecture seule : pas de méthodes de modification
+     *  - Itérateurs : Begin()/End() retournent NkConstIterator
+     *  - constexpr : toutes les méthodes sont évaluables à la compilation
+     *  - Interop STL : conversion depuis/vers std::initializer_list<T>
+     *  - Zéro overhead : deux pointeurs (begin/end) = 16 bytes sur 64-bit
+     * 
+     * @note Durée de vie : les données référencées doivent vivre plus longtemps que la liste
+     * @note Thread-safe : lecture seule, pas de synchronisation nécessaire
+     * 
+     * @example
+     * @code
+     * // Création depuis tableau statique
+     * int arr[] = {1, 2, 3};
+     * nkentseu::containers::NkInitializerList<int> list(arr, 3);
+     * 
+     * // Création depuis std::initializer_list (interop)
+     * auto list2 = nkentseu::containers::NkMakeInitializerList<int>({4, 5, 6});
+     * 
+     * // Itération
+     * for (auto it = list.Begin(); it != list.End(); ++it) {
+     *     printf("%d ", *it);  // Affiche : 1 2 3
+     * }
+     * 
+     * // Algorithmes NKContainers
+     * nkentseu::containers::NkForeach(list, [](int x) { printf("%d ", x); });
+     * @endcode
      */
-    template<typename T>
-    class NkInitializerList {
-    public:
-        /**
-         * @Alias ValueType
-         * @Description Type des éléments stockés dans la liste.
-         * @UnderlyingType T
-         */
-        using ValueType = T;
 
+    namespace nkentseu {
         /**
-         * @Alias SizeType
-         * @Description Type utilisé pour représenter la taille de la liste.
-         * @UnderlyingType usize
+         * @class NkInitializerList
+         * @brief Vue en lecture seule sur une séquence contiguë d'éléments
+         * @tparam T Type des éléments (doit être copiable/assignable)
+         * @ingroup ContainerInitializerList
+         * 
+         * Méthodes principales :
+         *  - Begin()/End() : itérateurs NkConstIterator pour parcours
+         *  - Data()/Size()/Empty() : accès direct aux métadonnées
+         *  - Front()/Back()/operator[] : accès aléatoire aux éléments
+         *  - Comparaisons : ==, != pour égalité élément par élément
+         * 
+         * @warning Ne possède pas les données : ne pas retourner une NkInitializerList
+         *          pointant vers des données locales d'une fonction
+         * 
+         * @example Sécurité de durée de vie
+         * @code
+         * // ❌ DANGEREUX : données locales détruites à la sortie de la fonction
+         * NkInitializerList<int> BadExample() {
+         *     int local[] = {1, 2, 3};
+         *     return NkInitializerList<int>(local, 3);  // dangling pointer !
+         * }
+         * 
+         * // ✅ SÛR : données statiques ou allouées dynamiquement
+         * NkInitializerList<int> GoodExample() {
+         *     static const int data[] = {1, 2, 3};
+         *     return NkInitializerList<int>(data, 3);  // OK : data vit pour tout le programme
+         * }
+         * @endcode
          */
-        using SizeType = usize;
+        template<typename T>
+        class NkInitializerList {
+        public:
+            // =================================================================
+            // @name Types associés
+            // =================================================================
+            
+            using ValueType = T;                          ///< Type des éléments
+            using SizeType = nkentseu::nk_size;           ///< Type pour la taille
+            using Reference = const T&;                   ///< Référence constante
+            using ConstReference = const T&;              ///< Alias pour clarté
+            using Pointer = const T*;                     ///< Pointeur constant
+            using ConstPointer = const T*;                ///< Alias pour clarté
+            
+            using Iterator = NkConstIterator<T>;          ///< Itérateur constant
+            using ConstIterator = NkConstIterator<T>;     ///< Alias pour compatibilité STL
+            
+            using ReverseIterator = NkReverseIterator<ConstIterator>;      ///< Itérateur inverse
+            using ConstReverseIterator = ReverseIterator;                  ///< Alias
 
-        /**
-         * @Alias Reference
-         * @Description Type de référence constante vers les éléments.
-         * @UnderlyingType const T&
-         */
-        using Reference = const T&;
+            // =================================================================
+            // @name Constructeurs
+            // =================================================================
+            
+            /** @brief Constructeur par défaut : liste vide */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList() noexcept 
+                : mBegin(nullptr), mEnd(nullptr) {}
 
-        /**
-         * @Alias Iterator
-         * @Description Type d'itérateur constant pour parcourir la liste.
-         * @UnderlyingType NkConstIterator<T>
-         */
-        using Iterator = NkConstIterator<T>;
+            /**
+             * @brief Constructeur depuis plage de pointeurs [first, last)
+             * @param first Pointeur vers le premier élément
+             * @param last Pointeur vers après le dernier élément
+             * @note Ne copie pas les données : référence directe
+             */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList(const T* first, const T* last) noexcept
+                : mBegin(first), mEnd(last) {}
 
-        /**
-         * @Alias ConstIterator
-         * @Description Alias pour Iterator, pour la compatibilité avec les conventions.
-         * @UnderlyingType NkConstIterator<T>
-         */
-        using ConstIterator = NkConstIterator<T>;
+            /**
+             * @brief Constructeur depuis pointeur + taille
+             * @param data Pointeur vers le premier élément
+             * @param size Nombre d'éléments
+             */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList(const T* data, SizeType size) noexcept
+                : mBegin(data), mEnd(data + size) {}
 
-        /**
-         * @Alias ReverseIterator
-         * @Description Type d'itérateur inversé pour parcourir la liste à l'envers.
-         * @UnderlyingType NkReverseIterator<ConstIterator>
-         */
-        using ReverseIterator = NkReverseIterator<ConstIterator>;
+            /**
+             * @brief Constructeur depuis tableau statique
+             * @tparam N Taille du tableau (déduite automatiquement)
+             * @param arr Tableau statique à référencer
+             */
+            template<nkentseu::nk_size N>
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList(const T (&arr)[N]) noexcept
+                : mBegin(arr), mEnd(arr + N) {}
 
-        /**
-         * @Alias ConstReverseIterator
-         * @Description Alias pour ReverseIterator, pour la compatibilité.
-         * @UnderlyingType ReverseIterator
-         */
-        using ConstReverseIterator = ReverseIterator;
+            /**
+             * @brief Constructeur depuis std::initializer_list (interop STL)
+             * @param init Liste standard à référencer
+             * @note Ne copie pas : référence les données de init
+             */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList(std::initializer_list<T> init) noexcept
+                : mBegin(init.begin()), mEnd(init.end()) {}
 
-        /**
-         * - NkInitializerList : Constructeur par défaut.
-         *
-         * @Description :
-         * Initialise une liste vide avec des pointeurs nuls pour `m_begin` et `m_end`.
-         * Utilisé lorsque aucun élément n'est fourni.
-         *
-         * @return (void) : Aucune valeur retournée.
-         *
-         * Exemple :
-         * NkInitializerList<int32_t> list; // Liste vide
-         */
-        constexpr NkInitializerList() noexcept : m_begin(nullptr), m_end(nullptr) {}
+            // =================================================================
+            // @name Itérateurs
+            // =================================================================
+            
+            /** @brief Itérateur constant vers le premier élément */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr Iterator Begin() const noexcept { return Iterator(mBegin); }
 
-        /**
-         * - NkInitializerList : Constructeur depuis std::initializer_list.
-         *
-         * @Description :
-         * Permet d'utiliser les appels explicites avec std::initializer_list
-         * et facilite l'interopérabilité STL -> Nkentseu.
-         *
-         * @param (std::initializer_list<T>) init : Liste standard source.
-         */
-        constexpr NkInitializerList(std::initializer_list<T> init) noexcept
-            : m_begin(init.begin()), m_end(init.end()) {}
+            /** @brief Itérateur constant vers après le dernier élément */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr Iterator End() const noexcept { return Iterator(mEnd); }
 
-        /**
-         * - NkInitializerList : Constructeur avec plage de pointeurs.
-         *
-         * @Description :
-         * Initialise une liste à partir d'une plage définie par un pointeur de début et un pointeur de fin.
-         * En mode débogage, vérifie que le pointeur de fin n'est pas avant le pointeur de début, et logue une erreur si c'est le cas.
-         * Ne possède pas les données, uniquement des références aux éléments existants.
-         *
-         * @param (const T*) first : Pointeur vers le premier élément de la plage.
-         * @param (const T*) last : Pointeur vers la position juste après le dernier élément.
-         * @return (void) : Aucune valeur retournée.
-         *
-         * Exemple :
-         * int32_t arr[] = {1, 2, 3};
-         * NkInitializerList<int32_t> list(arr, arr + 3); // Liste contenant {1, 2, 3}
-         */
-        constexpr NkInitializerList(const T* first, const T* last) noexcept 
-            : m_begin(first), m_end(last) {
-            #ifdef NKENTSEU_LOG_ENABLED
-            if (m_end < m_begin) {
-                NKENTSEU_LOG_ERROR("NkInitializerList: end pointer is before begin pointer.");
+            /** @brief Alias CBegin() pour compatibilité STL */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr ConstIterator CBegin() const noexcept { return ConstIterator(mBegin); }
+
+            /** @brief Alias CEnd() pour compatibilité STL */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr ConstIterator CEnd() const noexcept { return ConstIterator(mEnd); }
+
+            /** @brief Itérateur inverse vers le dernier élément */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr ReverseIterator RBegin() const noexcept {
+                return ReverseIterator(End());
             }
-            #endif
-        }
+
+            /** @brief Itérateur inverse vers avant le premier élément */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr ReverseIterator REnd() const noexcept {
+                return ReverseIterator(Begin());
+            }
+
+            /** @brief Alias CRBegin() pour compatibilité STL */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr ConstReverseIterator CRBegin() const noexcept { return RBegin(); }
+
+            /** @brief Alias CREnd() pour compatibilité STL */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr ConstReverseIterator CREnd() const noexcept { return REnd(); }
+
+            // =================================================================
+            // @name Accès aux données
+            // =================================================================
+            
+            /** @brief Pointeur vers le premier élément (ou nullptr si vide) */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr const T* Data() const noexcept { return mBegin; }
+
+            /** @brief Nombre d'éléments dans la liste */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr SizeType Size() const noexcept {
+                return static_cast<SizeType>(mEnd - mBegin);
+            }
+
+            /** @brief Teste si la liste est vide */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr bool Empty() const noexcept { return mBegin == mEnd; }
+
+            /** @brief Référence au premier élément (undefined si Empty()) */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr Reference Front() const noexcept { return *mBegin; }
+
+            /** @brief Référence au dernier élément (undefined si Empty()) */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr Reference Back() const noexcept { return *(mEnd - 1); }
+
+            /** @brief Accès par index (sans bounds checking) */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr Reference operator[](SizeType index) const noexcept {
+                return mBegin[index];
+            }
+
+            // =================================================================
+            // @name Comparaisons
+            // =================================================================
+            
+            /**
+             * @brief Égalité élément par élément
+             * @param other Autre liste à comparer
+             * @return true si même taille et mêmes éléments dans le même ordre
+             */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_INLINE
+            constexpr bool operator==(const NkInitializerList& other) const noexcept {
+                if (Size() != other.Size()) return false;
+                for (SizeType i = 0; i < Size(); ++i) {
+                    if (mBegin[i] != other.mBegin[i]) return false;
+                }
+                return true;
+            }
+
+            /** @brief Non-égalité : inverse de operator== */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr bool operator!=(const NkInitializerList& other) const noexcept {
+                return !(*this == other);
+            }
+
+            // =================================================================
+            // @name Assignation (pour interop avec std::initializer_list)
+            // =================================================================
+            
+            /** @brief Assignation depuis une autre NkInitializerList */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList& operator=(const NkInitializerList& other) noexcept {
+                mBegin = other.mBegin;
+                mEnd = other.mEnd;
+                return *this;
+            }
+
+            /** @brief Assignation depuis std::initializer_list (non-const ref) */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList& operator=(std::initializer_list<T> init) noexcept {
+                mBegin = init.begin();
+                mEnd = init.end();
+                return *this;
+            }
+
+            /** @brief Assignation depuis std::initializer_list (const ref) */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerList& operator=(
+                const std::initializer_list<T>& init) noexcept {
+                mBegin = init.begin();
+                mEnd = init.end();
+                return *this;
+            }
+
+        private:
+            const T* mBegin;  ///< Pointeur vers le premier élément
+            const T* mEnd;    ///< Pointeur vers après le dernier élément
+        };
+
+        // ====================================================================
+        // Spécialisation NkIteratorTraits pour NkInitializerList
+        // ====================================================================
         
-        /*
-        * - NkInitializerList : Constructeur avec pointeur et taille.
-        *
-        * @Description :
-        * Initialise une liste à partir d'un pointeur vers les données et d'une taille spécifiée.
-        * En mode débogage, vérifie que le pointeur de fin n'est pas avant le pointeur de début, et logue une erreur si c'est le cas.
-        * Ne possède pas les données, uniquement des références aux éléments existants.
-        * 
-        * @param (const T*) data : Pointeur vers le premier élément des données.
-        * @param (usize) size : Nombre d'éléments dans la liste.
-        * @return (void) : Aucune valeur retournée.
-        * 
-        * Exemple :
-        * int32_t arr[] = {1, 2, 3};
-        * NkInitializerList<int32_t> list(arr, 3); // Liste contenant {1, 2, 3}
-        */
-        constexpr NkInitializerList(const T* data, usize size) noexcept 
-            : m_begin(data), m_end(data + size) {
-            #ifdef NKENTSEU_LOG_ENABLED
-            if (m_end < m_begin) {
-                NKENTSEU_LOG_ERROR("NkInitializerList: end pointer is before begin pointer.");
-            }
-            #endif
-        }
+        template<typename T>
+        struct NkIteratorTraits<NkInitializerList<T>> {
+            using ValueType = T;
+            using Pointer = const T*;
+            using Reference = const T&;
+            using DifferenceType = nkentseu::ptrdiff;
+            using IteratorCategory = NkRandomAccessIteratorTag;
+        };
+
+        // ====================================================================
+        // Helpers de création : NkMakeInitializerList
+        // ====================================================================
         
         /**
-         * - NkInitializerList : Constructeur avec tableau statique.
-         *
-         * @Description :
-         * Initialise une liste à partir d'un tableau statique, en déterminant la taille automatiquement.
-         * En mode débogage, vérifie que le pointeur de fin n'est pas avant le pointeur de début, et logue une erreur si c'est le cas.
-         * Ne possède pas les données, uniquement des références aux éléments existants.
-         *
-         * @param (const T (&)[N]) arr : Tableau statique à copier dans la liste.
-         * @return (void) : Aucune valeur retournée.
-         *
-         * Exemple :
-         * int32_t arr[] = {1, 2, 3};
-         * NkInitializerList<int32_t> list(arr); // Liste contenant {1, 2, 3}
+         * @brief Helper interne pour construction depuis liste d'arguments
+         * @note Stocke les éléments dans un tableau interne temporaire
+         * @warning À utiliser uniquement pour initialisation locale (pas de retour)
          */
-        template <usize N>
-        constexpr NkInitializerList(const T (&arr)[N]) noexcept 
-            : m_begin(arr), m_end(arr + N) {
-            #ifdef NKENTSEU_LOG_ENABLED
-            if (m_end < m_begin) {
-                NKENTSEU_LOG_ERROR("NkInitializerList: end pointer is before begin pointer.");
+        template<typename T, nkentseu::nk_size N>
+        struct NkInitializerListHelper {
+            T storage[N];  ///< Buffer interne temporaire
+            
+            /** @brief Constructeur depuis tableau statique : copie les éléments */
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerListHelper(const T (&arr)[N]) noexcept {
+                for (nkentseu::nk_size i = 0; i < N; ++i) {
+                    storage[i] = arr[i];
+                }
             }
-            #endif
-        }
-
-        /**
-         * - Begin : Retourne un itérateur constant vers le début de la liste.
-         *
-         * @Description :
-         * Fournit un itérateur constant pointant sur le premier élément de la liste.
-         * Utilisé pour démarrer une itération en lecture seule.
-         *
-         * @return (Iterator) : Itérateur constant vers le premier élément.
-         *
-         * Exemple :
-         * NkInitializerList<int32_t> list(arr, arr + 3);
-         * auto it = list.Begin(); // Pointe sur arr[0]
-         */
-        [[nodiscard]] constexpr Iterator Begin() const noexcept { return Iterator(m_begin); }
-
-        /**
-         * - End : Retourne un itérateur constant vers la fin de la liste.
-         *
-         * @Description :
-         * Fournit un itérateur constant pointant juste après le dernier élément de la liste.
-         * Utilisé pour marquer la fin de l'itération.
-         *
-         * @return (Iterator) : Itérateur constant vers la fin.
-         *
-         * Exemple :
-         * auto it = list.End(); // Pointe après arr[2]
-         */
-        [[nodiscard]] constexpr Iterator End() const noexcept { return Iterator(m_end); }
-
-        /**
-         * - CBegin : Retourne un itérateur constant explicite vers le début.
-         *
-         * @Description :
-         * Identique à `Begin()`, mais fourni pour respecter les conventions de la STL
-         * et garantir la const-correctness dans certains contextes.
-         *
-         * @return (ConstIterator) : Itérateur constant vers le premier élément.
-         */
-        [[nodiscard]] constexpr ConstIterator CBegin() const noexcept { return ConstIterator(m_begin); }
-
-        /**
-         * - CEnd : Retourne un itérateur constant explicite vers la fin.
-         *
-         * @Description :
-         * Identique à `End()`, mais fourni pour la compatibilité et la const-correctness.
-         *
-         * @return (ConstIterator) : Itérateur constant vers la fin.
-         */
-        [[nodiscard]] constexpr ConstIterator CEnd() const noexcept { return ConstIterator(m_end); }
-
-        /**
-         * - RBegin : Retourne un itérateur inversé vers le dernier élément.
-         *
-         * @Description :
-         * Fournit un itérateur inversé pointant sur le dernier élément de la liste,
-         * permettant une itération à l'envers.
-         *
-         * @return (ReverseIterator) : Itérateur inversé vers le dernier élément.
-         *
-         * Exemple :
-         * auto rit = list.RBegin(); // Pointe sur arr[2]
-         */
-        [[nodiscard]] constexpr ReverseIterator RBegin() const noexcept { return ReverseIterator(End()); }
-
-        /**
-         * - REnd : Retourne un itérateur inversé vers avant le premier élément.
-         *
-         * @Description :
-         * Fournit un itérateur inversé pointant avant le premier élément, marquant la fin
-         * de l'itération inversée.
-         *
-         * @return (ReverseIterator) : Itérateur inversé vers avant le premier élément.
-         */
-        [[nodiscard]] constexpr ReverseIterator REnd() const noexcept { return ReverseIterator(Begin()); }
-
-        /**
-         * - CRBegin : Retourne un itérateur inversé constant explicite vers le dernier élément.
-         *
-         * @Description :
-         * Identique à `RBegin()`, mais fourni pour la compatibilité et la const-correctness.
-         *
-         * @return (ConstReverseIterator) : Itérateur inversé constant vers le dernier élément.
-         */
-        [[nodiscard]] constexpr ConstReverseIterator CRBegin() const noexcept { return RBegin(); }
-
-        /**
-         * - CREnd : Retourne un itérateur inversé constant explicite vers avant le premier élément.
-         *
-         * @Description :
-         * Identique à `REnd()`, mais fourni pour la compatibilité et la const-correctness.
-         *
-         * @return (ConstReverseIterator) : Itérateur inversé constant vers avant le premier élément.
-         */
-        [[nodiscard]] constexpr ConstReverseIterator CREnd() const noexcept { return REnd(); }
-
-        /**
-         * - Data : Retourne un pointeur vers les données brutes.
-         *
-         * @Description :
-         * Fournit un accès direct au tableau sous-jacent de la liste.
-         * Ne vérifie pas la validité pour des raisons de performance.
-         *
-         * @return (const T*) : Pointeur vers le premier élément.
-         *
-         * Exemple :
-         * const int32_t* ptr = list.Data(); // Pointeur sur arr[0]
-         */
-        [[nodiscard]] constexpr const T* Data() const noexcept { return m_begin; }
-
-        /**
-         * - Size : Retourne le nombre d'éléments dans la liste.
-         *
-         * @Description :
-         * Calcule la taille de la liste en soustrayant les pointeurs de fin et de début.
-         * Retourne toujours une valeur non négative.
-         *
-         * @return (SizeType) : Nombre d'éléments dans la liste.
-         *
-         * Exemple :
-         * usize size = list.Size(); // size = 3
-         */
-        [[nodiscard]] constexpr SizeType Size() const noexcept { return static_cast<SizeType>(m_end - m_begin); }
-
-        /**
-         * - Empty : Vérifie si la liste est vide.
-         *
-         * @Description :
-         * Retourne `true` si la liste ne contient aucun élément, `false` sinon.
-         * Comparaison simple des pointeurs pour une performance optimale.
-         *
-         * @return (bool) : `true` si la liste est vide, `false` sinon.
-         *
-         * Exemple :
-         * bool Empty = list.Empty(); // false pour une liste non vide
-         */
-        [[nodiscard]] constexpr bool Empty() const noexcept { return m_begin == m_end; }
-
-        /**
-         * - Front : Accède au premier élément de la liste.
-         *
-         * @Description :
-         * Retourne une référence constante au premier élément.
-         * Ne vérifie pas si la liste est vide pour des raisons de performance.
-         * L'utilisateur doit s'assurer que la liste n'est pas vide.
-         *
-         * @return (Reference) : Référence constante au premier élément.
-         *
-         * Exemple :
-         * int32_t first = list.Front(); // first = 1
-         */
-        [[nodiscard]] constexpr Reference Front() const noexcept { return *m_begin; }
-
-        /**
-         * - Back : Accède au dernier élément de la liste.
-         *
-         * @Description :
-         * Retourne une référence constante au dernier élément.
-         * Ne vérifie pas si la liste est vide; l'utilisateur doit vérifier.
-         *
-         * @return (Reference) : Référence constante au dernier élément.
-         *
-         * Exemple :
-         * int32_t last = list.Back(); // last = 3
-         */
-        [[nodiscard]] constexpr Reference Back() const noexcept { return *(m_end - 1); }
-
-        /**
-         * - operator[] : Accède à un élément par index.
-         *
-         * @Description :
-         * Retourne une référence constante à l'élément à l'index spécifié.
-         * Ne vérifie pas les bornes pour la performance; l'utilisateur doit s'assurer
-         * que l'index est valide.
-         *
-         * @param (SizeType) index : Index de l'élément à accéder.
-         * @return (Reference) : Référence constante à l'élément.
-         *
-         * Exemple :
-         * int32_t value = list[1]; // value = 2
-         */
-        [[nodiscard]] constexpr Reference operator[](SizeType index) const noexcept { return m_begin[index]; }
-
-        /**
-         * - operator== : Compare l'égalité avec une autre liste.
-         *
-         * @Description :
-         * Vérifie si deux listes ont la même taille et les mêmes éléments.
-         * Compare chaque élément séquentiellement; retourne `false` dès qu'une différence est trouvée.
-         *
-         * @param (const NkInitializerList&) other : Autre liste à comparer.
-         * @return (bool) : `true` si les listes sont égales, `false` sinon.
-         *
-         * Exemple :
-         * NkInitializerList<int32_t> list2(arr, arr + 3);
-         * bool equal = (list == list2); // true
-         */
-        [[nodiscard]] constexpr bool operator==(const NkInitializerList& other) const noexcept {
-            if (Size() != other.Size()) return false;
-            for (SizeType i = 0; i < Size(); ++i) {
-                if (m_begin[i] != other.m_begin[i]) return false;
+            
+            /** @brief Conversion vers NkInitializerList<T> */
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr operator NkInitializerList<T>() const noexcept {
+                return NkInitializerList<T>(storage, storage + N);
             }
-            return true;
-        }
+        };
+
+        /** @brief Spécialisation pour liste vide (N=0) */
+        template<typename T>
+        struct NkInitializerListHelper<T, 0> {
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerListHelper() noexcept = default;
+            
+            template<nkentseu::nk_size N>
+            NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr NkInitializerListHelper(const T (&)[N]) noexcept {}
+            
+            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+            constexpr operator NkInitializerList<T>() const noexcept {
+                return NkInitializerList<T>();
+            }
+        };
 
         /**
-         * - operator!= : Compare la non-égalité avec une autre liste.
-         *
-         * @Description :
-         * Retourne l'opposé du résultat de `operator==`.
-         * Fourni pour la commodité et la cohérence avec les conventions.
-         *
-         * @param (const NkInitializerList&) other : Autre liste à comparer.
-         * @return (bool) : `true` si les listes sont différentes, `false` sinon.
-         *
-         * Exemple :
-         * int32_t arr2[] = {1, 2, 4};
-         * NkInitializerList<int32_t> list2(arr2, arr2 + 3);
-         * bool notEqual = (list != list2); // true
+         * @brief Crée une NkInitializerList depuis une liste d'arguments
+         * @tparam T Type des éléments
+         * @tparam Args Types des arguments (doivent être convertibles vers T)
+         * @param args Arguments à inclure dans la liste
+         * @return NkInitializerListHelper<T, N> convertible vers NkInitializerList<T>
+         * @note Le helper contient un buffer interne : ne pas retourner la liste résultante
+         * 
+         * @example
+         * @code
+         * void ProcessList(NkInitializerList<int> list) {
+         *     // ... utilisation ...
+         * }
+         * 
+         * // Appel avec helper temporaire (OK : durée de vie limitée à l'appel)
+         * ProcessList(NkMakeInitializerList<int>(1, 2, 3));
+         * 
+         * // ❌ Ne pas faire :
+         * auto bad = NkMakeInitializerList<int>(1, 2, 3);  // buffer temporaire détruit !
+         * ProcessList(bad);  // dangling pointer !
+         * @endcode
          */
-        [[nodiscard]] constexpr bool operator!=(const NkInitializerList& other) const noexcept {
-            return !(*this == other);
+        template<typename T, typename... Args>
+        [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+        constexpr NkInitializerListHelper<T, sizeof...(Args)>
+        NkMakeInitializerList(Args&&... args) noexcept {
+            return NkInitializerListHelper<T, sizeof...(Args)>(
+                {static_cast<T>(args)...}
+            );
         }
 
-        [[nodiscard]] constexpr NkInitializerList<T> operator=(const NkInitializerList<T>& other) noexcept {
-            m_begin = other.m_begin;
-            m_end = other.m_end;
-            return *this;
+        /** @brief Crée une NkInitializerList depuis un tableau statique */
+        template<typename T, nkentseu::nk_size N>
+        [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+        constexpr NkInitializerList<T>
+        NkMakeInitializerList(const T (&arr)[N]) noexcept {
+            return NkInitializerList<T>(arr);
         }
 
-        [[nodiscard]] constexpr NkInitializerList<T> operator=(std::initializer_list<T> init) noexcept {
-            m_begin = init.begin();
-            m_end = init.end();
-            return *this;
+        /** @brief Crée une NkInitializerList depuis pointeur + taille */
+        template<typename T>
+        [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+        constexpr NkInitializerList<T>
+        NkMakeInitializerList(const T* data, nkentseu::nk_size size) noexcept {
+            return NkInitializerList<T>(data, size);
         }
 
-        [[nodiscard]] constexpr NkInitializerList<T> operator=(const std::initializer_list<T>& init) noexcept {
-            m_begin = init.begin();
-            m_end = init.end();
-            return *this;
-        }
-
-    private:
-        const T* m_begin;
-        const T* m_end;
-    };
-
-    /**
-     * - NkInitializerListHelper : Aide à la création de NkInitializerList à partir de tableaux.
-     *
-     * @Description :
-     * Cette structure template est utilisée pour faciliter la création de `NkInitializerList`
-     * à partir de tableaux statiques. Elle permet de convertir un tableau en une liste d'initialisation
-     * sans nécessiter de données supplémentaires, en copiant les éléments dans un tableau interne.
-     *
-     * @Template :
-     * - (typename T) : Type des éléments de la liste.
-     * - (usize N) : Nombre d'éléments dans le tableau.
-     */
-    template<typename T, usize N>
-    struct NkInitializerListHelper {
-        T array[N];
-        constexpr NkInitializerListHelper(const T (&arr)[N]) noexcept {
-            for (usize i = 0; i < N; ++i) {
-                array[i] = arr[i];
-            }
-        }
-        constexpr operator NkInitializerList<T>() const noexcept {
-            return NkInitializerList<T>(array, array + N);
-        }
-    };
-
-    /**
-     * - NkInitializerListHelper : Spécialisation pour les listes vides.
-     *
-     * @Description :
-     * Cette spécialisation de `NkInitializerListHelper` est utilisée pour gérer le cas
-     * où la liste d'initialisation est vide (0 éléments). Elle permet de créer une
-     * `NkInitializerList` vide sans nécessiter de données supplémentaires.
-     *
-     * @Template :
-     * - (typename T) : Type des éléments de la liste.
-     */
-    template<typename T>
-    struct NkInitializerListHelper<T, 0> {
-        constexpr NkInitializerListHelper() noexcept {}
-        template<usize N>
-        constexpr NkInitializerListHelper(const T (&arr)[N]) noexcept {(void)arr;}
-        constexpr operator NkInitializerList<T>() const noexcept {
+        /** @brief Crée une NkInitializerList vide */
+        template<typename T>
+        [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+        constexpr NkInitializerList<T>
+        NkMakeInitializerList() noexcept {
             return NkInitializerList<T>();
         }
-    };
 
-    /**
-     * - MakeInitializerList : Crée une NkInitializerList à partir de données brutes.
-     *
-     * @Description :
-     * Cette fonction template utilitaire construit une `NkInitializerList` à partir
-     * d'une liste d'arguments. Elle permet de créer facilement des listes d'initialisation
-     * sans avoir à spécifier explicitement les types ou la taille.
-     *
-     * @Template :
-     * - (typename T) : Type des éléments de la liste.
-     * - (typename... Args) : Types des arguments à inclure dans la liste.
-     *
-     * @param (Args&&...) args : Arguments à inclure dans la liste.
-     * @return (NkInitializerList<T, sizeof...(Args)>) : Liste d'initialisation contenant les éléments.
-     *
-     * Exemple :
-     * auto list = MakeInitializerList<int32_t>(1, 2, 3); // Crée une liste {1, 2, 3}
-     */
-    template<typename T, typename... Args>
-    constexpr NkInitializerListHelper<T, sizeof...(Args)> NkMakeInitializerList(Args&&... args) noexcept {
-        return NkInitializerListHelper<T, sizeof...(Args)>({static_cast<T>(args)...});
-    }
+        /** @brief Crée une NkInitializerList depuis std::initializer_list */
+        template<typename T>
+        [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+        constexpr NkInitializerList<T>
+        NkMakeInitializerList(std::initializer_list<T> init) noexcept {
+            return NkInitializerList<T>(init);
+        }
 
-    /**
-     * - MakeInitializerList : Crée une NkInitializerList à partir de données brutes.
-     *
-     * @Description :
-     * Cette fonction template utilitaire construit une `NkInitializerList` à partir
-     * d'un pointeur vers des données et d'une taille. Elle calcule le pointeur de fin
-     * en ajoutant la taille au pointeur de début, simplifiant la création de listes.
-     *
-     * @Template :
-     * - (typename T) : Type des éléments de la liste.
-     *
-     * @param (const T*) data : Pointeur vers le début des données.
-     * @param (usize) size : Nombre d'éléments dans les données.
-     * @return (NkInitializerList<T>) : Liste d'initialisation contenant les éléments.
-     *
-     * Exemple :
-     * int32_t arr[] = {1, 2, 3};
-     * auto list = MakeInitializerList(arr, 3); // Crée une liste {1, 2, 3}
-     * NkForeach(list, [](int32_t value) { printf("%d\n", value); }); // Affiche : 1, 2, 3
-     */
-    template <typename T, usize N>
-    constexpr NkInitializerList<T> NkMakeInitializerList(const T (&arr)[N]) noexcept {
-        return NkInitializerList<T>(arr);
-    }
+        // ====================================================================
+        // Fonctions begin/end libres pour compatibilité range-based for
+        // ====================================================================
+        
+        /** @brief begin() libre pour NkInitializerList */
+        template<typename T>
+        [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+        constexpr const T* begin(NkInitializerList<T> list) noexcept {
+            return list.Begin().operator->();
+        }
 
-    /*
-        * - MakeInitializerList : Crée une NkInitializerList à partir d'un pointeur et d'une taille.
-        *
-        * @Description :
-        * Cette fonction template utilitaire construit une `NkInitializerList` à partir
-        * d'un pointeur vers des données et d'une taille. Elle est utile pour créer des listes
-        * à partir de tableaux dynamiques ou de buffers.
-        *
-        * @Template :
-        * - (typename T) : Type des éléments de la liste.
-        *
-        * @param (const T*) data : Pointeur vers le début des données.
-        * @param (usize) size : Nombre d'éléments dans les données.
-        * @return (NkInitializerList<T>) : Liste d'initialisation contenant les éléments.
-        *
-        * Exemple :
-        * int32_t arr[] = {1, 2, 3};
-        * auto list = MakeInitializerList(arr, 3); // Crée une liste {1, 2, 3}
-    */
-    template <typename T>
-    constexpr NkInitializerList<T> NkMakeInitializerList(const T* data, usize size) noexcept {
-        return NkInitializerList<T>(data, size);
-    }
+        /** @brief end() libre pour NkInitializerList */
+        template<typename T>
+        [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+        constexpr const T* end(NkInitializerList<T> list) noexcept {
+            return list.End().operator->();
+        }
 
-    /**
-     * - NkMakeInitializerList : Crée une NkInitializerList vide.
-     *
-     * @Description :
-     * Cette fonction template utilitaire crée une `NkInitializerList` vide, sans éléments.
-     * Utile pour initialiser des listes sans données, permettant une utilisation uniforme
-     * avec les autres fonctions de création de listes.
-     *
-     * @Template :
-     * - (typename T) : Type des éléments de la liste.
-     *
-     * @return (NkInitializerList<T>) : Liste d'initialisation vide.
-     *
-     * Exemple :
-     * auto emptyList = NkMakeInitializerList<int32_t>(); // Crée une liste vide
-     */
-    template <typename T>
-    constexpr NkInitializerList<T> NkMakeInitializerList() noexcept {
-        return NkInitializerList<T>();
-    }
+    } // namespace nkentseu
 
-    template <typename T>
-    constexpr NkInitializerList<T> NkMakeInitializerList(std::initializer_list<T> init) noexcept {
-        return NkInitializerList<T>(init);
-    }
+#endif // NKENTSEU_CONTAINERS_NKINITIALIZERLIST_H
 
-    NKENTSEU_CONTAINERS_API template <class _Elem>
-    NKENTSEU_NODISCARD constexpr const _Elem* begin(NkInitializerList<_Elem> _Ilist) noexcept {
-        return _Ilist.Begin();
-    }
+// =============================================================================
+// NOTES DE MAINTENANCE
+// =============================================================================
+/*
+    [POURQUOI NE PAS POSSÉDER LES DONNÉES ?]
+    
+    NkInitializerList est une "vue" (view), pas un conteneur :
+    ✓ Zéro allocation : deux pointeurs seulement
+    ✓ Zéro copie : référence directe aux données existantes
+    ✓ constexpr : évaluable à la compilation pour initialisation statique
+    ✓ Interop STL : compatible avec std::initializer_list sans overhead
+    
+    ⚠️ Responsabilité de l'appelant : garantir que les données vivent assez longtemps
+    
+    Alternative si besoin de possession : utiliser NkDynamicArray ou NkVector.
 
-    NKENTSEU_CONTAINERS_API template <class _Elem>
-    NKENTSEU_NODISCARD constexpr const _Elem* end(NkInitializerList<_Elem> _Ilist) noexcept {
-        return _Ilist.End();
-    }
-} // namespace nkentseu
+    [INTEROPÉRABILITÉ STL]
+    
+    Inclusion de <initializer_list> uniquement pour :
+    - Constructeur NkInitializerList(std::initializer_list<T>)
+    - Assignation depuis std::initializer_list<T>
+    
+    Aucune dépendance runtime : std::initializer_list est lui-même une vue.
+    
+    Pour désactiver l'interop STL (réduire les includes) :
+        #define NKENTSEU_CONTAINERS_DISABLE_STL_INTEROP
+        // Puis conditionner les includes/constructeurs dans le code
+
+    [PERFORMANCE]
+    
+    - Construction : O(1) : juste deux affectations de pointeurs
+    - Accès : O(1) : déréférencement de pointeur brut
+    - Itération : même performance que boucle sur tableau brut
+    - Comparaison == : O(n) dans le pire cas, mais early exit sur première différence
+
+    [CONSTEXPR ET COMPILATION]
+    
+    Toutes les méthodes sont constexpr pour :
+    - Initialisation statique : constexpr NkInitializerList<int> list = {1,2,3};
+    - Évaluation compile-time : if constexpr (list.Size() > 0) { /\* ... *\/ }
+    - Optimisations agressives du compilateur
+    
+    Limitations :
+    - Les données référencées doivent être constexpr pour évaluation compile-time
+    - NkMakeInitializerList avec args crée un buffer local : pas constexpr si args non-constexpr
+
+    [EXTENSIONS POSSIBLES]
+    
+    1. NkMutableInitializerList : version avec accès en écriture (rarement utile)
+    2. NkSpan<T> : vue généralisée avec begin/end + Size() + sous-vues (subspan)
+    3. NkStringView : spécialisation pour const char* avec méthodes string-like
+    4. Support C++20 ranges : adapter pour std::ranges::range concept
+
+    [DEBUGGING TIPS]
+    
+    - Si crash à l'accès : vérifier que Data() != nullptr et Size() > 0 avant Front()/Back()
+    - Si comparaison == lente : profiler avec de grandes listes ; early exit devrait limiter le coût
+    - Si problèmes de durée de vie : utiliser AddressSanitizer pour détecter les use-after-free
+    - Pour debugging : ajouter une méthode Dump() en debug-only qui logge les éléments
+*/
+
+// ============================================================
+// Copyright © 2024-2026 Rihen. All rights reserved.
+// Proprietary License - Free to use and modify
+// ============================================================

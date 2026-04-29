@@ -1,0 +1,20 @@
+// toon.frag.metal.msl — Toon Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct CamUBO{float4x4 view,proj,viewProj,invViewProj;float4 camPos,camDir;float2 vp;float time,dt;};
+struct LightEntry{float4 pos,col,dir,ang;};
+struct LightsUBO{LightEntry lights[32];int count;int pad[3];};
+struct ToonUBO{float4 shadowColor;float shadowThreshold,shadowSmoothness,outlineWidth,rimIntensity;float4 outlineColor,rimColor;float specHardness;float _p[3];};
+struct VSOut{float4 pos[[position]];float3 worldPos;float3 normal;float2 uv;float4 color;};
+fragment float4 toonFrag(VSOut i[[stage_in]],constant CamUBO& cam[[buffer(0)]],constant LightsUBO& lts[[buffer(2)]],constant ToonUBO& toon[[buffer(4)]],texture2d<float> tAlbedo[[texture(4)]],sampler sLinear[[sampler(0)]]){
+    float4 albSamp=tAlbedo.sample(sLinear,i.uv)*i.color;float3 albedo=albSamp.rgb;float alpha=albSamp.a;if(alpha<0.01f)discard_fragment();
+    float3 N=normalize(i.normal),V=normalize(cam.camPos.xyz-i.worldPos),total=float3(0.f);
+    for(int li=0;li<lts.count&&li<32;li++){
+        int lt=int(lts.lights[li].pos.w);float3 L=(lt==0)?normalize(-lts.lights[li].dir.xyz):normalize(lts.lights[li].pos.xyz-i.worldPos);
+        float NdL=dot(N,L),t=smoothstep(toon.shadowThreshold-toon.shadowSmoothness,toon.shadowThreshold+toon.shadowSmoothness,NdL);
+        float3 H=normalize(V+L);float spec=step(0.5f,pow(max(dot(N,H),0.f),toon.specHardness));
+        total+=mix(toon.shadowColor.rgb,albedo,t)*lts.lights[li].col.rgb*lts.lights[li].col.w+spec*0.3f*lts.lights[li].col.rgb;
+    }
+    float rim=pow(1.f-max(dot(N,V),0.f),3.f)*toon.rimIntensity;total+=toon.rimColor.rgb*rim;
+    return float4(total,alpha);
+}

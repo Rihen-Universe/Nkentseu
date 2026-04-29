@@ -1,0 +1,6 @@
+// decal.frag.metal.msl — Decal Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct DecalUBO{float4x4 decalMatrix;float opacity,normalBlend;float _p[2];};
+struct VSOut{float4 pos[[position]];float3 decalPos;};
+fragment float4 decalFrag(VSOut i[[stage_in]],constant DecalUBO& d[[buffer(1)]],texture2d<float> tA[[texture(2)]],sampler sL[[sampler(0)]]){if(any(i.decalPos<float3(.01f))||any(i.decalPos>float3(.99f)))discard_fragment();float4 a=tA.sample(sL,i.decalPos.xz);if(a.a<.01f)discard_fragment();return float4(a.rgb,a.a*d.opacity);}

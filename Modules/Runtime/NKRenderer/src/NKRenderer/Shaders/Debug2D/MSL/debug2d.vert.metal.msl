@@ -1,0 +1,10 @@
+// debug2d.vert.metal.msl — 2D Batch Vertex (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct OrthoUBO{float4x4 ortho;float time;float3 _pad;};
+struct VSIn{float2 pos[[attribute(0)]];float2 uv[[attribute(1)]];uint color[[attribute(2)]];uint flags[[attribute(3)]];};
+struct VSOut{float4 pos[[position]];float2 uv;float4 color;uint flags;};
+vertex VSOut debug2dVert(VSIn v[[stage_in]],constant OrthoUBO& u[[buffer(0)]]){
+    VSOut o; o.pos=u.ortho*float4(v.pos,0.f,1.f);o.uv=v.uv;
+    o.color=float4(float((v.color    )&0xffu)/255.f,float((v.color>> 8u)&0xffu)/255.f,float((v.color>>16u)&0xffu)/255.f,float((v.color>>24u)&0xffu)/255.f);
+    o.flags=v.flags;return o;}

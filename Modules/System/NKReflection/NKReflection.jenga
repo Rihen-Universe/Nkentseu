@@ -19,7 +19,8 @@ from Jenga import *
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKReflection"):
-    staticlib()
+    kindexport(ProjectKind.STATIC_LIB, "NKENTSEU_REFLECTION")
+    defines(["NKENTSEU_PLATFORM_STATIC_LIB", "NKENTSEU_CORE_STATIC_LIB", "NKENTSEU_MEMORY_STATIC_LIB", "NKENTSEU_CONTAINERS_STATIC_LIB", "NKENTSEU_THREADING_STATIC_LIB", "NKENTSEU_LOGGER_STATIC_LIB"])
     language("C++")
     cppdialect("C++17")
     location(".")
@@ -31,12 +32,13 @@ with project("NKReflection"):
         "%{NKPlatform.location}/src",
         "%{NKMemory.location}/src",
         "%{NKContainers.location}/src",
+        "%{NKThreading.location}/src",
         "%{NKLogger.location}/src",
     ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger"])
+    dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKThreading", "NKLogger"])
 
     files([
         "src/NKReflection/**.cpp",

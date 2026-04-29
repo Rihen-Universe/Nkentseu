@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef NK_NKFONT_UTILS_H_INCLUDED
-#define NK_NKFONT_UTILS_H_INCLUDED
+#ifndef NK_NKFONT_UTILS_H
+#define NK_NKFONT_UTILS_H
 
 #include <vector>
 #include <cmath>

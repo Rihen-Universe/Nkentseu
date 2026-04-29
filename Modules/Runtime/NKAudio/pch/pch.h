@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/pch/pch.h
 // DESCRIPTION: En-tête précompilé du module NKAudio
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: Inclure UNIQUEMENT les headers stables qui ne changent pas souvent.

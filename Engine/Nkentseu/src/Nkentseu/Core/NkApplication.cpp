@@ -7,7 +7,7 @@ namespace nkentseu {
 
     // =========================================================================
     NkApplication::NkApplication(const NkApplicationConfig& config) : mConfig(config) {
-        NK_ASSERT_MSG(!sInstance, "Application: une instance existe déjà");
+        NKENTSEU_ASSERT_MSG(!sInstance, "Application: une instance existe déjà");
         sInstance = this;
     }
 

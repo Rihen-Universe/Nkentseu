@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/src/NKAudio/NkAudioEffects.cpp
 // DESCRIPTION: Implémentation des effets DSP AAA
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------

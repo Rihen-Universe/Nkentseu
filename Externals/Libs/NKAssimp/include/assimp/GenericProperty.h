@@ -40,8 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #pragma once
-#ifndef AI_GENERIC_PROPERTY_H_INCLUDED
-#define AI_GENERIC_PROPERTY_H_INCLUDED
+#ifndef AI_GENERIC_PROPERTY_H
+#define AI_GENERIC_PROPERTY_H
 
 #ifdef __GNUC__
 #    pragma GCC system_header
@@ -130,4 +130,4 @@ inline bool HasGenericProperty(const std::map<unsigned int, T> &list,
     return true;
 }
 
-#endif // !! AI_GENERIC_PROPERTY_H_INCLUDED
+#endif // !! AI_GENERIC_PROPERTY_H

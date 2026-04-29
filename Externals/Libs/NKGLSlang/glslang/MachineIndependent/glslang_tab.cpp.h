@@ -35,8 +35,8 @@
    especially those whose name start with YY_ or yy_.  They are
    private implementation details that can be changed or removed.  */
 
-#ifndef YY_YY_MACHINEINDEPENDENT_GLSLANG_TAB_CPP_H_INCLUDED
-# define YY_YY_MACHINEINDEPENDENT_GLSLANG_TAB_CPP_H_INCLUDED
+#ifndef YY_YY_MACHINEINDEPENDENT_GLSLANG_TAB_CPP_H
+# define YY_YY_MACHINEINDEPENDENT_GLSLANG_TAB_CPP_H
 /* Debug traces.  */
 #ifndef YYDEBUG
 # define YYDEBUG 1
@@ -574,4 +574,4 @@ typedef union YYSTYPE YYSTYPE;
 
 int yyparse (glslang::TParseContext* pParseContext);
 
-#endif /* !YY_YY_MACHINEINDEPENDENT_GLSLANG_TAB_CPP_H_INCLUDED  */
+#endif /* !YY_YY_MACHINEINDEPENDENT_GLSLANG_TAB_CPP_H  */

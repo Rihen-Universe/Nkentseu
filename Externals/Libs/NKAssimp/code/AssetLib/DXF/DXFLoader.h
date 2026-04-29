@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the .dxf importer class.
  */
 #pragma once
-#ifndef AI_DXFLOADER_H_INCLUDED
-#define AI_DXFLOADER_H_INCLUDED
+#ifndef AI_DXFLOADER_H
+#define AI_DXFLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <map>

@@ -40,8 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #pragma once
-#ifndef AV_ANIMEVALUATOR_H_INCLUDED
-#define AV_ANIMEVALUATOR_H_INCLUDED
+#ifndef AV_ANIMEVALUATOR_H
+#define AV_ANIMEVALUATOR_H
 
 /** Calculates a pose for a given time of an animation */
 
@@ -89,4 +89,4 @@ private:
 
 } // end of namespace AssimpView
 
-#endif // AV_ANIMEVALUATOR_H_INCLUDED
+#endif // AV_ANIMEVALUATOR_H

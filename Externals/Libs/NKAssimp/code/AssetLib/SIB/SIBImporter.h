@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the SIB importer class.
  */
 #pragma once
-#ifndef AI_SIBIMPORTER_H_INCLUDED
-#define AI_SIBIMPORTER_H_INCLUDED
+#ifndef AI_SIBIMPORTER_H
+#define AI_SIBIMPORTER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/types.h>
@@ -105,4 +105,4 @@ private:
 
 } // end of namespace Assimp
 
-#endif // AI_SIBIMPORTER_H_INCLUDED
+#endif // AI_SIBIMPORTER_H

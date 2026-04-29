@@ -205,20 +205,15 @@ namespace nkentseu {
 
             // ── Dessin de meshes ──────────────────────────────────────────────────────
             // Mesh simple
-            void DrawMesh(NkMeshId mesh, const NkTransform3D& transform, NkMatId material,
-                        bool castShadow = true, math::NkVec4 color = {1,1,1,1});
-            void DrawMesh(NkMeshId mesh, const math::NkMat4& transform, NkMatId material,
-                        bool castShadow = true);
+            void DrawMesh(NkMeshId mesh, const NkTransform3D& transform, NkMatId material, bool castShadow = true, math::NkVec4 color = {1,1,1,1});
+            void DrawMesh(NkMeshId mesh, const math::NkMat4& transform, NkMatId material, bool castShadow = true);
 
             // Instanced (GPU instancing automatique)
-            void DrawMeshInstanced(NkMeshId mesh, const NkTransform3D* transforms,
-                                    uint32 count, NkMatId material);
-            void DrawMeshInstanced(NkMeshId mesh, const math::NkMat4* matrices,
-                                    uint32 count, NkMatId material);
+            void DrawMeshInstanced(NkMeshId mesh, const NkTransform3D* transforms, uint32 count, NkMatId material);
+            void DrawMeshInstanced(NkMeshId mesh, const math::NkMat4* matrices, uint32 count, NkMatId material);
 
             // Skinned
-            void DrawSkinnedMesh(NkMeshId mesh, const NkTransform3D& transform,
-                                NkMatId material, const NkSkinData& skin);
+            void DrawSkinnedMesh(NkMeshId mesh, const NkTransform3D& transform, NkMatId material, const NkSkinData& skin);
 
             // Primitives rapides (utilisent le NkMeshCache interne)
             void DrawCube    (math::NkVec3 pos, math::NkVec3 scale, NkMatId mat);
@@ -239,8 +234,7 @@ namespace nkentseu {
             void DrawGrid(uint32 size, float32 cellSize, NkColor32 color = {80,80,80,255});
             void DrawAxes(math::NkVec3 origin, float32 length = 1.f);
             void DrawFrustum(const NkCamera3D& cam, NkColor32 color = {255,128,0,255});
-            void DrawBone(math::NkVec3 head, math::NkVec3 tail,
-                        NkColor32 color = {255,255,255,255});
+            void DrawBone(math::NkVec3 head, math::NkVec3 tail, NkColor32 color = {255,255,255,255});
 
             // ── Soumission ────────────────────────────────────────────────────────────
             // ShadowPass : rend le depth-only pour le CSM

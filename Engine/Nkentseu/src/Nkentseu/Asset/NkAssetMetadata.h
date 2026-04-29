@@ -17,8 +17,8 @@
 // =============================================================================
 #pragma once
 
-#ifndef NKENTSEU_SERIALIZATION_ASSET_NKASSETMETADATA_H_INCLUDED
-#define NKENTSEU_SERIALIZATION_ASSET_NKASSETMETADATA_H_INCLUDED
+#ifndef NKENTSEU_SERIALIZATION_ASSET_NKASSETMETADATA_H
+#define NKENTSEU_SERIALIZATION_ASSET_NKASSETMETADATA_H
 
 #include "NKSerialization/NkArchive.h"
 #include "NKSerialization/Native/NkNativeFormat.h"
@@ -735,4 +735,4 @@ private:
 
 } // namespace nkentseu
 
-#endif // NKENTSEU_SERIALIZATION_ASSET_NKASSETMETADATA_H_INCLUDED
+#endif // NKENTSEU_SERIALIZATION_ASSET_NKASSETMETADATA_H

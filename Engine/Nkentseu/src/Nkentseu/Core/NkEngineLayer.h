@@ -82,7 +82,7 @@ namespace nkentseu {
         [[nodiscard]] ecs::NkScheduler&    GetScheduler()     noexcept { return mScheduler; }
 
         static NkEngineLayer& Get() {
-            NK_ASSERT_MSG(sInstance, "NkEngineLayer non initialisé");
+            NKENTSEU_ASSERT_MSG(sInstance, "NkEngineLayer non initialisé");
             return *sInstance;
         }
 

@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file STLLoader.h
  *  Declaration of the STL importer class.
  */
-#ifndef AI_STLLOADER_H_INCLUDED
-#define AI_STLLOADER_H_INCLUDED
+#ifndef AI_STLLOADER_H
+#define AI_STLLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/types.h>

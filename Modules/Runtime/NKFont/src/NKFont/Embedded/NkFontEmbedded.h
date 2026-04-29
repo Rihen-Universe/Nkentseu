@@ -25,8 +25,8 @@
 
 #pragma once
 
-#ifndef NK_NKFONT_EMBEDDED_NKFONTEMBEDDED_H_INCLUDED
-#define NK_NKFONT_EMBEDDED_NKFONTEMBEDDED_H_INCLUDED
+#ifndef NK_NKFONT_EMBEDDED_NKFONTEMBEDDED_H
+#define NK_NKFONT_EMBEDDED_NKFONTEMBEDDED_H
 
 // ============================================================
 // INCLUDES
@@ -206,7 +206,7 @@ namespace nkentseu {
 
 } // namespace nkentseu
 
-#endif // NK_NKFONT_EMBEDDED_NKFONTEMBEDDED_H_INCLUDED
+#endif // NK_NKFONT_EMBEDDED_NKFONTEMBEDDED_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

@@ -1,19 +1,25 @@
 #pragma once
 // =============================================================================
-// NkSLTypes.h
-// Types fondamentaux du langage de shader NkSL.
+// NkSLTypes.h  — v4.0
 //
 // NkSL est un langage de shader cross-platform qui se compile vers :
-//   GLSL 4.30+  (OpenGL)
-//   SPIR-V 1.0+ (Vulkan)  via glslang embarqué (standalone, sans Vulkan SDK)
-//   HLSL SM5+   (DX11/DX12)
-//   MSL 2.0+    (Metal)   via SPIRV-Cross embarqué (chemin alternatif)
-//   C++ lambdas (Software rasterizer)
+//   GLSL 4.30+         (OpenGL)
+//   GLSL Vulkan 4.50+  (Vulkan — layout(set=N) obligatoire, extensions VK)
+//   SPIR-V 1.0+        (Vulkan)  via glslang embarqué (standalone)
+//   HLSL SM5           (DX11 — register classiques, fxc compatible)
+//   HLSL SM6           (DX12 — space N, wave ops, bindless SM6.6, dxc)
+//   MSL 2.0+           (Metal)   via SPIRV-Cross embarqué (chemin alternatif)
+//   C++ lambdas        (Software rasterizer)
+//
+// Nouveautés v4.0 :
+//   - NK_GLSL_VULKAN  : GLSL 4.50 + extensions VK (layout set+binding, subpassInput…)
+//   - NK_HLSL_DX11    : HLSL SM5  — inchangé, renommé pour clarté
+//   - NK_HLSL_DX12    : HLSL SM6+ — space N, RootSignature, wave ops, bindless heap
+//   - NK_HLSL alias   : pointe sur NK_HLSL_DX11 (rétrocompatibilité sans casser l'existant)
 //
 // Dépendances embarquées (sous-modules git, AUCUNE dépendance système) :
-//   - glslang  : https://github.com/KhronosGroup/glslang
-//   - SPIRV-Cross : https://github.com/KhronosGroup/SPIRV-Cross
-//
+//   - glslang    : https://github.com/KhronosGroup/glslang
+//   - SPIRV-Cross: https://github.com/KhronosGroup/SPIRV-Cross
 // =============================================================================
 #include "NKCore/NkTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -24,27 +30,65 @@ namespace nkentseu {
 
     // =============================================================================
     // Cible de compilation
+    //
+    // GLSL vs GLSL_VULKAN :
+    //   NK_GLSL        → OpenGL 4.30+. Bindings aplatis (pas de set=).
+    //                    Émet #version 430 core.
+    //   NK_GLSL_VULKAN → Vulkan GLSL 4.50+. layout(set=N, binding=M) obligatoire.
+    //                    Émet #version 450 + #extension GL_KHR_vulkan_glsl : require.
+    //                    Destiné à être compilé en SPIR-V via glslang.
+    //                    Supporte gl_BaseVertex/Instance, subpassInput, etc.
+    //
+    // HLSL_DX11 vs HLSL_DX12 :
+    //   NK_HLSL_DX11   → Shader Model 5.0. register(bN/tN/sN/uN). cbuffer/tbuffer.
+    //                    Compatible fxc.exe et d3dcompiler_47.dll.
+    //   NK_HLSL_DX12   → Shader Model 6.0+. register(bN, spaceM). Nouveau pragma
+    //                    RootSignature inline. Wave Intrinsics (SM6.0+).
+    //                    Mesh/Task shaders (SM6.5). Raytracing (SM6.3).
+    //                    ResourceDescriptorHeap/SamplerDescriptorHeap (SM6.6).
+    //                    Compilé avec dxc.exe (DirectXShaderCompiler).
     // =============================================================================
     enum class NkSLTarget : uint32 {
-        NK_GLSL,        // OpenGL 4.30+
-        NK_SPIRV,       // Vulkan 1.0+ (bytecode binaire)
-        NK_HLSL,        // DirectX 11 / 12 (SM 5.0+)
-        NK_MSL,         // Metal 2.0+
-        NK_MSL_SPIRV_CROSS, // Metal via SPIRV-Cross (chemin alternatif plus robuste)
-        NK_CPLUSPLUS,   // Software rasterizer (C++ lambda)
-        NK_COUNT
+        NK_GLSL,              // OpenGL 4.30+      (bindings aplatis)
+        NK_GLSL_VULKAN,       // Vulkan GLSL 4.50+ (layout set+binding)    ← NOUVEAU
+        NK_SPIRV,             // Vulkan SPIR-V binaire
+        NK_HLSL_DX11,         // DirectX 11  SM5   (fxc, register classiques)
+        NK_HLSL_DX12,         // DirectX 12  SM6+  (dxc, space N, wave ops)  ← NOUVEAU
+        NK_MSL,               // Metal 2.0+        (génération native AST)
+        NK_MSL_SPIRV_CROSS,   // Metal via SPIRV-Cross
+        NK_CPLUSPLUS,         // Software rasterizer (C++)
+        NK_COUNT,
+
+        // Alias de rétrocompatibilité (ne pas utiliser dans le nouveau code)
+        NK_HLSL = NK_HLSL_DX11,
     };
 
     inline const char* NkSLTargetName(NkSLTarget t) {
         switch (t) {
-            case NkSLTarget::NK_GLSL:           return "GLSL";
+            case NkSLTarget::NK_GLSL:           return "GLSL-OpenGL";
+            case NkSLTarget::NK_GLSL_VULKAN:    return "GLSL-Vulkan";
             case NkSLTarget::NK_SPIRV:          return "SPIR-V";
-            case NkSLTarget::NK_HLSL:           return "HLSL";
+            case NkSLTarget::NK_HLSL_DX11:      return "HLSL-DX11(SM5)";
+            case NkSLTarget::NK_HLSL_DX12:      return "HLSL-DX12(SM6)";
             case NkSLTarget::NK_MSL:            return "MSL";
             case NkSLTarget::NK_MSL_SPIRV_CROSS:return "MSL(SPIRV-Cross)";
             case NkSLTarget::NK_CPLUSPLUS:      return "C++";
-            default:                         return "Unknown";
+            default:                            return "Unknown";
         }
+    }
+
+    // Helpers de classification
+    inline bool NkSLTargetIsGLSL(NkSLTarget t) {
+        return t == NkSLTarget::NK_GLSL || t == NkSLTarget::NK_GLSL_VULKAN;
+    }
+    inline bool NkSLTargetIsHLSL(NkSLTarget t) {
+        return t == NkSLTarget::NK_HLSL_DX11 || t == NkSLTarget::NK_HLSL_DX12;
+    }
+    inline bool NkSLTargetIsMSL(NkSLTarget t) {
+        return t == NkSLTarget::NK_MSL || t == NkSLTarget::NK_MSL_SPIRV_CROSS;
+    }
+    inline bool NkSLTargetIsVulkan(NkSLTarget t) {
+        return t == NkSLTarget::NK_GLSL_VULKAN || t == NkSLTarget::NK_SPIRV;
     }
 
     // =============================================================================
@@ -67,12 +111,12 @@ namespace nkentseu {
             case NkSLStage::NK_TESS_CONTROL: return "tess_control";
             case NkSLStage::NK_TESS_EVAL:    return "tess_eval";
             case NkSLStage::NK_COMPUTE:      return "compute";
-            default:                      return "unknown";
+            default:                         return "unknown";
         }
     }
 
     // =============================================================================
-    // Types NkSL
+    // Types NkSL (identiques à GLSL standard)
     // =============================================================================
     enum class NkSLBaseType : uint32 {
         NK_VOID,
@@ -92,6 +136,9 @@ namespace nkentseu {
         NK_ISAMPLER2D, NK_USAMPLER2D,
         // Storage images
         NK_IMAGE2D, NK_IIMAGE2D, NK_UIMAGE2D,
+        // Vulkan specifics
+        NK_SUBPASS_INPUT,    // subpassInput (Vulkan input attachment)
+        NK_SUBPASS_INPUT_MS, // subpassInputMS (multisampled)
         // Struct / Array
         NK_STRUCT, NK_ARRAY,
         NK_UNKNOWN
@@ -100,11 +147,9 @@ namespace nkentseu {
     inline bool NkSLTypeIsSampler(NkSLBaseType t) {
         return t >= NkSLBaseType::NK_SAMPLER2D && t <= NkSLBaseType::NK_USAMPLER2D;
     }
-
     inline bool NkSLTypeIsImage(NkSLBaseType t) {
         return t >= NkSLBaseType::NK_IMAGE2D && t <= NkSLBaseType::NK_UIMAGE2D;
     }
-
     inline bool NkSLTypeIsMatrix(NkSLBaseType t) {
         return t == NkSLBaseType::NK_MAT2   || t == NkSLBaseType::NK_MAT3   ||
             t == NkSLBaseType::NK_MAT4   || t == NkSLBaseType::NK_MAT2X3 ||
@@ -123,6 +168,7 @@ namespace nkentseu {
         NK_PUSH_CONSTANT,
         NK_SHARED,
         NK_WORKGROUP,
+        NK_INPUT_ATTACHMENT, // Vulkan subpassInput
     };
 
     enum class NkSLInterpolation : uint32 {
@@ -140,14 +186,16 @@ namespace nkentseu {
     // Métadonnées de binding
     // =============================================================================
     struct NkSLBinding {
-        int32  set      = 0;
-        int32  binding  = -1;
-        int32  location = -1;
-        int32  offset   = -1;
+        int32  set              = 0;
+        int32  binding          = -1;
+        int32  location         = -1;
+        int32  offset           = -1;
+        int32  inputAttachment  = -1; // subpass input index (Vulkan)
 
-        bool HasBinding()  const { return binding  >= 0; }
-        bool HasLocation() const { return location >= 0; }
-        bool HasSet()      const { return set      >= 0; }
+        bool HasBinding()         const { return binding         >= 0; }
+        bool HasLocation()        const { return location        >= 0; }
+        bool HasSet()             const { return set             >= 0; }
+        bool HasInputAttachment() const { return inputAttachment >= 0; }
     };
 
     // =============================================================================
@@ -170,13 +218,8 @@ namespace nkentseu {
         NkSLTarget                 target = NkSLTarget::NK_GLSL;
         NkSLStage                  stage  = NkSLStage::NK_VERTEX;
 
-        bool IsText() const {
-            return target != NkSLTarget::NK_SPIRV;
-        }
-
-        const char* GetSource() const {
-            return source.CStr();
-        }
+        bool IsText() const { return target != NkSLTarget::NK_SPIRV; }
+        const char* GetSource() const { return source.CStr(); }
 
         void AddError(uint32 line, const NkString& msg, bool fatal=true) {
             errors.PushBack({line, 0, "", msg, fatal});
@@ -191,54 +234,75 @@ namespace nkentseu {
     // Options de compilation
     // =============================================================================
     struct NkSLCompileOptions {
-        uint32 vulkanVersion   = 100;
-        uint32 glslVersion     = 460;
-        bool   glslEs          = false;
-        uint32 hlslShaderModel = 50;
-        uint32 mslVersion      = 200;
-        bool   debugInfo       = false;
-        bool   optimize        = true;
-        bool   strictMode      = true;
-        bool   flipUVY         = false;
-        bool   invertDepth     = false;
-        bool   flattenGLSLBindings = true;
-        // Préférer SPIRV-Cross pour la génération MSL (plus robuste)
+        // Versions
+        uint32 glslVersion          = 430;  // OpenGL : #version 430 core
+        uint32 glslVulkanVersion    = 450;  // Vulkan : #version 450
+        uint32 vulkanVersion        = 100;  // spv 1.0
+        bool   glslEs               = false;
+
+        // HLSL shader models (valeur ×10 : 50=SM5.0, 60=SM6.0, 66=SM6.6)
+        uint32 hlslShaderModelDX11  = 50;
+        uint32 hlslShaderModelDX12  = 60;
+
+        // MSL version (valeur ×100 : 200=MSL 2.0, 300=MSL 3.0)
+        uint32 mslVersion           = 200;
+
+        // Comportement
+        bool   debugInfo            = false;
+        bool   optimize             = true;
+        bool   strictMode           = true;
+        bool   flipUVY              = false;
+        bool   invertDepth          = false;
+        // NK_GLSL : ne pas émettre layout(set=) — aplatir vers layout(binding=)
+        bool   flattenGLSLBindings  = true;
         bool   preferSpirvCrossForMSL = true;
+
+        // DX12 spécifique
+        bool   dx12InlineRootSignature = false; // émet [RootSignature(...)]
+        uint32 dx12DefaultSpace        = 0;      // numéro de space par défaut
+        bool   dx12BindlessHeap        = false;  // SM6.6 ResourceDescriptorHeap
+
+        // Vulkan GLSL spécifique
+        bool   vkDrawParams         = false; // émet gl_BaseVertex/Instance
+        bool   vkDebugPrintf        = false; // GL_EXT_debug_printf
+
         NkString entryPoint = "main";
+
+        // Compat : hlslShaderModel → DX11 par défaut
+        uint32 hlslShaderModel = 50;
     };
 
     // =============================================================================
     // Reflection — descripteurs extraits automatiquement de l'AST
     // =============================================================================
-
     enum class NkSLResourceKind : uint32 {
-        NK_UNIFORM_BUFFER,    // cbuffer / UBO
-        NK_STORAGE_BUFFER,    // SSBO / RWStructuredBuffer
-        NK_PUSH_CONSTANT,     // Vulkan push constants
-        NK_SAMPLED_TEXTURE,   // sampler2D etc.
-        NK_STORAGE_IMAGE,     // image2D etc.
-        NK_SAMPLER,           // SamplerState séparé (HLSL/MSL)
-        NK_INPUT_ATTACHMENT,  // Vulkan subpass input
+        NK_UNIFORM_BUFFER,
+        NK_STORAGE_BUFFER,
+        NK_PUSH_CONSTANT,
+        NK_SAMPLED_TEXTURE,
+        NK_STORAGE_IMAGE,
+        NK_SAMPLER,
+        NK_INPUT_ATTACHMENT,
     };
 
     struct NkSLResourceBinding {
         NkString         name;
-        NkSLResourceKind kind     = NkSLResourceKind::NK_UNIFORM_BUFFER;
-        uint32           set      = 0;
-        uint32           binding  = 0;
-        uint32           location = 0;    // pour in/out
-        NkSLStage        stages   = NkSLStage::NK_VERTEX; // bitfield si nécessaire
-        NkSLBaseType     baseType = NkSLBaseType::NK_UNKNOWN;
-        NkString         typeName;        // nom du struct pour les UBO
-        uint32           arraySize = 0;   // 0 = pas de tableau
-        uint32           sizeBytes = 0;   // taille en octets (pour les UBO)
+        NkSLResourceKind kind      = NkSLResourceKind::NK_UNIFORM_BUFFER;
+        uint32           set       = 0;
+        uint32           binding   = 0;
+        uint32           location  = 0;
+        NkSLStage        stages    = NkSLStage::NK_VERTEX;
+        NkSLBaseType     baseType  = NkSLBaseType::NK_UNKNOWN;
+        NkString         typeName;
+        uint32           arraySize = 0;
+        uint32           sizeBytes = 0;
     };
 
     struct NkSLVertexInput {
         NkString     name;
-        uint32       location = 0;
-        NkSLBaseType baseType = NkSLBaseType::NK_FLOAT;
-        uint32       components = 1; // 1=scalar, 2=vec2, etc.
+        uint32       location   = 0;
+        NkSLBaseType baseType   = NkSLBaseType::NK_FLOAT;
+        uint32       components = 1;
     };
 
     struct NkSLStageOutput {
@@ -247,31 +311,23 @@ namespace nkentseu {
         NkSLBaseType baseType = NkSLBaseType::NK_FLOAT;
     };
 
-    // Résultat complet de la reflection d'un shader
     struct NkSLReflection {
         NkVector<NkSLResourceBinding> resources;
         NkVector<NkSLVertexInput>     vertexInputs;
         NkVector<NkSLStageOutput>     stageOutputs;
-
-        // Compute shader
         uint32 localSizeX = 1;
         uint32 localSizeY = 1;
         uint32 localSizeZ = 1;
 
-        // Utilitaires de recherche
         const NkSLResourceBinding* FindResource(const NkString& name) const {
-            for (auto& r : resources)
-                if (r.name == name) return &r;
+            for (auto& r : resources) if (r.name == name) return &r;
             return nullptr;
         }
-
         const NkSLResourceBinding* FindBinding(uint32 set, uint32 binding) const {
             for (auto& r : resources)
                 if (r.set == set && r.binding == (uint32)binding) return &r;
             return nullptr;
         }
-
-        // Taille totale d'un UBO (somme des membres)
         uint32 GetUBOSize(const NkString& name) const {
             const NkSLResourceBinding* r = FindResource(name);
             return r ? r->sizeBytes : 0;

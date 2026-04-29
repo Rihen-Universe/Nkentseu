@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /** @file Declaration of the LWO importer class. */
 #pragma once
-#ifndef AI_LWOLOADER_H_INCLUDED
-#define AI_LWOLOADER_H_INCLUDED
+#ifndef AI_LWOLOADER_H
+#define AI_LWOLOADER_H
 
 #include "LWOFileData.h"
 #include <assimp/BaseImporter.h>
@@ -497,4 +497,4 @@ inline void LWOImporter::GetS0(std::string &out, unsigned int max) {
 
 } // end of namespace Assimp
 
-#endif // AI_LWOIMPORTER_H_INCLUDED
+#endif // AI_LWOIMPORTER_H

@@ -71,7 +71,6 @@ with project("NKRenderer"):
         "%{NKEvent.location}/src",
         "%{NKWindow.location}/src",
         "%{NKThreading.location}/src",
-        "%{NKContext.location}/src",
         "%{NKRHI.location}/src",
         "%{NKFont.location}/src",
         "%{NKImage.location}/src",
@@ -85,7 +84,7 @@ with project("NKRenderer"):
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    _DEPS = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKContext", "NKRHI", "NKFont", "NKImage"]
+    _DEPS = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKFont", "NKImage"]
     if _USE_NKGLAD:
         _DEPS.append("NKGlad")
     dependson(_DEPS)

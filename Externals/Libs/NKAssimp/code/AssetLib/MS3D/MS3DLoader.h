@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the MS3D importer class.
  */
 #pragma once
-#ifndef AI_MS3DLOADER_H_INCLUDED
-#define AI_MS3DLOADER_H_INCLUDED
+#ifndef AI_MS3DLOADER_H
+#define AI_MS3DLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/StreamReader.h>

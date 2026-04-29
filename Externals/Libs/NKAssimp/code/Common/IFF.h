@@ -2,8 +2,8 @@
 // Alexander Gessler, 2006
 // Adapted to Assimp August 2008
 
-#ifndef AI_IFF_H_INCLUDED
-#define AI_IFF_H_INCLUDED
+#ifndef AI_IFF_H
+#define AI_IFF_H
 
 #include <assimp/ByteSwapper.h>
 
@@ -128,4 +128,4 @@ inline const char* ReadHeader(uint8_t* outFile, uint32_t& fileType)
 
 }}
 
-#endif // !! AI_IFF_H_INCLUDED
+#endif // !! AI_IFF_H

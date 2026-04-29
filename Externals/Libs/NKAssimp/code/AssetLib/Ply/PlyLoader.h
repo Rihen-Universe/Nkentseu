@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the .ply importer class.
  */
 #pragma once
-#ifndef AI_PLYLOADER_H_INCLUDED
-#define AI_PLYLOADER_H_INCLUDED
+#ifndef AI_PLYLOADER_H
+#define AI_PLYLOADER_H
 
 #include "PlyParser.h"
 #include <assimp/BaseImporter.h>

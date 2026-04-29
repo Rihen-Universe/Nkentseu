@@ -41,8 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 /** @file Defines a post processing step to remove specific parts of the scene */
-#ifndef AI_REMOVEVCPROCESS_H_INCLUDED
-#define AI_REMOVEVCPROCESS_H_INCLUDED
+#ifndef AI_REMOVEVCPROCESS_H
+#define AI_REMOVEVCPROCESS_H
 
 #include "Common/BaseProcess.h"
 
@@ -121,4 +121,4 @@ private:
 
 } // end of namespace Assimp
 
-#endif // !!AI_REMOVEVCPROCESS_H_INCLUDED
+#endif // !!AI_REMOVEVCPROCESS_H

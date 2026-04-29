@@ -45,8 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Definition of the .MD5 parser class.
  *  http://www.modwiki.net/wiki/MD5_(file_format)
  */
-#ifndef AI_MD5PARSER_H_INCLUDED
-#define AI_MD5PARSER_H_INCLUDED
+#ifndef AI_MD5PARSER_H
+#define AI_MD5PARSER_H
 
 #include <assimp/types.h>
 #include <assimp/ParsingUtils.h>
@@ -464,4 +464,4 @@ private:
 };
 }}
 
-#endif // AI_MD5PARSER_H_INCLUDED
+#endif // AI_MD5PARSER_H

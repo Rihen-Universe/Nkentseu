@@ -41,8 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 /** @file Definition of a helper step that processes texture transformations */
-#ifndef AI_TEXTURE_TRANSFORM_H_INCLUDED
-#define AI_TEXTURE_TRANSFORM_H_INCLUDED
+#ifndef AI_TEXTURE_TRANSFORM_H
+#define AI_TEXTURE_TRANSFORM_H
 
 #include <assimp/BaseImporter.h>
 #include "Common/BaseProcess.h"
@@ -229,4 +229,4 @@ private:
 
 }
 
-#endif //! AI_TEXTURE_TRANSFORM_H_INCLUDED
+#endif //! AI_TEXTURE_TRANSFORM_H

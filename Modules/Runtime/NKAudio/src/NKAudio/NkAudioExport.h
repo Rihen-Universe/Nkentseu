@@ -1,21 +1,21 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/src/NKAudio/NkAudioExport.h
 // DESCRIPTION: Macros d'export DLL/DSO pour le module NKAudio
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEXPORT_H_INCLUDED
-#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEXPORT_H_INCLUDED
+#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEXPORT_H
+#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEXPORT_H
 
 // ============================================================
 // INCLUDES
 // ============================================================
 
-#include "NKCore/NkExport.h"
+NKContainers/NkContainersApi.h
 
 // ============================================================
 // CONFIGURATION DU MODULE AUDIO
@@ -48,7 +48,7 @@
 // Alias courts
 #define NK_AUDIO_API NKENTSEU_AUDIO_API
 
-#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEXPORT_H_INCLUDED
+#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEXPORT_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

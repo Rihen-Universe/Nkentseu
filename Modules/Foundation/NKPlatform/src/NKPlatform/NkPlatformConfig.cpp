@@ -1,167 +1,230 @@
-﻿// -----------------------------------------------------------------------------
-// FICHIER: Core\Nkentseu\src\Nkentseu\Platform\NkPlatformConfig.cpp
-// DESCRIPTION: Platform configuration implementation
-// AUTEUR: Rihen
-// DATE: 2026-02-12
-// MODIFICATIONS: Utilisation directe des macros NKENTSEU_
-// -----------------------------------------------------------------------------
+﻿// =============================================================================
+// NKPlatform/NkPlatformConfig.cpp
+// Implémentation de la configuration de plateforme et détection hardware.
+//
+// Design :
+//  - Initialisation des structures PlatformConfig et PlatformCapabilities
+//  - Détection runtime de la mémoire, CPU, et affichage via APIs système
+//  - Fallbacks portables pour les plateformes non supportées
+//  - Singleton thread-safe via initialisation statique locale (C++11+)
+//
+// Auteur : Rihen
+// Date : 2024-2026
+// License : Proprietary - Free to use and modify
+// =============================================================================
 
-#include "NkPlatformConfig.h"
-#include <stdlib.h>
+#include "NKPlatform/NkPlatformConfig.h"
 
-#ifdef NKENTSEU_PLATFORM_WINDOWS
-#include <windows.h>
+// -------------------------------------------------------------------------
+// En-têtes système pour la détection hardware
+// -------------------------------------------------------------------------
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+    #include <windows.h>
 #elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_ANDROID)
-#include <unistd.h>
-#include <sys/sysinfo.h>
+    #include <unistd.h>
+    #include <sys/sysinfo.h>
 #elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/sysctl.h>
+    #include <unistd.h>
+    #include <sys/types.h>
+    #include <sys/sysctl.h>
 #else
-#include <unistd.h>
+    // Fallback générique POSIX
+    #include <unistd.h>
 #endif
 
-/**
- * @brief Namespace nkentseu.
- */
+// -------------------------------------------------------------------------
+// En-têtes standards pour les opérations de base
+// -------------------------------------------------------------------------
+#include <cstdlib>
+
+// -------------------------------------------------------------------------
+// Espace de noms principal
+// -------------------------------------------------------------------------
 namespace nkentseu {
-	/**
-	 * @brief Namespace platform.
-	 */
-	namespace platform {
 
-		// ====================================================================
-		// PlatformConfig Implementation
-		// ====================================================================
+    namespace platform {
 
-		PlatformConfig::PlatformConfig()
-			: platformName(GetPlatformName()), archName(GetArchName()), compilerName(GetCompilerName()),
-			compilerVersion(NKENTSEU_COMPILER_VERSION), isDebugBuild(NKENTSEU_DEBUG_BUILD),
-			isReleaseBuild(NKENTSEU_RELEASE_BUILD), is64Bit(Is64Bit()), isLittleEndian(IsLittleEndian()),
-			hasUnicode(NKENTSEU_HAS_UNICODE), hasThreading(NKENTSEU_HAS_THREADING), hasFilesystem(NKENTSEU_HAS_FILESYSTEM),
-			hasNetwork(NKENTSEU_HAS_NETWORK), maxPathLength(NKENTSEU_MAX_PATH), cacheLineSize(NKENTSEU_CACHE_LINE_SIZE) {
-		}
+        // ====================================================================
+        // SECTION 1 : IMPLÉMENTATION DE PLATFORMCONFIG
+        // ====================================================================
+        // Initialisation des valeurs de configuration déterminées à la compilation.
 
-		const PlatformConfig &GetPlatformConfig() {
-			static PlatformConfig config;
-			return config;
-		}
+        PlatformConfig::PlatformConfig()
+            : platformName(GetPlatformName()),
+              archName(GetArchName()),
+              compilerName(GetCompilerName()),
+              compilerVersion(NKENTSEU_COMPILER_VERSION),
+              isDebugBuild(NKENTSEU_DEBUG_BUILD),
+              isReleaseBuild(NKENTSEU_RELEASE_BUILD),
+              is64Bit(Is64Bit()),
+              isLittleEndian(IsLittleEndian()),
+              hasUnicode(NKENTSEU_HAS_UNICODE),
+              hasThreading(NKENTSEU_HAS_THREADING),
+              hasFilesystem(NKENTSEU_HAS_FILESYSTEM),
+              hasNetwork(NKENTSEU_HAS_NETWORK),
+              maxPathLength(NKENTSEU_MAX_PATH),
+              cacheLineSize(NKENTSEU_CACHE_LINE_SIZE) {
+            // Toutes les valeurs sont initialisées via des macros compile-time
+            // ou des fonctions inline déterministes. Aucune détection runtime ici.
+        }
 
-		// ====================================================================
-		// PlatformCapabilities Implementation
-		// ====================================================================
+        const PlatformConfig& GetPlatformConfig() {
+            // Initialisation statique locale : thread-safe en C++11+
+            // La configuration est déterminée une seule fois au premier appel
+            static PlatformConfig config;
+            return config;
+        }
 
-		PlatformCapabilities::PlatformCapabilities()
-			: totalPhysicalMemory(0), availablePhysicalMemory(0), pageSize(0), processorCount(0), logicalProcessorCount(0),
-			hasDisplay(false), primaryScreenWidth(0), primaryScreenHeight(0), hasSSE(false), hasSSE2(false), hasAVX(false),
-			hasAVX2(false), hasNEON(false) {
+        // ====================================================================
+        // SECTION 2 : IMPLÉMENTATION DE PLATFORMCAPABILITIES
+        // ====================================================================
+        // Détection runtime des capacités matérielles via APIs système.
 
-		// Detect memory
-		#ifdef NKENTSEU_PLATFORM_WINDOWS
-			MEMORYSTATUSEX memStatus;
-			memStatus.dwLength = sizeof(memStatus);
-			if (GlobalMemoryStatusEx(&memStatus)) {
-				totalPhysicalMemory = memStatus.ullTotalPhys;
-				availablePhysicalMemory = memStatus.ullAvailPhys;
-			}
+        PlatformCapabilities::PlatformCapabilities()
+            : totalPhysicalMemory(0),
+              availablePhysicalMemory(0),
+              pageSize(0),
+              processorCount(0),
+              logicalProcessorCount(0),
+              hasDisplay(false),
+              primaryScreenWidth(0),
+              primaryScreenHeight(0),
+              hasSSE(false),
+              hasSSE2(false),
+              hasAVX(false),
+              hasAVX2(false),
+              hasNEON(false) {
 
-			SYSTEM_INFO sysInfo;
-			GetSystemInfo(&sysInfo);
-			pageSize = sysInfo.dwPageSize;
-			processorCount = sysInfo.dwNumberOfProcessors;
-			logicalProcessorCount = sysInfo.dwNumberOfProcessors;
+            // -----------------------------------------------------------------
+            // Détection de la mémoire physique
+            // -----------------------------------------------------------------
 
-			// Display info
-			primaryScreenWidth = GetSystemMetrics(SM_CXSCREEN);
-			primaryScreenHeight = GetSystemMetrics(SM_CYSCREEN);
-			hasDisplay = (primaryScreenWidth > 0 && primaryScreenHeight > 0);
+            #if defined(NKENTSEU_PLATFORM_WINDOWS)
+                // Windows : utiliser GlobalMemoryStatusEx pour mémoire et SYSTEM_INFO pour page size
+                MEMORYSTATUSEX memStatus;
+                memStatus.dwLength = sizeof(memStatus);
 
-		#elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_ANDROID)
-			// Linux/Android
-			long pages = sysconf(_SC_PHYS_PAGES);
-			long pageSize_bytes = sysconf(_SC_PAGE_SIZE);
-			if (pages > 0 && pageSize_bytes > 0) {
-				totalPhysicalMemory = pages * pageSize_bytes;
-			}
+                if (GlobalMemoryStatusEx(&memStatus)) {
+                    totalPhysicalMemory = static_cast<size_t>(memStatus.ullTotalPhys);
+                    availablePhysicalMemory = static_cast<size_t>(memStatus.ullAvailPhys);
+                }
 
-			long availPages = sysconf(_SC_AVPHYS_PAGES);
-			if (availPages > 0) {
-				availablePhysicalMemory = availPages * pageSize_bytes;
-			}
+                SYSTEM_INFO sysInfo;
+                GetSystemInfo(&sysInfo);
+                pageSize = static_cast<size_t>(sysInfo.dwPageSize);
+                processorCount = static_cast<int>(sysInfo.dwNumberOfProcessors);
+                logicalProcessorCount = static_cast<int>(sysInfo.dwNumberOfProcessors);
 
-			pageSize = pageSize_bytes;
+                // Détection de l'affichage via GetSystemMetrics
+                primaryScreenWidth = GetSystemMetrics(SM_CXSCREEN);
+                primaryScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+                hasDisplay = (primaryScreenWidth > 0 && primaryScreenHeight > 0);
 
-			long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-			if (nprocs > 0) {
-				processorCount = static_cast<int>(nprocs);
-				logicalProcessorCount = processorCount;
-			}
+            #elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_ANDROID)
+                // Linux/Android : utiliser sysconf pour mémoire et processeurs
+                long pages = sysconf(_SC_PHYS_PAGES);
+                long pageSizeBytes = sysconf(_SC_PAGE_SIZE);
 
-			// Display detection (basic)
-			const char *display = ::getenv("DISPLAY");
-			hasDisplay = (display != nullptr && display[0] != '\0');
-		#elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-			// Apple platforms
-			size_t memSize = sizeof(totalPhysicalMemory);
-			if (sysctlbyname("hw.memsize", &totalPhysicalMemory, &memSize, nullptr, 0) != 0) {
-				totalPhysicalMemory = 0;
-			}
-			// Lightweight fallback (exact free RAM query is more involved on Apple).
-			availablePhysicalMemory = totalPhysicalMemory / 2;
+                if (pages > 0 && pageSizeBytes > 0) {
+                    totalPhysicalMemory = static_cast<size_t>(pages) * static_cast<size_t>(pageSizeBytes);
+                }
 
-			long pageSize_bytes = sysconf(_SC_PAGESIZE);
-			if (pageSize_bytes > 0) {
-				pageSize = static_cast<size_t>(pageSize_bytes);
-			}
+                long availPages = sysconf(_SC_AVPHYS_PAGES);
+                if (availPages > 0) {
+                    availablePhysicalMemory = static_cast<size_t>(availPages) * static_cast<size_t>(pageSizeBytes);
+                }
 
-			long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-			if (nprocs > 0) {
-				processorCount = static_cast<int>(nprocs);
-				logicalProcessorCount = processorCount;
-			}
+                pageSize = static_cast<size_t>(pageSizeBytes);
 
-			hasDisplay = true;
-		#else
-			// Generic Unix fallback
-			long pageSize_bytes = sysconf(_SC_PAGESIZE);
-			if (pageSize_bytes > 0) {
-				pageSize = static_cast<size_t>(pageSize_bytes);
-			}
-			long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-			if (nprocs > 0) {
-				processorCount = static_cast<int>(nprocs);
-				logicalProcessorCount = processorCount;
-			}
-		#endif
+                long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+                if (nprocs > 0) {
+                    processorCount = static_cast<int>(nprocs);
+                    logicalProcessorCount = processorCount;
+                }
 
-		// CPU features (compile-time detection)
-		#ifdef __SSE__
-			hasSSE = true;
-		#endif
-		#ifdef __SSE2__
-			hasSSE2 = true;
-		#endif
-		#ifdef __AVX__
-			hasAVX = true;
-		#endif
-		#ifdef __AVX2__
-			hasAVX2 = true;
-		#endif
-		#if defined(__ARM_NEON__) || defined(__ARM_NEON)
-			hasNEON = true;
-		#endif
-		}
+                // Détection basique de l'affichage via variable d'environnement DISPLAY
+                const char* display = ::getenv("DISPLAY");
+                hasDisplay = (display != nullptr && display[0] != '\0');
 
-		const PlatformCapabilities &GetPlatformCapabilities() {
-			static PlatformCapabilities caps;
-			return caps;
-		}
+            #elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
+                // Apple platforms : utiliser sysctlbyname pour mémoire et sysconf pour le reste
+                size_t memSize = sizeof(totalPhysicalMemory);
 
-	} // namespace platform
+                if (sysctlbyname("hw.memsize", &totalPhysicalMemory, &memSize, nullptr, 0) != 0) {
+                    totalPhysicalMemory = 0;
+                }
+
+                // Estimation conservative de la mémoire disponible (50% du total)
+                // Une détection précise nécessiterait vm_statistics64 sur macOS
+                availablePhysicalMemory = totalPhysicalMemory / 2;
+
+                long pageSizeBytes = sysconf(_SC_PAGESIZE);
+                if (pageSizeBytes > 0) {
+                    pageSize = static_cast<size_t>(pageSizeBytes);
+                }
+
+                long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+                if (nprocs > 0) {
+                    processorCount = static_cast<int>(nprocs);
+                    logicalProcessorCount = processorCount;
+                }
+
+                // macOS/iOS ont toujours un affichage (même headless via VNC)
+                hasDisplay = true;
+
+            #else
+                // Fallback générique POSIX
+                long pageSizeBytes = sysconf(_SC_PAGESIZE);
+                if (pageSizeBytes > 0) {
+                    pageSize = static_cast<size_t>(pageSizeBytes);
+                }
+
+                long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+                if (nprocs > 0) {
+                    processorCount = static_cast<int>(nprocs);
+                    logicalProcessorCount = processorCount;
+                }
+            #endif
+
+            // -----------------------------------------------------------------
+            // Détection des fonctionnalités CPU SIMD (compile-time via macros)
+            // -----------------------------------------------------------------
+            // Ces flags sont déterminés à la compilation via les macros du compilateur.
+            // Pour une détection runtime précise (CPUID, etc.), utiliser NkCPUFeatures.h.
+
+            #ifdef __SSE__
+                hasSSE = true;
+            #endif
+
+            #ifdef __SSE2__
+                hasSSE2 = true;
+            #endif
+
+            #ifdef __AVX__
+                hasAVX = true;
+            #endif
+
+            #ifdef __AVX2__
+                hasAVX2 = true;
+            #endif
+
+            #if defined(__ARM_NEON__) || defined(__ARM_NEON)
+                hasNEON = true;
+            #endif
+        }
+
+        const PlatformCapabilities& GetPlatformCapabilities() {
+            // Initialisation statique locale : thread-safe en C++11+
+            // La détection hardware est effectuée une seule fois au premier appel
+            static PlatformCapabilities caps;
+            return caps;
+        }
+
+    } // namespace platform
+
 } // namespace nkentseu
 
 // ============================================================
-// Copyright Â© 2024-2026 Rihen. All rights reserved.
+// Copyright © 2024-2026 Rihen. All rights reserved.
+// Proprietary License - Free to use and modify
 // ============================================================
-

@@ -39,8 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#if (!defined AV_MESH_RENDERER_H_INCLUDED)
-#define AV_MESH_RENDERER_H_INCLUDED
+#if (!defined AV_MESH_RENDERER_H)
+#define AV_MESH_RENDERER_H
 
 namespace AssimpView {
 

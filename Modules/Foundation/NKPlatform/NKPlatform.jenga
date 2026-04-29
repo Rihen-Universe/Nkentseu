@@ -8,11 +8,12 @@ compilées sur l'environnement d'exécution.
 """
 
 from Jenga import *
+from config import *
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKPlatform"):
-    staticlib()
+    useglobalkind("platform")
     language("C++")
     cppdialect("C++20")
     location(".")
@@ -50,11 +51,11 @@ with project("NKPlatform"):
         usetoolchain("xbox-clang")
 
     with filter("config:Debug"):
-        defines(["_DEBUG", "DEBUG"])
+        defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
         optimize("Off")
         symbols(True)
     with filter("config:Release"):
-        defines(["NDEBUG"])
+        defines(["NDEBUG", "NKENTSEU_RELEASE"])
         optimize("Speed")
         symbols(False)
 

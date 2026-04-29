@@ -1,0 +1,12 @@
+// taa.frag.metal.msl — TAA (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct TAAUBO{float blendFactor;float _p[3];};struct PSIn{float4 pos[[position]];float2 uv;};
+fragment float4 taaFrag(PSIn i[[stage_in]],texture2d<float> tCurr[[texture(0)]],texture2d<float> tHist[[texture(1)]],texture2d<float> tVel[[texture(2)]],sampler sL[[sampler(0)]],constant TAAUBO& u[[buffer(3)]]){
+    float2 vel=tVel.sample(sL,i.uv).rg,huv=i.uv-vel;float3 curr=tCurr.sample(sL,i.uv).rgb;
+    float2 ts=1.f/float2(tCurr.get_width(),tCurr.get_height());float3 nMin=curr,nMax=curr;
+    for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++){float3 n=tCurr.sample(sL,i.uv+float2(x,y)*ts).rgb;nMin=min(nMin,n);nMax=max(nMax,n);}
+    float3 hist=clamp(tHist.sample(sL,huv).rgb,nMin,nMax);
+    float blend=(any(huv<float2(0.f))||any(huv>float2(1.f)))?1.f:u.blendFactor;
+    return float4(mix(hist,curr,blend),1.f);
+}
