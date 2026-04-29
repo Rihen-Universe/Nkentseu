@@ -1,0 +1,10 @@
+// particles.vert.metal.msl — Particle Vertex (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct CamUBO{float4x4 view,proj,viewProj,invViewProj;float4 camPos,camDir;float2 vp;float time,dt;};
+struct VSIn{float3 pos[[attribute(0)]];float2 uv[[attribute(1)]];uint color[[attribute(2)]];float size[[attribute(3)]];float rotation[[attribute(4)]];};
+struct VSOut{float4 pos[[position]];float2 uv;float4 color;float size;float rotation;};
+vertex VSOut particleVert(VSIn v[[stage_in]],constant CamUBO& cam[[buffer(0)]]){
+    VSOut o;o.pos=float4(v.pos,1.f);o.uv=v.uv;
+    o.color=float4(float((v.color)&0xffu)/255.f,float((v.color>>8u)&0xffu)/255.f,float((v.color>>16u)&0xffu)/255.f,float((v.color>>24u)&0xffu)/255.f);
+    o.size=v.size;o.rotation=v.rotation;return o;}

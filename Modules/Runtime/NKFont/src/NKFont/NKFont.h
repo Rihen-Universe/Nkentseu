@@ -11,8 +11,8 @@
 
 #pragma once
 
-#ifndef NK_NKFONT_NKFONT_H_INCLUDED
-#define NK_NKFONT_NKFONT_H_INCLUDED
+#ifndef NK_NKFONT_NKFONT_H
+#define NK_NKFONT_NKFONT_H
 
 #include "Core/NkFontTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -367,7 +367,7 @@ void main() {
 
 } // namespace nkentseu
 
-#endif // NK_NKFONT_NKFONT_H_INCLUDED
+#endif // NK_NKFONT_NKFONT_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

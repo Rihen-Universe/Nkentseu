@@ -1,9 +1,15 @@
 // =============================================================================
-// NkSLIntegration.cpp  — v3.0
+// NkSLIntegration.cpp  — v4.0
+//
+// CORRECTIONS :
+//   - GetCompiler() : std::call_once → thread-safe, plus de data race
+//   - CreateShaderWithReflection : dispatch via ApiToTarget() étendu
+//   - BuildShaderDesc : compatible NK_GLSL_VULKAN, NK_HLSL_DX11, NK_HLSL_DX12
 // =============================================================================
 #include "NkSLIntegration.h"
 #include "NKLogger/NkLog.h"
 #include <cstdio>
+#include <mutex>   // std::call_once, std::once_flag
 
 #define NKSL_LOG(...) logger_src.Infof("[NkSL] " __VA_ARGS__)
 #define NKSL_ERR(...) logger_src.Errorf("[NkSL][ERR] " __VA_ARGS__)
@@ -12,86 +18,132 @@ namespace nkentseu {
 namespace nksl {
 
 // =============================================================================
-// Singleton
+// Singleton — CORRECTION : std::call_once (thread-safe)
+// L'ancien pattern "if (!gCompiler) gCompiler = new NkSLCompiler();" crée une
+// data race si deux threads appellent GetCompiler() simultanément avant init.
+// std::call_once garantit que l'initialisation est atomique.
 // =============================================================================
-static NkSLCompiler* gCompiler = nullptr;
+static NkSLCompiler* gCompiler   = nullptr;
+static std::once_flag gInitFlag;
 
 NkSLCompiler& GetCompiler() {
-    if (!gCompiler) gCompiler = new NkSLCompiler();
+    std::call_once(gInitFlag, []() {
+        gCompiler = new NkSLCompiler();
+    });
     return *gCompiler;
 }
 
 void InitCompiler(const NkString& cacheDir) {
-    if (gCompiler) delete gCompiler;
+    // Réinitialisation explicite : on remplace le singleton
+    // Note : non thread-safe si appelé depuis plusieurs threads simultanément,
+    // mais InitCompiler() est censé être appelé une seule fois au démarrage.
+    if (gCompiler) {
+        gCompiler->GetCache().Flush();
+        delete gCompiler;
+    }
     gCompiler = new NkSLCompiler(cacheDir);
+    // Marquer le flag comme exécuté pour que GetCompiler() ne reconstruise pas
+    std::call_once(gInitFlag, []() {}); // no-op si déjà appelé
     NKSL_LOG("NkSL compiler initialized (cache: %s)\n",
              cacheDir.Empty() ? "disabled" : cacheDir.CStr());
 }
 
 void ShutdownCompiler() {
-    if (gCompiler) { gCompiler->GetCache().Flush(); delete gCompiler; gCompiler = nullptr; }
-}
-
-// =============================================================================
-// CreateShaderFromSource
-// =============================================================================
-NkShaderHandle CreateShaderFromSource(
-    NkIDevice*               device,
-    const NkString&          source,
-    const NkVector<NkSLStage>& stages,
-    const NkString&          name,
-    const NkSLCompileOptions& opts)
-{
-    NkSLReflection dummy;
-    auto res = CreateShaderWithReflection(device, source, stages, name, opts);
-    return res.handle;
+    if (gCompiler) {
+        gCompiler->GetCache().Flush();
+        delete gCompiler;
+        gCompiler = nullptr;
+    }
 }
 
 // =============================================================================
 // CreateShaderWithReflection — recommandé
 // =============================================================================
 ShaderWithReflection CreateShaderWithReflection(
-    NkIDevice*               device,
-    const NkString&          source,
+    NkIDevice*                device,
+    const NkString&           source,
     const NkVector<NkSLStage>& stages,
-    const NkString&          name,
+    const NkString&           name,
     const NkSLCompileOptions& opts)
 {
     ShaderWithReflection out;
-
-    if (!device || !device->IsValid()) {
-        NKSL_ERR("CreateShaderWithReflection: invalid device\n");
+    if (!device) {
+        NKSL_ERR("CreateShaderWithReflection: device is null\n");
         return out;
     }
 
     NkSLTarget target = ApiToTarget(device->GetApi());
+    NkSLCompiler& compiler = GetCompiler();
+
     NkShaderDesc desc;
-    desc.debugName = name.CStr();
+    bool firstStage = true;
 
-    bool ok = BuildShaderDescWithReflection(
-        device->GetApi(), source, stages, desc, out.reflection, name, opts);
+    for (auto stage : stages) {
+        auto compiled = compiler.CompileWithReflection(source, stage, target, opts, name);
+        if (!compiled.result.success) {
+            NKSL_ERR("Shader '%s' stage=%s failed:\n", name.CStr(), NkSLStageName(stage));
+            for (auto& e : compiled.result.errors)
+                NKSL_ERR("  line %u: %s\n", e.line, e.message.CStr());
+            return out;
+        }
 
-    if (!ok) {
-        NKSL_ERR("CreateShaderWithReflection: compilation failed for '%s'\n", name.CStr());
-        return out;
+        // Reflection du premier stage
+        if (firstStage && compiled.hasReflection) {
+            out.reflection = compiled.reflection;
+            firstStage = false;
+        }
+
+        NkShaderStageDesc sd{};
+        sd.entryPoint = opts.entryPoint.CStr();
+        switch (stage) {
+            case NkSLStage::NK_VERTEX:   sd.stage = NkShaderStage::NK_VERTEX;   break;
+            case NkSLStage::NK_FRAGMENT: sd.stage = NkShaderStage::NK_FRAGMENT; break;
+            case NkSLStage::NK_COMPUTE:  sd.stage = NkShaderStage::NK_COMPUTE;  break;
+            default:                     sd.stage = NkShaderStage::NK_VERTEX;   break;
+        }
+
+        if (NkSLTargetIsGLSL(target)) {
+            sd.glslSource = compiled.result.source.CStr();
+        } else if (NkSLTargetIsHLSL(target)) {
+            sd.hlslSource = compiled.result.source.CStr();
+        } else if (NkSLTargetIsMSL(target)) {
+            sd.mslSource  = compiled.result.source.CStr();
+        } else if (target == NkSLTarget::NK_SPIRV) {
+            sd.spirvBinary.Resize((uint64)compiled.result.bytecode.Size());
+            memcpy(sd.spirvBinary.Data(),
+                   compiled.result.bytecode.Data(),
+                   (size_t)compiled.result.bytecode.Size());
+        } else if (target == NkSLTarget::NK_CPLUSPLUS) {
+            sd.glslSource = compiled.result.source.CStr(); // convention : via glslSource
+        }
+
+        desc.AddStage(sd);
     }
 
-    out.handle = device->CreateShader(desc);
-    out.success = out.handle.IsValid();
-
-    if (!out.success)
-        NKSL_ERR("CreateShaderWithReflection: NkIDevice::CreateShader failed for '%s'\n", name.CStr());
-    else
-        NKSL_LOG("Shader '%s' created for API=%s\n", name.CStr(), NkSLTargetName(target));
-
+    out.handle  = device->CreateShader(desc);
+    out.success = (out.handle != NkShaderHandle{});
     return out;
+}
+
+// =============================================================================
+// CreateShaderFromSource
+// =============================================================================
+NkShaderHandle CreateShaderFromSource(
+    NkIDevice*                device,
+    const NkString&           source,
+    const NkVector<NkSLStage>& stages,
+    const NkString&           name,
+    const NkSLCompileOptions& opts)
+{
+    auto res = CreateShaderWithReflection(device, source, stages, name, opts);
+    return res.handle;
 }
 
 // =============================================================================
 // CreateShaderFromFile
 // =============================================================================
-static NkString LoadFile(const NkString& filePath) {
-    FILE* f = fopen(filePath.CStr(), "r");
+static NkString ReadFile(const NkString& path) {
+    FILE* f = fopen(path.CStr(), "r");
     if (!f) return "";
     fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
     NkVector<char> buf; buf.Resize(sz + 1);
@@ -99,67 +151,51 @@ static NkString LoadFile(const NkString& filePath) {
     return NkString(buf.Data());
 }
 
-static NkString ExtractName(const NkString& filePath) {
-    NkString name = filePath;
-    int lastSlash = -1;
-    for (int i = (int)name.Size()-1; i >= 0; i--)
-        if (name[i] == '/' || name[i] == '\\') { lastSlash = i; break; }
-    if (lastSlash >= 0) name = name.SubStr(lastSlash + 1);
-    int lastDot = -1;
-    for (int i = (int)name.Size()-1; i >= 0; i--)
-        if (name[i] == '.') { lastDot = i; break; }
-    if (lastDot > 0) name = name.SubStr(0, lastDot);
-    return name;
-}
-
 NkShaderHandle CreateShaderFromFile(
-    NkIDevice*               device,
-    const NkString&          filePath,
+    NkIDevice*                device,
+    const NkString&           filePath,
     const NkVector<NkSLStage>& stages,
     const NkSLCompileOptions& opts)
 {
-    NkString source = LoadFile(filePath);
+    NkString source = ReadFile(filePath);
     if (source.Empty()) {
-        NKSL_ERR("CreateShaderFromFile: cannot open '%s'\n", filePath.CStr());
-        return {};
+        NKSL_ERR("CreateShaderFromFile: cannot read '%s'\n", filePath.CStr());
+        return NkShaderHandle{};
     }
-    return CreateShaderFromSource(device, source, stages, ExtractName(filePath), opts);
+    return CreateShaderFromSource(device, source, stages, filePath, opts);
 }
 
 ShaderWithReflection CreateShaderFromFileWithReflection(
-    NkIDevice*               device,
-    const NkString&          filePath,
+    NkIDevice*                device,
+    const NkString&           filePath,
     const NkVector<NkSLStage>& stages,
     const NkSLCompileOptions& opts)
 {
-    NkString source = LoadFile(filePath);
+    NkString source = ReadFile(filePath);
     if (source.Empty()) {
-        NKSL_ERR("CreateShaderFromFileWithReflection: cannot open '%s'\n", filePath.CStr());
+        NKSL_ERR("CreateShaderFromFileWithReflection: cannot read '%s'\n", filePath.CStr());
         return {};
     }
-    return CreateShaderWithReflection(device, source, stages, ExtractName(filePath), opts);
+    return CreateShaderWithReflection(device, source, stages, filePath, opts);
 }
 
 // =============================================================================
-// GetReflection
+// Reflection seule
 // =============================================================================
-NkSLReflection GetReflection(
-    const NkString& source,
-    NkSLStage       stage,
-    const NkString& filename)
-{
+NkSLReflection GetReflection(const NkString& source, NkSLStage stage,
+                               const NkString& filename) {
     return GetCompiler().Reflect(source, stage, filename);
 }
 
 // =============================================================================
-// BuildShaderDesc
+// BuildShaderDesc — compatible tous les targets v4.0
 // =============================================================================
 bool BuildShaderDesc(
-    NkGraphicsApi            api,
-    const NkString&          source,
+    NkGraphicsApi             api,
+    const NkString&           source,
     const NkVector<NkSLStage>& stages,
-    NkShaderDesc&            outDesc,
-    const NkString&          name,
+    NkShaderDesc&             outDesc,
+    const NkString&           name,
     const NkSLCompileOptions& opts)
 {
     NkSLReflection dummy;
@@ -167,133 +203,92 @@ bool BuildShaderDesc(
 }
 
 bool BuildShaderDescWithReflection(
-    NkGraphicsApi            api,
-    const NkString&          source,
+    NkGraphicsApi             api,
+    const NkString&           source,
     const NkVector<NkSLStage>& stages,
-    NkShaderDesc&            outDesc,
-    NkSLReflection&          outReflection,
-    const NkString&          name,
+    NkShaderDesc&             outDesc,
+    NkSLReflection&           outReflection,
+    const NkString&           name,
     const NkSLCompileOptions& opts)
 {
     NkSLTarget target = ApiToTarget(api);
     NkSLCompiler& compiler = GetCompiler();
-    bool allOk = true;
     bool firstStage = true;
-
-    // Stocker les résultats pour garder les strings vivants
-    NkVector<NkSLCompileResultWithReflection> results;
-    results.Reserve((uint32)stages.Size());
 
     for (auto stage : stages) {
         auto compiled = compiler.CompileWithReflection(source, stage, target, opts, name);
-
         if (!compiled.result.success) {
-            NKSL_ERR("BuildShaderDescWithReflection: stage=%s target=%s FAILED for '%s'\n",
-                     NkSLStageName(stage), NkSLTargetName(target), name.CStr());
-            for (auto& e : compiled.result.errors)
-                NKSL_ERR("  line %u: %s\n", e.line, e.message.CStr());
-            allOk = false;
-            continue;
+            NKSL_ERR("BuildShaderDesc '%s' stage=%s target=%s FAILED\n",
+                     name.CStr(), NkSLStageName(stage), NkSLTargetName(target));
+            return false;
         }
-
-        // Stocker la reflection du premier stage (vertex)
         if (firstStage && compiled.hasReflection) {
             outReflection = compiled.reflection; firstStage = false;
         }
 
-        results.PushBack(compiled);
-        auto& saved = results.Back();
-
         NkShaderStageDesc sd{};
         sd.entryPoint = opts.entryPoint.CStr();
-
         switch (stage) {
-            case NkSLStage::NK_VERTEX:       sd.stage = NkShaderStage::NK_VERTEX;    break;
-            case NkSLStage::NK_FRAGMENT:     sd.stage = NkShaderStage::NK_FRAGMENT;  break;
-            case NkSLStage::NK_GEOMETRY:     sd.stage = NkShaderStage::NK_GEOMETRY;  break;
-            case NkSLStage::NK_TESS_CONTROL: sd.stage = NkShaderStage::NK_TESS_CTRL; break;
-            case NkSLStage::NK_TESS_EVAL:    sd.stage = NkShaderStage::NK_TESS_EVAL; break;
-            case NkSLStage::NK_COMPUTE:      sd.stage = NkShaderStage::NK_COMPUTE;   break;
-            default: sd.stage = NkShaderStage::NK_VERTEX;
+            case NkSLStage::NK_VERTEX:   sd.stage = NkShaderStage::NK_VERTEX;   break;
+            case NkSLStage::NK_FRAGMENT: sd.stage = NkShaderStage::NK_FRAGMENT; break;
+            case NkSLStage::NK_COMPUTE:  sd.stage = NkShaderStage::NK_COMPUTE;  break;
+            default:                     sd.stage = NkShaderStage::NK_VERTEX;   break;
         }
 
-        switch (target) {
-            case NkSLTarget::NK_GLSL:
-                sd.glslSource = saved.result.source.CStr(); break;
-            case NkSLTarget::NK_SPIRV:
-                if (saved.result.IsText()) {
-                    sd.glslSource = saved.result.source.CStr();
-                    NKSL_LOG("No SPIR-V compiler, using GLSL text for Vulkan stage=%s\n", NkSLStageName(stage));
-                } else {
-                    sd.spirvBinary.Resize((uint64)saved.result.bytecode.Size());
-                    memcpy(sd.spirvBinary.Data(), saved.result.bytecode.Data(), (size_t)saved.result.bytecode.Size());
-                }
-                break;
-            case NkSLTarget::NK_HLSL:
-                sd.hlslSource = saved.result.source.CStr(); break;
-            case NkSLTarget::NK_MSL:
-            case NkSLTarget::NK_MSL_SPIRV_CROSS:
-                sd.mslSource = saved.result.source.CStr(); break;
-            case NkSLTarget::NK_CPLUSPLUS:
-                sd.glslSource = saved.result.source.CStr(); break;
-            default: break;
+        if (NkSLTargetIsGLSL(target)) sd.glslSource = compiled.result.source.CStr();
+        if (NkSLTargetIsHLSL(target)) sd.hlslSource = compiled.result.source.CStr();
+        if (NkSLTargetIsMSL(target))  sd.mslSource  = compiled.result.source.CStr();
+        if (target == NkSLTarget::NK_SPIRV) {
+            sd.spirvBinary.Resize((uint64)compiled.result.bytecode.Size());
+            memcpy(sd.spirvBinary.Data(), compiled.result.bytecode.Data(),
+                   (size_t)compiled.result.bytecode.Size());
         }
-
         outDesc.AddStage(sd);
     }
-
-    return allOk;
+    return true;
 }
 
 // =============================================================================
 // Validate
 // =============================================================================
-NkVector<NkSLCompileError> Validate(const NkString& source, const NkString& filename) {
+NkVector<NkSLCompileError> Validate(const NkString& source,
+                                     const NkString& filename) {
     return GetCompiler().Validate(source, filename);
 }
 
 // =============================================================================
-// GetGeneratedSource
+// GetGeneratedSource — debug : retourne le code généré pour une cible/stage
 // =============================================================================
 NkString GetGeneratedSource(
-    NkGraphicsApi            api,
-    const NkString&          source,
-    NkSLStage                stage,
+    NkGraphicsApi             api,
+    const NkString&           source,
+    NkSLStage                 stage,
     const NkSLCompileOptions& opts)
 {
     NkSLTarget target = ApiToTarget(api);
-    NkSLCompileResult res = GetCompiler().Compile(source, stage, target, opts);
-    if (!res.success) {
-        NkString msg = "// Compilation failed:\n";
-        for (auto& e : res.errors)
-            msg += "// line " + NkFormat("{0}", e.line) + ": " + e.message + "\n";
-        return msg;
-    }
-    return res.source;
+    // Pour Vulkan, retourner le GLSL Vulkan (plus lisible que le SPIR-V binaire)
+    if (target == NkSLTarget::NK_SPIRV)
+        target = NkSLTarget::NK_GLSL_VULKAN;
+
+    auto result = GetCompiler().Compile(source, stage, target, opts);
+    return result.success ? result.source : NkString("");
 }
 
 // =============================================================================
 // GenerateLayoutCPP / GenerateLayoutJSON
 // =============================================================================
-NkString GenerateLayoutCPP(
-    const NkString& source,
-    NkSLStage       stage,
-    const NkString& varName,
-    const NkString& filename)
-{
-    NkSLReflection reflection = GetCompiler().Reflect(source, stage, filename);
+NkString GenerateLayoutCPP(const NkString& source, NkSLStage stage,
+                             const NkString& varName, const NkString& filename) {
+    NkSLReflection ref = GetCompiler().Reflect(source, stage, filename);
     NkSLReflector reflector;
-    return reflector.GenerateLayoutCPP(reflection, varName);
+    return reflector.GenerateLayoutCPP(ref, varName);
 }
 
-NkString GenerateLayoutJSON(
-    const NkString& source,
-    NkSLStage       stage,
-    const NkString& filename)
-{
-    NkSLReflection reflection = GetCompiler().Reflect(source, stage, filename);
+NkString GenerateLayoutJSON(const NkString& source, NkSLStage stage,
+                              const NkString& filename) {
+    NkSLReflection ref = GetCompiler().Reflect(source, stage, filename);
     NkSLReflector reflector;
-    return reflector.GenerateLayoutJSON(reflection);
+    return reflector.GenerateLayoutJSON(ref);
 }
 
 } // namespace nksl

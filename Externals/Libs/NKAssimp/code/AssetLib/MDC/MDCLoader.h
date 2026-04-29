@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file  MDCLoader.h
  *  @brief Definition of the MDC importer class.
  */
-#ifndef AI_MDCLOADER_H_INCLUDED
-#define AI_MDCLOADER_H_INCLUDED
+#ifndef AI_MDCLOADER_H
+#define AI_MDCLOADER_H
 
 #include <assimp/types.h>
 

@@ -1,0 +1,5 @@
+// particles.frag.metal.msl — Particle Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct PSIn{float4 pos[[position]];float2 uv;float4 color;};
+fragment float4 particleFrag(PSIn i[[stage_in]],texture2d<float> tP[[texture(0)]],sampler sL[[sampler(0)]]){float4 t=tP.sample(sL,i.uv)*i.color;if(t.a<0.02f)discard_fragment();return t;}

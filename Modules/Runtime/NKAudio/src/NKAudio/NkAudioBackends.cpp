@@ -2,7 +2,7 @@
 // FICHIER: NKAudio/src/NKAudio/NkAudioBackends.cpp
 // DESCRIPTION: Implémentation du NullBackend + stubs des backends natifs
 //              + enregistrement automatique dans la factory
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: Le NullBackend est entièrement fonctionnel (thread de tick simulé).

@@ -2,7 +2,7 @@
 // FICHIER: NKAudio/src/NKAudio/NkAudioEngineCore.cpp
 // DESCRIPTION: Implémentation du moteur audio AAA — pool de voix, mixage,
 //              audio 3D, gestion des effets, backend abstraction
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: Architecture lock-free pour le thread audio (temps réel).

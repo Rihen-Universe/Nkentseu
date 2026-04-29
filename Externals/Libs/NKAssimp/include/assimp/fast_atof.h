@@ -14,8 +14,8 @@
 // ------------------------------------------------------------------------------------
 
 #pragma once
-#ifndef FAST_A_TO_F_H_INCLUDED
-#define FAST_A_TO_F_H_INCLUDED
+#ifndef FAST_A_TO_F_H
+#define FAST_A_TO_F_H
 
 #ifdef __GNUC__
 #   pragma GCC system_header
@@ -382,4 +382,4 @@ ai_real fast_atof( const char** inout) {
 
 } //! namespace Assimp
 
-#endif // FAST_A_TO_F_H_INCLUDED
+#endif // FAST_A_TO_F_H

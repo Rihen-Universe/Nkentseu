@@ -1,7 +1,31 @@
-# NkSL — Shader Language Cross-Compiler
+# NkSL — Shader Language Cross-Compiler v4.0
 
-Système de langage de shader cross-platform pour NKEngine.
-**Un source → six cibles** : GLSL, SPIR-V, HLSL, MSL, C++ (software rasterizer).
+Système de langage de shader cross-platform pour NKEngine.  
+**Un source → sept cibles** : GLSL (OpenGL), GLSL (Vulkan), SPIR-V, HLSL DX11 (SM5), HLSL DX12 (SM6+), MSL, C++ (software rasterizer).
+
+---
+
+## Nouveautés v4.0
+
+### Nouveaux backends
+
+| Cible | Enum | Compilateur | Cas d'usage |
+|---|---|---|---|
+| GLSL Vulkan 4.50+ | `NK_GLSL_VULKAN` | glslang | `layout(set=N, binding=M)`, subpassInput, push_constant |
+| HLSL SM5 (DX11) | `NK_HLSL_DX11` | fxc.exe | Renommage de l'ancien `NK_HLSL` |
+| HLSL SM6+ (DX12) | `NK_HLSL_DX12` | dxc.exe | register spaceN, wave ops, bindless SM6.6 |
+
+### Bugs corrigés
+
+| Bug | Fichier | Correction |
+|---|---|---|
+| Cache O(n) — `NkVector` + recherche linéaire | `NkSLCompiler.cpp` | `NkUnorderedMap<uint64, NkSLCacheEntry>` → O(1) |
+| Singleton non thread-safe (`if (!gCompiler)`) | `NkSLIntegration.cpp` | `std::call_once` + `std::once_flag` |
+| `glslang::InitializeProcess()` non protégé | `NkSLCompiler.cpp` | `std::call_once` |
+| `NkSLShaderLibrary::Get()` sans mutex | `NkSLCompiler.cpp` | `NkSLMutexLock` sur toutes les lectures |
+| `Preprocess()` sans garde d'inclusion | `NkSLCompiler.cpp` | `NkVector<NkString>* includedFiles` + `#pragma once` |
+| `HashSource()` incomplet | `NkSLCompiler.cpp` | Inclut `glslVulkanVersion`, `hlslShaderModelDX12`, `dx12DefaultSpace` |
+| SPIR-V généré depuis GLSL OpenGL | `NkSLCompiler.cpp` | SPIR-V généré depuis `NK_GLSL_VULKAN` (set/binding corrects) |
 
 ---
 
@@ -18,14 +42,17 @@ NkSL source (.nksl)
         │
         ▼
   NkSLCodeGen_*      — génération de code par cible
-   ├── GLSL          → OpenGL 4.30+
-   ├── SPIR-V        → Vulkan (via shaderc ou glslang)
-   ├── HLSL          → DirectX 11/12 (SM 5+)
-   ├── MSL           → Metal 2+
-   └── C++           → Software rasterizer
+   ├── NkSLCodeGenGLSL          → OpenGL 4.30+  (layout(binding=))
+   ├── NkSLCodeGenGLSLVulkan    → Vulkan GLSL 4.50+ (layout(set=N, binding=M))  ← NOUVEAU
+   ├── SPIR-V                   → via glslang (depuis GLSL Vulkan)
+   ├── NkSLCodeGenHLSL_DX11     → HLSL SM5, fxc  (register(bN))
+   ├── NkSLCodeGenHLSL_DX12     → HLSL SM6, dxc  (register(bN, spaceM))          ← NOUVEAU
+   ├── NkSLCodeGen_MSL          → Metal 2+ (natif)
+   ├── NkSLCodeGenMSLSpirvCross → Metal 2+ (via SPIRV-Cross)
+   └── NkSLCodeGenCPP           → Software rasterizer
         │
         ▼
-  NkSLCompiler       — pipeline complet + cache disque
+  NkSLCompiler       — pipeline complet + cache O(1) disque
         │
         ▼
   NkSLIntegration    — helpers NkIDevice::CreateShader()
@@ -37,49 +64,39 @@ NkSL source (.nksl)
 
 La syntaxe est **GLSL-like** avec des annotations `@` pour les bindings.
 
-### Exemple complet — shader Phong
-
 ```glsl
-// Uniform block
 @binding(set=0, binding=0)
 uniform MainUBO {
     mat4 model;
     mat4 view;
     mat4 proj;
-    mat4 lightVP;
     vec4 lightDirW;
     vec4 eyePosW;
 } ubo;
 
-// Sampler shadow map
 @binding(set=0, binding=1)
 uniform sampler2DShadow uShadowMap;
 
-// Vertex inputs
 @location(0) in  vec3 aPos;
 @location(1) in  vec3 aNormal;
 @location(2) in  vec3 aColor;
 
-// Vertex outputs
 @location(0) out vec3 vWorldPos;
 @location(1) out vec3 vNormal;
 @location(2) out vec3 vColor;
 
-// Vertex entry point
 @stage(vertex)
 @entry
 void vertMain() {
-    vec4 wp  = ubo.model * vec4(aPos, 1.0);
+    vec4 wp   = ubo.model * vec4(aPos, 1.0);
     vWorldPos = wp.xyz;
     vNormal   = normalize(mat3(transpose(inverse(ubo.model))) * aNormal);
     vColor    = aColor;
     gl_Position = ubo.proj * ubo.view * wp;
 }
 
-// Fragment output
 @location(0) out vec4 fragColor;
 
-// Fragment entry point
 @stage(fragment)
 @entry
 void fragMain() {
@@ -90,223 +107,194 @@ void fragMain() {
 }
 ```
 
-### Annotations disponibles
+---
 
-| Annotation | Description | Exemple |
-|---|---|---|
-| `@binding(set=N, binding=M)` | Binding Vulkan / GLSL | `@binding(set=0, binding=1)` |
-| `@location(N)` | Slot in/out vertex | `@location(0) in vec3 aPos;` |
-| `@stage(name)` | Déclarer un stage | `@stage(vertex)` |
-| `@entry` | Marquer l'entry point | `@entry void main()` |
-| `@push_constant` | Push constant Vulkan | `@push_constant uniform PC { ... }` |
-| `@builtin(name)` | Variable builtin | `@builtin(position) vec4 pos;` |
+## Correspondances par cible
 
-### Types supportés
+### Bindings uniforms
 
-Tous les types GLSL sont supportés et sont mappés automatiquement :
+| NkSL source | GLSL OpenGL | GLSL Vulkan | HLSL DX11 | HLSL DX12 |
+|---|---|---|---|---|
+| `@binding(set=0, binding=1)` | `layout(binding=1)` | `layout(set=0, binding=1)` | `register(b1)` | `register(b1, space0)` |
+| `@push_constant` | *(non supporté)* | `layout(push_constant)` | *(cbuffer b0)* | `ConstantBuffer<T> cb : register(b0, space0)` |
+| `uniform sampler2D tex;` | `layout(binding=N) uniform sampler2D tex;` | `layout(set=S, binding=N) uniform sampler2D tex;` | `Texture2D tex_tex : register(tN); SamplerState tex_smp : register(sN);` | `Texture2D tex_tex : register(tN, space0); SamplerState tex_smp : register(sN, space0);` |
 
-| NkSL / GLSL | HLSL | MSL | C++ |
+### Builtins vertex
+
+| NkSL/GLSL | GLSL Vulkan | HLSL DX11/12 | MSL |
 |---|---|---|---|
-| `float` | `float` | `float` | `float` |
-| `vec2/3/4` | `float2/3/4` | `float2/3/4` | `NkVec2/3/4f` |
-| `mat4` | `column_major float4x4` | `float4x4` | `NkMat4f` |
-| `sampler2D` | `Texture2D + SamplerState` | `texture2d<float> + sampler` | `NkSWTexture2D*` |
-| `sampler2DShadow` | `Texture2D + SamplerComparisonState` | `depth2d<float>` | `NkSWTexture2D*` |
-| `image2D` | `RWTexture2D<float4>` | `texture2d<float, access::read_write>` | — |
+| `gl_VertexID` | `gl_VertexIndex` | `input._VertexID (SV_VertexID)` | `vertex_id [[vertex_id]]` |
+| `gl_InstanceID` | `gl_InstanceIndex` | `input._InstanceID (SV_InstanceID)` | `instance_id [[instance_id]]` |
+| `gl_Position` | `gl_Position` | `output._Position (SV_Position)` | `out.position [[position]]` |
 
-### Intrinsèques supportées
+### Wave intrinsics (DX12 SM6.0+ / SPIR-V)
 
-Toutes les fonctions mathématiques GLSL standard :
-`dot`, `cross`, `normalize`, `length`, `mix`, `clamp`, `smoothstep`,
-`pow`, `sqrt`, `abs`, `sin`, `cos`, `tan`, `atan`, `floor`, `ceil`,
-`fract`, `mod`, `min`, `max`, `reflect`, `refract`, `texture`,
-`textureSize`, `imageLoad`, `imageStore`, `transpose`, `inverse`, ...
+| NkSL / GLSL subgroup | HLSL DX12 (SM6) |
+|---|---|
+| `subgroupSize()` | `WaveGetLaneCount()` |
+| `subgroupElect()` | `WaveIsFirstLane()` |
+| `subgroupAdd(x)` | `WaveActiveSum(x)` |
+| `subgroupAll(x)` | `WaveActiveAllTrue(x)` |
+| `subgroupAny(x)` | `WaveActiveAnyTrue(x)` |
+| `subgroupBroadcast(x, i)` | `WaveReadLaneAt(x, i)` |
+| `subgroupBallot(b)` | `WaveActiveBallot(b)` |
 
 ---
 
 ## Utilisation
 
-### Cas simple — créer un shader depuis source
+### Cas simple — le bon target selon l'API
 
 ```cpp
-// Initialiser le compilateur (une seule fois au démarrage)
+// Initialiser le compilateur une seule fois au démarrage
 NkSL::InitCompiler("./shader_cache");
 
-// Créer un shader — le bon bytecode est généré selon l'API du device
+// CreateShaderFromSource choisit automatiquement le bon target via ApiToTarget()
+// OpenGL    → NK_GLSL
+// Vulkan    → NK_SPIRV
+// DX11      → NK_HLSL_DX11
+// DX12      → NK_HLSL_DX12
+// Metal     → NK_MSL
 NkShaderHandle hShader = NkSL::CreateShaderFromSource(
     device,
     kPhongShader,
     { NkSLStage::VERTEX, NkSLStage::FRAGMENT },
     "PhongShadow"
 );
+```
 
-// Utilisation normale via NkIDevice
-NkGraphicsPipelineDesc pipeDesc;
-pipeDesc.shader = hShader;
+### Choisir un target explicitement
+
+```cpp
+// GLSL pour Vulkan (texte lisible, pas de SPIR-V binaire)
+auto res = compiler.Compile(source, NkSLStage::NK_VERTEX,
+                             NkSLTarget::NK_GLSL_VULKAN);
+printf("GLSL Vulkan:\n%s\n", res.source.CStr());
+
+// HLSL SM5 pour DirectX 11
+auto dx11 = compiler.Compile(source, NkSLStage::NK_VERTEX,
+                              NkSLTarget::NK_HLSL_DX11);
+
+// HLSL SM6 pour DirectX 12 — wave ops + spaces
+NkSLCompileOptions dx12Opts;
+dx12Opts.hlslShaderModelDX12  = 60; // SM6.0
+dx12Opts.dx12DefaultSpace      = 0;
+dx12Opts.dx12InlineRootSignature = false;
+auto dx12 = compiler.Compile(source, NkSLStage::NK_VERTEX,
+                              NkSLTarget::NK_HLSL_DX12, dx12Opts);
+```
+
+### DX12 avec bindless heap (SM6.6)
+
+```cpp
+NkSLCompileOptions opts;
+opts.hlslShaderModelDX12 = 66;   // SM6.6
+opts.dx12BindlessHeap    = true; // émet NKSL_TEX2D / NKSL_SAMPLER macros
+opts.dx12DefaultSpace    = 0;
+
+auto res = compiler.Compile(source, NkSLStage::NK_FRAGMENT,
+                             NkSLTarget::NK_HLSL_DX12, opts);
+// Le code généré contient :
+// #define NKSL_TEX2D(idx)      ((Texture2D)ResourceDescriptorHeap[idx])
+// #define NKSL_SAMPLER(idx)    ((SamplerState)SamplerDescriptorHeap[idx])
+```
+
+### GLSL Vulkan avec subpassInput
+
+```cpp
+// shader.nksl
+// @binding(set=0, binding=0, input_attachment_index=0)
+// uniform subpassInput uGBuffer;
 // ...
+// vec4 color = subpassLoad(uGBuffer);
+
+auto res = compiler.Compile(source, NkSLStage::NK_FRAGMENT,
+                             NkSLTarget::NK_GLSL_VULKAN);
+// Émet : layout(input_attachment_index=0, set=0, binding=0) uniform subpassInput uGBuffer;
 ```
 
-### Créer depuis un fichier
+### DX12 avec root signature inline
 
 ```cpp
-NkShaderHandle h = NkSL::CreateShaderFromFile(
-    device, "shaders/phong.nksl",
-    { NkSLStage::VERTEX, NkSLStage::FRAGMENT }
-);
+NkSLCompileOptions opts;
+opts.hlslShaderModelDX12    = 60;
+opts.dx12InlineRootSignature = true; // émet [RootSignature(...)] avant l'entry point
+auto res = compiler.Compile(source, NkSLStage::NK_VERTEX,
+                             NkSLTarget::NK_HLSL_DX12, opts);
 ```
 
-### Bibliothèque de shaders avec hot-reload
+### Compiler pour toutes les cibles en une passe
 
 ```cpp
-NkSLShaderLibrary lib(&NkSL::GetCompiler(), "./shaders");
+auto multi = compiler.CompileAllTargets(source, NkSLStage::NK_VERTEX, {
+    NkSLTarget::NK_GLSL,
+    NkSLTarget::NK_GLSL_VULKAN,
+    NkSLTarget::NK_SPIRV,
+    NkSLTarget::NK_HLSL_DX11,
+    NkSLTarget::NK_HLSL_DX12,
+    NkSLTarget::NK_MSL,
+}, opts, "phong");
 
-lib.Register("phong",   "phong.nksl",   { NkSLStage::VERTEX, NkSLStage::FRAGMENT });
-lib.Register("tonemap", "tonemap.nksl", { NkSLStage::COMPUTE });
-
-NkSLTarget target = NkSL::ApiToTarget(device->GetApi());
-lib.CompileAll(target);
-
-// Dans la boucle principale :
-uint32 reloaded = lib.HotReload(target);
-if (reloaded > 0) {
-    // Re-créer les pipelines impactés
+if (multi.allSucceeded()) {
+    // multi.results[0] = GLSL OpenGL
+    // multi.results[1] = GLSL Vulkan
+    // multi.results[2] = SPIR-V
+    // multi.results[3] = HLSL DX11
+    // multi.results[4] = HLSL DX12
+    // multi.results[5] = MSL
+    // multi.reflection = reflection partagée (AST parsé une seule fois)
 }
-
-// Obtenir un NkShaderDesc
-NkShaderDesc desc;
-lib.FillShaderDesc("phong", target, desc);
-NkShaderHandle h = device->CreateShader(desc);
 ```
 
-### Valider un shader sans compiler
+### Vérifier les capacités disponibles
 
 ```cpp
-auto errors = NkSL::Validate(source, "myshader.nksl");
-for (auto& e : errors)
-    printf("line %u: %s\n", e.line, e.message.CStr());
-```
+auto caps = NkSLFeatureCaps::ForTarget(NkSLTarget::NK_HLSL_DX12, 66);
+if (caps.waveIntrinsics)  printf("Wave ops disponibles\n");
+if (caps.bindlessHeapSM66) printf("ResourceDescriptorHeap disponible (SM6.6)\n");
+if (caps.meshShaders)     printf("Mesh shaders disponibles (SM6.5+)\n");
 
-### Inspecter le code généré
-
-```cpp
-// Voir le GLSL généré pour debug
-NkString glsl = NkSL::GetGeneratedSource(
-    NkGraphicsApi::NK_API_OPENGL,
-    kPhongShader,
-    NkSLStage::VERTEX
-);
-printf("%s\n", glsl.CStr());
-
-// Voir le HLSL généré
-NkString hlsl = NkSL::GetGeneratedSource(
-    NkGraphicsApi::NK_API_DIRECTX11,
-    kPhongShader,
-    NkSLStage::VERTEX
-);
-```
-
-### Compilation offline (build pipeline)
-
-```cpp
-NkSLCompiler compiler("./shader_cache");
-
-for (auto target : { NkSLTarget::GLSL, NkSLTarget::SPIRV, NkSLTarget::HLSL, NkSLTarget::MSL }) {
-    for (auto stage : { NkSLStage::VERTEX, NkSLStage::FRAGMENT }) {
-        auto res = compiler.Compile(source, stage, target, {}, "shader");
-        if (!res.success) { /* log errors */ }
-        else {
-            // Sauvegarder le bytecode dans un fichier .spv, .hlsl, .msl...
-            SaveToFile("shader." + NkString(NkSLTargetName(target)), res.bytecode);
-        }
-    }
-}
-
-// Persister le cache pour les runs suivants
-compiler.GetCache().Flush();
+auto vkCaps = NkSLFeatureCaps::ForTarget(NkSLTarget::NK_GLSL_VULKAN);
+if (vkCaps.pushConstants) printf("Push constants Vulkan disponibles\n");
+if (vkCaps.subpassInput)  printf("subpassInput disponible\n");
 ```
 
 ---
 
-## Installation et build
-
-### Prérequis
-
-- CMake 3.16+
-- Compilateur C++17
-- **Pour SPIR-V** : Vulkan SDK (shaderc ou glslang)
-
-### Configuration CMake
+## Configuration CMake
 
 ```cmake
-# Dans votre CMakeLists.txt parent :
-add_subdirectory(NkSL)
+add_subdirectory(Modules/Runtime/NKRHI/src/NKRHI/SL)
 target_link_libraries(MyApp PRIVATE NkSL)
 ```
 
-### Options CMake
+### Options
 
 | Option | Défaut | Description |
 |---|---|---|
-| `NKSL_USE_SHADERC` | ON | Compilation SPIR-V via shaderc (Vulkan SDK) |
-| `NKSL_USE_GLSLANG` | OFF | Compilation SPIR-V via glslang direct |
-
-### Sans SPIR-V compiler
-
-Si ni shaderc ni glslang n'est disponible, le compilateur NkSL retourne
-le GLSL intermédiaire au lieu du SPIR-V. En Vulkan, cela nécessite
-l'extension `VK_NV_glsl_shader` (disponible sur NVIDIA uniquement, non recommandé
-en production). **Pour un usage production, installer le Vulkan SDK.**
-
-```bash
-# Ubuntu/Debian
-sudo apt install libvulkan-dev glslang-tools
-
-# Windows : télécharger le Vulkan SDK depuis https://vulkan.lunarg.com
-# Puis définir VULKAN_SDK dans les variables d'environnement
-```
-
----
-
-## Correspondance des types par API
-
-### Textures et samplers
-
-| NkSL | GLSL | HLSL | MSL |
-|---|---|---|---|
-| `sampler2D` | `uniform sampler2D tex;` | `Texture2D tex; SamplerState tex_smp;` | `texture2d<float> tex [[texture(N)]]; sampler tex_smp [[sampler(N)]];` |
-| `sampler2DShadow` | `uniform sampler2DShadow tex;` | `Texture2D tex; SamplerComparisonState tex_smp;` | `depth2d<float> tex; sampler tex_smp;` |
-| `texture(tex, uv)` | `texture(tex, uv)` | `tex_tex.Sample(tex_smp, uv)` | `tex_tex.sample(tex_smp, uv)` |
-
-### Builtins
-
-| NkSL / GLSL | HLSL | MSL |
-|---|---|---|---|
-| `gl_Position` | `output.Position (SV_Position)` | `out.position [[position]]` |
-| `gl_FragCoord` | `input.Position (SV_Position)` | `in.position [[position]]` |
-| `gl_VertexID` | `input.VertexID (SV_VertexID)` | `vertex_id [[vertex_id]]` |
-| `gl_LocalInvocationID` | `GroupThreadID (SV_GroupThreadID)` | `thread_position_in_threadgroup` |
-| `gl_GlobalInvocationID` | `DispatchThreadID (SV_DispatchThreadID)` | `thread_position_in_grid` |
+| `NKSL_USE_GLSLANG` | ON | SPIR-V via glslang embarqué (standalone) |
+| `NKSL_USE_SPIRV_CROSS` | ON | MSL via SPIRV-Cross embarqué |
+| `NKSL_USE_SHADERC` | OFF | SPIR-V via shaderc (Vulkan SDK optionnel) |
 
 ---
 
 ## Limitations connues
 
-1. **Pas de SPIR-V sans Vulkan SDK** : installer shaderc (Vulkan SDK 1.3+).
-2. **Tessellation** : les shaders tess control/eval sont parsés mais la génération MSL est limitée (Metal 3 requis pour le mesh shading).
-3. **Atomic counters** : supportés en GLSL/HLSL, pas encore en MSL.
-4. **Subroutines GLSL** : non supportées (pas d'équivalent HLSL/MSL propre).
-5. **double en MSL** : Metal ne supporte pas `double` sur GPU — automatiquement downgradé en `float`.
-6. **Matrices** : attention à la convention row-major (HLSL) vs column-major (GLSL). NkSL utilise column-major (GLSL) et génère `column_major float4x4` en HLSL pour la compatibilité avec le code C++ NKEngine.
+1. **Tessellation MSL** : parsé, génération limitée (Metal 3 requis pour mesh shading).
+2. **Atomic counters MSL** : non supportés.
+3. **Subroutines GLSL** : non supportées.
+4. **double en MSL** : automatiquement downgradé en `float`.
+5. **Analyse sémantique incomplète** : les déclarations de variables non déclarées peuvent passer sans erreur.
+6. **#define avec paramètres** : le préprocesseur ne supporte pas les macros paramétriques.
 
 ---
 
 ## Roadmap
 
 - [ ] Optimiseur IR (élimination du code mort, constant folding)
-- [ ] Support SPIR-V → GLSL via spirv-cross (pour le debug)
 - [ ] Support WGSL (WebGPU)
-- [ ] Analyse sémantique complète (type checking, undeclared variables)
-- [ ] Reflection automatique (extraction des bindings depuis l'AST → NkDescriptorSetLayoutDesc)
-- [ ] #include avec garde d'inclusion (#pragma once)
-- [ ] Macros et préprocesseur complet (#define avec paramètres)
-- [ ] Specialization constants Vulkan
+- [ ] Analyse sémantique complète (type checking exhaustif)
+- [ ] #define avec paramètres (préprocesseur complet)
+- [ ] Specialization constants Vulkan (`layout(constant_id=N)`)
+- [ ] Geometry shaders DX12 SM6
+- [ ] Tests unitaires (corpus de shaders de référence)

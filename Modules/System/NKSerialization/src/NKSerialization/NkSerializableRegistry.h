@@ -11,8 +11,8 @@
 // =============================================================================
 #pragma once
 
-#ifndef NKENTSEU_SERIALIZATION_NKSERIALIZABLEREGISTRY_H_INCLUDED
-#define NKENTSEU_SERIALIZATION_NKSERIALIZABLEREGISTRY_H_INCLUDED
+#ifndef NKENTSEU_SERIALIZATION_NKSERIALIZABLEREGISTRY_H
+#define NKENTSEU_SERIALIZATION_NKSERIALIZABLEREGISTRY_H
 
 #include "NKSerialization/NkArchive.h"
 #include "NKSerialization/NkISerializable.h"
@@ -216,4 +216,4 @@ namespace nkentseu {
 
 } // namespace nkentseu
 
-#endif // NKENTSEU_SERIALIZATION_NKSERIALIZABLEREGISTRY_H_INCLUDED
+#endif // NKENTSEU_SERIALIZATION_NKSERIALIZABLEREGISTRY_H

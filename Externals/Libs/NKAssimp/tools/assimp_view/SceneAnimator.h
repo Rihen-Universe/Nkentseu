@@ -44,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  transformations for all nodes
  */
 
-#ifndef AV_SCENEANIMATOR_H_INCLUDED
-#define AV_SCENEANIMATOR_H_INCLUDED
+#ifndef AV_SCENEANIMATOR_H
+#define AV_SCENEANIMATOR_H
 
 #include <map>
 
@@ -234,4 +234,4 @@ protected:
 
 } // end of namespace AssimpView
 
-#endif // AV_SCENEANIMATOR_H_INCLUDED
+#endif // AV_SCENEANIMATOR_H

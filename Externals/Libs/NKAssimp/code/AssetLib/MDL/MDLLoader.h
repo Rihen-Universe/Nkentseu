@@ -44,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *   @brief Declaration of the loader for MDL files
  */
 #pragma once
-#ifndef AI_MDLLOADER_H_INCLUDED
-#define AI_MDLLOADER_H_INCLUDED
+#ifndef AI_MDLLOADER_H
+#define AI_MDLLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include "MDLFileData.h"

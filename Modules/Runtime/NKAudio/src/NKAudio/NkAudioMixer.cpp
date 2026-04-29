@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/src/NKAudio/NkAudioMixer.cpp
 // DESCRIPTION: Mixeur audio offline (composition de pistes, normalisation, fades)
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------

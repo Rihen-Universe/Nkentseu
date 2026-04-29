@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the LightWave scene importer class.
  */
 #pragma once
-#ifndef AI_LWSLOADER_H_INCLUDED
-#define AI_LWSLOADER_H_INCLUDED
+#ifndef AI_LWSLOADER_H
+#define AI_LWSLOADER_H
 
 #include "AssetLib/LWO/LWOFileData.h"
 

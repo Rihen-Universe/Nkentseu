@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file  ASELoader.h
  *  @brief Definition of the .ASE importer class.
  */
-#ifndef AI_ASELOADER_H_INCLUDED
-#define AI_ASELOADER_H_INCLUDED
+#ifndef AI_ASELOADER_H
+#define AI_ASELOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/types.h>

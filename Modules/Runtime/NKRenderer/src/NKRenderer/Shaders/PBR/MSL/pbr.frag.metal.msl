@@ -1,0 +1,83 @@
+// ============================================================
+// pbr.frag.metal.msl — NKRenderer v4.0 — PBR Fragment (Metal MSL 2.x)
+// ============================================================
+#include <metal_stdlib>
+using namespace metal;
+
+struct CameraUBO{float4x4 view,proj,viewProj,invViewProj;float4 camPos,camDir;float2 viewport;float time,dt;};
+struct ObjectUBO{float4x4 model,normalMatrix;float4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;float4 sssColor;};
+struct LightEntry{float4 pos,col,dir,ang;};
+struct LightsUBO{LightEntry lights[32];int count;int pad[3];};
+struct ShadowUBO{float4x4 cm[4];float4 splits;int cnt;float bias,normBias;int soft;};
+
+struct VSOut{float4 pos[[position]];float3 worldPos;float3 normal;float3 tangent;float3 bitangent;float2 uv,uv2;float4 color;float4 sc0,sc1,sc2,sc3;};
+
+constant float PI = 3.14159265358979f;
+
+float D_GGX(float3 N,float3 H,float r){float a=r*r,a2=a*a,NdH=max(dot(N,H),0.f);float d=NdH*NdH*(a2-1.f)+1.f;return a2/(PI*d*d+1e-4f);}
+float GS(float x,float k){return x/(x*(1.f-k)+k);}
+float GSm(float3 N,float3 V,float3 L,float r){float k=(r+1.f)*(r+1.f)/8.f;return GS(max(dot(N,V),0.f),k)*GS(max(dot(N,L),0.f),k);}
+float3 FS(float c,float3 F0){return F0+(1.f-F0)*pow(max(1.f-c,0.f),5.f);}
+float3 FSR(float c,float3 F0,float r){return F0+(max(float3(1.f-r),F0)-F0)*pow(max(1.f-c,0.f),5.f);}
+
+float ShadowPCF(depth2d<float> sm, sampler ss, float4 coord, float bias) {
+    float3 p=coord.xyz/coord.w; p.xy=p.xy*.5f+.5f;
+    p.z-=bias;
+    if(any(p.xy<float2(0.f))||any(p.xy>float2(1.f))||p.z>1.f) return 1.f;
+    uint2 sz=uint2(sm.get_width(),sm.get_height());
+    float2 ts=1.f/float2(sz);
+    float s=0.f;
+    for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++) {
+        float ref=sm.sample(ss,p.xy+float2(x,y)*ts);
+        s+=(ref>=p.z)?1.f:0.f;
+    }
+    return s/9.f;
+}
+
+fragment float4 pbrFrag(VSOut i [[stage_in]],
+    constant CameraUBO& cam  [[buffer(0)]],
+    constant ObjectUBO&  obj  [[buffer(1)]],
+    constant LightsUBO&  lts  [[buffer(2)]],
+    constant ShadowUBO&  shd  [[buffer(3)]],
+    texture2d<float>    tAlbedo        [[texture(4)]],
+    texture2d<float>    tNormal        [[texture(5)]],
+    texture2d<float>    tORM           [[texture(6)]],
+    texture2d<float>    tEmissive      [[texture(7)]],
+    texturecube<float>  tEnvIrr        [[texture(8)]],
+    texturecube<float>  tEnvPref       [[texture(9)]],
+    texture2d<float>    tBRDFLUT       [[texture(10)]],
+    depth2d<float>      tShadowMap     [[texture(11)]],
+    sampler             sLinear        [[sampler(0)]],
+    sampler             sShadow        [[sampler(1)]])
+{
+    float4 albSamp=tAlbedo.sample(sLinear,i.uv)*i.color;
+    float3 albedo=pow(albSamp.rgb,(float3)2.2f); float alpha=albSamp.a;
+    if(alpha<0.01f) discard_fragment();
+
+    float3 orm=tORM.sample(sLinear,i.uv).rgb;
+    float ao=orm.r*obj.aoStr, rog=orm.g*obj.roughness, met=orm.b*obj.metallic;
+
+    float3 nTs=tNormal.sample(sLinear,i.uv).xyz*2.f-1.f; nTs.xy*=obj.normStr;
+    float3x3 TBN=float3x3(normalize(i.tangent),normalize(i.bitangent),normalize(i.normal));
+    float3 N=normalize(TBN*nTs), V=normalize(cam.camPos.xyz-i.worldPos);
+    float3 F0=mix(float3(0.04f),albedo,met);
+    float shadow=ShadowPCF(tShadowMap,sShadow,i.sc0,shd.bias);
+
+    float3 Lo=float3(0.f);
+    for(int li=0;li<lts.count&&li<32;li++){
+        int lt=int(lts.lights[li].pos.w); float3 L; float att=1.f;
+        if(lt==0){L=normalize(-lts.lights[li].dir.xyz);}
+        else{float3 d=lts.lights[li].pos.xyz-i.worldPos;float dist=length(d);L=normalize(d);att=max(1.f-dist/max(lts.lights[li].dir.w,.001f),0.f);att*=att;}
+        float csf=(lts.lights[li].ang.z>.5f)?shadow:1.f;
+        float3 H=normalize(V+L);float NdL=max(dot(N,L),0.f);float3 rad=lts.lights[li].col.rgb*lts.lights[li].col.w*att;
+        float NDF=D_GGX(N,H,rog);float G=GSm(N,V,L,rog);float3 F=FS(max(dot(H,V),0.f),F0);
+        Lo+=csf*(((1.f-F)*(1.f-met))*albedo/PI+NDF*G*F/(4.f*max(dot(N,V),0.f)*NdL+1e-4f))*rad*NdL;
+    }
+    float3 Fi=FSR(max(dot(N,V),0.f),F0,rog), kDi=(1.f-Fi)*(1.f-met);
+    float3 irr=tEnvIrr.sample(sLinear,N).rgb, R=reflect(-V,N);
+    float3 pref=tEnvPref.sample(sLinear,R,level(rog*4.f)).rgb;
+    float2 brdf=tBRDFLUT.sample(sLinear,float2(max(dot(N,V),0.f),rog)).rg;
+    float3 amb=(kDi*irr*albedo+pref*(Fi*brdf.x+brdf.y))*ao;
+    float3 emissive=tEmissive.sample(sLinear,i.uv).rgb*obj.emissStr;
+    return float4(amb+Lo+emissive,alpha);
+}

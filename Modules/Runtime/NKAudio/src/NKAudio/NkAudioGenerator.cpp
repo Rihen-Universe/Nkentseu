@@ -2,7 +2,7 @@
 // FICHIER: NKAudio/src/NKAudio/NkAudioGenerator.cpp
 // DESCRIPTION: Synthèse audio procédurale (oscillateurs, drums, enveloppes)
 //              Moteur de synthèse pour DAW, beatmakers, SFX temps réel
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: Zéro STL. Implémentation AAA-grade des générateurs de sons.

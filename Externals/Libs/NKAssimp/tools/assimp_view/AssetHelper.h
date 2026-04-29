@@ -39,8 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#if (!defined AV_ASSET_HELPER_H_INCLUDED)
-#define AV_ASSET_HELPER_H_INCLUDED
+#if (!defined AV_ASSET_HELPER_H)
+#define AV_ASSET_HELPER_H
 
 #include <d3d9.h>
 #include <d3dx9.h>

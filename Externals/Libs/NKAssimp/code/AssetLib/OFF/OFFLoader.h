@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the OFF importer class.
  */
 #pragma once
-#ifndef AI_OFFLOADER_H_INCLUDED
-#define AI_OFFLOADER_H_INCLUDED
+#ifndef AI_OFFLOADER_H
+#define AI_OFFLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/types.h>

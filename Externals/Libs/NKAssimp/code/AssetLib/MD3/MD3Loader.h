@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file  Md3Loader.h
  *  @brief Declaration of the .MD3 importer class.
  */
-#ifndef AI_MD3LOADER_H_INCLUDED
-#define AI_MD3LOADER_H_INCLUDED
+#ifndef AI_MD3LOADER_H
+#define AI_MD3LOADER_H
 
 #include "MD3FileData.h"
 #include <assimp/BaseImporter.h>

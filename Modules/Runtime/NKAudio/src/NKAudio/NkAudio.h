@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/src/NKAudio/NkAudio.h
 // DESCRIPTION: Header principal du module audio Nkentseu - STL-free, AAA-grade
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: Zero STL. Utilise NkVector, NkFunction, NkAllocator de la fondation.
@@ -10,8 +10,8 @@
 
 #pragma once
 
-#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIO_H_INCLUDED
-#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIO_H_INCLUDED
+#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIO_H
+#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIO_H
 
 // ============================================================
 // INCLUDES FONDATION (STL MAISON)
@@ -1268,7 +1268,7 @@ namespace nkentseu {
         static BackendClass##_AutoRegister g_##BackendClass##_Registrar;  \
     }
 
-#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIO_H_INCLUDED
+#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIO_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

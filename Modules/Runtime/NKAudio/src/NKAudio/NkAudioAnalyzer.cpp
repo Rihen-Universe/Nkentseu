@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/src/NKAudio/NkAudioAnalyzer.cpp
 // DESCRIPTION: Analyse audio DSP : FFT, RMS, tempo, pitch, spectrogram
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: FFT Cooley-Tukey itérative, détection pitch YIN, tempo autocorrélation

@@ -91,7 +91,7 @@ def generate_header(ttf_path: str, font_name: str, output_path: str):
         b85_lines.append(f'    "{b85[i:i+64]}"')
 
     # ── Contenu du header ─────────────────────────────────────────────────
-    guard = f"NK_NKFONT_EMBEDDED_{font_name.upper()}_DATA_H_INCLUDED"
+    guard = f"NK_NKFONT_EMBEDDED_{font_name.upper()}_DATA_H"
 
     lines = [
         f"// Auto-généré par Tools/EmbedFont.py — NE PAS ÉDITER",

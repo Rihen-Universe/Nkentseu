@@ -16,8 +16,8 @@
 
 #pragma once
 
-#ifndef NK_NKFONT_CORE_NKFONTPARSER_H_INCLUDED
-#define NK_NKFONT_CORE_NKFONTPARSER_H_INCLUDED
+#ifndef NK_NKFONT_CORE_NKFONTPARSER_H
+#define NK_NKFONT_CORE_NKFONTPARSER_H
 
 #include "NkFontTypes.h"
 
@@ -244,7 +244,7 @@ namespace nkentseu {
     } // namespace nkfont
 } // namespace nkentseu
 
-#endif // NK_NKFONT_CORE_NKFONTPARSER_H_INCLUDED
+#endif // NK_NKFONT_CORE_NKFONTPARSER_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

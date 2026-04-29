@@ -1,0 +1,12 @@
+// fxaa.frag.metal.msl — FXAA (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct PSIn{float4 pos[[position]];float2 uv;};
+float Luma(float3 c){return dot(c,float3(0.299f,0.587f,0.114f));}
+fragment float4 fxaaFrag(PSIn i[[stage_in]],texture2d<float> tLDR[[texture(0)]],sampler sL[[sampler(0)]]){
+    float3 rgb=tLDR.sample(sL,i.uv).rgb;float2 ts=1.f/float2(tLDR.get_width(),tLDR.get_height());
+    float lumaM=Luma(rgb);float range=max(lumaM,Luma(tLDR.sample(sL,i.uv+ts*float2(0,1)).rgb))-min(lumaM,Luma(tLDR.sample(sL,i.uv-ts*float2(0,1)).rgb));
+    if(range<0.03125f)return float4(rgb,1.f);
+    float3 c=mix(rgb,(tLDR.sample(sL,i.uv+float2(ts.x,0.f)).rgb+tLDR.sample(sL,i.uv-float2(ts.x,0.f)).rgb)*.5f,range*.75f);
+    return float4(c,1.f);
+}

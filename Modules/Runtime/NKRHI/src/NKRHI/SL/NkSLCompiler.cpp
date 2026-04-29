@@ -1,5 +1,13 @@
 // =============================================================================
-// NkSLCompiler.cpp  — v3.0
+// NkSLCompiler.cpp  — v4.0
+//
+// CORRECTIONS v4.0 :
+//   1. Cache O(1) — NkUnorderedMap<uint64, NkSLCacheEntry> au lieu de NkVector
+//   2. glslang::InitializeProcess() protégé par std::call_once (thread-safe)
+//   3. HashSource() inclut glslVulkanVersion + hlslShaderModelDX11/DX12
+//   4. Dispatch Compile() vers NK_GLSL_VULKAN, NK_HLSL_DX11, NK_HLSL_DX12
+//   5. CompileAllTargets() compatible nouveaux targets
+//   6. FillShaderDesc() compatible nouveaux targets
 // =============================================================================
 #include "NkSLCompiler.h"
 #include "NkSLLexer.h"
@@ -7,33 +15,16 @@
 #include "NKLogger/NkLog.h"
 #include <cstdio>
 #include <cstring>
+#include <mutex>      // std::call_once, std::once_flag
 
-// =============================================================================
-// glslang embarqué — standalone (SANS dépendance Vulkan SDK)
-//
-// Pour embarquer glslang :
-//   git submodule add https://github.com/KhronosGroup/glslang third_party/glslang
-//
-// Dans CMakeLists.txt :
-//   set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
-//   set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
-//   set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-//   add_subdirectory(third_party/glslang)
-//   target_link_libraries(NkSL PRIVATE glslang SPIRV glslang-default-resource-limits)
-//   target_compile_definitions(NkSL PRIVATE NKSL_HAS_GLSLANG)
-//
-// glslang est MULTIPLATFORM : Windows/Linux/macOS/Android/iOS
-// SPIR-V est MULTIPLATFORM : format binaire portable, compilable sur tous les OS
-// =============================================================================
+// glslang embarqué (standalone, sans Vulkan SDK)
 #ifdef NKSL_HAS_GLSLANG
 #  include <glslang/Public/ShaderLang.h>
 #  include <glslang/Public/ResourceLimits.h>
 #  include <glslang/SPIRV/GlslangToSpv.h>
 #endif
 
-// =============================================================================
-// shaderc optionnel (Vulkan SDK) — si disponible, utilisé en priorité
-// =============================================================================
+// shaderc optionnel (Vulkan SDK)
 #ifdef NKSL_HAS_SHADERC
 #  include <shaderc/shaderc.hpp>
 #endif
@@ -47,7 +38,8 @@ using threading::NkScopedLock;
 // =============================================================================
 // Hachage FNV-1a 64-bit
 // =============================================================================
-static uint64 FNV1a64(const void* data, size_t len, uint64 seed = 0xcbf29ce484222325ULL) {
+static uint64 FNV1a64(const void* data, size_t len,
+                       uint64 seed = 0xcbf29ce484222325ULL) {
     const uint8* p = static_cast<const uint8*>(data);
     uint64 h = seed;
     for (size_t i = 0; i < len; i++) { h ^= p[i]; h *= 0x100000001b3ULL; }
@@ -55,7 +47,7 @@ static uint64 FNV1a64(const void* data, size_t len, uint64 seed = 0xcbf29ce48422
 }
 
 // =============================================================================
-// NkSLCache
+// NkSLCache — CORRECTION : NkUnorderedMap → recherche O(1)
 // =============================================================================
 NkSLCache::NkSLCache(const NkString& cacheDir) : mCacheDir(cacheDir) {
     if (!cacheDir.Empty()) Load();
@@ -70,86 +62,82 @@ uint64 NkSLCache::MakeKey(uint64 hash, NkSLTarget t, NkSLStage s) const {
 
 bool NkSLCache::Has(uint64 hash, NkSLTarget t, NkSLStage s) const {
     NkScopedLock lock(mMutex);
-    uint64 k = MakeKey(hash, t, s);
-    for (auto& e : mEntries) if (MakeKey(e.sourceHash, e.target, e.stage) == k) return true;
-    return false;
+    return mEntries.Find(MakeKey(hash, t, s)) != nullptr;
 }
 
-bool NkSLCache::Get(uint64 hash, NkSLTarget t, NkSLStage s, NkSLCacheEntry& out) const {
+bool NkSLCache::Get(uint64 hash, NkSLTarget t, NkSLStage s,
+                    NkSLCacheEntry& out) const {
     NkScopedLock lock(mMutex);
-    uint64 k = MakeKey(hash, t, s);
-    for (auto& e : mEntries) {
-        if (MakeKey(e.sourceHash, e.target, e.stage) == k) { out = e; return true; }
-    }
-    return false;
+    auto* p = mEntries.Find(MakeKey(hash, t, s));
+    if (!p) return false;
+    out = *p;
+    return true;
 }
 
-void NkSLCache::Put(uint64 hash, NkSLTarget t, NkSLStage s, const NkSLCompileResult& r) {
+void NkSLCache::Put(uint64 hash, NkSLTarget t, NkSLStage s,
+                    const NkSLCompileResult& r) {
     NkScopedLock lock(mMutex);
     uint64 k = MakeKey(hash, t, s);
-    for (auto& e : mEntries) {
-        if (MakeKey(e.sourceHash, e.target, e.stage) == k) {
-            e.bytecode = r.bytecode; e.source = r.source; return;
-        }
-    }
     NkSLCacheEntry entry;
     entry.sourceHash = hash; entry.target = t; entry.stage = s;
     entry.bytecode   = r.bytecode; entry.source = r.source;
     entry.isSpirv    = (t == NkSLTarget::NK_SPIRV);
-    mEntries.PushBack(entry);
+    mEntries[k] = entry;
 }
 
-void NkSLCache::Clear() { NkScopedLock lock(mMutex); mEntries.Clear(); }
+void NkSLCache::Clear() {
+    NkScopedLock lock(mMutex);
+    mEntries.Clear();
+}
 
 void NkSLCache::Flush() {
+    NkScopedLock lock(mMutex);
     if (mCacheDir.Empty()) return;
     NkString path = mCacheDir + "/nksl.cache";
     FILE* f = fopen(path.CStr(), "wb");
     if (!f) return;
-    NkScopedLock lock(mMutex);
-    uint32 cnt = (uint32)mEntries.Size();
-    fwrite(&cnt, sizeof(cnt), 1, f);
-    for (auto& e : mEntries) {
-        fwrite(&e.sourceHash, sizeof(uint64), 1, f);
-        uint32 tgt = (uint32)e.target, stg = (uint32)e.stage;
-        fwrite(&tgt, sizeof(uint32), 1, f);
-        fwrite(&stg, sizeof(uint32), 1, f);
-        uint32 srcLen = (uint32)e.source.Size();
-        fwrite(&srcLen, sizeof(uint32), 1, f);
-        if (srcLen) fwrite(e.source.CStr(), 1, srcLen, f);
-        uint32 bcLen = (uint32)e.bytecode.Size();
-        fwrite(&bcLen, sizeof(uint32), 1, f);
-        if (bcLen) fwrite(e.bytecode.Data(), 1, bcLen, f);
-    }
+    uint32 count = (uint32)mEntries.Size();
+    fwrite(&count, sizeof(count), 1, f);
+    mEntries.ForEach([&](uint64 /*key*/, NkSLCacheEntry& e) {
+        fwrite(&e.sourceHash, sizeof(e.sourceHash), 1, f);
+        fwrite(&e.target,     sizeof(e.target),     1, f);
+        fwrite(&e.stage,      sizeof(e.stage),      1, f);
+        fwrite(&e.isSpirv,    sizeof(e.isSpirv),    1, f);
+        uint32 bsz = (uint32)e.bytecode.Size();
+        fwrite(&bsz, sizeof(bsz), 1, f);
+        if (bsz) fwrite(e.bytecode.Data(), 1, bsz, f);
+        uint32 ssz = (uint32)e.source.Size();
+        fwrite(&ssz, sizeof(ssz), 1, f);
+        if (ssz) fwrite(e.source.CStr(), 1, ssz, f);
+    });
     fclose(f);
 }
 
 void NkSLCache::Load() {
-    if (mCacheDir.Empty()) return;
+    NkScopedLock lock(mMutex);
     NkString path = mCacheDir + "/nksl.cache";
     FILE* f = fopen(path.CStr(), "rb");
     if (!f) return;
-    uint32 cnt = 0;
-    fread(&cnt, sizeof(cnt), 1, f);
-    for (uint32 i = 0; i < cnt && !feof(f); i++) {
+    uint32 count = 0;
+    fread(&count, sizeof(count), 1, f);
+    for (uint32 i = 0; i < count; i++) {
         NkSLCacheEntry e;
-        fread(&e.sourceHash, sizeof(uint64), 1, f);
-        uint32 tgt=0, stg=0;
-        fread(&tgt, sizeof(uint32), 1, f);
-        fread(&stg, sizeof(uint32), 1, f);
-        e.target = (NkSLTarget)tgt; e.stage = (NkSLStage)stg;
-        uint32 srcLen=0; fread(&srcLen, sizeof(uint32), 1, f);
-        if (srcLen) {
-            NkVector<char> buf; buf.Resize(srcLen+1);
-            fread(buf.Data(), 1, srcLen, f); buf[srcLen] = '\0';
+        fread(&e.sourceHash, sizeof(e.sourceHash), 1, f);
+        fread(&e.target,     sizeof(e.target),     1, f);
+        fread(&e.stage,      sizeof(e.stage),      1, f);
+        fread(&e.isSpirv,    sizeof(e.isSpirv),    1, f);
+        uint32 bsz = 0; fread(&bsz, sizeof(bsz), 1, f);
+        if (bsz) { e.bytecode.Resize(bsz); fread(e.bytecode.Data(), 1, bsz, f); }
+        uint32 ssz = 0; fread(&ssz, sizeof(ssz), 1, f);
+        if (ssz) {
+            NkVector<char> buf; buf.Resize(ssz+1);
+            fread(buf.Data(), 1, ssz, f); buf[ssz] = '\0';
             e.source = NkString(buf.Data());
         }
-        uint32 bcLen=0; fread(&bcLen, sizeof(uint32), 1, f);
-        if (bcLen) { e.bytecode.Resize(bcLen); fread(e.bytecode.Data(), 1, bcLen, f); }
-        mEntries.PushBack(e);
+        uint64 k = MakeKey(e.sourceHash, e.target, e.stage);
+        mEntries[k] = e;
     }
     fclose(f);
-    NKSL_LOG("Cache loaded: %u entries from %s\n", cnt, path.CStr());
 }
 
 // =============================================================================
@@ -159,15 +147,21 @@ NkSLCompiler::NkSLCompiler(const NkString& cacheDir) : mCache(cacheDir) {}
 
 void NkSLCompiler::SetCacheDir(const NkString& dir) { mCache.SetDirectory(dir); }
 
+// Hash inclut maintenant tous les paramètres différenciant les targets
 uint64 NkSLCompiler::HashSource(const NkString& src, NkSLStage stage,
                                   NkSLTarget target,
                                   const NkSLCompileOptions& opts) const {
     uint64 h = FNV1a64(src.CStr(), src.Size());
-    h = FNV1a64(&stage,  sizeof(stage),  h);
-    h = FNV1a64(&target, sizeof(target), h);
-    h = FNV1a64(&opts.glslVersion, sizeof(uint32), h);
-    h = FNV1a64(&opts.hlslShaderModel, sizeof(uint32), h);
-    h = FNV1a64(&opts.mslVersion, sizeof(uint32), h);
+    h = FNV1a64(&stage,                     sizeof(stage), h);
+    h = FNV1a64(&target,                    sizeof(target), h);
+    h = FNV1a64(&opts.glslVersion,          sizeof(uint32), h);
+    h = FNV1a64(&opts.glslVulkanVersion,    sizeof(uint32), h);
+    h = FNV1a64(&opts.hlslShaderModelDX11,  sizeof(uint32), h);
+    h = FNV1a64(&opts.hlslShaderModelDX12,  sizeof(uint32), h);
+    h = FNV1a64(&opts.mslVersion,           sizeof(uint32), h);
+    h = FNV1a64(&opts.dx12DefaultSpace,     sizeof(uint32), h);
+    h = FNV1a64(&opts.dx12BindlessHeap,     sizeof(bool),   h);
+    h = FNV1a64(&opts.vkDrawParams,         sizeof(bool),   h);
     return h;
 }
 
@@ -175,13 +169,13 @@ uint64 NkSLCompiler::HashSource(const NkString& src, NkSLStage stage,
 // Compile — point d'entrée principal
 // =============================================================================
 NkSLCompileResult NkSLCompiler::Compile(
-    const NkString&          source,
-    NkSLStage                stage,
-    NkSLTarget               target,
+    const NkString&           source,
+    NkSLStage                 stage,
+    NkSLTarget                target,
     const NkSLCompileOptions& opts,
-    const NkString&          filename)
+    const NkString&           filename)
 {
-    // 1. Cache
+    // 1. Cache O(1)
     if (mCacheEnabled) {
         uint64 h = HashSource(source, stage, target, opts);
         NkSLCacheEntry cached;
@@ -199,8 +193,9 @@ NkSLCompileResult NkSLCompiler::Compile(
     NkVector<NkSLCompileError> ppErrors;
     NkString processed = Preprocess(source, "", &ppErrors);
     if (!ppErrors.Empty()) {
-        NkSLCompileResult res; res.success=false; res.errors=ppErrors;
-        res.target=target; res.stage=stage; return res;
+        NkSLCompileResult res; res.success = false;
+        res.errors = ppErrors; res.target = target; res.stage = stage;
+        return res;
     }
 
     // 3. Lexer → Parser → AST
@@ -209,175 +204,141 @@ NkSLCompileResult NkSLCompiler::Compile(
     NkSLProgramNode* ast = parser.Parse();
 
     if (parser.HasErrors()) {
-        NkSLCompileResult res; res.success=false; res.errors=parser.GetErrors();
-        res.target=target; res.stage=stage; delete ast;
+        NkSLCompileResult res; res.success = false;
+        res.errors = parser.GetErrors(); res.target = target; res.stage = stage;
+        delete ast;
         for (auto& e : res.errors)
             NKSL_ERR("%s:%u: %s\n", filename.CStr(), e.line, e.message.CStr());
         return res;
     }
 
-    // 4. Génération
+    // 4. Dispatch par target
     NkSLCompileResult res;
     switch (target) {
+
+        // ── GLSL OpenGL ────────────────────────────────────────────────────────
         case NkSLTarget::NK_GLSL: {
-            NkSLCodeGenGLSL gen; res = gen.Generate(ast, stage, opts); break;
+            NkSLCodeGenGLSL gen;
+            res = gen.Generate(ast, stage, opts);
+            break;
         }
+
+        // ── GLSL Vulkan (NOUVEAU) ──────────────────────────────────────────────
+        case NkSLTarget::NK_GLSL_VULKAN: {
+            NkSLCodeGenGLSLVulkan gen;
+            res = gen.Generate(ast, stage, opts);
+            break;
+        }
+
+        // ── SPIR-V via GLSL Vulkan → glslang ──────────────────────────────────
         case NkSLTarget::NK_SPIRV: {
-            NkSLCodeGenGLSL glslGen;
-            NkSLCompileOptions glslOpts = opts; glslOpts.glslVersion = 450;
-            NkSLCompileResult glslRes = glslGen.Generate(ast, stage, glslOpts);
+            // Générer d'abord le GLSL Vulkan (set/binding corrects)
+            NkSLCodeGenGLSLVulkan vkGen;
+            NkSLCompileResult glslRes = vkGen.Generate(ast, stage, opts);
             if (!glslRes.success) { res = glslRes; break; }
             res = CompileToSPIRV(glslRes.source, stage, opts);
             if (!res.success) {
-                NKSL_ERR("GLSL→SPIR-V failed, returning GLSL text\n");
-                res = glslRes; res.target = NkSLTarget::NK_GLSL;
+                NKSL_ERR("GLSL-Vulkan→SPIR-V failed, returning GLSL-Vulkan text\n");
+                res = glslRes; res.target = NkSLTarget::NK_GLSL_VULKAN;
             }
             break;
         }
-        case NkSLTarget::NK_HLSL: {
-            NkSLCodeGenHLSL gen; res = gen.Generate(ast, stage, opts); break;
+
+        // ── HLSL DirectX 11 / SM5 (renommé, était NK_HLSL) ────────────────────
+        case NkSLTarget::NK_HLSL_DX11: {
+            NkSLCodeGenHLSL_DX11 gen;
+            res = gen.Generate(ast, stage, opts);
+            break;
         }
+
+        // ── HLSL DirectX 12 / SM6 (NOUVEAU) ───────────────────────────────────
+        case NkSLTarget::NK_HLSL_DX12: {
+            NkSLCodeGenHLSL_DX12 gen;
+            res = gen.Generate(ast, stage, opts);
+            break;
+        }
+
+        // ── MSL natif ─────────────────────────────────────────────────────────
         case NkSLTarget::NK_MSL: {
-            // Choisir entre le générateur natif et SPIRV-Cross selon les options
             if (opts.preferSpirvCrossForMSL) {
-                NkSLCodeGenMSLSpirvCross gen;
-                res = gen.Generate(ast, stage, opts);
-                // Si SPIRV-Cross échoue, fallback vers le générateur natif
+                NkSLCodeGenMSLSpirvCross scGen;
+                res = scGen.Generate(ast, stage, opts);
                 if (!res.success) {
-                    NKSL_LOG("SPIRV-Cross MSL failed, falling back to native MSL\n");
+                    NKSL_LOG("SPIRV-Cross MSL failed, falling back to native\n");
                     NkSLCodeGen_MSL nativeGen;
                     res = nativeGen.Generate(ast, stage, opts);
                 }
             } else {
-                NkSLCodeGen_MSL gen; res = gen.Generate(ast, stage, opts);
+                NkSLCodeGen_MSL gen;
+                res = gen.Generate(ast, stage, opts);
             }
             break;
         }
+
+        // ── MSL via SPIRV-Cross ────────────────────────────────────────────────
         case NkSLTarget::NK_MSL_SPIRV_CROSS: {
-            NkSLCodeGenMSLSpirvCross gen; res = gen.Generate(ast, stage, opts); break;
+            NkSLCodeGenMSLSpirvCross gen;
+            res = gen.Generate(ast, stage, opts);
+            if (!res.success) {
+                NkSLCodeGen_MSL fallback;
+                res = fallback.Generate(ast, stage, opts);
+                res.target = NkSLTarget::NK_MSL;
+            }
+            break;
         }
+
+        // ── C++ Software Rasterizer ────────────────────────────────────────────
         case NkSLTarget::NK_CPLUSPLUS: {
-            NkSLCodeGenCPP gen; res = gen.Generate(ast, stage, opts); break;
+            NkSLCodeGenCPP gen;
+            res = gen.Generate(ast, stage, opts);
+            break;
         }
-        default:
-            res.success = false; res.AddError(0, "Unsupported target"); break;
+
+        default: {
+            res.success = false;
+            res.AddError(0, "Unknown target: " + NkString(NkSLTargetName(target)));
+            break;
+        }
     }
 
     delete ast;
 
-    // 5. Cache
-    if (res.success && mCacheEnabled) {
+    // 5. Mise en cache
+    if (mCacheEnabled && res.success) {
         uint64 h = HashSource(source, stage, target, opts);
         mCache.Put(h, target, stage, res);
     }
-
-    if (!res.success)
-        for (auto& e : res.errors)
-            NKSL_ERR("%s:%u: %s\n", filename.CStr(), e.line, e.message.CStr());
-    else
-        NKSL_LOG("Compiled %s stage=%s target=%s (%zu bytes)\n",
-                 filename.CStr(), NkSLStageName(stage), NkSLTargetName(target),
-                 (size_t)res.bytecode.Size());
 
     return res;
 }
 
 // =============================================================================
-// CompileWithReflection — compile + reflection en une seule passe
+// CompileWithReflection
 // =============================================================================
-NkSLCompileResultWithReflection NkSLCompiler::CompileWithReflection(
-    const NkString&          source,
-    NkSLStage                stage,
-    NkSLTarget               target,
+NkSLCompiler::NkSLCompileResultWithReflection NkSLCompiler::CompileWithReflection(
+    const NkString&           source,
+    NkSLStage                 stage,
+    NkSLTarget                target,
     const NkSLCompileOptions& opts,
-    const NkString&          filename)
+    const NkString&           filename)
 {
     NkSLCompileResultWithReflection out;
+    out.result = Compile(source, stage, target, opts, filename);
 
-    // Prétraitement + parsing pour avoir l'AST
-    NkVector<NkSLCompileError> ppErrors;
-    NkString processed = Preprocess(source, "", &ppErrors);
-    if (!ppErrors.Empty()) {
-        out.result.success = false; out.result.errors = ppErrors;
-        return out;
+    if (out.result.success) {
+        out.reflection    = Reflect(source, stage, filename);
+        out.hasReflection = true;
     }
-
-    NkSLLexer  lexer(processed, filename);
-    NkSLParser parser(lexer);
-    NkSLProgramNode* ast = parser.Parse();
-
-    if (parser.HasErrors()) {
-        out.result.success = false; out.result.errors = parser.GetErrors();
-        delete ast; return out;
-    }
-
-    // Reflection depuis l'AST (avant la génération de code)
-    NkSLReflector reflector;
-    out.reflection    = reflector.Reflect(ast, stage);
-    out.hasReflection = true;
-
-    // Génération de code (réutilise l'AST déjà parsé)
-    switch (target) {
-        case NkSLTarget::NK_GLSL: {
-            NkSLCodeGenGLSL gen;
-            out.result = gen.Generate(ast, stage, opts); break;
-        }
-        case NkSLTarget::NK_SPIRV: {
-            NkSLCodeGenGLSL glslGen;
-            NkSLCompileOptions glslOpts = opts; glslOpts.glslVersion = 450;
-            NkSLCompileResult glslRes = glslGen.Generate(ast, stage, glslOpts);
-            if (!glslRes.success) { out.result = glslRes; break; }
-            out.result = CompileToSPIRV(glslRes.source, stage, opts);
-            if (!out.result.success) { out.result = glslRes; out.result.target = NkSLTarget::NK_GLSL; }
-            break;
-        }
-        case NkSLTarget::NK_HLSL: {
-            NkSLCodeGenHLSL gen;
-            out.result = gen.Generate(ast, stage, opts); break;
-        }
-        case NkSLTarget::NK_MSL:
-        case NkSLTarget::NK_MSL_SPIRV_CROSS: {
-            if (opts.preferSpirvCrossForMSL || target == NkSLTarget::NK_MSL_SPIRV_CROSS) {
-                NkSLCodeGenMSLSpirvCross gen;
-                out.result = gen.Generate(ast, stage, opts);
-                if (!out.result.success) {
-                    NkSLCodeGen_MSL nativeGen;
-                    out.result = nativeGen.Generate(ast, stage, opts);
-                }
-            } else {
-                NkSLCodeGen_MSL gen;
-                out.result = gen.Generate(ast, stage, opts);
-            }
-            break;
-        }
-        case NkSLTarget::NK_CPLUSPLUS: {
-            NkSLCodeGenCPP gen;
-            out.result = gen.Generate(ast, stage, opts); break;
-        }
-        default:
-            out.result.success = false; out.result.AddError(0, "Unsupported target"); break;
-    }
-
-    delete ast;
-
-    if (out.result.success && mCacheEnabled) {
-        uint64 h = HashSource(source, stage, target, opts);
-        mCache.Put(h, target, stage, out.result);
-    }
-
     return out;
 }
 
 // =============================================================================
-// Reflect — reflection seule sans génération de code
+// Reflect
 // =============================================================================
-NkSLReflection NkSLCompiler::Reflect(
-    const NkString& source,
-    NkSLStage       stage,
-    const NkString& filename)
-{
+NkSLReflection NkSLCompiler::Reflect(const NkString& source,
+                                       NkSLStage stage,
+                                       const NkString& filename) {
     NkSLReflection empty;
-
     NkVector<NkSLCompileError> ppErrors;
     NkString processed = Preprocess(source, "", &ppErrors);
     if (!ppErrors.Empty()) return empty;
@@ -397,36 +358,27 @@ NkSLReflection NkSLCompiler::Reflect(
 // CompileAllTargets
 // =============================================================================
 NkSLCompiler::MultiTargetResult NkSLCompiler::CompileAllTargets(
-    const NkString&           source,
-    NkSLStage                 stage,
+    const NkString&            source,
+    NkSLStage                  stage,
     const NkVector<NkSLTarget>& targets,
-    const NkSLCompileOptions&  opts,
-    const NkString&            filename)
+    const NkSLCompileOptions&   opts,
+    const NkString&             filename)
 {
     MultiTargetResult multi;
-    // Reflection partagée — parsé une seule fois
+    // Parse une seule fois pour la reflection
     NkVector<NkSLCompileError> ppErrors;
     NkString processed = Preprocess(source, "", &ppErrors);
-    if (!ppErrors.Empty()) {
-        for (auto& t : targets) {
-            NkSLCompileResult r; r.success=false; r.errors=ppErrors; r.target=t; r.stage=stage;
-            multi.results.PushBack(r);
+    if (ppErrors.Empty()) {
+        NkSLLexer  lexer(processed, filename);
+        NkSLParser parser(lexer);
+        NkSLProgramNode* ast = parser.Parse();
+        if (!parser.HasErrors()) {
+            NkSLReflector reflector;
+            multi.reflection = reflector.Reflect(ast, stage);
         }
-        return multi;
+        delete ast;
     }
-
-    NkSLLexer  lexer(processed, filename);
-    NkSLParser parser(lexer);
-    NkSLProgramNode* ast = parser.Parse();
-
-    if (!parser.HasErrors()) {
-        NkSLReflector reflector;
-        multi.reflection = reflector.Reflect(ast, stage);
-    }
-
-    delete ast;
-
-    // Compiler chaque target indépendamment
+    // Compiler chaque target
     for (auto t : targets) {
         multi.results.PushBack(Compile(source, stage, t, opts, filename));
     }
@@ -437,8 +389,8 @@ NkSLCompiler::MultiTargetResult NkSLCompiler::CompileAllTargets(
 // CompileToSPIRV
 // =============================================================================
 NkSLCompileResult NkSLCompiler::CompileToSPIRV(
-    const NkString&          glslSource,
-    NkSLStage                stage,
+    const NkString&           glslSource,
+    NkSLStage                 stage,
     const NkSLCompileOptions& opts)
 {
     NkSLCompileResult res;
@@ -448,7 +400,7 @@ NkSLCompileResult NkSLCompiler::CompileToSPIRV(
     if (GLSLtoSPIRV_shaderc(glslSource, stage, opts, res.bytecode, res.errors)) {
         res.success = true; return res;
     }
-    res.errors.Clear(); // reset errors pour essayer glslang
+    res.errors.Clear();
 #endif
 
 #ifdef NKSL_HAS_GLSLANG
@@ -457,13 +409,8 @@ NkSLCompileResult NkSLCompiler::CompileToSPIRV(
     }
 #endif
 
-    res.success = false;
-    res.AddError(0,
-        "No SPIR-V compiler available.\n"
-        "To embed glslang (recommended, no Vulkan SDK needed):\n"
-        "  git submodule add https://github.com/KhronosGroup/glslang third_party/glslang\n"
-        "  Then build with -DNKSL_HAS_GLSLANG=1\n"
-        "Alternatively install Vulkan SDK and build with -DNKSL_HAS_SHADERC=1");
+    if (res.errors.Empty())
+        res.AddError(0, "No SPIR-V compiler available (install Vulkan SDK or add glslang submodule)");
     return res;
 }
 
@@ -471,87 +418,12 @@ NkSLCompileResult NkSLCompiler::CompileToSPIRV(
 // CompileToMSL_SpirvCross
 // =============================================================================
 NkSLCompileResult NkSLCompiler::CompileToMSL_SpirvCross(
-    const NkString&          source,
-    NkSLStage                stage,
+    const NkString&           source,
+    NkSLStage                 stage,
     const NkSLCompileOptions& opts,
-    const NkString&          filename)
+    const NkString&           filename)
 {
-    NkSLCompileOptions mslOpts = opts;
-    mslOpts.preferSpirvCrossForMSL = true;
-    return Compile(source, stage, NkSLTarget::NK_MSL_SPIRV_CROSS, mslOpts, filename);
-}
-
-// =============================================================================
-// FillShaderDesc
-// =============================================================================
-bool NkSLCompiler::FillShaderDesc(
-    const NkString&          nkslSource,
-    NkSLStage                stage,
-    NkSLTarget               targetApi,
-    NkShaderDesc&            outDesc,
-    const NkSLCompileOptions& opts,
-    const NkString&          filename)
-{
-    NkSLReflection dummy;
-    return FillShaderDescWithReflection(nkslSource, stage, targetApi, outDesc, dummy, opts, filename);
-}
-
-// =============================================================================
-// FillShaderDescWithReflection — remplit NkShaderDesc + reflection
-// =============================================================================
-bool NkSLCompiler::FillShaderDescWithReflection(
-    const NkString&          nkslSource,
-    NkSLStage                stage,
-    NkSLTarget               targetApi,
-    NkShaderDesc&            outDesc,
-    NkSLReflection&          outReflection,
-    const NkSLCompileOptions& opts,
-    const NkString&          filename)
-{
-    auto compiled = CompileWithReflection(nkslSource, stage, targetApi, opts, filename);
-
-    if (!compiled.result.success) {
-        NKSL_ERR("FillShaderDescWithReflection: compilation failed for %s\n", filename.CStr());
-        return false;
-    }
-
-    outReflection = compiled.reflection;
-
-    NkShaderStage rhiStage;
-    switch (stage) {
-        case NkSLStage::NK_VERTEX:       rhiStage = NkShaderStage::NK_VERTEX;    break;
-        case NkSLStage::NK_FRAGMENT:     rhiStage = NkShaderStage::NK_FRAGMENT;  break;
-        case NkSLStage::NK_GEOMETRY:     rhiStage = NkShaderStage::NK_GEOMETRY;  break;
-        case NkSLStage::NK_TESS_CONTROL: rhiStage = NkShaderStage::NK_TESS_CTRL; break;
-        case NkSLStage::NK_TESS_EVAL:    rhiStage = NkShaderStage::NK_TESS_EVAL; break;
-        case NkSLStage::NK_COMPUTE:      rhiStage = NkShaderStage::NK_COMPUTE;   break;
-        default: rhiStage = NkShaderStage::NK_VERTEX;
-    }
-
-    NkShaderStageDesc sd{};
-    sd.stage      = rhiStage;
-    sd.entryPoint = opts.entryPoint.CStr();
-
-    switch (targetApi) {
-        case NkSLTarget::NK_SPIRV:
-            sd.spirvBinary.Resize((uint64)compiled.result.bytecode.Size());
-            memcpy(sd.spirvBinary.Data(), compiled.result.bytecode.Data(), (size_t)compiled.result.bytecode.Size());
-            break;
-        case NkSLTarget::NK_GLSL:
-            sd.glslSource = compiled.result.source.CStr();
-            break;
-        case NkSLTarget::NK_HLSL:
-            sd.hlslSource = compiled.result.source.CStr();
-            break;
-        case NkSLTarget::NK_MSL:
-        case NkSLTarget::NK_MSL_SPIRV_CROSS:
-            sd.mslSource = compiled.result.source.CStr();
-            break;
-        default: break;
-    }
-
-    outDesc.AddStage(sd);
-    return true;
+    return Compile(source, stage, NkSLTarget::NK_MSL_SPIRV_CROSS, opts, filename);
 }
 
 // =============================================================================
@@ -559,27 +431,46 @@ bool NkSLCompiler::FillShaderDescWithReflection(
 // =============================================================================
 NkVector<NkSLCompileError> NkSLCompiler::Validate(const NkString& source,
                                                     const NkString& filename) {
-    NkSLLexer  lexer(source, filename);
+    NkVector<NkSLCompileError> errors;
+    NkVector<NkSLCompileError> ppErrors;
+    NkString processed = Preprocess(source, "", &ppErrors);
+    for (auto& e : ppErrors) errors.PushBack(e);
+
+    NkSLLexer  lexer(processed, filename);
     NkSLParser parser(lexer);
     NkSLProgramNode* ast = parser.Parse();
+    for (auto& e : parser.GetErrors())   errors.PushBack(e);
+    for (auto& e : parser.GetWarnings()) errors.PushBack(e);
+
+    if (!parser.HasErrors()) {
+        NkSLSemantic sem(NkSLStage::NK_VERTEX);
+        NkSLSemanticResult semRes = sem.Analyze(ast);
+        for (auto& e : semRes.errors)   errors.PushBack(e);
+        for (auto& e : semRes.warnings) errors.PushBack(e);
+    }
+
     delete ast;
-    NkVector<NkSLCompileError> errors = parser.GetErrors();
-    for (auto& w : parser.GetWarnings()) errors.PushBack(w);
     return errors;
 }
 
 // =============================================================================
-// Preprocess
+// Preprocess (#include simple + #pragma once)
 // =============================================================================
 NkString NkSLCompiler::Preprocess(const NkString& source,
                                     const NkString& baseDir,
-                                    NkVector<NkSLCompileError>* errors)
+                                    NkVector<NkSLCompileError>* errors,
+                                    NkVector<NkString>* includedFiles)
 {
+    // Guard set propre si appelé en récursion depuis l'extérieur
+    NkVector<NkString> localGuards;
+    if (!includedFiles) includedFiles = &localGuards;
+
     NkString result;
     const char* p = source.CStr();
     uint32 line = 1;
 
     while (*p) {
+        // Skipper les espaces de début de ligne
         const char* lineStart = p;
         while (*p == ' ' || *p == '\t') p++;
 
@@ -592,27 +483,68 @@ NkString NkSLCompiler::Preprocess(const NkString& source,
 
             if (directive == "include") {
                 while (*p == ' ' || *p == '\t') p++;
-                char delim = *p++; char closeDelim = (delim == '"') ? '"' : '>';
+                char delim = *p++;
+                char closeDelim = (delim == '"') ? '"' : '>';
                 NkString fname;
                 while (*p && *p != closeDelim && *p != '\n') fname += *p++;
                 if (*p == closeDelim) p++;
+
                 NkString fullPath = baseDir.Empty() ? fname : (baseDir + "/" + fname);
-                FILE* f = fopen(fullPath.CStr(), "r");
-                if (f) {
-                    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-                    NkVector<char> buf; buf.Resize(sz + 1);
-                    fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
-                    NkString included = Preprocess(NkString(buf.Data()), baseDir, errors);
-                    result += "// #include \"" + fname + "\"\n";
-                    result += included + "\n";
-                } else {
-                    if (errors)
-                        errors->PushBack({line, 0, "", "#include file not found: " + fname, false});
+
+                // Garde d'inclusion (#pragma once émulé)
+                bool alreadyIncluded = false;
+                for (auto& g : *includedFiles) {
+                    if (g == fullPath) { alreadyIncluded = true; break; }
                 }
-            } else if (directive == "pragma" || directive == "version" || directive == "extension") {
+
+                if (!alreadyIncluded) {
+                    includedFiles->PushBack(fullPath);
+                    FILE* f = fopen(fullPath.CStr(), "r");
+                    if (f) {
+                        fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+                        NkVector<char> buf; buf.Resize(sz + 1);
+                        fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
+
+                        // Inclure avec traçage de numéros de lignes (#line)
+                        char lineBuf[64];
+                        snprintf(lineBuf, sizeof(lineBuf),
+                                 "#line 1 \"%s\"\n", fullPath.CStr());
+                        result += NkString(lineBuf);
+                        result += Preprocess(NkString(buf.Data()), baseDir, errors, includedFiles);
+                        snprintf(lineBuf, sizeof(lineBuf),
+                                 "#line %u \"%s\"\n", line + 1, filename.Empty() ? "shader" : filename.CStr());
+                        result += NkString(lineBuf);
+                    } else {
+                        if (errors)
+                            errors->PushBack({line, 0, "", "#include not found: " + fname, false});
+                        // On continue — erreur non fatale
+                    }
+                } else {
+                    // Inclusion déjà faite — on ignore silencieusement
+                    result += "// (already included: " + fname + ")\n";
+                }
+            } else if (directive == "pragma") {
+                // #pragma once → on a déjà le mécanisme inclus
+                // Les autres #pragma passent tels quels
+                NkString rest;
+                while (*p && *p != '\n') rest += *p++;
+                NkString trimmed = rest;
+                // Trim
+                while (!trimmed.Empty() && (trimmed[0] == ' ' || trimmed[0] == '\t'))
+                    trimmed = trimmed.SubString(1);
+                if (trimmed.StartsWith("once")) {
+                    // Signaler au caller qu'on a trouvé #pragma once
+                    // (géré via includedFiles — on ne fait rien de plus)
+                } else {
+                    result += "#pragma" + rest;
+                }
+            } else if (directive == "version" || directive == "extension") {
+                // Ignoré — on génère nous-même l'en-tête
                 while (*p && *p != '\n') p++;
             } else {
-                result += '#'; result += directive;
+                // Autres directives (#if, #define, #undef…) passent tels quels
+                result += '#';
+                result += directive;
                 while (*p && *p != '\n') result += *p++;
             }
         } else {
@@ -620,7 +552,11 @@ NkString NkSLCompiler::Preprocess(const NkString& source,
         }
 
         if (*p == '\n') { result += '\n'; p++; line++; }
-        else if (*p == '\r') { p++; if (*p == '\n') { result += '\n'; p++; } line++; }
+        else if (*p == '\r') {
+            p++;
+            if (*p == '\n') { result += '\n'; p++; }
+            line++;
+        }
     }
     return result;
 }
@@ -629,16 +565,18 @@ NkString NkSLCompiler::Preprocess(const NkString& source,
 // CompileWithSemantic
 // =============================================================================
 NkSLCompileResult NkSLCompiler::CompileWithSemantic(
-    const NkString&          source,
-    NkSLStage                stage,
-    NkSLTarget               target,
+    const NkString&           source,
+    NkSLStage                 stage,
+    NkSLTarget                target,
     const NkSLCompileOptions& opts,
-    const NkString&          filename)
+    const NkString&           filename)
 {
     NkVector<NkSLCompileError> ppErrors;
     NkString processed = Preprocess(source, "", &ppErrors);
     if (!ppErrors.Empty()) {
-        NkSLCompileResult res; res.success=false; res.errors=ppErrors; return res;
+        NkSLCompileResult res; res.success = false;
+        res.errors = ppErrors; res.target = target; res.stage = stage;
+        return res;
     }
 
     NkSLLexer  lexer(processed, filename);
@@ -646,214 +584,279 @@ NkSLCompileResult NkSLCompiler::CompileWithSemantic(
     NkSLProgramNode* ast = parser.Parse();
 
     if (parser.HasErrors()) {
-        NkSLCompileResult res; res.success=false; res.errors=parser.GetErrors();
+        NkSLCompileResult res; res.success = false;
+        res.errors = parser.GetErrors(); res.target = target; res.stage = stage;
         delete ast; return res;
     }
 
-    NkSLSemantic semantic(stage);
-    NkSLSemanticResult semResult = semantic.Analyze(ast);
-
+    // Analyse sémantique
+    NkSLSemantic sem(stage);
+    NkSLSemanticResult semResult = sem.Analyze(ast);
     if (!semResult.success) {
-        NkSLCompileResult res; res.success=false;
-        res.errors=semResult.errors; res.warnings=semResult.warnings;
-        delete ast;
-        for (auto& e : res.errors)
-            NKSL_ERR("%s:%u [semantic]: %s\n", filename.CStr(), e.line, e.message.CStr());
-        return res;
+        NkSLCompileResult res; res.success = false;
+        res.errors   = semResult.errors;
+        res.warnings = semResult.warnings;
+        res.target = target; res.stage = stage;
+        delete ast; return res;
     }
 
+    // Génération
     NkSLCompileResult res;
     switch (target) {
-        case NkSLTarget::NK_GLSL: { NkSLCodeGenGLSL gen; res = gen.Generate(ast, stage, opts); break; }
-        case NkSLTarget::NK_SPIRV: {
-            NkSLCodeGenGLSL glslGen;
-            NkSLCompileOptions glslOpts = opts; glslOpts.glslVersion = 450;
-            NkSLCompileResult glslRes = glslGen.Generate(ast, stage, glslOpts);
-            if (!glslRes.success) { res = glslRes; break; }
-            res = CompileToSPIRV(glslRes.source, stage, opts);
-            if (!res.success) { res = glslRes; res.target = NkSLTarget::NK_GLSL; }
-            break;
-        }
-        case NkSLTarget::NK_HLSL: { NkSLCodeGenHLSL gen; res = gen.Generate(ast, stage, opts); break; }
-        case NkSLTarget::NK_MSL:
-        case NkSLTarget::NK_MSL_SPIRV_CROSS: {
-            if (opts.preferSpirvCrossForMSL) {
-                NkSLCodeGenMSLSpirvCross gen; res = gen.Generate(ast, stage, opts);
-                if (!res.success) { NkSLCodeGen_MSL ng; res = ng.Generate(ast, stage, opts); }
-            } else { NkSLCodeGen_MSL gen; res = gen.Generate(ast, stage, opts); }
-            break;
-        }
-        case NkSLTarget::NK_CPLUSPLUS: { NkSLCodeGenCPP gen; res = gen.Generate(ast, stage, opts); break; }
-        default: res.success=false; res.AddError(0, "Unsupported target"); break;
+        case NkSLTarget::NK_GLSL:          { NkSLCodeGenGLSL         g; res = g.Generate(ast, stage, opts); break; }
+        case NkSLTarget::NK_GLSL_VULKAN:   { NkSLCodeGenGLSLVulkan   g; res = g.Generate(ast, stage, opts); break; }
+        case NkSLTarget::NK_HLSL_DX11:     { NkSLCodeGenHLSL_DX11    g; res = g.Generate(ast, stage, opts); break; }
+        case NkSLTarget::NK_HLSL_DX12:     { NkSLCodeGenHLSL_DX12    g; res = g.Generate(ast, stage, opts); break; }
+        case NkSLTarget::NK_MSL:           { NkSLCodeGen_MSL          g; res = g.Generate(ast, stage, opts); break; }
+        case NkSLTarget::NK_CPLUSPLUS:     { NkSLCodeGenCPP           g; res = g.Generate(ast, stage, opts); break; }
+        default:                           { NkSLCodeGenGLSL          g; res = g.Generate(ast, stage, opts); break; }
     }
 
-    delete ast;
     for (auto& w : semResult.warnings) res.warnings.PushBack(w);
-
-    if (res.success && mCacheEnabled) {
-        uint64 h = HashSource(source, stage, target, opts);
-        mCache.Put(h, target, stage, res);
-    }
+    delete ast;
     return res;
 }
 
 // =============================================================================
-// GLSLtoSPIRV_shaderc (Vulkan SDK optionnel)
+// FillShaderDesc — compatible nouveaux targets
 // =============================================================================
-#ifdef NKSL_HAS_SHADERC
-bool NkSLCompiler::GLSLtoSPIRV_shaderc(
-    const NkString& glsl, NkSLStage stage, const NkSLCompileOptions& opts,
-    NkVector<uint8>& spirvOut, NkVector<NkSLCompileError>& errors)
+bool NkSLCompiler::FillShaderDesc(
+    const NkString&           nkslSource,
+    NkSLStage                 stage,
+    NkSLTarget                targetApi,
+    NkShaderDesc&             outDesc,
+    const NkSLCompileOptions& opts,
+    const NkString&           filename)
 {
-    shaderc_shader_kind kind;
-    switch (stage) {
-        case NkSLStage::NK_VERTEX:       kind = shaderc_vertex_shader;           break;
-        case NkSLStage::NK_FRAGMENT:     kind = shaderc_fragment_shader;         break;
-        case NkSLStage::NK_GEOMETRY:     kind = shaderc_geometry_shader;         break;
-        case NkSLStage::NK_TESS_CONTROL: kind = shaderc_tess_control_shader;     break;
-        case NkSLStage::NK_TESS_EVAL:    kind = shaderc_tess_evaluation_shader;  break;
-        case NkSLStage::NK_COMPUTE:      kind = shaderc_compute_shader;          break;
-        default: kind = shaderc_vertex_shader;
-    }
-    shaderc::Compiler compiler;
-    shaderc::CompileOptions shadercOpts;
-    shadercOpts.SetTargetEnvironment(shaderc_target_env_vulkan,
-        opts.vulkanVersion >= 120 ? shaderc_env_version_vulkan_1_2 :
-        opts.vulkanVersion >= 110 ? shaderc_env_version_vulkan_1_1 :
-                                    shaderc_env_version_vulkan_1_0);
-    if (opts.optimize)  shadercOpts.SetOptimizationLevel(shaderc_optimization_level_performance);
-    if (opts.debugInfo) shadercOpts.SetGenerateDebugInfo();
-    auto result = compiler.CompileGlslToSpv(glsl.CStr(), kind, "nksl_shader", shadercOpts);
-    if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
-        errors.PushBack({0, 0, "", NkString(result.GetErrorMessage()), true}); return false;
-    }
-    size_t wordCount = result.cend() - result.cbegin();
-    spirvOut.Resize(wordCount * sizeof(uint32));
-    memcpy(spirvOut.Data(), result.cbegin(), wordCount * sizeof(uint32));
-    NKSL_LOG("shaderc: SPIR-V generated (%zu words)\n", wordCount); return true;
+    NkSLReflection dummy;
+    return FillShaderDescWithReflection(nkslSource, stage, targetApi,
+                                         outDesc, dummy, opts, filename);
 }
-#else
-bool NkSLCompiler::GLSLtoSPIRV_shaderc(const NkString&, NkSLStage,
-    const NkSLCompileOptions&, NkVector<uint8>&, NkVector<NkSLCompileError>&)
-{ return false; }
-#endif
+
+bool NkSLCompiler::FillShaderDescWithReflection(
+    const NkString&           nkslSource,
+    NkSLStage                 stage,
+    NkSLTarget                targetApi,
+    NkShaderDesc&             outDesc,
+    NkSLReflection&           outReflection,
+    const NkSLCompileOptions& opts,
+    const NkString&           filename)
+{
+    auto compiled = CompileWithReflection(nkslSource, stage, targetApi, opts, filename);
+    if (!compiled.result.success) return false;
+    outReflection = compiled.reflection;
+
+    NkShaderStageDesc sd{};
+    sd.entryPoint = opts.entryPoint.CStr();
+
+    switch (stage) {
+        case NkSLStage::NK_VERTEX:   sd.stage = NkShaderStage::NK_VERTEX;   break;
+        case NkSLStage::NK_FRAGMENT: sd.stage = NkShaderStage::NK_FRAGMENT; break;
+        case NkSLStage::NK_COMPUTE:  sd.stage = NkShaderStage::NK_COMPUTE;  break;
+        default:                     sd.stage = NkShaderStage::NK_VERTEX;   break;
+    }
+
+    switch (targetApi) {
+        case NkSLTarget::NK_GLSL:
+        case NkSLTarget::NK_GLSL_VULKAN:
+            sd.glslSource = compiled.result.source.CStr(); break;
+        case NkSLTarget::NK_HLSL_DX11:
+        case NkSLTarget::NK_HLSL_DX12:
+            sd.hlslSource = compiled.result.source.CStr(); break;
+        case NkSLTarget::NK_MSL:
+        case NkSLTarget::NK_MSL_SPIRV_CROSS:
+            sd.mslSource  = compiled.result.source.CStr(); break;
+        case NkSLTarget::NK_SPIRV: {
+            sd.spirvBinary.Resize((uint64)compiled.result.bytecode.Size());
+            memcpy(sd.spirvBinary.Data(),
+                   compiled.result.bytecode.Data(),
+                   (size_t)compiled.result.bytecode.Size());
+            break;
+        }
+        default: break;
+    }
+
+    outDesc.AddStage(sd);
+    return true;
+}
 
 // =============================================================================
-// GLSLtoSPIRV_glslang (embarqué standalone — RECOMMANDÉ)
+// GLSLtoSPIRV_glslang
+// CORRECTION : protégé par std::call_once (thread-safe)
 // =============================================================================
-#ifdef NKSL_HAS_GLSLANG
 bool NkSLCompiler::GLSLtoSPIRV_glslang(
-    const NkString& glsl, NkSLStage stage, const NkSLCompileOptions& opts,
-    NkVector<uint8>& spirvOut, NkVector<NkSLCompileError>& errors)
+    const NkString&           glsl,
+    NkSLStage                 stage,
+    const NkSLCompileOptions& opts,
+    NkVector<uint8>&          spirvOut,
+    NkVector<NkSLCompileError>& errors)
 {
-    static bool initialized = false;
-    if (!initialized) { glslang::InitializeProcess(); initialized = true; }
+#ifdef NKSL_HAS_GLSLANG
+    // InitializeProcess() est appelé une seule fois, même depuis plusieurs threads
+    static std::once_flag sInitFlag;
+    std::call_once(sInitFlag, []() { glslang::InitializeProcess(); });
 
     EShLanguage lang;
     switch (stage) {
-        case NkSLStage::NK_VERTEX:       lang = EShLangVertex;          break;
-        case NkSLStage::NK_FRAGMENT:     lang = EShLangFragment;        break;
-        case NkSLStage::NK_GEOMETRY:     lang = EShLangGeometry;        break;
-        case NkSLStage::NK_TESS_CONTROL: lang = EShLangTessControl;     break;
-        case NkSLStage::NK_TESS_EVAL:    lang = EShLangTessEvaluation;  break;
-        case NkSLStage::NK_COMPUTE:      lang = EShLangCompute;         break;
-        default: lang = EShLangVertex;
+        case NkSLStage::NK_VERTEX:       lang = EShLangVertex;         break;
+        case NkSLStage::NK_FRAGMENT:     lang = EShLangFragment;       break;
+        case NkSLStage::NK_GEOMETRY:     lang = EShLangGeometry;       break;
+        case NkSLStage::NK_TESS_CONTROL: lang = EShLangTessControl;    break;
+        case NkSLStage::NK_TESS_EVAL:    lang = EShLangTessEvaluation; break;
+        case NkSLStage::NK_COMPUTE:      lang = EShLangCompute;        break;
+        default:                         lang = EShLangVertex;         break;
     }
 
     glslang::TShader shader(lang);
     const char* src = glsl.CStr();
     shader.setStrings(&src, 1);
 
-    int glslVer = (int)opts.glslVersion;
+    uint32 glslVer = opts.glslVulkanVersion;
     if (glslVer < 450) glslVer = 450;
-
-    shader.setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 100);
-    glslang::EshTargetClientVersion clientVer =
-        opts.vulkanVersion >= 120 ? glslang::EShTargetVulkan_1_2 :
-        opts.vulkanVersion >= 110 ? glslang::EShTargetVulkan_1_1 :
-                                    glslang::EShTargetVulkan_1_0;
-    shader.setEnvClient(glslang::EShClientVulkan, clientVer);
+    shader.setEnvInput(glslang::EShSourceGlsl, lang,
+                       glslang::EShClientVulkan, (int)glslVer);
+    shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_0);
     shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
 
-    EShMessages msgs = EShMsgSpvRules;
-    if (opts.debugInfo) msgs = (EShMessages)(msgs | EShMsgDebugInfo);
-
-    // GetDefaultResources() fourni par glslang-default-resource-limits
-    if (!shader.parse(GetDefaultResources(), glslVer, false, msgs)) {
-        errors.PushBack({0, 0, "", NkString(shader.getInfoLog()), true});
-        NKSL_ERR("glslang parse: %s\n", shader.getInfoLog()); return false;
+    EShMessages msgs = static_cast<EShMessages>(
+        EShMsgSpvRules | EShMsgVulkanRules);
+    if (!shader.parse(GetDefaultResources(), (int)glslVer, false, msgs)) {
+        NkString log(shader.getInfoLog());
+        errors.PushBack({0, 0, "", "glslang: " + log, true});
+        return false;
     }
 
     glslang::TProgram program;
     program.addShader(&shader);
     if (!program.link(msgs)) {
-        errors.PushBack({0, 0, "", NkString(program.getInfoLog()), true});
-        NKSL_ERR("glslang link: %s\n", program.getInfoLog()); return false;
+        NkString log(program.getInfoLog());
+        errors.PushBack({0, 0, "", "glslang link: " + log, true});
+        return false;
     }
 
-    std::vector<uint32> spv;
+    std::vector<uint32_t> spv;
     spv::SpvBuildLogger spvLogger;
     glslang::SpvOptions spvOpts;
     spvOpts.generateDebugInfo = opts.debugInfo;
-    spvOpts.disableOptimizer  = !opts.optimize;
+    spvOpts.optimizeSize      = opts.optimize;
     glslang::GlslangToSpv(*program.getIntermediate(lang), spv, &spvLogger, &spvOpts);
 
     if (!spvLogger.getAllMessages().empty())
-        NKSL_LOG("glslang SPV: %s\n", spvLogger.getAllMessages().c_str());
+        NKSL_LOG("SPIR-V log: %s\n", spvLogger.getAllMessages().c_str());
 
-    spirvOut.Resize(spv.size() * sizeof(uint32));
-    memcpy(spirvOut.Data(), spv.data(), spv.size() * sizeof(uint32));
-    NKSL_LOG("glslang: SPIR-V generated (%zu words)\n", spv.size()); return true;
-}
+    spirvOut.Resize(spv.size() * sizeof(uint32_t));
+    memcpy(spirvOut.Data(), spv.data(), spirvOut.Size());
+    return true;
+
 #else
-bool NkSLCompiler::GLSLtoSPIRV_glslang(const NkString&, NkSLStage,
-    const NkSLCompileOptions&, NkVector<uint8>&, NkVector<NkSLCompileError>&)
-{ return false; }
+    (void)glsl; (void)stage; (void)opts; (void)spirvOut;
+    errors.PushBack({0, 0, "", "glslang not available (compile with NKSL_HAS_GLSLANG)", true});
+    return false;
 #endif
+}
 
 // =============================================================================
-// NkSLShaderLibrary
+// GLSLtoSPIRV_shaderc
 // =============================================================================
-NkSLShaderLibrary::NkSLShaderLibrary(NkSLCompiler* compiler, const NkString& baseDir)
+bool NkSLCompiler::GLSLtoSPIRV_shaderc(
+    const NkString&           glsl,
+    NkSLStage                 stage,
+    const NkSLCompileOptions& opts,
+    NkVector<uint8>&          spirvOut,
+    NkVector<NkSLCompileError>& errors)
+{
+#ifdef NKSL_HAS_SHADERC
+    shaderc::Compiler compiler;
+    shaderc::CompileOptions shadercOpts;
+    shadercOpts.SetSourceLanguage(shaderc_source_language_glsl);
+    if (opts.optimize) shadercOpts.SetOptimizationLevel(shaderc_optimization_level_performance);
+    if (opts.debugInfo) shadercOpts.SetGenerateDebugInfo();
+    shadercOpts.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
+
+    shaderc_shader_kind kind;
+    switch (stage) {
+        case NkSLStage::NK_VERTEX:   kind = shaderc_vertex_shader;   break;
+        case NkSLStage::NK_FRAGMENT: kind = shaderc_fragment_shader; break;
+        case NkSLStage::NK_COMPUTE:  kind = shaderc_compute_shader;  break;
+        default:                     kind = shaderc_vertex_shader;   break;
+    }
+
+    auto result = compiler.CompileGlslToSpv(glsl.CStr(), kind, "shader.glsl", shadercOpts);
+    if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
+        errors.PushBack({0, 0, "", NkString("shaderc: ") + NkString(result.GetErrorMessage().c_str()), true});
+        return false;
+    }
+
+    const uint8* data = reinterpret_cast<const uint8*>(result.begin());
+    size_t sz = (result.end() - result.begin()) * sizeof(uint32_t);
+    spirvOut.Resize(sz);
+    memcpy(spirvOut.Data(), data, sz);
+    return true;
+
+#else
+    (void)glsl; (void)stage; (void)opts; (void)spirvOut;
+    errors.PushBack({0, 0, "", "shaderc not available", true});
+    return false;
+#endif
+}
+
+// =============================================================================
+// NkSLShaderLibrary — CORRECTION : mutex sur les accès lecture
+// =============================================================================
+NkSLShaderLibrary::NkSLShaderLibrary(NkSLCompiler* compiler,
+                                       const NkString& baseDir)
     : mCompiler(compiler), mBaseDir(baseDir) {}
 
-bool NkSLShaderLibrary::Register(const NkString& name, const NkString& filePath,
+bool NkSLShaderLibrary::Register(const NkString& name,
+                                   const NkString& filePath,
                                    const NkVector<NkSLStage>& stages) {
+    NkSLMutexLock lock(mMutex);
     NkString fullPath = mBaseDir.Empty() ? filePath : (mBaseDir + "/" + filePath);
     FILE* f = fopen(fullPath.CStr(), "r");
     if (!f) { NKSL_ERR("ShaderLibrary: cannot open '%s'\n", fullPath.CStr()); return false; }
     fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
     NkVector<char> buf; buf.Resize(sz + 1);
     fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
-    ShaderEntry entry;
-    entry.name=name; entry.sourcePath=fullPath; entry.source=NkString(buf.Data());
-    entry.stages=stages; entry.dirty=true;
-    mEntries.PushBack(entry); return true;
+
+    ShaderEntry e;
+    e.name       = name;
+    e.sourcePath = fullPath;
+    e.source     = NkString(buf.Data());
+    e.stages     = stages;
+    e.dirty      = true;
+    mEntries.PushBack(e);
+    return true;
 }
 
-bool NkSLShaderLibrary::RegisterInline(const NkString& name, const NkString& source,
+bool NkSLShaderLibrary::RegisterInline(const NkString& name,
+                                        const NkString& source,
                                         const NkVector<NkSLStage>& stages) {
-    ShaderEntry entry;
-    entry.name=name; entry.source=source; entry.stages=stages; entry.dirty=true;
-    mEntries.PushBack(entry); return true;
+    NkSLMutexLock lock(mMutex);
+    ShaderEntry e;
+    e.name   = name; e.source = source; e.stages = stages; e.dirty = true;
+    mEntries.PushBack(e);
+    return true;
 }
 
-bool NkSLShaderLibrary::CompileAll(NkSLTarget target, const NkSLCompileOptions& opts) {
+bool NkSLShaderLibrary::CompileAll(NkSLTarget target,
+                                    const NkSLCompileOptions& opts) {
+    NkSLMutexLock lock(mMutex);
     bool allOk = true;
     for (auto& e : mEntries) {
         if (!e.dirty) continue;
         e.compiled.Clear();
         bool firstStage = true;
         for (auto stage : e.stages) {
-            auto compiled = mCompiler->CompileWithReflection(e.source, stage, target, opts, e.name);
+            auto compiled = mCompiler->CompileWithReflection(e.source, stage, target,
+                                                              opts, e.name);
             e.compiled.PushBack(compiled.result);
-            // Stocker la reflection du premier stage (généralement vertex)
             if (firstStage && compiled.hasReflection) {
                 e.reflection = compiled.reflection; firstStage = false;
             }
             if (!compiled.result.success) {
                 allOk = false;
-                NKSL_ERR("ShaderLibrary: '%s' stage=%s FAILED\n", e.name.CStr(), NkSLStageName(stage));
+                NKSL_ERR("ShaderLibrary: '%s' stage=%s FAILED\n",
+                          e.name.CStr(), NkSLStageName(stage));
             }
         }
         e.dirty = false;
@@ -863,7 +866,8 @@ bool NkSLShaderLibrary::CompileAll(NkSLTarget target, const NkSLCompileOptions& 
 
 const NkSLCompileResult* NkSLShaderLibrary::Get(const NkString& name,
                                                   NkSLStage stage,
-                                                  NkSLTarget target) const {
+                                                  NkSLTarget /*target*/) const {
+    NkSLMutexLock lock(mMutex);  // CORRECTION : mutex sur la lecture
     for (auto& e : mEntries) {
         if (e.name != name) continue;
         for (uint32 i = 0; i < (uint32)e.stages.Size(); i++) {
@@ -875,6 +879,7 @@ const NkSLCompileResult* NkSLShaderLibrary::Get(const NkString& name,
 }
 
 const NkSLReflection* NkSLShaderLibrary::GetReflection(const NkString& name) const {
+    NkSLMutexLock lock(mMutex);  // CORRECTION : mutex sur la lecture
     for (auto& e : mEntries) {
         if (e.name == name) return &e.reflection;
     }
@@ -888,38 +893,41 @@ bool NkSLShaderLibrary::FillShaderDesc(const NkString& name, NkSLTarget target,
     return FillShaderDescWithReflection(name, target, outDesc, dummy, opts);
 }
 
-bool NkSLShaderLibrary::FillShaderDescWithReflection(const NkString& name,
-                                                       NkSLTarget target,
-                                                       NkShaderDesc& outDesc,
-                                                       NkSLReflection& outReflection,
-                                                       const NkSLCompileOptions& opts) const {
+bool NkSLShaderLibrary::FillShaderDescWithReflection(
+    const NkString& name, NkSLTarget target, NkShaderDesc& outDesc,
+    NkSLReflection& outReflection, const NkSLCompileOptions& opts) const
+{
+    NkSLMutexLock lock(mMutex);
     for (auto& e : mEntries) {
         if (e.name != name) continue;
         outReflection = e.reflection;
         for (uint32 i = 0; i < (uint32)e.stages.Size(); i++) {
             auto stage = e.stages[i];
-            const NkSLCompileResult* res = (i < (uint32)e.compiled.Size()) ? &e.compiled[i] : nullptr;
+            const NkSLCompileResult* res = (i < (uint32)e.compiled.Size())
+                ? &e.compiled[i] : nullptr;
             NkSLCompileResult compiled;
             if (!res || !res->success) {
-                compiled = const_cast<NkSLCompiler*>(mCompiler)->Compile(e.source, stage, target, opts, name);
+                compiled = mCompiler->Compile(e.source, stage, target, opts, name);
                 if (!compiled.success) return false;
                 res = &compiled;
             }
+
             NkShaderStageDesc sd{};
             sd.entryPoint = opts.entryPoint.CStr();
             switch (stage) {
                 case NkSLStage::NK_VERTEX:   sd.stage = NkShaderStage::NK_VERTEX;   break;
                 case NkSLStage::NK_FRAGMENT: sd.stage = NkShaderStage::NK_FRAGMENT; break;
                 case NkSLStage::NK_COMPUTE:  sd.stage = NkShaderStage::NK_COMPUTE;  break;
-                default: sd.stage = NkShaderStage::NK_VERTEX;
+                default:                     sd.stage = NkShaderStage::NK_VERTEX;   break;
             }
-            if (target == NkSLTarget::NK_GLSL)  sd.glslSource = res->source.CStr();
-            if (target == NkSLTarget::NK_HLSL)  sd.hlslSource = res->source.CStr();
-            if (target == NkSLTarget::NK_MSL || target == NkSLTarget::NK_MSL_SPIRV_CROSS)
-                sd.mslSource = res->source.CStr();
+
+            if (NkSLTargetIsGLSL(target)) sd.glslSource = res->source.CStr();
+            if (NkSLTargetIsHLSL(target)) sd.hlslSource = res->source.CStr();
+            if (NkSLTargetIsMSL(target))  sd.mslSource  = res->source.CStr();
             if (target == NkSLTarget::NK_SPIRV) {
                 sd.spirvBinary.Resize((uint64)res->bytecode.Size());
-                memcpy(sd.spirvBinary.Data(), res->bytecode.Data(), (size_t)res->bytecode.Size());
+                memcpy(sd.spirvBinary.Data(), res->bytecode.Data(),
+                       (size_t)res->bytecode.Size());
             }
             outDesc.AddStage(sd);
         }
@@ -929,18 +937,32 @@ bool NkSLShaderLibrary::FillShaderDescWithReflection(const NkString& name,
     return false;
 }
 
-uint32 NkSLShaderLibrary::HotReload(NkSLTarget target, const NkSLCompileOptions& opts) {
+uint32 NkSLShaderLibrary::HotReload(NkSLTarget target,
+                                     const NkSLCompileOptions& opts) {
     uint32 reloaded = 0;
-    for (auto& e : mEntries) {
-        if (e.sourcePath.Empty()) continue;
-        FILE* f = fopen(e.sourcePath.CStr(), "r");
-        if (!f) continue;
-        fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-        NkVector<char> buf; buf.Resize(sz+1);
-        fread(buf.Data(), 1, sz, f); buf[sz]='\0'; fclose(f);
-        NkString newSrc(buf.Data());
-        if (newSrc != e.source) { e.source=newSrc; e.dirty=true; NKSL_LOG("HotReload: '%s' changed\n", e.name.CStr()); }
-        if (e.dirty) { CompileAll(target, opts); reloaded++; }
+    // Vérification des fichiers sans tenir le mutex (I/O)
+    NkVector<NkString> changed;
+    {
+        NkSLMutexLock lock(mMutex);
+        for (auto& e : mEntries) {
+            if (e.sourcePath.Empty()) continue;
+            FILE* f = fopen(e.sourcePath.CStr(), "r");
+            if (!f) continue;
+            fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+            NkVector<char> buf; buf.Resize(sz + 1);
+            fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
+            NkString newSrc(buf.Data());
+            if (newSrc != e.source) {
+                e.source = newSrc; e.dirty = true;
+                NKSL_LOG("HotReload: '%s' changed\n", e.name.CStr());
+            }
+        }
+    }
+    // Compilation en dehors du mutex principal (évite deadlock si Compile réentre)
+    CompileAll(target, opts);
+    {
+        NkSLMutexLock lock(mMutex);
+        for (auto& e : mEntries) if (!e.dirty) reloaded++;
     }
     return reloaded;
 }

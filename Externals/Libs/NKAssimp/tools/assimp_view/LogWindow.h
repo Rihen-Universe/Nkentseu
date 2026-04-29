@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#if (!defined AV_LOG_WINDOW_H_INCLUDED)
+#if (!defined AV_LOG_WINDOW_H)
 #define AV_LOG_WINDOW_H_INCLUDE
 
 namespace AssimpView

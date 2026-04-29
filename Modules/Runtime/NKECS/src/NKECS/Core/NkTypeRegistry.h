@@ -493,6 +493,11 @@ namespace nkentseu {
     } // namespace ecs
 } // namespace nkentseu
 
+// ============================================================
+// Copyright © 2025-2026 Rihen. All rights reserved.
+// Proprietary License - Free to use and modify
+// ============================================================
+
 // =============================================================================
 // EXEMPLES D'UTILISATION DE NKTYPREGISTRY.H
 // =============================================================================

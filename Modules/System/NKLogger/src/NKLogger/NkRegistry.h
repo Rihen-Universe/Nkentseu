@@ -1,15 +1,15 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core/NkLogger/src/NkLogger/NkRegistry.h
 // DESCRIPTION: Registre global des loggers (similaire à spdlog).
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#include "NKLogger/NkLoggerExport.h"
+#include "NKLogger/NkLoggerApi.h"
 #include "NKLogger/NkLogger.h"
-#include "NKLogger/NkSync.h"
+#include "NKThreading/NkMutex.h"
 
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/String/NkStringUtils.h"
@@ -26,7 +26,7 @@ namespace nkentseu {
     // CLASSE: NkRegistry
     // DESCRIPTION: Registre global singleton pour la gestion des loggers
     // -------------------------------------------------------------------------
-    class NKLOGGER_API NkRegistry {
+    class NKENTSEU_LOGGER_API NkRegistry {
         public:
             // ---------------------------------------------------------------------
             // MÉTHODES STATIQUES (SINGLETON)
@@ -212,31 +212,31 @@ namespace nkentseu {
      * @param name Nom du logger
      * @return Pointeur vers le logger
      */
-    NKLOGGER_API memory::NkSharedPtr<NkLogger> GetLogger(const NkString &name);
+    NKENTSEU_LOGGER_API memory::NkSharedPtr<NkLogger> GetLogger(const NkString &name);
 
     /**
      * @brief Obtient le logger par défaut
      * @return Pointeur vers le logger par défaut
      */
-    NKLOGGER_API memory::NkSharedPtr<NkLogger> GetDefaultLogger();
+    NKENTSEU_LOGGER_API memory::NkSharedPtr<NkLogger> GetDefaultLogger();
 
     /**
      * @brief Crée un logger avec un nom spécifique
      * @param name Nom du logger
      * @return Nouveau logger
      */
-    NKLOGGER_API memory::NkSharedPtr<NkLogger> CreateLogger(const NkString &name);
+    NKENTSEU_LOGGER_API memory::NkSharedPtr<NkLogger> CreateLogger(const NkString &name);
 
     /**
      * @brief Supprime tous les loggers
      */
-    NKLOGGER_API void DropAll();
+    NKENTSEU_LOGGER_API void DropAll();
 
     /**
      * @brief Supprime un logger spécifique
      * @param name Nom du logger à supprimer
      */
-    NKLOGGER_API void Drop(const NkString &name);
+    NKENTSEU_LOGGER_API void Drop(const NkString &name);
 
 } // namespace nkentseu
 

@@ -40,8 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ----------------------------------------------------------------------
 */
 
-#ifndef AI_PROCESS_HELPER_H_INCLUDED
-#define AI_PROCESS_HELPER_H_INCLUDED
+#ifndef AI_PROCESS_HELPER_H
+#define AI_PROCESS_HELPER_H
 
 #include <assimp/anim.h>
 #include <assimp/material.h>
@@ -373,4 +373,4 @@ class DestroySpatialSortProcess : public BaseProcess {
 
 } // namespace Assimp
 
-#endif // !! AI_PROCESS_HELPER_H_INCLUDED
+#endif // !! AI_PROCESS_HELPER_H

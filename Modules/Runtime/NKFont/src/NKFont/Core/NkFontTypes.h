@@ -1,15 +1,15 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKFont/Core/NkFontTypes.h
 // DESCRIPTION: Types de base et macros du système NKFont.
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#ifndef NK_NKFONT_CORE_NKFONTTYPES_H_INCLUDED
-#define NK_NKFONT_CORE_NKFONTTYPES_H_INCLUDED
+#ifndef NK_NKFONT_CORE_NKFONTTYPES_H
+#define NK_NKFONT_CORE_NKFONTTYPES_H
 
 // ============================================================
 // INCLUDES
@@ -105,7 +105,7 @@ namespace nkentseu {
 
 } // namespace nkentseu
 
-#endif // NK_NKFONT_CORE_NKFONTTYPES_H_INCLUDED
+#endif // NK_NKFONT_CORE_NKFONTTYPES_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

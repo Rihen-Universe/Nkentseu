@@ -44,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file Defines the StreamWriter class which writes data to
  *  a binary stream with a well-defined endianness. */
 #pragma once
-#ifndef AI_STREAMWRITER_H_INCLUDED
-#define AI_STREAMWRITER_H_INCLUDED
+#ifndef AI_STREAMWRITER_H
+#define AI_STREAMWRITER_H
 
 #ifdef __GNUC__
 #   pragma GCC system_header
@@ -304,4 +304,4 @@ typedef StreamWriter<true,true> StreamWriterAny;
 
 } // end namespace Assimp
 
-#endif // !! AI_STREAMWriter_H_INCLUDED
+#endif // !! AI_STREAMWriter_H

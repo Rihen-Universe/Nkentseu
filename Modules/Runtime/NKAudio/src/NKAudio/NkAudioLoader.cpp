@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: NKAudio/src/NKAudio/NkAudioLoader.cpp
 // DESCRIPTION: Implémentation du chargeur audio (WAV natif, stubs MP3/OGG/FLAC)
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: Zéro STL. Décodeurs intégrés inline (pas de dépendances externes).

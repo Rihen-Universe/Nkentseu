@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file  ACLoader.h
  *  @brief Declaration of the .ac importer class.
  */
-#ifndef AI_AC3DLOADER_H_INCLUDED
-#define AI_AC3DLOADER_H_INCLUDED
+#ifndef AI_AC3DLOADER_H
+#define AI_AC3DLOADER_H
 
 #include <vector>
 

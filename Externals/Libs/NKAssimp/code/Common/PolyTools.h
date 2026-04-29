@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file PolyTools.h, various utilities for our dealings with arbitrary polygons */
 
 #pragma once
-#ifndef AI_POLYTOOLS_H_INCLUDED
-#define AI_POLYTOOLS_H_INCLUDED
+#ifndef AI_POLYTOOLS_H
+#define AI_POLYTOOLS_H
 
 #include <assimp/material.h>
 #include <assimp/ai_assert.h>
@@ -223,4 +223,4 @@ inline void NewellNormal (aiVector3t<TReal>& out, int num, TReal* x, TReal* y, T
 
 } // ! namespace Assimp
 
-#endif // AI_POLYTOOLS_H_INCLUDED
+#endif // AI_POLYTOOLS_H

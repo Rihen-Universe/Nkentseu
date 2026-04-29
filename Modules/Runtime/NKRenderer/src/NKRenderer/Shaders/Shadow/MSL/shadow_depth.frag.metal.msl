@@ -1,0 +1,5 @@
+// shadow_depth.frag.metal.msl — Shadow Depth Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+// Depth-only pass: fragment function writes nothing (depth written by rasterizer)
+fragment void shadowFrag(){}

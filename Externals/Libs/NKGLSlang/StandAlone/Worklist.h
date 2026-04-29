@@ -32,8 +32,8 @@
 // ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-#ifndef WORKLIST_H_INCLUDED
-#define WORKLIST_H_INCLUDED
+#ifndef WORKLIST_H
+#define WORKLIST_H
 
 #include "../glslang/OSDependent/osinclude.h"
 #include <list>
@@ -92,4 +92,4 @@ namespace glslang {
 
 } // end namespace glslang
 
-#endif // WORKLIST_H_INCLUDED
+#endif // WORKLIST_H

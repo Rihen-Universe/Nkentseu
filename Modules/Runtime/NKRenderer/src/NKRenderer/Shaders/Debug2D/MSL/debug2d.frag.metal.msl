@@ -1,0 +1,9 @@
+// debug2d.frag.metal.msl — 2D Batch Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct VSOut{float4 pos[[position]];float2 uv;float4 color;uint flags;};
+fragment float4 debug2dFrag(VSOut i[[stage_in]],texture2d<float> tAtlas[[texture(0)]],sampler sLinear[[sampler(0)]]){
+    if((i.flags&2u)!=0u){float4 t=tAtlas.sample(sLinear,i.uv);
+        if((i.flags&1u)!=0u){float d=t.a,aa=0.02f;float a=saturate((d-0.5f+aa)/aa);if(a<0.01f)discard_fragment();return float4(i.color.rgb,i.color.a*a);}
+        float4 r=t*i.color;if(r.a<0.01f)discard_fragment();return r;}
+    if(i.color.a<0.01f)discard_fragment();return i.color;}

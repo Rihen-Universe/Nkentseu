@@ -1,13 +1,19 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core/NkLogger/src/NkLogger/Sinks/AsyncSink.cpp
 // DESCRIPTION: Implémentation du logger asynchrone avec file d'attente.
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // -----------------------------------------------------------------------------
 
 #include "NKLogger/Sinks/NkAsyncSink.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/String/NkStringUtils.h"
+#include "NKThreading/NkMutex.h"
+#include "NKThreading/NkScopedLock.h"
+
+#include "NKContainers/Functional/NkFunction.h"
+#include "NKContainers/Functional/NkBind.h"
+
 #include <cstdarg>
 
 /**
@@ -52,7 +58,7 @@ namespace nkentseu {
             return;
 
         NkLogMessage msg;
-        msg.threadId = static_cast<uint32>(loggersync::GetCurrentThreadId());
+        msg.threadId = static_cast<uint32>(threading::NkThread::GetCurrentThreadId());
         msg.level = level;
         msg.message = message;
         msg.loggerName = GetName();
@@ -77,7 +83,13 @@ namespace nkentseu {
 
         m_Running.Store(true);
         m_StopRequested.Store(false);
-        if (!m_WorkerThread.Start(&NkAsyncLogger::WorkerThreadEntry, this)) {
+
+        // WorkerThreadEntry est une fonction libre/statique : void(*)(void*)
+        // NkFunction<void(void*)> accepte directement un pointeur de fonction
+        m_WorkerThread.Start(nkentseu::NkBindThreadFunc(&NkAsyncLogger::WorkerThreadEntry));
+
+        // Start est void — on teste le succès via Joinable()
+        if (!m_WorkerThread.Joinable()) {
             m_Running.Store(false);
             m_StopRequested.Store(true);
         }
@@ -112,7 +124,7 @@ namespace nkentseu {
      * @brief Obtient la taille actuelle de la file
      */
     usize NkAsyncLogger::GetQueueSize() const {
-        loggersync::NkScopedLock lock(m_QueueMutex);
+        threading::NkScopedLockMutex lock(m_QueueMutex);
         return m_MessageQueue.Size();
     }
 
@@ -120,7 +132,7 @@ namespace nkentseu {
      * @brief Définit la taille maximum de la file
      */
     void NkAsyncLogger::SetMaxQueueSize(usize size) {
-        loggersync::NkScopedLock lock(m_QueueMutex);
+        threading::NkScopedLockMutex lock(m_QueueMutex);
         m_MaxQueueSize = size;
     }
 
@@ -128,7 +140,7 @@ namespace nkentseu {
      * @brief Obtient la taille maximum de la file
      */
     usize NkAsyncLogger::GetMaxQueueSize() const {
-        loggersync::NkScopedLock lock(m_QueueMutex);
+        threading::NkScopedLockMutex lock(m_QueueMutex);
         return m_MaxQueueSize;
     }
 
@@ -136,7 +148,7 @@ namespace nkentseu {
      * @brief Définit l'intervalle de flush
      */
     void NkAsyncLogger::SetFlushInterval(uint32 ms) {
-        loggersync::NkScopedLock lock(m_QueueMutex);
+        threading::NkScopedLockMutex lock(m_QueueMutex);
         m_FlushInterval = ms;
     }
 
@@ -144,7 +156,7 @@ namespace nkentseu {
      * @brief Obtient l'intervalle de flush
      */
     uint32 NkAsyncLogger::GetFlushInterval() const {
-        loggersync::NkScopedLock lock(m_QueueMutex);
+        threading::NkScopedLockMutex lock(m_QueueMutex);
         return m_FlushInterval;
     }
 
@@ -157,7 +169,7 @@ namespace nkentseu {
             bool hasMessage = false;
 
             {
-                loggersync::NkScopedLock lock(m_QueueMutex);
+                threading::NkScopedLockMutex lock(m_QueueMutex);
 
                 while (m_MessageQueue.Empty() && !m_StopRequested.Load()) {
                     if (m_FlushInterval == 0) {
@@ -199,7 +211,7 @@ namespace nkentseu {
      * @brief Ajoute un message à la file
      */
     bool NkAsyncLogger::Enqueue(const NkLogMessage &message) {
-        loggersync::NkScopedLock lock(m_QueueMutex);
+        threading::NkScopedLockMutex lock(m_QueueMutex);
 
         if (m_MessageQueue.Size() >= m_MaxQueueSize) {
             return false; // File pleine
@@ -214,7 +226,7 @@ namespace nkentseu {
      * @brief Traite un message de la file
      */
     void NkAsyncLogger::ProcessMessage(const NkLogMessage &message) {
-        loggersync::NkScopedLock lock(m_Mutex);
+        threading::NkScopedLockMutex lock(m_Mutex);
 
         for (auto &sink : m_Sinks) {
             if (sink) {
@@ -232,7 +244,7 @@ namespace nkentseu {
             bool hasMessage = false;
 
             {
-                loggersync::NkScopedLock lock(m_QueueMutex);
+                threading::NkScopedLockMutex lock(m_QueueMutex);
                 if (!m_MessageQueue.Empty()) {
                     msg = m_MessageQueue.Front();
                     m_MessageQueue.Pop();

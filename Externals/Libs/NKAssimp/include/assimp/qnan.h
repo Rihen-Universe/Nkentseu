@@ -51,8 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *     to reinvent the wheel.
  */
 #pragma once
-#ifndef AI_QNAN_H_INCLUDED
-#define AI_QNAN_H_INCLUDED
+#ifndef AI_QNAN_H
+#define AI_QNAN_H
 
 #ifdef __GNUC__
 #   pragma GCC system_header
@@ -159,4 +159,4 @@ AI_FORCE_INLINE ai_real get_qnan() {
     return std::numeric_limits<ai_real>::quiet_NaN();
 }
 
-#endif // !! AI_QNAN_H_INCLUDED
+#endif // !! AI_QNAN_H

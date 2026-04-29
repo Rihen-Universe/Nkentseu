@@ -39,8 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#if (!defined AV_RO_H_INCLUDED)
-#define AV_RO_H_INCLUDED
+#if (!defined AV_RO_H)
+#define AV_RO_H
 
 
 //-------------------------------------------------------------------------------

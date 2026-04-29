@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file XGLLoader.h
  *  @brief Declaration of the .xgl/.zgl
  */
-#ifndef AI_XGLLOADER_H_INCLUDED
-#define AI_XGLLOADER_H_INCLUDED
+#ifndef AI_XGLLOADER_H
+#define AI_XGLLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/XmlParser.h>

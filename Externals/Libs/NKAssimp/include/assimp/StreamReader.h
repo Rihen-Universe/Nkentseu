@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  a binary stream with a well-defined endianness.
  */
 #pragma once
-#ifndef AI_STREAMREADER_H_INCLUDED
-#define AI_STREAMREADER_H_INCLUDED
+#ifndef AI_STREAMREADER_H
+#define AI_STREAMREADER_H
 
 #ifdef __GNUC__
 #   pragma GCC system_header
@@ -341,4 +341,4 @@ typedef StreamReader<true, true> StreamReaderAny;
 
 } // end namespace Assimp
 
-#endif // !! AI_STREAMREADER_H_INCLUDED
+#endif // !! AI_STREAMREADER_H

@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the HMP importer class
  */
 #pragma once
-#ifndef AI_HMPLOADER_H_INCLUDED
-#define AI_HMPLOADER_H_INCLUDED
+#ifndef AI_HMPLOADER_H
+#define AI_HMPLOADER_H
 
 #include <assimp/BaseImporter.h>
 

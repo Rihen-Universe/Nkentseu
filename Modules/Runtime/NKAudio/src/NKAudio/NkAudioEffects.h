@@ -2,15 +2,15 @@
 // FICHIER: NKAudio/src/NKAudio/NkAudioEffects.h
 // DESCRIPTION: Effets DSP AAA — Delay, Reverb, Compressor, Filters, EQ, etc.
 //              Implémentations concrètes de IAudioEffect, STL-free
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H_INCLUDED
-#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H_INCLUDED
+#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H
+#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H
 
 #include "NkAudio.h"
 #include "NKMemory/NkAllocator.h"
@@ -373,7 +373,7 @@ namespace nkentseu {
     } // namespace audio
 } // namespace nkentseu
 
-#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H_INCLUDED
+#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

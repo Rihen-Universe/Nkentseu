@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#if (!defined AV_DISPLAY_H_INCLUDED)
+#if (!defined AV_DISPLAY_H)
 #define AV_DISPLAY_H_INCLUDE
 
 #include <windows.h>

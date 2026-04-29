@@ -44,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
-#ifndef AI_SMDLOADER_H_INCLUDED
-#define AI_SMDLOADER_H_INCLUDED
+#ifndef AI_SMDLOADER_H
+#define AI_SMDLOADER_H
 
 #include <assimp/BaseImporter.h>
 #include <assimp/ParsingUtils.h>

@@ -1,0 +1,72 @@
+// ============================================================
+// pbr.vert.metal.msl — NKRenderer v4.0 — Cloth Vertex (Metal MSL 2.x)
+// Différences MSL vs GLSL :
+//   • [[attribute(N)]] pour vertex inputs
+//   • constant T& [[buffer(N)]] pour les UBOs
+//   • [[position]] pour SV_Position
+//   • float4x4 stocké column-major (comme GLSL)
+//   • texture2d<float> [[texture(N)]] et sampler [[sampler(N)]]
+//   • Coordonnées UV Y non inversé (comme OpenGL)
+//   • Pas de Y-flip sur gl_Position (Metal clip space = Vulkan)
+// ============================================================
+#include <metal_stdlib>
+using namespace metal;
+
+struct CameraUBO {
+    float4x4 view,proj,viewProj,invViewProj;
+    float4 camPos,camDir; float2 viewport; float time,dt;
+};
+struct ObjectUBO {
+    float4x4 model,normalMatrix; float4 tint;
+    float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;
+    float4 sssColor;
+};
+struct ShadowUBO {
+    float4x4 cascadeMats[4]; float4 splits;
+    int cascadeCount; float shadowBias,normalBias; int softShadows;
+};
+
+struct VSIn {
+    float3 pos     [[attribute(0)]];
+    float3 normal  [[attribute(1)]];
+    float3 tangent [[attribute(2)]];
+    float2 uv      [[attribute(3)]];
+    float2 uv2     [[attribute(4)]];
+    float4 color   [[attribute(5)]];
+};
+struct VSOut {
+    float4 pos       [[position]];
+    float3 worldPos;
+    float3 normal;
+    float3 tangent;
+    float3 bitangent;
+    float2 uv, uv2;
+    float4 color;
+    float4 sc0, sc1, sc2, sc3;
+};
+
+vertex VSOut clothVert(VSIn v [[stage_in]],
+    constant CameraUBO& cam [[buffer(0)]],
+    constant ObjectUBO&  obj [[buffer(1)]],
+    constant ShadowUBO&  shd [[buffer(3)]])
+{
+    VSOut o;
+    float4 wp = obj.model * float4(v.pos, 1.0);
+    o.worldPos  = wp.xyz;
+    float3x3 nm = float3x3(obj.normalMatrix[0].xyz,
+                            obj.normalMatrix[1].xyz,
+                            obj.normalMatrix[2].xyz);
+    o.normal    = normalize(nm * v.normal);
+    o.tangent   = normalize(nm * v.tangent);
+    o.bitangent = cross(o.normal, o.tangent);
+    o.uv  = v.uv;
+    o.uv2 = v.uv2;
+    o.color = v.color * obj.tint;
+    o.sc0 = shd.cascadeMats[0] * wp;
+    o.sc1 = shd.cascadeMats[1] * wp;
+    o.sc2 = shd.cascadeMats[2] * wp;
+    o.sc3 = shd.cascadeMats[3] * wp;
+    // Metal clip space: Y points up (same as OpenGL), Z in [0,1]
+    o.pos = cam.viewProj * wp;
+    return o;
+}

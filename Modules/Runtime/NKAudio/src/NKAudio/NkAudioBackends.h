@@ -2,7 +2,7 @@
 // FICHIER: NKAudio/src/NKAudio/NkAudioBackends.h
 // DESCRIPTION: Backends audio natifs (WASAPI, CoreAudio, ALSA, Null)
 //              Stubs complets prêts à connecter aux API système
-// AUTEUR: Rihen
+// Auteur: TEUGUIA TADJUIDJE Rodolf / Rihen
 // DATE: 2026
 // VERSION: 2.0.0
 // NOTES: Chaque backend est enregistré automatiquement via NK_REGISTER_AUDIO_BACKEND
@@ -10,8 +10,8 @@
 
 #pragma once
 
-#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H_INCLUDED
-#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H_INCLUDED
+#ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H
+#define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H
 
 #include "NkAudio.h"
 #include "NKCore/NkPlatform.h"
@@ -304,7 +304,7 @@ namespace nkentseu {
     } // namespace audio
 } // namespace nkentseu
 
-#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H_INCLUDED
+#endif // NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOBACKENDS_H
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

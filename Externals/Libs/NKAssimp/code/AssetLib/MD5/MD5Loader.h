@@ -44,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  http://www.modwiki.net/wiki/MD5_(file_format)
 */
 #pragma once
-#ifndef AI_MD5LOADER_H_INCLUDED
-#define AI_MD5LOADER_H_INCLUDED
+#ifndef AI_MD5LOADER_H
+#define AI_MD5LOADER_H
 
 #include "MD5Parser.h"
 #include <assimp/BaseImporter.h>

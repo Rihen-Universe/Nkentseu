@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the .MD2 importer class.
  */
 #pragma once
-#ifndef AI_MD2LOADER_H_INCLUDED
-#define AI_MD2LOADER_H_INCLUDED
+#ifndef AI_MD2LOADER_H
+#define AI_MD2LOADER_H
 
 #include "MD2FileData.h"
 #include <assimp/BaseImporter.h>

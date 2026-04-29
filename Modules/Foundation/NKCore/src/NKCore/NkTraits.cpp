@@ -2,10 +2,10 @@
 
 namespace nkentseu {
 
-namespace traits {
+    namespace traits {
 
-// Header-only traits. This translation unit is kept for project consistency.
+        // Header-only traits. This translation unit is kept for project consistency.
 
-} // namespace traits
+    } // namespace traits
 
 } // namespace nkentseu

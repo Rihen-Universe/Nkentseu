@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  @brief Declaration of the .irrMesh (Irrlight Engine Mesh Format)
  *  importer class.
  */
-#ifndef AI_IRRMESHLOADER_H_INCLUDED
-#define AI_IRRMESHLOADER_H_INCLUDED
+#ifndef AI_IRRMESHLOADER_H
+#define AI_IRRMESHLOADER_H
 
 #include "IRRShared.h"
 #include <assimp/BaseImporter.h>

@@ -43,8 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file Stuff to deal with aiScene::mPrivate
  */
 #pragma once
-#ifndef AI_SCENEPRIVATE_H_INCLUDED
-#define AI_SCENEPRIVATE_H_INCLUDED
+#ifndef AI_SCENEPRIVATE_H
+#define AI_SCENEPRIVATE_H
 
 #include <assimp/ai_assert.h>
 #include <assimp/scene.h>
@@ -102,4 +102,4 @@ const ScenePrivateData* ScenePriv(const aiScene* in) {
 
 } // Namespace Assimp
 
-#endif // AI_SCENEPRIVATE_H_INCLUDED
+#endif // AI_SCENEPRIVATE_H
