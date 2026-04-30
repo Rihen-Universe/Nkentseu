@@ -851,7 +851,7 @@ namespace nkentseu {
 
         bool NkRenderer2D::InitShaders() {
             if (!mDevice) return false;
-            const bool useVulkanGLSL = (mDevice->GetApi() == NkGraphicsApi::NK_API_VULKAN);
+            const bool useVulkanGLSL = (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN);
             const char* spriteVs = useVulkanGLSL ? NkBuiltinShaders::SpriteVertVK() : NkBuiltinShaders::SpriteVert();
             const char* spritePs = useVulkanGLSL ? NkBuiltinShaders::SpriteFragVK() : NkBuiltinShaders::SpriteFrag();
             const char* shapeVs  = useVulkanGLSL ? NkBuiltinShaders::Shape2DVertVK() : NkBuiltinShaders::Shape2DVert();

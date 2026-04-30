@@ -118,9 +118,9 @@ namespace renderer {
     // =========================================================================
     NkShaderBackend NkBaseRenderer::CurrentBackend() const {
         switch (mDevice->GetApi()) {
-            case NkGraphicsApi::NK_API_VULKAN:    return NkShaderBackend::Vulkan;
-            case NkGraphicsApi::NK_API_DIRECTX11: return NkShaderBackend::DX11;
-            case NkGraphicsApi::NK_API_DIRECTX12: return NkShaderBackend::DX12;
+            case NkGraphicsApi::NK_GFX_API_VULKAN:    return NkShaderBackend::Vulkan;
+            case NkGraphicsApi::NK_GFX_API_D3D11: return NkShaderBackend::DX11;
+            case NkGraphicsApi::NK_GFX_API_D3D12: return NkShaderBackend::DX12;
             default:                              return NkShaderBackend::OpenGL;
         }
     }

@@ -1583,7 +1583,7 @@
             const math::NkMat2T<T>& matrix,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(matrix.ToString(), formatProperties);
+            return formatProperties.ApplyWidth(NkStringView(matrix.ToString()), false);
         }
 
         template <typename T>
@@ -1591,7 +1591,7 @@
             const math::NkMat3T<T>& matrix,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(matrix.ToString(), formatProperties);
+            return formatProperties.ApplyWidth(NkStringView(matrix.ToString()), false);
         }
 
         template <typename T>
@@ -1599,7 +1599,7 @@
             const math::NkMat4T<T>& matrix,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(matrix.ToString(), formatProperties);
+            return formatProperties.ApplyWidth(NkStringView(matrix.ToString()), false);
         }
 
     }  // namespace nkentseu
@@ -1719,7 +1719,7 @@
     // Exemple 7 : Orthogonalisation pour corriger la dérive numérique
     // ---------------------------------------------------------------------
     // Après de nombreuses multiplications, les axes peuvent perdre l'orthogonalité
-    NkMat4f accumulatedTransform = /* résultat de nombreuses opérations */;
+    NkMat4f accumulatedTransform = NkMat4f(); // résultat de nombreuses opérations
 
     // Réorthonormalisation sans préserver le scale
     accumulatedTransform.OrthoNormalize();

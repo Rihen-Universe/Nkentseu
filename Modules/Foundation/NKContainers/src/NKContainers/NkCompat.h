@@ -28,6 +28,7 @@
     #include "NKPlatform/NkPlatformDetect.h"      // NKENTSEU_PLATFORM_*, NKENTSEU_CXX_*
     #include "NKCore/Assert/NkAssert.h"      // NKENTSEU_ASSERT, NKENTSEU_ASSERT_MSG
     #include "NKPlatform/NkPlatformInline.h"      // NKENTSEU_INLINE, NKENTSEU_FORCE_INLINE
+    #include "NkContainersApi.h"
     #include <new>                                // std::nothrow_t, placement new
 
     // -------------------------------------------------------------------------
@@ -118,23 +119,6 @@
     // -------------------------------------------------------------------------
     // SECTION 4 : INTÉGRATION AVEC NKCORE (API ET ASSERTIONS)
     // -------------------------------------------------------------------------
-    /**
-     * @brief Intégration de l'API NKCore dans NKContainers
-     * @def NKENTSEU_CONTAINERS_CORE_API
-     * @ingroup ContainersCoreIntegration
-     *
-     * Si NKCore est disponible, utilise NKENTSEU_CORE_API.
-     * Sinon, fallback vers vide pour compilation standalone.
-     *
-     * @note Permet à NKContainers d'être utilisé sans NKCore si nécessaire.
-     */
-    #if !defined(NKENTSEU_CONTAINERS_CORE_API)
-        #ifdef NKENTSEU_CORE_API
-            #define NKENTSEU_CONTAINERS_CORE_API NKENTSEU_CORE_API
-        #else
-            #define NKENTSEU_CONTAINERS_CORE_API
-        #endif
-    #endif
 
     /**
      * @brief Macro d'assertion pour NKContainers
@@ -213,36 +197,6 @@
     #if !defined(NKENTSEU_CONTAINERS_MIN_GROWTH_FACTOR)
         #define NKENTSEU_CONTAINERS_MIN_GROWTH_FACTOR 1.5f
     #endif
-
-    // -------------------------------------------------------------------------
-    // SECTION 6 : ALIASES DE PLATEFORME (COMPATIBILITÉ LEGACY)
-    // -------------------------------------------------------------------------
-    // Fournit des alias courts pour compatibilité avec code existant.
-    // Ces macros sont DÉPRÉCIÉES : préférer les versions NKENTSEU_*.
-
-    #if !defined(NKENTSEU_CONTAINERS_LEGACY_ALIAS_DISABLE)
-        // Alias plateforme (déprécié - utiliser NKENTSEU_PLATFORM_*)
-        #if !defined(NK_CONTAINERS_PLATFORM_WINDOWS) && defined(NKENTSEU_PLATFORM_WINDOWS)
-            #define NK_CONTAINERS_PLATFORM_WINDOWS 1
-            #ifndef NKENTSEU_CONTAINERS_SUPPRESS_LEGACY_WARNINGS
-                #pragma message("NK_CONTAINERS_PLATFORM_WINDOWS est déprécié, utiliser NKENTSEU_PLATFORM_WINDOWS")
-            #endif
-        #endif
-
-        #if !defined(NK_CONTAINERS_PLATFORM_LINUX) && defined(NKENTSEU_PLATFORM_LINUX)
-            #define NK_CONTAINERS_PLATFORM_LINUX 1
-            #ifndef NKENTSEU_CONTAINERS_SUPPRESS_LEGACY_WARNINGS
-                #pragma message("NK_CONTAINERS_PLATFORM_LINUX est déprécié, utiliser NKENTSEU_PLATFORM_LINUX")
-            #endif
-        #endif
-
-        #if !defined(NK_CONTAINERS_PLATFORM_MACOS) && defined(NKENTSEU_PLATFORM_MACOS)
-            #define NK_CONTAINERS_PLATFORM_MACOS 1
-            #ifndef NKENTSEU_CONTAINERS_SUPPRESS_LEGACY_WARNINGS
-                #pragma message("NK_CONTAINERS_PLATFORM_MACOS est déprécié, utiliser NKENTSEU_PLATFORM_MACOS")
-            #endif
-        #endif
-    #endif // NKENTSEU_CONTAINERS_LEGACY_ALIAS_DISABLE
 
     // -------------------------------------------------------------------------
     // SECTION 7 : UNDEF PROACTIF DES MACROS GÉNÉRIQUES CONFLICTUELLES

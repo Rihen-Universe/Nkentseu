@@ -25,7 +25,7 @@
     // SECTION 1 : DÉPENDANCES
     // -------------------------------------------------------------------------
     #include "NKContainers/NkContainersApi.h"  // NKENTSEU_CONTAINERS_API, etc.
-    #include "NKContainers/NkIterator.h"       // NkConstIterator, NkReverseIterator
+    #include "NKContainers/Iterators/NkIterator.h"  // NkConstIterator, NkReverseIterator
     #include "NKCore/NkTypes.h"                // nk_size (alias de usize)
     #include "NKCore/NkMacros.h"               // NKENTSEU_NODISCARD, etc.
 

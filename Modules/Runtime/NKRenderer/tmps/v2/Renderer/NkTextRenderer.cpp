@@ -1141,7 +1141,7 @@ namespace nkentseu {
         bool NkTextRenderer::InitShaders(NkRenderPassHandle rp) {
             if (!mDevice || !rp.IsValid() || !mLayout.IsValid()) return false;
 
-            const bool useVulkanGLSL = (mDevice->GetApi() == NkGraphicsApi::NK_API_VULKAN);
+            const bool useVulkanGLSL = (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN);
             const char* vs = useVulkanGLSL ? NkBuiltinShaders::SpriteVertVK() : NkBuiltinShaders::Text2DVert();
             const char* fs = useVulkanGLSL ? NkBuiltinShaders::SpriteFragVK() : NkBuiltinShaders::Text2DFrag();
 

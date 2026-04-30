@@ -74,7 +74,7 @@ bool NkSoftwareComputeContext::Init(const NkContextDesc&) {
 }
 
 void NkSoftwareComputeContext::InitFromGraphicsContext(NkIGraphicsContext* gfx) {
-    mIsValid = (gfx && gfx->IsValid() && gfx->GetApi() == NkGraphicsApi::NK_API_SOFTWARE);
+    mIsValid = (gfx && gfx->IsValid() && gfx->GetApi() == NkGraphicsApi::NK_GFX_API_SOFTWARE);
     mCurrentPipeline = nullptr;
     memset(mBoundBuffers, 0, sizeof(mBoundBuffers));
     if (!mIsValid) {
@@ -240,7 +240,7 @@ void NkSoftwareComputeContext::MemoryBarrier() {
 }
 
 NkGraphicsApi NkSoftwareComputeContext::GetApi() const {
-    return NkGraphicsApi::NK_API_SOFTWARE;
+    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
 }
 
 uint32 NkSoftwareComputeContext::GetMaxGroupSizeX() const {

@@ -105,7 +105,7 @@ public:
     bool          Initialize(const NkDeviceInitInfo& init) override;
     void          Shutdown() override;
     bool          IsValid() const override { return mIsValid; }
-    NkGraphicsApi GetApi() const override { return NkGraphicsApi::NK_API_VULKAN; }
+    NkGraphicsApi GetApi() const override { return NkGraphicsApi::NK_GFX_API_VULKAN; }
     const NkDeviceCaps& GetCaps() const override { return mCaps; }
 
     NkBufferHandle  CreateBuffer(const NkBufferDesc& d) override;
@@ -308,7 +308,7 @@ public:
     bool Initialize(const NkDeviceInitInfo&) override { return false; }
     void Shutdown() override {}
     bool IsValid() const override { return false; }
-    NkGraphicsApi GetApi() const override { return NkGraphicsApi::NK_API_VULKAN; }
+    NkGraphicsApi GetApi() const override { return NkGraphicsApi::NK_GFX_API_VULKAN; }
     const NkDeviceCaps& GetCaps() const override { static NkDeviceCaps c; return c; }
     NkBufferHandle  CreateBuffer(const NkBufferDesc&) override { return {}; }
     void            DestroyBuffer(NkBufferHandle&) override {}

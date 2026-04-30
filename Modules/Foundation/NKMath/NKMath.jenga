@@ -11,22 +11,27 @@ Dépend de NKCore pour les primitives brutes (nk_uint8, etc.)
 """
 
 from Jenga import *
+from config import useglobalkind
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKMath"):
-    staticlib()
+    useglobalkind("math")
     language("C++")
     cppdialect("C++17")
     location(".")
 
     includedirs([
         "src",
+        "pch",
         "%{NKCore.location}/src",
         "%{NKPlatform.location}/src",
         "%{NKContainers.location}/src",
         "%{NKMemory.location}/src",
     ])
+
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
 
     dependson(["NKCore", "NKPlatform", "NKContainers", "NKMemory"])
 

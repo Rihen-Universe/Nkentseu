@@ -72,7 +72,7 @@
             protected:
                 /// @brief Constructeur protégé — réservé aux classes dérivées
                 /// @param windowId Identifiant de la fenêtre source (0 = événement global)
-                explicit NKENTSEU_EVENT_API NkAppEvent(uint64 windowId = 0) noexcept
+                explicit NkAppEvent(uint64 windowId = 0) noexcept
                     : NkEvent(windowId) {
                 }
         };
@@ -106,7 +106,7 @@
                  * @param argc Nombre d'arguments CLI (exclu le nom du programme)
                  * @param argv Tableau de chaînes C (durée de vie >= traitement de l'événement)
                  */
-                NKENTSEU_EVENT_API NkAppLaunchEvent(
+                NkAppLaunchEvent(
                     int argc = 0,
                     const char* const* argv = nullptr
                 ) noexcept
@@ -117,13 +117,13 @@
 
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
-                NKENTSEU_EVENT_API NkEvent* Clone() const override {
+                NkEvent* Clone() const override {
                     return new NkAppLaunchEvent(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant le nombre d'arguments CLI
-                NKENTSEU_EVENT_API NkString ToString() const override {
+                NkString ToString() const override {
                     return "AppLaunch(argc=" + string::NkToString(mArgc) + ")";
                 }
 
@@ -185,7 +185,7 @@
                  * @param deltaTime Temps écoulé depuis le dernier tick [secondes]
                  * @param totalTime Temps cumulé depuis le lancement de l'application [secondes]
                  */
-                NKENTSEU_EVENT_API NkAppTickEvent(
+                NkAppTickEvent(
                     float64 deltaTime,
                     float64 totalTime = 0.0
                 ) noexcept
@@ -196,13 +196,13 @@
 
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
-                NKENTSEU_EVENT_API NkEvent* Clone() const override {
+                NkEvent* Clone() const override {
                     return new NkAppTickEvent(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant deltaTime et totalTime en secondes
-                NKENTSEU_EVENT_API NkString ToString() const override {
+                NkString ToString() const override {
                     return "AppTick(dt=" + string::NkToString(mDeltaTime)
                          + "s total=" + string::NkToString(mTotalTime) + "s)";
                 }
@@ -264,7 +264,7 @@
                  * @param deltaTime Durée du pas de simulation [secondes]
                  * @param fixedStep true si la mise à jour utilise un pas de temps fixe
                  */
-                NKENTSEU_EVENT_API NkAppUpdateEvent(
+                NkAppUpdateEvent(
                     float64 deltaTime,
                     bool fixedStep = false
                 ) noexcept
@@ -275,13 +275,13 @@
 
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
-                NKENTSEU_EVENT_API NkEvent* Clone() const override {
+                NkEvent* Clone() const override {
                     return new NkAppUpdateEvent(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant deltaTime et le mode (fixed/variable)
-                NKENTSEU_EVENT_API NkString ToString() const override {
+                NkString ToString() const override {
                     return NkString("AppUpdate(dt=") + string::NkToString(mDeltaTime)
                          + (mFixedStep ? " fixed" : " variable") + ")";
                 }
@@ -333,7 +333,7 @@
                  * @param alpha Facteur d'interpolation [0.0, 1.0] entre états simulés
                  * @param frameIndex Index incrémental de la frame depuis le lancement
                  */
-                NKENTSEU_EVENT_API NkAppRenderEvent(
+                NkAppRenderEvent(
                     float64 alpha = 1.0,
                     uint64 frameIndex = 0
                 ) noexcept
@@ -344,13 +344,13 @@
 
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
-                NKENTSEU_EVENT_API NkEvent* Clone() const override {
+                NkEvent* Clone() const override {
                     return new NkAppRenderEvent(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant frameIndex et facteur d'interpolation
-                NKENTSEU_EVENT_API NkString ToString() const override {
+                NkString ToString() const override {
                     return "AppRender(frame=" + string::NkToString(mFrameIndex)
                          + " alpha=" + string::NkToString(mAlpha) + ")";
                 }
@@ -417,7 +417,7 @@
                  * @brief Constructeur avec indicateur de fermeture forcée
                  * @param forced true si la fermeture est imposée par le système (non annulable)
                  */
-                NKENTSEU_EVENT_API NkAppCloseEvent(bool forced = false) noexcept
+                NkAppCloseEvent(bool forced = false) noexcept
                     : NkAppEvent()
                     , mForced(forced)
                     , mCancelled(false) {
@@ -425,13 +425,13 @@
 
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
-                NKENTSEU_EVENT_API NkEvent* Clone() const override {
+                NkEvent* Clone() const override {
                     return new NkAppCloseEvent(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant l'état de la demande de fermeture
-                NKENTSEU_EVENT_API NkString ToString() const override {
+                NkString ToString() const override {
                     return NkString("AppClose(")
                          + (mForced ? "forced" : "requested")
                          + (mCancelled ? " cancelled" : "") + ")";

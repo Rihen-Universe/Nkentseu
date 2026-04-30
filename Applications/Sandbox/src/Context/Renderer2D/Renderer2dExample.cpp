@@ -62,24 +62,24 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (usize i = 1; i < args.Size(); ++i) {
         const NkString& a = args[i];
-        if (a == "--backend=vulkan" || a == "-bvk")  return NkGraphicsApi::NK_API_VULKAN;
-        if (a == "--backend=dx11"   || a == "-bdx11") return NkGraphicsApi::NK_API_DIRECTX11;
-        if (a == "--backend=dx12"   || a == "-bdx12") return NkGraphicsApi::NK_API_DIRECTX12;
-        if (a == "--backend=metal"  || a == "-bmtl")  return NkGraphicsApi::NK_API_METAL;
-        if (a == "--backend=sw"     || a == "-bsw")   return NkGraphicsApi::NK_API_SOFTWARE;
-        if (a == "--backend=opengl" || a == "-bgl")   return NkGraphicsApi::NK_API_OPENGL;
+        if (a == "--backend=vulkan" || a == "-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (a == "--backend=dx11"   || a == "-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (a == "--backend=dx12"   || a == "-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (a == "--backend=metal"  || a == "-bmtl")  return NkGraphicsApi::NK_GFX_API_METAL;
+        if (a == "--backend=sw"     || a == "-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (a == "--backend=opengl" || a == "-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
     // ── Backend par défaut selon la plateforme ────────────────────────────────
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-    return NkGraphicsApi::NK_API_DIRECTX11;   // DX11 = meilleur compat Windows
+    return NkGraphicsApi::NK_GFX_API_D3D11;   // DX11 = meilleur compat Windows
 #elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-    return NkGraphicsApi::NK_API_METAL;
+    return NkGraphicsApi::NK_GFX_API_METAL;
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
-    return NkGraphicsApi::NK_API_OPENGLES;
+    return NkGraphicsApi::NK_GFX_API_OPENGLES;
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-    return NkGraphicsApi::NK_API_WEBGL;
+    return NkGraphicsApi::NK_GFX_API_WEBGL;
 #else
-    return NkGraphicsApi::NK_API_OPENGL;
+    return NkGraphicsApi::NK_GFX_API_OPENGL;
 #endif
 }
 
@@ -88,14 +88,14 @@ static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
 // =============================================================================
 static NkContextDesc MakeDesc(NkGraphicsApi api) {
     switch (api) {
-        case NkGraphicsApi::NK_API_VULKAN:     return NkContextDesc::MakeVulkan();
-        case NkGraphicsApi::NK_API_DIRECTX11:  return NkContextDesc::MakeDirectX11();
-        case NkGraphicsApi::NK_API_DIRECTX12:  return NkContextDesc::MakeDirectX12();
-        case NkGraphicsApi::NK_API_METAL:      return NkContextDesc::MakeMetal();
-        case NkGraphicsApi::NK_API_SOFTWARE:   return NkContextDesc::MakeSoftware();
-        case NkGraphicsApi::NK_API_OPENGLES:   return NkContextDesc::MakeOpenGLES(3, 0);
-        case NkGraphicsApi::NK_API_WEBGL:      return NkContextDesc::MakeOpenGLES(3, 0);
-        case NkGraphicsApi::NK_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:     return NkContextDesc::MakeVulkan();
+        case NkGraphicsApi::NK_GFX_API_D3D11:  return NkContextDesc::MakeDirectX11();
+        case NkGraphicsApi::NK_GFX_API_D3D12:  return NkContextDesc::MakeDirectX12();
+        case NkGraphicsApi::NK_GFX_API_METAL:      return NkContextDesc::MakeMetal();
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE:   return NkContextDesc::MakeSoftware();
+        case NkGraphicsApi::NK_GFX_API_OPENGLES:   return NkContextDesc::MakeOpenGLES(3, 0);
+        case NkGraphicsApi::NK_GFX_API_WEBGL:      return NkContextDesc::MakeOpenGLES(3, 0);
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
         default:                               return NkContextDesc::MakeOpenGL(3, 3);
     }
 }
@@ -132,11 +132,11 @@ int nkmain(const NkEntryState& state) {
     }
 
     // Repli automatique : DX11 → OpenGL → Software
-    if (!gfx && requestedApi != NkGraphicsApi::NK_API_DIRECTX11) {
+    if (!gfx && requestedApi != NkGraphicsApi::NK_GFX_API_D3D11) {
         logger.Warnf("Backend %s failed — trying DirectX 11", NkGraphicsApiName(requestedApi));
         gfx = NkContextFactory::Create(window, NkContextDesc::MakeDirectX11());
     }
-    if (!gfx && requestedApi != NkGraphicsApi::NK_API_OPENGL) {
+    if (!gfx && requestedApi != NkGraphicsApi::NK_GFX_API_OPENGL) {
         logger.Warnf("DX11 failed — trying OpenGL");
         gfx = NkContextFactory::Create(window, NkContextDesc::MakeOpenGL(3, 3));
     }
@@ -382,11 +382,11 @@ int nkmain(const NkEntryState& state) {
         // Indicateur backend (rectangle coloré)
         NkColor2D apiColor = {100, 100, 100, 255};
         switch (gfx->GetApi()) {
-            case NkGraphicsApi::NK_API_VULKAN:    apiColor = {180, 60,  60,  255}; break;
-            case NkGraphicsApi::NK_API_DIRECTX11: apiColor = {60,  120, 200, 255}; break;
-            case NkGraphicsApi::NK_API_DIRECTX12: apiColor = {40,  80,  240, 255}; break;
-            case NkGraphicsApi::NK_API_OPENGL:    apiColor = {60,  180, 100, 255}; break;
-            case NkGraphicsApi::NK_API_SOFTWARE:  apiColor = {160, 100, 40,  255}; break;
+            case NkGraphicsApi::NK_GFX_API_VULKAN:    apiColor = {180, 60,  60,  255}; break;
+            case NkGraphicsApi::NK_GFX_API_D3D11: apiColor = {60,  120, 200, 255}; break;
+            case NkGraphicsApi::NK_GFX_API_D3D12: apiColor = {40,  80,  240, 255}; break;
+            case NkGraphicsApi::NK_GFX_API_OPENGL:    apiColor = {60,  180, 100, 255}; break;
+            case NkGraphicsApi::NK_GFX_API_SOFTWARE:  apiColor = {160, 100, 40,  255}; break;
             default: break;
         }
         r2d.DrawFilledRect({0.f, 0.f, 6.f, 80.f}, apiColor);

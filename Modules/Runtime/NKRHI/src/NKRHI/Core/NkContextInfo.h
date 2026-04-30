@@ -5,7 +5,7 @@
 namespace nkentseu {
 
     struct NkContextInfo {
-        NkGraphicsApi api              = NkGraphicsApi::NK_API_NONE;
+        NkGraphicsApi api              = NkGraphicsApi::NK_GFX_API_NONE;
         const char*   renderer         = "";
         const char*   vendor           = "";
         const char*   version          = "";

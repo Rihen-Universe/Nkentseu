@@ -79,7 +79,7 @@ namespace nkentseu {
 
             NkIDevice*        mDevice = nullptr;
             NkICommandBuffer* mCmd    = nullptr;
-            NkGraphicsApi     mApi    = NkGraphicsApi::NK_API_OPENGL;
+            NkGraphicsApi     mApi    = NkGraphicsApi::NK_GFX_API_OPENGL;
 
             // NKUI
             nkui::NkUIContext      mCtx;

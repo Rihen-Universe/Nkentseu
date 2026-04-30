@@ -978,7 +978,7 @@ namespace nkentseu {
         D3D11_FEATURE_DATA_D3D11_OPTIONS2 opts{};
         mDevice->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS2,&opts,sizeof(opts));
         mCaps.tessellationShaders=true; mCaps.geometryShaders=true;
-        mCaps.computeShaders=NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_API_DIRECTX11);
+        mCaps.computeShaders=NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_D3D11);
         mCaps.drawIndirect=true;
         mCaps.multiViewport=true; mCaps.independentBlend=true;
         mCaps.logicOp=true; mCaps.textureCompressionBC=true;

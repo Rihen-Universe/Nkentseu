@@ -323,7 +323,7 @@
                  * @note Complexité : O(n) mais avec constante très faible pour types triviaux
                  */
                 void MoveOrCopyRange(T* dest, T* src, SizeType count) {
-                    if (NKENTSEU_IS_TRIVIALLY_COPYABLE(T)) {
+                    if (traits::NkIsTriviallyCopyable_v<T>) {
                         memory::NkCopy(dest, src, count * sizeof(T));
                     }
                     else {

@@ -100,13 +100,6 @@
     // ============================================================
 
     /**
-     * @brief Informations plateforme runtime et utilitaires système
-     * @ingroup PlatformCore
-     * @note Fournit NkPlatformInfo, NkSourceLocation, API C d'interrogation
-     */
-    #include "NKPlatform/NkPlatform.h"  // NkPlatform.h interne (runtime info)
-
-    /**
      * @brief Détection des APIs graphiques et compute
      * @ingroup PlatformGraphics
      * @note Fournit NkGraphicsApi, NkGPUVendor, macros de détection GPU
@@ -118,46 +111,11 @@
     // ============================================================
 
     /**
-     * @brief Abstraction des threads et synchronisation
-     * @ingroup PlatformThreading
-     * @note Fournit NkThread, NkMutex, NkConditionVariable portables
-     */
-    #include "NKPlatform/NkThread.h"
-
-    /**
-     * @brief Abstraction du système de fichiers
-     * @ingroup PlatformIO
-     * @note Fournit NkFile, NkDirectory, NkPath portables
-     */
-    #include "NKPlatform/NkFileSystem.h"
-
-    /**
-     * @brief Abstraction du réseau et sockets
-     * @ingroup PlatformNetwork
-     * @note Fournit NkSocket, NkAddress, NkNetworkInit portables
-     */
-    #include "NKPlatform/NkNetwork.h"
-
-    /**
-     * @brief Abstraction du temps et horloges système
-     * @ingroup PlatformTime
-     * @note Fournit NkTimestamp, NkClock, NkTimer portables
-     */
-    #include "NKPlatform/NkTime.h"
-
-    /**
      * @brief Utilitaires de logging système
      * @ingroup PlatformLogging
      * @note Fournit NK_FOUNDATION_LOG_* macros et backend portable
      */
     #include "NKPlatform/NkFoundationLog.h"
-
-    /**
-     * @brief Gestion des erreurs et codes de retour plateforme
-     * @ingroup PlatformError
-     * @note Fournit NkResult, NkErrorCode, NkGetLastPlatformError
-     */
-    #include "NKPlatform/NkError.h"
 
     // ============================================================
     // EXPORT ET VISIBILITÉ DES SYMBOLES

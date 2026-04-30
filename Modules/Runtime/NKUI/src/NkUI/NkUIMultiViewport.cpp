@@ -359,7 +359,7 @@ namespace nkentseu {
 
             // Partage le pixel format avec la fenêtre principale si OpenGL/WGL
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-            if (mApi == NkGraphicsApi::NK_API_OPENGL && mMainWindow) {
+            if (mApi == NkGraphicsApi::NK_GFX_API_OPENGL && mMainWindow) {
                 cfg.native.win32PixelFormatShareWindowHandle =
                     reinterpret_cast<uintptr>(mMainWindow->mData.mHwnd);
             }

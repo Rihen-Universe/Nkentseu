@@ -704,7 +704,7 @@ bool NkDX12Context::IsValid() const {
 }
 
 NkGraphicsApi NkDX12Context::GetApi() const { 
-    return NkGraphicsApi::NK_API_DIRECTX12; 
+    return NkGraphicsApi::NK_GFX_API_D3D12; 
 }
 
 NkContextDesc NkDX12Context::GetDesc() const { 
@@ -721,7 +721,7 @@ bool NkDX12Context::SupportsCompute() const {
 
 NkContextInfo NkDX12Context::GetInfo() const {
     NkContextInfo i;
-    i.api              = NkGraphicsApi::NK_API_DIRECTX12;
+    i.api              = NkGraphicsApi::NK_GFX_API_D3D12;
     i.renderer         = mData.renderer;
     i.vendor           = mData.vendor;
     i.version          = "DirectX 12";

@@ -51,7 +51,7 @@ bool NkPAApp::Init(int32 width, int32 height, NkGraphicsApi api) {
     init.surface = mWindow.GetSurfaceDesc();
     init.width   = (uint32)mWidth;
     init.height  = (uint32)mHeight;
-    if (mApi == NkGraphicsApi::NK_API_SOFTWARE) {
+    if (mApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         init.context.software.threading = true;
         init.context.software.useSSE    = true;
     }

@@ -98,7 +98,7 @@
                  * 
                  * @note Gère automatiquement les paires de surrogates pour U+10000 à U+10FFFF
                  */
-                NKENTSEU_CORE_API usize NkDecodeChar(const uint16* str, uint32& outCodepoint);
+                NKENTSEU_CONTAINERS_API usize NkDecodeChar(const uint16* str, uint32& outCodepoint);
 
                 /**
                  * @brief Encode un codepoint Unicode en une ou deux unités UTF-16
@@ -109,7 +109,7 @@
                  * 
                  * @note Les codepoints dans la plage surrogate (D800-DFFF) sont rejetés
                  */
-                NKENTSEU_CORE_API usize NkEncodeChar(uint32 codepoint, uint16* outBuffer);
+                NKENTSEU_CONTAINERS_API usize NkEncodeChar(uint32 codepoint, uint16* outBuffer);
 
                 // =================================================================
                 // FONCTIONS D'ANALYSE DE LONGUEUR
@@ -121,7 +121,7 @@
                  * @param firstUnit Première unité uint16 à analyser
                  * @return 1 pour BMP, 2 pour surrogate pair, 0 si unité invalide isolée
                  */
-                NKENTSEU_CORE_API usize NkCharLength(uint16 firstUnit);
+                NKENTSEU_CONTAINERS_API usize NkCharLength(uint16 firstUnit);
 
                 /**
                  * @brief Calcule le nombre d'unités UTF-16 nécessaires pour un codepoint
@@ -129,7 +129,7 @@
                  * @param codepoint Codepoint Unicode à analyser
                  * @return 1 si codepoint < 0x10000, 2 si >= 0x10000, 0 si hors plage valide
                  */
-                NKENTSEU_CORE_API usize NkCodepointLength(uint32 codepoint);
+                NKENTSEU_CONTAINERS_API usize NkCodepointLength(uint32 codepoint);
 
                 // =================================================================
                 // FONCTIONS DE PARCOURS ET COMPTAGE
@@ -142,7 +142,7 @@
                  * @param unitLength Nombre total d'unités uint16 dans la séquence
                  * @return Nombre de codepoints valides avant erreur ou fin de séquence
                  */
-                NKENTSEU_CORE_API usize NkCountChars(const uint16* str, usize unitLength);
+                NKENTSEU_CONTAINERS_API usize NkCountChars(const uint16* str, usize unitLength);
 
                 /**
                  * @brief Avance au début du prochain caractère UTF-16
@@ -150,7 +150,7 @@
                  * @param str Pointeur vers le caractère courant
                  * @return Pointeur vers le caractère suivant (str+1 ou str+2)
                  */
-                NKENTSEU_CORE_API const uint16* NkNextChar(const uint16* str);
+                NKENTSEU_CONTAINERS_API const uint16* NkNextChar(const uint16* str);
 
                 /**
                  * @brief Recule au début du caractère UTF-16 précédent
@@ -161,7 +161,7 @@
                  * 
                  * @note Gère le recul depuis un low surrogate vers son high surrogate associé
                  */
-                NKENTSEU_CORE_API const uint16* NkPrevChar(const uint16* str, const uint16* start);
+                NKENTSEU_CONTAINERS_API const uint16* NkPrevChar(const uint16* str, const uint16* start);
 
                 // =================================================================
                 // FONCTIONS DE VALIDATION
@@ -177,7 +177,7 @@
                  * @note Rejette : high surrogate isolé, low surrogate sans high précédent,
                  *       codepoints hors plage Unicode après décodage de paire
                  */
-                NKENTSEU_CORE_API bool NkIsValid(const uint16* str, usize length);
+                NKENTSEU_CONTAINERS_API bool NkIsValid(const uint16* str, usize length);
 
                 // =================================================================
                 // FONCTIONS DE CONVERSION VERS AUTRES ENCODAGES
@@ -194,7 +194,7 @@
                  * @param bytesWritten [out] Bytes UTF-8 effectivement écrits
                  * @return Code de résultat de la conversion
                  */
-                NKENTSEU_CORE_API NkConversionResult NkToUTF8(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkToUTF8(
                     const uint16* src, usize srcLen,
                     char* dst, usize dstLen,
                     usize& charsRead, usize& bytesWritten);
@@ -210,7 +210,7 @@
                  * @param unitsWritten [out] Codepoints UTF-32 écrits
                  * @return Code de résultat de la conversion
                  */
-                NKENTSEU_CORE_API NkConversionResult NkToUTF32(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkToUTF32(
                     const uint16* src, usize srcLen,
                     uint32* dst, usize dstLen,
                     usize& charsRead, usize& unitsWritten);

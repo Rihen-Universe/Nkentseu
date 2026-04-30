@@ -61,7 +61,7 @@ namespace nkentseu {
         // =============================================================================
         bool NkVulkanRenderer2D::Initialize(NkIGraphicsContext* ctx) {
             if (mIsValid) return false;
-            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_API_VULKAN) {
+            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_GFX_API_VULKAN) {
                 NK_VK2D_ERR("Requires Vulkan context");
                 return false;
             }

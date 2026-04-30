@@ -331,7 +331,7 @@ void NkDX12ComputeContext::MemoryBarrier() {
     mCmdList->ResourceBarrier(1, &barrier);
 }
 
-NkGraphicsApi NkDX12ComputeContext::GetApi()              const { return NkGraphicsApi::NK_API_DIRECTX12; }
+NkGraphicsApi NkDX12ComputeContext::GetApi()              const { return NkGraphicsApi::NK_GFX_API_D3D12; }
 uint32 NkDX12ComputeContext::GetMaxGroupSizeX()           const { return 1024; }
 uint32 NkDX12ComputeContext::GetMaxGroupSizeY()           const { return 1024; }
 uint32 NkDX12ComputeContext::GetMaxGroupSizeZ()           const { return 64; }

@@ -428,7 +428,7 @@ void main(){
         NkShaderDesc desc;
         desc.debugName="NkMat_Shader";
         NkGraphicsApi api=mDevice->GetApi();
-        bool isVulkan=(api==NkGraphicsApi::NK_API_VULKAN);
+        bool isVulkan=(api==NkGraphicsApi::NK_GFX_API_VULKAN);
 
         // Vertex shader (identique pour tous les types PBR-like)
         if(isVulkan) desc.AddGLSL(NkShaderStage::NK_VERTEX,kStdVert_VK);

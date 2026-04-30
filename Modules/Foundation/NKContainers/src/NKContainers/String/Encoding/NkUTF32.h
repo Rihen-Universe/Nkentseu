@@ -116,7 +116,7 @@
                  * 
                  * @note Vérifie : valeur <= 0x10FFFF et exclusion de la plage surrogate
                  */
-                NKENTSEU_CORE_API bool NkIsValid(const uint32* str, usize length);
+                NKENTSEU_CONTAINERS_API bool NkIsValid(const uint32* str, usize length);
 
                 // =================================================================
                 // FONCTIONS DE CONVERSION VERS AUTRES ENCODAGES
@@ -135,7 +135,7 @@
                  * 
                  * @note Chaque codepoint UTF-32 peut produire 1 à 4 bytes UTF-8
                  */
-                NKENTSEU_CORE_API NkConversionResult NkToUTF8(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkToUTF8(
                     const uint32* src, usize srcLen,
                     char* dst, usize dstLen,
                     usize& charsRead, usize& bytesWritten);
@@ -153,7 +153,7 @@
                  * 
                  * @note Les codepoints >= 0x10000 produisent 2 unités UTF-16 (surrogate pair)
                  */
-                NKENTSEU_CORE_API NkConversionResult NkToUTF16(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkToUTF16(
                     const uint32* src, usize srcLen,
                     uint16* dst, usize dstLen,
                     usize& charsRead, usize& unitsWritten);

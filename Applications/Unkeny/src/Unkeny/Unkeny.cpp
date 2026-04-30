@@ -27,7 +27,7 @@ nkentseu::Application* nkentseu::CreateApplication(
     ukConfig.appConfig.windowConfig.resizable = true;
 
     // Device RHI (défaut OpenGL — peut être surchargé par --backend=)
-    ukConfig.appConfig.deviceInfo.api = NkGraphicsApi::NK_API_OPENGL;
+    ukConfig.appConfig.deviceInfo.api = NkGraphicsApi::NK_GFX_API_OPENGL;
     ukConfig.appConfig.deviceInfo.context.vulkan.appName    = "Unkeny";
     ukConfig.appConfig.deviceInfo.context.vulkan.engineName = "Nkentseu";
 

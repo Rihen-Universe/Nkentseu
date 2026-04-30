@@ -47,7 +47,7 @@ namespace nkentseu {
         // =============================================================================
         bool NkDX11Renderer2D::Initialize(NkIGraphicsContext* ctx) {
             if (mIsValid) return false;
-            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_API_DIRECTX11) {
+            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_GFX_API_D3D11) {
                 NK_DX11_2D_ERR("Requires a DX11 graphics context");
                 return false;
             }

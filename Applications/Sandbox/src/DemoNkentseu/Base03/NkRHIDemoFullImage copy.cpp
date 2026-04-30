@@ -530,14 +530,14 @@ static NkVector<Vtx3D> MakePlane(float sz=3.f, float r=0.35f, float g=0.65f, flo
 static NkGraphicsApi ParseBackend(const nkentseu::NkVector<nkentseu::NkString>& args) {
     for (size_t i = 1; i < args.Size(); i++) {
         const nkentseu::NkString& arg = args[i];
-        if (arg == "--backend=vulkan"  || arg == "-bvk")   return NkGraphicsApi::NK_API_VULKAN;
-        if (arg == "--backend=dx11"    || arg == "-bdx11")  return NkGraphicsApi::NK_API_DIRECTX11;
-        if (arg == "--backend=dx12"    || arg == "-bdx12")  return NkGraphicsApi::NK_API_DIRECTX12;
-        if (arg == "--backend=metal"   || arg == "-bmtl")   return NkGraphicsApi::NK_API_METAL;
-        if (arg == "--backend=sw"      || arg == "-bsw")    return NkGraphicsApi::NK_API_SOFTWARE;
-        if (arg == "--backend=opengl"  || arg == "-bgl")    return NkGraphicsApi::NK_API_OPENGL;
+        if (arg == "--backend=vulkan"  || arg == "-bvk")   return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (arg == "--backend=dx11"    || arg == "-bdx11")  return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (arg == "--backend=dx12"    || arg == "-bdx12")  return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (arg == "--backend=metal"   || arg == "-bmtl")   return NkGraphicsApi::NK_GFX_API_METAL;
+        if (arg == "--backend=sw"      || arg == "-bsw")    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (arg == "--backend=opengl"  || arg == "-bgl")    return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
-    return NkGraphicsApi::NK_API_OPENGL;
+    return NkGraphicsApi::NK_GFX_API_OPENGL;
 }
 
 static bool HasArg(const nkentseu::NkVector<nkentseu::NkString>& args,
@@ -720,16 +720,16 @@ static NkShaderDesc MakeShaderDesc(NkGraphicsApi api) {
     NkShaderDesc sd;
     sd.debugName = "Phong3D";
     switch (api) {
-        case NkGraphicsApi::NK_API_DIRECTX11:
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_VS, "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_PS, "PSMain");
             break;
-        case NkGraphicsApi::NK_API_METAL:
+        case NkGraphicsApi::NK_GFX_API_METAL:
             sd.AddMSL(NkShaderStage::NK_VERTEX,   kMSL_Shaders, "vmain");
             sd.AddMSL(NkShaderStage::NK_FRAGMENT,  kMSL_Shaders, "fmain");
             break;
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
             sd.AddSPIRV(NkShaderStage::NK_VERTEX,
                         kVkRHIFullDemoImageVertSpv,
                         (uint64)kVkRHIFullDemoImageVertSpvWordCount * sizeof(uint32));
@@ -750,15 +750,15 @@ static NkShaderDesc MakeShadowShaderDesc(NkGraphicsApi api) {
     NkShaderDesc sd;
     sd.debugName = "ShadowDepth";
     switch (api) {
-        case NkGraphicsApi::NK_API_DIRECTX11:
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_ShadowVert);
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_ShadowFrag);
             break;
-        case NkGraphicsApi::NK_API_METAL:
+        case NkGraphicsApi::NK_GFX_API_METAL:
             // Shadow pass MSL non implÃ©mentÃ© (Metal sans ombres)
             break;
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
             sd.AddSPIRV(NkShaderStage::NK_VERTEX,
                         kVkShadowVertSpv,
                         (uint64)kVkShadowVertSpvWordCount * sizeof(uint32));
@@ -854,16 +854,16 @@ int nkmain(const nkentseu::NkEntryState& state) {
     // shaderNeedsShadowSampler : le shader GPU lit la shadow map via un descriptor (binding 1).
     // wantsShadowResources : on crÃ©e les ressources RHI shadow (inclut Software).
     const bool shaderNeedsShadowSampler =
-        targetApi == NkGraphicsApi::NK_API_OPENGL    ||
-        targetApi == NkGraphicsApi::NK_API_VULKAN    ||
-        targetApi == NkGraphicsApi::NK_API_DIRECTX11 ||
-        targetApi == NkGraphicsApi::NK_API_DIRECTX12;
+        targetApi == NkGraphicsApi::NK_GFX_API_OPENGL    ||
+        targetApi == NkGraphicsApi::NK_GFX_API_VULKAN    ||
+        targetApi == NkGraphicsApi::NK_GFX_API_D3D11 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_D3D12;
     const bool wantsShadowResources =
         shaderNeedsShadowSampler ||
-        targetApi == NkGraphicsApi::NK_API_SOFTWARE;
+        targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE;
     const bool forceSafeShadows = HasArg(state.GetArgs(), "--safe-shadows", "--shadow-safe-clear");
     const bool requestRealShadows = !forceSafeShadows;
-    const bool shaderNeedsAlbedoSampler = targetApi != NkGraphicsApi::NK_API_SOFTWARE;
+    const bool shaderNeedsAlbedoSampler = targetApi != NkGraphicsApi::NK_GFX_API_SOFTWARE;
     static constexpr uint32 kShadowSize = 2048;
 
     NkTextureHandle     hShadowTex;
@@ -1152,7 +1152,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
         return 1;
     }
 
-    if (targetApi == NkGraphicsApi::NK_API_SOFTWARE) {
+    if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         NkSoftwareDevice* swDev = static_cast<NkSoftwareDevice*>(device);
 
         // Shadow shader : depth-only pass
@@ -1325,10 +1325,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
     // â”€â”€ Constantes de convention NDC selon l'API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // depthZeroToOne : Vulkan/DX/Metal clip Z âˆˆ [0,1], OpenGL/SW clip Z âˆˆ [-1,1]
     const bool  depthZeroToOne =
-        targetApi == NkGraphicsApi::NK_API_VULKAN    ||
-        targetApi == NkGraphicsApi::NK_API_DIRECTX11 ||
-        targetApi == NkGraphicsApi::NK_API_DIRECTX12 ||
-        targetApi == NkGraphicsApi::NK_API_METAL;
+        targetApi == NkGraphicsApi::NK_GFX_API_VULKAN    ||
+        targetApi == NkGraphicsApi::NK_GFX_API_D3D11 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_D3D12 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_METAL;
     const float ndcZScale  = depthZeroToOne ? 1.0f : 0.5f;
     const float ndcZOffset = depthZeroToOne ? 0.0f : 0.5f;
 
@@ -1522,7 +1522,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
         NkRect2D area{0, 0, (int32)W, (int32)H};
         if (!cmd->BeginRenderPass(hRP, hFBO, area)) {
             cmd->End();
-            if (targetApi == NkGraphicsApi::NK_API_VULKAN && W > 0 && H > 0) {
+            if (targetApi == NkGraphicsApi::NK_GFX_API_VULKAN && W > 0 && H > 0) {
                 device->OnResize(W, H);
             }
             device->EndFrame(frame);
@@ -1601,7 +1601,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
             requestSaveScene = false;
             ++saveSceneCounter;
             const std::string stem = NkFormat("scene_{0}", (unsigned long long)saveSceneCounter).CStr();
-            if (targetApi == NkGraphicsApi::NK_API_SOFTWARE) {
+            if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
                 auto* swDev = static_cast<NkSoftwareDevice*>(device);
                 if (!SaveSoftwareScene(swDev, capturesDir, stem)) {
                     logger.Info("[RHIFullDemoImage] Echec save scene software.\n");

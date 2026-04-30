@@ -31,14 +31,14 @@ static NkGraphicsApi ParseApiArg(const NkEntryState& state) {
         else if (::strncmp(arg, "-api=",  5) == 0)  val = arg + 5;
         if (!val) continue;
 
-        if (::strcmp(val, "opengl")   == 0) return NkGraphicsApi::NK_API_OPENGL;
-        if (::strcmp(val, "vulkan")   == 0) return NkGraphicsApi::NK_API_VULKAN;
-        if (::strcmp(val, "dx11")     == 0) return NkGraphicsApi::NK_API_DIRECTX11;
-        if (::strcmp(val, "dx12")     == 0) return NkGraphicsApi::NK_API_DIRECTX12;
-        if (::strcmp(val, "metal")    == 0) return NkGraphicsApi::NK_API_METAL;
-        if (::strcmp(val, "software") == 0) return NkGraphicsApi::NK_API_SOFTWARE;
+        if (::strcmp(val, "opengl")   == 0) return NkGraphicsApi::NK_GFX_API_OPENGL;
+        if (::strcmp(val, "vulkan")   == 0) return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (::strcmp(val, "dx11")     == 0) return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (::strcmp(val, "dx12")     == 0) return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (::strcmp(val, "metal")    == 0) return NkGraphicsApi::NK_GFX_API_METAL;
+        if (::strcmp(val, "software") == 0) return NkGraphicsApi::NK_GFX_API_SOFTWARE;
     }
-    return NkGraphicsApi::NK_API_SOFTWARE;
+    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
 }
 
 int nkmain(const NkEntryState& state) {

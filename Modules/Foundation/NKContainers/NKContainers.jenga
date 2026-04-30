@@ -11,11 +11,12 @@ Le module est branché en build complet; la stabilisation API/ABI reste itérati
 """
 
 from Jenga import *
+from config import useglobalkind
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKContainers"):
-    staticlib()
+    useglobalkind("containers")
     language("C++")
     cppdialect("C++17")
     location(".")

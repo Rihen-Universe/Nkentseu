@@ -216,10 +216,10 @@ namespace nkentseu {
         struct NKENTSEU_AUDIO_API AudioHandle {
             uint32 id = AUDIO_INVALID_ID;
 
-            NK_INLINE bool IsValid()    const { return id != AUDIO_INVALID_ID; }
-            NK_INLINE operator bool()   const { return IsValid(); }
-            NK_INLINE bool operator==(const AudioHandle& other) const { return id == other.id; }
-            NK_INLINE bool operator!=(const AudioHandle& other) const { return id != other.id; }
+            NKENTSEU_INLINE bool IsValid()    const { return id != AUDIO_INVALID_ID; }
+            NKENTSEU_INLINE operator bool()   const { return IsValid(); }
+            NKENTSEU_INLINE bool operator==(const AudioHandle& other) const { return id == other.id; }
+            NKENTSEU_INLINE bool operator!=(const AudioHandle& other) const { return id != other.id; }
         };
 
         /// Handle invalide pré-construit
@@ -248,9 +248,9 @@ namespace nkentseu {
             AudioFormat format      = AudioFormat::UNKNOWN;
 
             // ── Durée calculée ───────────────────────────────────────────
-            NK_INLINE float32 GetDuration()    const { return (sampleRate > 0) ? (float32)frameCount / (float32)sampleRate : 0.0f; }
-            NK_INLINE usize   GetSampleCount() const { return frameCount * (usize)channels; }
-            NK_INLINE bool    IsValid()        const { return data != nullptr && frameCount > 0 && sampleRate > 0 && channels > 0; }
+            NKENTSEU_INLINE float32 GetDuration()    const { return (sampleRate > 0) ? (float32)frameCount / (float32)sampleRate : 0.0f; }
+            NKENTSEU_INLINE usize   GetSampleCount() const { return frameCount * (usize)channels; }
+            NKENTSEU_INLINE bool    IsValid()        const { return data != nullptr && frameCount > 0 && sampleRate > 0 && channels > 0; }
 
             // ── Allocateur ───────────────────────────────────────────────
             memory::NkAllocator* mAllocator = nullptr; ///< Allocateur responsable (jamais nullptr si IsValid())
@@ -336,7 +336,7 @@ namespace nkentseu {
             int32               sampleRate = 0;
 
             /// Fréquence d'un bin donné
-            NK_INLINE float32 BinToFrequency(int32 bin) const {
+            NKENTSEU_INLINE float32 BinToFrequency(int32 bin) const {
                 if (fftSize <= 0 || sampleRate <= 0) return 0.0f;
                 return (float32)bin * (float32)sampleRate / (float32)fftSize;
             }

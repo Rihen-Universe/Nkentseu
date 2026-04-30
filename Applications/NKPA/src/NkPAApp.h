@@ -49,7 +49,7 @@ public:
     ~NkPAApp() = default;
 
     bool Init(int32 width = 1280, int32 height = 720,
-              NkGraphicsApi api = NkGraphicsApi::NK_API_SOFTWARE);
+              NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_SOFTWARE);
     void Run();
     void Shutdown();
 
@@ -68,7 +68,7 @@ private:
     bool           mRunning = false;
     int32          mWidth   = 1280;
     int32          mHeight  = 720;
-    NkGraphicsApi  mApi     = NkGraphicsApi::NK_API_SOFTWARE;
+    NkGraphicsApi  mApi     = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     NkChrono       mChrono;
     NkPAUIState    mUIState;
 

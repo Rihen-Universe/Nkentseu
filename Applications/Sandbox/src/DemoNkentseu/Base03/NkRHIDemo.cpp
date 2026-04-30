@@ -389,14 +389,14 @@ int nkmain(const nkentseu::NkEntryState&)
     // ── Contexte OpenGL 3.3 ──────────────────────────────────────────────────
     NkContextDesc desc;
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-    desc.api           = NkGraphicsApi::NK_API_WEBGL;
+    desc.api           = NkGraphicsApi::NK_GFX_API_WEBGL;
     desc.opengl.majorVersion = 3;
     desc.opengl.minorVersion = 0;
     desc.opengl.profile      = NkGLProfile::ES;
 #elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
     desc = NkContextDesc::MakeOpenGLES(3, 0);
 #else
-    desc.api    = NkGraphicsApi::NK_API_OPENGL;
+    desc.api    = NkGraphicsApi::NK_GFX_API_OPENGL;
     desc.opengl = NkOpenGLDesc::Desktop46(false);
     desc.opengl.majorVersion = 3;
     desc.opengl.minorVersion = 3;

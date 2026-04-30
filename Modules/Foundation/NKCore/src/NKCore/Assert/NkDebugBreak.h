@@ -394,17 +394,17 @@
     #define NK_CORE_ASSERT(condition, msg) \
     do { \
         if (!(condition)) { \
-            /* Log l'erreur avec contexte automatique *\/ \
+            /\* Log l'erreur avec contexte automatique *\/ \
             NKENTSEU_LOG_ERROR_CONTEXT( \
                 "Assertion failed: " msg, \
                 NKENTSEU_BUILTIN_FILE, \
                 NKENTSEU_BUILTIN_LINE, \
                 NKENTSEU_BUILTIN_FUNCTION \
             ); \
-            /* Point d'arrêt pour inspection immédiate *\/ \
+            /\* Point d'arrêt pour inspection immédiate *\/ \
             NKENTSEU_DEBUGBREAK(); \
-            /* Optionnel : abort pour éviter la continuation en état invalide *\/ \
-            /* abort(); *\/ \
+            /\* Optionnel : abort pour éviter la continuation en état invalide *\/ \
+            /\* abort(); *\/ \
         } \
     } while (0)
 
@@ -418,7 +418,7 @@
                 NKENTSEU_BUILTIN_LINE, \
                 NKENTSEU_BUILTIN_FUNCTION \
             ); \
-            /* Pas de break : continue l'exécution *\/ \
+            /\* Pas de break : continue l'exécution *\/ \
         } \
     } while (0)
 

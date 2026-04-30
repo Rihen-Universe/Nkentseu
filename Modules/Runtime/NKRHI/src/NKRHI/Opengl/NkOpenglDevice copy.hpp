@@ -204,7 +204,7 @@ void NkOpenGLDevice::QueryCaps() {
     glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT,&v); mCaps.minUniformBufferAlign=(uint32)v;
     glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT,&v); mCaps.minStorageBufferAlign=(uint32)v;
 
-    mCaps.computeShaders    = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_API_OPENGL);
+    mCaps.computeShaders    = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_OPENGL);
     mCaps.geometryShaders   = true;
     mCaps.tessellationShaders=true;
     mCaps.drawIndirect      = true;

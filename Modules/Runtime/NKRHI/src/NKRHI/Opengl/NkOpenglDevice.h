@@ -46,7 +46,7 @@ public:
     bool          Initialize(const NkDeviceInitInfo& init) override;
     void          Shutdown()                          override;
     bool          IsValid()                     const override { return mIsValid; }
-    NkGraphicsApi GetApi()                      const override { return NkGraphicsApi::NK_API_OPENGL; }
+    NkGraphicsApi GetApi()                      const override { return NkGraphicsApi::NK_GFX_API_OPENGL; }
     const NkDeviceCaps& GetCaps()               const override { return mCaps; }
 
     // ── Buffers ───────────────────────────────────────────────────────────────

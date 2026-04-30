@@ -66,7 +66,7 @@
          *          personnalisés, garantir que le même allocateur est utilisé
          *          pour l'allocation et la libération d'une instance donnée.
          */
-        class NKENTSEU_CORE_API NkString {
+        class NKENTSEU_CONTAINERS_API NkString {
 
             // =================================================================
             // TYPES PUBLICS ET CONSTANTES

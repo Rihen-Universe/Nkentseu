@@ -80,7 +80,7 @@ nkentseu::Application* nkentseu::CreateApplication(
     config.windowConfig.centered  = true;
     config.windowConfig.resizable = true;
 
-    config.deviceInfo.api = NkGraphicsApi::NK_API_OPENGL;
+    config.deviceInfo.api = NkGraphicsApi::NK_GFX_API_OPENGL;
     config.deviceInfo.context.vulkan.appName    = "PV3DE";
     config.deviceInfo.context.vulkan.engineName = "Nkentseu";
 

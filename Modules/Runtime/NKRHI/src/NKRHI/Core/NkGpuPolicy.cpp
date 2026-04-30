@@ -16,9 +16,9 @@ namespace nkentseu {
 namespace {
 
 static bool IsOpenGLLike(NkGraphicsApi api) {
-    return api == NkGraphicsApi::NK_API_OPENGL ||
-           api == NkGraphicsApi::NK_API_OPENGLES ||
-           api == NkGraphicsApi::NK_API_WEBGL;
+    return api == NkGraphicsApi::NK_GFX_API_OPENGL ||
+           api == NkGraphicsApi::NK_GFX_API_OPENGLES ||
+           api == NkGraphicsApi::NK_GFX_API_WEBGL;
 }
 
 static bool HasEnvVar(const char* key) {

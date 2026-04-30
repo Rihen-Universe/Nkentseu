@@ -15,12 +15,12 @@ Contenu (src/NKFileSystem/) :
 """
 
 from Jenga import *
+from config import *
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKFileSystem"):
-    kindexport(ProjectKind.STATIC_LIB, "NKENTSEU_FILESYSTEM")
-    defines(["NKENTSEU_PLATFORM_STATIC_LIB", "NKENTSEU_CORE_STATIC_LIB", "NKENTSEU_MEMORY_STATIC_LIB", "NKENTSEU_CONTAINERS_STATIC_LIB", "NKENTSEU_THREADING_STATIC_LIB", "NKENTSEU_LOGGER_STATIC_LIB"])
+    useglobalkind("filesystem")
 
     language("C++")
     cppdialect("C++17")

@@ -1290,7 +1290,7 @@
  * // Pattern 2: Regroupement par clé (grouping)
  * void exempleGrouping() {
  *     struct Person { const char* name; usize age; const char* city; };
- *     nkentseu::NkVector<Person> people = { /* ... * / };
+ *     nkentseu::NkVector<Person> people = { /\* ... *\/ };
  *     
  *     // Regrouper par ville : UnorderedMap<city, vector<names>>
  *     nkentseu::NkUnorderedMap<const char*, nkentseu::NkVector<const char*>> byCity;

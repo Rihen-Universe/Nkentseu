@@ -21,7 +21,6 @@
 // -------------------------------------------------------------------------
 #include <cstdio>
 #include <cstdlib>
-#include <cstdarg>
 #include <ctime>
 
 // -------------------------------------------------------------------------
@@ -510,62 +509,6 @@ namespace nkentseu {
             return end != buffer && *end == '\0';
         }
 
-        // =====================================================================
-        // SECTION : CONVERSIONS NUMÉRIQUES - TOSTRING
-        // =====================================================================
-
-        NkString NkToString(int32 value) {
-            char buffer[32];
-            int len = std::snprintf(buffer, sizeof(buffer), "%d", value);
-            return NkString(buffer, static_cast<usize>(len));
-        }
-
-        NkString NkToString(int64 value) {
-            char buffer[32];
-            int len = std::snprintf(
-                buffer, 
-                sizeof(buffer), 
-                "%lld", 
-                static_cast<long long>(value));
-            return NkString(buffer, static_cast<usize>(len));
-        }
-
-        NkString NkToString(uint32 value) {
-            char buffer[32];
-            int len = std::snprintf(buffer, sizeof(buffer), "%u", value);
-            return NkString(buffer, static_cast<usize>(len));
-        }
-
-        NkString NkToString(uint64 value) {
-            char buffer[32];
-            int len = std::snprintf(
-                buffer, 
-                sizeof(buffer), 
-                "%llu", 
-                static_cast<unsigned long long>(value));
-            return NkString(buffer, static_cast<usize>(len));
-        }
-
-        NkString NkToString(float32 value, int precision) {
-            char buffer[64];
-            char format[16];
-            std::snprintf(format, sizeof(format), "%%.%df", precision);
-            int len = std::snprintf(buffer, sizeof(buffer), format, value);
-            return NkString(buffer, static_cast<usize>(len));
-        }
-
-        NkString NkToString(float64 value, int precision) {
-            char buffer[64];
-            char format[16];
-            std::snprintf(format, sizeof(format), "%%.%dlf", precision);
-            int len = std::snprintf(buffer, sizeof(buffer), format, value);
-            return NkString(buffer, static_cast<usize>(len));
-        }
-
-        NkString NkToString(bool value) {
-            return value ? NkString("true") : NkString("false");
-        }
-
         NkString NkToHex(int32 value, bool prefix) {
             char buffer[32];
             int len = std::snprintf(
@@ -604,17 +547,6 @@ namespace nkentseu {
                 prefix ? "0x%016llX" : "%016llX", 
                 static_cast<unsigned long long>(value));
             return NkString(buffer, static_cast<usize>(len));
-        }
-
-        NkString NkToStringf(const char* format, ...) {
-            if (!format) {
-                return NkString();
-            }
-            va_list args;
-            va_start(args, format);
-            NkString result = NkVFormatf(format, args);
-            va_end(args);
-            return result;
         }
 
         // =====================================================================
@@ -924,48 +856,6 @@ namespace nkentseu {
 
         NkString NkRepeat(char ch, usize count) {
             return NkString(count, ch);
-        }
-
-        // =====================================================================
-        // SECTION : FORMATAGE PRINTF-STYLE
-        // =====================================================================
-
-        NkString NkFormatf(const char* format, ...) {
-            if (!format) {
-                return NkString();
-            }
-            va_list args;
-            va_start(args, format);
-            va_list argsCopy;
-            va_copy(argsCopy, args);
-            int size = std::vsnprintf(nullptr, 0, format, argsCopy);
-            va_end(argsCopy);
-            if (size < 0) {
-                va_end(args);
-                return NkString();
-            }
-            NkString result;
-            result.Resize(static_cast<usize>(size));
-            std::vsnprintf(result.Data(), static_cast<size_t>(size) + 1, format, args);
-            va_end(args);
-            return result;
-        }
-
-        NkString NkVFormatf(const char* format, va_list args) {
-            if (!format) {
-                return NkString();
-            }
-            va_list argsCopy;
-            va_copy(argsCopy, args);
-            int size = std::vsnprintf(nullptr, 0, format, argsCopy);
-            va_end(argsCopy);
-            if (size < 0) {
-                return NkString();
-            }
-            NkString result;
-            result.Resize(static_cast<usize>(size));
-            std::vsnprintf(result.Data(), static_cast<size_t>(size) + 1, format, args);
-            return result;
         }
 
         // =====================================================================

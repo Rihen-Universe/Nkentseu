@@ -142,7 +142,7 @@
                     NkRangeFloat Project(const NkVector2f& axisDirection);
 
                     // Longueur euclidienne du segment : distance entre A et B
-                    float32 Length();
+                    float32 Length() const;
 
                     // Alias sémantique pour Length()
                     float32 Len();
@@ -179,20 +179,20 @@
 
             };  // class NkSegment
 
-            // =================================================================
-            // Fonction : NkToString (spécialisation pour NkSegment)
-            // =================================================================
-            // Intègre NkSegment au système de formatage générique du projet
-            // via NkFormatProps pour la personnalisation de l'affichage.
-            // =================================================================
-            inline NkString NkToString(
-                const math::NkSegment& segment,
-                const NkFormatProps& formatProperties = {}
-            ) {
-                return NkApplyFormatProps(segment.ToString(), formatProperties);
-            }
-
         }  // namespace math
+
+        // =====================================================================
+        // POINT D'EXTENSION ADL : NkToString pour NkSegment (namespace nkentseu)
+        // =====================================================================
+        // Doit être dans namespace nkentseu (pas math) pour être trouvé par ADL
+        // depuis nkentseu::detail::adl::Invoke (utilisé par NkFormat/NkFormatter).
+        // =====================================================================
+        inline NkString NkToString(
+            const math::NkSegment& segment,
+            const NkFormatProps& formatProperties = {}
+        ) {
+            return formatProperties.ApplyWidth(NkStringView(segment.ToString()), false);
+        }
 
     }  // namespace nkentseu
 

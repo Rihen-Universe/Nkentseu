@@ -53,7 +53,7 @@ namespace nkentseu {
         // =============================================================================
         bool NkDX12Renderer2D::Initialize(NkIGraphicsContext* ctx) {
             if (mIsValid) return false;
-            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_API_DIRECTX12) {
+            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_GFX_API_D3D12) {
                 NK_DX12_2D_ERR("Requires a DX12 context");
                 return false;
             }

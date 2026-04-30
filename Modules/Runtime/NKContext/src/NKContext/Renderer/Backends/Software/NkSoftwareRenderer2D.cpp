@@ -46,7 +46,7 @@ namespace nkentseu {
         bool NkSoftwareRenderer2D::Initialize(NkIGraphicsContext* ctx) {
             if (mIsValid) return false;
             if (!ctx || !ctx->IsValid()) { NK_SW2D_ERR("Invalid context"); return false; }
-            if (ctx->GetApi() != NkGraphicsApi::NK_API_SOFTWARE) {
+            if (ctx->GetApi() != NkGraphicsApi::NK_GFX_API_SOFTWARE) {
                 NK_SW2D_ERR("Requires Software context");
                 return false;
             }

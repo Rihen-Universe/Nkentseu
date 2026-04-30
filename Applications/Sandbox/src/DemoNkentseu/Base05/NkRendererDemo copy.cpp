@@ -66,40 +66,40 @@ static NkGraphicsApi ParseBackend(const NkVector<NkString>& args, bool& explicit
         const NkString& a = args[i];
         if (a == "--backend=opengl" || a == "--api=opengl" || a == "-bgl") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_API_OPENGL;
+            return NkGraphicsApi::NK_GFX_API_OPENGL;
         }
         if (a == "--backend=vulkan" || a == "--api=vulkan" || a == "-bvk") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_API_VULKAN;
+            return NkGraphicsApi::NK_GFX_API_VULKAN;
         }
         if (a == "--backend=dx11" || a == "--api=dx11" || a == "-bdx11") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_API_DIRECTX11;
+            return NkGraphicsApi::NK_GFX_API_D3D11;
         }
         if (a == "--backend=dx12" || a == "--api=dx12" || a == "-bdx12") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_API_DIRECTX12;
+            return NkGraphicsApi::NK_GFX_API_D3D12;
         }
         if (a == "--backend=metal" || a == "--api=metal" || a == "-bmtl") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_API_METAL;
+            return NkGraphicsApi::NK_GFX_API_METAL;
         }
         if (a == "--backend=sw" || a == "--api=sw" || a == "-bsw") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_API_SOFTWARE;
+            return NkGraphicsApi::NK_GFX_API_SOFTWARE;
         }
         if (a == "--backend=auto" || a == "--api=auto" || a == "-bauto") {
             explicitBackend = false;
-            return NkGraphicsApi::NK_API_NONE;
+            return NkGraphicsApi::NK_GFX_API_NONE;
         }
     }
-    return NkGraphicsApi::NK_API_NONE;
+    return NkGraphicsApi::NK_GFX_API_NONE;
 }
 
 static NkIDevice* CreateDeviceWithBackendFallback(const NkDeviceInitInfo& info,
                                                   NkGraphicsApi requestedApi,
                                                   bool explicitBackend) {
-    if (explicitBackend && requestedApi != NkGraphicsApi::NK_API_NONE) {
+    if (explicitBackend && requestedApi != NkGraphicsApi::NK_GFX_API_NONE) {
         NkIDevice* explicitDev = NkDeviceFactory::CreateForApi(requestedApi, info);
         if (explicitDev && explicitDev->IsValid()) {
             return explicitDev;
@@ -113,24 +113,24 @@ static NkIDevice* CreateDeviceWithBackendFallback(const NkDeviceInitInfo& info,
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     return NkDeviceFactory::CreateWithFallback(info, {
-        NkGraphicsApi::NK_API_OPENGL,
-        NkGraphicsApi::NK_API_DIRECTX12,
-        NkGraphicsApi::NK_API_DIRECTX11,
-        NkGraphicsApi::NK_API_VULKAN,
-        NkGraphicsApi::NK_API_SOFTWARE
+        NkGraphicsApi::NK_GFX_API_OPENGL,
+        NkGraphicsApi::NK_GFX_API_D3D12,
+        NkGraphicsApi::NK_GFX_API_D3D11,
+        NkGraphicsApi::NK_GFX_API_VULKAN,
+        NkGraphicsApi::NK_GFX_API_SOFTWARE
     });
 #elif defined(NKENTSEU_PLATFORM_MACOS)
     return NkDeviceFactory::CreateWithFallback(info, {
-        NkGraphicsApi::NK_API_METAL,
-        NkGraphicsApi::NK_API_VULKAN,
-        NkGraphicsApi::NK_API_OPENGL,
-        NkGraphicsApi::NK_API_SOFTWARE
+        NkGraphicsApi::NK_GFX_API_METAL,
+        NkGraphicsApi::NK_GFX_API_VULKAN,
+        NkGraphicsApi::NK_GFX_API_OPENGL,
+        NkGraphicsApi::NK_GFX_API_SOFTWARE
     });
 #else
     return NkDeviceFactory::CreateWithFallback(info, {
-        NkGraphicsApi::NK_API_VULKAN,
-        NkGraphicsApi::NK_API_OPENGL,
-        NkGraphicsApi::NK_API_SOFTWARE
+        NkGraphicsApi::NK_GFX_API_VULKAN,
+        NkGraphicsApi::NK_GFX_API_OPENGL,
+        NkGraphicsApi::NK_GFX_API_SOFTWARE
     });
 #endif
 }

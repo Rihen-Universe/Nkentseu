@@ -28,8 +28,9 @@
     // =====================================================================
     // Inclusions des dépendances
     // =====================================================================
-    #include "NKMath/NkLegacySystem.h"      // Types fondamentaux : float32, int32, etc.
-    #include "NKMath/NkFunctions.h"         // Fonctions utilitaires : NkMin, NkMax, etc.
+    #include "NKMath/NkLegacySystem.h"              // Types fondamentaux : float32, int32, etc.
+    #include "NKMath/NkFunctions.h"                 // Fonctions utilitaires : NkMin, NkMax, etc.
+    #include "NKContainers/String/NkFormat.h"        // NkString et NkFormatProps pour ToString/NkToString
 
     // =====================================================================
     // Namespace principal du projet
@@ -316,7 +317,7 @@
             const math::NkRangeT<T>& range,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(range.ToString(), formatProperties);
+            return formatProperties.ApplyWidth(NkStringView(range.ToString()), false);
         }
 
     } // namespace nkentseu

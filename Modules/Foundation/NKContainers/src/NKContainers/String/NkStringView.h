@@ -61,7 +61,7 @@
          * @note Idéal pour : paramètres de fonctions, parsing temporaire,
          *       sous-chaînes sans allocation, interfaces API légères.
          */
-        class NKENTSEU_CORE_API NkStringView {
+        class NKENTSEU_CONTAINERS_API NkStringView {
 
             // =================================================================
             // TYPES PUBLICS ET ALIASES
@@ -1757,7 +1757,7 @@
          * @param rhs Vue de droite
          * @return true si contenus identiques (même longueur, mêmes bytes)
          */
-        NK_INLINE bool operator==(const NkStringView& lhs, const NkStringView& rhs) noexcept {
+        NKENTSEU_INLINE bool operator==(const NkStringView& lhs, const NkStringView& rhs) noexcept {
             return lhs.Compare(rhs) == 0;
         }
 
@@ -1770,7 +1770,7 @@
          * 
          * @note Crée temporairement une NkStringView depuis rhs pour la comparaison.
          */
-        NK_INLINE bool operator==(const NkStringView& lhs, const char* rhs) noexcept {
+        NKENTSEU_INLINE bool operator==(const NkStringView& lhs, const char* rhs) noexcept {
             return lhs.Compare(NkStringView(rhs)) == 0;
         }
 
@@ -1781,7 +1781,7 @@
          * @param rhs Vue à comparer
          * @return true si égalité binaire
          */
-        NK_INLINE bool operator==(const char* lhs, const NkStringView& rhs) noexcept {
+        NKENTSEU_INLINE bool operator==(const char* lhs, const NkStringView& rhs) noexcept {
             return NkStringView(lhs).Compare(rhs) == 0;
         }
 
@@ -1792,7 +1792,7 @@
          * @param rhs Vue de droite
          * @return true si contenus différents
          */
-        NK_INLINE bool operator!=(const NkStringView& lhs, const NkStringView& rhs) noexcept {
+        NKENTSEU_INLINE bool operator!=(const NkStringView& lhs, const NkStringView& rhs) noexcept {
             return lhs.Compare(rhs) != 0;
         }
 
@@ -1803,7 +1803,7 @@
          * @param rhs Chaîne C
          * @return true si inégalité
          */
-        NK_INLINE bool operator!=(const NkStringView& lhs, const char* rhs) noexcept {
+        NKENTSEU_INLINE bool operator!=(const NkStringView& lhs, const char* rhs) noexcept {
             return lhs.Compare(NkStringView(rhs)) != 0;
         }
 
@@ -1814,7 +1814,7 @@
          * @param rhs Vue à comparer
          * @return true si inégalité
          */
-        NK_INLINE bool operator!=(const char* lhs, const NkStringView& rhs) noexcept {
+        NKENTSEU_INLINE bool operator!=(const char* lhs, const NkStringView& rhs) noexcept {
             return NkStringView(lhs).Compare(rhs) != 0;
         }
 
@@ -1832,7 +1832,7 @@
          * @return true si lhs < rhs lexicographiquement
          */
         template<typename T1, typename T2>
-        NK_INLINE bool operator<(const T1& lhs, const T2& rhs) noexcept {
+        NKENTSEU_INLINE bool operator<(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) < 0;
         }
 
@@ -1846,7 +1846,7 @@
          * @return true si lhs <= rhs
          */
         template<typename T1, typename T2>
-        NK_INLINE bool operator<=(const T1& lhs, const T2& rhs) noexcept {
+        NKENTSEU_INLINE bool operator<=(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) <= 0;
         }
 
@@ -1860,7 +1860,7 @@
          * @return true si lhs > rhs
          */
         template<typename T1, typename T2>
-        NK_INLINE bool operator>(const T1& lhs, const T2& rhs) noexcept {
+        NKENTSEU_INLINE bool operator>(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) > 0;
         }
 
@@ -1874,7 +1874,7 @@
          * @return true si lhs >= rhs
          */
         template<typename T1, typename T2>
-        NK_INLINE bool operator>=(const T1& lhs, const T2& rhs) noexcept {
+        NKENTSEU_INLINE bool operator>=(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) >= 0;
         }
 

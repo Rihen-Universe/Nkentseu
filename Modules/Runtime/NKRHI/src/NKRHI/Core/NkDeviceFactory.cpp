@@ -23,13 +23,13 @@ namespace nkentseu {
 
 NkIDevice* NkDeviceFactory::Create(const NkDeviceInitInfo& init) {
     const NkGraphicsApi api = NkDeviceInitApi(init);
-    if (api == NkGraphicsApi::NK_API_NONE) {
-        logger_src.Infof("[NkDeviceFactory] API non specifiee (init.api/context.api == NK_API_NONE)\n");
+    if (api == NkGraphicsApi::NK_GFX_API_NONE) {
+        logger_src.Infof("[NkDeviceFactory] API non specifiee (init.api/context.api == NK_GFX_API_NONE)\n");
         return nullptr;
     }
     NkDeviceInitInfo effectiveInit = init;
     effectiveInit.api = api;
-    if (effectiveInit.context.api == NkGraphicsApi::NK_API_NONE) {
+    if (effectiveInit.context.api == NkGraphicsApi::NK_GFX_API_NONE) {
         effectiveInit.context.api = api;
     }
     return CreateForApi(api, effectiveInit);
@@ -39,11 +39,11 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
     NkIDevice* dev = nullptr;
 
     switch (api) {
-        case NkGraphicsApi::NK_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
             dev = new NkOpenGLDevice();
             break;
 
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
 #ifdef NK_RHI_VK_ENABLED
             dev = new NkVulkanDevice();
 #else
@@ -51,7 +51,7 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 #endif
             break;
 
-        case NkGraphicsApi::NK_API_DIRECTX11:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
 #ifdef NK_RHI_DX11_ENABLED
             dev = new NkDirectX11Device();
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
@@ -59,7 +59,7 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 #endif
             break;
 
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
 #ifdef NK_RHI_DX12_ENABLED
             dev = new NkDirectX12Device();
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
@@ -67,7 +67,7 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 #endif
             break;
 
-        case NkGraphicsApi::NK_API_METAL:
+        case NkGraphicsApi::NK_GFX_API_METAL:
 #ifdef NK_RHI_METAL_ENABLED
             dev = new NkMetalDevice();
 #else
@@ -75,7 +75,7 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 #endif
             break;
 
-        case NkGraphicsApi::NK_API_SOFTWARE:
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE:
             dev = new NkSoftwareDevice();
             break;
 
@@ -106,7 +106,7 @@ NkIDevice* NkDeviceFactory::CreateWithFallback(const NkDeviceInitInfo& init,
         if (!IsApiSupported(api)) continue;
         NkDeviceInitInfo effectiveInit = init;
         effectiveInit.api = api;
-        if (effectiveInit.context.api == NkGraphicsApi::NK_API_NONE) {
+        if (effectiveInit.context.api == NkGraphicsApi::NK_GFX_API_NONE) {
             effectiveInit.context.api = api;
         }
         NkIDevice* dev = CreateForApi(api, effectiveInit);
@@ -119,19 +119,19 @@ NkIDevice* NkDeviceFactory::CreateWithFallback(const NkDeviceInitInfo& init,
 
 bool NkDeviceFactory::IsApiSupported(NkGraphicsApi api) {
     switch (api) {
-        case NkGraphicsApi::NK_API_OPENGL:   return true;
-        case NkGraphicsApi::NK_API_SOFTWARE: return true;
+        case NkGraphicsApi::NK_GFX_API_OPENGL:   return true;
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE: return true;
 #ifdef NK_RHI_VK_ENABLED
-        case NkGraphicsApi::NK_API_VULKAN:   return true;
+        case NkGraphicsApi::NK_GFX_API_VULKAN:   return true;
 #endif
 #ifdef NK_RHI_DX11_ENABLED
-        case NkGraphicsApi::NK_API_DIRECTX11:return true;
+        case NkGraphicsApi::NK_GFX_API_D3D11:return true;
 #endif
 #ifdef NK_RHI_DX12_ENABLED
-        case NkGraphicsApi::NK_API_DIRECTX12:return true;
+        case NkGraphicsApi::NK_GFX_API_D3D12:return true;
 #endif
 #ifdef NK_RHI_METAL_ENABLED
-        case NkGraphicsApi::NK_API_METAL:    return true;
+        case NkGraphicsApi::NK_GFX_API_METAL:    return true;
 #endif
         default: return false;
     }

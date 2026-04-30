@@ -77,14 +77,14 @@ namespace nkentseu {
     // Convertit NkGraphicsApi → NkShaderBackend
     inline NkShaderBackend ApiToBackend(NkGraphicsApi api) {
         switch(api) {
-            case NkGraphicsApi::NK_API_OPENGL:
-            case NkGraphicsApi::NK_API_OPENGLES:
-            case NkGraphicsApi::NK_API_WEBGL:    return NkShaderBackend::NK_OPENGL;
-            case NkGraphicsApi::NK_API_VULKAN:   return NkShaderBackend::NK_VULKAN;
-            case NkGraphicsApi::NK_API_DIRECTX11:return NkShaderBackend::NK_DIRECTX11;
-            case NkGraphicsApi::NK_API_DIRECTX12:return NkShaderBackend::NK_DIRECTX12;
-            case NkGraphicsApi::NK_API_METAL:    return NkShaderBackend::NK_METAL;
-            case NkGraphicsApi::NK_API_SOFTWARE: return NkShaderBackend::NK_SOFTWARE;
+            case NkGraphicsApi::NK_GFX_API_OPENGL:
+            case NkGraphicsApi::NK_GFX_API_OPENGLES:
+            case NkGraphicsApi::NK_GFX_API_WEBGL:    return NkShaderBackend::NK_OPENGL;
+            case NkGraphicsApi::NK_GFX_API_VULKAN:   return NkShaderBackend::NK_VULKAN;
+            case NkGraphicsApi::NK_GFX_API_D3D11:return NkShaderBackend::NK_DIRECTX11;
+            case NkGraphicsApi::NK_GFX_API_D3D12:return NkShaderBackend::NK_DIRECTX12;
+            case NkGraphicsApi::NK_GFX_API_METAL:    return NkShaderBackend::NK_METAL;
+            case NkGraphicsApi::NK_GFX_API_SOFTWARE: return NkShaderBackend::NK_SOFTWARE;
             default:                             return NkShaderBackend::NK_OPENGL;
         }
     }

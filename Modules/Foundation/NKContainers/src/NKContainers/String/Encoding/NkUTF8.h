@@ -45,7 +45,7 @@
                  * @note Gère les séquences de 1 à 4 bytes selon la spécification UTF-8
                  *       Rejette les sur-encodages et les points de code réservés
                  */
-                NKENTSEU_CORE_API usize NkDecodeChar(const char* str, uint32& outCodepoint);
+                NKENTSEU_CONTAINERS_API usize NkDecodeChar(const char* str, uint32& outCodepoint);
 
                 /**
                  * @brief Encode un codepoint Unicode en séquence UTF-8
@@ -56,7 +56,7 @@
                  * 
                  * @note Respect la norme UTF-8 : séquences minimales, pas de sur-encodage
                  */
-                NKENTSEU_CORE_API usize NkEncodeChar(uint32 codepoint, char* outBuffer);
+                NKENTSEU_CONTAINERS_API usize NkEncodeChar(uint32 codepoint, char* outBuffer);
 
                 // =================================================================
                 // FONCTIONS D'ANALYSE DE LONGUEUR
@@ -68,7 +68,7 @@
                  * @param firstByte Premier byte de la séquence à analyser
                  * @return Nombre de bytes attendus (1-4), ou 0 si byte de départ invalide
                  */
-                NKENTSEU_CORE_API usize NkCharLength(char firstByte);
+                NKENTSEU_CONTAINERS_API usize NkCharLength(char firstByte);
 
                 /**
                  * @brief Calcule le nombre de bytes nécessaires pour encoder un codepoint en UTF-8
@@ -76,7 +76,7 @@
                  * @param codepoint Codepoint Unicode à analyser
                  * @return Nombre de bytes requis (1-4), ou 0 si codepoint hors plage Unicode
                  */
-                NKENTSEU_CORE_API usize NkCodepointLength(uint32 codepoint);
+                NKENTSEU_CONTAINERS_API usize NkCodepointLength(uint32 codepoint);
 
                 // =================================================================
                 // FONCTIONS DE PARCOURS ET COMPTAGE
@@ -91,7 +91,7 @@
                  * 
                  * @note S'arrête au premier octet invalide sans lever d'exception
                  */
-                NKENTSEU_CORE_API usize NkCountChars(const char* str, usize byteLength);
+                NKENTSEU_CONTAINERS_API usize NkCountChars(const char* str, usize byteLength);
 
                 /**
                  * @brief Avance le pointeur au début du prochain caractère UTF-8
@@ -101,7 +101,7 @@
                  * 
                  * @note Ne dépasse pas les limites : vérifier la fin de chaîne en amont
                  */
-                NKENTSEU_CORE_API const char* NkNextChar(const char* str);
+                NKENTSEU_CONTAINERS_API const char* NkNextChar(const char* str);
 
                 /**
                  * @brief Recule le pointeur au début du caractère UTF-8 précédent
@@ -112,7 +112,7 @@
                  * 
                  * @note Parcourt les bytes de continuation (10xxxxxx) vers l'arrière
                  */
-                NKENTSEU_CORE_API const char* NkPrevChar(const char* str, const char* start);
+                NKENTSEU_CONTAINERS_API const char* NkPrevChar(const char* str, const char* start);
 
                 // =================================================================
                 // FONCTIONS INLINE - Prédicats utilitaires
@@ -142,7 +142,7 @@
                  * @note Vérifie : séquences complètes, pas de sur-encodage, 
                  *       pas de surrogates, codepoints dans la plage Unicode
                  */
-                NKENTSEU_CORE_API bool NkIsValid(const char* str, usize length);
+                NKENTSEU_CONTAINERS_API bool NkIsValid(const char* str, usize length);
 
                 /**
                  * @brief Vérifie si un codepoint est valide dans l'espace Unicode
@@ -150,7 +150,7 @@
                  * @param codepoint Valeur à tester
                  * @return true si 0 <= codepoint <= 0x10FFFF et pas dans D800-DFFF
                  */
-                NKENTSEU_CORE_API bool NkIsValidCodepoint(uint32 codepoint);
+                NKENTSEU_CONTAINERS_API bool NkIsValidCodepoint(uint32 codepoint);
 
                 // =================================================================
                 // FONCTIONS DE CONVERSION VERS AUTRES ENCODAGES
@@ -169,7 +169,7 @@
                  * 
                  * @note Gère les paires de surrogates pour les codepoints > 0xFFFF
                  */
-                NKENTSEU_CORE_API NkConversionResult NkToUTF16(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkToUTF16(
                     const char* src, usize srcLen,
                     uint16* dst, usize dstLen,
                     usize& bytesRead, usize& charsWritten);
@@ -185,7 +185,7 @@
                  * @param charsWritten [out] Nombre de codepoints écrits
                  * @return Code de résultat indiquant le statut de la conversion
                  */
-                NKENTSEU_CORE_API NkConversionResult NkToUTF32(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkToUTF32(
                     const char* src, usize srcLen,
                     uint32* dst, usize dstLen,
                     usize& bytesRead, usize& charsWritten);
@@ -205,7 +205,7 @@
                  * @param bytesWritten [out] Nombre de bytes UTF-8 écrits
                  * @return Code de résultat indiquant le statut de la conversion
                  */
-                NKENTSEU_CORE_API NkConversionResult NkFromUTF16(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkFromUTF16(
                     const uint16* src, usize srcLen,
                     char* dst, usize dstLen,
                     usize& charsRead, usize& bytesWritten);
@@ -221,7 +221,7 @@
                  * @param bytesWritten [out] Nombre de bytes UTF-8 écrits
                  * @return Code de résultat indiquant le statut de la conversion
                  */
-                NKENTSEU_CORE_API NkConversionResult NkFromUTF32(
+                NKENTSEU_CONTAINERS_API NkConversionResult NkFromUTF32(
                     const uint32* src, usize srcLen,
                     char* dst, usize dstLen,
                     usize& charsRead, usize& bytesWritten);

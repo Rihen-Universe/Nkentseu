@@ -26,9 +26,10 @@
     // -------------------------------------------------------------------------
     #include "NKContainers/NkContainersApi.h"   // NKENTSEU_CONTAINERS_API
     #include "NKContainers/NkCompat.h"          // Compatibilité C++ et macros
+    #include "NKPlatform/NkPlatformInline.h"    // NKENTSEU_FORCE_INLINE, NKENTSEU_NOEXCEPT
+
     #include "NKCore/NkTypes.h"                 // nk_size, nk_bool, ptrdiff, etc.
     #include "NKCore/NkTraits.h"                // NkEnableIf_t, NkIsBaseOf_v, etc.
-    #include "NKPlatform/NkPlatformInline.h"    // NKENTSEU_FORCE_INLINE, NKENTSEU_NOEXCEPT
 
     // -------------------------------------------------------------------------
     // SECTION 2 : ESPACE DE NOMS PRINCIPAL
@@ -157,157 +158,157 @@
          */
         template<typename T, typename Category = NkRandomAccessIteratorTag>
         class NKENTSEU_CONTAINERS_CLASS_EXPORT NkIterator {
-        public:
-            // Types associés
-            using ValueType = T;
-            using Pointer = T*;
-            using Reference = T&;
-            using DifferenceType = nkentseu::ptrdiff;
-            using IteratorCategory = Category;
+            public:
+                // Types associés
+                using ValueType = T;
+                using Pointer = T*;
+                using Reference = T&;
+                using DifferenceType = nkentseu::ptrdiff;
+                using IteratorCategory = Category;
 
-            // -----------------------------------------------------------------
-            // Constructeurs
-            // -----------------------------------------------------------------
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            constexpr NkIterator() NKENTSEU_NOEXCEPT : mPtr(nullptr) {}
+                // -----------------------------------------------------------------
+                // Constructeurs
+                // -----------------------------------------------------------------
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                constexpr NkIterator() NKENTSEU_NOEXCEPT : mPtr(nullptr) {}
 
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            explicit constexpr NkIterator(Pointer ptr) NKENTSEU_NOEXCEPT : mPtr(ptr) {}
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                explicit constexpr NkIterator(Pointer ptr) NKENTSEU_NOEXCEPT : mPtr(ptr) {}
 
-            // -----------------------------------------------------------------
-            // Accès aux éléments
-            // -----------------------------------------------------------------
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            Reference operator*() const NKENTSEU_NOEXCEPT { return *mPtr; }
+                // -----------------------------------------------------------------
+                // Accès aux éléments
+                // -----------------------------------------------------------------
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                Reference operator*() const NKENTSEU_NOEXCEPT { return *mPtr; }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            Pointer operator->() const NKENTSEU_NOEXCEPT { return mPtr; }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                Pointer operator->() const NKENTSEU_NOEXCEPT { return mPtr; }
 
-            // -----------------------------------------------------------------
-            // Incrémentation/Décrémentation (toutes catégories)
-            // -----------------------------------------------------------------
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator& operator++() NKENTSEU_NOEXCEPT { ++mPtr; return *this; }
+                // -----------------------------------------------------------------
+                // Incrémentation/Décrémentation (toutes catégories)
+                // -----------------------------------------------------------------
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator& operator++() NKENTSEU_NOEXCEPT { ++mPtr; return *this; }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator operator++(int) NKENTSEU_NOEXCEPT {
-                NkIterator tmp = *this; ++mPtr; return tmp;
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator operator++(int) NKENTSEU_NOEXCEPT {
+                    NkIterator tmp = *this; ++mPtr; return tmp;
+                }
 
-            // Décrémentation : uniquement pour Bidirectional+
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator& operator--() NKENTSEU_NOEXCEPT { --mPtr; return *this; }
+                // Décrémentation : uniquement pour Bidirectional+
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator& operator--() NKENTSEU_NOEXCEPT { --mPtr; return *this; }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator operator--(int) NKENTSEU_NOEXCEPT {
-                NkIterator tmp = *this; --mPtr; return tmp;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator operator--(int) NKENTSEU_NOEXCEPT {
+                    NkIterator tmp = *this; --mPtr; return tmp;
+                }
 
-            // -----------------------------------------------------------------
-            // Arithmétique : uniquement pour RandomAccess
-            // -----------------------------------------------------------------
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator operator+(DifferenceType offset) const NKENTSEU_NOEXCEPT {
-                return NkIterator(mPtr + offset);
-            }
+                // -----------------------------------------------------------------
+                // Arithmétique : uniquement pour RandomAccess
+                // -----------------------------------------------------------------
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator operator+(DifferenceType offset) const NKENTSEU_NOEXCEPT {
+                    return NkIterator(mPtr + offset);
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator operator-(DifferenceType offset) const NKENTSEU_NOEXCEPT {
-                return NkIterator(mPtr - offset);
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator operator-(DifferenceType offset) const NKENTSEU_NOEXCEPT {
+                    return NkIterator(mPtr - offset);
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator& operator+=(DifferenceType offset) NKENTSEU_NOEXCEPT {
-                mPtr += offset; return *this;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator& operator+=(DifferenceType offset) NKENTSEU_NOEXCEPT {
+                    mPtr += offset; return *this;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkIterator& operator-=(DifferenceType offset) NKENTSEU_NOEXCEPT {
-                mPtr -= offset; return *this;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkIterator& operator-=(DifferenceType offset) NKENTSEU_NOEXCEPT {
+                    mPtr -= offset; return *this;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            Reference operator[](DifferenceType offset) const NKENTSEU_NOEXCEPT {
-                return *(mPtr + offset);
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                Reference operator[](DifferenceType offset) const NKENTSEU_NOEXCEPT {
+                    return *(mPtr + offset);
+                }
 
-            // Distance entre itérateurs
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            DifferenceType operator-(const NkIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr - other.mPtr;
-            }
+                // Distance entre itérateurs
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                DifferenceType operator-(const NkIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr - other.mPtr;
+                }
 
-            // -----------------------------------------------------------------
-            // Comparaisons
-            // -----------------------------------------------------------------
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator==(const NkIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr == other.mPtr;
-            }
+                // -----------------------------------------------------------------
+                // Comparaisons
+                // -----------------------------------------------------------------
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator==(const NkIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr == other.mPtr;
+                }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator!=(const NkIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr != other.mPtr;
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator!=(const NkIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr != other.mPtr;
+                }
 
-            // Comparaisons avec nullptr
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator==(std::nullptr_t) const NKENTSEU_NOEXCEPT {
-                return mPtr == nullptr;
-            }
+                // Comparaisons avec nullptr
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator==(std::nullptr_t) const NKENTSEU_NOEXCEPT {
+                    return mPtr == nullptr;
+                }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator!=(std::nullptr_t) const NKENTSEU_NOEXCEPT {
-                return mPtr != nullptr;
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator!=(std::nullptr_t) const NKENTSEU_NOEXCEPT {
+                    return mPtr != nullptr;
+                }
 
-            // Comparaisons ordonnées : RandomAccess uniquement
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator<(const NkIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr < other.mPtr;
-            }
+                // Comparaisons ordonnées : RandomAccess uniquement
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator<(const NkIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr < other.mPtr;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator<=(const NkIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr <= other.mPtr;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator<=(const NkIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr <= other.mPtr;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator>(const NkIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr > other.mPtr;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator>(const NkIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr > other.mPtr;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator>=(const NkIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr >= other.mPtr;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator>=(const NkIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr >= other.mPtr;
+                }
 
-        private:
-            Pointer mPtr;
+            private:
+                Pointer mPtr;
         };
 
         // -------------------------------------------------------------------------
@@ -323,162 +324,162 @@
          */
         template<typename T, typename Category = NkRandomAccessIteratorTag>
         class NKENTSEU_CONTAINERS_CLASS_EXPORT NkConstIterator {
-        public:
-            using ValueType = T;
-            using Pointer = const T*;
-            using Reference = const T&;
-            using DifferenceType = nkentseu::ptrdiff;
-            using IteratorCategory = Category;
+            public:
+                using ValueType = T;
+                using Pointer = const T*;
+                using Reference = const T&;
+                using DifferenceType = nkentseu::ptrdiff;
+                using IteratorCategory = Category;
 
-            // Constructeurs
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            constexpr NkConstIterator() NKENTSEU_NOEXCEPT : mPtr(nullptr) {}
+                // Constructeurs
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                constexpr NkConstIterator() NKENTSEU_NOEXCEPT : mPtr(nullptr) {}
 
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            explicit constexpr NkConstIterator(Pointer ptr) NKENTSEU_NOEXCEPT : mPtr(ptr) {}
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                explicit constexpr NkConstIterator(Pointer ptr) NKENTSEU_NOEXCEPT : mPtr(ptr) {}
 
-            // Conversion depuis NkIterator mutable (SFINAE pour non-const T)
-            template<typename U = T,
-                     NKENTSEU_ENABLE_IF_T(!NKENTSEU_IS_CONST_V(U))*>
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            constexpr NkConstIterator(const NkIterator<U, Category>& other) NKENTSEU_NOEXCEPT
-                : mPtr(other.operator->()) {}
+                // Conversion depuis NkIterator mutable (SFINAE pour non-const T)
+                template<typename U = T,
+                        NK_ENABLE_IF_T(!NK_IS_CONST_V(U))*>
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                constexpr NkConstIterator(const NkIterator<U, Category>& other) NKENTSEU_NOEXCEPT
+                    : mPtr(other.operator->()) {}
 
-            // Accès
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            Reference operator*() const NKENTSEU_NOEXCEPT { return *mPtr; }
+                // Accès
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                Reference operator*() const NKENTSEU_NOEXCEPT { return *mPtr; }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            Pointer operator->() const NKENTSEU_NOEXCEPT { return mPtr; }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                Pointer operator->() const NKENTSEU_NOEXCEPT { return mPtr; }
 
-            // Incrémentation
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator& operator++() NKENTSEU_NOEXCEPT { ++mPtr; return *this; }
+                // Incrémentation
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator& operator++() NKENTSEU_NOEXCEPT { ++mPtr; return *this; }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator operator++(int) NKENTSEU_NOEXCEPT {
-                NkConstIterator tmp = *this; ++mPtr; return tmp;
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator operator++(int) NKENTSEU_NOEXCEPT {
+                    NkConstIterator tmp = *this; ++mPtr; return tmp;
+                }
 
-            // Décrémentation : Bidirectional+
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator& operator--() NKENTSEU_NOEXCEPT { --mPtr; return *this; }
+                // Décrémentation : Bidirectional+
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator& operator--() NKENTSEU_NOEXCEPT { --mPtr; return *this; }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator operator--(int) NKENTSEU_NOEXCEPT {
-                NkConstIterator tmp = *this; --mPtr; return tmp;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator operator--(int) NKENTSEU_NOEXCEPT {
+                    NkConstIterator tmp = *this; --mPtr; return tmp;
+                }
 
-            // Arithmétique : RandomAccess
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator operator+(DifferenceType offset) const NKENTSEU_NOEXCEPT {
-                return NkConstIterator(mPtr + offset);
-            }
+                // Arithmétique : RandomAccess
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator operator+(DifferenceType offset) const NKENTSEU_NOEXCEPT {
+                    return NkConstIterator(mPtr + offset);
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator operator-(DifferenceType offset) const NKENTSEU_NOEXCEPT {
-                return NkConstIterator(mPtr - offset);
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator operator-(DifferenceType offset) const NKENTSEU_NOEXCEPT {
+                    return NkConstIterator(mPtr - offset);
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator& operator+=(DifferenceType offset) NKENTSEU_NOEXCEPT {
-                mPtr += offset; return *this;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator& operator+=(DifferenceType offset) NKENTSEU_NOEXCEPT {
+                    mPtr += offset; return *this;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            NkConstIterator& operator-=(DifferenceType offset) NKENTSEU_NOEXCEPT {
-                mPtr -= offset; return *this;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                NkConstIterator& operator-=(DifferenceType offset) NKENTSEU_NOEXCEPT {
+                    mPtr -= offset; return *this;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            Reference operator[](DifferenceType offset) const NKENTSEU_NOEXCEPT {
-                return *(mPtr + offset);
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                Reference operator[](DifferenceType offset) const NKENTSEU_NOEXCEPT {
+                    return *(mPtr + offset);
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            DifferenceType operator-(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr - other.mPtr;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                DifferenceType operator-(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr - other.mPtr;
+                }
 
-            // Comparaisons
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator==(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr == other.mPtr;
-            }
+                // Comparaisons
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator==(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr == other.mPtr;
+                }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator!=(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr != other.mPtr;
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator!=(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr != other.mPtr;
+                }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator==(std::nullptr_t) const NKENTSEU_NOEXCEPT {
-                return mPtr == nullptr;
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator==(std::nullptr_t) const NKENTSEU_NOEXCEPT {
+                    return mPtr == nullptr;
+                }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator!=(std::nullptr_t) const NKENTSEU_NOEXCEPT {
-                return mPtr != nullptr;
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator!=(std::nullptr_t) const NKENTSEU_NOEXCEPT {
+                    return mPtr != nullptr;
+                }
 
-            // Comparaisons ordonnées
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator<(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr < other.mPtr;
-            }
+                // Comparaisons ordonnées
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator<(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr < other.mPtr;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator<=(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr <= other.mPtr;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator<=(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr <= other.mPtr;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator>(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr > other.mPtr;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator>(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr > other.mPtr;
+                }
 
-            template<typename C = Category,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator>=(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
-                return mPtr >= other.mPtr;
-            }
+                template<typename C = Category,
+                        NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator>=(const NkConstIterator& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr >= other.mPtr;
+                }
 
-            // Comparaison hétérogène avec NkIterator mutable
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator==(const NkIterator<T, Category>& other) const NKENTSEU_NOEXCEPT {
-                return mPtr == other.operator->();
-            }
+                // Comparaison hétérogène avec NkIterator mutable
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator==(const NkIterator<T, Category>& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr == other.operator->();
+                }
 
-            [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
-            bool operator!=(const NkIterator<T, Category>& other) const NKENTSEU_NOEXCEPT {
-                return mPtr != other.operator->();
-            }
+                [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
+                bool operator!=(const NkIterator<T, Category>& other) const NKENTSEU_NOEXCEPT {
+                    return mPtr != other.operator->();
+                }
 
-        private:
-            Pointer mPtr;
+            private:
+                Pointer mPtr;
         };
 
         // -------------------------------------------------------------------------
@@ -561,12 +562,12 @@
 
             // Décrémentation = incrémenter l'itérateur sous-jacent (Bidirectional+)
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
             NKENTSEU_CONTAINERS_API_FORCE_INLINE
             NkReverseIterator& operator--() NKENTSEU_NOEXCEPT { ++mIt; return *this; }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             NkReverseIterator operator--(int) NKENTSEU_NOEXCEPT {
                 NkReverseIterator tmp = *this; ++mIt; return tmp;
@@ -574,35 +575,35 @@
 
             // Arithmétique inversée (RandomAccess)
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             NkReverseIterator operator+(DifferenceType offset) const NKENTSEU_NOEXCEPT {
                 return NkReverseIterator(mIt - offset);
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             NkReverseIterator operator-(DifferenceType offset) const NKENTSEU_NOEXCEPT {
                 return NkReverseIterator(mIt + offset);
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             NKENTSEU_CONTAINERS_API_FORCE_INLINE
             NkReverseIterator& operator+=(DifferenceType offset) NKENTSEU_NOEXCEPT {
                 mIt -= offset; return *this;
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             NKENTSEU_CONTAINERS_API_FORCE_INLINE
             NkReverseIterator& operator-=(DifferenceType offset) NKENTSEU_NOEXCEPT {
                 mIt += offset; return *this;
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             Reference operator[](DifferenceType offset) const NKENTSEU_NOEXCEPT {
                 return *(mIt - (offset + 1));
@@ -610,7 +611,7 @@
 
             // Distance inversée
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             DifferenceType operator-(const NkReverseIterator& other) const NKENTSEU_NOEXCEPT {
                 return other.mIt - mIt;
@@ -628,28 +629,28 @@
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             bool operator<(const NkReverseIterator& other) const NKENTSEU_NOEXCEPT {
                 return mIt > other.mIt;  // Ordre inversé !
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             bool operator<=(const NkReverseIterator& other) const NKENTSEU_NOEXCEPT {
                 return mIt >= other.mIt;
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             bool operator>(const NkReverseIterator& other) const NKENTSEU_NOEXCEPT {
                 return mIt < other.mIt;
             }
 
             template<typename C = IteratorCategory,
-                     NKENTSEU_ENABLE_IF_T(NKENTSEU_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
+                     NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkRandomAccessIteratorTag, C))*>
             [[nodiscard]] NKENTSEU_CONTAINERS_API_FORCE_INLINE
             bool operator>=(const NkReverseIterator& other) const NKENTSEU_NOEXCEPT {
                 return mIt <= other.mIt;
@@ -933,19 +934,19 @@
          * @ingroup IteratorTraits
          */
         template<typename T>
-        struct NkIsIterator : NKENTSEU_FALSE_TYPE {};
+        struct NkIsIterator : traits::NkFalseType {};
 
         template<typename T>
-        struct NkIsIterator<T*> : NKENTSEU_TRUE_TYPE {};
+        struct NkIsIterator<T*> : traits::NkTrueType {};
 
         template<typename T>
-        struct NkIsIterator<const T*> : NKENTSEU_TRUE_TYPE {};
+        struct NkIsIterator<const T*> : traits::NkTrueType {};
 
         template<typename T, typename Category>
-        struct NkIsIterator<NkIterator<T, Category>> : NKENTSEU_TRUE_TYPE {};
+        struct NkIsIterator<NkIterator<T, Category>> : traits::NkTrueType {};
 
         template<typename T, typename Category>
-        struct NkIsIterator<NkConstIterator<T, Category>> : NKENTSEU_TRUE_TYPE {};
+        struct NkIsIterator<NkConstIterator<T, Category>> : traits::NkTrueType {};
 
         /** @brief Variable template constexpr pour NkIsIterator */
         template<typename T>
@@ -971,23 +972,23 @@
     #define NKENTSEU_CONTAINERS_SELECT(_1,_2,_3,NAME,...) NAME
 
     /**
-     * @brief Macro nkforeach pour boucle intuitive sur conteneurs
-     * @def nkforeach
+     * @brief Macro NK_FOREACH pour boucle intuitive sur conteneurs
+     * @def NK_FOREACH
      * @ingroup IteratorMacros
      *
-     * Syntaxe : nkforeach(conteneur, variable) ou nkforeach(conteneur, qualif, variable)
+     * Syntaxe : NK_FOREACH(conteneur, variable) ou NK_FOREACH(conteneur, qualif, variable)
      *
      * @example
      * @code
-     * nkforeach(myVector, x) {
+     * NK_FOREACH(myVector, x) {
      *     printf("%d\n", x);
      * }
-     * nkforeach(myVector, const auto&, x) {
+     * NK_FOREACH(myVector, const auto&, x) {
      *     // x est const
      * }
      * @endcode
      */
-    #define nkforeach(...) \
+    #define NK_FOREACH(...) \
         NKENTSEU_CONTAINERS_SELECT(__VA_ARGS__, \
             NKENTSEU_CONTAINERS_FOREACH_3, \
             NKENTSEU_CONTAINERS_FOREACH_2,)(__VA_ARGS__)
@@ -1007,20 +1008,20 @@
                 for (qualifier value = *it; nk_foreach_first; nk_foreach_first = false)
 
     /**
-     * @brief Macro nkwhileach pour boucle conditionnelle
-     * @def nkwhileach
+     * @brief Macro NK_WHILEACH pour boucle conditionnelle
+     * @def NK_WHILEACH
      * @ingroup IteratorMacros
      *
-     * Syntaxe : nkwhileach(conteneur, variable, condition)
+     * Syntaxe : NK_WHILEACH(conteneur, variable, condition)
      *
      * @example
      * @code
-     * nkwhileach(myVector, x, [](int v){ return v < 10; }) {
+     * NK_WHILEACH(myVector, x, [](int v){ return v < 10; }) {
      *     printf("%d\n", x);  // Affiche tant que x < 10
      * }
      * @endcode
      */
-    #define nkwhileach(...) \
+    #define NK_WHILEACH(...) \
         NKENTSEU_CONTAINERS_SELECT(__VA_ARGS__, \
             NKENTSEU_CONTAINERS_WHILEACH_4, \
             NKENTSEU_CONTAINERS_WHILEACH_3,)(__VA_ARGS__)

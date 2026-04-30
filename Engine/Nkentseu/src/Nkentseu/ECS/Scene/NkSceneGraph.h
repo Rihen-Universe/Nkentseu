@@ -1011,7 +1011,7 @@ namespace nkentseu {
          *     void SpawnEnemyWave(int count) { / * ... * / }
          *     void UpdateMinimap() { / * ... * / }
          *     void UpdateCameraShake(float dt) { / * ... * / }
-         *     void UpdateProjectilePhysics(float dt) { /* ... * / }
+         *     void UpdateProjectilePhysics(float dt) { /\* ... *\/ }
          *     void CheckTrapCollisions() { / * ... * / }
          *     void SavePlayerProgress() { / * ... * / }
          *     void CleanupDynamicAssets() { / * ... * / }

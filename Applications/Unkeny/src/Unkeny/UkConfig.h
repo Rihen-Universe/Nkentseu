@@ -47,11 +47,11 @@ namespace nkentseu {
                     // --backend=vulkan|dx12|dx11|opengl|sw
                     else if (NkStringView(arg).StartsWith("--backend=")) {
                         NkString backend(arg + 10);
-                        if (backend == "vulkan")  appConfig.deviceInfo.api = NkGraphicsApi::NK_API_VULKAN;
-                        else if (backend == "dx12")   appConfig.deviceInfo.api = NkGraphicsApi::NK_API_DIRECTX12;
-                        else if (backend == "dx11")   appConfig.deviceInfo.api = NkGraphicsApi::NK_API_DIRECTX11;
-                        else if (backend == "opengl") appConfig.deviceInfo.api = NkGraphicsApi::NK_API_OPENGL;
-                        else if (backend == "sw")     appConfig.deviceInfo.api = NkGraphicsApi::NK_API_SOFTWARE;
+                        if (backend == "vulkan")  appConfig.deviceInfo.api = NkGraphicsApi::NK_GFX_API_VULKAN;
+                        else if (backend == "dx12")   appConfig.deviceInfo.api = NkGraphicsApi::NK_GFX_API_D3D12;
+                        else if (backend == "dx11")   appConfig.deviceInfo.api = NkGraphicsApi::NK_GFX_API_D3D11;
+                        else if (backend == "opengl") appConfig.deviceInfo.api = NkGraphicsApi::NK_GFX_API_OPENGL;
+                        else if (backend == "sw")     appConfig.deviceInfo.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
                     }
                 }
             }

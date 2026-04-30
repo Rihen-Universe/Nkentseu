@@ -54,7 +54,7 @@
                  * @param length Nombre de caractères à examiner
                  * @return true si tous les caractères sont ASCII, false sinon
                  */
-                NKENTSEU_CORE_API bool NkIsValid(const char* str, usize length) noexcept;
+                NKENTSEU_CONTAINERS_API bool NkIsValid(const char* str, usize length) noexcept;
 
                 /**
                  * @brief Détermine si un caractère est un caractère de contrôle ASCII
@@ -269,7 +269,7 @@
                  * @param length Nombre de caractères à comparer
                  * @return <0 si lhs<rhs, 0 si égal, >0 si lhs>rhs (ordre lexicographique)
                  */
-                NKENTSEU_CORE_API int32 NkCompareIgnoreCase(const char* lhs, const char* rhs, usize length) noexcept;
+                NKENTSEU_CONTAINERS_API int32 NkCompareIgnoreCase(const char* lhs, const char* rhs, usize length) noexcept;
 
                 /**
                  * @brief Teste l'égalité de deux chaînes ASCII en ignorant la casse
@@ -279,7 +279,7 @@
                  * @param length Nombre de caractères à comparer
                  * @return true si les chaînes sont égales (case-insensitive)
                  */
-                NKENTSEU_CORE_API bool NkEqualsIgnoreCase(const char* lhs, const char* rhs, usize length) noexcept;
+                NKENTSEU_CONTAINERS_API bool NkEqualsIgnoreCase(const char* lhs, const char* rhs, usize length) noexcept;
 
                 /**
                  * @brief Convertit une chaîne en majuscules in-place
@@ -289,7 +289,7 @@
                  * 
                  * @note Modifie directement le buffer passé en paramètre
                  */
-                NKENTSEU_CORE_API void NkToUpperInPlace(char* str, usize length) noexcept;
+                NKENTSEU_CONTAINERS_API void NkToUpperInPlace(char* str, usize length) noexcept;
 
                 /**
                  * @brief Convertit une chaîne en minuscules in-place
@@ -297,7 +297,7 @@
                  * @param str Chaîne à modifier (doit être mutable)
                  * @param length Nombre de caractères à convertir
                  */
-                NKENTSEU_CORE_API void NkToLowerInPlace(char* str, usize length) noexcept;
+                NKENTSEU_CONTAINERS_API void NkToLowerInPlace(char* str, usize length) noexcept;
 
             } // namespace ascii
 

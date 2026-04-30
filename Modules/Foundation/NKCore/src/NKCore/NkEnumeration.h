@@ -85,7 +85,7 @@
          *
          * // Test de flag (si enum utilisée comme bitmask)
          * ColorEnum flags = Color::Red | Color::Blue;  // Nécessite opérateur| activé
-         * if (flags.HasFlag(Color::Red)) { /* ... *\/ }
+         * if (flags.HasFlag(Color::Red)) { /\* ... *\/ }
          * @endcode
          */
         /** @{ */

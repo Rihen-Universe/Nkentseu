@@ -155,24 +155,24 @@ static void MulMV4(const float m[16],float x,float y,float z,float w,
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (usize i = 1; i < args.Size(); i++) {
         const char* s = args[i].CStr();
-        if (::strncmp(s,"--backend=vulkan",16)==0||::strncmp(s,"-bvk",4)==0)   return NkGraphicsApi::NK_API_VULKAN;
-        if (::strncmp(s,"--backend=dx11",14)==0||::strncmp(s,"-bdx11",6)==0)   return NkGraphicsApi::NK_API_DIRECTX11;
-        if (::strncmp(s,"--backend=dx12",14)==0||::strncmp(s,"-bdx12",6)==0)   return NkGraphicsApi::NK_API_DIRECTX12;
-        if (::strncmp(s,"--backend=metal",15)==0||::strncmp(s,"-bmtl",5)==0)   return NkGraphicsApi::NK_API_METAL;
-        if (::strncmp(s,"--backend=sw",12)==0||::strncmp(s,"-bsw",4)==0)       return NkGraphicsApi::NK_API_SOFTWARE;
-        if (::strncmp(s,"--backend=opengl",16)==0||::strncmp(s,"-bgl",4)==0)   return NkGraphicsApi::NK_API_OPENGL;
+        if (::strncmp(s,"--backend=vulkan",16)==0||::strncmp(s,"-bvk",4)==0)   return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (::strncmp(s,"--backend=dx11",14)==0||::strncmp(s,"-bdx11",6)==0)   return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (::strncmp(s,"--backend=dx12",14)==0||::strncmp(s,"-bdx12",6)==0)   return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (::strncmp(s,"--backend=metal",15)==0||::strncmp(s,"-bmtl",5)==0)   return NkGraphicsApi::NK_GFX_API_METAL;
+        if (::strncmp(s,"--backend=sw",12)==0||::strncmp(s,"-bsw",4)==0)       return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (::strncmp(s,"--backend=opengl",16)==0||::strncmp(s,"-bgl",4)==0)   return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
-    return NkGraphicsApi::NK_API_SOFTWARE;
+    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
 }
 
 static const char* ApiName(NkGraphicsApi a) {
     switch(a){
-        case NkGraphicsApi::NK_API_VULKAN:    return "Vulkan";
-        case NkGraphicsApi::NK_API_DIRECTX11: return "DX11";
-        case NkGraphicsApi::NK_API_DIRECTX12: return "DX12";
-        case NkGraphicsApi::NK_API_METAL:     return "Metal";
-        case NkGraphicsApi::NK_API_SOFTWARE:  return "Software";
-        case NkGraphicsApi::NK_API_OPENGL:    return "OpenGL";
+        case NkGraphicsApi::NK_GFX_API_VULKAN:    return "Vulkan";
+        case NkGraphicsApi::NK_GFX_API_D3D11: return "DX11";
+        case NkGraphicsApi::NK_GFX_API_D3D12: return "DX12";
+        case NkGraphicsApi::NK_GFX_API_METAL:     return "Metal";
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE:  return "Software";
+        case NkGraphicsApi::NK_GFX_API_OPENGL:    return "OpenGL";
         default: return "Unknown";
     }
 }
@@ -335,10 +335,10 @@ static NkShaderHandle MakeBgShader(NkIDevice* dev, NkGraphicsApi api) {
     // Déclarés à portée de fonction pour rester valides jusqu'à CreateShader.
     NkVertexSoftwareShader vs; 
     NkSWPixelShader fs;
-    if (api == NkGraphicsApi::NK_API_DIRECTX11 || api == NkGraphicsApi::NK_API_DIRECTX12) {
+    if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_BgVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_BgPS, "PSMain");
-    } else if (api == NkGraphicsApi::NK_API_SOFTWARE) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         vs = MakeBgVertSW(); fs = MakeBgFragSW();
         NkShaderStageDesc svs; svs.stage=NkShaderStage::NK_VERTEX;   svs.cpuVertFn=&vs; sd.stages.PushBack(svs);
         NkShaderStageDesc sfs; sfs.stage=NkShaderStage::NK_FRAGMENT; sfs.cpuFragFn=&fs; sd.stages.PushBack(sfs);
@@ -354,10 +354,10 @@ static NkShaderHandle MakeTextShader(NkIDevice* dev, NkGraphicsApi api) {
     // Déclarés à portée de fonction pour rester valides jusqu'à CreateShader.
     NkVertexSoftwareShader vs; 
     NkSWPixelShader fs;
-    if (api == NkGraphicsApi::NK_API_DIRECTX11 || api == NkGraphicsApi::NK_API_DIRECTX12) {
+    if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_TextVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_TextPS, "PSMain");
-    } else if (api == NkGraphicsApi::NK_API_SOFTWARE) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         vs = MakeTextVertSW(); fs = MakeTextFragSW();
         NkShaderStageDesc svs; svs.stage=NkShaderStage::NK_VERTEX;   svs.cpuVertFn=&vs; sd.stages.PushBack(svs);
         NkShaderStageDesc sfs; sfs.stage=NkShaderStage::NK_FRAGMENT; sfs.cpuFragFn=&fs; sd.stages.PushBack(sfs);
@@ -375,7 +375,7 @@ int nkmain(const NkEntryState& state) {
     NkGraphicsApi api = ParseBackend(state.args);
     logger_src.Infof("[FontDemo] Backend : %s\n", ApiName(api));
 
-    const bool isSW = (api == NkGraphicsApi::NK_API_SOFTWARE);
+    const bool isSW = (api == NkGraphicsApi::NK_GFX_API_SOFTWARE);
 
     // ── Recherche de police ────────────────────────────────────────────────
     const char* fontPath = nullptr;

@@ -86,7 +86,7 @@
 // =============================================================================
 //
 //  // 1. Créer le renderer
-//  auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_API_VULKAN, 1920, 1080);
+//  auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_GFX_API_VULKAN, 1920, 1080);
 //  NkRenderer* renderer = NkRenderer::Create(device, cfg);
 //
 //  // 2. Charger assets
@@ -177,7 +177,7 @@
 // =============================================================================
 //
 // ── 1. Création du renderer ────────────────────────────────────────────────
-//   auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_API_VULKAN, 1920, 1080);
+//   auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_GFX_API_VULKAN, 1920, 1080);
 //   NkRenderer* rend = NkRenderer::Create(device, cfg);
 //
 // ── 2. Shader custom (NkShaderBackendSources — supporte GL/VK/DX11/DX12/MSL)

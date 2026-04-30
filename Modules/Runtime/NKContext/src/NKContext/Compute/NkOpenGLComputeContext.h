@@ -65,7 +65,7 @@ namespace nkentseu {
         bool        mIsValid       = false;
         bool        mOwnsContext   = false; // true si contexte standalone
         uint32      mCurrentProgram= 0;
-        NkGraphicsApi mApi         = NkGraphicsApi::NK_API_OPENGL;
+        NkGraphicsApi mApi         = NkGraphicsApi::NK_GFX_API_OPENGL;
     };
 
 } // namespace nkentseu

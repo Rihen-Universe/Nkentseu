@@ -48,7 +48,7 @@
     #include "NKCore/NkTypes.h"                    // Types fondamentaux : uint8, uint32, float32
     #include "NKMath/NkMathApi.h"                  // Macros d'export : NKENTSEU_MATH_API, NKENTSEU_MATH_API_FORCE_INLINE
     #include "NKMath/NkFunctions.h"                // Fonctions mathématiques : NkClamp, NkMin, NkMax
-    #include "NKCore/NkString.h"                   // Classe NkString pour représentation texte
+    #include "NKContainers/String/NkFormat.h"        // Classe NkString et NkFormatProps pour représentation texte
     #include "NKMath/NkVec.h"                      // Vecteurs NkVector3f/NkVector4f pour conversions
 
     // Forward declaration pour éviter dépendance circulaire
@@ -624,6 +624,14 @@
                  */
                 friend NKENTSEU_MATH_API
                 std::ostream& operator<<(std::ostream& os, const NkColorF& c);
+
+                /**
+                 * @brief Convertit la couleur flottante courante en structure HSV
+                 * @return Structure NkHSV équivalente
+                 * @note Implémentation dans NkColor.cpp (algorithme standard RGB→HSV)
+                 */
+                NKENTSEU_MATH_API
+                NkHSV ToHSVf() const noexcept;
 
             }; // struct NkColorF
 
@@ -1594,10 +1602,10 @@
              */
             NKENTSEU_MATH_API_FORCE_INLINE
             NkColor::NkColor(const NkColorF& color) noexcept
-                : r(static_cast<uint8>(NkClamp(color.r, 0.0f, 1.0f) * k255))
-                , g(static_cast<uint8>(NkClamp(color.g, 0.0f, 1.0f) * k255))
-                , b(static_cast<uint8>(NkClamp(color.b, 0.0f, 1.0f) * k255))
-                , a(static_cast<uint8>(NkClamp(color.a, 0.0f, 1.0f) * k255))
+                : r(static_cast<uint8>(NkClamp(color.r, 0.0f, 1.0f) * NkColorF::k255))
+                , g(static_cast<uint8>(NkClamp(color.g, 0.0f, 1.0f) * NkColorF::k255))
+                , b(static_cast<uint8>(NkClamp(color.b, 0.0f, 1.0f) * NkColorF::k255))
+                , a(static_cast<uint8>(NkClamp(color.a, 0.0f, 1.0f) * NkColorF::k255))
             {
             }
 
@@ -1627,34 +1635,24 @@
     } // namespace nkentseu
 
     // ============================================================================
-    // FONCTION LIBRE : NKENTSEU::NKTOSTRING<NKCOLORF> (SPECIALIZATION)
+    // POINT D'EXTENSION ADL : NkToString pour NkColor/NkColorF (namespace nkentseu)
     // ============================================================================
 
-    /**
-     * @brief Spécialisation de NkToString pour NkColorF avec support de formatage
-     * @param c Couleur flottante à convertir
-     * @param props Options de formatage optionnelles (précision, padding, etc.)
-     * @return NkString formaté selon les propriétés spécifiées
-     * @note Délègue à NkColorF::ToString() puis applique NkApplyFormatProps
-     * @note Permet l'usage générique : NkToString(colorF, props) dans du code template
-     */
-    NKENTSEU_MATH_API
-    NkString NkToString(const nkentseu::math::NkColorF& c, const NkFormatProps& props = {});
+    namespace nkentseu {
 
-    // ============================================================================
-    // FONCTION LIBRE : NKENTSEU::NKTOSTRING<NKCOLOR> (SPECIALIZATION)
-    // ============================================================================
+        /**
+         * @brief Surcharge ADL de NkToString pour NkColorF avec support de formatage.
+         */
+        NKENTSEU_MATH_API
+        NkString NkToString(const math::NkColorF& c, const NkFormatProps& props = {});
 
-    /**
-     * @brief Spécialisation de NkToString pour NkColor avec support de formatage
-     * @param c Couleur à convertir
-     * @param props Options de formatage optionnelles (précision, padding, etc.)
-     * @return NkString formaté selon les propriétés spécifiées
-     * @note Délègue à NkColor::ToString() puis applique NkApplyFormatProps
-     * @note Permet l'usage générique : NkToString(color, props) dans du code template
-     */
-    NKENTSEU_MATH_API
-    NkString NkToString(const nkentseu::math::NkColor& c, const NkFormatProps& props = {});
+        /**
+         * @brief Surcharge ADL de NkToString pour NkColor avec support de formatage.
+         */
+        NKENTSEU_MATH_API
+        NkString NkToString(const math::NkColor& c, const NkFormatProps& props = {});
+
+    } // namespace nkentseu
 
 #endif // NKENTSEU_MATH_NKCOLOR_H
 

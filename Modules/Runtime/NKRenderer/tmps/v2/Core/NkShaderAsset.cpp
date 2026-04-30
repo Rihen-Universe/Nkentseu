@@ -28,7 +28,7 @@ namespace nkentseu {
             }
 
             static bool IsDxApi(NkGraphicsApi api) {
-                return api == NkGraphicsApi::NK_API_DIRECTX11 || api == NkGraphicsApi::NK_API_DIRECTX12;
+                return api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12;
             }
         }
 
@@ -111,9 +111,9 @@ namespace nkentseu {
                 }
             }
 
-            const bool isVk = api == NkGraphicsApi::NK_API_VULKAN;
+            const bool isVk = api == NkGraphicsApi::NK_GFX_API_VULKAN;
             const bool isDx = IsDxApi(api);
-            const bool isMetal = api == NkGraphicsApi::NK_API_METAL;
+            const bool isMetal = api == NkGraphicsApi::NK_GFX_API_METAL;
 
             const NkString& vGLSL = (isVk && !mDesc.glslVkVertSrc.Empty()) ? mDesc.glslVkVertSrc : mDesc.glslVertSrc;
             const NkString& fGLSL = (isVk && !mDesc.glslVkFragSrc.Empty()) ? mDesc.glslVkFragSrc : mDesc.glslFragSrc;

@@ -34,26 +34,26 @@ namespace renderer {
         NkIRenderer* renderer = nullptr;
 
         switch (api) {
-            case NkGraphicsApi::NK_API_OPENGL:
-            case NkGraphicsApi::NK_API_OPENGLES:
-            case NkGraphicsApi::NK_API_SOFTWARE:
+            case NkGraphicsApi::NK_GFX_API_OPENGL:
+            case NkGraphicsApi::NK_GFX_API_OPENGLES:
+            case NkGraphicsApi::NK_GFX_API_SOFTWARE:
                 renderer = new NkOpenGLRenderer(device);
                 break;
 
 #ifdef NK_RHI_VK_ENABLED
-            case NkGraphicsApi::NK_API_VULKAN:
+            case NkGraphicsApi::NK_GFX_API_VULKAN:
                 renderer = new NkVulkanRenderer(device);
                 break;
 #endif
 
 #ifdef NK_RHI_DX11_ENABLED
-            case NkGraphicsApi::NK_API_DIRECTX11:
+            case NkGraphicsApi::NK_GFX_API_D3D11:
                 renderer = new NkDX11Renderer(device);
                 break;
 #endif
 
 #ifdef NK_RHI_DX12_ENABLED
-            case NkGraphicsApi::NK_API_DIRECTX12:
+            case NkGraphicsApi::NK_GFX_API_D3D12:
                 renderer = new NkDX12Renderer(device);
                 break;
 #endif

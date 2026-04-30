@@ -499,30 +499,28 @@
         // ---------------------------------------------------------------------
         // Guides de déduction pour construction depuis tableau C
         // ---------------------------------------------------------------------
-        #if defined(NK_CPP17)
 
-            /**
-             * @brief Guide de déduction : NkSpan depuis tableau C
-             * @tparam T Type des éléments du tableau
-             * @tparam N Taille du tableau (déduite automatiquement)
-             * @param arr Référence vers le tableau C
-             * @return NkSpan<T> avec Size() == N
-             * @note Permet : NkSpan span(arr); sans spécifier le template parameter
-             */
-            template <typename T, usize N>
-            NkSpan(T (&)[N]) -> NkSpan<T>;
+        /**
+         * @brief Guide de déduction : NkSpan depuis tableau C
+         * @tparam T Type des éléments du tableau
+         * @tparam N Taille du tableau (déduite automatiquement)
+         * @param arr Référence vers le tableau C
+         * @return NkSpan<T> avec Size() == N
+         * @note Permet : NkSpan span(arr); sans spécifier le template parameter
+         */
+        template <typename T, usize N>
+        NkSpan(T (&)[N]) -> NkSpan<T>;
 
-            /**
-             * @brief Guide de déduction : NkSpan depuis conteneur compatible
-             * @tparam Container Type du conteneur source
-             * @param cont Référence vers le conteneur
-             * @return NkSpan<typename Container::ValueType>
-             * @note Requiert que Container définisse ValueType, Data() et Size()
-             */
-            template <typename Container>
-            NkSpan(Container&) -> NkSpan<typename Container::ValueType>;
+        /**
+         * @brief Guide de déduction : NkSpan depuis conteneur compatible
+         * @tparam Container Type du conteneur source
+         * @param cont Référence vers le conteneur
+         * @return NkSpan<typename Container::ValueType>
+         * @note Requiert que Container définisse ValueType, Data() et Size()
+         */
+        template <typename Container>
+        NkSpan(Container&) -> NkSpan<typename Container::ValueType>;
 
-        #endif // NK_CPP17
 
         // =====================================================================
         // SECTION 7 : FONCTIONS HELPERS DE CRÉATION

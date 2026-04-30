@@ -21,7 +21,7 @@
 //   - Syntaxe identique à std::function : NkFunction<void(int, float)>
 //   - SBO : buffer interne de 64 bytes pour les lambdas/foncteurs légers
 //   - Effacement de type via interface virtuelle CallableBase
-//   - Allocation personnalisable via mem::NkAllocator (bypassé si SBO)
+//   - Allocation personnalisable via memory::NkAllocator (bypassé si SBO)
 //   - Binding multiple indexé et partial application via NkBind
 //   - Gestion noexcept et constexpr là où applicable
 //   - Pas d'exceptions : retour silencieux de R{} sur appel vide
@@ -38,8 +38,8 @@
 
 #pragma once
 
-#ifndef NK_MEMORY_NKFUNCTION_H
-#define NK_MEMORY_NKFUNCTION_H
+#ifndef NK_CONTAINERS_FUNCTIONAL_NKFUNCTION_H
+#define NK_CONTAINERS_FUNCTIONAL_NKFUNCTION_H
 
     // ========================================================================
     // INCLUSIONS DES DÉPENDANCES
@@ -105,10 +105,8 @@
              * @return Pointeur vers un allocateur valide (défaut si entrée invalide)
              * @note Vérifie l'alignement mémoire de l'allocateur pour éviter les UB
              */
-            inline mem::NkAllocator* NkResolveFunctionAllocator(
-                    mem::NkAllocator* allocator) noexcept
-            {
-                mem::NkAllocator* fallback = &mem::NkGetDefaultAllocator();
+            inline memory::NkAllocator* NkResolveFunctionAllocator( memory::NkAllocator* allocator) noexcept {
+                memory::NkAllocator* fallback = &memory::NkGetDefaultAllocator();
                 if (!allocator) { return fallback; }
                 const usize addr = reinterpret_cast<usize>(allocator);
                 const usize alignMask = static_cast<usize>(alignof(void*)) - 1u;
@@ -233,8 +231,8 @@
                     virtual R Invoke(Args... args) = 0;
                     virtual R InvokeWithIndex(usize index, Args... args) = 0;
                     virtual CallableBase* Clone(void* sboBuffer, bool useSbo, 
-                                               mem::NkAllocator* allocator) const = 0;
-                    virtual void Destroy(bool useSbo, mem::NkAllocator* allocator) = 0;
+                                               memory::NkAllocator* allocator) const = 0;
+                    virtual void Destroy(bool useSbo, memory::NkAllocator* allocator) = 0;
                     
                     #if NK_FUNCTION_ENABLE_RTTI
                     virtual const void* GetTypeInfo() const noexcept { return nullptr; }
@@ -264,11 +262,11 @@
                     }
 
                     CallableBase* Clone(void* sboBuffer, bool useSbo, 
-                                       mem::NkAllocator* allocator) const override {
+                                       memory::NkAllocator* allocator) const override {
                         if (useSbo && sizeof(CallableImpl) <= SBO_BUFFER_SIZE) {
                             return new (sboBuffer) CallableImpl(callable);
                         } else {
-                            mem::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
+                            memory::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
                             void* mem = alloc->Allocate(sizeof(CallableImpl), alignof(CallableImpl));
                             #if NK_FUNCTION_ENABLE_STATS
                             if (mem) { detail::FunctionStats::Instance().RecordAllocation(sizeof(CallableImpl)); }
@@ -278,10 +276,10 @@
                         }
                     }
 
-                    void Destroy(bool useSbo, mem::NkAllocator* allocator) override {
+                    void Destroy(bool useSbo, memory::NkAllocator* allocator) override {
                         this->~CallableImpl();
                         if (!useSbo) {
-                            mem::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
+                            memory::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
                             #if NK_FUNCTION_ENABLE_STATS
                             detail::FunctionStats::Instance().RecordDeallocation(sizeof(CallableImpl));
                             #endif
@@ -319,11 +317,11 @@
                     }
 
                     CallableBase* Clone(void* sboBuffer, bool useSbo,
-                                       mem::NkAllocator* allocator) const override {
+                                       memory::NkAllocator* allocator) const override {
                         if (useSbo && sizeof(MethodCallableImpl) <= SBO_BUFFER_SIZE) {
                             return new (sboBuffer) MethodCallableImpl(object, method);
                         } else {
-                            mem::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
+                            memory::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
                             void* mem = alloc->Allocate(sizeof(MethodCallableImpl), alignof(MethodCallableImpl));
                             #if NK_FUNCTION_ENABLE_STATS
                             if (mem) { detail::FunctionStats::Instance().RecordAllocation(sizeof(MethodCallableImpl)); }
@@ -333,10 +331,10 @@
                         }
                     }
 
-                    void Destroy(bool useSbo, mem::NkAllocator* allocator) override {
+                    void Destroy(bool useSbo, memory::NkAllocator* allocator) override {
                         this->~MethodCallableImpl();
                         if (!useSbo) {
-                            mem::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
+                            memory::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
                             #if NK_FUNCTION_ENABLE_STATS
                             detail::FunctionStats::Instance().RecordDeallocation(sizeof(MethodCallableImpl));
                             #endif
@@ -380,11 +378,11 @@
                     }
 
                     CallableBase* Clone(void* sboBuffer, bool useSbo,
-                                       mem::NkAllocator* allocator) const override {
+                                       memory::NkAllocator* allocator) const override {
                         if (useSbo && sizeof(MethodCallableConstImpl) <= SBO_BUFFER_SIZE) {
                             return new (sboBuffer) MethodCallableConstImpl(object, method);
                         } else {
-                            mem::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
+                            memory::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
                             void* mem = alloc->Allocate(sizeof(MethodCallableConstImpl), alignof(MethodCallableConstImpl));
                             #if NK_FUNCTION_ENABLE_STATS
                             if (mem) { detail::FunctionStats::Instance().RecordAllocation(sizeof(MethodCallableConstImpl)); }
@@ -394,10 +392,10 @@
                         }
                     }
 
-                    void Destroy(bool useSbo, mem::NkAllocator* allocator) override {
+                    void Destroy(bool useSbo, memory::NkAllocator* allocator) override {
                         this->~MethodCallableConstImpl();
                         if (!useSbo) {
-                            mem::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
+                            memory::NkAllocator* alloc = detail::NkResolveFunctionAllocator(allocator);
                             #if NK_FUNCTION_ENABLE_STATS
                             detail::FunctionStats::Instance().RecordDeallocation(sizeof(MethodCallableConstImpl));
                             #endif
@@ -434,9 +432,9 @@
                     T* object;
                     MethodEntry* methods;
                     usize method_count;
-                    mem::NkAllocator* alloc;
+                    memory::NkAllocator* alloc;
 
-                    MultiMethodCallableImpl(T* obj, mem::NkAllocator* a)
+                    MultiMethodCallableImpl(T* obj, memory::NkAllocator* a)
                         : object(obj), methods(nullptr), method_count(0),
                           alloc(detail::NkResolveFunctionAllocator(a)) {}
 
@@ -492,9 +490,9 @@
                     }
 
                     CallableBase* Clone(void* sboBuffer, bool useSbo,
-                                       mem::NkAllocator* allocator) const override {
+                                       memory::NkAllocator* allocator) const override {
                         // MultiMethodCallableImpl est généralement trop gros pour SBO
-                        mem::NkAllocator* a = detail::NkResolveFunctionAllocator(allocator);
+                        memory::NkAllocator* a = detail::NkResolveFunctionAllocator(allocator);
                         void* mem = a->Allocate(sizeof(MultiMethodCallableImpl), alignof(MultiMethodCallableImpl));
                         #if NK_FUNCTION_ENABLE_STATS
                         if (mem) { detail::FunctionStats::Instance().RecordAllocation(sizeof(MultiMethodCallableImpl)); }
@@ -508,8 +506,8 @@
                         return clone;
                     }
 
-                    void Destroy(bool useSbo, mem::NkAllocator* allocator) override {
-                        mem::NkAllocator* a = detail::NkResolveFunctionAllocator(allocator);
+                    void Destroy(bool useSbo, memory::NkAllocator* allocator) override {
+                        memory::NkAllocator* a = detail::NkResolveFunctionAllocator(allocator);
                         if (methods) {
                             #if NK_FUNCTION_ENABLE_STATS
                             detail::FunctionStats::Instance().RecordDeallocation(method_count * sizeof(MethodEntry));
@@ -546,7 +544,7 @@
 
                 Storage m_storage;                    ///< Stockage polymorphe : heap ou SBO
                 bool m_usesSbo;                       ///< Flag indiquant si le callable est dans le buffer SBO
-                mem::NkAllocator* m_allocator;        ///< Allocateur (utilisé seulement si !m_usesSbo)
+                memory::NkAllocator* m_allocator;        ///< Allocateur (utilisé seulement si !m_usesSbo)
 
                 #if NK_FUNCTION_ENABLE_STATS
                 mutable usize m_instanceAllocations;  ///< Compteur d'allocations pour cette instance
@@ -616,7 +614,7 @@
             // ====================================================================
             public:
 
-                explicit NkFunction(mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator()) noexcept
+                explicit NkFunction(memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator()) noexcept
                     : m_storage(), m_usesSbo(false)
                     , m_allocator(detail::NkResolveFunctionAllocator(allocator))
                     #if NK_FUNCTION_ENABLE_STATS
@@ -624,7 +622,7 @@
                     #endif
                 {}
 
-                NkFunction(NkNullptrT, mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator()) noexcept
+                NkFunction(NkNullptrT, memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator()) noexcept
                     : m_storage(), m_usesSbo(false)
                     , m_allocator(detail::NkResolveFunctionAllocator(allocator))
                     #if NK_FUNCTION_ENABLE_STATS
@@ -634,7 +632,7 @@
 
                 template<typename F, typename = traits::NkEnableIf_t<
                     !traits::NkIsSame_v<traits::NkDecay_t<F>, NkFunction>>>
-                NkFunction(F&& f, mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator())
+                NkFunction(F&& f, memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator())
                     : m_storage(), m_usesSbo(false)
                     , m_allocator(detail::NkResolveFunctionAllocator(allocator))
                     #if NK_FUNCTION_ENABLE_STATS
@@ -663,7 +661,7 @@
 
                 template<typename T>
                 NkFunction(T* obj, R (T::*meth)(Args...),
-                           mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator())
+                           memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator())
                     : m_storage(), m_usesSbo(false)
                     , m_allocator(detail::NkResolveFunctionAllocator(allocator))
                     #if NK_FUNCTION_ENABLE_STATS
@@ -692,7 +690,7 @@
 
                 template<typename T>
                 NkFunction(T* obj, R (T::*meth)(Args...) const,
-                           mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator())
+                           memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator())
                     : m_storage(), m_usesSbo(false)
                     , m_allocator(detail::NkResolveFunctionAllocator(allocator))
                     #if NK_FUNCTION_ENABLE_STATS
@@ -720,7 +718,7 @@
                 }
 
                 template<typename T>
-                NkFunction(T* obj, mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator())
+                NkFunction(T* obj, memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator())
                     : m_storage(), m_usesSbo(false)
                     , m_allocator(detail::NkResolveFunctionAllocator(allocator))
                     #if NK_FUNCTION_ENABLE_STATS
@@ -769,7 +767,7 @@
                 {
                     if (other.m_usesSbo) {
                         // Copie bit-à-bit du buffer SBO
-                        traits::NkMemcpy(&m_storage.sboBuffer, &other.m_storage.sboBuffer, SBO_BUFFER_SIZE);
+                        ::memcpy(&m_storage.sboBuffer, &other.m_storage.sboBuffer, SBO_BUFFER_SIZE);
                     } else {
                         m_storage.heapPtr = other.m_storage.heapPtr;
                     }
@@ -814,7 +812,7 @@
                         m_usesSbo = other.m_usesSbo;
                         m_allocator = detail::NkResolveFunctionAllocator(other.m_allocator);
                         if (other.m_usesSbo) {
-                            traits::NkMemcpy(&m_storage.sboBuffer, &other.m_storage.sboBuffer, SBO_BUFFER_SIZE);
+                            ::memcpy(&m_storage.sboBuffer, &other.m_storage.sboBuffer, SBO_BUFFER_SIZE);
                         } else {
                             m_storage.heapPtr = other.m_storage.heapPtr;
                         }
@@ -1051,7 +1049,7 @@
                         m_storage.sboBuffer = other.m_storage.sboBuffer;
                         other.m_storage.sboBuffer = temp;
                     } else if (!m_usesSbo && !other.m_usesSbo) {
-                        mem::NkSwap(m_storage.heapPtr, other.m_storage.heapPtr);
+                        traits::NkSwap(m_storage.heapPtr, other.m_storage.heapPtr);
                     } else {
                         // Cas mixte : nécessite une reconstruction
                         NkFunction temp = NkMove(*this);
@@ -1059,11 +1057,11 @@
                         other = NkMove(temp);
                         return;
                     }
-                    mem::NkSwap(m_usesSbo, other.m_usesSbo);
-                    mem::NkSwap(m_allocator, other.m_allocator);
+                    traits::NkSwap(m_usesSbo, other.m_usesSbo);
+                    traits::NkSwap(m_allocator, other.m_allocator);
                     #if NK_FUNCTION_ENABLE_STATS
-                    mem::NkSwap(m_instanceAllocations, other.m_instanceAllocations);
-                    mem::NkSwap(m_instanceMemoryBytes, other.m_instanceMemoryBytes);
+                    traits::NkSwap(m_instanceAllocations, other.m_instanceAllocations);
+                    traits::NkSwap(m_instanceMemoryBytes, other.m_instanceMemoryBytes);
                     #endif
                 }
 
@@ -1114,15 +1112,15 @@
         public:
             using ResultType = R;
 
-            explicit NkFunction(mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator()) noexcept
+            explicit NkFunction(memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator()) noexcept
                 : m_impl(allocator) {}
 
             template<typename F, typename = traits::NkEnableIf_t<
                 !traits::NkIsSame_v<traits::NkDecay_t<F>, NkFunction>>>
-            NkFunction(F&& f, mem::NkAllocator* allocator = &mem::NkGetDefaultAllocator()) noexcept
+            NkFunction(F&& f, memory::NkAllocator* allocator = &memory::NkGetDefaultAllocator()) noexcept
                 : m_impl(traits::NkForward<F>(f), allocator) 
             {
-                static_assert(noexcept(f(traits::NkDeclval<Args>()...)), 
+                static_assert(noexcept(f(traits::NkDeclVal<Args>()...)), 
                     "Callable must be noexcept for noexcept NkFunction");
             }
 

@@ -1300,7 +1300,7 @@ void NkDirectX12Device::QueryCaps() {
 
     mCaps.tessellationShaders = true;
     mCaps.geometryShaders     = true;
-    mCaps.computeShaders      = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_API_DIRECTX12);
+    mCaps.computeShaders      = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_D3D12);
     mCaps.drawIndirect        = true;
     mCaps.multiViewport       = true;
     mCaps.independentBlend    = true;

@@ -42,7 +42,7 @@ int nkmain(const NkEntryState&) {
     }
 
     NkDeviceInitInfo init{};
-    init.api = NkGraphicsApi::NK_API_SOFTWARE;
+    init.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     init.surface = window.GetSurfaceDesc();
     init.width = winCfg.width;
     init.height = winCfg.height;

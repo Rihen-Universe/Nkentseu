@@ -15,12 +15,12 @@ Contenu (src/NKTime/) :
 """
 
 from Jenga import *
+from config import *
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKTime"):
-    kindexport(ProjectKind.STATIC_LIB, "NKENTSEU_TIME")
-    defines(["NKENTSEU_PLATFORM_STATIC_LIB", "NKENTSEU_CORE_STATIC_LIB", "NKENTSEU_MEMORY_STATIC_LIB", "NKENTSEU_CONTAINERS_STATIC_LIB", "NKENTSEU_LOGGER_STATIC_LIB", "NKENTSEU_FILESYSTEM_STATIC_LIB", "NKENTSEU_REFLECTION_STATIC_LIB"])
+    useglobalkind("time")
     language("C++")
     cppdialect("C++17")
     location(".")

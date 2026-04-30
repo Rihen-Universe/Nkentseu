@@ -117,8 +117,8 @@
          *
          * @example
          * @code
-         * class PlayerData { /* ... *\/ };
-         * class EnemyData  { /* ... *\/ };
+         * class PlayerData { /\* ... *\/ };
+         * class EnemyData  { /\* ... *\/ };
          *
          * constexpr auto playerId = nkentseu::NkTypeOf<PlayerData>();
          * constexpr auto enemyId  = nkentseu::NkTypeOf<EnemyData>();

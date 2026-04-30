@@ -45,13 +45,13 @@ NkIGraphicsContext* NkContextFactory::Create(const NkWindow& window,
     NkIGraphicsContext* ctx = nullptr;
 
     switch (desc.api) {
-        case NkGraphicsApi::NK_API_OPENGL:
-        case NkGraphicsApi::NK_API_OPENGLES:
-        case NkGraphicsApi::NK_API_WEBGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGLES:
+        case NkGraphicsApi::NK_GFX_API_WEBGL:
             ctx = new NkOpenGLContext();
             break;
 
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
 #if NKENTSEU_ENABLE_VULKAN_BACKEND
             ctx = new NkVulkanContext();
 #else
@@ -61,21 +61,21 @@ NkIGraphicsContext* NkContextFactory::Create(const NkWindow& window,
             break;
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        case NkGraphicsApi::NK_API_DIRECTX11:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
             ctx = new NkDX11Context();
             break;
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             ctx = new NkDX12Context();
             break;
 #endif
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-        case NkGraphicsApi::NK_API_METAL:
+        case NkGraphicsApi::NK_GFX_API_METAL:
             ctx = new NkMetalContext();
             break;
 #endif
 
-        case NkGraphicsApi::NK_API_SOFTWARE:
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE:
             ctx = new NkSoftwareContext();
             break;
 
@@ -126,13 +126,13 @@ NkIGraphicsContext* NkContextFactory::CreateWithFallback(
 
         NkContextDesc desc;
         switch (api) {
-            case NkGraphicsApi::NK_API_OPENGL:    desc = NkContextDesc::MakeOpenGL();    break;
-            case NkGraphicsApi::NK_API_OPENGLES:  desc = NkContextDesc::MakeOpenGLES();  break;
-            case NkGraphicsApi::NK_API_VULKAN:    desc = NkContextDesc::MakeVulkan();    break;
-            case NkGraphicsApi::NK_API_DIRECTX11: desc = NkContextDesc::MakeDirectX11(); break;
-            case NkGraphicsApi::NK_API_DIRECTX12: desc = NkContextDesc::MakeDirectX12(); break;
-            case NkGraphicsApi::NK_API_METAL:     desc = NkContextDesc::MakeMetal();     break;
-            case NkGraphicsApi::NK_API_SOFTWARE:  desc = NkContextDesc::MakeSoftware();  break;
+            case NkGraphicsApi::NK_GFX_API_OPENGL:    desc = NkContextDesc::MakeOpenGL();    break;
+            case NkGraphicsApi::NK_GFX_API_OPENGLES:  desc = NkContextDesc::MakeOpenGLES();  break;
+            case NkGraphicsApi::NK_GFX_API_VULKAN:    desc = NkContextDesc::MakeVulkan();    break;
+            case NkGraphicsApi::NK_GFX_API_D3D11: desc = NkContextDesc::MakeDirectX11(); break;
+            case NkGraphicsApi::NK_GFX_API_D3D12: desc = NkContextDesc::MakeDirectX12(); break;
+            case NkGraphicsApi::NK_GFX_API_METAL:     desc = NkContextDesc::MakeMetal();     break;
+            case NkGraphicsApi::NK_GFX_API_SOFTWARE:  desc = NkContextDesc::MakeSoftware();  break;
             default: continue;
         }
 
@@ -159,8 +159,8 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
     }
 
     switch (api) {
-        case NkGraphicsApi::NK_API_OPENGL:
-        case NkGraphicsApi::NK_API_OPENGLES: {
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGLES: {
             auto* ctx = new NkOpenGLComputeContext();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("OpenGL standalone compute init failed\n");
@@ -171,7 +171,7 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
             return ctx;
         }
 
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
 #if NKENTSEU_ENABLE_VULKAN_BACKEND
         {
             auto* ctx = new NkVulkanComputeContext();
@@ -189,7 +189,7 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
 #endif
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        case NkGraphicsApi::NK_API_DIRECTX11:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
         {
             auto* ctx = new NkDX11ComputeContext();
             if (!ctx->Init(desc)) {
@@ -200,7 +200,7 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
             return ctx;
         }
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
         {
             auto* ctx = new NkDX12ComputeContext();
             if (!ctx->Init(desc)) {
@@ -214,7 +214,7 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
 #endif
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-        case NkGraphicsApi::NK_API_METAL:
+        case NkGraphicsApi::NK_GFX_API_METAL:
         {
             auto* ctx = new NkMetalComputeContext();
             if (!ctx->Init(desc)) {
@@ -226,7 +226,7 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
             return ctx;
         }
 #endif
-        case NkGraphicsApi::NK_API_SOFTWARE: {
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE: {
             auto* ctx = new NkSoftwareComputeContext();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("Software standalone compute init failed\n");
@@ -258,21 +258,21 @@ NkIComputeContext* NkContextFactory::ComputeFromGraphics(NkIGraphicsContext* gfx
                        NkGraphicsApiName(gfx->GetApi()));
         return nullptr;
     }
-    if (!gfx->SupportsCompute() && gfx->GetApi() != NkGraphicsApi::NK_API_SOFTWARE) {
+    if (!gfx->SupportsCompute() && gfx->GetApi() != NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         NK_FACTORY_ERR("ComputeFromGraphics: API %s does not support compute\n",
                        NkGraphicsApiName(gfx->GetApi()));
         return nullptr;
     }
 
     switch (gfx->GetApi()) {
-        case NkGraphicsApi::NK_API_OPENGL:
-        case NkGraphicsApi::NK_API_OPENGLES: {
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGLES: {
             auto* c = new NkOpenGLComputeContext();
             c->InitFromGraphicsContext(gfx);
             if (!c->IsValid()) { delete c; return nullptr; }
             return c;
         }
-        case NkGraphicsApi::NK_API_VULKAN: {
+        case NkGraphicsApi::NK_GFX_API_VULKAN: {
 #if NKENTSEU_ENABLE_VULKAN_BACKEND
             auto* c = new NkVulkanComputeContext();
             c->InitFromGraphicsContext(gfx);
@@ -284,13 +284,13 @@ NkIComputeContext* NkContextFactory::ComputeFromGraphics(NkIGraphicsContext* gfx
 #endif
         }
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        case NkGraphicsApi::NK_API_DIRECTX11: {
+        case NkGraphicsApi::NK_GFX_API_D3D11: {
             auto* c = new NkDX11ComputeContext();
             c->InitFromGraphicsContext(gfx);
             if (!c->IsValid()) { delete c; return nullptr; }
             return c;
         }
-        case NkGraphicsApi::NK_API_DIRECTX12: {
+        case NkGraphicsApi::NK_GFX_API_D3D12: {
             auto* c = new NkDX12ComputeContext();
             c->InitFromGraphicsContext(gfx);
             if (!c->IsValid()) { delete c; return nullptr; }
@@ -298,14 +298,14 @@ NkIComputeContext* NkContextFactory::ComputeFromGraphics(NkIGraphicsContext* gfx
         }
 #endif
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-        case NkGraphicsApi::NK_API_METAL: {
+        case NkGraphicsApi::NK_GFX_API_METAL: {
             auto* c = new NkMetalComputeContext();
             c->InitFromGraphicsContext(gfx);
             if (!c->IsValid()) { delete c; return nullptr; }
             return c;
         }
 #endif
-        case NkGraphicsApi::NK_API_SOFTWARE: {
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE: {
             auto* c = new NkSoftwareComputeContext();
             c->InitFromGraphicsContext(gfx);
             if (!c->IsValid()) { delete c; return nullptr; }

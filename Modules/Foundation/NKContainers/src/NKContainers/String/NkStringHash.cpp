@@ -172,7 +172,7 @@ namespace nkentseu
         // SECTION 4 : IMPLÉMENTATION FNV-1a (64 bits)
         // =================================================================
 
-        uint32 NkHashFNV1a64(NkStringView str) NKENTSEU_NOEXCEPT
+        uint64 NkHashFNV1a64(NkStringView str) NKENTSEU_NOEXCEPT
         {
             return NkHashFNV1a64(str.Data(), str.Length());
         }

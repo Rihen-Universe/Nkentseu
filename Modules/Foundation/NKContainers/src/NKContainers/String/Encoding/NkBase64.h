@@ -21,37 +21,37 @@ namespace nkentseu {
                 /**
                  * @brief Encode data to Base64
                  */
-                NKENTSEU_CORE_API NkString NkEncode(const uint8* data, usize length);
+                NKENTSEU_CONTAINERS_API NkString NkEncode(const uint8* data, usize length);
                 
                 /**
                  * @brief Decode Base64 to data
                  */
-                NKENTSEU_CORE_API bool NkDecode(NkStringView base64, uint8* out, usize* outLength);
+                NKENTSEU_CONTAINERS_API bool NkDecode(NkStringView base64, uint8* out, usize* outLength);
                 
                 /**
                  * @brief Decode Base64 to string
                  */
-                NKENTSEU_CORE_API NkString NkDecodeToString(NkStringView base64);
+                NKENTSEU_CONTAINERS_API NkString NkDecodeToString(NkStringView base64);
                 
                 /**
                  * @brief Encode string to Base64
                  */
-                NKENTSEU_CORE_API NkString NkEncodeString(NkStringView str);
+                NKENTSEU_CONTAINERS_API NkString NkEncodeString(NkStringView str);
                 
                 /**
                  * @brief URL-safe Base64 encode
                  */
-                NKENTSEU_CORE_API NkString NkEncodeURLSafe(const uint8* data, usize length);
+                NKENTSEU_CONTAINERS_API NkString NkEncodeURLSafe(const uint8* data, usize length);
                 
                 /**
                  * @brief URL-safe Base64 decode
                  */
-                NKENTSEU_CORE_API bool NkDecodeURLSafe(NkStringView base64, uint8* out, usize* outLength);
+                NKENTSEU_CONTAINERS_API bool NkDecodeURLSafe(NkStringView base64, uint8* out, usize* outLength);
                 
                 /**
                  * @brief Check if string is valid Base64
                  */
-                NKENTSEU_CORE_API bool NkIsValid(NkStringView base64);
+                NKENTSEU_CONTAINERS_API bool NkIsValid(NkStringView base64);
                 
             } // namespace base64
         } // namespace encoding

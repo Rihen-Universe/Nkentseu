@@ -336,14 +336,14 @@ static NkVector<Vtx3D> MakePlane(float sz=3.f, float r=0.35f, float g=0.65f, flo
 static NkGraphicsApi ParseBackend(const nkentseu::NkVector<nkentseu::NkString>& args) {
     for (size_t i = 1; i < args.Size(); i++) {
         const nkentseu::NkString& arg = args[i];
-        if (arg == "--backend=vulkan"  || arg == "-bvk")  return NkGraphicsApi::NK_API_VULKAN;
-        if (arg == "--backend=dx11"    || arg == "-bdx11") return NkGraphicsApi::NK_API_DIRECTX11;
-        if (arg == "--backend=dx12"    || arg == "-bdx12") return NkGraphicsApi::NK_API_DIRECTX12;
-        if (arg == "--backend=metal"   || arg == "-bmtl")  return NkGraphicsApi::NK_API_METAL;
-        if (arg == "--backend=sw"      || arg == "-bsw")   return NkGraphicsApi::NK_API_SOFTWARE;
-        if (arg == "--backend=opengl"  || arg == "-bgl")   return NkGraphicsApi::NK_API_OPENGL;
+        if (arg == "--backend=vulkan"  || arg == "-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (arg == "--backend=dx11"    || arg == "-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (arg == "--backend=dx12"    || arg == "-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (arg == "--backend=metal"   || arg == "-bmtl")  return NkGraphicsApi::NK_GFX_API_METAL;
+        if (arg == "--backend=sw"      || arg == "-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (arg == "--backend=opengl"  || arg == "-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
-    return NkGraphicsApi::NK_API_OPENGL; // défaut
+    return NkGraphicsApi::NK_GFX_API_OPENGL; // défaut
 }
 
 // =============================================================================
@@ -353,7 +353,7 @@ static NkContextDesc MakeContextDesc(NkGraphicsApi api) {
     NkContextDesc d;
     d.api = api;
     switch (api) {
-        case NkGraphicsApi::NK_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
 #if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
             d = NkContextDesc::MakeOpenGLES(3, 0);
 #else
@@ -375,7 +375,7 @@ static NkShaderDesc MakeShaderDesc(NkGraphicsApi api) {
     NkShaderDesc sd;
     sd.debugName = "Phong3D";
     switch (api) {
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
             sd.AddSPIRV(NkShaderStage::NK_VERTEX,
                         kVkRHIFullDemoVertSpv,
                         (uint64)kVkRHIFullDemoVertSpvWordCount * sizeof(uint32));
@@ -383,12 +383,12 @@ static NkShaderDesc MakeShaderDesc(NkGraphicsApi api) {
                         kVkRHIFullDemoFragSpv,
                         (uint64)kVkRHIFullDemoFragSpvWordCount * sizeof(uint32));
             break;
-        case NkGraphicsApi::NK_API_DIRECTX11:
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_VS, "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_PS, "PSMain");
             break;
-        case NkGraphicsApi::NK_API_METAL:
+        case NkGraphicsApi::NK_GFX_API_METAL:
             sd.AddMSL(NkShaderStage::NK_VERTEX,   kMSL_Shaders, "vmain");
             sd.AddMSL(NkShaderStage::NK_FRAGMENT,  kMSL_Shaders, "fmain");
             break;
@@ -480,7 +480,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
     // ── Shadow map (OpenGL uniquement — shaders GLSL avec sampler2DShadow) ────
     static constexpr uint32 kShadowSize = 1024;
-    const bool hasShadowMap = (targetApi == NkGraphicsApi::NK_API_OPENGL);
+    const bool hasShadowMap = (targetApi == NkGraphicsApi::NK_GFX_API_OPENGL);
 
     NkTextureHandle     hShadowTex;
     NkSamplerHandle     hShadowSampler;
@@ -645,7 +645,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
     }
 
     // ── Callbacks CPU pour le backend Software ────────────────────────────────
-    if (targetApi == NkGraphicsApi::NK_API_SOFTWARE) {
+    if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         NkSoftwareDevice* swDev = static_cast<NkSoftwareDevice*>(device);
         NkSWShader* sw = swDev->GetShader(hShader.id);
         if (sw) {

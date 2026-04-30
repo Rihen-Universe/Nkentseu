@@ -143,7 +143,7 @@
              * @example
              * @code
              * template<typename T, typename = NkVoidT<decltype(std::declval<T>().size())>>
-             * void process(T& container) { /* ... *\/ }
+             * void process(T& container) { /\* ... *\/ }
              * @endcode
              */
             template <typename...>
@@ -1033,8 +1033,9 @@
                  *
                  * Utilise std::is_function_v comme fallback fiable.
                  */
-                template <typename T>
-                struct NkIsFunction : NkBoolConstant<std::is_function_v<T>> {};
+                template <typename T> struct NkIsFunction : NkFalseType {};
+                template <typename Ret, typename... Args> struct NkIsFunction<Ret(Args...)> : NkTrueType {};
+                template <typename Ret, typename... Args> struct NkIsFunction<Ret(Args..., ...)> : NkTrueType {};
             #else
                 // Fallback minimal pour les compilateurs sans intrinsèques
                 template <typename T> struct NkIsEnum : NkFalseType {};
@@ -1240,17 +1241,76 @@
              * Équivalent à std::declval. Utilisé dans decltype pour déduire des types.
              */
             template <typename T>
-            NkAddRValueReference_t<T> NkDeclVal() noexcept;
+            NkAddRValueReference_t<T> NkDeclval() noexcept;
+
+            template <typename T>
+            using NkDeclVal = decltype(NkDeclval<T>());  // ou bien garder l'ancienne fonction ?
 
             /**
              * @brief Macro pour decltype
-             * @def NkDeclType
+             * @def NK_DECL_TYPE
              * @param ... Expression à analyser
              * @ingroup UtilityTraits
              *
              * Wrapper portable autour de decltype pour la compatibilité.
              */
-            #define NkDeclType(...) decltype(__VA_ARGS__)
+            #define NK_DECL_TYPE(...) decltype(__VA_ARGS__)
+
+            /** @brief Alias de compatibilité (déprécié) — préférer NK_DECL_TYPE */
+            #define NkDeclType(...) NK_DECL_TYPE(__VA_ARGS__)
+
+            template <typename T, typename = void>
+            struct NkHasSize : NkFalseType {};
+
+            template <typename T>
+            struct NkHasSize<T, NkVoidT<
+                NK_DECL_TYPE(NkDeclval<T>().Size())
+            >> : NkTrueType {};
+
+            // ============================================================
+            // @defgroup SfinaeHelperMacros Macros SFINAE (helpers template)
+            // @{
+            // ============================================================
+
+            /**
+             * @brief Paramètre de template SFINAE via NkEnableIf_t
+             * @def NK_ENABLE_IF_T
+             * @param cond Condition booléenne constexpr
+             * @ingroup SfinaeHelperMacros
+             *
+             * Usage : `template<typename C = Category, NK_ENABLE_IF_T(condition)*>`
+             *
+             * @example
+             * @code
+             * template<typename C = Category,
+             *          NK_ENABLE_IF_T(NK_IS_BASE_OF_V(NkBidirectionalIteratorTag, C))*>
+             * void Decrement() { --mPtr; }
+             * @endcode
+             */
+            #define NK_ENABLE_IF_T(cond) ::nkentseu::traits::NkEnableIf_t<(cond)>
+
+            /**
+             * @brief Test d'héritage compile-time (valeur constexpr bool)
+             * @def NK_IS_BASE_OF_V
+             * @param Base  Classe de base
+             * @param Derived Classe dérivée
+             * @ingroup SfinaeHelperMacros
+             *
+             * Équivalent à ::nkentseu::traits::NkIsBaseOf_v<Base, Derived>.
+             */
+            #define NK_IS_BASE_OF_V(Base, Derived) ::nkentseu::traits::NkIsBaseOf_v<Base, Derived>
+
+            /**
+             * @brief Test const compile-time (valeur constexpr bool)
+             * @def NK_IS_CONST_V
+             * @param T Type à tester
+             * @ingroup SfinaeHelperMacros
+             *
+             * Équivalent à ::nkentseu::traits::NkIsConst_v<T>.
+             */
+            #define NK_IS_CONST_V(T) ::nkentseu::traits::NkIsConst_v<T>
+
+            /** @} */
 
             /**
              * @brief Transfert parfait (perfect forwarding)
@@ -1555,10 +1615,12 @@
              *
              * Retourne true si T peut être construit par copie (arithmétique ou pointeur).
              */
-            template<typename T>
-            struct NkIsCopyConstructible : NkBoolConstant<
-                NkIsArithmetic_v<T> || NkIsPointer_v<T>
-            > {};
+            template <typename T>
+            struct NkIsCopyConstructible : NkBoolConstant<__is_constructible(T, const T&)> {};
+            template <typename T, typename = void>
+            struct NkIsCopyConstructibleImpl : NkFalseType {};
+            template <typename T>
+            struct NkIsCopyConstructibleImpl<T, NkVoidT<decltype(T(std::declval<const T&>()))>> : NkTrueType {};
 
             /**
              * @brief Valeur constexpr pour NkIsCopyConstructible
@@ -1624,19 +1686,6 @@
                 template <typename T>
                 inline constexpr bool NkIsTriviallyDestructible = true;
             #endif
-
-            /**
-             * @brief Vérification de constructibilité triviale
-             * @struct NkIsTriviallyConstructible
-             * @tparam T Type à vérifier
-             * @ingroup ConstructibilityTraits
-             *
-             * Utilise __is_trivially_destructible comme approximation.
-             */
-            template <typename T>
-            struct NkIsTriviallyConstructible : NkBoolConstant<NkIsTriviallyDestructible<T>> {
-                // determine whether remove_all_extents_t<_Ty> is a reference type or can trivially be explicitly destroyed
-            };
 
             /**
              * @brief Valeur constexpr pour NkIsTriviallyConstructible

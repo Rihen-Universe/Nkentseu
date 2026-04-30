@@ -15,12 +15,13 @@ Contenu (src/NKNetwork/) :
 """
 
 from Jenga import *
+from config import *
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKNetwork"):
-    kindexport(ProjectKind.STATIC_LIB, "NKENTSEU_NETWORK")
-    defines(["NKENTSEU_PLATFORM_STATIC_LIB", "NKENTSEU_CORE_STATIC_LIB", "NKENTSEU_MEMORY_STATIC_LIB", "NKENTSEU_CONTAINERS_STATIC_LIB", "NKENTSEU_LOGGER_STATIC_LIB", "NKENTSEU_THREADING_STATIC_LIB", "NKENTSEU_MATH_STATIC_LIB"])
+    useglobalkind("network")
+    
     language("C++")
     cppdialect("C++17")
     location(".")
