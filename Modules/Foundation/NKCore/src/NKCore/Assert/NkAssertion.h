@@ -260,7 +260,7 @@
     #define NK_ASSERT(expr, msg) \
     do { \
         if (!(expr)) { \
-            /* Construction des informations d'assertion *\/ \
+            /\* Construction des informations d'assertion *\/ \
             nkentseu::NkAssertionInfo info; \
             info.expression = #expr; \
             info.message = msg; \
@@ -268,10 +268,10 @@
             info.line = static_cast<nkentseu::nk_int32>(NKENTSEU_BUILTIN_LINE); \
             info.function = NKENTSEU_BUILTIN_FUNCTION; \
             \
-            /* Appel du handler pour décision *\/ \
+            /\* Appel du handler pour décision *\/ \
             nkentseu::NkAssertAction action = nkentseu::HandleAssertion(info); \
             \
-            /* Exécution de l'action choisie *\/ \
+            /\* Exécution de l'action choisie *\/ \
             switch (action) { \
                 case nkentseu::NkAssertAction::NK_CONTINUE: \
                     break; \
@@ -283,7 +283,7 @@
                     break; \
                 case nkentseu::NkAssertAction::NK_IGNORE: \
                 case nkentseu::NkAssertAction::NK_IGNORE_ALL: \
-                    /* Ignoré : continuer silencieusement *\/ \
+                    /\* Ignoré : continuer silencieusement *\/ \
                     break; \
             } \
         } \
@@ -422,18 +422,18 @@
     do { \
         if (!(expr)) { \
             BusinessAssertionInfo info; \
-            /* Champs de base *\/ \
+            /\* Champs de base *\/ \
             info.expression = #expr; \
             info.message = msg; \
             info.file = __FILE__; \
             info.line = static_cast<nkentseu::nk_int32>(__LINE__); \
             info.function = __func__; \
-            /* Champs métier *\/ \
+            /\* Champs métier *\/ \
             info.errorCode = errorCode; \
             info.moduleName = module; \
             info.timestamp = GetCurrentTimestamp(); \
             \
-            /* Handler spécialisé métier *\/ \
+            /\* Handler spécialisé métier *\/ \
             HandleBusinessAssertion(info); \
         } \
     } while (0)

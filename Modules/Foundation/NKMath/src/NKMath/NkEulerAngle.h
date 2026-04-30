@@ -223,7 +223,19 @@
             const math::NkEulerAngle& euler,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(euler.ToString(), formatProperties);
+            // 'r' → radians, 'd' ou défaut → degrés (cohérent avec NkAngle)
+            if (formatProperties.type == 'r') {
+                return formatProperties.ApplyWidth(
+                    NkStringView(NkFormat(
+                        "euler({0}, {1}, {2})",
+                        euler.pitch.Rad(),
+                        euler.yaw.Rad(),
+                        euler.roll.Rad()
+                    )),
+                    false
+                );
+            }
+            return formatProperties.ApplyWidth(NkStringView(euler.ToString()), false);
         }
 
     } // namespace nkentseu

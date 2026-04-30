@@ -881,7 +881,7 @@
  *     const float interactionRadius = 25.0f;
  *     
  *     // Pour une particule donnée, appliquer les forces des voisines
- *     Particle2D& reference = /* obtenir la particule courante *\/;
+ *     Particle2D& reference = /\* obtenir la particule courante *\/;
  *     particules.QueryRadius(reference.x, reference.y, interactionRadius,
  *         [&](const Particle2D& neighbor) {
  *             if (neighbor.id != reference.id) {

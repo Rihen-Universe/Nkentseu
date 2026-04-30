@@ -37,7 +37,7 @@
      * Tous les types et fonctions sont forwardés depuis nkentseu::.
      */
     namespace nkentseu {
-        namespace containers {
+        namespace variant {
 
             // ====================================================================
             // TYPES PRINCIPAUX
@@ -120,13 +120,6 @@
      * @see nkentseu::NkVariant (implémentation complète dans NKCore)
      * @see nkentseu::NkVisit (fonction libre pour visiteur)
      */
-
-    // -------------------------------------------------------------------------
-    // VALIDATION DE CONFIGURATION
-    // -------------------------------------------------------------------------
-    #ifndef NKENTSEU_CORE_NKVARIANT_H
-        #error "NKContainers/NkVariant.h requires NKCore/NkVariant.h to be included first"
-    #endif
 
     // -------------------------------------------------------------------------
     // MESSAGES DE DEBUG OPTIONNELS

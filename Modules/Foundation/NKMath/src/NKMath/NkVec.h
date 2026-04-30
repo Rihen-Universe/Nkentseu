@@ -1492,7 +1492,7 @@
             const math::NkVec2T<T>& vector,
             const NkFormatProps& properties = {}
         ) {
-            return NkApplyFormatProps(vector.ToString(), properties);
+            return properties.ApplyWidth(NkStringView(vector.ToString()), false);
         }
 
         template <typename T>
@@ -1500,7 +1500,7 @@
             const math::NkVec3T<T>& vector,
             const NkFormatProps& properties = {}
         ) {
-            return NkApplyFormatProps(vector.ToString(), properties);
+            return properties.ApplyWidth(NkStringView(vector.ToString()), false);
         }
 
         template <typename T>
@@ -1508,7 +1508,7 @@
             const math::NkVec4T<T>& vector,
             const NkFormatProps& properties = {}
         ) {
-            return NkApplyFormatProps(vector.ToString(), properties);
+            return properties.ApplyWidth(NkStringView(vector.ToString()), false);
         }
 
     } // namespace nkentseu

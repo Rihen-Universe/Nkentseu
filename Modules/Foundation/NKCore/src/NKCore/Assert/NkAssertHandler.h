@@ -519,7 +519,7 @@
     #define NK_ASSERT(expr, msg) \
     do { \
         if (!(expr)) { \
-            /* Capture du contexte d'assertion *\/ \
+            /\* Capture du contexte d'assertion *\/ \
             nkentseu::NkAssertionInfo info; \
             info.expression = #expr; \
             info.message = msg; \
@@ -527,11 +527,11 @@
             info.line = static_cast<nkentseu::nk_int32>(NKENTSEU_BUILTIN_LINE); \
             info.function = NKENTSEU_BUILTIN_FUNCTION; \
             \
-            /* Invocation du handler global *\/ \
+            /\* Invocation du handler global *\/ \
             nkentseu::NkAssertAction action = \
                 nkentseu::NkAssertHandler::HandleAssertion(info); \
             \
-            /* Exécution de l'action retournée *\/ \
+            /\* Exécution de l'action retournée *\/ \
             switch (action) { \
                 case nkentseu::NkAssertAction::NK_BREAK: \
                     NKENTSEU_DEBUGBREAK(); \
@@ -542,7 +542,7 @@
                 case nkentseu::NkAssertAction::NK_CONTINUE: \
                 case nkentseu::NkAssertAction::NK_IGNORE: \
                 case nkentseu::NkAssertAction::NK_IGNORE_ALL: \
-                    /* Continuer l'exécution *\/ \
+                    /\* Continuer l'exécution *\/ \
                     break; \
             } \
         } \
@@ -559,7 +559,7 @@
             nkentseu::NkAssertAction action = \
                 nkentseu::NkAssertHandler::HandleAssertion(info); \
             \
-            /* Forcer CONTINUE même si handler retourne ABORT *\/ \
+            /\* Forcer CONTINUE même si handler retourne ABORT *\/ \
             if (action == nkentseu::NkAssertAction::NK_ABORT) { \
                 action = nkentseu::NkAssertAction::NK_CONTINUE; \
             } \

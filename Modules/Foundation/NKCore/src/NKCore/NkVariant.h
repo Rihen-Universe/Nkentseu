@@ -1215,9 +1215,9 @@
         struct ErrorState
     >;
 
-    struct Idle { /* ... *\/ };
-    struct Running { /* ... *\/ };
-    struct Paused { /* ... *\/ };
+    struct Idle { /\* ... *\/ };
+    struct Running { /\* ... *\/ };
+    struct Paused { /\* ... *\/ };
     struct ErrorState { nkentseu::nk_string message; };
 
     class StateMachine {

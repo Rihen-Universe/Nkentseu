@@ -38,7 +38,7 @@ namespace nkentseu {
 
         const NkColor NkColor::White              = NkColor::RGBf( 1.00f, 1.00f, 1.00f);
         const NkColor NkColor::Black              = NkColor::RGBf( 0.00f, 0.00f, 0.00f);
-        const NkColor NkColor::Transparent        = NkColor::RGBf( 0.00f, 0.00f, 0.00f, 0.0f);
+        const NkColor NkColor::Transparent        = NkColor::RGBAf(0.00f, 0.00f, 0.00f, 0.0f);
         const NkColor NkColor::Gray               = NkColor::RGBf( 0.50f, 0.50f, 0.50f);
         const NkColor NkColor::Red                = NkColor::RGBf( 1.00f, 0.00f, 0.00f);
         const NkColor NkColor::Green              = NkColor::RGBf( 0.00f, 1.00f, 0.00f);
@@ -120,7 +120,6 @@ namespace nkentseu {
          * @note Implémentation de l'algorithme standard HSV→RGB
          * @note Gère correctement les cas limites (saturation=0, valeur=0)
          */
-        NKENTSEU_MATH_API
         NkColor NkColor::FromHSV(const NkHSV& hsv) noexcept
         {
             float32 h = hsv.hue        / 360.0f;
@@ -163,7 +162,6 @@ namespace nkentseu {
          * @note Implémentation de l'algorithme standard HSV→RGB
          * @note Plus précis que FromHSV() car pas de quantification 8-bit intermédiaire
          */
-        NKENTSEU_MATH_API
         NkColorF NkColor::FromHSVf(const NkHSV& hsv) noexcept
         {
             float32 h = hsv.hue        / 360.0f;
@@ -200,7 +198,6 @@ namespace nkentseu {
          * @note Implémentation de l'algorithme standard RGB→HSV
          * @note Précision limitée par la quantification 8-bit des composantes RGB
          */
-        NKENTSEU_MATH_API
         NkHSV NkColor::ToHSV() const noexcept
         {
             float32 fr = static_cast<float32>(r) / 255.0f;
@@ -234,7 +231,6 @@ namespace nkentseu {
          * @note Implémentation de l'algorithme standard RGB→HSV
          * @note Plus précis que ToHSV() car pas de quantification 8-bit
          */
-        NKENTSEU_MATH_API
         NkHSV NkColor::ToHSVf() const noexcept
         {
             // Conversion via NkColorF interne pour réutiliser l'algorithme
@@ -247,7 +243,6 @@ namespace nkentseu {
          * @return Structure NkHSV équivalente
          * @note Implémentation de l'algorithme standard RGB→HSV pour flottants
          */
-        NKENTSEU_MATH_API
         NkHSV NkColorF::ToHSVf() const noexcept
         {
             float32 maxC = NkMax(NkMax(r, g), b);
@@ -276,7 +271,6 @@ namespace nkentseu {
          * @return Nouvelle couleur avec r,g,b aléatoires ∈ [0,255], a=255
          * @note Utilise NkRandom::Instance() pour la génération
          */
-        NKENTSEU_MATH_API
         NkColor NkColor::RandomRGB() noexcept
         {
             return {
@@ -291,7 +285,6 @@ namespace nkentseu {
          * @return Nouvelle couleur avec r,g,b,a aléatoires ∈ [0,255]
          * @note Utilise NkRandom::Instance() pour la génération
          */
-        NKENTSEU_MATH_API
         NkColor NkColor::RandomRGBA() noexcept
         {
             return {
@@ -314,7 +307,6 @@ namespace nkentseu {
          * @note Recherche linéaire dans ~60 entrées : O(n) mais n petit et usage rare
          * @note Optimisé pour les noms les plus courants en premier (Transparent, Black, White)
          */
-        NKENTSEU_MATH_API
         const NkColor& NkColor::FromName(const NkString& name) noexcept
         {
             if (name == "Transparent")       { return Transparent;     }
@@ -407,14 +399,9 @@ namespace nkentseu {
          * @brief Convertit la couleur en chaîne de caractères lisible
          * @return NkString au format "(r, g, b, a)"
          */
-        NKENTSEU_MATH_API
         NkString NkColor::ToString() const
         {
-            return NkFormat("({0}, {1}, {2}, {3})",
-                static_cast<int32>(r),
-                static_cast<int32>(g),
-                static_cast<int32>(b),
-                static_cast<int32>(a));
+            return NkFormat("{0}", *this);
         }
 
         /**
@@ -422,7 +409,6 @@ namespace nkentseu {
          * @param c Couleur à convertir
          * @return Même résultat que c.ToString()
          */
-        NKENTSEU_MATH_API
         NkString ToString(const NkColor& c)
         {
             return c.ToString();
@@ -434,7 +420,6 @@ namespace nkentseu {
          * @param c Couleur à écrire
          * @return Référence vers os pour chaînage
          */
-        NKENTSEU_MATH_API
         std::ostream& operator<<(std::ostream& os, const NkColor& c)
         {
             return os << c.ToString().CStr();
@@ -449,10 +434,9 @@ namespace nkentseu {
          * @brief Convertit la couleur flottante en chaîne de caractères lisible
          * @return NkString au format "(r, g, b, a)" avec précision flottante
          */
-        NKENTSEU_MATH_API
         NkString NkColorF::ToString() const
         {
-            return NkFormat("({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", r, g, b, a);
+            return NkFormat("{0}", *this);
         }
 
         /**
@@ -460,7 +444,6 @@ namespace nkentseu {
          * @param c Couleur flottante à convertir
          * @return Même résultat que c.ToString()
          */
-        NKENTSEU_MATH_API
         NkString ToString(const NkColorF& c)
         {
             return c.ToString();
@@ -472,7 +455,6 @@ namespace nkentseu {
          * @param c Couleur flottante à écrire
          * @return Référence vers os pour chaînage
          */
-        NKENTSEU_MATH_API
         std::ostream& operator<<(std::ostream& os, const NkColorF& c)
         {
             return os << c.ToString().CStr();
@@ -490,10 +472,20 @@ namespace nkentseu {
      * @param props Options de formatage optionnelles
      * @return NkString formaté selon les propriétés spécifiées
      */
-    NKENTSEU_MATH_API
     NkString NkToString(const math::NkColorF& c, const NkFormatProps& props)
     {
-        return NkApplyFormatProps(c.ToString(), props);
+        if (props.type == 'H' || props.type == 'h') {
+            // Format hexadécimal : #RRGGBB (en convertissant les flottants en 8-bit)
+            return props.ApplyWidth(NkStringView(props.type == 'H' ? NkFormat("#%02X%02X%02X",
+                static_cast<int>(c.r * 255.0f),
+                static_cast<int>(c.g * 255.0f),
+                static_cast<int>(c.b * 255.0f)) :
+                NkFormat("#%02x%02x%02x",
+                static_cast<int>(c.r * 255.0f),
+                static_cast<int>(c.g * 255.0f),
+                static_cast<int>(c.b * 255.0f))), false);
+        }
+        return props.ApplyWidth(NkStringView(NkFormat("({0:.4f}, {1:.4f}, {2:.4f}, {3:.4f})", c.r, c.g, c.b, c.a)), false);
     }
 
     /**
@@ -502,10 +494,13 @@ namespace nkentseu {
      * @param props Options de formatage optionnelles
      * @return NkString formaté selon les propriétés spécifiées
      */
-    NKENTSEU_MATH_API
     NkString NkToString(const math::NkColor& c, const NkFormatProps& props)
     {
-        return NkApplyFormatProps(c.ToString(), props);
+        if (props.type == 'H' || props.type == 'h') {
+            // Format hexadécimal : #RRGGBB
+            return props.ApplyWidth(NkStringView(props.type == 'H' ? NkFormat("#%02X%02X%02X", (int)c.r, (int)c.g, (int)c.b) : NkFormat("#%02x%02x%02x", (int)c.r, (int)c.g, (int)c.b)), false);
+        }
+        return props.ApplyWidth(NkStringView(NkFormat("({0}, {1}, {2}, {3})", (int)c.r, (int)c.g, (int)c.b, (int)c.a)), false);
     }
 
 } // namespace nkentseu

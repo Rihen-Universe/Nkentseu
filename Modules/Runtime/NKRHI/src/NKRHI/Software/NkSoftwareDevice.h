@@ -606,7 +606,7 @@ namespace nkentseu {
             bool                        Initialize(const NkDeviceInitInfo& init) override;
             void                        Shutdown()                          override;
             bool                        IsValid()                     const override { return mIsValid; }
-            NkGraphicsApi               GetApi()                      const override { return NkGraphicsApi::NK_API_SOFTWARE; }
+            NkGraphicsApi               GetApi()                      const override { return NkGraphicsApi::NK_GFX_API_SOFTWARE; }
             const NkDeviceCaps&         GetCaps()               const override { return mCaps; }
 
             NkBufferHandle              CreateBuffer (const NkBufferDesc& d)                      override;

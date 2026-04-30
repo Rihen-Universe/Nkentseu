@@ -38,37 +38,37 @@ namespace nkentseu {
 
             switch (api) {
                 // ── Software ─────────────────────────────────────────────────────────
-                case NkGraphicsApi::NK_API_SOFTWARE:
+                case NkGraphicsApi::NK_GFX_API_SOFTWARE:
                     r2d = new NkSoftwareRenderer2D();
                     break;
 
                 // ── OpenGL / OpenGL ES / WebGL ────────────────────────────────────────
-                case NkGraphicsApi::NK_API_OPENGL:
-                case NkGraphicsApi::NK_API_OPENGLES:
-                case NkGraphicsApi::NK_API_WEBGL:
+                case NkGraphicsApi::NK_GFX_API_OPENGL:
+                case NkGraphicsApi::NK_GFX_API_OPENGLES:
+                case NkGraphicsApi::NK_GFX_API_WEBGL:
                     r2d = new NkOpenGLRenderer2D();
                     break;
 
                 // ── Vulkan ────────────────────────────────────────────────────────────
-                case NkGraphicsApi::NK_API_VULKAN:
+                case NkGraphicsApi::NK_GFX_API_VULKAN:
                     r2d = new NkVulkanRenderer2D();
                     break;
 
         #if defined(NKENTSEU_PLATFORM_WINDOWS)
                 // ── DirectX 11 ───────────────────────────────────────────────────────
-                case NkGraphicsApi::NK_API_DIRECTX11:
+                case NkGraphicsApi::NK_GFX_API_D3D11:
                     r2d = new NkDX11Renderer2D();
                     break;
 
                 // ── DirectX 12 ───────────────────────────────────────────────────────
-                case NkGraphicsApi::NK_API_DIRECTX12:
+                case NkGraphicsApi::NK_GFX_API_D3D12:
                     r2d = new NkDX12Renderer2D();
                     break;
         #endif
 
         #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
                 // ── Metal ─────────────────────────────────────────────────────────────
-                case NkGraphicsApi::NK_API_METAL:
+                case NkGraphicsApi::NK_GFX_API_METAL:
                     // r2d = new NkMetalRenderer2D();
                     NK_R2D_FACTORY_ERR("Metal 2D renderer not yet implemented");
                     return nullptr;
@@ -98,19 +98,19 @@ namespace nkentseu {
         // =============================================================================
         bool NkRenderer2DFactory::IsApiSupported(NkGraphicsApi api) {
             switch (api) {
-                case NkGraphicsApi::NK_API_SOFTWARE:
-                case NkGraphicsApi::NK_API_OPENGL:
-                case NkGraphicsApi::NK_API_OPENGLES:
-                case NkGraphicsApi::NK_API_WEBGL:
-                case NkGraphicsApi::NK_API_VULKAN:
+                case NkGraphicsApi::NK_GFX_API_SOFTWARE:
+                case NkGraphicsApi::NK_GFX_API_OPENGL:
+                case NkGraphicsApi::NK_GFX_API_OPENGLES:
+                case NkGraphicsApi::NK_GFX_API_WEBGL:
+                case NkGraphicsApi::NK_GFX_API_VULKAN:
                     return true;
         #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                case NkGraphicsApi::NK_API_DIRECTX11:
-                case NkGraphicsApi::NK_API_DIRECTX12:
+                case NkGraphicsApi::NK_GFX_API_D3D11:
+                case NkGraphicsApi::NK_GFX_API_D3D12:
                     return true;
         #endif
         #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-                case NkGraphicsApi::NK_API_METAL:
+                case NkGraphicsApi::NK_GFX_API_METAL:
                     return false; // not yet implemented
         #endif
                 default:

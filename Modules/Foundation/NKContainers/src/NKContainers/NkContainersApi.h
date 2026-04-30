@@ -28,6 +28,7 @@
 
     #include "NKPlatform/NkPlatformExport.h"
     #include "NKPlatform/NkPlatformInline.h"
+    #include "NKCore/NkTraits.h"  // uniquement pour std::void_t (si tu n'as pas déjà NkVoidT)
 
     // -------------------------------------------------------------------------
     // SECTION 2 : CONFIGURATION DU MODE DE BUILD NKCONTAINERS
@@ -229,6 +230,127 @@
         #endif
         #pragma message("  NKENTSEU_CONTAINERS_API = " NKENTSEU_STRINGIZE(NKENTSEU_CONTAINERS_API))
     #endif
+
+    namespace nkentseu {
+        namespace traits {
+            // -------------------------------------------------------------------------
+            // Trait : NkHasBeginEnd<T>
+            // Vérifie si T possède des méthodes Begin() et End() utilisables
+            // (invoquables sur une référence non‑constante de T, retournant des types
+            //  comparables entre eux).
+            // -------------------------------------------------------------------------
+            template<typename T, typename = void>
+            struct NkHasBeginEnd : NkFalseType {};
+
+            // template<typename T>
+            // struct NkHasBeginEnd<T, NkVoidT<
+            //     NkDeclType(NkDeclVal<T&>().Begin()),
+            //     NkDeclType(NkDeclVal<T&>().End())
+            // >> : NkTrueType {};
+
+            template<typename T>
+            struct NkHasBeginEnd<T, NkVoidT<
+                NkDeclType(NkDeclVal<T&>().Begin()),
+                NkDeclType(NkDeclVal<T&>().End()),
+                NkEnableIf_t<NkIsSame_v<
+                    NkDeclType(NkDeclVal<T&>().Begin()),
+                    NkDeclType(NkDeclVal<T&>().End())>
+                >
+            >> : NkTrueType {};
+
+            /// Version variable template (pour usage constexpr)
+            template<typename T>
+            inline constexpr bool NkHasBeginEnd_v = NkHasBeginEnd<T>::value;
+
+            // -------------------------------------------------------------------------
+            // Trait public : NkIsContainer<T>
+            // Actuellement basé sur la présence de Begin/End.
+            // Tu pourras l'enrichir avec d'autres critères si nécessaire.
+            // -------------------------------------------------------------------------
+            template<typename T>
+            using NkIsContainer = NkHasBeginEnd<T>;
+
+            /// Version booléenne constexpr pratique
+            template<typename T>
+            inline constexpr bool NkIsContainer_v = NkIsContainer<T>::value;
+
+            /**
+             * @brief Vérifie si un type T est un conteneur associatif Nkentseu
+             *        (possède KeyType).
+             * @tparam T Type à vérifier
+             * @ingroup ContainerTraits
+             *
+             * Un conteneur est considéré associatif s'il définit un type membre `KeyType`.
+             * Cela couvre les hash maps, arbres binaires, etc.
+             *
+             * @example
+             * @code
+             * static_assert(NkIsAssociativeContainer_v<NkHashMap<int, float>>);
+             * static_assert(!NkIsAssociativeContainer_v<NkList<int>>);
+             * @endcode
+             */
+            template <typename T, typename = void>
+            struct NkIsAssociativeContainer : NkFalseType {};
+
+            template <typename T>
+            struct NkIsAssociativeContainer<T, NkVoidT<typename T::KeyType>> : NkTrueType {};
+
+            /// Variable template pratique
+            template <typename T>
+            inline constexpr bool NkIsAssociativeContainer_v = NkIsAssociativeContainer<T>::value;
+
+            // -----------------------------------------------------------------
+
+            /**
+             * @brief Vérifie si un type T est un conteneur séquentiel Nkentseu
+             *        (Begin/End mais sans KeyType).
+             * @tparam T Type à vérifier
+             * @ingroup ContainerTraits
+             *
+             * Un conteneur est séquentiel s'il satisfait NkHasBeginEnd et n'est pas associatif.
+             *
+             * @example
+             * @code
+             * static_assert(NkIsSequentialContainer_v<NkList<int>>);
+             * static_assert(NkIsSequentialContainer_v<NkVector<float>>);
+             * static_assert(!NkIsSequentialContainer_v<NkHashMap<int, float>>);
+             * @endcode
+             */
+            template <typename T>
+            struct NkIsSequentialContainer : NkBoolConstant<
+                NkHasBeginEnd_v<T> && !NkIsAssociativeContainer_v<T>
+            > {};
+
+            /// Variable template pratique
+            template <typename T>
+            inline constexpr bool NkIsSequentialContainer_v = NkIsSequentialContainer<T>::value;
+
+            // -----------------------------------------------------------------
+
+            /**
+             * @brief Catégorie de conteneur (tag dispatch).
+             *        Peut être spécialisé pour des conteneurs spécifiques.
+             */
+            struct NkSequentialContainerTag {};
+            struct NkAssociativeContainerTag {};
+
+            template <typename T, typename = void>
+            struct NkContainerCategory { using type = void; };
+
+            template <typename T>
+            struct NkContainerCategory<T, NkEnableIf_t<NkIsSequentialContainer_v<T>>> {
+                using type = NkSequentialContainerTag;
+            };
+
+            template <typename T>
+            struct NkContainerCategory<T, NkEnableIf_t<NkIsAssociativeContainer_v<T>>> {
+                using type = NkAssociativeContainerTag;
+            };
+
+            template <typename T>
+            using NkContainerCategory_t = typename NkContainerCategory<T>::type;
+        }
+    }
 
 #endif // NKENTSEU_CONTAINERS_NKCONTAINERSAPI_H
 

@@ -681,7 +681,7 @@ int nkmain(const NkEntryState& state) {
     }
 
     NkContextDesc desc;
-    desc.api    = NkGraphicsApi::NK_API_OPENGL;
+    desc.api    = NkGraphicsApi::NK_GFX_API_OPENGL;
     desc.opengl.majorVersion = 4;
     desc.opengl.minorVersion = 6;
     desc.opengl.profile = NkGLProfile::Core;

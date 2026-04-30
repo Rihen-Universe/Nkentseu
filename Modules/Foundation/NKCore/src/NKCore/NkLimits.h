@@ -429,10 +429,10 @@
          *
          * // Détection de valeurs spéciales
          * nk_float32 inf = nkentseu::NkNumericLimits<nk_float32>::infinity();
-         * if (x >= inf) { /* x est infini *\/ }
+         * if (x >= inf) { /\* x est infini *\/ }
          *
          * nk_float32 nan = nkentseu::NkNumericLimits<nk_float32>::quiet_NaN();
-         * if (x != x) { /* x est NaN (seul NaN n'est pas égal à lui-même) *\/ }
+         * if (x != x) { /\* x est NaN (seul NaN n'est pas égal à lui-même) *\/ }
          * @endcode
          */
         template <>

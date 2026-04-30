@@ -723,7 +723,7 @@
  *     void Log(const char* message) {
  *         // Emplace pour construction directe sans copie temporaire
  *         #if defined(NK_CPP11)
- *         mBuffer.Emplace("%zu: %s", /* timestamp * /, message);
+ *         mBuffer.Emplace("%zu: %s", /\* timestamp *\/, message);
  *         #else
  *         nkentseu::NkString entry(message);
  *         mBuffer.Push(entry);

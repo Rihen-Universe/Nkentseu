@@ -1466,7 +1466,7 @@
  * // Pattern 2: Regroupement par clé (grouping)
  * void exempleGrouping() {
  *     struct Person { const char* name; usize age; const char* city; };
- *     nkentseu::NkVector<Person> people = { /* ... * / };
+ *     nkentseu::NkVector<Person> people = { /\* ... *\/ };
  *     
  *     // Regrouper par ville : HashMap<city, vector<names>>
  *     nkentseu::NkHashMap<const char*, nkentseu::NkVector<const char*>> byCity;

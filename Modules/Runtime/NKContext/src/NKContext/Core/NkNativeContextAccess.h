@@ -41,9 +41,9 @@ namespace nkentseu {
                 return nullptr;
             }
             const NkGraphicsApi api = ctx->GetApi();
-            if (api != NkGraphicsApi::NK_API_OPENGL &&
-                api != NkGraphicsApi::NK_API_OPENGLES &&
-                api != NkGraphicsApi::NK_API_WEBGL) {
+            if (api != NkGraphicsApi::NK_GFX_API_OPENGL &&
+                api != NkGraphicsApi::NK_GFX_API_OPENGLES &&
+                api != NkGraphicsApi::NK_GFX_API_WEBGL) {
                 return nullptr;
             }
             return static_cast<NkOpenGLContextData*>(ctx->GetNativeContextData());
@@ -57,7 +57,7 @@ namespace nkentseu {
                 return d->getProcAddress;
             }
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-            if (ctx && ctx->GetApi() == NkGraphicsApi::NK_API_WEBGL) {
+            if (ctx && ctx->GetApi() == NkGraphicsApi::NK_GFX_API_WEBGL) {
                 static auto kWebGLFallbackLoader = +[](const char* name) -> void* {
                     return reinterpret_cast<void*>(emscripten_webgl_get_proc_address(name));
                 };
@@ -74,33 +74,33 @@ namespace nkentseu {
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
         static HGLRC GetWGLContext(NkIGraphicsContext* ctx) {
-            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_API_OPENGL);
+            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_GFX_API_OPENGL);
             return d ? d->hglrc : nullptr;
         }
         static HDC GetWGLDC(NkIGraphicsContext* ctx) {
-            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_API_OPENGL);
+            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_GFX_API_OPENGL);
             return d ? d->hdc : nullptr;
         }
 #endif
 
 #if defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
         static GLXContext GetGLXContext(NkIGraphicsContext* ctx) {
-            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_API_OPENGL);
+            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_GFX_API_OPENGL);
             return d ? d->context : nullptr;
         }
         static Display* GetGLXDisplay(NkIGraphicsContext* ctx) {
-            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_API_OPENGL);
+            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_GFX_API_OPENGL);
             return d ? static_cast<Display*>(d->display) : nullptr;
         }
 #endif
 
 #if defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
         static EGLContext GetEGLContext(NkIGraphicsContext* ctx) {
-            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_API_OPENGLES);
+            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_GFX_API_OPENGLES);
             return d ? d->eglContext : EGL_NO_CONTEXT;
         }
         static EGLDisplay GetEGLDisplay(NkIGraphicsContext* ctx) {
-            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_API_OPENGLES);
+            auto* d = NkGetNativeAs<NkOpenGLContextData>(ctx, NkGraphicsApi::NK_GFX_API_OPENGLES);
             return d ? d->eglDisplay : EGL_NO_DISPLAY;
         }
 #endif
@@ -108,7 +108,7 @@ namespace nkentseu {
         // ── Vulkan ────────────────────────────────────────────────────────────
         #if NKENTSEU_HAS_VULKAN_HEADERS
         static NkVulkanContextData* Vulkan(NkIGraphicsContext* ctx) {
-            return NkGetNativeAs<NkVulkanContextData>(ctx, NkGraphicsApi::NK_API_VULKAN);
+            return NkGetNativeAs<NkVulkanContextData>(ctx, NkGraphicsApi::NK_GFX_API_VULKAN);
         }
         static VkDevice GetVkDevice(NkIGraphicsContext* ctx) {
             auto* d = Vulkan(ctx); return d ? d->device : VK_NULL_HANDLE;
@@ -144,7 +144,7 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
         // ── DirectX 11 ────────────────────────────────────────────────────────
         static NkDX11ContextData* DX11(NkIGraphicsContext* ctx) {
-            return NkGetNativeAs<NkDX11ContextData>(ctx, NkGraphicsApi::NK_API_DIRECTX11);
+            return NkGetNativeAs<NkDX11ContextData>(ctx, NkGraphicsApi::NK_GFX_API_D3D11);
         }
         static ID3D11Device1* GetDX11Device(NkIGraphicsContext* ctx) {
             auto* d = DX11(ctx); return d ? d->device.Get() : nullptr;
@@ -164,7 +164,7 @@ namespace nkentseu {
 
         // ── DirectX 12 ────────────────────────────────────────────────────────
         static NkDX12ContextData* DX12(NkIGraphicsContext* ctx) {
-            return NkGetNativeAs<NkDX12ContextData>(ctx, NkGraphicsApi::NK_API_DIRECTX12);
+            return NkGetNativeAs<NkDX12ContextData>(ctx, NkGraphicsApi::NK_GFX_API_D3D12);
         }
         static ID3D12Device5* GetDX12Device(NkIGraphicsContext* ctx) {
             auto* d = DX12(ctx); return d ? d->device.Get() : nullptr;
@@ -200,7 +200,7 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
         // ── Metal ─────────────────────────────────────────────────────────────
         static NkMetalContextData* Metal(NkIGraphicsContext* ctx) {
-            return NkGetNativeAs<NkMetalContextData>(ctx, NkGraphicsApi::NK_API_METAL);
+            return NkGetNativeAs<NkMetalContextData>(ctx, NkGraphicsApi::NK_GFX_API_METAL);
         }
         // Retourne id<MTLDevice> — le caller doit caster : (__bridge id<MTLDevice>)ptr
         static void* GetMetalDevice(NkIGraphicsContext* ctx) {
@@ -220,15 +220,15 @@ namespace nkentseu {
 
         // ── Software ──────────────────────────────────────────────────────────
         static NkSoftwareContextData* Software(NkIGraphicsContext* ctx) {
-            return NkGetNativeAs<NkSoftwareContextData>(ctx, NkGraphicsApi::NK_API_SOFTWARE);
+            return NkGetNativeAs<NkSoftwareContextData>(ctx, NkGraphicsApi::NK_GFX_API_SOFTWARE);
         }
         static NkSoftwareFramebuffer* GetSoftwareBackBuffer(NkIGraphicsContext* ctx) {
-            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_API_SOFTWARE) return nullptr;
+            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_GFX_API_SOFTWARE) return nullptr;
             auto* sw = dynamic_cast<NkSoftwareContext*>(ctx);
             return sw ? &sw->GetBackBuffer() : nullptr;
         }
         static NkSoftwareFramebuffer* GetSoftwareFrontBuffer(NkIGraphicsContext* ctx) {
-            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_API_SOFTWARE) return nullptr;
+            if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_GFX_API_SOFTWARE) return nullptr;
             auto* sw = dynamic_cast<NkSoftwareContext*>(ctx);
             return sw ? &sw->GetFrontBuffer() : nullptr;
         }

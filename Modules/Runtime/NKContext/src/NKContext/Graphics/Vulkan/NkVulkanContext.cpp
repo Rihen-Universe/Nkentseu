@@ -395,14 +395,14 @@ void NkVulkanContext::RemoveRecreateCallback(NkSwapchainCallbackHandle h) {
 void NkVulkanContext::SetVSync(bool enabled) { mVSync = enabled; /* nécessite RecreateSwapchain */ }
 bool NkVulkanContext::GetVSync()  const { return mVSync; }
 bool NkVulkanContext::IsValid()   const { return mIsValid; }
-NkGraphicsApi NkVulkanContext::GetApi()  const { return NkGraphicsApi::NK_API_VULKAN; }
+NkGraphicsApi NkVulkanContext::GetApi()  const { return NkGraphicsApi::NK_GFX_API_VULKAN; }
 NkContextDesc NkVulkanContext::GetDesc() const { return mDesc; }
 void* NkVulkanContext::GetNativeContextData() { return &mData; }
 bool NkVulkanContext::SupportsCompute() const { return mData.computeFamily != UINT32_MAX; }
 
 NkContextInfo NkVulkanContext::GetInfo() const {
     NkContextInfo i;
-    i.api              = NkGraphicsApi::NK_API_VULKAN;
+    i.api              = NkGraphicsApi::NK_GFX_API_VULKAN;
     i.renderer         = mData.rendererName;
     i.vendor           = mData.rendererName;
     i.version          = "Vulkan";
@@ -1158,12 +1158,12 @@ bool NkVulkanContext::GetVSync() const {
 }
 
 NkGraphicsApi NkVulkanContext::GetApi() const {
-    return NkGraphicsApi::NK_API_VULKAN;
+    return NkGraphicsApi::NK_GFX_API_VULKAN;
 }
 
 NkContextInfo NkVulkanContext::GetInfo() const {
     NkContextInfo info{};
-    info.api = NkGraphicsApi::NK_API_VULKAN;
+    info.api = NkGraphicsApi::NK_GFX_API_VULKAN;
     info.renderer = "Unavailable";
     info.vendor = "Unavailable";
     info.version = "Vulkan headers missing";

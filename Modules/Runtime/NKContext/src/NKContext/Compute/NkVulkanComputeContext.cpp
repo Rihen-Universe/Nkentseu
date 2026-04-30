@@ -411,7 +411,7 @@ void NkVulkanComputeContext::MemoryBarrier() {
 }
 
 // â”€â”€ CapacitÃ©s â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-NkGraphicsApi NkVulkanComputeContext::GetApi() const { return NkGraphicsApi::NK_API_VULKAN; }
+NkGraphicsApi NkVulkanComputeContext::GetApi() const { return NkGraphicsApi::NK_GFX_API_VULKAN; }
 
 uint32 NkVulkanComputeContext::GetMaxGroupSizeX() const {
     VkPhysicalDeviceProperties p;
@@ -483,7 +483,7 @@ void NkVulkanComputeContext::Dispatch(uint32, uint32, uint32) {}
 void NkVulkanComputeContext::WaitIdle() {}
 void NkVulkanComputeContext::MemoryBarrier() {}
 
-NkGraphicsApi NkVulkanComputeContext::GetApi() const { return NkGraphicsApi::NK_API_VULKAN; }
+NkGraphicsApi NkVulkanComputeContext::GetApi() const { return NkGraphicsApi::NK_GFX_API_VULKAN; }
 uint32 NkVulkanComputeContext::GetMaxGroupSizeX() const { return 0; }
 uint32 NkVulkanComputeContext::GetMaxGroupSizeY() const { return 0; }
 uint32 NkVulkanComputeContext::GetMaxGroupSizeZ() const { return 0; }

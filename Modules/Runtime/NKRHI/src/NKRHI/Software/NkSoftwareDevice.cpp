@@ -552,7 +552,7 @@ namespace nkentseu {
 
         CreateSwapchainObjects();
 
-        mCaps.computeShaders     = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_API_SOFTWARE);
+        mCaps.computeShaders     = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_SOFTWARE);
         mCaps.drawIndirect       = false;
         mCaps.multiViewport      = false;
         mCaps.independentBlend   = true;

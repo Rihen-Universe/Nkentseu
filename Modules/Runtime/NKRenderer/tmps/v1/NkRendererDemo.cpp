@@ -27,13 +27,13 @@ using namespace nkentseu::renderer;
 // ── Sélection backend ─────────────────────────────────────────────────────────
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i=1; i<args.Size(); ++i) {
-        if (args[i]=="--backend=vulkan"  || args[i]=="-bvk")  return NkGraphicsApi::NK_API_VULKAN;
-        if (args[i]=="--backend=dx11"    || args[i]=="-bdx11") return NkGraphicsApi::NK_API_DIRECTX11;
-        if (args[i]=="--backend=dx12"    || args[i]=="-bdx12") return NkGraphicsApi::NK_API_DIRECTX12;
-        if (args[i]=="--backend=metal"   || args[i]=="-bmtl")  return NkGraphicsApi::NK_API_METAL;
-        if (args[i]=="--backend=sw"      || args[i]=="-bsw")   return NkGraphicsApi::NK_API_SOFTWARE;
+        if (args[i]=="--backend=vulkan"  || args[i]=="-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (args[i]=="--backend=dx11"    || args[i]=="-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (args[i]=="--backend=dx12"    || args[i]=="-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i]=="--backend=metal"   || args[i]=="-bmtl")  return NkGraphicsApi::NK_GFX_API_METAL;
+        if (args[i]=="--backend=sw"      || args[i]=="-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
     }
-    return NkGraphicsApi::NK_API_OPENGL;
+    return NkGraphicsApi::NK_GFX_API_OPENGL;
 }
 
 int nkmain(const nkentseu::NkEntryState& state) {

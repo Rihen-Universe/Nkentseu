@@ -782,7 +782,7 @@ namespace nkentseu {
             (void)rp;
             if (!mDevice) return false;
 
-            const bool useVulkanGLSL = (mDevice->GetApi() == NkGraphicsApi::NK_API_VULKAN);
+            const bool useVulkanGLSL = (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN);
             const char* vsrc = useVulkanGLSL ? NkBuiltinShaders::Basic3DVertVK() : NkBuiltinShaders::Basic3DVert();
             const char* fsrc = useVulkanGLSL ? NkBuiltinShaders::Basic3DFragVK() : NkBuiltinShaders::Basic3DFrag();
 

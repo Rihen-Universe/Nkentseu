@@ -58,7 +58,7 @@
      * @code
      * // Code compilé uniquement si Vulkan est disponible
      * NKENTSEU_VULKAN_ONLY(
-     *     void InitVulkanRenderer() { /* ... *\/ }
+     *     void InitVulkanRenderer() { /\* ... *\/ }
      * )
      *
      * // Sélection à l'exécution selon disponibilité
@@ -246,7 +246,7 @@
                  * }
                  * @endcode
                  */
-                enum class NkGraphicsApi : uint32 {
+                enum class NkGraphicsApi : unsigned int {
                     // Valeurs canoniques utilisées par les événements NKWindow
                     NK_GFX_API_NONE       = 0,    ///< Aucune API (état invalide ou non-initialisé)
                     NK_GFX_API_OPENGL,            ///< OpenGL 3.3+ (desktop cross-platform)
@@ -262,22 +262,6 @@
                     NK_GFX_API_GNM,               ///< GNM (PlayStation 4/5, API propriétaire Sony)
                     NK_GFX_API_NVN,               ///< NVN (Nintendo Switch, API NVIDIA)
                     NK_GFX_API_MAX,               ///< Valeur sentinelle : nombre total d'APIs
-
-                    // Aliases de compatibilité (noms courts pour code legacy)
-                    NK_API_NONE       = NK_GFX_API_NONE,
-                    NK_API_OPENGL     = NK_GFX_API_OPENGL,
-                    NK_API_OPENGLES   = NK_GFX_API_OPENGLES,
-                    NK_API_VULKAN     = NK_GFX_API_VULKAN,
-                    NK_API_DIRECTX11  = NK_GFX_API_D3D11,
-                    NK_API_DIRECTX12  = NK_GFX_API_D3D12,
-                    NK_API_METAL      = NK_GFX_API_METAL,
-                    NK_API_WEBGL      = NK_GFX_API_WEBGL,
-                    NK_API_WEBGL2     = NK_GFX_API_WEBGL2,
-                    NK_API_WEBGPU     = NK_GFX_API_WEBGPU,
-                    NK_API_SOFTWARE   = NK_GFX_API_SOFTWARE,
-                    NK_API_GNM        = NK_GFX_API_GNM,
-                    NK_API_NVN        = NK_GFX_API_NVN,
-                    NK_API_COUNT      = NK_GFX_API_MAX
                 };
 
                 // ====================================================================
@@ -495,59 +479,59 @@
     /** @{ */
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_DIRECTX11
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_DIRECTX12
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_D3D11
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_D3D12
 
     #elif defined(NKENTSEU_PLATFORM_LINUX)     || \
           defined(NKENTSEU_PLATFORM_FREEBSD)   || \
           defined(NKENTSEU_PLATFORM_OPENBSD)   || \
           defined(NKENTSEU_PLATFORM_NETBSD)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGL
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_VULKAN
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGL
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN
 
     #elif defined(NKENTSEU_PLATFORM_MACOS)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_METAL
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_METAL
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_METAL
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_METAL
 
     #elif defined(NKENTSEU_PLATFORM_IOS)      || \
           defined(NKENTSEU_PLATFORM_TVOS)     || \
           defined(NKENTSEU_PLATFORM_WATCHOS)  || \
           defined(NKENTSEU_PLATFORM_VISIONOS)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_METAL
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_METAL
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_METAL
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_METAL
 
     #elif defined(NKENTSEU_PLATFORM_ANDROID)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGLES
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_VULKAN
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGLES
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN
 
     #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_WEBGL2
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_WEBGPU
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_WEBGL2
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_WEBGPU
 
     #elif defined(NKENTSEU_PLATFORM_PS5)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_VULKAN
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_VULKAN
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN
 
     #elif defined(NKENTSEU_PLATFORM_PS4)  || \
           defined(NKENTSEU_PLATFORM_PS3)  || \
           defined(NKENTSEU_PLATFORM_PSP)  || \
           defined(NKENTSEU_PLATFORM_PSVITA)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_GNM
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_GNM
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_GNM
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_GNM
 
     #elif defined(NKENTSEU_PLATFORM_XBOX_SERIES) || \
           defined(NKENTSEU_PLATFORM_XBOXONE)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_DIRECTX12
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_DIRECTX12
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_D3D12
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_D3D12
 
     #elif defined(NKENTSEU_PLATFORM_XBOX360)      || \
           defined(NKENTSEU_PLATFORM_XBOX_ORIGINAL)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_DIRECTX11
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_DIRECTX11
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_D3D11
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_D3D11
 
     #elif defined(NKENTSEU_PLATFORM_SWITCH)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_NVN
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_VULKAN
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_NVN
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN
 
     #elif defined(NKENTSEU_PLATFORM_WIIU)     || \
           defined(NKENTSEU_PLATFORM_WII)      || \
@@ -557,25 +541,25 @@
           defined(NKENTSEU_PLATFORM_NDS)      || \
           defined(NKENTSEU_PLATFORM_GBA)      || \
           defined(NKENTSEU_PLATFORM_GAMEBOY)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGL
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGL
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGL
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGL
 
     #elif defined(NKENTSEU_PLATFORM_SEGA)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGL
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGL
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGL
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGL
 
     #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGLES
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_VULKAN
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGLES
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN
 
     #elif defined(NKENTSEU_PLATFORM_EMBEDDED)
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_SOFTWARE
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_SOFTWARE
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_SOFTWARE
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_SOFTWARE
 
     #else
         // Fallback universel si aucune plateforme spécifique n'est détectée
-        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_API_OPENGL
-        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_API_VULKAN
+        #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_OPENGL
+        #define NKENTSEU_GRAPHICS_MODERN  nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN
     #endif
 
     /** @} */ // End of DefaultAPIMacros
@@ -610,7 +594,7 @@
      *
      * // Définition de fonctions spécifiques à une API
      * NKENTSEU_D3D12_ONLY(
-     *     void CreateD3D12PipelineState() { /* ... *\/ }
+     *     void CreateD3D12PipelineState() { /\* ... *\/ }
      * )
      * NKENTSEU_NOT_D3D12(
      *     inline void CreateD3D12PipelineState() {
@@ -855,10 +839,10 @@
      * @example
      * @code
      * // Ancien style (encore supporté)
-     * if (gpuVendorId == NKENTSEU_GPU_VENDOR_NVIDIA_ID) { /* ... *\/ }
+     * if (gpuVendorId == NKENTSEU_GPU_VENDOR_NVIDIA_ID) { /\* ... *\/ }
      *
      * // Nouveau style recommandé
-     * if (gpuVendor == nkentseu::platform::graphics::NkGPUVendor::NK_NVIDIA) { /* ... *\/ }
+     * if (gpuVendor == nkentseu::platform::graphics::NkGPUVendor::NK_NVIDIA) { /\* ... *\/ }
      * @endcode
      */
     /** @{ */

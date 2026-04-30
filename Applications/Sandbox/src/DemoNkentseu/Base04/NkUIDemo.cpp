@@ -488,7 +488,7 @@ int nkmain(const NkEntryState& /*state*/)
     if (!window.Create(wc)) { logger.Error("[NkUIDemo] Fenêtre échec\n"); return 1; }
 
     NkDeviceInitInfo di;
-    di.api     = NkGraphicsApi::NK_API_OPENGL;
+    di.api     = NkGraphicsApi::NK_GFX_API_OPENGL;
     di.surface = window.GetSurfaceDesc();
     di.width   = window.GetSize().width;
     di.height  = window.GetSize().height;

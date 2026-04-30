@@ -41,15 +41,16 @@
     //  - NKCore/Assert/NkAssert.h : Système d'assertions pour validation debug
     //  - NKContainers/Iterators/NkIterator.h : Tags d'itérateurs (NkBidirectionalIteratorTag)
     //  - NKContainers/Iterators/NkInitializerList.h : Liste d'initialisation légère
+    #include "NKContainers/NkContainersApi.h"
+    #include "NKContainers/Iterators/NkIterator.h"
+    #include "NKContainers/Iterators/NkInitializerList.h"
+    #include "NKContainers/String/NkFormat.h"
 
     #include "NKCore/NkTypes.h"
-    #include "NKContainers/NkContainersApi.h"
     #include "NKCore/NkTraits.h"
     #include "NKMemory/NkAllocator.h"
     #include "NKMemory/NkFunction.h"
     #include "NKCore/Assert/NkAssert.h"
-    #include "NKContainers/Iterators/NkIterator.h"
-    #include "NKContainers/Iterators/NkInitializerList.h"
 
     // -------------------------------------------------------------------------
     // SECTION 2 : ESPACE DE NOMS PRINCIPAL
@@ -2003,6 +2004,23 @@
         ) NKENTSEU_NOEXCEPT {
             lhs.Swap(rhs);
         }
+
+        // template<typename T>
+        // NkString NkToString(const NkDoubleList<T>& c, const NkFormatProps& props = {}) {
+        //     NkString result = "[";
+        //     int i = 0;
+        //     for (const auto& item : c) {
+        //         result += NkToString(item, props);
+
+        //         if (i <= c.Size() - 1) {
+        //             result += ", ";
+        //         }
+
+        //         i++;
+        //     }
+        //     result += "]";
+        //     return result;
+        // }
 
     } // namespace nkentseu
 

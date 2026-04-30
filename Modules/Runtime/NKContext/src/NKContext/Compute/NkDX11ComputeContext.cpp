@@ -238,7 +238,7 @@ void NkDX11ComputeContext::MemoryBarrier() {
     // DX11 gÃ¨re les barriÃ¨res automatiquement entre Dispatch/Map
 }
 
-NkGraphicsApi NkDX11ComputeContext::GetApi()              const { return NkGraphicsApi::NK_API_DIRECTX11; }
+NkGraphicsApi NkDX11ComputeContext::GetApi()              const { return NkGraphicsApi::NK_GFX_API_D3D11; }
 uint32 NkDX11ComputeContext::GetMaxGroupSizeX()           const { return 1024; }
 uint32 NkDX11ComputeContext::GetMaxGroupSizeY()           const { return 1024; }
 uint32 NkDX11ComputeContext::GetMaxGroupSizeZ()           const { return 64; }

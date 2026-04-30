@@ -41,7 +41,7 @@ namespace nkentseu {
                 static constexpr uint32 kShrinkDelayFrames = 240u;
 
                 NkIDevice*         mDevice = nullptr;
-                NkGraphicsApi      mApi = NkGraphicsApi::NK_API_OPENGL;
+                NkGraphicsApi      mApi = NkGraphicsApi::NK_GFX_API_OPENGL;
                 NkRenderPassHandle mRenderPass;
                 NkShaderHandle     mShader;
                 NkPipelineHandle   mPipeline;

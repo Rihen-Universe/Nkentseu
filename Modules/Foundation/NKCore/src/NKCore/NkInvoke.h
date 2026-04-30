@@ -376,7 +376,7 @@
          *
          * // C++14 : syntaxe classique
          * typedef nkentseu::NkIsInvocable<F, int, std::string> Trait;
-         * if (Trait::value) { /* ... *\/ }
+         * if (Trait::value) { /\* ... *\/ }
          * @endcode
          */
         template <typename F, typename... Args>

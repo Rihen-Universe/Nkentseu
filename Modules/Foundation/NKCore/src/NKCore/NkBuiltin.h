@@ -287,7 +287,7 @@
      *     // ... code legacy ...
      *
      *     NKENTSEU_FIXME("Handle edge case when input is null");
-     *     if (!input) { /* ... *\/ }
+     *     if (!input) { /\* ... *\/ }
      *
      *     NKENTSEU_NOTE("Performance: O(n²) - consider optimization for large datasets");
      * }

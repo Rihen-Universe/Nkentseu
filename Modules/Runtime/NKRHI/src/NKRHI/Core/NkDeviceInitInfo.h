@@ -84,7 +84,7 @@ namespace nkentseu {
     using NkResizeCallback  = NkFunction<bool(uint32, uint32)>;
 
     struct NkDeviceInitInfo {
-        NkGraphicsApi api = NkGraphicsApi::NK_API_NONE;
+        NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_NONE;
         NkContextDesc context{};
         NkSurfaceDesc surface{};
 
@@ -97,7 +97,7 @@ namespace nkentseu {
     };
 
     inline NkGraphicsApi NkDeviceInitApi(const NkDeviceInitInfo& init) {
-        if (init.api != NkGraphicsApi::NK_API_NONE) return init.api;
+        if (init.api != NkGraphicsApi::NK_GFX_API_NONE) return init.api;
         return init.context.api;
     }
 

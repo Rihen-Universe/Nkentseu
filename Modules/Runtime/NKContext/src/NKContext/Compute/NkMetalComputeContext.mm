@@ -304,7 +304,7 @@ void NkMetalComputeContext::MemoryBarrier() {
 // =============================================================================
 // CapacitÃ©s
 // =============================================================================
-NkGraphicsApi NkMetalComputeContext::GetApi() const { return NkGraphicsApi::NK_API_METAL; }
+NkGraphicsApi NkMetalComputeContext::GetApi() const { return NkGraphicsApi::NK_GFX_API_METAL; }
 
 uint32 NkMetalComputeContext::GetMaxGroupSizeX() const {
     if (!mCurrentPipeline) return 1024;

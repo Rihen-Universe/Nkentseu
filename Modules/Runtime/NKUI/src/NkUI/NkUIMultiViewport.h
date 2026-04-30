@@ -150,7 +150,7 @@ namespace nkentseu {
 
         private:
             NkIDevice*          mDevice     = nullptr;
-            NkGraphicsApi       mApi        = NkGraphicsApi::NK_API_OPENGL;
+            NkGraphicsApi       mApi        = NkGraphicsApi::NK_GFX_API_OPENGL;
             NkWindow*           mMainWindow = nullptr;
             bool                mEnabled    = false;
             int32               mMainViewW  = 0;

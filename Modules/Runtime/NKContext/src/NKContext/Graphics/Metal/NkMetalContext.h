@@ -264,14 +264,14 @@ void NkMetalContext::SetVSync(bool e) {
 }
 bool NkMetalContext::GetVSync()  const { return mVSync; }
 bool NkMetalContext::IsValid()   const { return mIsValid; }
-NkGraphicsApi NkMetalContext::GetApi()  const { return NkGraphicsApi::NK_API_METAL; }
+NkGraphicsApi NkMetalContext::GetApi()  const { return NkGraphicsApi::NK_GFX_API_METAL; }
 NkContextDesc NkMetalContext::GetDesc() const { return mDesc; }
 void* NkMetalContext::GetNativeContextData() { return &mData; }
 bool NkMetalContext::SupportsCompute() const { return true; } // Metal Compute toujours dispo
 
 NkContextInfo NkMetalContext::GetInfo() const {
     NkContextInfo i;
-    i.api              = NkGraphicsApi::NK_API_METAL;
+    i.api              = NkGraphicsApi::NK_GFX_API_METAL;
     i.renderer         = mData.renderer;
     i.vendor           = "Apple";
     i.version          = "Metal";

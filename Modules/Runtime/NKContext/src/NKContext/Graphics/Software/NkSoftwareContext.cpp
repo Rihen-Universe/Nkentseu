@@ -149,14 +149,14 @@ namespace nkentseu {
     void NkSoftwareContext::SetVSync(bool e) { mVSync = e; }
     bool NkSoftwareContext::GetVSync()  const { return mVSync; }
     bool NkSoftwareContext::IsValid()   const { return mIsValid; }
-    NkGraphicsApi NkSoftwareContext::GetApi()  const { return NkGraphicsApi::NK_API_SOFTWARE; }
+    NkGraphicsApi NkSoftwareContext::GetApi()  const { return NkGraphicsApi::NK_GFX_API_SOFTWARE; }
     NkContextDesc NkSoftwareContext::GetDesc() const { return mDesc; }
     void* NkSoftwareContext::GetNativeContextData() { return &mData; }
     bool NkSoftwareContext::SupportsCompute() const { return true; }
 
     NkContextInfo NkSoftwareContext::GetInfo() const {
         NkContextInfo i;
-        i.api              = NkGraphicsApi::NK_API_SOFTWARE;
+        i.api              = NkGraphicsApi::NK_GFX_API_SOFTWARE;
         i.renderer         = "Software CPU";
         i.vendor           = "NkEngine";
         i.version          = "1.0";

@@ -419,7 +419,7 @@
  *     
  *     // Les doublons sont acceptés (comportement multi-set)
  *     index.Insert("apple");  // Second "apple" accepté
- *     printf("Occurrences de 'apple': %zu\n", /* nécessite méthode Count() future * /);
+ *     printf("Occurrences de 'apple': %zu\n", /\* nécessite méthode Count() future *\/);
  * }
  * @endcode
  * 

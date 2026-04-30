@@ -1395,7 +1395,7 @@
             const math::NkQuatT<T>& quaternion,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(quaternion.ToString(), formatProperties);
+            return formatProperties.ApplyWidth(NkStringView(quaternion.ToString()), false);
         }
 
     }  // namespace nkentseu
@@ -1563,7 +1563,7 @@
     NkVec3f reflected = mirror * NkVec3f(1.0f, 2.0f, 3.0f);  // ~(-1, 2, 3)
 
     // Normalisation corrective après accumulation d'erreurs
-    NkQuatf drifted = /* résultat de nombreuses opérations */;
+    NkQuatf drifted = /\* résultat de nombreuses opérations *\/;
     drifted.Normalize();  // Remet ||q|| = 1 pour éviter la dérive
 
     // ---------------------------------------------------------------------

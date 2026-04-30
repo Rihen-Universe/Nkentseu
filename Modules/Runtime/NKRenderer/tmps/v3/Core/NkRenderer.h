@@ -24,7 +24,7 @@
 //
 // Usage minimal :
 //   NkRendererConfig cfg;
-//   cfg.api = NkGraphicsApi::NK_API_VULKAN;
+//   cfg.api = NkGraphicsApi::NK_GFX_API_VULKAN;
 //   NkRenderer* renderer = NkRenderer::Create(device, cfg);
 //   renderer->BeginFrame();
 //   renderer->GetRender3D()->DrawMesh(mesh, transform, material);

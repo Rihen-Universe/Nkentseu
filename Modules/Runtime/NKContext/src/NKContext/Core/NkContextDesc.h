@@ -99,7 +99,7 @@ namespace nkentseu {
     };
 
     struct NkContextDesc {
-        NkGraphicsApi   api       =  NkGraphicsApi::NK_API_NONE;
+        NkGraphicsApi   api       =  NkGraphicsApi::NK_GFX_API_NONE;
         NkOpenGLDesc    opengl;
         NkVulkanDesc    vulkan;
         NkDirectX11Desc dx11;
@@ -112,18 +112,18 @@ namespace nkentseu {
         bool IsComputeEnabledForApi(NkGraphicsApi backendApi) const {
             if (!compute.enable) return false;
             switch (backendApi) {
-                case NkGraphicsApi::NK_API_OPENGL:
-                case NkGraphicsApi::NK_API_OPENGLES:
+                case NkGraphicsApi::NK_GFX_API_OPENGL:
+                case NkGraphicsApi::NK_GFX_API_OPENGLES:
                     return compute.opengl;
-                case NkGraphicsApi::NK_API_VULKAN:
+                case NkGraphicsApi::NK_GFX_API_VULKAN:
                     return compute.vulkan;
-                case NkGraphicsApi::NK_API_DIRECTX11:
+                case NkGraphicsApi::NK_GFX_API_D3D11:
                     return compute.directx11;
-                case NkGraphicsApi::NK_API_DIRECTX12:
+                case NkGraphicsApi::NK_GFX_API_D3D12:
                     return compute.directx12;
-                case NkGraphicsApi::NK_API_METAL:
+                case NkGraphicsApi::NK_GFX_API_METAL:
                     return compute.metal;
-                case NkGraphicsApi::NK_API_SOFTWARE:
+                case NkGraphicsApi::NK_GFX_API_SOFTWARE:
                     return compute.software;
                 default:
                     return false;
@@ -132,7 +132,7 @@ namespace nkentseu {
 
         static NkContextDesc MakeOpenGL(int maj = 4,int min = 6,bool dbg = false){
             NkContextDesc d; 
-            d.api = NkGraphicsApi::NK_API_OPENGL;
+            d.api = NkGraphicsApi::NK_GFX_API_OPENGL;
             d.opengl = NkOpenGLDesc::Desktop46(dbg);
             d.opengl.majorVersion = maj; 
             d.opengl.minorVersion = min; 
@@ -140,7 +140,7 @@ namespace nkentseu {
         }
         static NkContextDesc MakeOpenGLES(int maj = 3,int min = 2){
             NkContextDesc d; 
-            d.api = NkGraphicsApi::NK_API_OPENGLES;
+            d.api = NkGraphicsApi::NK_GFX_API_OPENGLES;
             d.opengl = NkOpenGLDesc::ES32();
             d.opengl.majorVersion = maj; 
             d.opengl.minorVersion = min; 
@@ -148,31 +148,31 @@ namespace nkentseu {
         }
         static NkContextDesc MakeVulkan(bool val = false){
             NkContextDesc d; 
-            d.api = NkGraphicsApi::NK_API_VULKAN;
+            d.api = NkGraphicsApi::NK_GFX_API_VULKAN;
             d.vulkan.validationLayers = val; 
             d.vulkan.debugMessenger = val; 
             return d;
         }
         static NkContextDesc MakeDirectX11(bool dbg = false){
             NkContextDesc d; 
-            d.api = NkGraphicsApi::NK_API_DIRECTX11;
+            d.api = NkGraphicsApi::NK_GFX_API_D3D11;
             d.dx11.debugDevice = dbg; 
             return d;
         }
         static NkContextDesc MakeDirectX12(bool dbg = false){
             NkContextDesc d; 
-            d.api = NkGraphicsApi::NK_API_DIRECTX12;
+            d.api = NkGraphicsApi::NK_GFX_API_D3D12;
             d.dx12.debugDevice = dbg; 
             return d;
         }
         static NkContextDesc MakeMetal(){
             NkContextDesc d; 
-            d.api = NkGraphicsApi::NK_API_METAL; 
+            d.api = NkGraphicsApi::NK_GFX_API_METAL; 
             return d;
         }
         static NkContextDesc MakeSoftware(bool threaded = true){
             NkContextDesc d; 
-            d.api = NkGraphicsApi::NK_API_SOFTWARE;
+            d.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
             d.software.threading = threaded; 
             return d;
         }

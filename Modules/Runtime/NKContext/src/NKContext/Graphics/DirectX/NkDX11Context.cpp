@@ -313,14 +313,14 @@ bool NkDX11Context::OnResize(uint32 w, uint32 h) {
 void NkDX11Context::SetVSync(bool e)  { mVSync = e; }
 bool NkDX11Context::GetVSync()  const { return mVSync; }
 bool NkDX11Context::IsValid()   const { return mIsValid; }
-NkGraphicsApi NkDX11Context::GetApi()  const { return NkGraphicsApi::NK_API_DIRECTX11; }
+NkGraphicsApi NkDX11Context::GetApi()  const { return NkGraphicsApi::NK_GFX_API_D3D11; }
 NkContextDesc NkDX11Context::GetDesc() const { return mDesc; }
 void* NkDX11Context::GetNativeContextData() { return &mData; }
 bool NkDX11Context::SupportsCompute() const { return true; } // CS_5_0 dispo sur DX11+
 
 NkContextInfo NkDX11Context::GetInfo() const {
     NkContextInfo i;
-    i.api              = NkGraphicsApi::NK_API_DIRECTX11;
+    i.api              = NkGraphicsApi::NK_GFX_API_D3D11;
     i.renderer         = mData.renderer;
     i.vendor           = mData.vendor;
     i.version          = "DirectX 11.1";

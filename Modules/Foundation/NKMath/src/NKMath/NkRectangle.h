@@ -379,14 +379,14 @@
             const math::NkRectT<T>& rectangle,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(rectangle.ToString(), formatProperties);
+            return formatProperties.ApplyWidth(NkStringView(rectangle.ToString()), false);
         }
 
         inline NkString NkToString(
             const math::NkRectangle& rectangle,
             const NkFormatProps& formatProperties = {}
         ) {
-            return NkApplyFormatProps(rectangle.ToString(), formatProperties);
+            return formatProperties.ApplyWidth(NkStringView(rectangle.ToString()), false);
         }
 
     }  // namespace nkentseu

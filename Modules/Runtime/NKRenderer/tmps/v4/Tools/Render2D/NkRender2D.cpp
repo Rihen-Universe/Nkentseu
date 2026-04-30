@@ -107,12 +107,12 @@ namespace nkentseu {
             NkShaderDesc sd{};
             sd.debugName = "Shader2D";
             switch (device->GetApi()) {
-                case NkGraphicsApi::NK_API_OPENGL:
-                case NkGraphicsApi::NK_API_OPENGLES:
+                case NkGraphicsApi::NK_GFX_API_OPENGL:
+                case NkGraphicsApi::NK_GFX_API_OPENGLES:
                     sd.AddGLSL(NkShaderStage::NK_VERTEX,   kVert2D_GL);
                     sd.AddGLSL(NkShaderStage::NK_FRAGMENT, kFrag2D_GL);
                     break;
-                case NkGraphicsApi::NK_API_VULKAN:
+                case NkGraphicsApi::NK_GFX_API_VULKAN:
                     sd.AddGLSL(NkShaderStage::NK_VERTEX,   kVert2D_VK);
                     sd.AddGLSL(NkShaderStage::NK_FRAGMENT, kFrag2D_VK);
                     break;

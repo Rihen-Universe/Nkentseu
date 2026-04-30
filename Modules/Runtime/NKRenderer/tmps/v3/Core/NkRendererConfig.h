@@ -143,7 +143,7 @@ namespace nkentseu {
     // =============================================================================
     struct NkRendererConfig {
         // API et fenêtrage
-        NkGraphicsApi   api           = NkGraphicsApi::NK_API_OPENGL;
+        NkGraphicsApi   api           = NkGraphicsApi::NK_GFX_API_OPENGL;
         uint32          width         = 1280;
         uint32          height        = 720;
         bool            vsync         = true;
@@ -398,7 +398,7 @@ namespace nkentseu {
     };
 
     struct NkRendererConfig {
-        NkGraphicsApi   api           = NkGraphicsApi::NK_API_OPENGL;
+        NkGraphicsApi   api           = NkGraphicsApi::NK_GFX_API_OPENGL;
         uint32          width         = 1280;
         uint32          height        = 720;
         bool            vsync         = true;

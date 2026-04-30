@@ -37,43 +37,6 @@
      * Tous les types et fonctions sont forwardés depuis nkentseu::.
      */
     namespace nkentseu {
-        namespace optional {
-
-            // ====================================================================
-            // TYPES PRINCIPAUX
-            // ====================================================================
-
-            /** @brief Alias vers nkentseu::NkOptional */
-            using ::nkentseu::NkOptional;
-
-            // ====================================================================
-            // TAGS DE CONSTRUCTION
-            // ====================================================================
-
-            /** @brief Alias vers nkentseu::NkNullOpt_t (type sentinelle) */
-            using ::nkentseu::NkNullOpt_t;
-
-            /** @brief Alias vers nkentseu::NkNullOpt (instance globale constexpr) */
-            using ::nkentseu::NkNullOpt;
-
-            // ====================================================================
-            // FONCTIONS LIBRES UTILITAIRES (si présentes dans NKCore)
-            // ====================================================================
-            // Note: NkOptional dans NKCore n'expose pas de fonctions libres
-            // supplémentaires au-delà des méthodes membres. Les alias ci-dessus
-            // suffisent pour l'usage standard.
-
-        } // namespace optional
-
-        // -------------------------------------------------------------------------
-        // ALIAS AU NIVEAU CONTAINERS POUR USAGE DIRECT
-        // -------------------------------------------------------------------------
-        // Ces alias permettent d'utiliser les types sans le sous-namespace 'optional'
-        // pour une ergonomie améliorée, tout en restant dans nkentseu::containers.
-
-        using optional::NkOptional;
-        using optional::NkNullOpt_t;
-        using optional::NkNullOpt;
 
     } // namespace nkentseu
 
@@ -121,13 +84,6 @@
      * @see nkentseu::NkOptional (implémentation complète dans NKCore)
      * @see nkentseu::NkNullOpt (constante pour état vide)
      */
-
-    // -------------------------------------------------------------------------
-    // VALIDATION DE CONFIGURATION
-    // -------------------------------------------------------------------------
-    #ifndef NKENTSEU_CORE_NKOPTIONAL_H
-        #error "NKContainers/NkOptional.h requires NKCore/NkOptional.h to be included first"
-    #endif
 
     // -------------------------------------------------------------------------
     // MESSAGES DE DEBUG OPTIONNELS

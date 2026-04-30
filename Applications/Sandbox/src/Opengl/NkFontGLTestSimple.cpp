@@ -94,7 +94,7 @@ int main() {
     
     // Contexte GL
     NkContextDesc desc;
-    desc.api = NkGraphicsApi::NK_API_OPENGL;
+    desc.api = NkGraphicsApi::NK_GFX_API_OPENGL;
     desc.window = &window;
     
     auto ctx = NkContextFactory::Create(desc);

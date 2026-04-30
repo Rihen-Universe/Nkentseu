@@ -232,7 +232,7 @@ int DemoOpenGL(const NkEntryState& /*state*/) {
     // ── Configurer le contexte OpenGL ────────────────────────────────────────
     NkContextDesc desc;
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-    desc.api = NkGraphicsApi::NK_API_WEBGL;
+    desc.api = NkGraphicsApi::NK_GFX_API_WEBGL;
     desc.opengl.majorVersion    = 3; // WebGL2 ~ GLES 3.0
     desc.opengl.minorVersion    = 0;
     desc.opengl.profile         = NkGLProfile::ES;
@@ -240,7 +240,7 @@ int DemoOpenGL(const NkEntryState& /*state*/) {
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
     desc = NkContextDesc::MakeOpenGLES(3, 0);
 #else
-    desc.api    = NkGraphicsApi::NK_API_OPENGL;
+    desc.api    = NkGraphicsApi::NK_GFX_API_OPENGL;
     desc.opengl = NkOpenGLDesc::Desktop46(/*debug=*/true);
 #endif
     desc.opengl.msaaSamples      = 4;
@@ -697,58 +697,58 @@ int DemoAutoAPI(const NkEntryState& state) {
     // Chaîne de fallback : meilleure API → software
     const NkGraphicsApi chain[] = {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        NkGraphicsApi::NK_API_DIRECTX12,
-        NkGraphicsApi::NK_API_DIRECTX11,
+        NkGraphicsApi::NK_GFX_API_D3D12,
+        NkGraphicsApi::NK_GFX_API_D3D11,
 #elif defined(NKENTSEU_PLATFORM_MACOS)
-        NkGraphicsApi::NK_API_METAL,
+        NkGraphicsApi::NK_GFX_API_METAL,
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
-        NkGraphicsApi::NK_API_VULKAN,
-        NkGraphicsApi::NK_API_OPENGLES,
+        NkGraphicsApi::NK_GFX_API_VULKAN,
+        NkGraphicsApi::NK_GFX_API_OPENGLES,
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-        NkGraphicsApi::NK_API_WEBGL,
-        NkGraphicsApi::NK_API_OPENGLES,
+        NkGraphicsApi::NK_GFX_API_WEBGL,
+        NkGraphicsApi::NK_GFX_API_OPENGLES,
 #else
-        NkGraphicsApi::NK_API_VULKAN,
-        NkGraphicsApi::NK_API_OPENGL,
+        NkGraphicsApi::NK_GFX_API_VULKAN,
+        NkGraphicsApi::NK_GFX_API_OPENGL,
 #endif
-        NkGraphicsApi::NK_API_SOFTWARE,
+        NkGraphicsApi::NK_GFX_API_SOFTWARE,
     };
 
     auto makeDescForApi = [](NkGraphicsApi api) {
         NkContextDesc d;
         switch (api) {
-            case NkGraphicsApi::NK_API_DIRECTX12:
+            case NkGraphicsApi::NK_GFX_API_D3D12:
                 d = NkContextDesc::MakeDirectX12(/*debug=*/true);
                 break;
-            case NkGraphicsApi::NK_API_DIRECTX11:
+            case NkGraphicsApi::NK_GFX_API_D3D11:
                 d = NkContextDesc::MakeDirectX11(/*debug=*/true);
                 break;
-            case NkGraphicsApi::NK_API_METAL:
+            case NkGraphicsApi::NK_GFX_API_METAL:
                 d = NkContextDesc::MakeMetal();
                 break;
-            case NkGraphicsApi::NK_API_VULKAN:
+            case NkGraphicsApi::NK_GFX_API_VULKAN:
                 d = NkContextDesc::MakeVulkan(/*validation=*/true);
                 break;
-            case NkGraphicsApi::NK_API_OPENGL:
+            case NkGraphicsApi::NK_GFX_API_OPENGL:
 #if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
                 d = NkContextDesc::MakeOpenGLES(3, 0);
 #else
                 d = NkContextDesc::MakeOpenGL(4, 6, /*debug=*/true);
 #endif
                 break;
-            case NkGraphicsApi::NK_API_OPENGLES:
+            case NkGraphicsApi::NK_GFX_API_OPENGLES:
                 d = NkContextDesc::MakeOpenGLES(3, 0);
                 break;
-            case NkGraphicsApi::NK_API_WEBGL:
+            case NkGraphicsApi::NK_GFX_API_WEBGL:
                 d = NkContextDesc::MakeOpenGLES(3, 0);
-                d.api = NkGraphicsApi::NK_API_WEBGL;
+                d.api = NkGraphicsApi::NK_GFX_API_WEBGL;
                 d.opengl.runtime.installDebugCallback = false;
                 break;
-            case NkGraphicsApi::NK_API_SOFTWARE:
+            case NkGraphicsApi::NK_GFX_API_SOFTWARE:
                 d = NkContextDesc::MakeSoftware(/*threaded=*/true);
                 break;
             default:
-                d.api = NkGraphicsApi::NK_API_NONE;
+                d.api = NkGraphicsApi::NK_GFX_API_NONE;
                 break;
         }
         return d;
@@ -761,7 +761,7 @@ int DemoAutoAPI(const NkEntryState& state) {
             break;
         }
     }
-    if (desc.api == NkGraphicsApi::NK_API_NONE) {
+    if (desc.api == NkGraphicsApi::NK_GFX_API_NONE) {
         printf("[DemoAuto] No API available!\n"); return -1;
     }
 
@@ -771,10 +771,10 @@ int DemoAutoAPI(const NkEntryState& state) {
     NkContextFactory::PrepareWindowConfig(desc, cfg);
     NkWindow window(cfg);
     auto ctx = NkContextFactory::Create(desc, window);
-    if (!ctx && desc.api != NkGraphicsApi::NK_API_SOFTWARE) {
+    if (!ctx && desc.api != NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         printf("[DemoAuto] Failed with %s, falling back to Software\n",
                NkGraphicsApiName(desc.api));
-        desc = makeDescForApi(NkGraphicsApi::NK_API_SOFTWARE);
+        desc = makeDescForApi(NkGraphicsApi::NK_GFX_API_SOFTWARE);
         ctx = NkContextFactory::Create(desc, window);
     }
     if (!ctx) return -2;
@@ -787,11 +787,11 @@ int DemoAutoAPI(const NkEntryState& state) {
     float time = 0.f;
     RunLoop(window, ctx.get(), [&](NkIGraphicsContext* activeCtx, float dt) {
         time += dt;
-        const NkGraphicsApi api = activeCtx ? activeCtx->GetApi() : NkGraphicsApi::NK_API_NONE;
+        const NkGraphicsApi api = activeCtx ? activeCtx->GetApi() : NkGraphicsApi::NK_GFX_API_NONE;
 
-        if (api == NkGraphicsApi::NK_API_OPENGL ||
-            api == NkGraphicsApi::NK_API_OPENGLES ||
-            api == NkGraphicsApi::NK_API_WEBGL) {
+        if (api == NkGraphicsApi::NK_GFX_API_OPENGL ||
+            api == NkGraphicsApi::NK_GFX_API_OPENGLES ||
+            api == NkGraphicsApi::NK_GFX_API_WEBGL) {
             const auto surface = window.GetSurfaceDesc();
             glViewport(0, 0, surface.width, surface.height);
             const float r = 0.35f + 0.35f * (0.5f + 0.5f * static_cast<float>(std::sin(time * 1.1f)));
@@ -802,7 +802,7 @@ int DemoAutoAPI(const NkEntryState& state) {
             return;
         }
 
-        if (api == NkGraphicsApi::NK_API_SOFTWARE) {
+        if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
             auto* fb = nativecontext::GetSoftwareBackBuffer(activeCtx);
             if (!fb || !fb->IsValid()) return;
             for (uint32 y = 0; y < fb->height; ++y) {

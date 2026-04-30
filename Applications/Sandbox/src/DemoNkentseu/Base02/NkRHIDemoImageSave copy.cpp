@@ -229,24 +229,24 @@ static void MulMV(const float m[16],float x,float y,float z,float w,
 // =============================================================================
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (usize i = 1; i < args.Size(); i++) {
-        if (args[i] == "--backend=vulkan"  || args[i] == "-bvk")  return NkGraphicsApi::NK_API_VULKAN;
-        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_API_DIRECTX11;
-        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_API_DIRECTX12;
-        if (args[i] == "--backend=metal"   || args[i] == "-bmtl")  return NkGraphicsApi::NK_API_METAL;
-        if (args[i] == "--backend=sw"      || args[i] == "-bsw")   return NkGraphicsApi::NK_API_SOFTWARE;
-        if (args[i] == "--backend=opengl"  || args[i] == "-bgl")   return NkGraphicsApi::NK_API_OPENGL;
+        if (args[i] == "--backend=vulkan"  || args[i] == "-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i] == "--backend=metal"   || args[i] == "-bmtl")  return NkGraphicsApi::NK_GFX_API_METAL;
+        if (args[i] == "--backend=sw"      || args[i] == "-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (args[i] == "--backend=opengl"  || args[i] == "-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
-    return NkGraphicsApi::NK_API_SOFTWARE; // défaut
+    return NkGraphicsApi::NK_GFX_API_SOFTWARE; // défaut
 }
 
 static const char* ApiName(NkGraphicsApi a) {
     switch(a){
-        case NkGraphicsApi::NK_API_VULKAN:     return "Vulkan";
-        case NkGraphicsApi::NK_API_DIRECTX11:  return "DX11";
-        case NkGraphicsApi::NK_API_DIRECTX12:  return "DX12";
-        case NkGraphicsApi::NK_API_METAL:      return "Metal";
-        case NkGraphicsApi::NK_API_SOFTWARE:   return "Software";
-        case NkGraphicsApi::NK_API_OPENGL:     return "OpenGL";
+        case NkGraphicsApi::NK_GFX_API_VULKAN:     return "Vulkan";
+        case NkGraphicsApi::NK_GFX_API_D3D11:  return "DX11";
+        case NkGraphicsApi::NK_GFX_API_D3D12:  return "DX12";
+        case NkGraphicsApi::NK_GFX_API_METAL:      return "Metal";
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE:   return "Software";
+        case NkGraphicsApi::NK_GFX_API_OPENGL:     return "OpenGL";
         default: return "Unknown";
     }
 }
@@ -312,17 +312,17 @@ static NkShaderHandle MakeCubeShader(NkIDevice* dev, NkGraphicsApi api) {
     NkShaderDesc sd; sd.debugName = "Cube3D";
     // Déclarés à portée de fonction pour rester valides jusqu'à CreateShader.
     NkSWVertexShader vs; NkSWPixelShader fs;
-    if (api == NkGraphicsApi::NK_API_VULKAN) {
+    if (api == NkGraphicsApi::NK_GFX_API_VULKAN) {
         sd.AddSPIRV(NkShaderStage::NK_VERTEX,
                     kVkImgSaveCubeVertSpv,
                     (uint64)kVkImgSaveCubeVertSpvWordCount * sizeof(uint32));
         sd.AddSPIRV(NkShaderStage::NK_FRAGMENT,
                     kVkImgSaveCubeFragSpv,
                     (uint64)kVkImgSaveCubeFragSpvWordCount * sizeof(uint32));
-    } else if (api == NkGraphicsApi::NK_API_DIRECTX11 || api == NkGraphicsApi::NK_API_DIRECTX12) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_CubeVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_CubePS, "PSMain");
-    } else if (api == NkGraphicsApi::NK_API_SOFTWARE) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         vs = MakeCubeVertSW(); fs = MakeCubeFragSW();
         NkShaderStageDesc svs; svs.stage=NkShaderStage::NK_VERTEX;   svs.cpuVertFn=&vs; sd.stages.PushBack(svs);
         NkShaderStageDesc sfs; sfs.stage=NkShaderStage::NK_FRAGMENT; sfs.cpuFragFn=&fs; sd.stages.PushBack(sfs);
@@ -337,17 +337,17 @@ static NkShaderHandle MakeQuadShader(NkIDevice* dev, NkGraphicsApi api) {
     NkShaderDesc sd; sd.debugName = "QuadOffscreen";
     // Déclarés à portée de fonction pour rester valides jusqu'à CreateShader.
     NkSWVertexShader vs; NkSWPixelShader fs;
-    if (api == NkGraphicsApi::NK_API_VULKAN) {
+    if (api == NkGraphicsApi::NK_GFX_API_VULKAN) {
         sd.AddSPIRV(NkShaderStage::NK_VERTEX,
                     kVkImgSaveQuadVertSpv,
                     (uint64)kVkImgSaveQuadVertSpvWordCount * sizeof(uint32));
         sd.AddSPIRV(NkShaderStage::NK_FRAGMENT,
                     kVkImgSaveQuadFragSpv,
                     (uint64)kVkImgSaveQuadFragSpvWordCount * sizeof(uint32));
-    } else if (api == NkGraphicsApi::NK_API_DIRECTX11 || api == NkGraphicsApi::NK_API_DIRECTX12) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_QuadVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_QuadPS, "PSMain");
-    } else if (api == NkGraphicsApi::NK_API_SOFTWARE) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         vs = MakeQuadVertSW(); fs = MakeQuadFragSW();
         NkShaderStageDesc svs; svs.stage=NkShaderStage::NK_VERTEX;   svs.cpuVertFn=&vs; sd.stages.PushBack(svs);
         NkShaderStageDesc sfs; sfs.stage=NkShaderStage::NK_FRAGMENT; sfs.cpuFragFn=&fs; sd.stages.PushBack(sfs);
@@ -362,17 +362,17 @@ static NkShaderHandle MakeOverlayShader(NkIDevice* dev, NkGraphicsApi api) {
     NkShaderDesc sd; sd.debugName = "Overlay2D";
     // Déclarés à portée de fonction pour rester valides jusqu'à CreateShader.
     NkSWVertexShader vs; NkSWPixelShader fs;
-    if (api == NkGraphicsApi::NK_API_VULKAN) {
+    if (api == NkGraphicsApi::NK_GFX_API_VULKAN) {
         sd.AddSPIRV(NkShaderStage::NK_VERTEX,
                     kVkImgSaveOverlayVertSpv,
                     (uint64)kVkImgSaveOverlayVertSpvWordCount * sizeof(uint32));
         sd.AddSPIRV(NkShaderStage::NK_FRAGMENT,
                     kVkImgSaveOverlayFragSpv,
                     (uint64)kVkImgSaveOverlayFragSpvWordCount * sizeof(uint32));
-    } else if (api == NkGraphicsApi::NK_API_DIRECTX11 || api == NkGraphicsApi::NK_API_DIRECTX12) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_OverlayVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_OverlayPS, "PSMain");
-    } else if (api == NkGraphicsApi::NK_API_SOFTWARE) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         vs = MakeOverlayVertSW(); fs = MakeOverlayFragSW();
         NkShaderStageDesc svs; svs.stage=NkShaderStage::NK_VERTEX;   svs.cpuVertFn=&vs; sd.stages.PushBack(svs);
         NkShaderStageDesc sfs; sfs.stage=NkShaderStage::NK_FRAGMENT; sfs.cpuFragFn=&fs; sd.stages.PushBack(sfs);
@@ -418,7 +418,7 @@ int nkmain(const NkEntryState& state) {
         window.Close(); return 1;
     }
 
-    const bool isSW = (api == NkGraphicsApi::NK_API_SOFTWARE);
+    const bool isSW = (api == NkGraphicsApi::NK_GFX_API_SOFTWARE);
 
     // ── Framebuffer offscreen 512×512 ────────────────────────────────────────
     constexpr uint32 OW=512, OH=512;

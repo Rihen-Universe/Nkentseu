@@ -76,7 +76,7 @@ namespace math {
     // Retour :
     //   Distance float32 entre les points A et B
     // ---------------------------------------------------------------------
-    float32 NkSegment::Length()
+    float32 NkSegment::Length() const
     {
         // Vecteur différence B - A
         NkVector2f difference = points[1] - points[0];

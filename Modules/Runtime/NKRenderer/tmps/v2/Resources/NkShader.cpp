@@ -28,8 +28,8 @@ namespace nkentseu {
         desc.debugName = src.debugName;
 
         // Sélectionne les sources HLSL selon l'API cible
-        const bool isDX11 = (api == NkGraphicsApi::NK_API_DIRECTX11);
-        const bool isDX12 = (api == NkGraphicsApi::NK_API_DIRECTX12);
+        const bool isDX11 = (api == NkGraphicsApi::NK_GFX_API_D3D11);
+        const bool isDX12 = (api == NkGraphicsApi::NK_GFX_API_D3D12);
 
         const char* vHLSL  = isDX11 ? src.vertexHLSLdx11   : (isDX12 ? src.vertexHLSLdx12   : nullptr);
         const char* fHLSL  = isDX11 ? src.fragmentHLSLdx11 : (isDX12 ? src.fragmentHLSLdx12 : nullptr);

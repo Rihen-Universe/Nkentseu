@@ -62,7 +62,7 @@ using namespace nkentseu::math;
 struct AppState {
     bool      running = true;              // Flag de la boucle principale
     NkVec2i   size    = {1280, 720};       // Dimensions initiales de la fenêtre
-    NkGraphicsApi api = NkGraphicsApi::NK_API_OPENGL; // Backend choisi au démarrage
+    NkGraphicsApi api = NkGraphicsApi::NK_GFX_API_OPENGL; // Backend choisi au démarrage
 } appState;
 
 // Macro obligatoire — déclare les métadonnées de l'application (nom, version…)
@@ -96,13 +96,13 @@ struct Vertex {
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i = 1; i < args.Size(); ++i) {
         const NkString& arg = args[i];
-        if (arg == "--backend=vulkan" || arg == "-bvk")   return NkGraphicsApi::NK_API_VULKAN;
-        if (arg == "--backend=dx11"   || arg == "-bdx11") return NkGraphicsApi::NK_API_DIRECTX11;
-        if (arg == "--backend=dx12"   || arg == "-bdx12") return NkGraphicsApi::NK_API_DIRECTX12;
-        if (arg == "--backend=sw"     || arg == "-bsw")   return NkGraphicsApi::NK_API_SOFTWARE;
-        if (arg == "--backend=opengl" || arg == "-bgl")   return NkGraphicsApi::NK_API_OPENGL;
+        if (arg == "--backend=vulkan" || arg == "-bvk")   return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (arg == "--backend=dx11"   || arg == "-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (arg == "--backend=dx12"   || arg == "-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (arg == "--backend=sw"     || arg == "-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (arg == "--backend=opengl" || arg == "-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
-    return NkGraphicsApi::NK_API_OPENGL; // valeur par défaut
+    return NkGraphicsApi::NK_GFX_API_OPENGL; // valeur par défaut
 }
 
 // =============================================================================
@@ -133,7 +133,7 @@ static NkShaderHandle LoadShadersForAPI(NkIDevice* device, NkGraphicsApi api) {
         // ── OpenGL et Software (CPU rasterizer) ──────────────────────────────
         // Le backend Software utilise les mêmes sources GLSL pour la description
         // du layout, mais exécute les shaders en C++ (callbacks CPU).
-        case NkGraphicsApi::NK_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
             vert = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.vert.gl.glsl");
             frag = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.frag.gl.glsl");
             if (!vert.success || !frag.success) {
@@ -151,7 +151,7 @@ static NkShaderHandle LoadShadersForAPI(NkIDevice* device, NkGraphicsApi api) {
         //    "triangle.vert.vk.glsl" → StageExt = "vk" → stage inconnu → vertex !
         //    Il faut donc charger le source puis appeler GlslToSpirv avec le stage
         //    explicite : NkSLStage::NK_VERTEX et NkSLStage::NK_FRAGMENT.
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
             vertSrc = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.vert.vk.glsl");
             fragSrc = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.frag.vk.glsl");
             if (!vertSrc.success || !fragSrc.success) {
@@ -177,7 +177,7 @@ static NkShaderHandle LoadShadersForAPI(NkIDevice* device, NkGraphicsApi api) {
         // Les entry points sont "VSMain" (vertex) et "PSMain" (pixel/fragment).
         // ⚠️ AddHLSL stocke un pointeur RAW → vert/frag doivent rester vivants
         //    jusqu'à CreateShader (c'est garanti ici car ils sont en scope fonction).
-        case NkGraphicsApi::NK_API_DIRECTX11:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
             vert = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.vert.dx11.hlsl");
             frag = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.frag.dx11.hlsl");
             if (!vert.success || !frag.success) {
@@ -189,7 +189,7 @@ static NkShaderHandle LoadShadersForAPI(NkIDevice* device, NkGraphicsApi api) {
             break;
 
         // ── DirectX 12 ────────────────────────────────────────────────────────
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             vert = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.vert.dx12.hlsl");
             frag = NkShaderConverter::LoadFile("Resources/Shaders/Model/triangle.frag.dx12.hlsl");
             if (!vert.success || !frag.success) {
@@ -200,7 +200,7 @@ static NkShaderHandle LoadShadersForAPI(NkIDevice* device, NkGraphicsApi api) {
             shaderDesc.AddHLSL(NkShaderStage::NK_FRAGMENT, frag.source.CStr(), "PSMain");
             break;
 
-        case NkGraphicsApi::NK_API_SOFTWARE: {
+        case NkGraphicsApi::NK_GFX_API_SOFTWARE: {
             // auto* vsFn = new NkVertexShaderSoftware([](const void* vdata, uint32 idx, const void* udata) -> NkVertexSoftware {
             //     const Vertex* v = static_cast<const Vertex*>(vdata) + idx;
                 
@@ -472,18 +472,18 @@ int nkmain(const NkEntryState& state) {
     // TODO (étudiant) : pour Vulkan, "engineName" s'affiche dans les outils
     //                   de diagnostic (RenderDoc, Nsight…).
     switch (appState.api) {
-        case NkGraphicsApi::NK_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
             initInfo.context = NkContextDesc::MakeOpenGL(4, 6, true); // version 4.6, debug=true
             break;
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
             initInfo.context = NkContextDesc::MakeVulkan(true);       // validation layers activées
             initInfo.context.vulkan.appName    = "Triangle";
             initInfo.context.vulkan.engineName = "Nkentseu";
             break;
-        case NkGraphicsApi::NK_API_DIRECTX11:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
             initInfo.context = NkContextDesc::MakeDirectX11(true);    // debug layer activée
             break;
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             initInfo.context = NkContextDesc::MakeDirectX12(true);
             break;
         default:
@@ -495,14 +495,14 @@ int nkmain(const NkEntryState& state) {
     if (!device || !device->IsValid()) {
         // Fallback automatique vers le renderer Software (CPU) si le GPU échoue
         logger.Error("[Device] Échec de création du device principal, tentative Software…");
-        initInfo.api = NkGraphicsApi::NK_API_SOFTWARE;
+        initInfo.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
         device = NkDeviceFactory::Create(initInfo);
         if (!device || !device->IsValid()) {
             logger.Error("[Device] Aucun device valide disponible");
             window.Close();
             return -3;
         }
-        appState.api = NkGraphicsApi::NK_API_SOFTWARE;
+        appState.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     }
     logger.Info("[Device] Device initialisé : {0}", NkGraphicsApiName(appState.api));
 
@@ -799,7 +799,7 @@ int nkmain(const NkEntryState& state) {
             logger.Error("[Cmd] BeginRenderPass échoué");
             // Pour Vulkan : un échec de BeginRenderPass indique souvent que la
             // swapchain est périmée — on force un resize pour la recréer.
-            if (appState.api == NkGraphicsApi::NK_API_VULKAN)
+            if (appState.api == NkGraphicsApi::NK_GFX_API_VULKAN)
                 device->OnResize(w, h);
             cmd->End();
             cmdPool.Release(cmd);

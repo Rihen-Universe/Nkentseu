@@ -27,29 +27,29 @@ namespace nkentseu {
         // Conversion NkGraphicsApi → NkSLTarget
         //
         // ApiToTarget() — comportement par défaut (SPIR-V pour Vulkan, HLSL SM5 pour DX)
-        //   NK_API_OPENGL    → NK_GLSL
-        //   NK_API_VULKAN    → NK_SPIRV     (SPIR-V binaire — chemin recommandé)
-        //   NK_API_DIRECTX11 → NK_HLSL_DX11 (SM5, fxc)
-        //   NK_API_DIRECTX12 → NK_HLSL_DX12 (SM6, dxc)
-        //   NK_API_METAL     → NK_MSL        (SPIRV-Cross auto si dispo)
-        //   NK_API_SOFTWARE  → NK_CPLUSPLUS
+        //   NK_GFX_API_OPENGL    → NK_GLSL
+        //   NK_GFX_API_VULKAN    → NK_SPIRV     (SPIR-V binaire — chemin recommandé)
+        //   NK_GFX_API_D3D11 → NK_HLSL_DX11 (SM5, fxc)
+        //   NK_GFX_API_D3D12 → NK_HLSL_DX12 (SM6, dxc)
+        //   NK_GFX_API_METAL     → NK_MSL        (SPIRV-Cross auto si dispo)
+        //   NK_GFX_API_SOFTWARE  → NK_CPLUSPLUS
         //
         // ApiToGLSLTarget() — retourne toujours du GLSL texte (pas de SPIR-V)
-        //   NK_API_VULKAN    → NK_GLSL_VULKAN (GLSL 4.50 avec set/binding Vulkan)
-        //   NK_API_OPENGL    → NK_GLSL
+        //   NK_GFX_API_VULKAN    → NK_GLSL_VULKAN (GLSL 4.50 avec set/binding Vulkan)
+        //   NK_GFX_API_OPENGL    → NK_GLSL
         //
         // ApiToHLSLTarget() — retourne le HLSL approprié selon la version DX
-        //   NK_API_DIRECTX12 → NK_HLSL_DX12
-        //   NK_API_DIRECTX11 → NK_HLSL_DX11
+        //   NK_GFX_API_D3D12 → NK_HLSL_DX12
+        //   NK_GFX_API_D3D11 → NK_HLSL_DX11
         // =============================================================================
         inline NkSLTarget ApiToTarget(NkGraphicsApi api) {
             switch (api) {
-                case NkGraphicsApi::NK_API_OPENGL:    return NkSLTarget::NK_GLSL;
-                case NkGraphicsApi::NK_API_VULKAN:    return NkSLTarget::NK_SPIRV;
-                case NkGraphicsApi::NK_API_DIRECTX11: return NkSLTarget::NK_HLSL_DX11;
-                case NkGraphicsApi::NK_API_DIRECTX12: return NkSLTarget::NK_HLSL_DX12;
-                case NkGraphicsApi::NK_API_METAL:     return NkSLTarget::NK_MSL;
-                case NkGraphicsApi::NK_API_SOFTWARE:  return NkSLTarget::NK_CPLUSPLUS;
+                case NkGraphicsApi::NK_GFX_API_OPENGL:    return NkSLTarget::NK_GLSL;
+                case NkGraphicsApi::NK_GFX_API_VULKAN:    return NkSLTarget::NK_SPIRV;
+                case NkGraphicsApi::NK_GFX_API_D3D11: return NkSLTarget::NK_HLSL_DX11;
+                case NkGraphicsApi::NK_GFX_API_D3D12: return NkSLTarget::NK_HLSL_DX12;
+                case NkGraphicsApi::NK_GFX_API_METAL:     return NkSLTarget::NK_MSL;
+                case NkGraphicsApi::NK_GFX_API_SOFTWARE:  return NkSLTarget::NK_CPLUSPLUS;
                 default:                              return NkSLTarget::NK_GLSL;
             }
         }
@@ -57,14 +57,14 @@ namespace nkentseu {
         // Retourne du GLSL texte (jamais SPIR-V binaire)
         inline NkSLTarget ApiToGLSLTarget(NkGraphicsApi api) {
             switch (api) {
-                case NkGraphicsApi::NK_API_VULKAN: return NkSLTarget::NK_GLSL_VULKAN;
+                case NkGraphicsApi::NK_GFX_API_VULKAN: return NkSLTarget::NK_GLSL_VULKAN;
                 default:                           return NkSLTarget::NK_GLSL;
             }
         }
 
         // Retourne le HLSL approprié selon la version DX
         inline NkSLTarget ApiToHLSLTarget(NkGraphicsApi api) {
-            if (api == NkGraphicsApi::NK_API_DIRECTX12) return NkSLTarget::NK_HLSL_DX12;
+            if (api == NkGraphicsApi::NK_GFX_API_D3D12) return NkSLTarget::NK_HLSL_DX12;
             return NkSLTarget::NK_HLSL_DX11;
         }
 

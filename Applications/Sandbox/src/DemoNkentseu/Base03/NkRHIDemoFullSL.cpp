@@ -379,14 +379,14 @@ static NkVector<Vtx3D> MakePlane(float sz=3.f,
 // =============================================================================
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i=1;i<args.Size();i++) {
-        if (args[i]=="--backend=vulkan" ||args[i]=="-bvk")  return NkGraphicsApi::NK_API_VULKAN;
-        if (args[i]=="--backend=dx11"   ||args[i]=="-bdx11") return NkGraphicsApi::NK_API_DIRECTX11;
-        if (args[i]=="--backend=dx12"   ||args[i]=="-bdx12") return NkGraphicsApi::NK_API_DIRECTX12;
-        if (args[i]=="--backend=metal"  ||args[i]=="-bmtl")  return NkGraphicsApi::NK_API_METAL;
-        if (args[i]=="--backend=sw"     ||args[i]=="-bsw")   return NkGraphicsApi::NK_API_SOFTWARE;
-        if (args[i]=="--backend=opengl" ||args[i]=="-bgl")   return NkGraphicsApi::NK_API_OPENGL;
+        if (args[i]=="--backend=vulkan" ||args[i]=="-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (args[i]=="--backend=dx11"   ||args[i]=="-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (args[i]=="--backend=dx12"   ||args[i]=="-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i]=="--backend=metal"  ||args[i]=="-bmtl")  return NkGraphicsApi::NK_GFX_API_METAL;
+        if (args[i]=="--backend=sw"     ||args[i]=="-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (args[i]=="--backend=opengl" ||args[i]=="-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
-    return NkGraphicsApi::NK_API_OPENGL;
+    return NkGraphicsApi::NK_GFX_API_OPENGL;
 }
 
 static bool HasArg(const NkVector<NkString>& args,const char* ln,const char* sn=nullptr){
@@ -896,10 +896,10 @@ int nkmain(const NkEntryState& state) {
     uint32 W=device->GetSwapchainWidth(), H=device->GetSwapchainHeight();
 
     const bool depthZeroToOne=
-        targetApi==NkGraphicsApi::NK_API_VULKAN    ||
-        targetApi==NkGraphicsApi::NK_API_DIRECTX11 ||
-        targetApi==NkGraphicsApi::NK_API_DIRECTX12 ||
-        targetApi==NkGraphicsApi::NK_API_METAL;
+        targetApi==NkGraphicsApi::NK_GFX_API_VULKAN    ||
+        targetApi==NkGraphicsApi::NK_GFX_API_D3D11 ||
+        targetApi==NkGraphicsApi::NK_GFX_API_D3D12 ||
+        targetApi==NkGraphicsApi::NK_GFX_API_METAL;
     const float ndcZScale  = depthZeroToOne?1.f:0.5f;
     const float ndcZOffset = depthZeroToOne?0.f:0.5f;
 
@@ -937,7 +937,7 @@ int nkmain(const NkEntryState& state) {
     NkShaderDesc shadowShaderDesc; shadowShaderDesc.debugName="Shadow_NkSL";
     bool shadowShaderOk=false;
     // Metal n'a pas de shadow pass dans cette démo (Metal 3 mesh shaders requis)
-    if(targetApi != NkGraphicsApi::NK_API_METAL){
+    if(targetApi != NkGraphicsApi::NK_GFX_API_METAL){
         shadowShaderOk = CompileNkSLShader(device, targetApi,
                                            kNkSL_ShadowVert, kNkSL_ShadowFrag,
                                            "Shadow", shadowShaderDesc, shadowSrcs, nullptr);
@@ -993,13 +993,13 @@ int nkmain(const NkEntryState& state) {
 
     // ── Descriptor set layout principal ──────────────────────────────────────
     const bool shaderNeedsShadowSampler=
-        targetApi==NkGraphicsApi::NK_API_OPENGL    ||
-        targetApi==NkGraphicsApi::NK_API_VULKAN    ||
-        targetApi==NkGraphicsApi::NK_API_DIRECTX11 ||
-        targetApi==NkGraphicsApi::NK_API_DIRECTX12;
-    const bool shaderNeedsAlbedoSampler= targetApi!=NkGraphicsApi::NK_API_SOFTWARE;
+        targetApi==NkGraphicsApi::NK_GFX_API_OPENGL    ||
+        targetApi==NkGraphicsApi::NK_GFX_API_VULKAN    ||
+        targetApi==NkGraphicsApi::NK_GFX_API_D3D11 ||
+        targetApi==NkGraphicsApi::NK_GFX_API_D3D12;
+    const bool shaderNeedsAlbedoSampler= targetApi!=NkGraphicsApi::NK_GFX_API_SOFTWARE;
     const bool wantsShadowResources=
-        shaderNeedsShadowSampler || targetApi==NkGraphicsApi::NK_API_SOFTWARE;
+        shaderNeedsShadowSampler || targetApi==NkGraphicsApi::NK_GFX_API_SOFTWARE;
     static constexpr uint32 kShadowSize=2048;
 
     NkDescriptorSetLayoutDesc layoutDesc;
@@ -1169,7 +1169,7 @@ int nkmain(const NkEntryState& state) {
     // ── Software backend : shaders CPU ────────────────────────────────────────
     // Pour le Software backend, NkSL génère du C++ mais NkSWShader utilise des
     // lambdas directement. On définit les lambdas CPU ici pour avoir le rendu SW.
-    if(targetApi==NkGraphicsApi::NK_API_SOFTWARE){
+    if(targetApi==NkGraphicsApi::NK_GFX_API_SOFTWARE){
         NkSoftwareDevice* swDev=static_cast<NkSoftwareDevice*>(device);
         if(hShadowShader.IsValid()){
             NkSWShader* swSh=swDev->GetShader(hShadowShader.id);
@@ -1481,7 +1481,7 @@ int nkmain(const NkEntryState& state) {
         NkRect2D area{0,0,(int32)W,(int32)H};
         if(!cmd->BeginRenderPass(hRP,hFBO,area)){
             cmd->End();
-            if(targetApi==NkGraphicsApi::NK_API_VULKAN&&W>0&&H>0)device->OnResize(W,H);
+            if(targetApi==NkGraphicsApi::NK_GFX_API_VULKAN&&W>0&&H>0)device->OnResize(W,H);
             device->EndFrame(frame);continue;
         }
         NkViewport vp{0.f,0.f,(float)W,(float)H,0.f,1.f};
@@ -1518,8 +1518,8 @@ int nkmain(const NkEntryState& state) {
 
         // ── Texte 3D billboard ───────────────────────────────────────────────
         if(textOk){
-            const bool flipBillY=(targetApi==NkGraphicsApi::NK_API_VULKAN||
-                                  targetApi==NkGraphicsApi::NK_API_DIRECTX12);
+            const bool flipBillY=(targetApi==NkGraphicsApi::NK_GFX_API_VULKAN||
+                                  targetApi==NkGraphicsApi::NK_GFX_API_D3D12);
             float bbMVP[16];
             if(tqCube.vtxCount>0){
                 Billboard3DMVP(NkVec3f(0,.9f,0),1.f,.25f,matView,matProj,flipBillY,bbMVP);
@@ -1576,7 +1576,7 @@ int nkmain(const NkEntryState& state) {
         if(reqSaveScene){
             reqSaveScene=false;++saveSceneCnt;
             std::string stem=NkFormat("scene_{0}",(unsigned long long)saveSceneCnt).CStr();
-            if(targetApi==NkGraphicsApi::NK_API_SOFTWARE)
+            if(targetApi==NkGraphicsApi::NK_GFX_API_SOFTWARE)
                 SaveSoftwareScene(static_cast<NkSoftwareDevice*>(device),capturesDir,stem);
         }
     }

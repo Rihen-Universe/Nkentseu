@@ -169,6 +169,17 @@
     // =====================================================================
     #include "NKMath/NkSIMD.h"
 
+    // =====================================================================
+    // Section 10 : Formatage — intégration avec le système NkFormat
+    // =====================================================================
+    // NkMathFormat : spécialisations NkFormatter<T> pour tous les types NkMath.
+    //   - Permet NkFormat("{0}", vec3), NkFormat("{0:v}", vec4), etc.
+    //   - NkVec4 : modes v/p/c/n pour vecteur, position, couleur, normalisé
+    //   - NkAngle : modes d/r pour degrés/radians
+    //   - Tous les autres types délèguent à leur ToString()
+    // =====================================================================
+    #include "NKMath/NkMathFormat.h"
+
 #endif  // NKENTSEU_MATH_H
 
 // =============================================================================

@@ -157,7 +157,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
     NkContextDesc desc;
     
     #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-        desc.api = NkGraphicsApi::NK_API_WEBGL;
+        desc.api = NkGraphicsApi::NK_GFX_API_WEBGL;
         desc.opengl.majorVersion    = 3; // WebGL2 ~ GLES 3.0
         desc.opengl.minorVersion    = 0;
         desc.opengl.profile         = NkGLProfile::ES;
@@ -165,7 +165,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
     #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
         desc = NkContextDesc::MakeOpenGLES(3, 0);
     #else
-        desc.api    = NkGraphicsApi::NK_API_OPENGL;
+        desc.api    = NkGraphicsApi::NK_GFX_API_OPENGL;
         desc.opengl = NkOpenGLDesc::Desktop46(/*debug=*/true);
     #endif
 

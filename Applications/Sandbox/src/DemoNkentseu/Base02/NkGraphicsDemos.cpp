@@ -951,7 +951,7 @@ static NkContextDesc MakeDemoOpenGLDesc() {
     NkContextDesc desc;
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
     desc = NkContextDesc::MakeOpenGLES(3, 0);
-    desc.api = NkGraphicsApi::NK_API_WEBGL;
+    desc.api = NkGraphicsApi::NK_GFX_API_WEBGL;
     desc.opengl.runtime.installDebugCallback = false;
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
     desc = NkContextDesc::MakeOpenGLES(3, 0);
@@ -1935,15 +1935,15 @@ static void DemoAutoAPI(const NkEntryState&) {
 
     const NkGraphicsApi fallbackOrder[] = {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        NkGraphicsApi::NK_API_DIRECTX12,
-        NkGraphicsApi::NK_API_DIRECTX11,
+        NkGraphicsApi::NK_GFX_API_D3D12,
+        NkGraphicsApi::NK_GFX_API_D3D11,
 #endif
 #if defined(NKENTSEU_PLATFORM_MACOS)
-        NkGraphicsApi::NK_API_METAL,
+        NkGraphicsApi::NK_GFX_API_METAL,
 #endif
-        NkGraphicsApi::NK_API_VULKAN,
-        NkGraphicsApi::NK_API_OPENGL,
-        NkGraphicsApi::NK_API_SOFTWARE,
+        NkGraphicsApi::NK_GFX_API_VULKAN,
+        NkGraphicsApi::NK_GFX_API_OPENGL,
+        NkGraphicsApi::NK_GFX_API_SOFTWARE,
     };
     NkIGraphicsContext* ctx = NkContextFactory::CreateWithFallback(
         win,
@@ -1958,7 +1958,7 @@ static void DemoAutoAPI(const NkEntryState&) {
     LoopCtx lc;
     RunLoop(win, ctx, lc, [&](float, float t) {
         // Si Software, dessiner un dégradé coloré
-        if (ctx->GetApi() == NkGraphicsApi::NK_API_SOFTWARE) {
+        if (ctx->GetApi() == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
             auto* fb = NkNativeContext::GetSoftwareBackBuffer(ctx);
             if (fb && fb->IsValid()) {
                 for (uint32 y=0;y<fb->height;y++) {

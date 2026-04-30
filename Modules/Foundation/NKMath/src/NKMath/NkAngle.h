@@ -46,7 +46,9 @@
     #include "NKCore/NkTypes.h"                    // Types fondamentaux : float32, float64, nk_bool, etc.
     #include "NKMath/NkMathApi.h"                  // Macros d'export : NKENTSEU_MATH_API, NKENTSEU_MATH_API_FORCE_INLINE
     #include "NKMath/NkFunctions.h"                // Fonctions mathématiques : NkFabs, NkFmod, constantes epsilon
-    #include "NKCore/NkString.h"                   // Classe NkString pour représentation texte
+    #include "NKContainers/String/NkString.h"      // Classe NkString pour représentation texte
+    #include "NKContainers/String/NkFormat.h"      // NkFormatProps, NkFormatter, NkFormat
+    #include <ostream>                             // std::ostream pour operator<<
 
     // ========================================================================
     // ESPACE DE NOMS PRINCIPAL
@@ -640,26 +642,83 @@
                 return NkAngleT<Precision>(d);  // Déjà dans [0, 360)
             }
 
+            // ── ToString ─────────────────────────────────────────────────────────
+
+            template<>
+            NkString NkAngleT<float32>::ToString() const
+            {
+                return NkFormat("{0}", *this);
+            }
+
+            inline NkString ToString(const NkAngleT<float32>& a)
+            {
+                return a.ToString();
+            }
+
+            inline std::ostream& operator<<(std::ostream& os, const NkAngleT<float32>& a)
+            {
+                return os << a.ToString().CStr();
+            }
+
+            template<>
+            NkString NkAngleT<float64>::ToString() const
+            {
+                return NkFormat("{0}", *this);
+            }
+
+            inline NkString ToString(const NkAngleT<float64>& a)
+            {
+                return a.ToString();
+            }
+
+            inline std::ostream& operator<<(std::ostream& os, const NkAngleT<float64>& a)
+            {
+                return os << a.ToString().CStr();
+            }
+
+
         } // namespace math
 
     } // namespace nkentseu
 
     // ============================================================================
-    // SPÉCIALISATION : NKTOSTRING<NKANGLET> (ESPACE DE NOMS GLOBAL)
+    // POINT D'EXTENSION ADL : NkToString pour NkAngleT (dans namespace nkentseu)
     // ============================================================================
 
-    /**
-     * @brief Spécialisation de NkToString pour NkAngleT avec support de formatage
-     * @tparam Precision Type de précision (float32 ou float64)
-     * @param a Angle à convertir
-     * @param props Options de formatage optionnelles (précision, padding, etc.)
-     * @return NkString formaté selon les propriétés spécifiées
-     * @note Délègue à NkAngleT::ToString() puis applique NkApplyFormatProps
-     * @note Permet l'usage générique : NkToString(angle, props) dans du code template
-     */
-    template<typename Precision>
-    NKENTSEU_MATH_API
-    NkString NkToString(const nkentseu::math::NkAngleT<Precision>& a, const NkFormatProps& props = {});
+    namespace nkentseu {
+
+        /**
+         * @brief Surcharge ADL de NkToString pour NkAngleT avec support de formatage.
+         *        Doit être dans namespace nkentseu pour être trouvée par la recherche ADL
+         *        depuis nkentseu::detail::adl::Invoke (utilisé par NkFormat/NkFormatter).
+         */
+
+        inline NkString NkToString(const math::NkAngleT<float32>& a, const NkFormatProps& props)
+        {
+            // doit afficher en degrer radian ou sans specification de formatage
+            if (props.type == 'd') {
+                return props.ApplyWidth(NkStringView(NkFormat("{0}_deg", a.Deg())), false);
+            }
+            else if (props.type == 'r') {
+                return props.ApplyWidth(NkStringView(NkFormat("{0}_rad", a.Rad())), false);
+            }
+            return props.ApplyWidth(NkStringView(NkFormat("{0}", a.Deg())), false);
+        }
+
+        inline NkString NkToString(const math::NkAngleT<float64>& a, const NkFormatProps& props)
+        {
+            if (props.type == 'd') {
+                return props.ApplyWidth(NkStringView(NkFormat("{0}_deg", a.Deg())), false);
+            }
+            else if (props.type == 'r') {
+                return props.ApplyWidth(NkStringView(NkFormat("{0}_rad", a.Rad())), false);
+            }
+            return props.ApplyWidth(NkStringView(NkFormat("{0}", a.Deg())), false);
+        }
+
+    } // namespace nkentseu
+
+    // ── NkToString ADL overloads ──────────────────────────────────────────────
 
 #endif // NKENTSEU_MATH_NKANGLE_H
 

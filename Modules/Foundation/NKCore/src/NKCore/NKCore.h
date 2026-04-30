@@ -77,7 +77,7 @@
      * @ingroup CoreDependencies
      * @note Inclut NkPlatformDetect, NkTypes, NkPlatform runtime info, etc.
      */
-    #include "NKCore/NKPlatform.h"
+    #include "NKCore/NkPlatform.h"
 
     // ============================================================
     // TYPES FONDAMENTAUX ET MÉTAPROGRAMMATION

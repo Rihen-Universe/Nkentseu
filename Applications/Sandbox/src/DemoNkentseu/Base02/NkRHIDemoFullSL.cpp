@@ -327,23 +327,23 @@ public:
         opts.debugInfo      = false;
 
         switch (api) {
-            case NkGraphicsApi::NK_API_OPENGL:
+            case NkGraphicsApi::NK_GFX_API_OPENGL:
                 opts.targetLanguage = NkSLTargetLanguage::GLSL;
                 opts.glslVersion    = 460;
                 break;
-            case NkGraphicsApi::NK_API_VULKAN:
+            case NkGraphicsApi::NK_GFX_API_VULKAN:
                 opts.targetLanguage = NkSLTargetLanguage::SPIRV;
                 opts.spirvVersion   = 0x00010000;
                 break;
-            case NkGraphicsApi::NK_API_DIRECTX11:
+            case NkGraphicsApi::NK_GFX_API_D3D11:
                 opts.targetLanguage = NkSLTargetLanguage::HLSL;
                 opts.hlslShaderModel = 50;
                 break;
-            case NkGraphicsApi::NK_API_DIRECTX12:
+            case NkGraphicsApi::NK_GFX_API_D3D12:
                 opts.targetLanguage = NkSLTargetLanguage::HLSL;
                 opts.hlslShaderModel = 60;
                 break;
-            case NkGraphicsApi::NK_API_METAL:
+            case NkGraphicsApi::NK_GFX_API_METAL:
                 opts.targetLanguage = NkSLTargetLanguage::MSL;
                 break;
             default:
@@ -400,19 +400,19 @@ public:
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i=1; i<args.Size(); i++) {
         const NkString& a=args[i];
-        if (a=="--backend=vulkan"||a=="-bvk")    return NkGraphicsApi::NK_API_VULKAN;
-        if (a=="--backend=dx11"  ||a=="-bdx11")  return NkGraphicsApi::NK_API_DIRECTX11;
-        if (a=="--backend=dx12"  ||a=="-bdx12")  return NkGraphicsApi::NK_API_DIRECTX12;
-        if (a=="--backend=metal" ||a=="-bmtl")   return NkGraphicsApi::NK_API_METAL;
-        if (a=="--backend=sw"    ||a=="-bsw")    return NkGraphicsApi::NK_API_SOFTWARE;
-        if (a=="--backend=opengl"||a=="-bgl")    return NkGraphicsApi::NK_API_OPENGL;
+        if (a=="--backend=vulkan"||a=="-bvk")    return NkGraphicsApi::NK_GFX_API_VULKAN;
+        if (a=="--backend=dx11"  ||a=="-bdx11")  return NkGraphicsApi::NK_GFX_API_D3D11;
+        if (a=="--backend=dx12"  ||a=="-bdx12")  return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (a=="--backend=metal" ||a=="-bmtl")   return NkGraphicsApi::NK_GFX_API_METAL;
+        if (a=="--backend=sw"    ||a=="-bsw")    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+        if (a=="--backend=opengl"||a=="-bgl")    return NkGraphicsApi::NK_GFX_API_OPENGL;
     }
-    return NkGraphicsApi::NK_API_OPENGL;
+    return NkGraphicsApi::NK_GFX_API_OPENGL;
 }
 
 static NkContextDesc MakeCtxDesc(NkGraphicsApi api) {
     NkContextDesc d; d.api = api;
-    if (api == NkGraphicsApi::NK_API_OPENGL) {
+    if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
 #if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
         d = NkContextDesc::MakeOpenGLES(3, 0);
 #else
@@ -436,7 +436,7 @@ static NkShaderDesc MakeMainShaderDesc(NkGraphicsApi api) {
     logger.Info("[RHIFullDemo] NkSL non disponible → fallback hardcodé pour {0}\n",
                 NkGraphicsApiName(api));
     switch (api) {
-        case NkGraphicsApi::NK_API_VULKAN:
+        case NkGraphicsApi::NK_GFX_API_VULKAN:
             sd.AddSPIRV(NkShaderStage::NK_VERTEX,
                         kVkRHIFullDemoVertSpv,
                         (uint64)kVkRHIFullDemoVertSpvWordCount * sizeof(uint32));
@@ -444,12 +444,12 @@ static NkShaderDesc MakeMainShaderDesc(NkGraphicsApi api) {
                         kVkRHIFullDemoFragSpv,
                         (uint64)kVkRHIFullDemoFragSpvWordCount * sizeof(uint32));
             break;
-        case NkGraphicsApi::NK_API_DIRECTX11:
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_VS, "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_PS, "PSMain");
             break;
-        case NkGraphicsApi::NK_API_METAL:
+        case NkGraphicsApi::NK_GFX_API_METAL:
             sd.AddMSL(NkShaderStage::NK_VERTEX,   kMSL_Shaders, "vmain");
             sd.AddMSL(NkShaderStage::NK_FRAGMENT,  kMSL_Shaders, "fmain");
             break;
@@ -464,12 +464,12 @@ static NkShaderDesc MakeMainShaderDesc(NkGraphicsApi api) {
 static NkShaderDesc MakeShadowShaderDesc(NkGraphicsApi api) {
     NkShaderDesc sd; sd.debugName = "ShadowDepth";
     switch (api) {
-        case NkGraphicsApi::NK_API_OPENGL:
+        case NkGraphicsApi::NK_GFX_API_OPENGL:
             sd.AddGLSL(NkShaderStage::NK_VERTEX,   kGLSL_ShadowVert);
             sd.AddGLSL(NkShaderStage::NK_FRAGMENT,  kGLSL_ShadowFrag);
             break;
-        case NkGraphicsApi::NK_API_DIRECTX11:
-        case NkGraphicsApi::NK_API_DIRECTX12:
+        case NkGraphicsApi::NK_GFX_API_D3D11:
+        case NkGraphicsApi::NK_GFX_API_D3D12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_ShadowVS);
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_ShadowPS);
             break;
@@ -554,7 +554,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
     // ── Shaders CPU pour le backend Software ──────────────────────────────────
     // CORRECTION BUG 1 (ROOT CAUSE) : out.position = clipPos (pas pos brute!)
-    if (targetApi == NkGraphicsApi::NK_API_SOFTWARE) {
+    if (targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
         NkSoftwareDevice* swDev = static_cast<NkSoftwareDevice*>(device);
         NkSWShader* sw = swDev->GetShader(hShader.id);
         if (sw) {

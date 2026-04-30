@@ -34,8 +34,8 @@
 
     #include "NkPlatform.h"
     #include "NKPlatform/NkCompilerDetect.h"
+    #include "NKPlatform/NkCGXDetect.h"
     #include "NkVersion.h"
-    #include "NkCGXDetect.h"
     #include "NkMacros.h"
 
     // -------------------------------------------------------------------------
@@ -1266,7 +1266,7 @@
         // Thread pool avec nombre de threads configuré
         #if defined(NKENTSEU_ENABLE_THREADING)
             ThreadPool pool(NKENTSEU_DEFAULT_THREAD_COUNT);  // 0 = auto-detect
-            pool.SubmitTask([](){ /* ... *\/ });
+            pool.SubmitTask([](){ /\* ... *\/ });
         #else
             // Fallback single-thread
             ExecuteTaskDirectly();

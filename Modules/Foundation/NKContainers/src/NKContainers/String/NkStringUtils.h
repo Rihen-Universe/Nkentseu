@@ -12,17 +12,12 @@
 #define NK_CORE_NKCORE_SRC_NKCORE_STRING_NKSTRINGUTILS_H_INCLUDED
 
     // -------------------------------------------------------------------------
-    // Inclusions standard
-    // -------------------------------------------------------------------------
-    #include <cstdarg>
-
-    // -------------------------------------------------------------------------
     // Inclusions des dépendances du projet
     // -------------------------------------------------------------------------
     #include "NkString.h"
     #include "NkStringView.h"
     #include "NKCore/NkTraits.h"
-    #include "NkStringFormat.h"
+    #include "NkFormat.h"
 
     // -------------------------------------------------------------------------
     // Namespace principal du projet
@@ -47,7 +42,7 @@
              * @note Alias pour NkStringView::Length(). Fourni pour cohérence API
              *       avec les autres fonctions utilitaires du namespace.
              */
-            NKENTSEU_CORE_API usize NkLength(NkStringView str);
+            NKENTSEU_CONTAINERS_API usize NkLength(NkStringView str);
 
             /**
              * @brief Vérifie si une vue de chaîne est vide
@@ -57,7 +52,7 @@
              * 
              * @note Alias pour NkStringView::Empty(). N'inclut pas le test nullptr.
              */
-            NKENTSEU_CORE_API bool NkEmpty(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkEmpty(NkStringView str);
 
             /**
              * @brief Vérifie si une vue de chaîne n'est pas vide
@@ -67,7 +62,7 @@
              * 
              * @note Inverse logique de NkEmpty(). Utile pour les conditions positives.
              */
-            NKENTSEU_CORE_API bool NkIsNotEmpty(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsNotEmpty(NkStringView str);
 
             // =====================================================================
             // SECTION : CONVERSION DE CASSE (ASCII)
@@ -82,7 +77,7 @@
              * @note Conversion ASCII uniquement via ::tolower.
              *       Pour Unicode complet, utiliser une bibliothèque comme ICU.
              */
-            NKENTSEU_CORE_API NkString NkToLower(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkToLower(NkStringView str);
 
             /**
              * @brief Convertit une chaîne en minuscules in-place
@@ -92,7 +87,7 @@
              * @note Modifie directement le contenu : pas d'allocation supplémentaire.
              *       Conversion ASCII uniquement.
              */
-            NKENTSEU_CORE_API void NkToLowerInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkToLowerInPlace(NkString& str);
 
             /**
              * @brief Convertit un caractère unique en minuscule (ASCII)
@@ -100,7 +95,7 @@
              * @param ch Caractère à convertir
              * @return Version minuscule si ch est majuscule, sinon ch inchangé
              */
-            NKENTSEU_CORE_API char NkToLower(char ch);
+            NKENTSEU_CONTAINERS_API char NkToLower(char ch);
 
             /**
              * @brief Convertit une chaîne en majuscules (ASCII)
@@ -108,7 +103,7 @@
              * @param str Vue de chaîne source
              * @return Nouvelle instance NkString avec caractères convertis
              */
-            NKENTSEU_CORE_API NkString NkToUpper(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkToUpper(NkStringView str);
 
             /**
              * @brief Convertit une chaîne en majuscules in-place
@@ -117,7 +112,7 @@
              * 
              * @note Modifie directement le contenu : pas d'allocation supplémentaire.
              */
-            NKENTSEU_CORE_API void NkToUpperInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkToUpperInPlace(NkString& str);
 
             /**
              * @brief Convertit un caractère unique en majuscule (ASCII)
@@ -125,7 +120,7 @@
              * @param ch Caractère à convertir
              * @return Version majuscule si ch est minuscule, sinon ch inchangé
              */
-            NKENTSEU_CORE_API char NkToUpper(char ch);
+            NKENTSEU_CONTAINERS_API char NkToUpper(char ch);
 
             /**
              * @brief Alterne la casse des caractères (minuscule->majuscule et inversement)
@@ -136,14 +131,14 @@
              * @note Ex: "Hello" -> "hELLO"
              *       Conversion ASCII uniquement.
              */
-            NKENTSEU_CORE_API NkString NkToggleCase(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkToggleCase(NkStringView str);
 
             /**
              * @brief Alterne la casse in-place
              * 
              * @param str Référence vers la chaîne à modifier
              */
-            NKENTSEU_CORE_API void NkToggleCaseInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkToggleCaseInPlace(NkString& str);
 
             /**
              * @brief Inverse la casse (alias pour ToggleCase)
@@ -153,14 +148,14 @@
              * 
              * @note Alias sémantique pour NkToggleCase(). Même comportement.
              */
-            NKENTSEU_CORE_API NkString NkSwapCase(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkSwapCase(NkStringView str);
 
             /**
              * @brief Inverse la casse in-place (alias pour ToggleCaseInPlace)
              * 
              * @param str Référence vers la chaîne à modifier
              */
-            NKENTSEU_CORE_API void NkSwapCaseInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkSwapCaseInPlace(NkString& str);
 
             // =====================================================================
             // SECTION : TRIM (SUPPRESSION D'ESPACES)
@@ -175,7 +170,7 @@
              * @note Aucune copie : la vue résultante référence les données originales.
              *       Espaces blancs : ' ', '\t', '\n', '\r', '\v', '\f'
              */
-            NKENTSEU_CORE_API NkStringView NkTrimLeft(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkStringView NkTrimLeft(NkStringView str);
 
             /**
              * @brief Supprime les espaces blancs à droite (retourne une vue)
@@ -183,7 +178,7 @@
              * @param str Vue de chaîne source
              * @return Nouvelle vue tronquée des espaces en fin
              */
-            NKENTSEU_CORE_API NkStringView NkTrimRight(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkStringView NkTrimRight(NkStringView str);
 
             /**
              * @brief Supprime les espaces blancs aux deux extrémités (retourne une vue)
@@ -191,7 +186,7 @@
              * @param str Vue de chaîne source
              * @return Nouvelle vue tronquée des espaces en début et fin
              */
-            NKENTSEU_CORE_API NkStringView NkTrim(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkStringView NkTrim(NkStringView str);
 
             /**
              * @brief Supprime les espaces blancs à gauche (retourne une copie possédante)
@@ -201,7 +196,7 @@
              * 
              * @note Alloue une nouvelle chaîne : utiliser NkTrimLeft() si une vue suffit.
              */
-            NKENTSEU_CORE_API NkString NkTrimLeftCopy(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkTrimLeftCopy(NkStringView str);
 
             /**
              * @brief Supprime les espaces blancs à droite (copie possédante)
@@ -209,7 +204,7 @@
              * @param str Vue de chaîne source
              * @return Nouvelle instance NkString avec espaces droite supprimés
              */
-            NKENTSEU_CORE_API NkString NkTrimRightCopy(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkTrimRightCopy(NkStringView str);
 
             /**
              * @brief Supprime les espaces blancs aux deux extrémités (copie possédante)
@@ -217,7 +212,7 @@
              * @param str Vue de chaîne source
              * @return Nouvelle instance NkString trimmée
              */
-            NKENTSEU_CORE_API NkString NkTrimCopy(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkTrimCopy(NkStringView str);
 
             /**
              * @brief Supprime les espaces blancs à gauche in-place
@@ -227,7 +222,7 @@
              * @note Décale les données vers la gauche : opération O(n).
              *       Peut être coûteuse sur de grandes chaînes.
              */
-            NKENTSEU_CORE_API void NkTrimLeftInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkTrimLeftInPlace(NkString& str);
 
             /**
              * @brief Supprime les espaces blancs à droite in-place
@@ -236,7 +231,7 @@
              * 
              * @note Ajuste simplement la longueur : opération O(1).
              */
-            NKENTSEU_CORE_API void NkTrimRightInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkTrimRightInPlace(NkString& str);
 
             /**
              * @brief Supprime les espaces blancs aux deux extrémités in-place
@@ -245,7 +240,7 @@
              * 
              * @note Combine TrimLeftInPlace + TrimRightInPlace.
              */
-            NKENTSEU_CORE_API void NkTrimInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkTrimInPlace(NkString& str);
 
             /**
              * @brief Trim avec ensemble de caractères personnalisés (retourne une vue)
@@ -257,7 +252,7 @@
              * @note Ex: NkTrimChars("###hello###", "#") -> "hello"
              *       Recherche linéaire : O(n*m) où n=str.length, m=chars.length
              */
-            NKENTSEU_CORE_API NkStringView NkTrimLeftChars(NkStringView str, NkStringView chars);
+            NKENTSEU_CONTAINERS_API NkStringView NkTrimLeftChars(NkStringView str, NkStringView chars);
 
             /**
              * @brief Trim droit avec caractères personnalisés (retourne une vue)
@@ -266,7 +261,7 @@
              * @param chars Vue des caractères à supprimer en bordure
              * @return Nouvelle vue tronquée à droite
              */
-            NKENTSEU_CORE_API NkStringView NkTrimRightChars(NkStringView str, NkStringView chars);
+            NKENTSEU_CONTAINERS_API NkStringView NkTrimRightChars(NkStringView str, NkStringView chars);
 
             /**
              * @brief Trim bilatéral avec caractères personnalisés (retourne une vue)
@@ -275,7 +270,7 @@
              * @param chars Vue des caractères à supprimer en bordure
              * @return Nouvelle vue tronquée des deux côtés
              */
-            NKENTSEU_CORE_API NkStringView NkTrimChars(NkStringView str, NkStringView chars);
+            NKENTSEU_CONTAINERS_API NkStringView NkTrimChars(NkStringView str, NkStringView chars);
 
             // =====================================================================
             // SECTION : SPLIT (DÉCOUPAGE DE CHAÎNES)
@@ -519,7 +514,7 @@
              * @note Pré-alloue la taille exacte pour éviter les réallocations multiples.
              *       Gère correctement le cas count == 0 (retourne chaîne vide).
              */
-            NKENTSEU_CORE_API NkString NkJoin(
+            NKENTSEU_CONTAINERS_API NkString NkJoin(
                 const NkStringView* strings, 
                 usize count, 
                 NkStringView separator);
@@ -634,7 +629,7 @@
              * @note Retourne une copie : str n'est pas modifiée.
              *       Si from n'est pas trouvé, retourne une copie identique de str.
              */
-            NKENTSEU_CORE_API NkString NkReplace(
+            NKENTSEU_CONTAINERS_API NkString NkReplace(
                 NkStringView str, 
                 NkStringView from, 
                 NkStringView to);
@@ -650,7 +645,7 @@
              * @note Parcours séquentiel : les remplacements ne se chevauchent pas.
              *       Ex: NkReplaceAll("aaa", "aa", "b") -> "ba" (pas "bbb")
              */
-            NKENTSEU_CORE_API NkString NkReplaceAll(
+            NKENTSEU_CONTAINERS_API NkString NkReplaceAll(
                 NkStringView str, 
                 NkStringView from, 
                 NkStringView to);
@@ -665,7 +660,7 @@
              * @note Peut déclencher réallocation si la nouvelle chaîne est plus longue.
              *       Plus efficace que Replace + assign si str est déjà mutable.
              */
-            NKENTSEU_CORE_API void NkReplaceInPlace(
+            NKENTSEU_CONTAINERS_API void NkReplaceInPlace(
                 NkString& str, 
                 NkStringView from, 
                 NkStringView to);
@@ -680,7 +675,7 @@
              * @note Attention aux performances : chaque remplacement peut réallocation.
              *       Pour de nombreux remplacements, préférer construire une nouvelle chaîne.
              */
-            NKENTSEU_CORE_API void NkReplaceAllInPlace(
+            NKENTSEU_CONTAINERS_API void NkReplaceAllInPlace(
                 NkString& str, 
                 NkStringView from, 
                 NkStringView to);
@@ -693,7 +688,7 @@
              * @param to Chaîne de remplacement
              * @return Nouvelle instance NkString avec remplacement
              */
-            NKENTSEU_CORE_API NkString NkReplaceFirst(
+            NKENTSEU_CONTAINERS_API NkString NkReplaceFirst(
                 NkStringView str, 
                 NkStringView from, 
                 NkStringView to);
@@ -708,7 +703,7 @@
              * 
              * @note Nécessite une recherche depuis la fin : légèrement plus coûteux que ReplaceFirst.
              */
-            NKENTSEU_CORE_API NkString NkReplaceLast(
+            NKENTSEU_CONTAINERS_API NkString NkReplaceLast(
                 NkStringView str, 
                 NkStringView from, 
                 NkStringView to);
@@ -720,7 +715,7 @@
              * @param from Sous-chaîne à rechercher
              * @param to Chaîne de remplacement
              */
-            NKENTSEU_CORE_API void NkReplaceFirstInPlace(
+            NKENTSEU_CONTAINERS_API void NkReplaceFirstInPlace(
                 NkString& str, 
                 NkStringView from, 
                 NkStringView to);
@@ -732,7 +727,7 @@
              * @param from Sous-chaîne à rechercher
              * @param to Chaîne de remplacement
              */
-            NKENTSEU_CORE_API void NkReplaceLastInPlace(
+            NKENTSEU_CONTAINERS_API void NkReplaceLastInPlace(
                 NkString& str, 
                 NkStringView from, 
                 NkStringView to);
@@ -791,7 +786,7 @@
              * @note Comparaison binaire : case-sensitive.
              *       Retourne false si prefix.Length() > str.Length().
              */
-            NKENTSEU_CORE_API bool NkStartsWith(NkStringView str, NkStringView prefix);
+            NKENTSEU_CONTAINERS_API bool NkStartsWith(NkStringView str, NkStringView prefix);
 
             /**
              * @brief Vérifie le préfixe en ignorant la casse ASCII
@@ -800,7 +795,7 @@
              * @param prefix Vue du préfixe attendu
              * @return true si str commence par prefix (case-insensitive ASCII)
              */
-            NKENTSEU_CORE_API bool NkStartsWithIgnoreCase(NkStringView str, NkStringView prefix);
+            NKENTSEU_CONTAINERS_API bool NkStartsWithIgnoreCase(NkStringView str, NkStringView prefix);
 
             /**
              * @brief Vérifie si une chaîne se termine par un suffixe donné
@@ -809,7 +804,7 @@
              * @param suffix Vue du suffixe attendu
              * @return true si str se termine exactement par suffix
              */
-            NKENTSEU_CORE_API bool NkEndsWith(NkStringView str, NkStringView suffix);
+            NKENTSEU_CONTAINERS_API bool NkEndsWith(NkStringView str, NkStringView suffix);
 
             /**
              * @brief Vérifie le suffixe en ignorant la casse ASCII
@@ -818,7 +813,7 @@
              * @param suffix Vue du suffixe attendu
              * @return true si str se termine par suffix (case-insensitive ASCII)
              */
-            NKENTSEU_CORE_API bool NkEndsWithIgnoreCase(NkStringView str, NkStringView suffix);
+            NKENTSEU_CONTAINERS_API bool NkEndsWithIgnoreCase(NkStringView str, NkStringView suffix);
 
             /**
              * @brief Vérifie si une chaîne contient une sous-chaîne donnée
@@ -827,7 +822,7 @@
              * @param substring Sous-chaîne à rechercher
              * @return true si substring est trouvé dans str
              */
-            NKENTSEU_CORE_API bool NkContains(NkStringView str, NkStringView substring);
+            NKENTSEU_CONTAINERS_API bool NkContains(NkStringView str, NkStringView substring);
 
             /**
              * @brief Vérifie la présence d'une sous-chaîne (case-insensitive)
@@ -836,7 +831,7 @@
              * @param substring Sous-chaîne à rechercher
              * @return true si substring est trouvé (ASCII case-insensitive)
              */
-            NKENTSEU_CORE_API bool NkContainsIgnoreCase(NkStringView str, NkStringView substring);
+            NKENTSEU_CONTAINERS_API bool NkContainsIgnoreCase(NkStringView str, NkStringView substring);
 
             /**
              * @brief Vérifie si str contient au moins un des caractères donnés
@@ -845,7 +840,7 @@
              * @param characters Vue des caractères à rechercher
              * @return true si au moins un caractère de characters est présent dans str
              */
-            NKENTSEU_CORE_API bool NkContainsAny(NkStringView str, NkStringView characters);
+            NKENTSEU_CONTAINERS_API bool NkContainsAny(NkStringView str, NkStringView characters);
 
             /**
              * @brief Vérifie si str ne contient AUCUN des caractères donnés
@@ -854,7 +849,7 @@
              * @param characters Vue des caractères interdits
              * @return true si aucun caractère de characters n'apparaît dans str
              */
-            NKENTSEU_CORE_API bool NkContainsNone(NkStringView str, NkStringView characters);
+            NKENTSEU_CONTAINERS_API bool NkContainsNone(NkStringView str, NkStringView characters);
 
             /**
              * @brief Vérifie si str contient UNIQUEMENT les caractères donnés
@@ -866,7 +861,7 @@
              * @note Ex: NkContainsOnly("abc", "abcdef") -> true
              *       NkContainsOnly("abc123", "abcdef") -> false
              */
-            NKENTSEU_CORE_API bool NkContainsOnly(NkStringView str, NkStringView characters);
+            NKENTSEU_CONTAINERS_API bool NkContainsOnly(NkStringView str, NkStringView characters);
 
             /**
              * @brief Trouve la première occurrence d'un caractère parmi un ensemble
@@ -876,7 +871,7 @@
              * @param start Position de départ pour la recherche (défaut: 0)
              * @return Index de la première occurrence, ou npos si aucun match
              */
-            NKENTSEU_CORE_API usize NkFindFirstOf(
+            NKENTSEU_CONTAINERS_API usize NkFindFirstOf(
                 NkStringView str, 
                 NkStringView characters, 
                 usize start = 0);
@@ -888,7 +883,7 @@
              * @param characters Vue des caractères à rechercher
              * @return Index de la dernière occurrence, ou npos si aucun match
              */
-            NKENTSEU_CORE_API usize NkFindLastOf(NkStringView str, NkStringView characters);
+            NKENTSEU_CONTAINERS_API usize NkFindLastOf(NkStringView str, NkStringView characters);
 
             /**
              * @brief Trouve le premier caractère N'APPARTENANT PAS à un ensemble
@@ -898,7 +893,7 @@
              * @param start Position de départ pour la recherche (défaut: 0)
              * @return Index du premier caractère "extérieur", ou npos si tous exclus
              */
-            NKENTSEU_CORE_API usize NkFindFirstNotOf(
+            NKENTSEU_CONTAINERS_API usize NkFindFirstNotOf(
                 NkStringView str, 
                 NkStringView characters, 
                 usize start = 0);
@@ -910,7 +905,7 @@
              * @param characters Vue des caractères à exclure
              * @return Index du dernier caractère "extérieur", ou npos si tous exclus
              */
-            NKENTSEU_CORE_API usize NkFindLastNotOf(NkStringView str, NkStringView characters);
+            NKENTSEU_CONTAINERS_API usize NkFindLastNotOf(NkStringView str, NkStringView characters);
 
             /**
              * @brief Compte le nombre d'occurrences d'une sous-chaîne
@@ -922,7 +917,7 @@
              * @note Parcours séquentiel : complexité O(n*m) dans le pire cas.
              *       Les occurrences ne se chevauchent pas : "aaa".Count("aa") = 1
              */
-            NKENTSEU_CORE_API usize NkCount(NkStringView str, NkStringView substring);
+            NKENTSEU_CONTAINERS_API usize NkCount(NkStringView str, NkStringView substring);
 
             /**
              * @brief Compte le nombre d'occurrences d'un caractère
@@ -933,7 +928,7 @@
              * 
              * @note Parcours linéaire optimisé : O(n), très efficace.
              */
-            NKENTSEU_CORE_API usize NkCount(NkStringView str, char character);
+            NKENTSEU_CONTAINERS_API usize NkCount(NkStringView str, char character);
 
             /**
              * @brief Recherche insensible à la casse d'une sous-chaîne
@@ -943,7 +938,7 @@
              * @param start Position de départ pour la recherche (défaut: 0)
              * @return Index de la première occurrence (ASCII case-insensitive), ou npos
              */
-            NKENTSEU_CORE_API usize NkFindIgnoreCase(
+            NKENTSEU_CONTAINERS_API usize NkFindIgnoreCase(
                 NkStringView str, 
                 NkStringView substring, 
                 usize start = 0);
@@ -955,7 +950,7 @@
              * @param substring Sous-chaîne à rechercher
              * @return Index de la dernière occurrence (ASCII case-insensitive), ou npos
              */
-            NKENTSEU_CORE_API usize NkFindLastIgnoreCase(NkStringView str, NkStringView substring);
+            NKENTSEU_CONTAINERS_API usize NkFindLastIgnoreCase(NkStringView str, NkStringView substring);
 
             // =====================================================================
             // SECTION : EXTRACTION DE SOUS-CHAÎNES
@@ -979,7 +974,7 @@
              *   -> "content"
              * @endcode
              */
-            NKENTSEU_CORE_API NkStringView NkSubstringBetween(
+            NKENTSEU_CONTAINERS_API NkStringView NkSubstringBetween(
                 NkStringView str, 
                 NkStringView startDelim, 
                 NkStringView endDelim);
@@ -995,7 +990,7 @@
              * @note Alloue une nouvelle chaîne : utiliser NkSubstringBetween() si
              *       une vue suffit et que la source reste valide.
              */
-            NKENTSEU_CORE_API NkString NkSubstringBetweenCopy(
+            NKENTSEU_CONTAINERS_API NkString NkSubstringBetweenCopy(
                 NkStringView str, 
                 NkStringView startDelim, 
                 NkStringView endDelim);
@@ -1007,7 +1002,7 @@
              * @param delimiter Délimiteur de séparation
              * @return Vue sur la partie avant le premier delimiter, ou str entier si non trouvé
              */
-            NKENTSEU_CORE_API NkStringView NkSubstringBefore(
+            NKENTSEU_CONTAINERS_API NkStringView NkSubstringBefore(
                 NkStringView str, 
                 NkStringView delimiter);
 
@@ -1018,7 +1013,7 @@
              * @param delimiter Délimiteur de séparation
              * @return Vue sur la partie après le premier delimiter, ou vue vide si non trouvé
              */
-            NKENTSEU_CORE_API NkStringView NkSubstringAfter(
+            NKENTSEU_CONTAINERS_API NkStringView NkSubstringAfter(
                 NkStringView str, 
                 NkStringView delimiter);
 
@@ -1031,7 +1026,7 @@
              * 
              * @note Utile pour : extraire le chemin sans le nom de fichier, etc.
              */
-            NKENTSEU_CORE_API NkStringView NkSubstringBeforeLast(
+            NKENTSEU_CONTAINERS_API NkStringView NkSubstringBeforeLast(
                 NkStringView str, 
                 NkStringView delimiter);
 
@@ -1044,7 +1039,7 @@
              * 
              * @note Utile pour : extraire l'extension de fichier, le nom de fichier, etc.
              */
-            NKENTSEU_CORE_API NkStringView NkSubstringAfterLast(
+            NKENTSEU_CONTAINERS_API NkStringView NkSubstringAfterLast(
                 NkStringView str, 
                 NkStringView delimiter);
 
@@ -1056,7 +1051,7 @@
              * 
              * @warning Aucun check de bornes : vérifier !str.Empty() avant appel si nécessaire.
              */
-            NKENTSEU_CORE_API char NkFirstChar(NkStringView str);
+            NKENTSEU_CONTAINERS_API char NkFirstChar(NkStringView str);
 
             /**
              * @brief Retourne le dernier caractère d'une chaîne
@@ -1064,7 +1059,7 @@
              * @param str Vue de chaîne source
              * @return Dernier caractère, ou '\\0' si str est vide
              */
-            NKENTSEU_CORE_API char NkLastChar(NkStringView str);
+            NKENTSEU_CONTAINERS_API char NkLastChar(NkStringView str);
 
             /**
              * @brief Extrait les N premiers caractères (retourne une vue)
@@ -1073,7 +1068,7 @@
              * @param count Nombre de caractères à extraire du début
              * @return Vue sur le préfixe de longueur min(count, str.Length())
              */
-            NKENTSEU_CORE_API NkStringView NkFirstChars(NkStringView str, usize count);
+            NKENTSEU_CONTAINERS_API NkStringView NkFirstChars(NkStringView str, usize count);
 
             /**
              * @brief Extrait les N derniers caractères (retourne une vue)
@@ -1082,7 +1077,7 @@
              * @param count Nombre de caractères à extraire de la fin
              * @return Vue sur le suffixe de longueur min(count, str.Length())
              */
-            NKENTSEU_CORE_API NkStringView NkLastChars(NkStringView str, usize count);
+            NKENTSEU_CONTAINERS_API NkStringView NkLastChars(NkStringView str, usize count);
 
             /**
              * @brief Extrait une sous-chaîne à partir d'une position (alias pour SubStr)
@@ -1092,7 +1087,7 @@
              * @param count Nombre maximal de caractères à extraire (npos = jusqu'à la fin)
              * @return Vue sur la sous-chaîne extraite
              */
-            NKENTSEU_CORE_API NkStringView NkMid(
+            NKENTSEU_CONTAINERS_API NkStringView NkMid(
                 NkStringView str, 
                 usize start, 
                 usize count = NkStringView::npos);
@@ -1110,14 +1105,14 @@
              * @note Ex: "hello world" -> "Hello world"
              *       Conversion ASCII uniquement.
              */
-            NKENTSEU_CORE_API NkString NkCapitalize(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkCapitalize(NkStringView str);
 
             /**
              * @brief Capitalise la première lettre in-place
              * 
              * @param str Référence vers la chaîne à modifier
              */
-            NKENTSEU_CORE_API void NkCapitalizeInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkCapitalizeInPlace(NkString& str);
 
             /**
              * @brief Met la première lettre de chaque mot en majuscule
@@ -1128,14 +1123,14 @@
              * @note Délimiteurs de mots : espaces, tabulations.
              *       Ex: "hello world" -> "Hello World"
              */
-            NKENTSEU_CORE_API NkString NkTitleCase(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkTitleCase(NkStringView str);
 
             /**
              * @brief Applique le title case in-place
              * 
              * @param str Référence vers la chaîne à modifier
              */
-            NKENTSEU_CORE_API void NkTitleCaseInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkTitleCaseInPlace(NkString& str);
 
             /**
              * @brief Inverse l'ordre des caractères
@@ -1146,7 +1141,7 @@
              * @note Ex: "abc" -> "cba"
              *       Complexité O(n) : copie + inversion.
              */
-            NKENTSEU_CORE_API NkString NkReverse(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkReverse(NkStringView str);
 
             /**
              * @brief Inverse la chaîne in-place
@@ -1155,7 +1150,7 @@
              * 
              * @note Échange symétrique : complexité O(n/2), aucune allocation.
              */
-            NKENTSEU_CORE_API void NkReverseInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkReverseInPlace(NkString& str);
 
             /**
              * @brief Supprime toutes les occurrences des caractères spécifiés
@@ -1167,7 +1162,7 @@
              * @note Ex: NkRemoveChars("a1b2c3", "123") -> "abc"
              *       Parcours + compactage : O(n*m) où m=charsToRemove.Length()
              */
-            NKENTSEU_CORE_API NkString NkRemoveChars(
+            NKENTSEU_CONTAINERS_API NkString NkRemoveChars(
                 NkStringView str, 
                 NkStringView charsToRemove);
 
@@ -1179,7 +1174,7 @@
              * 
              * @note Compactage in-place : peut être coûteux sur grandes chaînes.
              */
-            NKENTSEU_CORE_API void NkRemoveCharsInPlace(
+            NKENTSEU_CONTAINERS_API void NkRemoveCharsInPlace(
                 NkString& str, 
                 NkStringView charsToRemove);
 
@@ -1193,7 +1188,7 @@
              * @note Ex: NkRemoveDuplicates("aabbcc", 'b') -> "abcc"
              *       Ne supprime que les répétitions adjacentes.
              */
-            NKENTSEU_CORE_API NkString NkRemoveDuplicates(
+            NKENTSEU_CONTAINERS_API NkString NkRemoveDuplicates(
                 NkStringView str, 
                 char duplicateChar);
 
@@ -1203,7 +1198,7 @@
              * @param str Référence vers la chaîne à modifier
              * @param duplicateChar Caractère à dé-dupliquer
              */
-            NKENTSEU_CORE_API void NkRemoveDuplicatesInPlace(
+            NKENTSEU_CONTAINERS_API void NkRemoveDuplicatesInPlace(
                 NkString& str, 
                 char duplicateChar);
 
@@ -1216,14 +1211,14 @@
              * @note Ex: "a   b\t\tc" -> "a b c"
              *       Considère tous les whitespace ASCII comme équivalents.
              */
-            NKENTSEU_CORE_API NkString NkRemoveExtraSpaces(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkRemoveExtraSpaces(NkStringView str);
 
             /**
              * @brief Normalise les espaces in-place
              * 
              * @param str Référence vers la chaîne à modifier
              */
-            NKENTSEU_CORE_API void NkRemoveExtraSpacesInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkRemoveExtraSpacesInPlace(NkString& str);
 
             /**
              * @brief Insère une sous-chaîne à une position donnée
@@ -1236,7 +1231,7 @@
              * @note Équivalent à : str.SubStr(0,pos) + insertStr + str.SubStr(pos)
              *       Assertion si position > str.Length().
              */
-            NKENTSEU_CORE_API NkString NkInsert(
+            NKENTSEU_CONTAINERS_API NkString NkInsert(
                 NkStringView str, 
                 usize position, 
                 NkStringView insertStr);
@@ -1250,7 +1245,7 @@
              * 
              * @note Peut déclencher réallocation si capacité insuffisante.
              */
-            NKENTSEU_CORE_API void NkInsertInPlace(
+            NKENTSEU_CONTAINERS_API void NkInsertInPlace(
                 NkString& str, 
                 usize position, 
                 NkStringView insertStr);
@@ -1265,7 +1260,7 @@
              * 
              * @note Équivalent à : str.SubStr(0,pos) + str.SubStr(pos+count)
              */
-            NKENTSEU_CORE_API NkString NkErase(
+            NKENTSEU_CONTAINERS_API NkString NkErase(
                 NkStringView str, 
                 usize position, 
                 usize count);
@@ -1279,7 +1274,7 @@
              * 
              * @note Décale les données suivantes vers la gauche : O(n) worst-case.
              */
-            NKENTSEU_CORE_API void NkEraseInPlace(
+            NKENTSEU_CONTAINERS_API void NkEraseInPlace(
                 NkString& str, 
                 usize position, 
                 usize count);
@@ -1298,7 +1293,7 @@
              * @note Accepte : espaces initiaux, signe +/-, chiffres décimaux.
              *       Rejette tout caractère non-numérique après le nombre.
              */
-            NKENTSEU_CORE_API bool NkParseInt(NkStringView str, int32& out);
+            NKENTSEU_CONTAINERS_API bool NkParseInt(NkStringView str, int32& out);
 
             /**
              * @brief Tente de parser comme entier 64 bits signé
@@ -1307,7 +1302,7 @@
              * @param out Référence pour le résultat int64
              * @return true si succès, false sinon
              */
-            NKENTSEU_CORE_API bool NkParseInt64(NkStringView str, int64& out);
+            NKENTSEU_CONTAINERS_API bool NkParseInt64(NkStringView str, int64& out);
 
             /**
              * @brief Tente de parser comme entier non-signé 32 bits
@@ -1316,7 +1311,7 @@
              * @param out Référence pour le résultat uint32
              * @return true si succès, false si négatif ou format invalide
              */
-            NKENTSEU_CORE_API bool NkParseUInt(NkStringView str, uint32& out);
+            NKENTSEU_CONTAINERS_API bool NkParseUInt(NkStringView str, uint32& out);
 
             /**
              * @brief Tente de parser comme entier non-signé 64 bits
@@ -1325,7 +1320,7 @@
              * @param out Référence pour le résultat uint64
              * @return true si succès, false sinon
              */
-            NKENTSEU_CORE_API bool NkParseUInt64(NkStringView str, uint64& out);
+            NKENTSEU_CONTAINERS_API bool NkParseUInt64(NkStringView str, uint64& out);
 
             /**
              * @brief Tente de parser comme flottant 32 bits
@@ -1336,7 +1331,7 @@
              * 
              * @note Accepte notation décimale et scientifique (1.23e-4)
              */
-            NKENTSEU_CORE_API bool NkParseFloat(NkStringView str, float32& out);
+            NKENTSEU_CONTAINERS_API bool NkParseFloat(NkStringView str, float32& out);
 
             /**
              * @brief Tente de parser comme flottant 64 bits
@@ -1345,7 +1340,7 @@
              * @param out Référence pour le résultat float64
              * @return true si succès, false sinon
              */
-            NKENTSEU_CORE_API bool NkParseDouble(NkStringView str, float64& out);
+            NKENTSEU_CONTAINERS_API bool NkParseDouble(NkStringView str, float64& out);
 
             /**
              * @brief Tente de parser comme valeur booléenne texte
@@ -1356,158 +1351,8 @@
              * 
              * @note Accepte : "true"/"false", "1"/"0", "yes"/"no" (case-insensitive ASCII)
              */
-            NKENTSEU_CORE_API bool NkParseBool(NkStringView str, bool& out);
+            NKENTSEU_CONTAINERS_API bool NkParseBool(NkStringView str, bool& out);
 
-            // =====================================================================
-            // SECTION : FORMATAGE (DÉLÉGUÉ À NkStringFormat.h)
-            // =====================================================================
-
-            /**
-             * @brief Formatage style printf avec arguments variables
-             * 
-             * @param format Chaîne de format avec spécificateurs (%s, %d, %.2f, etc.)
-             * @param ... Arguments variables correspondant aux spécificateurs
-             * @return Nouvelle instance NkString formatée
-             * 
-             * @note Syntaxe compatible vsnprintf : %s, %d, %f, %x, %.2f, etc.
-             *       @warning Ne pas passer de NkString directement : utiliser CStr().
-             * 
-             * @par Exemple :
-             * @code
-             *   auto msg = NkFormatf("User %s has %d points", "Alice", 42);
-             *   // "User Alice has 42 points"
-             * @endcode
-             */
-            NKENTSEU_CORE_API NkString NkFormatf(const char* format, ...);
-
-            /**
-             * @brief Formatage style printf avec va_list
-             * 
-             * @param format Chaîne de format avec spécificateurs
-             * @param args Liste d'arguments de type va_list
-             * @return Nouvelle instance NkString formatée
-             * 
-             * @note Version pour wrappers ou fonctions forwardant les arguments.
-             *       Ne modifie pas args : peut être réutilisé après appel.
-             */
-            NKENTSEU_CORE_API NkString NkVFormatf(const char* format, va_list args);
-
-            // =====================================================================
-            // SECTION : CONVERSION VERS CHAÎNE (TOSTRING)
-            // =====================================================================
-
-            /**
-             * @brief Convertit une valeur quelconque en NkString
-             * 
-             * @tparam T Type de la valeur (entier, flottant, booléen)
-             * @param value Valeur à convertir
-             * @param precision Précision pour les flottants (ignorée pour les autres types)
-             * @return Nouvelle instance NkString contenant la représentation textuelle
-             * 
-             * @note Utilise if constexpr pour dispatch compile-time selon le type :
-             *       - bool : "true" / "false"
-             *       - flottants : formatage avec précision via snprintf
-             *       - entiers : %lld ou %llu selon le signe
-             *       - autres : static_assert avec message d'erreur
-             * 
-             * @par Exemple :
-             * @code
-             *   auto s1 = NkToString(42);           // "42"
-             *   auto s2 = NkToString(3.14159, 2);   // "3.14"
-             *   auto s3 = NkToString(true);         // "true"
-             * @endcode
-             */
-            template<typename T>
-            NKENTSEU_CORE_API NkString NkToString(T value, int precision = 6) {
-                if constexpr (traits::NkIsSame_v<T, bool>) {
-                    return value ? NkString("true") : NkString("false");
-                } else if constexpr (traits::NkIsFloatingPoint_v<T>) {
-                    return NkFormatf("%.*f", precision, static_cast<double>(value));
-                } else if constexpr (traits::NkIsIntegral_v<T>) {
-                    if constexpr (traits::NkIsSigned_v<T>) {
-                        return NkFormatf("%lld", static_cast<long long>(value));
-                    } else {
-                        return NkFormatf("%llu", static_cast<unsigned long long>(value));
-                    }
-                } else {
-                    static_assert(sizeof(T) == 0, "Type non supporté par NkToString");
-                    return NkString();
-                }
-            }
-
-            /**
-             * @brief Surcharge explicite pour int32
-             * 
-             * @param value Valeur entière à convertir
-             * @param precision Paramètre ignoré (présent pour uniformité API)
-             * @return Représentation décimale de value
-             */
-            NKENTSEU_CORE_API NkString NkToString(int32 value, int = 6);
-
-            /**
-             * @brief Surcharge explicite pour int64
-             * 
-             * @param value Valeur entière à convertir
-             * @param precision Paramètre ignoré
-             * @return Représentation décimale de value
-             */
-            NKENTSEU_CORE_API NkString NkToString(int64 value, int = 6);
-
-            /**
-             * @brief Surcharge explicite pour uint32
-             * 
-             * @param value Valeur entière non-signée à convertir
-             * @param precision Paramètre ignoré
-             * @return Représentation décimale de value
-             */
-            NKENTSEU_CORE_API NkString NkToString(uint32 value, int = 6);
-
-            /**
-             * @brief Surcharge explicite pour uint64
-             * 
-             * @param value Valeur entière non-signée à convertir
-             * @param precision Paramètre ignoré
-             * @return Représentation décimale de value
-             */
-            NKENTSEU_CORE_API NkString NkToString(uint64 value, int = 6);
-
-            /**
-             * @brief Surcharge explicite pour float32
-             * 
-             * @param value Valeur flottante à convertir
-             * @param precision Nombre de décimales (défaut: 6)
-             * @return Représentation décimale de value avec précision spécifiée
-             */
-            NKENTSEU_CORE_API NkString NkToString(float32 value, int precision = 6);
-
-            /**
-             * @brief Surcharge explicite pour float64
-             * 
-             * @param value Valeur flottante à convertir
-             * @param precision Nombre de décimales (défaut: 6)
-             * @return Représentation décimale de value avec précision spécifiée
-             */
-            NKENTSEU_CORE_API NkString NkToString(float64 value, int precision = 6);
-
-            /**
-             * @brief Surcharge explicite pour bool
-             * 
-             * @param value Valeur booléenne à convertir
-             * @param precision Paramètre ignoré
-             * @return "true" ou "false" selon value
-             */
-            NKENTSEU_CORE_API NkString NkToString(bool value, int = 6);
-
-            /**
-             * @brief Conversion vers chaîne via format printf personnalisé
-             * 
-             * @param format Chaîne de format avec spécificateurs
-             * @param ... Arguments variables
-             * @return Nouvelle instance NkString formatée
-             * 
-             * @note Alias pratique pour NkFormatf() : même fonctionnalité, nom alternatif.
-             */
-            NKENTSEU_CORE_API NkString NkToStringf(const char* format, ...);
 
             // =====================================================================
             // SECTION : CONVERSIONS HEXADÉCIMALES
@@ -1523,7 +1368,7 @@
              * @note La valeur est traitée comme non-signée pour l'affichage hex.
              *       Ex: NkToHex(-1, true) -> "0xffffffff"
              */
-            NKENTSEU_CORE_API NkString NkToHex(int32 value, bool prefix = false);
+            NKENTSEU_CONTAINERS_API NkString NkToHex(int32 value, bool prefix = false);
 
             /**
              * @brief Convertit un entier signé 64 bits en hexadécimal
@@ -1532,7 +1377,7 @@
              * @param prefix true pour ajouter le préfixe "0x"
              * @return Représentation hexadécimale minuscules de value
              */
-            NKENTSEU_CORE_API NkString NkToHex(int64 value, bool prefix = false);
+            NKENTSEU_CONTAINERS_API NkString NkToHex(int64 value, bool prefix = false);
 
             /**
              * @brief Convertit un entier non-signé 32 bits en hexadécimal
@@ -1541,7 +1386,7 @@
              * @param prefix true pour ajouter le préfixe "0x"
              * @return Représentation hexadécimale minuscules de value
              */
-            NKENTSEU_CORE_API NkString NkToHex(uint32 value, bool prefix = false);
+            NKENTSEU_CONTAINERS_API NkString NkToHex(uint32 value, bool prefix = false);
 
             /**
              * @brief Convertit un entier non-signé 64 bits en hexadécimal
@@ -1550,7 +1395,7 @@
              * @param prefix true pour ajouter le préfixe "0x"
              * @return Représentation hexadécimale minuscules de value
              */
-            NKENTSEU_CORE_API NkString NkToHex(uint64 value, bool prefix = false);
+            NKENTSEU_CONTAINERS_API NkString NkToHex(uint64 value, bool prefix = false);
 
             /**
              * @brief Tente de parser une chaîne hexadécimale en uint32
@@ -1561,7 +1406,7 @@
              * 
              * @note Accepte chiffres 0-9, lettres a-f/A-F. Ignorer les espaces initiaux.
              */
-            NKENTSEU_CORE_API bool NkParseHex(NkStringView str, uint32& out);
+            NKENTSEU_CONTAINERS_API bool NkParseHex(NkStringView str, uint32& out);
 
             /**
              * @brief Tente de parser une chaîne hexadécimale en uint64
@@ -1570,7 +1415,7 @@
              * @param out Référence pour le résultat uint64
              * @return true si succès, false sinon
              */
-            NKENTSEU_CORE_API bool NkParseHex(NkStringView str, uint64& out);
+            NKENTSEU_CONTAINERS_API bool NkParseHex(NkStringView str, uint64& out);
 
             // =====================================================================
             // SECTION : COMPARAISONS (CASE-INSENSITIVE & NATURELLES)
@@ -1583,7 +1428,7 @@
              * @param rhs Deuxième chaîne à comparer
              * @return <0 si lhs<rhs, 0 si égal, >0 si lhs>rhs (ordre lexicographique)
              */
-            NKENTSEU_CORE_API int NkCompareIgnoreCase(NkStringView lhs, NkStringView rhs);
+            NKENTSEU_CONTAINERS_API int NkCompareIgnoreCase(NkStringView lhs, NkStringView rhs);
 
             /**
              * @brief Teste l'égalité de deux chaînes (case-insensitive ASCII)
@@ -1592,7 +1437,7 @@
              * @param rhs Deuxième chaîne
              * @return true si les chaînes sont égales en ignorant la casse
              */
-            NKENTSEU_CORE_API bool NkEqualsIgnoreCase(NkStringView lhs, NkStringView rhs);
+            NKENTSEU_CONTAINERS_API bool NkEqualsIgnoreCase(NkStringView lhs, NkStringView rhs);
 
             /**
              * @brief Compare deux chaînes avec tri "naturel" (nombres comparés numériquement)
@@ -1604,7 +1449,7 @@
              * @note Ex: "file2.txt" < "file10.txt" (contre "file10" < "file2" en binaire)
              *       Utile pour le tri de noms de fichiers, versions, etc.
              */
-            NKENTSEU_CORE_API int NkCompareNatural(NkStringView lhs, NkStringView rhs);
+            NKENTSEU_CONTAINERS_API int NkCompareNatural(NkStringView lhs, NkStringView rhs);
 
             /**
              * @brief Compare avec tri naturel en ignorant la casse
@@ -1613,7 +1458,7 @@
              * @param rhs Deuxième chaîne à comparer
              * @return Résultat de comparaison naturelle case-insensitive
              */
-            NKENTSEU_CORE_API int NkCompareNaturalIgnoreCase(NkStringView lhs, NkStringView rhs);
+            NKENTSEU_CONTAINERS_API int NkCompareNaturalIgnoreCase(NkStringView lhs, NkStringView rhs);
 
             // =====================================================================
             // SECTION : PRÉDICATS DE CARACTÈRES ET DE CHAÎNES
@@ -1625,7 +1470,7 @@
              * @param ch Caractère à tester
              * @return true pour ' ', '\t', '\n', '\r', '\v', '\f'
              */
-            NKENTSEU_CORE_API bool NkIsWhitespace(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsWhitespace(char ch);
 
             /**
              * @brief Vérifie si un caractère est un chiffre décimal (0-9)
@@ -1633,7 +1478,7 @@
              * @param ch Caractère à tester
              * @return true si ch est entre '0' et '9' inclus
              */
-            NKENTSEU_CORE_API bool NkIsDigit(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsDigit(char ch);
 
             /**
              * @brief Vérifie si un caractère est une lettre alphabétique ASCII
@@ -1641,7 +1486,7 @@
              * @param ch Caractère à tester
              * @return true pour A-Z ou a-z
              */
-            NKENTSEU_CORE_API bool NkIsAlpha(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsAlpha(char ch);
 
             /**
              * @brief Vérifie si un caractère est alphanumérique ASCII
@@ -1649,7 +1494,7 @@
              * @param ch Caractère à tester
              * @return true si lettre ou chiffre
              */
-            NKENTSEU_CORE_API bool NkIsAlphaNumeric(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsAlphaNumeric(char ch);
 
             /**
              * @brief Vérifie si un caractère est une minuscule ASCII
@@ -1657,7 +1502,7 @@
              * @param ch Caractère à tester
              * @return true pour a-z
              */
-            NKENTSEU_CORE_API bool NkIsLower(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsLower(char ch);
 
             /**
              * @brief Vérifie si un caractère est une majuscule ASCII
@@ -1665,7 +1510,7 @@
              * @param ch Caractère à tester
              * @return true pour A-Z
              */
-            NKENTSEU_CORE_API bool NkIsUpper(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsUpper(char ch);
 
             /**
              * @brief Vérifie si un caractère est un chiffre hexadécimal
@@ -1673,7 +1518,7 @@
              * @param ch Caractère à tester
              * @return true pour 0-9, A-F ou a-f
              */
-            NKENTSEU_CORE_API bool NkIsHexDigit(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsHexDigit(char ch);
 
             /**
              * @brief Vérifie si un caractère est imprimable ASCII
@@ -1681,7 +1526,7 @@
              * @param ch Caractère à tester
              * @return true pour la plage 32-126 (espace à tilde)
              */
-            NKENTSEU_CORE_API bool NkIsPrintable(char ch);
+            NKENTSEU_CONTAINERS_API bool NkIsPrintable(char ch);
 
             /**
              * @brief Vérifie si une chaîne ne contient que des espaces blancs
@@ -1689,7 +1534,7 @@
              * @param str Vue de chaîne à tester
              * @return true si tous les caractères sont whitespace
              */
-            NKENTSEU_CORE_API bool NkIsAllWhitespace(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsAllWhitespace(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne ne contient que des chiffres décimaux
@@ -1697,7 +1542,7 @@
              * @param str Vue de chaîne à tester
              * @return true si tous les caractères sont '0'-'9'
              */
-            NKENTSEU_CORE_API bool NkIsAllDigits(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsAllDigits(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne ne contient que des lettres ASCII
@@ -1705,7 +1550,7 @@
              * @param str Vue de chaîne à tester
              * @return true si tous les caractères sont A-Z ou a-z
              */
-            NKENTSEU_CORE_API bool NkIsAllAlpha(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsAllAlpha(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne est alphanumérique ASCII
@@ -1713,7 +1558,7 @@
              * @param str Vue de chaîne à tester
              * @return true si tous les caractères sont lettres ou chiffres
              */
-            NKENTSEU_CORE_API bool NkIsAllAlphaNumeric(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsAllAlphaNumeric(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne ne contient que des chiffres hexadécimaux
@@ -1721,7 +1566,7 @@
              * @param str Vue de chaîne à tester
              * @return true si tous les caractères sont 0-9, A-F ou a-f
              */
-            NKENTSEU_CORE_API bool NkIsAllHexDigits(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsAllHexDigits(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne ne contient que des caractères imprimables ASCII
@@ -1729,7 +1574,7 @@
              * @param str Vue de chaîne à tester
              * @return true si tous les caractères sont dans la plage 32-126
              */
-            NKENTSEU_CORE_API bool NkIsAllPrintable(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsAllPrintable(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne représente un nombre valide (entier ou flottant)
@@ -1739,7 +1584,7 @@
              * 
              * @note Accepte : signe optionnel, décimales, exposant scientifique (e/E)
              */
-            NKENTSEU_CORE_API bool NkIsNumeric(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsNumeric(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne représente un entier valide
@@ -1749,7 +1594,7 @@
              * 
              * @note Accepte : espaces initiaux, signe +/-, chiffres décimaux uniquement.
              */
-            NKENTSEU_CORE_API bool NkIsInteger(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsInteger(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne est un palindrome
@@ -1761,7 +1606,7 @@
              * @note Comparaison caractère par caractère symétrique.
              *       ignoreCase affecte uniquement la comparaison, pas la transformation.
              */
-            NKENTSEU_CORE_API bool NkIsPalindrome(NkStringView str, bool ignoreCase = false);
+            NKENTSEU_CONTAINERS_API bool NkIsPalindrome(NkStringView str, bool ignoreCase = false);
 
             // =====================================================================
             // SECTION : PADDING (REMPLISSAGE)
@@ -1778,7 +1623,7 @@
              * @note Si str.Length() >= totalWidth : retourne copie de str inchangée.
              *       Ex: NkPadLeft("42", 5, '0') -> "00042"
              */
-            NKENTSEU_CORE_API NkString NkPadLeft(
+            NKENTSEU_CONTAINERS_API NkString NkPadLeft(
                 NkStringView str, 
                 usize totalWidth, 
                 char paddingChar = ' ');
@@ -1793,7 +1638,7 @@
              * 
              * @note Ex: NkPadRight("Hi", 5, '.') -> "Hi..."
              */
-            NKENTSEU_CORE_API NkString NkPadRight(
+            NKENTSEU_CONTAINERS_API NkString NkPadRight(
                 NkStringView str, 
                 usize totalWidth, 
                 char paddingChar = ' ');
@@ -1809,7 +1654,7 @@
              * @note Si padding impair : le caractère excédentaire est ajouté à droite.
              *       Ex: NkPadCenter("X", 5, '-') -> "--X--"
              */
-            NKENTSEU_CORE_API NkString NkPadCenter(
+            NKENTSEU_CONTAINERS_API NkString NkPadCenter(
                 NkStringView str, 
                 usize totalWidth, 
                 char paddingChar = ' ');
@@ -1828,7 +1673,7 @@
              * @note Pré-alloue la taille exacte : une seule allocation.
              *       Ex: NkRepeat("ab", 3) -> "ababab"
              */
-            NKENTSEU_CORE_API NkString NkRepeat(NkStringView str, usize count);
+            NKENTSEU_CONTAINERS_API NkString NkRepeat(NkStringView str, usize count);
 
             /**
              * @brief Répète un caractère unique N fois
@@ -1840,7 +1685,7 @@
              * @note Version optimisée pour single-char : utilise memset-like si possible.
              *       Ex: NkRepeat('*', 5) -> "*****"
              */
-            NKENTSEU_CORE_API NkString NkRepeat(char ch, usize count);
+            NKENTSEU_CONTAINERS_API NkString NkRepeat(char ch, usize count);
 
             // =====================================================================
             // SECTION : ÉCHAPPEMENT / DÉSÉCHAPPEMENT
@@ -1857,7 +1702,7 @@
              * @note Ex: NkEscape("a\"b", "\"", '\\') -> "a\\\"b"
              *       Chaque caractère de charsToEscape est préfixé par escapeChar.
              */
-            NKENTSEU_CORE_API NkString NkEscape(
+            NKENTSEU_CONTAINERS_API NkString NkEscape(
                 NkStringView str, 
                 NkStringView charsToEscape, 
                 char escapeChar = '\\');
@@ -1872,7 +1717,7 @@
              * @note Ex: NkUnescape("a\\\"b") -> "a\"b"
              *       Gère les séquences : \\, \", \', \n, \t, \r, etc.
              */
-            NKENTSEU_CORE_API NkString NkUnescape(NkStringView str, char escapeChar = '\\');
+            NKENTSEU_CONTAINERS_API NkString NkUnescape(NkStringView str, char escapeChar = '\\');
 
             /**
              * @brief Échappe une chaîne pour usage dans du code C/C++
@@ -1883,7 +1728,7 @@
              * @note Échappe : ", ', \, \n, \r, \t, \0, etc.
              *       Résultat prêt à être inséré dans une chaîne littérale C.
              */
-            NKENTSEU_CORE_API NkString NkCEscape(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkCEscape(NkStringView str);
 
             /**
              * @brief Déséchappe une chaîne C-style
@@ -1893,7 +1738,7 @@
              * 
              * @note Interprète : \\, \", \', \n, \r, \t, \xHH, \ooo, etc.
              */
-            NKENTSEU_CORE_API NkString NkCUnescape(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkCUnescape(NkStringView str);
 
             /**
              * @brief Échappe une chaîne pour insertion sûre dans du HTML
@@ -1904,7 +1749,7 @@
              * @note Remplace : & -> &amp;, < -> &lt;, > -> &gt;, " -> &quot;, ' -> &#39;
              *       Prévention XSS basique pour affichage web.
              */
-            NKENTSEU_CORE_API NkString NkHTMLEscape(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkHTMLEscape(NkStringView str);
 
             /**
              * @brief Déséchappe les entités HTML
@@ -1914,7 +1759,7 @@
              * 
              * @note Reconnaît les entités nommées (&amp;, &lt;, etc.) et numériques (&#39;).
              */
-            NKENTSEU_CORE_API NkString NkHTMLUnescape(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkHTMLUnescape(NkStringView str);
 
             /**
              * @brief Encode une chaîne pour inclusion dans une URL (percent-encoding)
@@ -1926,7 +1771,7 @@
              *       Conserve : A-Z, a-z, 0-9, -, _, ., ~
              *       Ex: "a b" -> "a%20b"
              */
-            NKENTSEU_CORE_API NkString NkURLEncode(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkURLEncode(NkStringView str);
 
             /**
              * @brief Décode une chaîne URL-encodée (percent-decoding)
@@ -1937,7 +1782,7 @@
              * @note Interprète les séquences %HH et les remplace par le caractère correspondant.
              *       Gère également les '+' comme espaces (convention application/x-www-form-urlencoded).
              */
-            NKENTSEU_CORE_API NkString NkURLDecode(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkURLDecode(NkStringView str);
 
             // =====================================================================
             // SECTION : HASHING DE CHAÎNES
@@ -1952,7 +1797,7 @@
              * @note Bon compromis distribution/performance pour tables de hachage.
              *       Non-cryptographique : ne pas utiliser pour la sécurité.
              */
-            NKENTSEU_CORE_API uint64 NkHashFNV1a(NkStringView str);
+            NKENTSEU_CONTAINERS_API uint64 NkHashFNV1a(NkStringView str);
 
             /**
              * @brief Calcule un hash FNV-1a case-insensitive
@@ -1962,7 +1807,7 @@
              * 
              * @note Utile pour les dictionnaires case-insensitive.
              */
-            NKENTSEU_CORE_API uint64 NkHashFNV1aIgnoreCase(NkStringView str);
+            NKENTSEU_CONTAINERS_API uint64 NkHashFNV1aIgnoreCase(NkStringView str);
 
             /**
              * @brief Calcule un hash DJB2 64 bits d'une chaîne
@@ -1973,7 +1818,7 @@
              * @note Algorithme simple et rapide : hash = hash * 33 + c
              *       Bonne distribution pour les petites chaînes.
              */
-            NKENTSEU_CORE_API uint64 NkHashDJB2(NkStringView str);
+            NKENTSEU_CONTAINERS_API uint64 NkHashDJB2(NkStringView str);
 
             /**
              * @brief Calcule un hash SDBM 64 bits d'une chaîne
@@ -1984,7 +1829,7 @@
              * @note Algorithme : hash = c + (hash << 6) + (hash << 16) - hash
              *       Alternative à FNV-1a avec caractéristiques différentes.
              */
-            NKENTSEU_CORE_API uint64 NkHashSDBM(NkStringView str);
+            NKENTSEU_CONTAINERS_API uint64 NkHashSDBM(NkStringView str);
 
             // =====================================================================
             // SECTION : UTILITAIRES D'ENCODAGE
@@ -2000,7 +1845,7 @@
              * @note Perte d'information : les caractères multi-bytes UTF-8 sont remplacés.
              *       Utile pour : fallback d'affichage, normalisation basique.
              */
-            NKENTSEU_CORE_API NkString NkToAscii(NkStringView str, char replacement = '?');
+            NKENTSEU_CONTAINERS_API NkString NkToAscii(NkStringView str, char replacement = '?');
 
             /**
              * @brief Vérifie si une chaîne contient uniquement des caractères ASCII valides
@@ -2008,7 +1853,7 @@
              * @param str Vue de chaîne à tester
              * @return true si tous les bytes sont dans la plage 0-127
              */
-            NKENTSEU_CORE_API bool NkIsValidAscii(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsValidAscii(NkStringView str);
 
             // =====================================================================
             // SECTION : UTILITAIRES DE CHEMINS DE FICHIERS
@@ -2023,7 +1868,7 @@
              * @note Gère les séparateurs Unix (/) et Windows (\).
              *       Ex: NkGetFileName("/usr/bin/app.exe") -> "app.exe"
              */
-            NKENTSEU_CORE_API NkStringView NkGetFileName(NkStringView path);
+            NKENTSEU_CONTAINERS_API NkStringView NkGetFileName(NkStringView path);
 
             /**
              * @brief Extrait le nom de fichier sans extension
@@ -2034,7 +1879,7 @@
              * @note Ex: NkGetFileNameWithoutExtension("file.tar.gz") -> "file.tar"
              *       Ne retire que la dernière extension.
              */
-            NKENTSEU_CORE_API NkStringView NkGetFileNameWithoutExtension(NkStringView path);
+            NKENTSEU_CONTAINERS_API NkStringView NkGetFileNameWithoutExtension(NkStringView path);
 
             /**
              * @brief Extrait le répertoire parent depuis un chemin
@@ -2045,7 +1890,7 @@
              * @note Ex: NkGetDirectory("/usr/bin/app.exe") -> "/usr/bin"
              *       Retourne vue vide si path ne contient pas de séparateur.
              */
-            NKENTSEU_CORE_API NkStringView NkGetDirectory(NkStringView path);
+            NKENTSEU_CONTAINERS_API NkStringView NkGetDirectory(NkStringView path);
 
             /**
              * @brief Extrait l'extension de fichier (avec le point)
@@ -2056,7 +1901,7 @@
              * @note Ex: NkGetExtension("file.txt") -> ".txt"
              *       Recherche le dernier '.' après le dernier séparateur de chemin.
              */
-            NKENTSEU_CORE_API NkStringView NkGetExtension(NkStringView path);
+            NKENTSEU_CONTAINERS_API NkStringView NkGetExtension(NkStringView path);
 
             /**
              * @brief Remplace l'extension d'un chemin par une nouvelle
@@ -2068,7 +1913,7 @@
              * @note Si newExtension ne commence pas par '.', il est ajouté automatiquement.
              *       Ex: NkChangeExtension("file.txt", "bak") -> "file.bak"
              */
-            NKENTSEU_CORE_API NkString NkChangeExtension(
+            NKENTSEU_CONTAINERS_API NkString NkChangeExtension(
                 NkStringView path, 
                 NkStringView newExtension);
 
@@ -2082,7 +1927,7 @@
              * @note Ajoute automatiquement un séparateur si nécessaire.
              *       Gère les cas : path1 vide, path2 absolu, séparateurs multiples.
              */
-            NKENTSEU_CORE_API NkString NkCombinePaths(NkStringView path1, NkStringView path2);
+            NKENTSEU_CONTAINERS_API NkString NkCombinePaths(NkStringView path1, NkStringView path2);
 
             /**
              * @brief Normalise les séparateurs de chemin vers un caractère cible
@@ -2094,7 +1939,7 @@
              * @note Remplace tous les '\' par separator.
              *       Utile pour : portabilité Unix/Windows, génération de chemins cohérents.
              */
-            NKENTSEU_CORE_API NkString NkNormalizePath(NkStringView path, char separator = '/');
+            NKENTSEU_CONTAINERS_API NkString NkNormalizePath(NkStringView path, char separator = '/');
 
             /**
              * @brief Vérifie si un chemin est absolu
@@ -2106,7 +1951,7 @@
              *       - Unix : commence par '/'
              *       - Windows : commence par "X:/" ou "X:\\" ou "\\\\" (UNC)
              */
-            NKENTSEU_CORE_API bool NkIsAbsolutePath(NkStringView path);
+            NKENTSEU_CONTAINERS_API bool NkIsAbsolutePath(NkStringView path);
 
             // =====================================================================
             // SECTION : REMPLACEMENT DE TEMPLATES {{key}}
@@ -2137,7 +1982,7 @@
             NkString NkReplaceTemplates(NkStringView str, const Map& replacements) {
                 NkString result(str);
                 for (const auto& pair : replacements) {
-                    NkString templateStr = NkFormatf("{{%s}}", NkStringView(pair.first).Data());
+                    NkString templateStr = NkPrintf("{{%s}}", NkStringView(pair.first).Data());
                     result = NkReplaceAll(
                         result.View(), 
                         templateStr.View(), 
@@ -2161,7 +2006,7 @@
              *       Gère les marqueurs multiples : si l'un est trouvé, la ligne est tronquée.
              *       Ex: NkRemoveComments("code // comment", "//#") -> "code "
              */
-            NKENTSEU_CORE_API NkString NkRemoveComments(
+            NKENTSEU_CONTAINERS_API NkString NkRemoveComments(
                 NkStringView str, 
                 NkStringView commentMarkers = "//#");
 
@@ -2175,7 +2020,7 @@
              * @note Reconnaît et convertit : \r\n (Windows), \n (Unix), \r (Mac classique).
              *       Utile pour : portabilité entre plateformes, génération de fichiers cohérents.
              */
-            NKENTSEU_CORE_API NkString NkNormalizeLineEndings(
+            NKENTSEU_CONTAINERS_API NkString NkNormalizeLineEndings(
                 NkStringView str, 
                 NkStringView newline = "\n");
 
@@ -2188,7 +2033,7 @@
              * @note Une chaîne vide contient 0 ligne.
              *       "a\nb\nc" -> 3 lignes, "a" -> 1 ligne, "" -> 0 ligne.
              */
-            NKENTSEU_CORE_API usize NkCountLines(NkStringView str);
+            NKENTSEU_CONTAINERS_API usize NkCountLines(NkStringView str);
 
             /**
              * @brief Extrait une ligne spécifique par numéro (0-indexé)
@@ -2200,7 +2045,7 @@
              * @note Les sauts de ligne ne sont pas inclus dans le résultat.
              *       Parcours séquentiel : complexité O(n) pour accéder à la ligne N.
              */
-            NKENTSEU_CORE_API NkStringView NkGetLine(NkStringView str, usize lineNumber);
+            NKENTSEU_CONTAINERS_API NkStringView NkGetLine(NkStringView str, usize lineNumber);
 
             // =====================================================================
             // SECTION : MANIPULATIONS DIVERSES DE CHAÎNES
@@ -2216,7 +2061,7 @@
              * @note Redimensionne str à count caractères puis remplit avec ch.
              *       Équivalent à : str.Resize(count); std::fill(str.begin(), str.end(), ch);
              */
-            NKENTSEU_CORE_API void NkFill(NkString& str, char ch, usize count);
+            NKENTSEU_CONTAINERS_API void NkFill(NkString& str, char ch, usize count);
 
             /**
              * @brief Crée une nouvelle chaîne remplie d'un caractère répété
@@ -2227,7 +2072,7 @@
              * 
              * @note Alias pratique pour NkRepeat(ch, count) : même fonctionnalité.
              */
-            NKENTSEU_CORE_API NkString NkFillCopy(char ch, usize count);
+            NKENTSEU_CONTAINERS_API NkString NkFillCopy(char ch, usize count);
 
             /**
              * @brief Nettoie une chaîne : trim + suppression espaces multiples
@@ -2238,7 +2083,7 @@
              * @note Combine : NkTrim() + NkRemoveExtraSpaces()
              *       Ex: "  a   b  " -> "a b"
              */
-            NKENTSEU_CORE_API NkString NkClean(NkStringView str);
+            NKENTSEU_CONTAINERS_API NkString NkClean(NkStringView str);
 
             /**
              * @brief Nettoie une chaîne in-place
@@ -2247,7 +2092,7 @@
              * 
              * @note Applique TrimInPlace + RemoveExtraSpacesInPlace séquentiellement.
              */
-            NKENTSEU_CORE_API void NkCleanInPlace(NkString& str);
+            NKENTSEU_CONTAINERS_API void NkCleanInPlace(NkString& str);
 
             /**
              * @brief Remplit une chaîne avec un caractère pour atteindre une longueur cible
@@ -2260,7 +2105,7 @@
              * 
              * @note Alias sémantique pour NkPadLeft/NkPadRight selon le paramètre left.
              */
-            NKENTSEU_CORE_API NkString NkFillMissing(
+            NKENTSEU_CONTAINERS_API NkString NkFillMissing(
                 NkStringView str, 
                 char fillChar, 
                 usize totalLength, 
@@ -2280,7 +2125,7 @@
              * 
              * @note Parcours simple : O(n). Plus efficace que NkReplace pour single-char.
              */
-            NKENTSEU_CORE_API NkString NkReplaceChar(
+            NKENTSEU_CONTAINERS_API NkString NkReplaceChar(
                 NkStringView str, 
                 char from, 
                 char to);
@@ -2294,7 +2139,7 @@
              * 
              * @note Modification directe : aucune allocation supplémentaire.
              */
-            NKENTSEU_CORE_API void NkReplaceCharInPlace(NkString& str, char from, char to);
+            NKENTSEU_CONTAINERS_API void NkReplaceCharInPlace(NkString& str, char from, char to);
 
             /**
              * @brief Alias pour NkReplaceChar (nom alternatif)
@@ -2304,7 +2149,7 @@
              * @param to Caractère de remplacement
              * @return Nouvelle instance NkString avec remplacements
              */
-            NKENTSEU_CORE_API NkString NkReplaceAllChars(
+            NKENTSEU_CONTAINERS_API NkString NkReplaceAllChars(
                 NkStringView str, 
                 char from, 
                 char to);
@@ -2316,7 +2161,7 @@
              * @param from Caractère à remplacer
              * @param to Caractère de remplacement
              */
-            NKENTSEU_CORE_API void NkReplaceAllCharsInPlace(NkString& str, char from, char to);
+            NKENTSEU_CONTAINERS_API void NkReplaceAllCharsInPlace(NkString& str, char from, char to);
 
             /**
              * @brief Supprime le caractère à une position donnée
@@ -2327,7 +2172,7 @@
              * 
              * @note Équivalent à NkErase(str, position, 1)
              */
-            NKENTSEU_CORE_API NkString NkRemoveAt(NkStringView str, usize position);
+            NKENTSEU_CONTAINERS_API NkString NkRemoveAt(NkStringView str, usize position);
 
             /**
              * @brief Supprime le caractère à une position in-place
@@ -2337,7 +2182,7 @@
              * 
              * @note Décale les caractères suivants vers la gauche : O(n) worst-case.
              */
-            NKENTSEU_CORE_API void NkRemoveAtInPlace(NkString& str, usize position);
+            NKENTSEU_CONTAINERS_API void NkRemoveAtInPlace(NkString& str, usize position);
 
             /**
              * @brief Insère un caractère unique à une position donnée
@@ -2347,7 +2192,7 @@
              * @param ch Caractère à insérer
              * @return Nouvelle instance NkString avec insertion effectuée
              */
-            NKENTSEU_CORE_API NkString NkInsertChar(
+            NKENTSEU_CONTAINERS_API NkString NkInsertChar(
                 NkStringView str, 
                 usize position, 
                 char ch);
@@ -2361,7 +2206,7 @@
              * 
              * @note Peut déclencher réallocation si capacité insuffisante.
              */
-            NKENTSEU_CORE_API void NkInsertCharInPlace(
+            NKENTSEU_CONTAINERS_API void NkInsertCharInPlace(
                 NkString& str, 
                 usize position, 
                 char ch);
@@ -2384,7 +2229,7 @@
              * @warning Implémentation backtracking : éviter patterns trop complexes
              *          ou chaînes très longues pour des raisons de performance.
              */
-            NKENTSEU_CORE_API bool NkMatchesPattern(NkStringView str, NkStringView pattern);
+            NKENTSEU_CONTAINERS_API bool NkMatchesPattern(NkStringView str, NkStringView pattern);
 
             /**
              * @brief Vérifie si une chaîne a un format d'email valide (basique)
@@ -2400,7 +2245,7 @@
              * @warning Validation simplifiée : ne remplace pas une vérification RFC 5322 complète.
              *          Suffisant pour filtrage basique, pas pour validation stricte.
              */
-            NKENTSEU_CORE_API bool NkIsEmail(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsEmail(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne a un format d'URL valide (basique)
@@ -2415,7 +2260,7 @@
              * @warning Validation simplifiée : ne parse pas tous les cas RFC 3986.
              *          Utile pour filtrage, pas pour parsing complet d'URL.
              */
-            NKENTSEU_CORE_API bool NkIsURL(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsURL(NkStringView str);
 
             /**
              * @brief Vérifie si une chaîne est un identifiant valide (style C/C++)
@@ -2431,7 +2276,7 @@
              * @note Ex: NkIsIdentifier("_var1") -> true
              *       NkIsIdentifier("123abc") -> false (commence par chiffre)
              */
-            NKENTSEU_CORE_API bool NkIsIdentifier(NkStringView str);
+            NKENTSEU_CONTAINERS_API bool NkIsIdentifier(NkStringView str);
 
             // =====================================================================
             // SECTION : UTILITAIRES AVANCÉS
@@ -2453,7 +2298,7 @@
              *   auto hex = NkRandomString(8, "0123456789abcdef");  // "3f9a2c1e"
              * @endcode
              */
-            NKENTSEU_CORE_API NkString NkRandomString(
+            NKENTSEU_CONTAINERS_API NkString NkRandomString(
                 usize length, 
                 NkStringView charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
 
@@ -2468,7 +2313,7 @@
              * @warning Utilise le générateur aléatoire par défaut : pas cryptographiquement sûr.
              *          Pour des UUID sécurisés, utiliser une source d'entropie dédiée.
              */
-            NKENTSEU_CORE_API NkString NkGenerateUUID();
+            NKENTSEU_CONTAINERS_API NkString NkGenerateUUID();
 
             /**
              * @brief Applique une obfuscation simple réversible à une chaîne
@@ -2483,7 +2328,7 @@
              * @warning NE PAS UTILISER pour protéger des données sensibles.
              *          Pour du chiffrement réel, utiliser une bibliothèque cryptographique dédiée.
              */
-            NKENTSEU_CORE_API NkString NkObfuscate(NkStringView str, uint32 seed = 0);
+            NKENTSEU_CONTAINERS_API NkString NkObfuscate(NkStringView str, uint32 seed = 0);
 
             /**
              * @brief Désobfusque une chaîne précédemment obfusquée
@@ -2494,7 +2339,7 @@
              * 
              * @note Opération inverse de NkObfuscate : même seed requis pour récupération correcte.
              */
-            NKENTSEU_CORE_API NkString NkDeobfuscate(NkStringView str, uint32 seed = 0);
+            NKENTSEU_CONTAINERS_API NkString NkDeobfuscate(NkStringView str, uint32 seed = 0);
 
             /**
              * @brief Calcule la distance de Levenshtein entre deux chaînes
@@ -2514,7 +2359,7 @@
              *   // sittin -> sitting (insert g)
              * @endcode
              */
-            NKENTSEU_CORE_API usize NkLevenshteinDistance(NkStringView str1, NkStringView str2);
+            NKENTSEU_CONTAINERS_API usize NkLevenshteinDistance(NkStringView str1, NkStringView str2);
 
             /**
              * @brief Calcule un score de similarité normalisé [0.0 - 1.0] entre deux chaînes
@@ -2526,7 +2371,7 @@
              * @note Basé sur la distance de Levenshtein normalisée par max(len1, len2).
              *       Formule : 1.0 - (distance / max_length)
              */
-            NKENTSEU_CORE_API float64 NkSimilarity(NkStringView str1, NkStringView str2);
+            NKENTSEU_CONTAINERS_API float64 NkSimilarity(NkStringView str1, NkStringView str2);
 
             // =====================================================================
             // SECTION : CRÉATION ET MANIPULATION DE STRINGVIEW
@@ -2542,7 +2387,7 @@
              * @note Aucune copie : la vue référence directement data.
              *       Garantir que data reste valide pendant l'utilisation de la vue.
              */
-            NKENTSEU_CORE_API NkStringView NkMakeView(const char* data, usize length);
+            NKENTSEU_CONTAINERS_API NkStringView NkMakeView(const char* data, usize length);
 
             /**
              * @brief Crée une vue de chaîne à partir d'une C-string terminée par null
@@ -2553,7 +2398,7 @@
              * @note Calcule automatiquement la longueur via parcours jusqu'au null-terminator.
              *       Si cstr == nullptr : retourne vue vide (nullptr, 0).
              */
-            NKENTSEU_CORE_API NkStringView NkMakeView(const char* cstr);
+            NKENTSEU_CONTAINERS_API NkStringView NkMakeView(const char* cstr);
 
             // =====================================================================
             // SECTION : OPÉRATIONS MÉMOIRE SÉCURISÉES
@@ -2575,7 +2420,7 @@
              * @warning dest DOIT pointer vers un buffer d'au moins destSize bytes.
              *          La fonction ne vérifie pas la validité de dest, seulement les bornes.
              */
-            NKENTSEU_CORE_API usize NkSafeCopy(char* dest, usize destSize, NkStringView src);
+            NKENTSEU_CONTAINERS_API usize NkSafeCopy(char* dest, usize destSize, NkStringView src);
 
             /**
              * @brief Concatène une vue de chaîne à un buffer existant avec vérification de bornes
@@ -2600,7 +2445,7 @@
              *   // buffer contient maintenant "Hello World"
              * @endcode
              */
-            NKENTSEU_CORE_API usize NkSafeConcat(char* dest, usize destSize, NkStringView src);
+            NKENTSEU_CONTAINERS_API usize NkSafeConcat(char* dest, usize destSize, NkStringView src);
 
         } // namespace string
 

@@ -223,16 +223,16 @@ float4 PSMain(PSIn i) : SV_Target {
             NkShaderDesc shaderDesc;
             shaderDesc.debugName = "NkUI_DemoBackend";
 
-            if (mApi == NkGraphicsApi::NK_API_OPENGL || mApi == NkGraphicsApi::NK_API_SOFTWARE) {
+            if (mApi == NkGraphicsApi::NK_GFX_API_OPENGL || mApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
                 shaderDesc.AddGLSL(NkShaderStage::NK_VERTEX, kVertGLSL);
                 shaderDesc.AddGLSL(NkShaderStage::NK_FRAGMENT, kFragGLSL);
-            } else if (mApi == NkGraphicsApi::NK_API_DIRECTX11) {
+            } else if (mApi == NkGraphicsApi::NK_GFX_API_D3D11) {
                 shaderDesc.AddHLSL(NkShaderStage::NK_VERTEX, kVertHlslDx11, "VSMain");
                 shaderDesc.AddHLSL(NkShaderStage::NK_FRAGMENT, kFragHlslDx11, "PSMain");
-            } else if (mApi == NkGraphicsApi::NK_API_DIRECTX12) {
+            } else if (mApi == NkGraphicsApi::NK_GFX_API_D3D12) {
                 shaderDesc.AddHLSL(NkShaderStage::NK_VERTEX, kVertHlslDx12, "VSMain");
                 shaderDesc.AddHLSL(NkShaderStage::NK_FRAGMENT, kFragHlslDx12, "PSMain");
-            } else if (mApi == NkGraphicsApi::NK_API_VULKAN) {
+            } else if (mApi == NkGraphicsApi::NK_GFX_API_VULKAN) {
                 NkShaderConvertResult vert = CompileVkSpirv(kVertVk, NkSLStage::NK_VERTEX, "NkUIBackend.vert");
                 NkShaderConvertResult frag = CompileVkSpirv(kFragVk, NkSLStage::NK_FRAGMENT, "NkUIBackend.frag");
                 if (!vert.success || !frag.success) {
@@ -565,7 +565,7 @@ float4 PSMain(PSIn i) : SV_Target {
                         scissor.x = static_cast<int32>(x0);
                         scissor.w = clipW;
                         scissor.h = clipH;
-                        if (mApi == NkGraphicsApi::NK_API_OPENGL) {
+                        if (mApi == NkGraphicsApi::NK_GFX_API_OPENGL) {
                             // NkUI clip rects are top-left based; OpenGL scissor is bottom-left based.
                             scissor.y = static_cast<int32>(fbH) - static_cast<int32>(y1);
                             if (scissor.y < 0) {

@@ -1,1123 +1,829 @@
 // -----------------------------------------------------------------------------
-// FICHIER: NKContainers/String/NkStringFormat.h
-// DESCRIPTION: Système de formatage de chaînes unifié
-//              Supporte deux syntaxes : placeholders {i:props} et style printf %d
-//              Permet l'extension via spécialisation de NkToString<T>
+// FICHIER: Containers/NKString/NkFormat.h
+// DESCRIPTION: Moteur de formatage de chaînes unifié
+//              - Syntaxe accolades : NkFormat("{0:>10.2f} {1:,}", 3.14, 1000000)
+//              - Syntaxe printf    : NkPrintf("%-15s %08.3f", "hello", 3.14)
+//              Points d'extension :
+//                1. Fonction libre ADL NkToString(const MyType&, const NkFormatProps&)
+//                2. Spécialisation de nkentseu::NkFormatter<MyType>
+//                3. Macro NK_FORMATTER / NK_FORMATTER_END
+//              Compatible avec les conventions du framework Nkentseu.
 // AUTEUR: Rihen
-// DATE: 2026-04-26
-// VERSION: 2.0.0
+// DATE: 2026
+// VERSION: 4.0.0
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#ifndef NK_CONTAINERS_STRING_NKSTRINGFORMAT_H
-    #define NK_CONTAINERS_STRING_NKSTRINGFORMAT_H
-
-    // -------------------------------------------------------------------------
-    // INCLUSIONS DES DÉPENDANCES DU PROJET
-    // -------------------------------------------------------------------------
-    #include "NkString.h"
-    #include "NkStringView.h"
-    #include "NKCore/NkTypes.h"
-    #include "NKCore/NkTraits.h"
-    #include "NKMemory/NkAllocator.h"
-
-    // -------------------------------------------------------------------------
-    // INCLUSIONS STANDARD
-    // -------------------------------------------------------------------------
-    #include <cctype>
-    #include <cstdio>
-    #include <cstdarg>
-    #include <cmath>
-
-    // -------------------------------------------------------------------------
-    // NAMESPACE PRINCIPAL
-    // -------------------------------------------------------------------------
-    namespace nkentseu
-    {
-        // ---------------------------------------------------------------------
-        // NAMESPACE DÉDIÉ AU FORMATAGE DE CHAÎNES
-        // ---------------------------------------------------------------------
-        namespace string
-        {
-            // =================================================================
-            // SECTION 1 : PROPRIÉTÉS DE FORMATAGE (PARTAGÉES)
-            // =================================================================
-
-            // -----------------------------------------------------------------
-            // Énumération : Alignement du texte dans le champ
-            // -----------------------------------------------------------------
-            enum class NkFormatAlign : unsigned char
-            {
-                Unset  = 0,  ///< Aucun alignement (par défaut)
-                Left   = 1,  ///< Alignement à gauche (<)
-                Right  = 2,  ///< Alignement à droite (>)
-                Center = 3,  ///< Centrage (^)
-            };
-
-            // -----------------------------------------------------------------
-            // Énumération : Base numérique pour l'affichage des entiers
-            // -----------------------------------------------------------------
-            enum class NkFormatBase : unsigned char
-            {
-                Dec      = 10,  ///< Décimal (par défaut)
-                Hex      = 16,  ///< Hexadécimal minuscules (hex)
-                HexUpper = 17,  ///< Hexadécimal majuscules (HEX)
-                Oct      = 8,   ///< Octal (oct)
-                Bin      = 2,   ///< Binaire (bin)
-            };
-
-            // -----------------------------------------------------------------
-            // Énumération : Style d'affichage des flottants
-            // -----------------------------------------------------------------
-            enum class NkFormatFloat : unsigned char
-            {
-                Default    = 0,  ///< Notation fixe (%f)
-                Scientific = 1,  ///< Notation scientifique minuscule (%e)
-                SciUpper   = 2,  ///< Notation scientifique majuscule (%E)
-                General    = 3,  ///< Notation compacte automatique (%g)
-            };
-
-            // -----------------------------------------------------------------
-            // Structure : Propriétés de formatage parsées depuis un placeholder
-            // -----------------------------------------------------------------
-            struct NkFormatProps
-            {
-                int           width      = 0;   ///< Largeur minimale du champ
-                int           precision  = -1;  ///< Précision (-1 = non spécifiée)
-                NkFormatAlign align      = NkFormatAlign::Unset;  ///< Alignement
-                char          fill       = ' ';  ///< Caractère de remplissage
-                NkFormatBase  base       = NkFormatBase::Dec;  ///< Base numérique
-                NkFormatFloat floatStyle = NkFormatFloat::Default;  ///< Style flottant
-                bool          showSign   = false;  ///< Toujours afficher le signe (+)
-                bool          showPrefix = false;  ///< Afficher préfixe 0x/0b/0o (#)
-                bool          upperStr   = false;  ///< Convertir chaîne en majuscules
-                bool          lowerStr   = false;  ///< Convertir chaîne en minuscules
-
-                // -----------------------------------------------------------------
-                // Méthodes utilitaires pour vérifier la présence d'options
-                // -----------------------------------------------------------------
-                bool HasWidth() const
-                {
-                    return width > 0;
-                }
-
-                bool HasPrecision() const
-                {
-                    return precision >= 0;
-                }
-            };
-
-            // =================================================================
-            // SECTION 2 : TRAIT DE CONVERSION NkToString (PLACEHOLDER STYLE)
-            // =================================================================
-
-            // -----------------------------------------------------------------
-            // Trait principal : spécialiser pour vos types personnalisés
-            // -----------------------------------------------------------------
-            /**
-             * @brief Trait de conversion pour le style placeholder {i:props}
-             * @tparam T Type à convertir en NkString
-             * @note Spécialisez ce trait dans votre code pour supporter vos types
-             *       Exemple : template<> struct NkToString<Vec3> { ... };
-             */
-            template <typename T>
-            struct NkToString
-            {
-                // Pas de méthode Convert() par défaut → erreur de compilation explicite
-                // si l'utilisateur tente de formater un type non-spécialisé.
-            };
-
-            // -----------------------------------------------------------------
-            // Helpers internes pour la conversion des types primitifs
-            // -----------------------------------------------------------------
-            NkString NkIntToString(long long v, const NkFormatProps& props);
-            NkString NkUIntToString(unsigned long long v, const NkFormatProps& props);
-            NkString NkFloatToString(double v, const NkFormatProps& props);
-
-            // -----------------------------------------------------------------
-            // Spécialisations pour les types primitifs intégrés
-            // -----------------------------------------------------------------
-
-            // --- bool ---
-            template <>
-            struct NkToString<bool>
-            {
-                static NkString Convert(bool v, const NkFormatProps& props)
-                {
-                    NkString s(v ? "true" : "false");
-                    if (props.upperStr)
-                    {
-                        s.ToUpper();
-                    }
-                    return NkApplyFormatProps(s, props);
-                }
-            };
-
-            // --- char ---
-            template <>
-            struct NkToString<char>
-            {
-                static NkString Convert(char v, const NkFormatProps& props)
-                {
-                    return NkApplyFormatProps(NkString(1u, v), props);
-                }
-            };
-
-            // --- Entiers signés ---
-            template <>
-            struct NkToString<signed char>
-            {
-                static NkString Convert(signed char v, const NkFormatProps& p)
-                {
-                    return NkIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<short>
-            {
-                static NkString Convert(short v, const NkFormatProps& p)
-                {
-                    return NkIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<int>
-            {
-                static NkString Convert(int v, const NkFormatProps& p)
-                {
-                    return NkIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<long>
-            {
-                static NkString Convert(long v, const NkFormatProps& p)
-                {
-                    return NkIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<long long>
-            {
-                static NkString Convert(long long v, const NkFormatProps& p)
-                {
-                    return NkIntToString(v, p);
-                }
-            };
-
-            // --- Entiers non-signés ---
-            template <>
-            struct NkToString<unsigned char>
-            {
-                static NkString Convert(unsigned char v, const NkFormatProps& p)
-                {
-                    return NkUIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<unsigned short>
-            {
-                static NkString Convert(unsigned short v, const NkFormatProps& p)
-                {
-                    return NkUIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<unsigned int>
-            {
-                static NkString Convert(unsigned int v, const NkFormatProps& p)
-                {
-                    return NkUIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<unsigned long>
-            {
-                static NkString Convert(unsigned long v, const NkFormatProps& p)
-                {
-                    return NkUIntToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<unsigned long long>
-            {
-                static NkString Convert(unsigned long long v, const NkFormatProps& p)
-                {
-                    return NkUIntToString(v, p);
-                }
-            };
-
-            // --- Flottants ---
-            template <>
-            struct NkToString<float>
-            {
-                static NkString Convert(float v, const NkFormatProps& p)
-                {
-                    return NkFloatToString(static_cast<double>(v), p);
-                }
-            };
-
-            template <>
-            struct NkToString<double>
-            {
-                static NkString Convert(double v, const NkFormatProps& p)
-                {
-                    return NkFloatToString(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<long double>
-            {
-                static NkString Convert(long double v, const NkFormatProps& p)
-                {
-                    return NkFloatToString(static_cast<double>(v), p);
-                }
-            };
-
-            // --- Chaînes de caractères ---
-            template <>
-            struct NkToString<const char*>
-            {
-                static NkString Convert(const char* v, const NkFormatProps& props)
-                {
-                    NkString s(v ? v : "(null)");
-                    if (props.upperStr)
-                    {
-                        s.ToUpper();
-                    }
-                    else if (props.lowerStr)
-                    {
-                        s.ToLower();
-                    }
-                    if (props.HasPrecision() && static_cast<int>(s.Length()) > props.precision)
-                    {
-                        s.Resize(static_cast<NkString::SizeType>(props.precision));
-                    }
-                    return NkApplyFormatProps(s, props);
-                }
-            };
-
-            template <>
-            struct NkToString<char*>
-            {
-                static NkString Convert(char* v, const NkFormatProps& p)
-                {
-                    return NkToString<const char*>::Convert(v, p);
-                }
-            };
-
-            template <>
-            struct NkToString<NkString>
-            {
-                static NkString Convert(const NkString& v, const NkFormatProps& props)
-                {
-                    NkString s(v);
-                    if (props.upperStr)
-                    {
-                        s.ToUpper();
-                    }
-                    else if (props.lowerStr)
-                    {
-                        s.ToLower();
-                    }
-                    if (props.HasPrecision() && static_cast<int>(s.Length()) > props.precision)
-                    {
-                        s.Resize(static_cast<NkString::SizeType>(props.precision));
-                    }
-                    return NkApplyFormatProps(s, props);
-                }
-            };
-
-            // --- Pointeurs ---
-            template <>
-            struct NkToString<void*>
-            {
-                static NkString Convert(void* v, const NkFormatProps&)
-                {
-                    char buf[32];
-                    ::snprintf(buf, sizeof(buf), "%p", v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToString<const void*>
-            {
-                static NkString Convert(const void* v, const NkFormatProps&)
-                {
-                    char buf[32];
-                    ::snprintf(buf, sizeof(buf), "%p", v);
-                    return NkString(buf);
-                }
-            };
-
-            template <typename T>
-            struct NkToString<T*>
-            {
-                static NkString Convert(T* v, const NkFormatProps&)
-                {
-                    char buf[32];
-                    ::snprintf(buf, sizeof(buf), "%p", static_cast<const void*>(v));
-                    return NkString(buf);
-                }
-            };
-
-            // =================================================================
-            // SECTION 3 : TRAIT DE CONVERSION NkToFormatf (PRINTF STYLE)
-            // =================================================================
-
-            // -----------------------------------------------------------------
-            // Trait pour le style printf : spécialiser pour types personnalisés
-            // -----------------------------------------------------------------
-            /**
-             * @brief Trait de conversion pour le style printf %d, %s, etc.
-             * @tparam T Type à convertir en NkString
-             * @param opts Chaîne d'options brute entre % et le spécificateur
-             * @note Spécialisez ce trait pour supporter vos types avec printf-style
-             *       Exemple : template<> struct NkToFormatf<Vec3> { ... };
-             */
-            template <typename T>
-            struct NkToFormatf
-            {
-                // Pas de méthode Convert() par défaut → erreur explicite si non-spécialisé
-            };
-
-            // -----------------------------------------------------------------
-            // Spécialisations pour les types primitifs intégrés (printf-style)
-            // -----------------------------------------------------------------
-
-            // --- bool ---
-            template <>
-            struct NkToFormatf<bool>
-            {
-                static NkString Convert(bool v, const char*)
-                {
-                    return NkString(v ? "true" : "false");
-                }
-            };
-
-            // --- char ---
-            template <>
-            struct NkToFormatf<char>
-            {
-                static NkString Convert(char v, const char* opts)
-                {
-                    char buf[8];
-                    char fmt[16];
-                    if (opts && *opts)
-                    {
-                        ::snprintf(fmt, sizeof(fmt), "%%%sc", opts);
-                    }
-                    else
-                    {
-                        fmt[0] = '%';
-                        fmt[1] = 'c';
-                        fmt[2] = '\0';
-                    }
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            // --- Entiers signés ---
-            template <>
-            struct NkToFormatf<signed char>
-            {
-                static NkString Convert(signed char v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%sd", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, static_cast<int>(v));
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<short>
-            {
-                static NkString Convert(short v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%shd", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<int>
-            {
-                static NkString Convert(int v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%sd", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<long>
-            {
-                static NkString Convert(long v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%sld", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<long long>
-            {
-                static NkString Convert(long long v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%slld", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            // --- Entiers non-signés ---
-            template <>
-            struct NkToFormatf<unsigned char>
-            {
-                static NkString Convert(unsigned char v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%su", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, static_cast<unsigned>(v));
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<unsigned short>
-            {
-                static NkString Convert(unsigned short v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%shu", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<unsigned int>
-            {
-                static NkString Convert(unsigned int v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%su", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<unsigned long>
-            {
-                static NkString Convert(unsigned long v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%slu", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<unsigned long long>
-            {
-                static NkString Convert(unsigned long long v, const char* opts)
-                {
-                    char buf[32];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%sllu", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            // --- Flottants ---
-            template <>
-            struct NkToFormatf<float>
-            {
-                static NkString Convert(float v, const char* opts)
-                {
-                    char buf[64];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%sf", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, static_cast<double>(v));
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<double>
-            {
-                static NkString Convert(double v, const char* opts)
-                {
-                    char buf[64];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%sf", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<long double>
-            {
-                static NkString Convert(long double v, const char* opts)
-                {
-                    char buf[64];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%sLf", opts && *opts ? opts : "");
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            // --- Chaînes ---
-            template <>
-            struct NkToFormatf<const char*>
-            {
-                static NkString Convert(const char* v, const char* opts)
-                {
-                    if (!v)
-                    {
-                        return NkString("(null)");
-                    }
-                    if (!opts || !*opts)
-                    {
-                        return NkString(v);
-                    }
-                    char buf[512];
-                    char fmt[16];
-                    ::snprintf(fmt, sizeof(fmt), "%%%ss", opts);
-                    ::snprintf(buf, sizeof(buf), fmt, v);
-                    return NkString(buf);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<char*>
-            {
-                static NkString Convert(char* v, const char* opts)
-                {
-                    return NkToFormatf<const char*>::Convert(v, opts);
-                }
-            };
-
-            template <>
-            struct NkToFormatf<NkString>
-            {
-                static NkString Convert(const NkString& v, const char* opts)
-                {
-                    return NkToFormatf<const char*>::Convert(v.CStr(), opts);
-                }
-            };
-
-            // --- Pointeurs ---
-            template <>
-            struct NkToFormatf<void*>
-            {
-                static NkString Convert(void* v, const char*)
-                {
-                    char buf[32];
-                    ::snprintf(buf, sizeof(buf), "%p", v);
-                    return NkString(buf);
-                }
-            };
-
-            template <typename T>
-            struct NkToFormatf<T*>
-            {
-                static NkString Convert(T* v, const char*)
-                {
-                    char buf[32];
-                    ::snprintf(buf, sizeof(buf), "%p", static_cast<void*>(v));
-                    return NkString(buf);
-                }
-            };
-
-            // =================================================================
-            // SECTION 4 : ARGUMENTS DE FORMATAGE (TYPE-ERASED)
-            // =================================================================
-
-            // -----------------------------------------------------------------
-            // Structure représentant un argument formatable (type effacé)
-            // -----------------------------------------------------------------
-            struct NkFormatArg
-            {
-                const void* data = nullptr;
-                NkString (*convert)(const void*, const NkFormatProps&) = nullptr;
-            };
-
-            // -----------------------------------------------------------------
-            // Factory : crée un NkFormatArg pour un type donné
-            // -----------------------------------------------------------------
-            template <typename T>
-            inline NkFormatArg NkMakeFormatArg(const T& value)
-            {
-                NkFormatArg arg;
-                arg.data = static_cast<const void*>(&value);
-                arg.convert = [](const void* d, const NkFormatProps& p) -> NkString
-                {
-                    return NkToString<T>::Convert(*static_cast<const T*>(d), p);
-                };
-                return arg;
-            }
-
-            // -----------------------------------------------------------------
-            // Spécialisation pour const char* : le pointeur EST la donnée
-            // -----------------------------------------------------------------
-            inline NkFormatArg NkMakeFormatArg(const char* value)
-            {
-                NkFormatArg arg;
-                arg.data = static_cast<const void*>(value);
-                arg.convert = [](const void* d, const NkFormatProps& p) -> NkString
-                {
-                    return NkToString<const char*>::Convert(static_cast<const char*>(d), p);
-                };
-                return arg;
-            }
-
-            // =================================================================
-            // SECTION 5 : BUFFER D'ARGUMENTS HYBRIDE (SSO / HEAP)
-            // =================================================================
-
-            // -----------------------------------------------------------------
-            // Constante : nombre d'arguments stockés sur la pile (SSO)
-            // -----------------------------------------------------------------
-            static constexpr int NK_FORMAT_SSO_ARGS = 16;
-
-            // -----------------------------------------------------------------
-            // Classe : buffer dynamique avec optimisation SSO
-            // -----------------------------------------------------------------
-            class NkFormatArgBuffer
-            {
-            public:
-                // -----------------------------------------------------------------
-                // Constructeur : initialise avec allocateur optionnel
-                // -----------------------------------------------------------------
-                explicit NkFormatArgBuffer(memory::NkIAllocator* alloc = nullptr) noexcept
-                    : mData(mSSO)
-                    , mCount(0)
-                    , mCapacity(NK_FORMAT_SSO_ARGS)
-                    , mAllocator(alloc)
-                    , mHeap(nullptr)
-                {
-                }
-
-                // -----------------------------------------------------------------
-                // Destructeur : libère la mémoire heap si nécessaire
-                // -----------------------------------------------------------------
-                ~NkFormatArgBuffer()
-                {
-                    FreeHeap();
-                }
-
-                // -----------------------------------------------------------------
-                // Suppression des copies : sécurité des pointeurs vers temporaires
-                // -----------------------------------------------------------------
-                NkFormatArgBuffer(const NkFormatArgBuffer&) = delete;
-                NkFormatArgBuffer& operator=(const NkFormatArgBuffer&) = delete;
-
-                // -----------------------------------------------------------------
-                // Ajoute un argument au buffer (avec croissance automatique)
-                // -----------------------------------------------------------------
-                void Push(const NkFormatArg& arg)
-                {
-                    if (mCount == mCapacity)
-                    {
-                        Grow();
-                    }
-                    mData[mCount++] = arg;
-                }
-
-                // -----------------------------------------------------------------
-                // Accesseurs en lecture seule
-                // -----------------------------------------------------------------
-                const NkFormatArg* Data() const noexcept
-                {
-                    return mData;
-                }
-
-                int Count() const noexcept
-                {
-                    return mCount;
-                }
-
-            private:
-                // -----------------------------------------------------------------
-                // Buffer stack pour le cas SSO (pas d'allocation dynamique)
-                // -----------------------------------------------------------------
-                NkFormatArg mSSO[NK_FORMAT_SSO_ARGS];
-
-                // -----------------------------------------------------------------
-                // Pointeur vers les données actuelles (SSO ou heap)
-                // -----------------------------------------------------------------
-                NkFormatArg* mData;
-
-                // -----------------------------------------------------------------
-                // Nombre d'arguments actuellement stockés
-                // -----------------------------------------------------------------
-                int mCount;
-
-                // -----------------------------------------------------------------
-                // Capacité actuelle du buffer
-                // -----------------------------------------------------------------
-                int mCapacity;
-
-                // -----------------------------------------------------------------
-                // Allocateur personnalisé (peut être nullptr)
-                // -----------------------------------------------------------------
-                memory::NkIAllocator* mAllocator;
-
-                // -----------------------------------------------------------------
-                // Buffer heap alloué dynamiquement en cas de débordement SSO
-                // -----------------------------------------------------------------
-                NkFormatArg* mHeap;
-
-                // -----------------------------------------------------------------
-                // Libère la mémoire heap et revient au mode SSO
-                // -----------------------------------------------------------------
-                void FreeHeap()
-                {
-                    if (mHeap)
-                    {
-                        if (mAllocator)
-                        {
-                            mAllocator->Deallocate(mHeap);
-                        }
-                        else
-                        {
-                            ::operator delete(static_cast<void*>(mHeap));
-                        }
-                        mHeap = nullptr;
-                        mData = mSSO;
-                    }
-                }
-
-                // -----------------------------------------------------------------
-                // Double la capacité et migre vers le heap si nécessaire
-                // -----------------------------------------------------------------
-                void Grow()
-                {
-                    int newCap = mCapacity * 2;
-                    NkFormatArg* newBuf;
-
-                    if (mAllocator)
-                    {
-                        newBuf = static_cast<NkFormatArg*>(
-                            mAllocator->Allocate(static_cast<usize>(newCap) * sizeof(NkFormatArg))
-                        );
-                    }
-                    else
-                    {
-                        newBuf = static_cast<NkFormatArg*>(
-                            ::operator new(static_cast<size_t>(newCap) * sizeof(NkFormatArg))
-                        );
-                    }
-
-                    for (int i = 0; i < mCount; ++i)
-                    {
-                        newBuf[i] = mData[i];
-                    }
-
-                    FreeHeap();
-                    mHeap = newBuf;
-                    mData = newBuf;
-                    mCapacity = newCap;
-                }
-            };
-
-            // =================================================================
-            // SECTION 6 : API PUBLIQUE — PLACEHOLDER STYLE {i:props}
-            // =================================================================
-
-            // -----------------------------------------------------------------
-            // Parse une chaîne de propriétés → structure NkFormatProps
-            // -----------------------------------------------------------------
-            NkFormatProps NkParseFormatProps(const char* props, int propsLen);
-
-            // -----------------------------------------------------------------
-            // Applique alignement/rembourrage à une chaîne déjà convertie
-            // -----------------------------------------------------------------
-            NkString NkApplyFormatProps(const NkString& value, const NkFormatProps& props);
-
-            // -----------------------------------------------------------------
-            // Moteur interne de formatage (implémenté dans .cpp)
-            // -----------------------------------------------------------------
-            NkString NkFormatImpl(const char* fmt, const NkFormatArg* args, int argCount);
-
-            // -----------------------------------------------------------------
-            // Namespace interne pour l'expansion des packs variadiques
-            // -----------------------------------------------------------------
-            namespace detail
-            {
-                // -----------------------------------------------------------------
-                // Cas de base : pack vide
-                // -----------------------------------------------------------------
-                inline void NkFillArgBuffer(NkFormatArgBuffer&)
-                {
-                }
-
-                // -----------------------------------------------------------------
-                // Récursion : ajoute le premier argument puis traite le reste
-                // -----------------------------------------------------------------
-                template <typename First, typename... Rest>
-                void NkFillArgBuffer(NkFormatArgBuffer& buf,
-                                     const First& first,
-                                     const Rest&... rest)
-                {
-                    buf.Push(NkMakeFormatArg(first));
-                    NkFillArgBuffer(buf, rest...);
-                }
-            } // namespace detail
-
-            // -----------------------------------------------------------------
-            // Surcharge : format sans arguments (cas trivial)
-            // -----------------------------------------------------------------
-            inline NkString NkFormat(const char* fmt)
-            {
-                return NkFormatImpl(fmt, nullptr, 0);
-            }
-
-            // -----------------------------------------------------------------
-            // Fonction principale : formatage avec arguments variadiques
-            // -----------------------------------------------------------------
-            template <typename... Args>
-            NkString NkFormat(const char* fmt, const Args&... args)
-            {
-                NkFormatArgBuffer buf;
-                detail::NkFillArgBuffer(buf, args...);
-                return NkFormatImpl(fmt, buf.Data(), buf.Count());
-            }
-
-            // -----------------------------------------------------------------
-            // Surcharge avec allocateur personnalisé (pour environnements contraints)
-            // -----------------------------------------------------------------
-            template <typename... Args>
-            NkString NkFormatAlloc(memory::NkIAllocator& alloc,
-                                   const char* fmt,
-                                   const Args&... args)
-            {
-                NkFormatArgBuffer buf(&alloc);
-                detail::NkFillArgBuffer(buf, args...);
-                return NkFormatImpl(fmt, buf.Data(), buf.Count());
-            }
-
-            // =================================================================
-            // SECTION 7 : API PUBLIQUE — PRINTF STYLE %d, %s, etc.
-            // =================================================================
-
-            // -----------------------------------------------------------------
-            // Formatage style printf avec arguments variadiques C
-            // -----------------------------------------------------------------
-            NkString NkFormatf(const char* fmt, ...);
-
-            // -----------------------------------------------------------------
-            // Version avec va_list pour chaînage depuis d'autres fonctions
-            // -----------------------------------------------------------------
-            NkString NkVFormatf(const char* fmt, va_list args);
-
-            // -----------------------------------------------------------------
-            // Helper : conversion binaire (extension non-standard de printf)
-            // -----------------------------------------------------------------
-            NkString NkToBinaryString(unsigned long long value, int width = 0, char fill = '0');
-
-            // =================================================================
-            // SECTION 8 : EXTENSION NkString::Fmt (MÉTHODE STATIQUE)
-            // =================================================================
-
-        } // namespace string
-
-    } // namespace nkentseu
-
-    // ---------------------------------------------------------------------
-    // DÉFINITION DU TEMPLATE NkString::Fmt (hors-classe)
-    // À inclure après la définition complète de NkString
-    // ---------------------------------------------------------------------
-    namespace nkentseu
-    {
-        namespace string
-        {
-            // -----------------------------------------------------------------
-            // Méthode statique : formatage placeholder depuis NkString
-            // -----------------------------------------------------------------
-            template <typename... Args>
-            inline NkString NkString::Fmt(const Char* format, const Args&... args)
-            {
-                NkFormatArgBuffer buf;
-                detail::NkFillArgBuffer(buf, args...);
-                return NkFormatImpl(format, buf.Data(), buf.Count());
-            }
-        } // namespace string
-    } // namespace nkentseu
-
-#endif // NK_CONTAINERS_STRING_NKSTRINGFORMAT_H
-
-// =============================================================================
-// EXEMPLES D'UTILISATION — DEUX STYLES DE FORMATAGE
-// =============================================================================
-/*
-    // -------------------------------------------------------------------------
-    // STYLE 1 : Placeholder {i:props} — moderne et type-safe
-    // -------------------------------------------------------------------------
-    #include "NKContainers/String/NkStringFormat.h"
-    using namespace nkentseu::string;
-
-    // Exemple basique : insertion positionnelle
-    NkString msg1 = NkFormat("Hello {0}, you have {1} messages", "Alice", 5);
-    // Résultat : "Hello Alice, you have 5 messages"
-
-    // Exemple avec propriétés : alignement, base, précision
-    NkString msg2 = NkFormat("{0:w=8 >} | {1:.3} | {2:hex # w=6 0}", 42, 3.14159, 255);
-    // Résultat : "      42 | 3.142 | 0x00ff"
-
-    // Exemple avec booléens et chaînes
-    NkString msg3 = NkFormat("Active: {0}, Name: {1:upper}", true, "bob");
-    // Résultat : "Active: true, Name: BOB"
-
-    // -------------------------------------------------------------------------
-    // STYLE 2 : Printf %d, %s — familier et compact
-    // -------------------------------------------------------------------------
-
-    // Exemple basique : spécificateurs standards
-    NkString msg4 = NkFormatf("Score: %d, Rate: %.2f, User: %s", 100, 3.14159, "Alice");
-    // Résultat : "Score: 100, Rate: 3.14, User: Alice"
-
-    // Exemple avec flags et largeur : alignement, padding, préfixe
-    NkString msg5 = NkFormatf("%08x | %-10s | %+d", 255, "hello", -42);
-    // Résultat : "000000ff | hello      | -42"
-
-    // Exemple avec binaire (extension) : %b non-standard
-    NkString msg6 = NkFormatf("Mask: %b", 42u);
-    // Résultat : "Mask: 101010"
-
-    // -------------------------------------------------------------------------
-    // EXTENSION UTILISATEUR : Spécialisation de NkToString<T>
-    // -------------------------------------------------------------------------
-
-    // Définir un type personnalisé
-    struct Vec3 { float x, y, z; };
-
-    // Spécialiser NkToString dans le namespace nkentseu
-    namespace nkentseu
-    {
-        template <>
-        struct string::NkToString<Vec3>
-        {
-            static NkString Convert(const Vec3& v, const NkFormatProps& props)
-            {
-                // Formatage interne avec les propriétés reçues
-                NkString s = string::NkFormat("({0:.3}, {1:.3}, {2:.3})", v.x, v.y, v.z);
-                // Appliquer alignement/largeur si spécifié par l'appelant
-                return string::NkApplyFormatProps(s, props);
-            }
-        };
-    }
-
-    // Utilisation transparente avec NkFormat
-    Vec3 pos{1.0f, 2.5f, -3.14159f};
-    NkString msg7 = NkFormat("Position: {0:w=30 ^}", pos);
-    // Résultat : "Position:       (1.000, 2.500, -3.142)       "
-
-    // -------------------------------------------------------------------------
-    // COMPARAISON RAPIDE : QUAND UTILISER QUEL STYLE ?
-    // -------------------------------------------------------------------------
-
-    // ✓ Placeholder {i:props} :
-    //   - Formatage riche avec propriétés structurées (w=, hex, upper...)
-    //   - Type-safe : erreurs détectées à la compilation pour types non-spécialisés
-    //   - Réordonnancement facile des arguments sans modifier la chaîne
-    //   - Extension via NkToString<T> avec accès aux propriétés structurées
-
-    // ✓ Printf %d, %s :
-    //   - Syntaxe compacte et familière pour les développeurs C/C++
-    //   - Migration progressive depuis du code legacy utilisant printf
-    //   - Support natif des flags (%08x, %-10s, %+d) sans parsing supplémentaire
-    //   - Extension via NkToFormatf<T> avec chaîne d'options brute
-
-    // -------------------------------------------------------------------------
-    // BONNES PRATIQUES ET PERFORMANCES
-    // -------------------------------------------------------------------------
-
-    // 1. Réutiliser un buffer dans les boucles chaudes pour éviter les allocations :
-    void LogBatch(const int* values, usize count)
-    {
-        NkString buffer;
-        buffer.Reserve(64);  // Pré-allouer pour éviter les réallocations
-        for (usize i = 0; i < count; ++i)
-        {
-            buffer.Clear();  // Réinitialiser sans libérer la capacité
-            buffer.Append("Value[");
-            buffer.Append(string::NkFormatValue(i));  // Formatage de l'index
-            buffer.Append("] = ");
-            buffer.Append(string::NkFormatValue(values[i]));  // Formatage de la valeur
-            SendLog(buffer.CStr());  // Aucune allocation après la première itération
-        }
-    }
-
-    // 2. Utiliser NkFormatAlloc avec un pool allocator en temps réel :
-    void GameLoopUpdate(memory::NkIAllocator& frameAlloc)
-    {
-        // Formatage sans allocation système dans la boucle de jeu
-        NkString status = string::NkFormatAlloc(
-            frameAlloc,
-            "FPS: {0:.1} | Entities: {1} | Memory: {2} KB",
-            currentFPS,
-            entityCount,
-            usedMemoryKB
-        );
-        RenderUI(status);
-    }
-
-    // 3. Valider les entrées utilisateur avant interpolation (sécurité) :
-    NkString BuildQuerySafe(NkStringView table, NkStringView column, int id)
-    {
-        // Rejeter les identifiants contenant des caractères dangereux
-        if (!table.IsAlphaNumeric() || !column.IsAlphaNumeric())
-        {
-            return NkString("[ERROR] Invalid identifier");
-        }
-        // Interpolation sûre : les valeurs numériques sont formatées, pas concaténées
-        return string::NkFormat(
-            "SELECT * FROM {0} WHERE {1} = {2}",
-            table, column, id
-        );
-    }
-*/
+#ifndef NK_FORMAT_NKFORMAT_H_INCLUDED
+#define NK_FORMAT_NKFORMAT_H_INCLUDED
 
 // ============================================================
-// Copyright © 2024-2026 Rihen. Tous droits réservés.
-// Licence Apache-2.0 / Propriétaire selon contexte
-//
-// Généré par Rihen le 2026-04-26
-// Dernière modification : 2026-04-26
+// INCLUSIONS
+// ============================================================
+
+#include "NkString.h"
+#include "NkStringView.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/Iterators/NkIterator.h"
+
+#include <cstdio>
+#include <cstring>
+#include <cstdint>
+#include <cmath>
+#include <stdexcept>
+#include <type_traits>
+
+// ============================================================
+// DÉCLARATIONS PRINCIPALES (namespace nkentseu)
+// ============================================================
+
+namespace nkentseu {
+
+    /// Propriétés de formatage, issues du mini-langage de spécification.
+    struct NkFormatProps {
+        char         fill      = ' ';   ///< Caractère de remplissage
+        char         align     = '\0';  ///< Alignement : '<' '>' '^' '='
+        char         sign      = '\0';  ///< Signe explicite : '+' '-' ' '
+        bool         alt       = false; ///< '#' (préfixe 0x, 0b, …)
+        bool         zeroPad   = false; ///< '0' (remplissage par zéros)
+        int          width     = -1;    ///< Largeur de champ (-1 = non spécifié)
+        char         grouping  = '\0';  ///< Séparateur de milliers : ',' ou '_'
+        int          precision = -1;    ///< Précision (-1 = non spécifié)
+        char         type      = '\0';  ///< Caractère de conversion (d, x, f, …)
+        NkStringView raw;               ///< Spécification brute restante (extensions custom)
+
+        bool HasWidth()     const noexcept { return width >= 0; }
+        bool HasPrecision() const noexcept { return precision >= 0; }
+
+        /// Applique largeur et alignement à une chaîne déjà formatée.
+        /// @param content Chaîne à ajuster
+        /// @param numeric Vrai si la valeur est numérique (gère le zéro-padding)
+        NkString ApplyWidth(const NkStringView& content, bool numeric = false) const;
+    };
+
+    // ── Point d'extension principal : NkFormatter<T> ─────────────────┐
+    template<typename T, typename Enable = void>
+    struct NkFormatter;  // Spécialisation utilisateur possible
+
+    // ── API publique ─────────────────────────────────────────────────┐
+
+    /// Formatage avec accolades {i:props}
+    template<typename... Args>
+    NkString NkFormat(NkStringView fmt, const Args&... args);
+
+    /// Formatage style printf (%…)
+    template<typename... Args>
+    NkString NkPrintf(NkStringView fmt, const Args&... args);
+
+    /// Ajoute le résultat d'un NkFormat dans une chaîne existante
+    template<typename... Args>
+    void NkFormatTo(NkString& out, NkStringView fmt, const Args&... args);
+
+    /// Ajoute le résultat d'un NkPrintf dans une chaîne existante
+    template<typename... Args>
+    void NkPrintfTo(NkString& out, NkStringView fmt, const Args&... args);
+
+    // Sorties pratiques
+    template<typename... Args>
+    void NkPrint  (NkStringView fmt, const Args&... args);
+    template<typename... Args>
+    void NkPrintln(NkStringView fmt, const Args&... args);
+    template<typename... Args>
+    void NkEPrint  (NkStringView fmt, const Args&... args);
+    template<typename... Args>
+    void NkEPrintln(NkStringView fmt, const Args&... args);
+
+} // namespace nkentseu
+
+// ============================================================
+// IMPLÉMENTATIONS (détail, placé dans nkentseu car requis par les templates)
+// ============================================================
+
+namespace nkentseu {
+    // ── Alignement / padding (membre de NkFormatProps) ──────────────────
+
+    inline NkString NkFormatProps::ApplyWidth(const NkStringView& content, bool numeric) const {
+        if (!HasWidth()) return NkString(content);
+
+        int len = static_cast<int>(content.Size());
+        int pad = width - len;
+        if (pad <= 0) return NkString(content);
+
+        char effectiveAlign = align ? align : (numeric ? '>' : '<');
+        char fillChar       = fill;
+
+        // Zéro-padding numérique : insère les '0' après le signe/préfixe
+        if (zeroPad && numeric && effectiveAlign == '>') {
+            int prefixLen = 0;
+            if (content.Size() > 0 && (content[0] == '-' || content[0] == '+' || content[0] == ' '))
+                prefixLen = 1;
+            if (prefixLen + 1 < len && content[prefixLen] == '0' &&
+                (content[prefixLen + 1] == 'x' || content[prefixLen + 1] == 'X' ||
+                content[prefixLen + 1] == 'b' || content[prefixLen + 1] == 'B' ||
+                content[prefixLen + 1] == 'o'))
+                prefixLen += 2;
+
+            NkString result;
+            result.Append(content.SubStr(0, prefixLen));
+            result.Append(static_cast<NkString::SizeType>(pad), '0');
+            result.Append(content.SubStr(prefixLen));
+            return result;
+        }
+
+        NkString result;
+        result.Reserve(static_cast<NkString::SizeType>(width));
+
+        switch (effectiveAlign) {
+            case '<':
+                result.Append(content);
+                result.Append(static_cast<NkString::SizeType>(pad), fillChar);
+                break;
+            case '>':
+                result.Append(static_cast<NkString::SizeType>(pad), fillChar);
+                result.Append(content);
+                break;
+            case '^': {
+                int left  = pad / 2;
+                int right = pad - left;
+                result.Append(static_cast<NkString::SizeType>(left), fillChar);
+                result.Append(content);
+                result.Append(static_cast<NkString::SizeType>(right), fillChar);
+                break;
+            }
+            case '=': {
+                if (content.Size() > 0 &&
+                    (content[0] == '-' || content[0] == '+' || content[0] == ' ')) {
+                    result.Append(content.SubStr(0, 1));
+                    result.Append(static_cast<NkString::SizeType>(pad), fillChar);
+                    result.Append(content.SubStr(1));
+                } else {
+                    result.Append(static_cast<NkString::SizeType>(pad), fillChar);
+                    result.Append(content);
+                }
+                break;
+            }
+            default:
+                result.Append(static_cast<NkString::SizeType>(pad), fillChar);
+                result.Append(content);
+                break;
+        }
+        return result;
+    }
+
+    namespace detail {
+
+        // ── Groupement des milliers ──────────────────────────────────────────
+
+        inline NkString NkApplyGrouping(const NkStringView& digits, char sep) {
+            int signLen = 0;
+            if (digits.Size() > 0 && (digits[0] == '-' || digits[0] == '+' || digits[0] == ' '))
+                signLen = 1;
+
+            NkStringView signPart = digits.SubStr(0, signLen);
+            NkStringView digitPart = digits.SubStr(signLen);
+            int n = static_cast<int>(digitPart.Size());
+            if (n <= 3) return NkString(digits);
+
+            NkString result;
+            int rem = n % 3;
+            int i   = 0;
+            if (rem > 0) {
+                result.Append(digitPart.SubStr(0, rem));
+                i = rem;
+            }
+            while (i < n) {
+                if (!result.Empty()) result.Append(sep);
+                result.Append(digitPart.SubStr(i, 3));
+                i += 3;
+            }
+            return NkString(signPart) + result;
+        }
+
+        // ── Formatage entier ─────────────────────────────────────────────────
+
+        inline NkString NkFmtInteger(unsigned long long uval, bool isSigned, bool negative, const NkFormatProps& p) {
+            char type = p.type ? p.type : 'd';
+
+            NkString result;
+            char buf[72];
+
+            switch (type) {
+                case 'd': case 'i':
+                    snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(negative ? -static_cast<long long>(uval) : uval));
+                    result = buf;
+                    break;
+                case 'u':
+                    snprintf(buf, sizeof(buf), "%llu", uval);
+                    result = buf;
+                    break;
+                case 'x':
+                    snprintf(buf, sizeof(buf), "%llx", uval);
+                    result = buf;
+                    if (p.alt) result = NkString("0x") + result;
+                    break;
+                case 'X':
+                    snprintf(buf, sizeof(buf), "%llX", uval);
+                    result = buf;
+                    if (p.alt) result = NkString("0X") + result;
+                    break;
+                case 'o':
+                    snprintf(buf, sizeof(buf), "%llo", uval);
+                    result = buf;
+                    if (p.alt && result.Length() > 0 && result[0] != '0') result = NkString("0") + result;
+                    break;
+                case 'b': case 'B': {
+                    if (uval == 0) {
+                        result = "0";
+                    } else {
+                        NkString bin;
+                        for (auto v = uval; v; v >>= 1)
+                            bin = NkString(1, static_cast<char>('0' + (v & 1))) + bin;
+                        result = std::move(bin);
+                    }
+                    if (p.alt) result = (type == 'b' ? NkString("0b") : NkString("0B")) + result;
+                    break;
+                }
+                case 'c':
+                    return p.ApplyWidth(NkStringView(NkString(1, static_cast<char>(uval))), false);
+                case '%': {
+                    snprintf(buf, sizeof(buf), "%.6g%%", static_cast<double>(uval) * 100.0);
+                    return p.ApplyWidth(NkStringView(NkString(buf)), true);
+                }
+                default:
+                    snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(negative ? -static_cast<long long>(uval) : uval));
+                    result = buf;
+                    break;
+            }
+
+            // Signe explicite
+            if (!negative) {
+                if (p.sign == '+') result = NkString("+") + result;
+                else if (p.sign == ' ') result = NkString(" ") + result;
+            }
+
+            // Groupement (décimal uniquement)
+            if (p.grouping && (type == 'd' || type == 'i' || type == 'u'))
+                result = NkApplyGrouping(NkStringView(result), p.grouping);
+
+            return p.ApplyWidth(NkStringView(result), true);
+        }
+
+        inline NkString NkFmtInteger(long long val, const NkFormatProps& p) {
+            bool neg = val < 0;
+            unsigned long long uval = neg ? static_cast<unsigned long long>(-val) : static_cast<unsigned long long>(val);
+            return NkFmtInteger(uval, true, neg, p);
+        }
+
+        inline NkString NkFmtInteger(unsigned long long val, const NkFormatProps& p) {
+            return NkFmtInteger(val, false, false, p);
+        }
+
+        // ── Formatage flottant ───────────────────────────────────────────────
+
+        inline NkString NkFmtFloat(double val, const NkFormatProps& p) {
+            char type = p.type ? p.type : 'g';
+            int  prec = p.HasPrecision() ? p.precision : 6;
+            bool neg  = std::signbit(val);
+
+            double fval      = val;
+            bool   appendPct = false;
+            char   typeChar;
+
+            switch (type) {
+                case 'f': case 'F': typeChar = type; break;
+                case 'e': case 'E': typeChar = type; break;
+                case 'g': case 'G': typeChar = type; break;
+                case '%': fval *= 100.0; appendPct = true; typeChar = 'f'; break;
+                default:  typeChar = 'g'; break;
+            }
+
+            char spec[32];
+            snprintf(spec, sizeof(spec), "%%%s.%d%c", p.alt ? "#" : "", prec, typeChar);
+
+            char buf[128];
+            snprintf(buf, sizeof(buf), spec, fval);
+            NkString result(buf);
+            if (appendPct) result.Append('%');
+
+            if (!neg) {
+                if (p.sign == '+') result = NkString("+") + result;
+                else if (p.sign == ' ') result = NkString(" ") + result;
+            }
+
+            if (p.grouping) {
+                // Utiliser NkString (propriétaire) pour éviter les vues sur temporaires
+                NkString::SizeType dotPos = result.Find('.');
+                NkString intStr  = (dotPos == NkString::npos) ? result     : result.SubStr(0, dotPos);
+                NkString fracStr = (dotPos == NkString::npos) ? NkString() : result.SubStr(dotPos);
+                result = NkApplyGrouping(NkStringView(intStr), p.grouping) + fracStr;
+            }
+
+            return p.ApplyWidth(NkStringView(result), true);
+        }
+
+        // ── Parseur de spécifications ───────────────────────────────────────
+
+        inline NkFormatProps NkParseBraceSpec(NkStringView spec) {
+            NkFormatProps p;
+            p.raw = spec;
+            if (spec.Empty()) return p;
+
+            const char* s   = spec.Data();
+            const char* end = s + spec.Size();
+
+            auto IsAlign = [](char c) { return c == '<' || c == '>' || c == '^' || c == '='; };
+
+            // [[fill]align]
+            if (s + 1 < end && IsAlign(s[1])) { p.fill = s[0]; p.align = s[1]; s += 2; }
+            else if (s < end && IsAlign(s[0])) { p.align = s[0]; s++; }
+
+            // [sign]
+            if (s < end && (s[0] == '+' || s[0] == '-' || s[0] == ' ')) p.sign = *s++;
+
+            // [#]
+            if (s < end && s[0] == '#') { p.alt = true; s++; }
+
+            // [0]
+            if (s < end && s[0] == '0') { p.zeroPad = true; s++; }
+
+            // [width]
+            if (s < end && s[0] >= '1' && s[0] <= '9') {
+                p.width = 0;
+                while (s < end && s[0] >= '0' && s[0] <= '9')
+                    p.width = p.width * 10 + (*s++ - '0');
+            }
+
+            // [grouping]
+            if (s < end && (s[0] == ',' || s[0] == '_')) p.grouping = *s++;
+
+            // [.precision]
+            if (s < end && s[0] == '.') {
+                ++s;
+                p.precision = 0;
+                while (s < end && s[0] >= '0' && s[0] <= '9')
+                    p.precision = p.precision * 10 + (*s++ - '0');
+            }
+
+            // [type]
+            if (s < end) p.type = *s;
+
+            return p;
+        }
+
+        inline NkFormatProps NkParsePrintfSpec(const char* specStart, const char* typePos) {
+            NkFormatProps p;
+            p.raw = NkStringView(specStart, static_cast<size_t>(typePos - specStart + 1));
+            const char* s = specStart;
+
+            for (bool more = true; more && s < typePos;) {
+                switch (*s) {
+                    case '-': p.align   = '<';  ++s; break;
+                    case '+': p.sign    = '+';  ++s; break;
+                    case ' ': if (p.sign != '+') p.sign = ' '; ++s; break;
+                    case '#': p.alt     = true; ++s; break;
+                    case '0': p.zeroPad = true; ++s; break;
+                    default:  more = false; break;
+                }
+            }
+
+            if (s < typePos && *s >= '1' && *s <= '9') {
+                p.width = 0;
+                while (s < typePos && *s >= '0' && *s <= '9')
+                    p.width = p.width * 10 + (*s++ - '0');
+            }
+
+            if (s < typePos && *s == '.') {
+                ++s;
+                p.precision = 0;
+                while (s < typePos && *s >= '0' && *s <= '9')
+                    p.precision = p.precision * 10 + (*s++ - '0');
+            }
+
+            while (s < typePos &&
+                (*s == 'l' || *s == 'h' || *s == 'z' || *s == 't' || *s == 'j'))
+                ++s;
+
+            p.type = *typePos;
+            if (p.align == '\0') p.align = '>'; // printf aligne par défaut à droite
+            return p;
+        }
+
+        // ── Couche d'extension ADL ──────────────────────────────────────────
+
+        namespace adl {
+
+            // Fallback générique : erreur de compilation si rien n'est trouvé
+            template<typename T>
+            NkString NkToString(const T&, const NkFormatProps&) {
+                static_assert(sizeof(T) == 0,
+                    "Aucune spécialisation de NkFormatter<T> ni de fonction libre NkToString(T, NkFormatProps) "
+                    "trouvée. Veuillez fournir une surcharge ADL ou une spécialisation de NkFormatter<T>.");
+                return {};
+            }
+
+            // Appel non qualifié – ADL préfère la version de l'utilisateur à fallback
+            template<typename T>
+            NkString Invoke(const T& val, const NkFormatProps& props) {
+                return NkToString(val, props);
+            }
+
+        } // namespace adl
+
+        // ── Détection de NkFormatter<T>::format() ───────────────────────────
+
+        template<typename T, typename = void>
+        struct NkHasFormatter : std::false_type {};
+
+        template<typename T>
+        struct NkHasFormatter<T, std::void_t<decltype(NkFormatter<T>::Convert(
+            std::declval<const T&>(), std::declval<const NkFormatProps&>()))>>
+            : std::true_type {};
+
+        // ── NkFmtDispatch principal ──────────────────────────────────────────────
+
+        template<typename T>
+        NkString NkFmtDispatch(const T& val, const NkFormatProps& p) {
+            if constexpr (NkHasFormatter<T>::value)
+                return NkFormatter<T>::Convert(val, p);
+            else
+                return adl::Invoke(val, p);
+        }
+
+        // ── Effacement de type : NkAnyArg ─────────────────────────────────────
+
+        struct NkAnyArg {
+            using Fn = NkString (*)(const void*, const NkFormatProps&);
+            const void* ptr = nullptr;
+            Fn          fn  = nullptr;
+
+            template<typename T>
+            static NkAnyArg Make(const T& val) {
+                NkAnyArg a;
+                a.ptr = static_cast<const void*>(std::addressof(val));
+                a.fn  = [](const void* p, const NkFormatProps& props) -> NkString {
+                    return NkFmtDispatch(*static_cast<const T*>(p), props);
+                };
+                return a;
+            }
+
+            NkString Format(const NkFormatProps& p) const { return fn(ptr, p); }
+        };
+
+        // Gestion des tableaux : stocke l'adresse du premier élément
+        template<typename T>
+        NkAnyArg NkMakeArg(const T& val) {
+            if constexpr (std::is_array_v<T>) {
+                using Elem = std::remove_extent_t<T>;
+                NkAnyArg a;
+                a.ptr = static_cast<const void*>(&val[0]);
+                a.fn  = [](const void* p, const NkFormatProps& props) -> NkString {
+                    const Elem* ptr = static_cast<const Elem*>(p);
+                    return NkFmtDispatch(ptr, props);
+                };
+                return a;
+            } else {
+                return NkAnyArg::Make(val);
+            }
+        }
+
+        // ── Moteur d'exécution pour accolades ───────────────────────────────
+
+        inline NkString NkRunBrace(NkStringView fmt, const NkVector<NkAnyArg>& args) {
+            NkString out;
+            out.Reserve(fmt.Size() * 2);
+
+            const char* s   = fmt.Data();
+            const char* end = s + fmt.Size();
+
+            while (s < end) {
+                if (*s == '{') {
+                    if (s + 1 < end && s[1] == '{') { out.Append('{'); s += 2; continue; }
+
+                    const char* close = s + 1;
+                    while (close < end && *close != '}') ++close;
+                    if (close >= end)
+                        throw std::runtime_error("nkformat: accolade '{' non fermée dans la chaîne de format");
+
+                    NkStringView inner(s + 1, static_cast<size_t>(close - s - 1));
+
+                    // Index obligatoire
+                    int idx = 0;
+                    const char* ip = inner.Data();
+                    const char* ie = ip + inner.Size();
+                    while (ip < ie && *ip >= '0' && *ip <= '9')
+                        idx = idx * 10 + (*ip++ - '0');
+
+                    // Spécification optionnelle après ':'
+                    NkStringView spec;
+                    if (ip < ie && *ip == ':')
+                        spec = NkStringView(ip + 1, static_cast<size_t>(ie - (ip + 1)));
+
+                    if (idx < 0 || idx >= static_cast<int>(args.Size()))
+                        throw std::out_of_range("nkformat: index d'argument hors limites");
+
+                    out.Append(args[idx].Format(NkParseBraceSpec(spec)));
+                    s = close + 1;
+
+                } else if (*s == '}') {
+                    if (s + 1 < end && s[1] == '}') { out.Append('}'); s += 2; continue; }
+                    throw std::runtime_error("nkformat: accolade '}' inattendue");
+                } else {
+                    out.Append(*s++);
+                }
+            }
+            return out;
+        }
+
+        // ── Moteur d'exécution pour printf ─────────────────────────────────
+
+        inline NkString NkRunPrintf(NkStringView fmt, const NkVector<NkAnyArg>& args) {
+            NkString out;
+            out.Reserve(fmt.Size() * 2);
+
+            const char* s   = fmt.Data();
+            const char* end = s + fmt.Size();
+            int argIdx = 0;
+
+            while (s < end) {
+                if (*s != '%') { out.Append(*s++); continue; }
+                if (s + 1 < end && s[1] == '%') { out.Append('%'); s += 2; continue; }
+
+                const char* specStart = s + 1;
+                const char* p = specStart;
+
+                // Flags
+                while (p < end && (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0')) ++p;
+                // Width
+                while (p < end && *p >= '0' && *p <= '9') ++p;
+                // Precision
+                if (p < end && *p == '.') { ++p; while (p < end && *p >= '0' && *p <= '9') ++p; }
+                // Length modifiers
+                while (p < end && (*p == 'l' || *p == 'h' || *p == 'z' || *p == 't' || *p == 'j')) ++p;
+                // Type char
+                if (p >= end)
+                    throw std::runtime_error("nkformat: spécificateur printf non terminé");
+
+                if (argIdx >= static_cast<int>(args.Size()))
+                    throw std::out_of_range("nkformat: trop peu d'arguments pour le format printf");
+
+                out.Append(args[argIdx++].Format(NkParsePrintfSpec(specStart, p)));
+                s = p + 1;
+            }
+            return out;
+        }
+
+    } // namespace detail
+
+    // ============================================================
+    // SPÉCIALISATIONS INTÉGRÉES DE NkFormatter<T>
+    // ============================================================
+
+    // ── Entiers signés ─────────────────────────────────────────────────
+
+    #define NK_FORMATTER_SIGNED(Type)                                           \
+    template<> struct NkFormatter<Type> {                                       \
+        static NkString Convert(const Type& v, const NkFormatProps& p) {        \
+            return detail::NkFmtInteger(static_cast<long long>(v), p);            \
+        }                                                                       \
+    };
+
+    NK_FORMATTER_SIGNED(signed char)
+    NK_FORMATTER_SIGNED(short)
+    NK_FORMATTER_SIGNED(int)
+    NK_FORMATTER_SIGNED(long)
+    NK_FORMATTER_SIGNED(long long)
+
+    // ── Entiers non signés ──────────────────────────────────────────────
+
+    #define NK_FORMATTER_UNSIGNED(Type)                                         \
+    template<> struct NkFormatter<Type> {                                       \
+        static NkString Convert(const Type& v, const NkFormatProps& p) {        \
+            return detail::NkFmtInteger(static_cast<unsigned long long>(v), p);   \
+        }                                                                       \
+    };
+
+    NK_FORMATTER_UNSIGNED(unsigned char)
+    NK_FORMATTER_UNSIGNED(unsigned short)
+    NK_FORMATTER_UNSIGNED(unsigned int)
+    NK_FORMATTER_UNSIGNED(unsigned long)
+    NK_FORMATTER_UNSIGNED(unsigned long long)
+
+    // ── Flottants ───────────────────────────────────────────────────────
+
+    template<> struct NkFormatter<float> {
+        static NkString Convert(const float& v, const NkFormatProps& p) {
+            return detail::NkFmtFloat(static_cast<double>(v), p);
+        }
+    };
+    template<> struct NkFormatter<double> {
+        static NkString Convert(const double& v, const NkFormatProps& p) {
+            return detail::NkFmtFloat(v, p);
+        }
+    };
+    template<> struct NkFormatter<long double> {
+        static NkString Convert(const long double& v, const NkFormatProps& p) {
+            return detail::NkFmtFloat(static_cast<double>(v), p);
+        }
+    };
+
+    // ── bool ────────────────────────────────────────────────────────────
+
+    template<> struct NkFormatter<bool> {
+        static NkString Convert(const bool& v, const NkFormatProps& p) {
+            if (p.type == 'd' || p.type == 'i' || p.type == 'u')
+                return detail::NkFmtInteger(static_cast<unsigned long long>(v ? 1 : 0), p);
+            // Utiliser NkStringView(const char*) pour éviter l'ambiguïté de conversion
+            return p.ApplyWidth(NkStringView(v ? "true" : "false"), false);
+        }
+    };
+
+    // ── char ────────────────────────────────────────────────────────────
+
+    template<> struct NkFormatter<char> {
+        static NkString Convert(const char& v, const NkFormatProps& p) {
+            if (p.type && p.type != 'c')
+                return detail::NkFmtInteger(static_cast<unsigned long long>(static_cast<unsigned char>(v)), p);
+            // NkString temporaire puis vue explicite pour éviter l'ambiguïté
+            NkString charStr(1, v);
+            return p.ApplyWidth(NkStringView(charStr), false);
+        }
+    };
+
+    // ── Chaînes C ───────────────────────────────────────────────────────
+
+    template<> struct NkFormatter<const char*> {
+        static NkString Convert(const char* const& v, const NkFormatProps& p) {
+            if (!v)
+                return p.ApplyWidth(NkStringView("<null>"), false);
+            NkStringView sv(v, std::strlen(v));
+            if (p.HasPrecision() && static_cast<int>(sv.Size()) > p.precision)
+                sv = sv.SubStr(0, p.precision);
+            // sv est déjà NkStringView : pas de conversion implicite ambiguë
+            return p.ApplyWidth(sv, false);
+        }
+    };
+
+    template<> struct NkFormatter<char*> {
+        static NkString Convert(char* const& v, const NkFormatProps& p) {
+            return NkFormatter<const char*>::Convert(v, p);
+        }
+    };
+
+    // ── NkString / NkStringView ────────────────────────────────────────
+
+    template<> struct NkFormatter<NkString> {
+        static NkString Convert(const NkString& v, const NkFormatProps& p) {
+            // Initialisation directe : résout l'ambiguïté (appelle le constructeur)
+            NkStringView sv(v);
+            if (p.HasPrecision() && static_cast<int>(sv.Size()) > p.precision)
+                sv = sv.SubStr(0, p.precision);
+            return p.ApplyWidth(sv, false);
+        }
+    };
+
+    template<> struct NkFormatter<NkStringView> {
+        static NkString Convert(const NkStringView& v, const NkFormatProps& p) {
+            NkStringView sv(v);
+            if (p.HasPrecision() && static_cast<int>(sv.Size()) > p.precision)
+                sv = sv.SubStr(0, p.precision);
+            return p.ApplyWidth(sv, false);
+        }
+    };
+
+    // ── nullptr_t ───────────────────────────────────────────────────────
+
+    template<> struct NkFormatter<std::nullptr_t> {
+        static NkString Convert(const std::nullptr_t&, const NkFormatProps& p) {
+            return p.ApplyWidth(NkStringView("nullptr"), false);
+        }
+    };
+
+    // ── Pointeurs génériques (hors char déjà traité) ───────────────────
+
+    template<typename T>
+    struct NkFormatter<T*, std::enable_if_t<!std::is_same_v<std::remove_cv_t<T>, char>>> {
+        static NkString Convert(T* const& v, const NkFormatProps& p) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%p", static_cast<const void*>(v));
+            // NkStringView(const char*) : résout l'ambiguïté sans allocation NkString
+            return p.ApplyWidth(NkStringView(buf), false);
+        }
+    };
+
+    // ============================================================
+    // API PUBLIQUE (implémentations inline)
+    // ============================================================
+
+    template<typename... Args>
+    NkString NkFormat(NkStringView fmt, const Args&... args) {
+        NkVector<detail::NkAnyArg> a;
+        a.Reserve(sizeof...(args));
+        (a.PushBack(detail::NkMakeArg(args)), ...);
+        return detail::NkRunBrace(fmt, a);
+    }
+
+    template<typename... Args>
+    NkString NkPrintf(NkStringView fmt, const Args&... args) {
+        NkVector<detail::NkAnyArg> a;
+        a.Reserve(sizeof...(args));
+        (a.PushBack(detail::NkMakeArg(args)), ...);
+        return detail::NkRunPrintf(fmt, a);
+    }
+
+    template<typename... Args>
+    void NkFormatTo(NkString& out, NkStringView fmt, const Args&... args) {
+        out.Append(NkFormat(fmt, args...));
+    }
+
+    template<typename... Args>
+    void NkPrintfTo(NkString& out, NkStringView fmt, const Args&... args) {
+        out.Append(NkPrintf(fmt, args...));
+    }
+
+    template<typename... Args>
+    void NkPrint(NkStringView fmt, const Args&... args) {
+        std::fputs(NkFormat(fmt, args...).Data(), stdout);
+    }
+
+    template<typename... Args>
+    void NkPrintln(NkStringView fmt, const Args&... args) {
+        std::puts(NkFormat(fmt, args...).Data());
+    }
+
+    template<typename... Args>
+    void NkEPrint(NkStringView fmt, const Args&... args) {
+        std::fputs(NkFormat(fmt, args...).Data(), stderr);
+    }
+
+    template<typename... Args>
+    void NkEPrintln(NkStringView fmt, const Args&... args) {
+        std::fputs((NkFormat(fmt, args...) + "\n").Data(), stderr);
+    }
+
+    // Surcharge pour les conteneurs séquentiels
+    template <typename Container>
+    traits::NkEnableIf_t<traits::NkIsSequentialContainer_v<Container>, NkString>
+    NkToString(const Container& c, const NkFormatProps& props = {}) {
+        NkString result = "[";
+        bool first = true;
+        for (auto it = nkentseu::GetBegin(c); it != nkentseu::GetEnd(c); ++it) {
+            if (!first) result += ", ";
+            result += NkToString(*it, props);
+            first = false;
+        }
+        result += "]";
+        return result;
+    }
+
+    // Surcharge pour les conteneurs associatifs (NkHashMap, NkUnorderedMap, NkMap)
+    // L'itérateur retourne un NkPair<const Key, Value> : accès via .First et .Second
+    template <typename Container>
+    traits::NkEnableIf_t<traits::NkIsAssociativeContainer_v<Container>, NkString>
+    NkToString(const Container& c, const NkFormatProps& props = {}) {
+        NkString result = "{";
+        bool first = true;
+        for (auto it = nkentseu::GetBegin(c); it != nkentseu::GetEnd(c); ++it) {
+            if (!first) result += ", ";
+            result += NkToString((*it).First, props);
+            result += ": ";
+            result += NkToString((*it).Second, props);
+            first = false;
+        }
+        result += "}";
+        return result;
+    }
+
+    // ============================================================
+    // CORPS DE NkString::Fmt — défini ici car dépend de NkFormat
+    // ============================================================
+
+    template<typename... Args>
+    NkString NkString::Fmt(const char* format, const Args&... args) {
+        return NkFormat(NkStringView(format), args...);
+    }
+
+} // namespace nkentseu
+
+// ============================================================
+// MACRO DE CONVENANCE (dans l'espace global, préfixée NK_)
+// ============================================================
+
+/// Définit une spécialisation de NkFormatter<Type>.
+/// Dans le bloc, la variable 'val' (const Type&) et 'props' (const NkFormatProps&) sont disponibles.
+/// @example
+///   NK_FORMATTER(Vec3) {
+///       return nkentseu::NkFormat("({0}, {1}, {2})", val.x, val.y, val.z);
+///   } NK_FORMATTER_END
+#define NK_FORMATTER(Type)                                                   \
+    template<> struct nkentseu::NkFormatter<Type> {                           \
+        static nkentseu::NkString Convert(const Type& val,                    \
+                                          const nkentseu::NkFormatProps& props)
+
+#define NK_FORMATTER_END };
+
+#endif // NK_FORMAT_NKFORMAT_H_INCLUDED
+
+// ============================================================
+// Copyright © 2024-2026 Rihen. All rights reserved.
 // ============================================================
