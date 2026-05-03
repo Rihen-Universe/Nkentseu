@@ -267,7 +267,7 @@
 
                 /// @brief Retourne le nom lisible du transfert
                 /// @return const NkString& référence vers le nom (lecture seule)
-                NKENTSEU_EVENT_API_INLINE const NkString& GetName() const noexcept {
+                NKENTSEU_EVENT_API_INLINE const NkString& GetTransferName() const noexcept {
                     return mName;
                 }
 
@@ -802,7 +802,7 @@
             }
 
             mStatusLabel->SetText(
-                NkString::Fmt("Transferring: {}", event.GetName())
+                NkString::Fmt("Transferring: {}", event.GetTransferName())
             );
 
             mStartTime = NkChrono::Now().milliseconds;

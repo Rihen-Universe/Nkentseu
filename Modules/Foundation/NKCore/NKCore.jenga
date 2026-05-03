@@ -47,6 +47,9 @@ with project("NKCore"):
     with filter("system:macOS"):
         usetoolchain("clang-native")
     with filter("system:Android"):
+        # Workaround: disable PCH on Android (NDK r27 + clang 18 + libc++)
+        pchheader("")
+        pchsource("")
         usetoolchain("android-ndk")
     with filter("system:Web"):
         usetoolchain("emscripten")
@@ -66,4 +69,3 @@ with project("NKCore"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-

@@ -15,17 +15,19 @@ Pipeline SVG complet :
 """
 
 from Jenga import *
+from config import *
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKImage"):
-    staticlib()
+    useglobalkind("image")
     language("C++")
     cppdialect("C++17")
     location(".")
 
     includedirs([
         "src",
+        "pch",
         "%{NKPlatform.location}/src",
         "%{NKCore.location}/src",
         "%{NKMemory.location}/src",
@@ -69,6 +71,8 @@ with project("NKImage"):
         # Headers (pour IDEs)
         "src/NKImage/**.h",
     ])
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
@@ -105,6 +109,9 @@ with project("NKImage"):
 
     # ===== Android ================================================================
     with filter("system:Android"):
+        # Workaround: disable PCH on Android (NDK r27 + clang 18 + libc++)
+        pchheader("")
+        pchsource("")
         usetoolchain("android-ndk")
         links(["android", "log"])
         androidminsdk(21)

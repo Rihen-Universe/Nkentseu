@@ -126,7 +126,7 @@
 			 * delete sink;  // Appelle ~ConsoleSink() puis ~NkISink() grâce au virtuel
 			 * @endcode
 			 */
-			virtual ~NkISink() = default;
+			virtual ~NkISink();
 
 
 			// -----------------------------------------------------------------
@@ -219,7 +219,7 @@
 			 * @example
 			 * @code
 			 * // Création d'un formatter avec pattern personnalisé
-			 * auto formatter = memory::MakeUnique<NkFormatter>("[%L] %v");
+			 * auto formatter = memory::MakeUnique<NkLoggerFormatter>("[%L] %v");
 			 *
 			 * // Transfert au sink : le sink prend possession
 			 * sink->SetFormatter(std::move(formatter));
@@ -227,15 +227,15 @@
 			 * // formatter est maintenant nullptr, le sink gère la durée de vie
 			 * @endcode
 			 */
-			virtual void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) = 0;
+			virtual void SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) = 0;
 
 			/**
 			 * @brief Définit le pattern de formatage via création interne de formatter
 			 * @param pattern Chaîne de pattern style spdlog à parser
 			 * @ingroup SinkPureMethods
 			 *
-			 * @note Méthode de convenance : crée un NkFormatter interne avec le pattern
-			 * @note Équivalent à SetFormatter(MakeUnique<NkFormatter>(pattern))
+			 * @note Méthode de convenance : crée un NkLoggerFormatter interne avec le pattern
+			 * @note Équivalent à SetFormatter(MakeUnique<NkLoggerFormatter>(pattern))
 			 * @note Thread-safety : synchronisation requise si appelé pendant Log()
 			 *
 			 * @example
@@ -270,7 +270,7 @@
 			 * }
 			 * @endcode
 			 */
-			virtual NkFormatter* GetFormatter() const = 0;
+			virtual NkLoggerFormatter* GetFormatter() const = 0;
 
 			/**
 			 * @brief Obtient le pattern de formatage courant
@@ -494,19 +494,19 @@
 			/// @ingroup SinkProtectedMembers
 			/// @note Défaut : NK_TRACE (accepte tous les niveaux)
 			/// @note Comparaison : message.level >= m_Level pour autoriser le log
-			NkLogLevel m_Level;
+			NkLogLevel m_Level = NkLogLevel::NK_TRACE;
 
 			/// @brief Indicateur d'activation/désactivation du sink
 			/// @ingroup SinkProtectedMembers
 			/// @note Défaut : true (sink actif)
 			/// @note Si false : Log() doit être un no-op immédiat
-			bool m_Enabled;
+			bool m_Enabled = true;
 
 			/// @brief Nom identifiant ce sink pour logging et configuration
 			/// @ingroup SinkProtectedMembers
 			/// @note Défaut : chaîne vide
 			/// @note Recommandé : définir un nom explicite dans le constructeur dérivé
-			NkString m_Name;
+			NkString m_Name = NkString();
 
 
 		}; // class NkISink
@@ -621,15 +621,15 @@
 			fflush(stderr);
 		}
 
-		void SetFormatter(nkentseu::memory::NkUniquePtr<nkentseu::NkFormatter> formatter) override {
+		void SetFormatter(nkentseu::memory::NkUniquePtr<nkentseu::NkLoggerFormatter> formatter) override {
 			m_Formatter = std::move(formatter);
 		}
 
 		void SetPattern(const nkentseu::NkString& pattern) override {
-			m_Formatter = nkentseu::memory::MakeUnique<nkentseu::NkFormatter>(pattern);
+			m_Formatter = nkentseu::memory::MakeUnique<nkentseu::NkLoggerFormatter>(pattern);
 		}
 
-		nkentseu::NkFormatter* GetFormatter() const override {
+		nkentseu::NkLoggerFormatter* GetFormatter() const override {
 			return m_Formatter.get();
 		}
 
@@ -638,7 +638,7 @@
 		}
 
 	private:
-		nkentseu::memory::NkUniquePtr<nkentseu::NkFormatter> m_Formatter;
+		nkentseu::memory::NkUniquePtr<nkentseu::NkLoggerFormatter> m_Formatter;
 	};
 
 	// Usage :
@@ -796,7 +796,7 @@
 			sink->SetLevel(NkLogLevelFromString(
 				core::Config::GetString(configSection + ".level", "info")));
 			sink->SetPattern(core::Config::GetString(
-				configSection + ".pattern", NkFormatter::NK_DEFAULT_PATTERN));
+				configSection + ".pattern", NkLoggerFormatter::NK_DEFAULT_PATTERN));
 			return sink;
 
 		} else if (type == "file") {
@@ -806,7 +806,7 @@
 			sink->SetLevel(NkLogLevelFromString(
 				core::Config::GetString(configSection + ".level", "trace")));
 			sink->SetPattern(core::Config::GetString(
-				configSection + ".pattern", NkFormatter::NK_DETAILED_PATTERN));
+				configSection + ".pattern", NkLoggerFormatter::NK_DETAILED_PATTERN));
 			return sink;
 
 		} else if (type == "null") {
@@ -917,7 +917,7 @@
 		}
 
 		// Délégation des autres méthodes au sink interne
-		void SetFormatter(nkentseu::memory::NkUniquePtr<nkentseu::NkFormatter> f) override {
+		void SetFormatter(nkentseu::memory::NkUniquePtr<nkentseu::NkLoggerFormatter> f) override {
 			if (mInner) mInner->SetFormatter(std::move(f));
 		}
 		// ... autres délégations ...

@@ -1,3 +1,4 @@
+#include "pch.h"
 // =============================================================================
 // NkMouseEvents.cpp
 // Implémentation des événements souris.

@@ -20,7 +20,7 @@
 #include "NKRHI/Core/NkDescs.h"
 
 // Alias local pour le lock — évite l'ambiguïté NkScopedLock/NkScopedMutex
-using NkSLMutexLock = NkScopedLock;
+using NkSLMutexLock = nkentseu::threading::NkScopedLockMutex;
 
 namespace nkentseu {
 

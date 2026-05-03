@@ -186,7 +186,7 @@ namespace nkentseu {
 	// DESCRIPTION : Initialise avec chemin, mode, et ouverture automatique
 	// -------------------------------------------------------------------------
 	NkFileSink::NkFileSink(const NkString& filename, bool truncate)
-		: m_Formatter(memory::NkMakeUnique<NkFormatter>(NkFormatter::NK_DEFAULT_PATTERN))
+		: m_Formatter(memory::NkMakeUnique<NkLoggerFormatter>(NkLoggerFormatter::NK_DEFAULT_PATTERN))
 		, m_FileStream(nullptr)
 		, m_Filename(filename)
 		, m_Truncate(truncate) {
@@ -278,7 +278,7 @@ namespace nkentseu {
 	// MÉTHODE : SetFormatter
 	// DESCRIPTION : Définit le formatter avec transfert de propriété thread-safe
 	// -------------------------------------------------------------------------
-	void NkFileSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+	void NkFileSink::SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) {
 		// Acquisition du mutex pour modification thread-safe
 		threading::NkScopedLock lock(m_Mutex);
 
@@ -306,7 +306,7 @@ namespace nkentseu {
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retourne le formatter courant (lecture thread-safe)
 	// -------------------------------------------------------------------------
-	NkFormatter* NkFileSink::GetFormatter() const {
+	NkLoggerFormatter* NkFileSink::GetFormatter() const {
 		// Acquisition du mutex pour lecture protégée
 		threading::NkScopedLock lock(m_Mutex);
 

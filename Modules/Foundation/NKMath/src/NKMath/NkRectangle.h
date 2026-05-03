@@ -365,6 +365,14 @@
             // =================================================================
             using NkIntRect = NkRectT<int32>;        // Rectangle entier pour UI/grid
             using NkFloatRect = NkRectT<float32>;    // Rectangle float pour géométrie
+            using NkRectF = NkRectT<float32>;
+            using NkRectD = NkRectT<float64>;
+            using NkRectI = NkRectT<int32>;
+            using NkRectU = NkRectT<uint32>;
+            using NkRectf = NkRectT<float32>;
+            using NkRectd = NkRectT<float64>;
+            using NkRecti = NkRectT<int32>;
+            using NkRectu = NkRectT<uint32>;
 
         }  // namespace math
 

@@ -14,10 +14,10 @@ namespace {
 
     // Change this macro from the build-system if you want another backend.
     #ifndef NK_SANDBOX_CONTEXT_API
-    #define NK_SANDBOX_CONTEXT_API nkentseu::NkRendererApi::NK_OPENGL
+    #define NK_SANDBOX_CONTEXT_API nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL
     #endif
 
-    NkContextConfig BuildContextConfig(NkRendererApi api) {
+    NkContextConfig BuildContextConfig(NkGraphicsApi api) {
         NkContextConfig cfg{};
         cfg.api = api;
 
@@ -42,7 +42,7 @@ namespace {
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
         // Optional: full PIXELFORMATDESCRIPTOR control on Win32.
         // Set useCustomDescriptor=false to fallback to generic defaults above.
-        if (api == NkRendererApi::NK_OPENGL) {
+        if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
             cfg.win32PixelFormat.useCustomDescriptor = true;
             cfg.win32PixelFormat.drawToWindow = true;
             cfg.win32PixelFormat.supportOpenGL = true;
@@ -66,13 +66,13 @@ namespace {
         return cfg;
     }
 
-    void LogBackendBootstrap(NkRendererApi api, const NkSurfaceDesc& surface) {
+    void LogBackendBootstrap(NkGraphicsApi api, const NkSurfaceDesc& surface) {
         switch (api) {
-            case NkRendererApi::NK_OPENGL:
+            case NkGraphicsApi::NK_GFX_API_OPENGL:
                 logger.Info("[main16] OpenGL: create native context, then load procs.");
                 break;
 
-            case NkRendererApi::NK_VULKAN:
+            case NkGraphicsApi::NK_GFX_API_VULKAN:
             #if defined(NKENTSEU_PLATFORM_WINDOWS)
                 logger.Info("[main16] Vulkan surface (Win32): VkWin32SurfaceCreateInfoKHR(hinstance, hwnd).");
             #elif defined(NKENTSEU_WINDOWING_XCB)
@@ -90,19 +90,19 @@ namespace {
             #endif
                 break;
 
-            case NkRendererApi::NK_DIRECTX11:
+            case NkGraphicsApi::NK_GFX_API_DIRECTX11:
                 logger.Info("[main16] DirectX11: create D3D11 device/swapchain from HWND.");
                 break;
 
-            case NkRendererApi::NK_DIRECTX12:
+            case NkGraphicsApi::NK_GFX_API_DIRECTX12:
                 logger.Info("[main16] DirectX12: create DXGI swapchain + command queues from HWND.");
                 break;
 
-            case NkRendererApi::NK_METAL:
+            case NkGraphicsApi::NK_GFX_API_METAL:
                 logger.Info("[main16] Metal: create device/command queue from view + CAMetalLayer.");
                 break;
 
-            case NkRendererApi::NK_SOFTWARE:
+            case NkGraphicsApi::NK_GFX_API_SOFTWARE:
                 logger.Info("[main16] Software: create CPU framebuffer using surface dimensions.");
                 break;
 
@@ -127,8 +127,8 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 int nkmain(const nkentseu::NkEntryState&) {
     using namespace nkentseu;
 
-    const NkRendererApi backendApi = NK_SANDBOX_CONTEXT_API;
-    logger.Info("[main16] backend = {0}", NkRendererApiToString(backendApi));
+    const NkGraphicsApi backendApi = NK_SANDBOX_CONTEXT_API;
+    logger.Info("[main16] backend = {0}", NkGraphicsApiToString(backendApi));
 
     // 1) Build context settings (fully customizable with defaults).
     NkContextConfig contextConfig = BuildContextConfig(backendApi);
@@ -163,7 +163,7 @@ int nkmain(const nkentseu::NkEntryState&) {
     LogBackendBootstrap(backendApi, context.surface);
 
     // 5) OpenGL-only: make current + load procedures (GLAD-like flow).
-    if (backendApi == NkRendererApi::NK_OPENGL) {
+    if (backendApi == NkGraphicsApi::NK_GFX_API_OPENGL) {
         if (!NkContextMakeCurrent(context)) {
             logger.Error("[main16] MakeCurrent failed: {0}", context.lastError.ToString());
             NkContextDestroy(context);
@@ -190,7 +190,7 @@ int nkmain(const nkentseu::NkEntryState&) {
             }
         }
 
-        if (backendApi == NkRendererApi::NK_OPENGL) {
+        if (backendApi == NkGraphicsApi::NK_GFX_API_OPENGL) {
             NkContextSwapBuffers(context);
         }
     }

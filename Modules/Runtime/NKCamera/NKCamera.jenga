@@ -19,6 +19,7 @@ Ce module expose notamment :
 """
 
 from Jenga import *
+from config import *
 import shutil
 import subprocess
 
@@ -45,7 +46,7 @@ if _pkg_exists("libdecor-0"):
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKCamera"):
-    staticlib()
+    useglobalkind("camera")
     language("C++")
     cppdialect("C++17")
     location(".")

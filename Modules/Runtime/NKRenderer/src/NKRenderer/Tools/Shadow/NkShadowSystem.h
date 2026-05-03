@@ -2,8 +2,9 @@
 // =============================================================================
 // NkShadowSystem.h  — NKRenderer v4.0  (Tools/Shadow/)
 // =============================================================================
-#include "../../Core/NkRendererTypes.h"
-#include "../../Core/NkCamera.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
+#include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
 namespace nkentseu { namespace renderer {

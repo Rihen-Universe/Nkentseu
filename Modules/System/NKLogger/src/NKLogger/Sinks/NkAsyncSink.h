@@ -218,92 +218,6 @@
 			 */
 			~NkAsyncLogger();
 
-
-			// -----------------------------------------------------------------
-			// IMPLÉMENTATION DE L'API NKLOGGER (ASYNC-OVERRIDE)
-			// -----------------------------------------------------------------
-			/**
-			 * @defgroup AsyncLoggerOverrides Overrides de NkLogger
-			 * @brief Méthodes de logging réimplémentées pour comportement asynchrone
-			 */
-
-			/**
-			 * @brief Log asynchrone avec formatage printf-style via NkFormatf
-			 * @param level Niveau de log pour ce message
-			 * @param format Chaîne de format style printf (%s, %d, %.2f, etc.)
-			 * @param ... Arguments variadiques correspondant aux spécificateurs
-			 * @ingroup AsyncLoggerOverrides
-			 *
-			 * @note Filtrage précoce : retour immédiat si !ShouldLog(level)
-			 * @note Formatage via NkFormatf() de NKCore/NkFormat.h pour cohérence projet
-			 * @note Enqueue du message formaté dans la file d'attente : retour immédiat
-			 * @note Thread-safe : enqueue protégé par mutex pour accès concurrent à la file
-			 *
-			 * @par Performance :
-			 *  - Overhead minimal : formatage + enqueue typiquement < 10 µs
-			 *  - Pas d'I/O bloquant dans le thread appelant : traitement déporté au worker
-			 *  - Scalabilité : multiple threads producteurs sans contention sur les sinks
-			 *
-			 * @example
-			 * @code
-			 * // Logging haute fréquence sans impact sur la latence
-			 * asyncLogger->Logf(nkentseu::NkLogLevel::NK_DEBUG,
-			 *     "Request processed: user=%s, duration=%.3fms, status=%d",
-			 *     userId.CStr(), durationMs, statusCode);
-			 * // Retour immédiat, traitement asynchrone vers console/fichier/réseau
-			 * @endcode
-			 */
-			void Logf(NkLogLevel level, const char* format, ...) override;
-
-			/**
-			 * @brief Log asynchrone avec formatage positionnel via NkFormat
-			 * @tparam Args Types des arguments à formater (déduits automatiquement)
-			 * @param level Niveau de log pour ce message
-			 * @param format Chaîne de format avec placeholders {index:props}
-			 * @param args Pack d'arguments à insérer aux positions indiquées
-			 * @ingroup AsyncLoggerOverrides
-			 *
-			 * @note SFINAE : désactivé si sizeof...(Args) == 0 pour éviter l'ambiguïté
-			 * @note Filtrage précoce : retour immédiat si !ShouldLog(level)
-			 * @note Formatage via NkFormatIndexed() → NkFormat() unifié de NKCore/NkFormat.h
-			 * @note Enqueue du message formaté dans la file : retour immédiat
-			 * @note Thread-safe : enqueue protégé par mutex pour accès concurrent à la file
-			 *
-			 * @example
-			 * @code
-			 * // Formatage positionnel type-safe avec arguments variadiques
-			 * asyncLogger->Log(nkentseu::NkLogLevel::NK_INFO,
-			 *     "User {0} performed action {1} with result {2:hex}",
-			 *     username, actionName, resultCode);
-			 * @endcode
-			 */
-			template<typename... Args,
-				typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
-			void Log(NkLogLevel level, NkStringView format, Args&&... args);
-
-			/**
-			 * @brief Log asynchrone avec message pré-formaté (stream-style)
-			 * @param level Niveau de log pour ce message
-			 * @param message Chaîne NkString contenant le message déjà formaté
-			 * @ingroup AsyncLoggerOverrides
-			 *
-			 * @note Filtrage précoce : retour immédiat si !ShouldLog(level)
-			 * @note Aucun formatage supplémentaire : le message est utilisé tel quel
-			 * @note Enqueue du message dans la file : retour immédiat
-			 * @note Thread-safe : enqueue protégé par mutex pour accès concurrent à la file
-			 *
-			 * @example
-			 * @code
-			 * // Logging de messages pré-formatés ou littéraux
-			 * asyncLogger->Log(nkentseu::NkLogLevel::NK_INFO, "Simple status message");
-			 *
-			 * // Ou avec message formaté en amont
-			 * nkentseu::NkString preformatted = BuildComplexMessage();
-			 * asyncLogger->Log(nkentseu::NkLogLevel::NK_DEBUG, preformatted);
-			 * @endcode
-			 */
-			void Log(NkLogLevel level, const NkString& message);
-
 			/**
 			 * @brief Force le flush des messages en attente et des sinks
 			 * @ingroup AsyncLoggerOverrides
@@ -741,34 +655,6 @@
 
 
 #endif // NKENTSEU_NKASYNCLOGGER_H
-
-
-// =============================================================================
-// IMPLÉMENTATIONS INLINE DES MÉTHODES TEMPLATES (HÉRITÉES DE NKLOGGER)
-// =============================================================================
-// Ces implémentations doivent être dans le header car ce sont des templates.
-// Elles délèguent à NkAsyncLogger::Log(level, message) via NkFormatIndexed.
-
-namespace nkentseu {
-
-	// -------------------------------------------------------------------------
-	// MÉTHODE : Log (template principal avec formatage positionnel)
-	// -------------------------------------------------------------------------
-	template<typename... Args, typename>
-	inline void NkAsyncLogger::Log(NkLogLevel level, NkStringView format, Args&&... args) {
-		// Filtrage précoce : éviter tout formatage si le message sera ignoré
-		if (!ShouldLog(level)) {
-			return;
-		}
-
-		// Formatage via NkFormatIndexed : style positionnel {0}, {1:hex}, etc.
-		NkString formattedMessage = NkFormatIndexed(format, traits::NkForward<Args>(args)...);
-
-		// Enqueue asynchrone du message formaté
-		Log(level, formattedMessage);
-	}
-
-} // namespace nkentseu
 
 
 // =============================================================================

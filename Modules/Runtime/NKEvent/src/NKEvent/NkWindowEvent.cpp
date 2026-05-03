@@ -1,3 +1,4 @@
+#include "pch.h"
 // =============================================================================
 // NkWindowEvent.cpp
 // Implémentation des événements fenêtre (corps vide — toute la logique

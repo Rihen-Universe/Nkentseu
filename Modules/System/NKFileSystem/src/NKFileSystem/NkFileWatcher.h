@@ -660,9 +660,9 @@
             }
 
         private:
-            void ReloadAsset(const char* path) { /* Implémentation... *\/ }
-            void UnloadAsset(const char* path) { /* Implémentation... *\/ }
-            void LoadNewAsset(const char* path) { /* Implémentation... *\/ }
+            void ReloadAsset(const char* path) { /\* Implémentation... *\/ }
+            void UnloadAsset(const char* path) { /\* Implémentation... *\/ }
+            void LoadNewAsset(const char* path) { /\* Implémentation... *\/ }
 
             nkentseu::NkFileWatcher* mWatcher = nullptr;
     };

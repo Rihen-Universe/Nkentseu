@@ -72,7 +72,9 @@
     #include "NKNetwork/NkNetworkApi.h"
     #include "NKNetwork/Core/NkNetDefines.h"
     #include "NKContainers/String/NkString.h"
-    #include "NKMath/NKMath.h"
+    #include "NKMath/NkFunctions.h"
+    #include "NKMath/NkVec.h"
+    #include "NKMath/NkQuat.h"
     #include "NKCore/Assert/NkAssert.h"
 
     // En-têtes standards pour opérations mémoire

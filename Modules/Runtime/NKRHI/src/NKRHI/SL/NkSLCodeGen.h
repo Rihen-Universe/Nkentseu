@@ -180,6 +180,10 @@ private:
     void     GenStruct             (NkSLStructDeclNode* s);
     void     GenFunction           (NkSLFunctionDeclNode* fn);
     void     GenInputOutputStructs ();
+    void     GenGeometryShaderPrefix(NkSLStage stage);
+    void     GenTessellationShaders (NkSLProgramNode* prog);
+    void     GenStructuredBuffer    (NkSLBlockDeclNode* b);
+    void     GenBindlessHeader      ();
     void     GenStmt    (NkSLNode* node);
     NkString GenExpr    (NkSLNode* node);
     NkString GenCall    (NkSLCallNode* call);

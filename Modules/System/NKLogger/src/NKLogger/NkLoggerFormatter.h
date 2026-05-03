@@ -177,11 +177,11 @@
 
 
 		// ---------------------------------------------------------------------
-		// CLASSE : NkFormatter
+		// CLASSE : NkLoggerFormatter
 		// DESCRIPTION : Formateur de messages de log basé sur des patterns
 		// ---------------------------------------------------------------------
 		/**
-		 * @class NkFormatter
+		 * @class NkLoggerFormatter
 		 * @brief Formate les messages de log selon un pattern configurable
 		 * @ingroup LoggerComponents
 		 *
@@ -200,14 +200,14 @@
 		 * @example
 		 * @code
 		 * // Pattern style spdlog avec couleurs
-		 * NkFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] %v");
+		 * NkLoggerFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] %v");
 		 *
 		 * NkLogMessage msg(NkLogLevel::NK_INFO, "Server started");
 		 * NkString output = fmt.Format(msg, true);  // avec couleurs
 		 * // Résultat : [2024-01-15 14:30:45.123] [INF] Server started
 		 * @endcode
 		 */
-		class NKENTSEU_LOGGER_CLASS_EXPORT NkFormatter {
+		class NKENTSEU_LOGGER_CLASS_EXPORT NkLoggerFormatter {
 
 
 			// -----------------------------------------------------------------
@@ -220,7 +220,7 @@
 			// CONSTRUCTEURS ET DESTRUCTEUR
 			// -----------------------------------------------------------------
 			/**
-			 * @defgroup FormatterCtors Constructeurs de NkFormatter
+			 * @defgroup FormatterCtors Constructeurs de NkLoggerFormatter
 			 * @brief Initialisation avec pattern par défaut ou personnalisé
 			 */
 
@@ -231,7 +231,7 @@
 			 * @post Pattern initialisé, tokens parsés, prêt pour Format()
 			 * @note Pattern par défaut : "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%t] -> %v"
 			 */
-			NkFormatter();
+			NkLoggerFormatter();
 
 			/**
 			 * @brief Constructeur avec pattern personnalisé
@@ -243,11 +243,11 @@
 			 *
 			 * @example
 			 * @code
-			 * NkFormatter custom("[%L] %v");  // Format minimal
-			 * NkFormatter debug("%Y-%m-%d %H:%M:%S [%f:%#] %v");  // Avec source
+			 * NkLoggerFormatter custom("[%L] %v");  // Format minimal
+			 * NkLoggerFormatter debug("%Y-%m-%d %H:%M:%S [%f:%#] %v");  // Avec source
 			 * @endcode
 			 */
-			explicit NkFormatter(const NkString& pattern);
+			explicit NkLoggerFormatter(const NkString& pattern);
 
 			/**
 			 * @brief Destructeur par défaut
@@ -255,7 +255,7 @@
 			 *
 			 * @note Libération automatique des NkVector et NkString via RAII
 			 */
-			~NkFormatter() = default;
+			~NkLoggerFormatter() = default;
 
 
 			// -----------------------------------------------------------------
@@ -276,7 +276,7 @@
 			 *
 			 * @example
 			 * @code
-			 * NkFormatter fmt;
+			 * NkLoggerFormatter fmt;
 			 * fmt.SetPattern("%L: %v");  // Format compact
 			 * // ... logs ...
 			 * fmt.SetPattern("[%Y-%m-%d] %v");  // Format avec date
@@ -438,7 +438,7 @@
 			 *         result += message.message;
 			 *     } else {
 			 *         // Déléguer au comportement par défaut
-			 *         NkFormatter::FormatToken(token, message, useColors, result);
+			 *         NkLoggerFormatter::FormatToken(token, message, useColors, result);
 			 *     }
 			 * }
 			 * @endcode
@@ -561,7 +561,7 @@
 			bool m_TokensValid;
 
 
-		}; // class NkFormatter
+		}; // class NkLoggerFormatter
 
 
 		// ---------------------------------------------------------------------
@@ -569,10 +569,10 @@
 		// ---------------------------------------------------------------------
 		/**
 		 * @typedef FormatterPtr
-		 * @brief Pointeur unique vers NkFormatter pour gestion automatique
+		 * @brief Pointeur unique vers NkLoggerFormatter pour gestion automatique
 		 * @ingroup LoggerTypes
 		 *
-		 * Alias vers memory::NkUniquePtr<NkFormatter> pour :
+		 * Alias vers memory::NkUniquePtr<NkLoggerFormatter> pour :
 		 *  - Libération automatique via RAII
 		 *  - Sémantique de mouvement exclusive
 		 *  - Compatibilité avec le système d'allocateur du projet
@@ -580,7 +580,7 @@
 		 * @example
 		 * @code
 		 * // Création avec pattern personnalisé
-		 * FormatterPtr fmt = memory::MakeUnique<NkFormatter>("[%L] %v");
+		 * FormatterPtr fmt = memory::MakeUnique<NkLoggerFormatter>("[%L] %v");
 		 *
 		 * // Transfert de propriété
 		 * void SetFormatter(FormatterPtr&& newFmt) {
@@ -588,7 +588,7 @@
 		 * }
 		 * @endcode
 		 */
-		using FormatterPtr = memory::NkUniquePtr<NkFormatter>;
+		using FormatterPtr = memory::NkUniquePtr<NkLoggerFormatter>;
 
 
 		// ---------------------------------------------------------------------
@@ -628,7 +628,7 @@
 		 * @example
 		 * @code
 		 * // Pattern personnalisé combinant plusieurs tokens
-		 * NkFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] %v");
+		 * NkLoggerFormatter fmt("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] %v");
 		 * // Résultat : [2026-01-15 14:30:45.123] [INF] [nkentseu.app] Server started
 		 * @endcode
 		 */
@@ -654,7 +654,7 @@
 
 	void LogStartup() {
 		// Formateur avec pattern par défaut
-		nkentseu::NkFormatter fmt;  // Pattern : "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%t] -> %v"
+		nkentseu::NkLoggerFormatter fmt;  // Pattern : "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%t] -> %v"
 
 		// Message simple
 		nkentseu::NkLogMessage msg(nkentseu::NkLogLevel::NK_INFO, "Application v2.1.0 started");
@@ -675,7 +675,7 @@
 	void SetupColoredLogging() {
 		// Pattern avec marqueurs de couleur autour du niveau de log
 		// %^ = début couleur, %$ = fin couleur, %L = niveau court
-		nkentseu::NkFormatter coloredFmt("[%^%L%$] %v");
+		nkentseu::NkLoggerFormatter coloredFmt("[%^%L%$] %v");
 
 		nkentseu::NkLogMessage info(nkentseu::NkLogLevel::NK_INFO, "Server listening on port 8080");
 		nkentseu::NkLogMessage error(nkentseu::NkLogLevel::NK_ERROR, "Database connection failed");
@@ -700,7 +700,7 @@
 
 	class JsonLogSink : public nkentseu::NkLogSink {
 	public:
-		JsonLogSink() : m_formatter(nkentseu::NkFormatter::NK_JSON_PATTERN) {}
+		JsonLogSink() : m_formatter(nkentseu::NkLoggerFormatter::NK_JSON_PATTERN) {}
 
 		void Emit(const nkentseu::NkLogMessage& message) override {
 			// Formatage en JSON structuré
@@ -711,7 +711,7 @@
 		}
 
 	private:
-		nkentseu::NkFormatter m_formatter;
+		nkentseu::NkLoggerFormatter m_formatter;
 		FileOutput m_output;
 	};
 
@@ -745,7 +745,7 @@
 		);
 
 		nkentseu::NkLogMessage msg(nkentseu::NkLogLevel::NK_WARN, dynamicMsg, "HttpHandler");
-		nkentseu::NkFormatter fmt("[%L] %v");
+		nkentseu::NkLoggerFormatter fmt("[%L] %v");
 
 		nkentseu::NkString output = fmt.Format(msg);
 		// Résultat : [WRN] Resource /api/users not found (error 194)
@@ -766,7 +766,7 @@
 			// Lecture du pattern depuis configuration
 			const char* pattern = nkentseu::core::Config::GetString(
 				"logging.pattern",
-				nkentseu::NkFormatter::NK_DEFAULT_PATTERN
+				nkentseu::NkLoggerFormatter::NK_DEFAULT_PATTERN
 			);
 
 			m_formatter.SetPattern(pattern);
@@ -790,7 +790,7 @@
 		}
 
 	private:
-		nkentseu::NkFormatter m_formatter;
+		nkentseu::NkLoggerFormatter m_formatter;
 		bool m_useColors = true;
 	};
 */
@@ -806,10 +806,10 @@
 	namespace logging {
 
 		// Formateur dérivé pour ajouter un préfixe d'application
-		class AppFormatter : public nkentseu::NkFormatter {
+		class AppFormatter : public nkentseu::NkLoggerFormatter {
 		public:
 			AppFormatter(const nkentseu::NkString& appPrefix)
-				: nkentseu::NkFormatter()
+				: nkentseu::NkLoggerFormatter()
 				, m_appPrefix(appPrefix) {}
 
 		protected:
@@ -828,7 +828,7 @@
 					result += message.message;
 				} else {
 					// Délégation au comportement par défaut pour les autres tokens
-					nkentseu::NkFormatter::FormatToken(
+					nkentseu::NkLoggerFormatter::FormatToken(
 						token, message, useColors, result);
 				}
 			}
@@ -854,7 +854,7 @@
 
 	void HighFrequencyLogging() {
 		// Création unique du formateur (parsing pattern une seule fois)
-		static nkentseu::NkFormatter fmt("[%L] %v");
+		static nkentseu::NkLoggerFormatter fmt("[%L] %v");
 
 		// Buffer de résultat réutilisé pour éviter les allocations
 		static nkentseu::NkString outputBuffer;
@@ -876,7 +876,7 @@
 	}
 
 	// Bonnes pratiques :
-	// - Réutiliser NkFormatter : parsing pattern = coût O(n) une fois
+	// - Réutiliser NkLoggerFormatter : parsing pattern = coût O(n) une fois
 	// - Réutiliser NkString de sortie : évite allocations heap en boucle
 	// - Désactiver couleurs si non nécessaires : évite concaténation de séquences ANSI
 */

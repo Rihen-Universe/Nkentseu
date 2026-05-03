@@ -74,8 +74,8 @@ namespace nkentseu {
     bool NkGrid3D::CreatePipeline(NkRenderPassHandle renderPass) {
         // Shader combiné vertex + fragment
         NkShaderDesc shaderDesc;
-        shaderDesc.AddGLSL(NkShaderStage::NK_VERTEX, grid3dshaders::kVertexShaderGLSL, "main");
-        shaderDesc.AddGLSL(NkShaderStage::NK_FRAGMENT, grid3dshaders::kFragmentShaderGLSL, "main");
+        shaderDesc.AddGLSL(NkShaderStage::NK_VERTEX,   gizmoshaders::kVertexGL_GLSL,   "main");
+        shaderDesc.AddGLSL(NkShaderStage::NK_FRAGMENT, gizmoshaders::kFragmentGL_GLSL, "main");
         shaderDesc.debugName = "Grid3D_Shader";
         mShader = mDevice->CreateShader(shaderDesc);
         if (!mShader.IsValid()) {
@@ -154,14 +154,11 @@ namespace nkentseu {
         pc.lineWidthMinor = mConfig.lineWidthMinor;
         pc.flags = flags;
 
-        auto toFloat4 = [](const math::NkColor& c) {
-            return float{ c.r * math::c1_255, c.g * math::c1_255, c.b * math::c1_255, c.a * math::c1_255};
-        };
-        auto copyColor = [&](float* dst, const math::NkColor& src) {
-            dst[0] = src.r * math::c1_255; 
-            dst[1] = src.g * math::c1_255; 
-            dst[2] = src.b * math::c1_255; 
-            dst[3] = src.a * math::c1_255;
+        auto copyColor = [](float* dst, const math::NkColor& src) {
+            dst[0] = src.r * (1.0f/255.0f);
+            dst[1] = src.g * (1.0f/255.0f);
+            dst[2] = src.b * (1.0f/255.0f);
+            dst[3] = src.a * (1.0f/255.0f);
         };
         copyColor(pc.majorColor, mConfig.majorColor);
         copyColor(pc.minorColor, mConfig.minorColor);

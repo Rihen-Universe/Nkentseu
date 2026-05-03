@@ -2,8 +2,8 @@
 // NkPostProcessStack.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkPostProcessStack.h"
-#include "../../Core/NkTextureLibrary.h"
-#include "../../Mesh/NkMeshSystem.h"
+#include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKRenderer/Mesh/NkMeshSystem.h"
 
 namespace nkentseu {
 namespace renderer {

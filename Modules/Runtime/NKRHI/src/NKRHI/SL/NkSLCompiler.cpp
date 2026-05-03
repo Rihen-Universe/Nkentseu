@@ -33,7 +33,7 @@
 #define NKSL_ERR(...)  logger_src.Errorf("[NkSL][ERR] " __VA_ARGS__)
 
 namespace nkentseu {
-using threading::NkScopedLock;
+using threading::NkScopedLockMutex;
 
 // =============================================================================
 // Hachage FNV-1a 64-bit
@@ -61,13 +61,13 @@ uint64 NkSLCache::MakeKey(uint64 hash, NkSLTarget t, NkSLStage s) const {
 }
 
 bool NkSLCache::Has(uint64 hash, NkSLTarget t, NkSLStage s) const {
-    NkScopedLock lock(mMutex);
+    NkScopedLockMutex lock(mMutex);
     return mEntries.Find(MakeKey(hash, t, s)) != nullptr;
 }
 
 bool NkSLCache::Get(uint64 hash, NkSLTarget t, NkSLStage s,
                     NkSLCacheEntry& out) const {
-    NkScopedLock lock(mMutex);
+    NkScopedLockMutex lock(mMutex);
     auto* p = mEntries.Find(MakeKey(hash, t, s));
     if (!p) return false;
     out = *p;
@@ -76,7 +76,7 @@ bool NkSLCache::Get(uint64 hash, NkSLTarget t, NkSLStage s,
 
 void NkSLCache::Put(uint64 hash, NkSLTarget t, NkSLStage s,
                     const NkSLCompileResult& r) {
-    NkScopedLock lock(mMutex);
+    NkScopedLockMutex lock(mMutex);
     uint64 k = MakeKey(hash, t, s);
     NkSLCacheEntry entry;
     entry.sourceHash = hash; entry.target = t; entry.stage = s;
@@ -86,12 +86,12 @@ void NkSLCache::Put(uint64 hash, NkSLTarget t, NkSLStage s,
 }
 
 void NkSLCache::Clear() {
-    NkScopedLock lock(mMutex);
+    NkScopedLockMutex lock(mMutex);
     mEntries.Clear();
 }
 
 void NkSLCache::Flush() {
-    NkScopedLock lock(mMutex);
+    NkScopedLockMutex lock(mMutex);
     if (mCacheDir.Empty()) return;
     NkString path = mCacheDir + "/nksl.cache";
     FILE* f = fopen(path.CStr(), "wb");
@@ -114,7 +114,7 @@ void NkSLCache::Flush() {
 }
 
 void NkSLCache::Load() {
-    NkScopedLock lock(mMutex);
+    NkScopedLockMutex lock(mMutex);
     NkString path = mCacheDir + "/nksl.cache";
     FILE* f = fopen(path.CStr(), "rb");
     if (!f) return;
@@ -315,7 +315,7 @@ NkSLCompileResult NkSLCompiler::Compile(
 // =============================================================================
 // CompileWithReflection
 // =============================================================================
-NkSLCompiler::NkSLCompileResultWithReflection NkSLCompiler::CompileWithReflection(
+    NkSLCompileResultWithReflection NkSLCompiler::CompileWithReflection(
     const NkString&           source,
     NkSLStage                 stage,
     NkSLTarget                target,
@@ -531,7 +531,7 @@ NkString NkSLCompiler::Preprocess(const NkString& source,
                 NkString trimmed = rest;
                 // Trim
                 while (!trimmed.Empty() && (trimmed[0] == ' ' || trimmed[0] == '\t'))
-                    trimmed = trimmed.SubString(1);
+                    trimmed = trimmed.SubStr(1);
                 if (trimmed.StartsWith("once")) {
                     // Signaler au caller qu'on a trouvé #pragma once
                     // (géré via includedFiles — on ne fait rien de plus)

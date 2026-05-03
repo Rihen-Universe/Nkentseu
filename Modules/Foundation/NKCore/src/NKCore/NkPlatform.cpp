@@ -280,7 +280,7 @@ static void NkDetectSIMDLinux() {
 /**
  * @brief Détecte les tailles de cache via le système de fichiers sysfs
  * @note
- *   - Lit /sys/devices/system/cpu/cpu0/cache/index*/size
+ *   - Lit /sys/devices/system/cpu/cpu0/cache/index*\/size
  *   - Convertit les valeurs de "NNNK" ou "NNNM" en bytes
  *   - Fallback vers valeurs par défaut si fichiers inaccessibles
  * @internal
@@ -1012,97 +1012,103 @@ const nk_ptr NkAlignAddressConst(const nk_ptr address, nk_size alignment) {
 // ====================================================================
 
 namespace nkentseu {
-namespace platform {
-namespace memory {
+    namespace memory {
 
-nk_ptr NkAllocateAligned(nk_size size, nk_size alignment) noexcept {
-    if (size == 0) {
-        return nullptr;
-    }
-
-    // Vérification : alignment doit être une puissance de 2
-    if ((alignment & (alignment - 1)) != 0) {
-        return nullptr;
-    }
-
-    // Alignement minimum : au moins sizeof(void*) pour stocker le pointeur original
-    if (alignment < sizeof(void *)) {
-        alignment = sizeof(void *);
-    }
-
-    void *ptr = nullptr;
-
-    #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        // Windows : _aligned_malloc (nécessite _aligned_free)
-        ptr = _aligned_malloc(size, alignment);
-    #elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-        // macOS/iOS : posix_memalign (retourne un code d'erreur)
-        if (posix_memalign(&ptr, alignment, size) != 0) {
-            ptr = nullptr;
-        }
-    #elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_ANDROID)
-        #if __STDC_VERSION__ >= 201112L
-            // C11 : aligned_alloc (attention : size doit être multiple de alignment)
-            if (size % alignment != 0) {
-                size = ((size + alignment - 1) / alignment) * alignment;
+        nk_ptr NkAllocateAligned(nk_size size, nk_size alignment) noexcept {
+            if (size == 0) {
+                return nullptr;
             }
-            ptr = aligned_alloc(alignment, size);
-        #else
-            // Fallback C99 : posix_memalign
-            if (posix_memalign(&ptr, alignment, size) != 0) {
-                ptr = nullptr;
+
+            // Vérification : alignment doit être une puissance de 2
+            if ((alignment & (alignment - 1)) != 0) {
+                return nullptr;
             }
-        #endif
-    #else
-        // Fallback portable : sur-allocation avec stockage du pointeur original
-        // Layout : [original_ptr][padding][aligned_ptr][user_data]
-        nk_size totalSize = size + alignment + sizeof(void *);
-        void *originalPtr = malloc(totalSize);
-        if (!originalPtr) {
-            return nullptr;
+
+            // Alignement minimum : au moins sizeof(void*) pour stocker le pointeur original
+            if (alignment < sizeof(void *)) {
+                alignment = sizeof(void *);
+            }
+
+            void *ptr = nullptr;
+
+            #if defined(NKENTSEU_PLATFORM_WINDOWS)
+                // Windows : _aligned_malloc (nécessite _aligned_free)
+                ptr = _aligned_malloc(size, alignment);
+            #elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
+                // macOS/iOS : posix_memalign (retourne un code d'erreur)
+                if (posix_memalign(&ptr, alignment, size) != 0) {
+                    ptr = nullptr;
+                }
+            #elif defined(NKENTSEU_PLATFORM_LINUX)
+                #if __STDC_VERSION__ >= 201112L
+                    // C11 : aligned_alloc (attention : size doit être multiple de alignment)
+                    if (size % alignment != 0) {
+                        size = ((size + alignment - 1) / alignment) * alignment;
+                    }
+                    ptr = aligned_alloc(alignment, size);
+                #else
+                    // Fallback C99 : posix_memalign
+                    if (posix_memalign(&ptr, alignment, size) != 0) {
+                        ptr = nullptr;
+                    }
+                #endif
+            #elif defined(NKENTSEU_PLATFORM_ANDROID)
+                // Android : posix_memalign est plus fiable que aligned_alloc
+                if (posix_memalign(&ptr, alignment, size) != 0) {
+                    ptr = nullptr;
+                }
+            #else
+                // Fallback portable : sur-allocation avec stockage du pointeur original
+                // Layout : [original_ptr][padding][aligned_ptr][user_data]
+                nk_size totalSize = size + alignment + sizeof(void *);
+                void *originalPtr = malloc(totalSize);
+                if (!originalPtr) {
+                    return nullptr;
+                }
+
+                // Calcul de l'adresse alignée après l'espace pour originalPtr
+                nk_uintptr addr = reinterpret_cast<nk_uintptr>(originalPtr);
+                nk_uintptr alignedAddr = (addr + alignment + sizeof(void *) - 1) & ~(alignment - 1);
+
+                // Stocker originalPtr juste avant alignedAddr pour le retrouver dans free
+                void **storage = reinterpret_cast<void **>(alignedAddr) - 1;
+                *storage = originalPtr;
+
+                ptr = reinterpret_cast<void *>(alignedAddr);
+            #endif
+
+            return static_cast<nk_ptr>(ptr);
         }
 
-        // Calcul de l'adresse alignée après l'espace pour originalPtr
-        nk_uintptr addr = reinterpret_cast<nk_uintptr>(originalPtr);
-        nk_uintptr alignedAddr = (addr + alignment + sizeof(void *) - 1) & ~(alignment - 1);
+        void NkFreeAligned(nk_ptr ptr) noexcept {
+            if (!ptr) {
+                return;  // free(nullptr) est no-op, mais on évite l'appel pour cohérence
+            }
 
-        // Stocker originalPtr juste avant alignedAddr pour le retrouver dans free
-        void **storage = reinterpret_cast<void **>(alignedAddr) - 1;
-        *storage = originalPtr;
+            #if defined(NKENTSEU_PLATFORM_WINDOWS)
+                // Windows : _aligned_free (doit correspondre à _aligned_malloc)
+                _aligned_free(ptr);
+            #elif defined(NKENTSEU_PLATFORM_POSIX) && !defined(NKENTSEU_PLATFORM_ANDROID)
+                free(ptr);  // posix_memalign et aligned_alloc utilisent free()
+            #elif defined(NKENTSEU_PLATFORM_ANDROID)
+                free(ptr);  // posix_memalign utilise free()
+            #else
+                // Fallback : récupérer le pointeur original
+                void **storage = reinterpret_cast<void**>(static_cast<nk_uint8*>(ptr) - sizeof(void*));
+                void *originalPtr = *storage;
+                free(originalPtr);
+            #endif
+        }
 
-        ptr = reinterpret_cast<void *>(alignedAddr);
-    #endif
+        nk_bool NkIsPointerAligned(const nk_ptr ptr, nk_size alignment) noexcept {
+            if (!ptr || alignment == 0) {
+                return true;  // Cas dégénérés
+            }
+            // Même test que NkIsAligned mais avec nom plus explicite
+            return (reinterpret_cast<nk_uintptr>(ptr) & (alignment - 1)) == 0;
+        }
 
-    return static_cast<nk_ptr>(ptr);
-}
-
-void NkFreeAligned(nk_ptr ptr) noexcept {
-    if (!ptr) {
-        return;  // free(nullptr) est no-op, mais on évite l'appel pour cohérence
-    }
-
-    #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        // Windows : _aligned_free (doit correspondre à _aligned_malloc)
-        _aligned_free(ptr);
-    #else
-        // POSIX/fallback : free() gère à la fois les pointeurs normaux et alignés
-        // Dans le fallback portable, ptr pointe vers alignedAddr, et le pointeur
-        // original est stocké juste avant : free() sur alignedAddr fonctionne
-        // car notre fallback utilise malloc() pour l'allocation initiale.
-        free(ptr);
-    #endif
-}
-
-nk_bool NkIsPointerAligned(const nk_ptr ptr, nk_size alignment) noexcept {
-    if (!ptr || alignment == 0) {
-        return true;  // Cas dégénérés
-    }
-    // Même test que NkIsAligned mais avec nom plus explicite
-    return (reinterpret_cast<nk_uintptr>(ptr) & (alignment - 1)) == 0;
-}
-
-} // namespace memory
-} // namespace platform
+    } // namespace memory
 } // namespace nkentseu
 
 // =============================================================================

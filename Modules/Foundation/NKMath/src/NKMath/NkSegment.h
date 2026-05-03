@@ -25,11 +25,6 @@
 #define __NKENTSEU_SEGMENT_H__
 
     // =====================================================================
-    // Inclusion de l'en-tête précompilé (requis pour la compilation rapide)
-    // =====================================================================
-    #include "pch.h"
-
-    // =====================================================================
     // Inclusions des dépendances du projet
     // =====================================================================
     #include "NKMath/NkLegacySystem.h"  // Types fondamentaux : float32, NkString, etc.

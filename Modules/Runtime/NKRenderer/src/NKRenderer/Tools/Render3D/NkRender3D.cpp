@@ -2,7 +2,7 @@
 // NkRender3D.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkRender3D.h"
-#include "../Shadow/NkShadowSystem.h"
+#include "NKRenderer/Tools/Shadow/NkShadowSystem.h"
 #include <cstring>
 #include <algorithm>
 

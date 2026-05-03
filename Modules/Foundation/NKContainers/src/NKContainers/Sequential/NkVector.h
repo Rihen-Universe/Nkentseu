@@ -300,11 +300,11 @@
                  */
                 template<typename... Args>
                 void ConstructAt(T* ptr, Args&&... args) {
-                    #if defined(NKENTSEU_CXX11_OR_LATER)
+                    // #if defined(NKENTSEU_CXX11_OR_LATER)
                         new (ptr) T(traits::NkForward<Args>(args)...);
-                    #else
-                        new (ptr) T(args...);
-                    #endif
+                    // #else
+                    //     new (ptr) T(args...);
+                    // #endif
                 }
 
                 /**

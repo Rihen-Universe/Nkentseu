@@ -9,7 +9,7 @@
 //   • Agents émotifs (blush, pâleur, transpiration)
 //   • Déformations morphologiques (blend shapes)
 // =============================================================================
-#include "../Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRHI/Core/NkIDevice.h"
 
 namespace nkentseu {

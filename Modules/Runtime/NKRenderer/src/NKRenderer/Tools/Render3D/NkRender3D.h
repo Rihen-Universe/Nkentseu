@@ -2,11 +2,11 @@
 // =============================================================================
 // NkRender3D.h  — NKRenderer v4.0  (Tools/Render3D/)
 // =============================================================================
-#include "../../Core/NkRendererTypes.h"
-#include "../../Core/NkCamera.h"
-#include "../../Core/NkRenderGraph.h"
-#include "../../Materials/NkMaterialSystem.h"
-#include "../../Mesh/NkMeshSystem.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
+#include "NKRenderer/Core/NkRenderGraph.h"
+#include "NKRenderer/Materials/NkMaterialSystem.h"
+#include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
 namespace nkentseu {

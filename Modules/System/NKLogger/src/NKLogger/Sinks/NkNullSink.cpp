@@ -82,7 +82,7 @@ namespace nkentseu {
 	// MÉTHODE : SetFormatter
 	// DESCRIPTION : Ignore le formatter fourni (no-op avec destruction RAII)
 	// -------------------------------------------------------------------------
-	void NkNullSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+	void NkNullSink::SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) {
 		// No-op : ce sink n'utilise pas de formatter interne
 		// Le formatter passé est détruit automatiquement via RAII de NkUniquePtr
 		// Thread-safe : safe pour appel concurrent
@@ -111,7 +111,7 @@ namespace nkentseu {
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retourne nullptr : aucun formatter associé
 	// -------------------------------------------------------------------------
-	NkFormatter* NkNullSink::GetFormatter() const {
+	NkLoggerFormatter* NkNullSink::GetFormatter() const {
 		// Retour constant : ce sink ne gère pas de formatter interne
 		// Thread-safe : lecture safe sans synchronisation
 		// Compatible avec l'API NkISink : retour de pointeur brut

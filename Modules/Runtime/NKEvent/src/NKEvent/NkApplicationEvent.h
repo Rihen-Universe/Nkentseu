@@ -124,7 +124,7 @@
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant le nombre d'arguments CLI
                 NkString ToString() const override {
-                    return "AppLaunch(argc=" + string::NkToString(mArgc) + ")";
+                    return "AppLaunch(argc=" + NkFormat("{0}", mArgc) + ")";
                 }
 
                 /// @brief Retourne le nombre d'arguments de ligne de commande
@@ -203,8 +203,8 @@
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant deltaTime et totalTime en secondes
                 NkString ToString() const override {
-                    return "AppTick(dt=" + string::NkToString(mDeltaTime)
-                         + "s total=" + string::NkToString(mTotalTime) + "s)";
+                    return "AppTick(dt=" + NkFormat("{0}", mDeltaTime)
+                         + "s total=" + NkFormat("{0}", mTotalTime) + "s)";
                 }
 
                 /// @brief Retourne le delta temps depuis le tick précédent
@@ -282,7 +282,7 @@
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant deltaTime et le mode (fixed/variable)
                 NkString ToString() const override {
-                    return NkString("AppUpdate(dt=") + string::NkToString(mDeltaTime)
+                    return NkString("AppUpdate(dt=") + NkFormat("{0}", mDeltaTime)
                          + (mFixedStep ? " fixed" : " variable") + ")";
                 }
 
@@ -351,8 +351,8 @@
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant frameIndex et facteur d'interpolation
                 NkString ToString() const override {
-                    return "AppRender(frame=" + string::NkToString(mFrameIndex)
-                         + " alpha=" + string::NkToString(mAlpha) + ")";
+                    return "AppRender(frame=" + NkFormat("{0}", mFrameIndex)
+                         + " alpha=" + NkFormat("{0}", mAlpha) + ")";
                 }
 
                 /// @brief Retourne le facteur d'interpolation entre états simulés

@@ -3,8 +3,8 @@
 // NkStreamExport.h — Macros d'export/import pour NKStream
 // =============================================================================
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformInline.h"
 #include "NKCore/NkTypes.h"
-#include "NKCore/NkInline.h"
 
 #if defined(NKSTREAM_SHARED)
 #  if defined(NKSTREAM_BUILD)

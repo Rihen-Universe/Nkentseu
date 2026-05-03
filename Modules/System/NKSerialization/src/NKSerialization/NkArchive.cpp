@@ -189,14 +189,14 @@ namespace nkentseu {
     // -------------------------------------------------------------------------
     NkArchiveNode::NkArchiveNode(NkArchiveNode&& o) noexcept
         : kind(o.kind)
-        , value(std::move(o.value))
+        , value(traits::NkMove(o.value))
         , object(o.object)
-        , array(std::move(o.array))
+        , array(traits::NkMove(o.array))
     {
         // Réinitialisation de la source pour sécurité post-move
         o.object = nullptr;
         o.kind = NkNodeKind::NK_NODE_SCALAR;
-        // array est déjà vidé par std::move, value est dans état valide
+        // array est déjà vidé par traits::NkMove, value est dans état valide
     }
 
     // -------------------------------------------------------------------------
@@ -221,9 +221,9 @@ namespace nkentseu {
             FreeObject();
             array.Clear();
             kind = o.kind;
-            value = std::move(o.value);
+            value = traits::NkMove(o.value);
             object = o.object;
-            array = std::move(o.array);
+            array = traits::NkMove(o.array);
             // Réinitialisation de la source
             o.object = nullptr;
             o.kind = NkNodeKind::NK_NODE_SCALAR;
@@ -294,7 +294,7 @@ namespace nkentseu {
         NkArchiveEntry e;
         e.key = NkString(key);
         e.node = node;
-        mEntries.PushBack(std::move(e));
+        mEntries.PushBack(traits::NkMove(e));
         return true;
     }
 
@@ -620,7 +620,7 @@ namespace nkentseu {
         NkArchiveEntry e;
         e.key = NkString(key);
         e.node.SetObject(arc);
-        mEntries.PushBack(std::move(e));
+        mEntries.PushBack(traits::NkMove(e));
         return true;
     }
 
@@ -657,7 +657,7 @@ namespace nkentseu {
 
         for (nk_size i = 0; i < arr.Size(); ++i) {
             NkArchiveNode elem(arr[i]);
-            node.array.PushBack(std::move(elem));
+            node.array.PushBack(traits::NkMove(elem));
         }
 
         return SetNode(key, node);

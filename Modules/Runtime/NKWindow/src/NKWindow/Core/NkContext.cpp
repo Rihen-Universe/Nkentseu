@@ -49,12 +49,12 @@ namespace nkentseu {
             context.lastError = NkError::Ok();
         }
 
-        static bool NkIsSurfaceOnlyApi(NkRendererApi api) {
-            return api == NkRendererApi::NK_VULKAN ||
-                   api == NkRendererApi::NK_DIRECTX11 ||
-                   api == NkRendererApi::NK_DIRECTX12 ||
-                   api == NkRendererApi::NK_METAL ||
-                   api == NkRendererApi::NK_SOFTWARE;
+        static bool NkIsSurfaceOnlyApi(graphics::NkGraphicsApi api) {
+            return api == graphics::NkGraphicsApi::NK_GFX_API_VULKAN ||
+                   api == graphics::NkGraphicsApi::NK_GFX_API_D3D11 ||
+                   api == graphics::NkGraphicsApi::NK_GFX_API_D3D12 ||
+                   api == graphics::NkGraphicsApi::NK_GFX_API_METAL ||
+                   api == graphics::NkGraphicsApi::NK_GFX_API_SOFTWARE;
         }
 
         static bool NkShouldRequestExplicitOpenGLContext(const NkContextConfig& config) {
@@ -802,7 +802,7 @@ namespace nkentseu {
 
     void NkContextResetHints() {
         gHints = {};
-        gHints.api = NkRendererApi::NK_OPENGL;
+        gHints.api = graphics::NkGraphicsApi::NK_GFX_API_OPENGL;
         gHints.versionMajor = 3;
         gHints.versionMinor = 3;
         gHints.profile = NkContextProfile::NK_CONTEXT_PROFILE_CORE;
@@ -828,7 +828,7 @@ namespace nkentseu {
         gHints = config;
     }
 
-    void NkContextSetApi(NkRendererApi api) {
+    void NkContextSetApi(graphics::NkGraphicsApi api) {
         gHints.api = api;
     }
 
@@ -855,9 +855,9 @@ namespace nkentseu {
     void NkContextWindowHint(NkContextHint hint, int32 value) {
         switch (hint) {
             case NkContextHint::NK_CONTEXT_HINT_API:
-                if (value >= static_cast<int32>(NkRendererApi::NK_NONE) &&
-                    value <  static_cast<int32>(NkRendererApi::NK_RENDERER_API_MAX)) {
-                    gHints.api = static_cast<NkRendererApi>(value);
+                if (value >= static_cast<int32>(graphics::NkGraphicsApi::NK_GFX_API_NONE) &&
+                    value <  static_cast<int32>(graphics::NkGraphicsApi::NK_GFX_API_MAX)) {
+                    gHints.api = static_cast<graphics::NkGraphicsApi>(value);
                 }
                 break;
             case NkContextHint::NK_CONTEXT_HINT_VERSION_MAJOR:
@@ -939,11 +939,11 @@ namespace nkentseu {
     }
 
     void NkContextApplyWindowHints(NkWindowConfig& config) {
-        if (gHints.api != NkRendererApi::NK_OPENGL) return;
+        if (gHints.api != graphics::NkGraphicsApi::NK_GFX_API_OPENGL) return;
         ApplyGlxVisualHint(gHints, config);
     }
 
-    NkContextMode NkContextGetModeForApi(NkRendererApi api) {
+    NkContextMode NkContextGetModeForApi(graphics::NkGraphicsApi api) {
         return NkIsSurfaceOnlyApi(api)
             ? NkContextMode::NK_CONTEXT_MODE_SURFACE_ONLY
             : NkContextMode::NK_CONTEXT_MODE_GRAPHICS_CONTEXT;
@@ -976,7 +976,7 @@ namespace nkentseu {
             return true;
         }
 
-        if (outContext.config.api != NkRendererApi::NK_OPENGL) {
+        if (outContext.config.api != graphics::NkGraphicsApi::NK_GFX_API_OPENGL) {
             NkSetContextError(outContext, 1203, "Only OpenGL uses native context mode in NKWindow.");
             return false;
         }
@@ -996,7 +996,7 @@ namespace nkentseu {
         }
 
         if (context.mode == NkContextMode::NK_CONTEXT_MODE_GRAPHICS_CONTEXT &&
-            context.config.api == NkRendererApi::NK_OPENGL) {
+            context.config.api == graphics::NkGraphicsApi::NK_GFX_API_OPENGL) {
         #if defined(NKENTSEU_PLATFORM_WINDOWS)
             HDC hdc = static_cast<HDC>(context.nativeDeviceContext);
             HGLRC rc = static_cast<HGLRC>(context.nativeContext);
@@ -1051,7 +1051,7 @@ namespace nkentseu {
         if (!context.valid) return false;
         if (context.mode == NkContextMode::NK_CONTEXT_MODE_SURFACE_ONLY) return true;
 
-        if (context.config.api != NkRendererApi::NK_OPENGL) {
+        if (context.config.api != graphics::NkGraphicsApi::NK_GFX_API_OPENGL) {
             NkSetContextError(context, 1301, "MakeCurrent is only available for OpenGL contexts.");
             return false;
         }
@@ -1116,7 +1116,7 @@ namespace nkentseu {
         if (!context.valid) return;
         if (context.mode == NkContextMode::NK_CONTEXT_MODE_SURFACE_ONLY) return;
 
-        if (context.config.api != NkRendererApi::NK_OPENGL) return;
+        if (context.config.api != graphics::NkGraphicsApi::NK_GFX_API_OPENGL) return;
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
         HDC hdc = static_cast<HDC>(context.nativeDeviceContext);

@@ -4,21 +4,28 @@
 // Implémentation concrète de NkRenderer.
 // Possède tous les sous-systèmes. Thread-safe sur Init/Shutdown.
 // =============================================================================
-#include "../NkRenderer.h"
+#include "NKRenderer/NkRenderer.h"
 #include "NkRenderGraph.h"
 #include "NkTextureLibrary.h"
-#include "../Mesh/NkMeshSystem.h"
-#include "../Materials/NkMaterialSystem.h"
-#include "../Tools/Render2D/NkRender2D.h"
-#include "../Tools/Render3D/NkRender3D.h"
-#include "../Tools/Text/NkTextRenderer.h"
-#include "../Tools/Shadow/NkShadowSystem.h"
-#include "../Tools/PostProcess/NkPostProcessStack.h"
-#include "../Tools/Overlay/NkOverlayRenderer.h"
-#include "../Tools/Offscreen/NkOffscreenTarget.h"
-#include "../Tools/VFX/NkVFXSystem.h"
-#include "../Tools/Animation/NkAnimationSystem.h"
-#include "../Tools/Simulation/NkSimulationRenderer.h"
+#include "NKRenderer/Mesh/NkMeshSystem.h"
+#include "NKRenderer/Materials/NkMaterialSystem.h"
+#include "NKRenderer/Tools/Render2D/NkRender2D.h"
+#include "NKRenderer/Tools/Render3D/NkRender3D.h"
+#include "NKRenderer/Tools/Text/NkTextRenderer.h"
+#include "NKRenderer/Tools/Shadow/NkShadowSystem.h"
+#include "NKRenderer/Tools/PostProcess/NkPostProcessStack.h"
+#include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
+#include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
+#include "NKRenderer/Tools/VFX/NkVFXSystem.h"
+#include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKRenderer/Tools/Simulation/NkSimulationRenderer.h"
+#include "NKRenderer/Tools/Culling/NkCullingSystem.h"
+#include "NKRenderer/Tools/Raytracing/NkRaytracingSystem.h"
+#include "NKRenderer/Tools/IK/NkIKSystem.h"
+#include "NKRenderer/Tools/Denoiser/NkDenoiserSystem.h"
+#include "NKRenderer/Tools/AIRendering/NkAIRenderingTarget.h"
+#include "NKRenderer/Passes/Deferred/NkDeferredPass.h"
+#include "NKRenderer/Streaming/NkStreamingSystem.h"
 #include "NKCore/NkAtomic.h"
 #include "NKMemory/NkUniquePtr.h"
 
@@ -55,6 +62,14 @@ namespace renderer {
         NkVFXSystem*          GetVFX()          override { return mVFX.Get(); }
         NkAnimationSystem*    GetAnimation()    override { return mAnimation.Get(); }
         NkSimulationRenderer* GetSimulation()   override { return mSimulation.Get(); }
+
+        NkCullingSystem*      GetCulling()      override { return mCulling.Get(); }
+        NkDeferredPass*       GetDeferred()     override { return mDeferred.Get(); }
+        NkStreamingSystem*    GetStreaming()     override { return mStreaming.Get(); }
+        NkRaytracingSystem*   GetRaytracing()   override { return mRaytracing.Get(); }
+        NkIKSystem*           GetIK()           override { return mIK.Get(); }
+        NkDenoiserSystem*     GetDenoiser()     override { return mDenoiser.Get(); }
+        NkAIRenderingSystem*  GetAIRendering()  override { return mAIRendering.Get(); }
 
         NkOffscreenTarget* CreateOffscreen(const NkOffscreenDesc& desc) override;
         void               DestroyOffscreen(NkOffscreenTarget*& t)      override;
@@ -97,6 +112,14 @@ namespace renderer {
         memory::NkUniquePtr<NkVFXSystem>          mVFX;
         memory::NkUniquePtr<NkAnimationSystem>    mAnimation;
         memory::NkUniquePtr<NkSimulationRenderer> mSimulation;
+        // Nouveaux sous-systèmes
+        memory::NkUniquePtr<NkCullingSystem>      mCulling;
+        memory::NkUniquePtr<NkDeferredPass>       mDeferred;
+        memory::NkUniquePtr<NkStreamingSystem>    mStreaming;
+        memory::NkUniquePtr<NkRaytracingSystem>   mRaytracing;
+        memory::NkUniquePtr<NkIKSystem>           mIK;
+        memory::NkUniquePtr<NkDenoiserSystem>     mDenoiser;
+        memory::NkUniquePtr<NkAIRenderingSystem>  mAIRendering;
 
         NkVector<NkOffscreenTarget*> mOffscreenTargets;
 

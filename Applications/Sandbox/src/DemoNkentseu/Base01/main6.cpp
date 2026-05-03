@@ -296,7 +296,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     NkContextInit();
     NkContextConfig contextConfig{};
-    contextConfig.api = NkRendererApi::NK_SOFTWARE;
+    contextConfig.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     contextConfig.vsync = true;
     contextConfig.debug = false;
     NkContextSetHints(contextConfig);
@@ -354,7 +354,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     // 3. Renderer pour chaque fenAtre
     NkRendererConfig rcfg;
-    rcfg.api                   = NkRendererApi::NK_SOFTWARE;
+    rcfg.api                   = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     rcfg.autoResizeFramebuffer = true;
 
     // Init wins[0]

@@ -104,6 +104,15 @@ namespace renderer {
         NkShadowConfig   shadow;
         NkPostConfig     postProcess;
 
+        // ── Sous-systèmes optionnels ──────────────────────────────────────────
+        bool enableCulling     = true;   // frustum/distance culling + octree
+        bool enableDeferred    = false;  // passe G-buffer (pipeline==NK_DEFERRED)
+        bool enableStreaming   = false;  // streaming textures/meshes open-world
+        bool enableRaytracing  = false;  // RT shadows/reflections/AO (DXR/VkRT)
+        bool enableIK          = true;   // IK solver (CCD/FABRIK/TwoBone/FBIK)
+        bool enableDenoiser    = false;  // débruitage (OIDN/NRD/bilatéral)
+        bool enableAIRendering = false;  // readback async pour inférence IA
+
         // ── Presets ───────────────────────────────────────────────────────────
         static NkRendererConfig ForGame(NkGraphicsApi api = NkGraphicsApi::NK_OPENGL,
                                          uint32 w = 1920, uint32 h = 1080) {
@@ -113,6 +122,7 @@ namespace renderer {
             c.shadow.resolution=2048; c.shadow.cascadeCount=3;
             c.postProcess.bloom=true; c.postProcess.ssao=true;
             c.postProcess.fxaa=true;  c.postProcess.aces=true;
+            c.enableCulling=true; c.enableIK=true; c.enableStreaming=true;
             return c;
         }
         static NkRendererConfig ForFilm(NkGraphicsApi api = NkGraphicsApi::NK_VULKAN,
@@ -126,6 +136,8 @@ namespace renderer {
             c.postProcess.dof=true;    c.postProcess.motionBlur=true;
             c.postProcess.taa=true;    c.postProcess.ssr=true;
             c.postProcess.colorGrading=true;
+            c.enableDeferred=true; c.enableDenoiser=true;
+            c.enableRaytracing=true; c.enableIK=true; c.enableAIRendering=true;
             c.vsync=false; return c;
         }
         static NkRendererConfig ForArchviz(NkGraphicsApi api = NkGraphicsApi::NK_VULKAN,
@@ -136,7 +148,10 @@ namespace renderer {
             c.shadow.resolution=4096;
             c.postProcess.hbao=true;  c.postProcess.ssr=true;
             c.postProcess.bloom=false; c.postProcess.colorGrading=true;
-            c.postProcess.taa=true; return c;
+            c.postProcess.taa=true;
+            c.enableDeferred=true; c.enableRaytracing=true;
+            c.enableDenoiser=true; c.enableIK=true;
+            return c;
         }
         static NkRendererConfig ForMobile(NkGraphicsApi api = NkGraphicsApi::NK_OPENGLES,
                                            uint32 w = 1280, uint32 h = 720) {

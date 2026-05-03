@@ -1,8 +1,8 @@
 #pragma once
 
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformInline.h"
 #include "NKCore/NkTypes.h"
-#include "NKCore/NkInline.h"
 #include <cstddef>
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
@@ -24,16 +24,16 @@ namespace nkentseu {
 
     class NKSTREAM_API NkConsoleStream : public NkStream {
     public:
-        enum StreamType { Input, Output, Error };
+        enum StreamType { NK_INPUT, NK_OUTPUT, NK_ERROR };
 
         NkConsoleStream(StreamType type) : mType(type) {
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
             mHandle = GetStdHandle(
-                type == Input ? STD_INPUT_HANDLE :
-                type == Error ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE
+                type == NK_INPUT ? STD_INPUT_HANDLE :
+                type == NK_INPUT ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE
             );
     #else
-            mHandle = type == Input ? 0 : type == Error ? 2 : 1;
+            mHandle = type == NK_INPUT ? 0 : type == NK_ERROR ? 2 : 1;
     #endif
         }
 
@@ -53,7 +53,7 @@ namespace nkentseu {
         usize ReadRaw(void* buffer, usize byteCount) override {
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
             DWORD read = 0;
-            if(mType == Input) {
+            if(mType == NK_INPUT) {
                 ReadConsoleW(GetStdHandle(STD_INPUT_HANDLE), buffer,
                             byteCount / sizeof(wchar_t), &read, NULL);
                 return read * sizeof(wchar_t);
@@ -68,10 +68,10 @@ namespace nkentseu {
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
             DWORD written = 0;
             const HANDLE hConsole = GetStdHandle(
-                mType == Error ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE
+                mType == NK_ERROR ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE
             );
 
-            if(mEncoding == Encoding::UTF16_LE) {
+            if(mEncoding == Encoding::NK_UTF16_LE) {
                 WriteConsoleW(hConsole, data, byteCount / sizeof(wchar_t), &written, NULL);
                 return written * sizeof(wchar_t);
             }
@@ -101,24 +101,24 @@ namespace nkentseu {
         bool SetEncoding(Encoding encoding) override {
         #if defined(NKENTSEU_PLATFORM_WINDOWS)
             switch(encoding) {
-                case Encoding::UTF8:
+                case Encoding::NK_UTF8:
                     SetConsoleOutputCP(CP_UTF8);
                     mEncoding = encoding;
                     return true;
 
-                case Encoding::UTF16_LE:
+                case Encoding::NK_UTF16_LE:
                     mEncoding = encoding;
                     return true; // Utilise WriteConsoleW automatiquement
 
                 default:
                     SetConsoleOutputCP(CP_ACP); // ANSI par défaut
-                    mEncoding = Encoding::SystemDefault;
+                    mEncoding = Encoding::NK_SYSTEM_DEFAULT;
                     return false;
             }
         #else
             // Sous Unix, on suppose UTF-8 pour la console
-            mEncoding = Encoding::UTF8;
-            return (encoding == Encoding::UTF8 || encoding == Encoding::SystemDefault);
+            mEncoding = Encoding::NK_UTF8;
+            return (encoding == Encoding::NK_UTF8 || encoding == Encoding::NK_SYSTEM_DEFAULT);
         #endif
         }
 
@@ -127,7 +127,7 @@ namespace nkentseu {
         }
 
     private:
-        Encoding mEncoding = Encoding::SystemDefault;
+        Encoding mEncoding = Encoding::NK_SYSTEM_DEFAULT;
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
         HANDLE mHandle;
     #else

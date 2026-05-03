@@ -977,68 +977,177 @@
 
     namespace nkentseu {
 
-        // Indentation niveau 1 : namespace platform
-        namespace platform {
+        /**
+         * @defgroup PlatformInlineUtils Utilitaires Inline Plateforme
+         * @brief Fonctions inline constexpr pour détection compile-time
+         * @ingroup PlatformCore
+         *
+         * Ces fonctions fournissent un accès zéro-overhead aux informations
+         * de plateforme déterminées à la compilation, éliminées par l'optimiseur
+         * quand le résultat est constant.
+         *
+         * @note
+         *   - Toutes les fonctions sont inline pour éviter les multiples définitions
+         *   - Utilisent des macros de détection (NKENTSEU_PLATFORM_*) définies ailleurs
+         *   - Peuvent être utilisées dans des expressions constexpr (C++11+)
+         *
+         * @example
+         * @code
+         * // Sélection compile-time d'un algorithme
+         * template <typename T>
+         * T Compute(T value) {
+         *     if constexpr (nkentseu::platform::NkIsDesktop()) {
+         *         return DesktopOptimizedCompute(value);
+         *     } else {
+         *         return MobileOptimizedCompute(value);
+         *     }
+         * }
+         * @endcode
+         */
+        /** @{ */
+
+        /**
+         * @brief Retourne le nom de la plateforme (compile-time)
+         * @return Chaîne statique : valeur de NKENTSEU_PLATFORM_NAME
+         * @note Ne pas libérer la chaîne retournée
+         * @ingroup PlatformInlineUtils
+         */
+        inline const nk_char *NkGetPlatformName() noexcept {
+            return NKENTSEU_PLATFORM_NAME;
+        }
+
+        /**
+         * @brief Retourne la version/description de la plateforme
+         * @return Chaîne statique : valeur de NKENTSEU_PLATFORM_VERSION
+         * @note Peut inclure numéro de version ou nom de distribution
+         * @ingroup PlatformInlineUtils
+         */
+        inline const nk_char *NkGetPlatformVersion() noexcept {
+            return NKENTSEU_PLATFORM_VERSION;
+        }
+
+        /**
+         * @brief Vérifie si la plateforme est de type desktop
+         * @return true si NKENTSEU_PLATFORM_DESKTOP défini, false sinon
+         * @note
+         *   - Desktop = Windows, Linux, macOS, BSD
+         *   - Exclut mobile, console, embarqué, web
+         * @ingroup PlatformInlineUtils
+         */
+        inline nk_bool NkIsDesktop() noexcept {
+            #ifdef NKENTSEU_PLATFORM_DESKTOP
+                return true;
+            #else
+                return false;
+            #endif
+        }
+
+        /**
+         * @brief Vérifie si la plateforme est de type mobile
+         * @return true si NKENTSEU_PLATFORM_MOBILE défini, false sinon
+         * @note
+         *   - Mobile = iOS, Android, HarmonyOS
+         *   - Exclut desktop, console, embarqué
+         * @ingroup PlatformInlineUtils
+         */
+        inline nk_bool NkIsMobile() noexcept {
+            #ifdef NKENTSEU_PLATFORM_MOBILE
+                return true;
+            #else
+                return false;
+            #endif
+        }
+
+        /**
+         * @brief Vérifie si la plateforme est une console de jeu
+         * @return true si NKENTSEU_PLATFORM_CONSOLE défini, false sinon
+         * @note
+         *   - Console = Switch, PS4/5, Xbox, etc.
+         *   - Souvent combiné avec restrictions API spécifiques
+         * @ingroup PlatformInlineUtils
+         */
+        inline nk_bool NkIsConsole() noexcept {
+            #ifdef NKENTSEU_PLATFORM_CONSOLE
+                return true;
+            #else
+                return false;
+            #endif
+        }
+
+        /**
+         * @brief Vérifie si la plateforme est embarquée/contrainte
+         * @return true si NKENTSEU_PLATFORM_EMBEDDED défini, false sinon
+         * @note
+         *   - Embedded = ressources limitées (mémoire, CPU, pas de MMU)
+         *   - Peut nécessiter des fallbacks algorithmiques
+         * @ingroup PlatformInlineUtils
+         */
+        inline nk_bool NkIsEmbedded() noexcept {
+            #ifdef NKENTSEU_PLATFORM_EMBEDDED
+                return true;
+            #else
+                return false;
+            #endif
+        }
+
+        /**
+         * @brief Vérifie si la plateforme est web/WebAssembly
+         * @return true si NKENTSEU_PLATFORM_EMSCRIPTEN défini, false sinon
+         * @note
+         *   - Web = exécution dans un navigateur via Emscripten
+         *   - Restrictions : pas de threads natifs, mémoire limitée, etc.
+         * @ingroup PlatformInlineUtils
+         */
+        inline nk_bool NkIsWeb() noexcept {
+            #ifdef NKENTSEU_PLATFORM_EMSCRIPTEN
+                return true;
+            #else
+                return false;
+            #endif
+        }
+
+        // ============================================================
+        // NAMESPACE ARCH - UTILITAIRES ARCHITECTURE CPU
+        // ============================================================
+
+        /**
+         * @namespace arch
+         * @brief Fonctions utilitaires spécifiques à l'architecture CPU
+         * @ingroup PlatformInlineUtils
+         *
+         * Regroupe les helpers pour manipulation d'adresses, alignement,
+         * et métadonnées CPU déterminées à la compilation.
+         */
+        namespace arch {
 
             /**
-             * @defgroup PlatformInlineUtils Utilitaires Inline Plateforme
-             * @brief Fonctions inline constexpr pour détection compile-time
-             * @ingroup PlatformCore
-             *
-             * Ces fonctions fournissent un accès zéro-overhead aux informations
-             * de plateforme déterminées à la compilation, éliminées par l'optimiseur
-             * quand le résultat est constant.
-             *
-             * @note
-             *   - Toutes les fonctions sont inline pour éviter les multiples définitions
-             *   - Utilisent des macros de détection (NKENTSEU_PLATFORM_*) définies ailleurs
-             *   - Peuvent être utilisées dans des expressions constexpr (C++11+)
-             *
-             * @example
-             * @code
-             * // Sélection compile-time d'un algorithme
-             * template <typename T>
-             * T Compute(T value) {
-             *     if constexpr (nkentseu::platform::NkIsDesktop()) {
-             *         return DesktopOptimizedCompute(value);
-             *     } else {
-             *         return MobileOptimizedCompute(value);
-             *     }
-             * }
-             * @endcode
-             */
-            /** @{ */
-
-            /**
-             * @brief Retourne le nom de la plateforme (compile-time)
-             * @return Chaîne statique : valeur de NKENTSEU_PLATFORM_NAME
-             * @note Ne pas libérer la chaîne retournée
+             * @brief Retourne le nom de l'architecture CPU
+             * @return Chaîne statique : valeur de NKENTSEU_ARCH_NAME
+             * @note Ex: "x86_64", "ARM64", "RISC-V", "WASM"
              * @ingroup PlatformInlineUtils
              */
-            inline const nk_char *NkGetPlatformName() noexcept {
-                return NKENTSEU_PLATFORM_NAME;
+            inline const nk_char *NkGetArchName() noexcept {
+                return NKENTSEU_ARCH_NAME;
             }
 
             /**
-             * @brief Retourne la version/description de la plateforme
-             * @return Chaîne statique : valeur de NKENTSEU_PLATFORM_VERSION
-             * @note Peut inclure numéro de version ou nom de distribution
+             * @brief Retourne la version/description de l'architecture
+             * @return Chaîne statique : valeur de NKENTSEU_ARCH_VERSION
+             * @note Peut inclure niveau d'instruction : "ARMv8-A+NEON", etc.
              * @ingroup PlatformInlineUtils
              */
-            inline const nk_char *NkGetPlatformVersion() noexcept {
-                return NKENTSEU_PLATFORM_VERSION;
+            inline const nk_char *NkGetArchVersion() noexcept {
+                return NKENTSEU_ARCH_VERSION;
             }
 
             /**
-             * @brief Vérifie si la plateforme est de type desktop
-             * @return true si NKENTSEU_PLATFORM_DESKTOP défini, false sinon
-             * @note
-             *   - Desktop = Windows, Linux, macOS, BSD
-             *   - Exclut mobile, console, embarqué, web
+             * @brief Vérifie si l'architecture est 64-bit
+             * @return true si NKENTSEU_ARCH_64BIT défini, false sinon
+             * @note Déterminé à la compilation via détection d'architecture
              * @ingroup PlatformInlineUtils
              */
-            inline nk_bool NkIsDesktop() noexcept {
-                #ifdef NKENTSEU_PLATFORM_DESKTOP
+            inline nk_bool NkIs64Bit() noexcept {
+                #ifdef NKENTSEU_ARCH_64BIT
                     return true;
                 #else
                     return false;
@@ -1046,15 +1155,13 @@
             }
 
             /**
-             * @brief Vérifie si la plateforme est de type mobile
-             * @return true si NKENTSEU_PLATFORM_MOBILE défini, false sinon
-             * @note
-             *   - Mobile = iOS, Android, HarmonyOS
-             *   - Exclut desktop, console, embarqué
+             * @brief Vérifie si l'architecture est 32-bit
+             * @return true si NKENTSEU_ARCH_32BIT défini, false sinon
+             * @note Mutuellement exclusif avec NkIs64Bit()
              * @ingroup PlatformInlineUtils
              */
-            inline nk_bool NkIsMobile() noexcept {
-                #ifdef NKENTSEU_PLATFORM_MOBILE
+            inline nk_bool NkIs32Bit() noexcept {
+                #ifdef NKENTSEU_ARCH_32BIT
                     return true;
                 #else
                     return false;
@@ -1062,15 +1169,16 @@
             }
 
             /**
-             * @brief Vérifie si la plateforme est une console de jeu
-             * @return true si NKENTSEU_PLATFORM_CONSOLE défini, false sinon
+             * @brief Vérifie si l'architecture est little-endian
+             * @return true si NKENTSEU_ARCH_LITTLE_ENDIAN défini, false sinon
              * @note
-             *   - Console = Switch, PS4/5, Xbox, etc.
-             *   - Souvent combiné avec restrictions API spécifiques
+             *   - Little-endian = byte de poids faible à l'adresse basse
+             *   - x86/x64, ARM (typique), RISC-V : little-endian
+             *   - Certains PowerPC, SPARC : big-endian
              * @ingroup PlatformInlineUtils
              */
-            inline nk_bool NkIsConsole() noexcept {
-                #ifdef NKENTSEU_PLATFORM_CONSOLE
+            inline nk_bool NkIsLittleEndian() noexcept {
+                #ifdef NKENTSEU_ARCH_LITTLE_ENDIAN
                     return true;
                 #else
                     return false;
@@ -1078,15 +1186,13 @@
             }
 
             /**
-             * @brief Vérifie si la plateforme est embarquée/contrainte
-             * @return true si NKENTSEU_PLATFORM_EMBEDDED défini, false sinon
-             * @note
-             *   - Embedded = ressources limitées (mémoire, CPU, pas de MMU)
-             *   - Peut nécessiter des fallbacks algorithmiques
+             * @brief Vérifie si l'architecture est big-endian
+             * @return true si NKENTSEU_ARCH_BIG_ENDIAN défini, false sinon
+             * @note Mutuellement exclusif avec NkIsLittleEndian()
              * @ingroup PlatformInlineUtils
              */
-            inline nk_bool NkIsEmbedded() noexcept {
-                #ifdef NKENTSEU_PLATFORM_EMBEDDED
+            inline nk_bool NkIsBigEndian() noexcept {
+                #ifdef NKENTSEU_ARCH_BIG_ENDIAN
                     return true;
                 #else
                     return false;
@@ -1094,322 +1200,211 @@
             }
 
             /**
-             * @brief Vérifie si la plateforme est web/WebAssembly
-             * @return true si NKENTSEU_PLATFORM_EMSCRIPTEN défini, false sinon
-             * @note
-             *   - Web = exécution dans un navigateur via Emscripten
-             *   - Restrictions : pas de threads natifs, mémoire limitée, etc.
+             * @brief Retourne la taille de ligne de cache
+             * @return Taille en bytes (valeur de NKENTSEU_CACHE_LINE_SIZE)
+             * @note Typiquement 64 bytes sur x86/x64 modernes
              * @ingroup PlatformInlineUtils
              */
-            inline nk_bool NkIsWeb() noexcept {
-                #ifdef NKENTSEU_PLATFORM_EMSCRIPTEN
-                    return true;
-                #else
-                    return false;
-                #endif
+            inline nk_uint32 NkGetCacheLineSize() noexcept {
+                return NKENTSEU_CACHE_LINE_SIZE;
             }
 
-            // ============================================================
-            // NAMESPACE ARCH - UTILITAIRES ARCHITECTURE CPU
-            // ============================================================
-
             /**
-             * @namespace arch
-             * @brief Fonctions utilitaires spécifiques à l'architecture CPU
+             * @brief Retourne la taille de page mémoire
+             * @return Taille en bytes (valeur de NKENTSEU_PAGE_SIZE)
+             * @note Typiquement 4096 (4KB), peut être 16KB/64KB sur ARM
              * @ingroup PlatformInlineUtils
-             *
-             * Regroupe les helpers pour manipulation d'adresses, alignement,
-             * et métadonnées CPU déterminées à la compilation.
              */
-            namespace arch {
-
-                /**
-                 * @brief Retourne le nom de l'architecture CPU
-                 * @return Chaîne statique : valeur de NKENTSEU_ARCH_NAME
-                 * @note Ex: "x86_64", "ARM64", "RISC-V", "WASM"
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline const nk_char *NkGetArchName() noexcept {
-                    return NKENTSEU_ARCH_NAME;
-                }
-
-                /**
-                 * @brief Retourne la version/description de l'architecture
-                 * @return Chaîne statique : valeur de NKENTSEU_ARCH_VERSION
-                 * @note Peut inclure niveau d'instruction : "ARMv8-A+NEON", etc.
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline const nk_char *NkGetArchVersion() noexcept {
-                    return NKENTSEU_ARCH_VERSION;
-                }
-
-                /**
-                 * @brief Vérifie si l'architecture est 64-bit
-                 * @return true si NKENTSEU_ARCH_64BIT défini, false sinon
-                 * @note Déterminé à la compilation via détection d'architecture
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline nk_bool NkIs64Bit() noexcept {
-                    #ifdef NKENTSEU_ARCH_64BIT
-                        return true;
-                    #else
-                        return false;
-                    #endif
-                }
-
-                /**
-                 * @brief Vérifie si l'architecture est 32-bit
-                 * @return true si NKENTSEU_ARCH_32BIT défini, false sinon
-                 * @note Mutuellement exclusif avec NkIs64Bit()
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline nk_bool NkIs32Bit() noexcept {
-                    #ifdef NKENTSEU_ARCH_32BIT
-                        return true;
-                    #else
-                        return false;
-                    #endif
-                }
-
-                /**
-                 * @brief Vérifie si l'architecture est little-endian
-                 * @return true si NKENTSEU_ARCH_LITTLE_ENDIAN défini, false sinon
-                 * @note
-                 *   - Little-endian = byte de poids faible à l'adresse basse
-                 *   - x86/x64, ARM (typique), RISC-V : little-endian
-                 *   - Certains PowerPC, SPARC : big-endian
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline nk_bool NkIsLittleEndian() noexcept {
-                    #ifdef NKENTSEU_ARCH_LITTLE_ENDIAN
-                        return true;
-                    #else
-                        return false;
-                    #endif
-                }
-
-                /**
-                 * @brief Vérifie si l'architecture est big-endian
-                 * @return true si NKENTSEU_ARCH_BIG_ENDIAN défini, false sinon
-                 * @note Mutuellement exclusif avec NkIsLittleEndian()
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline nk_bool NkIsBigEndian() noexcept {
-                    #ifdef NKENTSEU_ARCH_BIG_ENDIAN
-                        return true;
-                    #else
-                        return false;
-                    #endif
-                }
-
-                /**
-                 * @brief Retourne la taille de ligne de cache
-                 * @return Taille en bytes (valeur de NKENTSEU_CACHE_LINE_SIZE)
-                 * @note Typiquement 64 bytes sur x86/x64 modernes
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline nk_uint32 NkGetCacheLineSize() noexcept {
-                    return NKENTSEU_CACHE_LINE_SIZE;
-                }
-
-                /**
-                 * @brief Retourne la taille de page mémoire
-                 * @return Taille en bytes (valeur de NKENTSEU_PAGE_SIZE)
-                 * @note Typiquement 4096 (4KB), peut être 16KB/64KB sur ARM
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline nk_uint32 NkGetPageSize() noexcept {
-                    return NKENTSEU_PAGE_SIZE;
-                }
-
-                /**
-                 * @brief Retourne la taille de mot machine
-                 * @return Taille en bytes : 4 pour 32-bit, 8 pour 64-bit
-                 * @note Équivalent à sizeof(void*) ou sizeof(nk_ptr)
-                 * @ingroup PlatformInlineUtils
-                 */
-                inline nk_uint32 NkGetWordSize() noexcept {
-                    return NKENTSEU_WORD_SIZE;
-                }
-
-                /**
-                 * @brief Aligne un pointeur vers le haut à la prochaine borne d'alignement
-                 * @tparam T Type du pointeur (déduit automatiquement)
-                 * @param addr Adresse à aligner
-                 * @param align Alignement requis (doit être puissance de 2)
-                 * @return Pointeur aligné >= addr
-                 * @note
-                 *   - Formule : (addr + align - 1) & ~(align - 1)
-                 *   - constexpr-friendly : peut être évalué à la compilation si arguments constexpr
-                 * @ingroup PlatformInlineUtils
-                 */
-                template <typename T>
-                inline T *NkAlignUp(T *addr, nk_size align) noexcept {
-                    return reinterpret_cast<T *>(
-                        (reinterpret_cast<nk_uintptr>(addr) + (align - 1)) & ~(align - 1)
-                    );
-                }
-
-                /**
-                 * @brief Aligne un pointeur vers le bas à la borne d'alignement inférieure
-                 * @tparam T Type du pointeur (déduit automatiquement)
-                 * @param addr Adresse à aligner
-                 * @param align Alignement requis (doit être puissance de 2)
-                 * @return Pointeur aligné <= addr
-                 * @note
-                 *   - Formule : addr & ~(align - 1)
-                 *   - Utile pour trouver le début d'un bloc aligné contenant addr
-                 * @ingroup PlatformInlineUtils
-                 */
-                template <typename T>
-                inline T *NkAlignDown(T *addr, nk_size align) noexcept {
-                    return reinterpret_cast<T *>(
-                        reinterpret_cast<nk_uintptr>(addr) & ~(align - 1)
-                    );
-                }
-
-                /**
-                 * @brief Vérifie si un pointeur est aligné sur une borne donnée
-                 * @tparam T Type du pointeur (déduit automatiquement)
-                 * @param addr Adresse à vérifier
-                 * @param align Alignement requis (doit être puissance de 2)
-                 * @return true si (addr % align) == 0, false sinon
-                 * @note
-                 *   - Retourne true si align == 0 (cas dégénéré)
-                 *   - Utilisé pour valider les préconditions d'API alignées
-                 * @ingroup PlatformInlineUtils
-                 */
-                template <typename T>
-                inline nk_bool NkIsAligned(const T *addr, nk_size align) noexcept {
-                    return (reinterpret_cast<nk_uintptr>(addr) & (align - 1)) == 0;
-                }
-
-                /**
-                 * @brief Calcule le padding nécessaire pour atteindre l'alignement
-                 * @tparam T Type du pointeur (déduit automatiquement)
-                 * @param addr Adresse de référence
-                 * @param align Alignement cible (puissance de 2)
-                 * @return Nombre de bytes à ajouter pour atteindre l'alignement
-                 * @note
-                 *   - Retourne 0 si addr est déjà alignée
-                 *   - Formule : (align - (addr % align)) % align
-                 * @ingroup PlatformInlineUtils
-                 */
-                template <typename T>
-                inline nk_size NkCalculatePadding(const T *addr, nk_size align) noexcept {
-                    nk_uintptr mask = align - 1;
-                    nk_uintptr misalignment = reinterpret_cast<nk_uintptr>(addr) & mask;
-                    return misalignment ? (align - misalignment) : 0;
-                }
-
-            } // namespace arch
-
-            // ============================================================
-            // NAMESPACE MEMORY - ALLOCATION MÉMOIRE ALIGNÉE
-            // ============================================================
+            inline nk_uint32 NkGetPageSize() noexcept {
+                return NKENTSEU_PAGE_SIZE;
+            }
 
             /**
-             * @namespace memory
-             * @brief Fonctions pour allocation mémoire avec alignement contrôlé
-             * @ingroup PlatformUtils
-             *
-             * Fournit des primitives pour allouer/libérer de la mémoire
-             * avec un alignement garanti, essentiel pour :
-             *   - Instructions SIMD (requièrent alignement 16/32/64 bytes)
-             *   - DMA et opérations hardware directes
-             *   - Optimisation de cache (évite le false sharing)
+             * @brief Retourne la taille de mot machine
+             * @return Taille en bytes : 4 pour 32-bit, 8 pour 64-bit
+             * @note Équivalent à sizeof(void*) ou sizeof(nk_ptr)
+             * @ingroup PlatformInlineUtils
              */
-            namespace memory {
+            inline nk_uint32 NkGetWordSize() noexcept {
+                return NKENTSEU_WORD_SIZE;
+            }
 
-                /**
-                 * @brief Alloue de la mémoire avec alignement garanti
-                 * @param size Taille en bytes à allouer
-                 * @param alignment Alignement requis (doit être puissance de 2)
-                 * @return Pointeur vers mémoire alignée, nullptr en cas d'échec
-                 * @note
-                 *   - Utilise _aligned_malloc (Windows), posix_memalign (POSIX), ou fallback portable
-                 *   - Le pointeur retourné doit être libéré avec NkFreeAligned()
-                 *   - alignment doit être >= sizeof(void*) pour portabilité
-                 * @ingroup MemoryAllocation
-                 */
-                NKENTSEU_CORE_API nk_ptr NkAllocateAligned(nk_size size, nk_size alignment) noexcept;
+            /**
+             * @brief Aligne un pointeur vers le haut à la prochaine borne d'alignement
+             * @tparam T Type du pointeur (déduit automatiquement)
+             * @param addr Adresse à aligner
+             * @param align Alignement requis (doit être puissance de 2)
+             * @return Pointeur aligné >= addr
+             * @note
+             *   - Formule : (addr + align - 1) & ~(align - 1)
+             *   - constexpr-friendly : peut être évalué à la compilation si arguments constexpr
+             * @ingroup PlatformInlineUtils
+             */
+            template <typename T>
+            inline T *NkAlignUp(T *addr, nk_size align) noexcept {
+                return reinterpret_cast<T *>(
+                    (reinterpret_cast<nk_uintptr>(addr) + (align - 1)) & ~(align - 1)
+                );
+            }
 
-                /**
-                 * @brief Libère de la mémoire allouée avec NkAllocateAligned
-                 * @param ptr Pointeur à libérer (doit provenir de NkAllocateAligned)
-                 * @note
-                 *   - Ne pas utiliser free() sur un pointeur aligné : comportement indéfini
-                 *   - Accepte nullptr (no-op) pour compatibilité avec les patterns de cleanup
-                 * @ingroup MemoryAllocation
-                 */
-                NKENTSEU_CORE_API void NkFreeAligned(nk_ptr ptr) noexcept;
+            /**
+             * @brief Aligne un pointeur vers le bas à la borne d'alignement inférieure
+             * @tparam T Type du pointeur (déduit automatiquement)
+             * @param addr Adresse à aligner
+             * @param align Alignement requis (doit être puissance de 2)
+             * @return Pointeur aligné <= addr
+             * @note
+             *   - Formule : addr & ~(align - 1)
+             *   - Utile pour trouver le début d'un bloc aligné contenant addr
+             * @ingroup PlatformInlineUtils
+             */
+            template <typename T>
+            inline T *NkAlignDown(T *addr, nk_size align) noexcept {
+                return reinterpret_cast<T *>(
+                    reinterpret_cast<nk_uintptr>(addr) & ~(align - 1)
+                );
+            }
 
-                /**
-                 * @brief Vérifie si un pointeur est aligné sur une borne donnée
-                 * @param ptr Pointeur à vérifier
-                 * @param alignment Alignement à tester (puissance de 2)
-                 * @return true si aligné, false sinon
-                 * @note Utile pour valider les préconditions avant opérations SIMD
-                 * @ingroup MemoryAllocation
-                 */
-                NKENTSEU_CORE_API nk_bool NkIsPointerAligned(const nk_ptr ptr, nk_size alignment) noexcept;
+            /**
+             * @brief Vérifie si un pointeur est aligné sur une borne donnée
+             * @tparam T Type du pointeur (déduit automatiquement)
+             * @param addr Adresse à vérifier
+             * @param align Alignement requis (doit être puissance de 2)
+             * @return true si (addr % align) == 0, false sinon
+             * @note
+             *   - Retourne true si align == 0 (cas dégénéré)
+             *   - Utilisé pour valider les préconditions d'API alignées
+             * @ingroup PlatformInlineUtils
+             */
+            template <typename T>
+            inline nk_bool NkIsAligned(const T *addr, nk_size align) noexcept {
+                return (reinterpret_cast<nk_uintptr>(addr) & (align - 1)) == 0;
+            }
 
-                /**
-                 * @brief Alloue un tableau d'éléments avec alignement garanti
-                 * @tparam T Type des éléments du tableau
-                 * @param count Nombre d'éléments à allouer
-                 * @param alignment Alignement requis (puissance de 2)
-                 * @return Pointeur vers le tableau aligné, nullptr en cas d'échec
-                 * @note
-                 *   - Équivalent à NkAllocateAligned(count * sizeof(T), alignment) avec cast
-                 *   - Les éléments ne sont pas initialisés : utiliser placement-new si nécessaire
-                 * @ingroup MemoryAllocation
-                 */
-                template <typename T>
-                inline T *NkAllocateAlignedArray(nk_size count, nk_size alignment) noexcept {
-                    nk_size size = count * sizeof(T);
-                    nk_ptr ptr = NkAllocateAligned(size, alignment);
-                    return static_cast<T *>(ptr);
+            /**
+             * @brief Calcule le padding nécessaire pour atteindre l'alignement
+             * @tparam T Type du pointeur (déduit automatiquement)
+             * @param addr Adresse de référence
+             * @param align Alignement cible (puissance de 2)
+             * @return Nombre de bytes à ajouter pour atteindre l'alignement
+             * @note
+             *   - Retourne 0 si addr est déjà alignée
+             *   - Formule : (align - (addr % align)) % align
+             * @ingroup PlatformInlineUtils
+             */
+            template <typename T>
+            inline nk_size NkCalculatePadding(const T *addr, nk_size align) noexcept {
+                nk_uintptr mask = align - 1;
+                nk_uintptr misalignment = reinterpret_cast<nk_uintptr>(addr) & mask;
+                return misalignment ? (align - misalignment) : 0;
+            }
+
+        } // namespace arch
+
+        // ============================================================
+        // NAMESPACE MEMORY - ALLOCATION MÉMOIRE ALIGNÉE
+        // ============================================================
+
+        /**
+         * @namespace memory
+         * @brief Fonctions pour allocation mémoire avec alignement contrôlé
+         * @ingroup PlatformUtils
+         *
+         * Fournit des primitives pour allouer/libérer de la mémoire
+         * avec un alignement garanti, essentiel pour :
+         *   - Instructions SIMD (requièrent alignement 16/32/64 bytes)
+         *   - DMA et opérations hardware directes
+         *   - Optimisation de cache (évite le false sharing)
+         */
+        namespace memory {
+
+            /**
+             * @brief Alloue de la mémoire avec alignement garanti
+             * @param size Taille en bytes à allouer
+             * @param alignment Alignement requis (doit être puissance de 2)
+             * @return Pointeur vers mémoire alignée, nullptr en cas d'échec
+             * @note
+             *   - Utilise _aligned_malloc (Windows), posix_memalign (POSIX), ou fallback portable
+             *   - Le pointeur retourné doit être libéré avec NkFreeAligned()
+             *   - alignment doit être >= sizeof(void*) pour portabilité
+             * @ingroup MemoryAllocation
+             */
+            NKENTSEU_CORE_API nk_ptr NkAllocateAligned(nk_size size, nk_size alignment) noexcept;
+
+            /**
+             * @brief Libère de la mémoire allouée avec NkAllocateAligned
+             * @param ptr Pointeur à libérer (doit provenir de NkAllocateAligned)
+             * @note
+             *   - Ne pas utiliser free() sur un pointeur aligné : comportement indéfini
+             *   - Accepte nullptr (no-op) pour compatibilité avec les patterns de cleanup
+             * @ingroup MemoryAllocation
+             */
+            NKENTSEU_CORE_API void NkFreeAligned(nk_ptr ptr) noexcept;
+
+            /**
+             * @brief Vérifie si un pointeur est aligné sur une borne donnée
+             * @param ptr Pointeur à vérifier
+             * @param alignment Alignement à tester (puissance de 2)
+             * @return true si aligné, false sinon
+             * @note Utile pour valider les préconditions avant opérations SIMD
+             * @ingroup MemoryAllocation
+             */
+            NKENTSEU_CORE_API nk_bool NkIsPointerAligned(const nk_ptr ptr, nk_size alignment) noexcept;
+
+            /**
+             * @brief Alloue un tableau d'éléments avec alignement garanti
+             * @tparam T Type des éléments du tableau
+             * @param count Nombre d'éléments à allouer
+             * @param alignment Alignement requis (puissance de 2)
+             * @return Pointeur vers le tableau aligné, nullptr en cas d'échec
+             * @note
+             *   - Équivalent à NkAllocateAligned(count * sizeof(T), alignment) avec cast
+             *   - Les éléments ne sont pas initialisés : utiliser placement-new si nécessaire
+             * @ingroup MemoryAllocation
+             */
+            template <typename T>
+            inline T *NkAllocateAlignedArray(nk_size count, nk_size alignment) noexcept {
+                nk_size size = count * sizeof(T);
+                nk_ptr ptr = NkAllocateAligned(size, alignment);
+                return static_cast<T *>(ptr);
+            }
+
+            /**
+             * @brief Construit un objet dans de la mémoire pré-allouée et alignée
+             * @tparam T Type de l'objet à construire
+             * @tparam Args Types des arguments du constructeur (forwarded)
+             * @param ptr Pointeur vers mémoire alignée et suffisamment grande pour T
+             * @param args Arguments à forwarder au constructeur de T
+             * @return Pointeur vers l'objet nouvellement construit
+             * @note
+             *   - Utilise placement new : n'alloue pas de mémoire supplémentaire
+             *   - La mémoire doit être alignée selon les exigences de T (alignof(T))
+             *   - L'objet doit être détruit explicitement via NkDestroyAligned() avant libération
+             * @ingroup MemoryAllocation
+             */
+            template <typename T, typename... Args>
+            inline T *NkConstructAligned(nk_ptr ptr, Args &&...args) noexcept {
+                return new (ptr) T(static_cast<Args &&>(args)...);
+            }
+
+            /**
+             * @brief Détruit un objet construit via NkConstructAligned
+             * @tparam T Type de l'objet à détruire
+             * @param ptr Pointeur vers l'objet à détruire (peut être nullptr)
+             * @note
+             *   - Appelle explicitement le destructeur ~T()
+             *   - Ne libère pas la mémoire : utiliser NkFreeAligned() ensuite si nécessaire
+             *   - Accepte nullptr (no-op) pour patterns de cleanup sécurisés
+             * @ingroup MemoryAllocation
+             */
+            template <typename T>
+            inline void NkDestroyAligned(T *ptr) noexcept {
+                if (ptr) {
+                    ptr->~T();
                 }
+            }
 
-                /**
-                 * @brief Construit un objet dans de la mémoire pré-allouée et alignée
-                 * @tparam T Type de l'objet à construire
-                 * @tparam Args Types des arguments du constructeur (forwarded)
-                 * @param ptr Pointeur vers mémoire alignée et suffisamment grande pour T
-                 * @param args Arguments à forwarder au constructeur de T
-                 * @return Pointeur vers l'objet nouvellement construit
-                 * @note
-                 *   - Utilise placement new : n'alloue pas de mémoire supplémentaire
-                 *   - La mémoire doit être alignée selon les exigences de T (alignof(T))
-                 *   - L'objet doit être détruit explicitement via NkDestroyAligned() avant libération
-                 * @ingroup MemoryAllocation
-                 */
-                template <typename T, typename... Args>
-                inline T *NkConstructAligned(nk_ptr ptr, Args &&...args) noexcept {
-                    return new (ptr) T(static_cast<Args &&>(args)...);
-                }
-
-                /**
-                 * @brief Détruit un objet construit via NkConstructAligned
-                 * @tparam T Type de l'objet à détruire
-                 * @param ptr Pointeur vers l'objet à détruire (peut être nullptr)
-                 * @note
-                 *   - Appelle explicitement le destructeur ~T()
-                 *   - Ne libère pas la mémoire : utiliser NkFreeAligned() ensuite si nécessaire
-                 *   - Accepte nullptr (no-op) pour patterns de cleanup sécurisés
-                 * @ingroup MemoryAllocation
-                 */
-                template <typename T>
-                inline void NkDestroyAligned(T *ptr) noexcept {
-                    if (ptr) {
-                        ptr->~T();
-                    }
-                }
-
-            } // namespace memory
-
-        } // namespace platform
+        } // namespace memory
 
     } // namespace nkentseu
 

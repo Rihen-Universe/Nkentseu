@@ -2,7 +2,7 @@
 // =============================================================================
 // NkMeshSystem.h  — NKRenderer v4.0  (Mesh/)
 // =============================================================================
-#include "../Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Associative/NkHashMap.h"
 

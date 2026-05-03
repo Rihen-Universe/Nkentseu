@@ -280,7 +280,7 @@ namespace nkentseu {
 		: m_Name(name)
 		, m_Level(NkLogLevel::NK_INFO)
 		, m_Enabled(true)
-		, m_Formatter(memory::NkMakeUnique<NkFormatter>())
+		, m_Formatter(memory::NkMakeUnique<NkLoggerFormatter>())
 		, m_SourceLine(0) {
 
 		// Initialisation des métadonnées de source à vide
@@ -345,7 +345,7 @@ namespace nkentseu {
 	// MÉTHODE : SetFormatter
 	// DESCRIPTION : Définit le formatter principal avec transfert de propriété
 	// -------------------------------------------------------------------------
-	void NkLogger::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+	void NkLogger::SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) {
 		// Acquisition du lock pour modification de m_Formatter
 		threading::NkScopedLockMutex lock(m_Mutex);
 
@@ -463,9 +463,9 @@ namespace nkentseu {
 		for (auto& sink : m_Sinks) {
 			if (sink) {
 				// Propagation du pattern du logger vers le sink si nécessaire
-				NkFormatter* sinkFormatter = sink->GetFormatter();
-				if (sinkFormatter && m_Formatter) {
-					sinkFormatter->SetPattern(m_Formatter->GetPattern());
+				NkLoggerFormatter* siNkLoggerFormatter = sink->GetFormatter();
+				if (siNkLoggerFormatter && m_Formatter) {
+					siNkLoggerFormatter->SetPattern(m_Formatter->GetPattern());
 				}
 
 				// Appel de Log() sur le sink : filtrage et formatage appliqués côté sink
@@ -481,161 +481,63 @@ namespace nkentseu {
 
 
 	// -------------------------------------------------------------------------
-	// MÉTHODE : FormatString (privée)
-	// DESCRIPTION : Formatage variadique style printf via NkFormatf
+	// MÉTHODE : Méthodes stream-style (Trace, Debug, etc.)
+	// DESCRIPTION : Wrappers vers Log pour messages littéraux sans formatage
 	// -------------------------------------------------------------------------
-	NkString NkLogger::FormatString(const char* format, va_list args) {
-		// Délégation directe à NkFormatf de NKContainers : cohérence et réutilisation
-		// NkFormatf gère déjà vsnprintf, allocation, et erreurs
-		return NkFormatf(format, args);
-	}
-
-
-	// -------------------------------------------------------------------------
-	// MÉTHODE : Logf (variadique simple)
-	// DESCRIPTION : Log printf-style avec filtrage et formatage via NkFormatf
-	// -------------------------------------------------------------------------
-	void NkLogger::Logf(NkLogLevel level, const char* format, ...) {
-		// Filtrage précoce : éviter formatage si message ignoré
+	void NkLogger::Log(NkLogLevel level) {
 		if (!ShouldLog(level)) {
 			return;
 		}
-
-		// Empaquetage des arguments variadiques
-		va_list args;
-		va_start(args, format);
-
-		// Formatage via NkFormatf (délègue à FormatString)
-		NkString formattedMessage = FormatString(format, args);
-
-		va_end(args);
-
-		// Émission via LogInternal avec métadonnées de source courantes
-		LogInternal(level, formattedMessage, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(level, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-
-	// -------------------------------------------------------------------------
-	// MÉTHODE : Logf (avec métadonnées de source explicites)
-	// DESCRIPTION : Log printf-style avec source override temporaire
-	// -------------------------------------------------------------------------
-	void NkLogger::Logf(NkLogLevel level, const char* file, int line, const char* func, const char* format, ...) {
-		// Filtrage précoce
-		if (!ShouldLog(level)) {
-			return;
-		}
-
-		// Empaquetage des arguments
-		va_list args;
-		va_start(args, format);
-
-		// Formatage
-		NkString formattedMessage = FormatString(format, args);
-
-		va_end(args);
-
-		// Émission avec métadonnées de source fournies (override)
-		LogInternal(level, formattedMessage, file, line, func);
-	}
-
-
-	// -------------------------------------------------------------------------
-	// MÉTHODE : Logf (avec va_list pour chaînage)
-	// DESCRIPTION : Log printf-style avec va_list pour wrappers variadiques
-	// -------------------------------------------------------------------------
-	void NkLogger::Logf(NkLogLevel level, const char* file, int line, const char* func, const char* format, va_list args) {
-		// Filtrage précoce
-		if (!ShouldLog(level)) {
-			return;
-		}
-
-		// Formatage direct depuis va_list (pas de va_start/va_end ici)
-		NkString formattedMessage = FormatString(format, args);
-
-		// Émission avec métadonnées de source fournies
-		LogInternal(level, formattedMessage, file, line, func);
-	}
-
-
-	// -------------------------------------------------------------------------
-	// MÉTHODE : Méthodes *f (Tracef, Debugf, etc.)
-	// DESCRIPTION : Wrappers typés vers Logf pour convenance d'usage
-	// -------------------------------------------------------------------------
-	void NkLogger::Tracef(const char* format, ...) {
+	void NkLogger::Trace() {
 		if (!ShouldLog(NkLogLevel::NK_TRACE)) {
 			return;
 		}
-		va_list args;
-		va_start(args, format);
-		NkString message = FormatString(format, args);
-		va_end(args);
-		LogInternal(NkLogLevel::NK_TRACE, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_TRACE, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Debugf(const char* format, ...) {
+	void NkLogger::Debug() {
 		if (!ShouldLog(NkLogLevel::NK_DEBUG)) {
 			return;
 		}
-		va_list args;
-		va_start(args, format);
-		NkString message = FormatString(format, args);
-		va_end(args);
-		LogInternal(NkLogLevel::NK_DEBUG, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_DEBUG, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Infof(const char* format, ...) {
+	void NkLogger::Info() {
 		if (!ShouldLog(NkLogLevel::NK_INFO)) {
 			return;
 		}
-		va_list args;
-		va_start(args, format);
-		NkString message = FormatString(format, args);
-		va_end(args);
-		LogInternal(NkLogLevel::NK_INFO, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_INFO, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Warnf(const char* format, ...) {
+	void NkLogger::Warn() {
 		if (!ShouldLog(NkLogLevel::NK_WARN)) {
 			return;
 		}
-		va_list args;
-		va_start(args, format);
-		NkString message = FormatString(format, args);
-		va_end(args);
-		LogInternal(NkLogLevel::NK_WARN, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_WARN, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Errorf(const char* format, ...) {
+	void NkLogger::Error() {
 		if (!ShouldLog(NkLogLevel::NK_ERROR)) {
 			return;
 		}
-		va_list args;
-		va_start(args, format);
-		NkString message = FormatString(format, args);
-		va_end(args);
-		LogInternal(NkLogLevel::NK_ERROR, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_ERROR, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Criticalf(const char* format, ...) {
+	void NkLogger::Critical() {
 		if (!ShouldLog(NkLogLevel::NK_CRITICAL)) {
 			return;
 		}
-		va_list args;
-		va_start(args, format);
-		NkString message = FormatString(format, args);
-		va_end(args);
-		LogInternal(NkLogLevel::NK_CRITICAL, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_CRITICAL, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Fatalf(const char* format, ...) {
+	void NkLogger::Fatal() {
 		if (!ShouldLog(NkLogLevel::NK_FATAL)) {
 			return;
 		}
-		va_list args;
-		va_start(args, format);
-		NkString message = FormatString(format, args);
-		va_end(args);
-		LogInternal(NkLogLevel::NK_FATAL, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_FATAL, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
 
@@ -643,60 +545,60 @@ namespace nkentseu {
 	// MÉTHODE : Méthodes stream-style (Trace, Debug, etc.)
 	// DESCRIPTION : Wrappers vers Log pour messages littéraux sans formatage
 	// -------------------------------------------------------------------------
-	void NkLogger::Log(NkLogLevel level, const NkString& message) {
+	void NkLogger::Logf(NkLogLevel level) {
 		if (!ShouldLog(level)) {
 			return;
 		}
-		LogInternal(level, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(level, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Trace(const NkString& message) {
+	void NkLogger::Tracef() {
 		if (!ShouldLog(NkLogLevel::NK_TRACE)) {
 			return;
 		}
-		LogInternal(NkLogLevel::NK_TRACE, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_TRACE, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Debug(const NkString& message) {
+	void NkLogger::Debugf() {
 		if (!ShouldLog(NkLogLevel::NK_DEBUG)) {
 			return;
 		}
-		LogInternal(NkLogLevel::NK_DEBUG, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_DEBUG, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Info(const NkString& message) {
+	void NkLogger::Infof() {
 		if (!ShouldLog(NkLogLevel::NK_INFO)) {
 			return;
 		}
-		LogInternal(NkLogLevel::NK_INFO, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_INFO, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Warn(const NkString& message) {
+	void NkLogger::Warnf() {
 		if (!ShouldLog(NkLogLevel::NK_WARN)) {
 			return;
 		}
-		LogInternal(NkLogLevel::NK_WARN, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_WARN, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Error(const NkString& message) {
+	void NkLogger::Errorf() {
 		if (!ShouldLog(NkLogLevel::NK_ERROR)) {
 			return;
 		}
-		LogInternal(NkLogLevel::NK_ERROR, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_ERROR, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Critical(const NkString& message) {
+	void NkLogger::Criticalf() {
 		if (!ShouldLog(NkLogLevel::NK_CRITICAL)) {
 			return;
 		}
-		LogInternal(NkLogLevel::NK_CRITICAL, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_CRITICAL, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
-	void NkLogger::Fatal(const NkString& message) {
+	void NkLogger::Fatalf() {
 		if (!ShouldLog(NkLogLevel::NK_FATAL)) {
 			return;
 		}
-		LogInternal(NkLogLevel::NK_FATAL, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+		LogInternal(NkLogLevel::NK_FATAL, "", m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
 	}
 
 

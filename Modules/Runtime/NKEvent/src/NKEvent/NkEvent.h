@@ -43,7 +43,7 @@
     #include "NKEvent/NkEventApi.h"           // Macros d'export NKENTSEU_EVENT_API
     #include "NKMath/NKMath.h"                 // Types mathématiques de base (uint64, etc.)
     #include "NKCore/NkTraits.h"               // Utilitaires de traits (NkForward, etc.)
-    #include "NKContainers/NkContainers.h"     // Conteneurs génériques NK*
+    #include "NKContainers/NKContainers.h"     // Conteneurs génériques NK*
     #include "NKContainers/String/NkString.h"  // Chaîne de caractères Unicode NK*
     #include "NKContainers/String/NkFormat.h"  // Formatage de chaînes type-safe
     #include "NKContainers/Associative/NkUnorderedMap.h"  // Hash map optimisée
@@ -379,7 +379,7 @@
         /// @brief Implémente les méthodes de type identification pour une classe dérivée
         /// @param type_ Valeur NkEventType::Value à associer
         /// @note Génère : GetStaticType(), GetType(), GetTypeStr(), GetName()
-        #define NK_EVENT_
+        #define NK_EVENT_TYPE_FLAGS(type_) \
             NK_EVENT_STATIC_TYPE(type_) \
             NkEventType::Value GetType() const override { \
                 return GetStaticType(); \

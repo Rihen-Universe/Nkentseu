@@ -26,7 +26,7 @@
 #include <cstdlib>
 
 #ifndef NK_SANDBOX_RENDERER_API
-#define NK_SANDBOX_RENDERER_API nkentseu::NkRendererApi::NK_SOFTWARE
+#define NK_SANDBOX_RENDERER_API nkentseu::NkGraphicsApi::NK_GFX_API_SOFTWARE
 #endif
 
 // AppData pattern #1: one-shot inline builder expression.
@@ -182,7 +182,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     NkContextInit();
     NkContextConfig contextConfig{};
-    contextConfig.api = NkRendererApi::NK_SOFTWARE;
+    contextConfig.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     contextConfig.vsync = true;
     contextConfig.debug = false;
     NkContextSetHints(contextConfig);

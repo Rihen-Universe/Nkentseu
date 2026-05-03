@@ -3,8 +3,8 @@
 // NkMaterialSystem.h  — NKRenderer v4.0  (Materials/)
 // Template + instance, catalogue PBR/NPR/Debug/Custom.
 // =============================================================================
-#include "../Core/NkRendererTypes.h"
-#include "../Core/NkTextureLibrary.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Associative/NkHashMap.h"
 

@@ -35,7 +35,6 @@
     #include "NKCore/NkCoreApi.h"
     #include "NKPlatform/NkPlatformExport.h"
     #include "NKPlatform/NkPlatformInline.h"
-    #include "NKMath/NKMath.h"
 
     // -------------------------------------------------------------------------
     // SECTION 2 : CONFIGURATION DU MODE DE BUILD NKNETWORK

@@ -238,8 +238,10 @@ void NkSLCodeGenHLSL::GenInputOutputStructs() {
 NkString NkSLCodeGenHLSL::SemanticFor(NkSLVarDeclNode* v,
                                          NkSLStage stage,
                                          bool isInput,
-                                         int autoIndex)  // ← paramètre ajouté
+                                         bool isFragOut,
+                                         int autoIndex)
 {
+    (void)isFragOut;
     if (v->binding.HasLocation()) {
         char buf[32];
         NkString name = v->name.ToLower();

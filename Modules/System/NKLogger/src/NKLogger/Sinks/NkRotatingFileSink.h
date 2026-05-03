@@ -470,7 +470,7 @@
 		NkString filepath = core::Config::GetString(section + ".filepath", "logs/app.log");
 		usize maxSize = core::Config::GetUint64(section + ".maxSize", 50 * 1024 * 1024);
 		usize maxFiles = core::Config::GetUint64(section + ".maxFiles", 5);
-		NkString pattern = core::Config::GetString(section + ".pattern", NkFormatter::NK_DEFAULT_PATTERN);
+		NkString pattern = core::Config::GetString(section + ".pattern", NkLoggerFormatter::NK_DEFAULT_PATTERN);
 		NkLogLevel level = NkLogLevelFromString(core::Config::GetString(section + ".level", "info"));
 
 		// Création et configuration du sink

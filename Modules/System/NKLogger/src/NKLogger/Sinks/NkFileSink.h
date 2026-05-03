@@ -69,7 +69,7 @@
 		 *
 		 * Architecture :
 		 *  - Hérite de NkISink : réutilisation du filtrage par niveau et configuration
-		 *  - Utilise NkFormatter pour formatage des messages avant écriture
+		 *  - Utilise NkLoggerFormatter pour formatage des messages avant écriture
 		 *  - Gère le cycle de vie du FILE* avec RAII via constructeur/destructeur
 		 *
 		 * Thread-safety :
@@ -237,11 +237,11 @@
 			 * @example
 			 * @code
 			 * // Formatter personnalisé pour format compact
-			 * auto fmt = nkentseu::memory::MakeUnique<nkentseu::NkFormatter>("%L: %v");
+			 * auto fmt = nkentseu::memory::MakeUnique<nkentseu::NkLoggerFormatter>("%L: %v");
 			 * fileSink.SetFormatter(std::move(fmt));
 			 * @endcode
 			 */
-			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) override;
 
 			/**
 			 * @brief Définit le pattern de formatage via création interne de formatter
@@ -249,7 +249,7 @@
 			 * @ingroup FileSinkInterface
 			 *
 			 * @note Méthode de convenance : crée ou met à jour m_Formatter avec le pattern
-			 * @note Équivalent à SetFormatter(MakeUnique<NkFormatter>(pattern))
+			 * @note Équivalent à SetFormatter(MakeUnique<NkLoggerFormatter>(pattern))
 			 * @note Thread-safe : synchronisé via m_Mutex
 			 *
 			 * @example
@@ -280,7 +280,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkFormatter* GetFormatter() const override;
+			NkLoggerFormatter* GetFormatter() const override;
 
 			/**
 			 * @brief Obtient le pattern de formatage courant
@@ -637,7 +637,7 @@
 			/// @brief Formatter pour formatage des messages avant écriture
 			/// @ingroup FileSinkMembers
 			/// @note Ownership exclusif via NkUniquePtr : libération automatique
-			memory::NkUniquePtr<NkFormatter> m_Formatter;
+			memory::NkUniquePtr<NkLoggerFormatter> m_Formatter;
 
 			/// @brief Handle FILE* pour écriture C stdio vers le fichier
 			/// @ingroup FileSinkMembers
@@ -845,7 +845,7 @@
 		// Lecture des paramètres depuis configuration
 		NkString filepath = core::Config::GetString(section + ".filepath", "logs/app.log");
 		bool truncate = core::Config::GetBool(section + ".truncate", false);
-		NkString pattern = core::Config::GetString(section + ".pattern", NkFormatter::NK_DEFAULT_PATTERN);
+		NkString pattern = core::Config::GetString(section + ".pattern", NkLoggerFormatter::NK_DEFAULT_PATTERN);
 		NkLogLevel level = NkLogLevelFromString(core::Config::GetString(section + ".level", "info"));
 
 		// Création et configuration du sink

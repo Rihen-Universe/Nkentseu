@@ -68,8 +68,11 @@ namespace nkentseu {
             //   SetClearDepth(1.0f)             → buffer depth remis à 1.0 (loin)
             // =========================================================================
             virtual void SetClearColor(float32 r, float32 g, float32 b, float32 a = 1.f) {}
+            void SetClearColor(const math::NkColorF& color) {
+                SetClearColor(color.r, color.g, color.b, color.a);
+            }
             void SetClearColor(const math::NkColor& color) {
-                SetClearColor(color.r * math::c1_255, color.g * math::c1_255, color.b * math::c1_255, color.a * math::c1_255);
+                SetClearColor(color.ToColorF());
             }
             virtual void SetClearDepth(float32 depth = 1.f, uint32 stencil = 0)   {}
 

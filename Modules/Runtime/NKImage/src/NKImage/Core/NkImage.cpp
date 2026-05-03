@@ -31,6 +31,7 @@
 #include "NKImage/Codecs/ICO/NkICOCodec.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
+#include <new>
 #include <cstdio>
 
 namespace nkentseu {

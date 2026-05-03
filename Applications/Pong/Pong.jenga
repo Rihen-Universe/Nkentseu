@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+from Jenga import *
+from Jenga.Core.Api import androidallowrotation
+import os
+import shutil
+import subprocess
+from config import *
+
+def _pkg_exists(pkg_name: str) -> bool:
+    if not shutil.which("pkg-config"):
+        return False
+    try:
+        return subprocess.call(
+            ["pkg-config", "--exists", pkg_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+def _norm(path: str) -> str:
+    return path.replace("\\", "/") if path else path
+
+_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
+_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL", "GLESv2"]
+_WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
+if _pkg_exists("libdecor-0"):
+    _WAYLAND_LINKS.append("decor-0")
+    _WAYLAND_TEST_LINKS.append("decor-0")
+    _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
+
+with project("Pong"):
+    useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui")
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    _TC_WINDOWS = "nk-windows-clang-mingw"
+
+    files(["src/**.cpp"])
+
+    defines([
+        "NKENTSEU_PLATFORM_STATIC_LIB",
+        "NKENTSEU_CORE_STATIC_LIB",
+        "NKENTSEU_MEMORY_STATIC_LIB",
+        "NKENTSEU_CONTAINERS_STATIC_LIB",
+        "NKENTSEU_MATH_STATIC_LIB",
+        "NKENTSEU_THREADING_STATIC_LIB",
+        "NKENTSEU_LOGGER_STATIC_LIB",
+        "NKENTSEU_TIME_STATIC_LIB",
+        "NKENTSEU_EVENT_STATIC_LIB",
+        "NKENTSEU_GFX_FORCE=NKENTSEU_GFX_SOFTWARE"
+    ])
+
+    includedirs([
+        "src",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMath.location}/src",
+
+        "%{NKThreading.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKTime.location}/src",
+
+        "%{NKEvent.location}/src",
+        "%{NKWindow.location}/src",
+
+        "%{NKImage.location}/src",
+        "%{NKFont.location}/src",
+        "%{NKUI.location}/src",
+        "%{NKGlad.location}/src"
+    ])
+
+    dependson([
+        "NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath",
+        "NKThreading", "NKLogger", "NKTime",
+        "NKEvent", "NKWindow",
+        "NKImage", "NKFont", "NKUI", "NKGlad"
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE", "UNICODE",
+        ])
+        
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler"
+        ])
+
+    # ===== UWP ====================================================================
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_UWP"])
+        links(["d3d12", "dxgi", "dxguid", "windowsapp"])
+
+    # ===== Linux headless =========================================================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+        links(["pthread"])
+
+    # ===== Linux XLib =============================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== Linux XCB ==============================================================
+    with filter("system:Linux && options:linux-backend=xcb"):
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+        ldflags(["-fuse-ld=lld"])
+
+    # ===== Linux Wayland ==========================================================
+    with filter("system:Linux && options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        defines(_WAYLAND_DEFINES)
+        links(_WAYLAND_LINKS)
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3", "NKGlad"]   # ← AJOUTER NKGlad
+        links(_ANDROID_LINKS)
+        androidapplicationid(f"com.rihen.nkentseu.pong")
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+        androidallowrotation(False)
+        androidscreenorientation("landscape")
+        androidstl("c++_shared")
+        # if needs_camera:
+        #     androidpermissions([
+        #         "android.permission.CAMERA",
+        #     ])
+
+    # ===== iOS ====================================================================
+    with filter("system:iOS"):
+        frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+        iosbundleid(f"com.nkentseu.pong")
+        iosversion("1.0")
+        iosminsdk("14.0")
+        iosbuildnumber(1)
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+        emscriptenshellfile("web/emscripten_fullscreen_nofavicon.html")
+        emscriptencanvasid("canvas")
+        emscripteninitialmemory(32)
+        emscriptenextraflags([
+            "-s", "ASYNCIFY",
+            "-s", "DYNAMIC_EXECUTION",
+            "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']",
+            "-s", "INITIAL_MEMORY=67108864",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "ASSERTIONS=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+            "-s", "SAFE_HEAP=1",
+        ])
+
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        links(["log", "EGL", "GLESv3"])
+
+    # ===== Xbox ===================================================================
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+        links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    # Tests unitaires/benchmarks (desktop uniquement)
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            with filter("system:Linux && options:linux-backend=wayland"):
+                defines(_WAYLAND_DEFINES)
+                links(_WAYLAND_TEST_LINKS)
+            with filter("system:Linux && options:linux-backend=xcb"):
+                defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+                links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+            with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+                defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+                links(["pthread", "X11", "Xext", "GL"])
+            with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                _WIN_TEST_LINKS = [
+                    "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                    "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                    "uuid", "ole32", "dinput8", "dxguid",
+                    "d3d11", "d3d12", "dxgi", "d3dcompiler"
+                ]
+                links(_WIN_TEST_LINKS)

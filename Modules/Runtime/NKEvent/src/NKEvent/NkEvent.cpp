@@ -1,3 +1,4 @@
+#include "pch.h"
 // =============================================================================
 // NKEvent/NkEvent.cpp
 // Implémentation des classes et utilitaires du système d'événements Nkentseu.

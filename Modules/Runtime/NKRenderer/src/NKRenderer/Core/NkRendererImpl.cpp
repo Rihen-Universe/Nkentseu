@@ -2,6 +2,7 @@
 // NkRendererImpl.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkRendererImpl.h"
+#include "NkISwapchain.h"
 
 namespace nkentseu {
 namespace renderer {
@@ -144,13 +145,17 @@ namespace renderer {
 
     // ── RHI init ──────────────────────────────────────────────────────────────
     bool NkRendererImpl::InitRHI() {
+        NkDeviceInitInfo initInfo;
+        initInfo.surface = mSurface;
+        initInfo.width   = mCfg.width;
+        initInfo.height  = mCfg.height;
+
         NkSwapchainDesc sc;
-        sc.surface      = mSurface;
-        sc.width        = mCfg.width;
-        sc.height       = mCfg.height;
-        sc.vsync        = mCfg.vsync;
-        sc.backBuffers  = 2;
-        mSwapchain = mDevice->CreateSwapchain(sc);
+        sc.width      = mCfg.width;
+        sc.height     = mCfg.height;
+        sc.vsync      = mCfg.vsync;
+        sc.imageCount = 2;
+        mSwapchain = mDevice->CreateSwapchain(initInfo, sc);
         return mSwapchain != nullptr;
     }
 
@@ -158,28 +163,22 @@ namespace renderer {
     void NkRendererImpl::BuildDefaultRenderGraph() {
         auto& g = *mRenderGraph;
 
-        // Importer swapchain comme resource
+        // Importer swapchain comme resource (texture handle stub — géré par NkISwapchain)
         auto colorId = g.ImportTexture("Swapchain",
-                                        mDevice->GetSwapchainColor(mSwapchain),
+                                        NkTextureHandle{},
                                         NkResourceState::NK_PRESENT);
-        auto depthId = g.CreateTransient("MainDepth", NkTextureDesc{
-            mCfg.width, mCfg.height, 1, NkGPUFormat::NK_D32_FLOAT,
-            NkTextureUsage::NK_DEPTH_STENCIL, "MainDepth"
-        });
-        auto hdrId   = g.CreateTransient("HDR", NkTextureDesc{
-            mCfg.width, mCfg.height, 1, NkGPUFormat::NK_RGBA16F,
-            NkTextureUsage::NK_RENDER_TARGET | NkTextureUsage::NK_SHADER_RESOURCE, "HDR"
-        });
+        auto depthId = g.CreateTransient("MainDepth",
+                                          NkTextureDesc::DepthStencil(mCfg.width, mCfg.height));
+        auto hdrId   = g.CreateTransient("HDR",
+                                          NkTextureDesc::RenderTarget(mCfg.width, mCfg.height,
+                                                                        NkGPUFormat::NK_RGBA16_FLOAT));
 
         // Shadow pass
         if (mCfg.shadow.enabled) {
-            auto shadowId = g.CreateTransient("ShadowAtlas", NkTextureDesc{
-                mCfg.shadow.resolution * (int32)mCfg.shadow.cascadeCount,
-                mCfg.shadow.resolution, 1,
-                NkGPUFormat::NK_D32_FLOAT,
-                NkTextureUsage::NK_DEPTH_STENCIL | NkTextureUsage::NK_SHADER_RESOURCE,
-                "ShadowAtlas"
-            });
+            auto shadowId = g.CreateTransient("ShadowAtlas",
+                NkTextureDesc::DepthStencil(
+                    mCfg.shadow.resolution * (int32)mCfg.shadow.cascadeCount,
+                    mCfg.shadow.resolution));
             g.AddPass("Shadows", NkPassType::NK_SHADOW)
              .Writes(shadowId)
              .Execute([this](NkICommandBuffer* cmd) {
@@ -199,7 +198,7 @@ namespace renderer {
         g.AddPass("VFX", NkPassType::NK_TRANSPARENT)
          .Reads(depthId).Writes(hdrId)
          .Execute([this](NkICommandBuffer* cmd) {
-             // VFX flushed here
+             (void)cmd;
          });
 
         // Post-process
@@ -207,7 +206,7 @@ namespace renderer {
             g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS)
              .Reads(hdrId, depthId).Writes(colorId)
              .Execute([this, hdrId, depthId](NkICommandBuffer* cmd) {
-                 // PostProcess stack executed here
+                 (void)hdrId; (void)depthId; (void)cmd;
              });
         }
 
@@ -226,7 +225,11 @@ namespace renderer {
     bool NkRendererImpl::BeginFrame() {
         if (!mInitialized) return false;
         mStats.Reset();
-        mCmd = mDevice->BeginFrame(mSwapchain, &mFrameIndex);
+        NkFrameContext ctx;
+        if (!mDevice->BeginFrame(ctx)) return false;
+        mFrameIndex = ctx.frameIndex;
+        if (mSwapchain) mSwapchain->AcquireNextImage(NkSemaphoreHandle{});
+        if (!mCmd) mCmd = mDevice->CreateCommandBuffer();
         return mCmd != nullptr;
     }
 
@@ -234,18 +237,20 @@ namespace renderer {
         if (!mCmd) return;
         mRenderGraph->Execute(mCmd);
         mRenderGraph->Reset();
-        mDevice->EndFrame(mSwapchain, mCmd);
+        NkFrameContext ctx;
+        ctx.frameIndex = mFrameIndex;
+        mDevice->EndFrame(ctx);
         mCmd = nullptr;
     }
 
     void NkRendererImpl::Present() {
-        if (mSwapchain) mDevice->Present(mSwapchain);
+        if (mSwapchain) mSwapchain->Present();
     }
 
     void NkRendererImpl::OnResize(uint32 w, uint32 h) {
         if (w == 0 || h == 0) return;
         mCfg.width = w; mCfg.height = h;
-        mDevice->ResizeSwapchain(mSwapchain, w, h);
+        if (mSwapchain) mSwapchain->Resize(w, h);
         mPostProcess->OnResize(w, h);
         BuildDefaultRenderGraph();
     }
@@ -253,7 +258,7 @@ namespace renderer {
     // ── Config dynamique ───────────────────────────────────────────────────────
     void NkRendererImpl::SetVSync(bool e) {
         mCfg.vsync = e;
-        mDevice->SetSwapchainVSync(mSwapchain, e);
+        // NkISwapchain has no vsync setter; re-create swapchain if needed
     }
 
     void NkRendererImpl::SetPostConfig(const NkPostConfig& pp) {
@@ -282,7 +287,7 @@ namespace renderer {
             if (mOffscreenTargets[i] == t) {
                 t->Shutdown();
                 delete t;
-                mOffscreenTargets.RemoveAt(i);
+                mOffscreenTargets.Erase(mOffscreenTargets.Begin() + i);
                 break;
             }
         }

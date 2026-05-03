@@ -1,0 +1,25 @@
+oki rassure toi que nksl separer bien les different shader en different fichier (vertext shader, compute shader, fragment shader, geometry shader, mesh shader) etc. donc on par sur v5 verfiie aussi que v5 est moins update que NKRenderer/src/NKRenderer pour les ajout manquand voici ce que je te propose:
+
+Priorité haute
+├── [ ] Deferred rendering path           (many-lights, archviz) -> a ajouter dans NKRenderer/Passes/Deferred/
+├── [ ] BVH/Octree culling                (scenes larges) -> a ajouter dans NKRenderer/Tools/Culling/ sachant que jai implement octree et quadtree dans nkcontainers/Specialized mnais si c'est pas adequat tu ne les utilise pas.
+└── [ ] Streaming textures/meshes         (open-world) -> a ajouter
+
+Priorité moyenne
+├── [ ] Raytracing module                 (NKRenderer/Tools/Raytracing/) -> a ajouter
+├── [ ] ECS integration légère            (performance grandes scènes) -> je ne prefer pas ajouter car jai deja commencer a implementer le module NKECS mais si tu juge quil faut un doublon dans NKRenderer il faut me le dire.
+└── [ ] Metal backend completion          (iOS/macOS, .mm requis) -> complet mais en dernier apres avoir fait tout le reste
+
+Priorité basse
+├── [ ] IK avancé                         (animation pro) -> ajoute tres important
+├── [ ] Denoiser integration              (rendu offline) -> ajoute le 
+└── [ ] AI rendering targets              (NkOffscreenTarget async readback) -> ajoute le
+
+et n'oublie pas de compiler. aussi je compte cree au dessus de tout ca:
+
+-> Nkentseu la base de tout le systrem haute performance
+-> NOGE qui herite de Nkentseu qui est un moteur de jeux 2D/3D qui utilise tout ce qui a deja ete fait
+-> PV3DE qui est une application spacialiser dont l'intituler est "CONCEPTION ET DÉVELOPPEMENT D'UN PATIENT VIRTUEL 3D ÉMOTIF POUR L'ASSISTANCE À LA PRISE DE DIAGNOSTIC MÉDICAL EN TEMPS RÉEL"
+
+
+mais bon allons doucement et terminon d'abor avec nkrenderer et teston le.

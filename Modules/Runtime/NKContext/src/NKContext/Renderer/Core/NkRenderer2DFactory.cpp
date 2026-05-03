@@ -2,20 +2,20 @@
 // NkRenderer2DFactory.cpp
 // =============================================================================
 #include "NkRenderer2DFactory.h"
-#include "NKContext/Renderer/Backends/Software/NkSoftwareRenderer2D.h"
-#include "NKContext/Renderer/Backends/OpenGL/NkOpenGLRenderer2D.h"
-#include "NKContext/Renderer/Backends/Vulkan/NkVulkanRenderer2D.h"
+#include "NKContext/Backends/Software/NkSoftwareRenderer2D.h"
+#include "NKContext/Backends/OpenGL/NkOpenGLRenderer2D.h"
+#include "NKContext/Backends/Vulkan/NkVulkanRenderer2D.h"
 #include "NKContext/Core/NkIGraphicsContext.h"
 #include "NKLogger/NkLog.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-#   include "NKContext/Renderer/Backends/DirectX/NkDX11Renderer2D.h"
-#   include "NKContext/Renderer/Backends/DirectX/NkDX12Renderer2D.h"
+#   include "NKContext/Backends/DirectX/NkDX11Renderer2D.h"
+#   include "NKContext/Backends/DirectX/NkDX12Renderer2D.h"
 #endif
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
 // Metal 2D renderer — forward declaration (implemented in NkMetalRenderer2D.mm)
-// #include "NKContext/Renderer./Backends/Metal/NkMetalRenderer2D.h"
+// #include "NKContext/Backends/Metal/NkMetalRenderer2D.h"
 #endif
 
 #define NK_R2D_FACTORY_LOG(...) logger.Infof("[NkRenderer2DFactory] " __VA_ARGS__)

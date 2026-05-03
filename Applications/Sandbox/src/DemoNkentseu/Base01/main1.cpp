@@ -35,7 +35,7 @@ int nkmain(const nkentseu::NkEntryState&)
 
     NkContextInit();
     NkContextConfig contextConfig{};
-    contextConfig.api = NkRendererApi::NK_SOFTWARE;
+    contextConfig.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     contextConfig.vsync = true;
     contextConfig.debug = false;
     NkContextSetHints(contextConfig);

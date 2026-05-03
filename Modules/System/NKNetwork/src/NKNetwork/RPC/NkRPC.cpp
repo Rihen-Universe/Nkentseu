@@ -32,6 +32,7 @@
 
 #include "pch.h"
 #include "NKNetwork/RPC/NkRPC.h"
+#include "NKCore/NkTraits.h"
 
 // En-têtes standards C/C++ pour opérations bas-niveau
 #include <cstring>
@@ -95,7 +96,7 @@ namespace nkentseu {
             desc.id = rpcId;
             desc.type = type;
             desc.reliability = rel;
-            desc.handler = std::move(handler);
+            desc.handler = traits::NkMove(handler);
 
             // Incrémentation du compteur et retour de l'ID
             ++mCount;

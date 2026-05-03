@@ -16,6 +16,7 @@ Architecture :
 """
 
 from Jenga import *
+from config import *
 import os
 import shutil
 import subprocess
@@ -49,7 +50,7 @@ if _HAS_LIBDECOR:
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKWindow"):
-    staticlib()
+    useglobalkind("window")
     language("C++")
     cppdialect("C++17")
     location(".")
@@ -168,6 +169,9 @@ with project("NKWindow"):
 
     # ===== Android ================================================================
     with filter("system:Android"):
+        # Workaround: disable PCH on Android (NDK r27 + clang 18 + libc++)
+        pchheader("")
+        pchsource("")
         usetoolchain("android-ndk")
         files([
             "src/NKWindow/Platform/Android/NkAndroidWindow.cpp",
