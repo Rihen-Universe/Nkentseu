@@ -15,6 +15,10 @@
 
 #include "NKPlatform/NkEnv.h"
 
+#include <cstdlib>  // Pour getenv()
+#include <cstring>  // Pour strlen, strcmp, etc.
+#include <cstdio>   // Pour fopen, fgets, etc.
+
 // -------------------------------------------------------------------------
 // En-têtes spécifiques à la plateforme pour les APIs d'environnement
 // -------------------------------------------------------------------------
@@ -40,16 +44,17 @@
 #elif defined(NKENTSEU_PLATFORM_LINUX) || \
       defined(NKENTSEU_PLATFORM_MACOS) || \
       defined(NKENTSEU_PLATFORM_UNIX)
-    // POSIX : inclusion de unistd.h et déclaration de environ
+    // POSIX desktop : inclusion de unistd.h et déclaration de environ
     #include <unistd.h>
     extern char** environ;
+    
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+    // Android : environ n'est pas exposé par défaut
+    // On va utiliser /proc/self/environ via des APIs C standard
+    #include <unistd.h>
+    #include <stdio.h>   // Pour fopen, fgets
+    #include <stdlib.h>  // Pour getenv
 #endif
-
-// -------------------------------------------------------------------------
-// En-têtes standards C pour les opérations mémoire et chaînes
-// -------------------------------------------------------------------------
-#include <cstdlib>
-#include <cstring>
 
 // -------------------------------------------------------------------------
 // Espace de noms principal
@@ -313,7 +318,7 @@ namespace nkentseu {
                 // Variable non trouvée ou erreur : result reste vide
 
             #else
-                // POSIX : utiliser getenv (retourne nullptr si non trouvé)
+                // POSIX (y compris Android) : utiliser getenv (retourne nullptr si non trouvé)
                 const char* val = std::getenv(cname);
                 if (val) {
                     result = NkEnvString(val);
@@ -352,7 +357,7 @@ namespace nkentseu {
                 return SetEnvironmentVariableA(cname, cval) != 0;
 
             #else
-                // POSIX : setenv avec flag overwrite (0 = ne pas écraser, 1 = écraser)
+                // POSIX (y compris Android) : setenv avec flag overwrite (0 = ne pas écraser, 1 = écraser)
                 return setenv(cname, cval, overwrite ? 1 : 0) == 0;
             #endif
         }
@@ -372,7 +377,7 @@ namespace nkentseu {
                 // Windows : SetEnvironmentVariable avec valeur nullptr supprime la variable
                 return SetEnvironmentVariableA(cname, nullptr) != 0;
             #else
-                // POSIX : unsetenv retourne 0 en cas de succès
+                // POSIX (y compris Android) : unsetenv retourne 0 en cas de succès
                 return unsetenv(cname) == 0;
             #endif
         }
@@ -395,10 +400,54 @@ namespace nkentseu {
                 DWORD size = GetEnvironmentVariableA(cname, buffer, 0);
                 return size > 0;
             #else
-                // POSIX : getenv retourne nullptr si non trouvé
+                // POSIX (y compris Android) : getenv retourne nullptr si non trouvé
                 return std::getenv(cname) != nullptr;
             #endif
         }
+
+        // -------------------------------------------------------------------------
+        // Fonction utilitaire pour lire /proc/self/environ sur Android
+        // Version sans STL : utilise un buffer statique et construit la map directement
+        // -------------------------------------------------------------------------
+        #if defined(NKENTSEU_PLATFORM_ANDROID)
+        static void ReadEnvironFromProc(NkEnvUMap<NkEnvString, NkEnvString>& result) {
+            FILE* fp = fopen("/proc/self/environ", "r");
+            if (!fp) {
+                return;
+            }
+            
+            // Buffer pour lire le fichier (taille raisonnable)
+            char buffer[16384];  // 16KB devrait être suffisant pour l'environnement
+            size_t total_read = 0;
+            
+            // Lire le fichier entier (les entrées sont séparées par '\0')
+            while (!feof(fp) && total_read < sizeof(buffer) - 1) {
+                size_t bytes_read = fread(buffer + total_read, 1, sizeof(buffer) - total_read - 1, fp);
+                if (bytes_read == 0) break;
+                total_read += bytes_read;
+            }
+            fclose(fp);
+            
+            buffer[total_read] = '\0';
+            
+            // Parser les entrées séparées par '\0'
+            char* ptr = buffer;
+            char* end = buffer + total_read;
+            
+            while (ptr < end && *ptr != '\0') {
+                char* eqPos = strchr(ptr, '=');
+                if (eqPos && eqPos > ptr) {
+                    *eqPos = '\0';
+                    NkEnvString key(ptr);
+                    NkEnvString val(eqPos + 1);
+                    result.Set(NkMove(key), NkMove(val));
+                    *eqPos = '='; // Restaurer (optionnel)
+                }
+                // Avancer au prochain caractère nul
+                ptr += strlen(ptr) + 1;
+            }
+        }
+        #endif
 
         // -------------------------------------------------------------------------
         // NkGetAll : Obtenir toutes les variables d'environnement
@@ -429,8 +478,12 @@ namespace nkentseu {
 
                 FreeEnvironmentStringsA(envBlock);
 
-            #else
-                // POSIX : environ est un tableau de pointeurs vers "KEY=VALUE\0"
+            #elif defined(NKENTSEU_PLATFORM_ANDROID)
+                // Android : Lire depuis /proc/self/environ
+                ReadEnvironFromProc(result);
+                
+            #elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_UNIX)
+                // POSIX desktop : environ est un tableau de pointeurs vers "KEY=VALUE\0"
                 if (!environ) {
                     return result;  // Environnement non disponible
                 }

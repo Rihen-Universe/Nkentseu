@@ -645,7 +645,7 @@
             // ── ToString ─────────────────────────────────────────────────────────
 
             template<>
-            NkString NkAngleT<float32>::ToString() const
+            inline NkString NkAngleT<float32>::ToString() const
             {
                 return NkFormat("{0}", *this);
             }
@@ -661,7 +661,7 @@
             }
 
             template<>
-            NkString NkAngleT<float64>::ToString() const
+            inline NkString NkAngleT<float64>::ToString() const
             {
                 return NkFormat("{0}", *this);
             }

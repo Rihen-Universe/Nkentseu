@@ -8,6 +8,7 @@ keeps the current production context system.
 """
 
 from Jenga import *
+from config import *
 import os
 import shutil
 import subprocess
@@ -52,7 +53,7 @@ _RENDERER_GLAD_OPT = os.getenv("NK_RENDERER_USE_NKGLAD", "on").strip().lower()
 _USE_NKGLAD = _RENDERER_GLAD_OPT not in ("0", "false", "off", "no")
 
 with project("NKRenderer"):
-    staticlib()
+    useglobalkind("renderer")
     language("C++")
     cppdialect("C++17")
     location(".")
@@ -72,6 +73,7 @@ with project("NKRenderer"):
         "%{NKWindow.location}/src",
         "%{NKThreading.location}/src",
         "%{NKRHI.location}/src",
+        "%{NKRHI.location}/pch",
         "%{NKFont.location}/src",
         "%{NKImage.location}/src",
     ]

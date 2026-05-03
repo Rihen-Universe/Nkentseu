@@ -217,7 +217,7 @@ namespace nkentseu {
                     return false;
                 }
                 ++pos;  // Consomme la quote fermante
-                out = std::move(raw);
+                out = traits::NkMove(raw);
                 return true;
             }
 
@@ -305,7 +305,7 @@ namespace nkentseu {
                     if (!ParseNode(elem, err)) {
                         return false;
                     }
-                    out.array.PushBack(std::move(elem));
+                    out.array.PushBack(traits::NkMove(elem));
 
                     SkipWS();
                     if (Match(']')) {

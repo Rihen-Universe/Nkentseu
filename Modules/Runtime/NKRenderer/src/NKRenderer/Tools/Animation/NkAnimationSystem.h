@@ -24,9 +24,10 @@
 //   NkAnimationState  — snapshot évalué à un instant t (résultats prêts à lire)
 //   NkAnimationSystem — gestionnaire central, update + application au renderer
 // =============================================================================
-#include "../../Core/NkRendererTypes.h"
-#include "../../Core/NkCamera.h"
-#include "../../Core/NkRendererConfig.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkCamera.h"
+#include "NKRenderer/Core/NkRendererConfig.h"
+#include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkString.h"

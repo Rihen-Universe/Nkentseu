@@ -42,7 +42,7 @@
     #include "NKContainers/String/NkStringUtils.h"
     #include "NKCore/NkTraits.h"
     #include "NKCore/NkTypes.h"
-    #include "NKCore/NkCGXDetect.h"
+    #include "NKPlatform/NkCGXDetect.h"
 
     namespace nkentseu {
         // =========================================================================
@@ -56,7 +56,7 @@
         //   Alias vers le type d'API graphique défini dans le module platform.
         //   Permet d'identifier le backend de rendu actif à l'exécution.
         // -------------------------------------------------------------------------
-        using NkGraphicsApi = platform::graphics::NkGraphicsApi;
+        using NkGraphicsApi = graphics::NkGraphicsApi;
 
         // -------------------------------------------------------------------------
         // Fonction : NkGraphicsApiToString

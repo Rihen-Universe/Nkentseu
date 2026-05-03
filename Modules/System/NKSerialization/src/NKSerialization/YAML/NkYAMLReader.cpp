@@ -296,7 +296,7 @@ namespace nkentseu {
                 NkString trimmed = NkTrimStr(raw.View());
                 l.isEmpty = trimmed.Empty() || trimmed.Front() == '#';
 
-                lines.PushBack(std::move(l));
+                lines.PushBack(traits::NkMove(l));
                 cursor = next + 1u;
                 if (next == src.Length()) {
                     break;

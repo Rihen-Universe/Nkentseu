@@ -70,33 +70,33 @@ namespace nkentseu {
 
 
 	// Pattern par défaut : équilibre entre lisibilité et informations de debug
-	const char* NkFormatter::NK_DEFAULT_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%t] -> %v";
+	const char* NkLoggerFormatter::NK_DEFAULT_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%t] -> %v";
 
 	// Pattern minimal : uniquement le message, pour logs compacts ou production
-	const char* NkFormatter::NK_SIMPLE_PATTERN = "%v";
+	const char* NkLoggerFormatter::NK_SIMPLE_PATTERN = "%v";
 
 	// Pattern détaillé : toutes les métadonnées pour debugging avancé
-	const char* NkFormatter::NK_DETAILED_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [thread %t] [%s:%# in %f] -> %v";
+	const char* NkLoggerFormatter::NK_DETAILED_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [thread %t] [%s:%# in %f] -> %v";
 
 	// Pattern NKENTSEU : avec support des couleurs via %^ et %$ autour du niveau
-	const char* NkFormatter::NK_NKENTSEU_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] [%s:%# in %F] -> %v";
+	const char* NkLoggerFormatter::NK_NKENTSEU_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] [%s:%# in %F] -> %v";
 
 	// Pattern console : couleurs uniquement autour du niveau de log
-	const char* NkFormatter::NK_COLOR_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] [%t] -> %v";
+	const char* NkLoggerFormatter::NK_COLOR_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] [%t] -> %v";
 
 	// Pattern JSON : format structuré pour ingestion dans systèmes de métriques
 	// Note : les champs sont échappés pour validité JSON stricte
-	const char* NkFormatter::NK_JSON_PATTERN =
+	const char* NkLoggerFormatter::NK_JSON_PATTERN =
 		R"({"time":"%Y-%m-%dT%H:%M:%S.%fZ","level":"%l","thread":%t,"logger":"%n","file":"%s","line":%#,"function":"%f","message":"%v"})";
 
 	// Pattern court pour production : "12:34:56 INF Message"
-	const char* NkFormatter::NK_SHORT_PATTERN = "%H:%M:%S %L %v";
+	const char* NkLoggerFormatter::NK_SHORT_PATTERN = "%H:%M:%S %L %v";
 
 	// Pattern ISO 8601 : format timestamp international
-	const char* NkFormatter::NK_ISO8601_PATTERN = "%Y-%m-%dT%H:%M:%S.%fZ [%L] %v";
+	const char* NkLoggerFormatter::NK_ISO8601_PATTERN = "%Y-%m-%dT%H:%M:%S.%fZ [%L] %v";
 
 	// Pattern syslog : format compatible avec les logs système Unix
-	const char* NkFormatter::NK_SYSLOG_PATTERN = "%b %d %H:%M:%S %h %n[%t]: %v";
+	const char* NkLoggerFormatter::NK_SYSLOG_PATTERN = "%b %d %H:%M:%S %h %n[%t]: %v";
 
 
 } // namespace nkentseu
@@ -105,7 +105,7 @@ namespace nkentseu {
 // -------------------------------------------------------------------------
 // SECTION 3 : NAMESPACE PRINCIPAL - IMPLÉMENTATIONS DES MÉTHODES
 // -------------------------------------------------------------------------
-// Implémentation des méthodes publiques et protégées de NkFormatter.
+// Implémentation des méthodes publiques et protégées de NkLoggerFormatter.
 // Aucune macro NKENTSEU_LOGGER_API : export hérité de la déclaration de classe.
 
 namespace nkentseu {
@@ -115,7 +115,7 @@ namespace nkentseu {
 	// MÉTHODE : Constructeur par défaut
 	// DESCRIPTION : Initialise avec NK_DEFAULT_PATTERN et parse les tokens
 	// -------------------------------------------------------------------------
-	NkFormatter::NkFormatter()
+	NkLoggerFormatter::NkLoggerFormatter()
 		: m_Pattern(NK_DEFAULT_PATTERN)
 		, m_TokensValid(false) {
 
@@ -128,7 +128,7 @@ namespace nkentseu {
 	// MÉTHODE : Constructeur avec pattern personnalisé
 	// DESCRIPTION : Initialise avec le pattern fourni et parse les tokens
 	// -------------------------------------------------------------------------
-	NkFormatter::NkFormatter(const NkString& pattern)
+	NkLoggerFormatter::NkLoggerFormatter(const NkString& pattern)
 		: m_Pattern(pattern)
 		, m_TokensValid(false) {
 
@@ -141,7 +141,7 @@ namespace nkentseu {
 	// MÉTHODE : SetPattern
 	// DESCRIPTION : Met à jour le pattern et invalide le cache de tokens
 	// -------------------------------------------------------------------------
-	void NkFormatter::SetPattern(const NkString& pattern) {
+	void NkLoggerFormatter::SetPattern(const NkString& pattern) {
 		// Mise à jour uniquement si changement pour éviter reparsing inutile
 		if (m_Pattern != pattern) {
 			m_Pattern = pattern;
@@ -155,7 +155,7 @@ namespace nkentseu {
 	// MÉTHODE : GetPattern
 	// DESCRIPTION : Retourne le pattern courant par référence constante
 	// -------------------------------------------------------------------------
-	const NkString& NkFormatter::GetPattern() const {
+	const NkString& NkLoggerFormatter::GetPattern() const {
 		// Retour direct : pas de copie, lecture efficace
 		return m_Pattern;
 	}
@@ -165,7 +165,7 @@ namespace nkentseu {
 	// MÉTHODE : Format (sans couleurs)
 	// DESCRIPTION : Formate un message avec le pattern courant, sans ANSI
 	// -------------------------------------------------------------------------
-	NkString NkFormatter::Format(const NkLogMessage& message) {
+	NkString NkLoggerFormatter::Format(const NkLogMessage& message) {
 		// Délégation à la version avec paramètre couleurs, désactivé
 		return Format(message, false);
 	}
@@ -175,7 +175,7 @@ namespace nkentseu {
 	// MÉTHODE : Format (avec option couleurs)
 	// DESCRIPTION : Formate un message en appliquant le pattern et les couleurs
 	// -------------------------------------------------------------------------
-	NkString NkFormatter::Format(const NkLogMessage& message, bool useColors) {
+	NkString NkLoggerFormatter::Format(const NkLogMessage& message, bool useColors) {
 		// Regénération des tokens si invalides (premier appel ou après SetPattern)
 		if (!m_TokensValid) {
 			ParsePattern(m_Pattern);
@@ -199,7 +199,7 @@ namespace nkentseu {
 	// MÉTHODE : ParsePattern (privée)
 	// DESCRIPTION : Convertit une chaîne de pattern en vecteur de tokens
 	// -------------------------------------------------------------------------
-	void NkFormatter::ParsePattern(const NkString& pattern) {
+	void NkLoggerFormatter::ParsePattern(const NkString& pattern) {
 		// Réinitialisation du cache de tokens
 		m_Tokens.Clear();
 
@@ -336,7 +336,7 @@ namespace nkentseu {
 	// MÉTHODE : FormatToken (protégée)
 	// DESCRIPTION : Applique un token individuel au message en construction
 	// -------------------------------------------------------------------------
-	void NkFormatter::FormatToken(
+	void NkLoggerFormatter::FormatToken(
 		const NkPatternToken& token,
 		const NkLogMessage& message,
 		bool useColors,
@@ -503,7 +503,7 @@ namespace nkentseu {
 	// MÉTHODE : FormatNumber (privée)
 	// DESCRIPTION : Formate un entier avec padding et gestion du signe
 	// -------------------------------------------------------------------------
-	NkString NkFormatter::FormatNumber(int value, int width, char fillChar) const {
+	NkString NkLoggerFormatter::FormatNumber(int value, int width, char fillChar) const {
 		// Buffer temporaire pour la conversion snprintf
 		char buffer[32];  // Suffisant pour int32 + signe + null
 
@@ -547,7 +547,7 @@ namespace nkentseu {
 	// MÉTHODE : GetANSIColor (privée)
 	// DESCRIPTION : Délègue à NkLogLevelToANSIColor pour cohérence globale
 	// -------------------------------------------------------------------------
-	NkString NkFormatter::GetANSIColor(NkLogLevel level) const {
+	NkString NkLoggerFormatter::GetANSIColor(NkLogLevel level) const {
 		// Réutilisation de la fonction utilitaire centralisée
 		// Évite la duplication et garantit la cohérence des couleurs
 		return NkLogLevelToANSIColor(level);
@@ -558,7 +558,7 @@ namespace nkentseu {
 	// MÉTHODE : GetANSIReset (privée)
 	// DESCRIPTION : Retourne la séquence ANSI de reset des attributs console
 	// -------------------------------------------------------------------------
-	NkString NkFormatter::GetANSIReset() const {
+	NkString NkLoggerFormatter::GetANSIReset() const {
 		// Code ANSI standard : reset tous les attributs (couleur, gras, etc.)
 		return "\033[0m";
 	}

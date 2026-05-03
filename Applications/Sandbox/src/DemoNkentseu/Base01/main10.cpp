@@ -35,7 +35,7 @@ int nkmain(const nkentseu::NkEntryState&) {
 
     NkContextInit();
     NkContextResetHints();
-    NkContextSetApi(NkRendererApi::NK_OPENGL);
+    NkContextSetApi(NkGraphicsApi::NK_GFX_API_OPENGL);
     NkContextWindowHint(NkContextHint::NK_CONTEXT_HINT_VERSION_MAJOR, 4);
     NkContextWindowHint(NkContextHint::NK_CONTEXT_HINT_VERSION_MINOR, 5);
     NkContextWindowHint(NkContextHint::NK_CONTEXT_HINT_PROFILE,

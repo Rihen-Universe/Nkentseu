@@ -19,7 +19,7 @@
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
-#include "NKCore/NkInline.h"
+#include "NKPlatform/NkPlatformInline.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
 // ── Détection SIMD ────────────────────────────────────────────────────────────

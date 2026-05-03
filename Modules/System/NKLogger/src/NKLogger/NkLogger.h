@@ -246,13 +246,13 @@
 			 * @example
 			 * @code
 			 * // Formatter personnalisé avec pattern complexe
-			 * auto fmt = nkentseu::memory::MakeUnique<nkentseu::NkFormatter>(
+			 * auto fmt = nkentseu::memory::MakeUnique<nkentseu::NkLoggerFormatter>(
 			 *     "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] %v"
 			 * );
 			 * logger.SetFormatter(std::move(fmt));
 			 * @endcode
 			 */
-			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter);
+			void SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter);
 
 			/**
 			 * @brief Définit le pattern de formatage via création interne de formatter
@@ -261,7 +261,7 @@
 			 * @param pattern Chaîne de pattern style spdlog à parser
 			 * @post Crée ou met à jour m_Formatter avec le nouveau pattern
 			 * @post Le pattern est propagé aux sinks via SetPattern()
-			 * @note Méthode de convenance : équivalent à SetFormatter(MakeUnique<NkFormatter>(pattern))
+			 * @note Méthode de convenance : équivalent à SetFormatter(MakeUnique<NkLoggerFormatter>(pattern))
 			 *
 			 * @example
 			 * @code
@@ -390,7 +390,7 @@
 			 * logger.Info("JSON: {{\"id\": {0}}}", objectId);
 			 * @endcode
 			 */
-			template<typename... Args, typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Log(NkLogLevel level, NkStringView format, Args&&... args);
 
 			/**
@@ -409,7 +409,7 @@
 			 * logger.Trace("Buffer dump: {0:bin}", byteValue);
 			 * @endcode
 			 */
-			template<typename... Args, typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Trace(NkStringView format, Args&&... args);
 
 			/**
@@ -428,8 +428,7 @@
 			 * logger.Debug("Request headers: {0}", headersJson);
 			 * @endcode
 			 */
-			template<typename... Args,
-				typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Debug(NkStringView format, Args&&... args);
 
 			/**
@@ -448,7 +447,7 @@
 			 * logger.Info("Loaded {0} plugins from {1}", pluginCount, pluginPath);
 			 * @endcode
 			 */
-			template<typename... Args, typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Info(NkStringView format, Args&&... args);
 
 			/**
@@ -467,7 +466,7 @@
 			 * logger.Warn("Memory usage at {0:.1}%", memoryUsagePercent);
 			 * @endcode
 			 */
-			template<typename... Args, typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Warn(NkStringView format, Args&&... args);
 
 			/**
@@ -486,7 +485,7 @@
 			 * logger.Error("Invalid config value for {0}: {1}", key, value);
 			 * @endcode
 			 */
-			template<typename... Args, typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Error(NkStringView format, Args&&... args);
 
 			/**
@@ -505,7 +504,7 @@
 			 * logger.Critical("Authentication service unreachable: {0}", serviceUrl);
 			 * @endcode
 			 */
-			template<typename... Args, typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Critical(NkStringView format, Args&&... args);
 
 			/**
@@ -525,7 +524,7 @@
 			 * logger.Fatal("Assertion failed: {0} at {1}:{2}", condition, file, line);
 			 * @endcode
 			 */
-			template<typename... Args, typename = traits::NkEnableIf_t<(sizeof...(Args) > 0)>>
+			template<typename... Args>
 			void Fatal(NkStringView format, Args&&... args);
 
 
@@ -562,7 +561,15 @@
 			 * logger.Logf(nkentseu::NkLogLevel::NK_DEBUG, "Address: 0x%08X, Count: %5d", ptr, count);
 			 * @endcode
 			 */
-			virtual void Logf(NkLogLevel level, const char* format, ...);
+			template<typename... Args>
+			void Logf(NkLogLevel level, const char* format, Args&&... args) {
+				if (!ShouldLog(level)) return;
+				
+				// Utilisation directe de NkPrintf de NkFormat.h
+				NkString formattedMessage = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				
+				LogInternal(level, formattedMessage, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
 
 			/**
 			 * @brief Log printf-style avec informations de source explicites
@@ -589,44 +596,74 @@
 			 * }
 			 * @endcode
 			 */
-			virtual void Logf(NkLogLevel level, const char* file, int line, const char* func, const char* format, ...);
+			template<typename... Args>
+			void Logf(NkLogLevel level, const char* file, int line, const char* func, const char* format, Args&&... args) {
+				if (!ShouldLog(level)) return;
 
-			/**
-			 * @brief Log printf-style avec va_list pour chaînage variadique
-			 * @param level Niveau de log pour ce message
-			 * @param file Chemin du fichier source
-			 * @param line Numéro de ligne source
-			 * @param func Nom de la fonction source
-			 * @param format Chaîne de format style printf
-			 * @param args va_list déjà initialisée
-			 * @ingroup LoggerLogPrintf
-			 *
-			 * @note Permet de relayer des arguments variadiques sans les ré-empaqueter
-			 * @note Utile pour les fonctions wrapper qui reçoivent déjà un va_list
-			 * @note Ne pas appeler va_end sur args ici : responsabilité de l'appelant
-			 *
-			 * @example
-			 * @code
-			 * void LogRedirect(nkentseu::NkLogger& logger, nkentseu::NkLogLevel level,
-			 *                  const char* format, va_list args) {
-			 *     // Relais vers le logger sans ré-empaqueter les arguments
-			 *     logger.Logf(level, __FILE__, __LINE__, __func__, format, args);
-			 * }
-			 * @endcode
-			 */
-			virtual void Logf(NkLogLevel level, const char* file, int line, const char* func, const char* format, va_list args);
+				NkString formattedMessage;
+
+				if constexpr (sizeof...(Args) == 0) {
+					// Pas d'arguments : utiliser directement la chaîne
+					formattedMessage = NkString(format);
+				} else {
+					formattedMessage = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				}
+				
+				LogInternal(level, formattedMessage, file, line, func);
+			}
 
             // -------------------------------------------------------------------------
             // MÉTHODE : Méthodes *f (Tracef, Debugf, etc.)
             // DESCRIPTION : Wrappers typés vers Logf pour convenance d'usage
             // -------------------------------------------------------------------------
-            void Tracef(const char* format, ...);
-            void Debugf(const char* format, ...);
-            void Infof(const char* format, ...);
-            void Warnf(const char* format, ...);
-            void Errorf(const char* format, ...);
-            void Criticalf(const char* format, ...);
-            void Fatalf(const char* format, ...);
+			template<typename... Args>
+			void Tracef(const char* format, Args&&... args) {
+				if (!ShouldLog(NkLogLevel::NK_TRACE)) return;
+				NkString message = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				LogInternal(NkLogLevel::NK_TRACE, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
+
+			template<typename... Args>
+			void Debugf(const char* format, Args&&... args) {
+				if (!ShouldLog(NkLogLevel::NK_DEBUG)) return;
+				NkString message = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				LogInternal(NkLogLevel::NK_DEBUG, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
+
+			template<typename... Args>
+			void Infof(const char* format, Args&&... args) {
+				if (!ShouldLog(NkLogLevel::NK_INFO)) return;
+				NkString message = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				LogInternal(NkLogLevel::NK_INFO, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
+
+			template<typename... Args>
+			void Warnf(const char* format, Args&&... args) {
+				if (!ShouldLog(NkLogLevel::NK_WARN)) return;
+				NkString message = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				LogInternal(NkLogLevel::NK_WARN, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
+
+			template<typename... Args>
+			void Errorf(const char* format, Args&&... args) {
+				if (!ShouldLog(NkLogLevel::NK_ERROR)) return;
+				NkString message = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				LogInternal(NkLogLevel::NK_ERROR, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
+
+			template<typename... Args>
+			void Criticalf(const char* format, Args&&... args) {
+				if (!ShouldLog(NkLogLevel::NK_CRITICAL)) return;
+				NkString message = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				LogInternal(NkLogLevel::NK_CRITICAL, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
+
+			template<typename... Args>
+			void Fatalf(const char* format, Args&&... args) {
+				if (!ShouldLog(NkLogLevel::NK_FATAL)) return;
+				NkString message = NkPrintf(NkStringView(format), std::forward<Args>(args)...);
+				LogInternal(NkLogLevel::NK_FATAL, message, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
+			}
 
 			// -----------------------------------------------------------------
 			// MÉTHODES DE LOGGING : STREAM-STYLE (MESSAGES LITTÉRAUX)
@@ -657,7 +694,7 @@
 			 * logger.Log(nkentseu::NkLogLevel::NK_ERROR, preformattedErrorMessage);
 			 * @endcode
 			 */
-			void Log(NkLogLevel level, const NkString& message);
+			void Log(NkLogLevel level);
 
 			/**
 			 * @brief Log trace avec message littéral
@@ -667,7 +704,7 @@
 			 * @note Équivalent à Log(NkLogLevel::NK_TRACE, message)
 			 * @note Pour debugging très détaillé sans formatage
 			 */
-			void Trace(const NkString& message);
+			void Trace();
 
 			/**
 			 * @brief Log debug avec message littéral
@@ -677,7 +714,7 @@
 			 * @note Équivalent à Log(NkLogLevel::NK_DEBUG, message)
 			 * @note Pour informations de débogage sans formatage
 			 */
-			void Debug(const NkString& message);
+			void Debug();
 
 			/**
 			 * @brief Log info avec message littéral
@@ -687,7 +724,7 @@
 			 * @note Équivalent à Log(NkLogLevel::NK_INFO, message)
 			 * @note Pour messages informatifs sans formatage
 			 */
-			void Info(const NkString& message);
+			void Info();
 
 			/**
 			 * @brief Log warning avec message littéral
@@ -697,7 +734,7 @@
 			 * @note Équivalent à Log(NkLogLevel::NK_WARN, message)
 			 * @note Pour avertissements sans formatage
 			 */
-			void Warn(const NkString& message);
+			void Warn();
 
 			/**
 			 * @brief Log error avec message littéral
@@ -707,7 +744,7 @@
 			 * @note Équivalent à Log(NkLogLevel::NK_ERROR, message)
 			 * @note Pour erreurs sans formatage
 			 */
-			void Error(const NkString& message);
+			void Error();
 
 			/**
 			 * @brief Log critical avec message littéral
@@ -717,7 +754,7 @@
 			 * @note Équivalent à Log(NkLogLevel::NK_CRITICAL, message)
 			 * @note Pour erreurs critiques sans formatage
 			 */
-			void Critical(const NkString& message);
+			void Critical();
 
 			/**
 			 * @brief Log fatal avec message littéral
@@ -727,7 +764,108 @@
 			 * @note Équivalent à Log(NkLogLevel::NK_FATAL, message)
 			 * @note Pour erreurs fatales sans formatage
 			 */
-			void Fatal(const NkString& message);
+			void Fatal();
+
+			// -----------------------------------------------------------------
+			// MÉTHODES DE LOGGING : STREAM-STYLE (MESSAGES LITTÉRAUX)
+			// -----------------------------------------------------------------
+			/**
+			 * @defgroup LoggerLogStream Logging Stream-Style
+			 * @brief Méthodes pour messages simples sans formatage
+			 *
+			 * Pour les cas où aucun formatage n'est nécessaire :
+			 *  - Messages statiques prédéfinis
+			 *  - Messages déjà formatés en amont
+			 *  - Performance critique : éviter l'overhead du parsing de format
+			 */
+
+			/**
+			 * @brief Log avec message littéral et niveau explicite
+			 * @param level Niveau de log pour ce message
+			 * @param message Chaîne NkString contenant le message déjà formaté
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Aucun formatage appliqué : le message est utilisé tel quel
+			 * @note Filtrage précoce : retour immédiat si !ShouldLog(level)
+			 * @note Source info : utilise les valeurs de Source() si configurées
+			 *
+			 * @example
+			 * @code
+			 * logger.Log(nkentseu::NkLogLevel::NK_INFO, "Application shutdown initiated");
+			 * logger.Log(nkentseu::NkLogLevel::NK_ERROR, preformattedErrorMessage);
+			 * @endcode
+			 */
+			void Logf(NkLogLevel level);
+
+			/**
+			 * @brief Log trace avec message littéral
+			 * @param message Chaîne NkString contenant le message
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Équivalent à Log(NkLogLevel::NK_TRACE, message)
+			 * @note Pour debugging très détaillé sans formatage
+			 */
+			void Tracef();
+
+			/**
+			 * @brief Log debug avec message littéral
+			 * @param message Chaîne NkString contenant le message
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Équivalent à Log(NkLogLevel::NK_DEBUG, message)
+			 * @note Pour informations de débogage sans formatage
+			 */
+			void Debugf();
+
+			/**
+			 * @brief Log info avec message littéral
+			 * @param message Chaîne NkString contenant le message
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Équivalent à Log(NkLogLevel::NK_INFO, message)
+			 * @note Pour messages informatifs sans formatage
+			 */
+			void Infof();
+
+			/**
+			 * @brief Log warning avec message littéral
+			 * @param message Chaîne NkString contenant le message
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Équivalent à Log(NkLogLevel::NK_WARN, message)
+			 * @note Pour avertissements sans formatage
+			 */
+			void Warnf();
+
+			/**
+			 * @brief Log error avec message littéral
+			 * @param message Chaîne NkString contenant le message
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Équivalent à Log(NkLogLevel::NK_ERROR, message)
+			 * @note Pour erreurs sans formatage
+			 */
+			void Errorf();
+
+			/**
+			 * @brief Log critical avec message littéral
+			 * @param message Chaîne NkString contenant le message
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Équivalent à Log(NkLogLevel::NK_CRITICAL, message)
+			 * @note Pour erreurs critiques sans formatage
+			 */
+			void Criticalf();
+
+			/**
+			 * @brief Log fatal avec message littéral
+			 * @param message Chaîne NkString contenant le message
+			 * @ingroup LoggerLogStream
+			 *
+			 * @note Équivalent à Log(NkLogLevel::NK_FATAL, message)
+			 * @note Pour erreurs fatales sans formatage
+			 */
+			void Fatalf();
 
 
 			// -----------------------------------------------------------------
@@ -927,7 +1065,7 @@
 			/// @brief Formatter principal pour ce logger (optionnel)
 			/// @ingroup LoggerProtectedMembers
 			/// @note Propagé aux sinks via SetPattern()/SetFormatter()
-			memory::NkUniquePtr<NkFormatter> m_Formatter;
+			memory::NkUniquePtr<NkLoggerFormatter> m_Formatter;
 
 
 			// -----------------------------------------------------------------
@@ -1034,15 +1172,20 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Log (template principal avec formatage positionnel)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Log(NkLogLevel level, NkStringView format, Args&&... args) {
             // Filtrage précoce : éviter tout formatage si le message sera ignoré
             if (!ShouldLog(level)) {
                 return;
             }
-
-            // Formatage via NkFormatIndexed : style positionnel {0}, {1:hex}, etc.
-            NkString formattedMessage = NkFormat(format, traits::NkForward<Args>(args)...);
+        
+			NkString formattedMessage;
+			if constexpr (sizeof...(Args) == 0) {
+				// Pas d'arguments : utiliser directement la chaîne
+				formattedMessage = NkString(format);
+			} else {
+				formattedMessage = NkFormat(format, traits::NkForward<Args>(args)...);
+			}
 
             // Émission via LogInternal avec métadonnées de source courantes
             LogInternal(level, formattedMessage, m_SourceFile.CStr(), m_SourceLine, m_FunctionName.CStr());
@@ -1051,7 +1194,7 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Trace (template wrapper vers Log)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Trace(NkStringView format, Args&&... args) {
             Log(NkLogLevel::NK_TRACE, format, traits::NkForward<Args>(args)...);
         }
@@ -1059,7 +1202,7 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Debug (template wrapper vers Log)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Debug(NkStringView format, Args&&... args) {
             Log(NkLogLevel::NK_DEBUG, format, traits::NkForward<Args>(args)...);
         }
@@ -1067,7 +1210,7 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Info (template wrapper vers Log)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Info(NkStringView format, Args&&... args) {
             Log(NkLogLevel::NK_INFO, format, traits::NkForward<Args>(args)...);
         }
@@ -1075,7 +1218,7 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Warn (template wrapper vers Log)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Warn(NkStringView format, Args&&... args) {
             Log(NkLogLevel::NK_WARN, format, traits::NkForward<Args>(args)...);
         }
@@ -1083,7 +1226,7 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Error (template wrapper vers Log)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Error(NkStringView format, Args&&... args) {
             Log(NkLogLevel::NK_ERROR, format, traits::NkForward<Args>(args)...);
         }
@@ -1091,7 +1234,7 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Critical (template wrapper vers Log)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Critical(NkStringView format, Args&&... args) {
             Log(NkLogLevel::NK_CRITICAL, format, traits::NkForward<Args>(args)...);
         }
@@ -1099,7 +1242,7 @@
         // -------------------------------------------------------------------------
         // MÉTHODE : Fatal (template wrapper vers Log)
         // -------------------------------------------------------------------------
-        template<typename... Args, typename>
+        template<typename... Args>
         inline void NkLogger::Fatal(NkStringView format, Args&&... args) {
             Log(NkLogLevel::NK_FATAL, format, traits::NkForward<Args>(args)...);
         }
@@ -1381,7 +1524,7 @@
 
 			// Pattern configurable
 			auto pattern = nkentseu::core::Config::GetString(
-				"logging.pattern", nkentseu::NkFormatter::NK_DEFAULT_PATTERN);
+				"logging.pattern", nkentseu::NkLoggerFormatter::NK_DEFAULT_PATTERN);
 			m_logger.SetPattern(pattern);
 		}
 

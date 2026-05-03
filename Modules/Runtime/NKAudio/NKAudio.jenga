@@ -14,11 +14,12 @@ Dépendances  : NKPlatform, NKCore, NKMemory, NKContainers
 """
 
 from Jenga import *
+from config import *
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKAudio"):
-    staticlib()
+    useglobalkind("audio")
     language("C++")
     cppdialect("C++20")
     location(".")

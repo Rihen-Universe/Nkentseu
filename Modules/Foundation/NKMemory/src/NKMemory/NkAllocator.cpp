@@ -22,6 +22,7 @@
 // EN-TÊTES DU MODULE
 // -------------------------------------------------------------------------
 #include "NKMemory/NkAllocator.h"
+#include "NKCore/NkPlatform.h"
 
 // -------------------------------------------------------------------------
 // DÉPENDANCES PLATEFORME (uniquement si nécessaires)
@@ -153,45 +154,47 @@ namespace {
     // ========================================================================
 
     [[nodiscard]] void* AllocateAlignedByMalloc(nkentseu::nk_size size, nkentseu::nk_size alignment) {
-        if (size == 0u) {
-            return nullptr;
-        }
+        // if (size == 0u) {
+        //     return nullptr;
+        // }
 
-        // Validation et normalisation de l'alignement
-        if (!nkentseu::memory::NkIsPowerOfTwo(alignment)) {
-            alignment = nkentseu::memory::NK_MEMORY_DEFAULT_ALIGNMENT;
-        }
-        alignment = MaxSize(alignment, nkentseu::memory::NK_MEMORY_DEFAULT_ALIGNMENT);
+        // // Validation et normalisation de l'alignement
+        // if (!nkentseu::memory::NkIsPowerOfTwo(alignment)) {
+        //     alignment = nkentseu::memory::NK_MEMORY_DEFAULT_ALIGNMENT;
+        // }
+        // alignment = MaxSize(alignment, nkentseu::memory::NK_MEMORY_DEFAULT_ALIGNMENT);
 
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-            return _aligned_malloc(size, alignment);
-        #elif defined(NKENTSEU_PLATFORM_POSIX)
-            // posix_memalign requiert alignment >= sizeof(void*) et puissance de 2
-            if (alignment < sizeof(void*)) {
-                alignment = sizeof(void*);
-            }
-            void* ptr = nullptr;
-            if (posix_memalign(&ptr, alignment, size) != 0) {
-                return nullptr;
-            }
-            return ptr;
-        #else
-            // Fallback minimal : malloc avec avertissement potentiel d'alignement
-            return ::malloc(size);
-        #endif
+        // #if defined(NKENTSEU_PLATFORM_WINDOWS)
+        //     return _aligned_malloc(size, alignment);
+        // #elif defined(NKENTSEU_PLATFORM_ANDROID)
+        //     return ::memalign(alignment, size);
+        // #elif defined(NKENTSEU_PLATFORM_POSIX)
+        //     // posix_memalign requiert alignment >= sizeof(void*) et puissance de 2
+        //     if (alignment < sizeof(void*)) {
+        //         alignment = sizeof(void*);
+        //     }
+        //     void* ptr = nullptr;
+        //     if (posix_memalign(&ptr, alignment, size) != 0) {
+        //         return nullptr;
+        //     }
+        //     return ptr;
+        // #else
+        //     // Fallback minimal : malloc avec avertissement potentiel d'alignement
+        //     return ::malloc(size);
+        // #endif
+        return memory::NkAllocateAligned(size, alignment);
     }
 
     void FreeAlignedByMalloc(void* ptr) {
-        if (!ptr) {
-            return;
-        }
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-            _aligned_free(ptr);
-        #elif defined(NKENTSEU_PLATFORM_POSIX)
-            ::free(ptr);
-        #else
-            ::free(ptr);
-        #endif
+        // if (!ptr) {
+        //     return;
+        // }
+        // #if defined(NKENTSEU_PLATFORM_WINDOWS)
+        //     _aligned_free(ptr);
+        // #elif defined(NKENTSEU_PLATFORM_POSIX)
+        //     ::free(ptr);
+        // #endif
+        memory::NkFreeAligned(ptr);
     }
 
     // ========================================================================
@@ -229,9 +232,6 @@ namespace nkentseu {
         // ====================================================================
         // NkAllocator : Implémentations des méthodes virtuelles par défaut
         // ====================================================================
-
-        NkAllocator::NkAllocator(const nk_char* name) noexcept 
-            : NkAllocatorBase(name) {}
 
         void NkAllocator::Deallocate(Pointer /*ptr*/, SizeType /*size*/) {
             // Par défaut, ignore la taille et délègue à la version simple

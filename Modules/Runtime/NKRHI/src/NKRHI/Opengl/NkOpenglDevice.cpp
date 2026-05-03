@@ -236,7 +236,7 @@ void NkOpenGLDevice::QueryCaps() {
 // =============================================================================
 NkBufferHandle NkOpenGLDevice::CreateBuffer(const NkBufferDesc& desc) {
     if (desc.sizeBytes==0) return {};
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
 
     GLuint id=0;
 #if defined(NK_OPENGL_ES)
@@ -267,7 +267,7 @@ NkBufferHandle NkOpenGLDevice::CreateBuffer(const NkBufferDesc& desc) {
 }
 
 void NkOpenGLDevice::DestroyBuffer(NkBufferHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(h.id);
     if (!buffer) return;
     glDeleteBuffers(1,&buffer->id);
@@ -277,7 +277,7 @@ void NkOpenGLDevice::DestroyBuffer(NkBufferHandle& h) {
 
 bool NkOpenGLDevice::WriteBuffer(NkBufferHandle buf, const void* data,
                                uint64 size, uint64 offset) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer || !data) return false;
 #if defined(NK_OPENGL_ES)
@@ -296,7 +296,7 @@ bool NkOpenGLDevice::WriteBuffer(NkBufferHandle buf, const void* data,
 
 bool NkOpenGLDevice::WriteBufferAsync(NkBufferHandle buf, const void* data,
                                     uint64 size, uint64 offset) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer || !data) return false;
 #if defined(NK_OPENGL_ES)
@@ -324,7 +324,7 @@ bool NkOpenGLDevice::WriteBufferAsync(NkBufferHandle buf, const void* data,
 
 bool NkOpenGLDevice::ReadBuffer(NkBufferHandle buf, void* out,
                                 uint64 size, uint64 offset) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer) return false;
 
@@ -348,7 +348,7 @@ bool NkOpenGLDevice::ReadBuffer(NkBufferHandle buf, void* out,
 }
 
 NkMappedMemory NkOpenGLDevice::MapBuffer(NkBufferHandle buf, uint64 off, uint64 sz) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLBuffer* buffer = mBuffers.Find(buf.id);
     if (!buffer) return {};
     uint64 mapSz = sz>0 ? sz : buffer->size-off;
@@ -390,7 +390,7 @@ void NkOpenGLDevice::UnmapBuffer(NkBufferHandle buf) {
 // Textures
 // =============================================================================
 NkTextureHandle NkOpenGLDevice::CreateTexture(const NkTextureDesc& desc) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLuint id=0;
     GLenum target = ToGLTextureTarget(desc.type, desc.samples);
 #if defined(NK_OPENGL_ES)
@@ -496,7 +496,7 @@ NkTextureHandle NkOpenGLDevice::CreateTexture(const NkTextureDesc& desc) {
 }
 
 void NkOpenGLDevice::DestroyTexture(NkTextureHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLTexture* texture = mTextures.Find(h.id);
     if (!texture) return;
     glDeleteTextures(1,&texture->id);
@@ -555,7 +555,7 @@ bool NkOpenGLDevice::GenerateMipmaps(NkTextureHandle t, NkFilter) {
 // Samplers
 // =============================================================================
 NkSamplerHandle NkOpenGLDevice::CreateSampler(const NkSamplerDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLuint id=0;
 #if defined(NK_OPENGL_ES)
     glGenSamplers(1,&id);
@@ -581,7 +581,7 @@ NkSamplerHandle NkOpenGLDevice::CreateSampler(const NkSamplerDesc& d) {
 }
 
 void NkOpenGLDevice::DestroySampler(NkSamplerHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLSampler* sampler = mSamplers.Find(h.id);
     if (!sampler) return;
     glDeleteSamplers(1,&sampler->id);
@@ -605,7 +605,7 @@ GLuint NkOpenGLDevice::CompileGLStage(GLenum stage, const char* src) {
 }
 
 NkShaderHandle NkOpenGLDevice::CreateShader(const NkShaderDesc& desc) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLuint prog=glCreateProgram();
     uint32 attachedCount = 0;
 
@@ -642,7 +642,7 @@ NkShaderHandle NkOpenGLDevice::CreateShader(const NkShaderDesc& desc) {
 }
 
 void NkOpenGLDevice::DestroyShader(NkShaderHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLShader* shader = mShaders.Find(h.id);
     if (!shader) return;
     glDeleteProgram(shader->program);
@@ -653,7 +653,7 @@ void NkOpenGLDevice::DestroyShader(NkShaderHandle& h) {
 // Pipelines
 // =============================================================================
 NkPipelineHandle NkOpenGLDevice::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLShader* shader = mShaders.Find(d.shader.id);
     if (!shader) return {};
 
@@ -748,7 +748,7 @@ NkPipelineHandle NkOpenGLDevice::CreateGraphicsPipeline(const NkGraphicsPipeline
 }
 
 NkPipelineHandle NkOpenGLDevice::CreateComputePipeline(const NkComputePipelineDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLShader* shader = mShaders.Find(d.shader.id);
     if (!shader) return {};
 
@@ -762,7 +762,7 @@ NkPipelineHandle NkOpenGLDevice::CreateComputePipeline(const NkComputePipelineDe
 }
 
 void NkOpenGLDevice::DestroyPipeline(NkPipelineHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLPipeline* pipeline = mPipelines.Find(h.id);
     if (!pipeline) return;
     if (pipeline->vao) glDeleteVertexArrays(1,&pipeline->vao);
@@ -773,17 +773,17 @@ void NkOpenGLDevice::DestroyPipeline(NkPipelineHandle& h) {
 // Render Passes & Framebuffers
 // =============================================================================
 NkRenderPassHandle NkOpenGLDevice::CreateRenderPass(const NkRenderPassDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     uint64 hid=NextId(); mRenderPasses[hid]=d;
     NkRenderPassHandle h; h.id=hid; return h;
 }
 void NkOpenGLDevice::DestroyRenderPass(NkRenderPassHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     mRenderPasses.Erase(h.id); h.id=0;
 }
 
 NkFramebufferHandle NkOpenGLDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLuint fbo=0;
 #if defined(NK_OPENGL_ES)
     glGenFramebuffers(1,&fbo);
@@ -832,7 +832,7 @@ NkFramebufferHandle NkOpenGLDevice::CreateFramebuffer(const NkFramebufferDesc& d
 }
 
 void NkOpenGLDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLFBO* fbo = mFramebuffers.Find(h.id);
     if (!fbo) return;
     if (fbo->id!=0) glDeleteFramebuffers(1,&fbo->id);
@@ -843,24 +843,24 @@ void NkOpenGLDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
 // Descriptor Sets (émulation GL)
 // =============================================================================
 NkDescSetHandle NkOpenGLDevice::CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     uint64 hid=NextId(); mDescLayouts[hid]={d};
     NkDescSetHandle h; h.id=hid; return h;
 }
 void NkOpenGLDevice::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-    threading::NkScopedLock lock(mMutex); mDescLayouts.Erase(h.id); h.id=0;
+    threading::NkScopedLockMutex lock(mMutex); mDescLayouts.Erase(h.id); h.id=0;
 }
 NkDescSetHandle NkOpenGLDevice::AllocateDescriptorSet(NkDescSetHandle layoutHandle) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLDescSet ds; ds.layoutHandle=layoutHandle;
     uint64 hid=NextId(); mDescSets[hid]=ds;
     NkDescSetHandle h; h.id=hid; return h;
 }
 void NkOpenGLDevice::FreeDescriptorSet(NkDescSetHandle& h) {
-    threading::NkScopedLock lock(mMutex); mDescSets.Erase(h.id); h.id=0;
+    threading::NkScopedLockMutex lock(mMutex); mDescSets.Erase(h.id); h.id=0;
 }
 void NkOpenGLDevice::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 n) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     for (uint32 i=0;i<n;i++) {
         auto& w=writes[i];
         GLDescSet* set = mDescSets.Find(w.set.id);
@@ -964,14 +964,14 @@ void NkOpenGLDevice::SubmitAndPresent(NkICommandBuffer* cb) {
 }
 
 NkFenceHandle NkOpenGLDevice::CreateFence(bool signaled) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLFenceObj f; f.signaled=signaled;
     if (signaled) f.sync=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
     uint64 hid=NextId(); mFences[hid]=f;
     NkFenceHandle h; h.id=hid; return h;
 }
 void NkOpenGLDevice::DestroyFence(NkFenceHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     GLFenceObj* fenceObj = mFences.Find(h.id);
     if (!fenceObj) return;
     if (fenceObj->sync) glDeleteSync(fenceObj->sync);

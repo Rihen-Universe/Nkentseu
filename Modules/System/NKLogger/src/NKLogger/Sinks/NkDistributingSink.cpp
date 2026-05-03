@@ -116,7 +116,7 @@ namespace nkentseu {
 	// MÉTHODE : SetFormatter
 	// DESCRIPTION : Clonage et propagation du formatter à tous les sous-sinks
 	// -------------------------------------------------------------------------
-	void NkDistributingSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+	void NkDistributingSink::SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) {
 		// Acquisition du mutex pour modification thread-safe de la collection
 		threading::NkScopedLock lock(m_Mutex);
 
@@ -125,7 +125,7 @@ namespace nkentseu {
 			// Vérification de validité du sink et du formatter source
 			if (sink && formatter) {
 				// Clonage via le pattern : création d'un nouveau formatter avec même configuration
-				auto clonedFormatter = memory::NkMakeUnique<NkFormatter>(formatter->GetPattern());
+				auto clonedFormatter = memory::NkMakeUnique<NkLoggerFormatter>(formatter->GetPattern());
 
 				// Transfert de propriété du clone vers le sous-sink
 				sink->SetFormatter(traits::NkMove(clonedFormatter));
@@ -155,7 +155,7 @@ namespace nkentseu {
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retour du formatter du premier sous-sink non-null (convenance)
 	// -------------------------------------------------------------------------
-	NkFormatter* NkDistributingSink::GetFormatter() const {
+	NkLoggerFormatter* NkDistributingSink::GetFormatter() const {
 		// Acquisition du mutex pour lecture protégée de m_Sinks
 		threading::NkScopedLock lock(m_Mutex);
 

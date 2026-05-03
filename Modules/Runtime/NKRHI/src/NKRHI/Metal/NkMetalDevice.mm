@@ -218,7 +218,7 @@ void NkMetalDevice::Shutdown() {
 // Buffers
 // =============================================================================
 NkBufferHandle NkMetalDevice::CreateBuffer(const NkBufferDesc& desc) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     MTLResourceOptions opts = MTLResourceStorageModeShared; // CPU+GPU visible
     switch (desc.usage) {
         case NkResourceUsage::NK_DEFAULT: opts = MTLResourceStorageModePrivate; break;
@@ -240,7 +240,7 @@ NkBufferHandle NkMetalDevice::CreateBuffer(const NkBufferDesc& desc) {
 }
 
 void NkMetalDevice::DestroyBuffer(NkBufferHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto it = mBuffers.find(h.id); if (it == mBuffers.end()) return;
     if (it->second.buf) CFRelease(it->second.buf);
     mBuffers.erase(it); h.id = 0;
@@ -294,7 +294,7 @@ void NkMetalDevice::UnmapBuffer(NkBufferHandle) {} // No-op pour Metal shared
 // Textures
 // =============================================================================
 NkTextureHandle NkMetalDevice::CreateTexture(const NkTextureDesc& desc) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     MTLTextureDescriptor* td = [[MTLTextureDescriptor alloc] init];
     td.pixelFormat  = ToMTLFormat(desc.format);
     td.width        = desc.width;
@@ -358,7 +358,7 @@ NkTextureHandle NkMetalDevice::CreateTexture(const NkTextureDesc& desc) {
 }
 
 void NkMetalDevice::DestroyTexture(NkTextureHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto it = mTextures.find(h.id); if (it == mTextures.end()) return;
     if (!it->second.isSwapchain && it->second.tex) CFRelease(it->second.tex);
     mTextures.erase(it); h.id = 0;
@@ -400,7 +400,7 @@ bool NkMetalDevice::GenerateMipmaps(NkTextureHandle t, NkFilter) {
 // Samplers
 // =============================================================================
 NkSamplerHandle NkMetalDevice::CreateSampler(const NkSamplerDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     MTLSamplerDescriptor* sd = [[MTLSamplerDescriptor alloc] init];
     sd.magFilter    = ToMTLFilter(d.magFilter);
     sd.minFilter    = ToMTLFilter(d.minFilter);
@@ -417,7 +417,7 @@ NkSamplerHandle NkMetalDevice::CreateSampler(const NkSamplerDesc& d) {
     NkSamplerHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroySampler(NkSamplerHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto it = mSamplers.find(h.id); if (it == mSamplers.end()) return;
     if (it->second.ss) CFRelease(it->second.ss);
     mSamplers.erase(it); h.id = 0;
@@ -427,7 +427,7 @@ void NkMetalDevice::DestroySampler(NkSamplerHandle& h) {
 // Shaders (MSL source ou bibliothèque pré-compilée)
 // =============================================================================
 NkShaderHandle NkMetalDevice::CreateShader(const NkShaderDesc& desc) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     NkMetalShader sh;
     for (uint32 i = 0; i < desc.stages.Size(); i++) {
         auto& s = desc.stages[i];
@@ -468,7 +468,7 @@ NkShaderHandle NkMetalDevice::CreateShader(const NkShaderDesc& desc) {
     NkShaderHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroyShader(NkShaderHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto it = mShaders.find(h.id); if (it == mShaders.end()) return;
     if (it->second.vert) CFRelease(it->second.vert);
     if (it->second.frag) CFRelease(it->second.frag);
@@ -480,7 +480,7 @@ void NkMetalDevice::DestroyShader(NkShaderHandle& h) {
 // Pipelines
 // =============================================================================
 NkPipelineHandle NkMetalDevice::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto sit = mShaders.find(d.shader.id); if (sit == mShaders.end()) return {};
     auto& sh = sit->second;
 
@@ -571,7 +571,7 @@ NkPipelineHandle NkMetalDevice::CreateGraphicsPipeline(const NkGraphicsPipelineD
 }
 
 NkPipelineHandle NkMetalDevice::CreateComputePipeline(const NkComputePipelineDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto sit = mShaders.find(d.shader.id); if (sit == mShaders.end()) return {};
     id<MTLFunction> comp = (__bridge id<MTLFunction>)sit->second.comp;
     if (!comp) return {};
@@ -584,7 +584,7 @@ NkPipelineHandle NkMetalDevice::CreateComputePipeline(const NkComputePipelineDes
 }
 
 void NkMetalDevice::DestroyPipeline(NkPipelineHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto it = mPipelines.find(h.id); if (it == mPipelines.end()) return;
     if (it->second.rpso) CFRelease(it->second.rpso);
     if (it->second.cpso) CFRelease(it->second.cpso);
@@ -596,16 +596,16 @@ void NkMetalDevice::DestroyPipeline(NkPipelineHandle& h) {
 // Render Passes & Framebuffers
 // =============================================================================
 NkRenderPassHandle NkMetalDevice::CreateRenderPass(const NkRenderPassDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     uint64 hid = NextId(); mRenderPasses[hid] = { d };
     NkRenderPassHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroyRenderPass(NkRenderPassHandle& h) {
-    threading::NkScopedLock lock(mMutex); mRenderPasses.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mRenderPasses.erase(h.id); h.id = 0;
 }
 
 NkFramebufferHandle NkMetalDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     NkMetalFramebuffer fb;
     fb.colorCount = d.colorAttachments.Size();
     for (uint32 i = 0; i < d.colorAttachments.Size(); i++) fb.colorAttachments[i] = d.colorAttachments[i];
@@ -615,31 +615,31 @@ NkFramebufferHandle NkMetalDevice::CreateFramebuffer(const NkFramebufferDesc& d)
     NkFramebufferHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
-    threading::NkScopedLock lock(mMutex); mFramebuffers.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mFramebuffers.erase(h.id); h.id = 0;
 }
 
 // =============================================================================
 // Descriptor Sets
 // =============================================================================
 NkDescSetHandle NkMetalDevice::CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     uint64 hid = NextId(); mDescLayouts[hid] = { d };
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-    threading::NkScopedLock lock(mMutex); mDescLayouts.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mDescLayouts.erase(h.id); h.id = 0;
 }
 NkDescSetHandle NkMetalDevice::AllocateDescriptorSet(NkDescSetHandle layout) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     NkMetalDescSet ds; ds.layoutId = layout.id;
     uint64 hid = NextId(); mDescSets[hid] = ds;
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkMetalDevice::FreeDescriptorSet(NkDescSetHandle& h) {
-    threading::NkScopedLock lock(mMutex); mDescSets.erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mDescSets.erase(h.id); h.id = 0;
 }
 void NkMetalDevice::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 n) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     for (uint32 i = 0; i < n; i++) {
         auto& w = writes[i];
         auto sit = mDescSets.find(w.set.id); if (sit == mDescSets.end()) continue;

@@ -33,6 +33,7 @@
     #include "NKReflection/NkType.h"
     #include "NKCore/Assert/NkAssert.h"
     #include "NKContainers/Functional/NkFunction.h"
+    #include "NKContainers/Functional/NkBind.h"
 
     // -------------------------------------------------------------------------
     // SECTION 2 : ESPACE DE NOMS PRINCIPAL

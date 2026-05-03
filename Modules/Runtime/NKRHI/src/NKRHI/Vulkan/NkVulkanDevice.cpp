@@ -681,7 +681,7 @@ namespace nkentseu {
         NkBufferHandle h;
 
         {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bci.size = desc.sizeBytes;
 
@@ -744,7 +744,7 @@ namespace nkentseu {
     }
 
     void NkVulkanDevice::DestroyBuffer(NkBufferHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mBuffers.Find(h.id); if (!it) return;
         vkDestroyBuffer(mDevice,it->buffer,nullptr);
         FreeMemory(it->alloc);
@@ -810,7 +810,7 @@ namespace nkentseu {
     // Textures
     // =============================================================================
     NkTextureHandle NkVulkanDevice::CreateTexture(const NkTextureDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         ici.imageType   = ToVkImageType(desc.type);
         ici.format      = ToVkFormat(desc.format);
@@ -912,7 +912,7 @@ namespace nkentseu {
     }
 
     void NkVulkanDevice::DestroyTexture(NkTextureHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mTextures.Find(h.id); if (!it) return;
         if (!it->isSwapchain) {
             vkDestroyImageView(mDevice,it->view,nullptr);
@@ -989,7 +989,7 @@ namespace nkentseu {
     // Samplers
     // =============================================================================
     NkSamplerHandle NkVulkanDevice::CreateSampler(const NkSamplerDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         sci.magFilter     = ToVkFilter(d.magFilter);
         sci.minFilter     = ToVkFilter(d.minFilter);
@@ -1009,7 +1009,7 @@ namespace nkentseu {
         NkSamplerHandle h; h.id=hid; return h;
     }
     void NkVulkanDevice::DestroySampler(NkSamplerHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mSamplers.Find(h.id); if (!it) return;
         vkDestroySampler(mDevice,it->sampler,nullptr);
         mSamplers.Erase(h.id); h.id=0;
@@ -1019,7 +1019,7 @@ namespace nkentseu {
     // Shaders (SPIR-V uniquement en Vulkan)
     // =============================================================================
     NkShaderHandle NkVulkanDevice::CreateShader(const NkShaderDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkVkShader sh;
         bool shaderBuildFailed = false;
         for (uint32 i=0;i<desc.stages.Size();i++) {
@@ -1073,7 +1073,7 @@ namespace nkentseu {
         NkShaderHandle h; h.id=hid; return h;
     }
     void NkVulkanDevice::DestroyShader(NkShaderHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mShaders.Find(h.id); if (!it) return;
         for (auto& s:it->stages) vkDestroyShaderModule(mDevice,s.module,nullptr);
         mShaders.Erase(h.id); h.id=0;
@@ -1083,7 +1083,7 @@ namespace nkentseu {
     // Pipelines
     // =============================================================================
     NkPipelineHandle NkVulkanDevice::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto sit=mShaders.Find(d.shader.id); if (!sit) return {};
         auto rpit=mRenderPasses.Find(d.renderPass.id); if (!rpit) return {};
         auto toVkStageFlags = [](NkShaderStage stages) -> VkShaderStageFlags {
@@ -1228,7 +1228,7 @@ namespace nkentseu {
     }
 
     NkPipelineHandle NkVulkanDevice::CreateComputePipeline(const NkComputePipelineDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto sit=mShaders.Find(d.shader.id); if (!sit) return {};
         if (sit->stages.Empty()) return {};
 
@@ -1253,7 +1253,7 @@ namespace nkentseu {
     }
 
     void NkVulkanDevice::DestroyPipeline(NkPipelineHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mPipelines.Find(h.id); if (!it) return;
         vkDestroyPipeline(mDevice,it->pipeline,nullptr);
         vkDestroyPipelineLayout(mDevice,it->layout,nullptr);
@@ -1264,7 +1264,7 @@ namespace nkentseu {
     // Render Passes
     // =============================================================================
     NkRenderPassHandle NkVulkanDevice::CreateRenderPass(const NkRenderPassDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkVector<VkAttachmentDescription> attachments;
         NkVector<VkAttachmentReference>   colorRefs;
         VkAttachmentReference depthRef{};
@@ -1316,7 +1316,7 @@ namespace nkentseu {
         NkRenderPassHandle h; h.id=hid; return h;
     }
     void NkVulkanDevice::DestroyRenderPass(NkRenderPassHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mRenderPasses.Find(h.id); if (!it) return;
         vkDestroyRenderPass(mDevice,it->renderPass,nullptr);
         mRenderPasses.Erase(h.id); h.id=0;
@@ -1326,7 +1326,7 @@ namespace nkentseu {
     // Framebuffers
     // =============================================================================
     NkFramebufferHandle NkVulkanDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto rpit=mRenderPasses.Find(d.renderPass.id); if (!rpit) return {};
         NkVector<VkImageView> views;
         for (uint32 i=0;i<d.colorAttachments.Size();i++) {
@@ -1347,7 +1347,7 @@ namespace nkentseu {
         NkFramebufferHandle h; h.id=hid; return h;
     }
     void NkVulkanDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mFramebuffers.Find(h.id); if (!it) return;
         vkDestroyFramebuffer(mDevice,it->framebuffer,nullptr);
         mFramebuffers.Erase(h.id); h.id=0;
@@ -1357,7 +1357,7 @@ namespace nkentseu {
     // Descriptor Sets
     // =============================================================================
     NkDescSetHandle NkVulkanDevice::CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto toVkStageFlags = [](NkShaderStage stages) -> VkShaderStageFlags {
             const uint32 bits = (uint32)stages;
             VkShaderStageFlags out = 0;
@@ -1390,14 +1390,14 @@ namespace nkentseu {
         NkDescSetHandle h; h.id=hid; return h;
     }
     void NkVulkanDevice::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mDescLayouts.Find(h.id); if (!it) return;
         vkDestroyDescriptorSetLayout(mDevice,it->layout,nullptr);
         mDescLayouts.Erase(h.id); h.id=0;
     }
 
     NkDescSetHandle NkVulkanDevice::AllocateDescriptorSet(NkDescSetHandle layoutHandle) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto lit=mDescLayouts.Find(layoutHandle.id); if (!lit) return {};
         VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         ai.descriptorPool=mDescPool; ai.descriptorSetCount=1; ai.pSetLayouts=&lit->layout;
@@ -1407,7 +1407,7 @@ namespace nkentseu {
         NkDescSetHandle h; h.id=hid; return h;
     }
     void NkVulkanDevice::FreeDescriptorSet(NkDescSetHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mDescSets.Find(h.id); if (!it) return;
         vkFreeDescriptorSets(mDevice,mDescPool,1,&it->set);
         mDescSets.Erase(h.id); h.id=0;

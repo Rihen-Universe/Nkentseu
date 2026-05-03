@@ -4,6 +4,7 @@
 // Cache de shaders compilés, hot-reload en développement.
 // =============================================================================
 #include "NkShaderBackend.h"
+#include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
 namespace nkentseu {
@@ -44,7 +45,7 @@ namespace renderer {
         // ── Accès ────────────────────────────────────────────────────────────
         NkShaderHandle Find(const NkString& name) const;
         const NkShaderProgram* Get(NkShaderHandle h) const;
-        NkIShaderProgram* GetRHI(NkShaderHandle h) const;
+        void*             GetRHI(NkShaderHandle h) const;
 
         // ── Libération ───────────────────────────────────────────────────────
         void Release(NkShaderHandle& h);

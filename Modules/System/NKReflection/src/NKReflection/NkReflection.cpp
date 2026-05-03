@@ -49,12 +49,12 @@ namespace nkentseu {
             // Validation optionnelle en mode debug
             #ifdef NKENTSEU_DEBUG
             if (!ValidateRegistry()) {
-                NK_FOUNDATION_LOG_ERROR("Reflection registry validation failed at startup");
+                logger.Errorf("Reflection registry validation failed at startup");
                 return false;
             }
             #endif
 
-            NK_FOUNDATION_LOG_DEBUG("NKReflection module initialized");
+            logger.Debugf("NKReflection module initialized");
             return true;
         }
 
@@ -66,7 +66,7 @@ namespace nkentseu {
             auto& registry = NkRegistry::Get();
             registry.SetOnRegisterCallback(NkRegistry::OnRegisterCallback());
 
-            NK_FOUNDATION_LOG_DEBUG("NKReflection module shutdown");
+            logger.Debugf("NKReflection module shutdown");
         }
 
         // =====================================================================
@@ -120,11 +120,11 @@ namespace nkentseu {
         void DumpRegistry() {
             const auto& registry = NkRegistry::Get();
 
-            NK_FOUNDATION_LOG_INFO("=== NKReflection Registry Dump ===");
-            NK_FOUNDATION_LOG_INFO("Types: %zu / %zu",
+            logger.Infof("=== NKReflection Registry Dump ===");
+            logger.Infof("Types: %zu / %zu",
                 registry.GetTypeCount(),
                 static_cast<nk_usize>(512)); // NK_MAX_TYPES
-            NK_FOUNDATION_LOG_INFO("Classes: %zu / %zu",
+            logger.Infof("Classes: %zu / %zu",
                 registry.GetClassCount(),
                 static_cast<nk_usize>(512)); // NK_MAX_CLASSES
 
@@ -132,7 +132,7 @@ namespace nkentseu {
             for (nk_usize i = 0; i < registry.GetClassCount(); ++i) {
                 const auto* cls = registry.GetClassAt(i);
                 if (cls) {
-                    NK_FOUNDATION_LOG_INFO("Class[%zu]: %s (size=%zu, base=%s, props=%zu, methods=%zu)",
+                    logger.Infof("Class[%zu]: %s (size=%zu, base=%s, props=%zu, methods=%zu)",
                         i,
                         cls->GetName(),
                         cls->GetSize(),
@@ -142,7 +142,7 @@ namespace nkentseu {
                 }
             }
 
-            NK_FOUNDATION_LOG_INFO("=== End Registry Dump ===");
+            logger.Infof("=== End Registry Dump ===");
         }
 
         nk_bool ValidateRegistry() {
@@ -153,7 +153,7 @@ namespace nkentseu {
             for (nk_usize i = 0; i < registry.GetTypeCount(); ++i) {
                 const auto* type = registry.GetTypeAt(i);
                 if (!type || !type->GetName() || type->GetName()[0] == '\0') {
-                    NK_FOUNDATION_LOG_ERROR("Invalid type at registry index %zu", i);
+                    logger.Errorf("Invalid type at registry index %zu", i);
                     allValid = false;
                 }
             }
@@ -162,7 +162,7 @@ namespace nkentseu {
             for (nk_usize i = 0; i < registry.GetClassCount(); ++i) {
                 const auto* cls = registry.GetClassAt(i);
                 if (!cls || !cls->GetName() || cls->GetName()[0] == '\0') {
-                    NK_FOUNDATION_LOG_ERROR("Invalid class at registry index %zu", i);
+                    logger.Errorf("Invalid class at registry index %zu", i);
                     allValid = false;
                     continue;
                 }
@@ -175,8 +175,7 @@ namespace nkentseu {
                     ++depth;
                 }
                 if (depth >= 128) {
-                    NK_FOUNDATION_LOG_ERROR("Possible inheritance cycle involving class '%s'",
-                        cls->GetName());
+                    logger.Errorf("Possible inheritance cycle involving class '%s'", cls->GetName());
                     allValid = false;
                 }
             }

@@ -36,7 +36,7 @@ int nkmain(const nkentseu::NkEntryState&) {
 
     NkContextInit();
     NkContextConfig contextConfig{};
-    contextConfig.api = NkRendererApi::NK_DIRECTX11;
+    contextConfig.api = NkGraphicsApi::NK_GFX_API_DIRECTX11;
     contextConfig.vsync = true;
     contextConfig.debug = false;
     NkContextSetHints(contextConfig);
@@ -68,7 +68,7 @@ int nkmain(const nkentseu::NkEntryState&) {
 
     NkRenderer renderer;
     NkRendererConfig rcfg{};
-    rcfg.api = NkRendererApi::NK_SOFTWARE;
+    rcfg.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     rcfg.vsync = true;
     if (!renderer.Create(window, rcfg)) {
         logger.Error("[main12] Software colorizer creation failed: {0}", renderer.GetLastError().ToString());

@@ -623,8 +623,8 @@ with workspace("Nkentseu", location="."):
     with include("Sandbox/System/NKReflection/NKReflectionSandbox.jenga"):
         pass
 
-    # with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
-    #     pass
+    with include("Modules/Runtime/NKRenderer/NKRenderer.jenga"):
+        pass
 
     with include("Applications/Model/Model.jenga"):
         pass
@@ -639,4 +639,7 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/PV3DE/PV3DE.jenga"):
+        pass
+
+    with include("Applications/Pong/Pong.jenga"):
         pass

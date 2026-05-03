@@ -343,7 +343,7 @@ namespace nkentseu {
     // Buffers
     // =============================================================================
     NkBufferHandle NkDirectX11Device::CreateBuffer(const NkBufferDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         D3D11_BUFFER_DESC bd{};
         bd.ByteWidth=(UINT)desc.sizeBytes;
         switch(desc.usage) {
@@ -380,7 +380,7 @@ namespace nkentseu {
     }
 
     void NkDirectX11Device::DestroyBuffer(NkBufferHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mBuffers.Find(h.id); if(!it) return;
         NK_DX11_SAFE(it->buf); mBuffers.Erase(h.id); h.id=0;
     }
@@ -437,7 +437,7 @@ namespace nkentseu {
     // Textures
     // =============================================================================
     NkTextureHandle NkDirectX11Device::CreateTexture(const NkTextureDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         const bool isDepth = NkFormatIsDepth(desc.format);
         const bool wantsSrv = NkHasFlag(desc.bindFlags, NkBindFlags::NK_SHADER_RESOURCE);
 
@@ -537,7 +537,7 @@ namespace nkentseu {
     }
 
     void NkDirectX11Device::DestroyTexture(NkTextureHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mTextures.Find(h.id); if(!it) return;
         if (!it->isSwapchain) {
             NK_DX11_SAFE(it->tex); NK_DX11_SAFE(it->srv);
@@ -575,7 +575,7 @@ namespace nkentseu {
     // Samplers
     // =============================================================================
     NkSamplerHandle NkDirectX11Device::CreateSampler(const NkSamplerDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         D3D11_SAMPLER_DESC sd{};
         sd.Filter=ToDX11Filter(d.magFilter,d.minFilter,d.mipFilter,d.compareEnable);
         sd.AddressU=ToDX11Address(d.addressU);
@@ -591,7 +591,7 @@ namespace nkentseu {
         NkSamplerHandle h; h.id=hid; return h;
     }
     void NkDirectX11Device::DestroySampler(NkSamplerHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mSamplers.Find(h.id); if(!it) return;
         NK_DX11_SAFE(it->ss); mSamplers.Erase(h.id); h.id=0;
     }
@@ -600,7 +600,7 @@ namespace nkentseu {
     // Shaders (compilation HLSL runtime avec D3DCompile)
     // =============================================================================
     NkShaderHandle NkDirectX11Device::CreateShader(const NkShaderDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkDX11Shader sh;
         for (uint32 i=0;i<desc.stages.Size();i++) {
             auto& s=desc.stages[i];
@@ -651,7 +651,7 @@ namespace nkentseu {
         NkShaderHandle h; h.id=hid; return h;
     }
     void NkDirectX11Device::DestroyShader(NkShaderHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mShaders.Find(h.id); if(!it) return;
         NK_DX11_SAFE(it->vs); NK_DX11_SAFE(it->ps);
         NK_DX11_SAFE(it->cs); NK_DX11_SAFE(it->gs);
@@ -663,7 +663,7 @@ namespace nkentseu {
     // Pipelines
     // =============================================================================
     NkPipelineHandle NkDirectX11Device::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto sit=mShaders.Find(d.shader.id); if(!sit) return {};
         auto& sh=*sit;
 
@@ -754,7 +754,7 @@ namespace nkentseu {
     }
 
     NkPipelineHandle NkDirectX11Device::CreateComputePipeline(const NkComputePipelineDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto sit=mShaders.Find(d.shader.id); if(!sit) return {};
         NkDX11Pipeline p; p.cs=sit->cs; p.isCompute=true;
         uint64 hid=NextId(); mPipelines[hid]=p;
@@ -762,7 +762,7 @@ namespace nkentseu {
     }
 
     void NkDirectX11Device::DestroyPipeline(NkPipelineHandle& h) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         auto it=mPipelines.Find(h.id); if(!it) return;
         NK_DX11_SAFE(it->il); NK_DX11_SAFE(it->rs);
         NK_DX11_SAFE(it->dss); NK_DX11_SAFE(it->bs);
@@ -773,16 +773,16 @@ namespace nkentseu {
     // Render Passes & Framebuffers
     // =============================================================================
     NkRenderPassHandle  NkDirectX11Device::CreateRenderPass(const NkRenderPassDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         uint64 hid=NextId(); mRenderPasses[hid]={d};
         NkRenderPassHandle h; h.id=hid; return h;
     }
     void NkDirectX11Device::DestroyRenderPass(NkRenderPassHandle& h) {
-        threading::NkScopedLock lock(mMutex); mRenderPasses.Erase(h.id); h.id=0;
+        threading::NkScopedLockMutex lock(mMutex); mRenderPasses.Erase(h.id); h.id=0;
     }
 
     NkFramebufferHandle NkDirectX11Device::CreateFramebuffer(const NkFramebufferDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkDX11Framebuffer fb; fb.w=d.width; fb.h=d.height;
         for (uint32 i=0;i<d.colorAttachments.Size();i++) {
             auto it=mTextures.Find(d.colorAttachments[i].id);
@@ -796,32 +796,32 @@ namespace nkentseu {
         NkFramebufferHandle h; h.id=hid; return h;
     }
     void NkDirectX11Device::DestroyFramebuffer(NkFramebufferHandle& h) {
-        threading::NkScopedLock lock(mMutex); mFramebuffers.Erase(h.id); h.id=0;
+        threading::NkScopedLockMutex lock(mMutex); mFramebuffers.Erase(h.id); h.id=0;
     }
 
     // =============================================================================
     // Descriptor Sets
     // =============================================================================
     NkDescSetHandle NkDirectX11Device::CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         uint64 hid=NextId(); mDescLayouts[hid]={d};
         NkDescSetHandle h; h.id=hid; return h;
     }
     void NkDirectX11Device::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-        threading::NkScopedLock lock(mMutex); mDescLayouts.Erase(h.id); h.id=0;
+        threading::NkScopedLockMutex lock(mMutex); mDescLayouts.Erase(h.id); h.id=0;
     }
     NkDescSetHandle NkDirectX11Device::AllocateDescriptorSet(NkDescSetHandle layoutHandle) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkDX11DescSet ds; ds.layoutId=layoutHandle.id;
         uint64 hid=NextId(); mDescSets[hid]=ds;
         NkDescSetHandle h; h.id=hid; return h;
     }
     void NkDirectX11Device::FreeDescriptorSet(NkDescSetHandle& h) {
-        threading::NkScopedLock lock(mMutex); mDescSets.Erase(h.id); h.id=0;
+        threading::NkScopedLockMutex lock(mMutex); mDescSets.Erase(h.id); h.id=0;
     }
 
     void NkDirectX11Device::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 n) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         for (uint32 i=0;i<n;i++) {
             auto& w=writes[i];
             auto sit=mDescSets.Find(w.set.id); if(!sit) continue;

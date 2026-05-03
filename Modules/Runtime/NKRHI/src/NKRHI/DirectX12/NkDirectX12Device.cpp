@@ -438,7 +438,7 @@ NkBufferHandle NkDirectX12Device::CreateBuffer(const NkBufferDesc& desc) {
     NkBufferHandle h;
 
     {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
 
     D3D12_HEAP_TYPE heapType = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON;
@@ -559,7 +559,7 @@ NkBufferHandle NkDirectX12Device::CreateBuffer(const NkBufferDesc& desc) {
 }
 
 void NkDirectX12Device::DestroyBuffer(NkBufferHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto it = mBuffers.Find(h.id); if(!it) return;
     if (it->mapped) it->resource->Unmap(0, nullptr);
     mBuffers.Erase(h.id); h.id = 0;
@@ -630,7 +630,7 @@ void NkDirectX12Device::UnmapBuffer(NkBufferHandle buf) {
 // Textures
 // =============================================================================
 NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
 
     DXGI_FORMAT fmt = ToDXGIFormat(desc.format);
     bool isDepth = NkFormatIsDepth(desc.format);
@@ -778,7 +778,7 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
 }
 
 void NkDirectX12Device::DestroyTexture(NkTextureHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto it = mTextures.Find(h.id); if(!it) return;
     mTextures.Erase(h.id); h.id = 0;
 }
@@ -830,7 +830,7 @@ bool NkDirectX12Device::GenerateMipmaps(NkTextureHandle, NkFilter) {
 // Samplers
 // =============================================================================
 NkSamplerHandle NkDirectX12Device::CreateSampler(const NkSamplerDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     D3D12_SAMPLER_DESC sd{};
     sd.Filter         = ToDX12Filter(d.magFilter, d.minFilter, d.mipFilter, d.compareEnable);
     sd.AddressU       = ToDX12Address(d.addressU);
@@ -849,7 +849,7 @@ NkSamplerHandle NkDirectX12Device::CreateSampler(const NkSamplerDesc& d) {
 }
 
 void NkDirectX12Device::DestroySampler(NkSamplerHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     mSamplers.Erase(h.id); h.id = 0;
 }
 
@@ -857,7 +857,7 @@ void NkDirectX12Device::DestroySampler(NkSamplerHandle& h) {
 // Shaders (DXBC/DXIL via D3DCompile ou pré-compilés)
 // =============================================================================
 NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     NkDX12Shader sh;
     bool compiledAtLeastOneStage = false;
 
@@ -920,7 +920,7 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
 }
 
 void NkDirectX12Device::DestroyShader(NkShaderHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     mShaders.Erase(h.id); h.id = 0;
 }
 
@@ -928,7 +928,7 @@ void NkDirectX12Device::DestroyShader(NkShaderHandle& h) {
 // Pipelines
 // =============================================================================
 NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto sit = mShaders.Find(d.shader.id); if(!sit) return {};
     auto& sh = *sit;
 
@@ -1060,7 +1060,7 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
 }
 
 NkPipelineHandle NkDirectX12Device::CreateComputePipeline(const NkComputePipelineDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     auto sit = mShaders.Find(d.shader.id); if(!sit) return {};
     auto& sh = *sit;
     if (sh.cs.bytecode.empty()) {
@@ -1091,7 +1091,7 @@ NkPipelineHandle NkDirectX12Device::CreateComputePipeline(const NkComputePipelin
 }
 
 void NkDirectX12Device::DestroyPipeline(NkPipelineHandle& h) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     mPipelines.Erase(h.id); h.id = 0;
 }
 
@@ -1099,16 +1099,16 @@ void NkDirectX12Device::DestroyPipeline(NkPipelineHandle& h) {
 // Render Passes & Framebuffers (metadata only en DX12)
 // =============================================================================
 NkRenderPassHandle NkDirectX12Device::CreateRenderPass(const NkRenderPassDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     uint64 hid = NextId(); mRenderPasses[hid] = { d };
     NkRenderPassHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::DestroyRenderPass(NkRenderPassHandle& h) {
-    threading::NkScopedLock lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
 }
 
 NkFramebufferHandle NkDirectX12Device::CreateFramebuffer(const NkFramebufferDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     NkDX12Framebuffer fb; fb.w = d.width; fb.h = d.height;
     for (uint32 i = 0; i < d.colorAttachments.Size(); i++) {
         auto it = mTextures.Find(d.colorAttachments[i].id);
@@ -1129,32 +1129,32 @@ NkFramebufferHandle NkDirectX12Device::CreateFramebuffer(const NkFramebufferDesc
     NkFramebufferHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::DestroyFramebuffer(NkFramebufferHandle& h) {
-    threading::NkScopedLock lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
 // Descriptor Sets
 // =============================================================================
 NkDescSetHandle NkDirectX12Device::CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     uint64 hid = NextId(); mDescLayouts[hid] = { d };
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-    threading::NkScopedLock lock(mMutex); mDescLayouts.Erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mDescLayouts.Erase(h.id); h.id = 0;
 }
 NkDescSetHandle NkDirectX12Device::AllocateDescriptorSet(NkDescSetHandle layout) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     NkDX12DescSet ds; ds.layoutId = layout.id;
     uint64 hid = NextId(); mDescSets[hid] = ds;
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::FreeDescriptorSet(NkDescSetHandle& h) {
-    threading::NkScopedLock lock(mMutex); mDescSets.Erase(h.id); h.id = 0;
+    threading::NkScopedLockMutex lock(mMutex); mDescSets.Erase(h.id); h.id = 0;
 }
 
 void NkDirectX12Device::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 n) {
-    threading::NkScopedLock lock(mMutex);
+    threading::NkScopedLockMutex lock(mMutex);
     for (uint32 i = 0; i < n; i++) {
         auto& w = writes[i];
         auto sit = mDescSets.Find(w.set.id); if(!sit) continue;

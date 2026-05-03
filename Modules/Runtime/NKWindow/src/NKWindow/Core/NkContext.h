@@ -102,7 +102,7 @@ namespace nkentseu {
     };
 
     struct NkContextConfig {
-        NkRendererApi    api          = NkRendererApi::NK_OPENGL;
+        graphics::NkGraphicsApi  api  = graphics::NkGraphicsApi::NK_GFX_API_OPENGL;
         uint32           versionMajor = 3;
         uint32           versionMinor = 3;
         NkContextProfile profile      = NkContextProfile::NK_CONTEXT_PROFILE_CORE;
@@ -159,7 +159,7 @@ namespace nkentseu {
 
     void            NkContextResetHints();
     void            NkContextSetHints(const NkContextConfig& config);
-    void            NkContextSetApi(NkRendererApi api);
+    void            NkContextSetApi(graphics::NkGraphicsApi api);
     void            NkContextSetWin32PixelFormat(const NkWin32PixelFormatConfig& config);
     void            NkContextWindowHint(NkContextHint hint, int32 value);
     NkContextConfig NkContextGetHints();
@@ -169,7 +169,7 @@ namespace nkentseu {
 
     // ---- Per-window context -----------------------------------------------------
 
-    NkContextMode NkContextGetModeForApi(NkRendererApi api);
+    NkContextMode NkContextGetModeForApi(graphics::NkGraphicsApi api);
 
     bool NkContextCreate(NkWindow& window, NkContext& outContext,
                          const NkContextConfig* overrideConfig = nullptr);

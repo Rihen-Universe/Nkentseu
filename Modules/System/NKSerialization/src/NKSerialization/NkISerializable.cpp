@@ -141,7 +141,7 @@ namespace nkentseu {
         // Recherche et suppression
         for (nk_uint32 i = 0; i < reg.mEntries.Size(); ++i) {
             if (std::strcmp(reg.mEntries[i].name, typeName) == 0) {
-                reg.mEntries.EraseAt(i);
+                reg.mEntries.Erase(reg.mEntries.Begin() + i);
                 return;  // Suppression terminée
             }
         }

@@ -36,7 +36,7 @@ int nkmain(const nkentseu::NkEntryState&) {
 
     NkContextInit();
     NkContextConfig contextConfig{};
-    contextConfig.api = NkRendererApi::NK_VULKAN;
+    contextConfig.api = NkGraphicsApi::NK_GFX_API_VULKAN;
     contextConfig.vsync = true;
     contextConfig.debug = false;
     NkContextSetHints(contextConfig);
@@ -69,7 +69,7 @@ int nkmain(const nkentseu::NkEntryState&) {
     // Temporary visual output while Vulkan renderer path is not wired here.
     NkRenderer renderer;
     NkRendererConfig rcfg{};
-    rcfg.api = NkRendererApi::NK_SOFTWARE;
+    rcfg.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     rcfg.vsync = true;
     if (!renderer.Create(window, rcfg)) {
         logger.Error("[main11] Software colorizer creation failed: {0}", renderer.GetLastError().ToString());

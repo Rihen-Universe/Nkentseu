@@ -37,7 +37,7 @@ namespace nkentseu {
      * @brief Constructeur privé
      */
     NkRegistry::NkRegistry()
-        : m_GlobalLevel(NkLogLevel::NK_INFO), m_GlobalPattern(NkFormatter::NK_DEFAULT_PATTERN), m_Initialized(false) {
+        : m_GlobalLevel(NkLogLevel::NK_INFO), m_GlobalPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN), m_Initialized(false) {
     }
 
     /**

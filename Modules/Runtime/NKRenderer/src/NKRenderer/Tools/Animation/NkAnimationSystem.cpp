@@ -2,8 +2,8 @@
 // NkAnimationSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkAnimationSystem.h"
-#include "../Render3D/NkRender3D.h"
-#include "../../../Materials/NkMaterialSystem.h"
+#include "NKRenderer/Tools/Render3D/NkRender3D.h"
+#include "NKRenderer/Materials/NkMaterialSystem.h"
 #include <cmath>
 #include <cstring>
 
@@ -349,8 +349,8 @@ namespace renderer {
 
     bool NkAnimationSystem::Init(NkIDevice* device, NkRender3D* r3d) {
         mDevice=device; mR3D=r3d;
-        NkPipelineDesc pd; pd.type=NkPipelineType::NK_COMPUTE; pd.name="MorphTargets";
-        mMorphCompute=mDevice->CreatePipeline(pd);
+        NkComputePipelineDesc pd; pd.debugName="MorphTargets";
+        mMorphCompute=mDevice->CreateComputePipeline(pd);
         return true;
     }
 
@@ -374,7 +374,7 @@ namespace renderer {
     }
     void NkAnimationSystem::DestroyClip(NkAnimationClip*& c){
         for(uint32 i=0;i<(uint32)mClips.Size();i++){
-            if(mClips[i]==c){delete c;mClips.RemoveAt(i);break;}
+            if(mClips[i]==c){delete c;mClips.Erase(mClips.Begin()+i);break;}
         }
         c=nullptr;
     }
@@ -390,7 +390,7 @@ namespace renderer {
     }
     void NkAnimationSystem::DestroyPlayer(NkAnimationPlayer*& p){
         for(uint32 i=0;i<(uint32)mPlayers.Size();i++){
-            if(mPlayers[i]==p){delete p;mPlayers.RemoveAt(i);break;}
+            if(mPlayers[i]==p){delete p;mPlayers.Erase(mPlayers.Begin()+i);break;}
         }
         p=nullptr;
     }

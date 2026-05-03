@@ -206,248 +206,243 @@
 
     namespace nkentseu {
 
-        // Indentation niveau 1 : namespace platform
-        namespace platform {
-
             // Indentation niveau 2 : namespace graphics
-            namespace graphics {
+        namespace graphics {
 
-                // ====================================================================
-                // SECTION 4 : ÉNUMÉRATION DES APIS GRAPHIQUES
-                // ====================================================================
-                // Liste exhaustive des APIs graphiques supportées par le framework.
+            // ====================================================================
+            // SECTION 4 : ÉNUMÉRATION DES APIS GRAPHIQUES
+            // ====================================================================
+            // Liste exhaustive des APIs graphiques supportées par le framework.
 
-                /**
-                 * @brief Types d'API graphiques supportées
-                 * @enum NkGraphicsApi
-                 * @ingroup GraphicsEnums
-                 *
-                 * Cette énumération liste toutes les APIs graphiques que le framework
-                 * peut utiliser comme backend de rendu. Les valeurs sont stables et
-                 * peuvent être sérialisées pour la configuration ou le logging.
-                 *
-                 * @note
-                 *   - Les alias NK_API_* sont fournis pour compatibilité avec l'ancien code
-                 *   - NK_GFX_API_MAX indique le nombre total d'APIs (pour itération)
-                 *   - NK_GFX_API_SOFTWARE est le fallback universel si aucune API hardware n'est disponible
-                 *
-                 * @example
-                 * @code
-                 * // Vérification de disponibilité à l'exécution
-                 * bool IsApiSupported(nkentseu::platform::graphics::NkGraphicsApi api) {
-                 *     switch (api) {
-                 *         #if defined(NKENTSEU_GRAPHICS_VULKAN_AVAILABLE)
-                 *         case nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN:
-                 *             return CheckVulkanDrivers();
-                 *         #endif
-                 *         // ... autres cas
-                 *         default: return false;
-                 *     }
-                 * }
-                 * @endcode
-                 */
-                enum class NkGraphicsApi : unsigned int {
-                    // Valeurs canoniques utilisées par les événements NKWindow
-                    NK_GFX_API_NONE       = 0,    ///< Aucune API (état invalide ou non-initialisé)
-                    NK_GFX_API_OPENGL,            ///< OpenGL 3.3+ (desktop cross-platform)
-                    NK_GFX_API_OPENGLES,          ///< OpenGL ES 2.0 / 3.x (mobile/embarqué)
-                    NK_GFX_API_VULKAN,            ///< Vulkan 1.0+ (moderne, cross-platform)
-                    NK_GFX_API_D3D11,             ///< Direct3D 11 (Windows)
-                    NK_GFX_API_D3D12,             ///< Direct3D 12 (Windows 10+, Xbox)
-                    NK_GFX_API_METAL,             ///< Metal (macOS, iOS, tvOS)
-                    NK_GFX_API_WEBGL,             ///< WebGL 1.0 (navigateur via Emscripten)
-                    NK_GFX_API_WEBGL2,            ///< WebGL 2.0 (navigateur via Emscripten)
-                    NK_GFX_API_WEBGPU,            ///< WebGPU (navigateur moderne, expérimental)
-                    NK_GFX_API_SOFTWARE,          ///< Rasterisation logicielle (fallback universel)
-                    NK_GFX_API_GNM,               ///< GNM (PlayStation 4/5, API propriétaire Sony)
-                    NK_GFX_API_NVN,               ///< NVN (Nintendo Switch, API NVIDIA)
-                    NK_GFX_API_MAX,               ///< Valeur sentinelle : nombre total d'APIs
-                };
+            /**
+             * @brief Types d'API graphiques supportées
+             * @enum NkGraphicsApi
+             * @ingroup GraphicsEnums
+             *
+             * Cette énumération liste toutes les APIs graphiques que le framework
+             * peut utiliser comme backend de rendu. Les valeurs sont stables et
+             * peuvent être sérialisées pour la configuration ou le logging.
+             *
+             * @note
+             *   - Les alias NK_API_* sont fournis pour compatibilité avec l'ancien code
+             *   - NK_GFX_API_MAX indique le nombre total d'APIs (pour itération)
+             *   - NK_GFX_API_SOFTWARE est le fallback universel si aucune API hardware n'est disponible
+             *
+             * @example
+             * @code
+             * // Vérification de disponibilité à l'exécution
+             * bool IsApiSupported(nkentseu::platform::graphics::NkGraphicsApi api) {
+             *     switch (api) {
+             *         #if defined(NKENTSEU_GRAPHICS_VULKAN_AVAILABLE)
+             *         case nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_VULKAN:
+             *             return CheckVulkanDrivers();
+             *         #endif
+             *         // ... autres cas
+             *         default: return false;
+             *     }
+             * }
+             * @endcode
+             */
+            enum class NkGraphicsApi : unsigned int {
+                // Valeurs canoniques utilisées par les événements NKWindow
+                NK_GFX_API_NONE       = 0,    ///< Aucune API (état invalide ou non-initialisé)
+                NK_GFX_API_OPENGL,            ///< OpenGL 3.3+ (desktop cross-platform)
+                NK_GFX_API_OPENGLES,          ///< OpenGL ES 2.0 / 3.x (mobile/embarqué)
+                NK_GFX_API_VULKAN,            ///< Vulkan 1.0+ (moderne, cross-platform)
+                NK_GFX_API_D3D11,             ///< Direct3D 11 (Windows)
+                NK_GFX_API_D3D12,             ///< Direct3D 12 (Windows 10+, Xbox)
+                NK_GFX_API_METAL,             ///< Metal (macOS, iOS, tvOS)
+                NK_GFX_API_WEBGL,             ///< WebGL 1.0 (navigateur via Emscripten)
+                NK_GFX_API_WEBGL2,            ///< WebGL 2.0 (navigateur via Emscripten)
+                NK_GFX_API_WEBGPU,            ///< WebGPU (navigateur moderne, expérimental)
+                NK_GFX_API_SOFTWARE,          ///< Rasterisation logicielle (fallback universel)
+                NK_GFX_API_GNM,               ///< GNM (PlayStation 4/5, API propriétaire Sony)
+                NK_GFX_API_NVN,               ///< NVN (Nintendo Switch, API NVIDIA)
+                NK_GFX_API_MAX,               ///< Valeur sentinelle : nombre total d'APIs
+            };
 
-                // ====================================================================
-                // SECTION 5 : ÉNUMÉRATION DES FABRICANTS DE GPU
-                // ====================================================================
-                // IDs PCI des vendors pour identification matérielle.
+            // ====================================================================
+            // SECTION 5 : ÉNUMÉRATION DES FABRICANTS DE GPU
+            // ====================================================================
+            // IDs PCI des vendors pour identification matérielle.
 
-                /**
-                 * @brief Fabricants de GPU identifiés par Vendor ID PCI
-                 * @enum NkGPUVendor
-                 * @ingroup GraphicsEnums
-                 *
-                 * Ces valeurs correspondent aux Vendor IDs assignés par le PCI-SIG.
-                 * Utile pour l'identification du matériel, l'application de workarounds,
-                 * ou l'affichage d'informations système.
-                 *
-                 * @note
-                 *   - Les valeurs hexadécimales sont les IDs PCI officiels
-                 *   - NK_UNKNOWN (0) est utilisé quand le vendor ne peut être déterminé
-                 *   - Apple utilise son propre ID même pour les GPU intégrés M-series
-                 *
-                 * @example
-                 * @code
-                 * // Application de workaround pour un vendor spécifique
-                 * void ApplyGPUWorkarounds(nkentseu::platform::graphics::NkGPUVendor vendor) {
-                 *     using namespace nkentseu::platform::graphics;
-                 *
-                 *     if (vendor == NkGPUVendor::NK_NVIDIA) {
-                 *         // Workaround pour les drivers NVIDIA anciens
-                 *         EnableNvidiaSpecificFixes();
-                 *     } else if (vendor == NkGPUVendor::NK_INTEL) {
-                 *         // Optimisations pour GPU intégrés Intel
-                 *         ReduceTextureResolution();
-                 *     }
-                 * }
-                 * @endcode
-                 */
-                enum class NkGPUVendor : uint16_t {
-                    NK_UNKNOWN    = 0x0000,  ///< Vendor non identifié ou inconnu
-                    NK_NVIDIA     = 0x10DE,  ///< NVIDIA Corporation
-                    NK_AMD        = 0x1002,  ///< AMD / ATI Technologies
-                    NK_INTEL      = 0x8086,  ///< Intel Corporation (GPU intégrés)
-                    NK_ARM        = 0x13B5,  ///< ARM Holdings (Mali GPU)
-                    NK_QUALCOMM   = 0x5143,  ///< Qualcomm (Adreno GPU)
-                    NK_APPLE      = 0x106B,  ///< Apple Inc. (M-series, GPU intégrés)
-                    NK_IMGTEC     = 0x1010,  ///< Imagination Technologies (PowerVR)
-                    NK_BROADCOM   = 0x14E4,  ///< Broadcom (VideoCore, Raspberry Pi)
-                    NK_MICROSOFT  = 0x1414   ///< Microsoft (Software renderer, WARP)
-                };
+            /**
+             * @brief Fabricants de GPU identifiés par Vendor ID PCI
+             * @enum NkGPUVendor
+             * @ingroup GraphicsEnums
+             *
+             * Ces valeurs correspondent aux Vendor IDs assignés par le PCI-SIG.
+             * Utile pour l'identification du matériel, l'application de workarounds,
+             * ou l'affichage d'informations système.
+             *
+             * @note
+             *   - Les valeurs hexadécimales sont les IDs PCI officiels
+             *   - NK_UNKNOWN (0) est utilisé quand le vendor ne peut être déterminé
+             *   - Apple utilise son propre ID même pour les GPU intégrés M-series
+             *
+             * @example
+             * @code
+             * // Application de workaround pour un vendor spécifique
+             * void ApplyGPUWorkarounds(nkentseu::platform::graphics::NkGPUVendor vendor) {
+             *     using namespace nkentseu::platform::graphics;
+             *
+             *     if (vendor == NkGPUVendor::NK_NVIDIA) {
+             *         // Workaround pour les drivers NVIDIA anciens
+             *         EnableNvidiaSpecificFixes();
+             *     } else if (vendor == NkGPUVendor::NK_INTEL) {
+             *         // Optimisations pour GPU intégrés Intel
+             *         ReduceTextureResolution();
+             *     }
+             * }
+             * @endcode
+             */
+            enum class NkGPUVendor : uint16_t {
+                NK_UNKNOWN    = 0x0000,  ///< Vendor non identifié ou inconnu
+                NK_NVIDIA     = 0x10DE,  ///< NVIDIA Corporation
+                NK_AMD        = 0x1002,  ///< AMD / ATI Technologies
+                NK_INTEL      = 0x8086,  ///< Intel Corporation (GPU intégrés)
+                NK_ARM        = 0x13B5,  ///< ARM Holdings (Mali GPU)
+                NK_QUALCOMM   = 0x5143,  ///< Qualcomm (Adreno GPU)
+                NK_APPLE      = 0x106B,  ///< Apple Inc. (M-series, GPU intégrés)
+                NK_IMGTEC     = 0x1010,  ///< Imagination Technologies (PowerVR)
+                NK_BROADCOM   = 0x14E4,  ///< Broadcom (VideoCore, Raspberry Pi)
+                NK_MICROSOFT  = 0x1414   ///< Microsoft (Software renderer, WARP)
+            };
 
-                // ====================================================================
-                // SECTION 6 : ÉNUMÉRATION DES TYPES DE GPU
-                // ====================================================================
-                // Classification des GPU par catégorie d'architecture.
+            // ====================================================================
+            // SECTION 6 : ÉNUMÉRATION DES TYPES DE GPU
+            // ====================================================================
+            // Classification des GPU par catégorie d'architecture.
 
-                /**
-                 * @brief Types de GPU par catégorie d'architecture
-                 * @enum NkGPUType
-                 * @ingroup GraphicsEnums
-                 *
-                 * Classification utile pour l'adaptation des paramètres graphiques
-                 * selon les capacités matérielles (mémoire, bande passante, etc.).
-                 *
-                 * @note
-                 *   - NK_DISCRETE : GPU dédié avec mémoire vidéo propre
-                 *   - NK_INTEGRATED : GPU partagé avec la RAM système
-                 *   - NK_VIRTUAL : GPU virtualisé (VM, cloud gaming)
-                 *   - NK_SOFTWARE : Émulation logicielle sans accélération hardware
-                 *
-                 * @example
-                 * @code
-                 * // Adaptation des paramètres selon le type de GPU
-                 * void ConfigureGraphicsSettings(nkentseu::platform::graphics::NkGPUType gpuType) {
-                 *     using namespace nkentseu::platform::graphics;
-                 *
-                 *     switch (gpuType) {
-                 *         case NkGPUType::NK_DISCRETE:
-                 *             SetQualityPreset(HIGH);
-                 *             EnableRayTracing();
-                 *             break;
-                 *         case NkGPUType::NK_INTEGRATED:
-                 *             SetQualityPreset(MEDIUM);
-                 *             LimitTextureMemory(512 * 1024 * 1024);  // 512 MB max
-                 *             break;
-                 *         case NkGPUType::NK_SOFTWARE:
-                 *             SetQualityPreset(LOW);
-                 *             DisablePostProcessing();
-                 *             break;
-                 *         default:
-                 *             SetQualityPreset(LOW);  // Fallback conservateur
-                 *             break;
-                 *     }
-                 * }
-                 * @endcode
-                 */
-                enum class NkGPUType : uint8_t {
-                    NK_UNKNOWN    = 0,  ///< Type non déterminé
-                    NK_DISCRETE   = 1,  ///< GPU dédié (carte graphique séparée)
-                    NK_INTEGRATED = 2,  ///< GPU intégré au CPU (iGPU)
-                    NK_VIRTUAL    = 3,  ///< GPU virtualisé (VM, cloud)
-                    NK_SOFTWARE   = 4   ///< Renderer logiciel (pas d'accélération hardware)
-                };
+            /**
+             * @brief Types de GPU par catégorie d'architecture
+             * @enum NkGPUType
+             * @ingroup GraphicsEnums
+             *
+             * Classification utile pour l'adaptation des paramètres graphiques
+             * selon les capacités matérielles (mémoire, bande passante, etc.).
+             *
+             * @note
+             *   - NK_DISCRETE : GPU dédié avec mémoire vidéo propre
+             *   - NK_INTEGRATED : GPU partagé avec la RAM système
+             *   - NK_VIRTUAL : GPU virtualisé (VM, cloud gaming)
+             *   - NK_SOFTWARE : Émulation logicielle sans accélération hardware
+             *
+             * @example
+             * @code
+             * // Adaptation des paramètres selon le type de GPU
+             * void ConfigureGraphicsSettings(nkentseu::platform::graphics::NkGPUType gpuType) {
+             *     using namespace nkentseu::platform::graphics;
+             *
+             *     switch (gpuType) {
+             *         case NkGPUType::NK_DISCRETE:
+             *             SetQualityPreset(HIGH);
+             *             EnableRayTracing();
+             *             break;
+             *         case NkGPUType::NK_INTEGRATED:
+             *             SetQualityPreset(MEDIUM);
+             *             LimitTextureMemory(512 * 1024 * 1024);  // 512 MB max
+             *             break;
+             *         case NkGPUType::NK_SOFTWARE:
+             *             SetQualityPreset(LOW);
+             *             DisablePostProcessing();
+             *             break;
+             *         default:
+             *             SetQualityPreset(LOW);  // Fallback conservateur
+             *             break;
+             *     }
+             * }
+             * @endcode
+             */
+            enum class NkGPUType : uint8_t {
+                NK_UNKNOWN    = 0,  ///< Type non déterminé
+                NK_DISCRETE   = 1,  ///< GPU dédié (carte graphique séparée)
+                NK_INTEGRATED = 2,  ///< GPU intégré au CPU (iGPU)
+                NK_VIRTUAL    = 3,  ///< GPU virtualisé (VM, cloud)
+                NK_SOFTWARE   = 4   ///< Renderer logiciel (pas d'accélération hardware)
+            };
 
-                // ====================================================================
-                // SECTION 7 : FONCTIONS TEMPLATE UTILITAIRES (DÉCLARATIONS)
-                // ====================================================================
-                // Déclarations de fonctions utilitaires - implémentations dans le .cpp
+            // ====================================================================
+            // SECTION 7 : FONCTIONS TEMPLATE UTILITAIRES (DÉCLARATIONS)
+            // ====================================================================
+            // Déclarations de fonctions utilitaires - implémentations dans le .cpp
 
-                /**
-                 * @brief Convertit une enum NkGraphicsApi en chaîne de caractères
-                 * @tparam CharT Type de caractère pour la chaîne de retour (char, wchar_t, etc.)
-                 * @param api L'API graphique à convertir
-                 * @return Pointeur vers chaîne statique représentant l'API
-                 * @note Retourne "Unknown" pour les valeurs hors plage
-                 * @ingroup GraphicsUtilities
-                 */
-                template <typename CharT = char>
-                inline constexpr const CharT *ToString(NkGraphicsApi api) noexcept;
+            /**
+             * @brief Convertit une enum NkGraphicsApi en chaîne de caractères
+             * @tparam CharT Type de caractère pour la chaîne de retour (char, wchar_t, etc.)
+             * @param api L'API graphique à convertir
+             * @return Pointeur vers chaîne statique représentant l'API
+             * @note Retourne "Unknown" pour les valeurs hors plage
+             * @ingroup GraphicsUtilities
+             */
+            template <typename CharT = char>
+            inline constexpr const CharT *ToString(NkGraphicsApi api) noexcept;
 
-                /**
-                 * @brief Convertit une enum NkGPUVendor en chaîne de caractères
-                 * @tparam CharT Type de caractère pour la chaîne de retour
-                 * @param vendor Le fabricant de GPU à convertir
-                 * @return Pointeur vers chaîne statique représentant le vendor
-                 * @note Retourne "Unknown" pour NK_UNKNOWN ou valeurs invalides
-                 * @ingroup GraphicsUtilities
-                 */
-                template <typename CharT = char>
-                inline constexpr const CharT *ToString(NkGPUVendor vendor) noexcept;
+            /**
+             * @brief Convertit une enum NkGPUVendor en chaîne de caractères
+             * @tparam CharT Type de caractère pour la chaîne de retour
+             * @param vendor Le fabricant de GPU à convertir
+             * @return Pointeur vers chaîne statique représentant le vendor
+             * @note Retourne "Unknown" pour NK_UNKNOWN ou valeurs invalides
+             * @ingroup GraphicsUtilities
+             */
+            template <typename CharT = char>
+            inline constexpr const CharT *ToString(NkGPUVendor vendor) noexcept;
 
-                /**
-                 * @brief Convertit une enum NkGPUType en chaîne de caractères
-                 * @tparam CharT Type de caractère pour la chaîne de retour
-                 * @param type Le type de GPU à convertir
-                 * @return Pointeur vers chaîne statique représentant le type
-                 * @ingroup GraphicsUtilities
-                 */
-                template <typename CharT = char>
-                inline constexpr const CharT *ToString(NkGPUType type) noexcept;
+            /**
+             * @brief Convertit une enum NkGPUType en chaîne de caractères
+             * @tparam CharT Type de caractère pour la chaîne de retour
+             * @param type Le type de GPU à convertir
+             * @return Pointeur vers chaîne statique représentant le type
+             * @ingroup GraphicsUtilities
+             */
+            template <typename CharT = char>
+            inline constexpr const CharT *ToString(NkGPUType type) noexcept;
 
-                /**
-                 * @brief Vérifie à la compilation si une API graphique est disponible
-                 * @tparam API L'API graphique à vérifier (valeur de NkGraphicsApi)
-                 * @return true si l'API est disponible sur la plateforme cible, false sinon
-                 * @note Évaluation constexpr : résultat connu à la compilation
-                 * @ingroup GraphicsUtilities
-                 *
-                 * @example
-                 * @code
-                 * // Sélection compile-time du backend
-                 * template <nkentseu::platform::graphics::NkGraphicsApi API>
-                 * void CreateRenderer() {
-                 *     static_assert(
-                 *         nkentseu::platform::graphics::IsAPIAvailable<API>(),
-                 *         "Selected graphics API not available on this platform"
-                 *     );
-                 *     // ... initialisation spécifique à l'API
-                 * }
-                 * @endcode
-                 */
-                template <NkGraphicsApi API>
-                inline constexpr bool IsAPIAvailable() noexcept;
+            /**
+             * @brief Vérifie à la compilation si une API graphique est disponible
+             * @tparam API L'API graphique à vérifier (valeur de NkGraphicsApi)
+             * @return true si l'API est disponible sur la plateforme cible, false sinon
+             * @note Évaluation constexpr : résultat connu à la compilation
+             * @ingroup GraphicsUtilities
+             *
+             * @example
+             * @code
+             * // Sélection compile-time du backend
+             * template <nkentseu::platform::graphics::NkGraphicsApi API>
+             * void CreateRenderer() {
+             *     static_assert(
+             *         nkentseu::platform::graphics::IsAPIAvailable<API>(),
+             *         "Selected graphics API not available on this platform"
+             *     );
+             *     // ... initialisation spécifique à l'API
+             * }
+             * @endcode
+             */
+            template <NkGraphicsApi API>
+            inline constexpr bool IsAPIAvailable() noexcept;
 
-                /**
-                 * @brief Obtient l'API graphique par défaut recommandée pour la plateforme
-                 * @tparam SFINAE parameter (pour spécialisations futures)
-                 * @return L'API graphique recommandée comme premier choix
-                 * @note Basé sur NKENTSEU_GRAPHICS_DEFAULT défini plus bas dans ce fichier
-                 * @ingroup GraphicsUtilities
-                 */
-                template <typename = void>
-                inline constexpr NkGraphicsApi GetDefaultAPI() noexcept;
+            /**
+             * @brief Obtient l'API graphique par défaut recommandée pour la plateforme
+             * @tparam SFINAE parameter (pour spécialisations futures)
+             * @return L'API graphique recommandée comme premier choix
+             * @note Basé sur NKENTSEU_GRAPHICS_DEFAULT défini plus bas dans ce fichier
+             * @ingroup GraphicsUtilities
+             */
+            template <typename = void>
+            inline constexpr NkGraphicsApi GetDefaultAPI() noexcept;
 
-                /**
-                 * @brief Obtient l'API graphique la plus moderne disponible sur la plateforme
-                 * @tparam SFINAE parameter (pour spécialisations futures)
-                 * @return L'API graphique la plus récente supportée
-                 * @note Utile pour les applications voulant utiliser les dernières features
-                 * @ingroup GraphicsUtilities
-                 */
-                template <typename = void>
-                inline constexpr NkGraphicsApi GetModernAPI() noexcept;
+            /**
+             * @brief Obtient l'API graphique la plus moderne disponible sur la plateforme
+             * @tparam SFINAE parameter (pour spécialisations futures)
+             * @return L'API graphique la plus récente supportée
+             * @note Utile pour les applications voulant utiliser les dernières features
+             * @ingroup GraphicsUtilities
+             */
+            template <typename = void>
+            inline constexpr NkGraphicsApi GetModernAPI() noexcept;
 
-            } // namespace graphics
-
-        } // namespace platform
+        } // namespace graphics
 
     } // namespace nkentseu
 
@@ -980,7 +975,7 @@
 
     // Validation finale : avertissement si aucune API valide détectée
     #if !defined(NKENTSEU_GFX_ACTIVE) || (NKENTSEU_GFX_ACTIVE == NKENTSEU_GFX_NONE)
-        #warning "Nkentseu: Aucune API graphique valide détectée, utilisation du renderer software"
+        // #warning "Nkentseu: Aucune API graphique valide détectée, utilisation du renderer software"
         #define NKENTSEU_GFX_ACTIVE NKENTSEU_GFX_SOFTWARE
         #define NKENTSEU_GFX_VERSION NKENTSEU_GFX_VERSION_CALC(1, 0)
     #endif

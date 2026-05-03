@@ -18,8 +18,8 @@
 //   • Mesure de texte (CalcTextSize)
 //   • Multi-polices, multi-tailles
 // =============================================================================
-#include "../Core/NkRendererTypes.h"
-#include "../Core/NkTextureLibrary.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKFont/NkFont.h"           // NKFont backend
 

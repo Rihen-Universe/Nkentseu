@@ -38,6 +38,11 @@
     #include "NKThreading/NkMutex.h"
     #include "NKThreading/NkThreadingApi.h"
 
+    #if !defined(NKENTSEU_PLATFORM_WINDOWS)
+        #include <pthread.h>
+        #include <time.h>
+    #endif
+
     // -------------------------------------------------------------------------
     // SECTION 2 : NAMESPACE PRINCIPAL
     // -------------------------------------------------------------------------

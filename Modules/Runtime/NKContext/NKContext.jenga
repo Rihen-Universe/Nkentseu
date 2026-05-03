@@ -7,6 +7,7 @@ Contient le système complet de contextes graphiques/compute.
 """
 
 from Jenga import *
+from config import *
 import os
 import shutil
 import subprocess
@@ -48,7 +49,7 @@ else:
     _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
 
 with project("NKContext"):
-    staticlib()
+    useglobalkind("context")
     language("C++")
     cppdialect("C++17")
     location(".")

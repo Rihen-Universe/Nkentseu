@@ -44,7 +44,7 @@ namespace renderer {
         }
 
         GLuint shader = glCreateShader(glStage);
-        const char* code = src.c_str();
+        const char* code = src.CStr();
         glShaderSource(shader, 1, &code, nullptr);
         glCompileShader(shader);
 
@@ -67,7 +67,7 @@ namespace renderer {
         if (!res.success) res.errors = "Empty shader source";
         // Stocker la source telle quelle
         res.bytecode.Resize(src.Size()+1);
-        memcpy(res.bytecode.Data(), src.c_str(), src.Size()+1);
+        memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
 #endif
         return res;
     }
@@ -93,7 +93,7 @@ namespace renderer {
         }
 
         glslang::TShader shader(lang);
-        const char* code = src.c_str();
+        const char* code = src.CStr();
         shader.setStrings(&code, 1);
         shader.setEnvInput(glslang::EShSourceGlsl, lang,
                             glslang::EShClientVulkan, 100);
@@ -128,7 +128,7 @@ namespace renderer {
         res.success = !src.Empty();
         if (!res.success) { res.errors = "Empty shader source"; return res; }
         res.bytecode.Resize(src.Size()+1);
-        memcpy(res.bytecode.Data(), src.c_str(), src.Size()+1);
+        memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
 #endif
         return res;
     }
@@ -155,8 +155,8 @@ namespace renderer {
         if (opts.optimize) flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
 
         ID3DBlob *codeBlob=nullptr, *errBlob=nullptr;
-        HRESULT hr = D3DCompile(src.c_str(), src.Size(), nullptr, nullptr, nullptr,
-                                 opts.entryPoint.c_str(), target, flags, 0,
+        HRESULT hr = D3DCompile(src.CStr(), src.Size(), nullptr, nullptr, nullptr,
+                                 opts.entryPoint.CStr(), target, flags, 0,
                                  &codeBlob, &errBlob);
         if (FAILED(hr)) {
             if (errBlob) {
@@ -174,7 +174,7 @@ namespace renderer {
         res.success = !src.Empty();
         if (!res.success) { res.errors = "Empty HLSL source"; return res; }
         res.bytecode.Resize(src.Size()+1);
-        memcpy(res.bytecode.Data(), src.c_str(), src.Size()+1);
+        memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
 #endif
         return res;
     }
@@ -191,7 +191,7 @@ namespace renderer {
         res.success = !src.Empty();
         if (!res.success) { res.errors = "Empty HLSL SM6 source"; return res; }
         res.bytecode.Resize(src.Size()+1);
-        memcpy(res.bytecode.Data(), src.c_str(), src.Size()+1);
+        memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
         return res;
     }
 
@@ -207,7 +207,7 @@ namespace renderer {
         res.success = !src.Empty();
         if (!res.success) { res.errors = "Empty MSL source"; return res; }
         res.bytecode.Resize(src.Size()+1);
-        memcpy(res.bytecode.Data(), src.c_str(), src.Size()+1);
+        memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
         return res;
     }
 
@@ -233,7 +233,7 @@ namespace renderer {
         res.success        = true;
         res.preprocessed   = transpiled;
         res.bytecode.Resize(transpiled.Size()+1);
-        memcpy(res.bytecode.Data(), transpiled.c_str(), transpiled.Size()+1);
+        memcpy(res.bytecode.Data(), transpiled.CStr(), transpiled.Size()+1);
         return res;
     }
 
@@ -267,7 +267,7 @@ namespace renderer {
         // Supprimer les blocs @target XXX { ... } sauf celui nommé `keep`
         // Implémentation simplifiée — parser ligne par ligne
         NkString out;
-        const char* p   = src.c_str();
+        const char* p   = src.CStr();
         const char* end = p + src.Size();
 
         while (p < end) {
@@ -327,7 +327,7 @@ namespace renderer {
         // Transformations textuelles basiques
         auto Replace = [](NkString& str, const char* from, const char* to) {
             NkString result;
-            const char* p   = str.c_str();
+            const char* p   = str.CStr();
             const char* end = p + str.Size();
             size_t flen     = strlen(from);
             while (p < end) {
@@ -376,7 +376,7 @@ namespace renderer {
         // @texture(N) → Texture2D tName : register(tN)
         // vec4 → float4, mat4 → float4x4, etc.
         auto Replace = [](NkString& str, const char* from, const char* to) {
-            NkString r; const char* p=str.c_str(),*e=p+str.Size(); size_t fl=strlen(from);
+            NkString r; const char* p=str.CStr(),*e=p+str.Size(); size_t fl=strlen(from);
             while(p<e){if(strncmp(p,from,fl)==0){r+=to;p+=fl;}else{r+=NkString(p,1);p++;}}
             str=r;
         };
@@ -403,7 +403,7 @@ namespace renderer {
         NkString out = "#include <metal_stdlib>\nusing namespace metal;\n\n";
         // vec4 → float4, mat4 → float4x4, texture2d etc.
         auto Replace = [](NkString& str, const char* from, const char* to) {
-            NkString r; const char* p=str.c_str(),*e=p+str.Size(); size_t fl=strlen(from);
+            NkString r; const char* p=str.CStr(),*e=p+str.Size(); size_t fl=strlen(from);
             while(p<e){if(strncmp(p,from,fl)==0){r+=to;p+=fl;}else{r+=NkString(p,1);p++;}}
             str=r;
         };

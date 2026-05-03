@@ -215,11 +215,11 @@
 			 *
 			 * @example
 			 * @code
-			 * auto formatter = nkentseu::memory::MakeUnique<nkentseu::NkFormatter>("%L: %v");
+			 * auto formatter = nkentseu::memory::MakeUnique<nkentseu::NkLoggerFormatter>("%L: %v");
 			 * nullSink.SetFormatter(std::move(formatter));  // Formatter détruit, aucun effet
 			 * @endcode
 			 */
-			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) override;
 
 			/**
 			 * @brief Ignore le pattern fourni (no-op)
@@ -256,7 +256,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkFormatter* GetFormatter() const override;
+			NkLoggerFormatter* GetFormatter() const override;
 
 			/**
 			 * @brief Retourne une chaîne vide : aucun pattern associé à ce sink

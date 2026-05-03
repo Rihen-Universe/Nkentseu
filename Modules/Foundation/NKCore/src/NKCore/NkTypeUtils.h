@@ -268,9 +268,11 @@
 
 			NK_STATIC_ASSERT(float32_valid, sizeof(nk_float32) == 4,  "nk_float32 invalid");
 			NK_STATIC_ASSERT(float64_valid, sizeof(nk_float64) == 8,  "nk_float64 invalid");
-			NK_STATIC_ASSERT(float80_valid, sizeof(nk_float80) >= 10, "nk_float80 must be >= 10 bytes");
+			// Android/ARM peut fournir long double sur 64 bits (8 bytes).
+			NK_STATIC_ASSERT(float80_valid, sizeof(nk_float80) >= 8, "nk_float80 must be >= 8 bytes");
 
-			NK_STATIC_ASSERT(nkchar_valid,  sizeof(nk_char)   == 1 && (nk_char)-1 < 0, "nk_char invalid");
+			// La signedness de `char` est implementation-defined (souvent unsigned sur ARM).
+			NK_STATIC_ASSERT(nkchar_valid,  sizeof(nk_char)   == 1, "nk_char must be 1 byte");
 			NK_STATIC_ASSERT(char8_valid,   sizeof(nk_char8)  == 1,  "nk_char8 invalid");
 			NK_STATIC_ASSERT(char16_valid,  sizeof(nk_char16) == 2,  "nk_char16 invalid");
 			NK_STATIC_ASSERT(char32_valid,  sizeof(nk_char32) == 4,  "nk_char32 invalid");

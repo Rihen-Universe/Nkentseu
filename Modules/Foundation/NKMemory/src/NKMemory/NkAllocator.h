@@ -92,8 +92,8 @@
                  * @brief Constructeur avec nom optionnel pour le debugging
                  * @param name Nom identifiant l'allocateur (stocké en lecture seule)
                  */
-                explicit NkAllocatorBase(const nk_char* name = "NkAllocatorBase") noexcept;
-                
+                explicit NkAllocatorBase(const nk_char* name = "NkAllocatorBase") noexcept : mName(name) {}
+
                 /** @brief Destructeur virtuel pour suppression polymorphe sûre */
                 virtual ~NkAllocatorBase() = default;
 
@@ -107,7 +107,7 @@
                  * @brief Retourne le nom de l'allocateur pour logging/debug
                  * @return Pointeur vers string constante (ne pas libérer)
                  */
-                [[nodiscard]] const nk_char* GetName() const noexcept;
+                [[nodiscard]] const nk_char* GetName() const noexcept { return mName; }
 
             protected:
                 const nk_char* mName;  ///< Nom de l'allocateur (non-possédé)
@@ -138,7 +138,7 @@
                 using AlignType  = nk_size;
 
                 /** @brief Constructeur avec nom */
-                explicit NkAllocator(const nk_char* name = "NkAllocator") noexcept;
+                explicit NkAllocator(const nk_char* name = "NkAllocator") noexcept : NkAllocatorBase(name) {}
                 
                 /** @brief Destructeur virtuel */
                 ~NkAllocator() override = default;

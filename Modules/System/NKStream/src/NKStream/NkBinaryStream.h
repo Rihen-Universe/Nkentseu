@@ -1,8 +1,8 @@
 #pragma once
 
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKPlatform/NkPlatformInline.h"
 #include "NKCore/NkTypes.h"
-#include "NKCore/NkInline.h"
 #include <cstddef>
 #include <cstring>
 

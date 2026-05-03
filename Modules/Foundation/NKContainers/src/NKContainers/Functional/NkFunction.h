@@ -47,9 +47,10 @@
 
     #include "NKCore/NkTypes.h"                    // Types fondamentaux : usize, etc.
     #include "NKCore/NkTraits.h"                   // Traits méta-programmation et utilitaires
-    #include "NKContainers/Heterogeneous/NkPair.h" // NkPair pour le binding méthode/objet
-    #include "NKContainers/Heterogeneous/NkTuple.h"// NkTuple pour NkBind et curryfication
-    #include "NKMemory/NkAllocator.h"              // Système d'allocation mémoire personnalisable
+	    #include "NKContainers/Heterogeneous/NkPair.h" // NkPair pour le binding méthode/objet
+	    #include "NKContainers/Heterogeneous/NkTuple.h"// NkTuple pour NkBind et curryfication
+	    #include "NKMemory/NkAllocator.h"              // Système d'allocation mémoire personnalisable
+	    #include <cstring>                             // ::memcpy pour la copie du buffer SBO
 
     // ========================================================================
     // CONFIGURATION DE LA SMALL BUFFER OPTIMIZATION (SBO)
@@ -1052,9 +1053,9 @@
                         traits::NkSwap(m_storage.heapPtr, other.m_storage.heapPtr);
                     } else {
                         // Cas mixte : nécessite une reconstruction
-                        NkFunction temp = NkMove(*this);
-                        *this = NkMove(other);
-                        other = NkMove(temp);
+                        NkFunction temp = traits::NkMove(*this);
+                        *this = traits::NkMove(other);
+                        other = traits::NkMove(temp);
                         return;
                     }
                     traits::NkSwap(m_usesSbo, other.m_usesSbo);

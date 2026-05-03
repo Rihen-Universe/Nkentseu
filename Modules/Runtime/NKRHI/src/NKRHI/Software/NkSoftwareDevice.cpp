@@ -620,7 +620,7 @@ namespace nkentseu {
     // Buffers
     // =============================================================================
     NkBufferHandle NkSoftwareDevice::CreateBuffer(const NkBufferDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkSWBuffer b;
         b.desc = desc;
         b.data.Resize((size_t)desc.sizeBytes, 0);
@@ -630,7 +630,7 @@ namespace nkentseu {
         NkBufferHandle h; h.id = hid; return h;
     }
     void NkSoftwareDevice::DestroyBuffer(NkBufferHandle& h) {
-        threading::NkScopedLock lock(mMutex); mBuffers.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mBuffers.Erase(h.id); h.id = 0;
     }
     bool NkSoftwareDevice::WriteBuffer(NkBufferHandle buf, const void* data, uint64 sz, uint64 off) {
         auto* it = mBuffers.Find(buf.id); if (!it) return false;
@@ -660,7 +660,7 @@ namespace nkentseu {
     // Textures
     // =============================================================================
     NkTextureHandle NkSoftwareDevice::CreateTexture(const NkTextureDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkSWTexture t;
         t.desc = desc;
         t.isRenderTarget = NkHasFlag(desc.bindFlags, NkBindFlags::NK_RENDER_TARGET) ||
@@ -699,7 +699,7 @@ namespace nkentseu {
     }
 
     void NkSoftwareDevice::DestroyTexture(NkTextureHandle& h) {
-        threading::NkScopedLock lock(mMutex); mTextures.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mTextures.Erase(h.id); h.id = 0;
     }
 
     bool NkSoftwareDevice::WriteTexture(NkTextureHandle t, const void* p, uint32 rp) {
@@ -751,19 +751,19 @@ namespace nkentseu {
     // Samplers
     // =============================================================================
     NkSamplerHandle NkSoftwareDevice::CreateSampler(const NkSamplerDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         uint64 hid = NextId(); mSamplers[hid] = { d };
         NkSamplerHandle h; h.id = hid; return h;
     }
     void NkSoftwareDevice::DestroySampler(NkSamplerHandle& h) {
-        threading::NkScopedLock lock(mMutex); mSamplers.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mSamplers.Erase(h.id); h.id = 0;
     }
 
     // =============================================================================
     // Shaders
     // =============================================================================
     NkShaderHandle NkSoftwareDevice::CreateShader(const NkShaderDesc& desc) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkSWShader sh;
 
         for (uint32 i = 0; i < (uint32)desc.stages.Size(); i++) {
@@ -799,14 +799,14 @@ namespace nkentseu {
     }
 
     void NkSoftwareDevice::DestroyShader(NkShaderHandle& h) {
-        threading::NkScopedLock lock(mMutex); mShaders.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mShaders.Erase(h.id); h.id = 0;
     }
 
     // =============================================================================
     // Pipelines
     // =============================================================================
     NkPipelineHandle NkSoftwareDevice::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkSWPipeline p;
         p.shaderId     = d.shader.id;
         p.isCompute    = false;
@@ -828,7 +828,7 @@ namespace nkentseu {
     }
 
     NkPipelineHandle NkSoftwareDevice::CreateComputePipeline(const NkComputePipelineDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkSWPipeline p;
         p.shaderId  = d.shader.id;
         p.isCompute = true;
@@ -837,24 +837,24 @@ namespace nkentseu {
     }
 
     void NkSoftwareDevice::DestroyPipeline(NkPipelineHandle& h) {
-        threading::NkScopedLock lock(mMutex); mPipelines.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mPipelines.Erase(h.id); h.id = 0;
     }
 
     // =============================================================================
     // Render Passes & Framebuffers
     // =============================================================================
     NkRenderPassHandle NkSoftwareDevice::CreateRenderPass(const NkRenderPassDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         uint64 hid = NextId(); mRenderPasses[hid] = { d };
         NkRenderPassHandle h; h.id = hid; return h;
     }
 
     void NkSoftwareDevice::DestroyRenderPass(NkRenderPassHandle& h) {
-        threading::NkScopedLock lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
     }
 
     NkFramebufferHandle NkSoftwareDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
 
         NkSWFramebuffer fb;
         fb.colorId = d.colorAttachments.Size() > 0 ? d.colorAttachments[0].id : 0;
@@ -870,31 +870,31 @@ namespace nkentseu {
     }
 
     void NkSoftwareDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
-        threading::NkScopedLock lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
     }
 
     // =============================================================================
     // Descriptor Sets
     // =============================================================================
     NkDescSetHandle NkSoftwareDevice::CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         uint64 hid = NextId(); mDescLayouts[hid] = { d };
         NkDescSetHandle h; h.id = hid; return h;
     }
     void NkSoftwareDevice::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-        threading::NkScopedLock lock(mMutex); mDescLayouts.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mDescLayouts.Erase(h.id); h.id = 0;
     }
     NkDescSetHandle NkSoftwareDevice::AllocateDescriptorSet(NkDescSetHandle layout) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         NkSWDescSet ds;
         uint64 hid = NextId(); mDescSets[hid] = ds;
         NkDescSetHandle h; h.id = hid; return h;
     }
     void NkSoftwareDevice::FreeDescriptorSet(NkDescSetHandle& h) {
-        threading::NkScopedLock lock(mMutex); mDescSets.Erase(h.id); h.id = 0;
+        threading::NkScopedLockMutex lock(mMutex); mDescSets.Erase(h.id); h.id = 0;
     }
     void NkSoftwareDevice::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 n) {
-        threading::NkScopedLock lock(mMutex);
+        threading::NkScopedLockMutex lock(mMutex);
         for (uint32 i = 0; i < n; i++) {
             auto& w = writes[i];
             auto* sit = mDescSets.Find(w.set.id); if (!sit) continue;

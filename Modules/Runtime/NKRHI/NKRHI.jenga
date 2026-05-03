@@ -7,6 +7,7 @@ Module dedicated to the standalone RHI layer.
 """
 
 from Jenga import *
+from config import *
 import os
 import shutil
 import subprocess
@@ -72,7 +73,7 @@ _MAC_GLSLANG     = _GLSLANG_LIBS_UNIX if _WANT_VULKAN else []
 _MAC_GLSLANG_DIR = [_MAC_VULKAN_LIB] if _MAC_VULKAN_LIB else []
 
 with project("NKRHI"):
-    staticlib()
+    useglobalkind("rhi")
     language("C++")
     cppdialect("C++17")
     location(".")
@@ -130,6 +131,7 @@ with project("NKRHI"):
     defines(_RENDERER_DEFINES)
 
     files([
+        "src/**.cpp",
         "src/NKRHI/Core/**.cpp",
         "src/NKRHI/Core/**.h",
         "src/NKRHI/Commands/**.cpp",

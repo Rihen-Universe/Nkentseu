@@ -24,7 +24,7 @@ namespace renderer {
 
     // ── Lecture fichier ───────────────────────────────────────────────────────
     NkString NkShaderLibrary::ReadFile(const NkString& path) {
-        FILE* f = fopen(path.c_str(), "rb");
+        FILE* f = fopen(path.CStr(), "rb");
         if (!f) return "";
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
@@ -38,11 +38,11 @@ namespace renderer {
     uint64 NkShaderLibrary::GetFileMtime(const NkString& path) {
 #if defined(_WIN32)
         struct _stat64 st;
-        if (_stat64(path.c_str(), &st) != 0) return 0;
+        if (_stat64(path.CStr(), &st) != 0) return 0;
         return (uint64)st.st_mtime;
 #else
         struct stat st;
-        if (stat(path.c_str(), &st) != 0) return 0;
+        if (stat(path.CStr(), &st) != 0) return 0;
         return (uint64)st.st_mtime;
 #endif
     }
@@ -62,7 +62,7 @@ namespace renderer {
             auto res = mBackend->Compile(vertSrc, NkShaderStage::NK_VERTEX, opts);
             if (!res.success) {
                 fprintf(stderr, "[NkShader] VERT compile error (%s):\n%s\n",
-                        prog.name.c_str(), res.errors.c_str());
+                        prog.name.CStr(), res.errors.CStr());
                 ok = false;
             } else {
                 prog.vertBytecode = res.bytecode;
@@ -72,7 +72,7 @@ namespace renderer {
             auto res = mBackend->Compile(fragSrc, NkShaderStage::NK_FRAGMENT, opts);
             if (!res.success) {
                 fprintf(stderr, "[NkShader] FRAG compile error (%s):\n%s\n",
-                        prog.name.c_str(), res.errors.c_str());
+                        prog.name.CStr(), res.errors.CStr());
                 ok = false;
             } else {
                 prog.fragBytecode = res.bytecode;
@@ -139,7 +139,7 @@ namespace renderer {
         auto res = mBackend->Compile(src, NkShaderStage::NK_COMPUTE);
         if (!res.success) {
             fprintf(stderr, "[NkShader] COMPUTE error (%s):\n%s\n",
-                    prog.name.c_str(), res.errors.c_str());
+                    prog.name.CStr(), res.errors.CStr());
             return NkShaderHandle::Null();
         }
         prog.vertBytecode = res.bytecode;
@@ -158,7 +158,7 @@ namespace renderer {
         auto fr = mBackend->Compile(fSrc, NkShaderStage::NK_FRAGMENT,  opts);
         if (!vr.success || !fr.success) {
             fprintf(stderr, "[NkShader] Inline compile error:\n  V:%s\n  F:%s\n",
-                    vr.errors.c_str(), fr.errors.c_str());
+                    vr.errors.CStr(), fr.errors.CStr());
             return NkShaderHandle::Null();
         }
         prog.vertBytecode = vr.bytecode;
@@ -191,7 +191,7 @@ namespace renderer {
                 if (mt != prog.fragMtime) { prog.fragMtime=mt; needsReload=true; }
             }
             if (needsReload) {
-                printf("[NkShader] Hot-reloading '%s'...\n", prog.name.c_str());
+                printf("[NkShader] Hot-reloading '%s'...\n", prog.name.CStr());
                 Recompile(prog);
                 mPendingReload = true;
             }

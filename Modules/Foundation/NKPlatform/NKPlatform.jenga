@@ -44,6 +44,9 @@ with project("NKPlatform"):
     with filter("system:macOS"):
         usetoolchain("clang-native")
     with filter("system:Android"):
+        # Workaround: disable PCH on Android (NDK r27 + clang 18 + libc++)
+        pchheader("")
+        pchsource("")
         usetoolchain("android-ndk")
     with filter("system:Web"):
         usetoolchain("emscripten")

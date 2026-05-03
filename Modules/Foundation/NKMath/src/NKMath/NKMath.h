@@ -311,7 +311,7 @@
     NkVec2f clampedPos = viewport.Clamp(spritePos);  // (1920, 0)
 
     // Enveloppe AABB de plusieurs rectangles (culling de groupe)
-    NkRectangle objects[3] = { /* ... */ };
+    NkRectangle objects[3] = {};  // initialisé ailleurs
     NkRectangle groupBounds = NkRectangle::AABB(objects, 3);
 
     // ---------------------------------------------------------------------
@@ -377,7 +377,7 @@
     // ---------------------------------------------------------------------
     // Exemple 10 : Upload vers GPU — gestion column-major vs row-major
     // ---------------------------------------------------------------------
-    NkMat4f modelViewProj = /* matrice MVP calculée */;
+    NkMat4f modelViewProj = {};  // matrice MVP calculée
 
     // Pour OpenGL / Vulkan (column-major natif) :
     // glUniformMatrix4fv(location, 1, GL_FALSE, modelViewProj.data);

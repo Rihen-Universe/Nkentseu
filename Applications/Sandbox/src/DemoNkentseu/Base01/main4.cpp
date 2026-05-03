@@ -24,7 +24,7 @@
 
 // AppData pattern #5: aggregate initialization (all fields in order).
 static nkentseu::NkAppData gPatternPollingAppData{
-    nkentseu::NkRendererApi::NK_SOFTWARE,
+    nkentseu::NkGraphicsApi::NK_GFX_API_SOFTWARE,
     false,
     false,
     "SandboxPatternPolling",
@@ -129,7 +129,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     NkContextInit();
     NkContextConfig contextConfig{};
-    contextConfig.api = NkRendererApi::NK_SOFTWARE;
+    contextConfig.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     contextConfig.vsync = true;
     contextConfig.debug = false;
     NkContextSetHints(contextConfig);
@@ -162,7 +162,7 @@ int nkmain(const nkentseu::NkEntryState& /*state*/)
 
     // 3. Renderer
     NkRendererConfig rcfg;
-    rcfg.api                   = NkRendererApi::NK_SOFTWARE;
+    rcfg.api                   = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     rcfg.autoResizeFramebuffer = true;
 
     NkRenderer renderer;

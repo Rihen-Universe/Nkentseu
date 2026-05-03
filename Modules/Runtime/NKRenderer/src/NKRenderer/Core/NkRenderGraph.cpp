@@ -201,7 +201,7 @@ namespace renderer {
         for (auto* p : mSorted) {
             char buf[128];
             snprintf(buf, sizeof(buf), "  %-24s : %.3f ms\n",
-                     p->name.c_str(), p->gpuTimeMs);
+                     p->name.CStr(), p->gpuTimeMs);
             out += buf;
         }
         return out;

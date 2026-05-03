@@ -2,8 +2,8 @@
 // NkTextRenderer.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkTextRenderer.h"
-#include "../Render2D/NkRender2D.h"
-#include "../../Mesh/NkMeshSystem.h"
+#include "NKRenderer/Tools/Render2D/NkRender2D.h"
+#include "NKRenderer/Mesh/NkMeshSystem.h"
 #include <cstring>
 #include <cstdio>
 

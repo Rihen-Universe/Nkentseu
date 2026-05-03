@@ -11,7 +11,7 @@
 #include "NKCore/NkTraits.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKMemory/NkMemory.h"
+#include "NKMemory/NKMemory.h"
 #include "NkSystem.h"
 
 // Inclusions conditionnelles des types natifs

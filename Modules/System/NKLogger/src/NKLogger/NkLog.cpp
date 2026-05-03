@@ -62,12 +62,12 @@ namespace nkentseu {
 		// Sink fichier : persistance des logs dans logs/app.log
 		memory::NkSharedPtr<NkISink> fileSink(new NkFileSink("logs/app.log"));
 		fileSink->SetLevel(NkLogLevel::NK_INFO);  // Moins verbose en fichier pour production
-		fileSink->SetPattern(NkFormatter::NK_DEFAULT_PATTERN);  // Pattern lisible
+		fileSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN);  // Pattern lisible
 		AddSink(fileSink);
 
 		// Configuration globale du logger
 		SetLevel(NkLogLevel::NK_INFO);  // Niveau par défaut : info et plus grave
-		SetPattern(NkFormatter::NK_NKENTSEU_PATTERN);  // Pattern avec support couleurs
+		SetPattern(NkLoggerFormatter::NK_NKENTSEU_PATTERN);  // Pattern avec support couleurs
 	}
 
 

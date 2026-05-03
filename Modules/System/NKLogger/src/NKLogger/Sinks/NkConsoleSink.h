@@ -98,12 +98,12 @@
 		 *  - Support multiplateforme : ANSI (Unix) / Win32 API (Windows) / logcat (Android)
 		 *  - Détection automatique du support couleur via isatty()/GetConsoleMode()
 		 *  - Routage configurable : stdout pour info, stderr pour erreurs (optionnel)
-		 *  - Formatage via NkFormatter avec support des marqueurs de couleur %^/%$
+		 *  - Formatage via NkLoggerFormatter avec support des marqueurs de couleur %^/%$
 		 *  - Thread-safe : synchronisation via mutex interne pour écritures concurrentes
 		 *
 		 * Architecture :
 		 *  - Hérite de NkISink : compatibilité avec l'API de logging existante
-		 *  - Utilise NkFormatter pour formatage des messages avant écriture
+		 *  - Utilise NkLoggerFormatter pour formatage des messages avant écriture
 		 *  - Gère les couleurs via NkLogLevelToANSIColor/WindowsColor centralisés
 		 *  - Routage Android : redirection transparente vers __android_log_print
 		 *
@@ -282,11 +282,11 @@
 			 * @example
 			 * @code
 			 * // Formatter personnalisé pour console compacte
-			 * auto fmt = nkentseu::memory::MakeUnique<nkentseu::NkFormatter>("%L: %v");
+			 * auto fmt = nkentseu::memory::MakeUnique<nkentseu::NkLoggerFormatter>("%L: %v");
 			 * consoleSink.SetFormatter(std::move(fmt));
 			 * @endcode
 			 */
-			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) override;
 
 			/**
 			 * @brief Définit le pattern de formatage via création interne de formatter
@@ -295,7 +295,7 @@
 			 *
 			 * @note Méthode de convenance : crée ou met à jour m_Formatter avec le pattern
 			 * @note Thread-safe : synchronisé via m_Mutex
-			 * @note Équivalent à SetFormatter(MakeUnique<NkFormatter>(pattern))
+			 * @note Équivalent à SetFormatter(MakeUnique<NkLoggerFormatter>(pattern))
 			 *
 			 * @example
 			 * @code
@@ -325,7 +325,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkFormatter* GetFormatter() const override;
+			NkLoggerFormatter* GetFormatter() const override;
 
 			/**
 			 * @brief Obtient le pattern de formatage courant
@@ -614,7 +614,7 @@
 			/// @brief Formatter pour formatage des messages avant écriture console
 			/// @ingroup ConsoleSinkMembers
 			/// @note Ownership exclusif via NkUniquePtr : libération automatique
-			memory::NkUniquePtr<NkFormatter> m_Formatter;
+			memory::NkUniquePtr<NkLoggerFormatter> m_Formatter;
 
 			/// @brief Flux de console principal pour ce sink (stdout ou stderr)
 			/// @ingroup ConsoleSinkMembers

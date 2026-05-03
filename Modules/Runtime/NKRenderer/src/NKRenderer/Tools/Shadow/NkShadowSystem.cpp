@@ -2,8 +2,8 @@
 // NkShadowSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkShadowSystem.h"
-#include "../../Mesh/NkMeshSystem.h"
-#include "../../Materials/NkMaterialSystem.h"
+#include "NKRenderer/Mesh/NkMeshSystem.h"
+#include "NKRenderer/Materials/NkMaterialSystem.h"
 #include <cmath>
 
 namespace nkentseu {
@@ -17,8 +17,8 @@ namespace renderer {
         NkTextureDesc td;
         td.width=atlasW; td.height=cfg.resolution;
         td.format=NkGPUFormat::NK_D32_FLOAT;
-        td.usage =NkTextureUsage::NK_DEPTH_STENCIL | NkTextureUsage::NK_SHADER_RESOURCE;
-        td.name  ="ShadowAtlas";
+        td.bindFlags = NkBindFlags::NK_DEPTH_STENCIL | NkBindFlags::NK_SHADER_RESOURCE;
+        td.debugName = "ShadowAtlas";
         // mAtlas handled by TextureLibrary in practice, stub here
         NkMaterialTemplateDesc md; md.type=NkMaterialType::NK_UNLIT; md.name="ShadowDepth";
         return true;

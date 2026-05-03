@@ -36,7 +36,7 @@ int nkmain(const nkentseu::NkEntryState&) {
 
     NkContextInit();
     NkContextConfig contextConfig{};
-    contextConfig.api = NkRendererApi::NK_SOFTWARE;
+    contextConfig.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     contextConfig.vsync = true;
     contextConfig.debug = false;
     NkContextSetHints(contextConfig);
@@ -66,7 +66,7 @@ int nkmain(const nkentseu::NkEntryState&) {
 
     NkRenderer renderer;
     NkRendererConfig rcfg{};
-    rcfg.api = NkRendererApi::NK_SOFTWARE;
+    rcfg.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
     rcfg.vsync = true;
     if (!renderer.Create(window, rcfg)) {
         logger.Error("[main15] Software renderer creation failed: {0}", renderer.GetLastError().ToString());

@@ -1068,6 +1068,483 @@ namespace nkentseu {
         other = static_cast<NkString&&>(temp);
     }
 
+    // =========================================================================
+    // SECTION : MÉTHODES PRIVÉES (SSO / HEAP)
+    // =========================================================================
+
+    bool NkString::IsSSO() const noexcept {
+        return mCapacity == SSO_SIZE;
+    }
+
+    void NkString::SetSSO(bool sso) noexcept {
+        if (sso) {
+            mCapacity = SSO_SIZE;
+        }
+    }
+
+    char* NkString::GetData() noexcept {
+        return IsSSO() ? mSSOData : mHeapData;
+    }
+
+    const char* NkString::GetData() const noexcept {
+        return IsSSO() ? mSSOData : mHeapData;
+    }
+
+    void NkString::AllocateHeap(SizeType capacity) {
+        mHeapData = static_cast<char*>(mAllocator->Allocate((capacity + 1) * sizeof(char)));
+        mCapacity = capacity;
+    }
+
+    void NkString::DeallocateHeap() {
+        if (!IsSSO() && mHeapData) {
+            mAllocator->Deallocate(mHeapData);
+            mHeapData = nullptr;
+        }
+    }
+
+    void NkString::MoveToHeap(SizeType newCapacity) {
+        char temp[SSO_SIZE + 1];
+        memory::NkMemCopy(temp, mSSOData, mLength + 1);
+        AllocateHeap(newCapacity);
+        memory::NkMemCopy(mHeapData, temp, mLength + 1);
+    }
+
+    void NkString::GrowIfNeeded(SizeType additionalSize) {
+        SizeType needed = mLength + additionalSize;
+        if (needed <= mCapacity) return;
+        SizeType newCapacity = CalculateGrowth(mCapacity, needed);
+        if (IsSSO()) {
+            MoveToHeap(newCapacity);
+        } else {
+            Reserve(newCapacity);
+        }
+    }
+
+    NkString::SizeType NkString::CalculateGrowth(SizeType current, SizeType needed) {
+        SizeType growth = current + (current / 2);
+        return growth > needed ? growth : needed;
+    }
+
+    // =========================================================================
+    // SECTION : CONVERSION
+    // =========================================================================
+
+    NkStringView NkString::View() const noexcept {
+        return NkStringView(GetData(), mLength);
+    }
+
+    NkString::operator NkStringView() const noexcept {
+        return View();
+    }
+
+    // =========================================================================
+    // SECTION : ITÉRATEURS
+    // =========================================================================
+
+    const char* NkString::begin() const noexcept {
+        return GetData();
+    }
+
+    const char* NkString::end() const noexcept {
+        return GetData() + mLength;
+    }
+
+    // =========================================================================
+    // SECTION : OPÉRATIONS CHAÎNE
+    // =========================================================================
+
+    NkString NkString::SubStr(SizeType pos, SizeType count) const {
+        if (pos > mLength) pos = mLength;
+        if (count == npos || pos + count > mLength) count = mLength - pos;
+        return NkString(GetData() + pos, count);
+    }
+
+    int32 NkString::Compare(const NkString& other) const noexcept {
+        return Compare(other.View());
+    }
+
+    int32 NkString::Compare(NkStringView other) const noexcept {
+        SizeType minLen = mLength < other.Length() ? mLength : other.Length();
+        int result = memory::NkMemCompare(GetData(), other.Data(), minLen);
+        if (result != 0) return result;
+        if (mLength < other.Length()) return -1;
+        if (mLength > other.Length()) return 1;
+        return 0;
+    }
+
+    int32 NkString::Compare(const char* str) const noexcept {
+        return Compare(NkStringView(str));
+    }
+
+    bool NkString::StartsWith(NkStringView prefix) const noexcept {
+        if (prefix.Length() > mLength) return false;
+        return memory::NkMemCompare(GetData(), prefix.Data(), prefix.Length()) == 0;
+    }
+
+    bool NkString::StartsWith(char ch) const noexcept {
+        return mLength > 0 && GetData()[0] == ch;
+    }
+
+    bool NkString::EndsWith(NkStringView suffix) const noexcept {
+        if (suffix.Length() > mLength) return false;
+        return memory::NkMemCompare(GetData() + mLength - suffix.Length(), suffix.Data(), suffix.Length()) == 0;
+    }
+
+    bool NkString::EndsWith(char ch) const noexcept {
+        return mLength > 0 && GetData()[mLength - 1] == ch;
+    }
+
+    bool NkString::Contains(NkStringView str) const noexcept {
+        return Find(str) != npos;
+    }
+
+    bool NkString::Contains(char ch) const noexcept {
+        return Find(ch) != npos;
+    }
+
+    NkString::SizeType NkString::Find(NkStringView str, SizeType pos) const noexcept {
+        return View().Find(str, pos);
+    }
+
+    NkString::SizeType NkString::Find(char ch, SizeType pos) const noexcept {
+        return View().Find(ch, pos);
+    }
+
+    NkString::SizeType NkString::RFind(NkStringView str, SizeType pos) const noexcept {
+        if (str.Empty()) return mLength;
+        if (str.Length() > mLength) return npos;
+        SizeType searchPos = (pos == npos || pos > mLength - str.Length()) ? mLength - str.Length() : pos;
+        for (SizeType i = searchPos + 1; i > 0; --i) {
+            if (memory::NkMemCompare(GetData() + i - 1, str.Data(), str.Length()) == 0)
+                return i - 1;
+        }
+        return npos;
+    }
+
+    NkString::SizeType NkString::RFind(char ch, SizeType pos) const noexcept {
+        return View().RFind(ch, pos);
+    }
+
+    NkString::SizeType NkString::FindFirstOf(NkStringView chars, SizeType pos) const noexcept {
+        if (pos >= mLength) return npos;
+        const char* data = GetData();
+        for (SizeType i = pos; i < mLength; ++i) {
+            for (SizeType j = 0; j < chars.Length(); ++j) {
+                if (data[i] == chars[j]) return i;
+            }
+        }
+        return npos;
+    }
+
+    NkString::SizeType NkString::FindLastOf(NkStringView chars, SizeType pos) const noexcept {
+        if (mLength == 0) return npos;
+        SizeType searchPos = (pos == npos || pos >= mLength) ? mLength - 1 : pos;
+        const char* data = GetData();
+        for (SizeType i = searchPos + 1; i > 0; --i) {
+            SizeType idx = i - 1;
+            for (SizeType j = 0; j < chars.Length(); ++j) {
+                if (data[idx] == chars[j]) return idx;
+            }
+        }
+        return npos;
+    }
+
+    NkString::SizeType NkString::FindFirstNotOf(NkStringView chars, SizeType pos) const noexcept {
+        if (pos >= mLength) return npos;
+        const char* data = GetData();
+        for (SizeType i = pos; i < mLength; ++i) {
+            bool found = false;
+            for (SizeType j = 0; j < chars.Length(); ++j) {
+                if (data[i] == chars[j]) { found = true; break; }
+            }
+            if (!found) return i;
+        }
+        return npos;
+    }
+
+    NkString::SizeType NkString::FindLastNotOf(NkStringView chars, SizeType pos) const noexcept {
+        if (mLength == 0) return npos;
+        SizeType searchPos = (pos == npos || pos >= mLength) ? mLength - 1 : pos;
+        const char* data = GetData();
+        for (SizeType i = searchPos + 1; i > 0; --i) {
+            SizeType idx = i - 1;
+            bool found = false;
+            for (SizeType j = 0; j < chars.Length(); ++j) {
+                if (data[idx] == chars[j]) { found = true; break; }
+            }
+            if (!found) return idx;
+        }
+        return npos;
+    }
+
+    // =========================================================================
+    // SECTION : TRANSFORMATIONS
+    // =========================================================================
+
+    NkString& NkString::ToLower() {
+        char* data = GetData();
+        for (SizeType i = 0; i < mLength; ++i)
+            data[i] = string::NkToLower(data[i]);
+        return *this;
+    }
+
+    NkString& NkString::ToUpper() {
+        char* data = GetData();
+        for (SizeType i = 0; i < mLength; ++i)
+            data[i] = string::NkToUpper(data[i]);
+        return *this;
+    }
+
+    NkString& NkString::TrimLeft() {
+        const char* data = GetData();
+        SizeType start = 0;
+        while (start < mLength && string::NkIsWhitespace(data[start])) ++start;
+        if (start > 0) Erase(0, start);
+        return *this;
+    }
+
+    NkString& NkString::TrimRight() {
+        if (mLength == 0) return *this;
+        char* data = GetData();
+        SizeType end = mLength;
+        while (end > 0 && string::NkIsWhitespace(data[end - 1])) --end;
+        if (end < mLength) { mLength = end; data[mLength] = '\0'; }
+        return *this;
+    }
+
+    NkString& NkString::Trim() {
+        TrimRight();
+        TrimLeft();
+        return *this;
+    }
+
+    NkString& NkString::Reverse() {
+        char* data = GetData();
+        for (SizeType i = 0; i < mLength / 2; ++i) {
+            char tmp = data[i];
+            data[i] = data[mLength - i - 1];
+            data[mLength - i - 1] = tmp;
+        }
+        return *this;
+    }
+
+    NkString& NkString::Capitalize() {
+        if (mLength == 0) return *this;
+        char* data = GetData();
+        data[0] = string::NkToUpper(data[0]);
+        for (SizeType i = 1; i < mLength; ++i)
+            data[i] = string::NkToLower(data[i]);
+        return *this;
+    }
+
+    NkString& NkString::TitleCase() {
+        if (mLength == 0) return *this;
+        char* data = GetData();
+        bool newWord = true;
+        for (SizeType i = 0; i < mLength; ++i) {
+            if (string::NkIsWhitespace(data[i]) || data[i] == '-') { newWord = true; }
+            else if (newWord) { data[i] = string::NkToUpper(data[i]); newWord = false; }
+            else { data[i] = string::NkToLower(data[i]); }
+        }
+        return *this;
+    }
+
+    NkString& NkString::RemoveChars(NkStringView charsToRemove) {
+        if (charsToRemove.Empty()) return *this;
+        char* data = GetData();
+        SizeType writePos = 0;
+        for (SizeType r = 0; r < mLength; ++r) {
+            bool remove = false;
+            for (SizeType j = 0; j < charsToRemove.Length(); ++j) {
+                if (data[r] == charsToRemove[j]) { remove = true; break; }
+            }
+            if (!remove) data[writePos++] = data[r];
+        }
+        mLength = writePos;
+        data[mLength] = '\0';
+        return *this;
+    }
+
+    NkString& NkString::RemoveAll(char ch) {
+        char* data = GetData();
+        SizeType writePos = 0;
+        for (SizeType r = 0; r < mLength; ++r) {
+            if (data[r] != ch) data[writePos++] = data[r];
+        }
+        mLength = writePos;
+        data[mLength] = '\0';
+        return *this;
+    }
+
+    // =========================================================================
+    // SECTION : CONVERSIONS NUMÉRIQUES
+    // =========================================================================
+
+    bool NkString::ToInt(int32& out) const noexcept {
+        return string::NkParseInt(View(), out);
+    }
+
+    bool NkString::ToFloat(float32& out) const noexcept {
+        return string::NkParseFloat(View(), out);
+    }
+
+    bool NkString::ToInt64(int64& out) const noexcept {
+        return string::NkParseInt64(View(), out);
+    }
+
+    bool NkString::ToUInt(uint32& out) const noexcept {
+        return string::NkParseUInt(View(), out);
+    }
+
+    bool NkString::ToUInt64(uint64& out) const noexcept {
+        return string::NkParseUInt64(View(), out);
+    }
+
+    bool NkString::ToDouble(float64& out) const noexcept {
+        return string::NkParseDouble(View(), out);
+    }
+
+    bool NkString::ToBool(bool& out) const noexcept {
+        return string::NkParseBool(View(), out);
+    }
+
+    int32 NkString::ToInt32(int32 defaultValue) const noexcept {
+        int32 result;
+        return ToInt(result) ? result : defaultValue;
+    }
+
+    float32 NkString::ToFloat32(float32 defaultValue) const noexcept {
+        float32 result;
+        return ToFloat(result) ? result : defaultValue;
+    }
+
+    bool NkString::IsDigits() const noexcept     { return string::NkIsAllDigits(View()); }
+    bool NkString::IsAlpha() const noexcept      { return string::NkIsAllAlpha(View()); }
+    bool NkString::IsAlphaNumeric() const noexcept { return string::NkIsAllAlphaNumeric(View()); }
+    bool NkString::IsWhitespace() const noexcept { return string::NkIsAllWhitespace(View()); }
+    bool NkString::IsNumeric() const noexcept    { return string::NkIsNumeric(View()); }
+    bool NkString::IsInteger() const noexcept    { return string::NkIsInteger(View()); }
+
+    // =========================================================================
+    // SECTION : HASH
+    // =========================================================================
+
+    uint64 NkString::Hash() const noexcept {
+        return string::NkHashFNV1a64(View());
+    }
+
+    // =========================================================================
+    // SECTION : FORMATAGE PRINTF-STYLE
+    // =========================================================================
+
+    NkString NkString::VFormat(const char* format, va_list args) {
+        NkString result;
+        if (!format) return result;
+        va_list args_copy;
+        va_copy(args_copy, args);
+        int size = std::vsnprintf(nullptr, 0, format, args_copy);
+        va_end(args_copy);
+        if (size <= 0) return result;
+        result.Reserve(static_cast<SizeType>(size));
+        std::vsnprintf(result.GetData(), static_cast<size_t>(size) + 1, format, args);
+        result.mLength = static_cast<SizeType>(size);
+        return result;
+    }
+
+    NkString NkString::Format(const char* format, ...) {
+        va_list args;
+        va_start(args, format);
+        NkString result = VFormat(format, args);
+        va_end(args);
+        return result;
+    }
+
+    NkString NkString::VFmtf(const char* format, va_list args) {
+        return VFormat(format, args);
+    }
+
+    NkString NkString::Fmtf(const char* format, ...) {
+        va_list args;
+        va_start(args, format);
+        NkString result = VFormat(format, args);
+        va_end(args);
+        return result;
+    }
+
+    // =========================================================================
+    // SECTION : OPÉRATEURS NON-MEMBRES
+    // =========================================================================
+
+    NkString operator+(const NkString& lhs, const NkString& rhs) {
+        NkString result(lhs);
+        result.Append(rhs);
+        return result;
+    }
+
+    NkString operator+(const NkString& lhs, const char* rhs) {
+        NkString result(lhs);
+        result.Append(rhs);
+        return result;
+    }
+
+    NkString operator+(const char* lhs, const NkString& rhs) {
+        NkString result(lhs);
+        result.Append(rhs);
+        return result;
+    }
+
+    NkString operator+(const NkString& lhs, char rhs) {
+        NkString result(lhs);
+        result.Append(rhs);
+        return result;
+    }
+
+    NkString operator+(char lhs, const NkString& rhs) {
+        NkString result(1, lhs);
+        result.Append(rhs);
+        return result;
+    }
+
+    bool operator==(const NkString& lhs, const NkString& rhs) noexcept {
+        return lhs.Compare(rhs) == 0;
+    }
+
+    bool operator==(const NkString& lhs, const char* rhs) noexcept {
+        return lhs.Compare(rhs) == 0;
+    }
+
+    bool operator!=(const NkString& lhs, const NkString& rhs) noexcept {
+        return lhs.Compare(rhs) != 0;
+    }
+
+    bool operator!=(const NkString& lhs, const char* rhs) noexcept {
+        return lhs.Compare(rhs) != 0;
+    }
+
+    bool operator<(const NkString& lhs, const NkString& rhs) noexcept {
+        return lhs.Compare(rhs) < 0;
+    }
+
+    bool operator<=(const NkString& lhs, const NkString& rhs) noexcept {
+        return lhs.Compare(rhs) <= 0;
+    }
+
+    bool operator>(const NkString& lhs, const NkString& rhs) noexcept {
+        return lhs.Compare(rhs) > 0;
+    }
+
+    bool operator>=(const NkString& lhs, const NkString& rhs) noexcept {
+        return lhs.Compare(rhs) >= 0;
+    }
+
+    // =========================================================================
+    // SECTION : ALLOCATEUR
+    // =========================================================================
+
+    memory::NkIAllocator& NkString::GetAllocator() const noexcept {
+        return *mAllocator;
+    }
+
 } // namespace nkentseu
 
 // -----------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+#include "pch.h"
 // =============================================================================
 // NkEventSystem.cpp â€” mÃ©thodes cross-plateforme
 //

@@ -26,6 +26,14 @@ namespace nkentseu { namespace renderer {
     class NkVFXSystem;
     class NkAnimationSystem;
     class NkSimulationRenderer;
+    // Nouveaux sous-systèmes
+    class NkCullingSystem;
+    class NkDeferredPass;
+    class NkStreamingSystem;
+    class NkRaytracingSystem;
+    class NkIKSystem;
+    class NkDenoiserSystem;
+    class NkAIRenderingSystem;
     struct NkOffscreenDesc;
 }}
 
@@ -72,6 +80,15 @@ namespace renderer {
         virtual NkVFXSystem*          GetVFX()          = 0;
         virtual NkAnimationSystem*    GetAnimation()    = 0;
         virtual NkSimulationRenderer* GetSimulation()   = 0;
+
+        // ── Nouveaux sous-systèmes (priorité haute→basse) ─────────────────────
+        virtual NkCullingSystem*      GetCulling()      = 0;
+        virtual NkDeferredPass*       GetDeferred()     = 0;
+        virtual NkStreamingSystem*    GetStreaming()     = 0;
+        virtual NkRaytracingSystem*   GetRaytracing()   = 0;
+        virtual NkIKSystem*           GetIK()           = 0;
+        virtual NkDenoiserSystem*     GetDenoiser()     = 0;
+        virtual NkAIRenderingSystem*  GetAIRendering()  = 0;
 
         // ── Targets offscreen ─────────────────────────────────────────────────
         virtual NkOffscreenTarget* CreateOffscreen(const NkOffscreenDesc& desc) = 0;

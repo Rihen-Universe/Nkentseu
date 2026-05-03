@@ -3,8 +3,8 @@
 // NkRender2D.h  — NKRenderer v4.0  (Tools/Render2D/)
 // Sprites, shapes, 9-slice, clip stack, batching automatique.
 // =============================================================================
-#include "../../Core/NkRendererTypes.h"
-#include "../../Core/NkTextureLibrary.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
 namespace nkentseu {

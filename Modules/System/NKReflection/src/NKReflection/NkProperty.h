@@ -492,7 +492,7 @@
                             (instance->*setterPtr)(*static_cast<ValueType*>(value));
                         };
 
-                        NkProperty prop(name, typeMeta, 0, flags | NK_READ_ONLY);
+                        NkProperty prop(name, typeMeta, 0, flags | static_cast<nk_uint32>(NkPropertyFlags::NK_READ_ONLY));
                         prop.SetGetter(GetterFn(traits::NkMove(getterWrapper)));
                         if (setterPtr != nullptr) {
                             prop.SetSetter(SetterFn(traits::NkMove(setterWrapper)));

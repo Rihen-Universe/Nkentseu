@@ -1279,7 +1279,7 @@
                                 if (!ReadNode(arrData, valLen, arrOff, elem, err)) {
                                     return false;
                                 }
-                                out.array.PushBack(std::move(elem));
+                                out.array.PushBack(traits::NkMove(elem));
                             }
                             off += valLen;
                             break;

@@ -2,8 +2,8 @@
 // NkSimulationRenderer.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkSimulationRenderer.h"
-#include "../Render3D/NkRender3D.h"
-#include "../VFX/NkVFXSystem.h"
+#include "NKRenderer/Tools/Render3D/NkRender3D.h"
+#include "NKRenderer/Tools/VFX/NkVFXSystem.h"
 
 namespace nkentseu {
 namespace renderer {

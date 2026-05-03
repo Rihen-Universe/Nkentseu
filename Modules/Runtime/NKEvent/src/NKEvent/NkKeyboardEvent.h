@@ -290,6 +290,20 @@
         };
 
         // =====================================================================
+        // Aliases NkKey pour les opérations du pavé numérique (compatibilité Win32 VK_*)
+        // Placés hors de l'enum pour ne pas perturber l'auto-incrément de NK_KEY_MAX.
+        // Distinction explicite :
+        //   NK_ADD      ≠ NK_EQUALS  — NK_ADD = pavé +, NK_EQUALS = touche = du clavier principal
+        //   NK_SUBTRACT ≠ NK_MINUS   — NK_SUBTRACT = pavé -, NK_MINUS = touche - du clavier principal
+        //   NK_DECIMAL  ≠ NK_PERIOD  — NK_DECIMAL = pavé ., NK_PERIOD = touche . du clavier principal
+        // =====================================================================
+        inline constexpr NkKey NK_ADD      = NkKey::NK_NUMPAD_ADD;  ///< Alias: pavé + (distinct de NK_EQUALS)
+        inline constexpr NkKey NK_SUBTRACT = NkKey::NK_NUMPAD_SUB;  ///< Alias: pavé - (distinct de NK_MINUS)
+        inline constexpr NkKey NK_MULTIPLY = NkKey::NK_NUMPAD_MUL;  ///< Alias: pavé *
+        inline constexpr NkKey NK_DIVIDE   = NkKey::NK_NUMPAD_DIV;  ///< Alias: pavé /
+        inline constexpr NkKey NK_DECIMAL  = NkKey::NK_NUMPAD_DOT;  ///< Alias: pavé . (distinct de NK_PERIOD)
+
+        // =====================================================================
         // Utilitaires pour NkKey — fonctions helper de classification et formatage
         // =====================================================================
 
@@ -464,6 +478,22 @@
             NK_SC_NUMPAD_9,             ///< Touche 9 du pavé numérique
             NK_SC_NUMPAD_0      = 0x62, ///< Touche 0 du pavé numérique
             NK_SC_NUMPAD_DOT    = 0x63, ///< Point décimal du pavé numérique (.)
+
+            // -----------------------------------------------------------------
+            // Aliases courts pour les opérations du pavé numérique
+            // Distinction explicite vis-à-vis des touches identiques du clavier principal :
+            //   NK_SC_ADD      ≠ NK_SC_EQUALS  (0x2E)  — deux touches physiques distinctes
+            //   NK_SC_SUBTRACT ≠ NK_SC_MINUS   (0x2D)  — idem
+            //   NK_SC_MULTIPLY : pas d'équivalent direct sur la rangée principale
+            //   NK_SC_DIVIDE   : pas d'équivalent direct sur la rangée principale
+            //   NK_SC_DECIMAL  ≠ NK_SC_PERIOD  (0x37)  — deux touches physiques distinctes
+            // Compatible Win32 (VK_ADD / VK_SUBTRACT / VK_MULTIPLY / VK_DIVIDE / VK_DECIMAL)
+            // -----------------------------------------------------------------
+            NK_SC_ADD      = NK_SC_NUMPAD_ADD,  ///< Alias: pavé numérique + (distinct de NK_SC_EQUALS)
+            NK_SC_SUBTRACT = NK_SC_NUMPAD_SUB,  ///< Alias: pavé numérique - (distinct de NK_SC_MINUS)
+            NK_SC_MULTIPLY = NK_SC_NUMPAD_MUL,  ///< Alias: pavé numérique *
+            NK_SC_DIVIDE   = NK_SC_NUMPAD_DIV,  ///< Alias: pavé numérique /
+            NK_SC_DECIMAL  = NK_SC_NUMPAD_DOT,  ///< Alias: pavé numérique . (distinct de NK_SC_PERIOD)
 
             // -----------------------------------------------------------------
             // Touches ISO et additionnelles

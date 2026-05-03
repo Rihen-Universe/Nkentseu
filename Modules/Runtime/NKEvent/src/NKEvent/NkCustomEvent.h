@@ -135,8 +135,8 @@
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
                 /// @return NkString décrivant le type custom et la taille des données
                 NKENTSEU_EVENT_API NkString ToString() const override {
-                    return "CustomEvent(type=" + string::NkToString(mCustomType)
-                         + " dataSize=" + string::NkToString(mDataSize) + "B)";
+                    return "CustomEvent(type=" + NkFormat("{0}", mCustomType)
+                         + " dataSize=" + NkFormat("{0}", mDataSize) + "B)";
                 }
 
                 // -------------------------------------------------------------

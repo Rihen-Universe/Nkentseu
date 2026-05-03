@@ -1,3 +1,4 @@
+#include "pch.h"
 // =============================================================================
 // NKEvent/NkKeyboardEvent.cpp
 // Implémentation des utilitaires clavier cross-platform.

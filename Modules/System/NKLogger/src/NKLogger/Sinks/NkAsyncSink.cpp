@@ -36,37 +36,6 @@ namespace nkentseu {
     }
 
     /**
-     * @brief Log asynchrone
-     */
-    void NkAsyncLogger::Logf(NkLogLevel level, const char *format, ...) {
-        if (!ShouldLog(level))
-            return;
-
-        va_list args;
-        va_start(args, format);
-        NkString message = FormatString(format, args);
-        va_end(args);
-
-        Log(level, message);
-    }
-
-    /**
-     * @brief Log asynchrone avec message pré-formaté
-     */
-    void NkAsyncLogger::Log(NkLogLevel level, const NkString &message) {
-        if (!ShouldLog(level))
-            return;
-
-        NkLogMessage msg;
-        msg.threadId = static_cast<uint32>(threading::NkThread::GetCurrentThreadId());
-        msg.level = level;
-        msg.message = message;
-        msg.loggerName = GetName();
-
-        Enqueue(msg);
-    }
-
-    /**
      * @brief Force le flush des messages en attente
      */
     void NkAsyncLogger::Flush() {

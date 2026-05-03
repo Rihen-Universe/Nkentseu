@@ -1,6 +1,7 @@
 #pragma once
 // NkOverlayRenderer.h — NKRenderer v4.0 (Tools/Overlay/)
-#include "../../Core/NkRendererTypes.h"
+#include "NKRenderer/Core/NkRendererTypes.h"
+#include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 namespace nkentseu { namespace renderer {
     class NkRender2D; class NkTextRenderer;

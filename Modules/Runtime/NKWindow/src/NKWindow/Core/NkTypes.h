@@ -15,7 +15,7 @@
 
 #include "NKMath/NKMath.h"
 #include "NKCore/NkTraits.h"
-#include "NKCore/NkRendererApi.h"
+#include "NKPlatform/NkCGXDetect.h"
 #include "NKContainers/String/NkStringUtils.h"
 
 /**

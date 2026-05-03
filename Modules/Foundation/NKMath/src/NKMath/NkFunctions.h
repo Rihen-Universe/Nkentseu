@@ -556,6 +556,11 @@
              */
             /** @{ */
 
+            template<typename T>
+            T NkAbs(const T& t) {
+                return t < (T)0 ? -t : t;
+            }
+
             /**
              * @brief Valeur absolue pour entier signé 32-bit
              * @param v Valeur d'entrée

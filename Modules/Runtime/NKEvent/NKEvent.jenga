@@ -16,10 +16,12 @@ Système d'événements universel pour le framework Nkentseu.
 """
 
 from Jenga import *
+from config import *
 
 _TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKEvent"):
+    useglobalkind("event")
     staticlib()
     language("C++")
     cppdialect("C++17")
@@ -27,6 +29,7 @@ with project("NKEvent"):
 
     includedirs([
         "src",
+        "pch",
         "%{NKPlatform.location}/src",
         "%{NKCore.location}/src",
         "%{NKMemory.location}/src",
@@ -55,6 +58,20 @@ with project("NKEvent"):
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+    
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    defines([
+        "NKENTSEU_PLATFORM_STATIC_LIB",
+        "NKENTSEU_CORE_STATIC_LIB",
+        "NKENTSEU_MEMORY_STATIC_LIB",
+        "NKENTSEU_CONTAINERS_STATIC_LIB",
+        "NKENTSEU_MATH_STATIC_LIB",
+        "NKENTSEU_THREADING_STATIC_LIB",
+        "NKENTSEU_LOGGER_STATIC_LIB",
+        "NKENTSEU_TIME_STATIC_LIB",
+    ])
 
     with filter("system:Windows && options:windows-runtime=uwp"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
@@ -88,6 +105,9 @@ with project("NKEvent"):
 
     # ===== Android ================================================================
     with filter("system:Android"):
+        # Workaround: disable PCH on Android (NDK r27 + clang 18 + libc++)
+        pchheader("")
+        pchsource("")
         usetoolchain("android-ndk")
         links(["android", "log"])
         androidminsdk(21)

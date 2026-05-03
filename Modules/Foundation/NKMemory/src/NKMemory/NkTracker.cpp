@@ -222,7 +222,8 @@
                             snprintf(sizeBuf, sizeof(sizeBuf), "%.2f KB", 
                                     static_cast<float>(info.size) / 1024.0f);
                         } else {
-                            snprintf(sizeBuf, sizeof(sizeBuf), "%zu B", info.size);
+                            snprintf(sizeBuf, sizeof(sizeBuf), "%llu B",
+                                     static_cast<unsigned long long>(info.size));
                         }
 
                         // Formatage de l'emplacement

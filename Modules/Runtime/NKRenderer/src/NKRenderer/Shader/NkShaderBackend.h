@@ -49,7 +49,8 @@
 // =============================================================================
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
-#include "../Core/NkRendererConfig.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKRenderer/Core/NkRendererConfig.h"
 
 namespace nkentseu {
 namespace renderer {

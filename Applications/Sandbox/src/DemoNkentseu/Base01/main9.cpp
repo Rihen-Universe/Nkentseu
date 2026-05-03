@@ -35,9 +35,9 @@ namespace {
 } // namespace
 
 // Change this from build-system if needed:
-// -D NK_SANDBOX_CONTEXT_API=nkentseu::NkRendererApi::NK_VULKAN
+// -D NK_SANDBOX_CONTEXT_API=nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN
 #ifndef NK_SANDBOX_CONTEXT_API
-#define NK_SANDBOX_CONTEXT_API nkentseu::NkRendererApi::NK_OPENGL
+#define NK_SANDBOX_CONTEXT_API nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL
 #endif
 
 NKENTSEU_DEFINE_APP_DATA(([]() {
@@ -51,16 +51,16 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 int nkmain(const nkentseu::NkEntryState&) {
     using namespace nkentseu;
 
-    const NkRendererApi selectedApi = NK_SANDBOX_CONTEXT_API;
-    logger.Info("[main9] Selected backend = {0}", NkRendererApiToString(selectedApi));
+    const NkGraphicsApi selectedApi = NK_SANDBOX_CONTEXT_API;
+    logger.Info("[main9] Selected backend = {0}", NkGraphicsApiToString(selectedApi));
 
     NkContextInit();
 
     NkContextConfig contextConfig{};
-    if (selectedApi == NkRendererApi::NK_OPENGL) {
+    if (selectedApi == NkGraphicsApi::NK_GFX_API_OPENGL) {
         // Explicit OpenGL hint initialization.
         NkContextResetHints();
-        NkContextSetApi(NkRendererApi::NK_OPENGL);
+        NkContextSetApi(NkGraphicsApi::NK_GFX_API_OPENGL);
         NkContextWindowHint(NkContextHint::NK_CONTEXT_HINT_VERSION_MAJOR, 4);
         NkContextWindowHint(NkContextHint::NK_CONTEXT_HINT_VERSION_MINOR, 5);
         NkContextWindowHint(NkContextHint::NK_CONTEXT_HINT_PROFILE,
@@ -129,7 +129,7 @@ int nkmain(const nkentseu::NkEntryState&) {
     bool running = true;
     uint32 frame = 0;
 
-    if (selectedApi == NkRendererApi::NK_OPENGL) {
+    if (selectedApi == NkGraphicsApi::NK_GFX_API_OPENGL) {
         if (!NkContextMakeCurrent(context)) {
             logger.Error("[main9] MakeCurrent failed: {0}", context.lastError.ToString());
             NkContextDestroy(context);
@@ -172,12 +172,12 @@ int nkmain(const nkentseu::NkEntryState&) {
             ++frame;
         }
     } else {
-        logger.Info("[main9] Backend bootstrap in surface-only mode for {0}.", NkRendererApiToString(selectedApi));
+        logger.Info("[main9] Backend bootstrap in surface-only mode for {0}.", NkGraphicsApiToString(selectedApi));
         logger.Info("[main9] Using software renderer to colorize the window for this example.");
 
         NkRenderer renderer;
         NkRendererConfig rcfg{};
-        rcfg.api = NkRendererApi::NK_SOFTWARE;
+        rcfg.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
         rcfg.vsync = true;
         if (!renderer.Create(window, rcfg)) {
             logger.Error("[main9] Software colorizer creation failed: {0}", renderer.GetLastError().ToString());

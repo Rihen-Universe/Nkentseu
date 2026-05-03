@@ -260,7 +260,7 @@
 			 * @example
 			 * @code
 			 * // Configuration globale propagée à tous les sinks
-			 * auto globalFormatter = nkentseu::memory::MakeUnique<nkentseu::NkFormatter>(
+			 * auto globalFormatter = nkentseu::memory::MakeUnique<nkentseu::NkLoggerFormatter>(
 			 *     "[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] %v"
 			 * );
 			 * distributor.SetFormatter(std::move(globalFormatter));
@@ -271,7 +271,7 @@
 			 * }
 			 * @endcode
 			 */
-			void SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) override;
+			void SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) override;
 
 			/**
 			 * @brief Définit le pattern de formatage pour tous les sous-sinks
@@ -313,7 +313,7 @@
 			 * }
 			 * @endcode
 			 */
-			NkFormatter* GetFormatter() const override;
+			NkLoggerFormatter* GetFormatter() const override;
 
 			/**
 			 * @brief Obtient le pattern du premier sous-sink non-null (si disponible)
@@ -692,9 +692,9 @@
 	public:
 		void Log(const nkentseu::NkLogMessage&) override { ++m_Count; }
 		void Flush() override {}
-		void SetFormatter(nkentseu::memory::NkUniquePtr<nkentseu::NkFormatter>) override {}
+		void SetFormatter(nkentseu::memory::NkUniquePtr<nkentseu::NkLoggerFormatter>) override {}
 		void SetPattern(const nkentseu::NkString&) override {}
-		nkentseu::NkFormatter* GetFormatter() const override { return nullptr; }
+		nkentseu::NkLoggerFormatter* GetFormatter() const override { return nullptr; }
 		nkentseu::NkString GetPattern() const override { return {}; }
 		usize GetCount() const { return m_Count; }
 		void Reset() { m_Count = 0; }
@@ -769,7 +769,7 @@
 		}
 
 		// Configuration globale du distributeur
-		distributor->SetPattern(core::Config::GetString(section + ".pattern", NkFormatter::NK_DEFAULT_PATTERN));
+		distributor->SetPattern(core::Config::GetString(section + ".pattern", NkLoggerFormatter::NK_DEFAULT_PATTERN));
 		distributor->SetLevel(NkLogLevelFromString(core::Config::GetString(section + ".level", "info")));
 
 		return distributor;

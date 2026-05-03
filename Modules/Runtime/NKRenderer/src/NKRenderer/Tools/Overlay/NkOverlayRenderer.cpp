@@ -1,7 +1,7 @@
 // NkOverlayRenderer.cpp — NKRenderer v4.0
 #include "NkOverlayRenderer.h"
-#include "../Text/NkTextRenderer.h"
-#include "../Render2D/NkRender2D.h"
+#include "NKRenderer/Tools/Text/NkTextRenderer.h"
+#include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include <cstdio>
 #include <cstdarg>
 

@@ -736,6 +736,10 @@
                     }
                 }
 
+                static NkMat4T Zero() {
+                    return NkMat4T();
+                }
+
                 // Constructeur depuis 4 colonnes vectorielles
                 NkMat4T(
                     const NkVec4T<T>& column0,

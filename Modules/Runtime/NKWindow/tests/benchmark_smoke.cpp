@@ -15,7 +15,7 @@ TEST_CASE(NKWindowBenchmark, RendererApiToStringLoop) {
     const clock_t t0 = std::clock();
     for (int i = 0; i < kIters; ++i) {
         sink += std::char_traits<char>::length(
-            NkRendererApiToString(static_cast<NkRendererApi>(i % static_cast<int>(NkRendererApi::NK_RENDERER_API_MAX)))
+            NkGraphicsApiToString(static_cast<NkGraphicsApi>(i % static_cast<int>(NkGraphicsApi::NK_GFX_API_RENDERER_API_MAX)))
         );
     }
     const clock_t t1 = std::clock();

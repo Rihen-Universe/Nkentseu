@@ -93,10 +93,10 @@ namespace renderer {
 
     bool NkTextureLibrary::LoadWithNKImage(const NkString& path, NkImageData& out) {
         if (mCustomLoad) {
-            return mCustomLoad(path.c_str(), &out, mCustomUser);
+            return mCustomLoad(path.CStr(), &out, mCustomUser);
         }
         // Backend NKImage
-        NkImage* img = NkImage::Load(path.c_str());
+        NkImage* img = NkImage::Load(path.CStr());
         if (!img) return false;
         out.width    = (uint32)img->width;
         out.height   = (uint32)img->height;

@@ -571,7 +571,7 @@
 		int rotationHour = static_cast<int>(core::Config::GetInt64(section + ".rotationHour", 0));
 		int rotationMinute = static_cast<int>(core::Config::GetInt64(section + ".rotationMinute", 0));
 		usize maxDays = core::Config::GetUint64(section + ".maxDays", 7);
-		NkString pattern = core::Config::GetString(section + ".pattern", NkFormatter::NK_DEFAULT_PATTERN);
+		NkString pattern = core::Config::GetString(section + ".pattern", NkLoggerFormatter::NK_DEFAULT_PATTERN);
 		NkLogLevel level = NkLogLevelFromString(core::Config::GetString(section + ".level", "info"));
 
 		// Validation des paramètres de rotation

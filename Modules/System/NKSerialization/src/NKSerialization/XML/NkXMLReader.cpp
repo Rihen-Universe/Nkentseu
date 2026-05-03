@@ -439,7 +439,7 @@ namespace nkentseu {
                             }
                             NkArchiveNode n;
                             n.SetObject(childArc);
-                            elems.PushBack(std::move(n));
+                            elems.PushBack(traits::NkMove(n));
 
                         // Tag inconnu dans un array → ignorer
                         } else {

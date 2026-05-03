@@ -265,8 +265,8 @@ namespace {
 			// Appel système : retourne 0 en cas de succès, -1 en cas d'erreur
 			if (clock_gettime(CLOCK_REALTIME, &ts) == 0) {
 				// Combinaison secondes + nanosecondes en uint64 unique
-				return (static_cast<uint64>(ts.tv_sec) * 1000000000ULL)
-					+ static_cast<uint64>(ts.tv_nsec);
+				return (static_cast<nkentseu::uint64>(ts.tv_sec) * 1000000000ULL)
+					+ static_cast<nkentseu::uint64>(ts.tv_nsec);
 			}
 
 			// Fallback en cas d'erreur système : retourne 0 (timestamp invalide)

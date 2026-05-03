@@ -135,7 +135,7 @@ namespace nkentseu {
 		, m_UseStderrForErrors(true) {
 
 		// Configuration du formatter avec pattern supportant les marqueurs de couleur
-		m_Formatter = memory::NkMakeUnique<NkFormatter>(NkFormatter::NK_COLOR_PATTERN);
+		m_Formatter = memory::NkMakeUnique<NkLoggerFormatter>(NkLoggerFormatter::NK_COLOR_PATTERN);
 	}
 
 
@@ -150,10 +150,10 @@ namespace nkentseu {
 
 		// Choix du pattern basé sur l'activation des couleurs
 		const char* pattern = useColors
-			? NkFormatter::NK_COLOR_PATTERN    // Pattern avec marqueurs %^/%$
-			: NkFormatter::NK_DEFAULT_PATTERN; // Pattern standard sans couleurs
+			? NkLoggerFormatter::NK_COLOR_PATTERN    // Pattern avec marqueurs %^/%$
+			: NkLoggerFormatter::NK_DEFAULT_PATTERN; // Pattern standard sans couleurs
 
-		m_Formatter = memory::NkMakeUnique<NkFormatter>(pattern);
+		m_Formatter = memory::NkMakeUnique<NkLoggerFormatter>(pattern);
 	}
 
 
@@ -257,7 +257,7 @@ namespace nkentseu {
 	// MÉTHODE : SetFormatter
 	// DESCRIPTION : Définit le formatter avec transfert de propriété thread-safe
 	// -------------------------------------------------------------------------
-	void NkConsoleSink::SetFormatter(memory::NkUniquePtr<NkFormatter> formatter) {
+	void NkConsoleSink::SetFormatter(memory::NkUniquePtr<NkLoggerFormatter> formatter) {
 		// Acquisition du mutex pour modification thread-safe
 		threading::NkScopedLock lock(m_Mutex);
 
@@ -285,7 +285,7 @@ namespace nkentseu {
 	// MÉTHODE : GetFormatter
 	// DESCRIPTION : Retourne le formatter courant (lecture thread-safe)
 	// -------------------------------------------------------------------------
-	NkFormatter* NkConsoleSink::GetFormatter() const {
+	NkLoggerFormatter* NkConsoleSink::GetFormatter() const {
 		// Acquisition du mutex pour lecture protégée
 		threading::NkScopedLock lock(m_Mutex);
 

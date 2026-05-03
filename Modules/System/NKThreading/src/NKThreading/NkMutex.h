@@ -44,6 +44,8 @@
 
     #ifdef NKENTSEU_PLATFORM_WINDOWS
         #include <synchapi.h>
+    #else
+        #include <pthread.h>
     #endif
 
     // Déclaration anticipée pour éviter l'inclusion circulaire.

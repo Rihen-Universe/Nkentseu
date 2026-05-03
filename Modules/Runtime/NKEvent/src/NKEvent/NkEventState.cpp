@@ -1,3 +1,4 @@
+#include "pch.h"
 // =============================================================================
 // NkEventState.cpp
 // Implémentation de l'état global du système d'événements.

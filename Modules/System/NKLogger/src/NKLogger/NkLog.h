@@ -165,7 +165,7 @@
 			 */
 			static void Initialize(
 				const NkString& name = "default",
-				const NkString& pattern = NkFormatter::NK_DETAILED_PATTERN,
+				const NkString& pattern = NkLoggerFormatter::NK_DETAILED_PATTERN,
 				NkLogLevel level = NkLogLevel::NK_INFO
 			);
 
@@ -619,7 +619,7 @@
 		// Application dynamique des paramètres
 		nkentseu::NkLog::Initialize(
 			config.GetString("name", "default"),
-			config.GetString("pattern", nkentseu::NkFormatter::NK_DEFAULT_PATTERN),
+			config.GetString("pattern", nkentseu::NkLoggerFormatter::NK_DEFAULT_PATTERN),
 			nkentseu::NkLogLevelFromString(config.GetString("level", "info"))
 		);
 
