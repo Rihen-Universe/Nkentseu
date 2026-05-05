@@ -30,7 +30,7 @@
 
 // ── Plateforme ────────────────────────────────────────────────────────────────
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 
 // ── NKEngine ──────────────────────────────────────────────────────────────────
 #include "NKWindow/Core/NkWindow.h"
@@ -1025,8 +1025,8 @@ public:
                 // Pour DX11/DX12 et Metal, il faudrait des variantes HLSL/MSL.
                 // Dans cet exemple, on n'implémente que OpenGL et Vulkan (GLSL).
                 // En production, on ajouterait des kHLSL_Text2D_VS etc.
-                case NkGraphicsApi::NK_GFX_API_D3D11:
-                case NkGraphicsApi::NK_GFX_API_D3D12:
+                case NkGraphicsApi::NK_GFX_API_DX11:
+                case NkGraphicsApi::NK_GFX_API_DX12:
                 case NkGraphicsApi::NK_GFX_API_METAL:
                     logger.Info("[NkTextRenderer] Shader texte non implémenté pour {0} dans cet exemple\n",
                                 NkGraphicsApiName(mApi));
@@ -1700,8 +1700,8 @@ static void Mat4ToArray(const NkMat4f& m, float out[16]) {
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i = 1; i < args.Size(); i++) {
         if (args[i] == "--backend=vulkan"  || args[i] == "-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_GFX_API_DX11;
+        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_GFX_API_DX12;
         if (args[i] == "--backend=opengl"  || args[i] == "-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;
         if (args[i] == "--backend=sw"      || args[i] == "-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
     }
@@ -1856,8 +1856,8 @@ int nkmain(const NkEntryState& state) {
 
     const bool depthZeroToOne =
         targetApi == NkGraphicsApi::NK_GFX_API_VULKAN    ||
-        targetApi == NkGraphicsApi::NK_GFX_API_D3D11 ||
-        targetApi == NkGraphicsApi::NK_GFX_API_D3D12 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_DX11 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_DX12 ||
         targetApi == NkGraphicsApi::NK_GFX_API_METAL;
     const float ndcZScale  = depthZeroToOne ? 1.0f : 0.5f;
     const float ndcZOffset = depthZeroToOne ? 0.0f : 0.5f;

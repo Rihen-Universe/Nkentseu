@@ -7,7 +7,7 @@
 
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
-#include "NKWindow/Core/NkSystem.h"
+#include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"

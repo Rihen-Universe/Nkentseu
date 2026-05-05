@@ -22,7 +22,7 @@
 // Nécessaire ici pour disposer des macros plateforme/windowing
 // (NKENTSEU_PLATFORM_*, NKENTSEU_WINDOWING_*) avant le bloc GLAD.
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 
 // GLAD — inclure avant les headers NK* pour éviter un conflit
 // "OpenGL header already included" quand un gl.h système est déjà chargé.
@@ -697,8 +697,8 @@ int DemoAutoAPI(const NkEntryState& state) {
     // Chaîne de fallback : meilleure API → software
     const NkGraphicsApi chain[] = {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        NkGraphicsApi::NK_GFX_API_D3D12,
-        NkGraphicsApi::NK_GFX_API_D3D11,
+        NkGraphicsApi::NK_GFX_API_DX12,
+        NkGraphicsApi::NK_GFX_API_DX11,
 #elif defined(NKENTSEU_PLATFORM_MACOS)
         NkGraphicsApi::NK_GFX_API_METAL,
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
@@ -717,10 +717,10 @@ int DemoAutoAPI(const NkEntryState& state) {
     auto makeDescForApi = [](NkGraphicsApi api) {
         NkContextDesc d;
         switch (api) {
-            case NkGraphicsApi::NK_GFX_API_D3D12:
+            case NkGraphicsApi::NK_GFX_API_DX12:
                 d = NkContextDesc::MakeDirectX12(/*debug=*/true);
                 break;
-            case NkGraphicsApi::NK_GFX_API_D3D11:
+            case NkGraphicsApi::NK_GFX_API_DX11:
                 d = NkContextDesc::MakeDirectX11(/*debug=*/true);
                 break;
             case NkGraphicsApi::NK_GFX_API_METAL:

@@ -15,7 +15,7 @@
 
 // ── Détection plateforme ──────────────────────────────────────────────────────
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 
 // ── Headers NKEngine ──────────────────────────────────────────────────────────
 #include "NKWindow/Core/NkWindow.h"
@@ -425,8 +425,8 @@ static NkGraphicsApi ParseBackend(const nkentseu::NkVector<nkentseu::NkString>& 
     for (size_t i = 1; i < args.Size(); i++) {
         const nkentseu::NkString& arg = args[i];
         if (arg == "--backend=vulkan"  || arg == "-bvk")   return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (arg == "--backend=dx11"    || arg == "-bdx11")  return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (arg == "--backend=dx12"    || arg == "-bdx12")  return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (arg == "--backend=dx11"    || arg == "-bdx11")  return NkGraphicsApi::NK_GFX_API_DX11;
+        if (arg == "--backend=dx12"    || arg == "-bdx12")  return NkGraphicsApi::NK_GFX_API_DX12;
         if (arg == "--backend=metal"   || arg == "-bmtl")   return NkGraphicsApi::NK_GFX_API_METAL;
         if (arg == "--backend=sw"      || arg == "-bsw")    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
         if (arg == "--backend=opengl"  || arg == "-bgl")    return NkGraphicsApi::NK_GFX_API_OPENGL;
@@ -488,7 +488,7 @@ public:
                 mValid = true;
                 break;
 
-            case NkGraphicsApi::NK_GFX_API_D3D11:
+            case NkGraphicsApi::NK_GFX_API_DX11:
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
                 mDx11Data.windowHandle = surface.hwnd;
                 mDx11Data.dxgiAdapter = nullptr;
@@ -498,7 +498,7 @@ public:
 #endif
                 break;
 
-            case NkGraphicsApi::NK_GFX_API_D3D12:
+            case NkGraphicsApi::NK_GFX_API_DX12:
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
                 mDx12Data.windowHandle = surface.hwnd;
                 mDx12Data.dxgiAdapter = nullptr;
@@ -571,8 +571,8 @@ static NkShaderDesc MakeShaderDesc(NkGraphicsApi api) {
                         kVkRHIFullDemoFragSpv,
                         (uint64)kVkRHIFullDemoFragSpvWordCount * sizeof(uint32));
             break;
-        case NkGraphicsApi::NK_GFX_API_D3D11:
-        case NkGraphicsApi::NK_GFX_API_D3D12:
+        case NkGraphicsApi::NK_GFX_API_DX11:
+        case NkGraphicsApi::NK_GFX_API_DX12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_VS, "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_PS, "PSMain");
             break;
@@ -608,11 +608,11 @@ static NkShaderDesc MakeShadowShaderDesc(NkGraphicsApi api) {
             // sd.AddSPIRV(NkShaderStage::NK_VERTEX,   kVkShadowVertSpv, kVkShadowVertSpvWordCount*4);
             // sd.AddSPIRV(NkShaderStage::NK_FRAGMENT, kVkShadowFragSpv, kVkShadowFragSpvWordCount*4);
             break;
-        case NkGraphicsApi::NK_GFX_API_D3D11:
+        case NkGraphicsApi::NK_GFX_API_DX11:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_ShadowVert);
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_ShadowFrag);
             break;
-        case NkGraphicsApi::NK_GFX_API_D3D12:
+        case NkGraphicsApi::NK_GFX_API_DX12:
             // Temporairement désactivé : la passe shadow DX12 est instable
             // dans cette démo. On garde un fallback sans shadow.
             break;

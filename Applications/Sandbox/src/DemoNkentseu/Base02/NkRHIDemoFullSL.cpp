@@ -27,7 +27,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -335,11 +335,11 @@ public:
                 opts.targetLanguage = NkSLTargetLanguage::SPIRV;
                 opts.spirvVersion   = 0x00010000;
                 break;
-            case NkGraphicsApi::NK_GFX_API_D3D11:
+            case NkGraphicsApi::NK_GFX_API_DX11:
                 opts.targetLanguage = NkSLTargetLanguage::HLSL;
                 opts.hlslShaderModel = 50;
                 break;
-            case NkGraphicsApi::NK_GFX_API_D3D12:
+            case NkGraphicsApi::NK_GFX_API_DX12:
                 opts.targetLanguage = NkSLTargetLanguage::HLSL;
                 opts.hlslShaderModel = 60;
                 break;
@@ -401,8 +401,8 @@ static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i=1; i<args.Size(); i++) {
         const NkString& a=args[i];
         if (a=="--backend=vulkan"||a=="-bvk")    return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (a=="--backend=dx11"  ||a=="-bdx11")  return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (a=="--backend=dx12"  ||a=="-bdx12")  return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (a=="--backend=dx11"  ||a=="-bdx11")  return NkGraphicsApi::NK_GFX_API_DX11;
+        if (a=="--backend=dx12"  ||a=="-bdx12")  return NkGraphicsApi::NK_GFX_API_DX12;
         if (a=="--backend=metal" ||a=="-bmtl")   return NkGraphicsApi::NK_GFX_API_METAL;
         if (a=="--backend=sw"    ||a=="-bsw")    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
         if (a=="--backend=opengl"||a=="-bgl")    return NkGraphicsApi::NK_GFX_API_OPENGL;
@@ -444,8 +444,8 @@ static NkShaderDesc MakeMainShaderDesc(NkGraphicsApi api) {
                         kVkRHIFullDemoFragSpv,
                         (uint64)kVkRHIFullDemoFragSpvWordCount * sizeof(uint32));
             break;
-        case NkGraphicsApi::NK_GFX_API_D3D11:
-        case NkGraphicsApi::NK_GFX_API_D3D12:
+        case NkGraphicsApi::NK_GFX_API_DX11:
+        case NkGraphicsApi::NK_GFX_API_DX12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_VS, "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_PS, "PSMain");
             break;
@@ -468,8 +468,8 @@ static NkShaderDesc MakeShadowShaderDesc(NkGraphicsApi api) {
             sd.AddGLSL(NkShaderStage::NK_VERTEX,   kGLSL_ShadowVert);
             sd.AddGLSL(NkShaderStage::NK_FRAGMENT,  kGLSL_ShadowFrag);
             break;
-        case NkGraphicsApi::NK_GFX_API_D3D11:
-        case NkGraphicsApi::NK_GFX_API_D3D12:
+        case NkGraphicsApi::NK_GFX_API_DX11:
+        case NkGraphicsApi::NK_GFX_API_DX12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_ShadowVS);
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_ShadowPS);
             break;

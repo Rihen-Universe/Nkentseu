@@ -13,7 +13,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -156,8 +156,8 @@ static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (usize i = 1; i < args.Size(); i++) {
         const char* s = args[i].CStr();
         if (::strncmp(s,"--backend=vulkan",16)==0||::strncmp(s,"-bvk",4)==0)   return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (::strncmp(s,"--backend=dx11",14)==0||::strncmp(s,"-bdx11",6)==0)   return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (::strncmp(s,"--backend=dx12",14)==0||::strncmp(s,"-bdx12",6)==0)   return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (::strncmp(s,"--backend=dx11",14)==0||::strncmp(s,"-bdx11",6)==0)   return NkGraphicsApi::NK_GFX_API_DX11;
+        if (::strncmp(s,"--backend=dx12",14)==0||::strncmp(s,"-bdx12",6)==0)   return NkGraphicsApi::NK_GFX_API_DX12;
         if (::strncmp(s,"--backend=metal",15)==0||::strncmp(s,"-bmtl",5)==0)   return NkGraphicsApi::NK_GFX_API_METAL;
         if (::strncmp(s,"--backend=sw",12)==0||::strncmp(s,"-bsw",4)==0)       return NkGraphicsApi::NK_GFX_API_SOFTWARE;
         if (::strncmp(s,"--backend=opengl",16)==0||::strncmp(s,"-bgl",4)==0)   return NkGraphicsApi::NK_GFX_API_OPENGL;
@@ -168,8 +168,8 @@ static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
 static const char* ApiName(NkGraphicsApi a) {
     switch(a){
         case NkGraphicsApi::NK_GFX_API_VULKAN:    return "Vulkan";
-        case NkGraphicsApi::NK_GFX_API_D3D11: return "DX11";
-        case NkGraphicsApi::NK_GFX_API_D3D12: return "DX12";
+        case NkGraphicsApi::NK_GFX_API_DX11: return "DX11";
+        case NkGraphicsApi::NK_GFX_API_DX12: return "DX12";
         case NkGraphicsApi::NK_GFX_API_METAL:     return "Metal";
         case NkGraphicsApi::NK_GFX_API_SOFTWARE:  return "Software";
         case NkGraphicsApi::NK_GFX_API_OPENGL:    return "OpenGL";
@@ -335,7 +335,7 @@ static NkShaderHandle MakeBgShader(NkIDevice* dev, NkGraphicsApi api) {
     // Déclarés à portée de fonction pour rester valides jusqu'à CreateShader.
     NkVertexSoftwareShader vs; 
     NkSWPixelShader fs;
-    if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
+    if (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_BgVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_BgPS, "PSMain");
     } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
@@ -354,7 +354,7 @@ static NkShaderHandle MakeTextShader(NkIDevice* dev, NkGraphicsApi api) {
     // Déclarés à portée de fonction pour rester valides jusqu'à CreateShader.
     NkVertexSoftwareShader vs; 
     NkSWPixelShader fs;
-    if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
+    if (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_TextVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_TextPS, "PSMain");
     } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {

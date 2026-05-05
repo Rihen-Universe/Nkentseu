@@ -16,7 +16,7 @@
 // Nécessaire ici pour disposer des macros plateforme/windowing
 // (NKENTSEU_PLATFORM_*, NKENTSEU_WINDOWING_*) avant le bloc GLAD.
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 
 // GLAD — inclure avant les headers NK* pour éviter un conflit
 // "OpenGL header already included" quand un gl.h système est déjà chargé.

@@ -8,7 +8,7 @@
  *  Defaut : software
  */
 
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkEntry.h"
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NkPAApp.h"
@@ -33,8 +33,8 @@ static NkGraphicsApi ParseApiArg(const NkEntryState& state) {
 
         if (::strcmp(val, "opengl")   == 0) return NkGraphicsApi::NK_GFX_API_OPENGL;
         if (::strcmp(val, "vulkan")   == 0) return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (::strcmp(val, "dx11")     == 0) return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (::strcmp(val, "dx12")     == 0) return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (::strcmp(val, "dx11")     == 0) return NkGraphicsApi::NK_GFX_API_DX11;
+        if (::strcmp(val, "dx12")     == 0) return NkGraphicsApi::NK_GFX_API_DX12;
         if (::strcmp(val, "metal")    == 0) return NkGraphicsApi::NK_GFX_API_METAL;
         if (::strcmp(val, "software") == 0) return NkGraphicsApi::NK_GFX_API_SOFTWARE;
     }
