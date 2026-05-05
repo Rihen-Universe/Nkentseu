@@ -19,6 +19,8 @@ import os
 import shutil
 import subprocess
 
+from nkentseuconfig import useappdeps
+
 def _pkg_exists(pkg_name: str) -> bool:
     if not shutil.which("pkg-config"):
         return False
@@ -360,6 +362,7 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
 
 def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False):
     with project(project_name):
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream")
         windowedapp()
         language("C++")
         cppdialect("C++17")
@@ -603,6 +606,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
 
 def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False):
     with project(project_name):
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream", "renderer")
         windowedapp()
         language("C++")
         cppdialect("C++17")
@@ -861,7 +865,7 @@ sandboxusenkrhi("NkFDV2", ["src/DemoNkentseu/Base03/NkFontDemoVI.cpp"], "sandbox
 sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
 # sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl")
-sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
+# sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 
 
@@ -878,3 +882,4 @@ sandboxusenkrhi("NKUID", [
 
 # =================================== NKRenderer UI =======================================================
 # sandboxusenkrenderer("Scene", ["src/DemoNkentseu/Base05/NkRendererDemo.cpp"], "sandbox.scene.base04", use_nkimage=True, use_nkfont=True, use_nkui=True)
+sandboxusenkrenderer("r2d01", ["src/DemoNkentseu/Base05/NkRenderer2DDemo.cpp"], "sandbox.scene.r2d01", use_nkimage=True, use_nkfont=True, use_nkui=True)

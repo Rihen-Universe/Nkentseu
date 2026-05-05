@@ -2716,58 +2716,44 @@ void PongGame::RenderSplash()
 
 // ── PongGame::GetTouchButtonRects ─────────────────────────────────────────────
 // Calcule les rectangles des boutons tactiles :
-//   - ENTER    : Haut a gauche (validation)
-//   - ESCAPE   : Haut au centre (retour/menu)
-//   - PAUSE    : Haut a droite (pause du jeu)
-//   - UP/DOWN  : Bas au centre (navigation directionnelle)
+//   3 boutons côte à côte au centre-haut
+//   - ENTER   : Gauche (validation)
+//   - ESCAPE  : Centre (retour/menu)
+//   - PAUSE   : Droite (pause du jeu)
+// Les gestes tactiles (swipe up/down) contrôlent le paddle du joueur
 PongGame::TouchButtonRects PongGame::GetTouchButtonRects() const noexcept
 {
     uint32_t W  = mRenderer.Width();
     uint32_t H  = mRenderer.Height();
     
-    const int BTN_W     = 80;   // Largeur des boutons d'action (haut)
-    const int BTN_H     = 70;   // Hauteur des boutons d'action (haut)
-    const int NAV_W     = 100;  // Largeur des boutons de navigation (bas)
-    const int NAV_H     = 80;   // Hauteur des boutons de navigation (bas)
-    const int MARGIN    = 12;   // Marge depuis les bords
+    const int BTN_W     = 70;   // Largeur de chaque bouton
+    const int BTN_H     = 60;   // Hauteur des boutons
+    const int MARGIN_TOP= 12;   // Marge depuis le haut
     const int CENTER_X  = static_cast<int>(W) / 2;
-    const int CENTER_Y  = static_cast<int>(H) / 2;
-    const int NAV_GAP   = 15;   // Ecart entre UP et DOWN
-    const int ACTION_GAP= 8;    // Ecart entre les boutons d'action du haut
-
+    const int GAP       = 8;    // Écart entre les boutons
+    
     TouchButtonRects r;
     
-    // ── Boutons d'action en haut ──────────────────────────────────────────────
-    // ENTER : Haut a gauche
-    r.enterX = MARGIN;
-    r.enterY = MARGIN;
+    // ── Boutons d'action côte à côte au centre-haut ──────────────────────────
+    int start_x = CENTER_X - (3 * BTN_W + 2 * GAP) / 2;  // Aligné au centre
+    
+    // ENTER : Gauche
+    r.enterX = start_x;
+    r.enterY = MARGIN_TOP;
     r.enterW = BTN_W;
     r.enterH = BTN_H;
     
-    // ESCAPE : Haut au centre
-    r.escapeX = CENTER_X - BTN_W / 2;
-    r.escapeY = MARGIN;
+    // ESCAPE : Centre
+    r.escapeX = start_x + BTN_W + GAP;
+    r.escapeY = MARGIN_TOP;
     r.escapeW = BTN_W;
     r.escapeH = BTN_H;
     
-    // PAUSE : Haut a droite
-    r.pauseX = static_cast<int>(W) - MARGIN - BTN_W;
-    r.pauseY = MARGIN;
+    // PAUSE : Droite
+    r.pauseX = start_x + 2 * (BTN_W + GAP);
+    r.pauseY = MARGIN_TOP;
     r.pauseW = BTN_W;
     r.pauseH = BTN_H;
-    
-    // ── Boutons de navigation en bas ──────────────────────────────────────────
-    // UP : Bas au centre, a gauche
-    r.upX = CENTER_X - NAV_W - NAV_GAP / 2;
-    r.upY = static_cast<int>(H) - MARGIN - NAV_H;
-    r.upW = NAV_W;
-    r.upH = NAV_H;
-    
-    // DOWN : Bas au centre, a droite
-    r.dnX = CENTER_X + NAV_GAP / 2;
-    r.dnY = static_cast<int>(H) - MARGIN - NAV_H;
-    r.dnW = NAV_W;
-    r.dnH = NAV_H;
     
     return r;
 }

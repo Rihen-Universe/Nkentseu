@@ -11,8 +11,8 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkEvent.h"        // dAfinit NkEvents() et inclut les AvAnements
 #include "NKWindow/Core/NkContext.h"
-#include "NKWindow/Core/NkSystem.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/Core/NkWESystem.h"
+#include "NKWindow/NKMain.h"
 
 #include "NKLogger/NkLog.h"
 

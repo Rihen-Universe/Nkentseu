@@ -1,5 +1,5 @@
-#include "NKWindow/NkWindow.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKWindow.h"
+#include "NKWindow/NKMain.h"
 
 using namespace nkentseu;
 

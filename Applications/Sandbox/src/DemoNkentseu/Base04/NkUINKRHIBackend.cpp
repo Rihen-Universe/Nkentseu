@@ -234,10 +234,10 @@ float4 PSMain(PSIn i) : SV_Target {
             if (mApi == NkGraphicsApi::NK_GFX_API_OPENGL || mApi == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
                 shaderDesc.AddGLSL(NkShaderStage::NK_VERTEX, kVertGLSL);
                 shaderDesc.AddGLSL(NkShaderStage::NK_FRAGMENT, kFragGLSL);
-            } else if (mApi == NkGraphicsApi::NK_GFX_API_D3D11) {
+            } else if (mApi == NkGraphicsApi::NK_GFX_API_DX11) {
                 shaderDesc.AddHLSL(NkShaderStage::NK_VERTEX, kVertHlslDx11, "VSMain");
                 shaderDesc.AddHLSL(NkShaderStage::NK_FRAGMENT, kFragHlslDx11, "PSMain");
-            } else if (mApi == NkGraphicsApi::NK_GFX_API_D3D12) {
+            } else if (mApi == NkGraphicsApi::NK_GFX_API_DX12) {
                 shaderDesc.AddHLSL(NkShaderStage::NK_VERTEX, kVertHlslDx12, "VSMain");
                 shaderDesc.AddHLSL(NkShaderStage::NK_FRAGMENT, kFragHlslDx12, "PSMain");
             } else if (mApi == NkGraphicsApi::NK_GFX_API_VULKAN) {

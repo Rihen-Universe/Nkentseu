@@ -5,7 +5,7 @@
 
 // Keep platform/windowing macros available before optional GLAD includes.
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 
 #if defined(__has_include)
 #   if defined(NKENTSEU_PLATFORM_WINDOWS)
@@ -70,7 +70,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
-#include "NKWindow/Core/NkSystem.h"
+#include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkWindowEvent.h"
 #include "NKMath/NkFunctions.h"
 #include "NKTime/NkChrono.h"
@@ -238,7 +238,7 @@ void RunLoop(NkWindow& win, NkIGraphicsContext* ctx, LoopCtx& lc,
              OnFrameFn&& onFrame,
              int maxFrames = 0)
 {
-    auto& events = NkSystem::Events();
+    auto& events = NkWESystem::Events();
     NkElapsedTime prev = NkChrono::Now();
     int frames = 0;
     
@@ -1935,8 +1935,8 @@ static void DemoAutoAPI(const NkEntryState&) {
 
     const NkGraphicsApi fallbackOrder[] = {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        NkGraphicsApi::NK_GFX_API_D3D12,
-        NkGraphicsApi::NK_GFX_API_D3D11,
+        NkGraphicsApi::NK_GFX_API_DX12,
+        NkGraphicsApi::NK_GFX_API_DX11,
 #endif
 #if defined(NKENTSEU_PLATFORM_MACOS)
         NkGraphicsApi::NK_GFX_API_METAL,

@@ -5,7 +5,7 @@
 
 #include "NKWindow/Core/NkContext.h"
 #include "NKWindow/Core/NkEvent.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKEvent/NkWindowEvent.h"
 #include "NKLogger/NkLog.h"

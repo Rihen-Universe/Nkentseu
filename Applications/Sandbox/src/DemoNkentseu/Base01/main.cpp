@@ -5,11 +5,11 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkContext.h"
-#include "NKWindow/Core/NkSystem.h"
+#include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventDispatcher.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkGamepadSystem.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKContext/Deprecate/NkRenderer.h"
 #include "NKContext/Deprecate/NkRendererConfig.h"
 #include "NKTime/NkChrono.h"

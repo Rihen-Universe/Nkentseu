@@ -45,7 +45,7 @@
 
 // ── Plateforme ────────────────────────────────────────────────────────────────
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -967,8 +967,8 @@ struct alignas(16) SceneUBO {
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (nk_size i = 1; i < args.Size(); ++i) {
         if (args[i] == "--backend=vulkan"  || args[i] == "-bvk")   return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_GFX_API_DX11;
+        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_GFX_API_DX12;
     }
     return NkGraphicsApi::NK_GFX_API_OPENGL;
 }
