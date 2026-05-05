@@ -12,7 +12,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -230,8 +230,8 @@ static void MulMV(const float m[16],float x,float y,float z,float w,
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (usize i = 1; i < args.Size(); i++) {
         if (args[i] == "--backend=vulkan"  || args[i] == "-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11") return NkGraphicsApi::NK_GFX_API_DX11;
+        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12") return NkGraphicsApi::NK_GFX_API_DX12;
         if (args[i] == "--backend=metal"   || args[i] == "-bmtl")  return NkGraphicsApi::NK_GFX_API_METAL;
         if (args[i] == "--backend=sw"      || args[i] == "-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
         if (args[i] == "--backend=opengl"  || args[i] == "-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;
@@ -242,8 +242,8 @@ static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
 static const char* ApiName(NkGraphicsApi a) {
     switch(a){
         case NkGraphicsApi::NK_GFX_API_VULKAN:     return "Vulkan";
-        case NkGraphicsApi::NK_GFX_API_D3D11:  return "DX11";
-        case NkGraphicsApi::NK_GFX_API_D3D12:  return "DX12";
+        case NkGraphicsApi::NK_GFX_API_DX11:  return "DX11";
+        case NkGraphicsApi::NK_GFX_API_DX12:  return "DX12";
         case NkGraphicsApi::NK_GFX_API_METAL:      return "Metal";
         case NkGraphicsApi::NK_GFX_API_SOFTWARE:   return "Software";
         case NkGraphicsApi::NK_GFX_API_OPENGL:     return "OpenGL";
@@ -319,7 +319,7 @@ static NkShaderHandle MakeCubeShader(NkIDevice* dev, NkGraphicsApi api) {
         sd.AddSPIRV(NkShaderStage::NK_FRAGMENT,
                     kVkImgSaveCubeFragSpv,
                     (uint64)kVkImgSaveCubeFragSpvWordCount * sizeof(uint32));
-    } else if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_CubeVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_CubePS, "PSMain");
     } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
@@ -344,7 +344,7 @@ static NkShaderHandle MakeQuadShader(NkIDevice* dev, NkGraphicsApi api) {
         sd.AddSPIRV(NkShaderStage::NK_FRAGMENT,
                     kVkImgSaveQuadFragSpv,
                     (uint64)kVkImgSaveQuadFragSpvWordCount * sizeof(uint32));
-    } else if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_QuadVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_QuadPS, "PSMain");
     } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
@@ -369,7 +369,7 @@ static NkShaderHandle MakeOverlayShader(NkIDevice* dev, NkGraphicsApi api) {
         sd.AddSPIRV(NkShaderStage::NK_FRAGMENT,
                     kVkImgSaveOverlayFragSpv,
                     (uint64)kVkImgSaveOverlayFragSpvWordCount * sizeof(uint32));
-    } else if (api == NkGraphicsApi::NK_GFX_API_D3D11 || api == NkGraphicsApi::NK_GFX_API_D3D12) {
+    } else if (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12) {
         sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_OverlayVS, "VSMain");
         sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_OverlayPS, "PSMain");
     } else if (api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {

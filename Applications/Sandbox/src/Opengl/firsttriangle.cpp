@@ -4,8 +4,8 @@
 // Chaque bouton allume son rectangle. Les sticks affichent aussi leur position.
 // =============================================================================
 
-#include "NKWindow/NkWindow.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKWindow.h"
+#include "NKWindow/NKMain.h"
 
 #include "NKLogger/NkLog.h"
 

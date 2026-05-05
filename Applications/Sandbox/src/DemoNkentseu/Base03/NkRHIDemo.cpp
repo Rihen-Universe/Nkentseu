@@ -10,7 +10,7 @@
 
 // ── Détection plateforme avant tout le reste ──────────────────────────────────
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKMath/NKMath.h"
 #include "NKMath/NkAngle.h"
 #include "NKTime/NkTime.h"

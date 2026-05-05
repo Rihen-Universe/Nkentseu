@@ -21,7 +21,7 @@
 //   • Capture de frame (screenshot)
 // =============================================================================
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -74,11 +74,11 @@ static NkGraphicsApi ParseBackend(const NkVector<NkString>& args, bool& explicit
         }
         if (a == "--backend=dx11" || a == "--api=dx11" || a == "-bdx11") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_GFX_API_D3D11;
+            return NkGraphicsApi::NK_GFX_API_DX11;
         }
         if (a == "--backend=dx12" || a == "--api=dx12" || a == "-bdx12") {
             explicitBackend = true;
-            return NkGraphicsApi::NK_GFX_API_D3D12;
+            return NkGraphicsApi::NK_GFX_API_DX12;
         }
         if (a == "--backend=metal" || a == "--api=metal" || a == "-bmtl") {
             explicitBackend = true;
@@ -114,8 +114,8 @@ static NkIDevice* CreateDeviceWithBackendFallback(const NkDeviceInitInfo& info,
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     return NkDeviceFactory::CreateWithFallback(info, {
         NkGraphicsApi::NK_GFX_API_OPENGL,
-        NkGraphicsApi::NK_GFX_API_D3D12,
-        NkGraphicsApi::NK_GFX_API_D3D11,
+        NkGraphicsApi::NK_GFX_API_DX12,
+        NkGraphicsApi::NK_GFX_API_DX11,
         NkGraphicsApi::NK_GFX_API_VULKAN,
         NkGraphicsApi::NK_GFX_API_SOFTWARE
     });

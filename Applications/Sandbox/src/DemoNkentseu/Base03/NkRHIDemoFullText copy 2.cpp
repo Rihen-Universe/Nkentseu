@@ -22,7 +22,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -565,8 +565,8 @@ static NkVector<Vtx3D> MakePlane(float sz=3.f,
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i = 1; i < args.Size(); i++) {
         if (args[i] == "--backend=vulkan"  || args[i] == "-bvk")   return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11")  return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12")  return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i] == "--backend=dx11"    || args[i] == "-bdx11")  return NkGraphicsApi::NK_GFX_API_DX11;
+        if (args[i] == "--backend=dx12"    || args[i] == "-bdx12")  return NkGraphicsApi::NK_GFX_API_DX12;
         if (args[i] == "--backend=metal"   || args[i] == "-bmtl")   return NkGraphicsApi::NK_GFX_API_METAL;
         if (args[i] == "--backend=sw"      || args[i] == "-bsw")    return NkGraphicsApi::NK_GFX_API_SOFTWARE;
         if (args[i] == "--backend=opengl"  || args[i] == "-bgl")    return NkGraphicsApi::NK_GFX_API_OPENGL;
@@ -706,8 +706,8 @@ static bool SaveSoftwareScene(NkSoftwareDevice* swDev,
 static NkShaderDesc MakeShaderDesc(NkGraphicsApi api) {
     NkShaderDesc sd; sd.debugName = "Phong3D";
     switch (api) {
-        case NkGraphicsApi::NK_GFX_API_D3D11:
-        case NkGraphicsApi::NK_GFX_API_D3D12:
+        case NkGraphicsApi::NK_GFX_API_DX11:
+        case NkGraphicsApi::NK_GFX_API_DX12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_VS,  "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_PS,  "PSMain");
             break;
@@ -734,8 +734,8 @@ static NkShaderDesc MakeShaderDesc(NkGraphicsApi api) {
 static NkShaderDesc MakeShadowShaderDesc(NkGraphicsApi api) {
     NkShaderDesc sd; sd.debugName = "ShadowDepth";
     switch (api) {
-        case NkGraphicsApi::NK_GFX_API_D3D11:
-        case NkGraphicsApi::NK_GFX_API_D3D12:
+        case NkGraphicsApi::NK_GFX_API_DX11:
+        case NkGraphicsApi::NK_GFX_API_DX12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kHLSL_ShadowVert);
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kHLSL_ShadowFrag);
             break;
@@ -931,8 +931,8 @@ static void Billboard3DMVP(const NkVec3f& worldPos, float worldW, float worldH,
 static NkShaderDesc MakeTextShaderDesc(NkGraphicsApi api) {
     NkShaderDesc sd; sd.debugName="Text2D3D";
     switch (api) {
-        case NkGraphicsApi::NK_GFX_API_D3D11:
-        case NkGraphicsApi::NK_GFX_API_D3D12:
+        case NkGraphicsApi::NK_GFX_API_DX11:
+        case NkGraphicsApi::NK_GFX_API_DX12:
             sd.AddHLSL(NkShaderStage::NK_VERTEX,  kHLSL_TextVS, "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT, kHLSL_TextPS, "PSMain");
             break;
@@ -1060,8 +1060,8 @@ int nkmain(const NkEntryState& state) {
     // ── Constantes NDC ──────────────────────────────────────────────────────
     const bool depthZeroToOne =
         targetApi == NkGraphicsApi::NK_GFX_API_VULKAN    ||
-        targetApi == NkGraphicsApi::NK_GFX_API_D3D11 ||
-        targetApi == NkGraphicsApi::NK_GFX_API_D3D12 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_DX11 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_DX12 ||
         targetApi == NkGraphicsApi::NK_GFX_API_METAL;
     const float ndcZScale  = depthZeroToOne ? 1.0f : 0.5f;
     const float ndcZOffset = depthZeroToOne ? 0.0f : 0.5f;
@@ -1089,8 +1089,8 @@ int nkmain(const NkEntryState& state) {
     const bool shaderNeedsShadowSampler =
         targetApi == NkGraphicsApi::NK_GFX_API_OPENGL    ||
         targetApi == NkGraphicsApi::NK_GFX_API_VULKAN    ||
-        targetApi == NkGraphicsApi::NK_GFX_API_D3D11 ||
-        targetApi == NkGraphicsApi::NK_GFX_API_D3D12;
+        targetApi == NkGraphicsApi::NK_GFX_API_DX11 ||
+        targetApi == NkGraphicsApi::NK_GFX_API_DX12;
     const bool wantsShadowResources =
         shaderNeedsShadowSampler ||
         targetApi == NkGraphicsApi::NK_GFX_API_SOFTWARE;
@@ -1640,7 +1640,7 @@ int nkmain(const NkEntryState& state) {
             // que matProj est correct. On flip le billboard uniquement pour les
             // backends qui ont nativement le clip-Y inversé (Vulkan, DX12).
             const bool flipBillY = (targetApi==NkGraphicsApi::NK_GFX_API_VULKAN ||
-                                    targetApi==NkGraphicsApi::NK_GFX_API_D3D12);
+                                    targetApi==NkGraphicsApi::NK_GFX_API_DX12);
             float bbMVP[16];
             if (tqCube.vtxCount>0) {
                 Billboard3DMVP(NkVec3f(0,.9f,0),1.f,.25f,matView,matProj,flipBillY,bbMVP);

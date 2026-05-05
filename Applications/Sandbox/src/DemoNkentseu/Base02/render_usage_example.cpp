@@ -188,7 +188,7 @@ int main() {
     uint32 frameIndex = 0;
 
     while (window.IsOpen()) {
-        NkSystem::Events().PollEvents();
+        NkWESystem::Events().PollEvents();
 
         // Vérifier resize
         NkVec2u sz = window.GetSize();

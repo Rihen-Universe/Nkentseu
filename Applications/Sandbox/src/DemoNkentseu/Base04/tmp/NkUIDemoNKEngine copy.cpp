@@ -9,7 +9,7 @@
  */
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkMain.h"
+#include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -135,7 +135,7 @@ struct NkUIRHIRenderer {
         if (api == NkGraphicsApi::NK_GFX_API_OPENGL || api == NkGraphicsApi::NK_GFX_API_SOFTWARE) {
             sd.AddGLSL(NkShaderStage::NK_VERTEX,   kNkUI_Vert_GLSL);
             sd.AddGLSL(NkShaderStage::NK_FRAGMENT,  kNkUI_Frag_GLSL);
-        } else if (api==NkGraphicsApi::NK_GFX_API_D3D11||api==NkGraphicsApi::NK_GFX_API_D3D12) {
+        } else if (api==NkGraphicsApi::NK_GFX_API_DX11||api==NkGraphicsApi::NK_GFX_API_DX12) {
             sd.AddHLSL(NkShaderStage::NK_VERTEX,   kNkUI_Vert_HLSL, "VSMain");
             sd.AddHLSL(NkShaderStage::NK_FRAGMENT,  kNkUI_Frag_HLSL, "PSMain");
         }
@@ -296,8 +296,8 @@ struct NkUIRHIRenderer {
 static NkGraphicsApi ParseBackend(const NkVector<NkString>& args) {
     for (size_t i=1;i<args.Size();i++) {
         if (args[i]=="--backend=vulkan"  || args[i]=="-bvk")  return NkGraphicsApi::NK_GFX_API_VULKAN;
-        if (args[i]=="--backend=dx11"    || args[i]=="-bdx11") return NkGraphicsApi::NK_GFX_API_D3D11;
-        if (args[i]=="--backend=dx12"    || args[i]=="-bdx12") return NkGraphicsApi::NK_GFX_API_D3D12;
+        if (args[i]=="--backend=dx11"    || args[i]=="-bdx11") return NkGraphicsApi::NK_GFX_API_DX11;
+        if (args[i]=="--backend=dx12"    || args[i]=="-bdx12") return NkGraphicsApi::NK_GFX_API_DX12;
         if (args[i]=="--backend=metal"   || args[i]=="-bmtl")  return NkGraphicsApi::NK_GFX_API_METAL;
         if (args[i]=="--backend=sw"      || args[i]=="-bsw")   return NkGraphicsApi::NK_GFX_API_SOFTWARE;
         if (args[i]=="--backend=opengl"  || args[i]=="-bgl")   return NkGraphicsApi::NK_GFX_API_OPENGL;

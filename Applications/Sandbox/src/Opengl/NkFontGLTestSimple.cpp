@@ -13,7 +13,7 @@
 #include <string.h>
 #include "NKCore/NkCommon.h"
 #include "NKLogger/NkLogger.h"
-#include "NKWindow/NkWindow.h"
+#include "NKWindow/NKWindow.h"
 #include "NKRenderer/NkGraphicsContext.h"
 #include "NKWindow/NkNativeContext.h"
 #include "NKFont/Core/NkFontLibrary.h"

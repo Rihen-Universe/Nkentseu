@@ -954,16 +954,12 @@ namespace nkentseu {
 
             /// @brief Rectangles des boutons tactiles pour le hit-testing.
             struct TouchButtonRects {
-                // Bouton VALIDATION/ENTER (haut a gauche)
+                // Bouton VALIDATION/ENTER (gauche au centre-haut)
                 int enterX, enterY, enterW, enterH;
-                // Bouton BACK/ESCAPE (haut au centre)
+                // Bouton BACK/ESCAPE (centre au centre-haut)
                 int escapeX, escapeY, escapeW, escapeH;
-                // Bouton PAUSE (haut a droite)
+                // Bouton PAUSE (droite au centre-haut)
                 int pauseX, pauseY, pauseW, pauseH;
-                // Bouton UP (milieu bas, a gauche du centre)
-                int upX, upY, upW, upH;
-                // Bouton DOWN (milieu bas, a droite du centre)
-                int dnX, dnY, dnW, dnH;
             };
 
             /// @brief Calcule et retourne les coordonnees des boutons tactiles.
@@ -1268,8 +1264,18 @@ namespace nkentseu {
 
             // ── Touch (Android) ───────────────────────────────────────────────────────
 
-            /// @brief true = afficher les boutons tactiles UP/DOWN a l\'ecran.
+            /// @brief true = afficher les boutons tactiles pour Android.
             bool mShowTouchButtons = false;
+            
+            // ── Gestion des gestes tactiles pour le contrôle du paddle ──────────────
+            /// @brief Position Y initiale du toucher (pour détecter swipe up/down).
+            float mTouchStartY = -1.0f;
+            
+            /// @brief Position Y actuelle du toucher en cours.
+            float mTouchCurrentY = -1.0f;
+            
+            /// @brief true si un swipe est en cours (toucher actif).
+            bool mTouchInProgress = false;
 
             // ── Pointeur (souris / tactile) pour navigation menus ─────────────────────
 

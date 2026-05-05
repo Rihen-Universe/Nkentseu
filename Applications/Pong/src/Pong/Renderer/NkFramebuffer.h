@@ -14,7 +14,7 @@
 //   - Copie (CopyTo)       : memcpy (le compilateur utilise automatiquement rep movs / SSE)
 // =============================================================================
 
-#include "NKWindow/NkWindow.h"
+#include "NKWindow/NKWindow.h"
 #include "NKMath/NKMath.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkPlatform.h"

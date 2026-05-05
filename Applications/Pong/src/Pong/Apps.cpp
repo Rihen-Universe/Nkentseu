@@ -1,8 +1,8 @@
 // =============================================================================
 // Apps.cpp  –  Point d'entrée nkmain avec gestion complète des inputs
 // =============================================================================
-#include "NKWindow/Core/NkMain.h"
-#include "NKWindow/NkWindow.h"
+#include "NKWindow/NKMain.h"
+#include "NKWindow/NKWindow.h"
 #include "NKLogger/NkLog.h"
 #include "NKEvent/NkTouchEvent.h"
 #include "NKEvent/NkMouseEvent.h"

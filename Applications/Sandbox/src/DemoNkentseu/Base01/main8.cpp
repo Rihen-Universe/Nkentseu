@@ -6,8 +6,8 @@
 
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkContext.h"
-#include "NKWindow/Core/NkMain.h"
-#include "NKWindow/Core/NkSystem.h"
+#include "NKWindow/NKMain.h"
+#include "NKWindow/Core/NkWESystem.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkGamepadSystem.h"
 #include "NKContext/Factory/NkContextFactory.h"
