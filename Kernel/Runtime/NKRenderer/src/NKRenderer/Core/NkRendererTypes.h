@@ -91,12 +91,7 @@ namespace nkentseu {
             uint32   color;
         };
 
-        struct NkVertexSkinned {
-            NkVec3f  pos;
-            NkVec3f  normal;
-            NkVec3f  tangent;
-            NkVec2f  uv;
-            uint32   color;
+        struct NkVertexSkinned : NkVertex3D {
             uint8    boneIdx[4]    = {0,0,0,0};
             float32  boneWeight[4] = {1.f,0.f,0.f,0.f};
         };

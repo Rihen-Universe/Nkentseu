@@ -2,6 +2,7 @@
 // NkRendererImpl.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkRendererImpl.h"
+#include "NKLogger/NkLog.h"
 
 namespace nkentseu {
     namespace renderer {
@@ -137,7 +138,7 @@ namespace nkentseu {
             mTextures.Reset();
             mRenderGraph.Reset();
 
-            if (mSwapchain) { mDevice->DestroySwapchain(mSwapchain); mSwapchain=nullptr; }
+            if (mCmd) mDevice->DestroyCommandBuffer(mCmd);
 
             mInitialized = false;
         }
@@ -157,6 +158,12 @@ namespace nkentseu {
             uint32 h = mDevice->GetSwapchainHeight();
             if (w > 0) mCfg.width  = w;
             if (h > 0) mCfg.height = h;
+
+            mCmd = mDevice->CreateCommandBuffer(NkCommandBufferType::NK_GRAPHICS);
+            if (!mCmd || !mCmd->IsValid()) {
+                logger.Errorf("[NkRenderer] CommandBuffer fail\n");
+                return false;
+            }
 
             return true;
         }
@@ -216,21 +223,35 @@ namespace nkentseu {
         // ── Frame ──────────────────────────────────────────────────────────────────
         bool NkRendererImpl::BeginFrame() {
             if (!mInitialized) return false;
+            if (!mValid) return false;
             mStats.Reset();
             mFrameCtx = {};
-            return mDevice->BeginFrame(mFrameCtx);
+            if (!mDevice->BeginFrame(mFrameCtx)) return false;
+
+            // Auto-resize
+            uint32 sw=mDevice->GetSwapchainWidth(), sh=mDevice->GetSwapchainHeight();
+            if ((sw!=mWidth||sh!=mHeight)&&sw>0&&sh>0) OnResize(sw,sh);
+
+            // Flush matériaux dirty avant rendu
+            if (mMaterials) mMaterials->FlushDirty();
+
+            mCmd->Reset();
+            mCmd->Begin();
+            mInsideFrame = true;
+            return true;
         }
 
         void NkRendererImpl::EndFrame() {
             if (!mCmd) return;
-            mRenderGraph->Execute(mCmd);
-            mRenderGraph->Reset();
             mDevice->EndFrame(mFrameCtx);
             mCmd = nullptr;
         }
 
         void NkRendererImpl::Present() {
-            if (mCmd) mDevice->SubmitAndPresent(mCmd);
+            if (!mCmd) return;
+            mRenderGraph->Execute(mCmd);
+            mRenderGraph->Reset();
+            mDevice->SubmitAndPresent(mCmd);
         }
 
         void NkRendererImpl::OnResize(uint32 w, uint32 h) {
