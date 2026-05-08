@@ -9,75 +9,8 @@
 namespace nkentseu {
     namespace renderer {
 
-        // =========================================================================
-        // NkFrustum
-        // =========================================================================
-
-        // Gribb-Hartmann plane extraction (row-major VP matrix)
-        NkFrustum NkFrustum::FromViewProj(const NkMat4f& m) {
-            NkFrustum f;
-            // planes[i] = (nx, ny, nz, d), point inside when dot(n,p)+d >= 0
-
-            // Left
-            f.planes[0] = { m[0][3]+m[0][0], m[1][3]+m[1][0], m[2][3]+m[2][0], m[3][3]+m[3][0] };
-            // Right
-            f.planes[1] = { m[0][3]-m[0][0], m[1][3]-m[1][0], m[2][3]-m[2][0], m[3][3]-m[3][0] };
-            // Bottom
-            f.planes[2] = { m[0][3]+m[0][1], m[1][3]+m[1][1], m[2][3]+m[2][1], m[3][3]+m[3][1] };
-            // Top
-            f.planes[3] = { m[0][3]-m[0][1], m[1][3]-m[1][1], m[2][3]-m[2][1], m[3][3]-m[3][1] };
-            // Near
-            f.planes[4] = { m[0][3]+m[0][2], m[1][3]+m[1][2], m[2][3]+m[2][2], m[3][3]+m[3][2] };
-            // Far
-            f.planes[5] = { m[0][3]-m[0][2], m[1][3]-m[1][2], m[2][3]-m[2][2], m[3][3]-m[3][2] };
-
-            // Normalize
-            for (int i = 0; i < 6; ++i) {
-                float len = sqrtf(f.planes[i].x*f.planes[i].x +
-                                f.planes[i].y*f.planes[i].y +
-                                f.planes[i].z*f.planes[i].z);
-                if (len > 1e-7f) {
-                    f.planes[i].x /= len;
-                    f.planes[i].y /= len;
-                    f.planes[i].z /= len;
-                    f.planes[i].w /= len;
-                }
-            }
-            return f;
-        }
-
-        bool NkFrustum::TestAABB(const NkAABB& b) const noexcept {
-            for (int i = 0; i < 6; ++i) {
-                const NkVec4f& p = planes[i];
-                // Positive vertex — maximize dot with normal
-                NkVec3f pv = {
-                    p.x >= 0.f ? b.max.x : b.min.x,
-                    p.y >= 0.f ? b.max.y : b.min.y,
-                    p.z >= 0.f ? b.max.z : b.min.z
-                };
-                if (p.x*pv.x + p.y*pv.y + p.z*pv.z + p.w < 0.f)
-                    return false; // outside this plane
-            }
-            return true;
-        }
-
-        bool NkFrustum::TestSphere(NkVec3f c, float32 r) const noexcept {
-            for (int i = 0; i < 6; ++i) {
-                const NkVec4f& p = planes[i];
-                if (p.x*c.x + p.y*c.y + p.z*c.z + p.w < -r)
-                    return false;
-            }
-            return true;
-        }
-
-        bool NkFrustum::TestPoint(NkVec3f pt) const noexcept {
-            for (int i = 0; i < 6; ++i) {
-                const NkVec4f& p = planes[i];
-                if (p.x*pt.x + p.y*pt.y + p.z*pt.z + p.w < 0.f)
-                    return false;
-            }
-            return true;
-        }
+        // (NkFrustum est defini inline dans Core/NkRendererTypes.h —
+        //  FromViewProj / TestAABB / TestSphere / TestPoint y sont implementees.)
 
         // =========================================================================
         // NkCullingSystem

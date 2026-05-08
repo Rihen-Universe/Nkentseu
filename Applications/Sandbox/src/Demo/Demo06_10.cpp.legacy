@@ -15,7 +15,7 @@ namespace demo {
     bool Demo06_VFX::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                             uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.width=w; cfg.height=h;
         mRenderer = NkRenderer::Create(device, surface, cfg);
         if (!mRenderer) return false;
@@ -170,7 +170,7 @@ namespace demo {
     bool Demo07_Offscreen::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                                   uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.width=w; cfg.height=h;
         mRenderer = NkRenderer::Create(device, surface, cfg);
         if (!mRenderer) return false;
@@ -239,7 +239,7 @@ namespace demo {
         r3d->BeginScene(ctx);
 
         NkDrawCall3D dc; dc.mesh=mMeshScene;
-        dc.transform=NkMat4f::RotateY(mAngle)*NkMat4f::Scale({1.5f,1.5f,1.5f});
+        dc.transform=NkMat4f::RotationY(NkAngle::FromRad(mAngle))*NkMat4f::Scale({1.5f,1.5f,1.5f});
         dc.aabb={{-0.8f,-0.8f,-0.8f},{0.8f,0.8f,0.8f}};
         r3d->Submit(dc);
         r3d->DrawDebugGrid({0,0,0},1.f,10,{0.2f,0.2f,0.2f,1.f});
@@ -276,7 +276,7 @@ namespace demo {
     bool Demo08_PV3DE::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                               uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForFilm(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForFilm(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.width=w; cfg.height=h;
         cfg.postProcess.ssao=true; cfg.postProcess.bloom=true;
         mRenderer = NkRenderer::Create(device, surface, cfg);
@@ -381,10 +381,10 @@ namespace demo {
         }
 
         // Animation head-bob subtile
-        mBones[0]=NkMat4f::Translate({0,1.5f,0})*NkMat4f::RotateY(sinf(mTime*0.5f)*0.05f);
+        mBones[0]=NkMat4f::Translate({0,1.5f,0})*NkMat4f::RotationY(NkAngle::FromRad(sinf(mTime*0.5f)*0.05f));
         mBones[1]=mBones[0]*NkMat4f::Translate({0,0.2f,0});
         mBones[2]=mBones[1]*NkMat4f::Translate({0,0.1f,0});
-        mBones[3]=mBones[0]*NkMat4f::RotateX(sinf(mTime*0.3f)*0.03f);
+        mBones[3]=mBones[0]*NkMat4f::RotationX(NkAngle::FromRad(sinf(mTime*0.3f)*0.03f));
 
         NkCamera3DData cam; cam.position={0,1.5f,0.6f}; cam.target={0,1.5f,0};
         mRenderer->GetVFX()->Update(dt, cam);
@@ -476,7 +476,7 @@ namespace demo {
     bool Demo09_MultiVP::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                                 uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForEditor(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForEditor(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.width=w; cfg.height=h;
         mRenderer = NkRenderer::Create(device, surface, cfg);
         if (!mRenderer) return false;
@@ -543,7 +543,7 @@ namespace demo {
 
             // Objet central
             NkDrawCall3D dc; dc.mesh=mMeshScene;
-            dc.transform=NkMat4f::RotateY(mTime*0.5f)*NkMat4f::Scale({0.8f,0.8f,0.8f});
+            dc.transform=NkMat4f::RotationY(NkAngle::FromRad(mTime*0.5f))*NkMat4f::Scale({0.8f,0.8f,0.8f});
             dc.aabb={{-0.5f,-0.5f,-0.5f},{0.5f,0.5f,0.5f}};
             r3d->Submit(dc);
 
@@ -599,7 +599,7 @@ namespace demo {
     bool Demo10_NkSL::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                              uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.width=w; cfg.height=h;
         mRenderer = NkRenderer::Create(device, surface, cfg);
         if (!mRenderer) return false;
@@ -691,7 +691,7 @@ namespace demo {
         r3d->BeginScene(ctx);
 
         NkDrawCall3D dc; dc.mesh=mMesh;
-        dc.transform=NkMat4f::RotateY(mTime*0.4f)*NkMat4f::Scale({1.2f,1.2f,1.2f});
+        dc.transform=NkMat4f::RotationY(NkAngle::FromRad(mTime*0.4f))*NkMat4f::Scale({1.2f,1.2f,1.2f});
         dc.aabb={{-0.7f,-0.7f,-0.7f},{0.7f,0.7f,0.7f}};
         r3d->Submit(dc);
 

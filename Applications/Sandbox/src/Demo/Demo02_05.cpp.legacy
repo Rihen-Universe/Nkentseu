@@ -11,7 +11,7 @@ namespace demo {
     bool Demo02_Game2D::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                                uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::For2D(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::For2D(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         mRenderer = NkRenderer::Create(device, surface, cfg);
         if (!mRenderer) return false;
 
@@ -113,7 +113,7 @@ namespace demo {
     bool Demo03_Film::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                              uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForFilm(NkGraphicsApi::NK_VULKAN, w, h);
+        auto cfg = NkRendererConfig::ForFilm(NkGraphicsApi::NK_GFX_API_VULKAN, w, h);
         // Réduire pour la démo (4K → 1920)
         cfg.width=w; cfg.height=h;
         mRenderer = NkRenderer::Create(device, surface, cfg);
@@ -191,7 +191,7 @@ namespace demo {
     bool Demo04_Archviz::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                                 uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForArchviz(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForArchviz(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.width=w; cfg.height=h;
         mRenderer = NkRenderer::Create(device, surface, cfg);
         if (!mRenderer) return false;
@@ -207,11 +207,16 @@ namespace demo {
         mMatWall->SetAlbedo({0.92f,0.90f,0.88f})->SetRoughness(0.8f);
 
         // Verre fenêtre
-        mMatGlass = matSys->CreateInstance(
-            matSys->RegisterTemplate({NkMaterialType::NK_GLASS,"Glass",
-                                       NkRenderQueue::NK_TRANSPARENT,
-                                       NkBlendMode::NK_ALPHA}));
-        mMatGlass->SetAlbedo({0.8f,0.9f,1.f,0.2f})->SetRoughness(0.05f)->SetMetallic(0.f);
+        {
+            NkMaterialTemplateDesc glassDesc;
+            glassDesc.type      = NkMaterialType::NK_GLASS;
+            glassDesc.name      = "Glass";
+            glassDesc.queue     = NkRenderQueue::NK_TRANSPARENT;
+            glassDesc.blendMode = NkBlendMode::NK_ALPHA;
+            glassDesc.doubleSided = true;
+            mMatGlass = matSys->CreateInstance(matSys->RegisterTemplate(glassDesc));
+        }
+        mMatGlass->SetAlbedo({0.8f,0.9f,1.f}, 0.2f)->SetRoughness(0.05f)->SetMetallic(0.f);
 
         mHDRI = texLib->LoadHDR("assets/hdri/interior_workshop_4k.hdr");
         return true;
@@ -258,7 +263,7 @@ namespace demo {
     bool Demo05_Animation::Init(NkIDevice* device, const NkSurfaceDesc& surface,
                                   uint32 w, uint32 h) {
         mWidth=w; mHeight=h;
-        auto cfg = NkRendererConfig::ForEditor(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForEditor(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.width=w; cfg.height=h;
         mRenderer = NkRenderer::Create(device, surface, cfg);
         if (!mRenderer) return false;
@@ -291,14 +296,13 @@ namespace demo {
         for (uint32 i=0;i<mBoneCount;i++) {
             float32 a = mAnimTime * (1.f + i*0.3f);
             NkVec3f pos = {(float32)i*0.15f, (float32)i*0.2f, 0};
-            mBones[i] = NkMat4f::Translate(pos) * NkMat4f::RotateY(a*0.5f);
+            mBones[i] = NkMat4f::Translate(pos) * NkMat4f::RotationY(NkAngle::FromRad(a*0.5f));
         }
     }
 
     void Demo05_Animation::Render() {
         if (!mRenderer->BeginFrame()) return;
 
-        auto* anim = mRenderer->GetAnimation();
         auto* r3d  = mRenderer->GetRender3D();
 
         NkCamera3DData cam;
@@ -312,38 +316,21 @@ namespace demo {
         ctx.camera=NkCamera3D(cam); ctx.lights.PushBack(l); ctx.time=mTime;
         r3d->BeginScene(ctx);
 
-        // ── Onion skinning (6 fantômes) ──────────────────────────────────────
-        if (mShowOnion && mMeshChar.IsValid()) {
-            int32 offsets[6] = {-3,-2,-1,1,2,3};
-
-            auto getBones = [this](int32 frame, NkMat4f* out, uint32 count) {
-                // Simuler les bones au frame donné
-                float32 t = frame / 30.f;
-                for (uint32 i=0;i<count;i++) {
-                    float32 a = t * (1.f + i*0.3f);
-                    NkVec3f pos={i*0.15f,(float32)i*0.2f,0};
-                    out[i] = NkMat4f::Translate(pos) * NkMat4f::RotateY(a*0.5f);
-                }
-            };
-
-            anim->SubmitOnionSkin(mMeshChar, {},
-                                   NkMat4f::Identity(), mBoneCount,
-                                   mCurrentFrame, offsets, 6,
-                                   getBones,
-                                   {1.f,0.3f,0.3f,0.4f},
-                                   {0.3f,0.3f,1.f,0.4f});
+        // ── Mesh principal ────────────────────────────────────────────────────
+        if (mMeshChar.IsValid()) {
+            NkDrawCall3D dc;
+            dc.mesh      = mMeshChar;
+            dc.material  = {};
+            dc.transform = NkMat4f::Identity();
+            dc.aabb      = {{-0.5f, 0, -0.5f}, {0.5f, 2.f, 0.5f}};
+            r3d->Submit(dc);
         }
 
-        // ── Mesh principal skinné ─────────────────────────────────────────────
-        if (mMeshChar.IsValid())
-            anim->SubmitSkinnedMesh(mMeshChar, {},
-                                     NkMat4f::Identity(),
-                                     mBones.Data(), mBoneCount);
-
         // ── Squelette debug ───────────────────────────────────────────────────
-        if (mShowSkeleton)
-            anim->DrawSkeleton(mBones.Data(), mBoneCount, mParents,
-                                {1.f,0.8f,0.f,1.f}, 0.04f);
+        if (mShowSkeleton) {
+            for (uint32 i = 0; i < mBoneCount; i++)
+                r3d->DrawDebugAxes(mBones[i], 0.08f);
+        }
 
         r3d->DrawDebugAxes(NkMat4f::Identity(), 0.5f);
         r3d->DrawDebugGrid({0,0,0}, 0.5f, 10, {0.25f,0.25f,0.25f,1.f});

@@ -3,7 +3,6 @@
 // Rendu PBR 3D : sphères métalliques, sol réfléchissant, lumières, ombres.
 // =============================================================================
 #include "Demo.h"
-#include "../Core/NkCamera.h"
 #include <cmath>
 
 namespace nkentseu {
@@ -15,7 +14,7 @@ namespace demo {
         mWidth = w; mHeight = h;
 
         // ── Créer le renderer avec preset Game ────────────────────────────────
-        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_OPENGL, w, h);
+        auto cfg = NkRendererConfig::ForGame(NkGraphicsApi::NK_GFX_API_OPENGL, w, h);
         cfg.shadow.enabled    = true;
         cfg.postProcess.ssao  = true;
         cfg.postProcess.bloom = true;
@@ -155,7 +154,7 @@ namespace demo {
             dc.material  = {};
             float32 y    = 0.5f + sinf(mTime * 1.5f) * 0.2f;
             dc.transform = NkMat4f::Translate({0, y, 0}) *
-                           NkMat4f::RotateY(mTime * 0.8f) *
+                           NkMat4f::RotationY(NkAngle::FromRad(mTime * 0.8f)) *
                            NkMat4f::Scale({0.6f,0.6f,0.6f});
             dc.aabb      = {{-0.35f,0.1f,-0.35f},{0.35f,0.9f,0.35f}};
             r3d->Submit(dc);

@@ -90,25 +90,65 @@ namespace
 // Remet le score a zero, repositionne les raquettes, regenere les obstacles
 // et place le jeu sur l\'ecran MainMenu.
 // Doit etre rappele apres chaque redimensionnement de fenetre.
+
+// ── ComputeFieldY ─────────────────────────────────────────────────────────────
+// Calcule la hauteur de la barre HUD (= Y du debut du terrain de jeu).
+// La barre HUD occupe la totalite de la largeur de l'ecran en haut.
+// Hauteur minimale : 64 px. Sur grand ecran (H>600) elle s'adapte a 9%.
+static float ComputeFieldY(uint32_t H, bool hasAndroidButtons)
+{
+    float base  = static_cast<float>(H) * 0.085f;
+    float minH  = hasAndroidButtons ? 72.0f : 56.0f;
+    float maxH  = 120.0f;
+    if (base < minH) base = minH;
+    if (base > maxH) base = maxH;
+    return base;
+}
+
+
+// ── SetupPaddlesForOrientation ────────────────────────────────────────────────
+// Configure les dimensions et positions initiales des raquettes selon
+// l'orientation courante de l'ecran.
+//   Paysage : raquettes verticales (gauche / droite)
+//   Portrait : raquettes horizontales (bas joueur / haut IA sous la barre HUD)
+// Toujours en mode paysage : raquettes verticales gauche/droite
+// avec marges symetriques (fieldX = marge gauche et droite).
+static void SetupPaddlesForOrientation(
+    Paddle& player, Paddle& ai,
+    uint32_t W, uint32_t H, float fieldX, float fieldY)
+{
+    // fH = hauteur de la zone de jeu (marges haut ET bas = fieldY chacune)
+    float fH = static_cast<float>(H) - 2.0f * fieldY;
+
+    player.w = 12.0f;
+    player.h = 90.0f;
+    player.x = fieldX + 8.0f;                                     // pres du bord gauche du terrain
+    player.y = fieldY + fH * 0.5f - player.h * 0.5f;             // centre vertical
+
+    ai.w = 12.0f;
+    ai.h = 90.0f;
+    ai.x = static_cast<float>(W) - fieldX - 8.0f - ai.w;         // pres du bord droit du terrain
+    ai.y = fieldY + fH * 0.5f - ai.h * 0.5f;
+}
+
 void PongGame::Init()
 {
     // Recuperer les dimensions courantes du renderer
     uint32_t W = mRenderer.Width();
     uint32_t H = mRenderer.Height();
 
-    // Configurer la raquette du joueur (cote gauche)
-    mPlayer.x     = 20.0f;
-    mPlayer.y     = static_cast<float>(H) * 0.5f - mPlayer.h * 0.5f;
-    mPlayer.color = gamecolors::Player();
-    mPlayer.isLeft = true;
-    mPlayer.score = 0;
+    // Calculer la hauteur de la barre HUD (= debut du terrain)
+    mFieldY = ComputeFieldY(H, mShowTouchButtons);
+    mFieldX = mFieldY;  // Marges symetriques
 
-    // Configurer la raquette de l\'IA (cote droit)
-    mAI.x     = static_cast<float>(W) - 20.0f - mAI.w;
-    mAI.y     = static_cast<float>(H) * 0.5f - mAI.h * 0.5f;
-    mAI.color = gamecolors::AI();
-    mAI.isLeft = false;
-    mAI.score = 0;
+    // Configurer les raquettes selon l'orientation
+    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY);
+    mPlayer.color  = gamecolors::Player();
+    mPlayer.isLeft = true;
+    mPlayer.score  = 0;
+    mAI.color      = gamecolors::AI();
+    mAI.isLeft     = false;
+    mAI.score      = 0;
 
     // Generer les obstacles selon le preset courant
     SpawnObstacles();
@@ -134,6 +174,10 @@ void PongGame::OnResize()
     uint32_t W = mRenderer.Width();
     uint32_t H = mRenderer.Height();
 
+    // Recalculer la barre HUD
+    mFieldY = ComputeFieldY(H, mShowTouchButtons);
+    mFieldX = mFieldY;  // Marges symetriques
+
     // Sauvegarder les donnees persistantes avant repositionnement
     int playerScore = mPlayer.score;
     int aiScore     = mAI.score;
@@ -150,39 +194,14 @@ void PongGame::OnResize()
     {
         playerYRatio = mPlayer.y / static_cast<float>(mRenderer.Height());
     }
-    mPlayer.x = 20.0f;
-    mPlayer.y = static_cast<float>(H) * playerYRatio;
-    if (mPlayer.y + mPlayer.h > static_cast<float>(H))
-    {
-        mPlayer.y = static_cast<float>(H) - mPlayer.h;
-    }
-    if (mPlayer.y < 0.0f)
-    {
-        mPlayer.y = 0.0f;
-    }
+    // Repositionner selon la nouvelle orientation
+    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY);
     mPlayer.score = playerScore;
-
-    // Repositionner la raquette de l\'IA en gardant la proportion verticale
-    float aiYRatio = 0.5f;
-    if (H > 0.0f)
-    {
-        aiYRatio = mAI.y / static_cast<float>(mRenderer.Height());
-    }
-    mAI.x = static_cast<float>(W) - 20.0f - mAI.w;
-    mAI.y = static_cast<float>(H) * aiYRatio;
-    if (mAI.y + mAI.h > static_cast<float>(H))
-    {
-        mAI.y = static_cast<float>(H) - mAI.h;
-    }
-    if (mAI.y < 0.0f)
-    {
-        mAI.y = 0.0f;
-    }
-    mAI.score = aiScore;
+    mAI.score     = aiScore;
 
     // Replacer la balle au centre si elle est hors du nouveau terrain
-    if (mBall.x < 0.0f || mBall.x > static_cast<float>(W) ||
-        mBall.y < 0.0f || mBall.y > static_cast<float>(H))
+    if (mBall.x < mFieldX || mBall.x > static_cast<float>(W) - mFieldX ||
+        mBall.y < mFieldY || mBall.y > static_cast<float>(H) - mFieldY)
     {
         ResetBall(true);
     }
@@ -214,12 +233,9 @@ void PongGame::StartGame()
     uint32_t W = mRenderer.Width();
     uint32_t H = mRenderer.Height();
 
-    // Repositionner les raquettes et remettre les scores a zero
-    mPlayer.x     = 20.0f;
-    mPlayer.y     = static_cast<float>(H) * 0.5f - mPlayer.h * 0.5f;
+    // Repositionner selon l'orientation et remettre les scores a zero
+    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY);
     mPlayer.score = 0;
-    mAI.x         = static_cast<float>(W) - 20.0f - mAI.w;
-    mAI.y         = static_cast<float>(H) * 0.5f - mAI.h * 0.5f;
     mAI.score     = 0;
 
     // Appliquer la difficulte selectionnee aux parametres de l\'IA
@@ -274,18 +290,16 @@ void PongGame::StartGame()
 // Parametre leftServe : true = balle part vers la gauche (joueur sert).
 void PongGame::ResetBall(bool leftServe)
 {
-    // Calculer la position centrale du terrain
+    // Calculer la position centrale du terrain (dans la zone de jeu)
     float W   = static_cast<float>(mRenderer.Width());
     float H   = static_cast<float>(mRenderer.Height());
     float cx  = W * 0.5f;
-    float cy  = H * 0.5f;
+    float cy  = mFieldY + FieldH() * 0.5f;
 
-    // Generer un angle aleatoire pour la composante verticale
-    float angle = pongmath::RandF(mRng, -0.45f, 0.45f);
-
-    // Choisir la direction horizontale selon le service
-    float dx = leftServe ? 1.0f : -1.0f;
-    float dy = math::NkSin(angle);
+    // Direction paysage : balle part horizontalement avec legere variation verticale
+    float noise = pongmath::RandF(mRng, -0.35f, 0.35f);
+    float dx    = leftServe ? 1.0f : -1.0f;
+    float dy    = math::NkSin(noise);
 
     // Reinitialiser la vitesse a la valeur de base
     mBall.speed = Ball::BASE_SPEED;
@@ -348,15 +362,17 @@ void PongGame::SpawnObstacles_None()
 //          RandomDeflect a gauche, Magnetic au centre.
 void PongGame::SpawnObstacles_Classic()
 {
-    float W  = static_cast<float>(mRenderer.Width());
-    float H  = static_cast<float>(mRenderer.Height());
-    float cx = W * 0.5f;
+    float W   = static_cast<float>(mRenderer.Width());
+    float H   = static_cast<float>(mRenderer.Height());
+    float fH  = FieldH();   // Hauteur utile du terrain (sous la barre HUD)
+    float fY  = mFieldY;    // Y du haut du terrain
+    float cx  = W * 0.5f;
 
     // ── Obstacle 1 : SpeedBoost (haut-centre, mobile vertical) ───────────────
     {
         Obstacle o;
         o.x           = cx - 22.0f;
-        o.y           = H * 0.16f;
+        o.y           = fY + fH * 0.16f;
         o.w           = 44.0f;
         o.h           = 18.0f;
         o.effect      = ObstacleEffect::SpeedBoost;
@@ -375,7 +391,7 @@ void PongGame::SpawnObstacles_Classic()
     {
         Obstacle o;
         o.x         = cx - 22.0f;
-        o.y         = H * 0.72f;
+        o.y         = fY + fH * 0.72f;
         o.w         = 44.0f;
         o.h         = 18.0f;
         o.effect    = ObstacleEffect::SpeedReduce;
@@ -390,7 +406,7 @@ void PongGame::SpawnObstacles_Classic()
     {
         Obstacle o;
         o.x            = cx + 70.0f;
-        o.y            = H * 0.28f;
+        o.y            = fY + fH * 0.28f;
         o.w            = 14.0f;
         o.h            = 55.0f;
         o.effect       = ObstacleEffect::Redirect;
@@ -408,7 +424,7 @@ void PongGame::SpawnObstacles_Classic()
     {
         Obstacle o;
         o.x            = cx - 84.0f;
-        o.y            = H * 0.28f;
+        o.y            = fY + fH * 0.28f;
         o.w            = 14.0f;
         o.h            = 55.0f;
         o.effect       = ObstacleEffect::Redirect;
@@ -426,7 +442,7 @@ void PongGame::SpawnObstacles_Classic()
     {
         Obstacle o;
         o.x          = cx - 140.0f;
-        o.y          = H * 0.62f;
+        o.y          = fY + fH * 0.62f;
         o.w          = 22.0f;
         o.h          = 22.0f;
         o.effect     = ObstacleEffect::RandomDeflect;
@@ -441,7 +457,7 @@ void PongGame::SpawnObstacles_Classic()
     {
         Obstacle o;
         o.x           = cx - 10.0f;
-        o.y           = H * 0.5f - 10.0f;
+        o.y           = fY + fH * 0.5f - 10.0f;
         o.w           = 20.0f;
         o.h           = 20.0f;
         o.effect      = ObstacleEffect::Magnetic;
@@ -472,6 +488,8 @@ void PongGame::SpawnObstacles_Chaos()
     // Zones interdites : eviter les raquettes et les bords extremes
     float padX = 130.0f;
     float padY =  30.0f;
+    float fY  = mFieldY;
+    float fH  = FieldH();
 
     // Effets et couleurs disponibles pour le tirage aleatoire
     ObstacleEffect effects[] = {
@@ -499,7 +517,7 @@ void PongGame::SpawnObstacles_Chaos()
 
         // Position aleatoire dans la zone autorisee
         o.x = pongmath::RandF(rng, padX, W - padX - o.w);
-        o.y = pongmath::RandF(rng, padY, H - padY - o.h);
+        o.y = pongmath::RandF(rng, fY + padY, fY + fH - padY - o.h);
 
         // Vitesse aleatoire (50% des obstacles sont mobiles)
         bool moving = pongmath::RandF(rng, 0.0f, 1.0f) > 0.5f;
@@ -550,6 +568,8 @@ void PongGame::SpawnObstacles_Gauntlet()
 {
     float W      = static_cast<float>(mRenderer.Width());
     float H      = static_cast<float>(mRenderer.Height());
+    float fH     = FieldH();
+    float fY     = mFieldY;
     float margin = 120.0f;
     float obW    = 38.0f;
     float obH    = 16.0f;
@@ -567,7 +587,7 @@ void PongGame::SpawnObstacles_Gauntlet()
 
         Obstacle o;
         o.x         = margin + static_cast<float>(i) * (obW + spacing);
-        o.y         = H * 0.22f;
+        o.y         = fY + fH * 0.22f;
         o.w         = obW;
         o.h         = obH;
         o.effect    = ObstacleEffect::SpeedBoost;
@@ -583,7 +603,7 @@ void PongGame::SpawnObstacles_Gauntlet()
     {
         Obstacle o;
         o.x             = margin + offset2 + static_cast<float>(i) * (obW + spacing + 6.0f);
-        o.y             = H * 0.50f - (obH + 4.0f) * 0.5f;
+        o.y             = fY + fH * 0.50f - (obH + 4.0f) * 0.5f;
         o.w             = obW;
         o.h             = obH + 4.0f;
         o.effect        = ObstacleEffect::Redirect;
@@ -608,7 +628,7 @@ void PongGame::SpawnObstacles_Gauntlet()
 
         Obstacle o;
         o.x         = margin + static_cast<float>(i) * (obW + spacing);
-        o.y         = H * 0.78f;
+        o.y         = fY + fH * 0.78f;
         o.w         = obW;
         o.h         = obH;
         o.effect    = ObstacleEffect::SpeedReduce;
@@ -624,7 +644,7 @@ void PongGame::SpawnObstacles_Gauntlet()
     {
         Obstacle o;
         o.x          = W * 0.5f - 10.0f;
-        o.y          = H * 0.5f - 10.0f;
+        o.y          = fY + fH * 0.5f - 10.0f;
         o.w          = 20.0f;
         o.h          = 20.0f;
         o.effect     = ObstacleEffect::RandomDeflect;
@@ -645,12 +665,14 @@ void PongGame::SpawnObstacles_Portal()
 {
     float W = static_cast<float>(mRenderer.Width());
     float H = static_cast<float>(mRenderer.Height());
+    float fH = FieldH();
+    float fY = mFieldY;
 
     // Positions des 4 paires de portails (x1,y1) <-> (x2,y2)
     float px1[] = { W * 0.30f, W * 0.20f, W * 0.42f, W * 0.35f };
-    float py1[] = { H * 0.20f, H * 0.55f, H * 0.12f, H * 0.60f };
+    float py1[] = { fY+fH*0.20f, fY+fH*0.55f, fY+fH*0.12f, fY+fH*0.60f };
     float px2[] = { W * 0.65f, W * 0.72f, W * 0.52f, W * 0.60f };
-    float py2[] = { H * 0.75f, H * 0.30f, H * 0.82f, H * 0.18f };
+    float py2[] = { fY+fH*0.75f, fY+fH*0.30f, fY+fH*0.82f, fY+fH*0.18f };
 
     for (int p = 0; p < 4; ++p)
     {
@@ -692,7 +714,7 @@ void PongGame::SpawnObstacles_Portal()
     {
         Obstacle o;
         o.x          = W * 0.50f - 6.0f;
-        o.y          = H * 0.38f;
+        o.y          = fY + fH * 0.38f;
         o.w          = 12.0f;
         o.h          = 45.0f;
         o.effect     = ObstacleEffect::Redirect;
@@ -707,7 +729,7 @@ void PongGame::SpawnObstacles_Portal()
     {
         Obstacle o;
         o.x          = W * 0.38f;
-        o.y          = H * 0.50f;
+        o.y          = fY + fH * 0.50f;
         o.w          = 40.0f;
         o.h          = 12.0f;
         o.effect     = ObstacleEffect::RandomDeflect;
@@ -727,8 +749,10 @@ void PongGame::SpawnObstacles_Boss()
 {
     float W  = static_cast<float>(mRenderer.Width());
     float H  = static_cast<float>(mRenderer.Height());
+    float fH = FieldH();
+    float fY = mFieldY;
     float cx = W * 0.5f;
-    float cy = H * 0.5f;
+    float cy = fY + fH * 0.5f;
 
     // ── Aimant central (gros, mobile lentement) ───────────────────────────────
     {
@@ -749,7 +773,7 @@ void PongGame::SpawnObstacles_Boss()
 
     // ── Anneau de 6 obstacles en orbite ──────────────────────────────────────
     // Angles regulierement repartis (0, 60, 120, 180, 240, 300 degres)
-    float ringRadius = H * 0.25f;
+    float ringRadius = fH * 0.25f;
     float orbitSpeed = 45.0f;
 
     ObstacleEffect ringEffects[] = {
@@ -808,7 +832,7 @@ void PongGame::SpawnObstacles_Boss()
     {
         Obstacle o;
         o.x         = W * 0.22f;
-        o.y         = H * 0.22f;
+        o.y         = fY + fH * 0.22f;
         o.w         = 20.0f;
         o.h         = 20.0f;
         o.effect    = ObstacleEffect::Portal;
@@ -821,7 +845,7 @@ void PongGame::SpawnObstacles_Boss()
     {
         Obstacle o;
         o.x         = W * 0.72f;
-        o.y         = H * 0.72f;
+        o.y         = fY + fH * 0.72f;
         o.w         = 20.0f;
         o.h         = 20.0f;
         o.effect    = ObstacleEffect::Portal;
@@ -911,7 +935,7 @@ void PongGame::Update(float dt,
     case GameState::Playing:
         UpdateObstacles(dt);
         UpdateBall(dt);
-        UpdatePaddles(dt, upHeld, downHeld);
+        UpdatePaddles(dt, upHeld, downHeld, leftPressed, rightPressed);
         UpdateParticles(dt);
         // Decroissance de l\'ecran-secousse
         if (mShake > 0.0f)
@@ -1265,65 +1289,54 @@ void PongGame::UpdateBall(float dt)
 {
     mBall.Update(dt);
 
-    float W = static_cast<float>(mRenderer.Width());
-    float H = static_cast<float>(mRenderer.Height());
+    float W   = static_cast<float>(mRenderer.Width());
+    float H   = static_cast<float>(mRenderer.Height());
+    float fX  = mFieldX;
+    float fY  = mFieldY;
 
-    // ── Rebond sur le mur haut ────────────────────────────────────────────────
-    if (mBall.y - mBall.radius < 0.0f)
+    // ── Rebond mur haut (bord superieur du terrain) ───────────────────────────
+    if (mBall.y - mBall.radius < fY)
     {
-        mBall.y  = mBall.radius;
+        mBall.y  = fY + mBall.radius;
         mBall.vy = math::NkAbs(mBall.vy);
-        SpawnParticles(mBall.x, 0.0f, gamecolors::BallCol(), 5, 70.0f);
+        SpawnParticles(mBall.x, fY, gamecolors::BallCol(), 5, 70.0f);
     }
 
-    // ── Rebond sur le mur bas ─────────────────────────────────────────────────
-    if (mBall.y + mBall.radius > H)
+    // ── Rebond mur bas (bord inferieur symetrique) ───────────────────────────
+    if (mBall.y + mBall.radius > H - fY)
     {
-        mBall.y  = H - mBall.radius;
+        mBall.y  = H - fY - mBall.radius;
         mBall.vy = -math::NkAbs(mBall.vy);
-        SpawnParticles(mBall.x, H, gamecolors::BallCol(), 5, 70.0f);
+        SpawnParticles(mBall.x, H - fY, gamecolors::BallCol(), 5, 70.0f);
     }
 
-    // ── But cote gauche (IA marque) ───────────────────────────────────────────
-    if (mBall.x < -mBall.radius)
+    // ── But cote gauche : balle sort du terrain par le bord gauche ────────────
+    if (mBall.x - mBall.radius < fX)
     {
         ++mAI.score;
-        mLastScorer  = 1;
-        mShake       = 0.4f;
-        mFlashAlpha  = 1.0f;
-        mFlashColor  = gamecolors::AI();
-        mGoalTimer   = 1.8f;
-        mState       = GameState::GoalFlash;
-        SpawnParticles(0.0f, mBall.y, gamecolors::AI(), 35, 200.0f, true);
+        mLastScorer = 1; mShake = 0.4f; mFlashAlpha = 1.0f;
+        mFlashColor = gamecolors::AI(); mGoalTimer = 1.8f;
+        mState = GameState::GoalFlash;
+        SpawnParticles(fX, mBall.y, gamecolors::AI(), 35, 200.0f, true);
         return;
     }
 
-    // ── But cote droit (joueur marque) ────────────────────────────────────────
-    if (mBall.x > W + mBall.radius)
+    // ── But cote droit : balle sort du terrain par le bord droit ─────────────
+    if (mBall.x + mBall.radius > W - fX)
     {
         ++mPlayer.score;
-        mLastScorer  = 0;
-        mShake       = 0.4f;
-        mFlashAlpha  = 1.0f;
-        mFlashColor  = gamecolors::Player();
-        mGoalTimer   = 1.8f;
-        mState       = GameState::GoalFlash;
-        SpawnParticles(W, mBall.y, gamecolors::Player(), 35, 200.0f, true);
+        mLastScorer = 0; mShake = 0.4f; mFlashAlpha = 1.0f;
+        mFlashColor = gamecolors::Player(); mGoalTimer = 1.8f;
+        mState = GameState::GoalFlash;
+        SpawnParticles(W - fX, mBall.y, gamecolors::Player(), 35, 200.0f, true);
         return;
     }
 
-    // ── Force magnetique des obstacles Magnetic ───────────────────────────────
+    // ── Force magnetique des obstacles Magnetic (les deux orientations) ───────
     for (auto& obs : mObstacles)
     {
-        // Seuls les obstacles Magnetic en etat actif (non-phasing) exercent une force
-        if (obs.effect != ObstacleEffect::Magnetic)
-        {
-            continue;
-        }
-        if (obs.isPhasing)
-        {
-            continue;
-        }
+        if (obs.effect != ObstacleEffect::Magnetic) { continue; }
+        if (obs.isPhasing) { continue; }
 
         float ocx  = obs.x + obs.w * 0.5f;
         float ocy  = obs.y + obs.h * 0.5f;
@@ -1332,7 +1345,6 @@ void PongGame::UpdateBall(float dt)
         float dist = pongmath::Length(dx, dy);
         float range = 190.0f;
 
-        // N\'appliquer la force que dans la portee et si la balle n\'est pas dessus
         if (dist < range && dist > 4.0f)
         {
             float t = 1.0f - dist / range;
@@ -1345,11 +1357,11 @@ void PongGame::UpdateBall(float dt)
         }
     }
 
-    // ── Collisions avec les raquettes ─────────────────────────────────────────
+    // ── Collisions avec les raquettes (les deux orientations) ─────────────────
     BallVsPaddle(mPlayer);
     BallVsPaddle(mAI);
 
-    // ── Collisions avec les obstacles ─────────────────────────────────────────
+    // ── Collisions avec les obstacles (les deux orientations) ─────────────────
     for (int i = 0; i < static_cast<int>(mObstacles.size()); ++i)
     {
         BallVsObstacle(i);
@@ -1360,50 +1372,37 @@ void PongGame::UpdateBall(float dt)
 // Joueur : deplacement direct via les touches haut/bas.
 // IA     : poursuite de la balle avec reaction, erreur et prediction
 //          variables selon la difficulte.
-void PongGame::UpdatePaddles(float dt, bool upHeld, bool downHeld)
+void PongGame::UpdatePaddles(float dt, bool upHeld, bool downHeld,
+                             bool leftHeld, bool rightHeld)
 {
-    float H = static_cast<float>(mRenderer.Height());
+    (void)leftHeld;
+    (void)rightHeld;
 
-    // ── Raquette du joueur ────────────────────────────────────────────────────
-    if (upHeld)
-    {
-        mPlayer.MoveUp(dt);
-    }
-    if (downHeld)
-    {
-        mPlayer.MoveDown(dt);
-    }
-    mPlayer.ClampToField(H);
+    float H   = static_cast<float>(mRenderer.Height());
+    float top = mFieldY;
+    float bot = H - mFieldY;   // Bord bas symétrique
 
-    // ── Raquette de l\'IA ──────────────────────────────────────────────────────
-    // Calcul du temps de prediction selon la difficulte
     float predict = 0.0f;
-    if (mSettings.difficulty == AIDifficulty::Hard)
-    {
-        predict = 0.09f;
-    }
-    else if (mSettings.difficulty == AIDifficulty::Expert)
-    {
-        predict = 0.16f;
-    }
+    if (mSettings.difficulty == AIDifficulty::Hard)   predict = 0.09f;
+    else if (mSettings.difficulty == AIDifficulty::Expert) predict = 0.16f;
 
-    // Position future estimee de la balle (prediction)
+    // ── Joueur : mouvement vertical ───────────────────────────────────────────
+    if (upHeld)   mPlayer.MoveUp(dt);
+    if (downHeld) mPlayer.MoveDown(dt);
+    mPlayer.ClampToField(top, bot);
+
+    // ── IA : suit ball.y avec reaction + erreur + prediction ─────────────────
     float futureBy = mBall.y + mBall.vy * predict;
+    float targetY  = futureBy - mAI.h * 0.5f + mAI.aiError;
+    float diff     = targetY - mAI.y;
+    float maxMove  = mAI.aiSpeed * dt * mAI.aiReaction;
 
-    // Cible verticale de l\'IA (centre de la raquette sur la balle) + erreur
-    float targetY   = futureBy - mAI.h * 0.5f + mAI.aiError;
-    float diff      = targetY - mAI.y;
-    float maxMove   = mAI.aiSpeed * dt * mAI.aiReaction;
-
-    // Avancer vers la cible sans depasser maxMove
     if (math::NkAbs(diff) > maxMove)
-    {
         mAI.y += (diff > 0.0f) ? maxMove : -maxMove;
-    }
     else
-    {
         mAI.y = targetY;
-    }
+
+    mAI.ClampToField(top, bot);
 
     // Rafraichir l\'erreur IA periodiquement selon la difficulte
     mAiErrTimer += dt;
@@ -1443,7 +1442,7 @@ void PongGame::UpdatePaddles(float dt, bool upHeld, bool downHeld)
         }
     }
 
-    mAI.ClampToField(H);
+    // (déjà clampé ci-dessus)
 }
 
 // ── PongGame::UpdateObstacles ─────────────────────────────────────────────────
@@ -1455,7 +1454,7 @@ void PongGame::UpdateObstacles(float dt)
 
     for (auto& o : mObstacles)
     {
-        o.Update(dt, W, H);
+        o.Update(dt, mFieldX, W - mFieldX, mFieldY, H - mFieldY);
     }
 }
 
@@ -1789,31 +1788,78 @@ void PongGame::Render()
 }
 
 // ── PongGame::RenderBackground ────────────────────────────────────────────────
-// Dessine le fond de l\'ecran : couleur de base, etoiles scintillantes,
-// grille decorative et ligne centrale en pointilles.
+// Terrain délimité par un rectangle lumineux avec marges symétriques :
+//   marge haut = marge bas = mFieldY
+//   marge gauche = marge droite = mFieldX  (= mFieldY)
+// La barre HUD occupe la marge supérieure.
 void PongGame::RenderBackground()
 {
-    mRenderer.Clear(gamecolors::BG());
+    int W  = static_cast<int>(mRenderer.Width());
+    int H  = static_cast<int>(mRenderer.Height());
+    int fX = static_cast<int>(mFieldX);
+    int fY = static_cast<int>(mFieldY);
+    int fW = W - 2 * fX;
+    int fH = H - 2 * fY;
 
-    uint32_t W = mRenderer.Width();
-    uint32_t H = mRenderer.Height();
+    // ── 1. Fond global : couleur sombre pour toutes les marges ───────────────
+    mRenderer.Clear({ 5, 8, 20, 255 });
 
-    // Etoiles scintillantes animees
+    // ── 2. Zone de jeu : fond du terrain ─────────────────────────────────────
+    mRasterizer.FillRect(fX, fY, fW, fH, gamecolors::BG());
+
+    // ── 3. Étoiles et grille dans la zone de jeu ─────────────────────────────
     DrawStars(mTime);
 
-    // Grille decorative horizontale et verticale
     math::NkColor gc = gamecolors::Grid();
-    for (uint32_t gx = 0; gx < W; gx += 48)
-    {
-        mRasterizer.DrawLine(gx, 0, gx, H, gc);
-    }
-    for (uint32_t gy = 0; gy < H; gy += 48)
-    {
-        mRasterizer.DrawLine(0, gy, W, gy, gc);
+    for (int gx = fX; gx <= W - fX; gx += 48)
+        mRasterizer.DrawLine(gx, fY, gx, H - fY, gc);
+    for (int gy = fY; gy <= H - fY; gy += 48)
+        mRasterizer.DrawLine(fX, gy, W - fX, gy, gc);
+
+    // ── 4. Ligne centrale verticale en pointillés ─────────────────────────────
+    mRasterizer.DrawDashedLine(W / 2, fY, W / 2, H - fY,
+                               gamecolors::CenterLine(), 12);
+
+    // ── 5. Barre HUD supérieure (dégradé sombre) ─────────────────────────────
+    for (int row = 0; row < fY; ++row) {
+        uint8_t s = static_cast<uint8_t>(5 + (row * 8) / (fY > 0 ? fY : 1));
+        math::NkColor lc = { s, s, static_cast<uint8_t>(s * 3u), 255 };
+        for (int col = 0; col < W; ++col)
+            mRenderer.SetPixel(col, row, lc);
     }
 
-    // Ligne centrale en pointilles
-    mRasterizer.DrawDashedLine(W / 2, 0, W / 2, H, gamecolors::CenterLine(), 12);
+    // ── 6. Bordure lumineuse du rectangle de terrain ──────────────────────────
+    math::NkColor border = { 60, 130, 255, 220 };
+    mRasterizer.DrawLine(fX,     fY,      W-fX,   fY,     border); // haut
+    mRasterizer.DrawLine(fX,     H-fY,    W-fX,   H-fY,   border); // bas
+    mRasterizer.DrawLine(fX,     fY,      fX,     H-fY,   border); // gauche
+    mRasterizer.DrawLine(W-fX,   fY,      W-fX,   H-fY,   border); // droite
+
+    // Lueur intérieure (1 px en dedans)
+    math::NkColor glow2 = { 40, 90, 200, 90 };
+    mRasterizer.DrawLine(fX+1,   fY+1,    W-fX-1, fY+1,   glow2);
+    mRasterizer.DrawLine(fX+1,   H-fY-1,  W-fX-1, H-fY-1, glow2);
+    mRasterizer.DrawLine(fX+1,   fY+1,    fX+1,   H-fY-1, glow2);
+    mRasterizer.DrawLine(W-fX-1, fY+1,    W-fX-1, H-fY-1, glow2);
+
+    // ── 7. Coins décoratifs (L-brackets) ─────────────────────────────────────
+    int cs = 16;
+    math::NkColor corner = { 100, 180, 255, 200 };
+    // Haut-gauche
+    mRasterizer.DrawLine(fX,      fY,       fX+cs,  fY,      corner);
+    mRasterizer.DrawLine(fX,      fY,       fX,     fY+cs,   corner);
+    // Haut-droit
+    mRasterizer.DrawLine(W-fX-cs, fY,       W-fX,   fY,      corner);
+    mRasterizer.DrawLine(W-fX,    fY,       W-fX,   fY+cs,   corner);
+    // Bas-gauche
+    mRasterizer.DrawLine(fX,      H-fY-cs,  fX,     H-fY,    corner);
+    mRasterizer.DrawLine(fX,      H-fY,     fX+cs,  H-fY,    corner);
+    // Bas-droit
+    mRasterizer.DrawLine(W-fX,    H-fY-cs,  W-fX,   H-fY,    corner);
+    mRasterizer.DrawLine(W-fX-cs, H-fY,     W-fX,   H-fY,    corner);
+
+    // ── 8. Lueur séparatrice sous la barre HUD ───────────────────────────────
+    mRasterizer.DrawLine(0, fY-1, W, fY-1, { 40, 90, 200, 70 });
 }
 
 // ── PongGame::RenderPaddles ───────────────────────────────────────────────────
@@ -2022,56 +2068,63 @@ void PongGame::RenderParticles()
 }
 
 // ── PongGame::RenderHUD ───────────────────────────────────────────────────────
-// Affiche les informations de jeu en surimpression :
-//   - Scores des deux joueurs (blanc, grand format)
-//   - Indicateur de vitesse de la balle (centre, bas)
-//   - Niveau de difficulte IA (bas droit)
-//   - Rappel de la touche pause (bas gauche)
-// Tout le texte est blanc pour une lisibilite maximale.
+// Affiche la barre HUD en haut de l'ecran :
+//   - Score joueur (gauche, lueur cyan)
+//   - Score IA (droite, lueur rose)
+//   - Vitesse de la balle et difficulte (centre, sous les scores)
+//   - Rappel de la touche pause (pour PC)
+// Tout le contenu est rendu dans la zone [0, mFieldY[
 void PongGame::RenderHUD()
 {
-    uint32_t W = mRenderer.Width();
-    uint32_t H = mRenderer.Height();
+    uint32_t W   = mRenderer.Width();
+    int      fY  = static_cast<int>(mFieldY);
+    int      cy  = fY / 2;   // Centre vertical de la barre HUD
+    int      iW  = static_cast<int>(W);
 
-    // ── Score du joueur (gauche) ──────────────────────────────────────────────
-    int scoreLeftX = static_cast<int>(W) / 4;
-    mRasterizer.DrawGlow(scoreLeftX, 36, 32, AlphaF(gamecolors::Player(), 0.4f), 0.8f);
-    mRasterizer.DrawNumber(scoreLeftX - 8, 18, mPlayer.score,
-                           gamecolors::White(), 5);
+    // ── Score joueur (quart gauche) ───────────────────────────────────────────
+    int scoreLeftX = iW / 4;
+    int numScale   = (fY >= 60) ? 4 : 3;
+    int numH       = 7 * numScale;  // hauteur approximative d'un digit
 
-    // ── Score de l\'IA (droite) ────────────────────────────────────────────────
-    int scoreRightX = 3 * static_cast<int>(W) / 4;
-    mRasterizer.DrawGlow(scoreRightX, 36, 32, AlphaF(gamecolors::AI(), 0.4f), 0.8f);
-    mRasterizer.DrawNumber(scoreRightX - 8, 18, mAI.score,
-                           gamecolors::White(), 5);
+    // Etiquette "P1"
+    int lbW = mRasterizer.TextWidth("P1", 1);
+    mRasterizer.DrawText(scoreLeftX - lbW / 2, cy - numH / 2 - 10,
+                         "P1", AlphaF(gamecolors::Player(), 0.7f), 1);
 
-    // ── Vitesse de la balle (centre bas) ─────────────────────────────────────
-    char spd[32];
-    snprintf(spd, sizeof(spd), "%.0f px/s", mBall.speed);
-    int tw = mRasterizer.TextWidth(spd, 1);
-    int textCenterX = static_cast<int>(W) / 2 - tw / 2;
-    mRasterizer.DrawText(textCenterX,
-                         static_cast<int>(H) - 16,
-                         spd,
-                         gamecolors::White(),
-                         1);
+    // Lueur + chiffre
+    mRasterizer.DrawGlow(scoreLeftX, cy + numH/4, numScale * 8,
+                         AlphaF(gamecolors::Player(), 0.35f), 0.7f);
+    mRasterizer.DrawNumber(scoreLeftX - numScale * 4, cy - numH / 2,
+                           mPlayer.score, gamecolors::Player(), numScale);
 
-    // ── Niveau de difficulte IA (bas droit) ────────────────────────────────────
-    const char* dn = AIDifficultyName(mSettings.difficulty);
-    int dw = mRasterizer.TextWidth(dn, 1);
-    int diffTextX = static_cast<int>(W) - dw - 8;
-    mRasterizer.DrawText(diffTextX,
-                         static_cast<int>(H) - 16,
-                         dn,
-                         gamecolors::White(),
-                         1);
+    // ── Score IA (quart droit) ────────────────────────────────────────────────
+    int scoreRightX = 3 * iW / 4;
 
-    // ── Rappel de la touche pause (bas gauche) ────────────────────────────────
-    mRasterizer.DrawText(8,
-                         static_cast<int>(H) - 16,
-                         "[P] Pause",
-                         gamecolors::White(),
-                         1);
+    int lbW2 = mRasterizer.TextWidth("CPU", 1);
+    mRasterizer.DrawText(scoreRightX - lbW2 / 2, cy - numH / 2 - 10,
+                         "CPU", AlphaF(gamecolors::AI(), 0.7f), 1);
+
+    mRasterizer.DrawGlow(scoreRightX, cy + numH/4, numScale * 8,
+                         AlphaF(gamecolors::AI(), 0.35f), 0.7f);
+    mRasterizer.DrawNumber(scoreRightX - numScale * 4, cy - numH / 2,
+                           mAI.score, gamecolors::AI(), numScale);
+
+    // ── Infos centre (vitesse + difficulte) ───────────────────────────────────
+    // N'afficher que si la barre HUD est assez haute (pas en mode Android-compact)
+    if (!mShowTouchButtons)
+    {
+        char spd[48];
+        const char* dn = AIDifficultyName(mSettings.difficulty);
+        snprintf(spd, sizeof(spd), "%.0f px/s  |  %s", mBall.speed, dn);
+        int tw = mRasterizer.TextWidth(spd, 1);
+        mRasterizer.DrawText(iW / 2 - tw / 2, cy - 4,
+                             spd, AlphaF(gamecolors::White(), 0.55f), 1);
+
+        // Rappel touche pause (PC)
+        int pw = mRasterizer.TextWidth("[P] Pause", 1);
+        mRasterizer.DrawText(iW / 2 - pw / 2, cy + 8,
+                             "[P] Pause", AlphaF(gamecolors::White(), 0.35f), 1);
+    }
 }
 
 
@@ -2723,109 +2776,96 @@ void PongGame::RenderSplash()
 // Les gestes tactiles (swipe up/down) contrôlent le paddle du joueur
 PongGame::TouchButtonRects PongGame::GetTouchButtonRects() const noexcept
 {
-    uint32_t W  = mRenderer.Width();
-    uint32_t H  = mRenderer.Height();
-    
-    const int BTN_W     = 70;   // Largeur de chaque bouton
-    const int BTN_H     = 60;   // Hauteur des boutons
-    const int MARGIN_TOP= 12;   // Marge depuis le haut
-    const int CENTER_X  = static_cast<int>(W) / 2;
-    const int GAP       = 8;    // Écart entre les boutons
-    
+    uint32_t W   = mRenderer.Width();
+    int      iW  = static_cast<int>(W);
+    int      fY  = static_cast<int>(mFieldY);
+
+    // Boutons dans la barre HUD — hauteur = fY - 2*MARGIN
+    const int MARGIN  = 6;
+    const int BTN_H   = fY - 2 * MARGIN;   // Occuper presque toute la barre HUD
+    // Largeur adaptative : 3 boutons + 2 gaps centrees dans le demi-ecran central
+    const int GAP     = 8;
+    const int BTN_W   = (iW / 2 - 4 * GAP) / 3;
+
+    // Les boutons sont places dans la moitie centrale de la barre HUD
+    int total_w = 3 * BTN_W + 2 * GAP;
+    int start_x = iW / 2 - total_w / 2;
+
     TouchButtonRects r;
-    
-    // ── Boutons d'action côte à côte au centre-haut ──────────────────────────
-    int start_x = CENTER_X - (3 * BTN_W + 2 * GAP) / 2;  // Aligné au centre
-    
-    // ENTER : Gauche
+
+    // ENTER (OK / validation) — gauche du groupe
     r.enterX = start_x;
-    r.enterY = MARGIN_TOP;
+    r.enterY = MARGIN;
     r.enterW = BTN_W;
     r.enterH = BTN_H;
-    
-    // ESCAPE : Centre
+
+    // ESCAPE (Retour / menu) — centre du groupe
     r.escapeX = start_x + BTN_W + GAP;
-    r.escapeY = MARGIN_TOP;
+    r.escapeY = MARGIN;
     r.escapeW = BTN_W;
     r.escapeH = BTN_H;
-    
-    // PAUSE : Droite
+
+    // PAUSE — droite du groupe
     r.pauseX = start_x + 2 * (BTN_W + GAP);
-    r.pauseY = MARGIN_TOP;
+    r.pauseY = MARGIN;
     r.pauseW = BTN_W;
     r.pauseH = BTN_H;
-    
+
     return r;
 }
 
 // ── PongGame::RenderTouchButtons ──────────────────────────────────────────────
-// Affiche cinq boutons semi-transparents pour Android :
-//   - ENTER    : Haut a gauche (validation)
-//   - ESCAPE   : Haut au centre (retour/menu)
-//   - PAUSE    : Haut a droite (pause du jeu)
-//   - UP/DOWN  : Bas au centre (navigation directionnelle)
+// Affiche les boutons tactiles a l'interieur de la barre HUD.
+// Design :
+//   - Fond semi-transparent arrondi visuellement (cadres bicolores)
+//   - Icone emoji-like : OK [✓], BACK [<], PAUSE [||]
+//   - Integres dans la barre HUD — ne debordent JAMAIS sur le terrain
 void PongGame::RenderTouchButtons()
 {
     auto r = GetTouchButtonRects();
-    
-    math::NkColor bg  = { 20, 40, 80, 160 };
-    math::NkColor bdr = { 80, 160, 255, 200 };
-    
-    // Lambda pour dessiner un bouton avec bordure
-    auto DrawButtonBorder = [&](int x, int y, int w, int h, math::NkColor col) {
+
+    // Helper : dessine un bouton avec fond + bordure + texte
+    auto DrawTouchBtn = [&](int x, int y, int w, int h,
+                            const char* icon, const char* label,
+                            math::NkColor accent)
+    {
+        // Fond semi-transparent
+        math::NkColor fill = {
+            static_cast<uint8_t>(accent.r / 6),
+            static_cast<uint8_t>(accent.g / 6),
+            static_cast<uint8_t>(accent.b / 6),
+            static_cast<uint8_t>(180)
+        };
+        for (int row = y; row < y + h; ++row) {
+            for (int col = x; col < x + w; ++col) {
+                math::NkColor dst = mRenderer.GetPixel(col, row);
+                mRenderer.SetPixel(col, row, Blend(dst, fill));
+            }
+        }
+        // Bordure exterieure (2 px)
         for (int t = 0; t < 2; ++t) {
-            mRasterizer.DrawLine(x + t, y + t, x + w - t, y + t, col);
-            mRasterizer.DrawLine(x + t, y + h - t, x + w - t, y + h - t, col);
-            mRasterizer.DrawLine(x + t, y + t, x + t, y + h - t, col);
-            mRasterizer.DrawLine(x + w - t, y + t, x + w - t, y + h - t, col);
+            math::NkColor bc = AlphaF(accent, t == 0 ? 0.80f : 0.40f);
+            mRasterizer.DrawLine(x+t, y+t, x+w-1-t, y+t,     bc);
+            mRasterizer.DrawLine(x+t, y+h-1-t, x+w-1-t, y+h-1-t, bc);
+            mRasterizer.DrawLine(x+t, y+t, x+t, y+h-1-t,     bc);
+            mRasterizer.DrawLine(x+w-1-t, y+t, x+w-1-t, y+h-1-t, bc);
         }
+        // Icone (grande, centree)
+        int iw = mRasterizer.TextWidth(icon, 2);
+        int ih = 7 * 2;
+        int ix = x + w/2 - iw/2;
+        int iy = y + h/2 - ih/2 - 2;
+        mRasterizer.DrawText(ix, iy, icon, accent, 2);
+        // Label (petit, sous l'icone)
+        int lw = mRasterizer.TextWidth(label, 1);
+        mRasterizer.DrawText(x + w/2 - lw/2, iy + ih + 2, label,
+                             AlphaF(accent, 0.65f), 1);
     };
-    
-    // ── Bouton ENTER (haut a gauche) ──────────────────────────────────────────
-    mRasterizer.FillRect(r.enterX, r.enterY, r.enterW, r.enterH, bg);
-    DrawButtonBorder(r.enterX, r.enterY, r.enterW, r.enterH, bdr);
-    mRasterizer.DrawTextCentered(r.enterX + r.enterW / 2, r.enterY + r.enterH / 2 - 8,
-                                 "OK", gamecolors::Green(), 1);
-    
-    // ── Bouton ESCAPE (haut au centre) ────────────────────────────────────────
-    mRasterizer.FillRect(r.escapeX, r.escapeY, r.escapeW, r.escapeH, bg);
-    DrawButtonBorder(r.escapeX, r.escapeY, r.escapeW, r.escapeH, bdr);
-    mRasterizer.DrawTextCentered(r.escapeX + r.escapeW / 2, r.escapeY + r.escapeH / 2 - 8,
-                                 "BACK", gamecolors::Red(), 1);
-    
-    // ── Bouton PAUSE (haut a droite) ──────────────────────────────────────────
-    mRasterizer.FillRect(r.pauseX, r.pauseY, r.pauseW, r.pauseH, bg);
-    DrawButtonBorder(r.pauseX, r.pauseY, r.pauseW, r.pauseH, bdr);
-    mRasterizer.DrawTextCentered(r.pauseX + r.pauseW / 2, r.pauseY + r.pauseH / 2 - 8,
-                                 "PAUSE", gamecolors::Gold(), 1);
-    
-    // ── Bouton UP (bas, a gauche du centre) ───────────────────────────────────
-    mRasterizer.FillRect(r.upX, r.upY, r.upW, r.upH, bg);
-    DrawButtonBorder(r.upX, r.upY, r.upW, r.upH, bdr);
-    {
-        int ucx = r.upX + r.upW / 2;
-        int ucy = r.upY + r.upH / 2;
-        for (int dy = 0; dy <= 15; ++dy) {
-            int hw = dy;
-            int py = ucy + dy - 8;
-            mRasterizer.DrawLine(ucx - hw, py, ucx + hw, py, gamecolors::Player());
-        }
-    }
-    mRasterizer.DrawTextCentered(r.upX + r.upW / 2, r.upY + r.upH - 12,
-                                 "UP", gamecolors::White(), 1);
-    
-    // ── Bouton DOWN (bas, a droite du centre) ─────────────────────────────────
-    mRasterizer.FillRect(r.dnX, r.dnY, r.dnW, r.dnH, bg);
-    DrawButtonBorder(r.dnX, r.dnY, r.dnW, r.dnH, bdr);
-    {
-        int dcx = r.dnX + r.dnW / 2;
-        int dcy = r.dnY + r.dnH / 2;
-        for (int dy = 0; dy <= 15; ++dy) {
-            int hw = dy;
-            int py = dcy - dy + 8;
-            mRasterizer.DrawLine(dcx - hw, py, dcx + hw, py, gamecolors::Player());
-        }
-    }
-    mRasterizer.DrawTextCentered(r.dnX + r.dnW / 2, r.dnY + 12,
-                                 "DOWN", gamecolors::White(), 1);
+
+    DrawTouchBtn(r.enterX,  r.enterY,  r.enterW,  r.enterH,
+                 "OK", "ENTER", gamecolors::Green());
+    DrawTouchBtn(r.escapeX, r.escapeY, r.escapeW, r.escapeH,
+                 "<<", "BACK", gamecolors::Red());
+    DrawTouchBtn(r.pauseX,  r.pauseY,  r.pauseW,  r.pauseH,
+                 "||", "PAUSE", gamecolors::Gold());
 }

@@ -22,12 +22,17 @@
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKFont/NkFont.h"           // NKFont backend
+// Suppress Win32 GDI macro that maps DrawText → DrawTextW/A
+#ifdef DrawText
+#  undef DrawText
+#endif
 
 namespace nkentseu {
     namespace renderer {
 
         class NkRender2D;
         class NkRender3D;
+        class NkMeshSystem;
 
         // =========================================================================
         // Callbacks pour backend de texte custom (FreeType, DirectWrite, etc.)

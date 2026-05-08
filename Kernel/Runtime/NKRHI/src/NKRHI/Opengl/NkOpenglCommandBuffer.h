@@ -38,7 +38,10 @@ public:
     // Render Pass
     // =========================================================================
     bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override {
-        if (!mRecording || !fb.IsValid() || !rp.IsValid() || area.width <= 0 || area.height <= 0) return false;
+        // NB : fb.IsValid()==false (id=0) est ACCEPTE — sur OpenGL ca correspond
+        // au default framebuffer (FBO 0 = swapchain). De meme pour rp.id=0 :
+        // pas de NkRenderPassHandle explicite => clear via mClearR/G/B/A.
+        if (!mRecording || area.width <= 0 || area.height <= 0) return false;
         Push([=]{ GL_BeginRenderPass(rp, fb, area); });
         return true;
     }
@@ -121,12 +124,13 @@ public:
                         uint32 size, const void* data) override {
         NkVector<uint8> buf = CopyBytes(data, size);
         Push([this,stages,offset,size,buf=traits::NkMove(buf)]{
-            // GL : pas de push constants natives → on passe via uniform location
-            // Le shader doit déclarer un uniform block nommé "PushConstants"
-            // Implémentation avec glProgramUniform1iv / glUniformBlockBinding
             (void)stages; (void)offset; (void)size;
-            GLint loc=glGetUniformLocation(mCurrentProgram,"_PushConstants");
-            if (loc>=0) glUniform4fv(loc,(GLsizei)(buf.size()/16),(const GLfloat*)buf.Data());
+            if (mCurrentProgram == 0) return;
+            GLint loc = glGetUniformLocation(mCurrentProgram, "_PushConstants");
+            // Certains drivers preferent l'array-suffix
+            if (loc < 0) loc = glGetUniformLocation(mCurrentProgram, "_PushConstants[0]");
+            if (loc >= 0) glUniform4fv(loc, (GLsizei)(buf.size()/16),
+                                        (const GLfloat*)buf.Data());
         });
     }
 

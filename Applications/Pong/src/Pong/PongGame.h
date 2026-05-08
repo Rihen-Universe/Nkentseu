@@ -474,39 +474,18 @@ namespace nkentseu {
         /// @param dt    Delta-time en secondes.
         /// @param fieldW Largeur du terrain en pixels.
         /// @param fieldH Hauteur du terrain en pixels.
-        void Update(float dt, float fieldW, float fieldH) noexcept
+        /// @brief Met a jour position et phase avec les 4 bornes du terrain.
+        void Update(float dt,
+                    float fieldLeft, float fieldRight,
+                    float fieldTop,  float fieldBottom) noexcept
         {
-            // Deplacement selon la velocite courante
             x += vx * dt;
             y += vy * dt;
 
-            // Rebond sur le bord gauche
-            if (x < 0.0f)
-            {
-                x  = 0.0f;
-                vx = -vx;
-            }
-
-            // Rebond sur le bord droit
-            if (x + w > fieldW)
-            {
-                x  = fieldW - w;
-                vx = -vx;
-            }
-
-            // Rebond sur le bord haut
-            if (y < 0.0f)
-            {
-                y  = 0.0f;
-                vy = -vy;
-            }
-
-            // Rebond sur le bord bas
-            if (y + h > fieldH)
-            {
-                y  = fieldH - h;
-                vy = -vy;
-            }
+            if (x < fieldLeft)              { x = fieldLeft;          vx = -vx; }
+            if (x + w > fieldRight)         { x = fieldRight - w;     vx = -vx; }
+            if (y < fieldTop)               { y = fieldTop;           vy = -vy; }
+            if (y + h > fieldBottom)        { y = fieldBottom - h;    vy = -vy; }
 
             // Gestion du cycle de phase
             if (hasPhase)
@@ -762,23 +741,18 @@ namespace nkentseu {
         // ── Methodes ──────────────────────────────────────────────────────────────
 
         /// @brief Retourne la coordonnee Y du centre vertical de la raquette.
-        float CenterY() const noexcept
-        {
-            return y + h * 0.5f;
-        }
+        float CenterY() const noexcept { return y + h * 0.5f; }
+        float CenterX() const noexcept { return x + w * 0.5f; }
 
-        /// @brief Deplace la raquette vers le haut d\'une distance speed*dt.
-        /// @param dt Delta-time en secondes.
-        void MoveUp(float dt) noexcept
-        {
-            y -= speed * dt;
-        }
+        void MoveUp(float dt)    noexcept { y -= speed * dt; }
+        void MoveDown(float dt)  noexcept { y += speed * dt; }
+        void MoveLeft(float dt)  noexcept { x -= speed * dt; }
+        void MoveRight(float dt) noexcept { x += speed * dt; }
 
-        /// @brief Deplace la raquette vers le bas d\'une distance speed*dt.
-        /// @param dt Delta-time en secondes.
-        void MoveDown(float dt) noexcept
+        void ClampToField(float fieldTop, float fieldBottom) noexcept
         {
-            y += speed * dt;
+            if (y < fieldTop)        y = fieldTop;
+            if (y + h > fieldBottom) y = fieldBottom - h;
         }
 
         /// @brief Contraint la raquette dans les limites verticales du terrain.
@@ -944,6 +918,9 @@ namespace nkentseu {
                 return mState;
             }
 
+            /// @brief Modifie l'etat courant du jeu (utilise par Apps.cpp).
+            void SetState(GameState newState) noexcept { mState = newState; }
+
             // ── Interface touch (Android) ─────────────────────────────────────────────
 
             /// @brief Active ou desactive le rendu des boutons tactiles a l\'ecran.
@@ -964,6 +941,16 @@ namespace nkentseu {
 
             /// @brief Calcule et retourne les coordonnees des boutons tactiles.
             TouchButtonRects GetTouchButtonRects() const noexcept;
+
+            // ── Gestion des gestes tactiles pour le contrôle du paddle ──────────────
+            /// @brief Position Y initiale du toucher (pour détecter swipe up/down).
+            float mTouchStartY = -1.0f;
+            
+            /// @brief Position Y actuelle du toucher en cours.
+            float mTouchCurrentY = -1.0f;
+            
+            /// @brief true si un swipe est en cours (toucher actif).
+            bool mTouchInProgress = false;
 
         private:
             // ── Gestion de la partie ──────────────────────────────────────────────────
@@ -1035,7 +1022,7 @@ namespace nkentseu {
             /// @param dt       Delta-time en secondes.
             /// @param upHeld   Touche haut maintenue.
             /// @param downHeld Touche bas maintenue.
-            void UpdatePaddles(float dt, bool upHeld, bool downHeld);
+            void UpdatePaddles(float dt, bool upHeld, bool downHeld, bool leftHeld = false, bool rightHeld = false);
 
             // ── Collisions ────────────────────────────────────────────────────────────
 
@@ -1266,16 +1253,6 @@ namespace nkentseu {
 
             /// @brief true = afficher les boutons tactiles pour Android.
             bool mShowTouchButtons = false;
-            
-            // ── Gestion des gestes tactiles pour le contrôle du paddle ──────────────
-            /// @brief Position Y initiale du toucher (pour détecter swipe up/down).
-            float mTouchStartY = -1.0f;
-            
-            /// @brief Position Y actuelle du toucher en cours.
-            float mTouchCurrentY = -1.0f;
-            
-            /// @brief true si un swipe est en cours (toucher actif).
-            bool mTouchInProgress = false;
 
             // ── Pointeur (souris / tactile) pour navigation menus ─────────────────────
 
@@ -1287,6 +1264,30 @@ namespace nkentseu {
 
             /// @brief true = clic gauche (ou tap) detecte ce frame (flanc montant).
             bool mMouseClick = false;
+
+
+            // ── Layout du terrain ──────────────────────────────────────────────────────
+
+            /// @brief Y du haut du terrain (= hauteur de la barre HUD = marge haut = marge bas).
+            float mFieldY = 0.0f;
+
+            /// @brief X du bord gauche du terrain (= marge gauche = marge droite = mFieldY).
+            float mFieldX = 0.0f;
+
+            // ── Helpers de layout ─────────────────────────────────────────────────────
+
+            /// @brief Hauteur de la zone de jeu (marge haut + bas symetriques).
+            float FieldH() const noexcept {
+                return static_cast<float>(mRenderer.Height()) - 2.0f * mFieldY;
+            }
+
+            /// @brief Largeur de la zone de jeu (marge gauche + droite symetriques).
+            float FieldW() const noexcept {
+                return static_cast<float>(mRenderer.Width()) - 2.0f * mFieldX;
+            }
+
+            /// @brief Hauteur de la barre HUD (= marge haut).
+            float HudH() const noexcept { return mFieldY; }
 
     }; // class PongGame
 

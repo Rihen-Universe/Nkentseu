@@ -5,6 +5,7 @@
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkRendererConfig.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKRHI/Core/NkIDevice.h"
 
 namespace nkentseu { 
     namespace renderer {
@@ -31,8 +32,11 @@ namespace nkentseu {
                 uint32 mW=0,mH=0;
                 NkTexHandle mSSAOTex, mBloomTex[6], mToneTex, mFinalTex;
                 NkPipelineHandle mPipeSSAO,mPipeBloom,mPipeTone,mPipeFXAA;
+                NkDescSetHandle  mTexSetLayout;
                 NkMeshHandle     mQuad;
                 void CreateTextures();
+                void DrawFullscreen(NkICommandBuffer* cmd, NkPipelineHandle pipe,
+                                    NkTexHandle src, const void* pushConst, uint32 pcSize);
         };
     }
 } // namespace

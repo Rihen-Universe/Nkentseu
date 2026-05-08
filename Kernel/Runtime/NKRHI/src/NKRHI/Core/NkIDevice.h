@@ -65,6 +65,7 @@ namespace nkentseu {
         bool    drawIndirect            = false;
         bool    drawIndirectCount       = false;         // DX12/VK 1.2+
         bool    multiDrawIndirect       = false;
+        bool    indirectDispatch        = false;         // compute DispatchIndirect
         bool    bindlessTextures        = false;         // DX12/VK descriptor indexing
         bool    rayTracing              = false;         // DX12 DXR / VK KHR_ray_tracing
         bool    variableRateShading     = false;
@@ -376,6 +377,10 @@ namespace nkentseu {
             // =========================================================================
             // Submit avec queues et semaphores
             // =========================================================================
+            // Indique si le device expose une queue compute dédiée (séparée de la queue graphics).
+            // Sur Vulkan/DX12 modernes, oui. Sur OpenGL/DX11, non (tout passe par la queue unique).
+            virtual bool HasDedicatedComputeQueue() const { return false; }
+
             // Submit complet avec contrôle du type de queue et des semaphores.
             // Par défaut, délègue à Submit() pour la compatibilité des backends simples.
             virtual void SubmitOnQueue(NkQueueType queue, const NkSubmitInfo& info) {

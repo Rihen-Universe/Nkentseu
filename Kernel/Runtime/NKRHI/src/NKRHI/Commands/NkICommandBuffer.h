@@ -52,6 +52,33 @@ namespace nkentseu {
             virtual void NextSubpass() {}  // optionnel — no-op sur DX/GL
 
             // =========================================================================
+            // Compute Pass
+            // Délimite une région de travail compute dans le command buffer.
+            // Sur les backends qui le supportent (Vulkan, Metal, DX12), insère des
+            // debug markers et des timestamps GPU autour des dispatches.
+            // Sur OpenGL / DX11, les implémentations par défaut (no-op) sont suffisantes.
+            //
+            // Usage :
+            //   cmd->BeginComputePass({"Particles"});
+            //     cmd->BindComputePipeline(pipe);
+            //     cmd->BindDescriptorSet(set, 0);
+            //     cmd->Dispatch(groups, 1, 1);
+            //     cmd->UAVBarrier(outputBuf);
+            //   cmd->EndComputePass();
+            // =========================================================================
+            virtual void BeginComputePass(const NkComputePassDesc& desc) {
+                // Défaut : debug marker si disponible
+                if (desc.debugName && desc.debugName[0])
+                    BeginDebugGroup(desc.debugName, 0.4f, 0.8f, 1.f);
+                if (desc.enableTimestamp)
+                    WriteTimestamp(0);  // les backends avancés surchargeront ceci
+            }
+
+            virtual void EndComputePass() {
+                EndDebugGroup();
+            }
+
+            // =========================================================================
             // Viewport & Scissor
             // =========================================================================
             virtual void SetViewport(const NkViewport& vp)               = 0;

@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkCamera.h"
+#include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
 namespace nkentseu { 
@@ -35,18 +36,34 @@ namespace nkentseu {
                                     const NkCamera3D& mainCam);
                 void EndShadowPass(NkICommandBuffer* cmd);
                 void RenderShadowPasses(NkICommandBuffer* cmd);
-                NkTexHandle GetCascadeAtlas()  const { return mAtlas; }
-                const NkMat4f* GetCascadeMats(uint32* n) const { *n=mCfg.numCascades; return mCascadeMats; }
+
+                // Accesseurs RHI pour Render3D (qui binde le ShadowUBO + atlas dans son
+                // descriptor set per-frame). En mode stub (D.3a), atlas = 1x1 depth et
+                // mShadowUBO contient cascadeCount=0 -> le shader PBR retourne shadow=1.0.
+                NkTextureHandle GetAtlasTexture() const { return mAtlasRhi; }
+                NkSamplerHandle GetAtlasSampler() const { return mShadowSampler; }
+                NkBufferHandle  GetShadowUBO()    const { return mUBOShadow; }
+                const NkMat4f*  GetCascadeMats(uint32* n) const { *n=mActiveCascades; return mCascadeMats; }
 
             private:
                 NkIDevice*          mDevice=nullptr;
                 NkMeshSystem*       mMesh=nullptr;
                 NkMaterialSystem*   mMat=nullptr;
                 NkShadowSystemConfig mCfg;
-                NkTexHandle         mAtlas;
+
+                // Stub D.3a : atlas 1x1 depth (sera multi-cascade en D.3b).
+                NkTextureHandle     mAtlasRhi;        // depth texture (RHI)
+                NkSamplerHandle     mShadowSampler;   // sampler avec compare-mode
+                NkBufferHandle      mUBOShadow;       // ShadowUBO (cascadeMats + splits + biases + count)
+
                 NkMat4f             mCascadeMats[4]={};
+                float32             mCascadeSplits[4]={};
+                uint32              mActiveCascades=0;     // 0 en stub D.3a
+
                 NkPipelineHandle    mPipeline;
                 bool                mInPass=false;
+
+                void UploadShadowUBO();
         };
     }
 } // namespace

@@ -1,7 +1,9 @@
 // =============================================================================
-// NkRender2D.cpp  — NKRenderer v4.0
+// NkRender2D.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkRender2D.h"
+#include "NKRenderer/Shader/NkShaderLibrary.h"
+#include "NKLogger/NkLog.h"
 #include <cmath>
 #ifndef NK_PI
 #define NK_PI 3.14159265358979f
@@ -10,10 +12,75 @@
 namespace nkentseu {
 namespace renderer {
 
+    // =========================================================================
+    // Shaders 2D embarques en GLSL OpenGL-natif (pas de syntaxe Vulkan-GLSL).
+    // Conventions :
+    //  - Push constants : uniform vec4 _PushConstants[4] (matriceortho stockee
+    //    comme 4 vec4) — c'est la convention que le backend GL reconnait
+    //    (cf. NkOpenglCommandBuffer::PushConstants).
+    //  - Texture sampler : layout(binding=0) — pas de "set" Vulkan.
+    // =========================================================================
+    static const char* kRender2D_VS = R"GLSL(
+#version 460 core
+layout(location=0) in vec2  aPos;
+layout(location=1) in vec2  aUV;
+layout(location=2) in uint  aColor;
+layout(location=3) in uint  aFlags;
+
+layout(location=0) out vec2  vUV;
+layout(location=1) out vec4  vColor;
+layout(location=2) out flat uint vFlags;
+
+uniform vec4 _PushConstants[4];   // mat4 stockee en 4 vec4 column-major
+
+void main() {
+    mat4 ortho = mat4(_PushConstants[0], _PushConstants[1],
+                      _PushConstants[2], _PushConstants[3]);
+    gl_Position = ortho * vec4(aPos, 0.0, 1.0);
+    vUV    = aUV;
+    vColor = vec4(float((aColor      ) & 0xFFu) / 255.0,
+                  float((aColor >>  8u) & 0xFFu) / 255.0,
+                  float((aColor >> 16u) & 0xFFu) / 255.0,
+                  float((aColor >> 24u) & 0xFFu) / 255.0);
+    vFlags = aFlags;
+}
+)GLSL";
+
+    static const char* kRender2D_FS = R"GLSL(
+#version 460 core
+layout(location=0) in vec2  vUV;
+layout(location=1) in vec4  vColor;
+layout(location=2) in flat uint vFlags;
+layout(location=0) out vec4 fragColor;
+
+layout(binding=0) uniform sampler2D tAtlas;
+
+void main() {
+    if ((vFlags & 2u) != 0u) {
+        vec4 t = texture(tAtlas, vUV);
+        if ((vFlags & 1u) != 0u) {
+            // SDF text
+            float d  = t.a;
+            float aa = fwidth(d) * 0.7;
+            float a  = smoothstep(0.5 - aa, 0.5 + aa, d);
+            if (a < 0.01) discard;
+            fragColor = vec4(vColor.rgb, vColor.a * a);
+        } else {
+            fragColor = t * vColor;
+            if (fragColor.a < 0.01) discard;
+        }
+    } else {
+        fragColor = vColor;
+        if (fragColor.a < 0.01) discard;
+    }
+}
+)GLSL";
+
     NkRender2D::~NkRender2D() { Shutdown(); }
 
-    bool NkRender2D::Init(NkIDevice* device, NkTextureLibrary* texLib, uint32 maxVerts) {
-        mDevice = device; 
+    bool NkRender2D::Init(NkIDevice* device, NkTextureLibrary* texLib,
+                          NkShaderLibrary* shaderLib, uint32 maxVerts) {
+        mDevice = device;
         mTexLib = texLib;
         mVerts.Reserve(maxVerts);
 
@@ -27,29 +94,87 @@ namespace renderer {
 
         // IBO (quads → triangles)
         uint32 maxIdx = maxVerts / 4 * 6;
-        NkVector<uint32> idata(maxIdx);
-        for(uint32 i=0,v=0;i<maxIdx;i+=6,v+=4){
-            idata[i+0]=v;idata[i+1]=v+1;idata[i+2]=v+2;
-            idata[i+3]=v;idata[i+4]=v+2;idata[i+5]=v+3;
+        NkVector<uint32> idata;
+        idata.Reserve(maxIdx);
+        for(uint32 v=0; v < maxVerts; v+=4){
+            idata.PushBack(v);   idata.PushBack(v+1); idata.PushBack(v+2);
+            idata.PushBack(v);   idata.PushBack(v+2); idata.PushBack(v+3);
         }
-        NkBufferDesc ibd; ibd.size=maxIdx*sizeof(uint32);
-        ibd.usage=NkBufferUsage::NK_STATIC; ibd.type=NkBufferType::NK_INDEX;
-        ibd.data=idata.Data();
-        mIBO = mDevice->CreateBuffer(ibd);
+        {
+            NkBufferDesc ibd;
+            ibd.sizeBytes   = maxIdx * sizeof(uint32);
+            ibd.type        = NkBufferType::NK_INDEX;
+            ibd.usage       = NkResourceUsage::NK_IMMUTABLE;
+            ibd.initialData = idata.Data();
+            mIBO = mDevice->CreateBuffer(ibd);
+        }
 
-        // Pipelines 2D
-        NkPipelineDesc pd2D;
-        pd2D.name="2D_Alpha"; pd2D.type=NkPipelineType::NK_2D;
-        pd2D.blendMode=(uint8)NkBlendMode::NK_ALPHA;
-        mPipeAlpha = mDevice->CreatePipeline(pd2D);
-        pd2D.name="2D_Add"; pd2D.blendMode=(uint8)NkBlendMode::NK_ADDITIVE;
-        mPipeAdd   = mDevice->CreatePipeline(pd2D);
-        pd2D.name="2D_Opaque"; pd2D.blendMode=(uint8)NkBlendMode::NK_OPAQUE;
-        mPipeOpaque= mDevice->CreatePipeline(pd2D);
+        // Texture descriptor set (set 1, binding 0 = combined image sampler)
+        // NB: ::nkentseu:: requis pour NkShaderStage car NkShaderLibrary.h est
+        // inclus et il y a ambiguite avec le namespace renderer.
+        NkDescriptorSetLayoutDesc texLayout;
+        texLayout.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                      ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        mTexLayout    = mDevice->CreateDescriptorSetLayout(texLayout);
+        mTexSet       = mDevice->AllocateDescriptorSet(mTexLayout);
+        mLinearSampler= mDevice->CreateSampler(NkSamplerDesc::Linear());
+
+        // Compile et lie le shader 2D si une ShaderLibrary est fournie.
+        ::nkentseu::NkShaderHandle shader2D{};
+        if (shaderLib) {
+            auto progHandle = shaderLib->CompileVF(kRender2D_VS, kRender2D_FS, "Render2D");
+            if (progHandle.IsValid()) {
+                shader2D = shaderLib->GetRHIHandle(progHandle);
+            }
+        }
+
+        // Pipelines 2D : meme shader, blend state different
+        {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = shader2D;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            // 2D : pas de cull (l'ortho inverse Y, donc le winding peut paraitre
+            // back-face vs CCW; et de toute facon les sprites/formes 2D sont visibles
+            // des deux cotes par convention).
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_VERTEX, 0, sizeof(NkMat4f));
+            if (mTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mTexLayout);
+
+            // Vertex layout — NkVertex2D : pos(vec2), uv(vec2), color(uint32), texIdx(uint32)
+            //   binding=0, stride=24
+            //   loc 0 : aPos    @ 0  (RG32_FLOAT)
+            //   loc 1 : aUV     @ 8  (RG32_FLOAT)
+            //   loc 2 : aColor  @ 16 (R32_UINT)
+            //   loc 3 : aFlags  @ 20 (R32_UINT)
+            pd.vertexLayout
+              .AddBinding(0, sizeof(Vert2D), false)
+              .AddAttribute(0, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 0,  "POSITION", 0)
+              .AddAttribute(1, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 8,  "TEXCOORD", 0)
+              .AddAttribute(2, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   16, "COLOR",    0)
+              .AddAttribute(3, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   20, "TEXCOORD", 1);
+
+            pd.blend     = NkBlendDesc::Alpha();
+            pd.debugName = "2D_Alpha";
+            mPipeAlpha   = mDevice->CreateGraphicsPipeline(pd);
+
+            pd.blend     = NkBlendDesc::Additive();
+            pd.debugName = "2D_Add";
+            mPipeAdd     = mDevice->CreateGraphicsPipeline(pd);
+
+            pd.blend     = NkBlendDesc::Opaque();
+            pd.debugName = "2D_Opaque";
+            mPipeOpaque  = mDevice->CreateGraphicsPipeline(pd);
+        }
         return mVBO.IsValid();
     }
 
     void NkRender2D::Shutdown() {
+        if(mTexSet.IsValid())    { mDevice->FreeDescriptorSet(mTexSet); }
+        if(mTexLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mTexLayout); }
+        if(mLinearSampler.IsValid()){ mDevice->DestroySampler(mLinearSampler); }
+        if(mPipeAlpha.IsValid()) { mDevice->DestroyPipeline(mPipeAlpha); }
+        if(mPipeAdd.IsValid())   { mDevice->DestroyPipeline(mPipeAdd); }
+        if(mPipeOpaque.IsValid()){ mDevice->DestroyPipeline(mPipeOpaque); }
         if(mVBO.IsValid()){mDevice->DestroyBuffer(mVBO);mVBO={};}
         if(mIBO.IsValid()){mDevice->DestroyBuffer(mIBO);mIBO={};}
     }
@@ -58,10 +183,15 @@ namespace renderer {
     void NkRender2D::Begin(NkICommandBuffer* cmd, uint32 w, uint32 h,
                              float32 cX, float32 cY, float32 zoom, float32 rotDeg) {
         mCmd=cmd; mW=w; mH=h; mInFrame=true;
-        mVerts.Clear(); mBatches.Clear();
-        // Build ortho
-        float32 l=cX-w*0.5f/zoom, r=cX+w*0.5f/zoom;
-        float32 t=cY-h*0.5f/zoom, b=cY+h*0.5f/zoom;
+        // NB : on NE clear PAS mVerts/mBatches ici. Plusieurs systemes (Render2D
+        // depuis Demo, puis Overlay) appellent Begin successivement dans la meme
+        // frame ; ils doivent accumuler leurs draws ensemble. Le clear est fait
+        // par Flush() apres le dessin.
+        // Ortho ecran : (cX,cY) = coin haut-gauche, (cX+w/zoom,cY+h/zoom) = bas-droite.
+        // Avec defauts (cX=0, cY=0, zoom=1) → coords pixel directes (0..w, 0..h)
+        // qui mappent vers clip space (-1..1, 1..-1) (Y inverse, top-left origin).
+        float32 l=cX,                r=cX+(float32)w/zoom;
+        float32 t=cY,                b=cY+(float32)h/zoom;
         mOrtho=NkMat4f::Zero();
         mOrtho[0][0]=2.f/(r-l); mOrtho[1][1]=2.f/(t-b);
         mOrtho[2][2]=-1.f;
@@ -70,8 +200,11 @@ namespace renderer {
     }
 
     void NkRender2D::End() {
-        Flush();
-        mInFrame=false; mCmd=nullptr;
+        // Ne flushe PAS ici : les draw calls doivent etre soumis APRES
+        // BeginRenderPass (sinon glClear ecrase tout). Le RenderGraph
+        // appelle FlushPending(cmd) dans la passe Overlay2D, au bon moment.
+        mInFrame = false;
+        mCmd     = nullptr;
     }
 
     void NkRender2D::FlushPending(NkICommandBuffer* cmd) {
@@ -80,21 +213,36 @@ namespace renderer {
 
     void NkRender2D::Flush() {
         if (mVerts.Empty() || !mCmd) return;
-        mDevice->UpdateBuffer(mVBO, mVerts.Data(), (uint32)mVerts.Size()*sizeof(Vert2D));
-        mCmd->BindVertexBuffer(mVBO, sizeof(Vert2D));
-        mCmd->BindIndexBuffer(mIBO, NkIndexType::NK_UINT32);
-        mCmd->UpdateUniformBuffer(0, &mOrtho, sizeof(NkMat4f));
 
+        mDevice->WriteBuffer(mVBO, mVerts.Data(),
+                             (uint64)mVerts.Size() * sizeof(Vert2D));
+
+        // NB sur OpenGL : le VAO est attache au pipeline. BindGraphicsPipeline
+        // change le VAO actif. Donc BindVertexBuffer / BindIndexBuffer doivent
+        // etre appeles APRES BindGraphicsPipeline (sinon les binds sont attaches
+        // a un autre VAO et perdus).
         for (auto& b : mBatches) {
             NkPipelineHandle pipe = mPipeAlpha;
-            if (b.blend==NkBlendMode::NK_ADDITIVE) pipe=mPipeAdd;
+            if (b.blend==NkBlendMode::NK_ADDITIVE)    pipe=mPipeAdd;
             else if (b.blend==NkBlendMode::NK_OPAQUE) pipe=mPipeOpaque;
-            mCmd->BindPipeline(pipe);
-            auto rhi = mTexLib->GetRHIHandle(b.tex.IsValid() ? b.tex : mTexLib->GetWhite1x1());
-            auto samp= mTexLib->GetRHISampler(b.tex.IsValid() ? b.tex : mTexLib->GetWhite1x1());
-            mCmd->BindTexture(0, rhi); mCmd->BindSampler(0, samp);
-            uint32 triIdx = b.vStart/4*6;
-            uint32 triCount = b.vCount/4*6;
+            if (pipe.IsValid()) mCmd->BindGraphicsPipeline(pipe);
+
+            // Apres BindPipeline : bind buffers et push constants au VAO actif
+            mCmd->BindVertexBuffer(0, mVBO, 0);
+            mCmd->BindIndexBuffer(mIBO, NkIndexFormat::NK_UINT32, 0);
+            mCmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
+                                sizeof(NkMat4f), &mOrtho);
+
+            NkTexHandle src = b.tex.IsValid() ? b.tex : mTexLib->GetWhite1x1();
+            NkTextureHandle rhi  = mTexLib->GetRHIHandle(src);
+            NkSamplerHandle samp = mTexLib->GetRHISampler(src);
+            if (mTexSet.IsValid()) {
+                mDevice->BindTextureSampler(mTexSet, 0, rhi, samp);
+                mCmd->BindDescriptorSet(mTexSet, 1);
+            }
+
+            uint32 triIdx   = b.vStart / 4 * 6;
+            uint32 triCount = b.vCount / 4 * 6;
             mCmd->DrawIndexed(triCount, 1, triIdx, 0, 0);
         }
         mBatchCount += (uint32)mBatches.Size();
@@ -107,8 +255,13 @@ namespace renderer {
                                 NkVec4f color, NkTexHandle tex) {
         uint32 c = PackColor(color);
         uint32 vStart = (uint32)mVerts.Size();
-        mVerts.PushBack({tl,uvTL,c,0}); mVerts.PushBack({tr,uvTR,c,0});
-        mVerts.PushBack({br,uvBR,c,0}); mVerts.PushBack({bl,uvBL,c,0});
+        // aFlags : bit 1 (=2) → echantillonner la texture dans le fragment shader.
+        // Pour les formes pleines on passe White1x1 (ou tex invalide) → flags=0
+        // → le shader prend la branche "couleur unie".
+        NkTexHandle white = mTexLib ? mTexLib->GetWhite1x1() : NkTexHandle{};
+        uint32 flags = (tex.IsValid() && tex.id != white.id) ? 2u : 0u;
+        mVerts.PushBack({tl,uvTL,c,flags}); mVerts.PushBack({tr,uvTR,c,flags});
+        mVerts.PushBack({br,uvBR,c,flags}); mVerts.PushBack({bl,uvBL,c,flags});
 
         // Fusionner batch si même texture/blend/layer
         if (!mBatches.Empty()) {
@@ -123,17 +276,13 @@ namespace renderer {
     }
 
     // ── Sprites ────────────────────────────────────────────────────────────────
-    void NkRender2D::DrawSprite(NkRectF dst, NkTexHandle tex,
-                                  NkVec4f tint, NkRectF uv) {
+    void NkRender2D::DrawSprite(NkRectF dst, NkTexHandle tex, NkVec4f tint, NkRectF uv) {
         float32 x0=dst.x,y0=dst.y,x1=dst.x+dst.w,y1=dst.y+dst.h;
         float32 u0=uv.x,v0=uv.y,u1=uv.x+uv.w,v1=uv.y+uv.h;
-        PushQuad({x0,y0},{x1,y0},{x1,y1},{x0,y1},
-                  {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
+        PushQuad({x0,y0},{x1,y0},{x1,y1},{x0,y1}, {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
     }
 
-    void NkRender2D::DrawSpriteRotated(NkRectF dst, NkTexHandle tex,
-                                         float32 angleDeg, NkVec2f pivot,
-                                         NkVec4f tint, NkRectF uv) {
+    void NkRender2D::DrawSpriteRotated(NkRectF dst, NkTexHandle tex, float32 angleDeg, NkVec2f pivot, NkVec4f tint, NkRectF uv) {
         float32 cx=dst.x+dst.w*pivot.x, cy=dst.y+dst.h*pivot.y;
         float32 rad=angleDeg*NK_PI/180.f;
         float32 co=cosf(rad), si=sinf(rad);
@@ -143,8 +292,7 @@ namespace renderer {
         };
         float32 x0=dst.x,y0=dst.y,x1=dst.x+dst.w,y1=dst.y+dst.h;
         float32 u0=uv.x,v0=uv.y,u1=uv.x+uv.w,v1=uv.y+uv.h;
-        PushQuad(rot(x0,y0),rot(x1,y0),rot(x1,y1),rot(x0,y1),
-                  {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
+        PushQuad(rot(x0,y0),rot(x1,y0),rot(x1,y1),rot(x0,y1), {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
     }
 
     void NkRender2D::DrawNineSlice(NkRectF dst, NkTexHandle tex,
@@ -165,6 +313,10 @@ namespace renderer {
     // ── Formes ────────────────────────────────────────────────────────────────
     void NkRender2D::DrawImage(NkTexHandle tex, NkRectF dst, NkVec4f tint) {
         DrawSprite(dst,tex,tint);
+    }
+
+    void NkRender2D::DrawImage(NkTexHandle tex, NkRectF dst, NkRectF src, NkVec4f tint) {
+        DrawSprite(dst,tex,tint,src);
     }
 
     void NkRender2D::FillRect(NkRectF r, NkVec4f color) {
@@ -302,8 +454,8 @@ namespace renderer {
 
     // ── Clip / Blend ──────────────────────────────────────────────────────────
     void NkRender2D::PushClip(NkRectF rect) {
-        Flush(); // flush avant scissor
-        if(mCmd) mCmd->SetScissor((int32)rect.x,(int32)rect.y,(uint32)rect.w,(uint32)rect.h);
+        Flush();
+        if(mCmd) mCmd->SetScissor(NkRect2D((int32)rect.x,(int32)rect.y,(int32)rect.w,(int32)rect.h));
         mClipStack.PushBack(rect);
     }
 
@@ -313,9 +465,9 @@ namespace renderer {
         if(mCmd){
             if(!mClipStack.Empty()){
                 auto& r=mClipStack[mClipStack.Size()-1];
-                mCmd->SetScissor((int32)r.x,(int32)r.y,(uint32)r.w,(uint32)r.h);
+                mCmd->SetScissor(NkRect2D((int32)r.x,(int32)r.y,(int32)r.w,(int32)r.h));
             } else {
-                mCmd->SetScissor(0,0,mW,mH);
+                mCmd->SetScissor(NkRect2D(0,0,(int32)mW,(int32)mH));
             }
         }
     }

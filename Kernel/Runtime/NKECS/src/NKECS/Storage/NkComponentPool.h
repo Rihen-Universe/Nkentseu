@@ -114,6 +114,7 @@ namespace nkentseu {
             // Retourne un pointeur générique (void*) vers l'élément à l'index `index`.
             // Si le composant est de taille nulle (tag), retourne nullptr.
             [[nodiscard]] void* At(uint32 index) const noexcept {
+                if (!mMeta) return nullptr;
                 NKECS_ASSERT(index < mSize);
                 if (mMeta->isZeroSize) {
                     return nullptr;
@@ -143,6 +144,7 @@ namespace nkentseu {
             // Ajoute un nouvel élément construit par défaut à la fin de la pool.
             // Retourne l'index du nouvel élément (identique à l'ancienne taille).
             uint32 PushDefault() noexcept {
+                if (!mMeta) return mSize;
                 // Garantit la capacité avant d'écrire.
                 Reserve(mSize + 1);
                 if (!mMeta->isZeroSize && mMeta->defaultConstruct != nullptr) {
@@ -154,6 +156,7 @@ namespace nkentseu {
 
             // Ajoute une copie de l'élément pointé par `src` à la fin de la pool.
             uint32 PushCopy(const void* src) noexcept {
+                if (!mMeta) return mSize;
                 Reserve(mSize + 1);
                 if (!mMeta->isZeroSize && src != nullptr && mMeta->copyConstruct != nullptr) {
                     mMeta->copyConstruct(At(mSize), src, 1);
@@ -166,6 +169,7 @@ namespace nkentseu {
 
             // Ajoute un élément déplacé depuis `src` à la fin de la pool.
             uint32 PushMove(void* src) noexcept {
+                if (!mMeta) return mSize;
                 Reserve(mSize + 1);
                 if (!mMeta->isZeroSize && src != nullptr && mMeta->moveConstruct != nullptr) {
                     mMeta->moveConstruct(At(mSize), src, 1);
@@ -229,16 +233,56 @@ namespace nkentseu {
             // Détruit tous les éléments de la pool et remet la taille logique à zéro.
             // La capacité mémoire reste inchangée (le buffer est conservé).
             void Clear() noexcept {
+                if (!mMeta) { mSize = 0; return; }
                 if (!mMeta->isZeroSize && mSize > 0 && mMeta->destruct != nullptr && mData != nullptr) {
                     mMeta->destruct(mData, mSize);
                 }
                 mSize = 0;
             }
 
+            // Réalloue exactement `mSize` éléments, libérant la mémoire excédentaire.
+            // Sans effet si la pool est vide, si mMeta est null, ou si capacity == size.
+            void Shrink() noexcept {
+                if (!mMeta || mMeta->isZeroSize || mSize == mCapacity || mData == nullptr) return;
+                if (mSize == 0) {
+#if defined(_MSC_VER)
+                    _aligned_free(mData);
+#else
+                    std::free(mData);
+#endif
+                    mData     = nullptr;
+                    mCapacity = 0;
+                    return;
+                }
+                const usize bytes = static_cast<usize>(mSize) * mMeta->size;
+#if defined(_MSC_VER)
+                void* newData = _aligned_malloc(bytes, mMeta->align);
+#else
+                void* newData = std::aligned_alloc(mMeta->align, bytes);
+#endif
+                NKECS_ASSERT(newData != nullptr);
+                if (mMeta->moveConstruct != nullptr) {
+                    mMeta->moveConstruct(newData, mData, mSize);
+                } else {
+                    std::memcpy(newData, mData, bytes);
+                }
+                if (mMeta->destruct != nullptr) {
+                    mMeta->destruct(mData, mSize);
+                }
+#if defined(_MSC_VER)
+                _aligned_free(mData);
+#else
+                std::free(mData);
+#endif
+                mData     = newData;
+                mCapacity = mSize;
+            }
+
             // Garantit que la pool peut contenir au moins `minCapacity` éléments.
             // Si nécessaire, un nouveau bloc mémoire aligné est alloué et les
             // éléments existants y sont déplacés (move) ou copiés (memcpy).
             void Reserve(uint32 minCapacity) noexcept {
+                if (!mMeta) return;
                 // Les tags ne consomment pas de mémoire, inutile de réserver.
                 if (mMeta->isZeroSize || minCapacity <= mCapacity) {
                     return;

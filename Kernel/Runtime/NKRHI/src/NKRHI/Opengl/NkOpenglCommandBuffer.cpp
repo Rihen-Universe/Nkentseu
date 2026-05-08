@@ -34,11 +34,8 @@ void NkOpenGLCommandBuffer::GL_BeginRenderPass(NkRenderPassHandle rp,
     GLuint fboId = NkOpenglGetFBOID(mDev, fb.id);
     glBindFramebuffer(GL_FRAMEBUFFER, fboId);
 
-    GLbitfield clearBits = 0;
-    clearBits |= GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
-
+    GLbitfield clearBits = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
     glViewport(area.x, area.y, (GLsizei)area.width, (GLsizei)area.height);
-
     glClearColor(mClearR, mClearG, mClearB, mClearA);
     glClearDepthf(mClearDepth);
     glClearStencil((GLint)mClearStencil);

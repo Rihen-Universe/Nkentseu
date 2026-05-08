@@ -96,7 +96,7 @@ namespace nkentseu {
     }
 
     static void ForwardAndroidGamepadInput(AInputEvent* ev) {
-        NkIGamepad* backend = NkSystem::Gamepads().GetBackend();
+        NkIGamepad* backend = NkWESystem::Gamepads().GetBackend();
         auto* androidBackend = dynamic_cast<NkAndroidGamepad*>(backend);
         if (androidBackend) {
             androidBackend->OnInputEvent(ev);
@@ -439,6 +439,10 @@ namespace nkentseu {
                 break;
             }
             case APP_CMD_GAINED_FOCUS: {
+                // NOTE: La surface a déjà été mise à jour dans APP_CMD_INIT_WINDOW.
+                // Ne pas appeler UpdateWindowNativeSurface ici — cela écraserait
+                // le pointeur correctement mis à jour avec une valeur potentiellement
+                // incohérente selon l'état de app->window à cet instant.
                 gFocusedWindowId = ResolveActiveWindowId();
                 ForEachAndroidWindow([&](NkWindow& /*window*/, NkWindowId id) {
                     NkWindowFocusGainedEvent event;

@@ -144,4 +144,89 @@ void NkDeviceFactory::Destroy(NkIDevice*& device) {
     device = nullptr;
 }
 
+// =============================================================================
+// Ordre de priorité par plateforme (file-scope, non exporté)
+// =============================================================================
+static NkVector<NkGraphicsApi> GetPlatformPriorityOrder() {
+    NkVector<NkGraphicsApi> order;
+
+#if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
+    order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
+    order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
+
+#elif defined(NKENTSEU_PLATFORM_WINDOWS)
+    // Vulkan offre les meilleures perfs et la meilleure portabilité multi-GPU.
+    // DX12 ensuite (contrôle bas-niveau natif Windows).
+    // DX11 comme fallback legacy.
+    // OpenGL pour les machines sans DX ou Vulkan.
+    order.PushBack(NkGraphicsApi::NK_GFX_API_VULKAN);
+    order.PushBack(NkGraphicsApi::NK_GFX_API_DX12);
+    order.PushBack(NkGraphicsApi::NK_GFX_API_DX11);
+    order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
+
+#elif defined(NKENTSEU_PLATFORM_ANDROID)
+    order.PushBack(NkGraphicsApi::NK_GFX_API_VULKAN);
+    order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
+
+#else
+    // Linux, Emscripten, inconnu : Vulkan puis OpenGL
+    order.PushBack(NkGraphicsApi::NK_GFX_API_VULKAN);
+    order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
+#endif
+
+    order.PushBack(NkGraphicsApi::NK_GFX_API_SOFTWARE);
+    return order;
+}
+
+// =============================================================================
+
+NkVector<NkGraphicsApi> NkDeviceFactory::GetSupportedApis() {
+    NkVector<NkGraphicsApi> apis;
+    apis.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
+#ifdef NK_RHI_VK_ENABLED
+    apis.PushBack(NkGraphicsApi::NK_GFX_API_VULKAN);
+#endif
+#ifdef NK_RHI_DX11_ENABLED
+    apis.PushBack(NkGraphicsApi::NK_GFX_API_DX11);
+#endif
+#ifdef NK_RHI_DX12_ENABLED
+    apis.PushBack(NkGraphicsApi::NK_GFX_API_DX12);
+#endif
+#ifdef NK_RHI_METAL_ENABLED
+    apis.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
+#endif
+    apis.PushBack(NkGraphicsApi::NK_GFX_API_SOFTWARE);
+    return apis;
+}
+
+NkIDevice* NkDeviceFactory::CreateAutoDetect(NkDeviceInitInfo& init) {
+    NkVector<NkGraphicsApi> order = GetPlatformPriorityOrder();
+
+    for (uint32 i = 0; i < (uint32)order.Size(); ++i) {
+        NkGraphicsApi api = order[i];
+        if (!IsApiSupported(api)) continue;
+
+        NkDeviceInitInfo effectiveInit = init;
+        effectiveInit.api = api;
+        if (effectiveInit.context.api == NkGraphicsApi::NK_GFX_API_NONE)
+            effectiveInit.context.api = api;
+
+        NkIDevice* dev = CreateForApi(api, effectiveInit);
+        if (dev && dev->IsValid()) {
+            // Mise à jour de l'init appelant pour refléter l'API choisie
+            init.api = api;
+            if (init.context.api == NkGraphicsApi::NK_GFX_API_NONE)
+                init.context.api = api;
+            logger_src.Infof("[NkDeviceFactory] CreateAutoDetect: API selectionnee = %s\n",
+                             NkGraphicsApiName(api));
+            return dev;
+        }
+        // Ce device n'a pas fonctionné — on le détruit proprement avant d'essayer le suivant
+        if (dev) { dev->Shutdown(); delete dev; dev = nullptr; }
+    }
+
+    logger_src.Infof("[NkDeviceFactory] CreateAutoDetect: aucune API fonctionnelle sur ce materiel\n");
+    return nullptr;
+}
+
 } // namespace nkentseu

@@ -80,22 +80,26 @@ namespace nkentseu {
             }
 
             if (ok) {
-                // Créer / recréer le programme RHI
-                if (prog.valid)
-                mDevice->DestroyShader(prog.handle);
+                // Detruire l'ancien programme RHI s'il existait (hot-reload)
+                if (prog.valid && prog.rhiHandle.IsValid())
+                    mDevice->DestroyShader(prog.rhiHandle);
 
                 NkShaderDesc desc;
+                // GLSL source (lu depuis fichier) — requis par OpenGL backend
+                if (!vertSrc.Empty())
+                    desc.AddGLSL(::nkentseu::NkShaderStage::NK_VERTEX,   vertSrc.CStr(), "main");
+                if (!fragSrc.Empty())
+                    desc.AddGLSL(::nkentseu::NkShaderStage::NK_FRAGMENT, fragSrc.CStr(), "main");
+                // SPIR-V (utilise par Vulkan/DX12)
                 if (!prog.vertBytecode.Empty())
                     desc.AddSPIRV(::nkentseu::NkShaderStage::NK_VERTEX, prog.vertBytecode.Data(), prog.vertBytecode.Size());
                 if (!prog.fragBytecode.Empty())
                     desc.AddSPIRV(::nkentseu::NkShaderStage::NK_FRAGMENT, prog.fragBytecode.Data(), prog.fragBytecode.Size());
+                desc.debugName = prog.name.CStr();
 
                 NkShaderHandle rhi = mDevice->CreateShader(desc);
-                prog.valid = rhi.IsValid();
-                if (rhi.IsValid()) {
-                    // Stocker le handle RHI dans le handle NkShader
-                    prog.handle = rhi;
-                }
+                prog.valid     = rhi.IsValid();
+                prog.rhiHandle = rhi;
             }
             return ok;
         }
@@ -151,24 +155,33 @@ namespace nkentseu {
             prog.name = name.Empty() ? "inline_shader" : name;
             NkShaderCompileOptions opts; opts.optimize = false;
 
+            // glslang -> SPIR-V (utile pour Vulkan, optionnel pour OpenGL).
             auto vr = mBackend->Compile(vSrc, NkShaderStage::NK_VERTEX,   opts);
             auto fr = mBackend->Compile(fSrc, NkShaderStage::NK_FRAGMENT,  opts);
-            if (!vr.success || !fr.success) {
-                fprintf(stderr, "[NkShader] Inline compile error:\n  V:%s\n  F:%s\n",
-                        vr.errors.CStr(), fr.errors.CStr());
-                return NkShaderHandle::Null();
-            }
-            prog.vertBytecode = vr.bytecode;
-            prog.fragBytecode = fr.bytecode;
+            // On ne fail PAS si glslang echoue : OpenGL peut compiler le GLSL directement.
+            if (vr.success) prog.vertBytecode = vr.bytecode;
+            if (fr.success) prog.fragBytecode = fr.bytecode;
 
             NkShaderDesc desc;
-            desc.AddSPIRV(::nkentseu::NkShaderStage::NK_VERTEX,
-                        prog.vertBytecode.Data(), prog.vertBytecode.Size());
-            desc.AddSPIRV(::nkentseu::NkShaderStage::NK_FRAGMENT,
-                        prog.fragBytecode.Data(), prog.fragBytecode.Size());
+            // Toujours fournir GLSL (le backend OpenGL en a besoin).
+            desc.AddGLSL(::nkentseu::NkShaderStage::NK_VERTEX,   vSrc.CStr(), "main");
+            desc.AddGLSL(::nkentseu::NkShaderStage::NK_FRAGMENT, fSrc.CStr(), "main");
+            // Et SPIR-V si dispo (Vulkan/DX12 le preferent).
+            if (!prog.vertBytecode.Empty())
+                desc.AddSPIRV(::nkentseu::NkShaderStage::NK_VERTEX,
+                              prog.vertBytecode.Data(), prog.vertBytecode.Size());
+            if (!prog.fragBytecode.Empty())
+                desc.AddSPIRV(::nkentseu::NkShaderStage::NK_FRAGMENT,
+                              prog.fragBytecode.Data(), prog.fragBytecode.Size());
+            desc.debugName = prog.name.CStr();
+
             NkShaderHandle rhi = mDevice->CreateShader(desc);
-            prog.valid  = rhi.IsValid();
-            prog.handle = rhi;
+            prog.valid     = rhi.IsValid();
+            prog.rhiHandle = rhi;
+            if (!prog.valid) {
+                fprintf(stderr, "[NkShader] CreateShader fail '%s' (glslang : V:%d F:%d)\n",
+                        prog.name.CStr(), (int)vr.success, (int)fr.success);
+            }
             return Alloc(prog);
         }
 
@@ -204,15 +217,15 @@ namespace nkentseu {
             return mPrograms.Find(h.id);
         }
 
-        NkShaderProgram* NkShaderLibrary::GetRHI(NkShaderHandle h) const {
+        NkShaderHandle NkShaderLibrary::GetRHIHandle(NkShaderHandle h) const {
             auto* p = mPrograms.Find(h.id);
-            if (!p || !p->valid) return nullptr;
-            return (NkShaderProgram*)(uintptr_t)p->handle.id;
+            if (!p || !p->valid) return NkShaderHandle::Null();
+            return p->rhiHandle;          // ← retourne le vrai RHI handle
         }
 
         NkShaderHandle NkShaderLibrary::Alloc(NkShaderProgram& prog) {
             NkShaderHandle h{mNextId++};
-            prog.handle = h;
+            prog.handle = h;              // ← seulement le renderer-side ID, NE PLUS toucher rhiHandle
             mPrograms.Insert(h.id, prog);
             if (!prog.name.Empty()) mByName.Insert(prog.name, h);
             return h;
@@ -221,7 +234,7 @@ namespace nkentseu {
         void NkShaderLibrary::Release(NkShaderHandle& h) {
             auto* p = mPrograms.Find(h.id);
             if (!p) return;
-            if (p->valid) mDevice->DestroyShader(p->handle);
+            if (p->valid && p->rhiHandle.IsValid()) mDevice->DestroyShader(p->rhiHandle);
             if (!p->name.Empty()) mByName.Remove(p->name);
             mPrograms.Remove(h.id);
             h = NkShaderHandle::Null();
@@ -229,7 +242,8 @@ namespace nkentseu {
 
         void NkShaderLibrary::ReleaseAll() {
             for (auto& [id, prog] : mPrograms)
-                if (prog.valid) mDevice->DestroyShader(prog.handle);
+                if (prog.valid && prog.rhiHandle.IsValid())
+                    mDevice->DestroyShader(prog.rhiHandle);
             mPrograms.Clear();
             mByName.Clear();
         }

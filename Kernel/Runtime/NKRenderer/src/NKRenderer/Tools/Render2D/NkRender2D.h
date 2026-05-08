@@ -10,14 +10,24 @@
 namespace nkentseu {
     namespace renderer {
 
+        class NkShaderLibrary;   // forward — pour wirer les shaders compiles
+
         class NkRender2D {
             public:
                 NkRender2D() = default;
                 ~NkRender2D();
 
+                // shaderLib peut etre nullptr : dans ce cas les pipelines sont crees
+                // sans programme et le rendu ne produira rien (mode degrade).
                 bool Init(NkIDevice* device, NkTextureLibrary* texLib,
-                        uint32 maxVerts = 65536);
+                          NkShaderLibrary* shaderLib = nullptr,
+                          uint32 maxVerts = 65536);
                 void Shutdown();
+
+                // Notification de redimensionnement (propage par NkRendererImpl).
+                // Render2D ne possede pas de RT propre — on cache juste la taille
+                // courante pour les futurs Begin() sans arguments.
+                void OnResize(uint32 w, uint32 h) { mW = w; mH = h; }
 
                 // ── Frame ──────────────────────────────────────────────────────────────
                 void Begin(NkICommandBuffer* cmd, uint32 w, uint32 h,
@@ -48,6 +58,7 @@ namespace nkentseu {
 
                 // ── Image générale ────────────────────────────────────────────────────
                 void DrawImage(NkTexHandle tex, NkRectF dst, NkVec4f tint={1,1,1,1});
+                void DrawImage(NkTexHandle tex, NkRectF dst, NkRectF src, NkVec4f tint={1,1,1,1});
 
                 // ── Clip regions ──────────────────────────────────────────────────────
                 void PushClip(NkRectF rect);
@@ -78,6 +89,8 @@ namespace nkentseu {
                 NkVector<NkRectF> mClipStack;
                 NkBufferHandle    mVBO, mIBO;
                 NkPipelineHandle  mPipeAlpha, mPipeAdd, mPipeOpaque;
+                NkDescSetHandle   mTexLayout, mTexSet;
+                NkSamplerHandle   mLinearSampler;
                 NkBlendMode       mBlend   = NkBlendMode::NK_ALPHA;
                 uint8             mLayer   = 0;
                 bool              mInFrame = false;
