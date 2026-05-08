@@ -1,22 +1,30 @@
 // =============================================================================
-// NkRendererImpl.cpp  — NKRenderer v4.0
+// NkRendererImpl.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkRendererImpl.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {
     namespace renderer {
 
+        // Helper : alloue via le NkAllocator par defaut (NkAllocator::New utilise
+        // _aligned_malloc, donc NkUniquePtr::Reset peut faire _aligned_free
+        // proprement). Eviter `new T()` qui passe par malloc et provoque une
+        // corruption heap au moment du free.
+        template<typename T, typename... Args>
+        static inline T* AllocOwned(Args&&... args) {
+            return memory::NkGetDefaultAllocator().New<T>(traits::NkForward<Args>(args)...);
+        }
+
         // ── Fabrique statique ─────────────────────────────────────────────────────
-        NkRenderer* NkRenderer::Create(NkIDevice* device,
-                                        const NkSurfaceDesc& surface,
-                                        const NkRendererConfig& cfg) {
-            auto* r = new NkRendererImpl(device, surface, cfg);
-            if (!r->Initialize()) {
-                delete r;
+        NkRenderer* NkRenderer::Create(NkIDevice* device, const NkRendererConfig& cfg) {
+            auto* renderer = new NkRendererImpl(device, cfg);
+            if (!renderer->Initialize()) {
+                delete renderer;
                 return nullptr;
             }
-            return r;
+            return renderer;
         }
 
         void NkRenderer::Destroy(NkRenderer*& renderer) {
@@ -28,102 +36,286 @@ namespace nkentseu {
         }
 
         // ── Constructor / Destructor ──────────────────────────────────────────────
-        NkRendererImpl::NkRendererImpl(NkIDevice* device,
-                                        const NkSurfaceDesc& surface,
-                                        const NkRendererConfig& cfg)
-            : mDevice(device), mSurface(surface), mCfg(cfg) {}
+        NkRendererImpl::NkRendererImpl(NkIDevice* device, const NkRendererConfig& cfg)
+            : mDevice(device), mCfg(cfg) {}
 
         NkRendererImpl::~NkRendererImpl() {
             Shutdown();
         }
 
         // ── Initialize ────────────────────────────────────────────────────────────
+        // Init conditionnelle selon mCfg.subsystems (NkSubsystemFlags).
+        // Chaque sous-systeme n'est cree QUE si son flag est present.
+        // Les dependances internes sont validees : par exemple TEXT necessite
+        // RENDER2D ; UI necessite RENDER2D + TEXT ; OVERLAY idem ; SHADOW
+        // necessite RENDER3D ; etc.
         bool NkRendererImpl::Initialize() {
             if (mInitialized) return true;
-            if (!mDevice) return false;
+            if (!mDevice) {
+                NkRSetLastError(NkRResult::NK_ERR_INVALID_DEVICE,
+                                "NkRendererImpl::Initialize device==nullptr");
+                return false;
+            }
 
-            // 1. RHI : swapchain
+            // 0. RHI (toujours requis)
             if (!InitRHI()) return false;
 
-            // 2. RenderGraph
-            mRenderGraph.Reset(new NkRenderGraph(mDevice));
+            // 1. NkResources (toujours actif — default tex/samplers/layouts)
+            mResources.Reset(AllocOwned<NkResources>());
+            if (!NkROk(mResources->Init(mDevice))) return false;
 
-            // 3. Texture library
-            mTextures.Reset(new NkTextureLibrary());
-            if (!mTextures->Init(mDevice)) return false;
+            // 2. NkShaderLibrary (toujours actif — compile et cache des shaders GLSL/HLSL/MSL)
+            mShaders.Reset(AllocOwned<NkShaderLibrary>());
+            if (!mShaders->Init(mDevice, mCfg.api, /*useNkSL=*/false)) {
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkShaderLibrary::Init failed");
+                return false;
+            }
 
-            // 4. Mesh system
-            mMeshSystem.Reset(new NkMeshSystem());
+            // 3. RenderGraph (toujours actif — orchestre les sous-systemes)
+            mRenderGraph.Reset(AllocOwned<NkRenderGraph>(mDevice));
+
+            // 4. Texture library (toujours actif — partage avec NkResources defaults)
+            mTextures.Reset(AllocOwned<NkTextureLibrary>());
+            if (!NkROk(mTextures->Init(mDevice, mResources.Get()))) return false;
+
+            // 4. Mesh system (toujours actif — primitives utilisees par toutes les passes)
+            mMeshSystem.Reset(AllocOwned<NkMeshSystem>());
             if (!mMeshSystem->Init(mDevice)) return false;
 
-            // 5. Material system
-            mMaterials.Reset(new NkMaterialSystem());
+            // 5. Material system (toujours actif — fournit les templates PBR/Unlit)
+            mMaterials.Reset(AllocOwned<NkMaterialSystem>());
             if (!mMaterials->Init(mDevice, mTextures.Get())) return false;
 
-            // 6. Shadow system
-            NkShadowSystemConfig shadowCfg;
-            shadowCfg.resolution   = mCfg.shadow.resolution;
-            shadowCfg.numCascades  = mCfg.shadow.cascadeCount;
-            shadowCfg.pcfMode      = mCfg.shadow.pcss
-                                    ? NkPCFMode::PCSS
-                                    : (mCfg.shadow.softShadows ? NkPCFMode::PCF3x3 : NkPCFMode::NONE);
-            mShadow.Reset(new NkShadowSystem());
-            if (!mShadow->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(), shadowCfg)) return false;
+            // ─────────────────────────────────────────────────────────────────
+            // Sous-systemes opt-in (NkSubsystemFlags) — declenchent les helpers
+            // partages avec EnableSubsystem.
+            // ─────────────────────────────────────────────────────────────────
+            // Render2D (requis indirect par TEXT/UI/OVERLAY)
+            const bool needsR2D = mCfg.Has(NK_SS_RENDER2D) || mCfg.Has(NK_SS_TEXT)
+                               || mCfg.Has(NK_SS_UI)        || mCfg.Has(NK_SS_OVERLAY);
+            if (needsR2D)                                       if (!InitRender2D())     return false;
 
-            // 7. Render2D
-            mRender2D.Reset(new NkRender2D());
-            if (!mRender2D->Init(mDevice, mTextures.Get())) return false;
+            // Render3D (requis indirect par SHADOW/ANIMATION/SIMULATION)
+            const bool needsR3D = mCfg.Has(NK_SS_RENDER3D) || mCfg.Has(NK_SS_SHADOW)
+                               || mCfg.Has(NK_SS_ANIMATION)|| mCfg.Has(NK_SS_SIMULATION);
+            if (needsR3D)                                       if (!InitRender3D())     return false;
 
-            // 8. Render3D
-            mRender3D.Reset(new NkRender3D());
-            if (!mRender3D->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(),
-                                mRenderGraph.Get(), mShadow.Get())) return false;
+            if (mCfg.Has(NK_SS_SHADOW))                         if (!InitShadow())       return false;
+            if (mCfg.Has(NK_SS_TEXT))                           if (!InitTextRenderer()) return false;
+            if (mCfg.Has(NK_SS_POST_PROCESS))                   if (!InitPostProcess())  return false;
+            if (mCfg.Has(NK_SS_OVERLAY))                        if (!InitOverlay())      return false;
+            if (mCfg.Has(NK_SS_VFX))                            if (!InitVFX())          return false;
+            if (mCfg.Has(NK_SS_ANIMATION))                      if (!InitAnimation())    return false;
+            if (mCfg.Has(NK_SS_SIMULATION))                     if (!InitSimulation())   return false;
 
-            // 9. Text renderer
-            mTextRenderer.Reset(new NkTextRenderer());
-            if (!mTextRenderer->Init(mDevice, mTextures.Get(), mRender2D.Get())) return false;
-
-            // 10. Post-process
-            mPostProcess.Reset(new NkPostProcessStack());
-            if (!mPostProcess->Init(mDevice, mTextures.Get(), mMeshSystem.Get(),
-                                    mCfg.width, mCfg.height)) return false;
-            mPostProcess->SetConfig(mCfg.postProcess);
-
-            // 11. Overlay
-            mOverlay.Reset(new NkOverlayRenderer());
-            if (!mOverlay->Init(mDevice, mRender2D.Get(), mTextRenderer.Get())) return false;
-
-            // 12. VFX
-            mVFX.Reset(new NkVFXSystem());
-            if (!mVFX->Init(mDevice, mTextures.Get(), mMeshSystem.Get())) return false;
-
-            // 13. Animation
-            mAnimation.Reset(new NkAnimationSystem());
-            if (!mAnimation->Init(mDevice, mRender3D.Get())) return false;
-
-            // 14. Simulation renderer (stub pour PV3DE etc.)
-            mSimulation.Reset(new NkSimulationRenderer());
-            if (!mSimulation->Init(mDevice, mRender3D.Get(), mVFX.Get())) return false;
-
-            // 15. Build default render graph passes
+            // Build initial render graph
             BuildDefaultRenderGraph();
 
             mInitialized = true;
             return true;
         }
 
+        // =====================================================================
+        // Helpers d'init par sous-systeme (idempotents : si deja alloue, no-op).
+        // =====================================================================
+        bool NkRendererImpl::InitShadow() {
+            if (mShadow) return true;
+            NkShadowSystemConfig sc;
+            sc.resolution  = mCfg.shadow.resolution;
+            sc.numCascades = mCfg.shadow.cascadeCount;
+            sc.pcfMode     = mCfg.shadow.pcss
+                              ? NkPCFMode::PCSS
+                              : (mCfg.shadow.softShadows ? NkPCFMode::PCF3x3 : NkPCFMode::NONE);
+            mShadow.Reset(AllocOwned<NkShadowSystem>());
+            if (!mShadow->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(), sc)) {
+                mShadow.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkShadowSystem::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitRender2D() {
+            if (mRender2D) return true;
+            mRender2D.Reset(AllocOwned<NkRender2D>());
+            if (!mRender2D->Init(mDevice, mTextures.Get(), mShaders.Get())) {
+                mRender2D.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkRender2D::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitRender3D() {
+            if (mRender3D) return true;
+            mRender3D.Reset(AllocOwned<NkRender3D>());
+            if (!mRender3D->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(),
+                                  mRenderGraph.Get(), mShadow.Get())) {
+                mRender3D.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkRender3D::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitTextRenderer() {
+            if (mTextRenderer) return true;
+            if (!mRender2D && !InitRender2D()) return false;     // dep
+            mTextRenderer.Reset(AllocOwned<NkTextRenderer>());
+            if (!mTextRenderer->Init(mDevice, mTextures.Get(), mRender2D.Get())) {
+                mTextRenderer.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkTextRenderer::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitPostProcess() {
+            if (mPostProcess) return true;
+            mPostProcess.Reset(AllocOwned<NkPostProcessStack>());
+            if (!mPostProcess->Init(mDevice, mTextures.Get(), mMeshSystem.Get(),
+                                      mCfg.width, mCfg.height)) {
+                mPostProcess.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkPostProcessStack::Init failed");
+                return false;
+            }
+            mPostProcess->SetConfig(mCfg.postProcess);
+            return true;
+        }
+        bool NkRendererImpl::InitOverlay() {
+            if (mOverlay) return true;
+            if (!mRender2D     && !InitRender2D())     return false;
+            if (!mTextRenderer && !InitTextRenderer()) return false;
+            mOverlay.Reset(AllocOwned<NkOverlayRenderer>());
+            if (!mOverlay->Init(mDevice, mRender2D.Get(), mTextRenderer.Get())) {
+                mOverlay.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkOverlayRenderer::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitVFX() {
+            if (mVFX) return true;
+            mVFX.Reset(AllocOwned<NkVFXSystem>());
+            if (!mVFX->Init(mDevice, mTextures.Get(), mMeshSystem.Get())) {
+                mVFX.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkVFXSystem::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitAnimation() {
+            if (mAnimation) return true;
+            if (!mRender3D && !InitRender3D()) return false;
+            mAnimation.Reset(AllocOwned<NkAnimationSystem>());
+            if (!mAnimation->Init(mDevice, mRender3D.Get())) {
+                mAnimation.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkAnimationSystem::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitSimulation() {
+            if (mSimulation) return true;
+            if (!mRender3D && !InitRender3D()) return false;
+            if (!mVFX       && !InitVFX())       return false;
+            mSimulation.Reset(AllocOwned<NkSimulationRenderer>());
+            if (!mSimulation->Init(mDevice, mRender3D.Get(), mVFX.Get())) {
+                mSimulation.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkSimulationRenderer::Init failed");
+                return false;
+            }
+            return true;
+        }
+
+        // =====================================================================
+        // Reconstruction du render graph (apres enable/disable runtime ou resize).
+        // =====================================================================
+        void NkRendererImpl::RebuildRenderGraph() {
+            if (mRenderGraph) mRenderGraph->Reset();
+            BuildDefaultRenderGraph();
+        }
+
+        // =====================================================================
+        // EnableSubsystem / DisableSubsystem / IsSubsystemActive
+        // =====================================================================
+        bool NkRendererImpl::EnableSubsystem(NkSubsystemFlags flags) {
+            if (!mInitialized) return false;
+            bool any = false;
+            // L'ordre respecte les dependances
+            if (NkHasFlag(flags, NK_SS_RENDER2D))     { if (!mRender2D)      any |= InitRender2D();     }
+            if (NkHasFlag(flags, NK_SS_RENDER3D))     { if (!mRender3D)      any |= InitRender3D();     }
+            if (NkHasFlag(flags, NK_SS_SHADOW))       { if (!mShadow)        any |= InitShadow();       }
+            if (NkHasFlag(flags, NK_SS_TEXT))         { if (!mTextRenderer)  any |= InitTextRenderer(); }
+            if (NkHasFlag(flags, NK_SS_POST_PROCESS)) { if (!mPostProcess)   any |= InitPostProcess();  }
+            if (NkHasFlag(flags, NK_SS_OVERLAY))      { if (!mOverlay)       any |= InitOverlay();      }
+            if (NkHasFlag(flags, NK_SS_VFX))          { if (!mVFX)           any |= InitVFX();          }
+            if (NkHasFlag(flags, NK_SS_ANIMATION))    { if (!mAnimation)     any |= InitAnimation();    }
+            if (NkHasFlag(flags, NK_SS_SIMULATION))   { if (!mSimulation)    any |= InitSimulation();   }
+
+            // Update config flags pour refleter l'etat reel
+            mCfg.Enable(flags);
+            // Reconstruire le graph pour integrer les nouvelles passes
+            if (any) RebuildRenderGraph();
+            return any;
+        }
+
+        void NkRendererImpl::DisableSubsystem(NkSubsystemFlags flags) {
+            if (!mInitialized) return;
+            // L'ordre inverse pour respecter les dependances :
+            //   SIMULATION/ANIMATION/OVERLAY consomment d'autres systemes en premier,
+            //   puis on libere ces derniers.
+            // Si on desactive RENDER2D, on libere d'abord OVERLAY/UI/TEXT qui en
+            // dependent (cascade).
+            if (NkHasFlag(flags, NK_SS_RENDER2D)) {
+                flags = flags | NK_SS_TEXT | NK_SS_UI | NK_SS_OVERLAY;
+            }
+            if (NkHasFlag(flags, NK_SS_RENDER3D)) {
+                flags = flags | NK_SS_SHADOW | NK_SS_ANIMATION | NK_SS_SIMULATION;
+            }
+
+            if (NkHasFlag(flags, NK_SS_SIMULATION))   mSimulation.Reset();
+            if (NkHasFlag(flags, NK_SS_ANIMATION))    mAnimation.Reset();
+            if (NkHasFlag(flags, NK_SS_VFX))          mVFX.Reset();
+            if (NkHasFlag(flags, NK_SS_OVERLAY))      mOverlay.Reset();
+            if (NkHasFlag(flags, NK_SS_POST_PROCESS)) mPostProcess.Reset();
+            if (NkHasFlag(flags, NK_SS_TEXT))         mTextRenderer.Reset();
+            if (NkHasFlag(flags, NK_SS_SHADOW))       mShadow.Reset();
+            if (NkHasFlag(flags, NK_SS_RENDER3D))     mRender3D.Reset();
+            if (NkHasFlag(flags, NK_SS_RENDER2D))     mRender2D.Reset();
+
+            mCfg.Disable(flags);
+            RebuildRenderGraph();
+        }
+
+        bool NkRendererImpl::IsSubsystemActive(NkSubsystemFlags flags) const {
+            // Tous les flags demandes doivent correspondre a un sous-systeme alloue.
+            const NkSubsystemFlags active = const_cast<NkRendererImpl*>(this)->GetActiveSubsystems();
+            return (static_cast<uint32>(active) & static_cast<uint32>(flags)) == static_cast<uint32>(flags);
+        }
+
+        NkSubsystemFlags NkRendererImpl::GetActiveSubsystems() const {
+            uint32 a = 0;
+            if (mRender2D)     a |= NK_SS_RENDER2D;
+            if (mRender3D)     a |= NK_SS_RENDER3D;
+            if (mTextRenderer) a |= NK_SS_TEXT;
+            if (mShadow)       a |= NK_SS_SHADOW;
+            if (mPostProcess)  a |= NK_SS_POST_PROCESS;
+            if (mOverlay)      a |= NK_SS_OVERLAY;
+            if (mVFX)          a |= NK_SS_VFX;
+            if (mAnimation)    a |= NK_SS_ANIMATION;
+            if (mSimulation)   a |= NK_SS_SIMULATION;
+            return static_cast<NkSubsystemFlags>(a);
+        }
+
         // ── Shutdown ──────────────────────────────────────────────────────────────
         void NkRendererImpl::Shutdown() {
             if (!mInitialized) return;
 
-            // Détruire offscreens d'abord
+            // Detruire offscreens d'abord
             for (auto* t : mOffscreenTargets) {
                 t->Shutdown();
                 delete t;
             }
             mOffscreenTargets.Clear();
 
-            // Inverse de l'ordre d'init
+            // Inverse de l'ordre d'init (les Reset sur des NkUniquePtr nul sont no-op)
             mSimulation.Reset();
             mAnimation.Reset();
             mVFX.Reset();
@@ -137,6 +329,8 @@ namespace nkentseu {
             mMeshSystem.Reset();
             mTextures.Reset();
             mRenderGraph.Reset();
+            mShaders.Reset();
+            mResources.Reset();
 
             if (mCmd) mDevice->DestroyCommandBuffer(mCmd);
 
@@ -145,14 +339,6 @@ namespace nkentseu {
 
         // ── RHI init ──────────────────────────────────────────────────────────────
         bool NkRendererImpl::InitRHI() {
-            // NkSwapchainDesc sc;
-            // sc.surface      = mSurface;
-            // sc.width        = mCfg.width;
-            // sc.height       = mCfg.height;
-            // sc.vsync        = mCfg.vsync;
-            // sc.backBuffers  = 2;
-            // mSwapchain = mDevice->CreateSwapchain(sc);
-            // return mSwapchain != nullptr;
             if (!mDevice->IsValid()) return false;
             uint32 w = mDevice->GetSwapchainWidth();
             uint32 h = mDevice->GetSwapchainHeight();
@@ -169,53 +355,98 @@ namespace nkentseu {
         }
 
         // ── Build default render graph ─────────────────────────────────────────────
+        // Construit un graphe de rendu opt-in en fonction des sous-systemes actifs.
+        // Si l'utilisateur a desactive RENDER3D, on n'ajoute ni Shadow ni Geometry.
+        // Si POST_PROCESS est off, on ecrit Geometry directement dans Swapchain.
         void NkRendererImpl::BuildDefaultRenderGraph() {
             auto& g = *mRenderGraph;
+            const bool has3D       = (mRender3D.Get()    != nullptr);
+            const bool has2D       = (mRender2D.Get()    != nullptr);
+            const bool hasShadow   = (mShadow.Get()      != nullptr) && mCfg.shadow.enabled;
+            const bool hasPP       = (mPostProcess.Get() != nullptr)
+                                  && (mCfg.postProcess.ssao
+                                   || mCfg.postProcess.bloom
+                                   || mCfg.postProcess.toneMapping
+                                   || mCfg.postProcess.fxaa);
+            const bool hasVFX      = (mVFX.Get()         != nullptr);
+            const bool hasOverlay  = (mOverlay.Get()     != nullptr);
 
-            // Importer swapchain comme resource
-            auto colorId = g.ImportTexture("Swapchain", NkTextureHandle{}, NkResourceState::NK_PRESENT);
-            auto depthId = g.CreateTransient("MainDepth", NkTextureDesc::DepthStencil(mCfg.width, mCfg.height));
-            auto hdrId   = g.CreateTransient("HDR", NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA16_FLOAT));
+            // Swapchain (toujours imported — c'est l'output final de la frame)
+            auto colorId = g.ImportTexture("Swapchain", NkTextureHandle{},
+                                            NkResourceState::NK_PRESENT);
 
-            // Shadow pass
-            if (mCfg.shadow.enabled) {
-                auto shadowId = g.CreateTransient("ShadowAtlas", NkTextureDesc::DepthStencil(mCfg.shadow.resolution * (int32)mCfg.shadow.cascadeCount, mCfg.shadow.resolution));
-                g.AddPass("Shadows", NkPassType::NK_SHADOW)
-                 .Writes(shadowId)
-                 .Execute([this](NkICommandBuffer* cmd) { mShadow->RenderShadowPasses(cmd); });
+            // Cible 3D : si POST_PROCESS active → HDR transient ; sinon ecrit directement dans Swapchain.
+            NkGraphResId mainColor = colorId;
+            NkGraphResId mainDepth = NK_INVALID_RES_ID;
+            if (has3D) {
+                mainDepth = g.CreateTransient("MainDepth",
+                              NkTextureDesc::DepthStencil(mCfg.width, mCfg.height));
+                if (hasPP) {
+                    mainColor = g.CreateTransient("HDR",
+                                  NkTextureDesc::RenderTarget(mCfg.width, mCfg.height,
+                                                              NkGPUFormat::NK_RGBA16_FLOAT));
+                }
             }
 
-            // Geometry pass (3D)
-            g.AddPass("Geometry", NkPassType::NK_GEOMETRY)
-            .Writes(hdrId, depthId)
-            .ClearWith({0.05f, 0.05f, 0.07f, 1.f})
-            .Execute([this](NkICommandBuffer* cmd) {
-                mRender3D->Flush(cmd);
-            });
+            // ── Shadow pass ──────────────────────────────────────────────────
+            NkGraphResId shadowId = NK_INVALID_RES_ID;
+            if (hasShadow) {
+                shadowId = g.CreateTransient("ShadowAtlas",
+                            NkTextureDesc::DepthStencil(
+                                mCfg.shadow.resolution * (int32)mCfg.shadow.cascadeCount,
+                                mCfg.shadow.resolution));
+                g.AddPass("Shadows", NkPassType::NK_SHADOW)
+                 .SetDepth(shadowId, NkLoadOp::NK_CLEAR, 1.f)
+                 .Execute([this](NkICommandBuffer* cmd) {
+                     mShadow->RenderShadowPasses(cmd);
+                 });
+            }
 
-            // VFX pass
-            g.AddPass("VFX", NkPassType::NK_TRANSPARENT)
-            .Reads(depthId).Writes(hdrId)
-            .Execute([this](NkICommandBuffer* cmd) {
-                // VFX flushed here
-            });
+            // ── Geometry pass (3D opaque) ─────────────────────────────────────
+            if (has3D) {
+                auto& geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
+                geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f})
+                    .SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
+                if (shadowId != NK_INVALID_RES_ID) geom.Reads(shadowId);
+                geom.Execute([this](NkICommandBuffer* cmd) { mRender3D->Flush(cmd); });
+            }
 
-            // Post-process
-            if (mCfg.postProcess.ssao || mCfg.postProcess.bloom || mCfg.postProcess.toneMapping) {
-                g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS)
-                .Reads(hdrId, depthId).Writes(colorId)
-                .Execute([this, hdrId, depthId](NkICommandBuffer* cmd) {
-                    // PostProcess stack executed here
+            // ── VFX pass (transparents) ───────────────────────────────────────
+            if (has3D && hasVFX) {
+                g.AddPass("VFX", NkPassType::NK_TRANSPARENT)
+                 .Reads(mainDepth)
+                 .SetColor(0, mainColor, NkLoadOp::NK_LOAD)
+                 .Execute([this](NkICommandBuffer* cmd) {
+                     // VFX flush integre par le sous-systeme VFX
+                     (void)cmd;
+                 });
+            }
+
+            // ── Post-process ──────────────────────────────────────────────────
+            if (has3D && hasPP) {
+                auto& pp = g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS);
+                pp.Reads(mainColor);
+                if (mainDepth != NK_INVALID_RES_ID) pp.Reads(mainDepth);
+                pp.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0,0,0,1});
+                pp.Execute([this](NkICommandBuffer* cmd) {
+                    // L'execution effective de la stack PostProcess est faite par
+                    // mPostProcess->Execute() (a brancher en phase 2). Ici la passe
+                    // existe pour reserver l'ordonnancement et les barrieres.
+                    (void)cmd;
                 });
             }
 
-            // 2D + UI overlay
-            g.AddPass("Overlay2D", NkPassType::NK_UI_OVERLAY)
-            .Writes(colorId)
-            .Execute([this](NkICommandBuffer* cmd) {
-                mRender2D->FlushPending(cmd);
-                mOverlay->FlushPending(cmd);
-            });
+            // ── 2D + UI overlay ───────────────────────────────────────────────
+            // Si aucune passe 3D ne clear le swapchain (config 2D-only), on clear ici.
+            if (has2D || hasOverlay) {
+                auto& ov = g.AddPass("Overlay2D", NkPassType::NK_UI_OVERLAY);
+                const auto loadOp = has3D ? NkLoadOp::NK_LOAD : NkLoadOp::NK_CLEAR;
+                ov.SetColor(0, colorId, loadOp, {0.05f, 0.05f, 0.07f, 1.f});
+                ov.Execute([this](NkICommandBuffer* cmd) {
+                    if (mRender2D) mRender2D->FlushPending(cmd);
+                    if (mOverlay)  mOverlay->FlushPending(cmd);
+                });
+            }
 
             g.Compile();
         }
@@ -223,59 +454,68 @@ namespace nkentseu {
         // ── Frame ──────────────────────────────────────────────────────────────────
         bool NkRendererImpl::BeginFrame() {
             if (!mInitialized) return false;
-            if (!mValid) return false;
             mStats.Reset();
             mFrameCtx = {};
             if (!mDevice->BeginFrame(mFrameCtx)) return false;
 
             // Auto-resize
             uint32 sw=mDevice->GetSwapchainWidth(), sh=mDevice->GetSwapchainHeight();
-            if ((sw!=mWidth||sh!=mHeight)&&sw>0&&sh>0) OnResize(sw,sh);
+            if ((sw!=mCfg.width||sh!=mCfg.height)&&sw>0&&sh>0) OnResize(sw,sh);
 
-            // Flush matériaux dirty avant rendu
-            if (mMaterials) mMaterials->FlushDirty();
+            // Flush dirty shader compilations before rendering
+            if (mMaterials) mMaterials->FlushCompilations();
 
             mCmd->Reset();
             mCmd->Begin();
-            mInsideFrame = true;
             return true;
         }
 
         void NkRendererImpl::EndFrame() {
-            if (!mCmd) return;
             mDevice->EndFrame(mFrameCtx);
-            mCmd = nullptr;
         }
 
         void NkRendererImpl::Present() {
             if (!mCmd) return;
             mRenderGraph->Execute(mCmd);
-            mRenderGraph->Reset();
+            // NB : pas de Reset() ici — le graph persiste entre frames.
+            // RebuildRenderGraph() le reset+rebuilds quand les sous-systemes
+            // changent (Enable/Disable). Le destructor du graph fait le clean final.
+            mCmd->End();
             mDevice->SubmitAndPresent(mCmd);
         }
 
         void NkRendererImpl::OnResize(uint32 w, uint32 h) {
             if (w == 0 || h == 0) return;
             mCfg.width = w; mCfg.height = h;
-            // mDevice->ResizeSwapchain(mSwapchain, w, h);
-            mPostProcess->OnResize(w, h);
-            BuildDefaultRenderGraph();
+            // Propage au RHI pour mettre a jour la swapchain virtuelle (viewport / FBO 0).
+            if (mDevice) mDevice->OnResize(w, h);
+            // Propage a tous les sous-systemes optionnels (selon la config courante).
+            // For2D ne cree pas mPostProcess/mRender3D/mShadow, donc null check avant.
+            if (mRender2D)     mRender2D->OnResize(w, h);
+            if (mRender3D)     mRender3D->OnResize(w, h);
+            if (mOverlay)      mOverlay->OnResize(w, h);
+            if (mPostProcess)  mPostProcess->OnResize(w, h);
+            // Reset + rebuild du RenderGraph : les ressources transitoires (HDR target,
+            // depth buffer) sont dimensionnees via mCfg.width/height au moment du build,
+            // donc on doit les recreer apres un changement de taille. RebuildRenderGraph()
+            // appelle Reset() puis BuildDefaultRenderGraph() — ne PAS appeler le second
+            // tout seul (ca empile des passes au lieu de les remplacer).
+            RebuildRenderGraph();
         }
 
         // ── Config dynamique ───────────────────────────────────────────────────────
         void NkRendererImpl::SetVSync(bool e) {
             mCfg.vsync = e;
-            // mDevice->SetSwapchainVSync(mSwapchain, e);
         }
 
         void NkRendererImpl::SetPostConfig(const NkPostConfig& pp) {
             mCfg.postProcess = pp;
-            mPostProcess->SetConfig(pp);
+            if (mPostProcess) mPostProcess->SetConfig(pp);
         }
 
         void NkRendererImpl::SetWireframe(bool e) {
             mCfg.wireframe = e;
-            mRender3D->SetWireframe(e);
+            if (mRender3D) mRender3D->SetWireframe(e);
         }
 
         // ── Offscreen ─────────────────────────────────────────────────────────────

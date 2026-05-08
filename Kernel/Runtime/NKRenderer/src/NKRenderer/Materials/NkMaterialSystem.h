@@ -29,10 +29,7 @@ namespace nkentseu {
             NK_CUSTOM=100,
         };
 
-        enum class NkRenderQueue : uint8 {
-            NK_BACKGROUND=0, NK_OPAQUE=100, NK_ALPHA_TEST=150,
-            NK_TRANSPARENT=200, NK_OVERLAY=250,
-        };
+        // (NkRenderQueue defini dans Core/NkRendererTypes.h)
 
         enum class NkCullMode : uint8 { NK_BACK=0, NK_FRONT, NK_NONE };
         enum class NkFillMode : uint8 { NK_SOLID=0, NK_WIREFRAME };
@@ -133,6 +130,7 @@ namespace nkentseu {
                 friend class NkMaterialSystem;
                 NkMatHandle     mTemplate;
                 NkDescSetHandle mDescSet;
+                NkBufferHandle  mUBO;
                 bool            mDirty = true;
                 NkPBRParams     mPBR;
                 NkToonParams    mToon;
@@ -197,6 +195,8 @@ namespace nkentseu {
                 NkHashMap<uint64, TemplateEntry>   mTemplates;
                 NkVector<NkMaterialInstance*>      mInstances;
                 uint64                             mNextId = 1;
+                NkDescSetHandle                    mInstDescLayout;
+                NkSamplerHandle                    mLinearSampler;
 
                 NkMatHandle mTmplPBR, mTmplToon, mTmplUnlit, mTmplWire;
                 NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;

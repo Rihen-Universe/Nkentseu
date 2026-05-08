@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkCamera.h"
+#include "NKRenderer/Core/NkSceneContext.h"
 #include "NKRenderer/Core/NkRenderGraph.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
@@ -14,19 +15,7 @@ namespace nkentseu {
 
         class NkShadowSystem;
 
-        enum class NkViewMode : uint8 {
-            NK_SOLID, NK_WIREFRAME, NK_NORMALS, NK_UV, NK_DEPTH, NK_AO, NK_UNLIT,
-        };
-
-        struct NkSceneContext {
-            NkCamera3D              camera;
-            NkVector<NkLightDesc>   lights;
-            NkTexHandle             envMap;
-            float32                 ambientIntensity = 0.2f;
-            float32                 time   = 0.f;
-            float32                 deltaTime = 0.f;
-            NkViewMode              viewMode  = NkViewMode::NK_SOLID;
-        };
+        // (NkViewMode et NkSceneContext sont definis dans Core/NkRendererTypes.h)
 
         class NkRender3D {
             public:
@@ -36,6 +25,11 @@ namespace nkentseu {
                 bool Init(NkIDevice* device, NkMeshSystem* mesh, NkMaterialSystem* mat,
                         NkRenderGraph* graph, NkShadowSystem* shadow = nullptr);
                 void Shutdown();
+
+                // Notification de redimensionnement (propage par NkRendererImpl).
+                // Les RT sont geres par le PostProcess/le RenderGraph ; ici on cache
+                // juste la taille courante pour le viewport implicite.
+                void OnResize(uint32 w, uint32 h) { mW = w; mH = h; }
 
                 // ── Frame ────────────────────────────────────────────────────────────
                 void BeginScene(const NkSceneContext& ctx);
@@ -73,6 +67,7 @@ namespace nkentseu {
                 NkSceneContext    mCtx;
                 bool              mInScene  = false;
                 bool              mWireframe= false;
+                uint32            mW = 0, mH = 0;  // taille courante (mise a jour par OnResize)
 
                 NkVector<SortedDC>              mOpaque;
                 NkVector<SortedDC>              mTransparent;
@@ -80,10 +75,16 @@ namespace nkentseu {
                 NkVector<NkDrawCallSkinned>     mSkinned;
                 NkVector<DebugLine>             mDebugLines;
 
-                NkBufferHandle mUBOCamera;
-                NkBufferHandle mUBOObject;
-                NkBufferHandle mUBOLights;
-                NkBufferHandle mSSBOBones;
+                NkBufferHandle  mUBOCamera;
+                NkBufferHandle  mUBOObject;
+                NkBufferHandle  mUBOLights;
+                NkBufferHandle  mSSBOBones;
+
+                // Descriptor sets: set 0 = per-frame (camera+lights), set 1 = per-object (model+bones)
+                NkDescSetHandle mGlobalLayout;
+                NkDescSetHandle mGlobalSet;
+                NkDescSetHandle mObjectLayout;
+                NkDescSetHandle mObjectSet;
 
                 void UploadUBOs(NkICommandBuffer* cmd);
                 void FlushOpaque     (NkICommandBuffer* cmd);

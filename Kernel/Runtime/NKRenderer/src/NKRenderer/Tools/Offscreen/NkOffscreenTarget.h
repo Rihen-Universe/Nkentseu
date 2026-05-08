@@ -1,6 +1,7 @@
 #pragma once
 // NkOffscreenTarget.h — NKRenderer v4.0 (Tools/Offscreen/)
 #include "../../Core/NkRendererTypes.h"
+#include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 namespace nkentseu { 
     namespace renderer {

@@ -595,7 +595,35 @@ namespace nkentseu {
     // =============================================================================
     struct NkComputePipelineDesc {
         NkShaderHandle  shader;
+
+        // Push constants déclarés dans ce pipeline (identique à NkGraphicsPipelineDesc).
+        // Obligatoire sur Vulkan (pipeline layout) ; ignoré sur GL/DX où c'est implicite.
+        NkVector<NkPushConstantRange> pushConstants;
+
+        // Descriptor set layouts déclarés dans ce pipeline layout.
+        NkVector<NkDescSetHandle>     descriptorSetLayouts;
+
         const char*     debugName = nullptr;
+
+        NkComputePipelineDesc& AddPushConstant(NkShaderStage stages,
+                                                uint32 offset, uint32 size) {
+            pushConstants.PushBack({stages, offset, size});
+            return *this;
+        }
+    };
+
+    // =============================================================================
+    // Compute Pass
+    // Délimite une région de travail compute dans un command buffer.
+    // Analogue à NkRenderPassDesc pour les passes graphics :
+    //   - scoping debug (RenderDoc, PIX, Xcode)
+    //   - timestamps GPU optionnels
+    //   - hint pour les backends qui pré-allouent
+    // =============================================================================
+    struct NkComputePassDesc {
+        const char* debugName          = nullptr;
+        bool        enableTimestamp    = false;  // mesure du temps GPU de la passe
+        uint32      hintDispatchCount  = 0;      // nb de dispatches prévus (hint seulement)
     };
 
     // =============================================================================
