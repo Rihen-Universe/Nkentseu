@@ -16,28 +16,56 @@ namespace nkentseu {
                             NkShadowSystem* shadow) {
             mDevice=device; mMesh=mesh; mMat=mat; mGraph=graph; mShadow=shadow;
 
-            // Camera UBO (binding 0)
-            NkBufferDesc bd; bd.type=NkBufferType::NK_UNIFORM;
-            bd.usage=NkBufferUsage::NK_DYNAMIC;
-            bd.size=sizeof(NkCameraUBO); mUBOCamera=mDevice->CreateBuffer(bd);
+            // Camera UBO (per-frame, set 0, binding 0)
+            mUBOCamera = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
 
-            // Object UBO (binding 1)
+            // Lights UBO (per-frame, set 0, binding 2)
+            struct LightsUBO { NkVec4f pos[32],color[32],dir[32],angles[32]; int32 count,_p[3]; };
+            mUBOLights = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(LightsUBO)));
+
+            // Object UBO (per-object, set 1, binding 1)
             struct ObjectUBO { NkMat4f model,normalMatrix; NkVec4f tint;
                 float32 metallic,roughness,ao,emissiveStr,normalStr,_p[3]; };
-            bd.size=sizeof(ObjectUBO); mUBOObject=mDevice->CreateBuffer(bd);
+            mUBOObject = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(ObjectUBO)));
 
-            // Lights UBO (binding 2)
-            struct LightsUBO { NkVec4f pos[32],color[32],dir[32],angles[32]; int32 count,_p[3]; };
-            bd.size=sizeof(LightsUBO); mUBOLights=mDevice->CreateBuffer(bd);
+            // Bones SSBO (per-object, set 1, binding 3)
+            mSSBOBones = mDevice->CreateBuffer(NkBufferDesc::Storage(256*sizeof(NkMat4f)));
 
-            // Bones SSBO (binding 3)
-            bd.type=NkBufferType::NK_STORAGE; bd.size=256*sizeof(NkMat4f);
-            mSSBOBones=mDevice->CreateBuffer(bd);
+            // Per-frame descriptor layout: binding 0 = camera UBO, binding 2 = lights UBO
+            NkDescriptorSetLayoutDesc frameLayout;
+            frameLayout.Add(0, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_ALL_GRAPHICS)
+                       .Add(2, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_ALL_GRAPHICS);
+            mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
+            mGlobalSet    = mDevice->AllocateDescriptorSet(mGlobalLayout);
+
+            // Per-object descriptor layout: binding 1 = object UBO, binding 3 = bones SSBO
+            NkDescriptorSetLayoutDesc objectLayout;
+            objectLayout.Add(1, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_ALL_GRAPHICS)
+                        .Add(3, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_ALL_GRAPHICS);
+            mObjectLayout = mDevice->CreateDescriptorSetLayout(objectLayout);
+            mObjectSet    = mDevice->AllocateDescriptorSet(mObjectLayout);
+
+            // Pre-bind static buffers into descriptor sets
+            if (mGlobalSet.IsValid()) {
+                mDevice->BindUniformBuffer(mGlobalSet, 0, mUBOCamera);
+                mDevice->BindUniformBuffer(mGlobalSet, 2, mUBOLights);
+            }
+            if (mObjectSet.IsValid()) {
+                mDevice->BindUniformBuffer(mObjectSet, 1, mUBOObject);
+                NkDescriptorWrite bw{}; bw.set=mObjectSet; bw.binding=3;
+                bw.type=NkDescriptorType::NK_STORAGE_BUFFER; bw.buffer=mSSBOBones;
+                bw.bufferRange=256*sizeof(NkMat4f);
+                mDevice->UpdateDescriptorSets(&bw, 1);
+            }
 
             return mUBOCamera.IsValid();
         }
 
         void NkRender3D::Shutdown() {
+            if (mGlobalSet.IsValid())    { mDevice->FreeDescriptorSet(mGlobalSet); }
+            if (mObjectSet.IsValid())    { mDevice->FreeDescriptorSet(mObjectSet); }
+            if (mGlobalLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mGlobalLayout); }
+            if (mObjectLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mObjectLayout); }
             if(mUBOCamera.IsValid()){mDevice->DestroyBuffer(mUBOCamera);mUBOCamera={};}
             if(mUBOObject.IsValid()){mDevice->DestroyBuffer(mUBOObject);mUBOObject={};}
             if(mUBOLights.IsValid()){mDevice->DestroyBuffer(mUBOLights);mUBOLights={};}
@@ -55,17 +83,12 @@ namespace nkentseu {
         // ── Submit ────────────────────────────────────────────────────────────────
         void NkRender3D::Submit(const NkDrawCall3D& dc) {
             if (!dc.visible) return;
-            // Frustum culling
             if (!mCtx.camera.IsAABBVisible(dc.aabb)) return;
 
             NkVec3f camPos = mCtx.camera.GetPosition();
             NkVec3f center = dc.aabb.Center();
-            float32 depth  = (center.x-camPos.x)*(center.x-camPos.x)+
-                            (center.y-camPos.y)*(center.y-camPos.y)+
-                            (center.z-camPos.z)*(center.z-camPos.z);
-
-            // TODO: lookup queue du matériau
-            // Pour l'instant, tout en opaque
+            float32 dx=center.x-camPos.x, dy=center.y-camPos.y, dz=center.z-camPos.z;
+            float32 depth = dx*dx + dy*dy + dz*dz;
             mOpaque.PushBack({dc, depth});
         }
 
@@ -91,18 +114,13 @@ namespace nkentseu {
 
         // ── Sort ──────────────────────────────────────────────────────────────────
         void NkRender3D::SortDrawCalls() {
-            // Front-to-back pour opaques (early-z)
-            // std sort sur NkVector via raw pointer
-            if (!mOpaque.Empty()) {
-                // Simple insertion sort (assez rapide pour <1000 objs typiques)
-                for (uint32 i=1;i<(uint32)mOpaque.Size();i++) {
-                    SortedDC key=mOpaque[i];
-                    int32 j=(int32)i-1;
-                    while(j>=0 && mOpaque[j].depth>key.depth){
-                        mOpaque[j+1]=mOpaque[j]; j--;
-                    }
-                    mOpaque[j+1]=key;
+            for (uint32 i=1;i<(uint32)mOpaque.Size();i++) {
+                SortedDC key=mOpaque[i];
+                int32 j=(int32)i-1;
+                while(j>=0 && mOpaque[j].depth>key.depth){
+                    mOpaque[j+1]=mOpaque[j]; j--;
                 }
+                mOpaque[j+1]=key;
             }
         }
 
@@ -111,8 +129,11 @@ namespace nkentseu {
             if (!mInScene) return;
             SortDrawCalls();
             UploadUBOs(cmd);
-            cmd->BindUniformBuffer(0, mUBOCamera);
-            cmd->BindUniformBuffer(2, mUBOLights);
+
+            // Bind per-frame descriptor set (camera + lights) at set index 0
+            if (mGlobalSet.IsValid())
+                cmd->BindDescriptorSet(mGlobalSet, 0);
+
             FlushOpaque(cmd);
             FlushInstanced(cmd);
             FlushSkinned(cmd);
@@ -122,9 +143,10 @@ namespace nkentseu {
         }
 
         void NkRender3D::UploadUBOs(NkICommandBuffer* cmd) {
+            (void)cmd;
             // Camera UBO
             NkCameraUBO camUBO = mCtx.camera.BuildUBO(mCtx.time, mCtx.deltaTime);
-            mDevice->UpdateBuffer(mUBOCamera, &camUBO, sizeof(camUBO));
+            mDevice->WriteBuffer(mUBOCamera, &camUBO, sizeof(camUBO));
 
             // Lights UBO
             struct LightsBlock {
@@ -138,7 +160,7 @@ namespace nkentseu {
                 lb.dir[i]   ={l.direction.x,l.direction.y,l.direction.z,l.range};
                 lb.angles[i]={l.innerAngle,l.outerAngle,(float32)l.castShadow,0};
             }
-            mDevice->UpdateBuffer(mUBOLights, &lb, sizeof(lb));
+            mDevice->WriteBuffer(mUBOLights, &lb, sizeof(lb));
         }
 
         void NkRender3D::FlushOpaque(NkICommandBuffer* cmd) {
@@ -148,18 +170,17 @@ namespace nkentseu {
             };
             for (auto& sdc : mOpaque) {
                 auto& dc = sdc.dc;
-                // Object UBO
-                ObjBlock ob{}; ob.model=dc.transform;
-                // Normal matrix = inverse transpose of upper-left 3x3
-                ob.normalMat=NkMat4f::Transpose(NkMat4f::Inverse(dc.transform));
+                ObjBlock ob{};
+                ob.model=dc.transform;
+                ob.normalMat=dc.transform.Inverse().Transpose();
                 ob.tint={dc.tint.x,dc.tint.y,dc.tint.z,dc.alpha};
                 ob.metallic=0; ob.roughness=0.5f; ob.ao=1; ob.emissStr=0; ob.normalStr=1;
-                mDevice->UpdateBuffer(mUBOObject, &ob, sizeof(ob));
-                cmd->BindUniformBuffer(1, mUBOObject);
+                mDevice->WriteBuffer(mUBOObject, &ob, sizeof(ob));
 
-                // Bind material
-                // TODO: lookup matière pour l'instance
-                // Pour l'instant draw direct
+                // Re-bind object descriptor set with updated UBO
+                if (mObjectSet.IsValid())
+                    cmd->BindDescriptorSet(mObjectSet, 1);
+
                 mMesh->BindMesh(cmd, dc.mesh);
                 if (dc.subMeshIdx == 0xFFFFFFFFu)
                     mMesh->DrawAll(cmd, dc.mesh);
@@ -169,7 +190,6 @@ namespace nkentseu {
         }
 
         void NkRender3D::FlushTransparent(NkICommandBuffer* cmd) {
-            // Transparent triés back-to-front (si dans mTransparent)
             for (auto& sdc : mTransparent) {
                 mMesh->BindMesh(cmd, sdc.dc.mesh);
                 mMesh->DrawAll(cmd, sdc.dc.mesh);
@@ -179,11 +199,11 @@ namespace nkentseu {
         void NkRender3D::FlushInstanced(NkICommandBuffer* cmd) {
             for (auto& dc : mInstanced) {
                 if (dc.transforms.Empty()) continue;
-                // Upload instance transforms (SSBO ou VBO instancié)
                 uint32 count=(uint32)dc.transforms.Size();
-                mDevice->UpdateBuffer(mSSBOBones, dc.transforms.Data(),
+                mDevice->WriteBuffer(mSSBOBones, dc.transforms.Data(),
                                         count*sizeof(NkMat4f));
-                cmd->BindStorageBuffer(3, mSSBOBones);
+                if (mObjectSet.IsValid())
+                    cmd->BindDescriptorSet(mObjectSet, 1);
                 mMesh->BindMesh(cmd, dc.mesh);
                 mMesh->DrawAll(cmd, dc.mesh, count);
             }
@@ -193,15 +213,16 @@ namespace nkentseu {
             for (auto& dc : mSkinned) {
                 if (dc.boneMatrices.Empty()) continue;
                 uint32 count=(uint32)dc.boneMatrices.Size();
-                mDevice->UpdateBuffer(mSSBOBones, dc.boneMatrices.Data(),
+                mDevice->WriteBuffer(mSSBOBones, dc.boneMatrices.Data(),
                                         count*sizeof(NkMat4f));
-                cmd->BindStorageBuffer(3, mSSBOBones);
-                // Object UBO
+
                 struct ObjB { NkMat4f m,nm; NkVec4f tint; float32 p[8]; } ob{};
-                ob.m=dc.transform; ob.nm=NkMat4f::Transpose(NkMat4f::Inverse(dc.transform));
+                ob.m=dc.transform; ob.nm=dc.transform.Inverse().Transpose();
                 ob.tint={dc.tint.x,dc.tint.y,dc.tint.z,dc.alpha};
-                mDevice->UpdateBuffer(mUBOObject,&ob,sizeof(ob));
-                cmd->BindUniformBuffer(1,mUBOObject);
+                mDevice->WriteBuffer(mUBOObject,&ob,sizeof(ob));
+
+                if (mObjectSet.IsValid())
+                    cmd->BindDescriptorSet(mObjectSet, 1);
                 mMesh->BindMesh(cmd,dc.mesh);
                 mMesh->DrawAll(cmd,dc.mesh);
             }
@@ -209,7 +230,6 @@ namespace nkentseu {
 
         void NkRender3D::FlushDebug(NkICommandBuffer* cmd) {
             (void)cmd;
-            // Mise à jour vie des debug lines
             for (uint32 i=0;i<(uint32)mDebugLines.Size();) {
                 if (mDebugLines[i].life > 0.f) {
                     mDebugLines[i].life -= mCtx.deltaTime;
@@ -235,7 +255,6 @@ namespace nkentseu {
         }
         void NkRender3D::DrawDebugAABB(const NkAABB& box, NkVec4f color) {
             NkVec3f mn=box.min,mx=box.max;
-            // 12 arêtes
             DrawDebugLine({mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},color);
             DrawDebugLine({mx.x,mn.y,mn.z},{mx.x,mx.y,mn.z},color);
             DrawDebugLine({mx.x,mx.y,mn.z},{mn.x,mx.y,mn.z},color);
@@ -265,7 +284,6 @@ namespace nkentseu {
         }
         void NkRender3D::DrawDebugArrow(NkVec3f from, NkVec3f to, NkVec4f color) {
             DrawDebugLine(from,to,color);
-            // TODO: petite pointe
         }
 
     } // namespace renderer

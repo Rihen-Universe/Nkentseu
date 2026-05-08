@@ -7,6 +7,8 @@
 #include "NKRenderer/NkRenderer.h"
 #include "NkRenderGraph.h"
 #include "NkTextureLibrary.h"
+#include "NkResources.h"
+#include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
@@ -27,9 +29,7 @@ namespace nkentseu {
 
         class NkRendererImpl final : public NkRenderer {
             public:
-                NkRendererImpl(NkIDevice* device,
-                                const NkSurfaceDesc& surface,
-                                const NkRendererConfig& cfg);
+                NkRendererImpl(NkIDevice* device, const NkRendererConfig& cfg);
                 ~NkRendererImpl() override;
 
                 // NkRenderer interface
@@ -44,6 +44,7 @@ namespace nkentseu {
 
                 NkRenderGraph*        GetRenderGraph()  override { return mRenderGraph.Get(); }
                 NkTextureLibrary*     GetTextures()     override { return mTextures.Get(); }
+                NkShaderLibrary*      GetShaders()      override { return mShaders.Get(); }
                 NkMeshSystem*         GetMeshSystem()   override { return mMeshSystem.Get(); }
                 NkMaterialSystem*     GetMaterials()    override { return mMaterials.Get(); }
                 NkRender2D*           GetRender2D()     override { return mRender2D.Get(); }
@@ -63,6 +64,12 @@ namespace nkentseu {
                 void SetPostConfig(const NkPostConfig& pp) override;
                 void SetWireframe (bool e)          override;
 
+                // Runtime subsystem toggle
+                bool             EnableSubsystem  (NkSubsystemFlags flags)       override;
+                void             DisableSubsystem (NkSubsystemFlags flags)       override;
+                bool             IsSubsystemActive(NkSubsystemFlags flags) const override;
+                NkSubsystemFlags GetActiveSubsystems()                    const override;
+
                 const NkRendererStats& GetStats()   const override { return mStats; }
                 void                   ResetStats()       override { mStats.Reset(); }
 
@@ -75,7 +82,6 @@ namespace nkentseu {
 
             private:
                 NkIDevice*       mDevice  = nullptr;
-                NkSurfaceDesc    mSurface;
                 NkRendererConfig mCfg;
                 NkICommandBuffer*mCmd     = nullptr;
                 NkISwapchain*    mSwapchain= nullptr;
@@ -85,6 +91,8 @@ namespace nkentseu {
                 NkRendererStats  mStats;
 
                 // Sous-systèmes (ordre d'initialisation = ordre de déclaration)
+                memory::NkUniquePtr<NkResources>          mResources;     // toujours actif (default tex/samplers/layouts)
+                memory::NkUniquePtr<NkShaderLibrary>      mShaders;       // toujours actif (compile/cache des shaders)
                 memory::NkUniquePtr<NkRenderGraph>        mRenderGraph;
                 memory::NkUniquePtr<NkTextureLibrary>     mTextures;
                 memory::NkUniquePtr<NkMeshSystem>         mMeshSystem;
@@ -103,6 +111,21 @@ namespace nkentseu {
 
                 bool InitRHI();
                 void BuildDefaultRenderGraph();
+
+                // ── Helpers d'init/teardown par sous-systeme (utilises a la fois
+                //    par Initialize() et par EnableSubsystem/DisableSubsystem) ────
+                bool InitShadow();
+                bool InitRender2D();
+                bool InitRender3D();
+                bool InitTextRenderer();
+                bool InitPostProcess();
+                bool InitOverlay();
+                bool InitVFX();
+                bool InitAnimation();
+                bool InitSimulation();
+
+                // Reconstruit le render graph apres changement de sous-systemes
+                void RebuildRenderGraph();
         };
 
     } // namespace renderer

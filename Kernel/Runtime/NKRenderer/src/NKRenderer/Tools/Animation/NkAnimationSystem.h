@@ -27,6 +27,7 @@
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkRendererConfig.h"
+#include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/String/NkString.h"
@@ -88,7 +89,7 @@ namespace nkentseu {
                     NkKeyframe<T> kf; kf.time=t; kf.value=v; kf.interp=interp;
                     uint32 i=0;
                     while(i<(uint32)mKeys.Size() && mKeys[i].time<t) i++;
-                    mKeys.Insert(i, kf);
+                    mKeys.Insert(mKeys.Begin() + i, kf);
                 }
 
                 T Evaluate(float32 t) const {

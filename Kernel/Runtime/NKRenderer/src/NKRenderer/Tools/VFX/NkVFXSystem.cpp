@@ -32,21 +32,36 @@ namespace nkentseu {
                                 NkMeshSystem* mesh) {
             mDevice=device; mTexLib=texLib; mMesh=mesh;
 
-            NkPipelineDesc pd;
-            pd.type = NkPipelineType::NK_PARTICLES;
-            pd.name = "ParticlesBillboard";
-            pd.blendMode = (uint8)NkBlendMode::NK_ADDITIVE;
-            pd.depthWrite = false;
-            mPipeParticle = mDevice->CreatePipeline(pd);
-
-            pd.name = "TrailMesh";
-            pd.blendMode = (uint8)NkBlendMode::NK_ALPHA;
-            mPipeTrail = mDevice->CreatePipeline(pd);
-
-            pd.name = "Decal";
-            pd.blendMode = (uint8)NkBlendMode::NK_ALPHA;
-            pd.depthWrite = false;
-            mPipeDecal = mDevice->CreatePipeline(pd);
+            {
+                NkGraphicsPipelineDesc pd;
+                pd.rasterizer = NkRasterizerDesc::Default();
+                pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
+                pd.depthStencil = NkDepthStencilDesc::Default();
+                pd.depthStencil.depthWriteEnable = false;
+                pd.blend = NkBlendDesc::Additive();
+                pd.debugName = "ParticlesBillboard";
+                mPipeParticle = mDevice->CreateGraphicsPipeline(pd);
+            }
+            {
+                NkGraphicsPipelineDesc pd;
+                pd.rasterizer = NkRasterizerDesc::Default();
+                pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
+                pd.depthStencil = NkDepthStencilDesc::Default();
+                pd.depthStencil.depthWriteEnable = false;
+                pd.blend = NkBlendDesc::Alpha();
+                pd.debugName = "TrailMesh";
+                mPipeTrail = mDevice->CreateGraphicsPipeline(pd);
+            }
+            {
+                NkGraphicsPipelineDesc pd;
+                pd.rasterizer = NkRasterizerDesc::Default();
+                pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
+                pd.depthStencil = NkDepthStencilDesc::Default();
+                pd.depthStencil.depthWriteEnable = false;
+                pd.blend = NkBlendDesc::Alpha();
+                pd.debugName = "Decal";
+                mPipeDecal = mDevice->CreateGraphicsPipeline(pd);
+            }
 
             return true;
         }
@@ -74,11 +89,8 @@ namespace nkentseu {
             e->spawnAccum= 0.f;
 
             // GPU billboard VBO (NkVertexParticle)
-            NkBufferDesc bd;
-            bd.size  = desc.maxParticles * sizeof(NkVertexParticle) * 4; // 4 verts/particle
-            bd.type  = NkBufferType::NK_VERTEX;
-            bd.usage = NkBufferUsage::NK_DYNAMIC;
-            e->vbo   = mDevice->CreateBuffer(bd);
+            e->vbo = mDevice->CreateBuffer(
+                NkBufferDesc::VertexDynamic(desc.maxParticles * sizeof(NkVertexParticle) * 4));
 
             mEmitters.PushBack(e);
             return e->id;
@@ -232,7 +244,7 @@ namespace nkentseu {
                 v.uv={1,1}; verts.PushBack(v);
                 v.uv={0,1}; verts.PushBack(v);
             }
-            mDevice->UpdateBuffer(e->vbo, verts.Data(),
+            mDevice->WriteBuffer(e->vbo, verts.Data(),
                                 (uint32)verts.Size()*sizeof(NkVertexParticle));
         }
 
@@ -241,11 +253,8 @@ namespace nkentseu {
             Trail* t  = new Trail();
             t->id     = {mNextId++};
             t->desc   = desc;
-            NkBufferDesc bd;
-            bd.size   = desc.maxPoints * sizeof(NkVertex3D) * 2; // ribbon 2 verts/point
-            bd.type   = NkBufferType::NK_VERTEX;
-            bd.usage  = NkBufferUsage::NK_DYNAMIC;
-            t->vbo    = mDevice->CreateBuffer(bd);
+            t->vbo = mDevice->CreateBuffer(
+                NkBufferDesc::VertexDynamic(desc.maxPoints * sizeof(NkVertex3D) * 2));
             mTrails.PushBack(t);
             return t->id;
         }
@@ -313,7 +322,7 @@ namespace nkentseu {
                 vL.uv={u,0}; vR.uv={u,1}; vL.color=vR.color=c;
                 verts.PushBack(vL); verts.PushBack(vR);
             }
-            mDevice->UpdateBuffer(t->vbo, verts.Data(), (uint32)verts.Size()*sizeof(NkVertex3D));
+            mDevice->WriteBuffer(t->vbo, verts.Data(), (uint32)verts.Size()*sizeof(NkVertex3D));
         }
 
         // ── Decals ────────────────────────────────────────────────────────────────
@@ -338,40 +347,32 @@ namespace nkentseu {
 
         void NkVFXSystem::RenderEmitter(NkICommandBuffer* cmd, Emitter* e,
                                         const NkCamera3DData& cam) {
-            cmd->BindPipeline(mPipeParticle);
-            if (e->desc.texture.IsValid() && mTexLib)
-                cmd->BindTexture(0, mTexLib->GetRHIHandle(e->desc.texture));
-            cmd->BindVertexBuffer(e->vbo, sizeof(NkVertexParticle));
+            (void)cam;
+            cmd->BindGraphicsPipeline(mPipeParticle);
+            cmd->BindVertexBuffer(0, e->vbo, 0);
             cmd->Draw(e->aliveCount*4, 1, 0, 0);
         }
 
         void NkVFXSystem::RenderTrail(NkICommandBuffer* cmd, Trail* t,
                                         const NkCamera3DData& cam) {
+            (void)cam;
             if (t->points.Size() < 2) return;
-            cmd->BindPipeline(mPipeTrail);
-            if (t->desc.texture.IsValid() && mTexLib)
-                cmd->BindTexture(0, mTexLib->GetRHIHandle(t->desc.texture));
-            cmd->BindVertexBuffer(t->vbo, sizeof(NkVertex3D));
+            cmd->BindGraphicsPipeline(mPipeTrail);
+            cmd->BindVertexBuffer(0, t->vbo, 0);
             uint32 n=(uint32)t->points.Size()*2;
             cmd->Draw(n, 1, 0, 0);
         }
 
         void NkVFXSystem::RenderDecals(NkICommandBuffer* cmd) {
-            cmd->BindPipeline(mPipeDecal);
+            cmd->BindGraphicsPipeline(mPipeDecal);
             for (auto* d : mDecals) {
-                // Upload transform + opacity
-                struct DecalUBO { NkMat4f transform; float32 opacity; float32 normalBlend; float32 _p[2]; } ub;
+                struct DecalPC { NkMat4f transform; float32 opacity; float32 normalBlend; float32 _p[2]; } ub;
                 ub.transform   = d->desc.transform;
                 ub.opacity     = d->desc.opacity;
                 if (d->desc.fadeOut && d->desc.lifetime > 0)
                     ub.opacity *= 1.f - (d->age/d->desc.lifetime);
                 ub.normalBlend = d->desc.normalBlend;
-                cmd->UpdateUniformBuffer(1, &ub, sizeof(ub));
-                if (d->desc.albedo.IsValid() && mTexLib)
-                    cmd->BindTexture(0, mTexLib->GetRHIHandle(d->desc.albedo));
-                if (d->desc.normal.IsValid() && mTexLib)
-                    cmd->BindTexture(1, mTexLib->GetRHIHandle(d->desc.normal));
-                // Draw unit cube (décal projeté via shader)
+                cmd->PushConstants(NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(ub), &ub);
                 cmd->Draw(36, 1, 0, 0);
             }
         }

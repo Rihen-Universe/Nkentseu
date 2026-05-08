@@ -1,0 +1,40 @@
+Commande GDB pour debug
+Sur Windows avec le toolchain clang-mingw du projet :
+
+
+gdb --args "E:\Projets\2026\Nkentseu\Nkentseu\Build\Bin\Debug-Windows\renderdemo\renderdemo.exe"
+Commandes utiles une fois dans gdb :
+
+
+(gdb) break NkVector.h:978          # break sur l'assertion
+(gdb) run                            # démarre le programme
+(gdb) bt                             # backtrace au crash
+(gdb) frame N                        # remonter à la frame N
+(gdb) info locals                    # variables locales
+(gdb) print mSize                    # inspecter une variable
+(gdb) continue                       # continuer
+(gdb) quit
+Pour un run direct qui s'arrête au crash et imprime la stack :
+
+
+gdb -batch -ex run -ex "bt full" --args "E:\Projets\2026\Nkentseu\Nkentseu\Build\Bin\Debug-Windows\renderdemo\renderdemo.exe"
+Avec arguments (ex. choix du backend) :
+
+
+gdb --args "Build\Bin\Debug-Windows\renderdemo\renderdemo.exe" --backend=opengl --demo=01
+
+
+Pareil mais avec --demo=0, et laisse tourner ~12 secondes (le crash arrive automatiquement après l'Enable ANIMATION).
+
+
+gdb --args "Build\Bin\Debug-Windows\renderdemo\renderdemo.exe" --demo=0
+Dans gdb :
+
+
+run
+Attends 12-15 secondes. Crash automatique. Puis :
+
+
+bt full
+thread apply all bt
+quit

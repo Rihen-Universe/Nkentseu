@@ -6,6 +6,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKEvent/NkTouchEvent.h"
 #include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkWindowEvent.h"
 #include "PongGame.h"
 #include "NKTime/NkTime.h"
 
@@ -56,8 +57,6 @@ int nkmain(const NkEntryState& state)
     bool downHeld       = false;
     bool needResize     = false;
     // Touch button states (Android) — count of fingers in each button area
-    int  touchUpCount   = 0;
-    int  touchDownCount = 0;
     int  touchEnterCount= 0;
     int  touchEscapeCount = 0;
     int  touchPauseCount = 0;
@@ -89,6 +88,12 @@ int nkmain(const NkEntryState& state)
     // Quand l'app revient au premier plan, forcer un refresh complet de l'ecran
     bool appResumed = true;  // Premier frame = init
     bool wasInBackground = false;
+    bool gamePausedDueToBackground = false;  // true si le jeu a été pause automatiquement
+
+    // surfaceReady : false quand la surface Android est détruite (APP_CMD_TERM_WINDOW),
+    // true quand elle est (re)créée (APP_CMD_INIT_WINDOW -> NkWindowShownEvent).
+    // On ne doit JAMAIS appeler renderer->Present() quand surfaceReady == false.
+    bool surfaceReady = true;  // La surface est prête dès le départ
 
     while (running)
     {
@@ -126,6 +131,42 @@ int nkmain(const NkEntryState& state)
             if (auto* wn = event->As<NkWindowMinimizeEvent>())
             {
                 pendingSize = {0, 0};
+            }
+            // ── NkWindowShownEvent : surface Android recréée (APP_CMD_INIT_WINDOW) ──
+            // C'est ici le vrai moment de réinitialiser le renderer avec le NOUVEAU
+            // ANativeWindow*. NkWindowFocusGainedEvent arrive APRES, mais trop tard :
+            // le renderer aurait déjà tenté de rendre sur l'ancienne surface invalide.
+            if (auto* ws = event->As<NkWindowShownEvent>())
+            {
+                auto sz = window.GetSize();
+                if (sz.x > 0 && sz.y > 0) {
+                    renderer->Init(window, sz.x, sz.y);
+                }
+                surfaceReady = true;
+                appResumed   = true;  // Forcer un rendu complet ce frame
+            }
+
+            // ── NkWindowHiddenEvent : surface Android détruite (APP_CMD_TERM_WINDOW) ──
+            // Ne plus rendre jusqu'au prochain NkWindowShownEvent.
+            if (auto* wh = event->As<NkWindowHiddenEvent>())
+            {
+                surfaceReady = false;
+            }
+
+            if (auto* fg = event->As<NkWindowFocusGainedEvent>())
+            {
+                // Le focus revient — la surface a DEJA ete reinit par NkWindowShownEvent.
+                // On s'assure juste que appResumed est vrai pour le double-clear.
+                appResumed = true;
+            }
+            if (auto* fl = event->As<NkWindowFocusLostEvent>())
+            {
+                // App is going to background — auto-pause the game if playing
+                if (game->GetState() == GameState::Playing) {
+                    game->SetState(GameState::Paused);
+                    gamePausedDueToBackground = true;
+                }
+                wasInBackground = true;
             }
 
             if (auto* kp = event->As<NkKeyPressEvent>()) {
@@ -209,33 +250,35 @@ int nkmain(const NkEntryState& state)
             }
 
             // ── Touch (Android) : boutons UP / DOWN / ENTER / ESCAPE / PAUSE ───────────
+            // Test if touch is inside button or play area
             auto hitTest = [&](float tx, float ty,
                                const PongGame::TouchButtonRects& rects) {
-                bool inUp = tx >= rects.upX && tx < rects.upX + rects.upW
-                         && ty >= rects.upY && ty < rects.upY + rects.upH;
-                bool inDn = tx >= rects.dnX && tx < rects.dnX + rects.dnW
-                         && ty >= rects.dnY && ty < rects.dnY + rects.dnH;
                 bool inEnter = tx >= rects.enterX && tx < rects.enterX + rects.enterW
                             && ty >= rects.enterY && ty < rects.enterY + rects.enterH;
                 bool inEscape = tx >= rects.escapeX && tx < rects.escapeX + rects.escapeW
                              && ty >= rects.escapeY && ty < rects.escapeY + rects.escapeH;
                 bool inPause = tx >= rects.pauseX && tx < rects.pauseX + rects.pauseW
                             && ty >= rects.pauseY && ty < rects.pauseY + rects.pauseH;
-                return std::make_tuple(inUp, inDn, inEnter, inEscape, inPause);
+                return std::make_tuple(inEnter, inEscape, inPause);
             };
 
             if (auto* te = event->As<NkTouchBeginEvent>()) {
                 auto rects = game->GetTouchButtonRects();
                 for (uint32 i = 0; i < te->GetNumTouches(); ++i) {
                     const auto& pt = te->GetTouch(i);
-                    auto [inUp, inDn, inEnter, inEscape, inPause] = hitTest(pt.clientX, pt.clientY, rects);
-                    if (inUp) ++touchUpCount;
-                    if (inDn) ++touchDownCount;
+                    auto [inEnter, inEscape, inPause] = hitTest(pt.clientX, pt.clientY, rects);
                     if (inEnter) ++touchEnterCount;
                     if (inEscape) ++touchEscapeCount;
                     if (inPause) ++touchPauseCount;
+                    // Track first touch for gesture detection (swipe up/down for paddle)
+                    if (i == 0 && !inEnter && !inEscape && !inPause) {
+                        // Touch started in play area — track Y for vertical swipe
+                        game->mTouchStartY    = pt.clientY;
+                        game->mTouchCurrentY  = pt.clientY;
+                        game->mTouchInProgress = true;
+                    }
                 }
-                // Premier toucher = clic souris pour navigation dans les menus
+                // First touch = mouse click for menu navigation
                 if (te->GetNumTouches() > 0) {
                     const auto& pt = te->GetTouch(0);
                     mouseX      = static_cast<int>(pt.clientX);
@@ -244,32 +287,39 @@ int nkmain(const NkEntryState& state)
                 }
             }
             if (auto* te = event->As<NkTouchMoveEvent>()) {
-                // On move, re-evaluate: clear then recount for moved touches
-                (void)te;
+                if (te->GetNumTouches() > 0 && game->mTouchInProgress) {
+                    const auto& pt = te->GetTouch(0);
+                    game->mTouchCurrentY = pt.clientY;
+                }
             }
             if (auto* te = event->As<NkTouchEndEvent>()) {
                 auto rects = game->GetTouchButtonRects();
                 for (uint32 i = 0; i < te->GetNumTouches(); ++i) {
                     const auto& pt = te->GetTouch(i);
-                    auto [inUp, inDn, inEnter, inEscape, inPause] = hitTest(pt.clientX, pt.clientY, rects);
-                    if (inUp && touchUpCount   > 0) --touchUpCount;
-                    if (inDn && touchDownCount > 0) --touchDownCount;
+                    auto [inEnter, inEscape, inPause] = hitTest(pt.clientX, pt.clientY, rects);
                     if (inEnter && touchEnterCount > 0) --touchEnterCount;
                     if (inEscape && touchEscapeCount > 0) --touchEscapeCount;
                     if (inPause && touchPauseCount > 0) --touchPauseCount;
                 }
+                // End of gesture tracking
+                game->mTouchInProgress = false;
             }
             if (event->As<NkTouchCancelEvent>()) {
-                touchUpCount   = 0;
-                touchDownCount = 0;
                 touchEnterCount = 0;
                 touchEscapeCount = 0;
                 touchPauseCount = 0;
+                game->mTouchInProgress = false;
             }
         }
         if (!running)
         {
             break;
+        }
+        // ── Garde : surface Android non disponible (entre TERM_WINDOW et INIT_WINDOW) ──
+        if (!surfaceReady)
+        {
+            NkChrono::Sleep(16.0f);
+            continue;
         }
         if (pendingSize.width == 0 || pendingSize.height == 0)
         {
@@ -306,9 +356,22 @@ int nkmain(const NkEntryState& state)
         }
 
         // ── Update / Render / Present ─────────────────────────────────────
-        // Merge keyboard + touch button inputs (pour Up/Down/Enter/Escape/Pause)
-        bool finalUp      = upHeld   || (touchUpCount   > 0);
-        bool finalDown    = downHeld || (touchDownCount > 0);
+        // Merge keyboard + touch gesture inputs
+        // Gesture detection: swipe down (positive delta) = up paddle, swipe up (negative delta) = down paddle
+        // ── Détection de geste tactile (toujours paysage : swipe vertical) ────
+        bool gestureUp   = false;
+        bool gestureDown = false;
+        if (game->mTouchInProgress) {
+            const float SWIPE_THRESHOLD = 10.0f;
+            float deltaY = game->mTouchCurrentY - game->mTouchStartY;
+            if (deltaY < -SWIPE_THRESHOLD)     gestureUp   = true;
+            else if (deltaY > SWIPE_THRESHOLD) gestureDown = true;
+        }
+
+        bool finalUp    = upHeld   || gestureUp;
+        bool finalDown  = downHeld || gestureDown;
+        bool finalLeft  = leftHeld;
+        bool finalRight = rightHeld;
         bool finalEnter   = enterHeld || (touchEnterCount > 0);
         bool finalEscape  = escapeHeld || (touchEscapeCount > 0);
         bool finalPause   = touchPauseCount > 0;
@@ -332,19 +395,24 @@ int nkmain(const NkEntryState& state)
         
         game->Update(dt, finalUp, finalDown,
                      enterPressed, escapePressed,
-                     leftPressed, rightPressed,
+                     finalLeft, finalRight,
                      mouseX, mouseY, mouseClicked);
         
         // ── Restaurer l'ecran apres un pause/resume (Android) ────────────────
         // Au retour de l'app, forcer un rendu complet et clear du buffer
         if (appResumed)
         {
-            // Effacer completement le backbuffer pour eviter un ecran noir au retour
-            renderer->Clear({ 0, 0, 0, 255 });
+            // Force multiple clears to ensure buffer is completely refreshed after resume
+            for (int i = 0; i < 2; ++i) {
+                renderer->Clear({ 0, 0, 0, 255 });
+                game->Render();
+            }
             appResumed = false;
         }
-        
-        game->Render();
+        else
+        {
+            game->Render();
+        }
         renderer->Present();
 
         // ── Cap 60 FPS ─────────────────────────────────────────────────────
