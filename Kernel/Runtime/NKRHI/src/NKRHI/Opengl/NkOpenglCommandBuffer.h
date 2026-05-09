@@ -8,6 +8,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkTraits.h"
+#include "NKLogger/NkLog.h"
 #include <cstring>
 
 #ifndef NK_NO_GLAD2
@@ -94,12 +95,22 @@ public:
         });
     }
 
-    // Clear dynamique — stocké comme état du CB, lu dans GL_BeginRenderPass
+    // Clear dynamique — stocké comme état du CB, lu dans GL_BeginRenderPass.
+    // Ces appels marquent aussi qu'un clear est demande pour le prochain
+    // BeginRenderPass (mClearColorPending / mClearDepthPending). RenderGraph
+    // les appelle uniquement si loadOp==CLEAR, donc l'absence d'appel signifie
+    // "preserver l'attachment" (LOAD) et BeginRenderPass ne clear pas.
     void SetClearColor(float r, float g, float b, float a = 1.f) override {
-        Push([this, r, g, b, a]{ mClearR=r; mClearG=g; mClearB=b; mClearA=a; });
+        Push([this, r, g, b, a]{
+            mClearR=r; mClearG=g; mClearB=b; mClearA=a;
+            mClearColorPending = true;
+        });
     }
     void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
-        Push([this, depth, stencil]{ mClearDepth=depth; mClearStencil=stencil; });
+        Push([this, depth, stencil]{
+            mClearDepth=depth; mClearStencil=stencil;
+            mClearDepthPending = true;
+        });
     }
 
     // =========================================================================
@@ -140,6 +151,8 @@ public:
     void BindVertexBuffer(uint32 binding, NkBufferHandle buf, uint64 offset) override {
         Push([this,binding,buf,offset]{ GL_BindVertexBuffer(binding,buf,offset); });
     }
+
+    void UpdateBuffer(NkBufferHandle buf, uint64 dstOffset, uint64 size, const void* data) override;
     void BindVertexBuffers(uint32 first, const NkBufferHandle* bufs,
                             const uint64* offs, uint32 count) override {
         NkVector<NkBufferHandle> bv = CopyArray(bufs, count);
@@ -394,6 +407,8 @@ private:
     float   mClearR = 0.f, mClearG = 0.f, mClearB = 0.f, mClearA = 1.f;
     float   mClearDepth   = 1.f;
     uint32  mClearStencil = 0;
+    bool    mClearColorPending = false;  // arme par SetClearColor, consomme par BeginRenderPass
+    bool    mClearDepthPending = false;
 
     // État courant (mis à jour par les commandes Bind*)
     NkPipelineHandle   mBoundPipeline;

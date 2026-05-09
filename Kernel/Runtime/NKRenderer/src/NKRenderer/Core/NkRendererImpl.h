@@ -15,6 +15,7 @@
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Tools/Text/NkTextRenderer.h"
 #include "NKRenderer/Tools/Shadow/NkShadowSystem.h"
+#include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h"
 #include "NKRenderer/Tools/PostProcess/NkPostProcessStack.h"
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
 #include "NKRenderer/Tools/Offscreen/NkOffscreenTarget.h"
@@ -98,6 +99,7 @@ namespace nkentseu {
                 memory::NkUniquePtr<NkMeshSystem>         mMeshSystem;
                 memory::NkUniquePtr<NkMaterialSystem>     mMaterials;
                 memory::NkUniquePtr<NkShadowSystem>       mShadow;
+                memory::NkUniquePtr<NkEnvironmentSystem>  mEnvironment;
                 memory::NkUniquePtr<NkRender2D>           mRender2D;
                 memory::NkUniquePtr<NkRender3D>           mRender3D;
                 memory::NkUniquePtr<NkTextRenderer>       mTextRenderer;
@@ -115,6 +117,7 @@ namespace nkentseu {
                 // ── Helpers d'init/teardown par sous-systeme (utilises a la fois
                 //    par Initialize() et par EnableSubsystem/DisableSubsystem) ────
                 bool InitShadow();
+                bool InitEnvironment();
                 bool InitRender2D();
                 bool InitRender3D();
                 bool InitTextRenderer();
