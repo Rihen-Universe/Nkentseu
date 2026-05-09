@@ -362,11 +362,72 @@ namespace nkentseu {
                         cmd->SetClearDepth(pass.depth.clearDepth, pass.depth.clearStencil);
                     }
 
-                    // BeginRenderPass : sur OpenGL avec fb={} -> default framebuffer
-                    // (le swapchain), clear color/depth s'appliquent. Sur Vulkan/DX12
-                    // il faudra ajouter un cache RenderPass+Framebuffer (Phase F).
-                    NkRect2D area((int32)0, (int32)0, (int32)swW, (int32)swH);
-                    cmd->BeginRenderPass(NkRenderPassHandle{}, NkFramebufferHandle{}, area);
+                    // ── Choix du framebuffer ────────────────────────────────────
+                    // Si la passe ecrit dans des color/depth attachments transients
+                    // (= textures off-screen), on cree un FBO custom cache par nom.
+                    // Si tous les color/depth sont la swapchain (texture invalide
+                    // dans le GraphResource), on utilise FBO 0 (default framebuffer).
+                    NkFramebufferHandle fbHandle{};
+                    uint32 rpW = swW, rpH = swH;
+
+                    // Sur OpenGL, le swapchain (FBO 0) ne peut PAS etre attache a
+                    // un FBO custom. On ne cree donc un FBO custom que si AU MOINS
+                    // une color est une texture transiente off-screen. Sinon FBO 0
+                    // est utilise — qui a son propre depth, donc un depth transient
+                    // declare sur cette pass est ignore (cas Demo3D actuel sans HDR).
+                    bool needsCustomFB = false;
+                    for (auto& ca : pass.colors) {
+                        if (auto* r = FindRes(ca.resId)) {
+                            if (r->isTransient && r->texture.IsValid()) {
+                                needsCustomFB = true;
+                                rpW = r->transientDesc.width;
+                                rpH = r->transientDesc.height;
+                                break;
+                            }
+                        }
+                    }
+                    // Pass shadow-only (depth transient sans color) : FBO custom OK
+                    if (!needsCustomFB && pass.colors.Empty() && pass.hasDepth) {
+                        if (auto* r = FindRes(pass.depth.resId)) {
+                            if (r->isTransient && r->texture.IsValid()) {
+                                needsCustomFB = true;
+                                rpW = r->transientDesc.width;
+                                rpH = r->transientDesc.height;
+                            }
+                        }
+                    }
+
+                    if (needsCustomFB) {
+                        // Cache hit ?
+                        if (auto* cached = mFBCache.Find(pass.name)) {
+                            fbHandle = *cached;
+                        } else {
+                            NkFramebufferDesc fbd;
+                            fbd.width = rpW; fbd.height = rpH;
+                            fbd.debugName = pass.name.CStr();
+                            for (auto& ca : pass.colors) {
+                                if (auto* r = FindRes(ca.resId)) {
+                                    if (r->texture.IsValid())
+                                        fbd.colorAttachments.PushBack(r->texture);
+                                }
+                            }
+                            if (pass.hasDepth) {
+                                if (auto* r = FindRes(pass.depth.resId)) {
+                                    if (r->texture.IsValid())
+                                        fbd.depthAttachment = r->texture;
+                                }
+                            }
+                            fbHandle = mDevice->CreateFramebuffer(fbd);
+                            if (fbHandle.IsValid()) {
+                                mFBCache.Insert(pass.name, fbHandle);
+                            }
+                        }
+                    }
+                    // Si !needsCustomFB ou si CreateFramebuffer a echoue, fbHandle
+                    // reste invalide -> BeginRenderPass utilise FBO 0 (swapchain).
+
+                    NkRect2D area((int32)0, (int32)0, (int32)rpW, (int32)rpH);
+                    cmd->BeginRenderPass(NkRenderPassHandle{}, fbHandle, area);
                 }
 
                 // 2. Callback utilisateur (les draw calls vont dans le RP courant)
@@ -390,6 +451,12 @@ namespace nkentseu {
                     r.texture = NkTextureHandle{};
                 }
             }
+            // Liberer le cache de FBO custom — ils referencaient les transients
+            // qu'on vient de detruire, donc invalides desormais.
+            for (auto it = mFBCache.begin(); it != mFBCache.end(); ++it) {
+                if (it->Second.IsValid()) mDevice->DestroyFramebuffer(it->Second);
+            }
+            mFBCache.Clear();
             mPasses.Clear();
             mSorted.Clear();
             mResources.Clear();

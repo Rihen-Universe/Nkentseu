@@ -251,6 +251,11 @@ namespace nkentseu {
                 bool                                  mCompiled   = false;
                 uint32                                mNextResId  = 1;
 
+                // Cache de framebuffers crees a partir des color/depth attachments
+                // de chaque pass — evite la recreation a chaque frame. La key est
+                // le nom du pass (suppose stable entre frames). Reset() les libere.
+                NkHashMap<NkString, NkFramebufferHandle> mFBCache;
+
                 // ── Helpers internes ────────────────────────────────────────────
                 NkGraphResId NextResId() noexcept { return mNextResId++; }
                 GraphResource* FindRes(NkGraphResId id);

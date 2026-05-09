@@ -27,10 +27,9 @@ namespace nkentseu {
             NkVec3f scale       = {1,1,1};
 
             // Construit la matrice de transformation 4x4 column-major.
-            // Conversion quat -> mat via l'operator NkMat4T fourni par NKMath.
             NkMat4f ToMatrix() const noexcept {
                 NkMat4f S = NkMat4f::Scale(scale);
-                NkMat4f R = static_cast<NkMat4f>(rotation);
+                NkMat4f R = rotation.ToMat4();
                 NkMat4f T = NkMat4f::Translate(translation);
                 return T * R * S;
             }
