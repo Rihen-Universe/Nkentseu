@@ -33,13 +33,39 @@ void NkOpenGLCommandBuffer::GL_BeginRenderPass(NkRenderPassHandle rp,
                                              const NkRect2D& area) {
     GLuint fboId = NkOpenglGetFBOID(mDev, fb.id);
     glBindFramebuffer(GL_FRAMEBUFFER, fboId);
-
-    GLbitfield clearBits = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
     glViewport(area.x, area.y, (GLsizei)area.width, (GLsizei)area.height);
-    glClearColor(mClearR, mClearG, mClearB, mClearA);
-    glClearDepthf(mClearDepth);
-    glClearStencil((GLint)mClearStencil);
-    glClear(clearBits);
+
+    // Ne clear QUE les attachments dont le loadOp etait CLEAR. Le RenderGraph
+    // arme mClearColorPending/mClearDepthPending via SetClearColor/SetClearDepth
+    // avant BeginRenderPass uniquement quand loadOp==CLEAR. Sans flag => LOAD,
+    // donc on preserve l'attachment (pas de glClear sur ce bit).
+    GLbitfield clearBits = 0;
+    if (mClearColorPending) {
+        glClearColor(mClearR, mClearG, mClearB, mClearA);
+        clearBits |= GL_COLOR_BUFFER_BIT;
+    }
+    if (mClearDepthPending) {
+        glClearDepthf(mClearDepth);
+        glClearStencil((GLint)mClearStencil);
+        clearBits |= GL_DEPTH_BUFFER_BIT;
+    }
+    if (clearBits != 0) {
+        // glClear respecte glDepthMask et glColorMask : si depth-write est off,
+        // GL_DEPTH_BUFFER_BIT est ignore. On force temporairement les masks ouvert.
+        GLboolean prevDepthMask = GL_TRUE;
+        GLboolean prevColMask[4] = {GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE};
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &prevDepthMask);
+        glGetBooleanv(GL_COLOR_WRITEMASK, prevColMask);
+        glDepthMask(GL_TRUE);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClear(clearBits);
+        glDepthMask(prevDepthMask);
+        glColorMask(prevColMask[0], prevColMask[1], prevColMask[2], prevColMask[3]);
+    }
+
+    // Reset des flags pour le prochain RP
+    mClearColorPending = false;
+    mClearDepthPending = false;
 
     (void)rp;
 }
@@ -69,6 +95,18 @@ void NkOpenGLCommandBuffer::GL_BindDescriptorSet(NkDescSetHandle set, uint32 idx
                                                const NkVector<uint32>& dynOff) {
     (void)idx;
     NkOpenglApplyDescSet(mDev, set.id, dynOff);
+}
+
+// =============================================================================
+void NkOpenGLCommandBuffer::UpdateBuffer(NkBufferHandle buf, uint64 dstOffset,
+                                         uint64 size, const void* data) {
+    // Copie les donnees immediatement dans le command buffer (par valeur), et
+    // enqueue un WriteBuffer differé. L'ecriture GPU se fait au moment de Execute()
+    // du command buffer, dans l'ordre avec les binds/draws qui suivent.
+    NkVector<uint8> bytes = CopyBytes(data, (uint32)size);
+    Push([this, buf, dstOffset, bytes = traits::NkMove(bytes)] {
+        mDev->WriteBuffer(buf, bytes.Data(), bytes.size(), dstOffset);
+    });
 }
 
 // =============================================================================

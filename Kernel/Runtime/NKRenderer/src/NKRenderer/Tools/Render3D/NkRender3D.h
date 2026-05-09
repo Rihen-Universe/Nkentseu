@@ -14,6 +14,9 @@ namespace nkentseu {
     namespace renderer {
 
         class NkShadowSystem;
+        class NkEnvironmentSystem;
+        class NkShaderLibrary;
+        class NkResources;
 
         // (NkViewMode et NkSceneContext sont definis dans Core/NkRendererTypes.h)
 
@@ -23,7 +26,11 @@ namespace nkentseu {
                 ~NkRender3D();
 
                 bool Init(NkIDevice* device, NkMeshSystem* mesh, NkMaterialSystem* mat,
-                        NkRenderGraph* graph, NkShadowSystem* shadow = nullptr);
+                        NkRenderGraph* graph,
+                        NkShadowSystem* shadow,
+                        NkEnvironmentSystem* env,
+                        NkShaderLibrary* shaderLib,
+                        NkResources* resources);
                 void Shutdown();
 
                 // Notification de redimensionnement (propage par NkRendererImpl).
@@ -58,11 +65,14 @@ namespace nkentseu {
                 struct SortedDC { NkDrawCall3D dc; float32 depth; };
                 struct DebugLine { NkVec3f a,b; NkVec4f color; float32 life; };
 
-                NkIDevice*        mDevice  = nullptr;
-                NkMeshSystem*     mMesh    = nullptr;
-                NkMaterialSystem* mMat     = nullptr;
-                NkRenderGraph*    mGraph   = nullptr;
-                NkShadowSystem*   mShadow  = nullptr;
+                NkIDevice*           mDevice  = nullptr;
+                NkMeshSystem*        mMesh    = nullptr;
+                NkMaterialSystem*    mMat     = nullptr;
+                NkRenderGraph*       mGraph   = nullptr;
+                NkShadowSystem*      mShadow  = nullptr;
+                NkEnvironmentSystem* mEnv     = nullptr;
+                NkShaderLibrary*     mShaderLib = nullptr;
+                NkResources*         mResources = nullptr;
 
                 NkSceneContext    mCtx;
                 bool              mInScene  = false;
@@ -80,11 +90,16 @@ namespace nkentseu {
                 NkBufferHandle  mUBOLights;
                 NkBufferHandle  mSSBOBones;
 
-                // Descriptor sets: set 0 = per-frame (camera+lights), set 1 = per-object (model+bones)
+                // Descriptor sets: set 0 = per-frame (camera+lights+shadow+env+shadowMap),
+                //                  set 1 = per-object (model+bones)
                 NkDescSetHandle mGlobalLayout;
                 NkDescSetHandle mGlobalSet;
                 NkDescSetHandle mObjectLayout;
                 NkDescSetHandle mObjectSet;
+
+                // PBR pipeline + shader (charges depuis Resources/Shaders/PBR/GL/).
+                ::nkentseu::NkShaderHandle mPBRShader;     // RHI shader handle
+                NkPipelineHandle           mPBRPipeline;   // pipeline graphics PBR
 
                 void UploadUBOs(NkICommandBuffer* cmd);
                 void FlushOpaque     (NkICommandBuffer* cmd);

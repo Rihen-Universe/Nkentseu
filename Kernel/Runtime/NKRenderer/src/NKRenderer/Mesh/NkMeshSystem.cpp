@@ -2,6 +2,7 @@
 // NkMeshSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkMeshSystem.h"
+#include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstring>
 
@@ -183,7 +184,7 @@ namespace nkentseu {
             auto* e = mMeshes.Find(h.id);
             if (!e) return;
             cmd->BindVertexBuffer(0, e->vbo, 0);
-            if (e->ibo.IsValid()) 
+            if (e->ibo.IsValid())
                 cmd->BindIndexBuffer(e->ibo, NkIndexFormat::NK_UINT32, 0);
         }
 

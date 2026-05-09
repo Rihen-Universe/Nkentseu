@@ -65,6 +65,7 @@ namespace nkentseu {
             void BindComputePipeline (NkPipelineHandle p) override;
             void BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32* off, uint32 cnt) override;
             void PushConstants(NkShaderStage stages, uint32 offset, uint32 size, const void* data) override;
+            void UpdateBuffer(NkBufferHandle, uint64, uint64, const void*) override {} // TODO: software buffer write
             void BindVertexBuffer (uint32 b, NkBufferHandle buf, uint64 off) override;
             void BindVertexBuffers(uint32 first, const NkBufferHandle* bufs, const uint64* offs, uint32 n) override;
             void BindIndexBuffer  (NkBufferHandle buf, NkIndexFormat fmt, uint64 off) override;
