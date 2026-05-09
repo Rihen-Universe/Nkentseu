@@ -98,9 +98,11 @@ namespace nkentseu {
             // Render3D (requis indirect par SHADOW/ANIMATION/SIMULATION)
             const bool needsR3D = mCfg.Has(NK_SS_RENDER3D) || mCfg.Has(NK_SS_SHADOW)
                                || mCfg.Has(NK_SS_ANIMATION)|| mCfg.Has(NK_SS_SIMULATION);
+            // Shadow + Environment doivent etre init AVANT Render3D pour que ce dernier
+            // puisse binder le ShadowUBO/atlas et les cubemaps IBL dans son frame set.
+            if (needsR3D)                                       if (!InitShadow())       return false;
+            if (needsR3D)                                       if (!InitEnvironment())  return false;
             if (needsR3D)                                       if (!InitRender3D())     return false;
-
-            if (mCfg.Has(NK_SS_SHADOW))                         if (!InitShadow())       return false;
             if (mCfg.Has(NK_SS_TEXT))                           if (!InitTextRenderer()) return false;
             if (mCfg.Has(NK_SS_POST_PROCESS))                   if (!InitPostProcess())  return false;
             if (mCfg.Has(NK_SS_OVERLAY))                        if (!InitOverlay())      return false;
@@ -148,9 +150,21 @@ namespace nkentseu {
             if (mRender3D) return true;
             mRender3D.Reset(AllocOwned<NkRender3D>());
             if (!mRender3D->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(),
-                                  mRenderGraph.Get(), mShadow.Get())) {
+                                  mRenderGraph.Get(), mShadow.Get(),
+                                  mEnvironment.Get(), mShaders.Get(),
+                                  mResources.Get())) {
                 mRender3D.Reset();
                 NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkRender3D::Init failed");
+                return false;
+            }
+            return true;
+        }
+        bool NkRendererImpl::InitEnvironment() {
+            if (mEnvironment) return true;
+            mEnvironment.Reset(AllocOwned<NkEnvironmentSystem>());
+            if (!mEnvironment->Init(mDevice)) {
+                mEnvironment.Reset();
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkEnvironmentSystem::Init failed");
                 return false;
             }
             return true;
@@ -238,8 +252,11 @@ namespace nkentseu {
         bool NkRendererImpl::EnableSubsystem(NkSubsystemFlags flags) {
             if (!mInitialized) return false;
             bool any = false;
-            // L'ordre respecte les dependances
+            // L'ordre respecte les dependances : Shadow + Environment AVANT Render3D
+            // (Render3D bind le ShadowUBO et les cubemaps env dans son frame set au Init).
             if (NkHasFlag(flags, NK_SS_RENDER2D))     { if (!mRender2D)      any |= InitRender2D();     }
+            if (NkHasFlag(flags, NK_SS_RENDER3D))     { if (!mShadow)        any |= InitShadow();       }
+            if (NkHasFlag(flags, NK_SS_RENDER3D))     { if (!mEnvironment)   any |= InitEnvironment();  }
             if (NkHasFlag(flags, NK_SS_RENDER3D))     { if (!mRender3D)      any |= InitRender3D();     }
             if (NkHasFlag(flags, NK_SS_SHADOW))       { if (!mShadow)        any |= InitShadow();       }
             if (NkHasFlag(flags, NK_SS_TEXT))         { if (!mTextRenderer)  any |= InitTextRenderer(); }
@@ -277,7 +294,7 @@ namespace nkentseu {
             if (NkHasFlag(flags, NK_SS_POST_PROCESS)) mPostProcess.Reset();
             if (NkHasFlag(flags, NK_SS_TEXT))         mTextRenderer.Reset();
             if (NkHasFlag(flags, NK_SS_SHADOW))       mShadow.Reset();
-            if (NkHasFlag(flags, NK_SS_RENDER3D))     mRender3D.Reset();
+            if (NkHasFlag(flags, NK_SS_RENDER3D))   { mRender3D.Reset(); mEnvironment.Reset(); }
             if (NkHasFlag(flags, NK_SS_RENDER2D))     mRender2D.Reset();
 
             mCfg.Disable(flags);
@@ -363,11 +380,12 @@ namespace nkentseu {
             const bool has3D       = (mRender3D.Get()    != nullptr);
             const bool has2D       = (mRender2D.Get()    != nullptr);
             const bool hasShadow   = (mShadow.Get()      != nullptr) && mCfg.shadow.enabled;
-            const bool hasPP       = (mPostProcess.Get() != nullptr)
-                                  && (mCfg.postProcess.ssao
-                                   || mCfg.postProcess.bloom
-                                   || mCfg.postProcess.toneMapping
-                                   || mCfg.postProcess.fxaa);
+            // D.4 stub : la passe PostProcess est actuellement no-op (Execute vide).
+            // Tant que D.4 n'est pas wire, on force hasPP=false pour que Geometry
+            // ecrive directement dans la swapchain — sinon les sphères PBR sont
+            // rendues dans un HDR transient qui n'est jamais copie a l'ecran.
+            const bool hasPP       = false;
+            (void)mPostProcess;  // garder le pointeur en vie
             const bool hasVFX      = (mVFX.Get()         != nullptr);
             const bool hasOverlay  = (mOverlay.Get()     != nullptr);
 

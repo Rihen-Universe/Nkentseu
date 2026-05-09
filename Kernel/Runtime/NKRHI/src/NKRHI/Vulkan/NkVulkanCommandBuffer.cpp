@@ -149,6 +149,18 @@ namespace nkentseu {
         vkCmdPushConstants(mCmdBuf, mBoundLayout, vkStages, offset, size, data);
     }
 
+    void NkVulkanCommandBuffer::UpdateBuffer(NkBufferHandle buf, uint64 dstOffset,
+                                              uint64 size, const void* data) {
+        // vkCmdUpdateBuffer : limite a 64 KiB, alignement 4. Ideal pour les UBOs
+        // per-draw (tailles typiques < 256B). Au-dela, il faudra passer par un
+        // staging buffer + vkCmdCopyBuffer.
+        VkBuffer b = mDev->GetVkBuffer(buf.id);
+        if (b != VK_NULL_HANDLE) {
+            vkCmdUpdateBuffer(mCmdBuf, b, (VkDeviceSize)dstOffset,
+                              (VkDeviceSize)size, data);
+        }
+    }
+
     // ── Vertex / Index ────────────────────────────────────────────────────────────
     void NkVulkanCommandBuffer::BindVertexBuffer(uint32 binding, NkBufferHandle buf, uint64 off) {
         VkBuffer b = mDev->GetVkBuffer(buf.id);

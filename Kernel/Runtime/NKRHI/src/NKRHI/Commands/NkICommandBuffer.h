@@ -126,6 +126,16 @@ namespace nkentseu {
                                         uint32 size,
                                         const void* data)                = 0;
 
+            // Update buffer enqueued — copie 'data' (de taille size) dans 'buf' a l'offset
+            // 'dstOffset', mais l'ecriture est differee jusqu'a Execute() du command buffer.
+            // Utile pour les UBOs per-draw : on capture la valeur courante par copie, et le
+            // WriteBuffer s'execute dans l'ordre avec les BindDescriptorSet/Draw qui suivent
+            // (sinon l'ecriture immediate ecrase pour tous les drawcalls de la frame).
+            virtual void UpdateBuffer(NkBufferHandle buf,
+                                       uint64 dstOffset,
+                                       uint64 size,
+                                       const void* data)                  = 0;
+
             // =========================================================================
             // Vertex & Index Buffers
             // =========================================================================
