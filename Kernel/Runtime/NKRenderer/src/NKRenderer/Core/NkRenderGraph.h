@@ -277,6 +277,14 @@ namespace nkentseu {
                 // le nom du pass (suppose stable entre frames). Reset() les libere.
                 NkHashMap<NkString, NkFramebufferHandle> mFBCache;
 
+                // Cache de RenderPass custom pour les passes qui ecrivent dans le
+                // swapchain. Le swapchain RP du device a loadOp=CLEAR fixe, donc
+                // toutes les passes consecutives effacent le contenu precedent.
+                // On cree un RP par pass avec ses loadOp specifiques (compatible
+                // avec le swapchain FB car memes formats). Key = pass.name + suffix
+                // loadOp signature. Reset() les libere.
+                NkHashMap<NkString, NkRenderPassHandle> mSwapchainRPCache;
+
                 // ── Helpers internes ────────────────────────────────────────────
                 NkGraphResId NextResId() noexcept { return mNextResId++; }
                 GraphResource* FindRes(NkGraphResId id);

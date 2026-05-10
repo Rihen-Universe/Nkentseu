@@ -353,23 +353,11 @@ void main() {
     }
 
     void NkPostProcessStack::ExecuteRHI(NkICommandBuffer* cmd, NkTextureHandle hdrIn) {
-        // Variante directe pour le RenderGraph : on bind le hdrIn (RHI handle)
-        // sur l'input descriptor set et on dessine le tonemap fullscreen vers le
-        // FBO courant (typiquement le swapchain). Pour l'instant, seul le tonemap
-        // est wire — bloom/SSAO/FXAA seront ajoutes incrementalement.
-        static int sLogCount = 0;
-        if (sLogCount < 3) {
-            sLogCount++;
-            logger.Info("[PP::ExecuteRHI] cmd={0} pipe.valid={1} set.valid={2} hdr.valid={3} mesh={4} quad.valid={5}\n",
-                        (cmd!=nullptr), mPipeTone.IsValid(), mInputTexSet.IsValid(), hdrIn.IsValid(),
-                        (mMesh!=nullptr), mQuad.IsValid());
-        }
         if (!cmd || !mPipeTone.IsValid() || !mInputTexSet.IsValid() || !hdrIn.IsValid()) return;
 
         NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
         if (!samp.IsValid()) return;
 
-        // Bind input HDR + push constants (exposure, gamma) + draw fullscreen
         mDevice->BindTextureSampler(mInputTexSet, 0, hdrIn, samp);
         cmd->BindGraphicsPipeline(mPipeTone);
         cmd->BindDescriptorSet(mInputTexSet, 0);

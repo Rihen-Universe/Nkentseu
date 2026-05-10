@@ -5,7 +5,6 @@
 #include "NkVulkanCommandBuffer.h"
 #include "NkVulkanDevice.h"
 #include <cstring>
-#include <cstdio>
 #include "NKContainers/Sequential/NkVector.h"
 
 #include "NKPlatform/NkPlatformDetect.h"
@@ -143,15 +142,7 @@ namespace nkentseu {
     void NkVulkanCommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
         mBoundLayout = mDev->GetVkPipelineLayout(p.id);
         mIsCompute   = false;
-        VkPipeline pipe = mDev->GetVkPipeline(p.id);
-        static int sBPLog = 0;
-        if (sBPLog < 12) {
-            sBPLog++;
-            std::fprintf(stderr, "[VK BindGfxPipe#%d] handle.id=%llu vkPipe=%p layout=%p\n",
-                         sBPLog, (unsigned long long)p.id, (void*)pipe, (void*)mBoundLayout);
-            std::fflush(stderr);
-        }
-        vkCmdBindPipeline(mCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        vkCmdBindPipeline(mCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, mDev->GetVkPipeline(p.id));
     }
     void NkVulkanCommandBuffer::BindComputePipeline(NkPipelineHandle p) {
         mBoundLayout = mDev->GetVkPipelineLayout(p.id);
@@ -219,13 +210,6 @@ namespace nkentseu {
         vkCmdDraw(mCmdBuf, v, i, fv, fi);
     }
     void NkVulkanCommandBuffer::DrawIndexed(uint32 idx, uint32 inst, uint32 fi, int32 vo, uint32 fInst) {
-        static int sDILog = 0;
-        if (sDILog < 25) {
-            sDILog++;
-            std::fprintf(stderr, "[VK Draw#%d] DrawIndexed idx=%u inst=%u fi=%u vo=%d\n",
-                         sDILog, idx, inst, fi, vo);
-            std::fflush(stderr);
-        }
         vkCmdDrawIndexed(mCmdBuf, idx, inst, fi, vo, fInst);
     }
     void NkVulkanCommandBuffer::DrawIndirect(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
@@ -336,6 +320,12 @@ namespace nkentseu {
 
         auto toLayout=[](NkResourceState s) -> VkImageLayout {
             switch(s){
+                // CRITIQUE : NK_UNDEFINED doit mapper UNDEFINED, sinon le default
+                // GENERAL casse les transitions initiales. Une barrier oldLayout=
+                // GENERAL alors que l'image est en COLOR_ATTACHMENT_OPTIMAL (apres
+                // CreateTexture) corrompt le tracking interne du driver et invalide
+                // silencieusement les writes du Geometry pass dans le HDR.
+                case NkResourceState::NK_UNDEFINED:        return VK_IMAGE_LAYOUT_UNDEFINED;
                 case NkResourceState::NK_RENDER_TARGET:    return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 case NkResourceState::NK_DEPTH_WRITE:      return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 case NkResourceState::NK_DEPTH_READ:       return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;

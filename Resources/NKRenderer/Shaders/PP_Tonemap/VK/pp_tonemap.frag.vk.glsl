@@ -27,8 +27,11 @@ vec3 ACESFilm(vec3 x) {
 }
 
 void main() {
+    // Le swapchain Vulkan est BGRA8_SRGB : la conversion linear->sRGB est faite
+    // automatiquement par le hardware au moment du write. Si on appliquait aussi
+    // pow(1/gamma) ici, on aurait une DOUBLE correction gamma -> couleurs delavees.
+    // On laisse donc le mapped en linear, le swap fera la conversion finale.
     vec3 hdr    = texture(uHDR, vUV).rgb * pc.exposure;
     vec3 mapped = ACESFilm(hdr);
-    mapped      = pow(mapped, vec3(1.0 / pc.gamma));
     oColor      = vec4(mapped, 1.0);
 }
