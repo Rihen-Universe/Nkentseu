@@ -170,6 +170,23 @@ namespace nkentseu {
             static NkShaderConvertResult GlslFileToHlsl(const NkString& glslPath, uint32 sm = 50);
             static NkShaderConvertResult GlslFileToMsl (const NkString& glslPath);
             static NkShaderConvertResult GlslFileToGlsl(const NkString& glslPath);
+
+            // ── Conversion GLSL Vulkan-style → cible (chaine GlslToSpirv + SpirvToXxx) ─
+            // Source canonique = GLSL Vulkan (avec layout(set=,binding=), push_constant,
+            // etc.). Sortie selon le backend cible. Necessite NK_RHI_GLSLANG_ENABLED +
+            // NK_RHI_SPIRVCROSS_ENABLED.
+            //   GlslToHlsl : pour DX11/DX12 (HLSL SM5/SM6)
+            //   GlslToMsl  : pour Metal
+            //   GlslToGlsl : pour OpenGL classique (transpilation cross-version)
+            // Le Reflector/Pipeline-state du backend cible appellera ces helpers a la
+            // demande via NkShaderCache (cache binaire pour eviter les recompilations).
+            static NkShaderConvertResult GlslToHlsl(const NkString& glslSource, NkSLStage stage,
+                                                    uint32 hlslShaderModel = 50,
+                                                    const NkString& debugName = "shader");
+            static NkShaderConvertResult GlslToMsl (const NkString& glslSource, NkSLStage stage,
+                                                    const NkString& debugName = "shader");
+            static NkShaderConvertResult GlslToGlsl(const NkString& glslSource, NkSLStage stage,
+                                                    const NkString& debugName = "shader");
     };
 
     // =============================================================================
