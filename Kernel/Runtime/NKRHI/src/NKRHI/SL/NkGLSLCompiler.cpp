@@ -4,13 +4,14 @@
 // =============================================================================
 #include "NkGLSLCompiler.h"
 
-#if defined(NK_RHI_VK_ENABLED) && !defined(__MINGW32__) && !defined(__MINGW64__)
+#if defined(NK_RHI_VK_ENABLED) && defined(NK_RHI_GLSLANG_ENABLED)
 
 // ─── glslang headers ─────────────────────────────────────────────────────────
-// Le SDK Vulkan fournit glslang dans <VULKAN_SDK>/Include/glslang/
+// NKGLSlang (in-tree) : layout `glslang/Public/...` + `SPIRV/...`
+// (l'include dir est `%{NKGLSlang.location}` => racine du repo glslang)
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Public/ResourceLimits.h>
-#include <glslang/SPIRV/GlslangToSpv.h>
+#include <SPIRV/GlslangToSpv.h>
 
 #include "NKLogger/NkLog.h"
 
@@ -133,4 +134,25 @@ namespace nkentseu {
 
 } // namespace nkentseu
 
-#endif // NK_RHI_VK_ENABLED && !MinGW
+#elif defined(NK_RHI_VK_ENABLED)
+
+// Stubs : NKGLSlang desactive a la compilation, mais Vulkan est present (le
+// header declare donc bien NkGLSLToSPIRV/NkGLSLCompileResult). On fournit le
+// symbole pour eviter un linker error et on retourne errorLog clair.
+namespace nkentseu {
+
+    void NkGLSLCompilerInit()     {}
+    void NkGLSLCompilerShutdown() {}
+
+    NkGLSLCompileResult NkGLSLToSPIRV(NkShaderStage /*stage*/,
+                                       const char*   /*glslSrc*/,
+                                       const char*   /*entry*/) {
+        NkGLSLCompileResult r;
+        r.errorLog = "NkGLSLToSPIRV: NKGLSlang desactive a la compilation "
+                     "(rebuild avec NK_ENABLE_GLSLANG=1)";
+        return r;
+    }
+
+}
+
+#endif // NK_RHI_VK_ENABLED && NK_RHI_GLSLANG_ENABLED

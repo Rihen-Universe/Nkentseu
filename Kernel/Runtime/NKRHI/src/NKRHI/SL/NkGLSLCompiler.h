@@ -18,27 +18,16 @@ namespace nkentseu {
         const char*      errorLog = nullptr; // pointeur vers buffer statique interne
     };
 
-#if !defined(__MINGW32__) && !defined(__MINGW64__)
     // Compile une source GLSL en SPIR-V via glslang.
-    // Disponible uniquement avec un toolchain non-MinGW (MSVC / clang-cl / GCC).
+    // L'implementation reelle est fournie quand NKRHI est compile avec
+    // NK_RHI_GLSLANG_ENABLED (NKGLSlang in-tree). Sinon, le .cpp fournit un
+    // stub qui retourne errorLog non-null. Les consommateurs (NKRenderer, etc)
+    // n'ont donc PAS a connaitre NK_RHI_GLSLANG_ENABLED.
     NkGLSLCompileResult NkGLSLToSPIRV(NkShaderStage stage,
                                        const char*   glslSrc,
                                        const char*   entry = "main");
     void NkGLSLCompilerInit();
     void NkGLSLCompilerShutdown();
-#else
-    // Stubs MinGW : glslang.lib (Vulkan SDK) est compilé avec MSVC — ABI incompatible.
-    // La compilation GLSL→SPIR-V n'est pas disponible avec ce toolchain.
-    inline NkGLSLCompileResult NkGLSLToSPIRV(NkShaderStage /*stage*/,
-                                              const char*   /*glslSrc*/,
-                                              const char*   /*entry*/ = "main") {
-        NkGLSLCompileResult r;
-        r.errorLog = "NkGLSLToSPIRV: non disponible avec MinGW (ABI MSVC incompatible)";
-        return r;
-    }
-    inline void NkGLSLCompilerInit()     {}
-    inline void NkGLSLCompilerShutdown() {}
-#endif // !MinGW
 
 #endif // NK_RHI_VK_ENABLED
 

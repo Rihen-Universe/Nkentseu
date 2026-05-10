@@ -44,6 +44,16 @@ namespace nkentseu {
                 // ── Chargement depuis source ─────────────────────────────────────────
                 ::nkentseu::NkShaderHandle CompileVF(const NkString& vertSrc, const NkString& fragSrc, const NkString& name = "");
 
+                // ── User-override / fallback ─────────────────────────────────────────
+                // Cherche d'abord un fichier shader user-fourni dans
+                //   Resources/NKRenderer/Shaders/<materialName>/<Backend>/<material>.<stage>.<ext>
+                // Si trouve, le compile depuis le disque (permet override sans recompilation).
+                // Sinon, fallback aux sources embarquees (raw string passees en parametre).
+                // L'extension/backend depend de l'api (GL -> .gl.glsl, VK -> .vk.glsl, etc).
+                ::nkentseu::NkShaderHandle LoadOrCompileVF(const NkString& materialName,
+                                                            const NkString& fallbackVS,
+                                                            const NkString& fallbackFS);
+
                 // ── Hot-reload (polling en développement) ────────────────────────────
                 void PollHotReload();
                 bool HasPendingReloads() const { return mPendingReload; }
@@ -63,6 +73,7 @@ namespace nkentseu {
 
             private:
                 NkIDevice*                          mDevice    = nullptr;
+                NkGraphicsApi                       mApi       = NkGraphicsApi::NK_GFX_API_OPENGL;
                 NkShaderBackend*                    mBackend   = nullptr;
                 NkHashMap<uint64, NkShaderProgram>              mPrograms;
                 NkHashMap<NkString, ::nkentseu::NkShaderHandle> mByName;

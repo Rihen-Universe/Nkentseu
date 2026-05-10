@@ -3,15 +3,17 @@
 // Compilation shaders par backend + transpiler NkSL → GLSL/HLSL/MSL.
 // =============================================================================
 #include "NkShaderBackend.h"
+#include "NKLogger/NkLog.h"
 
 // Inclure les headers des compilateurs si disponibles
 #if defined(NK_BACKEND_GL)
 #  include <GL/glew.h>
 #endif
-#if defined(NK_BACKEND_VK)
-#  include <glslang/Public/ShaderLang.h>
-#  include <SPIRV/GlslangToSpv.h>
-#endif
+// Vulkan : on delegue la compilation GLSL -> SPIR-V au compilateur partage
+// (NKRHI/SL/NkGLSLCompiler) qui s'appuie sur NKGLSlang in-tree (meme toolchain
+// que NKRenderer => ABI consistant). Si NK_RHI_GLSLANG_ENABLED n'est pas defini,
+// la fonction renvoie un stub d'erreur et le device Vulkan failera proprement.
+#include "NKRHI/SL/NkGLSLCompiler.h"
 #if defined(NK_BACKEND_DX11)
 #  include <d3dcompiler.h>
 #endif
@@ -73,63 +75,60 @@ namespace nkentseu {
         }
 
         // =========================================================================
-        // GLSL Vulkan → SPIR-V (via glslang)
+        // GLSL Vulkan → SPIR-V (delegue a NkGLSLToSPIRV qui utilise NKGLSlang in-tree)
+        //
+        // Conversion d'enum : renderer::NkShaderStage est un index 0..7 dense, alors
+        // que ::nkentseu::NkShaderStage (RHI) est un bitfield (1<<n). On mappe.
         // =========================================================================
+        static ::nkentseu::NkShaderStage ToRHIStage(NkShaderStage s) {
+            switch (s) {
+                case NkShaderStage::NK_VERTEX:    return ::nkentseu::NkShaderStage::NK_VERTEX;
+                case NkShaderStage::NK_FRAGMENT:  return ::nkentseu::NkShaderStage::NK_FRAGMENT;
+                case NkShaderStage::NK_GEOMETRY:  return ::nkentseu::NkShaderStage::NK_GEOMETRY;
+                case NkShaderStage::NK_COMPUTE:   return ::nkentseu::NkShaderStage::NK_COMPUTE;
+                case NkShaderStage::NK_TESS_CTRL: return ::nkentseu::NkShaderStage::NK_TESS_CTRL;
+                case NkShaderStage::NK_TESS_EVAL: return ::nkentseu::NkShaderStage::NK_TESS_EVAL;
+                case NkShaderStage::NK_MESH:      return ::nkentseu::NkShaderStage::NK_MESH;
+                case NkShaderStage::NK_TASK:      return ::nkentseu::NkShaderStage::NK_TASK;
+            }
+            return ::nkentseu::NkShaderStage::NK_VERTEX;
+        }
+
         NkShaderCompileResult NkShaderBackendVK::Compile(const NkString&              src,
                                                         NkShaderStage                stage,
                                                         const NkShaderCompileOptions& opts) {
             NkShaderCompileResult res;
+            if (src.Empty()) { res.errors = "Empty shader source"; return res; }
 
-    #if defined(NK_BACKEND_VK) && defined(GLSLANG_AVAILABLE)
-            glslang::InitializeProcess();
+            const char* stageName =
+                stage == NkShaderStage::NK_VERTEX   ? "VS" :
+                stage == NkShaderStage::NK_FRAGMENT ? "FS" :
+                stage == NkShaderStage::NK_GEOMETRY ? "GS" :
+                stage == NkShaderStage::NK_COMPUTE  ? "CS" : "??";
+            logger.Info("[NkShaderBackendVK] Compile {0} start (src={1} bytes)\n",
+                        stageName, (uint32)src.Size());
 
-            EShLanguage lang;
-            switch (stage) {
-                case NkShaderStage::NK_VERTEX:   lang = EShLangVertex;   break;
-                case NkShaderStage::NK_FRAGMENT: lang = EShLangFragment; break;
-                case NkShaderStage::NK_GEOMETRY: lang = EShLangGeometry; break;
-                case NkShaderStage::NK_COMPUTE:  lang = EShLangCompute;  break;
-                default:                         lang = EShLangVertex;   break;
-            }
+            // NkGLSLToSPIRV est dispo si NKRHI est compile avec NK_RHI_GLSLANG_ENABLED.
+            // Sinon le header expose un stub qui retourne errorLog non-null.
+            const char* entry = opts.entryPoint.Empty() ? "main" : opts.entryPoint.CStr();
+            ::nkentseu::NkGLSLCompileResult c = ::nkentseu::NkGLSLToSPIRV(
+                ToRHIStage(stage), src.CStr(), entry);
 
-            glslang::TShader shader(lang);
-            const char* code = src.CStr();
-            shader.setStrings(&code, 1);
-            shader.setEnvInput(glslang::EShSourceGlsl, lang,
-                                glslang::EShClientVulkan, 100);
-            shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_2);
-            shader.setEnvTarget(glslang::EShTargetSpv,    glslang::EShTargetSpv_1_5);
-
-            EShMessages msgs = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules);
-            if (!shader.parse(&glslang::DefaultTBuiltInResource, 460, false, msgs)) {
-                res.errors  = shader.getInfoLog();
+            if (!c.success) {
                 res.success = false;
-                glslang::FinalizeProcess();
+                res.errors  = c.errorLog ? c.errorLog : "NkGLSLToSPIRV: erreur inconnue";
+                logger.Errorf("[NkShaderBackendVK] Compile %s FAIL: %s\n",
+                              stageName, res.errors.CStr());
                 return res;
             }
 
-            glslang::TProgram program;
-            program.addShader(&shader);
-            if (!program.link(msgs)) {
-                res.errors  = program.getInfoLog();
-                res.success = false;
-                glslang::FinalizeProcess();
-                return res;
-            }
-
-            std::vector<uint32_t> spirv;
-            glslang::GlslangToSpv(*program.getIntermediate(lang), spirv);
-            res.bytecode.Resize((uint32)spirv.size()*4);
-            memcpy(res.bytecode.Data(), spirv.data(), res.bytecode.Size());
+            // SPIR-V words -> octets
+            const uint32 wordCount = c.spirv.Size();
+            res.bytecode.Resize(wordCount * 4);
+            memcpy(res.bytecode.Data(), c.spirv.Data(), wordCount * 4);
             res.success = true;
-            glslang::FinalizeProcess();
-    #else
-            // Sans glslang : conserver la source GLSL Vulkan brute
-            res.success = !src.Empty();
-            if (!res.success) { res.errors = "Empty shader source"; return res; }
-            res.bytecode.Resize(src.Size()+1);
-            memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
-    #endif
+            logger.Info("[NkShaderBackendVK] Compile {0} OK ({1} SPIR-V words)\n",
+                        stageName, wordCount);
             return res;
         }
 

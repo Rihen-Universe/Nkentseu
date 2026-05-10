@@ -225,6 +225,15 @@ namespace nkentseu {
             virtual NkFramebufferHandle CreateFramebuffer (const NkFramebufferDesc& desc)   = 0;
             virtual void                DestroyFramebuffer(NkFramebufferHandle& handle)     = 0;
 
+            // Recupere le RP associe a un fb. En Vulkan : retourne le RP utilise
+            // pour creer ce fb (soit fourni par fbd.renderPass, soit auto-cree par
+            // CreateFramebuffer si rp.id==0). Permet aux sous-systemes ecrits
+            // GL-style (NkShadowSystem) de recuperer le RP implicite et de le
+            // passer aux pipelines qui rendent dans ce fb. En GL/Software :
+            // retourne {} (concept inutile, GL n'a pas de renderPass concret).
+            // Defaut non-pur pour ne pas obliger tous les backends a override.
+            virtual NkRenderPassHandle  GetFramebufferRenderPass(NkFramebufferHandle /*fb*/) const { return {}; }
+
             // DEPRECATED — utiliser NkISwapchain::GetCurrentFramebuffer() / Resize() etc.
             // Conservé pour compatibilité arrière des backends existants.
 

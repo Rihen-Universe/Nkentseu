@@ -56,15 +56,19 @@ namespace nkentseu {
                                 "NkRendererImpl::Initialize device==nullptr");
                 return false;
             }
+            logger.Info("[NkRendererImpl] Initialize start (api={0})\n", (int)mCfg.api);
 
             // 0. RHI (toujours requis)
+            logger.Info("[NkRendererImpl]  step 0: InitRHI\n");
             if (!InitRHI()) return false;
 
             // 1. NkResources (toujours actif — default tex/samplers/layouts)
+            logger.Info("[NkRendererImpl]  step 1: NkResources::Init\n");
             mResources.Reset(AllocOwned<NkResources>());
             if (!NkROk(mResources->Init(mDevice))) return false;
 
             // 2. NkShaderLibrary (toujours actif — compile et cache des shaders GLSL/HLSL/MSL)
+            logger.Info("[NkRendererImpl]  step 2: NkShaderLibrary::Init\n");
             mShaders.Reset(AllocOwned<NkShaderLibrary>());
             if (!mShaders->Init(mDevice, mCfg.api, /*useNkSL=*/false)) {
                 NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkShaderLibrary::Init failed");
@@ -72,17 +76,21 @@ namespace nkentseu {
             }
 
             // 3. RenderGraph (toujours actif — orchestre les sous-systemes)
+            logger.Info("[NkRendererImpl]  step 3: NkRenderGraph::ctor\n");
             mRenderGraph.Reset(AllocOwned<NkRenderGraph>(mDevice));
 
             // 4. Texture library (toujours actif — partage avec NkResources defaults)
+            logger.Info("[NkRendererImpl]  step 4: NkTextureLibrary::Init\n");
             mTextures.Reset(AllocOwned<NkTextureLibrary>());
             if (!NkROk(mTextures->Init(mDevice, mResources.Get()))) return false;
 
             // 4. Mesh system (toujours actif — primitives utilisees par toutes les passes)
+            logger.Info("[NkRendererImpl]  step 5: NkMeshSystem::Init\n");
             mMeshSystem.Reset(AllocOwned<NkMeshSystem>());
             if (!mMeshSystem->Init(mDevice)) return false;
 
             // 5. Material system (toujours actif — fournit les templates PBR/Unlit)
+            logger.Info("[NkRendererImpl]  step 6: NkMaterialSystem::Init\n");
             mMaterials.Reset(AllocOwned<NkMaterialSystem>());
             if (!mMaterials->Init(mDevice, mTextures.Get())) return false;
 
@@ -100,20 +108,22 @@ namespace nkentseu {
                                || mCfg.Has(NK_SS_ANIMATION)|| mCfg.Has(NK_SS_SIMULATION);
             // Shadow + Environment doivent etre init AVANT Render3D pour que ce dernier
             // puisse binder le ShadowUBO/atlas et les cubemaps IBL dans son frame set.
-            if (needsR3D)                                       if (!InitShadow())       return false;
-            if (needsR3D)                                       if (!InitEnvironment())  return false;
-            if (needsR3D)                                       if (!InitRender3D())     return false;
-            if (mCfg.Has(NK_SS_TEXT))                           if (!InitTextRenderer()) return false;
-            if (mCfg.Has(NK_SS_POST_PROCESS))                   if (!InitPostProcess())  return false;
-            if (mCfg.Has(NK_SS_OVERLAY))                        if (!InitOverlay())      return false;
-            if (mCfg.Has(NK_SS_VFX))                            if (!InitVFX())          return false;
-            if (mCfg.Has(NK_SS_ANIMATION))                      if (!InitAnimation())    return false;
-            if (mCfg.Has(NK_SS_SIMULATION))                     if (!InitSimulation())   return false;
+            if (needsR3D)                                       { logger.Info("[NkRendererImpl]  step 7: InitShadow\n");       if (!InitShadow())       return false; }
+            if (needsR3D)                                       { logger.Info("[NkRendererImpl]  step 8: InitEnvironment\n");  if (!InitEnvironment())  return false; }
+            if (needsR3D)                                       { logger.Info("[NkRendererImpl]  step 9: InitRender3D\n");     if (!InitRender3D())     return false; }
+            if (mCfg.Has(NK_SS_TEXT))                           { logger.Info("[NkRendererImpl]  step10: InitTextRenderer\n"); if (!InitTextRenderer()) return false; }
+            if (mCfg.Has(NK_SS_POST_PROCESS))                   { logger.Info("[NkRendererImpl]  step11: InitPostProcess\n");  if (!InitPostProcess())  return false; }
+            if (mCfg.Has(NK_SS_OVERLAY))                        { logger.Info("[NkRendererImpl]  step12: InitOverlay\n");      if (!InitOverlay())      return false; }
+            if (mCfg.Has(NK_SS_VFX))                            { logger.Info("[NkRendererImpl]  step13: InitVFX\n");          if (!InitVFX())          return false; }
+            if (mCfg.Has(NK_SS_ANIMATION))                      { logger.Info("[NkRendererImpl]  step14: InitAnimation\n");    if (!InitAnimation())    return false; }
+            if (mCfg.Has(NK_SS_SIMULATION))                     { logger.Info("[NkRendererImpl]  step15: InitSimulation\n");   if (!InitSimulation())   return false; }
 
             // Build initial render graph
+            logger.Info("[NkRendererImpl]  step16: BuildDefaultRenderGraph\n");
             BuildDefaultRenderGraph();
 
             mInitialized = true;
+            logger.Info("[NkRendererImpl] Initialize done\n");
             return true;
         }
 
@@ -152,11 +162,15 @@ namespace nkentseu {
             if (!mRender3D->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(),
                                   mRenderGraph.Get(), mShadow.Get(),
                                   mEnvironment.Get(), mShaders.Get(),
-                                  mResources.Get())) {
+                                  mResources.Get(),
+                                  mCfg.framesInFlight)) {
                 mRender3D.Reset();
                 NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkRender3D::Init failed");
                 return false;
             }
+            // Wire la connexion inverse : NkShadowSystem itere les opaques de
+            // mRender3D dans sa passe shadow. Necessaire pour D.3b.
+            if (mShadow) mShadow->SetRenderer3D(mRender3D.Get());
             return true;
         }
         bool NkRendererImpl::InitEnvironment() {
@@ -184,6 +198,7 @@ namespace nkentseu {
             if (mPostProcess) return true;
             mPostProcess.Reset(AllocOwned<NkPostProcessStack>());
             if (!mPostProcess->Init(mDevice, mTextures.Get(), mMeshSystem.Get(),
+                                      mShaders.Get(), mResources.Get(),
                                       mCfg.width, mCfg.height)) {
                 mPostProcess.Reset();
                 NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkPostProcessStack::Init failed");
@@ -380,12 +395,11 @@ namespace nkentseu {
             const bool has3D       = (mRender3D.Get()    != nullptr);
             const bool has2D       = (mRender2D.Get()    != nullptr);
             const bool hasShadow   = (mShadow.Get()      != nullptr) && mCfg.shadow.enabled;
-            // D.4 stub : la passe PostProcess est actuellement no-op (Execute vide).
-            // Tant que D.4 n'est pas wire, on force hasPP=false pour que Geometry
-            // ecrive directement dans la swapchain — sinon les sphères PBR sont
-            // rendues dans un HDR transient qui n'est jamais copie a l'ecran.
-            const bool hasPP       = false;
-            (void)mPostProcess;  // garder le pointeur en vie
+            // D.4b : on n'active le HDR transient que si NkPostProcessStack a au
+            // moins un effet wire (tonemap pour l'instant). HasAnyEffect lit la
+            // config courante et evite d'allouer un HDR target inutile.
+            const bool hasPP       = (mPostProcess.Get() != nullptr)
+                                  && mPostProcess->HasAnyEffect();
             const bool hasVFX      = (mVFX.Get()         != nullptr);
             const bool hasOverlay  = (mOverlay.Get()     != nullptr);
 
@@ -407,14 +421,13 @@ namespace nkentseu {
             }
 
             // ── Shadow pass ──────────────────────────────────────────────────
-            NkGraphResId shadowId = NK_INVALID_RES_ID;
+            // D.3b : NkShadowSystem possede son propre atlas + son propre FBO et
+            // gere son BeginRenderPass / EndRenderPass en interne. Cette passe
+            // est juste un point d'ordonnancement — le RenderGraph ne touche pas
+            // au RenderPass automatique (pas de SetColor/SetDepth declares).
             if (hasShadow) {
-                shadowId = g.CreateTransient("ShadowAtlas",
-                            NkTextureDesc::DepthStencil(
-                                mCfg.shadow.resolution * (int32)mCfg.shadow.cascadeCount,
-                                mCfg.shadow.resolution));
                 g.AddPass("Shadows", NkPassType::NK_SHADOW)
-                 .SetDepth(shadowId, NkLoadOp::NK_CLEAR, 1.f)
+                 .SetAlwaysExecute(true)   // outputs hors-graph (FBO interne au ShadowSystem)
                  .Execute([this](NkICommandBuffer* cmd) {
                      mShadow->RenderShadowPasses(cmd);
                  });
@@ -425,7 +438,10 @@ namespace nkentseu {
                 auto& geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
                 geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, {0.05f, 0.05f, 0.07f, 1.f})
                     .SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
-                if (shadowId != NK_INVALID_RES_ID) geom.Reads(shadowId);
+                // shadowId n'est plus dans le graph (NkShadowSystem gere son atlas
+                // hors-graph). Le sequencing Shadows->Geometry est garanti par
+                // l'ordre d'AddPass et le bind du shadow atlas se fait via le
+                // descriptor set frame de Render3D (set au Init).
                 geom.Execute([this](NkICommandBuffer* cmd) { mRender3D->Flush(cmd); });
             }
 
@@ -446,11 +462,21 @@ namespace nkentseu {
                 pp.Reads(mainColor);
                 if (mainDepth != NK_INVALID_RES_ID) pp.Reads(mainDepth);
                 pp.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0,0,0,1});
-                pp.Execute([this](NkICommandBuffer* cmd) {
-                    // L'execution effective de la stack PostProcess est faite par
-                    // mPostProcess->Execute() (a brancher en phase 2). Ici la passe
-                    // existe pour reserver l'ordonnancement et les barrieres.
-                    (void)cmd;
+                NkGraphResId hdrColorId = mainColor;   // capture by value
+                pp.Execute([this, hdrColorId](NkICommandBuffer* cmd) {
+                    // Resoud le handle RHI du transient HDR et passe-le au PostProcess
+                    // qui dessine le tonemap fullscreen vers le swapchain (FBO 0,
+                    // bindé par BeginRenderPass de cette passe car colorId=swapchain).
+                    NkTextureHandle hdr = mRenderGraph->GetResourceTexture(hdrColorId);
+                    static int sPPLogCount = 0;
+                    if (sPPLogCount < 3) {
+                        sPPLogCount++;
+                        logger.Info("[PP.Execute] frame={0} hdr.id={1} hdr.valid={2} mPostProcess={3}\n",
+                                    sPPLogCount, hdr.id, hdr.IsValid(), (mPostProcess.Get()!=nullptr));
+                    }
+                    if (mPostProcess && hdr.IsValid()) {
+                        mPostProcess->ExecuteRHI(cmd, hdr);
+                    }
                 });
             }
 
@@ -482,6 +508,12 @@ namespace nkentseu {
 
             // Flush dirty shader compilations before rendering
             if (mMaterials) mMaterials->FlushCompilations();
+
+            // Hot-reload des shaders user-overrides (throttle ~1x/sec a 60fps).
+            // PollHotReload est no-op si aucun NkShaderProgram n'a vertPath/fragPath
+            // renseignes (= aucun fichier override actif), donc cout negligeable.
+            if (mShaders && (mFrameCounter % 60) == 0) mShaders->PollHotReload();
+            mFrameCounter++;
 
             mCmd->Reset();
             mCmd->Begin();

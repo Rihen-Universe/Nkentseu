@@ -174,6 +174,22 @@ namespace nkentseu {
             uint32             maxParticles = 100000;
             uint32             maxMeshes    = 65536;
 
+            // ─── Frames in flight (ring buffer per-frame UBO) ───────────────
+            // Combien de copies des UBOs per-frame (camera, lights, object) le
+            // renderer maintient pour eviter que le CPU stalle quand il ecrit
+            // un buffer encore lu par le GPU.
+            //   1 = pas de ring (un seul buffer partage)
+            //         -> WriteBuffer peut stall si GPU lit encore. Plus
+            //            economique en VRAM mais cap typique ~60-80 fps.
+            //   2 = double buffering (defaut)
+            //         -> CPU ecrit slot[(N+1)%2] pendant que GPU lit slot[N%2].
+            //            Coût VRAM : 2x les UBOs per-frame. Recommande.
+            //   3 = triple buffering
+            //         -> Marge supplementaire pour smooth-out les frames lourdes
+            //            (utile en VR ou cinematic). Coût : 3x VRAM.
+            // Clampe a [1,3] dans NkRendererImpl::Initialize().
+            uint32             framesInFlight = 2;
+
             // Sous-configs (consultees seulement si le sous-systeme est actif)
             NkShadowConfig     shadow;
             NkPostConfig       postProcess;

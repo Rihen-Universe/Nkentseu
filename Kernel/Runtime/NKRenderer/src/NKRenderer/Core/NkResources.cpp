@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkResources.h"
 #include "NKRHI/Core/NkDescs.h"
+#include "NKLogger/NkLog.h"
 
 namespace nkentseu {
     namespace renderer {
@@ -21,22 +22,26 @@ namespace nkentseu {
             }
             mDevice = device;
 
+            logger.Info("[NkResources]   1.a CreateDefaultTextures...\n");
             if (!CreateDefaultTextures()) {
                 NkRSetLastError(NkRResult::NK_ERR_OUT_OF_MEMORY,
                                 "NkResources : default textures creation failed");
                 return NkRResult::NK_ERR_OUT_OF_MEMORY;
             }
+            logger.Info("[NkResources]   1.b CreateDefaultSamplers...\n");
             if (!CreateDefaultSamplers()) {
                 NkRSetLastError(NkRResult::NK_ERR_OUT_OF_MEMORY,
                                 "NkResources : default samplers creation failed");
                 return NkRResult::NK_ERR_OUT_OF_MEMORY;
             }
+            logger.Info("[NkResources]   1.c CreateStandardLayouts...\n");
             if (!CreateStandardLayouts()) {
                 NkRSetLastError(NkRResult::NK_ERR_OUT_OF_MEMORY,
                                 "NkResources : standard descriptor-set layouts failed");
                 return NkRResult::NK_ERR_OUT_OF_MEMORY;
             }
 
+            logger.Info("[NkResources]   1.d Init done\n");
             mReady = true;
             return NkRResult::NK_OK;
         }
@@ -96,11 +101,17 @@ namespace nkentseu {
             const uint8 magenta[4] = {255,   0, 255, 255};
             const uint8 gray[4]    = {128, 128, 128, 255};
 
+            logger.Info("[NkResources]      White1x1...\n");
             mTexWhite   = Make1x1(mDevice, white,   "NkResources_White1x1");
+            logger.Info("[NkResources]      Black1x1...\n");
             mTexBlack   = Make1x1(mDevice, black,   "NkResources_Black1x1");
+            logger.Info("[NkResources]      Normal1x1...\n");
             mTexNormal  = Make1x1(mDevice, normal,  "NkResources_Normal1x1");
+            logger.Info("[NkResources]      Magenta1x1...\n");
             mTexMagenta = Make1x1(mDevice, magenta, "NkResources_Magenta1x1");
+            logger.Info("[NkResources]      Gray1x1...\n");
             mTexGray    = Make1x1(mDevice, gray,    "NkResources_Gray1x1");
+            logger.Info("[NkResources]      defaults done\n");
 
             return mTexWhite.IsValid() && mTexBlack.IsValid()
                 && mTexNormal.IsValid() && mTexMagenta.IsValid() && mTexGray.IsValid();

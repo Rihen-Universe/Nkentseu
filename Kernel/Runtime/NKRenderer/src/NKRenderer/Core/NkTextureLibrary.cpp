@@ -4,6 +4,7 @@
 #include "NkTextureLibrary.h"
 #include "NkResources.h"
 #include "NKImage/NKImage.h"
+#include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstring>
 
@@ -131,12 +132,34 @@ namespace nkentseu {
         // =====================================================================
         // NKImage backend
         // =====================================================================
+        // Conversion HDR : NK_RGB96F (3 floats / pixel, stride aligne 4) ->
+        // NK_RGBA128F equivalent (4 floats / pixel pack, alpha=1). Necessaire
+        // car NkImage::Convert() ne sait pas convertir les formats HDR (il
+        // travaille en uint8). On effectue donc la conversion manuellement.
+        static void HdrRgb96fToRgba128fPacked(const float32* src, uint32 srcStrideF32,
+                                              float32* dst, uint32 w, uint32 h) {
+            for (uint32 y = 0; y < h; ++y) {
+                const float32* sr = src + (uint64)y * srcStrideF32;
+                float32*       dr = dst + (uint64)y * w * 4;
+                for (uint32 x = 0; x < w; ++x) {
+                    dr[x*4 + 0] = sr[x*3 + 0];
+                    dr[x*4 + 1] = sr[x*3 + 1];
+                    dr[x*4 + 2] = sr[x*3 + 2];
+                    dr[x*4 + 3] = 1.f;
+                }
+            }
+        }
+
         bool NkTextureLibrary::LoadWithNKImage(const NkString& path, NkImageData& out) {
             if (mCustomLoad) {
                 return mCustomLoad(path.CStr(), &out, mCustomUser);
             }
-            // Force 4 channels (RGBA) — NkImage gere la conversion en interne
-            NkImage* img = NkImage::Load(path.CStr(), 4);
+            // Phase H : on charge sans forcer le nombre de canaux (desired=0)
+            // pour que NkImage retourne le format natif du fichier. Cela evite
+            // les bugs de conversion sur HDR (ConvertChannels travaille en
+            // uint8 et ne supporte pas les formats float). On convertit ensuite
+            // manuellement vers RGBA8 ou RGBA32F selon le besoin.
+            NkImage* img = NkImage::Load(path.CStr(), 0);
             if (!img) return false;
 
             out.width    = (uint32)img->Width();
@@ -144,15 +167,44 @@ namespace nkentseu {
             out.channels = 4;
             out.isHDR    = img->IsHDR();
 
+            const uint64 npx = (uint64)out.width * out.height;
             if (out.isHDR) {
-                // NK_RGBA128F : 4 floats par pixel
-                uint64 sz = (uint64)out.width * out.height * 4;
-                out.hdrPixels = new float32[sz];
-                memcpy(out.hdrPixels, img->Pixels(), sz * sizeof(float32));
+                // RGB96F (3 floats packed avec align stride) ou RGBA128F.
+                // Sortie : RGBA128F densement packe (4 floats / pixel).
+                out.hdrPixels = new float32[npx * 4];
+                if (img->Format() == NkImagePixelFormat::NK_RGB96F) {
+                    // src stride en bytes, on le convertit en floats (stride/4).
+                    const uint32 srcStrideF = (uint32)(img->Stride() / sizeof(float32));
+                    HdrRgb96fToRgba128fPacked(reinterpret_cast<const float32*>(img->Pixels()),
+                                              srcStrideF, out.hdrPixels,
+                                              out.width, out.height);
+                } else {
+                    // RGBA128F deja : copie directe (memcpy en bytes).
+                    memcpy(out.hdrPixels, img->Pixels(), npx * 4 * sizeof(float32));
+                }
             } else {
-                uint64 sz = (uint64)out.width * out.height * 4;
-                out.pixels = new uint8[sz];
-                memcpy(out.pixels, img->Pixels(), sz);
+                // LDR : on veut RGBA8 dense. Si le fichier n'est pas RGBA on
+                // fait la conversion via NkImage::Convert(NK_RGBA32) puis on
+                // extrait les pixels denses (en respectant le stride).
+                NkImage* rgba = nullptr;
+                if (img->Format() != NkImagePixelFormat::NK_RGBA32) {
+                    rgba = img->Convert(NkImagePixelFormat::NK_RGBA32);
+                }
+                NkImage* src = rgba ? rgba : img;
+
+                out.pixels = new uint8[npx * 4];
+                const uint32 srcStride = (uint32)src->Stride();
+                if (srcStride == out.width * 4) {
+                    memcpy(out.pixels, src->Pixels(), npx * 4);
+                } else {
+                    // Stride aligne : copie ligne par ligne.
+                    for (uint32 y = 0; y < out.height; ++y) {
+                        memcpy(out.pixels + (uint64)y * out.width * 4,
+                               src->Pixels() + (uint64)y * srcStride,
+                               out.width * 4);
+                    }
+                }
+                if (rgba) rgba->Free();
             }
             img->Free();
             return true;
@@ -205,8 +257,11 @@ namespace nkentseu {
             NkTextureHandle rhi = mDevice->CreateTexture(d);
             if (!rhi.IsValid()) return NkTexHandle::Null();
 
-            // Genere les mips secondaires (mip 0 deja fourni)
-            if (mips > 1) mDevice->GenerateMipmaps(rhi, NkFilter::NK_LINEAR);
+            // CreateTexture genere deja la mip chain quand initialData est fourni
+            // (cf. NkVulkanDevice.cpp ~895-915, NkOpenglDevice equivalent). Re-appeler
+            // GenerateMipmaps ici provoque une 2e generation sur des layouts deja en
+            // SHADER_READ_ONLY_OPTIMAL -> erreurs de validation Vulkan (mips UNDEFINED
+            // attendaient TRANSFER_DST_OPTIMAL).
 
             return WrapRHI(rhi, sampler, w, h, mips, debugName, false);
         }
@@ -282,7 +337,13 @@ namespace nkentseu {
         // Public Load API
         // =====================================================================
         NkTexHandle NkTextureLibrary::Load(const NkString& path, const NkLoadOptions& opts) {
-            // Cache hit
+            if (path.Empty()) {
+                NkRSetLastError(NkRResult::NK_ERR_IO,
+                                "NkTextureLibrary::Load empty path");
+                return mError;
+            }
+
+            // Cache hit : on incrémente le ref-count et on rend le meme handle.
             auto* cached = mPathCache.Find(path);
             if (cached) {
                 if (auto* e = mTextures.Find(cached->id)) {
@@ -293,7 +354,12 @@ namespace nkentseu {
 
             NkImageData img{};
             if (!LoadWithNKImage(path, img)) {
-                NkRSetLastError(NkRResult::NK_ERR_IO, "NkTextureLibrary::Load file not found");
+                // Message de log plus clair (path inclus). Le fallback est le
+                // magenta marker qui rend immediatement visible le probleme.
+                logger.Error("[NkTextureLibrary] Echec chargement texture : {0}\n",
+                             path.CStr());
+                NkRSetLastError(NkRResult::NK_ERR_IO,
+                                "NkTextureLibrary::Load decode error");
                 return mError;
             }
 
@@ -302,6 +368,7 @@ namespace nkentseu {
 
             NkTexHandle out;
             if (img.isHDR) {
+                // HDR : srgb force a false (les float HDR sont deja lineaires).
                 out = UploadHDRTexture(img.hdrPixels, img.width, img.height, samp, dbg);
             } else {
                 out = UploadColorTexture(img.pixels, img.width, img.height,
@@ -312,6 +379,9 @@ namespace nkentseu {
             if (out.IsValid()) {
                 mPathCache.Insert(path, out);
                 if (auto* e = mTextures.Find(out.id)) e->path = path;
+                logger.Info("[NkTextureLibrary] Texture chargee : {0} ({1}x{2}{3})\n",
+                            path.CStr(), img.width, img.height,
+                            img.isHDR ? " HDR" : (opts.srgb ? " sRGB" : " UNORM"));
             }
             return out;
         }

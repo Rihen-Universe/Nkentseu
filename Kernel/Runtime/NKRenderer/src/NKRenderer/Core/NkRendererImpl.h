@@ -87,6 +87,7 @@ namespace nkentseu {
                 NkICommandBuffer*mCmd     = nullptr;
                 NkISwapchain*    mSwapchain= nullptr;
                 uint32           mFrameIndex = 0;
+                uint32           mFrameCounter = 0; // throttle counter for hot-reload polling
                 NkFrameContext   mFrameCtx;
                 bool             mInitialized= false;
                 NkRendererStats  mStats;

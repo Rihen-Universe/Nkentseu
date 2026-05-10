@@ -1,0 +1,244 @@
+// =============================================================================
+// pbr.nksl  — NKRenderer v4.0
+// Shader PBR Metallic-Roughness en NkSL
+// Transpile automatiquement vers GLSL GL, GLSL VK, HLSL DX11, HLSL DX12, MSL
+//
+// NkSL syntax :
+//   @vertex { ... }         — bloc vertex shader
+//   @fragment { ... }       — bloc fragment shader
+//   @uniform N { ... }      — uniform buffer (binding = N)
+//   @push { ... }           — push constants (VK) / root constants (DX12) / cbuffer b0 (DX11)
+//   @texture(N) name        — sampler2D binding N
+//   @in  type name : LOC    — vertex input
+//   @out type name : LOC    — vertex/fragment output
+//   @target GL { ... }      — code spécifique OpenGL
+//   @target VK { ... }      — code spécifique Vulkan
+//   @target DX11 { ... }    — code spécifique DirectX11
+//   @target DX12 { ... }    — code spécifique DirectX12
+//   @target MSL  { ... }    — code spécifique Metal
+// =============================================================================
+
+@uniform 0 CameraUBO {
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 invViewProj;
+    vec4 camPos;
+    vec2 viewportSize;
+    float time;
+    float deltaTime;
+};
+
+@uniform 1 ObjectUBO {
+    mat4 model;
+    mat4 normalMatrix;
+    vec4 tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+};
+
+@uniform 2 LightsUBO {
+    vec4 lightPositions [32];  // w=type
+    vec4 lightColors    [32];  // w=intensity
+    vec4 lightDirections[32];  // w=range
+    vec4 lightAngles    [32];  // x=inner, y=outer, z=castShadow
+    int  lightCount;
+    int  _pad[3];
+};
+
+// Textures PBR
+@texture(3)  tAlbedo;
+@texture(4)  tNormal;
+@texture(5)  tORM;          // R=AO, G=Roughness, B=Metallic
+@texture(6)  tEmissive;
+@texture(7)  tEnvIrradiance; // IBL diffuse (cubemap)
+@texture(8)  tEnvPrefilter;  // IBL specular (cubemap mips)
+@texture(9)  tBRDFLUT;       // Split-sum BRDF LUT
+@texture(10) tShadowAtlas;
+
+// ── Vertex Shader ─────────────────────────────────────────────────────────────
+@vertex {
+
+@in vec3 aPos    : 0;
+@in vec3 aNormal : 1;
+@in vec3 aTangent: 2;
+@in vec2 aUV     : 3;
+@in vec2 aUV2    : 4;
+@in vec4 aColor  : 5;
+
+@out vec3 vWorldPos  : 0;
+@out vec3 vNormal    : 1;
+@out vec3 vTangent   : 2;
+@out vec3 vBitangent : 3;
+@out vec2 vUV        : 4;
+@out vec2 vUV2       : 5;
+@out vec4 vColor     : 6;
+
+void main() {
+    vec4 worldPos4 = model * vec4(aPos, 1.0);
+    vWorldPos  = worldPos4.xyz;
+
+    mat3 nm    = mat3(normalMatrix);
+    vNormal    = normalize(nm * aNormal);
+    vTangent   = normalize(nm * aTangent);
+    vBitangent = cross(vNormal, vTangent);
+
+    vUV    = aUV;
+    vUV2   = aUV2;
+    vColor = aColor * tint;
+
+    @target GL {
+        gl_Position = viewProj * worldPos4;
+    }
+    @target VK {
+        gl_Position = viewProj * worldPos4;
+        gl_Position.y = -gl_Position.y;
+    }
+    @target DX11 {
+        SV_Position = mul(viewProj, worldPos4);
+    }
+    @target DX12 {
+        SV_Position = mul(viewProj, worldPos4);
+    }
+    @target MSL {
+        out.position = viewProj * worldPos4;
+    }
+}
+
+} // @vertex
+
+// ── Fragment Shader ───────────────────────────────────────────────────────────
+@fragment {
+
+@in vec3 vWorldPos  : 0;
+@in vec3 vNormal    : 1;
+@in vec3 vTangent   : 2;
+@in vec3 vBitangent : 3;
+@in vec2 vUV        : 4;
+@in vec2 vUV2       : 5;
+@in vec4 vColor     : 6;
+
+@out vec4 fragColor : 0;
+
+// PBR functions
+
+float DistributionGGX(vec3 N, vec3 H, float rough) {
+    float a  = rough * rough;
+    float a2 = a * a;
+    float NdH = max(dot(N,H), 0.0);
+    float denom = (NdH*NdH*(a2-1.0)+1.0);
+    return a2 / (3.14159265 * denom * denom);
+}
+
+float GeometrySchlick(float NdV, float k) {
+    return NdV / (NdV*(1.0-k)+k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float rough) {
+    float r = rough + 1.0;
+    float k = (r*r) / 8.0;
+    return GeometrySchlick(max(dot(N,V),0.0),k) *
+           GeometrySchlick(max(dot(N,L),0.0),k);
+}
+
+vec3 FresnelSchlick(float cosTheta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
+}
+
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float rough) {
+    return F0 + (max(vec3(1.0-rough), F0) - F0) * pow(max(1.0-cosTheta,0.0), 5.0);
+}
+
+void main() {
+    // Sample textures
+    vec4 albedoSample = texture(tAlbedo, vUV) * vColor;
+    vec3 albedo   = pow(albedoSample.rgb, vec3(2.2)); // sRGB → linear
+    float alpha   = albedoSample.a;
+    if (alpha < 0.01) discard;
+
+    vec3 ormSample  = texture(tORM, vUV).rgb;
+    float ao        = ormSample.r * aoStrength;
+    float rough     = ormSample.g * roughness;
+    float metal     = ormSample.b * metallic;
+
+    // Normal mapping
+    vec3 normalTS   = texture(tNormal, vUV).xyz * 2.0 - 1.0;
+    mat3 TBN        = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
+    vec3 N          = normalize(TBN * normalTS);
+
+    vec3 V          = normalize(camPos.xyz - vWorldPos);
+    vec3 F0         = mix(vec3(0.04), albedo, metal);
+
+    // Direct lighting
+    vec3 Lo = vec3(0.0);
+    for (int i = 0; i < lightCount; i++) {
+        int   ltype = int(lightPositions[i].w);
+        vec3  lpos  = lightPositions[i].xyz;
+        vec3  ldir  = lightDirections[i].xyz;
+        vec3  lcol  = lightColors[i].rgb;
+        float lint  = lightColors[i].w;
+        float lrng  = lightDirections[i].w;
+
+        vec3 L;
+        float attenuation = 1.0;
+
+        if (ltype == 0) { // Directional
+            L = normalize(-ldir);
+        } else {          // Point / Spot
+            vec3 diff = lpos - vWorldPos;
+            float dist = length(diff);
+            L = normalize(diff);
+            attenuation = max(1.0 - dist/lrng, 0.0);
+            attenuation *= attenuation;
+            if (ltype == 2) { // Spot
+                float inner = lightAngles[i].x;
+                float outer = lightAngles[i].y;
+                float theta = dot(L, normalize(-ldir));
+                float eps   = inner - outer;
+                attenuation *= clamp((theta - outer)/eps, 0.0, 1.0);
+            }
+        }
+
+        vec3 H     = normalize(V + L);
+        float NdL  = max(dot(N, L), 0.0);
+        vec3 radiance = lcol * lint * attenuation;
+
+        float NDF  = DistributionGGX(N, H, rough);
+        float G    = GeometrySmith(N, V, L, rough);
+        vec3  F    = FresnelSchlick(max(dot(H,V),0.0), F0);
+
+        vec3  num   = NDF * G * F;
+        float denom = 4.0 * max(dot(N,V),0.0) * max(dot(N,L),0.0) + 0.001;
+        vec3  spec  = num / denom;
+
+        vec3 kD = (1.0 - F) * (1.0 - metal);
+        Lo += (kD * albedo / 3.14159265 + spec) * radiance * NdL;
+    }
+
+    // IBL — indirect lighting
+    vec3 F_ibl   = FresnelSchlickRoughness(max(dot(N,V),0.0), F0, rough);
+    vec3 kD_ibl  = (1.0 - F_ibl) * (1.0 - metal);
+
+    vec3 irrad   = texture(tEnvIrradiance, N).rgb;
+    vec3 diffuse = irrad * albedo;
+
+    vec3 R       = reflect(-V, N);
+    float mip    = rough * 4.0; // MAX_REFLECTION_LOD = 4
+    vec3 prefilt = textureLod(tEnvPrefilter, R, mip).rgb;
+    vec2 brdf    = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), rough)).rg;
+    vec3 specIBL = prefilt * (F_ibl * brdf.x + brdf.y);
+
+    vec3 ambient = (kD_ibl * diffuse + specIBL) * ao;
+
+    // Emissive
+    vec3 emissive = texture(tEmissive, vUV).rgb * emissiveStrength;
+
+    vec3 color = ambient + Lo + emissive;
+
+    // Output (linear — tone mapping done in PostProcess)
+    fragColor = vec4(color, alpha);
+}
+
+} // @fragment

@@ -1,0 +1,16 @@
+// ssao.frag.metal.msl — SSAO (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct SSAOUBO{float4x4 proj,invProj;float4 samples[64];float2 noiseScale;float radius,bias;int numSamples;int _p[3];};
+struct PSIn{float4 pos[[position]];float2 uv;};
+float3 ReconP(float2 uv,float d,float4x4 ip){float4 ndc=float4(uv*2.f-1.f,d*2.f-1.f,1.f);float4 vp=ip*ndc;return vp.xyz/vp.w;}
+fragment float ssaoFrag(PSIn i[[stage_in]],texture2d<float> tD[[texture(0)]],texture2d<float> tN[[texture(1)]],sampler sL[[sampler(0)]],constant SSAOUBO& u[[buffer(2)]]){
+    float d=tD.sample(sL,i.uv).r;if(d>=.9999f)return 1.f;
+    float3 fp=ReconP(i.uv,d,u.invProj);
+    float3 rv=tN.sample(sL,i.uv*u.noiseScale).xyz*2.f-1.f;
+    float3 N=normalize(cross(ReconP(i.uv+float2(1.f/1920.f,0.f),d,u.invProj)-fp,ReconP(i.uv+float2(0.f,1.f/1080.f),d,u.invProj)-fp));
+    float3 t=normalize(rv-N*dot(rv,N));float3x3 TBN=float3x3(t,cross(N,t),N);
+    float occ=0.f;
+    for(int li=0;li<u.numSamples;li++){float3 sp=TBN*u.samples[li].xyz;sp=fp+sp*u.radius;float4 off=u.proj*float4(sp,1.f);off.xyz/=off.w;off.xyz=off.xyz*.5f+.5f;float sd=tD.sample(sL,off.xy).r;float3 svp=ReconP(off.xy,sd,u.invProj);float rc=smoothstep(0.f,1.f,u.radius/abs(fp.z-svp.z));occ+=(svp.z>=sp.z+u.bias?1.f:0.f)*rc;}
+    return 1.f-occ/float(u.numSamples);
+}

@@ -35,6 +35,12 @@ void NkOpenGLCommandBuffer::GL_BeginRenderPass(NkRenderPassHandle rp,
     glBindFramebuffer(GL_FRAMEBUFFER, fboId);
     glViewport(area.x, area.y, (GLsizei)area.width, (GLsizei)area.height);
 
+    // Desactive scissor pour s'assurer que le clear ci-dessous affecte tout le
+    // framebuffer (sinon une SetScissor laissee active par une passe precedente
+    // limiterait le clear a la sous-region). Les passes qui veulent un scissor
+    // doivent le re-activer explicitement via SetScissor apres BeginRenderPass.
+    glDisable(GL_SCISSOR_TEST);
+
     // Ne clear QUE les attachments dont le loadOp etait CLEAR. Le RenderGraph
     // arme mClearColorPending/mClearDepthPending via SetClearColor/SetClearDepth
     // avant BeginRenderPass uniquement quand loadOp==CLEAR. Sans flag => LOAD,

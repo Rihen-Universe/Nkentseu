@@ -97,8 +97,13 @@ namespace nkentseu {
             NkPassDepthAttachment    depth;
 
             // Flags
-            bool     enabled      = true;
-            bool     asyncCompute = false;
+            bool     enabled       = true;
+            bool     asyncCompute  = false;
+            // Si true, CullDeadPasses ne tue pas cette passe meme si elle n'a
+            // aucun attachment ecrit dans le graph. Utile pour les passes
+            // "callback-only" (ex : Shadow, Compute setup) qui produisent leurs
+            // outputs hors-graph (FBO custom interne au sous-systeme).
+            bool     alwaysExecute = false;
 
             // Stats (mises a jour par Execute)
             float32  gpuTimeMs    = 0.f;
@@ -163,8 +168,9 @@ namespace nkentseu {
             NkPassBuilder& Execute(NkPassCallback cb) { execute = cb; return *this; }
 
             // ── Flags ─────────────────────────────────────────────────────────
-            NkPassBuilder& SetEnabled(bool v) { enabled = v; return *this; }
-            NkPassBuilder& SetAsync  (bool v) { asyncCompute = v; return *this; }
+            NkPassBuilder& SetEnabled(bool v)       { enabled = v; return *this; }
+            NkPassBuilder& SetAsync  (bool v)       { asyncCompute = v; return *this; }
+            NkPassBuilder& SetAlwaysExecute(bool v) { alwaysExecute = v; return *this; }
 
             // ── Compatibilite : ClearWith(color) → premiere color attachment
             // ───────────────────────────────────────────────────────────────────
@@ -206,6 +212,21 @@ namespace nkentseu {
                                             NkResourceState initialState);
                 NkGraphResId CreateTransient(const NkString& name, const NkTextureDesc& desc);
                 NkGraphResId FindByName    (const NkString& name) const;
+
+                // Resoud un NkGraphResId vers le NkTextureHandle RHI sous-jacent.
+                // Utile aux passes PostProcess qui ont besoin du handle pour binder
+                // un transient comme input shader (ex : HDR -> tonemap).
+                // Retourne un handle invalide si l'id ne correspond a rien ou si
+                // la ressource est un buffer ou n'a pas encore ete allouee.
+                NkTextureHandle GetResourceTexture(NkGraphResId id) const;
+
+                // Recupere le RenderPass handle associe au framebuffer cache d'une
+                // passe (par nom). Utile pour le lazy create de pipelines qui
+                // doivent etre RP-compatibles avec le fb cible (Vulkan/DX12).
+                // Retourne un handle invalide si la pass n'a pas encore execute,
+                // si elle n'a pas de FB custom (= utilise le swapchain) ou si le
+                // backend ne fournit pas de RP (ex : OpenGL renvoie {}).
+                NkRenderPassHandle GetPassRenderPass(const NkString& passName) const;
 
                 // ── Declaration des passes ──────────────────────────────────────
                 NkPassBuilder& AddPass            (const NkString& name, NkPassType type);

@@ -34,6 +34,14 @@ namespace nkentseu {
                 bool Init(NkIDevice* device, const NkEnvironmentConfig& cfg = {});
                 void Shutdown();
 
+                // Genere une cubemap procedurale gradient sky -> horizon -> ground
+                // et l'upload dans mIrradiance + mPrefilter. Utile comme placeholder
+                // tant que le compute prefilter d'une vraie HDRI n'est pas wire.
+                // Default appelle avec sky=bleu clair, horizon=blanc casse, ground=marron.
+                void LoadProcedural(const NkVec3f& skyTop,
+                                     const NkVec3f& horizon,
+                                     const NkVec3f& ground);
+
                 // Accesseurs RHI pour Render3D / NkMaterialSystem (binding 8/9/10 du shader PBR).
                 NkTextureHandle GetIrradianceCubemap() const { return mIrradiance; }
                 NkTextureHandle GetPrefilterCubemap() const { return mPrefilter; }
