@@ -1,0 +1,19 @@
+// debug3d.vert.vk.glsl — Debug 3D Vertex (Vulkan)
+#version 460 core
+#extension GL_ARB_separate_shader_objects : enable
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNormal;
+layout(location=3) in vec2 aUV;  layout(location=5) in vec4 aColor;
+layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(set=0,binding=1,std140) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
+layout(set=0,binding=4,std140) uniform DebugUBO{int mode;float nearPlane,farPlane,_pad;}uDbg;
+// mode: 0=normals, 1=UV checker, 2=depth, 3=AO, 4=wireframe
+layout(location=0) out vec3 vNormal; layout(location=1) out vec2 vUV;
+layout(location=2) out vec4 vColor;  layout(location=3) out float vDepth;
+void main(){
+    vec4 wp=uObj.model*vec4(aPos,1.);
+    vNormal=normalize(mat3(uObj.normalMatrix)*aNormal);
+    vUV=aUV; vColor=aColor*uObj.tint;
+    gl_Position=uCam.viewProj*wp;
+    gl_Position.y=-gl_Position.y;
+    vDepth=(uCam.view*wp).z;
+}

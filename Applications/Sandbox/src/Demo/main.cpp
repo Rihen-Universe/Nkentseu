@@ -61,7 +61,15 @@ namespace nkentseu { namespace demo {
                 return c;
             }
             case 1: return NkRendererConfig::For2D(api, w, h);
-            case 2: return NkRendererConfig::ForGame(api, w, h);
+            case 2: {
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                // Demo3D scene tient dans ~7 unites -> 1 cascade large suffit
+                // et evite les transitions de cascade qui font scintiller les
+                // ombres quand la camera orbite. CSM 4-cascades reste actif
+                // dans le code et utilisable pour des scenes plus ouvertes.
+                c.shadow.cascadeCount = 1;
+                return c;
+            }
             default: return NkRendererConfig::ForGame(api, w, h);
         }
     }

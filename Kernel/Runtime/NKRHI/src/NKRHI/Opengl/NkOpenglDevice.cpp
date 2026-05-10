@@ -523,16 +523,30 @@ bool NkOpenGLDevice::WriteTextureRegion(NkTextureHandle t, const void* pixels,
     glPixelStorei(GL_UNPACK_ROW_LENGTH, rp2/(bpp > 0 ? bpp : 1u));
 #if defined(NK_OPENGL_ES)
     glBindTexture(texture->target, texture->id);
-    if (desc.type==NkTextureType::NK_TEX2D)
+    if (desc.type==NkTextureType::NK_TEX2D) {
         glTexSubImage2D(texture->target,(GLint)mip,(GLint)x,(GLint)y,(GLsizei)w,(GLsizei)h,base,type2,pixels);
-    else if (desc.type==NkTextureType::NK_TEX3D || desc.type==NkTextureType::NK_TEX2D_ARRAY)
+    } else if (desc.type==NkTextureType::NK_CUBE) {
+        // Sur ES non-DSA : cible specifique a la face. Layer 0..5 -> +X, -X, +Y, -Y, +Z, -Z.
+        GLenum face = GL_TEXTURE_CUBE_MAP_POSITIVE_X + layer;
+        glTexSubImage2D(face,(GLint)mip,(GLint)x,(GLint)y,(GLsizei)w,(GLsizei)h,base,type2,pixels);
+    } else if (desc.type==NkTextureType::NK_TEX3D
+            || desc.type==NkTextureType::NK_TEX2D_ARRAY
+            || desc.type==NkTextureType::NK_CUBE_ARRAY) {
         glTexSubImage3D(texture->target,(GLint)mip,(GLint)x,(GLint)y,(GLint)(layer+z),(GLsizei)w,(GLsizei)h,(GLsizei)d2,base,type2,pixels);
+    }
     glBindTexture(texture->target, 0);
 #else
-    if (desc.type==NkTextureType::NK_TEX2D)
+    if (desc.type==NkTextureType::NK_TEX2D) {
         glTextureSubImage2D(texture->id,(GLint)mip,(GLint)x,(GLint)y,(GLsizei)w,(GLsizei)h,base,type2,pixels);
-    else if (desc.type==NkTextureType::NK_TEX3D || desc.type==NkTextureType::NK_TEX2D_ARRAY)
+    } else if (desc.type==NkTextureType::NK_TEX3D
+            || desc.type==NkTextureType::NK_TEX2D_ARRAY
+            || desc.type==NkTextureType::NK_CUBE
+            || desc.type==NkTextureType::NK_CUBE_ARRAY) {
+        // En DSA, cubemap = TEX2D_ARRAY a 6 layers : on upload face N comme layer N
+        // via glTextureSubImage3D. Sans ce cas, les faces n'etaient PAS uploadees
+        // (bug silencieux de l'ancien code -> cubemap restait noire).
         glTextureSubImage3D(texture->id,(GLint)mip,(GLint)x,(GLint)y,(GLint)(layer+z),(GLsizei)w,(GLsizei)h,(GLsizei)d2,base,type2,pixels);
+    }
 #endif
     glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
     return true;
@@ -814,6 +828,19 @@ NkFramebufferHandle NkOpenGLDevice::CreateFramebuffer(const NkFramebufferDesc& d
             glNamedFramebufferTexture(fbo,att,texture->id,0);
 #endif
         }
+    }
+
+    // FBO depth-only (sans color attachment) : il faut explicitement dire que
+    // ni le draw ni le read buffer ne sont color, sinon GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER.
+    if (d.colorAttachments.Empty() && d.depthAttachment.IsValid()) {
+#if defined(NK_OPENGL_ES)
+        GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
+        glReadBuffer(GL_NONE);
+#else
+        glNamedFramebufferDrawBuffer(fbo, GL_NONE);
+        glNamedFramebufferReadBuffer(fbo, GL_NONE);
+#endif
     }
 
 #if defined(NK_OPENGL_ES)

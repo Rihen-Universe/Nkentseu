@@ -283,7 +283,55 @@ namespace nkentseu {
             float32     outerAngle  = 35.f;     // degres (cone exterieur — fade to 0)
             float32     areaWidth   = 1.f;
             float32     areaHeight  = 1.f;
+            // Phase E.6 : cookie texture (gobo) — projection 2D dans le repere
+            // local de la lumiere. Surtout utile pour spotlights : motif fenetre,
+            // faisceau anime, lampe-torche pattern. Index dans l'atlas cookies 3D
+            // de NkRender3D (8 slots max). -1 = pas de cookie.
+            int32       cookieIdx   = -1;
             bool        castShadow  = true;
+        };
+
+        // ── Shadow caster 2D (Phase E.5) ─────────────────────────────────────
+        // Occluder qui bloque la lumiere. Pour la simplicite on ne supporte que
+        // des cercles : suffisant pour la plupart des sprites et formes
+        // organiques, et le test ray-circle est compact dans le shader.
+        // Pour des polygones, l'utilisateur peut approximer avec plusieurs
+        // cercles (type debris) ou attendre une variante AABB plus tard.
+        struct NkShadowCaster2D {
+            NkVec2f position = {0, 0};
+            float32 radius   = 30.f;
+        };
+
+        // AABB caster 2D (Phase E.7) : pour les murs/plateformes/coffres
+        // typiques d'un jeu de plateforme. min < max en coords world.
+        struct NkShadowCasterAABB2D {
+            NkVec2f min = {0, 0};
+            NkVec2f max = {0, 0};
+        };
+
+        // ── Light 2D (Phase E) ───────────────────────────────────────────────
+        // Light point en 2D : position en pixels (ou unites screen space selon
+        // l'ortho courante de Render2D), falloff radial. radius est la distance
+        // ou la contribution tombe a 0 (smoothstep depuis 0 a radius).
+        // cookieIdx : index dans l'atlas de cookies du Render2D (slot 0..7).
+        //   -1 = pas de cookie (light radiale uniforme classique).
+        // angleDeg / coneInner / coneOuter : direction + cone (degres) — utile
+        //   pour faire des spotlights 2D rotables. coneOuter=360 = light point.
+        struct NkLight2DDesc {
+            NkVec2f position    = {0, 0};
+            NkVec3f color       = {1, 1, 1};
+            float32 intensity   = 1.f;
+            float32 radius      = 200.f;
+            float32 angleDeg    = 0.f;       // direction (cookie + cone)
+            float32 coneInner   = 360.f;     // 360 = omnidirectionnel
+            float32 coneOuter   = 360.f;
+            int32   cookieIdx   = -1;        // -1 = pas de cookie
+            // Layer mask : la light n'affecte que les shapes dont le mask
+            // commun (light.mask & shape.mask) est non-zero. -1 = toutes layers.
+            // Permet de separer foreground/background, world/HUD, etc.
+            int32   layerMask   = -1;
+            bool    enabled     = true;      // false = light skippee (cf SetLights2D)
+            bool    castShadow  = true;      // si false : light traverse les occluders
         };
 
         // =====================================================================
@@ -360,6 +408,12 @@ namespace nkentseu {
             NkMat4f         transform = NkMat4f::Identity();
             NkVec3f         tint      = {1,1,1};
             float32         alpha     = 1.f;
+            // PBR override per-drawcall (utilises tant que NkMaterialSystem n'est
+            // pas wire). Permet de controler les sphere/cube/etc sans creer un
+            // material asset. A terme : multiplies par les channels ORM du material.
+            float32         metallic   = 0.f;
+            float32         roughness  = 0.5f;
+            float32         aoStrength = 1.f;
             NkAABB          aabb;                                  // world-space, pour culling
             bool            castShadow = true;
             bool            receiveShadow = true;

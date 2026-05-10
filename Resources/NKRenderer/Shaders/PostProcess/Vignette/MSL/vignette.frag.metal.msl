@@ -1,0 +1,11 @@
+// vignette.frag.metal.msl — Vignette + Grain (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct VigUBO{float vigIntensity,vigSmooth,grainStrength,time;};struct PSIn{float4 pos[[position]];float2 uv;};
+float hashMSL(float2 p,float t){return fract(sin(dot(p+t,float2(127.1f,311.7f)))*43758.5453f);}
+fragment float4 vigFrag(PSIn i[[stage_in]],texture2d<float> tLDR[[texture(0)]],sampler sL[[sampler(0)]],constant VigUBO& u[[buffer(1)]]){
+    float3 c=tLDR.sample(sL,i.uv).rgb;float2 uv=i.uv*2.f-1.f;
+    float vig=smoothstep(1.f,1.f-u.vigSmooth,length(uv)*u.vigIntensity);c*=vig;
+    c+=(hashMSL(i.uv,u.time)-.5f)*u.grainStrength;
+    return float4(clamp(c,0.f,1.f),1.f);
+}

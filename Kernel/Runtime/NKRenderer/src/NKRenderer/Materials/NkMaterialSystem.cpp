@@ -2,6 +2,7 @@
 // NkMaterialSystem.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkMaterialSystem.h"
+#include "NKLogger/NkLog.h"
 
 namespace nkentseu {
     namespace renderer {
@@ -180,6 +181,27 @@ namespace nkentseu {
         }
 
         NkPipelineHandle NkMaterialSystem::CompilePipeline(const TemplateEntry& t) {
+            // Skip silencieusement les templates Default_* qui n'ont aucune source
+            // shader wirée (cas actuel : RegisterBuiltins enregistre 8 templates
+            // avec NkMaterialTemplateDesc default-init). Les backends Vulkan/DX12
+            // refusent un pipeline sans shader (CreateGraphicsPipeline retourne
+            // {} et logge ERR shader handle id=0). Tant que le user n'attache pas
+            // de shader source via NkMaterialTemplateDesc.vertSrc*/fragSrc* ou
+            // nkslSource, on ne tente pas la creation : pas d'erreur bruyante.
+            const bool hasAnySource =
+                  !t.desc.nkslSource.Empty()
+               || !t.desc.vertSrcGL.Empty()  || !t.desc.fragSrcGL.Empty()
+               || !t.desc.vertSrcVK.Empty()  || !t.desc.fragSrcVK.Empty()
+               || !t.desc.vertSrcDX11.Empty()|| !t.desc.fragSrcDX11.Empty()
+               || !t.desc.vertSrcDX12.Empty()|| !t.desc.fragSrcDX12.Empty()
+               || !t.desc.vertSrcMSL.Empty() || !t.desc.fragSrcMSL.Empty();
+            if (!hasAnySource) {
+                logger.Info("[NkMaterialSystem] '{0}': no shader source wired, "
+                            "skip pipeline compile (template registered for params/queue only)\n",
+                            t.desc.name);
+                return {};
+            }
+
             // Builds a minimal pipeline descriptor. Real shaders would be
             // compiled by NkShaderBackend; here we return an empty pipeline
             // handle that backends interpret as "use built-in material shader".
