@@ -346,5 +346,5 @@ void main() {
 
     // ── Final ─────────────────────────────────────────────────
     vec3 color = amb + Lo + ccContrib + sssContrib + emissive;
-    fragColor  = vec4(color, alpha);
+    fragColor  = vec4(color, 1.0);
 }

@@ -368,6 +368,12 @@ namespace nkentseu {
             mUBOLightsRing.Clear();
             if(mSSBOBones.IsValid()){mDevice->DestroyBuffer(mSSBOBones);mSSBOBones={};}
             if(mDefaultCubeWhite.IsValid()){mDevice->DestroyTexture(mDefaultCubeWhite);mDefaultCubeWhite={};}
+
+            // DEBUG triangle resources
+            if (mDebugPipeline.IsValid()) { mDevice->DestroyPipeline(mDebugPipeline); mDebugPipeline={}; }
+            if (mDebugVBO.IsValid())      { mDevice->DestroyBuffer(mDebugVBO); mDebugVBO={}; }
+            if (mDebugIBO.IsValid())      { mDevice->DestroyBuffer(mDebugIBO); mDebugIBO={}; }
+            mDebugInited = false;
         }
 
         // ── Scene ─────────────────────────────────────────────────────────────────
@@ -440,6 +446,20 @@ namespace nkentseu {
             // permet la creation d'un pipeline RP-compatible.
             NkRenderPassHandle currentRP{};
             if (mGraph) currentRP = mGraph->GetPassRenderPass("Geometry");
+
+            // ── DEBUG triangle minimal (isolation bug PBR Vulkan) ────────────
+            // Mode 1 = non-indexed Draw(3). Mode 2 = indexed DrawIndexed(3).
+            // Si visible -> pipeline VK basique fonctionne, ajouter UBO/sets.
+            if constexpr (kDebugTriangleMode != 0) {
+                if (EnsureDebugTriangle(currentRP)) {
+                    if constexpr (kDebugTriangleMode == 1) DebugDrawTriangleNoIdx(cmd);
+                    else                                   DebugDrawTriangleIdx  (cmd);
+                }
+                mInScene = false;
+                mFrameSlot = (mFrameSlot + 1) % mFramesInFlight;
+                return;
+            }
+
             EnsurePBRPipeline(currentRP);
 
             // Bind le pipeline PBR (configure le programme + render state + VAO).
@@ -455,14 +475,6 @@ namespace nkentseu {
             NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
             if (gs.IsValid())
                 cmd->BindDescriptorSet(gs, 0);
-
-            static int sR3DLogCount = 0;
-            if (sR3DLogCount < 3) {
-                sR3DLogCount++;
-                logger.Info("[NkRender3D::Flush] frame={0} pipe.valid={1} gs.valid={2} opaque={3} transparent={4} instanced={5}\n",
-                            sR3DLogCount, mPBRPipeline.IsValid(), gs.IsValid(),
-                            (uint32)mOpaque.Size(), (uint32)mTransparent.Size(), (uint32)mInstanced.Size());
-            }
 
             FlushOpaque(cmd);
             FlushInstanced(cmd);
@@ -632,12 +644,6 @@ namespace nkentseu {
             // UBOs ombres encore en flight cote GPU.
             const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size())
                                      && (mFrameSlot < mObjectSetPool.Size());
-            static int sFOLogCount = 0;
-            if (sFOLogCount < 3) {
-                sFOLogCount++;
-                logger.Info("[FlushOpaque] frame={0} poolValid={1} drawIdx={2} opaqueCount={3}\n",
-                            sFOLogCount, poolFrameValid, mObjectDrawIdx, (uint32)mOpaque.Size());
-            }
             if (!poolFrameValid) return;
 
             for (auto& sdc : mOpaque) {
@@ -816,6 +822,113 @@ namespace nkentseu {
         }
         void NkRender3D::DrawDebugArrow(NkVec3f from, NkVec3f to, NkVec4f color) {
             DrawDebugLine(from,to,color);
+        }
+
+        // =====================================================================
+        // DEBUG : triangle minimal Vulkan (isolation bug PBR)
+        // ----------------------------------------------------------------------
+        // Pipeline le plus simple possible :
+        //   - Vertex layout = 1 binding, 1 attribut (vec3 position) = 12 bytes
+        //   - Aucun descriptor set, aucun UBO, aucun sampler
+        //   - Shader VS qui ecrit gl_Position = vec4(aPos.xy, 0.5, 1.0)
+        //   - Shader FS qui ecrit fragColor = vec4(vColor, 1.0) (degrade)
+        //   - 3 vertices NDC : grand triangle qui couvre l'ecran
+        //
+        // Si CE pipeline ne dessine pas en VK, le bug est structurel (RP, FB,
+        // pipeline state, vertex format, ou compilation glslang).
+        // S'il dessine, on ajoute graduellement (UBO -> 2 sets -> NkVertex3D)
+        // jusqu'a reproduire le bug PBR.
+        // =====================================================================
+        bool NkRender3D::EnsureDebugTriangle(NkRenderPassHandle currentRP) {
+            if (mDebugInited && mDebugPipelineRP == currentRP) return mDebugPipeline.IsValid();
+
+            // 1. Compile shader debug (VK : Resources/.../DebugTri/VK/debugtri.*)
+            //    LoadOrCompileVF retourne un handle Renderer-side (cache lookup),
+            //    PAS le RHI shader handle attendu par CreateGraphicsPipeline.
+            //    Il faut convertir via GetRHIHandle (cf. mPBRShader plus haut).
+            if (!mDebugShader.IsValid()) {
+                if (!mShaderLib) return false;
+                auto progHandle = mShaderLib->LoadOrCompileVF("DebugTri", "", "");
+                if (!progHandle.IsValid()) {
+                    logger.Errorf("[NkR3D::DebugTriangle] shader compile FAIL\n");
+                    return false;
+                }
+                mDebugShader = mShaderLib->GetRHIHandle(progHandle);
+                if (!mDebugShader.IsValid()) {
+                    logger.Errorf("[NkR3D::DebugTriangle] shader RHI handle FAIL (prog id={0})\n", progHandle.id);
+                    return false;
+                }
+            }
+
+            // 2. VBO 3 vertices NDC. Grand triangle qui couvre tout l'ecran :
+            //    - bottom-left   (-0.9, -0.9, 0)
+            //    - bottom-right  ( 0.9, -0.9, 0)
+            //    - top-center    ( 0.0,  0.9, 0)
+            if (!mDebugVBO.IsValid()) {
+                struct V { float x, y, z; };
+                V verts[3] = {
+                    { -0.9f, -0.9f, 0.f },
+                    {  0.9f, -0.9f, 0.f },
+                    {  0.0f,  0.9f, 0.f },
+                };
+                mDebugVBO = mDevice->CreateBuffer(NkBufferDesc::Vertex(sizeof(verts), verts));
+            }
+
+            // 3. IBO 3 indices = 0,1,2 (test indexed path)
+            if (!mDebugIBO.IsValid()) {
+                uint32 idx[3] = { 0, 1, 2 };
+                mDebugIBO = mDevice->CreateBuffer(NkBufferDesc::Index(sizeof(idx), idx));
+            }
+
+            // 4. Pipeline. Aucun descriptor set, vertex layout 12-byte vec3.
+            if (mDebugPipeline.IsValid()) {
+                mDevice->DestroyPipeline(mDebugPipeline);
+                mDebugPipeline = {};
+            }
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mDebugShader;
+            // pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "DebugTriangle";
+            pd.renderPass   = currentRP;
+            pd.vertexLayout
+              .AddBinding(0, sizeof(float)*3, false)
+              .AddAttribute(0, 0, ::nkentseu::NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+            mDebugPipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mDebugPipelineRP = currentRP;
+            mDebugInited     = true;
+            logger.Info("[NkR3D::DebugTriangle] pipeline create: shader.valid={0} pipe.valid={1} rp.id={2}\n",
+                        mDebugShader.IsValid()?1:0, mDebugPipeline.IsValid()?1:0, currentRP.id);
+            return mDebugPipeline.IsValid();
+        }
+
+        void NkRender3D::DebugDrawTriangleNoIdx(NkICommandBuffer* cmd) {
+            if (!mDebugPipeline.IsValid() || !mDebugVBO.IsValid()) return;
+            cmd->BindGraphicsPipeline(mDebugPipeline);
+            cmd->BindVertexBuffer(0, mDebugVBO, 0);
+            cmd->Draw(3);
+        }
+
+        void NkRender3D::DebugDrawTriangleIdx(NkICommandBuffer* cmd) {
+            if (!mDebugPipeline.IsValid() || !mDebugVBO.IsValid() || !mDebugIBO.IsValid()) return;
+            cmd->BindGraphicsPipeline(mDebugPipeline);
+            cmd->BindVertexBuffer(0, mDebugVBO, 0);
+            cmd->BindIndexBuffer(mDebugIBO, NkIndexFormat::NK_UINT32, 0);
+            cmd->DrawIndexed(3, 1, 0, 0, 0);
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // DEBUG : dessin direct dans swapchain (bypass Geometry pass)
+        // ────────────────────────────────────────────────────────────────────
+        void NkRender3D::DebugDrawDirectSwapchain(NkICommandBuffer* cmd) {
+            // EnsureDebugTriangle avec rp=invalid -> CreateGraphicsPipeline
+            // fallback sur swapchain RP. Le pipeline est recree si on avait
+            // deja un pipeline pour rp Geometry (1191).
+            NkRenderPassHandle rpInvalid{};
+            if (!EnsureDebugTriangle(rpInvalid)) return;
+            DebugDrawTriangleNoIdx(cmd);
         }
 
     } // namespace renderer

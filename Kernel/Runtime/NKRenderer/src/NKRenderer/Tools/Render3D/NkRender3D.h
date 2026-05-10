@@ -82,6 +82,13 @@ namespace nkentseu {
                 // referencer ce slot. Sample base sur la direction light→frag.
                 void SetLightCookieCube3D(uint32 slot, NkTextureHandle cubeTex);
 
+                // ── DEBUG : dessin direct dans swapchain (bypass Geometry pass) ──
+                // Cree un pipeline minimal (shader trivial, pas d'UBO, pas de set,
+                // depthTest=off) compatible avec swapchain RP fallback et dessine
+                // un triangle NDC. Permet d'isoler si le bug est dans le Geometry
+                // pass / HDR transient FB ou plus profond.
+                void DebugDrawDirectSwapchain(NkICommandBuffer* cmd);
+
                 // ── Debug gizmos ─────────────────────────────────────────────────────
                 void DrawDebugLine  (NkVec3f a, NkVec3f b,   NkVec4f color, float32 life=0.f);
                 void DrawDebugSphere(NkVec3f c, float32 r,   NkVec4f color);
@@ -177,6 +184,24 @@ namespace nkentseu {
                 // si le RP n'a pas change. Retourne false si shader ou create
                 // ont echoue.
                 bool EnsurePBRPipeline(NkRenderPassHandle currentRP);
+
+                // ── DEBUG triangle minimal (isolation bug PBR Vulkan) ────────
+                // Mode 0 = PBR normal. Mode 1 = triangle non-indexed (cmd->Draw).
+                // Mode 2 = triangle indexed (cmd->DrawIndexed). Permet de tester
+                // le pipeline VK le plus simple possible (pas d'UBO, pas de set,
+                // shader trivial) pour isoler ou se trouve le bug.
+                static constexpr int kDebugTriangleMode = 0;   // 0|1|2
+
+                bool                       mDebugInited = false;
+                ::nkentseu::NkShaderHandle mDebugShader;
+                NkPipelineHandle           mDebugPipeline;
+                NkRenderPassHandle         mDebugPipelineRP{};
+                NkBufferHandle             mDebugVBO;     // 3 vertices vec3
+                NkBufferHandle             mDebugIBO;     // 3 indices uint32
+
+                bool EnsureDebugTriangle(NkRenderPassHandle currentRP);
+                void DebugDrawTriangleNoIdx(NkICommandBuffer* cmd);
+                void DebugDrawTriangleIdx  (NkICommandBuffer* cmd);
         };
 
     } // namespace renderer

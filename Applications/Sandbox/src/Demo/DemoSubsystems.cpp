@@ -113,8 +113,8 @@ namespace nkentseu { namespace demo {
             overlay->EndOverlay();
         }
 
-        ctx.renderer->EndFrame();
         ctx.renderer->Present();
+        ctx.renderer->EndFrame();
     }
 
     void DemoSubsystems_Shutdown(DemoCtx& ctx) {
