@@ -30,5 +30,12 @@ layout(push_constant) uniform PC {
 } pc;
 
 void main() {
-    gl_Position = pc.lightVP * uObj.model * vec4(aPos, 1.0);
+    vec4 clip = pc.lightVP * uObj.model * vec4(aPos, 1.0);
+    // Correction Vulkan clip-space Z : la matrice lightVP produit du NDC Z
+    // [-1,1] (convention GL/orthogonal NkMat4f). Vulkan attend [0,1] sinon
+    // la moitie near de chaque cascade est CLIPPEE -> atlas a moitie vide
+    // -> le sample PBR retourne 1.0 (pas d'ombre) sur la moitie des pixels.
+    // Apply z' = 0.5*z + 0.5*w pour mapper [-1,1] -> [0,1].
+    clip.z = 0.5 * clip.z + 0.5 * clip.w;
+    gl_Position = clip;
 }
