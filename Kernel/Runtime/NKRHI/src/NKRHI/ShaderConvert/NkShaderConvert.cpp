@@ -418,6 +418,38 @@ namespace nkentseu {
     }
 
     // =============================================================================
+    // NkShaderConverter — conversion GLSL Vulkan-style → cible (memory)
+    // Source canonique : GLSL Vulkan (avec layout(set=,binding=), push_constant…).
+    // Chaine GlslToSpirv (glslang) → SpirvToHlsl/Msl/Glsl (SPIRV-Cross). En cas
+    // d'echec d'une etape, l'erreur est propagee sans appeler la suivante.
+    // =============================================================================
+
+    NkShaderConvertResult NkShaderConverter::GlslToHlsl(
+        const NkString& glslSource, NkSLStage stage, uint32 hlslShaderModel,
+        const NkString& debugName)
+    {
+        NkShaderConvertResult spv = GlslToSpirv(glslSource, stage, debugName);
+        if (!spv.success) return spv;
+        return SpirvToHlsl(spv, stage, hlslShaderModel);
+    }
+
+    NkShaderConvertResult NkShaderConverter::GlslToMsl(
+        const NkString& glslSource, NkSLStage stage, const NkString& debugName)
+    {
+        NkShaderConvertResult spv = GlslToSpirv(glslSource, stage, debugName);
+        if (!spv.success) return spv;
+        return SpirvToMsl(spv, stage);
+    }
+
+    NkShaderConvertResult NkShaderConverter::GlslToGlsl(
+        const NkString& glslSource, NkSLStage stage, const NkString& debugName)
+    {
+        NkShaderConvertResult spv = GlslToSpirv(glslSource, stage, debugName);
+        if (!spv.success) return spv;
+        return SpirvToGlsl(spv, stage);
+    }
+
+    // =============================================================================
     // NkShaderCache — helpers internes
     // =============================================================================
 
