@@ -1,15 +1,20 @@
 // =============================================================================
-// NkPostProcessStack.cpp  — NKRenderer v4.0
-// Post-processing : ACES tonemap, FXAA 3.11, dual-Kawase bloom, SSAO.
+// NkPostProcessStack.cpp  — NKRenderer v5.0
+// Post-processing : ACES tonemap (D.4b), FXAA 3.11, dual-Kawase bloom, SSAO.
 //
-// État courant : pipelines créés (shaders fournis par le backend RHI),
-// stack draw orchestrée — la compilation explicite des shaders GLSL embarqués
-// ci-dessous est laissée à l'intégration ultérieure quand le pont
-// renderer↔RHI shader handle sera unifié.
+// État courant D.4b : tonemap ACES wire bout-en-bout (shader compile via
+// NkShaderLibrary, pipeline avec descriptor set, RunTonemap bind input HDR
+// et drawe un fullscreen quad). Bloom/SSAO/FXAA pipelines existent mais leur
+// shader n'est pas encore wire — ils tomberont a no-op tant que la config
+// les active.
 // =============================================================================
 #include "NkPostProcessStack.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKRenderer/Core/NkResources.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
+#include "NKRenderer/Shader/NkShaderLibrary.h"
+
+#include "NKLogger/NkLog.h"
 
 namespace nkentseu {
 namespace renderer {
@@ -18,28 +23,29 @@ namespace renderer {
     // SHADERS GLSL EMBARQUÉS — référence complète pour intégration future
     // =========================================================================
 
-    // Vertex shader fullscreen — quad NDC déjà construit par NkMeshSystem::GetQuad()
-    static const char* kFullscreenVS = R"GLSL(
-#version 450
-layout(location = 0) in vec3 aPos;
-layout(location = 3) in vec2 aUV;
-layout(location = 0) out vec2 vUV;
+    // Vertex shader fullscreen OpenGL-natif. NkMeshSystem::GetQuad() fournit
+    // un quad NDC dans [-1,1] avec UV attribut a location 3 (NkVertex3D layout).
+    // Stride 56 : pos(12) normal(12) tangent(12) uv(8) uv2(8) color(4).
+    static const char* kFullscreenVS_GL = R"GLSL(
+#version 460 core
+layout(location=0) in vec3 aPos;
+layout(location=3) in vec2 aUV;
+layout(location=0) out vec2 vUV;
 void main() {
     vUV = aUV;
     gl_Position = vec4(aPos.xy, 0.0, 1.0);
 }
 )GLSL";
 
-    // ACES Filmic Tonemap (Krzysztof Narkowicz)
-    static const char* kTonemapFS = R"GLSL(
-#version 450
-layout(location = 0) in vec2 vUV;
-layout(location = 0) out vec4 oColor;
-layout(set = 1, binding = 0) uniform sampler2D uHDR;
-layout(push_constant) uniform PC {
-    float exposure;
-    float gamma;
-} pc;
+    // ACES Filmic Tonemap (Krzysztof Narkowicz). Push constants emules en GL via
+    // uniform vec4 _PushConstants[N] (cf. convention NkOpenglCommandBuffer).
+    // Layout PC = (exposure, gamma, _, _) sur 16 bytes => N=1.
+    static const char* kTonemapFS_GL = R"GLSL(
+#version 460 core
+layout(location=0) in vec2 vUV;
+layout(location=0) out vec4 oColor;
+layout(binding=0) uniform sampler2D uHDR;
+uniform vec4 _PushConstants[1];   // .x=exposure, .y=gamma
 vec3 ACESFilm(vec3 x) {
     const float a = 2.51;
     const float b = 0.03;
@@ -49,12 +55,19 @@ vec3 ACESFilm(vec3 x) {
     return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
 }
 void main() {
-    vec3 hdr = texture(uHDR, vUV).rgb * pc.exposure;
+    float exposure = _PushConstants[0].x;
+    float gamma    = _PushConstants[0].y;
+    vec3 hdr    = texture(uHDR, vUV).rgb * exposure;
     vec3 mapped = ACESFilm(hdr);
-    mapped = pow(mapped, vec3(1.0/pc.gamma));
-    oColor = vec4(mapped, 1.0);
+    mapped      = pow(mapped, vec3(1.0/gamma));
+    oColor      = vec4(mapped, 1.0);
 }
 )GLSL";
+
+    // Anciens shaders Vulkan-style (kept for reference, NkShaderLibrary les
+    // ignore tant que les pipelines correspondants ne sont pas wires).
+    static const char* kFullscreenVS [[maybe_unused]] = "/* legacy Vulkan VS, see kFullscreenVS_GL */";
+    static const char* kTonemapFS    [[maybe_unused]] = "/* legacy Vulkan FS, see kTonemapFS_GL */";
 
     // FXAA 3.11 simplifié
     static const char* kFXAAFS = R"GLSL(
@@ -177,35 +190,75 @@ void main() {
 )GLSL";
 
     bool NkPostProcessStack::Init(NkIDevice* d, NkTextureLibrary* t,
-                                    NkMeshSystem* m, uint32 w, uint32 h) {
-        mDevice=d; mTex=t; mMesh=m; mW=w; mH=h;
+                                    NkMeshSystem* m, NkShaderLibrary* sl,
+                                    NkResources* res, uint32 w, uint32 h) {
+        mDevice=d; mTex=t; mMesh=m; mShaderLib=sl; mResources=res; mW=w; mH=h;
         mQuad = m->GetQuad();
         CreateTextures();
-        // Référence aux sources GLSL (consommées une fois le pont shader unifié)
-        (void)kFullscreenVS; (void)kTonemapFS; (void)kFXAAFS;
-        (void)kBloomDownFS; (void)kBloomUpFS; (void)kSSAOFS;
 
-        NkGraphicsPipelineDesc pd;
-        pd.rasterizer = NkRasterizerDesc::Default();
-        pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
-        pd.depthStencil = NkDepthStencilDesc::NoDepth();
-        pd.blend = NkBlendDesc::Opaque();
-        pd.debugName = "PP_SSAO";
-        mPipeSSAO  = mDevice->CreateGraphicsPipeline(pd);
-        pd.debugName = "PP_Bloom";
-        mPipeBloom = mDevice->CreateGraphicsPipeline(pd);
-        pd.debugName = "PP_Tone";
-        mPipeTone  = mDevice->CreateGraphicsPipeline(pd);
-        pd.debugName = "PP_FXAA";
-        mPipeFXAA  = mDevice->CreateGraphicsPipeline(pd);
-        return true;
+        // ── Descriptor set layout : 1 sampler combine pour la texture d'entree ──
+        NkDescriptorSetLayoutDesc layout;
+        layout.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                   ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        mInputTexLayout = mDevice->CreateDescriptorSetLayout(layout);
+        mInputTexSet    = mDevice->AllocateDescriptorSet(mInputTexLayout);
+
+        // ── Vertex layout du fullscreen quad (NkVertex3D) ─────────────────────
+        // Le shader VS n'utilise que aPos (loc 0) et aUV (loc 3). On declare
+        // tous les attributs pour matcher le format du mesh quad sans avertissement.
+        auto buildVertexLayout = [](NkGraphicsPipelineDesc& pd) {
+            pd.vertexLayout
+              .AddBinding(0, sizeof(NkVertex3D), false)
+              .AddAttribute(0, 0, ::nkentseu::NkVertexFormat::NK_RGB32_FLOAT, 0,  "POSITION", 0)
+              .AddAttribute(1, 0, ::nkentseu::NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL",   0)
+              .AddAttribute(2, 0, ::nkentseu::NkVertexFormat::NK_RGB32_FLOAT, 24, "TANGENT",  0)
+              .AddAttribute(3, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT,  36, "TEXCOORD", 0)
+              .AddAttribute(4, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT,  44, "TEXCOORD", 1)
+              .AddAttribute(5, 0, ::nkentseu::NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR",    0);
+        };
+
+        // ── Pipeline tonemap ─────────────────────────────────────────────────
+        // LoadOrCompileVF : permet a l'utilisateur de fournir son propre tonemap
+        // (ex : Reinhard, Uncharted2) en deposant un fichier dans
+        // Resources/NKRenderer/Shaders/PP_Tonemap/GL/ -- fallback ACES embedded.
+        if (mShaderLib) {
+            auto progHandle = mShaderLib->LoadOrCompileVF("PP_Tonemap", kFullscreenVS_GL, kTonemapFS_GL);
+            if (progHandle.IsValid()) {
+                mShaderTone = mShaderLib->GetRHIHandle(progHandle);
+            }
+        }
+        if (mShaderTone.IsValid()) {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mShaderTone;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "PP_Tone";
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, 16);  // (exposure, gamma, _, _)
+            if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+            buildVertexLayout(pd);
+            mPipeTone = mDevice->CreateGraphicsPipeline(pd);
+        }
+
+        // ── Pipelines bloom/ssao/fxaa : pas encore wires (shaders pas compiles) ─
+        // Ces pipelines restent invalides tant que mCfg.bloom/ssao/fxaa active des
+        // effets non implementes. RunBloom/RunSSAO/RunFXAA tomberont en no-op
+        // (DrawFullscreen verifie pipe.IsValid()).
+        (void)kFullscreenVS; (void)kTonemapFS;
+        (void)kFXAAFS; (void)kBloomDownFS; (void)kBloomUpFS; (void)kSSAOFS;
+
+        return mPipeTone.IsValid();
     }
 
     void NkPostProcessStack::Shutdown() {
-        if (mPipeSSAO.IsValid())  mDevice->DestroyPipeline(mPipeSSAO);
-        if (mPipeBloom.IsValid()) mDevice->DestroyPipeline(mPipeBloom);
-        if (mPipeTone.IsValid())  mDevice->DestroyPipeline(mPipeTone);
-        if (mPipeFXAA.IsValid())  mDevice->DestroyPipeline(mPipeFXAA);
+        if (mPipeSSAO.IsValid())     mDevice->DestroyPipeline(mPipeSSAO);
+        if (mPipeBloom.IsValid())    mDevice->DestroyPipeline(mPipeBloom);
+        if (mPipeTone.IsValid())     mDevice->DestroyPipeline(mPipeTone);
+        if (mPipeFXAA.IsValid())     mDevice->DestroyPipeline(mPipeFXAA);
+        if (mInputTexSet.IsValid())    mDevice->FreeDescriptorSet(mInputTexSet);
+        if (mInputTexLayout.IsValid()) mDevice->DestroyDescriptorSetLayout(mInputTexLayout);
+        // Le shader handle est detenu par NkShaderLibrary, pas a detruire ici.
+        mShaderTone = {};
     }
 
     void NkPostProcessStack::OnResize(uint32 w, uint32 h) {
@@ -246,10 +299,25 @@ void main() {
                                             const void* pushConst, uint32 pcSize) {
         if (!cmd || !pipe.IsValid() || !mMesh) return;
         cmd->BindGraphicsPipeline(pipe);
-        if (pushConst && pcSize > 0) {
-            cmd->PushConstants(NkShaderStage::NK_FRAGMENT, 0, pcSize, pushConst);
+
+        // Bind l'input texture au descriptor set (binding 0). On utilise le
+        // sampler linear-clamp de NkResources (typique pour les passes PP).
+        if (mInputTexSet.IsValid() && src.IsValid() && mTex && mResources) {
+            NkTextureHandle rhi  = mTex->GetRHIHandle(src);
+            NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+            if (rhi.IsValid() && samp.IsValid()) {
+                mDevice->BindTextureSampler(mInputTexSet, 0, rhi, samp);
+                cmd->BindDescriptorSet(mInputTexSet, 0);
+            }
         }
-        (void)src;
+
+        if (pushConst && pcSize > 0) {
+            // PP shaders : push_constant uniquement utilise par le FS (le VS
+            // fullscreen quad n'a pas de PC). Pusher avec ALL_GRAPHICS declenche
+            // VUID-vkCmdPushConstants-offset-01795 (range pipeline = FRAGMENT
+            // strict). On reste donc en NK_FRAGMENT pour matcher.
+            cmd->PushConstants(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, pcSize, pushConst);
+        }
         mMesh->BindMesh(cmd, mQuad);
         mMesh->DrawAll(cmd, mQuad);
     }
@@ -282,6 +350,40 @@ void main() {
         pc.gamma    = mCfg.gamma;
         DrawFullscreen(cmd, mPipeTone, hdr, &pc, sizeof(pc));
         return mToneTex;
+    }
+
+    void NkPostProcessStack::ExecuteRHI(NkICommandBuffer* cmd, NkTextureHandle hdrIn) {
+        // Variante directe pour le RenderGraph : on bind le hdrIn (RHI handle)
+        // sur l'input descriptor set et on dessine le tonemap fullscreen vers le
+        // FBO courant (typiquement le swapchain). Pour l'instant, seul le tonemap
+        // est wire — bloom/SSAO/FXAA seront ajoutes incrementalement.
+        static int sLogCount = 0;
+        if (sLogCount < 3) {
+            sLogCount++;
+            logger.Info("[PP::ExecuteRHI] cmd={0} pipe.valid={1} set.valid={2} hdr.valid={3} mesh={4} quad.valid={5}\n",
+                        (cmd!=nullptr), mPipeTone.IsValid(), mInputTexSet.IsValid(), hdrIn.IsValid(),
+                        (mMesh!=nullptr), mQuad.IsValid());
+        }
+        if (!cmd || !mPipeTone.IsValid() || !mInputTexSet.IsValid() || !hdrIn.IsValid()) return;
+
+        NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+        if (!samp.IsValid()) return;
+
+        // Bind input HDR + push constants (exposure, gamma) + draw fullscreen
+        mDevice->BindTextureSampler(mInputTexSet, 0, hdrIn, samp);
+        cmd->BindGraphicsPipeline(mPipeTone);
+        cmd->BindDescriptorSet(mInputTexSet, 0);
+
+        // Layout PC : (exposure, gamma, _, _) sur 16 bytes (1 vec4 push slot).
+        // Stage = NK_FRAGMENT pour matcher le range pipeline (le VS fullscreen
+        // n'a pas de PC) : sinon VUID-vkCmdPushConstants-offset-01795.
+        float32 pc[4] = { mCfg.exposure, mCfg.gamma, 0.f, 0.f };
+        cmd->PushConstants(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, sizeof(pc), pc);
+
+        if (mMesh) {
+            mMesh->BindMesh(cmd, mQuad);
+            mMesh->DrawAll(cmd, mQuad);
+        }
     }
 
     NkTexHandle NkPostProcessStack::RunFXAA(NkICommandBuffer* cmd, NkTexHandle ldr) {

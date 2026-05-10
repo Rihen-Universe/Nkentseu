@@ -67,6 +67,31 @@ namespace nkentseu {
             return p ? *p : NK_INVALID_RES_ID;
         }
 
+        NkTextureHandle NkRenderGraph::GetResourceTexture(NkGraphResId id) const {
+            const auto* r = FindRes(id);
+            if (!r || r->isBuffer) return {};
+            return r->texture;
+        }
+
+        NkRenderPassHandle NkRenderGraph::GetPassRenderPass(const NkString& passName) const {
+            // Le FB est cree au 1er Execute (pas a Compile), donc cet appel
+            // retourne {} pour la premiere frame avant que la pass ait tourne.
+            //
+            // NB : on ne peut pas utiliser mFBCache.Find(passName) car il y a
+            // un bug NkHashMap<NkString, ...>::Find qui renvoie nullptr meme
+            // quand l'entree existe (vu en runtime : iterator trouve le name
+            // mais Find retourne null). Workaround : iterer et comparer.
+            // TODO : fixer le bug NkHashMap puis revenir au Find direct.
+            if (!mDevice) return NkRenderPassHandle{};
+            for (auto it = mFBCache.begin(); it != mFBCache.end(); ++it) {
+                if (it->First == passName) {
+                    if (!it->Second.IsValid()) return NkRenderPassHandle{};
+                    return mDevice->GetFramebufferRenderPass(it->Second);
+                }
+            }
+            return NkRenderPassHandle{};
+        }
+
         // =====================================================================
         // Pass declaration
         // =====================================================================
@@ -214,7 +239,7 @@ namespace nkentseu {
             NkVector<bool> aliveRes;  aliveRes.Resize(R);
             NkVector<bool> alivePass; alivePass.Resize(N);
             for (uint32 i = 0; i < R; i++) aliveRes[i]  = mResources[i].isImported;
-            for (uint32 i = 0; i < N; i++) alivePass[i] = false;
+            for (uint32 i = 0; i < N; i++) alivePass[i] = mPasses[i].alwaysExecute;
 
             auto resIdx = [](NkGraphResId rid) -> int32 {
                 return (rid == NK_INVALID_RES_ID) ? -1 : (int32)(rid - 1);
@@ -348,7 +373,11 @@ namespace nkentseu {
                 // 1. Barrieres d'entree
                 InsertBarriers(cmd, pass);
 
-                bool needsRP = (pass.type != NkPassType::NK_COMPUTE);
+                // Pas de RenderPass automatique pour les passes compute, ni pour
+                // les passes "callback-only" (sans attachments declares — utile
+                // quand le sous-systeme gere son propre FBO, ex : NkShadowSystem).
+                bool needsRP = (pass.type != NkPassType::NK_COMPUTE)
+                            && (!pass.colors.Empty() || pass.hasDepth);
                 if (needsRP) {
                     // Setup des valeurs de clear (consommees par BeginRenderPass)
                     if (!pass.colors.Empty()) {
@@ -424,10 +453,33 @@ namespace nkentseu {
                         }
                     }
                     // Si !needsCustomFB ou si CreateFramebuffer a echoue, fbHandle
-                    // reste invalide -> BeginRenderPass utilise FBO 0 (swapchain).
+                    // reste invalide. En OpenGL, NkOpenglGetFBOID(0) retourne le
+                    // FBO 0 (swapchain) -> OK. En Vulkan/DX12 il n'existe pas de
+                    // "FBO 0" : VkFramebuffer requiert le swapchain framebuffer
+                    // courant. Sans ce fallback, BeginRenderPass(fb=invalid) ferme
+                    // immediatement (return false) -> les draws de la pass sont
+                    // emis HORS d'un renderPass actif -> validation error
+                    // VUID-vkCmdDraw-renderpass / VUID-vkCmdEndRenderPass.
+                    NkFramebufferHandle effectiveFb = fbHandle;
+                    if (!effectiveFb.IsValid()) {
+                        effectiveFb = mDevice->GetSwapchainFramebuffer();
+                    }
 
                     NkRect2D area((int32)0, (int32)0, (int32)rpW, (int32)rpH);
-                    cmd->BeginRenderPass(NkRenderPassHandle{}, fbHandle, area);
+                    // RP laisse a {} : BeginRenderPass fait fallback sur le RP
+                    // associe au framebuffer (cf. NkVulkanCommandBuffer.cpp:67-70).
+                    cmd->BeginRenderPass(NkRenderPassHandle{}, effectiveFb, area);
+
+                    // Vulkan : le viewport et scissor sont en VK_DYNAMIC_STATE_*,
+                    // donc ils DOIVENT etre set apres BindGraphicsPipeline (sinon
+                    // les draws produisent du undefined behavior — souvent rien
+                    // a l'ecran, parfois validation error VUID-vkCmdDraw-...). On
+                    // les set ici en debut de pass : couvre tous les sous-systemes
+                    // (Render3D/PostProcess/Render2D...) sans qu'ils aient a y
+                    // penser. OpenGL n'a pas besoin de ce reset car son viewport
+                    // global persiste entre les calls.
+                    cmd->SetViewport(NkViewport(0.f, 0.f, (float32)rpW, (float32)rpH));
+                    cmd->SetScissor(area);
                 }
 
                 // 2. Callback utilisateur (les draw calls vont dans le RP courant)

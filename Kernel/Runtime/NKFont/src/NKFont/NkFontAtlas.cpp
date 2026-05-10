@@ -280,8 +280,6 @@ namespace nkentseu {
         fonts[fontCount] = font;
         ++fontCount;
         texReady = false;
-        logger.Info("[NkFontAtlas] AddFont#{0}:{1}px merge={2}\n",
-                    fontCount - 1, sp, cfg.mergeMode ? 1 : 0);
         return font;
     }
 
@@ -351,8 +349,6 @@ namespace nkentseu {
                 font->lineAdvance = (nkft_float32)(asc - desc + lg) * scales[i];
                 // Stockage du faceInfo pour l'extraction des contours
                 font->m_FaceInfo = &faceInfos[i];
-                logger.Info("[NkFontAtlas] Font{0}:scale={1:.4f} asc={2:.1f} desc={3:.1f} la={4:.1f}\n",
-                            i, font->scale, font->ascent, font->descent, font->lineAdvance);
             }
         }
 
@@ -426,7 +422,7 @@ namespace nkentseu {
             packIsSpace[totalRects] = false;
             ++totalRects;
         }
-        logger.Info("[NkFontAtlas] Build():{0} rects({1} custom)\n", totalRects, customRectCount);
+        
         if (totalRects == 0) {
             logger.Info("[NkFontAtlas] Build():aucun glyphe\n");
             return false;
@@ -466,7 +462,6 @@ namespace nkentseu {
             logger.Info("[NkFontAtlas] Build():packing echec\n");
             return false;
         }
-        logger.Info("[NkFontAtlas] Build():atlas{0}x{1}\n", atlasW, atlasH);
 
         texWidth = atlasW;
         texHeight = atlasH;
@@ -598,12 +593,9 @@ namespace nkentseu {
                 font->fallbackAdvanceX = font->fallbackGlyph->advanceX;
             }
             font->BuildLookupTable();
-            logger.Info("[NkFontAtlas] Font{0}:{1} glyphes fallback='{2}'\n",
-                        fi, font->glyphCount, font->fallbackGlyph ? "ok" : "absent");
         }
 
         texReady = true;
-        logger.Info("[NkFontAtlas] Build() termine.\n");
         return true;
     }
 

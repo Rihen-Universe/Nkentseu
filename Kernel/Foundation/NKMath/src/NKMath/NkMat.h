@@ -1215,14 +1215,24 @@
                 }
 
                 // Rotation autour de l'axe X (pitch / tangage)
+                // Convention column-major + M*v : la matrice standard est
+                //   | 1  0    0    0 |
+                //   | 0  cos  -sin 0 |  <- M[1][1]=cos, M[1][2]=-sin
+                //   | 0  sin  cos  0 |  <- M[2][1]=sin,  M[2][2]=cos
+                //   | 0  0    0    1 |
+                // En storage column-major : mat[col][row] = M[row][col]. Donc
+                //   mat[1][2] = M[2][1] = +sin
+                //   mat[2][1] = M[1][2] = -sin
+                // L'ancienne version inversait les deux signes (matrice transposee
+                // = rotation -angle au lieu de +angle).
                 static NkMat4T RotationX(const NkAngle& pitch) noexcept
                 {
                     float64 cosine = NkCos(pitch.Rad());
                     float64 sine = NkSin(pitch.Rad());
                     NkMat4T result(T(1));
                     result.mat[1][1] = T(cosine);
-                    result.mat[1][2] = T(-sine);
-                    result.mat[2][1] = T(sine);
+                    result.mat[1][2] = T(sine);     // M[2][1] = +sin
+                    result.mat[2][1] = T(-sine);    // M[1][2] = -sin
                     result.mat[2][2] = T(cosine);
                     return result;
                 }
@@ -1338,20 +1348,32 @@
                     const NkVec3T<T>& targetCenter,
                     const NkVec3T<T>& worldUp
                 ) noexcept {
-                    // Calcul des axes du repère caméra
+                    // View matrix column-major standard (convention OpenGL).
+                    // Forme attendue (row-major lecture) :
+                    //   | rx  ry  rz  -r.eye  |   <- row 0 = right axis
+                    //   | ux  uy  uz  -u.eye  |   <- row 1 = up axis
+                    //   | -fx -fy -fz  f.eye  |   <- row 2 = -forward axis
+                    //   | 0   0   0    1      |
+                    // En storage column-major (col[c] = c-eme column = vec4 (row0,row1,row2,row3)),
+                    // on doit distribuer chaque composante sur la bonne ligne :
+                    //   col[0] = (rx, ux, -fx, 0)   col[1] = (ry, uy, -fy, 0)
+                    //   col[2] = (rz, uz, -fz, 0)   col[3] = (-r.eye, -u.eye, f.eye, 1)
+                    // L'ancienne version assignait col[0]=right entier ce qui produisait
+                    // la TRANSPOSEE de la view matrix → bug sur le z des fragments
+                    // projetes (ex : shadow map directional light).
                     NkVec3T<T> forwardAxis = (targetCenter - eyePosition).Normalized();
                     NkVec3T<T> rightAxis = forwardAxis.Cross(worldUp).Normalized();
                     NkVec3T<T> upAxis = rightAxis.Cross(forwardAxis);
-                    // Construction de la matrice de vue
+
                     NkMat4T viewMatrix;
-                    viewMatrix.col[0] = NkVec4T<T>(rightAxis, T(0));
-                    viewMatrix.col[1] = NkVec4T<T>(upAxis, T(0));
-                    viewMatrix.col[2] = NkVec4T<T>(-forwardAxis, T(0));  // Z = -forward
+                    viewMatrix.col[0] = NkVec4T<T>(rightAxis.x, upAxis.x, -forwardAxis.x, T(0));
+                    viewMatrix.col[1] = NkVec4T<T>(rightAxis.y, upAxis.y, -forwardAxis.y, T(0));
+                    viewMatrix.col[2] = NkVec4T<T>(rightAxis.z, upAxis.z, -forwardAxis.z, T(0));
                     viewMatrix.col[3] = NkVec4T<T>(
                         -rightAxis.Dot(eyePosition),
                         -upAxis.Dot(eyePosition),
-                        forwardAxis.Dot(eyePosition),
-                        T(1)
+                         forwardAxis.Dot(eyePosition),
+                         T(1)
                     );
                     return viewMatrix;
                 }

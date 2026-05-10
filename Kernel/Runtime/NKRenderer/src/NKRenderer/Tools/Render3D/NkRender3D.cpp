@@ -21,17 +21,33 @@ namespace nkentseu {
                             NkShadowSystem* shadow,
                             NkEnvironmentSystem* env,
                             NkShaderLibrary* shaderLib,
-                            NkResources* resources) {
+                            NkResources* resources,
+                            uint32 framesInFlight) {
             mDevice=device; mMesh=mesh; mMat=mat; mGraph=graph;
             mShadow=shadow; mEnv=env; mShaderLib=shaderLib; mResources=resources;
 
+            // Clamp [1,3]. Au-dela = 3 c'est gaspillage VRAM sans gain perceptible.
+            mFramesInFlight = framesInFlight < 1 ? 1 : (framesInFlight > 3 ? 3 : framesInFlight);
+            mFrameSlot      = 0;
+
             // ── UBOs (matchent le shader pbr.vert/frag.gl.glsl) ──────────────────
+            // Une copie par slot du ring : evite que le CPU stalle quand il
+            // ecrit un buffer encore lu par le GPU. Avec mFramesInFlight=1 on
+            // retombe sur le comportement legacy (1 buffer partage).
+            mUBOCameraRing.Resize(mFramesInFlight);
+            mUBOLightsRing.Resize(mFramesInFlight);
+            mUBOObjectPool.Resize(mFramesInFlight);
+
             // Camera UBO — binding 0
-            mUBOCamera = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                mUBOCameraRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
+            }
 
             // Lights UBO — binding 2 (32 lights max)
             struct LightsUBO { NkVec4f pos[32],color[32],dir[32],angles[32]; int32 count,_p[3]; };
-            mUBOLights = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(LightsUBO)));
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                mUBOLightsRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(LightsUBO)));
+            }
 
             // Object UBO — binding 1. Layout std140 doit matcher EXACTEMENT le shader
             // pbr.vert/frag.gl.glsl (sinon le linker GL refuse, ou les reads out-of-buffer
@@ -51,10 +67,35 @@ namespace nkentseu {
                 NkVec4f subsurfaceColor;  // 176 (aligned to 16)
             };                            // total 192
             static_assert(sizeof(ObjectUBO) == 192, "ObjectUBO std140 layout");
-            mUBOObject = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(ObjectUBO)));
+            // Phase F.B.1 : pool d'ObjectUBO (frame x drawIdx). Pre-alloue
+            // mFramesInFlight * kMaxObjectsPerFrame buffers a Init pour eviter
+            // toute allocation dans le hot path et tout vkCmdUpdateBuffer dans
+            // un renderPass actif (interdit par Vulkan).
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                mUBOObjectPool[i].Resize(kMaxObjectsPerFrame);
+                for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
+                    mUBOObjectPool[i][d] = mDevice->CreateBuffer(
+                        NkBufferDesc::Uniform(sizeof(ObjectUBO)));
+                }
+            }
 
             // Bones SSBO (utilise pour skinning — pas par le shader PBR de base)
             mSSBOBones = mDevice->CreateBuffer(NkBufferDesc::Storage(256*sizeof(NkMat4f)));
+
+            // Phase E.6b : default white cubemap pour les 4 slots de point cookie.
+            // 1x1 par face, blanc pur. User override via SetLightCookieCube3D.
+            {
+                auto td = NkTextureDesc::Cubemap(1, NkGPUFormat::NK_RGBA8_UNORM, 1);
+                td.debugName = "DefaultCubeWhite";
+                mDefaultCubeWhite = mDevice->CreateTexture(td);
+                if (mDefaultCubeWhite.IsValid()) {
+                    const uint8_t white[4] = {255, 255, 255, 255};
+                    for (uint32 face = 0; face < 6; face++) {
+                        mDevice->WriteTextureRegion(mDefaultCubeWhite, white,
+                            0, 0, 0, 1, 1, 1, 0, face);
+                    }
+                }
+            }
 
             // ── Descriptor set layouts ────────────────────────────────────────────
             // Frame set (set 0) : Camera(0) + Lights(2) + Shadow(3) + 4 textures
@@ -72,111 +113,261 @@ namespace nkentseu {
                 .Add(8,  NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
                 .Add(9,  NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
                 .Add(10, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
-                .Add(11, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+                .Add(11, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // binding=12 : meme shadow atlas qu'au binding 11 mais lue avec
+                // un sampler non-compare (sampler2D au lieu de sampler2DShadow)
+                // pour le blocker search PCSS.
+                .Add(12, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // Phase E.6 : bindings 13..20 = 8 light cookies (sampler2D)
+                .Add(13, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(14, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(15, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(16, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(17, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(18, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(19, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(20, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // Phase E.6b : bindings 21..24 = 4 point cookies (samplerCube)
+                .Add(21, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(22, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(23, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                .Add(24, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
-            mGlobalSet    = mDevice->AllocateDescriptorSet(mGlobalLayout);
 
-            // Object set (set 1) : Object UBO(1)
+            // Object set layout (set 1) : Object UBO(1)
             NkDescriptorSetLayoutDesc objectLayout;
             objectLayout.Add(1, NkDescriptorType::NK_UNIFORM_BUFFER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mObjectLayout = mDevice->CreateDescriptorSetLayout(objectLayout);
-            mObjectSet    = mDevice->AllocateDescriptorSet(mObjectLayout);
 
-            // ── Pre-bind static buffers + textures into descriptor sets ──────────
-            if (mGlobalSet.IsValid()) {
-                mDevice->BindUniformBuffer(mGlobalSet, 0, mUBOCamera);
-                mDevice->BindUniformBuffer(mGlobalSet, 2, mUBOLights);
-
-                // ShadowUBO depuis le ShadowSystem (cascadeCount=0 en mode stub D.3a)
-                if (mShadow && mShadow->GetShadowUBO().IsValid()) {
-                    mDevice->BindUniformBuffer(mGlobalSet, 3, mShadow->GetShadowUBO());
-                }
-
-                // Textures materiel par defaut (4-7) — utilisees tant que NkMaterialSystem
-                // n'est pas wire. Albedo=white, Normal=normal-up, ORM=white (=> ao=1, rough=1
-                // multiplie par uObj.roughness, metal=1 multiplie par uObj.metallic), Emissive=black.
-                NkTextureHandle defAlbedo  = mResources ? mResources->GetWhiteTex()  : NkTextureHandle{};
-                NkTextureHandle defNormal  = mResources ? mResources->GetNormalTex() : NkTextureHandle{};
-                NkTextureHandle defORM     = mResources ? mResources->GetWhiteTex()  : NkTextureHandle{};
-                NkTextureHandle defEmissive= mResources ? mResources->GetBlackTex()  : NkTextureHandle{};
-                NkSamplerHandle defSampler = mResources ? mResources->GetSamplerLinearRepeat() : NkSamplerHandle{};
-
-                if (defAlbedo.IsValid())   mDevice->BindTextureSampler(mGlobalSet, 4, defAlbedo,   defSampler);
-                if (defNormal.IsValid())   mDevice->BindTextureSampler(mGlobalSet, 5, defNormal,   defSampler);
-                if (defORM.IsValid())      mDevice->BindTextureSampler(mGlobalSet, 6, defORM,      defSampler);
-                if (defEmissive.IsValid()) mDevice->BindTextureSampler(mGlobalSet, 7, defEmissive, defSampler);
-
-                // Environment maps depuis le EnvSystem
-                if (mEnv) {
-                    NkSamplerHandle envSamp = mEnv->GetEnvSampler();
-                    NkSamplerHandle lutSamp = mEnv->GetLUTSampler();
-                    if (mEnv->GetIrradianceCubemap().IsValid())
-                        mDevice->BindTextureSampler(mGlobalSet, 8, mEnv->GetIrradianceCubemap(), envSamp);
-                    if (mEnv->GetPrefilterCubemap().IsValid())
-                        mDevice->BindTextureSampler(mGlobalSet, 9, mEnv->GetPrefilterCubemap(), envSamp);
-                    if (mEnv->GetBRDFLUT().IsValid())
-                        mDevice->BindTextureSampler(mGlobalSet, 10, mEnv->GetBRDFLUT(), lutSamp);
-                }
-
-                // Shadow atlas + sampler compare-mode
-                if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
-                    mDevice->BindTextureSampler(mGlobalSet, 11,
-                        mShadow->GetAtlasTexture(), mShadow->GetAtlasSampler());
+            // ── Allocate descriptor sets ─────────────────────────────────────────
+            // Global : 1 par slot du ring (donnees per-frame).
+            // Object : 1 par drawcall x frame (pattern UBO-per-draw, Base03/Vulkan).
+            //   Chaque set est bind a son UBO du pool a Init (1:1, jamais re-bind).
+            mGlobalSetRing.Resize(mFramesInFlight);
+            mObjectSetPool.Resize(mFramesInFlight);
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                mGlobalSetRing[i] = mDevice->AllocateDescriptorSet(mGlobalLayout);
+                mObjectSetPool[i].Resize(kMaxObjectsPerFrame);
+                for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
+                    mObjectSetPool[i][d] = mDevice->AllocateDescriptorSet(mObjectLayout);
                 }
             }
-            if (mObjectSet.IsValid()) {
-                mDevice->BindUniformBuffer(mObjectSet, 1, mUBOObject);
+
+            // ── Pre-bind static buffers + textures into chaque slot ──────────────
+            // Resources statiques (textures defauts, env maps, shadow atlas) : memes
+            // valeurs pour tous les slots. UBOs ring : binding sur le buffer du slot.
+            NkTextureHandle defAlbedo  = mResources ? mResources->GetWhiteTex()  : NkTextureHandle{};
+            NkTextureHandle defNormal  = mResources ? mResources->GetNormalTex() : NkTextureHandle{};
+            NkTextureHandle defORM     = mResources ? mResources->GetWhiteTex()  : NkTextureHandle{};
+            NkTextureHandle defEmissive= mResources ? mResources->GetBlackTex()  : NkTextureHandle{};
+            NkSamplerHandle defSampler = mResources ? mResources->GetSamplerLinearRepeat() : NkSamplerHandle{};
+
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                NkDescSetHandle gs = mGlobalSetRing[i];
+                if (gs.IsValid()) {
+                    mDevice->BindUniformBuffer(gs, 0, mUBOCameraRing[i]);
+                    mDevice->BindUniformBuffer(gs, 2, mUBOLightsRing[i]);
+
+                    // ShadowUBO depuis le ShadowSystem (cascadeCount=0 en mode stub D.3a)
+                    if (mShadow && mShadow->GetShadowUBO().IsValid()) {
+                        mDevice->BindUniformBuffer(gs, 3, mShadow->GetShadowUBO());
+                    }
+
+                    if (defAlbedo.IsValid())   mDevice->BindTextureSampler(gs, 4, defAlbedo,   defSampler);
+                    if (defNormal.IsValid())   mDevice->BindTextureSampler(gs, 5, defNormal,   defSampler);
+                    if (defORM.IsValid())      mDevice->BindTextureSampler(gs, 6, defORM,      defSampler);
+                    if (defEmissive.IsValid()) mDevice->BindTextureSampler(gs, 7, defEmissive, defSampler);
+
+                    if (mEnv) {
+                        NkSamplerHandle envSamp = mEnv->GetEnvSampler();
+                        NkSamplerHandle lutSamp = mEnv->GetLUTSampler();
+                        if (mEnv->GetIrradianceCubemap().IsValid())
+                            mDevice->BindTextureSampler(gs, 8, mEnv->GetIrradianceCubemap(), envSamp);
+                        if (mEnv->GetPrefilterCubemap().IsValid())
+                            mDevice->BindTextureSampler(gs, 9, mEnv->GetPrefilterCubemap(), envSamp);
+                        if (mEnv->GetBRDFLUT().IsValid())
+                            mDevice->BindTextureSampler(gs, 10, mEnv->GetBRDFLUT(), lutSamp);
+                    }
+
+                    if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
+                        mDevice->BindTextureSampler(gs, 11,
+                            mShadow->GetAtlasTexture(), mShadow->GetAtlasSampler());
+                        // Shadow atlas raw read (PCSS blocker search). Meme texture,
+                        // sampler different (clamp/linear sans compare-mode).
+                        mDevice->BindTextureSampler(gs, 12,
+                            mShadow->GetAtlasTexture(), mShadow->GetAtlasRawSampler());
+                    }
+
+                    // Phase E.6 : pre-bind les 8 cookies 3D sur white1x1 (no-op).
+                    // L'utilisateur remplace via SetLightCookie3D(slot, tex).
+                    if (mResources) {
+                        NkTextureHandle whiteTex = mResources->GetWhiteTex();
+                        NkSamplerHandle whiteSamp = mResources->GetSamplerLinearRepeat();
+                        for (uint32 ci = 0; ci < kMaxCookies3D; ci++) {
+                            mDevice->BindTextureSampler(gs, 13 + ci, whiteTex, whiteSamp);
+                        }
+                        // Phase E.6b : pre-bind les 4 cube cookies sur la cubemap
+                        // white par defaut (creee une seule fois pour tous les slots).
+                        if (mDefaultCubeWhite.IsValid()) {
+                            for (uint32 ci = 0; ci < kMaxCookiesCube3D; ci++) {
+                                mDevice->BindTextureSampler(gs, 21 + ci,
+                                    mDefaultCubeWhite, whiteSamp);
+                            }
+                        }
+                    }
+                }
+                // Phase F.B.1 : bind chaque set du pool a son UBO du pool (1:1).
+                // Bind statique a Init -> au draw on fait juste BindDescriptorSet.
+                for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
+                    NkDescSetHandle os = mObjectSetPool[i][d];
+                    if (os.IsValid()) {
+                        mDevice->BindUniformBuffer(os, 1, mUBOObjectPool[i][d]);
+                    }
+                }
             }
 
             // ── Compile shader PBR + cree pipeline ───────────────────────────────
+            // LoadOrCompileVF : cherche d'abord Resources/NKRenderer/Shaders/PBR/GL/
+            // pour permettre l'override par l'utilisateur, fallback sur les sources
+            // embarquees dans NkRender3D_PBRShaders.inl si absent.
             if (mShaderLib) {
-                auto progHandle = mShaderLib->CompileVF(kPBR_VS, kPBR_FS, "PBR");
+                auto progHandle = mShaderLib->LoadOrCompileVF("PBR", kPBR_VS, kPBR_FS);
                 if (progHandle.IsValid()) {
                     mPBRShader = mShaderLib->GetRHIHandle(progHandle);
                 }
             }
 
-            if (mPBRShader.IsValid()) {
-                NkGraphicsPipelineDesc pd;
-                pd.shader       = mPBRShader;
-                pd.depthStencil = NkDepthStencilDesc::Default();   // depth test enabled
-                // D.1 : NoCull tant que les meshes primitifs n'ont pas de winding
-                // CCW garanti (le plane par exemple a un winding inverse).
-                pd.rasterizer   = NkRasterizerDesc::NoCull();
-                pd.blend        = NkBlendDesc::Opaque();
-                pd.debugName    = "PBR_Opaque";
-                pd.descriptorSetLayouts.PushBack(mGlobalLayout);
-                pd.descriptorSetLayouts.PushBack(mObjectLayout);
-
-                // Vertex layout — NkVertex3D : pos(vec3), normal(vec3), tangent(vec3),
-                //   uv(vec2), uv2(vec2), color(uint32 RGBA8)
-                //   Stride = 12+12+12+8+8+4 = 56 bytes
-                pd.vertexLayout
-                  .AddBinding(0, sizeof(NkVertex3D), false)
-                  .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0,  "POSITION", 0)
-                  .AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL",   0)
-                  .AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT, 24, "TANGENT",  0)
-                  .AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT,  36, "TEXCOORD", 0)
-                  .AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT,  44, "TEXCOORD", 1)
-                  .AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR",    0);
-
-                mPBRPipeline = mDevice->CreateGraphicsPipeline(pd);
+            // Le pipeline PBR est cree paresseusement au 1er FlushOpaque (cf.
+            // EnsurePBRPipeline) : Vulkan/DX12 exigent que le pipeline soit
+            // RP-compatible avec le fb cible, et le RP de la pass Geometry est
+            // construit par le RenderGraph au 1er Execute (apres Init). Creer
+            // le pipeline ici avec un fallback swapchain RP genere une
+            // incompatibilite format (R16G16B16A16_SFLOAT du HDR target vs
+            // B8G8R8A8_SRGB du swapchain) : VUID-vkCmdDraw-renderPass-02684.
+            if (!mPBRShader.IsValid()) {
+                logger.Errorf("[NkRender3D] PBR shader handle INVALID after LoadOrCompileVF\n");
             }
 
-            return mUBOCamera.IsValid() && mPBRPipeline.IsValid();
+            // ── Shadow pipeline (D.3b) ───────────────────────────────────────────
+            if (mShaderLib) {
+                auto progHandle = mShaderLib->LoadOrCompileVF("Shadow", kShadow_VS, kShadow_FS);
+                if (progHandle.IsValid()) {
+                    mShadowShader = mShaderLib->GetRHIHandle(progHandle);
+                }
+            }
+            if (mShadowShader.IsValid()) {
+                NkGraphicsPipelineDesc pd;
+                pd.shader       = mShadowShader;
+                pd.depthStencil = NkDepthStencilDesc::Default();    // depth write enabled
+                // Pipeline Shadow rend dans le shadow atlas (depth-only). En VK
+                // le pipeline doit etre cree avec un RP compatible (sinon le
+                // fallback swapchain RP color+depth donne un draw incompatible).
+                if (mShadow) pd.renderPass = mShadow->GetShadowRenderPass();
+                // Shadow casters typiquement render avec front-face culling pour
+                // reduire le shadow acne (peter-panning). Mais sans winding fiable
+                // sur les meshes primitifs, on garde NoCull.
+                pd.rasterizer   = NkRasterizerDesc::NoCull();
+                pd.blend        = NkBlendDesc::Opaque();
+                pd.debugName    = "Shadow_DepthOnly";
+                // Range push_constant ALL_GRAPHICS : permet aux appelants qui
+                // pushent avec stage=ALL_GRAPHICS (convention NkShadowSystem /
+                // NkRender3D) de respecter le range declare. Le shader Shadow VS
+                // est le seul a lire le push_constant en pratique.
+                pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f));
+                // Layout : [global, object] meme si Shadow VS n'utilise que object.
+                // Necessaire pour que le bind a set=1 (convention) reste valide en VK.
+                pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+                pd.descriptorSetLayouts.PushBack(mObjectLayout);    // reutilise ObjectUBO
+                pd.vertexLayout
+                  .AddBinding(0, sizeof(NkVertex3D), false)
+                  .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0);
+                  // Les autres attributs sont ignores par le shader shadow (depth-only).
+                mShadowPipeline = mDevice->CreateGraphicsPipeline(pd);
+                logger.Info("[NkRender3D] Shadow pipeline create: shader_valid={0} pipeline_valid={1}\n",
+                            mShadowShader.IsValid() ? 1 : 0, mShadowPipeline.IsValid() ? 1 : 0);
+            }
+
+            bool ringValid = !mUBOCameraRing.Empty() && mUBOCameraRing[0].IsValid();
+            logger.Info("[NkRender3D] Init final: ringValid={0} pbrShader.valid={1} (PBR pipeline: lazy create at 1st flush)\n",
+                        ringValid ? 1 : 0, mPBRShader.IsValid() ? 1 : 0);
+            return ringValid && mPBRShader.IsValid();
+        }
+
+        // ── Lazy create du pipeline PBR (Bug fix Vulkan : RP compat) ────────────
+        bool NkRender3D::EnsurePBRPipeline(NkRenderPassHandle currentRP) {
+            if (!mPBRShader.IsValid()) return false;
+
+            // Si le pipeline existe deja et est compatible avec le RP courant
+            // (meme handle, donc meme format/layout), rien a faire. Cas typique :
+            // 2eme frame et plus, le fb cache du graph reutilise le meme RP.
+            if (mPBRPipeline.IsValid() && mPBRPipelineRP == currentRP) return true;
+
+            // RP a change (ou 1er appel). On detruit l'ancien (s'il existe) et
+            // on recree avec le RP courant. Sur OpenGL currentRP est toujours
+            // {} (handle invalide), mais ce cas marche aussi : le backend GL
+            // ignore renderPass dans le pipeline desc.
+            if (mPBRPipeline.IsValid()) {
+                mDevice->DestroyPipeline(mPBRPipeline);
+                mPBRPipeline = {};
+            }
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mPBRShader;
+            pd.depthStencil = NkDepthStencilDesc::Default();   // depth test enabled
+            // D.1 : NoCull tant que les meshes primitifs n'ont pas de winding
+            // CCW garanti (le plane par exemple a un winding inverse).
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "PBR_Opaque";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            pd.descriptorSetLayouts.PushBack(mObjectLayout);
+
+            // Vertex layout — NkVertex3D : pos(vec3), normal(vec3), tangent(vec3),
+            //   uv(vec2), uv2(vec2), color(uint32 RGBA8)
+            //   Stride = 12+12+12+8+8+4 = 56 bytes
+            pd.vertexLayout
+              .AddBinding(0, sizeof(NkVertex3D), false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL",   0)
+              .AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT, 24, "TANGENT",  0)
+              .AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT,  36, "TEXCOORD", 0)
+              .AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT,  44, "TEXCOORD", 1)
+              .AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR",    0);
+
+            mPBRPipeline = mDevice->CreateGraphicsPipeline(pd);
+            mPBRPipelineRP = currentRP;
+            logger.Info("[NkRender3D] PBR pipeline (lazy) create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+                        mPBRShader.IsValid() ? 1 : 0, mPBRPipeline.IsValid() ? 1 : 0,
+                        currentRP.id);
+            return mPBRPipeline.IsValid();
         }
 
         void NkRender3D::Shutdown() {
+            if (mShadowPipeline.IsValid()) { mDevice->DestroyPipeline(mShadowPipeline); mShadowPipeline={}; }
             if (mPBRPipeline.IsValid()) { mDevice->DestroyPipeline(mPBRPipeline); mPBRPipeline={}; }
-            // Le shader handle est detenu par NkShaderLibrary, pas a detruire ici.
-            if (mGlobalSet.IsValid())    { mDevice->FreeDescriptorSet(mGlobalSet); }
-            if (mObjectSet.IsValid())    { mDevice->FreeDescriptorSet(mObjectSet); }
+            // Les shader handles sont detenus par NkShaderLibrary, pas a detruire ici.
+            for (auto& s : mGlobalSetRing) if (s.IsValid()) mDevice->FreeDescriptorSet(s);
+            // Phase F.B.1 : free le pool object 2D (frame x drawIdx).
+            for (auto& perFrame : mObjectSetPool) {
+                for (auto& s : perFrame) if (s.IsValid()) mDevice->FreeDescriptorSet(s);
+                perFrame.Clear();
+            }
+            mGlobalSetRing.Clear();
+            mObjectSetPool.Clear();
             if (mGlobalLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mGlobalLayout); }
             if (mObjectLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mObjectLayout); }
-            if(mUBOCamera.IsValid()){mDevice->DestroyBuffer(mUBOCamera);mUBOCamera={};}
-            if(mUBOObject.IsValid()){mDevice->DestroyBuffer(mUBOObject);mUBOObject={};}
-            if(mUBOLights.IsValid()){mDevice->DestroyBuffer(mUBOLights);mUBOLights={};}
+            for (auto& b : mUBOCameraRing) if (b.IsValid()) mDevice->DestroyBuffer(b);
+            for (auto& perFrame : mUBOObjectPool) {
+                for (auto& b : perFrame) if (b.IsValid()) mDevice->DestroyBuffer(b);
+                perFrame.Clear();
+            }
+            for (auto& b : mUBOLightsRing) if (b.IsValid()) mDevice->DestroyBuffer(b);
+            mUBOCameraRing.Clear();
+            mUBOObjectPool.Clear();
+            mUBOLightsRing.Clear();
             if(mSSBOBones.IsValid()){mDevice->DestroyBuffer(mSSBOBones);mSSBOBones={};}
+            if(mDefaultCubeWhite.IsValid()){mDevice->DestroyTexture(mDefaultCubeWhite);mDefaultCubeWhite={};}
         }
 
         // ── Scene ─────────────────────────────────────────────────────────────────
@@ -185,6 +376,12 @@ namespace nkentseu {
             mInScene = true;
             mOpaque.Clear(); mTransparent.Clear();
             mInstanced.Clear(); mSkinned.Clear();
+            // Phase F.B.1 : reset compteur draws de la frame. Shadow pass + opaque
+            // pass + skinned pass partagent le meme compteur monotone et lisent
+            // tous dans mUBOObjectPool[mFrameSlot]. RenderShadowPass est appelee
+            // par NkShadowSystem AVANT que Flush() lance la passe color, donc
+            // l'ordre garanti est : shadow d'abord, puis opaque/skinned.
+            mObjectDrawIdx = 0;
         }
 
         // ── Submit ────────────────────────────────────────────────────────────────
@@ -237,6 +434,14 @@ namespace nkentseu {
             SortDrawCalls();
             UploadUBOs(cmd);
 
+            // Lazy create du pipeline PBR maintenant qu'on est dans la pass
+            // Geometry (RP cible connu via le RenderGraph). Sur OpenGL, le RP
+            // retourne {} : pas grave, le backend l'ignore. Sur Vulkan/DX12 il
+            // permet la creation d'un pipeline RP-compatible.
+            NkRenderPassHandle currentRP{};
+            if (mGraph) currentRP = mGraph->GetPassRenderPass("Geometry");
+            EnsurePBRPipeline(currentRP);
+
             // Bind le pipeline PBR (configure le programme + render state + VAO).
             // Doit etre fait AVANT le bind des descriptor sets, car BindGraphicsPipeline
             // change le VAO actif sur OpenGL et reset les bindings de buffers.
@@ -244,9 +449,20 @@ namespace nkentseu {
                 cmd->BindGraphicsPipeline(mPBRPipeline);
             }
 
-            // Bind per-frame descriptor set (camera + lights + shadow + env + textures defaut)
-            if (mGlobalSet.IsValid())
-                cmd->BindDescriptorSet(mGlobalSet, 0);
+            // Bind per-frame descriptor set du slot courant (camera + lights + shadow
+            // + env + textures defaut). Chaque slot du ring est pre-bound a son UBO,
+            // donc juste un BindDescriptorSet suffit, pas de UpdateDescriptorSets.
+            NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+            if (gs.IsValid())
+                cmd->BindDescriptorSet(gs, 0);
+
+            static int sR3DLogCount = 0;
+            if (sR3DLogCount < 3) {
+                sR3DLogCount++;
+                logger.Info("[NkRender3D::Flush] frame={0} pipe.valid={1} gs.valid={2} opaque={3} transparent={4} instanced={5}\n",
+                            sR3DLogCount, mPBRPipeline.IsValid(), gs.IsValid(),
+                            (uint32)mOpaque.Size(), (uint32)mTransparent.Size(), (uint32)mInstanced.Size());
+            }
 
             FlushOpaque(cmd);
             FlushInstanced(cmd);
@@ -254,6 +470,10 @@ namespace nkentseu {
             FlushTransparent(cmd);
             FlushDebug(cmd);
             mInScene=false;
+
+            // Avance au slot suivant pour la prochaine frame.
+            // Avec mFramesInFlight=1 on reste sur le slot 0 (pas de ring).
+            mFrameSlot = (mFrameSlot + 1) % mFramesInFlight;
         }
 
         void NkRender3D::UploadUBOs(NkICommandBuffer* cmd) {
@@ -275,6 +495,20 @@ namespace nkentseu {
             cb.view        = mCtx.camera.GetView();
             cb.proj        = mCtx.camera.GetProj();
             cb.viewProj    = mCtx.camera.GetViewProj();
+
+            // Correction Vulkan clip-space : la projection NkCamera produit
+            // un NDC Z dans [-1, 1] (convention OpenGL). Vulkan attend [0, 1] —
+            // sans correction, la moitie pres de la camera est silencieusement
+            // clippee (Z<0) -> ecran noir. On compose vkClip * proj pour passer
+            // de [-1,1] a [0,1] : z_new = 0.5*z + 0.5*w. NkMat4f est column-major,
+            // donc m[2][2]=0.5 (m22) et m[3][2]=0.5 (m23, translation Z).
+            if (mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN) {
+                NkMat4f vkClip = NkMat4f::Identity();
+                vkClip[2][2] = 0.5f;
+                vkClip[3][2] = 0.5f;
+                cb.proj     = vkClip * cb.proj;
+                cb.viewProj = vkClip * cb.viewProj;
+            }
             cb.invViewProj = cb.viewProj.Inverse();
             NkVec3f pos = mCtx.camera.GetPosition();
             NkVec3f fwd = mCtx.camera.GetForward();
@@ -284,7 +518,10 @@ namespace nkentseu {
             cb.viewportY = (float32)mH;
             cb.time      = mCtx.time;
             cb.deltaTime = mCtx.deltaTime;
-            mDevice->WriteBuffer(mUBOCamera, &cb, sizeof(cb));
+            // Ring : on ecrit dans le buffer du slot courant. Le GPU lit (au pire)
+            // celui du slot N-1, donc pas de stall.
+            if (mFrameSlot < mUBOCameraRing.Size())
+                mDevice->WriteBuffer(mUBOCameraRing[mFrameSlot], &cb, sizeof(cb));
 
             // Lights UBO
             struct LightsBlock {
@@ -296,9 +533,79 @@ namespace nkentseu {
                 lb.pos[i]   ={l.position.x,l.position.y,l.position.z,(float32)l.type};
                 lb.color[i] ={l.color.x,l.color.y,l.color.z,l.intensity};
                 lb.dir[i]   ={l.direction.x,l.direction.y,l.direction.z,l.range};
-                lb.angles[i]={l.innerAngle,l.outerAngle,(float32)l.castShadow,0};
+                // angles : .x = cos(inner), .y = cos(outer) (precompute pour le shader),
+                // .z = castShadow flag, .w = cookieIdx (-1 = pas de cookie).
+                const float deg2rad = 3.14159265f / 180.f;
+                lb.angles[i]={std::cos(l.innerAngle * deg2rad),
+                              std::cos(l.outerAngle * deg2rad),
+                              (float32)l.castShadow,
+                              (float32)l.cookieIdx};
             }
-            mDevice->WriteBuffer(mUBOLights, &lb, sizeof(lb));
+            if (mFrameSlot < mUBOLightsRing.Size())
+                mDevice->WriteBuffer(mUBOLightsRing[mFrameSlot], &lb, sizeof(lb));
+        }
+
+        void NkRender3D::RenderShadowPass(NkICommandBuffer* cmd, const NkMat4f& lightVP) {
+            if (!cmd || !mShadowPipeline.IsValid()) return;
+
+            cmd->BindGraphicsPipeline(mShadowPipeline);
+            // lightVP en push constant (4 vec4 = 64 bytes)
+            cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &lightVP);
+
+            // Re-uploaded ObjectUBO + draw mesh pour chaque opaque qui caste.
+            // Meme layout ObjBlock que dans FlushOpaque (le linker GLSL exige une
+            // declaration std140 identique entre les deux shaders qui partagent
+            // l'UBO binding 1).
+            struct ObjBlock {
+                NkMat4f model;
+                NkMat4f normalMatrix;
+                NkVec4f tint;
+                float32 metallic;
+                float32 roughness;
+                float32 aoStrength;
+                float32 emissiveStrength;
+                float32 normalStrength;
+                float32 clearcoat;
+                float32 clearcoatRough;
+                float32 subsurface;
+                NkVec4f subsurfaceColor;
+            };
+
+            // Phase F.B.1 : pattern UBO-per-draw. Chaque drawcall consume un slot
+            // du pool (UBO + descriptor set pre-bind 1:1). WriteBuffer fait un
+            // memcpy via mapped pointer (UBO HOST_VISIBLE), legal dans renderPass
+            // actif contrairement a cmd->UpdateBuffer = vkCmdUpdateBuffer
+            // (VUID-vkCmdUpdateBuffer-renderpass).
+            const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size())
+                                     && (mFrameSlot < mObjectSetPool.Size());
+            if (!poolFrameValid) return;
+
+            for (auto& sdc : mOpaque) {
+                auto& dc = sdc.dc;
+                if (!dc.castShadow) continue;
+                if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
+                    logger.Errorf("[NkRender3D] ObjectUBO pool overflow (shadow): "
+                                  "drawIdx={0} >= max={1}, skipping draw\n",
+                                  mObjectDrawIdx, kMaxObjectsPerFrame);
+                    break;
+                }
+                ObjBlock ob{};
+                ob.model            = dc.transform;
+                ob.normalMatrix     = dc.transform.Inverse().Transpose();
+                ob.tint             = {1, 1, 1, 1};
+                ob.metallic = 0.f; ob.roughness = 0.5f; ob.aoStrength = 1.f;
+
+                NkBufferHandle  ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+                NkDescSetHandle os  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                if (ubo.IsValid()) mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+                if (os.IsValid())  cmd->BindDescriptorSet(os, 1);
+                mMesh->BindMesh(cmd, dc.mesh);
+                if (dc.subMeshIdx == 0xFFFFFFFFu)
+                    mMesh->DrawAll(cmd, dc.mesh);
+                else
+                    mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+                mObjectDrawIdx++;
+            }
         }
 
         void NkRender3D::FlushOpaque(NkICommandBuffer* cmd) {
@@ -318,32 +625,55 @@ namespace nkentseu {
                 NkVec4f subsurfaceColor;
             };
             static_assert(sizeof(ObjBlock) == 192, "ObjBlock std140");
+
+            // Phase F.B.1 : pattern UBO-per-draw. mObjectDrawIdx est deja
+            // incremente par RenderShadowPass (qui tourne AVANT cette passe via
+            // NkShadowSystem). On continue a partir de la pour ne pas ecraser les
+            // UBOs ombres encore en flight cote GPU.
+            const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size())
+                                     && (mFrameSlot < mObjectSetPool.Size());
+            static int sFOLogCount = 0;
+            if (sFOLogCount < 3) {
+                sFOLogCount++;
+                logger.Info("[FlushOpaque] frame={0} poolValid={1} drawIdx={2} opaqueCount={3}\n",
+                            sFOLogCount, poolFrameValid, mObjectDrawIdx, (uint32)mOpaque.Size());
+            }
+            if (!poolFrameValid) return;
+
             for (auto& sdc : mOpaque) {
                 auto& dc = sdc.dc;
+                if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
+                    logger.Errorf("[NkRender3D] ObjectUBO pool overflow (opaque): "
+                                  "drawIdx={0} >= max={1}, skipping draw\n",
+                                  mObjectDrawIdx, kMaxObjectsPerFrame);
+                    break;
+                }
                 ObjBlock ob{};
                 ob.model            = dc.transform;
                 ob.normalMatrix     = dc.transform.Inverse().Transpose();
                 ob.tint             = {dc.tint.x, dc.tint.y, dc.tint.z, dc.alpha};
-                ob.metallic         = 0.f;
-                ob.roughness        = 0.5f;
-                ob.aoStrength       = 1.f;
+                ob.metallic         = dc.metallic;
+                ob.roughness        = dc.roughness;
+                ob.aoStrength       = dc.aoStrength;
                 ob.emissiveStrength = 0.f;
                 ob.normalStrength   = 1.f;
                 // clearcoat / subsurface : 0 par defaut (zero-init via ObjBlock{}).
-                // IMPORTANT : enqueuer l'ecriture dans le command buffer plutot que
-                // mDevice->WriteBuffer immediat — sinon tous les drawcalls de la frame
-                // partagent la DERNIERE valeur ecrite (la boucle ecrase a chaque
-                // iteration, et les Draws sont enqueued -> ils voient tous le dernier).
-                cmd->UpdateBuffer(mUBOObject, 0, sizeof(ob), &ob);
 
-                if (mObjectSet.IsValid())
-                    cmd->BindDescriptorSet(mObjectSet, 1);
+                // WriteBuffer = memcpy via mapped pointer (NK_UPLOAD), legal dans
+                // un renderPass actif. cmd->UpdateBuffer (= vkCmdUpdateBuffer en
+                // VK) est interdit ici. Chaque drawcall ecrit dans son propre UBO
+                // du pool, donc pas d'ecrasement entre draws.
+                NkBufferHandle  ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+                NkDescSetHandle os  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                if (ubo.IsValid()) mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+                if (os.IsValid())  cmd->BindDescriptorSet(os, 1);
 
                 mMesh->BindMesh(cmd, dc.mesh);
                 if (dc.subMeshIdx == 0xFFFFFFFFu)
                     mMesh->DrawAll(cmd, dc.mesh);
                 else
                     mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+                mObjectDrawIdx++;
             }
         }
 
@@ -355,21 +685,38 @@ namespace nkentseu {
         }
 
         void NkRender3D::FlushInstanced(NkICommandBuffer* cmd) {
+            // Instanced ne touche pas a ObjectUBO (les transforms passent via
+            // SSBOBones). On bind quand meme un set du pool pour satisfaire le
+            // pipeline layout (set=1 attendu) ; le contenu de ce slot est ignore
+            // par le shader instanced.
+            const bool poolFrameValid = (mFrameSlot < mObjectSetPool.Size());
             for (auto& dc : mInstanced) {
                 if (dc.transforms.Empty()) continue;
                 uint32 count=(uint32)dc.transforms.Size();
                 mDevice->WriteBuffer(mSSBOBones, dc.transforms.Data(),
                                         count*sizeof(NkMat4f));
-                if (mObjectSet.IsValid())
-                    cmd->BindDescriptorSet(mObjectSet, 1);
+                if (poolFrameValid && mObjectDrawIdx < kMaxObjectsPerFrame) {
+                    NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                    if (os.IsValid()) cmd->BindDescriptorSet(os, 1);
+                    mObjectDrawIdx++;
+                }
                 mMesh->BindMesh(cmd, dc.mesh);
                 mMesh->DrawAll(cmd, dc.mesh, count);
             }
         }
 
         void NkRender3D::FlushSkinned(NkICommandBuffer* cmd) {
+            const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size())
+                                     && (mFrameSlot < mObjectSetPool.Size());
+            if (!poolFrameValid) return;
             for (auto& dc : mSkinned) {
                 if (dc.boneMatrices.Empty()) continue;
+                if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
+                    logger.Errorf("[NkRender3D] ObjectUBO pool overflow (skinned): "
+                                  "drawIdx={0} >= max={1}, skipping draw\n",
+                                  mObjectDrawIdx, kMaxObjectsPerFrame);
+                    break;
+                }
                 uint32 count=(uint32)dc.boneMatrices.Size();
                 mDevice->WriteBuffer(mSSBOBones, dc.boneMatrices.Data(),
                                         count*sizeof(NkMat4f));
@@ -377,12 +724,14 @@ namespace nkentseu {
                 struct ObjB { NkMat4f m,nm; NkVec4f tint; float32 p[8]; } ob{};
                 ob.m=dc.transform; ob.nm=dc.transform.Inverse().Transpose();
                 ob.tint={dc.tint.x,dc.tint.y,dc.tint.z,dc.alpha};
-                mDevice->WriteBuffer(mUBOObject,&ob,sizeof(ob));
 
-                if (mObjectSet.IsValid())
-                    cmd->BindDescriptorSet(mObjectSet, 1);
+                NkBufferHandle  ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+                NkDescSetHandle os  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                if (ubo.IsValid()) mDevice->WriteBuffer(ubo,&ob,sizeof(ob));
+                if (os.IsValid()) cmd->BindDescriptorSet(os, 1);
                 mMesh->BindMesh(cmd,dc.mesh);
                 mMesh->DrawAll(cmd,dc.mesh);
+                mObjectDrawIdx++;
             }
         }
 
@@ -396,6 +745,31 @@ namespace nkentseu {
                     mDebugLines.RemoveAt(i); continue;
                 }
                 i++;
+            }
+        }
+
+        // ── Phase E.6 : Light cookies 3D ─────────────────────────────────────────
+        void NkRender3D::SetLightCookie3D(uint32 slot, NkTextureHandle tex) {
+            if (slot >= kMaxCookies3D || !mResources) return;
+            NkTextureHandle bind = tex.IsValid() ? tex : mResources->GetWhiteTex();
+            NkSamplerHandle samp = mResources->GetSamplerLinearRepeat();
+            // Bind sur tous les slots du ring (chaque slot a son descriptor set).
+            for (uint32 i = 0; i < mFramesInFlight; i++) {
+                if (mGlobalSetRing[i].IsValid()) {
+                    mDevice->BindTextureSampler(mGlobalSetRing[i], 13 + slot, bind, samp);
+                }
+            }
+        }
+
+        // ── Phase E.6b : Light cube cookies ──────────────────────────────────────
+        void NkRender3D::SetLightCookieCube3D(uint32 slot, NkTextureHandle cubeTex) {
+            if (slot >= kMaxCookiesCube3D || !mResources) return;
+            NkTextureHandle bind = cubeTex.IsValid() ? cubeTex : mDefaultCubeWhite;
+            NkSamplerHandle samp = mResources->GetSamplerLinearRepeat();
+            for (uint32 i = 0; i < mFramesInFlight; i++) {
+                if (mGlobalSetRing[i].IsValid()) {
+                    mDevice->BindTextureSampler(mGlobalSetRing[i], 21 + slot, bind, samp);
+                }
             }
         }
 

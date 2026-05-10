@@ -1,0 +1,11 @@
+// fullscreen.vert.metal.msl — Fullscreen Triangle Vertex (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct VSOut{float4 pos[[position]];float2 uv;};
+vertex VSOut fsVert(uint id[[vertex_id]]){
+    VSOut o;
+    float2 p=float2((id&1u)?3.f:-1.f,(id&2u)?3.f:-1.f);
+    o.pos=float4(p,0.f,1.f);
+    o.uv=float2(p.x*.5f+.5f,p.y*.5f+.5f);
+    return o;
+}

@@ -72,7 +72,14 @@ struct NkVkPipeline {
 };
 
 struct NkVkRenderPass { VkRenderPass renderPass = VK_NULL_HANDLE; NkRenderPassDesc desc; };
-struct NkVkFramebuffer { VkFramebuffer framebuffer = VK_NULL_HANDLE; uint32 w = 0, h = 0; };
+struct NkVkFramebuffer {
+    VkFramebuffer       framebuffer = VK_NULL_HANDLE;
+    uint32              w = 0, h = 0;
+    VkRenderPass        renderPass = VK_NULL_HANDLE;  // RP utilise pour creer ce fb (fallback BeginRenderPass)
+    NkRenderPassHandle  renderPassHandle{};           // Handle public du meme RP (pour GetFramebufferRenderPass)
+    uint32              colorCount = 0;               // # color attachments du RP associe
+    bool                hasDepth   = false;           // RP a-t-il un depth attachment
+};
 
 struct NkVkDescSetLayout {
     VkDescriptorSetLayout layout = VK_NULL_HANDLE;
@@ -138,6 +145,7 @@ public:
     void                DestroyRenderPass(NkRenderPassHandle& h) override;
     NkFramebufferHandle CreateFramebuffer(const NkFramebufferDesc& d) override;
     void                DestroyFramebuffer(NkFramebufferHandle& h) override;
+    NkRenderPassHandle  GetFramebufferRenderPass(NkFramebufferHandle fb) const override;
     NkFramebufferHandle GetSwapchainFramebuffer() const override {
         if (mSwapchainFBs.Empty()) return {};
         if (mCurrentImageIdx >= mSwapchainFBs.Size()) return {};
@@ -186,6 +194,11 @@ public:
     uint32           GetVkRenderPassColorCount(uint64 id) const;
     bool             GetVkRenderPassHasDepth(uint64 id) const;
     VkFramebuffer    GetVkFB(uint64 id) const;
+    // Accessors lis a NkVkFramebuffer (utilises pour le fallback BeginRenderPass
+    // sans RP explicite : on retrouve le RP/info au moment du draw via le fb).
+    VkRenderPass     GetVkFramebufferRenderPass(uint64 id) const;
+    uint32           GetVkFramebufferColorCount(uint64 id) const;
+    bool             GetVkFramebufferHasDepth(uint64 id) const;
     VkBuffer         GetVkBuffer(uint64 id) const;
     VkImage          GetVkImage(uint64 id) const;
     VkImageView      GetVkImageView(uint64 id) const;
@@ -201,6 +214,13 @@ public:
     void            EndOneShot(VkCommandBuffer cmd);
 
 private:
+    // Helpers internes : assument que mMutex est DEJA pris par l'appelant.
+    // Permettent a CreateTexture/WriteTextureRegion de creer/detruire des
+    // staging buffers sans deadlocker (NkMutex n'est pas reentrant).
+    NkBufferHandle CreateBufferUnlocked(const NkBufferDesc& desc, bool* outNeedsAsyncUpload);
+    void           DestroyBufferUnlocked(NkBufferHandle& h);
+    NkRenderPassHandle CreateRenderPassUnlocked(const NkRenderPassDesc& d);
+
     void QueryCaps();
     bool CreateLogicalDevice();
     void CreateSwapchain(uint32 w, uint32 h);
@@ -333,6 +353,7 @@ public:
     void                DestroyRenderPass(NkRenderPassHandle&) override {}
     NkFramebufferHandle CreateFramebuffer(const NkFramebufferDesc&) override { return {}; }
     void                DestroyFramebuffer(NkFramebufferHandle&) override {}
+    NkRenderPassHandle  GetFramebufferRenderPass(NkFramebufferHandle) const override { return {}; }
     NkFramebufferHandle GetSwapchainFramebuffer() const override { return {}; }
     NkRenderPassHandle  GetSwapchainRenderPass() const override { return {}; }
     NkGPUFormat GetSwapchainFormat() const override { return NkGPUFormat::NK_BGRA8_SRGB; }
