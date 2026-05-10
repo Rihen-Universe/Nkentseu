@@ -483,3 +483,70 @@ qualification de Bad Leaver.
 3️⃣ **Sous 1 mois** : Tenez votre AGE et lancez le premier round d'attribution  
 
 > ✨ **Rappel** : Un plan bien structuré est un levier puissant de fidélisation. Mais un plan mal ficelé peut coûter cher en fiscalité ou contentieux. L'accompagnement professionnel n'est pas une dépense, c'est une assurance.
+
+Deux bonnes questions. Réponses directes :
+
+---
+
+**1. "Ce que je construis" vs "ce que j'ai construit"**
+
+Oui, **"ce que je construis"** est bien meilleur. Voilà pourquoi :
+
+- "J'ai construit" = c'est fini, c'est du passé → moins engageant
+- "Je construis" = c'est vivant, ça avance, on peut suivre l'aventure → les gens ont une raison de te suivre pour voir la suite
+
+C'est exactement l'essence du "build in public". Le présent est ton atout.
+
+---
+
+**2. Parler du fait que tu n'aimes pas publier ?**
+
+**Oui, mais formulé différemment.** Pas "je n'aime pas publier" — ça sonne comme une excuse. Plutôt : **"je publie par nécessité, pas par envie"** — ça sonne comme de l'honnêteté et de la maturité. C'est rare et ça attire.
+
+Et la raison que tu donnes est excellente : tu as réalisé que des gens cherchent exactement ce que tu construis. C'est un déclencheur concret, pas du vague.
+
+---
+
+Voici le post réécrit avec ces deux corrections :
+
+---
+
+**Je ne suis pas quelqu'un qui aime publier.**
+
+Je suis quelqu'un qui construit.
+
+Mais j'ai réalisé quelque chose ces derniers mois : des développeurs et des ingénieurs cherchent exactement les outils que je suis en train de créer. Et ils ne savent pas que j'existe.
+
+Alors me voilà.
+
+---
+
+Voici ce que je construis — **en ce moment, en public, sur GitHub** :
+
+→ **Jenga** — système de build multiplatform C++. Introuvable ailleurs, alors je l'ai créé.
+→ **Nkentseu** — écosystème modulaire C++ pour moteurs de jeux, simulation et rendu 3D. En développement actif.
+→ **PV3DE** — patient virtuel 3D émotif pour le diagnostic médical. Mon projet de master recherche.
+
+Tout est imparfait. Tout avance. Tout est visible.
+
+---
+
+En parallèle, j'enseigne à l'**École Nationale Polytechnique de Yaoundé** et je dirige **Rihen Universe**, la structure qui porte ces projets.
+
+Tout ça depuis **Yaoundé, Cameroun.**
+
+---
+
+Je vais publier régulièrement — les architectures, les bugs, les décisions techniques, les avancées.
+
+Si vous utilisez ou construisez du C++, des moteurs, des systèmes — ce que je fais vous concerne peut-être directement.
+
+**Le code est là. Les issues sont ouvertes. Les contributeurs sont les bienvenus.**
+
+🔗 github.com/rihen-universe *(lien en commentaire)*
+
+**Suivez. On va construire quelque chose ensemble.**
+
+---
+
+Cette version est plus forte parce qu'elle commence par une vérité humaine, elle justifie ton retour par un constat concret, et elle transforme ton absence de LinkedIn en preuve que tu étais occupé à faire des choses réelles. Tu veux ajuster quelque chose ?

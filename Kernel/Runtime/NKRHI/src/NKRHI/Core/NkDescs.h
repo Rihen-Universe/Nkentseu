@@ -494,6 +494,11 @@ namespace nkentseu {
         bool             hasResolve   = false; // MSAA resolve
         NkAttachmentDesc resolveAttachment;
         const char*      debugName    = nullptr;
+        // Vulkan : si true, le finalLayout du color[0] sera VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+        // au lieu de COLOR_ATTACHMENT_OPTIMAL. A utiliser pour le DERNIER pass de la
+        // frame qui ecrit dans le swapchain (sinon vkQueuePresentKHR rejette
+        // l'image, VUID-VkPresentInfoKHR-pImageIndices-01430).
+        bool             finalForPresent = false;
 
         NkRenderPassDesc& AddColor(NkAttachmentDesc a) {
             colorAttachments.PushBack(a); 

@@ -21,7 +21,10 @@ namespace nkentseu {
                           uint32 w, uint32 h);
                 void Shutdown();
                 void OnResize(uint32 w, uint32 h);
-                void SetConfig(const NkPostConfig& c) { mCfg=c; }
+                void SetConfig(const NkPostConfig& c) { 
+                    mCfg=c; 
+                    mCfg.toneMapping = false;
+                }
                 NkPostConfig& GetConfig() { return mCfg; }
                 NkTexHandle Execute(NkICommandBuffer* cmd,
                                     NkTexHandle hdrIn, NkTexHandle depth,

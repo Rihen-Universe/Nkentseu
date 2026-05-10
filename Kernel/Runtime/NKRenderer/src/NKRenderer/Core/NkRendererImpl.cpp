@@ -398,25 +398,21 @@ namespace nkentseu {
             // D.4b : on n'active le HDR transient que si NkPostProcessStack a au
             // moins un effet wire (tonemap pour l'instant). HasAnyEffect lit la
             // config courante et evite d'allouer un HDR target inutile.
-            const bool hasPP       = (mPostProcess.Get() != nullptr)
-                                  && mPostProcess->HasAnyEffect();
+            // const bool hasPP       = false;
+            const bool hasPP       = (mPostProcess.Get() != nullptr) && mPostProcess->HasAnyEffect();
             const bool hasVFX      = (mVFX.Get()         != nullptr);
             const bool hasOverlay  = (mOverlay.Get()     != nullptr);
 
             // Swapchain (toujours imported — c'est l'output final de la frame)
-            auto colorId = g.ImportTexture("Swapchain", NkTextureHandle{},
-                                            NkResourceState::NK_PRESENT);
+            auto colorId = g.ImportTexture("Swapchain", NkTextureHandle{}, NkResourceState::NK_PRESENT);
 
             // Cible 3D : si POST_PROCESS active → HDR transient ; sinon ecrit directement dans Swapchain.
             NkGraphResId mainColor = colorId;
             NkGraphResId mainDepth = NK_INVALID_RES_ID;
             if (has3D) {
-                mainDepth = g.CreateTransient("MainDepth",
-                              NkTextureDesc::DepthStencil(mCfg.width, mCfg.height));
+                mainDepth = g.CreateTransient("MainDepth", NkTextureDesc::DepthStencil(mCfg.width, mCfg.height));
                 if (hasPP) {
-                    mainColor = g.CreateTransient("HDR",
-                                  NkTextureDesc::RenderTarget(mCfg.width, mCfg.height,
-                                                              NkGPUFormat::NK_RGBA16_FLOAT));
+                    mainColor = g.CreateTransient("HDR", NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA16_FLOAT));
                 }
             }
 
@@ -468,15 +464,20 @@ namespace nkentseu {
                     // qui dessine le tonemap fullscreen vers le swapchain (FBO 0,
                     // bindé par BeginRenderPass de cette passe car colorId=swapchain).
                     NkTextureHandle hdr = mRenderGraph->GetResourceTexture(hdrColorId);
-                    static int sPPLogCount = 0;
-                    if (sPPLogCount < 3) {
-                        sPPLogCount++;
-                        logger.Info("[PP.Execute] frame={0} hdr.id={1} hdr.valid={2} mPostProcess={3}\n",
-                                    sPPLogCount, hdr.id, hdr.IsValid(), (mPostProcess.Get()!=nullptr));
-                    }
                     if (mPostProcess && hdr.IsValid()) {
                         mPostProcess->ExecuteRHI(cmd, hdr);
                     }
+                });
+            }
+
+            // ── DEBUG : pass dediee dessin direct triangle (DESACTIVEE) ────────
+            // Etait utilisee pour isoler le bug PBR Vulkan. RenderDoc a confirme
+            // que le PBR fonctionne. On garde le code en place pour tests futurs.
+            if (false /* has3D */) {
+                auto& dbg = g.AddPass("DebugDirect", NkPassType::NK_UI_OVERLAY);
+                dbg.SetColor(0, colorId, NkLoadOp::NK_LOAD, {0.05f, 0.05f, 0.07f, 1.f});
+                dbg.Execute([this](NkICommandBuffer* cmd) {
+                    if (mRender3D) mRender3D->DebugDrawDirectSwapchain(cmd);
                 });
             }
 

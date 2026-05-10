@@ -1393,7 +1393,7 @@ namespace nkentseu {
             ad.loadOp=ToVkLoadOp(a.loadOp); ad.storeOp=ToVkStoreOp(a.storeOp);
             ad.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE; ad.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
             ad.initialLayout=a.loadOp==NkLoadOp::NK_LOAD?VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED;
-            ad.finalLayout=mCreatingSwapchainRenderPass
+            ad.finalLayout=(mCreatingSwapchainRenderPass || d.finalForPresent)
                 ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
                 : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             colorRefs.PushBack({(uint32)attachments.Size(),VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
@@ -1649,13 +1649,6 @@ namespace nkentseu {
                 }
                 imgInfos.PushBack({samp,tit->view,descLayout});
                 ws.pImageInfo=&imgInfos[imgInfos.Size() - 1];
-                static int sUDLog = 0;
-                if (sUDLog < 80) {
-                    sUDLog++;
-                    NK_VK_LOG("[UDS] write type=%d set=%llu bind=%u tex.id=%llu vkImg=%p layout=%d\n",
-                              (int)w.type, (unsigned long long)w.set.id, w.binding,
-                              (unsigned long long)w.texture.id, (void*)tit->image, (int)descLayout);
-                }
             }
             vkWrites.PushBack(ws);
         }
@@ -1688,13 +1681,6 @@ namespace nkentseu {
     }
 
     void NkVulkanDevice::SubmitAndPresent(NkICommandBuffer* cb) {
-        static int sSPLogCount = 0;
-        const bool sLog = (sSPLogCount < 3);
-        if (sLog) {
-            sSPLogCount++;
-            NK_VK_LOG("[SubmitAndPresent] frame=%d acquired=%d sc=%p cb=%p imgIdx=%u\n",
-                       sSPLogCount, (int)mFrameAcquired, (void*)mSwapchain, (void*)cb, mCurrentImageIdx);
-        }
         if (!mFrameAcquired || mSwapchain == VK_NULL_HANDLE || cb == nullptr) return;
 
         auto& frame = mFrames[mFrameIndex];
@@ -1725,10 +1711,6 @@ namespace nkentseu {
         pi.pSwapchains = &mSwapchain;
         pi.pImageIndices = &mCurrentImageIdx;
         VkResult r = vkQueuePresentKHR(mPresentQueue, &pi);
-        if (sLog) {
-            NK_VK_LOG("[SubmitAndPresent] present r=%d frame=%d imgIdx=%u\n",
-                      (int)r, sSPLogCount, mCurrentImageIdx);
-        }
         if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
             RecreateSwapchain(mWidth, mHeight);
         }
@@ -2058,6 +2040,7 @@ namespace nkentseu {
     VkAttachmentStoreOp NkVulkanDevice::ToVkStoreOp(NkStoreOp op){switch(op){case NkStoreOp::NK_STORE:return VK_ATTACHMENT_STORE_OP_STORE;default:return VK_ATTACHMENT_STORE_OP_DONT_CARE;}}
     VkImageLayout NkVulkanDevice::ToVkImageLayout(NkResourceState s) {
         switch(s){
+            case NkResourceState::NK_UNDEFINED:        return VK_IMAGE_LAYOUT_UNDEFINED;
             case NkResourceState::NK_RENDER_TARGET:    return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             case NkResourceState::NK_DEPTH_READ:       return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
             case NkResourceState::NK_DEPTH_WRITE:      return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;

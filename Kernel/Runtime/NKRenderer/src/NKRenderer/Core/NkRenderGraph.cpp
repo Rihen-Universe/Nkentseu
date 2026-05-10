@@ -363,7 +363,27 @@ namespace nkentseu {
             if (logFrame) logger.Info("[NkRenderGraph] Execute frame={0} : passes={1} swap={2}x{3}\n",
                                        (uint32)sFrameCounter, (uint32)mSorted.Size(), swW, swH);
 
+            // Detecter l'index de la DERNIERE pass qui ecrit dans le swapchain.
+            // Cette pass aura son color finalLayout=PRESENT_SRC_KHR pour que le
+            // vkQueuePresentKHR accepte l'image. Les autres passes swapchain
+            // gardent finalLayout=COLOR_ATTACHMENT_OPTIMAL.
+            int32 lastSwapchainPassIdx = -1;
+            for (int32 i = (int32)mSorted.Size() - 1; i >= 0; --i) {
+                auto& p = *mSorted[(uint32)i];
+                if (!p.enabled || !p.execute) continue;
+                if (p.colors.Empty()) continue;
+                bool writesSwap = false;
+                for (auto& ca : p.colors) {
+                    if (auto* r = FindRes(ca.resId)) {
+                        if (!r->isTransient) { writesSwap = true; break; }
+                    }
+                }
+                if (writesSwap) { lastSwapchainPassIdx = i; break; }
+            }
+
+            int32 currentPassIdx = -1;
             for (NkPassBuilder* passPtr : mSorted) {
+                ++currentPassIdx;
                 NkPassBuilder& pass = *passPtr;
                 if (logFrame) logger.Info("[NkRenderGraph]   pass '{0}' enabled={1} hasExecute={2} colors={3} hasDepth={4}\n",
                                            pass.name, pass.enabled, (bool)pass.execute,
@@ -465,10 +485,101 @@ namespace nkentseu {
                         effectiveFb = mDevice->GetSwapchainFramebuffer();
                     }
 
+                    // ── Choix du RenderPass ──────────────────────────────────────
+                    // MEME PROBLEME pour les FB transients que pour le swapchain :
+                    // CreateFramebuffer hardcode loadOp=CLEAR pour son implicit RP.
+                    // Donc une pass VFX/PostProcess qui declare loadOp=LOAD sur le
+                    // meme HDR transient va EFFACER le HDR via son propre FB cache
+                    // (l'implicit RP de ce FB a loadOp=CLEAR par defaut). Resultat :
+                    // Geometry rend dans HDR, puis VFX/PostProcess re-BeginRP sur le
+                    // meme HDR avec loadOp=CLEAR -> efface tout. Le tonemap suivant
+                    // sample HDR vide -> ecran gris.
+                    // FIX : creer un RP custom par (pass + loadOp_combo) AUSSI pour
+                    // les FB transients, et l'utiliser via effectiveRP. Le VkFB est
+                    // compatible avec tout RP de memes formats, donc on peut reutiliser
+                    // le FB cache avec un RP different.
+                    NkRenderPassHandle effectiveRP{};
+                    if (needsCustomFB && !pass.colors.Empty()) {
+                        NkString rpKey = pass.name;
+                        rpKey += "_T_";
+                        rpKey += (pass.colors[0].loadOp == NkLoadOp::NK_CLEAR) ? "C" : "L";
+                        if (pass.hasDepth) {
+                            rpKey += (pass.depth.loadOp == NkLoadOp::NK_CLEAR) ? "_DC" : "_DL";
+                        } else {
+                            rpKey += "_DX";
+                        }
+                        if (auto* cachedRP = mSwapchainRPCache.Find(rpKey)) {
+                            effectiveRP = *cachedRP;
+                        } else {
+                            NkRenderPassDesc rpd;
+                            for (auto& ca : pass.colors) {
+                                if (auto* r = FindRes(ca.resId)) {
+                                    NkAttachmentDesc ad;
+                                    ad.format  = r->transientDesc.format;
+                                    ad.loadOp  = ca.loadOp;
+                                    ad.storeOp = NkStoreOp::NK_STORE;
+                                    rpd.AddColor(ad);
+                                }
+                            }
+                            if (pass.hasDepth) {
+                                if (auto* r = FindRes(pass.depth.resId)) {
+                                    NkAttachmentDesc dad;
+                                    dad.format  = r->transientDesc.format;
+                                    dad.loadOp  = pass.depth.loadOp;
+                                    dad.storeOp = NkStoreOp::NK_STORE;
+                                    rpd.SetDepth(dad);
+                                }
+                            }
+                            effectiveRP = mDevice->CreateRenderPass(rpd);
+                            if (effectiveRP.IsValid())
+                                mSwapchainRPCache.Insert(rpKey, effectiveRP);
+                        }
+                    } else if (!needsCustomFB && !pass.colors.Empty()) {
+                        // Ce pass ecrit dans le swapchain. On cree un RP custom
+                        // compatible avec le swapchain FB (= mêmes nombre/formats
+                        // d'attachments, donc TOUJOURS color + depth meme si
+                        // pass.hasDepth=false), avec les loadOp demandes par la
+                        // pass et finalLayout=PRESENT pour la DERNIERE pass.
+                        const bool isLastSwap = (currentPassIdx == lastSwapchainPassIdx);
+                        NkString rpKey = pass.name;
+                        rpKey += "_";
+                        rpKey += (pass.colors[0].loadOp == NkLoadOp::NK_CLEAR) ? "C" : "L";
+                        if (pass.hasDepth) {
+                            rpKey += (pass.depth.loadOp == NkLoadOp::NK_CLEAR) ? "_DC" : "_DL";
+                        } else {
+                            rpKey += "_DX"; // depth ignored mais present
+                        }
+                        if (isLastSwap) rpKey += "_P"; // finalLayout=PRESENT
+
+                        if (auto* cachedRP = mSwapchainRPCache.Find(rpKey)) {
+                            effectiveRP = *cachedRP;
+                        } else {
+                            NkRenderPassDesc rpd;
+                            for (auto& ca : pass.colors) {
+                                NkAttachmentDesc ad;
+                                ad.format  = mDevice->GetSwapchainFormat();
+                                ad.loadOp  = ca.loadOp;
+                                ad.storeOp = NkStoreOp::NK_STORE;
+                                rpd.AddColor(ad);
+                            }
+                            // Toujours ajouter un depth attachment (compat FB swapchain).
+                            // Si la pass ne declare pas depth, on met DONT_CARE / DONT_CARE.
+                            NkAttachmentDesc dad;
+                            dad.format  = mDevice->GetSwapchainDepthFormat();
+                            dad.loadOp  = pass.hasDepth ? pass.depth.loadOp : NkLoadOp::NK_DONT_CARE;
+                            dad.storeOp = NkStoreOp::NK_DONT_CARE;
+                            rpd.SetDepth(dad);
+                            rpd.finalForPresent = isLastSwap;
+                            effectiveRP = mDevice->CreateRenderPass(rpd);
+                            if (effectiveRP.IsValid())
+                                mSwapchainRPCache.Insert(rpKey, effectiveRP);
+                        }
+                    }
+
                     NkRect2D area((int32)0, (int32)0, (int32)rpW, (int32)rpH);
-                    // RP laisse a {} : BeginRenderPass fait fallback sur le RP
-                    // associe au framebuffer (cf. NkVulkanCommandBuffer.cpp:67-70).
-                    cmd->BeginRenderPass(NkRenderPassHandle{}, effectiveFb, area);
+                    // Si effectiveRP est invalide (cas FB custom), BeginRenderPass
+                    // fait fallback sur le RP associe au FB.
+                    cmd->BeginRenderPass(effectiveRP, effectiveFb, area);
 
                     // Vulkan : le viewport et scissor sont en VK_DYNAMIC_STATE_*,
                     // donc ils DOIVENT etre set apres BindGraphicsPipeline (sinon
@@ -509,6 +620,11 @@ namespace nkentseu {
                 if (it->Second.IsValid()) mDevice->DestroyFramebuffer(it->Second);
             }
             mFBCache.Clear();
+            // Liberer aussi les RPs custom swapchain cree par pass.
+            for (auto it = mSwapchainRPCache.begin(); it != mSwapchainRPCache.end(); ++it) {
+                if (it->Second.IsValid()) mDevice->DestroyRenderPass(it->Second);
+            }
+            mSwapchainRPCache.Clear();
             mPasses.Clear();
             mSorted.Clear();
             mResources.Clear();
