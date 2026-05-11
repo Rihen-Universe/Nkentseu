@@ -58,8 +58,7 @@ namespace nkentseu {
                 void SubmitMany     (const NkDrawCall3D* dcs, uint32 count);
                 void SubmitInstanced(const NkDrawCallInstanced& dc);
                 void SubmitSkinned  (const NkDrawCallSkinned& dc);
-                void SubmitSkinnedTinted(const NkDrawCallSkinned& dc,
-                                        NkVec3f tint, float32 alpha=1.f);
+                void SubmitSkinnedTinted(const NkDrawCallSkinned& dc, NkVec3f tint, float32 alpha=1.f);
 
                 void SetWireframe(bool e) { mWireframe=e; }
 

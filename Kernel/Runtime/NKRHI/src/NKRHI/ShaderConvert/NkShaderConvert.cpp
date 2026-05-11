@@ -269,6 +269,12 @@ namespace nkentseu {
             opts.version = 450;
             opts.es      = false;
             compiler.set_common_options(opts);
+            // Renommer la variable push_constant en _PushConstants pour que
+            // NkOpenGLCommandBuffer::PushConstants (emulation GL) puisse la trouver.
+            auto resources = compiler.get_shader_resources();
+            for (auto& pc_res : resources.push_constant_buffers) {
+                compiler.set_name(pc_res.id, "_PushConstants");
+            }
             out.source  = NkString(compiler.compile().c_str());
             out.success = true;
         } catch (const std::exception& e) {
