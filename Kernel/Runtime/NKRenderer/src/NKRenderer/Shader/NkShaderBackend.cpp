@@ -14,6 +14,8 @@
 // que NKRenderer => ABI consistant). Si NK_RHI_GLSLANG_ENABLED n'est pas defini,
 // la fonction renvoie un stub d'erreur et le device Vulkan failera proprement.
 #include "NKRHI/SL/NkGLSLCompiler.h"
+#include "NKRHI/ShaderConvert/NkShaderAnnotations.h"
+#include "NKRHI/ShaderConvert/NkShaderConvert.h"
 #if defined(NK_BACKEND_DX11)
 #  include <d3dcompiler.h>
 #endif
@@ -23,18 +25,239 @@
 
 #include <cstring>
 #include <cstdio>
+#include <string>
+#include <vector>
 
 namespace nkentseu {
     namespace renderer {
 
         // =========================================================================
         // GLSL OpenGL
+        //
+        // Convention cross-API : la source canonique est en GLSL Vulkan (avec
+        // annotations semantiques + `layout(set=,binding=)` + `push_constant`).
+        // Le backend GL fait le pipeline complet :
+        //   1. Strip annotations @xxx (NkShaderAnnotationParser).
+        //   2. GLSL VK -> SPIR-V (glslang) -> GLSL OpenGL (SPIRV-Cross).
+        //   3. Compile GL via glCreateShader/glCompileShader.
+        // Si la source est deja en GLSL OpenGL (legacy : pas de `layout(set=`),
+        // on bypass la conversion (compile direct).
         // =========================================================================
+
+        // Transforme la sortie SPIRV-Cross pour un push_constant :
+        //   "struct PC { float m0; float m1; }; uniform PC _PushConstants;"
+        //   → "uniform vec4 _PushConstants[N];"
+        // et patche les accès membres "_PushConstants.m0" → "_PushConstants[0].x".
+        // Compatible avec NkOpenGLCommandBuffer::PushConstants qui cherche _PushConstants[0].
+        static NkString PatchPushConstantsForGL(const NkString& nkSrc) {
+            std::string s(nkSrc.CStr(), nkSrc.Size());
+            const std::string kVar = "_PushConstants";
+
+            // 1. Trouver "uniform TYPENAME _PushConstants;" — extraire TYPENAME
+            std::string typeName;
+            {
+                const std::string pfx = "uniform ";
+                size_t pos = 0;
+                while ((pos = s.find(pfx, pos)) != std::string::npos) {
+                    size_t a = pos + pfx.size();
+                    while (a < s.size() && (s[a]==' '||s[a]=='\t')) ++a;
+                    size_t ts = a;
+                    while (a < s.size() && s[a]!=' '&&s[a]!='\t'&&s[a]!='\n'&&s[a]!=';') ++a;
+                    std::string tn = s.substr(ts, a - ts);
+                    while (a < s.size() && (s[a]==' '||s[a]=='\t')) ++a;
+                    if (s.substr(a, kVar.size()) == kVar) { typeName = tn; break; }
+                    ++pos;
+                }
+            }
+            // Pas de push_constant struct, ou deja au bon format vec4
+            if (typeName.empty() || typeName == "vec4") return nkSrc;
+
+            // 2. Parser "struct TYPENAME { float m0; ... };"
+            struct Member { std::string name; int floats; };
+            std::vector<Member> members;
+            {
+                std::string pat = "struct " + typeName;
+                size_t pos = s.find(pat);
+                if (pos == std::string::npos) return nkSrc;
+                size_t bo = s.find('{', pos + pat.size());
+                if (bo == std::string::npos) return nkSrc;
+                // Brace matching
+                int depth = 1; size_t p = bo + 1;
+                while (p < s.size() && depth > 0) {
+                    if (s[p]=='{') ++depth;
+                    else if (s[p]=='}') --depth;
+                    ++p;
+                }
+                size_t bc = p - 1; // position du '}'
+                // Parser les membres ligne par ligne
+                size_t bp = bo + 1;
+                while (bp < bc) {
+                    while (bp < bc && (s[bp]==' '||s[bp]=='\t'||s[bp]=='\r'||s[bp]=='\n')) ++bp;
+                    if (bp >= bc) break;
+                    // type
+                    size_t ts = bp;
+                    while (bp < bc && s[bp]!=' '&&s[bp]!='\t') ++bp;
+                    std::string mtype = s.substr(ts, bp - ts);
+                    while (bp < bc && (s[bp]==' '||s[bp]=='\t')) ++bp;
+                    // nom (jusqu'au ';' ou newline)
+                    size_t ns = bp;
+                    while (bp < bc && s[bp]!=';'&&s[bp]!='\n'&&s[bp]!='\r') ++bp;
+                    std::string mname = s.substr(ns, bp - ns);
+                    while (!mname.empty() && (mname.back()==' '||mname.back()=='\t')) mname.pop_back();
+                    if (bp < bc) ++bp; // skip ';'
+                    if (!mname.empty() && !mtype.empty()) {
+                        int fc = 1;
+                        if      (mtype=="vec2") fc = 2;
+                        else if (mtype=="vec3") fc = 3;
+                        else if (mtype=="vec4") fc = 4;
+                        members.push_back({mname, fc});
+                    }
+                }
+            }
+            if (members.empty()) return nkSrc;
+
+            // 3. Nombre de vec4 nécessaires
+            int totalFloats = 0;
+            for (auto& m : members) totalFloats += m.floats;
+            int numVec4 = (totalFloats + 3) / 4;
+            if (numVec4 == 0) numVec4 = 1;
+
+            // 4. Remplacer les accès "_PushConstants.member" → "_PushConstants[slot].(xyzw)"
+            // (avant de toucher à la déclaration struct/uniform)
+            static const char* kComp[] = {"x","y","z","w"};
+            int floatOff = 0;
+            for (auto& m : members) {
+                std::string oldRef = kVar + "." + m.name;
+                int slot = floatOff / 4, comp = floatOff % 4;
+                std::string newRef;
+                if (m.floats == 1) {
+                    newRef = kVar + "[" + std::to_string(slot) + "]." + kComp[comp];
+                } else {
+                    std::string sw;
+                    for (int j = 0; j < m.floats; ++j) sw += kComp[(comp + j) % 4];
+                    newRef = kVar + "[" + std::to_string(slot) + "]." + sw;
+                }
+                size_t pos = 0;
+                while ((pos = s.find(oldRef, pos)) != std::string::npos) {
+                    s.replace(pos, oldRef.size(), newRef);
+                    pos += newRef.size();
+                }
+                floatOff += m.floats;
+            }
+
+            // 5. Remplacer "uniform TYPENAME _PushConstants;" → "uniform vec4 _PushConstants[N];"
+            {
+                std::string oldDecl = "uniform " + typeName + " " + kVar + ";";
+                std::string newDecl = "uniform vec4 " + kVar + "[" + std::to_string(numVec4) + "];";
+                size_t pos = s.find(oldDecl);
+                if (pos != std::string::npos) s.replace(pos, oldDecl.size(), newDecl);
+            }
+
+            // 6. Supprimer la définition "struct TYPENAME { ... };"
+            {
+                std::string pat = "struct " + typeName;
+                size_t pos = s.find(pat);
+                if (pos != std::string::npos) {
+                    size_t bo = s.find('{', pos + pat.size());
+                    if (bo != std::string::npos) {
+                        int depth = 1; size_t p = bo + 1;
+                        while (p < s.size() && depth > 0) {
+                            if (s[p]=='{') ++depth;
+                            else if (s[p]=='}') --depth;
+                            ++p;
+                        }
+                        size_t bc = p - 1;
+                        size_t semi = s.find(';', bc);
+                        size_t end = (semi != std::string::npos) ? semi + 1 : bc + 1;
+                        if (end < s.size() && s[end]=='\n') ++end; // manger le newline
+                        s.erase(pos, end - pos);
+                    }
+                }
+            }
+
+            return NkString(s.c_str());
+        }
+
+        static bool LooksLikeVulkanGlsl(const NkString& src) {
+            // Detecte GLSL Vulkan-style : layout avec 'set=' (dans n'importe quel
+            // ordre de qualificateurs : "layout(set=", "layout(std140, set=", etc.)
+            // ou 'push_constant'. Le token 'set =' peut avoir des espaces autour.
+            const char* s = src.CStr();
+            return strstr(s, "layout(set=")    != nullptr
+                || strstr(s, "layout(set =")   != nullptr
+                || strstr(s, ", set=")          != nullptr  // layout(std140, set=0, ...)
+                || strstr(s, ", set =")         != nullptr
+                || strstr(s, ",set=")           != nullptr
+                || strstr(s, "push_constant")   != nullptr;
+        }
+
+        static ::nkentseu::NkSLStage ToNkSLStage(NkShaderStage s) {
+            switch (s) {
+                case NkShaderStage::NK_VERTEX:    return ::nkentseu::NkSLStage::NK_VERTEX;
+                case NkShaderStage::NK_FRAGMENT:  return ::nkentseu::NkSLStage::NK_FRAGMENT;
+                case NkShaderStage::NK_GEOMETRY:  return ::nkentseu::NkSLStage::NK_GEOMETRY;
+                case NkShaderStage::NK_COMPUTE:   return ::nkentseu::NkSLStage::NK_COMPUTE;
+                case NkShaderStage::NK_TESS_CTRL: return ::nkentseu::NkSLStage::NK_TESS_CONTROL;
+                case NkShaderStage::NK_TESS_EVAL: return ::nkentseu::NkSLStage::NK_TESS_EVAL;
+                default:                          return ::nkentseu::NkSLStage::NK_VERTEX;
+            }
+        }
+
         NkShaderCompileResult NkShaderBackendGL::Compile(const NkString&              src,
                                                         NkShaderStage                stage,
                                                         const NkShaderCompileOptions& opts) {
             NkShaderCompileResult res;
+            if (src.Empty()) { res.errors = "Empty shader source"; return res; }
 
+            // Strip annotations centralise dans NkShaderLibrary au moment du
+            // chargement -- la source recue ici est deja propre.
+            // Phase : si GLSL Vulkan, convertir en GLSL OpenGL via SPIRV-Cross.
+            // Source canonique = VK. Mais on tolere les sources legacy en GL natif
+            // (heuristique : pas de layout(set=,binding=) ni push_constant).
+            NkString glslGL;
+            const char* stageName = (stage == NkShaderStage::NK_VERTEX) ? "VS" : "FS";
+            if (LooksLikeVulkanGlsl(src)) {
+                ::nkentseu::NkShaderConvertResult conv =
+                    ::nkentseu::NkShaderConverter::GlslToGlsl(src, ToNkSLStage(stage), "shader");
+                if (!conv.success) {
+                    res.success = false;
+                    res.errors  = NkString("VK->GL conversion failed: ") + conv.errors;
+                    logger.Errorf("[NkShaderBackendGL] %s VK->GL FAIL: %s\n",
+                                  stageName, res.errors.CStr());
+                    return res;
+                }
+                glslGL = PatchPushConstantsForGL(conv.source);
+                logger.Info("[NkShaderBackendGL] {0} VK->GL OK: {1} chars\n",
+                            NkString(stageName), (uint32)glslGL.Size());
+            } else {
+                glslGL = src;
+                logger.Info("[NkShaderBackendGL] {0} native GL (pas VK): {1} chars\n",
+                            NkString(stageName), (uint32)glslGL.Size());
+            }
+
+            // Ecrit le shader GL converti dans Build/debug_gl/ pour inspection.
+            // Utile pour verifier que la conversion VK->GL produit du code valide.
+            {
+                static int sDbgIdx = 0;
+                char dbgPath[256];
+    #ifdef _WIN32
+                system("if not exist \"Build\\debug_gl\" mkdir \"Build\\debug_gl\"");
+    #else
+                system("mkdir -p Build/debug_gl");
+    #endif
+                snprintf(dbgPath, sizeof(dbgPath), "Build/debug_gl/%03d_%s.gl.glsl",
+                         sDbgIdx++, stageName);
+                FILE* df = fopen(dbgPath, "wb");
+                if (df) { fwrite(glslGL.CStr(), 1, glslGL.Size(), df); fclose(df); }
+            }
+
+            // glslGL contient le source GLSL OpenGL converti (ou le source natif GL).
+            // On le stocke TOUJOURS dans res.preprocessed pour que CompileVF puisse
+            // l'utiliser comme glslSource dans NkShaderStageDesc — sinon le device
+            // OpenGL recevrait le source VK GLSL original et rejetterait layout(set=...).
+            res.preprocessed = glslGL;
+
+            // ── Compilation GL (si runtime GL disponible dans ce module) ──────────
     #if defined(NK_BACKEND_GL)
             GLenum glStage;
             switch (stage) {
@@ -46,7 +269,7 @@ namespace nkentseu {
             }
 
             GLuint shader = glCreateShader(glStage);
-            const char* code = src.CStr();
+            const char* code = glslGL.CStr();
             glShaderSource(shader, 1, &code, nullptr);
             glCompileShader(shader);
 
@@ -59,17 +282,20 @@ namespace nkentseu {
                 res.success = false;
                 return res;
             }
-            // Store shader ID as "bytecode" (4 bytes = GLuint)
+            // Store pre-compiled shader ID as "bytecode" (4 bytes = GLuint).
+            // Le device GL utilisera ce GLuint directement lors du link.
             res.bytecode.Resize(sizeof(GLuint));
             memcpy(res.bytecode.Data(), &shader, sizeof(GLuint));
             res.success = true;
     #else
-            // Pas de backend GL : validation syntaxique minimale
-            res.success = !src.Empty();
-            if (!res.success) res.errors = "Empty shader source";
-            // Stocker la source telle quelle
-            res.bytecode.Resize(src.Size()+1);
-            memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
+            // Pas de runtime GL dans ce module : on passe le source GL converti
+            // via preprocessed (deja fait ci-dessus). CompileVF l'utilisera comme
+            // glslSource, et le device OpenGL le compilera lui-meme via glCreateShader.
+            res.success = !glslGL.Empty();
+            if (!res.success) res.errors = "Empty converted GL source";
+            // bytecode = source GL texte (le device peut l'utiliser comme source)
+            res.bytecode.Resize(glslGL.Size() + 1);
+            memcpy(res.bytecode.Data(), glslGL.CStr(), glslGL.Size() + 1);
     #endif
             return res;
         }
@@ -108,8 +334,8 @@ namespace nkentseu {
             logger.Info("[NkShaderBackendVK] Compile {0} start (src={1} bytes)\n",
                         stageName, (uint32)src.Size());
 
-            // NkGLSLToSPIRV est dispo si NKRHI est compile avec NK_RHI_GLSLANG_ENABLED.
-            // Sinon le header expose un stub qui retourne errorLog non-null.
+            // Strip annotations centralise dans NkShaderLibrary au moment du
+            // chargement -- la source recue ici est deja propre.
             const char* entry = opts.entryPoint.Empty() ? "main" : opts.entryPoint.CStr();
             ::nkentseu::NkGLSLCompileResult c = ::nkentseu::NkGLSLToSPIRV(
                 ToRHIStage(stage), src.CStr(), entry);
@@ -134,11 +360,28 @@ namespace nkentseu {
 
         // =========================================================================
         // HLSL DX11 (D3DCompile)
+        //
+        // Source canonique = GLSL Vulkan. Si la source recue est du GLSL VK
+        // (detecte via LooksLikeVulkanGlsl), on fait la conversion GLSL->HLSL SM5
+        // via SPIRV-Cross avant de passer a D3DCompile. Sinon on suppose que
+        // c'est deja du HLSL (cas custom via NkMaterialTemplateDesc.vertSrcDX11).
         // =========================================================================
         NkShaderCompileResult NkShaderBackendDX11::Compile(const NkString&              src,
                                                             NkShaderStage                stage,
                                                             const NkShaderCompileOptions& opts) {
             NkShaderCompileResult res;
+
+            // Auto-convert GLSL VK → HLSL SM5
+            NkString hlslSrc = src;
+            if (LooksLikeVulkanGlsl(src)) {
+                auto conv = ::nkentseu::NkShaderConverter::GlslToHlsl(
+                    src, ToNkSLStage(stage), 50, "dx11_shader");
+                if (!conv.success) {
+                    res.errors = NkString("[DX11] GLSL->HLSL SM5 failed: ") + conv.errors;
+                    return res;
+                }
+                hlslSrc = conv.source;
+            }
 
     #if defined(NK_BACKEND_DX11)
             const char* target;
@@ -154,7 +397,7 @@ namespace nkentseu {
             if (opts.optimize) flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
 
             ID3DBlob *codeBlob=nullptr, *errBlob=nullptr;
-            HRESULT hr = D3DCompile(src.CStr(), src.Size(), nullptr, nullptr, nullptr,
+            HRESULT hr = D3DCompile(hlslSrc.CStr(), hlslSrc.Size(), nullptr, nullptr, nullptr,
                                     opts.entryPoint.CStr(), target, flags, 0,
                                     &codeBlob, &errBlob);
             if (FAILED(hr)) {
@@ -170,43 +413,78 @@ namespace nkentseu {
             if (codeBlob) codeBlob->Release();
             res.success = true;
     #else
-            res.success = !src.Empty();
+            // Hors DX11 : stocker le HLSL converti (utilisable pour inspection/debug)
+            res.success = !hlslSrc.Empty();
             if (!res.success) { res.errors = "Empty HLSL source"; return res; }
-            res.bytecode.Resize(src.Size()+1);
-            memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
+            res.bytecode.Resize(hlslSrc.Size()+1);
+            memcpy(res.bytecode.Data(), hlslSrc.CStr(), hlslSrc.Size()+1);
     #endif
             return res;
         }
 
         // =========================================================================
         // HLSL DX12 (DXC)
+        //
+        // Meme convention : source canonique = GLSL VK, conversion GLSL->HLSL SM6
+        // via SPIRV-Cross avant compilation DXC. Le stub DXC sera remplace en F.B.3
+        // par la vraie chaine IDxcCompiler3, mais la conversion GLSL->HLSL est deja
+        // fonctionnelle et peut etre validee independamment.
         // =========================================================================
         NkShaderCompileResult NkShaderBackendDX12::Compile(const NkString&              src,
                                                             NkShaderStage                stage,
                                                             const NkShaderCompileOptions& opts) {
             NkShaderCompileResult res;
-            // DXC COM API — similaire à DX11 mais avec IDxcCompiler3
-            // Stub : même comportement sans backend
-            res.success = !src.Empty();
+
+            // Auto-convert GLSL VK → HLSL SM6
+            NkString hlslSrc = src;
+            if (LooksLikeVulkanGlsl(src)) {
+                auto conv = ::nkentseu::NkShaderConverter::GlslToHlsl(
+                    src, ToNkSLStage(stage), 60, "dx12_shader");
+                if (!conv.success) {
+                    res.errors = NkString("[DX12] GLSL->HLSL SM6 failed: ") + conv.errors;
+                    return res;
+                }
+                hlslSrc = conv.source;
+            }
+
+            // Stub DXC (F.B.3) : stocker le HLSL SM6 converti comme bytecode.
+            // Le NkDirectX12Device::CreateShader lira ce source et l'envoiera a DXC.
+            res.success = !hlslSrc.Empty();
             if (!res.success) { res.errors = "Empty HLSL SM6 source"; return res; }
-            res.bytecode.Resize(src.Size()+1);
-            memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
+            res.bytecode.Resize(hlslSrc.Size()+1);
+            memcpy(res.bytecode.Data(), hlslSrc.CStr(), hlslSrc.Size()+1);
             return res;
         }
 
         // =========================================================================
         // MSL (Metal Shading Language)
+        //
+        // Source canonique = GLSL VK, conversion GLSL->MSL via SPIRV-Cross.
+        // Le MTLLibrary est compile au runtime par Metal (pas besoin de bytecode
+        // intermediaire — on retourne le source MSL comme bytecode).
         // =========================================================================
         NkShaderCompileResult NkShaderBackendMSL::Compile(const NkString&              src,
                                                             NkShaderStage                stage,
                                                             const NkShaderCompileOptions& opts) {
             NkShaderCompileResult res;
-            // Sur macOS : MTLLibrary compilation via Objective-C Metal API
-            // Retourner la source MSL telle quelle (compilée au runtime par Metal)
-            res.success = !src.Empty();
+
+            // Auto-convert GLSL VK → MSL
+            NkString mslSrc = src;
+            if (LooksLikeVulkanGlsl(src)) {
+                auto conv = ::nkentseu::NkShaderConverter::GlslToMsl(
+                    src, ToNkSLStage(stage), "msl_shader");
+                if (!conv.success) {
+                    res.errors = NkString("[MSL] GLSL->MSL failed: ") + conv.errors;
+                    return res;
+                }
+                mslSrc = conv.source;
+            }
+
+            // Source MSL retournee telle quelle (Metal compile au runtime via MTLLibrary)
+            res.success = !mslSrc.Empty();
             if (!res.success) { res.errors = "Empty MSL source"; return res; }
-            res.bytecode.Resize(src.Size()+1);
-            memcpy(res.bytecode.Data(), src.CStr(), src.Size()+1);
+            res.bytecode.Resize(mslSrc.Size()+1);
+            memcpy(res.bytecode.Data(), mslSrc.CStr(), mslSrc.Size()+1);
             return res;
         }
 

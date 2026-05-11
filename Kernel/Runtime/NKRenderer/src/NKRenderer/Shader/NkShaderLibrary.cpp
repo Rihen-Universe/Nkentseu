@@ -4,6 +4,8 @@
 #include "NkShaderLibrary.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"
+#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKRHI/ShaderConvert/NkShaderAnnotations.h"
 #include <cstdio>
 #include <sys/stat.h>
 #include <cstring>
@@ -13,10 +15,116 @@ namespace nkentseu {
 
         NkShaderLibrary::~NkShaderLibrary() { Shutdown(); }
 
+        // ─────────────────────────────────────────────────────────────────────────
+        // Test au demarrage : valider que NkShaderConverter peut convertir un
+        // VRAI shader GLSL Vulkan (le PBR FS complexe = ~16KB avec samplerCube,
+        // sampler2DShadow, push_constant, uniform blocks, arrays) vers tous les
+        // backends. Ecrit les sorties dans Build/cross_api_output/ pour
+        // inspection manuelle (verifier que la conversion produit du code
+        // coherent dans chaque langage).
+        // ─────────────────────────────────────────────────────────────────────────
+        static bool ReadFileToString(const char* path, NkString& out) {
+            FILE* f = fopen(path, "rb");
+            if (!f) return false;
+            fseek(f, 0, SEEK_END);
+            long sz = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            out.Resize((uint32)sz);
+            fread(out.Data(), 1, (size_t)sz, f);
+            fclose(f);
+            return true;
+        }
+
+        static void WriteStringToFile(const char* path, const NkString& s) {
+            FILE* f = fopen(path, "wb");
+            if (!f) {
+                logger.Errorf("[CrossAPITest] Impossible d'ecrire dans %s\n", path);
+                return;
+            }
+            fwrite(s.CStr(), 1, (size_t)s.Size(), f);
+            fclose(f);
+        }
+
+        static void TestCrossApiConversion() {
+            // Tente de charger un VRAI shader pour stress-test. Si fichier introuvable,
+            // fallback sur un shader trivial inline.
+            const char* kPbrPath = "Resources/NKRenderer/Shaders/PBR/VK/pbr.frag.vk.glsl";
+            NkString src;
+            NkString name;
+            if (ReadFileToString(kPbrPath, src) && !src.Empty()) {
+                name = "pbr.frag";
+                logger.Info("[CrossAPITest] Chargement {0} ({1} bytes)\n",
+                            NkString(kPbrPath), (uint32)src.Size());
+            } else {
+                logger.Info("[CrossAPITest] Fallback shader trivial (pbr.frag.vk.glsl introuvable)\n");
+                src = NkString(
+                    "#version 460 core\n"
+                    "layout(location=0) in  vec2 vUV;\n"
+                    "layout(location=0) out vec4 oColor;\n"
+                    "layout(set=0, binding=0) uniform sampler2D uTex;\n"
+                    "layout(set=0, binding=1, std140) uniform Block {\n"
+                    "    vec4  tint;\n"
+                    "    float exposure;\n"
+                    "} u;\n"
+                    "layout(push_constant) uniform PC { vec2 offset; } pc;\n"
+                    "void main() {\n"
+                    "    vec4 c = texture(uTex, vUV + pc.offset) * u.tint;\n"
+                    "    oColor = vec4(c.rgb * u.exposure, c.a);\n"
+                    "}\n"
+                );
+                name = "test_fs";
+            }
+            const NkSLStage st = NkSLStage::NK_FRAGMENT;
+            const char* kOutDir = "Build/cross_api_output";
+
+            auto reportAndSave = [&](const char* target, const char* outName,
+                                     const NkShaderConvertResult& r) {
+                if (r.success) {
+                    logger.Info("[CrossAPITest] {0}: OK ({1} chars) -> {2}\n",
+                                NkString(target), (uint32)r.source.Size(),
+                                NkString(outName));
+                    NkString outPath(kOutDir);
+                    outPath += "/";
+                    outPath += outName;
+                    WriteStringToFile(outPath.CStr(), r.source);
+                } else {
+                    logger.Errorf("[CrossAPITest] %s: FAIL -- %s\n",
+                                  target, r.errors.CStr());
+                }
+            };
+
+            logger.Info("[CrossAPITest] === Test conversion {0} -> {{GL, HLSL SM5, HLSL SM6, MSL}} ===\n", name);
+
+            // Cree le dossier de sortie (mkdir-like). Win32 + POSIX gerees via NK_MKDIR
+            // inferable, mais ici on tente direct l'ecriture (fopen wb echouera si
+            // le dossier n'existe pas).
+        #ifdef _WIN32
+            system("if not exist \"Build\\cross_api_output\" mkdir \"Build\\cross_api_output\"");
+        #else
+            system("mkdir -p Build/cross_api_output");
+        #endif
+
+            reportAndSave("VK->GL",       (name + ".gl.glsl"     ).CStr(),
+                          NkShaderConverter::GlslToGlsl(src, st, name));
+            reportAndSave("VK->HLSL SM5", (name + ".sm5.hlsl"    ).CStr(),
+                          NkShaderConverter::GlslToHlsl(src, st, 50, name));
+            reportAndSave("VK->HLSL SM6", (name + ".sm6.hlsl"    ).CStr(),
+                          NkShaderConverter::GlslToHlsl(src, st, 60, name));
+            reportAndSave("VK->MSL",      (name + ".msl"         ).CStr(),
+                          NkShaderConverter::GlslToMsl (src, st, name));
+            logger.Info("[CrossAPITest] === End -> outputs dans {0}/ ===\n", NkString(kOutDir));
+        }
+
         bool NkShaderLibrary::Init(NkIDevice* device, NkGraphicsApi api, bool useNkSL) {
             mDevice  = device;
             mApi     = api;
             mBackend = NkCreateShaderBackend(api, useNkSL);
+            // Validation infrastructure cross-API au demarrage (logge result).
+            // Re-active apres fix NKRHI.jenga (ordre include NKSPIRVCross avant
+            // VulkanSDK/Include qui causait un mismatch ABI -> heap corruption
+            // dans le destructeur SPIRV-Cross).
+            static bool sTestDone = false;
+            if (!sTestDone) { TestCrossApiConversion(); sTestDone = true; }
             return mBackend != nullptr;
         }
 
@@ -26,16 +134,23 @@ namespace nkentseu {
         }
 
         // ── Lecture fichier ───────────────────────────────────────────────────────
+        // Strip automatiquement les annotations semantiques @xxx au chargement,
+        // pour que tous les consommateurs (backend GL/VK/DX/MSL, glslang,
+        // SPIRV-Cross) recoivent du GLSL Vulkan natif sans aucun marker `@xxx`
+        // (qui ferait planter le compilateur). La metadata extraite n'est pas
+        // conservee ici (sera re-extraite par l'UI editeur de materiaux a la
+        // demande, sur demande explicite via NkShaderAnnotationParser::Parse).
         NkString NkShaderLibrary::ReadFile(const NkString& path) {
             FILE* f = fopen(path.CStr(), "rb");
             if (!f) return "";
             fseek(f, 0, SEEK_END);
             long sz = ftell(f);
             fseek(f, 0, SEEK_SET);
-            NkString s; s.Resize((uint32)sz);
-            fread(s.Data(), 1, (size_t)sz, f);
+            NkString raw; raw.Resize((uint32)sz);
+            fread(raw.Data(), 1, (size_t)sz, f);
             fclose(f);
-            return s;
+            // Strip annotations -> shader prêt à passer aux compilateurs/backends.
+            return NkShaderAnnotationParser::StripAnnotations(raw);
         }
 
         uint64 NkShaderLibrary::GetFileMtime(const NkString& path) {
@@ -60,6 +175,11 @@ namespace nkentseu {
             NkShaderCompileOptions opts;
             opts.optimize = true;
 
+            // Backend GL stocke le GLSL converti dans preprocessed (VK -> GL).
+            // On conserve ces sources converties pour les passer a glslSource.
+            NkString vertGlsl = vertSrc;
+            NkString fragGlsl = fragSrc;
+
             bool ok = true;
             if (!vertSrc.Empty()) {
                 auto res = mBackend->Compile(vertSrc, NkShaderStage::NK_VERTEX, opts);
@@ -69,6 +189,7 @@ namespace nkentseu {
                     ok = false;
                 } else {
                     prog.vertBytecode = res.bytecode;
+                    if (!res.preprocessed.Empty()) vertGlsl = res.preprocessed;
                 }
             }
             if (!fragSrc.Empty()) {
@@ -79,6 +200,7 @@ namespace nkentseu {
                     ok = false;
                 } else {
                     prog.fragBytecode = res.bytecode;
+                    if (!res.preprocessed.Empty()) fragGlsl = res.preprocessed;
                 }
             }
 
@@ -88,11 +210,13 @@ namespace nkentseu {
                     mDevice->DestroyShader(prog.rhiHandle);
 
                 // Cf CompileVF : une SEULE entree par stage, GLSL + SPIRV combines.
+                // glslSource = source convertie pour le backend cible (GL GLSL si GL,
+                // VK GLSL sinon). Le device choisit entre glslSource et spirvBinary.
                 NkShaderDesc desc;
                 if (!vertSrc.Empty()) {
                     ::nkentseu::NkShaderStageDesc vs{};
                     vs.stage      = ::nkentseu::NkShaderStage::NK_VERTEX;
-                    vs.glslSource = vertSrc.CStr();
+                    vs.glslSource = vertGlsl.CStr();
                     vs.entryPoint = "main";
                     if (!prog.vertBytecode.Empty()) {
                         vs.spirvBinary.Resize((uint32)prog.vertBytecode.Size());
@@ -105,7 +229,7 @@ namespace nkentseu {
                 if (!fragSrc.Empty()) {
                     ::nkentseu::NkShaderStageDesc fs{};
                     fs.stage      = ::nkentseu::NkShaderStage::NK_FRAGMENT;
-                    fs.glslSource = fragSrc.CStr();
+                    fs.glslSource = fragGlsl.CStr();
                     fs.entryPoint = "main";
                     if (!prog.fragBytecode.Empty()) {
                         fs.spirvBinary.Resize((uint32)prog.fragBytecode.Size());
@@ -176,11 +300,22 @@ namespace nkentseu {
             NkShaderCompileOptions opts; opts.optimize = false;
 
             // glslang -> SPIR-V (utile pour Vulkan, optionnel pour OpenGL).
+            // Le backend GL stocke aussi le GLSL converti (VK -> GL) dans preprocessed.
             auto vr = mBackend->Compile(vSrc, NkShaderStage::NK_VERTEX,   opts);
             auto fr = mBackend->Compile(fSrc, NkShaderStage::NK_FRAGMENT,  opts);
             // On ne fail PAS si glslang echoue : OpenGL peut compiler le GLSL directement.
             if (vr.success) prog.vertBytecode = vr.bytecode;
             if (fr.success) prog.fragBytecode = fr.bytecode;
+
+            // glslSource = source convertie pour le backend cible. Pour le backend GL,
+            // preprocessed contient le GLSL OpenGL (sans layout(set=...) ni push_constant).
+            // Pour Vulkan, preprocessed est vide -> on garde le VK GLSL original.
+            const char* vsGlsl = (!vr.preprocessed.Empty()) ? vr.preprocessed.CStr() : vSrc.CStr();
+            const char* fsGlsl = (!fr.preprocessed.Empty()) ? fr.preprocessed.CStr() : fSrc.CStr();
+            logger.Info("[CompileVF] '{0}' vsGlsl={1} chars (conv={2}) fsGlsl={3} chars (conv={4})\n",
+                        prog.name,
+                        (uint32)(vsGlsl ? strlen(vsGlsl) : 0), !vr.preprocessed.Empty() ? 1 : 0,
+                        (uint32)(fsGlsl ? strlen(fsGlsl) : 0), !fr.preprocessed.Empty() ? 1 : 0);
 
             // Une SEULE entree NkShaderStageDesc par stage : sinon le backend
             // Vulkan recoit 2 stages NK_VERTEX (un pour GLSL, un pour SPIRV) et
@@ -191,7 +326,7 @@ namespace nkentseu {
             {
                 ::nkentseu::NkShaderStageDesc vs{};
                 vs.stage      = ::nkentseu::NkShaderStage::NK_VERTEX;
-                vs.glslSource = vSrc.CStr();
+                vs.glslSource = vsGlsl;
                 vs.entryPoint = "main";
                 if (!prog.vertBytecode.Empty()) {
                     vs.spirvBinary.Resize((uint32)prog.vertBytecode.Size());
@@ -203,7 +338,7 @@ namespace nkentseu {
 
                 ::nkentseu::NkShaderStageDesc fs{};
                 fs.stage      = ::nkentseu::NkShaderStage::NK_FRAGMENT;
-                fs.glslSource = fSrc.CStr();
+                fs.glslSource = fsGlsl;
                 fs.entryPoint = "main";
                 if (!prog.fragBytecode.Empty()) {
                     fs.spirvBinary.Resize((uint32)prog.fragBytecode.Size());
@@ -235,39 +370,9 @@ namespace nkentseu {
         NkShaderHandle NkShaderLibrary::LoadOrCompileVF(const NkString& materialName,
                                                          const NkString& fallbackVS,
                                                          const NkString& fallbackFS) {
-            logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' (api={1})\n",
-                        materialName, (int)mApi);
-            // Backend + extension selectionne d'apres l'API courante. Convention :
-            //   Resources/NKRenderer/Shaders/<MaterialName>/<BackendDir>/
-            //                              <materialname>.<stage>.<ext>
-            // Chaque backend a son langage natif :
-            //   GL    -> GLSL OpenGL natif (uniforme blocks, pas de set=)
-            //   VK    -> GLSL Vulkan (set=N, layout(push_constant), etc.)
-            //   DX11  -> HLSL SM5 (cbuffer, register(b/t/s), SV_*)
-            //   DX12  -> HLSL SM6 (idem + bindless support)
-            //   MSL   -> Metal Shading Language (struct + [[buffer(N)]])
-            //   NkSL  -> NkSL (langage interne, transpile vers tous les autres)
-            const char* backendDir = "GL";
-            const char* extVS      = "vert.gl.glsl";
-            const char* extFS      = "frag.gl.glsl";
-            switch (mApi) {
-                case NkGraphicsApi::NK_GFX_API_VULKAN:
-                    backendDir = "VK";
-                    extVS = "vert.vk.glsl"; extFS = "frag.vk.glsl"; break;
-                case NkGraphicsApi::NK_GFX_API_DX11:
-                    backendDir = "DX11";
-                    extVS = "vert.dx11.hlsl"; extFS = "frag.dx11.hlsl"; break;
-                case NkGraphicsApi::NK_GFX_API_DX12:
-                    backendDir = "DX12";
-                    extVS = "vert.dx12.hlsl"; extFS = "frag.dx12.hlsl"; break;
-                case NkGraphicsApi::NK_GFX_API_METAL:
-                    backendDir = "MSL";
-                    extVS = "vert.metal.msl"; extFS = "frag.metal.msl"; break;
-                default: break;   // OpenGL / OpenGLES / Software gardent la convention GL
-            }
+            logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' (api={1})\n", materialName, (int)mApi);
 
-            // Lower-case le material name pour l'extension fichier (convention
-            // POSIX-friendly : pbr.vert.gl.glsl, pas PBR.vert.gl.glsl).
+            // Lower-case le material name (convention POSIX-friendly).
             NkString matLower = materialName;
             for (uint32 i = 0; i < (uint32)matLower.Size(); i++) {
                 char c = matLower[i];
@@ -277,18 +382,25 @@ namespace nkentseu {
             NkString basePath = "Resources/NKRenderer/Shaders/";
             basePath += materialName;
             basePath += "/";
-            basePath += backendDir;
-            basePath += "/";
 
-            NkString vsPath = basePath + matLower + "." + extVS;
-            NkString fsPath = basePath + matLower + "." + extFS;
+            // ── Source VK canonique + conversion automatique ──────────────────
+            // Tous les backends chargent le .vk.glsl :
+            //   - VK   : compile direct via glslang.
+            //   - GL   : backend convertit VK -> GL via SPIRV-Cross.
+            //   - DX11 : backend convertit VK -> HLSL SM5.
+            //   - DX12 : backend convertit VK -> HLSL SM6.
+            //   - MSL  : backend convertit VK -> MSL.
+            // Strip des annotations @xxx fait dans ReadFile.
+            NkString vkPath = basePath + "VK/";
+            NkString vsPath = vkPath + matLower + ".vert.vk.glsl";
+            NkString fsPath = vkPath + matLower + ".frag.vk.glsl";
 
             NkString vSrc = fallbackVS;
             NkString fSrc = fallbackFS;
             bool overrideVS = NkFile::Exists(vsPath.CStr());
             bool overrideFS = NkFile::Exists(fsPath.CStr());
-            if (overrideVS) vSrc = NkFile::ReadAllText(vsPath.CStr());
-            if (overrideFS) fSrc = NkFile::ReadAllText(fsPath.CStr());
+            if (overrideVS) vSrc = ReadFile(vsPath);
+            if (overrideFS) fSrc = ReadFile(fsPath);
 
             if (overrideVS || overrideFS) {
                 logger.Info("[NkShader] LoadOrCompileVF '{0}' override : VS={1} FS={2}\n",
@@ -298,16 +410,13 @@ namespace nkentseu {
 
             NkShaderHandle h = CompileVF(vSrc, fSrc, materialName);
 
-            // Hot-reload n'est active que si VS ET FS sont overrides en meme temps.
-            // (Recompile() lit chaque stage depuis son path : si une seule des deux
-            // sources est sur disque, on ne peut pas reconstruire le programme.)
             if (h.IsValid() && overrideVS && overrideFS) {
                 NkShaderProgram* prog = mPrograms.Find(h.id);
                 if (prog) {
-                    prog->vertPath = vsPath;
-                    prog->vertMtime= GetFileMtime(vsPath);
-                    prog->fragPath = fsPath;
-                    prog->fragMtime= GetFileMtime(fsPath);
+                    prog->vertPath  = vsPath;
+                    prog->vertMtime = GetFileMtime(vsPath);
+                    prog->fragPath  = fsPath;
+                    prog->fragMtime = GetFileMtime(fsPath);
                 }
             }
             return h;
