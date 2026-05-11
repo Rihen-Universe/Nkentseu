@@ -5,6 +5,7 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/Associative/NkHashMap.h"
 
@@ -158,7 +159,8 @@ namespace nkentseu {
                 NkMaterialSystem() = default;
                 ~NkMaterialSystem();
 
-                bool Init(NkIDevice* device, NkTextureLibrary* texLib);
+                bool Init(NkIDevice* device, NkTextureLibrary* texLib,
+                          NkShaderLibrary* shaderLib, NkGraphicsApi api);
                 void Shutdown();
 
                 NkMatHandle        RegisterTemplate(const NkMaterialTemplateDesc& desc);
@@ -173,6 +175,10 @@ namespace nkentseu {
 
                 void FlushCompilations();
 
+                // Accès interne utilisé par NkMaterial
+                const NkString*    GetTemplateName(NkMatHandle h) const;
+                NkMaterialType     GetTemplateType(NkMatHandle h) const;
+
                 // Templates built-in
                 NkMatHandle DefaultPBR()       const { return mTmplPBR; }
                 NkMatHandle DefaultToon()      const { return mTmplToon; }
@@ -185,13 +191,16 @@ namespace nkentseu {
 
             private:
                 struct TemplateEntry {
-                    NkMaterialTemplateDesc desc;
-                    NkPipelineHandle       pipeline;
-                    bool                   compiled = false;
+                    NkMaterialTemplateDesc  desc;
+                    NkPipelineHandle        pipeline;
+                    ::nkentseu::NkShaderHandle shaderHandle; // RHI shader handle
+                    bool                    compiled = false;
                 };
 
-                NkIDevice*          mDevice  = nullptr;
-                NkTextureLibrary*   mTexLib  = nullptr;
+                NkIDevice*          mDevice     = nullptr;
+                NkTextureLibrary*   mTexLib     = nullptr;
+                NkShaderLibrary*    mShaderLib  = nullptr;
+                NkGraphicsApi       mApi        = NkGraphicsApi::NK_GFX_API_VULKAN;
                 NkHashMap<uint64, TemplateEntry>   mTemplates;
                 NkVector<NkMaterialInstance*>      mInstances;
                 uint64                             mNextId = 1;
@@ -202,7 +211,7 @@ namespace nkentseu {
                 NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;
 
                 void RegisterBuiltins();
-                NkPipelineHandle CompilePipeline(const TemplateEntry& t);
+                NkPipelineHandle CompilePipeline(TemplateEntry& t);
         };
 
     } // namespace renderer

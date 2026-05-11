@@ -99,10 +99,14 @@ with project("NKRHI"):
         # IMPORTANT : NKGLSlang AVANT le Vulkan SDK pour éviter le conflit entre
         # notre glslang (NKGLSlang) et la copie dans VulkanSDK/Include/glslang/.
         _INCLUDE_DIRS.append("%{NKGLSlang.location}")   # <glslang/Public/ShaderLang.h>, <SPIRV/GlslangToSpv.h>
+    if _USE_NKSPIRVXROSS:
+        # IDEM : NKSPIRVCross AVANT le Vulkan SDK pour eviter le mismatch ABI
+        # entre les headers VulkanSDK/Include/spirv_cross/ et notre lib NKSPIRVCross
+        # linkee (heap corruption au destructeur SmallVector sinon — vu en runtime
+        # sur Demo2 OpenGL, crash dans le Parser SPIRV-Cross).
+        _INCLUDE_DIRS.append("%{NKSPIRVCross.location}/src")
     if _VULKAN_INCLUDE:
         _INCLUDE_DIRS.append(_VULKAN_INCLUDE)
-    if _USE_NKSPIRVXROSS:
-        _INCLUDE_DIRS.append("%{NKSPIRVCross.location}/src")
     includedirs(_INCLUDE_DIRS)
 
     pchheader("pch/pch.h")

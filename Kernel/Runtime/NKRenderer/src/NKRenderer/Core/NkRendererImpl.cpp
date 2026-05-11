@@ -92,7 +92,7 @@ namespace nkentseu {
             // 5. Material system (toujours actif — fournit les templates PBR/Unlit)
             logger.Info("[NkRendererImpl]  step 6: NkMaterialSystem::Init\n");
             mMaterials.Reset(AllocOwned<NkMaterialSystem>());
-            if (!mMaterials->Init(mDevice, mTextures.Get())) return false;
+            if (!mMaterials->Init(mDevice, mTextures.Get(), mShaders.Get(), mCfg.api)) return false;
 
             // ─────────────────────────────────────────────────────────────────
             // Sous-systemes opt-in (NkSubsystemFlags) — declenchent les helpers

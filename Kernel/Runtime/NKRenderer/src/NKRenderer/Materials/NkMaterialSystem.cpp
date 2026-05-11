@@ -9,8 +9,9 @@ namespace nkentseu {
 
         NkMaterialSystem::~NkMaterialSystem() { Shutdown(); }
 
-        bool NkMaterialSystem::Init(NkIDevice* device, NkTextureLibrary* texLib) {
-            mDevice = device; mTexLib = texLib;
+        bool NkMaterialSystem::Init(NkIDevice* device, NkTextureLibrary* texLib,
+                                    NkShaderLibrary* shaderLib, NkGraphicsApi api) {
+            mDevice = device; mTexLib = texLib; mShaderLib = shaderLib; mApi = api;
 
             // Per-instance descriptor layout:
             //   binding 1 = PBR uniform buffer
@@ -18,17 +19,20 @@ namespace nkentseu {
             //   binding 4 = normal sampled texture
             //   binding 5 = orm sampled texture
             //   binding 6 = emissive sampled texture
+            // NK_ALL_GRAPHICS est dans ::nkentseu::NkShaderStage (RHI), pas dans
+            // renderer::NkShaderStage. Qualification explicite pour eviter l'ambiguite.
+            using RHIStage = ::nkentseu::NkShaderStage;
             NkDescriptorSetLayoutDesc instLayout;
             instLayout.Add(1, NkDescriptorType::NK_UNIFORM_BUFFER,
-                           NkShaderStage::NK_ALL_GRAPHICS)
+                           RHIStage::NK_ALL_GRAPHICS)
                       .Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
-                           NkShaderStage::NK_ALL_GRAPHICS)
+                           RHIStage::NK_ALL_GRAPHICS)
                       .Add(4, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
-                           NkShaderStage::NK_ALL_GRAPHICS)
+                           RHIStage::NK_ALL_GRAPHICS)
                       .Add(5, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
-                           NkShaderStage::NK_ALL_GRAPHICS)
+                           RHIStage::NK_ALL_GRAPHICS)
                       .Add(6, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
-                           NkShaderStage::NK_ALL_GRAPHICS);
+                           RHIStage::NK_ALL_GRAPHICS);
             mInstDescLayout = mDevice->CreateDescriptorSetLayout(instLayout);
 
             mLinearSampler = mDevice->CreateSampler(NkSamplerDesc::Linear());
@@ -71,22 +75,48 @@ namespace nkentseu {
         }
 
         // ── Built-ins ─────────────────────────────────────────────────────────────
+        // Chaque template built-in est associe a son shader GLSL VK via
+        // NkShaderLibrary::LoadOrCompileVF(shaderDirName, fallbackVS, fallbackFS).
+        // La convention de chemin est :
+        //   Resources/NKRenderer/Shaders/<shaderDir>/VK/<shaderdir>.vert.vk.glsl
+        //   Resources/NKRenderer/Shaders/<shaderDir>/VK/<shaderdir>.frag.vk.glsl
+        // Si le fichier est absent, le fallback embedded (source vide ici) laisse
+        // le shader invalide — c'est intentionnel : les templates sans shader sur
+        // disque ne rendent pas de pipeline jusqu'a ce que le fichier soit cree.
         void NkMaterialSystem::RegisterBuiltins() {
+            // Enregistrement PUR (sans compilation shader).
+            // Le chargement du shader et la compilation du pipeline sont
+            // deferes a CompilePipeline(), appelee au premier BindInstance().
+            // Cela evite : collision de noms avec NkRender3D ("PBR" enregistre
+            // au step 6 vs step 9), et echec d'init si GlslToGlsl echoue.
             auto reg = [this](NkMaterialType t, const char* name,
-                            NkRenderQueue q = NkRenderQueue::NK_OPAQUE) {
+                              const char* shaderDir,
+                              NkRenderQueue q  = NkRenderQueue::NK_OPAQUE,
+                              NkCullMode cull  = NkCullMode::NK_BACK,
+                              NkFillMode fill  = NkFillMode::NK_SOLID) -> NkMatHandle {
                 NkMaterialTemplateDesc d;
-                d.type=t; d.name=name; d.queue=q;
+                d.type      = t;
+                d.name      = name;
+                d.queue     = q;
+                d.cullMode  = cull;
+                d.fillMode  = fill;
+                // shaderDir stocke dans vertSrcGL comme "hint" de chemin.
+                // CompilePipeline() le lira pour LoadOrCompileVF("MatSys_<dir>", ...).
+                d.vertSrcGL = shaderDir ? shaderDir : "";
                 return RegisterTemplate(d);
             };
-            mTmplPBR     = reg(NkMaterialType::NK_PBR_METALLIC, "Default_PBR");
-            mTmplToon    = reg(NkMaterialType::NK_TOON,         "Default_Toon");
-            mTmplUnlit   = reg(NkMaterialType::NK_UNLIT,        "Default_Unlit");
-            mTmplWire    = reg(NkMaterialType::NK_WIREFRAME_MAT,"Default_Wireframe");
-            mTmplSkin    = reg(NkMaterialType::NK_SKIN,         "Default_Skin");
-            mTmplHair    = reg(NkMaterialType::NK_HAIR,         "Default_Hair",
-                                NkRenderQueue::NK_ALPHA_TEST);
-            mTmplAnime   = reg(NkMaterialType::NK_ANIME,        "Default_Anime");
-            mTmplArchviz = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz");
+
+            mTmplPBR     = reg(NkMaterialType::NK_PBR_METALLIC, "Default_PBR",     "PBR");
+            mTmplToon    = reg(NkMaterialType::NK_TOON,         "Default_Toon",    "Toon");
+            mTmplUnlit   = reg(NkMaterialType::NK_UNLIT,        "Default_Unlit",   "Unlit");
+            mTmplWire    = reg(NkMaterialType::NK_WIREFRAME_MAT,"Default_Wireframe","PBR",
+                               NkRenderQueue::NK_OPAQUE,
+                               NkCullMode::NK_NONE, NkFillMode::NK_WIREFRAME);
+            mTmplSkin    = reg(NkMaterialType::NK_SKIN,         "Default_Skin",    "Skin");
+            mTmplHair    = reg(NkMaterialType::NK_HAIR,         "Default_Hair",    "Hair",
+                               NkRenderQueue::NK_ALPHA_TEST);
+            mTmplAnime   = reg(NkMaterialType::NK_ANIME,        "Default_Anime",   "Anime");
+            mTmplArchviz = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz", "PBR");
         }
 
         // ── Instance ─────────────────────────────────────────────────────────────
@@ -180,45 +210,64 @@ namespace nkentseu {
             return true;
         }
 
-        NkPipelineHandle NkMaterialSystem::CompilePipeline(const TemplateEntry& t) {
-            // Skip silencieusement les templates Default_* qui n'ont aucune source
-            // shader wirée (cas actuel : RegisterBuiltins enregistre 8 templates
-            // avec NkMaterialTemplateDesc default-init). Les backends Vulkan/DX12
-            // refusent un pipeline sans shader (CreateGraphicsPipeline retourne
-            // {} et logge ERR shader handle id=0). Tant que le user n'attache pas
-            // de shader source via NkMaterialTemplateDesc.vertSrc*/fragSrc* ou
-            // nkslSource, on ne tente pas la creation : pas d'erreur bruyante.
-            const bool hasAnySource =
-                  !t.desc.nkslSource.Empty()
-               || !t.desc.vertSrcGL.Empty()  || !t.desc.fragSrcGL.Empty()
-               || !t.desc.vertSrcVK.Empty()  || !t.desc.fragSrcVK.Empty()
-               || !t.desc.vertSrcDX11.Empty()|| !t.desc.fragSrcDX11.Empty()
-               || !t.desc.vertSrcDX12.Empty()|| !t.desc.fragSrcDX12.Empty()
-               || !t.desc.vertSrcMSL.Empty() || !t.desc.fragSrcMSL.Empty();
-            if (!hasAnySource) {
-                logger.Info("[NkMaterialSystem] '{0}': no shader source wired, "
-                            "skip pipeline compile (template registered for params/queue only)\n",
-                            t.desc.name);
+        NkPipelineHandle NkMaterialSystem::CompilePipeline(TemplateEntry& t) {
+            // Chargement lazy du shader au premier CompilePipeline().
+            // Priority :
+            //   1. shaderHandle deja valide (custom material ou appel precedent)
+            //   2. shaderDir hint dans vertSrcGL → LoadOrCompileVF depuis disque
+            //      (nom prefixe "MatSys_<dir>" pour eviter collision avec NkRender3D)
+            //   3. sources inline vertSrcVK/fragSrcVK (cas NK_CUSTOM)
+            //   4. skip → template param-only, aucun rendu direct
+            ::nkentseu::NkShaderHandle sh = t.shaderHandle;
+
+            if (!sh.IsValid() && mShaderLib) {
+                // Cas 2 : hint de chemin stocke dans vertSrcGL par RegisterBuiltins
+                const NkString& shaderDirHint = t.desc.vertSrcGL;
+                const bool isHint = !shaderDirHint.Empty()
+                                 && t.desc.fragSrcGL.Empty(); // hint = vertSrcGL seul
+                if (isHint) {
+                    NkString matSysName = NkString("MatSys_") + shaderDirHint;
+                    auto prog = mShaderLib->LoadOrCompileVF(shaderDirHint, "", "");
+                    // On reuse le handle existant si deja compile (mByName["PBR"]).
+                    // Pour le pipeline MatSys on prend directement le RHI handle.
+                    sh = mShaderLib->GetRHIHandle(prog);
+                    t.shaderHandle = sh;
+                }
+
+                // Cas 3 : sources inline (NK_CUSTOM ou override explicite)
+                if (!sh.IsValid()) {
+                    const bool hasVK = !t.desc.vertSrcVK.Empty() && !t.desc.fragSrcVK.Empty();
+                    const bool hasGL = !t.desc.fragSrcGL.Empty(); // vrai inline (pas hint)
+                    if (hasVK || hasGL) {
+                        const NkString& vs = hasVK ? t.desc.vertSrcVK : t.desc.vertSrcGL;
+                        const NkString& fs = hasVK ? t.desc.fragSrcVK : t.desc.fragSrcGL;
+                        auto prog = mShaderLib->CompileVF(vs, fs, t.desc.name);
+                        sh = mShaderLib->GetRHIHandle(prog);
+                        t.shaderHandle = sh;
+                    }
+                }
+            }
+
+            if (!sh.IsValid()) {
+                logger.Info("[NkMaterialSystem] '{0}': no shader available, "
+                            "skip pipeline compile\n", t.desc.name);
                 return {};
             }
 
-            // Builds a minimal pipeline descriptor. Real shaders would be
-            // compiled by NkShaderBackend; here we return an empty pipeline
-            // handle that backends interpret as "use built-in material shader".
             NkGraphicsPipelineDesc pd;
             pd.debugName = t.desc.name.CStr();
+            pd.shader    = sh;
 
-            // Rasterizer state derived from material desc
+            // Rasterizer
             pd.rasterizer = NkRasterizerDesc::Default();
-            if (t.desc.doubleSided || t.desc.cullMode == NkCullMode::NK_NONE) {
+            if (t.desc.doubleSided || t.desc.cullMode == NkCullMode::NK_NONE)
                 pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
-            } else if (t.desc.cullMode == NkCullMode::NK_FRONT) {
+            else if (t.desc.cullMode == NkCullMode::NK_FRONT)
                 pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_FRONT;
-            }
             if (t.desc.fillMode == NkFillMode::NK_WIREFRAME)
                 pd.rasterizer.fillMode = nkentseu::NkFillMode::NK_WIREFRAME;
 
-            // Depth state
+            // Depth
             if (!t.desc.depthTest) {
                 pd.depthStencil = NkDepthStencilDesc::NoDepth();
             } else {
@@ -226,21 +275,28 @@ namespace nkentseu {
                 pd.depthStencil.depthWriteEnable = t.desc.depthWrite;
             }
 
-            // Blend state
+            // Blend
             switch (t.desc.blendMode) {
-                case NkBlendMode::NK_ALPHA:
-                    pd.blend = NkBlendDesc::Alpha(); break;
-                case NkBlendMode::NK_ADDITIVE:
-                    pd.blend = NkBlendDesc::Additive(); break;
-                default:
-                    pd.blend = NkBlendDesc::Opaque(); break;
+                case NkBlendMode::NK_ALPHA:     pd.blend = NkBlendDesc::Alpha();    break;
+                case NkBlendMode::NK_ADDITIVE:  pd.blend = NkBlendDesc::Additive(); break;
+                default:                        pd.blend = NkBlendDesc::Opaque();   break;
             }
 
-            // Descriptor set layouts (set 2 = per-instance)
+            // Descriptor set layout set 2 = per-instance (PBR UBO + textures)
             if (mInstDescLayout.IsValid())
                 pd.descriptorSetLayouts.PushBack(mInstDescLayout);
 
             return mDevice->CreateGraphicsPipeline(pd);
+        }
+
+        const NkString* NkMaterialSystem::GetTemplateName(NkMatHandle h) const {
+            auto* e = mTemplates.Find(h.id);
+            return e ? &e->desc.name : nullptr;
+        }
+
+        NkMaterialType NkMaterialSystem::GetTemplateType(NkMatHandle h) const {
+            auto* e = mTemplates.Find(h.id);
+            return e ? e->desc.type : NkMaterialType::NK_PBR_METALLIC;
         }
 
         void NkMaterialSystem::FlushCompilations() {
