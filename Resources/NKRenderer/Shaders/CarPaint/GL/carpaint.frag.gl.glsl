@@ -5,7 +5,7 @@ layout(location=0) in vec3 vWorldPos; layout(location=1) in vec3 vNormal;
 layout(location=2) in vec3 vTangent;  layout(location=3) in vec3 vBitangent;
 layout(location=4) in vec2 vUV; layout(location=6) in vec4 vColor;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(std140,binding=1) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
 layout(std140,binding=2) uniform LightsUBO{vec4 positions[32],colors[32],directions[32],angles[32];int count;int _pad[3];}uLights;
 layout(std140,binding=8) uniform CarPaintUBO{float flakeScale,flakeIntensity,specF0,_pad;}uCar;

@@ -101,10 +101,10 @@ namespace nkentseu {
             bool    aces              = true;       // ACES Filmic ; sinon Reinhard
             float32 exposure          = 1.f;
             float32 gamma             = 2.2f;
-            // Bloom (dual-Kawase 6 mips)
+            // Bloom (inline 13-sample cross dans tonemap ; dual-Kawase multi-pass a venir)
             bool    bloom             = true;
-            float32 bloomThreshold    = 1.f;
-            float32 bloomStrength     = 0.04f;
+            float32 bloomThreshold    = 0.85f;  // pixels > 0.85 HDR recoivent du bloom
+            float32 bloomStrength     = 1.5f;   // intensite de la halo
             uint32  bloomPasses       = 6;
             // SSAO (ground-truth ambient occlusion)
             bool    ssao              = true;
@@ -137,6 +137,7 @@ namespace nkentseu {
 
         struct NkIBLConfig {
             bool    enabled            = true;
+            float32 iblStrength        = 0.3f;     // [0..1] multiplicateur du terme ambient IBL
             uint32  irradianceMapSize  = 32;       // diffuse env (32x32 cubemap suffit)
             uint32  specularMapSize    = 256;      // GGX prefiltered (mips = roughness)
             uint32  brdfLUTSize        = 512;      // 2D R16G16

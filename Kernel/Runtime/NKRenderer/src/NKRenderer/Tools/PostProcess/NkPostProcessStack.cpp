@@ -39,28 +39,58 @@ void main() {
 
     // ACES Filmic Tonemap (Krzysztof Narkowicz). Push constants emules en GL via
     // uniform vec4 _PushConstants[N] (cf. convention NkOpenglCommandBuffer).
-    // Layout PC = (exposure, gamma, _, _) sur 16 bytes => N=1.
+    // Layout PC = (exposure, gamma, vignetteIntens, saturation) sur 16 bytes => N=1.
     static const char* kTonemapFS_GL = R"GLSL(
 #version 460 core
 layout(location=0) in vec2 vUV;
 layout(location=0) out vec4 oColor;
 layout(binding=0) uniform sampler2D uHDR;
-uniform vec4 _PushConstants[1];   // .x=exposure, .y=gamma
+// PC[0] = (exposure, gamma, vignetteIntens, saturation)
+// PC[1] = (bloomStrength, bloomThreshold, invWidth, invHeight)
+uniform vec4 _PushConstants[2];
 vec3 ACESFilm(vec3 x) {
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
-    return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+    const float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e),0.0,1.0);
 }
 void main() {
-    float exposure = _PushConstants[0].x;
-    float gamma    = _PushConstants[0].y;
-    vec3 hdr    = texture(uHDR, vUV).rgb * exposure;
+    float exposure      = _PushConstants[0].x;
+    float gamma         = _PushConstants[0].y;
+    float vignetteIntens= _PushConstants[0].z;
+    float saturation    = _PushConstants[0].w;
+    float bloomStr      = _PushConstants[1].x;
+    float bloomThr      = _PushConstants[1].y;
+    float invW          = _PushConstants[1].z;
+    float invH          = _PushConstants[1].w;
+    vec3 hdr = texture(uHDR, vUV).rgb * exposure;
+    // Bloom inline : 13-sample cross pattern sur 3 rayons (2, 8, 20 px).
+    // Extrait les pixels brillants (> bloomThr) et les ajoute a hdr AVANT tonemap
+    // pour que le tonemapping compresse correctement la contribution bloom.
+    if (bloomStr > 0.001 && invW > 0.0 && invH > 0.0) {
+        vec2 d = vec2(invW, invH);
+        vec3 bloom = max(texture(uHDR, vUV).rgb - bloomThr, 0.0) * 4.0;
+        float radii[3]   = float[](2.0,  8.0, 20.0);
+        float weights[3] = float[](2.0,  1.0,  0.5);
+        for (int r = 0; r < 3; r++) {
+            vec2 off = radii[r] * d;
+            bloom += max(texture(uHDR, vUV + vec2( off.x,  0.0)).rgb - bloomThr, 0.0) * weights[r];
+            bloom += max(texture(uHDR, vUV + vec2(-off.x,  0.0)).rgb - bloomThr, 0.0) * weights[r];
+            bloom += max(texture(uHDR, vUV + vec2( 0.0,  off.y)).rgb - bloomThr, 0.0) * weights[r];
+            bloom += max(texture(uHDR, vUV + vec2( 0.0, -off.y)).rgb - bloomThr, 0.0) * weights[r];
+        }
+        bloom /= 18.0;  // total weight: 4 + 3*(4*weights[r]) = 4+8+4+2 = 18
+        hdr += bloom * bloomStr;
+    }
     vec3 mapped = ACESFilm(hdr);
-    mapped      = pow(mapped, vec3(1.0/gamma));
-    oColor      = vec4(mapped, 1.0);
+    if (gamma > 1.01) mapped = pow(mapped, vec3(1.0/gamma));
+    if (abs(saturation-1.0) > 0.01) {
+        float lum = dot(mapped, vec3(0.2126,0.7152,0.0722));
+        mapped = clamp(mix(vec3(lum), mapped, saturation), 0.0, 1.0);
+    }
+    if (vignetteIntens > 0.001) {
+        vec2 uv = vUV * 2.0 - 1.0;
+        mapped *= clamp(1.0 - dot(uv,uv) * vignetteIntens, 0.0, 1.0);
+    }
+    oColor = vec4(mapped, 1.0);
 }
 )GLSL";
 
@@ -234,7 +264,7 @@ void main() {
             pd.rasterizer   = NkRasterizerDesc::NoCull();
             pd.blend        = NkBlendDesc::Opaque();
             pd.debugName    = "PP_Tone";
-            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, 16);  // (exposure, gamma, _, _)
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, 32);  // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,bloomThr,invW,invH)
             if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
             buildVertexLayout(pd);
             mPipeTone = mDevice->CreateGraphicsPipeline(pd);
@@ -345,9 +375,20 @@ void main() {
     }
 
     NkTexHandle NkPostProcessStack::RunTonemap(NkICommandBuffer* cmd, NkTexHandle hdr) {
-        struct PC { float exposure, gamma; } pc;
-        pc.exposure = mCfg.exposure;
-        pc.gamma    = mCfg.gamma;
+        bool isVulkan = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,bloomThr,invW,invH)
+        struct PC {
+            float exposure, gamma, vignetteIntens, saturation;
+            float bloomStr, bloomThr, invW, invH;
+        } pc;
+        pc.exposure      = mCfg.exposure;
+        pc.gamma         = isVulkan ? 1.0f : mCfg.gamma;
+        pc.vignetteIntens= mCfg.vignette    ? mCfg.vignetteIntens : 0.0f;
+        pc.saturation    = mCfg.colorGrading? mCfg.saturation     : 1.0f;
+        pc.bloomStr      = mCfg.bloom       ? mCfg.bloomStrength   : 0.0f;
+        pc.bloomThr      = mCfg.bloom       ? mCfg.bloomThreshold  : 1.0f;
+        pc.invW          = mW > 0 ? 1.0f / (float)mW : 0.f;
+        pc.invH          = mH > 0 ? 1.0f / (float)mH : 0.f;
         DrawFullscreen(cmd, mPipeTone, hdr, &pc, sizeof(pc));
         return mToneTex;
     }
@@ -362,10 +403,18 @@ void main() {
         cmd->BindGraphicsPipeline(mPipeTone);
         cmd->BindDescriptorSet(mInputTexSet, 0);
 
-        // Layout PC : (exposure, gamma, _, _) sur 16 bytes (1 vec4 push slot).
-        // Stage = NK_FRAGMENT pour matcher le range pipeline (le VS fullscreen
-        // n'a pas de PC) : sinon VUID-vkCmdPushConstants-offset-01795.
-        float32 pc[4] = { mCfg.exposure, mCfg.gamma, 0.f, 0.f };
+        // Layout PC : 32 bytes = PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,bloomThr,invW,invH)
+        bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        float32 pc[8] = {
+            mCfg.exposure,
+            isVK ? 1.0f : mCfg.gamma,
+            mCfg.vignette    ? mCfg.vignetteIntens : 0.f,
+            mCfg.colorGrading? mCfg.saturation     : 1.f,
+            mCfg.bloom       ? mCfg.bloomStrength   : 0.f,
+            mCfg.bloom       ? mCfg.bloomThreshold  : 1.f,
+            mW > 0 ? 1.0f / (float32)mW : 0.f,
+            mH > 0 ? 1.0f / (float32)mH : 0.f
+        };
         cmd->PushConstants(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, sizeof(pc), pc);
 
         if (mMesh) {

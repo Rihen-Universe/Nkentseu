@@ -5,7 +5,7 @@ layout(location=1) in vec2  aUV;
 layout(location=2) in uint  aColor;
 layout(location=3) in float aSize;
 layout(location=4) in float aRotation;
-layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(location=0) out vec2  vUV;
 layout(location=1) out vec4  vColor;
 void main(){

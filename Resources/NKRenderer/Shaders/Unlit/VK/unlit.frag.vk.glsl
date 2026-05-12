@@ -11,8 +11,8 @@ layout(location=1) in vec4 vColor;
 
 layout(location=0) out vec4 fragColor;
 
-// Per-instance (set=2, binding=1) — NkPBRParams layout
-layout(std140, set=2, binding=1) uniform UnlitUBO {
+// Per-instance (set=2, binding=8) — NkPBRParams layout — binding=8 evite collision avec texNormal (binding=4) dans le namespace GL
+layout(std140, set=2, binding=8) uniform UnlitUBO {
     vec4  albedo;
     vec4  emissive;
     float metallic, roughness, ao, emissiveStrength;

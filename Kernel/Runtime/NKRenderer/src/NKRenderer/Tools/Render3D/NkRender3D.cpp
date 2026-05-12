@@ -287,6 +287,23 @@ namespace nkentseu {
                             mShadowShader.IsValid() ? 1 : 0, mShadowPipeline.IsValid() ? 1 : 0);
             }
 
+            // Fournit les layouts partagés au material system afin que ses pipelines
+            // soient RP-compatibles et aient la même layout set 0/1 que le PBR pipeline.
+            // Le renderPass est inconnu ici (lazy), mis à jour dans Flush() via UpdateRenderPass().
+            if (mMat) {
+                // NkVertexLayout ici = type RHI (nkentseu::NkVertexLayout),
+                // distinct de nkentseu::renderer::NkVertexLayout (NkMeshSystem.h).
+                ::nkentseu::NkVertexLayout sharedVL;
+                sharedVL.AddBinding(0, sizeof(NkVertex3D), false)
+                  .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0,  "POSITION", 0)
+                  .AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL",   0)
+                  .AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT, 24, "TANGENT",  0)
+                  .AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT,  36, "TEXCOORD", 0)
+                  .AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT,  44, "TEXCOORD", 1)
+                  .AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR",    0);
+                mMat->SetSharedContext(mGlobalLayout, mObjectLayout, sharedVL);
+            }
+
             bool ringValid = !mUBOCameraRing.Empty() && mUBOCameraRing[0].IsValid();
             logger.Info("[NkRender3D] Init final: ringValid={0} pbrShader.valid={1} (PBR pipeline: lazy create at 1st flush)\n",
                         ringValid ? 1 : 0, mPBRShader.IsValid() ? 1 : 0);
@@ -462,12 +479,16 @@ namespace nkentseu {
 
             EnsurePBRPipeline(currentRP);
 
-            // Bind le pipeline PBR (configure le programme + render state + VAO).
-            // Doit etre fait AVANT le bind des descriptor sets, car BindGraphicsPipeline
-            // change le VAO actif sur OpenGL et reset les bindings de buffers.
-            if (mPBRPipeline.IsValid()) {
+            // Notifie le material system du RP courant (Vulkan compat).
+            // UpdateRenderPass invalide les pipelines material si le RP a change
+            // (ex: resize swapchain). Idempotent si le RP est identique.
+            if (mMat) mMat->UpdateRenderPass(currentRP);
+
+            // Le pipeline est desormais lie par draw dans FlushOpaque (multi-materiau).
+            // On bind d'abord le pipeline PBR par defaut pour les draws sans materiau.
+            // BindGraphicsPipeline doit preceder BindDescriptorSet sur OpenGL (change le VAO).
+            if (mPBRPipeline.IsValid())
                 cmd->BindGraphicsPipeline(mPBRPipeline);
-            }
 
             // Bind per-frame descriptor set du slot courant (camera + lights + shadow
             // + env + textures defaut). Chaque slot du ring est pre-bound a son UBO,
@@ -502,6 +523,7 @@ namespace nkentseu {
                 NkVec4f camDir;       // .xyz = forward, .w = far
                 float32 viewportX, viewportY;
                 float32 time, deltaTime;
+                float32 iblStrength, _p0, _p1, _p2;  // offset 304 : force IBL ambient
             };
             PBRCamUBO cb{};
             cb.view        = mCtx.camera.GetView();
@@ -526,10 +548,11 @@ namespace nkentseu {
             NkVec3f fwd = mCtx.camera.GetForward();
             cb.camPos    = {pos.x, pos.y, pos.z, mCtx.camera.GetNear()};
             cb.camDir    = {fwd.x, fwd.y, fwd.z, mCtx.camera.GetFar()};
-            cb.viewportX = (float32)mW;
-            cb.viewportY = (float32)mH;
-            cb.time      = mCtx.time;
-            cb.deltaTime = mCtx.deltaTime;
+            cb.viewportX   = (float32)mW;
+            cb.viewportY   = (float32)mH;
+            cb.time        = mCtx.time;
+            cb.deltaTime   = mCtx.deltaTime;
+            cb.iblStrength = mIBLStrength;
             // Ring : on ecrit dans le buffer du slot courant. Le GPU lit (au pire)
             // celui du slot N-1, donc pas de stall.
             if (mFrameSlot < mUBOCameraRing.Size())
@@ -646,6 +669,11 @@ namespace nkentseu {
                                      && (mFrameSlot < mObjectSetPool.Size());
             if (!poolFrameValid) return;
 
+            // Multi-material : on change de pipeline uniquement si le draw courant
+            // utilise un materiau different du precedent. Le pipeline PBR est le
+            // fallback (deja lie dans Flush() avant FlushOpaque).
+            NkPipelineHandle lastPipeline = mPBRPipeline;
+
             for (auto& sdc : mOpaque) {
                 auto& dc = sdc.dc;
                 if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
@@ -654,6 +682,25 @@ namespace nkentseu {
                                   mObjectDrawIdx, kMaxObjectsPerFrame);
                     break;
                 }
+
+                // Determine pipeline + instance materiau.
+                NkMaterialInstance* matInst = nullptr;
+                NkPipelineHandle    pipeline = mPBRPipeline;  // fallback PBR
+
+                if (dc.material.IsValid() && mMat) {
+                    matInst = mMat->GetInstance(dc.material);
+                    if (matInst) {
+                        NkPipelineHandle matPipeline = mMat->GetPipeline(matInst->GetTemplate());
+                        if (matPipeline.IsValid()) pipeline = matPipeline;
+                    }
+                }
+
+                // Bind pipeline seulement si change (evite le cout vkCmdBindPipeline redondant).
+                if (pipeline != lastPipeline) {
+                    if (pipeline.IsValid()) cmd->BindGraphicsPipeline(pipeline);
+                    lastPipeline = pipeline;
+                }
+
                 ObjBlock ob{};
                 ob.model            = dc.transform;
                 ob.normalMatrix     = dc.transform.Inverse().Transpose();
@@ -665,14 +712,14 @@ namespace nkentseu {
                 ob.normalStrength   = 1.f;
                 // clearcoat / subsurface : 0 par defaut (zero-init via ObjBlock{}).
 
-                // WriteBuffer = memcpy via mapped pointer (NK_UPLOAD), legal dans
-                // un renderPass actif. cmd->UpdateBuffer (= vkCmdUpdateBuffer en
-                // VK) est interdit ici. Chaque drawcall ecrit dans son propre UBO
-                // du pool, donc pas d'ecrasement entre draws.
                 NkBufferHandle  ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
                 NkDescSetHandle os  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
                 if (ubo.IsValid()) mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
                 if (os.IsValid())  cmd->BindDescriptorSet(os, 1);
+
+                // Bind material instance (set 2) si presente.
+                // Charge le UBO PBR/Toon et les textures de l'instance.
+                if (matInst) mMat->BindInstance(cmd, matInst);
 
                 mMesh->BindMesh(cmd, dc.mesh);
                 if (dc.subMeshIdx == 0xFFFFFFFFu)

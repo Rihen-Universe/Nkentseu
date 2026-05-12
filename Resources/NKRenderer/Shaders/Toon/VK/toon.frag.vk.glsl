@@ -23,6 +23,7 @@ layout(location=0) out vec4 fragColor;
 layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
+    float iblStrength;
 } uCam;
 
 layout(std140, set=0, binding=2) uniform LightsUBO {
@@ -30,8 +31,8 @@ layout(std140, set=0, binding=2) uniform LightsUBO {
     int   count; int _pad[3];
 } uLights;
 
-// Per-instance : NkToonParams (set=2, binding=1)
-layout(std140, set=2, binding=1) uniform ToonUBO {
+// Per-instance : NkToonParams (set=2, binding=8 — binding=4 est pris par texNormal dans le namespace descriptor GL)
+layout(std140, set=2, binding=8) uniform ToonUBO {
     vec4  shadowColor;
     float shadowThreshold;
     float shadowSmooth;

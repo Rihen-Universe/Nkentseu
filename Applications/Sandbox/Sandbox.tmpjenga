@@ -297,3 +297,8 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
 
 # =================================== Renderer RHI =======================================================
 configure_sandbox_app("RendererRHI", "src/DemoNkentseu/BAse03/RendererRHI.cpp", "sandbox.nkentseu.base03", needs_renderer=True)
+
+# =================================== Renderer Demo (multi-demos) ========================================
+# Usage : renderdemo --demo=N --backend=opengl|vulkan|dx11
+#   0 Subsystems  1 2D  2 3D  3 Materials
+configure_sandbox_app("RendererDemo", "src/Demo/**.cpp", "sandbox.nkentseu.rendererdemo", needs_renderer=True)

@@ -137,6 +137,10 @@ bool NkOpenGLDevice::Initialize(const NkDeviceInitInfo& init) {
 
     QueryCaps();
 
+    // Aligner la plage de profondeur sur Vulkan ([0,1] au lieu du [-1,1] OpenGL par défaut).
+    // Le Y est corrigé par flip_vert_y dans SPIRV-Cross pour les vertex shaders géométrie.
+    if (glClipControl) glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+
     // Créer le render pass et framebuffer swapchain virtuels
     {
         NkRenderPassDesc rpd;
@@ -900,7 +904,7 @@ void NkOpenGLDevice::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint3
         }
         if (w.texture.IsValid()) {
             GLTexture* texture = mTextures.Find(w.texture.id);
-            if (texture) b.textureId=texture->id;
+            if (texture) { b.textureId=texture->id; b.textureTarget=texture->target; }
         }
         if (w.sampler.IsValid()) {
             GLSampler* sampler = mSamplers.Find(w.sampler.id);
@@ -931,8 +935,7 @@ void NkOpenGLDevice::ApplyDescriptors(const GLDescSet& ds) {
                 if (b.textureId) {
             #if defined(NK_OPENGL_ES)
                     glActiveTexture(GL_TEXTURE0 + lb.binding);
-                    // Note : on suppose que la texture est 2D. Une amélioration future stockerait la cible.
-                    glBindTexture(GL_TEXTURE_2D, b.textureId);
+                    glBindTexture(b.textureTarget ? b.textureTarget : GL_TEXTURE_2D, b.textureId);
             #else
                     glBindTextureUnit(lb.binding, b.textureId);
             #endif

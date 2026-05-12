@@ -424,6 +424,10 @@ namespace nkentseu {
             case APP_CMD_INIT_WINDOW: {
                 ForEachAndroidWindow([&](NkWindow& window, NkWindowId id) {
                     UpdateWindowNativeSurface(window, app);
+                    // Masquer les barres système a l'initialisation de la fenetre
+                    if (window.GetHideSystemUI()) {
+                        NkAndroidHideSystemUI(app);
+                    }
                     NkWindowShownEvent event;
                     gAndroidEventSystem->Enqueue_Public(event, id);
                 });
@@ -444,6 +448,10 @@ namespace nkentseu {
                 // le pointeur correctement mis à jour avec une valeur potentiellement
                 // incohérente selon l'état de app->window à cet instant.
                 gFocusedWindowId = ResolveActiveWindowId();
+                
+                // Masquer les barres système (status bar + navigation bar) pour fullscreen immersive
+                NkAndroidHideSystemUI(app);
+                
                 ForEachAndroidWindow([&](NkWindow& /*window*/, NkWindowId id) {
                     NkWindowFocusGainedEvent event;
                     gAndroidEventSystem->Enqueue_Public(event, id);
@@ -463,6 +471,10 @@ namespace nkentseu {
                     const uint32 prevWidth = window.mData.mWidth;
                     const uint32 prevHeight = window.mData.mHeight;
                     UpdateWindowNativeSurface(window, app);
+                    // Reappliquer les barres cachees apres redimensionnement
+                    if (window.GetHideSystemUI()) {
+                        NkAndroidHideSystemUI(app);
+                    }
                     NkWindowResizeEvent event(
                         window.mData.mWidth,
                         window.mData.mHeight,

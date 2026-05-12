@@ -11,6 +11,7 @@
 //   0 — Subsystems  : enable/disable runtime des sous-systemes
 //   1 — 2D          : sprites + formes + texte (config For2D)
 //   2 — 3D          : sphere grid + lights + ombres (config ForGame)
+//   3 — Materials   : 5 spheres NkMaterial (PBR/Toon/Anime/Unlit), edition temps reel
 // =============================================================================
 #include "DemoCommon.h"
 
@@ -34,17 +35,20 @@ using namespace nkentseu::demo;
 namespace nkentseu { namespace demo {
 
     // Forward declarations des demos
-    bool DemoSubsystems_Init    (DemoCtx&); void DemoSubsystems_Frame(DemoCtx&, float32); void DemoSubsystems_Shutdown(DemoCtx&);
-    bool Demo2D_Init            (DemoCtx&); void Demo2D_Frame        (DemoCtx&, float32); void Demo2D_Shutdown        (DemoCtx&);
-    bool Demo3D_Init            (DemoCtx&); void Demo3D_Frame        (DemoCtx&, float32); void Demo3D_Shutdown        (DemoCtx&);
+    bool DemoSubsystems_Init        (DemoCtx&); void DemoSubsystems_Frame    (DemoCtx&, float32); void DemoSubsystems_Shutdown    (DemoCtx&);
+    bool Demo2D_Init                (DemoCtx&); void Demo2D_Frame            (DemoCtx&, float32); void Demo2D_Shutdown            (DemoCtx&);
+    bool Demo3D_Init                (DemoCtx&); void Demo3D_Frame            (DemoCtx&, float32); void Demo3D_Shutdown            (DemoCtx&);
+    bool Demo4_Materials_Init       (DemoCtx&); void Demo4_Materials_Frame   (DemoCtx&, float32); void Demo4_Materials_Shutdown   (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
-            DemoSubsystems_Init, DemoSubsystems_Frame, DemoSubsystems_Shutdown },
+            DemoSubsystems_Init,      DemoSubsystems_Frame,    DemoSubsystems_Shutdown },
         { "2D",         "Render2D : sprites + shapes + texte",
-            Demo2D_Init,         Demo2D_Frame,         Demo2D_Shutdown },
+            Demo2D_Init,              Demo2D_Frame,            Demo2D_Shutdown },
         { "3D",         "Render3D : grid PBR + lights + ombres",
-            Demo3D_Init,         Demo3D_Frame,         Demo3D_Shutdown },
+            Demo3D_Init,              Demo3D_Frame,            Demo3D_Shutdown },
+        { "Materials",  "NkMaterial : 5 spheres multi-materiau, modifications temps reel",
+            Demo4_Materials_Init,     Demo4_Materials_Frame,   Demo4_Materials_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -67,6 +71,12 @@ namespace nkentseu { namespace demo {
                 // et evite les transitions de cascade qui font scintiller les
                 // ombres quand la camera orbite. CSM 4-cascades reste actif
                 // dans le code et utilisable pour des scenes plus ouvertes.
+                c.shadow.cascadeCount = 1;
+                return c;
+            }
+            case 3: {
+                // Demo4 : meme config que Demo3D — 5 spheres, scene ~12 unites
+                auto c = NkRendererConfig::ForGame(api, w, h);
                 c.shadow.cascadeCount = 1;
                 return c;
             }

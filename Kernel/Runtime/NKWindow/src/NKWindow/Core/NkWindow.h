@@ -107,6 +107,12 @@ namespace nkentseu {
             void SetAutoRotateEnabled(bool enabled);
             bool IsAutoRotateEnabled() const;
 
+            // --- Android specifics ---
+            void SetHideSystemUI(bool hide);          // Masquer status bar + navigation bar
+            bool GetHideSystemUI() const;
+            void SetLockOrientation(bool lock);       // Empêcher la rotation
+            bool GetLockOrientation() const;
+
             // --- Souris ---
             void SetMousePosition(uint32 x, uint32 y);
             void SetMousePosition(const math::NkVec2u& pos) { SetMousePosition(pos.x, pos.y); }

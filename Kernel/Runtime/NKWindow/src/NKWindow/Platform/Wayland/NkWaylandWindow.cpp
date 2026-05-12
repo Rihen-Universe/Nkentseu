@@ -1158,6 +1158,10 @@ namespace nkentseu {
 
     void NkWindow::SetAutoRotateEnabled(bool) {}
     bool NkWindow::IsAutoRotateEnabled() const { return false; }
+    void NkWindow::SetHideSystemUI(bool) {}
+    bool NkWindow::GetHideSystemUI() const { return false; }
+    void NkWindow::SetLockOrientation(bool) {}
+    bool NkWindow::GetLockOrientation() const { return false; }
 
     // =========================================================================
     // Souris

@@ -10,7 +10,7 @@ layout(location=1) in  vec4 vColor[];
 layout(location=0) out vec2 gUV;
 layout(location=1) out vec4 gColor;
 
-layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(set=0,binding=6,std140) uniform ParticleUBO{float halfSize;float rotation;float _p[2];}uPart;
 
 void main(){

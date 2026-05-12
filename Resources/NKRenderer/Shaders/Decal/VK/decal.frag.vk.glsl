@@ -3,7 +3,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 layout(location=0) in vec3 vDecalPos;
 layout(location=0) out vec4 fragColor;
-layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(set=0,binding=1,std140) uniform DecalUBO{mat4 decalMatrix;float opacity;float normalBlend;float _p[2];}uDecal;
 layout(set=1,binding=2) uniform sampler2D tAlbedo;
 layout(set=1,binding=3) uniform sampler2D tNormal;

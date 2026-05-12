@@ -4,7 +4,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 layout(location=0) in vec3 vWorldPos; layout(location=4) in vec2 vUV;
 layout(location=0) out vec4 fragColor;
-layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(set=0,binding=1,std140) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
 layout(set=0,binding=13,std140) uniform VolumeUBO{vec4 absorptionColor;vec4 scatterColor;float density;float stepCount;float shadowDensity;float _p;}uVol;
 layout(set=1,binding=4) uniform sampler3D tVolumeDensity;   // 3D density field

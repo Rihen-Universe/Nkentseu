@@ -258,20 +258,41 @@ namespace nkentseu {
     // =============================================================================
 
     NkShaderConvertResult NkShaderConverter::SpirvToGlsl(
-        const uint32* spirvWords, uint32 wordCount, NkSLStage /*stage*/)
+        const uint32* spirvWords, uint32 wordCount, NkSLStage stage)
     {
         NkShaderConvertResult out;
 
     #ifdef NK_RHI_SPIRVCROSS_ENABLED
         try {
             spirv_cross::CompilerGLSL compiler(spirvWords, wordCount);
+
+            // Inspecter les ressources avant de compiler.
+            auto resources = compiler.get_shader_resources();
+
             spirv_cross::CompilerGLSL::Options opts;
             opts.version = 450;
             opts.es      = false;
+            // flip_vert_y : pour les VS géométrie dont les matrices sont en convention
+            // VK (NDC Y=-1 au top). Deux exceptions ne doivent PAS être flippées :
+            //
+            // 1. VS "2D pur" (ex. Render2D) : push_constant sans aucun UBO.
+            //    La matrice ortho est en convention GL (NDC Y=+1 au top) ; la flipper
+            //    l'inverserait. Distinguant : has_pc && !has_ubo.
+            //
+            // 2. VS depth-only (ex. shadow pass) : aucun varying en sortie (stage_outputs
+            //    vide — seul gl_Position est écrit). La convention Y du shadow map doit
+            //    rester cohérente avec le sampling PBR (cascadeMats non-flippées) ;
+            //    flipper créerait un décalage UV Y → ombres sur les mauvais pixels.
+            if (stage == NkSLStage::NK_VERTEX && !resources.stage_inputs.empty()) {
+                bool purePC   = !resources.push_constant_buffers.empty()
+                             && resources.uniform_buffers.empty();
+                bool depthOnly = resources.stage_outputs.empty();
+                opts.vertex.flip_vert_y = !purePC && !depthOnly;
+            }
             compiler.set_common_options(opts);
+
             // Renommer la variable push_constant en _PushConstants pour que
             // NkOpenGLCommandBuffer::PushConstants (emulation GL) puisse la trouver.
-            auto resources = compiler.get_shader_resources();
             for (auto& pc_res : resources.push_constant_buffers) {
                 compiler.set_name(pc_res.id, "_PushConstants");
             }

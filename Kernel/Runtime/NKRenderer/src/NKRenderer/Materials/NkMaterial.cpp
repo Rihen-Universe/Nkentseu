@@ -164,9 +164,14 @@ namespace nkentseu {
             return mSystem->GetTemplateType(tmpl);
         }
 
+        NkMatInstHandle NkMaterial::GetInstHandle() const {
+            return mInstance ? mInstance->GetHandle() : NkMatInstHandle::Null();
+        }
+
         bool NkMaterial::Bind(NkICommandBuffer* cmd, NkTextureLibrary* texLib) {
             if (!mSystem || !mInstance) return false;
-            return mSystem->BindInstance(cmd, mInstance, texLib);
+            (void)texLib;  // mTexLib interne utilise par BindInstance
+            return mSystem->BindInstance(cmd, mInstance);
         }
 
     } // namespace renderer

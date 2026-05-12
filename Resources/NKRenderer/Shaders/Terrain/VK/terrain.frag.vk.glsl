@@ -4,7 +4,7 @@
 layout(location=0) in vec3 vWorldPos; layout(location=1) in vec3 vNormal;
 layout(location=2) in vec2 vUV; layout(location=3) in vec2 vWorldXZ;
 layout(location=0) out vec4 fragColor;
-layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(set=0,binding=2,std140) uniform LightsUBO{vec4 positions[32],colors[32],directions[32],angles[32];int count;int _pad[3];}uLights;
 layout(set=1,binding=4) uniform sampler2D tSplatmap;    // RGBA: 4 layer weights
 layout(set=1,binding=5) uniform sampler2D tAlbedo0;     // Grass

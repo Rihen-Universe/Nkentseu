@@ -3,7 +3,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 layout(location=0) in vec3 vWorldPos;layout(location=1) in vec3 vNormal;layout(location=2) in vec3 vTangent;layout(location=3) in vec3 vBitangent;layout(location=4) in vec2 vUV;layout(location=6) in vec4 vColor;
 layout(location=0) out vec4 fragColor;
-layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(set=0,binding=1,std140) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStrength,emissiveStrength,normalStrength,clearcoat,clearcoatRoughness,subsurface;vec4 sssColor;}uObj;
 layout(set=1,binding=0) uniform sampler2D tAlbedo;layout(set=1,binding=1) uniform sampler2D tNormal;layout(set=1,binding=5) uniform samplerCube tEnvPrefilter;layout(set=1,binding=6) uniform sampler2D tSceneColor;
 void main(){

@@ -19,6 +19,7 @@ layout(location=0) out vec4 fragColor;
 layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos; vec4 camDir; vec2 viewport; float time; float deltaTime;
+    float iblStrength;
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {
@@ -315,7 +316,7 @@ void main() {
     vec3 R    = reflect(-V, N);
     vec3 pref = textureLod(tEnvPrefilter, R, rog*4.0).rgb;
     vec2 brdf = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), rog)).rg;
-    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao;
+    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * uCam.iblStrength;
 
     // ── Clearcoat ─────────────────────────────────────────────
     vec3 ccContrib = vec3(0.0);

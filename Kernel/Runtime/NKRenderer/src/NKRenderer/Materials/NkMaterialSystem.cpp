@@ -22,8 +22,14 @@ namespace nkentseu {
             // NK_ALL_GRAPHICS est dans ::nkentseu::NkShaderStage (RHI), pas dans
             // renderer::NkShaderStage. Qualification explicite pour eviter l'ambiguite.
             using RHIStage = ::nkentseu::NkShaderStage;
+            // Binding 8 pour l'UBO materiau : binding=4 collide avec texNormal
+            // (COMBINED_IMAGE_SAMPLER au binding=4) dans le tableau descriptor GL —
+            // le second Add(4,SAMPLER) ecrasait le premier Add(4,UBO).
+            // Bindings libres : 0=Camera, 1=Object, 2=Lights, 3=Shadow UBO ;
+            //                   3=albedo, 4=normal, 5=ORM, 6=emissive texture.
+            // → binding=8 est libre dans les deux namespaces (UBO et texture).
             NkDescriptorSetLayoutDesc instLayout;
-            instLayout.Add(1, NkDescriptorType::NK_UNIFORM_BUFFER,
+            instLayout.Add(8, NkDescriptorType::NK_UNIFORM_BUFFER,
                            RHIStage::NK_ALL_GRAPHICS)
                       .Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
                            RHIStage::NK_ALL_GRAPHICS)
@@ -119,9 +125,63 @@ namespace nkentseu {
             mTmplArchviz = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz", "PBR");
         }
 
+        // ── Contexte partagé (NkRender3D → NkMaterialSystem) ──────────────────────
+        void NkMaterialSystem::SetSharedContext(NkDescSetHandle globalLayout,
+                                                NkDescSetHandle objectLayout,
+                                                const NkVertexLayout& vertexLayout,
+                                                NkRenderPassHandle rp) {
+            mSharedGlobalLayout = globalLayout;
+            mSharedObjectLayout = objectLayout;
+            (void)vertexLayout; // layout reconstruit dans CompilePipeline, evite copy NkVector
+            mCurrentRP          = rp;
+            // Invalide les pipelines existants pour les recompiler avec le bon layout.
+            for (auto& pair : mTemplates) {
+                TemplateEntry& e = pair.Second;
+                if (e.compiled && e.pipeline.IsValid()) {
+                    mDevice->DestroyPipeline(e.pipeline);
+                    e.pipeline = {};
+                }
+                e.compiled = false;
+            }
+        }
+
+        void NkMaterialSystem::UpdateRenderPass(NkRenderPassHandle rp) {
+            if (mCurrentRP == rp) return;
+            mCurrentRP = rp;
+            // Invalide les pipelines pour les recompiler avec le nouveau RP.
+            for (auto& pair : mTemplates) {
+                TemplateEntry& e = pair.Second;
+                if (e.compiled && e.pipeline.IsValid()) {
+                    mDevice->DestroyPipeline(e.pipeline);
+                    e.pipeline = {};
+                }
+                e.compiled = false;
+            }
+        }
+
+        // ── Accès instance / pipeline ─────────────────────────────────────────────
+        NkMaterialInstance* NkMaterialSystem::GetInstance(NkMatInstHandle h) const {
+            auto* p = mInstanceMap.Find(h.id);
+            return p ? *p : nullptr;
+        }
+
+        NkPipelineHandle NkMaterialSystem::GetPipeline(NkMatHandle tmpl,
+                                                        NkRenderPassHandle currentRP) {
+            if (currentRP.IsValid() && currentRP != mCurrentRP)
+                UpdateRenderPass(currentRP);
+            auto* e = mTemplates.Find(tmpl.id);
+            if (!e) return {};
+            if (!e->compiled) {
+                e->pipeline = CompilePipeline(*e);
+                e->compiled = true;
+            }
+            return e->pipeline;
+        }
+
         // ── Instance ─────────────────────────────────────────────────────────────
         NkMaterialInstance* NkMaterialSystem::CreateInstance(NkMatHandle tmpl) {
             auto* inst    = new NkMaterialInstance();
+            inst->mHandle   = NkMatInstHandle{mNextInstId++};
             inst->mTemplate = tmpl;
             inst->mDirty    = true;
             inst->mPBR.albedo    = {1,1,1,1};
@@ -137,11 +197,13 @@ namespace nkentseu {
                 inst->mDescSet = mDevice->AllocateDescriptorSet(mInstDescLayout);
 
             mInstances.PushBack(inst);
+            mInstanceMap.Insert(inst->mHandle.id, inst);
             return inst;
         }
 
         void NkMaterialSystem::DestroyInstance(NkMaterialInstance*& inst) {
             if (!inst) return;
+            mInstanceMap.Remove(inst->mHandle.id);
             for (uint32 i=0;i<(uint32)mInstances.Size();i++){
                 if (mInstances[i]==inst){
                     if (inst->mUBO.IsValid())     mDevice->DestroyBuffer(inst->mUBO);
@@ -154,8 +216,8 @@ namespace nkentseu {
 
         // ── Bind ─────────────────────────────────────────────────────────────────
         bool NkMaterialSystem::BindInstance(NkICommandBuffer* cmd,
-                                            NkMaterialInstance* inst,
-                                            NkTextureLibrary* texLib) {
+                                            NkMaterialInstance* inst) {
+            NkTextureLibrary* texLib = mTexLib;
             if (!inst) return false;
             auto* tmplEntry = mTemplates.Find(inst->mTemplate.id);
             if (!tmplEntry) return false;
@@ -168,9 +230,18 @@ namespace nkentseu {
                 cmd->BindGraphicsPipeline(tmplEntry->pipeline);
 
             if (inst->mDirty && inst->mDescSet.IsValid()) {
-                // Upload PBR params to UBO
-                if (inst->mUBO.IsValid())
-                    mDevice->WriteBuffer(inst->mUBO, &inst->mPBR, sizeof(NkPBRParams));
+                // Determine which params to upload based on material type.
+                // Toon/Anime use NkToonParams; everything else uses NkPBRParams.
+                if (inst->mUBO.IsValid()) {
+                    NkMaterialType matType = GetTemplateType(inst->mTemplate);
+                    bool isToon = (matType == NkMaterialType::NK_TOON  ||
+                                   matType == NkMaterialType::NK_TOON_INK ||
+                                   matType == NkMaterialType::NK_ANIME);
+                    if (isToon)
+                        mDevice->WriteBuffer(inst->mUBO, &inst->mToon, sizeof(NkToonParams));
+                    else
+                        mDevice->WriteBuffer(inst->mUBO, &inst->mPBR, sizeof(NkPBRParams));
+                }
 
                 // Helper to get a texture's RHI handle (fallback to white)
                 auto GetTex = [&](const NkString& name) -> NkTextureHandle {
@@ -186,8 +257,8 @@ namespace nkentseu {
                 NkTextureHandle emissiveTex = GetTex("emissive");
 
                 NkDescriptorWrite writes[5] = {};
-                // binding 1: PBR UBO
-                writes[0].set=inst->mDescSet; writes[0].binding=1;
+                // binding 8: material UBO (binding=4 est pris par texNormal SAMPLER en GL)
+                writes[0].set=inst->mDescSet; writes[0].binding=8;
                 writes[0].type=NkDescriptorType::NK_UNIFORM_BUFFER;
                 writes[0].buffer=inst->mUBO; writes[0].bufferRange=sizeof(NkPBRParams);
                 // binding 3-6: textures
@@ -282,9 +353,31 @@ namespace nkentseu {
                 default:                        pd.blend = NkBlendDesc::Opaque();   break;
             }
 
-            // Descriptor set layout set 2 = per-instance (PBR UBO + textures)
-            if (mInstDescLayout.IsValid())
-                pd.descriptorSetLayouts.PushBack(mInstDescLayout);
+            // Descriptor set layouts (doivent matcher NkRender3D) :
+            //   set 0 = global (camera, lights, shadow, IBL) — fourni par SetSharedContext
+            //   set 1 = per-object (model matrix, bones)    — fourni par SetSharedContext
+            //   set 2 = per-instance (PBR UBO + textures)   — propre a NkMaterialSystem
+            if (mSharedGlobalLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mSharedGlobalLayout);
+            if (mSharedObjectLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mSharedObjectLayout);
+            if (mInstDescLayout.IsValid())     pd.descriptorSetLayouts.PushBack(mInstDescLayout);
+
+            // Vertex layout NkVertex3D — identical au layout de NkRender3D.
+            // Reconstruit ici car stocker un NkVertexLayout (qui contient un NkVector)
+            // comme membre crashe lors de l'operator= (allocateur null au moment de
+            // SetSharedContext). La structure NkVertex3D est {pos12,normal12,tangent12,
+            // uv8,uv28,color4} = 56 bytes, offsets 0/12/24/36/44/52.
+            pd.vertexLayout
+              .AddBinding(0, sizeof(NkVertex3D), false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL",   0)
+              .AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT, 24, "TANGENT",  0)
+              .AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT,  36, "TEXCOORD", 0)
+              .AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT,  44, "TEXCOORD", 1)
+              .AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR",    0);
+
+            // Render pass (Vulkan exige la compat RP a la creation du pipeline).
+            // Sur OpenGL mCurrentRP est invalide, le backend GL ignore ce champ.
+            pd.renderPass = mCurrentRP;
 
             return mDevice->CreateGraphicsPipeline(pd);
         }

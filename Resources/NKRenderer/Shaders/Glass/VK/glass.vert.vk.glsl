@@ -22,6 +22,7 @@ layout(set=0, binding=0, std140) uniform CameraUBO {
     vec4  camPos, camDir;
     vec2  viewport;
     float time, deltaTime;
+    float iblStrength;
 } uCam;
 
 layout(set=0, binding=1, std140) uniform ObjectUBO {

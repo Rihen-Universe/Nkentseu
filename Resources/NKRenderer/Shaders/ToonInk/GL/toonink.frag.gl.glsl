@@ -4,7 +4,7 @@
 layout(location=0) in vec3 vWorldPos; layout(location=1) in vec3 vNormal;
 layout(location=2) in vec2 vUV; layout(location=3) in vec4 vColor;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(std140,binding=2) uniform LightsUBO{vec4 positions[32],colors[32],directions[32],angles[32];int count;int _pad[3];}uLights;
 layout(std140,binding=4) uniform ToonUBO{vec4 shadowColor;float shadowThreshold,shadowSmoothness,outlineWidth,rimIntensity;vec4 outlineColor,rimColor;float specHardness;float _p[3];}uToon;
 layout(binding=4) uniform sampler2D tAlbedo;

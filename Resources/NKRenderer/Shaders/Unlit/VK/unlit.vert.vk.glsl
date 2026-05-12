@@ -12,6 +12,7 @@ layout(location=5) in vec4 aColor;
 layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
+    float iblStrength;
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {

@@ -20,10 +20,14 @@ namespace nkentseu {
     namespace renderer {
 
         struct NkEnvironmentConfig {
-            uint32 irradianceSize  = 32;    // taille du cubemap irradiance (D.2b : 32-64)
-            uint32 prefilterSize   = 128;   // taille du cubemap specular (D.2b : 128-512)
-            uint32 prefilterMips   = 5;     // niveaux de mips du specular cubemap
-            uint32 brdfLUTSize     = 256;   // taille du LUT 2D (D.2b : 256x256)
+            uint32      irradianceSize  = 32;    // taille du cubemap irradiance (D.2b : 32-64)
+            uint32      prefilterSize   = 128;   // taille du cubemap specular (D.2b : 128-512)
+            uint32      prefilterMips   = 5;     // niveaux de mips du specular cubemap
+            uint32      brdfLUTSize     = 256;   // taille du LUT 2D (D.2b : 256x256)
+            // Cache disque : active par defaut, fichiers dans le repertoire courant.
+            // Mettre cacheDir = "" ou enableCache = false pour desactiver.
+            bool        enableCache    = true;
+            const char* cacheDir       = "";     // "" = repertoire courant
         };
 
         class NkEnvironmentSystem {

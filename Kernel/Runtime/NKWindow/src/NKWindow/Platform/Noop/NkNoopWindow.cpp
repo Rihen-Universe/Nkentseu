@@ -220,6 +220,18 @@ namespace nkentseu {
         return false;
     }
 
+    void NkWindow::SetHideSystemUI(bool) {}
+
+    bool NkWindow::GetHideSystemUI() const {
+        return false;
+    }
+
+    void NkWindow::SetLockOrientation(bool) {}
+
+    bool NkWindow::GetLockOrientation() const {
+        return false;
+    }
+
     void NkWindow::SetMousePosition(uint32, uint32) {}
 
     void NkWindow::ShowMouse(bool) {}

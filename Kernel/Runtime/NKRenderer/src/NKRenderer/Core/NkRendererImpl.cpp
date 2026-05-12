@@ -171,6 +171,7 @@ namespace nkentseu {
             // Wire la connexion inverse : NkShadowSystem itere les opaques de
             // mRender3D dans sa passe shadow. Necessaire pour D.3b.
             if (mShadow) mShadow->SetRenderer3D(mRender3D.Get());
+            mRender3D->SetIBLStrength(mCfg.ibl.iblStrength);
             return true;
         }
         bool NkRendererImpl::InitEnvironment() {

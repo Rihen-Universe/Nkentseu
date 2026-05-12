@@ -44,7 +44,16 @@ int nkmain(const NkEntryState& state)
     game->Init();
 
 #if defined(__ANDROID__)
+    // ── Configuration Android spécifique ─────────────────────────────────────
     game->SetShowTouchButtons(true);
+    
+    // ── Orientation landscape uniquement (verrouiller orientation) ──────────
+    window.SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
+    window.SetLockOrientation(true);  // Empêcher la rotation
+    
+    // ── Mode fullscreen + masquer barres système ───────────────────────────
+    window.SetFullscreen(true);
+    window.SetHideSystemUI(true);  // Masquer status bar + navigation bar
 #endif
 
     // ── Boucle ───────────────────────────────────────────────────────────────
@@ -397,6 +406,15 @@ int nkmain(const NkEntryState& state)
                      enterPressed, escapePressed,
                      finalLeft, finalRight,
                      mouseX, mouseY, mouseClicked);
+        
+        // ── Quitter depuis le menu principal (Android) ───────────────────────
+#if defined(__ANDROID__)
+        if (game->GetState() == GameState::MainMenu && escapePressed) {
+            running = false;
+            window.Close();
+            break;
+        }
+#endif
         
         // ── Restaurer l'ecran apres un pause/resume (Android) ────────────────
         // Au retour de l'app, forcer un rendu complet et clear du buffer

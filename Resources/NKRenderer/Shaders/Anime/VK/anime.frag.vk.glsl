@@ -5,11 +5,13 @@
 layout(location=0) in vec3 vWorldPos; layout(location=1) in vec3 vNormal;
 layout(location=2) in vec2 vUV; layout(location=3) in vec4 vColor;
 layout(location=0) out vec4 fragColor;
-layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(set=0,binding=2,std140) uniform LightsUBO{vec4 positions[32],colors[32],directions[32],angles[32];int count;int _pad[3];}uLights;
-layout(set=0,binding=4,std140) uniform ToonUBO{vec4 shadowColor;float shadowThreshold,shadowSmoothness,outlineWidth,rimIntensity;vec4 outlineColor,rimColor;float specHardness;float _p[3];}uToon;
-layout(set=1,binding=4) uniform sampler2D tAlbedo;
-layout(set=1,binding=5) uniform sampler2D tShadowRamp;  // custom shadow ramp texture
+// ToonUBO en set=2 binding=8 : meme namespace que instDescLayout de NkMaterialSystem.
+// textures en set=2 binding=3 (albedo) et binding=4 (shadow ramp = slot normal map).
+layout(set=2,binding=8,std140) uniform ToonUBO{vec4 shadowColor;float shadowThreshold,shadowSmoothness,outlineWidth,rimIntensity;vec4 outlineColor,rimColor;float specHardness;float _p[3];}uToon;
+layout(set=2,binding=3) uniform sampler2D tAlbedo;
+layout(set=2,binding=4) uniform sampler2D tShadowRamp;  // custom shadow ramp (slot normal map)
 void main(){
     vec4 albSamp=texture(tAlbedo,vUV)*vColor; vec3 albedo=albSamp.rgb; float alpha=albSamp.a; if(alpha<0.01)discard;
     vec3 N=normalize(vNormal),V=normalize(uCam.camPos.xyz-vWorldPos);

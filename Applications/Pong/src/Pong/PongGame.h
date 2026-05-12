@@ -827,6 +827,7 @@ namespace nkentseu {
         MainMenu,         ///< Menu principal.
         SelectDifficulty, ///< Selection de la difficulte IA.
         SelectObstacles,  ///< Selection du preset d\'obstacles.
+        SelectSpeed,      ///< Selection de la vitesse de balle.
         Playing,          ///< Partie en cours.
         Paused,           ///< Jeu en pause (touche P ou Echap).
         GoalFlash,        ///< Flash apres un but.
@@ -1209,6 +1210,12 @@ namespace nkentseu {
 
             /// @brief Indice de preset selectionne dans SelectObstacles (0..5).
             int mObsSel = 1;
+
+            /// @brief Indice de vitesse selectionne dans SelectSpeed (0=Lent, 1=Normal, 2=Rapide).
+            int mSpeedSel = 1;
+
+            /// @brief Vitesse de depart selectionnee pour la balle (pixels/seconde).
+            float mBallStartSpeed = 270.0f;
 
             /// @brief Anti-repetition pour la navigation clavier (secondes).
             ///        Navigation bloquee tant que > 0. Decremente chaque frame.

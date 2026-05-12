@@ -19,6 +19,7 @@ layout(location=0) out vec4 fragColor;
 layout(std140, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos; vec4 camDir; vec2 viewport; float time; float deltaTime;
+    float iblStrength;
 } uCam;
 
 layout(std140, binding=1) uniform ObjectUBO {
