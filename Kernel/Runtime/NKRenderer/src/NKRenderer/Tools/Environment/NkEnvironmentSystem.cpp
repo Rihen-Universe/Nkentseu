@@ -1,27 +1,135 @@
 // =============================================================================
 // NkEnvironmentSystem.cpp  — NKRenderer v5.0
 //
-// D.2d : IBL prefiltering CPU au startup.
+// D.2d : IBL prefiltering CPU au startup avec cache disque.
 //   - BRDF LUT 256x256 RG8     : split-sum integration (Karis 2013) via Hammersley
 //   - Irradiance cubemap 32x32 : convolution cos-weighted hemisphere (Lambert)
 //   - Prefilter cubemap 128x128 (5 mips) : importance sampling GGX par roughness
 //
-// "Source" environment : un sky procedural (skyTop / horizon / ground gradient).
-// On l'echantillonne directement en CPU plutot que de creer une vraie cubemap
-// d'input — ca evite la dependance HDR/EXR loader pour la phase D.2d minimale.
-//
-// Cout : ~3-8s au startup selon CPU (single-threaded). Acceptable comme one-shot,
-// optimisable plus tard via std::thread + tiled work distribution.
+// Cache disque (nk_ibl_cache.bin par defaut) : premiere execution ~0.5-2s, suivantes <50ms.
+// Invalidation automatique si les parametres sky ou les tailles changent (hash FNV-32).
 // =============================================================================
 #include "NkEnvironmentSystem.h"
 #include "NKThreading/NkThreadPool.h"
+#include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkPath.h"
+#include "NKFileSystem/NkDirectory.h"
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 namespace nkentseu {
     namespace renderer {
+
+        // ── Cache disque IBL ─────────────────────────────────────────────────────
+        // Format : magic(4) + version(4) + hash(4) + irrSize(4) + prefSize(4)
+        //        + prefMips(4) + lutSize(4)
+        //        + LUT data (lutSize*lutSize*2)
+        //        + Irr data (6 * irrSize*irrSize*4)
+        //        + Pref data (sum_mip 6*(prefSize>>mip)^2*4)
+        static constexpr uint32 kIBLMagic   = 0x4E4B4942u; // 'NKIB'
+        static constexpr uint32 kIBLVersion = 2u;
+
+        static uint32 IBLHash(const NkVec3f& sky, const NkVec3f& hor, const NkVec3f& gnd,
+                               uint32 irrSz, uint32 prefSz, uint32 prefM, uint32 lutSz) {
+            uint32 h = 0x811c9dc5u;
+            auto mix = [&](uint32 v) { h = (h ^ v) * 0x01000193u; };
+            uint32 b;
+            auto mf = [&](float v) { memcpy(&b, &v, 4); mix(b); };
+            mf(sky.x); mf(sky.y); mf(sky.z);
+            mf(hor.x); mf(hor.y); mf(hor.z);
+            mf(gnd.x); mf(gnd.y); mf(gnd.z);
+            mix(irrSz); mix(prefSz); mix(prefM); mix(lutSz);
+            mix(kIBLVersion);
+            return h;
+        }
+
+        static NkPath IBLCachePath(const char* dir, uint32 hash) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "nk_ibl_%08x.bin", hash);
+            NkPath cacheDir;
+            if (dir && dir[0]) {
+                cacheDir = NkPath(dir) / "ibl";
+            } else {
+                cacheDir = NkPath::GetExecutableDirectory() / "cache" / "ibl";
+            }
+            NkDirectory::CreateRecursive(cacheDir);
+            return cacheDir / buf;
+        }
+
+        // Charge le cache et uploade directement sur le device.
+        // Retourne true si le cache est valide et a ete uploade.
+        static bool TryLoadIBLCache(const NkPath& path, uint32 hash,
+                                     NkIDevice* device,
+                                     NkTextureHandle brdfLUT,
+                                     NkTextureHandle irr,
+                                     NkTextureHandle pref,
+                                     uint32 irrSz, uint32 prefSz, uint32 prefM, uint32 lutSz) {
+            FILE* f = fopen(path.CStr(), "rb");
+            if (!f) {
+                logger.Info("[IBL] Cache miss (fichier absent) : {0}\n", path.CStr());
+                return false;
+            }
+
+            uint32 hdr[7];
+            if (fread(hdr, 4, 7, f) != 7) { fclose(f); return false; }
+            if (hdr[0] != kIBLMagic || hdr[1] != kIBLVersion || hdr[2] != hash
+             || hdr[3] != irrSz || hdr[4] != prefSz || hdr[5] != prefM || hdr[6] != lutSz) {
+                logger.Info("[IBL] Cache invalide (hash ou tailles differentes) : {0}\n", path.CStr());
+                logger.Info("[IBL]   magic={0:#x} ver={1} hash={2:#x} irr={3} pref={4} mips={5} lut={6}\n",
+                            hdr[0], hdr[1], hdr[2], hdr[3], hdr[4], hdr[5], hdr[6]);
+                fclose(f); return false;
+            }
+
+            // LUT
+            {
+                std::vector<uint8_t> buf(lutSz * lutSz * 2);
+                if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return false; }
+                device->WriteTexture(brdfLUT, buf.data());
+            }
+            // Irradiance (6 faces)
+            for (uint32 face = 0; face < 6; face++) {
+                std::vector<uint8_t> buf(irrSz * irrSz * 4);
+                if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return false; }
+                device->WriteTextureRegion(irr, buf.data(), 0, 0, 0, irrSz, irrSz, 1, 0, face);
+            }
+            // Prefilter (mips x 6 faces)
+            for (uint32 mip = 0; mip < prefM; mip++) {
+                uint32 mipSz = prefSz >> mip; if (mipSz < 1) mipSz = 1;
+                for (uint32 face = 0; face < 6; face++) {
+                    std::vector<uint8_t> buf(mipSz * mipSz * 4);
+                    if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return false; }
+                    device->WriteTextureRegion(pref, buf.data(), 0, 0, 0, mipSz, mipSz, 1, mip, face);
+                }
+            }
+            fclose(f);
+            logger.Info("[IBL] Cache charge (hit) : {0}\n", path.CStr());
+            return true;
+        }
+
+        static void SaveIBLCache(const NkPath& path, uint32 hash,
+                                  uint32 irrSz, uint32 prefSz, uint32 prefM, uint32 lutSz,
+                                  const uint8_t* lutData,
+                                  const std::vector<std::vector<uint8_t>>& irrData,
+                                  const std::vector<std::vector<std::vector<uint8_t>>>& prefData) {
+            FILE* f = fopen(path.CStr(), "wb");
+            if (!f) {
+                logger.Errorf("[IBL] Impossible d'ecrire le cache : {0} (verifier les droits d'ecriture)\n",
+                              path.CStr());
+                return;
+            }
+            uint32 hdr[7] = { kIBLMagic, kIBLVersion, hash, irrSz, prefSz, prefM, lutSz };
+            fwrite(hdr, 4, 7, f);
+            fwrite(lutData, 1, lutSz * lutSz * 2, f);
+            for (uint32 face = 0; face < 6; face++) fwrite(irrData[face].data(), 1, irrData[face].size(), f);
+            for (uint32 mip = 0; mip < prefM; mip++)
+                for (uint32 face = 0; face < 6; face++)
+                    fwrite(prefData[mip][face].data(), 1, prefData[mip][face].size(), f);
+            fclose(f);
+            logger.Info("[IBL] Cache sauvegarde : {0}\n", path.CStr());
+        }
 
         // ── Helpers cubemap directions (convention OpenGL / Vulkan-equivalente) ──
         // Reconstruit la direction 3D normalisee depuis (face, u, v ∈ [-1,1]).
@@ -198,36 +306,10 @@ namespace nkentseu {
             mEnvSampler = mDevice->CreateSampler(NkSamplerDesc::Clamp());
             mLutSampler = mDevice->CreateSampler(NkSamplerDesc::Clamp());
 
-            // ── BRDF LUT : indep du sky, integration une fois ici. ─────────────
-            // 64 samples Hammersley = bon compromis qualite/vitesse pour 256x256.
-            // Parallelise par ligne (grainSize=8) via NkThreadPool.
-            if (mBrdfLUT.IsValid()) {
-                std::vector<uint8_t> lut(lutSize * lutSize * 2);
-                const uint32 N = 64;
-
-                auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
-                pool.ParallelFor(lutSize, [&](nk_size yi) {
-                    uint32 y = (uint32)yi;
-                    float roughness = (float(y) + 0.5f) / float(lutSize);
-                    for (uint32 x = 0; x < lutSize; x++) {
-                        float NoV = (float(x) + 0.5f) / float(lutSize);
-                        float A = 0.f, B = 0.f;
-                        IntegrateBRDF(NoV, roughness, N, A, B);
-                        uint32 idx = (y * lutSize + x) * 2;
-                        lut[idx + 0] = uint8_t(NkClamp(A, 0.f, 1.f) * 255.f);
-                        lut[idx + 1] = uint8_t(NkClamp(B, 0.f, 1.f) * 255.f);
-                    }
-                }, /*grainSize=*/8);
-                pool.Join();
-
-                mDevice->WriteTexture(mBrdfLUT, lut.data());
-            }
-
-            // ── Sky/horizon/ground initial (couleurs typiques jour ext). Le
-            //    user peut surcharger via LoadProcedural plus tard. ─────────────
-            LoadProcedural({0.45f, 0.65f, 0.95f},
-                           {0.85f, 0.85f, 0.85f},
-                           {0.18f, 0.14f, 0.10f});
+            // LoadProcedural gere tout : LUT + sky + cache disque.
+            LoadProcedural({0.40f, 0.55f, 0.80f},
+                           {0.45f, 0.48f, 0.52f},
+                           {0.10f, 0.08f, 0.06f});
 
             return mIrradiance.IsValid() && mPrefilter.IsValid() && mBrdfLUT.IsValid();
         }
@@ -240,21 +322,51 @@ namespace nkentseu {
             const uint32 irrSize  = mCfg.irradianceSize > 0 ? mCfg.irradianceSize : 32;
             const uint32 prefSize = mCfg.prefilterSize  > 0 ? mCfg.prefilterSize  : 128;
             const uint32 prefMips = mCfg.prefilterMips  > 0 ? mCfg.prefilterMips  : 5;
+            const uint32 lutSize  = mCfg.brdfLUTSize    > 0 ? mCfg.brdfLUTSize    : 256;
 
-            // ── Irradiance convolution (cos-weighted hemisphere autour de N) ───
-            // 8 strates × 32 azimuts = 256 samples par pixel — bon compromis
-            // qualite/vitesse pour 32x32 (32*32*6*256 = 1.6M evals au total).
-            // Parallelisation : 6 threads (1 par face), chaque thread ecrit son
-            // propre buf+upload sequentiel a la fin (WriteTextureRegion non
-            // thread-safe sur OpenGL backend).
+            // ── Cache disque ────────────────────────────────────────────────────
+            uint32 hash = IBLHash(skyTop, horizon, ground, irrSize, prefSize, prefMips, lutSize);
+            if (mCfg.enableCache) {
+                auto path = IBLCachePath(mCfg.cacheDir, hash);
+                if (TryLoadIBLCache(path, hash, mDevice, mBrdfLUT, mIrradiance, mPrefilter,
+                                     irrSize, prefSize, prefMips, lutSize)) {
+                    return;  // charge depuis cache : aucun calcul CPU
+                }
+            }
+
+            auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
+
+            // ── BRDF LUT ────────────────────────────────────────────────────────
+            // 32 samples suffisent pour un gradient sky sans hautes frequences.
+            std::vector<uint8_t> lutData(lutSize * lutSize * 2);
+            if (mBrdfLUT.IsValid()) {
+                const uint32 N = 32;
+                pool.ParallelFor(lutSize, [&](nk_size yi) {
+                    uint32 y = (uint32)yi;
+                    float roughness = (float(y) + 0.5f) / float(lutSize);
+                    for (uint32 x = 0; x < lutSize; x++) {
+                        float NoV = (float(x) + 0.5f) / float(lutSize);
+                        float A = 0.f, B = 0.f;
+                        IntegrateBRDF(NoV, roughness, N, A, B);
+                        uint32 idx = (y * lutSize + x) * 2;
+                        lutData[idx + 0] = uint8_t(NkClamp(A, 0.f, 1.f) * 255.f);
+                        lutData[idx + 1] = uint8_t(NkClamp(B, 0.f, 1.f) * 255.f);
+                    }
+                }, /*grainSize=*/8);
+                pool.Join();
+                mDevice->WriteTexture(mBrdfLUT, lutData.data());
+            }
+
+            // ── Irradiance convolution ──────────────────────────────────────────
+            // 4 strates × 16 azimuts = 64 samples : suffisant pour ciel gradient.
+            std::vector<std::vector<uint8_t>> irrData(6);
             if (mIrradiance.IsValid()) {
-                std::vector<std::vector<uint8_t>> faceBuf(6);
                 auto irrFaceWork = [&](uint32 face) {
-                    auto& buf = faceBuf[face];
+                    auto& buf = irrData[face];
                     buf.assign(irrSize * irrSize * 4, 0);
                     const float kPI = 3.14159265358979f;
-                    const uint32 nTheta = 8;
-                    const uint32 nPhi   = 32;
+                    const uint32 nTheta = 4;
+                    const uint32 nPhi   = 16;
                     const float dTheta = 0.5f * kPI / float(nTheta);
                     const float dPhi   = 2.0f * kPI / float(nPhi);
 
@@ -264,10 +376,8 @@ namespace nkentseu {
                             float v = ((float)y + 0.5f) / (float)irrSize * 2.f - 1.f;
                             float Nx, Ny, Nz;
                             CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
-
                             float Tx, Ty, Tz, Bx, By, Bz;
                             BuildTBN(Nx, Ny, Nz, Tx, Ty, Tz, Bx, By, Bz);
-
                             float Cx = 0.f, Cy = 0.f, Cz = 0.f;
                             uint32 nSamp = 0;
                             for (uint32 ti = 0; ti < nTheta; ti++) {
@@ -288,45 +398,34 @@ namespace nkentseu {
                             }
                             float scale = kPI / float(nSamp);
                             Cx *= scale; Cy *= scale; Cz *= scale;
-
                             uint32 idx = (y * irrSize + x) * 4;
-                            buf[idx + 0] = (uint8_t)(NkClamp(Cx, 0.f, 1.f) * 255.f);
-                            buf[idx + 1] = (uint8_t)(NkClamp(Cy, 0.f, 1.f) * 255.f);
-                            buf[idx + 2] = (uint8_t)(NkClamp(Cz, 0.f, 1.f) * 255.f);
-                            buf[idx + 3] = 255;
+                            buf[idx+0] = (uint8_t)(NkClamp(Cx, 0.f, 1.f) * 255.f);
+                            buf[idx+1] = (uint8_t)(NkClamp(Cy, 0.f, 1.f) * 255.f);
+                            buf[idx+2] = (uint8_t)(NkClamp(Cz, 0.f, 1.f) * 255.f);
+                            buf[idx+3] = 255;
                         }
                     }
                 };
-
-                auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
-                pool.ParallelFor(6, [&](nk_size f) {
-                    irrFaceWork((uint32)f);
-                }, /*grainSize=*/1);
+                pool.ParallelFor(6, [&](nk_size f) { irrFaceWork((uint32)f); }, 1);
                 pool.Join();
-                // Upload sequentiel apres synchronisation (WriteTextureRegion non
-                // thread-safe sur OpenGL backend, le ctx GL est lie au thread main).
-                for (uint32 f = 0; f < 6; f++) {
-                    mDevice->WriteTextureRegion(mIrradiance, faceBuf[f].data(),
-                                                 0, 0, 0, irrSize, irrSize, 1,
-                                                 0, f);
-                }
+                for (uint32 f = 0; f < 6; f++)
+                    mDevice->WriteTextureRegion(mIrradiance, irrData[f].data(),
+                                                 0, 0, 0, irrSize, irrSize, 1, 0, f);
             }
 
-            // ── Prefilter GGX par mip (roughness = mip / (mipCount-1)) ─────────
-            // Mip 0 (roughness=0) = mirror reflection (input direct).
-            // Mip N-1 (roughness=1) = blur maximum.
-            // 32 samples Hammersley + GGX importance par texel. Parallelisation
-            // par face (6 threads par mip) — le mip 0 (128x128) domine le cout.
+            // ── Prefilter GGX par mip ───────────────────────────────────────────
+            // 16 samples : qualite correcte pour ciel sans hautes frequences.
+            std::vector<std::vector<std::vector<uint8_t>>> prefData(prefMips,
+                std::vector<std::vector<uint8_t>>(6));
             if (mPrefilter.IsValid()) {
-                const uint32 numSamples = 32;
+                const uint32 numSamples = 16;
                 for (uint32 mip = 0; mip < prefMips; mip++) {
-                    uint32 mipSize = prefSize >> mip;
-                    if (mipSize < 1) mipSize = 1;
+                    uint32 mipSize = prefSize >> mip; if (mipSize < 1) mipSize = 1;
                     float roughness = (prefMips > 1) ? float(mip) / float(prefMips - 1) : 0.f;
+                    auto& mipBufs = prefData[mip];
 
-                    std::vector<std::vector<uint8_t>> faceBuf(6);
                     auto prefFaceWork = [&](uint32 face) {
-                        auto& buf = faceBuf[face];
+                        auto& buf = mipBufs[face];
                         buf.assign(mipSize * mipSize * 4, 0);
                         for (uint32 y = 0; y < mipSize; y++) {
                             for (uint32 x = 0; x < mipSize; x++) {
@@ -335,19 +434,15 @@ namespace nkentseu {
                                 float Nx, Ny, Nz;
                                 CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
                                 float Vx = Nx, Vy = Ny, Vz = Nz;
-
                                 if (roughness < 1e-3f) {
                                     NkVec3f s = SampleSkyGradient(Nx, Ny, Nz, skyTop, horizon, ground);
                                     uint32 idx = (y * mipSize + x) * 4;
-                                    buf[idx + 0] = (uint8_t)(NkClamp(s.x, 0.f, 1.f) * 255.f);
-                                    buf[idx + 1] = (uint8_t)(NkClamp(s.y, 0.f, 1.f) * 255.f);
-                                    buf[idx + 2] = (uint8_t)(NkClamp(s.z, 0.f, 1.f) * 255.f);
-                                    buf[idx + 3] = 255;
-                                    continue;
+                                    buf[idx+0]=(uint8_t)(NkClamp(s.x,0.f,1.f)*255.f);
+                                    buf[idx+1]=(uint8_t)(NkClamp(s.y,0.f,1.f)*255.f);
+                                    buf[idx+2]=(uint8_t)(NkClamp(s.z,0.f,1.f)*255.f);
+                                    buf[idx+3]=255; continue;
                                 }
-
-                                float Cx = 0.f, Cy = 0.f, Cz = 0.f;
-                                float sumW = 0.f;
+                                float Cx = 0.f, Cy = 0.f, Cz = 0.f, sumW = 0.f;
                                 for (uint32 i = 0; i < numSamples; i++) {
                                     float xiX, xiY;
                                     Hammersley(i, numSamples, xiX, xiY);
@@ -359,36 +454,33 @@ namespace nkentseu {
                                     float Lz = 2.f*VoH*Hz - Vz;
                                     float NoL = std::fmax(Nx*Lx + Ny*Ly + Nz*Lz, 0.f);
                                     if (NoL > 0.f) {
-                                        NkVec3f s = SampleSkyGradient(Lx, Ly, Lz, skyTop, horizon, ground);
-                                        Cx += s.x * NoL;
-                                        Cy += s.y * NoL;
-                                        Cz += s.z * NoL;
-                                        sumW += NoL;
+                                        NkVec3f s = SampleSkyGradient(Lx,Ly,Lz,skyTop,horizon,ground);
+                                        Cx+=s.x*NoL; Cy+=s.y*NoL; Cz+=s.z*NoL; sumW+=NoL;
                                     }
                                 }
                                 float inv = (sumW > 1e-6f) ? 1.f / sumW : 0.f;
-                                Cx *= inv; Cy *= inv; Cz *= inv;
-
+                                Cx*=inv; Cy*=inv; Cz*=inv;
                                 uint32 idx = (y * mipSize + x) * 4;
-                                buf[idx + 0] = (uint8_t)(NkClamp(Cx, 0.f, 1.f) * 255.f);
-                                buf[idx + 1] = (uint8_t)(NkClamp(Cy, 0.f, 1.f) * 255.f);
-                                buf[idx + 2] = (uint8_t)(NkClamp(Cz, 0.f, 1.f) * 255.f);
-                                buf[idx + 3] = 255;
+                                buf[idx+0]=(uint8_t)(NkClamp(Cx,0.f,1.f)*255.f);
+                                buf[idx+1]=(uint8_t)(NkClamp(Cy,0.f,1.f)*255.f);
+                                buf[idx+2]=(uint8_t)(NkClamp(Cz,0.f,1.f)*255.f);
+                                buf[idx+3]=255;
                             }
                         }
                     };
-
-                    auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
-                    pool.ParallelFor(6, [&](nk_size f) {
-                        prefFaceWork((uint32)f);
-                    }, /*grainSize=*/1);
+                    pool.ParallelFor(6, [&](nk_size f) { prefFaceWork((uint32)f); }, 1);
                     pool.Join();
-                    for (uint32 f = 0; f < 6; f++) {
-                        mDevice->WriteTextureRegion(mPrefilter, faceBuf[f].data(),
-                                                     0, 0, 0, mipSize, mipSize, 1,
-                                                     mip, f);
-                    }
+                    for (uint32 f = 0; f < 6; f++)
+                        mDevice->WriteTextureRegion(mPrefilter, mipBufs[f].data(),
+                                                     0, 0, 0, mipSize, mipSize, 1, mip, f);
                 }
+            }
+
+            // ── Sauvegarde du cache pour les prochains lancements ───────────────
+            if (mCfg.enableCache) {
+                auto path = IBLCachePath(mCfg.cacheDir, hash);
+                SaveIBLCache(path, hash, irrSize, prefSize, prefMips, lutSize,
+                              lutData.data(), irrData, prefData);
             }
         }
 

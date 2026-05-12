@@ -62,6 +62,11 @@ namespace nkentseu {
 
                 void SetWireframe(bool e) { mWireframe=e; }
 
+                // Contrôle de la force du terme ambient IBL (0=aucun, 1=complet).
+                // Défaut 0.3 — réduit le blanchiment par le ciel procédural.
+                void SetIBLStrength(float32 s) { mIBLStrength = s; }
+                float32 GetIBLStrength() const  { return mIBLStrength; }
+
                 // Phase E.6 : bind une texture comme cookie 3D au slot [0..7].
                 // Le `cookieIdx` dans NkLightDesc reference ce slot. Surtout
                 // utile pour les SPOT lights qui projettent un motif
@@ -101,6 +106,7 @@ namespace nkentseu {
                 struct SortedDC { NkDrawCall3D dc; float32 depth; };
                 struct DebugLine { NkVec3f a,b; NkVec4f color; float32 life; };
 
+                float32              mIBLStrength = 0.3f;
                 NkIDevice*           mDevice  = nullptr;
                 NkMeshSystem*        mMesh    = nullptr;
                 NkMaterialSystem*    mMat     = nullptr;

@@ -19,8 +19,8 @@ namespace nkentseu {
             ::nkentseu::NkShaderHandle rhiHandle;     // RHI shader handle (a passer aux pipelines)
             NkString        name;
             NkString        vertPath, fragPath, geomPath, compPath;
-            NkVector<uint8> vertBytecode, fragBytecode;
-            uint64          vertMtime = 0, fragMtime = 0;
+            NkVector<uint8> vertBytecode, fragBytecode, geomBytecode;
+            uint64          vertMtime = 0, fragMtime = 0, geomMtime = 0;
             bool            valid     = false;
         };
 

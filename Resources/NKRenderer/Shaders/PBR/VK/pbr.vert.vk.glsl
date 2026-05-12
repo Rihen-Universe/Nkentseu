@@ -18,6 +18,7 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     vec2  viewport;
     float time;
     float deltaTime;
+    float iblStrength;
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {

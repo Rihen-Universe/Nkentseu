@@ -72,8 +72,9 @@ namespace nkentseu {
             // Pas de push_constant struct, ou deja au bon format vec4
             if (typeName.empty() || typeName == "vec4") return nkSrc;
 
-            // 2. Parser "struct TYPENAME { float m0; ... };"
-            struct Member { std::string name; int floats; };
+            // 2. Parser "struct TYPENAME { TYPE m0; ... };"
+            // fc = nombre de floats (vec4 slots * 4) occupés par le membre
+            struct Member { std::string name, type; int floats; };
             std::vector<Member> members;
             {
                 std::string pat = "struct " + typeName;
@@ -81,36 +82,35 @@ namespace nkentseu {
                 if (pos == std::string::npos) return nkSrc;
                 size_t bo = s.find('{', pos + pat.size());
                 if (bo == std::string::npos) return nkSrc;
-                // Brace matching
                 int depth = 1; size_t p = bo + 1;
                 while (p < s.size() && depth > 0) {
                     if (s[p]=='{') ++depth;
                     else if (s[p]=='}') --depth;
                     ++p;
                 }
-                size_t bc = p - 1; // position du '}'
-                // Parser les membres ligne par ligne
+                size_t bc = p - 1;
                 size_t bp = bo + 1;
                 while (bp < bc) {
                     while (bp < bc && (s[bp]==' '||s[bp]=='\t'||s[bp]=='\r'||s[bp]=='\n')) ++bp;
                     if (bp >= bc) break;
-                    // type
                     size_t ts = bp;
                     while (bp < bc && s[bp]!=' '&&s[bp]!='\t') ++bp;
                     std::string mtype = s.substr(ts, bp - ts);
                     while (bp < bc && (s[bp]==' '||s[bp]=='\t')) ++bp;
-                    // nom (jusqu'au ';' ou newline)
                     size_t ns = bp;
                     while (bp < bc && s[bp]!=';'&&s[bp]!='\n'&&s[bp]!='\r') ++bp;
                     std::string mname = s.substr(ns, bp - ns);
                     while (!mname.empty() && (mname.back()==' '||mname.back()=='\t')) mname.pop_back();
-                    if (bp < bc) ++bp; // skip ';'
+                    if (bp < bc) ++bp;
                     if (!mname.empty() && !mtype.empty()) {
                         int fc = 1;
                         if      (mtype=="vec2") fc = 2;
                         else if (mtype=="vec3") fc = 3;
                         else if (mtype=="vec4") fc = 4;
-                        members.push_back({mname, fc});
+                        else if (mtype=="mat2") fc = 4;  // 2 colonnes × vec2 (std430: 2 vec4 padded)
+                        else if (mtype=="mat3") fc = 12; // 3 colonnes × vec4 (std430 padding)
+                        else if (mtype=="mat4") fc = 16; // 4 colonnes × vec4
+                        members.push_back({mname, mtype, fc});
                     }
                 }
             }
@@ -122,15 +122,29 @@ namespace nkentseu {
             int numVec4 = (totalFloats + 3) / 4;
             if (numVec4 == 0) numVec4 = 1;
 
-            // 4. Remplacer les accès "_PushConstants.member" → "_PushConstants[slot].(xyzw)"
-            // (avant de toucher à la déclaration struct/uniform)
+            // 4. Remplacer les accès "_PushConstants.member" → expression GLSL correcte
             static const char* kComp[] = {"x","y","z","w"};
             int floatOff = 0;
             for (auto& m : members) {
                 std::string oldRef = kVar + "." + m.name;
                 int slot = floatOff / 4, comp = floatOff % 4;
                 std::string newRef;
-                if (m.floats == 1) {
+                if (m.type == "mat4") {
+                    newRef = "mat4("
+                           + kVar + "[" + std::to_string(slot)   + "],"
+                           + kVar + "[" + std::to_string(slot+1) + "],"
+                           + kVar + "[" + std::to_string(slot+2) + "],"
+                           + kVar + "[" + std::to_string(slot+3) + "])";
+                } else if (m.type == "mat3") {
+                    newRef = "mat3(vec3("
+                           + kVar + "[" + std::to_string(slot)   + "]),vec3("
+                           + kVar + "[" + std::to_string(slot+1) + "]),vec3("
+                           + kVar + "[" + std::to_string(slot+2) + "]))";
+                } else if (m.type == "mat2") {
+                    newRef = "mat2("
+                           + kVar + "[" + std::to_string(slot) + "].xy,"
+                           + kVar + "[" + std::to_string(slot) + "].zw)";
+                } else if (m.floats == 1) {
                     newRef = kVar + "[" + std::to_string(slot) + "]." + kComp[comp];
                 } else {
                     std::string sw;
@@ -169,7 +183,7 @@ namespace nkentseu {
                         size_t bc = p - 1;
                         size_t semi = s.find(';', bc);
                         size_t end = (semi != std::string::npos) ? semi + 1 : bc + 1;
-                        if (end < s.size() && s[end]=='\n') ++end; // manger le newline
+                        if (end < s.size() && s[end]=='\n') ++end;
                         s.erase(pos, end - pos);
                     }
                 }

@@ -96,6 +96,7 @@ namespace nkentseu {
 
         class NkMaterialInstance {
             public:
+                NkMatInstHandle     GetHandle()  const { return mHandle; }
                 NkMaterialInstance* SetAlbedo        (NkVec3f c, float32 a=1.f);
                 NkMaterialInstance* SetAlbedoMap     (NkTexHandle t);
                 NkMaterialInstance* SetNormalMap     (NkTexHandle t, float32 str=1.f);
@@ -129,6 +130,7 @@ namespace nkentseu {
 
             private:
                 friend class NkMaterialSystem;
+                NkMatInstHandle mHandle;
                 NkMatHandle     mTemplate;
                 NkDescSetHandle mDescSet;
                 NkBufferHandle  mUBO;
@@ -169,9 +171,26 @@ namespace nkentseu {
                 NkMaterialInstance* CreateInstance (NkMatHandle tmpl);
                 void                DestroyInstance(NkMaterialInstance*& inst);
 
-                // Bind avant draw (met à jour descset si dirty)
-                bool BindInstance(NkICommandBuffer* cmd, NkMaterialInstance* inst,
-                                NkTextureLibrary* texLib);
+                // Fournit les layouts partagés de NkRender3D (set 0 + set 1 + vertex layout).
+                // Doit être appelé après Init de NkRender3D, avant tout BindInstance.
+                // Le renderPass peut être mis à jour plus tard via UpdateRenderPass()
+                // (nécessaire sur Vulkan quand le RP change au resize).
+                void SetSharedContext(NkDescSetHandle globalLayout,
+                                      NkDescSetHandle objectLayout,
+                                      const NkVertexLayout& vertexLayout,
+                                      NkRenderPassHandle rp = {});
+                void UpdateRenderPass(NkRenderPassHandle rp);
+
+                // Bind avant draw (met à jour descset si dirty, utilise mTexLib interne).
+                bool BindInstance(NkICommandBuffer* cmd, NkMaterialInstance* inst);
+
+                // Accès instance depuis handle (draw call)
+                NkMaterialInstance* GetInstance(NkMatInstHandle h) const;
+
+                // Accès pipeline du template (lazy compile).
+                // currentRP : render pass courant (pour Vulkan RP compat).
+                NkPipelineHandle    GetPipeline(NkMatHandle tmpl,
+                                                NkRenderPassHandle currentRP = {});
 
                 void FlushCompilations();
 
@@ -201,11 +220,20 @@ namespace nkentseu {
                 NkTextureLibrary*   mTexLib     = nullptr;
                 NkShaderLibrary*    mShaderLib  = nullptr;
                 NkGraphicsApi       mApi        = NkGraphicsApi::NK_GFX_API_VULKAN;
-                NkHashMap<uint64, TemplateEntry>   mTemplates;
-                NkVector<NkMaterialInstance*>      mInstances;
-                uint64                             mNextId = 1;
+                NkHashMap<uint64, TemplateEntry>        mTemplates;
+                NkVector<NkMaterialInstance*>           mInstances;
+                NkHashMap<uint64, NkMaterialInstance*>  mInstanceMap;
+                uint64                             mNextId     = 1;
+                uint64                             mNextInstId = 1;
                 NkDescSetHandle                    mInstDescLayout;
                 NkSamplerHandle                    mLinearSampler;
+                // Contexte partagé fourni par NkRender3D (layouts set 0/1, RP).
+                // Le vertex layout NkVertex3D est reconstruit directement dans
+                // CompilePipeline() pour eviter la copie d'un NkVector dont
+                // l'allocateur n'est pas initialise dans le membre par defaut.
+                NkDescSetHandle    mSharedGlobalLayout;
+                NkDescSetHandle    mSharedObjectLayout;
+                NkRenderPassHandle mCurrentRP;
 
                 NkMatHandle mTmplPBR, mTmplToon, mTmplUnlit, mTmplWire;
                 NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;

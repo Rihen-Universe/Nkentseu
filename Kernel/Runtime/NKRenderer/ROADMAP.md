@@ -25,6 +25,31 @@ shadows soft + 2 lights point + 1 directional).
 - Wire `NkDrawCall3D::material` proprement (actuellement shortcut via
   metallic/roughness directs)
 
+### Phase G.ext — Matériaux avancés style UE5 (M.1 → M.8)
+
+> Sous-phases issues de la session 2026-05-11. S'appliquent après que Phase G de base
+> soit opérationnelle (NkMaterialSystem + pipeline PBR/Toon/Anime/Unlit fonctionnels ✅).
+
+- **M.1** ⭐ Material Layering — N couches superposées par objet avec masques (texture,
+  vertex color). Shader généré à la volée. `NkLayeredMaterial` wrapper + UBO étendu
+  `NkLayerParams[N]`. Inclut la 2ème passe outline (hull expansion).
+- **M.2** Material Parameter Collections — `NkMaterialCollection` : pool de params
+  nommés globaux (float, vec3…). Plusieurs matériaux y référent → un seul changement
+  met à jour tous. UBO dédié set=0.
+- **M.3** Blend par vertex color — R/G/B/A du vertex comme masques de blend entre
+  2-4 matériaux. Dépend de M.1 pour le pipeline de blend.
+- **M.4** Instances hiérarchiques — `NkMaterial::CreateInstance(parent)`, héritage +
+  override sélectif via bitfield `mOverrides`. Propagation parent → enfants.
+- **M.5** Material Functions — `.glsli` réutilisables dans les shaders custom
+  (`NkFresnelFunc`, `NkToonRamp`, `NkPOM`…). Inclus via `#include`.
+- **M.6** Vertex Paint runtime — `mesh->PaintVertex(idx, color)`, update partiel VBO.
+  Dépend de NkDynamicMesh ou mécanisme de partial VBO update.
+- **M.7** Decal Materials — pass post-opaque, projection OBB → world space → blend.
+  **Bloqué** jusqu'à Phase M (deferred) ou ajout d'un mini G-Buffer depth+normal.
+- **M.8** Multi-slot par sous-mesh — `NkDrawCall3D::materials[]` par slot de
+  sous-mesh. NkRender3D itère les sous-meshes et bind le bon matériau à chaque
+  DrawIndexed.
+
 ### Phase H — Pipeline assets textures
 - Loader PNG/JPG/TGA/HDR/EXR (stb_image / OpenEXR)
 - Mipmap generation

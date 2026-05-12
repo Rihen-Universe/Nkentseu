@@ -76,10 +76,13 @@ namespace nkentseu {
                 NkMaterial* SetSpecHardness  (float32 v);
 
                 // ── État ──────────────────────────────────────────────────────────
-                bool          IsValid()   const;
-                NkRenderQueue GetQueue()  const;
-                const char*   GetName()   const;
-                NkMaterialType GetType()  const;
+                bool          IsValid()      const;
+                NkRenderQueue GetQueue()     const;
+                const char*   GetName()      const;
+                NkMaterialType GetType()     const;
+
+                // Handle de l'instance interne — utilisé pour NkDrawCall3D::material.
+                NkMatInstHandle GetInstHandle() const;
 
                 // ── Usage interne (NkRender3D/NkRender2D) ────────────────────────
                 bool Bind(NkICommandBuffer* cmd, NkTextureLibrary* texLib);

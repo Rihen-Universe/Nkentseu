@@ -94,12 +94,12 @@ namespace
 // ── ComputeFieldY ─────────────────────────────────────────────────────────────
 // Calcule la hauteur de la barre HUD (= Y du debut du terrain de jeu).
 // La barre HUD occupe la totalite de la largeur de l'ecran en haut.
-// Hauteur minimale : 64 px. Sur grand ecran (H>600) elle s'adapte a 9%.
+// Hauteur augmentée pour boutons et menus plus visibles.
 static float ComputeFieldY(uint32_t H, bool hasAndroidButtons)
 {
-    float base  = static_cast<float>(H) * 0.085f;
-    float minH  = hasAndroidButtons ? 72.0f : 56.0f;
-    float maxH  = 120.0f;
+    float base  = static_cast<float>(H) * 0.12f;  // 12% au lieu de 8.5%
+    float minH  = hasAndroidButtons ? 90.0f : 70.0f;
+    float maxH  = 150.0f;
     if (base < minH) base = minH;
     if (base > maxH) base = maxH;
     return base;
@@ -2300,13 +2300,13 @@ void PongGame::RenderMainMenu()
     float    wave = 0.5f + 0.5f * math::NkSin(mTime * 1.8f);
     float    S    = UIScale();
     auto     ui   = [S](int v) -> int { return static_cast<int>(static_cast<float>(v) * S + 0.5f); };
-    int      ts   = S >= 0.8f ? 2 : 1;
+    int      ts   = math::NkMax(2, S >= 0.8f ? 3 : 2);  // Augmenté minimum à 2
 
     // ── Titre PONG ────────────────────────────────────────────────────────────
     int titleY = cy - ui(150);
     mRasterizer.DrawGlow(cx, titleY, ui(90), AlphaF(gamecolors::Player(), wave * 0.6f), 1.5f);
     int titleTextY = cy - ui(168);
-    int titleScale = math::NkMax(2, ui(6));
+    int titleScale = math::NkMax(3, ui(8));  // Augmenté de 2 à 3
     mRasterizer.DrawTextCentered(cx, titleTextY, "PONG", gamecolors::White(), titleScale);
 
     // ── Sous-titre ────────────────────────────────────────────────────────────
@@ -2314,8 +2314,8 @@ void PongGame::RenderMainMenu()
     mRasterizer.DrawTextCentered(cx, subtitleY, "SOFTWARE RENDERER", gamecolors::White(), ts);
 
     // ── Panneau du menu ───────────────────────────────────────────────────────
-    int pw = ui(320);
-    int ph = ui(240);
+    int pw = ui(380);  // Augmenté de 320 à 380
+    int ph = ui(280);  // Augmenté de 240 à 280
     int mx = cx - pw / 2;
     int my = cy - ui(60);
     DrawPanel(mx, my, pw, ph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
@@ -2329,7 +2329,7 @@ void PongGame::RenderMainMenu()
         gamecolors::Red()
     };
 
-    int bh = ui(44);
+    int bh = ui(56);  // Augmenté de 44 à 56
     int bw = pw - ui(24);
     int bx = mx + ui(12);
     int by = my + ui(14);
@@ -2337,7 +2337,7 @@ void PongGame::RenderMainMenu()
     for (int i = 0; i < 4; ++i)
     {
         bool sel = (mMainMenuSel == i);
-        int btnY = by + i * (bh + ui(4));
+        int btnY = by + i * (bh + ui(6));  // Augmenté gap de 4 à 6
         DrawButton(bx, btnY, bw, bh, items[i], sel, cols[i], ts);
     }
 
@@ -2346,7 +2346,7 @@ void PongGame::RenderMainMenu()
     snprintf(info, sizeof(info), "Diff: %s  |  Obs: %s",
              AIDifficultyName(static_cast<AIDifficulty>(mDiffSel)),
              ObstaclePresetName(static_cast<ObstaclePreset>(mObsSel)));
-    int infoY = my + ph + ui(10);
+    int infoY = my + ph + ui(16);  // Augmenté gap de 10 à 16
     mRasterizer.DrawTextCentered(cx, infoY, info, gamecolors::White(), ts);
 
     // ── Instructions de navigation (bas d\'ecran) ──────────────────────────────
@@ -2372,21 +2372,21 @@ void PongGame::RenderDiffSelect()
     float    wave = 0.5f + 0.5f * math::NkSin(mTime * 2.0f);
     float    S    = UIScale();
     auto     ui   = [S](int v) -> int { return static_cast<int>(static_cast<float>(v) * S + 0.5f); };
-    int      ts   = S >= 0.8f ? 2 : 1;
+    int      ts   = math::NkMax(2, S >= 0.8f ? 3 : 2);  // Augmenté minimum à 2
 
     // ── Titre ─────────────────────────────────────────────────────────────────
     int titleGlowY = cy - ui(90);
     mRasterizer.DrawGlow(cx, titleGlowY, ui(80), AlphaF(gamecolors::Gold(), wave * 0.5f), 1.2f);
     int titleTextY = cy - ui(108);
-    mRasterizer.DrawTextCentered(cx, titleTextY, "DIFFICULTE", gamecolors::White(), math::NkMax(2, ui(3)));
+    mRasterizer.DrawTextCentered(cx, titleTextY, "DIFFICULTE", gamecolors::White(), math::NkMax(3, ui(4)));  // Augmenté
     int subtitleTextY = cy - ui(76);
     mRasterizer.DrawTextCentered(cx, subtitleTextY,
                                  "Choisissez la puissance de l\'IA",
                                  gamecolors::White(), ts);
 
     // ── Panneau principal ─────────────────────────────────────────────────────
-    int pw = ui(520);
-    int ph = ui(320);
+    int pw = ui(580);  // Augmenté de 520 à 580
+    int ph = ui(360);  // Augmenté de 320 à 360
     int px = cx - pw / 2;
     int py = cy - ui(60);
     DrawPanel(px, py, pw, ph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
@@ -2407,42 +2407,42 @@ void PongGame::RenderDiffSelect()
         "Reaction: 88%   Erreur: +-5px    Prediction: 0.16s"
     };
 
-    int bh  = ui(56);
+    int bh  = ui(66);  // Augmenté de 56 à 66
     int bw  = pw - ui(24);
     int bx  = px + ui(12);
-    int by  = py + ui(12);
-    int bth = ui(36);
+    int by  = py + ui(14);
+    int bth = ui(44);  // Augmenté de 36 à 44
 
     for (int i = 0; i < 4; ++i)
     {
         bool sel = (mDiffSel == i);
 
         // Bouton principal avec le nom de la difficulte (texte blanc)
-        int btnY = by + i * (bh + ui(4));
+        int btnY = by + i * (bh + ui(6));  // Augmenté gap de 4 à 6
         DrawButton(bx, btnY, bw, bth,
                    AIDifficultyName(static_cast<AIDifficulty>(i)), sel, dcols[i], ts);
 
         // Stats en dessous du bouton (texte blanc)
-        int statY = btnY + bth + ui(4);
-        mRasterizer.DrawText(bx + ui(10), statY, stats[i], gamecolors::White(), 1);
+        int statY = btnY + bth + ui(6);  // Augmenté gap de 4 à 6
+        mRasterizer.DrawText(bx + ui(10), statY, stats[i], gamecolors::White(), 2);  // Augmenté de 1 à 2
     }
 
     // ── Description de la difficulte selectionnee ─────────────────────────────
-    int descY = py + ph + ui(6);
-    DrawPanel(px, descY, pw, ui(36),
+    int descY = py + ph + ui(10);  // Augmenté gap de 6 à 10
+    DrawPanel(px, descY, pw, ui(44),  // Augmenté de 36 à 44
               gamecolors::PanelBG(), AlphaF(gamecolors::PanelBorder(), 0.5f), 1);
-    int descTextY = descY + ui(12);
+    int descTextY = descY + ui(14);  // Augmenté de 12 à 14
     mRasterizer.DrawTextCentered(cx, descTextY,
         AIDifficultyDesc(static_cast<AIDifficulty>(mDiffSel)),
-        gamecolors::White(), 1);
+        gamecolors::White(), 2);  // Augmenté de 1 à 2
 
     // ── Instructions ──────────────────────────────────────────────────────────
     int instY1 = static_cast<int>(H) - ui(48);
     mRasterizer.DrawTextCentered(cx, instY1,
                                  "HAUT/BAS: choisir   ENTREE/CLIC: confirmer   ECHAP: retour",
-                                 gamecolors::White(), 1);
+                                 gamecolors::White(), 2);  // Augmenté de 1 à 2
     int instY2 = static_cast<int>(H) - ui(24);
-    mRasterizer.DrawTextCentered(cx, instY2, "nkengine by Rihen", gamecolors::White(), 1);
+    mRasterizer.DrawTextCentered(cx, instY2, "nkengine by Rihen", gamecolors::White(), 2);  // Augmenté de 1 à 2
 }
 
 // ── PongGame::RenderObsSelect ─────────────────────────────────────────────────
@@ -2459,20 +2459,20 @@ void PongGame::RenderObsSelect()
     float    wave = 0.5f + 0.5f * math::NkSin(mTime * 2.0f);
     float    S    = UIScale();
     auto     ui   = [S](int v) -> int { return static_cast<int>(static_cast<float>(v) * S + 0.5f); };
-    int      ts   = S >= 0.8f ? 2 : 1;
+    int      ts   = math::NkMax(2, S >= 0.8f ? 3 : 2);  // Augmenté minimum à 2
 
     // ── Titre ─────────────────────────────────────────────────────────────────
     int titleGlowY = cy - ui(90);
     mRasterizer.DrawGlow(cx, titleGlowY, ui(80), AlphaF(gamecolors::ObsPortal(), wave * 0.5f), 1.2f);
     int titleTextY = cy - ui(108);
-    mRasterizer.DrawTextCentered(cx, titleTextY, "OBSTACLES", gamecolors::White(), math::NkMax(2, ui(3)));
+    mRasterizer.DrawTextCentered(cx, titleTextY, "OBSTACLES", gamecolors::White(), math::NkMax(3, ui(4)));  // Augmenté
     int subtitleTextY = cy - ui(76);
     mRasterizer.DrawTextCentered(cx, subtitleTextY, "Choisissez le type d\'obstacles", gamecolors::White(), ts);
 
     // ── Panneau gauche : liste des 6 presets ──────────────────────────────────
-    int lpw = ui(260);
-    int lph = ui(330);
-    int lpx = cx - lpw - ui(10);
+    int lpw = ui(300);  // Augmenté de 260 à 300
+    int lph = ui(370);  // Augmenté de 330 à 370
+    int lpx = cx - lpw - ui(12);
     int lpy = cy - ui(60);
     DrawPanel(lpx, lpy, lpw, lph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
 
@@ -2486,46 +2486,46 @@ void PongGame::RenderObsSelect()
         gamecolors::Red()
     };
 
-    int bh = ui(44);
+    int bh = ui(52);  // Augmenté de 44 à 52
     int bw = lpw - ui(16);
     int bx = lpx + ui(8);
-    int by = lpy + ui(10);
+    int by = lpy + ui(12);
 
     for (int i = 0; i < 6; ++i)
     {
         bool sel = (mObsSel == i);
-        int btnY = by + i * (bh + ui(4));
+        int btnY = by + i * (bh + ui(6));  // Augmenté gap de 4 à 6
         DrawButton(bx, btnY, bw, bh,
                    ObstaclePresetName(static_cast<ObstaclePreset>(i)),
                    sel, ocols[i], ts);
     }
 
     // ── Panneau droit : description + preview ─────────────────────────────────
-    int rpw = ui(260);
+    int rpw = ui(300);  // Augmenté de 260 à 300
     int rph = lph;
-    int rpx = cx + ui(10);
+    int rpx = cx + ui(12);
     int rpy = lpy;
     DrawPanel(rpx, rpy, rpw, rph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
 
     // Nom du preset selectionne (blanc)
     int presetNameX = rpx + rpw / 2;
-    int presetNameY = rpy + ui(12);
+    int presetNameY = rpy + ui(14);  // Augmenté de 12 à 14
     mRasterizer.DrawTextCentered(presetNameX, presetNameY,
         ObstaclePresetName(static_cast<ObstaclePreset>(mObsSel)),
-        gamecolors::White(), ts);
+        gamecolors::White(), 2);  // Augmenté de ts à 2
 
     // Description du preset (blanc)
-    int descX = rpx + ui(8);
-    int descY = rpy + ui(34);
+    int descX = rpx + ui(10);
+    int descY = rpy + ui(40);  // Augmenté de 34 à 40
     mRasterizer.DrawText(descX, descY,
         ObstaclePresetDesc(static_cast<ObstaclePreset>(mObsSel)),
-        gamecolors::White(), 1);
+        gamecolors::White(), 2);  // Augmenté de 1 à 2
 
     // Preview miniature du terrain avec les obstacles
     int previewX = rpx + ui(8);
-    int previewY = rpy + ui(68);
+    int previewY = rpy + ui(80);  // Augmenté de 68 à 80
     int previewW = rpw - ui(16);
-    int previewH = rph - ui(78);
+    int previewH = rph - ui(90);  // Augmenté de 78 à 90
     DrawObstaclePreview(previewX, previewY, previewW, previewH,
                         static_cast<ObstaclePreset>(mObsSel));
 
@@ -2533,9 +2533,9 @@ void PongGame::RenderObsSelect()
     int instY1 = static_cast<int>(H) - ui(48);
     mRasterizer.DrawTextCentered(cx, instY1,
                                  "HAUT/BAS: choisir   ENTREE/CLIC: confirmer   ECHAP: retour",
-                                 gamecolors::White(), 1);
+                                 gamecolors::White(), 2);  // Augmenté de 1 à 2
     int instY2 = static_cast<int>(H) - ui(24);
-    mRasterizer.DrawTextCentered(cx, instY2, "nkengine by Rihen", gamecolors::White(), 1);
+    mRasterizer.DrawTextCentered(cx, instY2, "nkengine by Rihen", gamecolors::White(), 2);  // Augmenté de 1 à 2
 }
 
 // ── PongGame::RenderPauseOverlay ──────────────────────────────────────────────
@@ -2552,7 +2552,7 @@ void PongGame::RenderPauseOverlay()
     int      cy = static_cast<int>(H) / 2;
     float    S  = UIScale();
     auto     ui = [S](int v) -> int { return static_cast<int>(static_cast<float>(v) * S + 0.5f); };
-    int      ts = S >= 0.8f ? 2 : 1;
+    int      ts = math::NkMax(2, S >= 0.8f ? 3 : 2);  // Augmenté minimum à 2
 
     float wave = 0.5f + 0.5f * math::NkSin(mTime * 2.5f);
 
@@ -2570,31 +2570,31 @@ void PongGame::RenderPauseOverlay()
     int titleGlowY = cy - ui(80);
     mRasterizer.DrawGlow(cx, titleGlowY, ui(70), AlphaF(gamecolors::Gold(), wave * 0.5f), 1.2f);
     int titleTextY = cy - ui(92);
-    mRasterizer.DrawTextCentered(cx, titleTextY, "PAUSE", gamecolors::White(), math::NkMax(2, ui(4)));
+    mRasterizer.DrawTextCentered(cx, titleTextY, "PAUSE", gamecolors::White(), math::NkMax(3, ui(5)));  // Augmenté
 
     // ── Panneau avec les 2 options ────────────────────────────────────────────
-    int pw   = ui(260);
-    int ph   = ui(120);
+    int pw   = ui(300);  // Augmenté de 260 à 300
+    int ph   = ui(140);  // Augmenté de 120 à 140
     int px   = cx - pw / 2;
-    int py   = cy - ui(28);
-    int bw   = pw - ui(20);
-    int bx   = px + ui(10);
-    int bh   = ui(48);
+    int py   = cy - ui(32);  // Augmenté gap de 28 à 32
+    int bw   = pw - ui(24);  // Augmenté gap de 20 à 24
+    int bx   = px + ui(12);  // Augmenté gap de 10 à 12
+    int bh   = ui(56);   // Augmenté de 48 à 56
     DrawPanel(px, py, pw, ph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
 
     // Bouton Reprendre (texte blanc)
-    int btn1Y = py + ui(10);
+    int btn1Y = py + ui(12);  // Augmenté gap de 10 à 12
     DrawButton(bx, btn1Y, bw, bh, "  REPRENDRE  ", (mPauseSel == 0), gamecolors::Green(), ts);
 
     // Bouton Menu principal (texte blanc)
-    int btn2Y = py + ui(64);
+    int btn2Y = py + ui(74);  // Augmenté gap de 64 à 74
     DrawButton(bx, btn2Y, bw, bh, "  MENU PRINCIPAL  ", (mPauseSel == 1), gamecolors::Red(), ts);
 
     // ── Instructions ──────────────────────────────────────────────────────────
     int instY = static_cast<int>(H) - ui(24);
     mRasterizer.DrawTextCentered(cx, instY,
                                  "HAUT/BAS: naviguer   ENTREE/CLIC: confirmer   ECHAP: reprendre",
-                                 gamecolors::White(), 1);
+                                 gamecolors::White(), 2);  // Augmenté de 1 à 2
 }
 
 // ── PongGame::RenderGoalFlash ─────────────────────────────────────────────────
@@ -2641,7 +2641,7 @@ void PongGame::RenderGameOver()
     int cy = static_cast<int>(H) / 2;
     float S  = UIScale();
     auto  ui = [S](int v) -> int { return static_cast<int>(static_cast<float>(v) * S + 0.5f); };
-    int   ts = S >= 0.8f ? 2 : 1;
+    int   ts = math::NkMax(2, S >= 0.8f ? 3 : 2);  // Augmenté minimum à 2
 
     bool playerWon = (mPlayer.score >= mSettings.maxScore);
     math::NkColor wc = playerWon ? gamecolors::Player() : gamecolors::AI();
@@ -2662,31 +2662,31 @@ void PongGame::RenderGameOver()
     mRasterizer.DrawGlow(cx, titleGlowY, ui(130), AlphaF(wc, wave * 0.55f), 1.6f);
     const char* msg = playerWon ? "VICTOIRE!" : "DEFAITE...";
     int titleTextY = cy - ui(80);
-    mRasterizer.DrawTextCentered(cx, titleTextY, msg, gamecolors::White(), math::NkMax(2, ui(5)));
+    mRasterizer.DrawTextCentered(cx, titleTextY, msg, gamecolors::White(), math::NkMax(3, ui(6)));  // Augmenté
 
     // ── Score final ───────────────────────────────────────────────────────────
     char sc[32];
     snprintf(sc, sizeof(sc), "%d  -  %d", mPlayer.score, mAI.score);
     int scoreY = cy - ui(24);
-    mRasterizer.DrawTextCentered(cx, scoreY, sc, gamecolors::White(), math::NkMax(1, ui(3)));
+    mRasterizer.DrawTextCentered(cx, scoreY, sc, gamecolors::White(), math::NkMax(2, ui(4)));  // Augmenté
 
     // ── Bouton Rejouer ────────────────────────────────────────────────────────
-    int pw = ui(360);
-    int ph = ui(60);
+    int pw = ui(400);  // Augmenté de 360 à 400
+    int ph = ui(70);   // Augmenté de 60 à 70
     int px = cx - pw / 2;
-    int py = cy + ui(10);
+    int py = cy + ui(14);  // Augmenté gap de 10 à 14
     DrawPanel(px, py, pw, ph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
-    int btnX = px + ui(10);
-    int btnY = py + ui(8);
-    int btnW = pw - ui(20);
-    int btnH = ui(44);
+    int btnX = px + ui(12);  // Augmenté gap de 10 à 12
+    int btnY = py + ui(10);  // Augmenté gap de 8 à 10
+    int btnW = pw - ui(24);  // Augmenté gap de 20 à 24
+    int btnH = ui(50);       // Augmenté de 44 à 50
     DrawButton(btnX, btnY, btnW, btnH, "  REJOUER  ", true, gamecolors::Green(), ts);
 
     // ── Instructions ──────────────────────────────────────────────────────────
     int instY = static_cast<int>(H) - ui(24);
     mRasterizer.DrawTextCentered(cx, instY,
                                  "ENTREE/CLIC: rejouer   ECHAP: menu principal",
-                                 gamecolors::White(), 1);
+                                 gamecolors::White(), 2);  // Augmenté de 1 à 2
 }
 
 // =============================================================================
@@ -2851,15 +2851,17 @@ void PongGame::RenderTouchButtons()
             mRasterizer.DrawLine(x+w-1-t, y+t, x+w-1-t, y+h-1-t, bc);
         }
         // Icone (grande, centree)
-        int iw = mRasterizer.TextWidth(icon, 2);
-        int ih = 7 * 2;
+        int iconScale = 4;  // Augmenté de 2 à 4
+        int iw = mRasterizer.TextWidth(icon, iconScale);
+        int ih = 7 * iconScale;
         int ix = x + w/2 - iw/2;
-        int iy = y + h/2 - ih/2 - 2;
-        mRasterizer.DrawText(ix, iy, icon, accent, 2);
+        int iy = y + h/2 - ih/2 - 4;
+        mRasterizer.DrawText(ix, iy, icon, accent, iconScale);
         // Label (petit, sous l'icone)
-        int lw = mRasterizer.TextWidth(label, 1);
-        mRasterizer.DrawText(x + w/2 - lw/2, iy + ih + 2, label,
-                             AlphaF(accent, 0.65f), 1);
+        int labelScale = 2;  // Augmenté de 1 à 2
+        int lw = mRasterizer.TextWidth(label, labelScale);
+        mRasterizer.DrawText(x + w/2 - lw/2, iy + ih + 4, label,
+                             AlphaF(accent, 0.65f), labelScale);
     };
 
     DrawTouchBtn(r.enterX,  r.enterY,  r.enterW,  r.enterH,

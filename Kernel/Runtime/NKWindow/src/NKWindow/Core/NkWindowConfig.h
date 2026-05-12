@@ -111,6 +111,10 @@ namespace nkentseu {
 		// --- Mobile / Safe Area ---
 		bool respectSafeArea = true;
 
+		// --- Android specifics ---
+		bool hideSystemUI = false;    // Masquer status bar + navigation bar
+		bool lockOrientation = false; // Empêcher la rotation
+
 		// --- Web / WASM ---
 		NkWebInputOptions webInput;
 

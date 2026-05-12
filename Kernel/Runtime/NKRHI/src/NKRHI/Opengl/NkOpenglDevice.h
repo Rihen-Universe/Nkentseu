@@ -183,6 +183,7 @@ private:
             uint64   bufferOffset=0;
             uint64   bufferRange=0;
             GLuint   textureId=0;
+            GLenum   textureTarget=0;  // GL_TEXTURE_2D / GL_TEXTURE_CUBE_MAP etc.
             GLuint   samplerId=0;
         } bindings[32];
     };

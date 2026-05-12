@@ -46,6 +46,7 @@ namespace nkentseu {
     NkWindow*              NkAndroidGetLastWindow();
     void                   NkAndroidRegisterWindow(NkWindow* window);
     void                   NkAndroidUnregisterWindow(NkWindow* window);
+    bool                   NkAndroidHideSystemUI(struct android_app* app);  // Masquer status bar + navigation bar
 
 } // namespace nkentseu
 

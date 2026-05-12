@@ -3,7 +3,7 @@
 #version 460 core
 layout(location=0) in vec3 vWorldPos; layout(location=4) in vec2 vUV;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(std140,binding=1) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
 layout(std140,binding=13) uniform VolumeUBO{vec4 absorptionColor;vec4 scatterColor;float density;float stepCount;float shadowDensity;float _p;}uVol;
 layout(binding=4) uniform sampler3D tVolumeDensity;   // 3D density field
