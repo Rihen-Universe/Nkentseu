@@ -60,9 +60,9 @@ namespace nkentseu {
                     mode_t permissions = 0644;
 
                     // Détermination du mode d'accès
-                    if ((mode & NK_READE_MODE) && (mode & NK_WRITE_MODE)) {
+                    if ((mode & NK_READ_MODE) && (mode & NK_WRITE_MODE)) {
                         flags |= O_RDWR;
-                    } else if (mode & NK_READE_MODE) {
+                    } else if (mode & NK_READ_MODE) {
                         flags |= O_RDONLY;
                     } else if (mode & NK_WRITE_MODE) {
                         flags |= O_WRONLY;
@@ -71,7 +71,7 @@ namespace nkentseu {
                     // Gestion de la création et des modes append/truncate
                     if (mode & NK_WRITE_MODE) {
                         flags |= O_CREAT;
-                        if (mode & AppendMode) {
+                        if (mode & NK_APPEND_MODE) {
                             flags |= O_APPEND;
                         } else {
                             flags |= O_TRUNC;

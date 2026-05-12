@@ -7,6 +7,7 @@
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
+#include "NKRenderer/Materials/NkMaterial.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"

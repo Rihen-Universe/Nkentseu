@@ -2,7 +2,7 @@
 // Height displacement from heightmap + normal from NxN sampler
 #version 460 core
 layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNormal; layout(location=3) in vec2 aUV;
-layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(std140,binding=1) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
 layout(std140,binding=11) uniform TerrainUBO{float heightScale;float uvScale;float _p[2];}uTerrain;
 layout(binding=4) uniform sampler2D tHeightmap;

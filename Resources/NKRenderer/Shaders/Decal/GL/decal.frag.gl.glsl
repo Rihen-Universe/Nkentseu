@@ -2,7 +2,7 @@
 #version 460 core
 layout(location=0) in vec3 vDecalPos;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(std140,binding=1) uniform DecalUBO{mat4 decalMatrix;float opacity;float normalBlend;float _p[2];}uDecal;
 layout(binding=2) uniform sampler2D tAlbedo;
 layout(binding=3) uniform sampler2D tNormal;

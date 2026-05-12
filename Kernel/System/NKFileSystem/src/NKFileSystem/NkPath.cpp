@@ -40,8 +40,11 @@
     #ifdef SetCurrentDirectory
         #undef SetCurrentDirectory
     #endif
+#elif defined(__APPLE__)
+    #include <unistd.h>
+    #include <mach-o/dyld.h>  // _NSGetExecutablePath
 #else
-    #include <unistd.h>  // getcwd sur POSIX
+    #include <unistd.h>  // getcwd + readlink sur POSIX/Linux
 #endif
 
 // -------------------------------------------------------------------------
@@ -492,6 +495,32 @@ namespace nkentseu {
         // Échec : retour d'un chemin vide
         // L'appelant doit vérifier le résultat avant utilisation
         return NkPath();
+    }
+    
+    NkPath NkPath::GetNkCurrentDirectory() {
+        return GetCurrentDirectory();
+    }
+
+    NkPath NkPath::GetExecutableDirectory() {
+#if defined(_WIN32)
+        char buffer[MAX_PATH];
+        DWORD len = GetModuleFileNameA(nullptr, buffer, MAX_PATH);
+        if (len == 0) return GetCurrentDirectory();
+        return NkPath(NkPath(buffer).GetDirectory());
+#elif defined(__APPLE__)
+        char buffer[4096];
+        uint32_t size = (uint32_t)sizeof(buffer);
+        if (_NSGetExecutablePath(buffer, &size) != 0) return GetCurrentDirectory();
+        return NkPath(NkPath(buffer).GetDirectory());
+#elif defined(__linux__) || defined(__unix__)
+        char buffer[4096];
+        ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+        if (len < 0) return GetCurrentDirectory();
+        buffer[len] = '\0';
+        return NkPath(NkPath(buffer).GetDirectory());
+#else
+        return GetCurrentDirectory();
+#endif
     }
 
     NkPath NkPath::GetTempDirectory() {

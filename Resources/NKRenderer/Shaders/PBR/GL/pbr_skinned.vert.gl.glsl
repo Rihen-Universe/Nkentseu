@@ -9,7 +9,7 @@ layout(location=5) in vec4 aColor;
 layout(location=6) in uvec4 aBoneIdx;
 layout(location=7) in vec4  aBoneWeight;
 
-layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;}uCam;
+layout(std140,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(std140,binding=1) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
 layout(std430,binding=5) readonly buffer BonesSSBO{mat4 bones[];};
 

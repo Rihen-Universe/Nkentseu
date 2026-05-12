@@ -127,6 +127,80 @@ namespace nkentseu {
         app->activity->vm->DetachCurrentThread();
     }
 
+    // =========================================================================
+    // Masquage des barres système (status bar + navigation bar) via JNI
+    // =========================================================================
+    
+    bool NkAndroidHideSystemUI(android_app* app) {
+        if (!app || !app->activity || !app->activity->clazz) {
+            return false;
+        }
+
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        if (!NkAndroidAcquireJniEnv(app, &env, &attached)) {
+            return false;
+        }
+
+        bool ok = false;
+        jobject activity = app->activity->clazz;
+        jclass actClass = env->GetObjectClass(activity);
+        if (actClass) {
+            jmethodID getWindow = env->GetMethodID(actClass, "getWindow", "()Landroid/view/Window;");
+            if (getWindow) {
+                jobject windowObj = env->CallObjectMethod(activity, getWindow);
+                if (windowObj && !env->ExceptionCheck()) {
+                    jclass windowClass = env->GetObjectClass(windowObj);
+                    if (windowClass) {
+                        // Appel à DecorView
+                        jmethodID getDecorView = env->GetMethodID(windowClass, "getDecorView", "()Landroid/view/View;");
+                        if (getDecorView) {
+                            jobject decorView = env->CallObjectMethod(windowObj, getDecorView);
+                            if (decorView && !env->ExceptionCheck()) {
+                                jclass viewClass = env->GetObjectClass(decorView);
+                                if (viewClass) {
+                                    // setSystemUiVisibility(flags)
+                                    // Flags: View.SYSTEM_UI_FLAG_HIDE_NAVIGATION (4)
+                                    //        View.SYSTEM_UI_FLAG_LAYOUT_STABLE (256)
+                                    //        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION (512)
+                                    //        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN (1024)
+                                    //        View.SYSTEM_UI_FLAG_IMMERSIVE (2048)
+                                    //        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY (4096)
+                                    // Total : 4 | 256 | 512 | 1024 | 2048 | 4096 = 7940
+                                    // IMMERSIVE_STICKY maintient les barres cachees meme apres interaction
+                                    jmethodID setSystemUiVis = env->GetMethodID(
+                                        viewClass, "setSystemUiVisibility", "(I)V"
+                                    );
+                                    if (setSystemUiVis) {
+                                        jint flags = 4 | 256 | 512 | 1024 | 2048 | 4096; // + IMMERSIVE_STICKY
+                                        env->CallVoidMethod(decorView, setSystemUiVis, flags);
+                                        if (!env->ExceptionCheck()) {
+                                            ok = true;
+                                        } else {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                    env->DeleteLocalRef(viewClass);
+                                }
+                                env->DeleteLocalRef(decorView);
+                            } else {
+                                env->ExceptionClear();
+                            }
+                        }
+                        env->DeleteLocalRef(windowClass);
+                    }
+                    env->DeleteLocalRef(windowObj);
+                } else {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(actClass);
+        }
+
+        NkAndroidReleaseJniEnv(app, attached);
+        return ok;
+    }
+
     static void NkAndroidUpdateSafeArea(NkWindow& window) {
         window.mData.mSafeArea = {};
 
@@ -371,6 +445,10 @@ namespace nkentseu {
         if (mData.mAndroidApp) {
             NkAndroidApplyOrientation(*this, mData.mOrientation);
             NkAndroidUpdateSafeArea(*this);
+            // Appliquer la configuration hideSystemUI a la creation de la fenetre
+            if (config.hideSystemUI) {
+                NkAndroidHideSystemUI(mData.mAndroidApp);
+            }
         }
 
         mId = NkWESystem::Instance().RegisterWindow(this);
@@ -558,6 +636,29 @@ namespace nkentseu {
 
     bool NkWindow::IsAutoRotateEnabled() const {
         return mData.mOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
+    }
+
+    void NkWindow::SetHideSystemUI(bool hide) {
+        mConfig.hideSystemUI = hide;
+        if (hide && mData.mAndroidApp) {
+            NkAndroidHideSystemUI(mData.mAndroidApp);
+        }
+    }
+
+    bool NkWindow::GetHideSystemUI() const {
+        return mConfig.hideSystemUI;
+    }
+
+    void NkWindow::SetLockOrientation(bool lock) {
+        mConfig.lockOrientation = lock;
+        if (lock && mData.mOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO) {
+            // Forcer le paysage si verrouillé et en AUTO
+            SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
+        }
+    }
+
+    bool NkWindow::GetLockOrientation() const {
+        return mConfig.lockOrientation;
     }
 
     void NkWindow::SetMousePosition(uint32, uint32) {}

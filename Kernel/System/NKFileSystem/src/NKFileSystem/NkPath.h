@@ -40,6 +40,16 @@
     // La classe NkPath représente un chemin de système de fichiers (fichier ou répertoire).
     // Toutes les opérations sont fournies sans utiliser std::filesystem.
 
+    // Annuler les macros Windows qui entrent en conflit avec les méthodes de NkPath.
+    // GetCurrentDirectory et SetCurrentDirectory sont définis comme GetCurrentDirectoryA/W
+    // par windows.h, ce qui corromprait les déclarations de méthodes statiques.
+    #ifdef GetCurrentDirectory
+        #undef GetCurrentDirectory
+    #endif
+    #ifdef SetCurrentDirectory
+        #undef SetCurrentDirectory
+    #endif
+
     namespace nkentseu {
 
         // Classe exportée : les méthodes n'ont PAS besoin de macro d'export
@@ -275,6 +285,14 @@
             /// @return NkPath contenant le chemin absolu du cwd
             /// @note Utilise getcwd/_getcwd selon la plateforme
             static NkPath GetCurrentDirectory();
+
+            static NkPath GetNkCurrentDirectory();
+
+            /// Obtient le répertoire contenant l'exécutable courant.
+            /// Plus robuste que GetCurrentDirectory() si le binaire est lancé
+            /// depuis un dossier différent (ex: raccourci, IDE, CI).
+            /// @return NkPath absolu vers le dossier de l'exécutable
+            static NkPath GetExecutableDirectory();
 
             /// Obtient le répertoire temporaire du système.
             /// @return NkPath contenant le chemin du répertoire temp

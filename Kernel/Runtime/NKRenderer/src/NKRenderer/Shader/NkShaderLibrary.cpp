@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkShaderLibrary.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkPath.h"
 #include "NKLogger/NkLog.h"
 #include "NKRHI/ShaderConvert/NkShaderConvert.h"
 #include "NKRHI/ShaderConvert/NkShaderAnnotations.h"
@@ -119,12 +120,19 @@ namespace nkentseu {
             mDevice  = device;
             mApi     = api;
             mBackend = NkCreateShaderBackend(api, useNkSL);
-            // Validation infrastructure cross-API au demarrage (logge result).
-            // Re-active apres fix NKRHI.jenga (ordre include NKSPIRVCross avant
-            // VulkanSDK/Include qui causait un mismatch ABI -> heap corruption
-            // dans le destructeur SPIRV-Cross).
+
+            // Cache shader sur disque : cache/shaders/<hash16>.nksc
+            // Cle = FNV-1a(source + stage + format). Invalide automatiquement
+            // si le contenu du fichier source change.
+            NkPath shaderCacheDir = NkPath::GetExecutableDirectory() / "cache" / "shaders";
+            NkShaderCache::Global().SetCacheDir(shaderCacheDir.ToString());
+
+            // Test cross-API: active uniquement en developpement.
+            // Mettre NK_DISABLE_CROSS_API_TEST pour desactiver (~0.8s de gain).
+#ifndef NK_DISABLE_CROSS_API_TEST
             static bool sTestDone = false;
             if (!sTestDone) { TestCrossApiConversion(); sTestDone = true; }
+#endif
             return mBackend != nullptr;
         }
 
@@ -165,6 +173,41 @@ namespace nkentseu {
     #endif
         }
 
+        // ── Helpers cache ─────────────────────────────────────────────────────────
+        // Sauvegarde le resultat d'une compilation dans NkShaderCache.
+        // Pour OpenGL : stocke la source GL GLSL convertie (preprocessed) en bytes.
+        // Pour Vulkan : stocke le binaire SPIR-V.
+        static void SaveToShaderCache(uint64 key, NkGraphicsApi api,
+                                       const NkShaderCompileResult& res,
+                                       const NkString& fallbackSrc) {
+            NkShaderConvertResult toCache;
+            toCache.success = true;
+            if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
+                const NkString& src = res.preprocessed.Empty() ? fallbackSrc : res.preprocessed;
+                toCache.binary.Resize((uint32)src.Size());
+                memcpy(toCache.binary.Data(), src.CStr(), src.Size());
+            } else {
+                toCache.binary = res.bytecode;
+            }
+            NkShaderCache::Global().Save(key, toCache);
+        }
+
+        // Restaure depuis le cache. Retourne false si absent.
+        // Remplit outBytecode (SPIR-V) et/ou outGlsl (GL GLSL converti).
+        static bool LoadFromShaderCache(uint64 key, NkGraphicsApi api,
+                                         NkVector<uint8>& outBytecode,
+                                         NkString& outGlsl) {
+            auto cached = NkShaderCache::Global().Load(key);
+            if (!cached.success || cached.binary.IsEmpty()) return false;
+            if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
+                outGlsl.Resize((uint32)cached.binary.Size());
+                memcpy(outGlsl.Data(), cached.binary.Data(), cached.binary.Size());
+            } else {
+                outBytecode = cached.binary;
+            }
+            return true;
+        }
+
         // ── Compilation ───────────────────────────────────────────────────────────
         bool NkShaderLibrary::Recompile(NkShaderProgram& prog) {
             NkString vertSrc = prog.vertPath.Empty() ? "" : ReadFile(prog.vertPath);
@@ -180,27 +223,56 @@ namespace nkentseu {
             NkString vertGlsl = vertSrc;
             NkString fragGlsl = fragSrc;
 
+            // Format cible pour la cle de cache : "glsl" pour OpenGL, "spirv" pour Vulkan.
+            const NkString fmtKey = (mApi == NkGraphicsApi::NK_GFX_API_OPENGL) ? "glsl" : "spirv";
+
             bool ok = true;
             if (!vertSrc.Empty()) {
-                auto res = mBackend->Compile(vertSrc, NkShaderStage::NK_VERTEX, opts);
-                if (!res.success) {
-                    fprintf(stderr, "[NkShader] VERT compile error (%s):\n%s\n",
-                            prog.name.CStr(), res.errors.CStr());
-                    ok = false;
-                } else {
-                    prog.vertBytecode = res.bytecode;
-                    if (!res.preprocessed.Empty()) vertGlsl = res.preprocessed;
+                auto key = NkShaderCache::Global().ComputeKey(vertSrc, NkSLStage::NK_VERTEX, fmtKey);
+                if (!LoadFromShaderCache(key, mApi, prog.vertBytecode, vertGlsl)) {
+                    auto res = mBackend->Compile(vertSrc, NkShaderStage::NK_VERTEX, opts);
+                    if (!res.success) {
+                        fprintf(stderr, "[NkShader] VERT compile error (%s):\n%s\n",
+                                prog.name.CStr(), res.errors.CStr());
+                        ok = false;
+                    } else {
+                        prog.vertBytecode = res.bytecode;
+                        if (!res.preprocessed.Empty()) vertGlsl = res.preprocessed;
+                        SaveToShaderCache(key, mApi, res, vertSrc);
+                    }
                 }
             }
             if (!fragSrc.Empty()) {
-                auto res = mBackend->Compile(fragSrc, NkShaderStage::NK_FRAGMENT, opts);
-                if (!res.success) {
-                    fprintf(stderr, "[NkShader] FRAG compile error (%s):\n%s\n",
-                            prog.name.CStr(), res.errors.CStr());
-                    ok = false;
-                } else {
-                    prog.fragBytecode = res.bytecode;
-                    if (!res.preprocessed.Empty()) fragGlsl = res.preprocessed;
+                auto key = NkShaderCache::Global().ComputeKey(fragSrc, NkSLStage::NK_FRAGMENT, fmtKey);
+                if (!LoadFromShaderCache(key, mApi, prog.fragBytecode, fragGlsl)) {
+                    auto res = mBackend->Compile(fragSrc, NkShaderStage::NK_FRAGMENT, opts);
+                    if (!res.success) {
+                        fprintf(stderr, "[NkShader] FRAG compile error (%s):\n%s\n",
+                                prog.name.CStr(), res.errors.CStr());
+                        ok = false;
+                    } else {
+                        prog.fragBytecode = res.bytecode;
+                        if (!res.preprocessed.Empty()) fragGlsl = res.preprocessed;
+                        SaveToShaderCache(key, mApi, res, fragSrc);
+                    }
+                }
+            }
+
+            NkString geomSrc  = prog.geomPath.Empty() ? "" : ReadFile(prog.geomPath);
+            NkString geomGlsl = geomSrc;
+            if (!geomSrc.Empty()) {
+                auto key = NkShaderCache::Global().ComputeKey(geomSrc, NkSLStage::NK_GEOMETRY, fmtKey);
+                if (!LoadFromShaderCache(key, mApi, prog.geomBytecode, geomGlsl)) {
+                    auto res = mBackend->Compile(geomSrc, NkShaderStage::NK_GEOMETRY, opts);
+                    if (!res.success) {
+                        fprintf(stderr, "[NkShader] GEOM compile error (%s):\n%s\n",
+                                prog.name.CStr(), res.errors.CStr());
+                        ok = false;
+                    } else {
+                        prog.geomBytecode = res.bytecode;
+                        if (!res.preprocessed.Empty()) geomGlsl = res.preprocessed;
+                        SaveToShaderCache(key, mApi, res, geomSrc);
+                    }
                 }
             }
 
@@ -238,6 +310,19 @@ namespace nkentseu {
                                (size_t)prog.fragBytecode.Size());
                     }
                     desc.AddStage(fs);
+                }
+                if (!geomSrc.Empty()) {
+                    ::nkentseu::NkShaderStageDesc gs{};
+                    gs.stage      = ::nkentseu::NkShaderStage::NK_GEOMETRY;
+                    gs.glslSource = geomGlsl.CStr();
+                    gs.entryPoint = "main";
+                    if (!prog.geomBytecode.Empty()) {
+                        gs.spirvBinary.Resize((uint32)prog.geomBytecode.Size());
+                        memcpy(gs.spirvBinary.Data(),
+                               prog.geomBytecode.Data(),
+                               (size_t)prog.geomBytecode.Size());
+                    }
+                    desc.AddStage(gs);
                 }
                 desc.debugName = prog.name.CStr();
 
@@ -283,13 +368,22 @@ namespace nkentseu {
             prog.compPath = cPath;
             NkString src  = ReadFile(cPath);
             if (src.Empty()) return NkShaderHandle::Null();
-            auto res = mBackend->Compile(src, NkShaderStage::NK_COMPUTE);
-            if (!res.success) {
-                fprintf(stderr, "[NkShader] COMPUTE error (%s):\n%s\n",
-                        prog.name.CStr(), res.errors.CStr());
-                return NkShaderHandle::Null();
+
+            const NkString fmtKey = (mApi == NkGraphicsApi::NK_GFX_API_OPENGL) ? "glsl" : "spirv";
+            auto key = NkShaderCache::Global().ComputeKey(src, NkSLStage::NK_COMPUTE, fmtKey);
+
+            NkString glslStr = src;
+            if (!LoadFromShaderCache(key, mApi, prog.vertBytecode, glslStr)) {
+                auto res = mBackend->Compile(src, NkShaderStage::NK_COMPUTE);
+                if (!res.success) {
+                    fprintf(stderr, "[NkShader] COMPUTE error (%s):\n%s\n",
+                            prog.name.CStr(), res.errors.CStr());
+                    return NkShaderHandle::Null();
+                }
+                prog.vertBytecode = res.bytecode;
+                if (!res.preprocessed.Empty()) glslStr = res.preprocessed;
+                SaveToShaderCache(key, mApi, res, src);
             }
-            prog.vertBytecode = res.bytecode;
             prog.valid = true;
             return Alloc(prog);
         }
@@ -299,23 +393,46 @@ namespace nkentseu {
             prog.name = name.Empty() ? "inline_shader" : name;
             NkShaderCompileOptions opts; opts.optimize = false;
 
-            // glslang -> SPIR-V (utile pour Vulkan, optionnel pour OpenGL).
-            // Le backend GL stocke aussi le GLSL converti (VK -> GL) dans preprocessed.
-            auto vr = mBackend->Compile(vSrc, NkShaderStage::NK_VERTEX,   opts);
-            auto fr = mBackend->Compile(fSrc, NkShaderStage::NK_FRAGMENT,  opts);
-            // On ne fail PAS si glslang echoue : OpenGL peut compiler le GLSL directement.
-            if (vr.success) prog.vertBytecode = vr.bytecode;
-            if (fr.success) prog.fragBytecode = fr.bytecode;
+            const NkString fmtKey = (mApi == NkGraphicsApi::NK_GFX_API_OPENGL) ? "glsl" : "spirv";
 
-            // glslSource = source convertie pour le backend cible. Pour le backend GL,
-            // preprocessed contient le GLSL OpenGL (sans layout(set=...) ni push_constant).
-            // Pour Vulkan, preprocessed est vide -> on garde le VK GLSL original.
-            const char* vsGlsl = (!vr.preprocessed.Empty()) ? vr.preprocessed.CStr() : vSrc.CStr();
-            const char* fsGlsl = (!fr.preprocessed.Empty()) ? fr.preprocessed.CStr() : fSrc.CStr();
+            // Vertex : cache ou compilation
+            NkString vsGlslStr = vSrc;
+            bool vsOk = true;
+            {
+                auto key = NkShaderCache::Global().ComputeKey(vSrc, NkSLStage::NK_VERTEX, fmtKey);
+                if (!LoadFromShaderCache(key, mApi, prog.vertBytecode, vsGlslStr)) {
+                    auto vr = mBackend->Compile(vSrc, NkShaderStage::NK_VERTEX, opts);
+                    vsOk = vr.success;
+                    if (vr.success) {
+                        prog.vertBytecode = vr.bytecode;
+                        if (!vr.preprocessed.Empty()) vsGlslStr = vr.preprocessed;
+                        SaveToShaderCache(key, mApi, vr, vSrc);
+                    }
+                }
+            }
+
+            // Fragment : cache ou compilation
+            NkString fsGlslStr = fSrc;
+            bool fsOk = true;
+            {
+                auto key = NkShaderCache::Global().ComputeKey(fSrc, NkSLStage::NK_FRAGMENT, fmtKey);
+                if (!LoadFromShaderCache(key, mApi, prog.fragBytecode, fsGlslStr)) {
+                    auto fr = mBackend->Compile(fSrc, NkShaderStage::NK_FRAGMENT, opts);
+                    fsOk = fr.success;
+                    if (fr.success) {
+                        prog.fragBytecode = fr.bytecode;
+                        if (!fr.preprocessed.Empty()) fsGlslStr = fr.preprocessed;
+                        SaveToShaderCache(key, mApi, fr, fSrc);
+                    }
+                }
+            }
+
+            const char* vsGlsl = vsGlslStr.CStr();
+            const char* fsGlsl = fsGlslStr.CStr();
             logger.Info("[CompileVF] '{0}' vsGlsl={1} chars (conv={2}) fsGlsl={3} chars (conv={4})\n",
                         prog.name,
-                        (uint32)(vsGlsl ? strlen(vsGlsl) : 0), !vr.preprocessed.Empty() ? 1 : 0,
-                        (uint32)(fsGlsl ? strlen(fsGlsl) : 0), !fr.preprocessed.Empty() ? 1 : 0);
+                        (uint32)(vsGlsl ? strlen(vsGlsl) : 0), (vsGlslStr != vSrc) ? 1 : 0,
+                        (uint32)(fsGlsl ? strlen(fsGlsl) : 0), (fsGlslStr != fSrc) ? 1 : 0);
 
             // Une SEULE entree NkShaderStageDesc par stage : sinon le backend
             // Vulkan recoit 2 stages NK_VERTEX (un pour GLSL, un pour SPIRV) et
@@ -355,7 +472,7 @@ namespace nkentseu {
             prog.rhiHandle = rhi;
             if (!prog.valid) {
                 fprintf(stderr, "[NkShader] CreateShader fail '%s' (glslang : V:%d F:%d)\n",
-                        prog.name.CStr(), (int)vr.success, (int)fr.success);
+                        prog.name.CStr(), (int)vsOk, (int)fsOk);
             }
             return Alloc(prog);
         }
@@ -371,6 +488,16 @@ namespace nkentseu {
                                                          const NkString& fallbackVS,
                                                          const NkString& fallbackFS) {
             logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' (api={1})\n", materialName, (int)mApi);
+
+            // Si ce shader a deja ete compile sous ce nom (ex : NkRender3D a compile
+            // "PBR" avant NkMaterialSystem), on retourne le handle cache directement.
+            {
+                auto cached = Find(materialName);
+                if (cached.IsValid()) {
+                    logger.Info("[NkShaderLibrary] LoadOrCompileVF '{0}' — cache hit\n", materialName);
+                    return cached;
+                }
+            }
 
             // Lower-case le material name (convention POSIX-friendly).
             NkString matLower = materialName;
@@ -435,6 +562,10 @@ namespace nkentseu {
                 if (!prog.fragPath.Empty()) {
                     uint64 mt = GetFileMtime(prog.fragPath);
                     if (mt != prog.fragMtime) { prog.fragMtime=mt; needsReload=true; }
+                }
+                if (!prog.geomPath.Empty()) {
+                    uint64 mt = GetFileMtime(prog.geomPath);
+                    if (mt != prog.geomMtime) { prog.geomMtime=mt; needsReload=true; }
                 }
                 if (needsReload) {
                     printf("[NkShader] Hot-reloading '%s'...\n", prog.name.CStr());
