@@ -104,7 +104,7 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
     st->params[1] = {0.40f, 0.0f, 0.3f, 0.f,  1};  // PBR Plastic : rouge, dielectric
     st->params[2] = {0.5f,  0.0f, 0.3f, 2.0f, 2};  // Toon : bleu
     st->params[3] = {0.5f,  0.0f, 0.25f,1.5f, 3};  // Anime : violet
-    st->params[4] = {0.5f,  0.0f, 0.3f, 0.f,  4};  // Unlit : blanc
+    st->params[4] = {0.5f,  0.0f, 0.3f, 0.f,  6};  // Unlit : orange (evite le blanc sur fond blanc)
 
     // Creation des materiaux
     auto* matSys = ctx.renderer->GetMaterials();

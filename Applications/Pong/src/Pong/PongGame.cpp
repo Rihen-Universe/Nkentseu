@@ -78,6 +78,114 @@ namespace
         return result;
     }
 
+    constexpr int kMainMenuCount = 5;
+    constexpr int kOptionCount   = 4;
+    constexpr int kSpeedCount    = 4;
+    constexpr int kSizeCount     = 3;
+
+    int WrapIndex(int value, int count) noexcept
+    {
+        if (count <= 0)
+        {
+            return 0;
+        }
+        while (value < 0)
+        {
+            value += count;
+        }
+        while (value >= count)
+        {
+            value -= count;
+        }
+        return value;
+    }
+
+    int ClampIndex(int value, int count) noexcept
+    {
+        if (value < 0)
+        {
+            return 0;
+        }
+        if (value >= count)
+        {
+            return count - 1;
+        }
+        return value;
+    }
+
+    const char* BallSpeedName(int idx) noexcept
+    {
+        static const char* names[kSpeedCount] = {
+            "DETENTE",
+            "NORMAL",
+            "RAPIDE",
+            "TURBO"
+        };
+        return names[ClampIndex(idx, kSpeedCount)];
+    }
+
+    float BallSpeedValue(int idx) noexcept
+    {
+        static const float values[kSpeedCount] = {
+            300.0f,
+            360.0f,
+            460.0f,
+            560.0f
+        };
+        return values[ClampIndex(idx, kSpeedCount)];
+    }
+
+    float BallMaxSpeedValue(int idx) noexcept
+    {
+        static const float values[kSpeedCount] = {
+            620.0f,
+            760.0f,
+            900.0f,
+            1040.0f
+        };
+        return values[ClampIndex(idx, kSpeedCount)];
+    }
+
+    const char* PaddleSizeName(int idx) noexcept
+    {
+        static const char* names[kSizeCount] = {
+            "PETIT",
+            "NORMAL",
+            "GRAND"
+        };
+        return names[ClampIndex(idx, kSizeCount)];
+    }
+
+    float PaddleScaleValue(int idx) noexcept
+    {
+        static const float values[kSizeCount] = {
+            0.78f,
+            1.0f,
+            1.28f
+        };
+        return values[ClampIndex(idx, kSizeCount)];
+    }
+
+    const char* BallSizeName(int idx) noexcept
+    {
+        static const char* names[kSizeCount] = {
+            "PETITE",
+            "NORMALE",
+            "GRANDE"
+        };
+        return names[ClampIndex(idx, kSizeCount)];
+    }
+
+    float BallRadiusValue(int idx) noexcept
+    {
+        static const float values[kSizeCount] = {
+            6.0f,
+            8.0f,
+            11.0f
+        };
+        return values[ClampIndex(idx, kSizeCount)];
+    }
+
 } // namespace anonyme
 
 
@@ -115,18 +223,19 @@ static float ComputeFieldY(uint32_t H, bool hasAndroidButtons)
 // avec marges symetriques (fieldX = marge gauche et droite).
 static void SetupPaddlesForOrientation(
     Paddle& player, Paddle& ai,
-    uint32_t W, uint32_t H, float fieldX, float fieldY)
+    uint32_t W, uint32_t H, float fieldX, float fieldY, float paddleScale)
 {
     // fH = hauteur de la zone de jeu (marges haut ET bas = fieldY chacune)
     float fH = static_cast<float>(H) - 2.0f * fieldY;
+    float paddleH = pongmath::Clamp(90.0f * paddleScale, 56.0f, fH * 0.72f);
 
     player.w = 12.0f;
-    player.h = 90.0f;
+    player.h = paddleH;
     player.x = fieldX + 8.0f;                                     // pres du bord gauche du terrain
     player.y = fieldY + fH * 0.5f - player.h * 0.5f;             // centre vertical
 
     ai.w = 12.0f;
-    ai.h = 90.0f;
+    ai.h = paddleH;
     ai.x = static_cast<float>(W) - fieldX - 8.0f - ai.w;         // pres du bord droit du terrain
     ai.y = fieldY + fH * 0.5f - ai.h * 0.5f;
 }
@@ -142,7 +251,8 @@ void PongGame::Init()
     mFieldX = mFieldY;  // Marges symetriques
 
     // Configurer les raquettes selon l'orientation
-    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY);
+    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY,
+                               PaddleScaleValue(mPaddleSizeSel));
     mPlayer.color  = gamecolors::Player();
     mPlayer.isLeft = true;
     mPlayer.score  = 0;
@@ -195,7 +305,8 @@ void PongGame::OnResize()
         playerYRatio = mPlayer.y / static_cast<float>(mRenderer.Height());
     }
     // Repositionner selon la nouvelle orientation
-    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY);
+    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY,
+                               PaddleScaleValue(mPaddleSizeSel));
     mPlayer.score = playerScore;
     mAI.score     = aiScore;
 
@@ -234,13 +345,15 @@ void PongGame::StartGame()
     uint32_t H = mRenderer.Height();
 
     // Repositionner selon l'orientation et remettre les scores a zero
-    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY);
+    SetupPaddlesForOrientation(mPlayer, mAI, W, H, mFieldX, mFieldY,
+                               PaddleScaleValue(mPaddleSizeSel));
     mPlayer.score = 0;
     mAI.score     = 0;
 
     // Appliquer la difficulte selectionnee aux parametres de l\'IA
     mSettings.difficulty     = static_cast<AIDifficulty>(mDiffSel);
     mSettings.obstaclePreset = static_cast<ObstaclePreset>(mObsSel);
+    mBallStartSpeed          = BallSpeedValue(mSpeedSel);
 
     // Configurer vitesse et reaction de l\'IA selon la difficulte
     if (mSettings.difficulty == AIDifficulty::Easy)
@@ -296,19 +409,26 @@ void PongGame::ResetBall(bool leftServe)
     float cx  = W * 0.5f;
     float cy  = mFieldY + FieldH() * 0.5f;
 
-    // Direction paysage : balle part horizontalement avec legere variation verticale
-    float noise = pongmath::RandF(mRng, -0.35f, 0.35f);
+    // Direction paysage : balle part horizontalement avec variation verticale.
+    float noiseLimit = mUnpredictableBall ? 0.58f : 0.35f;
+    float noise = pongmath::RandF(mRng, -noiseLimit, noiseLimit);
     float dx    = leftServe ? 1.0f : -1.0f;
     float dy    = math::NkSin(noise);
 
-    // Reinitialiser la vitesse a la valeur de base
-    mBall.speed = Ball::BASE_SPEED;
+    // Appliquer les reglages de taille et de vitesse.
+    mBallStartSpeed = BallSpeedValue(mSpeedSel);
+    mBall.baseSpeed = mBallStartSpeed;
+    mBall.maxSpeed  = BallMaxSpeedValue(mSpeedSel);
+    mBall.radius    = BallRadiusValue(mBallSizeSel);
+    mBall.speed     = mBall.baseSpeed;
+    if (mUnpredictableBall)
+    {
+        mBall.speed *= pongmath::RandF(mRng, 0.94f, 1.08f);
+    }
 
     // Placer la balle et appliquer la direction
     mBall.Init(cx, cy, dx, dy);
 
-    // S\'assurer que la vitesse est exactement BASE_SPEED apres Init
-    mBall.speed = Ball::BASE_SPEED;
     mBall.ClampSpeed();
 }
 
@@ -916,7 +1036,7 @@ void PongGame::Update(float dt,
     switch (mState)
     {
     case GameState::SplashScreen:
-        UpdateSplash(dt, enterPressed || escapePressed);
+        UpdateSplash(dt, enterPressed || escapePressed || mouseClick);
         break;
 
     case GameState::MainMenu:
@@ -930,6 +1050,11 @@ void PongGame::Update(float dt,
     case GameState::SelectObstacles:
         UpdateObsSelect(navUp, navDown, enterPressed, escapePressed,
                         navLeft, navRight);
+        break;
+
+    case GameState::SelectOptions:
+        UpdateOptionsSelect(navUp, navDown, enterPressed, escapePressed,
+                            navLeft, navRight);
         break;
 
     case GameState::Playing:
@@ -1009,18 +1134,18 @@ void PongGame::Update(float dt,
 }
 
 // ── UpdateMainMenu ────────────────────────────────────────────────────────────
-// Items : 0=JOUER, 1=DIFFICULTE, 2=OBSTACLES, 3=QUITTER
-// La navigation est cyclique (4 items).
+// Items : 0=JOUER, 1=DIFFICULTE, 2=OBSTACLES, 3=OPTIONS, 4=QUITTER
+// La navigation est cyclique.
 void PongGame::UpdateMainMenu(bool up, bool down, bool enter, bool esc)
 {
     // Navigation verticale cyclique
     if (up)
     {
-        mMainMenuSel = (mMainMenuSel + 3) % 4;
+        mMainMenuSel = WrapIndex(mMainMenuSel - 1, kMainMenuCount);
     }
     if (down)
     {
-        mMainMenuSel = (mMainMenuSel + 1) % 4;
+        mMainMenuSel = WrapIndex(mMainMenuSel + 1, kMainMenuCount);
     }
 
     // Navigation et clic souris / tactile
@@ -1031,17 +1156,18 @@ void PongGame::UpdateMainMenu(bool up, bool down, bool enter, bool esc)
         int   H   = static_cast<int>(mRenderer.Height());
         int   cx  = W / 2;
         int   cy  = H / 2;
-        int   pw  = static_cast<int>(320.f * S + 0.5f);
+        int   pw  = static_cast<int>(380.f * S + 0.5f);
         int   mx  = cx - pw / 2;
         int   my  = cy - static_cast<int>(60.f * S + 0.5f);
-        int   bh  = static_cast<int>(44.f * S + 0.5f);
+        int   bh  = static_cast<int>(56.f * S + 0.5f);
         int   bw  = pw - static_cast<int>(24.f * S + 0.5f);
         int   bx  = mx + static_cast<int>(12.f * S + 0.5f);
         int   by  = my + static_cast<int>(14.f * S + 0.5f);
+        int   gap = static_cast<int>(6.f * S + 0.5f);
 
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < kMainMenuCount; ++i)
         {
-            int btnY = by + i * (bh + static_cast<int>(4.f * S + 0.5f));
+            int btnY = by + i * (bh + gap);
             if (mMouseX >= bx && mMouseX < bx + bw &&
                 mMouseY >= btnY && mMouseY < btnY + bh)
             {
@@ -1070,7 +1196,14 @@ void PongGame::UpdateMainMenu(bool up, bool down, bool enter, bool esc)
         {
             mState = GameState::SelectObstacles;
         }
-        // Item 3 = QUITTER : gere par Apps.cpp via GetState() si necessaire
+        else if (mMainMenuSel == 3)
+        {
+            mState = GameState::SelectOptions;
+        }
+        else if (mMainMenuSel == 4)
+        {
+            mQuitRequested = true;
+        }
     }
 
     (void)esc;
@@ -1208,6 +1341,95 @@ void PongGame::UpdateObsSelect(bool up, bool down, bool enter, bool esc,
 // ── UpdatePauseMenu ───────────────────────────────────────────────────────────
 // 2 options : 0=Reprendre, 1=Menu principal.
 // Echap reprend toujours directement la partie.
+// 4 reglages : vitesse, taille de raquette, taille de balle, trajectoire.
+// Haut/bas choisit une ligne, gauche/droite modifie, entree/echap revient.
+void PongGame::UpdateOptionsSelect(bool up, bool down, bool enter, bool esc,
+                                   bool left, bool right)
+{
+    if (up)
+    {
+        mOptionsSel = WrapIndex(mOptionsSel - 1, kOptionCount);
+    }
+    if (down)
+    {
+        mOptionsSel = WrapIndex(mOptionsSel + 1, kOptionCount);
+    }
+
+    auto changeOption = [&](int dir)
+    {
+        if (dir == 0)
+        {
+            return;
+        }
+
+        if (mOptionsSel == 0)
+        {
+            mSpeedSel = WrapIndex(mSpeedSel + dir, kSpeedCount);
+            mBallStartSpeed = BallSpeedValue(mSpeedSel);
+        }
+        else if (mOptionsSel == 1)
+        {
+            mPaddleSizeSel = WrapIndex(mPaddleSizeSel + dir, kSizeCount);
+        }
+        else if (mOptionsSel == 2)
+        {
+            mBallSizeSel = WrapIndex(mBallSizeSel + dir, kSizeCount);
+        }
+        else if (mOptionsSel == 3)
+        {
+            mUnpredictableBall = !mUnpredictableBall;
+        }
+    };
+
+    if (left)
+    {
+        changeOption(-1);
+    }
+    if (right)
+    {
+        changeOption(1);
+    }
+
+    if (mMouseX >= 0 && mMouseY >= 0)
+    {
+        float S  = UIScale();
+        int   W  = static_cast<int>(mRenderer.Width());
+        int   H  = static_cast<int>(mRenderer.Height());
+        int   cx = W / 2;
+        int   cy = H / 2;
+        int   pw = static_cast<int>(640.f * S + 0.5f);
+        int   px = cx - pw / 2;
+        int   py = cy - static_cast<int>(60.f * S + 0.5f);
+        int   rowH = static_cast<int>(56.f * S + 0.5f);
+        int   rowGap = static_cast<int>(10.f * S + 0.5f);
+        int   rowX = px + static_cast<int>(18.f * S + 0.5f);
+        int   rowW = pw - static_cast<int>(36.f * S + 0.5f);
+        int   rowY = py + static_cast<int>(24.f * S + 0.5f);
+
+        (void)H;
+        for (int i = 0; i < kOptionCount; ++i)
+        {
+            int y = rowY + i * (rowH + rowGap);
+            if (mMouseX >= rowX && mMouseX < rowX + rowW &&
+                mMouseY >= y && mMouseY < y + rowH)
+            {
+                mOptionsSel = i;
+                if (mMouseClick)
+                {
+                    changeOption(1);
+                }
+                break;
+            }
+        }
+    }
+
+    if (enter || esc)
+    {
+        mBallStartSpeed = BallSpeedValue(mSpeedSel);
+        mState = GameState::MainMenu;
+    }
+}
+
 void PongGame::UpdatePauseMenu(bool enter, bool esc, bool navUp, bool navDown)
 {
     // Echap reprend directement sans action supplementaire
@@ -1299,6 +1521,7 @@ void PongGame::UpdateBall(float dt)
     {
         mBall.y  = fY + mBall.radius;
         mBall.vy = math::NkAbs(mBall.vy);
+        JitterBall(0.055f);
         SpawnParticles(mBall.x, fY, gamecolors::BallCol(), 5, 70.0f);
     }
 
@@ -1307,6 +1530,7 @@ void PongGame::UpdateBall(float dt)
     {
         mBall.y  = H - fY - mBall.radius;
         mBall.vy = -math::NkAbs(mBall.vy);
+        JitterBall(0.055f);
         SpawnParticles(mBall.x, H - fY, gamecolors::BallCol(), 5, 70.0f);
     }
 
@@ -1545,13 +1769,20 @@ bool PongGame::BallVsPaddle(Paddle& p)
         mBall.vx = -math::NkAbs(mBall.vx);
     }
 
-    // Augmenter legerement la vitesse a chaque contact (+6%, plafonne)
-    mBall.speed = math::NkMin(mBall.speed * 1.06f, Ball::MAX_SPEED);
+    // Augmenter la vitesse a chaque contact, avec un leger boost en mode imprevisible.
+    float gain = mUnpredictableBall
+        ? pongmath::RandF(mRng, 1.055f, 1.13f)
+        : 1.075f;
+    mBall.speed = math::NkMin(mBall.speed * gain, mBall.maxSpeed);
 
     // Calculer l\'angle de rebond selon la position d\'impact sur la raquette
     float hitY  = mBall.y - (p.y + p.h * 0.5f);
     float relY  = hitY / (p.h * 0.5f);
     float angle = relY * 1.1f;
+    if (mUnpredictableBall)
+    {
+        angle += pongmath::RandF(mRng, -0.12f, 0.12f);
+    }
     float dir   = p.isLeft ? 1.0f : -1.0f;
 
     mBall.vx = dir * mBall.speed * math::NkCos(angle);
@@ -1637,14 +1868,14 @@ void PongGame::ApplyObstacleEffect(int idx)
     {
     // Acceleration : vitesse *= speedMult, plafonnee a MAX_SPEED
     case ObstacleEffect::SpeedBoost:
-        mBall.speed = math::NkMin(mBall.speed * obs.speedMult, Ball::MAX_SPEED);
+        mBall.speed = math::NkMin(mBall.speed * obs.speedMult, mBall.maxSpeed);
         mBall.ClampSpeed();
         break;
 
     // Deceleration : vitesse /= speedMult, plancher a BASE_SPEED*0.6
     case ObstacleEffect::SpeedReduce:
         mBall.speed = math::NkMax(mBall.speed / obs.speedMult,
-                               Ball::BASE_SPEED * 0.6f);
+                               mBall.baseSpeed * 0.62f);
         mBall.ClampSpeed();
         break;
 
@@ -1702,6 +1933,23 @@ void PongGame::ApplyObstacleEffect(int idx)
     }
 }
 
+void PongGame::JitterBall(float maxAngleRad)
+{
+    if (!mUnpredictableBall || maxAngleRad <= 0.0f)
+    {
+        return;
+    }
+
+    float angle = pongmath::RandF(mRng, -maxAngleRad, maxAngleRad);
+    float ca    = math::NkCos(angle);
+    float sa    = math::NkSin(angle);
+    float nvx   = mBall.vx * ca - mBall.vy * sa;
+    float nvy   = mBall.vx * sa + mBall.vy * ca;
+    mBall.vx = nvx;
+    mBall.vy = nvy;
+    mBall.ClampSpeed();
+}
+
 
 // =============================================================================
 // Section 7 : Render (dispatcher + couches visuelles)
@@ -1749,6 +1997,9 @@ void PongGame::Render()
         break;
     case GameState::SelectObstacles:
         RenderObsSelect();
+        break;
+    case GameState::SelectOptions:
+        RenderOptionsSelect();
         break;
     case GameState::Paused:
         RenderPauseOverlay();
@@ -2315,17 +2566,18 @@ void PongGame::RenderMainMenu()
 
     // ── Panneau du menu ───────────────────────────────────────────────────────
     int pw = ui(380);  // Augmenté de 320 à 380
-    int ph = ui(280);  // Augmenté de 240 à 280
+    int ph = ui(344);
     int mx = cx - pw / 2;
     int my = cy - ui(60);
     DrawPanel(mx, my, pw, ph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
 
     // ── 4 boutons du menu ─────────────────────────────────────────────────────
-    const char* items[] = { "  JOUER  ", "  DIFFICULTE  ", "  OBSTACLES  ", "  QUITTER  " };
+    const char* items[] = { "  JOUER  ", "  DIFFICULTE  ", "  OBSTACLES  ", "  OPTIONS  ", "  QUITTER  " };
     math::NkColor cols[] = {
         gamecolors::Green(),
         gamecolors::Gold(),
         gamecolors::ObsPortal(),
+        gamecolors::Player(),
         gamecolors::Red()
     };
 
@@ -2334,7 +2586,7 @@ void PongGame::RenderMainMenu()
     int bx = mx + ui(12);
     int by = my + ui(14);
 
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < kMainMenuCount; ++i)
     {
         bool sel = (mMainMenuSel == i);
         int btnY = by + i * (bh + ui(6));  // Augmenté gap de 4 à 6
@@ -2342,12 +2594,22 @@ void PongGame::RenderMainMenu()
     }
 
     // ── Rappel des parametres actuels ─────────────────────────────────────────
-    char info[64];
-    snprintf(info, sizeof(info), "Diff: %s  |  Obs: %s",
+    char info[96];
+    snprintf(info, sizeof(info), "IA: %s  |  Terrain: %s",
              AIDifficultyName(static_cast<AIDifficulty>(mDiffSel)),
              ObstaclePresetName(static_cast<ObstaclePreset>(mObsSel)));
     int infoY = my + ph + ui(16);  // Augmenté gap de 10 à 16
-    mRasterizer.DrawTextCentered(cx, infoY, info, gamecolors::White(), ts);
+    int infoScale = S >= 0.8f ? 2 : 1;
+    mRasterizer.DrawTextCentered(cx, infoY, info, gamecolors::White(), infoScale);
+
+    char info2[96];
+    snprintf(info2, sizeof(info2), "Balle: %s %.0f px/s  |  Taille: %s  |  Raquette: %s  |  Chaos: %s",
+             BallSpeedName(mSpeedSel),
+             BallSpeedValue(mSpeedSel),
+             BallSizeName(mBallSizeSel),
+             PaddleSizeName(mPaddleSizeSel),
+             mUnpredictableBall ? "ON" : "OFF");
+    mRasterizer.DrawTextCentered(cx, infoY + ui(20), info2, gamecolors::White(), infoScale);
 
     // ── Instructions de navigation (bas d\'ecran) ──────────────────────────────
     int instY1 = static_cast<int>(H) - ui(48);
@@ -2544,6 +2806,103 @@ void PongGame::RenderObsSelect()
 // Navigation possible avec HAUT/BAS (non implementee ici - un seul item).
 // Tout le texte est BLANC.
 // L\'interface est parfaitement centree.
+void PongGame::RenderOptionsSelect()
+{
+    uint32_t W    = mRenderer.Width();
+    uint32_t H    = mRenderer.Height();
+    int      cx   = static_cast<int>(W) / 2;
+    int      cy   = static_cast<int>(H) / 2;
+    float    wave = 0.5f + 0.5f * math::NkSin(mTime * 2.2f);
+    float    S    = UIScale();
+    auto     ui   = [S](int v) -> int { return static_cast<int>(static_cast<float>(v) * S + 0.5f); };
+    int      ts   = math::NkMax(2, S >= 0.8f ? 3 : 2);
+
+    int titleGlowY = cy - ui(96);
+    mRasterizer.DrawGlow(cx, titleGlowY, ui(86), AlphaF(gamecolors::Player(), wave * 0.55f), 1.25f);
+    mRasterizer.DrawTextCentered(cx, cy - ui(114), "OPTIONS", gamecolors::White(), math::NkMax(3, ui(4)));
+    mRasterizer.DrawTextCentered(cx, cy - ui(82), "Reglez la sensation de jeu", gamecolors::White(), ts);
+
+    int pw = ui(640);
+    int ph = ui(330);
+    int px = cx - pw / 2;
+    int py = cy - ui(60);
+    DrawPanel(px, py, pw, ph, gamecolors::PanelBG(), gamecolors::PanelBorder(), 2);
+
+    const char* labels[kOptionCount] = {
+        "VITESSE BALLE",
+        "TAILLE RAQUETTE",
+        "TAILLE BALLE",
+        "TRAJECTOIRE"
+    };
+    math::NkColor accents[kOptionCount] = {
+        gamecolors::Gold(),
+        gamecolors::Player(),
+        gamecolors::BallCol(),
+        gamecolors::ObsRandom()
+    };
+
+    char values[kOptionCount][48];
+    snprintf(values[0], sizeof(values[0]), "%s  %.0f px/s",
+             BallSpeedName(mSpeedSel), BallSpeedValue(mSpeedSel));
+    snprintf(values[1], sizeof(values[1]), "%s", PaddleSizeName(mPaddleSizeSel));
+    snprintf(values[2], sizeof(values[2]), "%s", BallSizeName(mBallSizeSel));
+    snprintf(values[3], sizeof(values[3]), "%s", mUnpredictableBall ? "IMPREVISIBLE" : "STABLE");
+
+    int rowH   = ui(56);
+    int rowGap = ui(10);
+    int rowX   = px + ui(18);
+    int rowW   = pw - ui(36);
+    int rowY   = py + ui(24);
+
+    for (int i = 0; i < kOptionCount; ++i)
+    {
+        bool sel = (mOptionsSel == i);
+        int y = rowY + i * (rowH + rowGap);
+        math::NkColor fill = AlphaF(accents[i], sel ? 0.20f : 0.09f);
+        math::NkColor border = sel ? gamecolors::SelBorder()
+                                   : AlphaF(gamecolors::PanelBorder(), 0.55f);
+        DrawPanel(rowX, y, rowW, rowH, fill, border, sel ? 2 : 1);
+
+        if (sel)
+        {
+            mRasterizer.DrawGlow(rowX + rowW - ui(70), y + rowH / 2,
+                                 ui(26), AlphaF(accents[i], 0.35f), 0.7f);
+        }
+
+        int labelY = y + rowH / 2 - ui(7);
+        mRasterizer.DrawText(rowX + ui(18), labelY,
+                             labels[i], gamecolors::White(), ts);
+
+        int valueScale = S >= 0.8f ? 2 : 1;
+        int valueW = mRasterizer.TextWidth(values[i], valueScale);
+        mRasterizer.DrawText(rowX + rowW - valueW - ui(44), labelY + ui(3),
+                             values[i], AlphaF(accents[i], 0.95f), valueScale);
+        mRasterizer.DrawText(rowX + rowW - ui(28), labelY + ui(3),
+                             ">", AlphaF(gamecolors::White(), sel ? 0.90f : 0.35f), valueScale);
+    }
+
+    int sampleY = py + ph - ui(34);
+    int sampleX = cx - ui(86);
+    int paddleH = ui(static_cast<int>(44.0f * PaddleScaleValue(mPaddleSizeSel)));
+    mRasterizer.FillRect(sampleX, sampleY - paddleH / 2, ui(8), paddleH,
+                         gamecolors::Player());
+    int br = math::NkMax(2, ui(static_cast<int>(BallRadiusValue(mBallSizeSel))));
+    mRasterizer.FillCircle(cx, sampleY, br, gamecolors::BallCol());
+    int spdW = ui(static_cast<int>(BallSpeedValue(mSpeedSel) / 9.0f));
+    mRasterizer.DrawLine(cx + ui(18), sampleY, cx + ui(18) + spdW, sampleY,
+                         AlphaF(gamecolors::BallCol(), 0.7f));
+    mRasterizer.FillRect(cx + ui(96), sampleY - paddleH / 2, ui(8), paddleH,
+                         gamecolors::AI());
+
+    int instY1 = static_cast<int>(H) - ui(48);
+    mRasterizer.DrawTextCentered(cx, instY1,
+                                 "HAUT/BAS: ligne   GAUCHE/DROITE ou CLIC: modifier",
+                                 gamecolors::White(), 2);
+    int instY2 = static_cast<int>(H) - ui(24);
+    mRasterizer.DrawTextCentered(cx, instY2,
+                                 "ENTREE/ECHAP: menu principal", gamecolors::White(), 2);
+}
+
 void PongGame::RenderPauseOverlay()
 {
     uint32_t W  = mRenderer.Width();

@@ -15,6 +15,7 @@
 
 #include <android/configuration.h>
 #include <android/native_window.h>
+#include <android/native_activity.h>
 #include <android/window.h>
 #include <android_native_app_glue.h>
 #include <jni.h>
@@ -142,6 +143,10 @@ namespace nkentseu {
             return false;
         }
 
+#if defined(AWINDOW_FLAG_FULLSCREEN)
+        ANativeActivity_setWindowFlags(app->activity, AWINDOW_FLAG_FULLSCREEN, 0);
+#endif
+
         bool ok = false;
         jobject activity = app->activity->clazz;
         jclass actClass = env->GetObjectClass(activity);
@@ -152,6 +157,77 @@ namespace nkentseu {
                 if (windowObj && !env->ExceptionCheck()) {
                     jclass windowClass = env->GetObjectClass(windowObj);
                     if (windowClass) {
+                        // API 30+ : cacher status bar + navigation bar via WindowInsetsController.
+                        jmethodID getInsetsController = env->GetMethodID(
+                            windowClass, "getInsetsController", "()Landroid/view/WindowInsetsController;"
+                        );
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            getInsetsController = nullptr;
+                        }
+                        if (getInsetsController) {
+                            jobject controller = env->CallObjectMethod(windowObj, getInsetsController);
+                            if (controller && !env->ExceptionCheck()) {
+                                jclass controllerClass = env->GetObjectClass(controller);
+                                jclass typeClass = env->FindClass("android/view/WindowInsets$Type");
+                                if (env->ExceptionCheck()) {
+                                    env->ExceptionClear();
+                                    typeClass = nullptr;
+                                }
+
+                                if (controllerClass && typeClass) {
+                                    jmethodID hideBars = env->GetMethodID(controllerClass, "hide", "(I)V");
+                                    if (env->ExceptionCheck()) {
+                                        env->ExceptionClear();
+                                        hideBars = nullptr;
+                                    }
+                                    jmethodID setBehavior = env->GetMethodID(controllerClass, "setSystemBarsBehavior", "(I)V");
+                                    if (env->ExceptionCheck()) {
+                                        env->ExceptionClear();
+                                        setBehavior = nullptr;
+                                    }
+                                    jmethodID systemBars = env->GetStaticMethodID(typeClass, "systemBars", "()I");
+                                    if (env->ExceptionCheck()) {
+                                        env->ExceptionClear();
+                                        systemBars = nullptr;
+                                    }
+
+                                    jint bars = 0;
+                                    if (systemBars) {
+                                        bars = env->CallStaticIntMethod(typeClass, systemBars);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear();
+                                            bars = 0;
+                                        }
+                                    }
+                                    if (setBehavior) {
+                                        env->CallVoidMethod(controller, setBehavior, 2);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                    if (hideBars && bars != 0) {
+                                        env->CallVoidMethod(controller, hideBars, bars);
+                                        if (!env->ExceptionCheck()) {
+                                            ok = true;
+                                        } else {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                }
+
+                                if (typeClass) {
+                                    env->DeleteLocalRef(typeClass);
+                                }
+                                if (controllerClass) {
+                                    env->DeleteLocalRef(controllerClass);
+                                }
+                                env->DeleteLocalRef(controller);
+                            } else {
+                                env->ExceptionClear();
+                            }
+                        }
+
                         // Appel à DecorView
                         jmethodID getDecorView = env->GetMethodID(windowClass, "getDecorView", "()Landroid/view/View;");
                         if (getDecorView) {
@@ -160,19 +236,15 @@ namespace nkentseu {
                                 jclass viewClass = env->GetObjectClass(decorView);
                                 if (viewClass) {
                                     // setSystemUiVisibility(flags)
-                                    // Flags: View.SYSTEM_UI_FLAG_HIDE_NAVIGATION (4)
-                                    //        View.SYSTEM_UI_FLAG_LAYOUT_STABLE (256)
-                                    //        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION (512)
-                                    //        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN (1024)
-                                    //        View.SYSTEM_UI_FLAG_IMMERSIVE (2048)
-                                    //        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY (4096)
-                                    // Total : 4 | 256 | 512 | 1024 | 2048 | 4096 = 7940
-                                    // IMMERSIVE_STICKY maintient les barres cachees meme apres interaction
+                                    // Flags: LOW_PROFILE=1, HIDE_NAVIGATION=2, FULLSCREEN=4,
+                                    // LAYOUT_STABLE=256, LAYOUT_HIDE_NAVIGATION=512,
+                                    // LAYOUT_FULLSCREEN=1024, IMMERSIVE=2048,
+                                    // IMMERSIVE_STICKY=4096.
                                     jmethodID setSystemUiVis = env->GetMethodID(
                                         viewClass, "setSystemUiVisibility", "(I)V"
                                     );
                                     if (setSystemUiVis) {
-                                        jint flags = 4 | 256 | 512 | 1024 | 2048 | 4096; // + IMMERSIVE_STICKY
+                                        jint flags = 1 | 2 | 4 | 256 | 512 | 1024 | 2048 | 4096;
                                         env->CallVoidMethod(decorView, setSystemUiVis, flags);
                                         if (!env->ExceptionCheck()) {
                                             ok = true;
