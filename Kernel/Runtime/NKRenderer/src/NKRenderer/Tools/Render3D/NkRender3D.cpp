@@ -509,6 +509,15 @@ namespace nkentseu {
             mFrameSlot = (mFrameSlot + 1) % mFramesInFlight;
         }
 
+        void NkRender3D::Flush(NkICommandBuffer* cmd, NkRenderPassHandle /*renderPass*/) {
+            // Surcharge render-to-texture : on délègue à Flush(cmd) qui utilise
+            // toujours le RP de la Geometry pass pour les pipelines.
+            // Raison : appeler UpdateRenderPass(rtRP) avec un RP différent recompile
+            // TOUS les pipelines matériaux chaque frame → FPS s'effondre.
+            // Le RT doit avoir des formats compatibles avec la Geometry pass.
+            Flush(cmd);
+        }
+
         void NkRender3D::UploadUBOs(NkICommandBuffer* cmd) {
             (void)cmd;
             // Camera UBO — layout std140 qui matche EXACTEMENT le shader PBR (binding=0).

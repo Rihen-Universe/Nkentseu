@@ -28,8 +28,10 @@ namespace nkentseu {
                 void EndCapture(NkICommandBuffer* cmd);
                 bool ReadbackPixels(uint8* dst, uint32 rowPitch=0);
                 bool Resize(uint32 w, uint32 h);
-                NkTexHandle GetColorResult() const { return mColor; }
-                NkTexHandle GetDepthResult() const { return mDepth; }
+                NkTexHandle        GetColorResult() const { return mColor; }
+                NkTexHandle        GetDepthResult() const { return mDepth; }
+                NkRenderPassHandle GetRP()  const { return mRP; }
+                NkFramebufferHandle GetFBO() const { return mFBO; }
                 uint32 GetWidth()  const { return mDesc.width; }
                 uint32 GetHeight() const { return mDesc.height; }
                 const NkOffscreenDesc& GetDesc() const { return mDesc; }
