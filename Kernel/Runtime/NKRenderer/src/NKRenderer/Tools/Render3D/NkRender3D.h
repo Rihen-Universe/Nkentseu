@@ -42,6 +42,8 @@ namespace nkentseu {
                 // ── Frame ────────────────────────────────────────────────────────────
                 void BeginScene(const NkSceneContext& ctx);
                 void Flush(NkICommandBuffer* cmd);
+                // Surcharge render-to-texture : utilise renderPass au lieu du RP Geometry du graph.
+                void Flush(NkICommandBuffer* cmd, NkRenderPassHandle renderPass);
 
                 // Render des opaques castShadow=true depuis la perspective de la
                 // lumiere (lightVP = lightProj * lightView), dans le FBO shadow

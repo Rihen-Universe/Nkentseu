@@ -38,3 +38,249 @@ Attends 12-15 secondes. Crash automatique. Puis :
 bt full
 thread apply all bt
 quit
+
+Merci ! Pour le design et le côté humain, LinkedIn ne supporte pas le HTML mais on peut jouer sur la **structure visuelle**, les **émojis bien placés**, les **espaces**, et le **rythme des phrases** pour que ça respire et attire l'œil.
+
+Pour les contributeurs de tout genre — oui, c'est le bon moment. Tu présentes Rihen, autant ouvrir la porte à tout le monde dès maintenant.
+
+Oui pour les hashtags — sur LinkedIn ils augmentent la visibilité si bien choisis. Pas plus de 5, placés à la toute fin pour ne pas casser la lecture.
+
+Voici le post final, prêt à copier-coller :
+
+---
+
+Je dirige Rihen depuis Yaoundé.
+Voici ce qu'on construit vraiment — concrètement.
+
+─────────────────────
+
+Depuis quelques années, une équipe réduite travaille sur quelque chose d'ambitieux.
+Peut-être trop, certains nous l'ont dit.
+On continue quand même. 🙂
+
+─────────────────────
+
+𝗖𝗲 𝗾𝘂𝗶 𝗲𝘅𝗶𝘀𝘁𝗲 𝗮𝘂𝗷𝗼𝘂𝗿𝗱'𝗵𝘂𝗶 — 𝗲𝗻 𝗽𝘂𝗯𝗹𝗶𝗰, 𝘀𝘂𝗿 𝗚𝗶𝘁𝗛𝘂𝗯 :
+
+🔧 Jenga — Build System v2.0.1
+Aucun outil de build ne correspondait à ce dont on avait besoin.
+Alors on en a construit un.
+→ Windows · Linux · macOS · Android · iOS · Web · HarmonyOS · Xbox
+→ 3 releases publiées. Utilisé sur tous nos projets internes.
+
+⚙️ Nkentseu — Framework C++ v2.0.0
+Un écosystème modulaire pour créer des jeux, simulateurs, applications médicales et systèmes industriels.
+Foundation complète · 36+ fonctions mathématiques · 75+ tests
+Zero STL · Thread-safe · Conçu pour durer.
+→ Déjà 15 forks. On ne s'y attendait pas vraiment. 🙏
+
+─────────────────────
+
+𝗖𝗲 𝗾𝘂'𝗼𝗻 𝗰𝗼𝗻𝘀𝘁𝗿𝘂𝗶𝘁 𝗮𝘃𝗲𝗰 𝗰𝗲𝘁𝘁𝗲 𝗯𝗮𝘀𝗲 :
+
+🎮 Un moteur de jeux vidéo 2D/3D — made in Cameroun
+🏥 PV3DE — patient virtuel 3D pour le diagnostic médical
+🎬 Griot — plateforme de streaming dédiée au contenu africain
+
+─────────────────────
+
+Est-ce que tout est parfait ? Non.
+Est-ce que tout avance ? Oui — chaque semaine, un peu plus.
+
+On construit en public parce qu'on croit que la transparence est la meilleure façon de bâtir quelque chose de durable.
+
+─────────────────────
+
+𝗩𝗼𝘂𝘀 𝗽𝗼𝘂𝘃𝗲𝘇 𝗻𝗼𝘂𝘀 𝗿𝗲𝗷𝗼𝗶𝗻𝗱𝗿𝗲 𝗱𝗲 𝗯𝗶𝗲𝗻 𝗱𝗲𝘀 𝗳𝗮𝗰̧𝗼𝗻𝘀 :
+
+👨‍💻 Développeur — contribuer au code sur GitHub
+🎨 Créateur — contenu, design, animation
+🔬 Chercheur — collaborer sur PV3DE ou Nkentseu
+📢 Communauté — partager, donner du feedback, en parler autour de vous
+💼 Partenaire ou investisseur — construire quelque chose ensemble
+
+Il n'y a pas de petite contribution.
+Chaque geste compte quand on part de zéro.
+
+─────────────────────
+
+🔗 github.com/RihenUniverse
+(lien cliquable en commentaire)
+
+Suivez @Rihen Universe pour voir la suite. 👇
+
+#BuildInPublic #AfricaTech #CPlusPlus #Cameroun #OpenSource #GameEngine
+
+---
+
+**Rappel avant de publier :**
+Ajoute immédiatement en **premier commentaire** :
+> 🔗 GitHub Rihen Universe : https://github.com/RihenUniverse
+
+Bonne idée — l'invitation à contribuer doit devenir un **réflexe constant**, pas juste une mention occasionnelle. Voici les deux posts réécrits proprement :
+
+---
+
+**POST 1 — Jeudi 07/05 — 14h00**
+
+---
+
+J'ai passé des mois à chercher le bon système de build pour mes projets C++.
+
+CMake ? Trop rigide pour ce que je voulais faire.
+Bazel ? Trop complexe pour mon contexte.
+Premake ? Pas assez flexible.
+
+À chaque fois, le même mur.
+Alors j'ai fait ce qu'on fait quand rien n'existe : je l'ai construit moi-même.
+
+─────────────────────
+
+𝗝𝗲𝗻𝗴𝗮 — 𝗕𝘂𝗶𝗹𝗱 𝗦𝘆𝘀𝘁𝗲𝗺 𝘃𝟮.𝟬.𝟭
+
+Un système de build multiplatform C++, piloté par un DSL Python.
+Tu décris ton projet en Python. Jenga s'occupe du reste.
+
+→ Windows · Linux · macOS · Android · iOS · Web · HarmonyOS · Xbox
+→ Build incrémental, cache, mode watch
+→ Génération vers CMake · Makefile · Visual Studio · Xcode
+→ 3 releases publiées. Utilisé sur tous mes projets internes.
+
+─────────────────────
+
+𝗖𝗼𝗻𝗰𝗿𝗲̀𝘁𝗲𝗺𝗲𝗻𝘁, 𝘃𝗼𝗶𝗹𝗮̀ 𝗰𝗼𝗺𝗺𝗲𝗻𝘁 𝗼𝗻 𝗰𝗿𝗲́𝗲 𝘂𝗻 𝗽𝗿𝗼𝗷𝗲𝘁 :
+
+# 1. On initialise le workspace et le projet
+mkdir mon-projet && cd mon-projet
+jenga workspace MonWorkspace
+jenga project MonApp --kind console --lang C++
+
+# 2. Le fichier MonApp.jenga généré ressemble à ça :
+from Jenga import *
+
+with workspace("MonWorkspace"):
+    configurations(["Debug", "Release"])
+    targetoses([TargetOS.WINDOWS, TargetOS.LINUX])
+    targetarchs([TargetArch.X86_64])
+
+    with project("MonApp"):
+        consoleapp()
+        language("C++")
+        files(["src/**.cpp"])
+
+# 3. On build et on run
+jenga build --config Debug
+jenga run MonApp
+
+C'est tout.
+Pas 300 lignes de CMakeLists.txt.
+Pas de magie cachée — juste du Python lisible.
+
+─────────────────────
+
+Est-ce que Jenga est parfait ? Non.
+Est-ce qu'il fait exactement ce dont j'ai besoin ? Oui.
+Est-ce qu'il évolue chaque semaine ? Oui.
+
+─────────────────────
+
+𝗩𝗼𝘂𝘀 𝗽𝗼𝘂𝘃𝗲𝘇 𝗻𝗼𝘂𝘀 𝗿𝗲𝗷𝗼𝗶𝗻𝗱𝗿𝗲 𝗱𝗲 𝗯𝗶𝗲𝗻 𝗱𝗲𝘀 𝗳𝗮𝗰̧𝗼𝗻𝘀 :
+
+👨‍💻 Développeur — une idée, un bug trouvé, une PR ? Tout est bienvenu
+🔬 Chercheur — vous travaillez sur des sujets connexes ? Parlons-en
+📢 Communauté — un partage, un commentaire, un avis ? Ça compte énormément
+💼 Partenaire ou investisseur — vous croyez en ce qu'on construit ? Contactez-moi
+
+Il n'y a pas de petite contribution.
+Chaque geste aide quand on construit depuis zéro.
+
+─────────────────────
+
+🔗 github.com/RihenUniverse/Jenga
+(lien cliquable en commentaire)
+
+Vous utilisez quoi comme système de build sur vos projets C++ ?
+Qu'est-ce qui vous manque le plus ? 👇
+
+#CPlusPlus #BuildSystem #DevTools #BuildInPublic #AfricaTech
+
+---
+
+**POST 2 — Dimanche 10/05 — 8h00**
+
+---
+
+Pourquoi j'ai décidé de tout construire from scratch plutôt que d'utiliser des frameworks existants.
+
+C'est la question qu'on me pose le plus souvent.
+Et honnêtement, au début, je me la posais moi-même.
+
+─────────────────────
+
+La réponse courte : pour comprendre vraiment.
+
+La réponse longue :
+
+Quand tu utilises Unity, Unreal, SDL2 ou n'importe quel framework :
+→ Tu résous tes problèmes en surface
+→ Tu ne vois pas ce qui se passe en dessous
+→ Tu deviens dépendant d'outils que tu ne maîtrises pas vraiment
+
+Ce n'est pas un jugement.
+C'est juste un constat honnête sur ce que j'ai vécu.
+
+─────────────────────
+
+Quand j'ai commencé à construire mon propre moteur de rendu :
+
+La première semaine — je ne comprenais pas pourquoi mon triangle ne s'affichait pas.
+Le premier mois — je comprenais comment le GPU parle à la scène.
+Le troisième mois — je maîtrisais ma stack de A à Z.
+
+Aucun tutoriel ne m'aurait donné ça.
+Seulement la confrontation directe avec le problème.
+
+─────────────────────
+
+𝗖𝗲 𝗾𝘂𝗲 𝗷'𝗮𝗶 𝗮𝗽𝗽𝗿𝗶𝘀 𝗲𝗻 𝗰𝗼𝗻𝘀𝘁𝗿𝘂𝗶𝘀𝗮𝗻𝘁 𝗡𝗸𝗲𝗻𝘁𝘀𝗲𝘂 𝗳𝗿𝗼𝗺 𝘀𝗰𝗿𝗮𝘁𝗰𝗵 :
+
+→ La gestion mémoire manuelle m'a appris à respecter chaque octet
+→ Implémenter mes propres containers m'a appris pourquoi la STL fait certains choix
+→ Écrire mon propre système de threading m'a appris ce que "thread-safe" veut vraiment dire
+
+Je ne dis pas que c'est la bonne voie pour tout le monde.
+Mais pour moi, c'était la seule façon de vraiment apprendre.
+
+─────────────────────
+
+Est-ce que c'est plus long ? Oui, beaucoup plus.
+Est-ce que c'est plus difficile ? Oui, parfois décourageant.
+Est-ce que ça vaut la peine ? Je réponds oui chaque matin quand j'ouvre mon éditeur.
+
+─────────────────────
+
+𝗩𝗼𝘂𝘀 𝗽𝗼𝘂𝘃𝗲𝘇 𝗻𝗼𝘂𝘀 𝗿𝗲𝗷𝗼𝗶𝗻𝗱𝗿𝗲 𝗱𝗲 𝗯𝗶𝗲𝗻 𝗱𝗲𝘀 𝗳𝗮𝗰̧𝗼𝗻𝘀 :
+
+👨‍💻 Développeur — le code est public, les issues sont ouvertes. Plongez dedans.
+🎨 Créateur — design, animation, contenu ? On a besoin de vous aussi.
+🔬 Chercheur — vous travaillez sur des sujets proches ? Échangeons.
+📢 Communauté — un partage, un commentaire, un avis ? Ça nous fait avancer.
+💼 Partenaire ou investisseur — vous croyez en ce qu'on construit ? Parlons-en.
+
+Il n'y a pas de petite contribution.
+L'Afrique a besoin d'ingénieurs qui construisent l'infrastructure.
+Et ces ingénieurs ont besoin d'une communauté derrière eux. 🙂
+
+─────────────────────
+
+🔗 github.com/RihenUniverse/Nkentseu
+(lien cliquable en commentaire)
+
+Vous construisez from scratch ou vous utilisez des frameworks ?
+Pourquoi ? Je suis sincèrement curieux. 👇
+
+#CPlusPlus #SoftwareArchitecture #BuildInPublic #AfricaTech #GameDev
+
+---
+
+L'invitation à contribuer est maintenant **structurée, complète et cohérente** dans les deux posts, avec des appels spécifiques selon le profil de chaque lecteur. Tu veux qu'on continue avec les posts suivants du calendrier ?

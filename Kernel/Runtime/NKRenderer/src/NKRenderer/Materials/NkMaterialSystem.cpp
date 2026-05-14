@@ -112,17 +112,18 @@ namespace nkentseu {
                 return RegisterTemplate(d);
             };
 
-            mTmplPBR     = reg(NkMaterialType::NK_PBR_METALLIC, "Default_PBR",     "PBR");
-            mTmplToon    = reg(NkMaterialType::NK_TOON,         "Default_Toon",    "Toon");
-            mTmplUnlit   = reg(NkMaterialType::NK_UNLIT,        "Default_Unlit",   "Unlit");
-            mTmplWire    = reg(NkMaterialType::NK_WIREFRAME_MAT,"Default_Wireframe","PBR",
-                               NkRenderQueue::NK_OPAQUE,
-                               NkCullMode::NK_NONE, NkFillMode::NK_WIREFRAME);
-            mTmplSkin    = reg(NkMaterialType::NK_SKIN,         "Default_Skin",    "Skin");
-            mTmplHair    = reg(NkMaterialType::NK_HAIR,         "Default_Hair",    "Hair",
-                               NkRenderQueue::NK_ALPHA_TEST);
-            mTmplAnime   = reg(NkMaterialType::NK_ANIME,        "Default_Anime",   "Anime");
-            mTmplArchviz = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz", "PBR");
+            mTmplPBR      = reg(NkMaterialType::NK_PBR_METALLIC, "Default_PBR",      "PBR");
+            mTmplToon     = reg(NkMaterialType::NK_TOON,         "Default_Toon",     "Toon");
+            mTmplUnlit    = reg(NkMaterialType::NK_UNLIT,        "Default_Unlit",    "Unlit");
+            mTmplWire     = reg(NkMaterialType::NK_WIREFRAME_MAT,"Default_Wireframe","PBR",
+                                NkRenderQueue::NK_OPAQUE,
+                                NkCullMode::NK_NONE, NkFillMode::NK_WIREFRAME);
+            mTmplSkin     = reg(NkMaterialType::NK_SKIN,         "Default_Skin",     "Skin");
+            mTmplHair     = reg(NkMaterialType::NK_HAIR,         "Default_Hair",     "Hair",
+                                NkRenderQueue::NK_ALPHA_TEST);
+            mTmplAnime    = reg(NkMaterialType::NK_ANIME,        "Default_Anime",    "Anime");
+            mTmplArchviz  = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz",  "PBR");
+            mTmplReflFloor= reg(NkMaterialType::NK_REFL_FLOOR,   "Default_ReflFloor","ReflFloor");
         }
 
         // ── Contexte partagé (NkRender3D → NkMaterialSystem) ──────────────────────

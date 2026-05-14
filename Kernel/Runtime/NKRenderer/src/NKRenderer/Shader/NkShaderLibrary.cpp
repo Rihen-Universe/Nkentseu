@@ -127,9 +127,9 @@ namespace nkentseu {
             NkPath shaderCacheDir = NkPath::GetExecutableDirectory() / "cache" / "shaders";
             NkShaderCache::Global().SetCacheDir(shaderCacheDir.ToString());
 
-            // Test cross-API: active uniquement en developpement.
-            // Mettre NK_DISABLE_CROSS_API_TEST pour desactiver (~0.8s de gain).
-#ifndef NK_DISABLE_CROSS_API_TEST
+            // Test cross-API: desactive par defaut (coute ~8s au demarrage en debug).
+            // Definir NK_ENABLE_CROSS_API_TEST pour activer (dev seulement).
+#ifdef NK_ENABLE_CROSS_API_TEST
             static bool sTestDone = false;
             if (!sTestDone) { TestCrossApiConversion(); sTestDone = true; }
 #endif
