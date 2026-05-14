@@ -56,6 +56,7 @@ namespace nkentseu {
         };
 
         struct alignas(16) NkToonParams {
+            NkVec4f  albedoColor      = {1.f,1.f,1.f,1.f};  // couleur de base (SetAlbedo)
             NkVec4f  shadowColor      = {0.2f,0.1f,0.3f,1.f};
             float32  shadowThreshold  = 0.3f;
             float32  shadowSmooth     = 0.05f;
@@ -64,7 +65,9 @@ namespace nkentseu {
             NkVec4f  outlineColor     = {0,0,0,1};
             NkVec4f  rimColor         = {1,1,1,1};
             float32  specHardness     = 32.f;
-            float32  _pad[3]          = {};
+            float32  metallic         = 0.f;   // teinte spéculaire : 0=blanc, 1=albedo (effet métal cel)
+            float32  matcapStrength   = 0.f;   // 0=aucun, 1=full matcap (binding=4)
+            float32  _pad[1]          = {};
         };
 
         // =========================================================================
@@ -109,8 +112,13 @@ namespace nkentseu {
                 NkMaterialInstance* SetSubsurface    (float32 v, NkVec3f color);
                 NkMaterialInstance* SetClearcoat     (float32 v, float32 rough);
                 NkMaterialInstance* SetToonThreshold (float32 v);
+                NkMaterialInstance* SetToonSmooth    (float32 v);
                 NkMaterialInstance* SetToonShadowColor(NkVec3f c);
                 NkMaterialInstance* SetOutline       (float32 w, NkVec3f color);
+                NkMaterialInstance* SetRim           (float32 intensity, NkVec3f color);
+                NkMaterialInstance* SetSpecHardness  (float32 v);
+                NkMaterialInstance* SetMatcapMap     (NkTexHandle t);
+                NkMaterialInstance* SetMatcapStrength(float32 v);
                 NkMaterialInstance* SetFloat  (const NkString& n, float32 v);
                 NkMaterialInstance* SetVec2   (const NkString& n, NkVec2f v);
                 NkMaterialInstance* SetVec3   (const NkString& n, NkVec3f v);

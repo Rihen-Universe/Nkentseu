@@ -33,7 +33,5 @@ void main() {
     vNormal       = normalize(mat3(uObj.normalMatrix) * aNormal);
     vUV           = aUV;
     vColor        = aColor * uObj.tint;
-    vec4 clip     = uCam.viewProj * worldPos;
-    clip.z        = 0.5 * clip.z + 0.5 * clip.w;
-    gl_Position   = clip;
+    gl_Position   = uCam.viewProj * worldPos;
 }

@@ -28,7 +28,5 @@ layout(location=1) out vec4 vColor;
 void main() {
     vUV         = aUV;
     vColor      = aColor * uObj.tint;
-    vec4 clip   = uCam.viewProj * uObj.model * vec4(aPos, 1.0);
-    clip.z      = 0.5 * clip.z + 0.5 * clip.w;
-    gl_Position = clip;
+    gl_Position = uCam.viewProj * uObj.model * vec4(aPos, 1.0);
 }

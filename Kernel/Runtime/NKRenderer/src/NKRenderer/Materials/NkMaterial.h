@@ -74,6 +74,8 @@ namespace nkentseu {
                 NkMaterial* SetOutline       (float32 width, NkVec3f color = {0,0,0});
                 NkMaterial* SetRim           (float32 intensity, NkVec3f color = {1,1,1});
                 NkMaterial* SetSpecHardness  (float32 v);
+                NkMaterial* SetMatcapMap     (NkTexHandle t);
+                NkMaterial* SetMatcapStrength(float32 v);
 
                 // ── État ──────────────────────────────────────────────────────────
                 bool          IsValid()      const;

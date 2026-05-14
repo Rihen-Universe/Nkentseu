@@ -252,7 +252,17 @@ namespace nkentseu {
                 };
 
                 NkTextureHandle albedoTex   = GetTex("albedo");
-                NkTextureHandle normalTex   = GetTex("normal");
+                // Binding 4 : matcap si present (Toon/Anime), sinon normal map (PBR).
+                // GetTex cherche "matcap" d'abord, retombe sur "normal".
+                NkTextureHandle slot4Tex;
+                {
+                    bool found = false;
+                    for (auto& p : inst->mParams)
+                        if (p.kind==NkMaterialInstance::Param::Kind::TEX && p.name=="matcap") {
+                            slot4Tex = texLib->GetRHIHandle(p.tex); found = true; break;
+                        }
+                    if (!found) slot4Tex = GetTex("normal");
+                }
                 NkTextureHandle ormTex      = GetTex("orm");
                 NkTextureHandle emissiveTex = GetTex("emissive");
 
@@ -268,7 +278,7 @@ namespace nkentseu {
                     writes[idx].texture=tex; writes[idx].sampler=mLinearSampler;
                 };
                 fillTex(1, 3, albedoTex);
-                fillTex(2, 4, normalTex);
+                fillTex(2, 4, slot4Tex);
                 fillTex(3, 5, ormTex);
                 fillTex(4, 6, emissiveTex);
                 mDevice->UpdateDescriptorSets(writes, 5);
@@ -330,9 +340,11 @@ namespace nkentseu {
             pd.shader    = sh;
 
             // Rasterizer
-            pd.rasterizer = NkRasterizerDesc::Default();
-            if (t.desc.doubleSided || t.desc.cullMode == NkCullMode::NK_NONE)
-                pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_NONE;
+            // D.1 : NoCull par defaut — meme raison que PBR pipeline (NkRender3D::EnsurePBRPipeline) :
+            // les meshes primitifs (icosphere, etc.) n'ont pas de winding CCW garanti.
+            pd.rasterizer = NkRasterizerDesc::NoCull();
+            if (t.desc.cullMode == NkCullMode::NK_BACK)
+                pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_BACK;
             else if (t.desc.cullMode == NkCullMode::NK_FRONT)
                 pd.rasterizer.cullMode = nkentseu::NkCullMode::NK_FRONT;
             if (t.desc.fillMode == NkFillMode::NK_WIREFRAME)
@@ -404,10 +416,14 @@ namespace nkentseu {
 
         // ── NkMaterialInstance setters ────────────────────────────────────────────
         NkMaterialInstance* NkMaterialInstance::SetAlbedo(NkVec3f c, float32 a) {
-            mPBR.albedo={c.x,c.y,c.z,a}; mDirty=true; return this;
+            mPBR.albedo={c.x,c.y,c.z,a};
+            mToon.albedoColor={c.x,c.y,c.z,a};
+            mDirty=true; return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetMetallic(float32 v) {
-            mPBR.metallic=v; mDirty=true; return this;
+            mPBR.metallic=v;
+            mToon.metallic=v;   // teinte spec Toon/Anime : 0=blanc, 1=albedo
+            mDirty=true; return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetRoughness(float32 v) {
             mPBR.roughness=v; mDirty=true; return this;
@@ -424,11 +440,26 @@ namespace nkentseu {
         NkMaterialInstance* NkMaterialInstance::SetToonThreshold(float32 v) {
             mToon.shadowThreshold=v; mDirty=true; return this;
         }
+        NkMaterialInstance* NkMaterialInstance::SetToonSmooth(float32 v) {
+            mToon.shadowSmooth=v; mDirty=true; return this;
+        }
         NkMaterialInstance* NkMaterialInstance::SetToonShadowColor(NkVec3f c) {
             mToon.shadowColor={c.x,c.y,c.z,1}; mDirty=true; return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetOutline(float32 w, NkVec3f c) {
             mToon.outlineWidth=w; mToon.outlineColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetRim(float32 intensity, NkVec3f c) {
+            mToon.rimIntensity=intensity; mToon.rimColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetSpecHardness(float32 v) {
+            mToon.specHardness=v; mDirty=true; return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetMatcapMap(NkTexHandle t) {
+            return SetTexture("matcap", t);
+        }
+        NkMaterialInstance* NkMaterialInstance::SetMatcapStrength(float32 v) {
+            mToon.matcapStrength=v; mDirty=true; return this;
         }
 
         NkMaterialInstance* NkMaterialInstance::SetTexture(const NkString& n, NkTexHandle t) {

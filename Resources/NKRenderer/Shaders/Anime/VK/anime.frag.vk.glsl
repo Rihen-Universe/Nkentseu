@@ -7,17 +7,26 @@ layout(location=2) in vec2 vUV; layout(location=3) in vec4 vColor;
 layout(location=0) out vec4 fragColor;
 layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
 layout(set=0,binding=2,std140) uniform LightsUBO{vec4 positions[32],colors[32],directions[32],angles[32];int count;int _pad[3];}uLights;
-// ToonUBO en set=2 binding=8 : meme namespace que instDescLayout de NkMaterialSystem.
-// textures en set=2 binding=3 (albedo) et binding=4 (shadow ramp = slot normal map).
-layout(set=2,binding=8,std140) uniform ToonUBO{vec4 shadowColor;float shadowThreshold,shadowSmoothness,outlineWidth,rimIntensity;vec4 outlineColor,rimColor;float specHardness;float _p[3];}uToon;
+// ToonUBO — meme layout que toon.frag (96 bytes std140) :
+//   offset  0 : albedoColor (vec4)
+//   offset 16 : shadowColor (vec4)
+//   offset 32 : shadowThreshold, shadowSmoothness, outlineWidth, rimIntensity (4×float)
+//   offset 48 : outlineColor (vec4)
+//   offset 64 : rimColor (vec4)
+//   offset 80 : specHardness, _pad[3] (4×float)
+layout(set=2,binding=8,std140) uniform ToonUBO{vec4 albedoColor;vec4 shadowColor;float shadowThreshold,shadowSmoothness,outlineWidth,rimIntensity;vec4 outlineColor,rimColor;float specHardness,metallic;float _p[2];}uToon;
 layout(set=2,binding=3) uniform sampler2D tAlbedo;
 layout(set=2,binding=4) uniform sampler2D tShadowRamp;  // custom shadow ramp (slot normal map)
 void main(){
-    vec4 albSamp=texture(tAlbedo,vUV)*vColor; vec3 albedo=albSamp.rgb; float alpha=albSamp.a; if(alpha<0.01)discard;
+    // albedoColor est la source de verite du materiau (SetAlbedo).
+    // vColor (ObjectUBO.tint) n'est pas multiplie pour eviter le double-tint.
+    vec4 albSamp=texture(tAlbedo,vUV)*uToon.albedoColor; vec3 albedo=albSamp.rgb; float alpha=albSamp.a; if(alpha<0.01)discard;
     vec3 N=normalize(vNormal),V=normalize(uCam.camPos.xyz-vWorldPos);
-    // Outline: detect edges via normal-view angle
-    float edge=1.-max(dot(N,V),0.);
-    if(edge>1.-uToon.outlineWidth*0.1){fragColor=vec4(uToon.outlineColor.rgb,alpha);return;}
+    float NdotV=dot(N,V);
+    // Outline: silhouette via N·V.
+    // Guard NdotV > 0 : evite que le back-hemisphere devienne outline noir.
+    // Pas de discard global sur NdotV<=0 (ferait disparaitre le corps sur mesh low-poly).
+    if(uToon.outlineWidth>0.0&&NdotV>0.0){float edge=1.-NdotV;if(edge>1.-uToon.outlineWidth*0.1){fragColor=vec4(uToon.outlineColor.rgb,alpha);return;}}
     vec3 total=vec3(0.);
     for(int i=0;i<uLights.count&&i<32;i++){
         vec3 L=(int(uLights.positions[i].w)==0)?normalize(-uLights.directions[i].xyz):normalize(uLights.positions[i].xyz-vWorldPos);
@@ -25,13 +34,14 @@ void main(){
         // Ramp texture for stylized shadow
         float rampU=texture(tShadowRamp,vec2(NdL,0.5)).r;
         vec3 lit=mix(uToon.shadowColor.rgb*albedo,albedo,rampU)*uLights.colors[i].rgb*uLights.colors[i].w;
-        // Hard specular
+        // Hard specular — teinté par albedo si metallic > 0 (effet métal cel)
         vec3 H=normalize(V+L);
         float spec=step(0.85,pow(max(dot(N,H),0.),uToon.specHardness));
-        lit+=spec*vec3(1.)*uLights.colors[i].w*0.4;
+        vec3 specColor=mix(vec3(1.),albedo,uToon.metallic);
+        lit+=spec*specColor*uLights.colors[i].w*0.4;
         total+=lit;
     }
-    float rim=pow(1.-max(dot(N,V),0.),2.5)*uToon.rimIntensity;
+    float rim=pow(1.-max(NdotV,0.),2.5)*uToon.rimIntensity;
     total+=uToon.rimColor.rgb*rim;
     fragColor=vec4(total,alpha);
 }

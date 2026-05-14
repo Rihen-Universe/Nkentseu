@@ -120,7 +120,7 @@ namespace nkentseu {
             if (mInstance) mInstance->SetToonThreshold(v); return this;
         }
         NkMaterial* NkMaterial::SetToonSmooth(float32 v) {
-            if (mInstance) mInstance->SetFloat("toon_smooth", v); return this;
+            if (mInstance) mInstance->SetToonSmooth(v); return this;
         }
         NkMaterial* NkMaterial::SetToonShadow(NkVec3f c) {
             if (mInstance) mInstance->SetToonShadowColor(c); return this;
@@ -129,14 +129,16 @@ namespace nkentseu {
             if (mInstance) mInstance->SetOutline(w, c); return this;
         }
         NkMaterial* NkMaterial::SetRim(float32 intensity, NkVec3f c) {
-            if (mInstance) {
-                mInstance->SetFloat("rim_intensity", intensity);
-                mInstance->SetVec3("rim_color", c);
-            }
-            return this;
+            if (mInstance) mInstance->SetRim(intensity, c); return this;
         }
         NkMaterial* NkMaterial::SetSpecHardness(float32 v) {
-            if (mInstance) mInstance->SetFloat("spec_hardness", v); return this;
+            if (mInstance) mInstance->SetSpecHardness(v); return this;
+        }
+        NkMaterial* NkMaterial::SetMatcapMap(NkTexHandle t) {
+            if (mInstance) mInstance->SetMatcapMap(t); return this;
+        }
+        NkMaterial* NkMaterial::SetMatcapStrength(float32 v) {
+            if (mInstance) mInstance->SetMatcapStrength(v); return this;
         }
 
         // ── État ──────────────────────────────────────────────────────────────

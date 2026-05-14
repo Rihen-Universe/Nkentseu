@@ -10,7 +10,10 @@
 // @param("outline_width",    min=0.0, max=5.0,   default=2.0)  float outlineWidth
 // @param("rim_intensity",    min=0.0, max=2.0,   default=0.5)  float rimIntensity
 // @param("spec_hardness",    min=1.0, max=128.0, default=32.0) float specHardness
-// @texture2D("albedo_map") sampler2D tAlbedo
+// @param("metallic",         min=0.0, max=1.0,   default=0.0)  float metallic
+// @param("matcap_strength",  min=0.0, max=1.0,   default=0.0)  float matcapStrength
+// @texture2D("albedo_map")  sampler2D tAlbedo
+// @texture2D("matcap_map")  sampler2D tMatcap   (binding=4)
 #version 460 core
 
 layout(location=0) in vec3 vWorldPos;
@@ -31,8 +34,15 @@ layout(std140, set=0, binding=2) uniform LightsUBO {
     int   count; int _pad[3];
 } uLights;
 
-// Per-instance : NkToonParams (set=2, binding=8 — binding=4 est pris par texNormal dans le namespace descriptor GL)
+// Per-instance : NkToonParams (set=2, binding=8) — std140, 96 bytes
+// offset  0 : albedoColor   (vec4)
+// offset 16 : shadowColor   (vec4)
+// offset 32 : shadowThreshold, shadowSmooth, outlineWidth, rimIntensity (4×float)
+// offset 48 : outlineColor  (vec4)
+// offset 64 : rimColor      (vec4)
+// offset 80 : specHardness, metallic, matcapStrength, _pad (4×float)
 layout(std140, set=2, binding=8) uniform ToonUBO {
+    vec4  albedoColor;
     vec4  shadowColor;
     float shadowThreshold;
     float shadowSmooth;
@@ -41,15 +51,31 @@ layout(std140, set=2, binding=8) uniform ToonUBO {
     vec4  outlineColor;
     vec4  rimColor;
     float specHardness;
-    float _pad[3];
+    float metallic;       // 0=spec blanc, 1=spec teinté albedo
+    float matcapStrength; // 0=désactivé, 1=full matcap additif
+    float _pad;
 } uToon;
 
 layout(set=2, binding=3) uniform sampler2D tAlbedo;
+layout(set=2, binding=4) uniform sampler2D tMatcap;  // sphère de réflexion stylisée
 
 void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCam.camPos.xyz - vWorldPos);
-    vec4 albedo = texture(tAlbedo, vUV) * vColor;
+    float NdotV = dot(N, V);
+
+    // albedoColor est la source de vérité du matériau (SetAlbedo).
+    vec4 albedo = texture(tAlbedo, vUV) * uToon.albedoColor;
+
+    // Outline: silhouette via N·V.
+    // Guard NdotV > 0 : évite que le back-hemisphere devienne outline noir.
+    if (uToon.outlineWidth > 0.0 && NdotV > 0.0) {
+        float edge = 1.0 - NdotV;
+        if (edge > 1.0 - uToon.outlineWidth * 0.1) {
+            fragColor = vec4(uToon.outlineColor.rgb, albedo.a);
+            return;
+        }
+    }
 
     vec3 totalDiffuse = vec3(0.0);
     vec3 totalSpec    = vec3(0.0);
@@ -69,16 +95,29 @@ void main() {
         vec3 shad   = uToon.shadowColor.rgb  * albedo.rgb;
         totalDiffuse += mix(shad, lit, cel);
 
-        // Specular quantifie
-        vec3 H      = normalize(L + V);
-        float s     = step(0.5, pow(max(dot(N, H), 0.0), uToon.specHardness));
-        totalSpec  += uLights.colors[i].rgb * s;
+        // Specular quantifié — teinté par albedo si metallic > 0 (effet métal cel)
+        vec3 H         = normalize(L + V);
+        float s        = step(0.5, pow(max(dot(N, H), 0.0), uToon.specHardness));
+        vec3 specColor = mix(vec3(1.0), albedo.rgb, uToon.metallic);
+        totalSpec     += uLights.colors[i].rgb * specColor * s;
     }
     if (uLights.count == 0) totalDiffuse = albedo.rgb;
 
     // Rim
-    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * uToon.rimIntensity;
+    float rim = pow(1.0 - max(NdotV, 0.0), 3.0) * uToon.rimIntensity;
     vec3 rimC = uToon.rimColor.rgb * rim;
 
-    fragColor = vec4(totalDiffuse + totalSpec + rimC, albedo.a);
+    vec3 total = totalDiffuse + totalSpec + rimC;
+
+    // Matcap : lookup UV = projection de la normale en view-space sur une sphère.
+    // Technique : N view-space → (x,y) ∈ [-1,1] → UV [0,1].
+    // Additif : s'ajoute au cel-shading sans écraser l'outline ni le rim.
+    if (uToon.matcapStrength > 0.0) {
+        vec3 viewN  = normalize(mat3(uCam.view) * N);
+        vec2 mcUV   = viewN.xy * 0.5 + 0.5;
+        vec3 mc     = texture(tMatcap, mcUV).rgb;
+        total += mc * uToon.matcapStrength;
+    }
+
+    fragColor = vec4(total, albedo.a);
 }
