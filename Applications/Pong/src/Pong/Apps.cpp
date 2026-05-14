@@ -9,6 +9,7 @@
 #include "NKEvent/NkWindowEvent.h"
 #include "PongGame.h"
 #include "NKTime/NkTime.h"
+#include <tuple>
 
 using namespace nkentseu;
 
@@ -24,6 +25,13 @@ int nkmain(const NkEntryState& state)
     cfg.centered    = true;
     cfg.resizable   = true;
     cfg.dropEnabled = false;
+
+#if defined(__ANDROID__)
+    cfg.fullscreen        = true;
+    cfg.hideSystemUI      = true;
+    cfg.screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
+    cfg.lockOrientation   = true;
+#endif
 
     NkWindow window;
     if (!window.Create(cfg)) {
@@ -41,12 +49,13 @@ int nkmain(const NkEntryState& state)
 
     // ── Jeu ──────────────────────────────────────────────────────────────────
     PongGame* game = new PongGame(*renderer);
+#if defined(__ANDROID__)
+    game->SetShowTouchButtons(true);
+#endif
     game->Init();
 
 #if defined(__ANDROID__)
     // ── Configuration Android spécifique ─────────────────────────────────────
-    game->SetShowTouchButtons(true);
-    
     // ── Orientation landscape uniquement (verrouiller orientation) ──────────
     window.SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
     window.SetLockOrientation(true);  // Empêcher la rotation
@@ -406,6 +415,12 @@ int nkmain(const NkEntryState& state)
                      enterPressed, escapePressed,
                      finalLeft, finalRight,
                      mouseX, mouseY, mouseClicked);
+
+        if (game->WantsQuit()) {
+            running = false;
+            window.Close();
+            break;
+        }
         
         // ── Quitter depuis le menu principal (Android) ───────────────────────
 #if defined(__ANDROID__)

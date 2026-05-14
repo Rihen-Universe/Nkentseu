@@ -565,6 +565,12 @@ namespace nkentseu {
         /// @brief Norme du vecteur velocite (pixels/seconde).
         float speed = BASE_SPEED;
 
+        /// @brief Vitesse de reference pour le calcul visuel de charge.
+        float baseSpeed = BASE_SPEED;
+
+        /// @brief Vitesse maximale dynamique selon les options de partie.
+        float maxSpeed = MAX_SPEED;
+
         // ── Trail visuel ──────────────────────────────────────────────────────────
 
         /// @brief Buffer circulaire des positions X precedentes.
@@ -628,8 +634,9 @@ namespace nkentseu {
             y += vy * dt;
 
             // Calcul du niveau de charge visuel
+            float chargeSpan = math::NkMax(1.0f, maxSpeed - baseSpeed);
             chargeLevel = pongmath::Clamp(
-                (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED),
+                (speed - baseSpeed) / chargeSpan,
                 0.0f,
                 1.0f
             );
@@ -659,7 +666,7 @@ namespace nkentseu {
         ///        Renormalise le vecteur velocite pour conserver la direction.
         void ClampSpeed() noexcept
         {
-            speed = pongmath::Clamp(speed, BASE_SPEED * 0.5f, MAX_SPEED);
+            speed = pongmath::Clamp(speed, baseSpeed * 0.55f, maxSpeed);
             float len = pongmath::Length(vx, vy);
             if (len > 0.001f)
             {
@@ -816,6 +823,7 @@ namespace nkentseu {
     //  MainMenu         : Ecran titre avec options Jouer, Difficulte, Obstacles
     //  SelectDifficulty : Ecran de selection du niveau de l\'IA
     //  SelectObstacles  : Ecran de selection du preset d\'obstacles + preview
+    //  SelectOptions    : Reglages de vitesse, tailles et trajectoire
     //  Playing          : Partie en cours, toute la logique est active
     //  Paused           : Jeu suspendu, overlay de pause affiche
     //  GoalFlash        : Flash visuel bref apres un but (avant reprise)
@@ -827,7 +835,7 @@ namespace nkentseu {
         MainMenu,         ///< Menu principal.
         SelectDifficulty, ///< Selection de la difficulte IA.
         SelectObstacles,  ///< Selection du preset d\'obstacles.
-        SelectSpeed,      ///< Selection de la vitesse de balle.
+        SelectOptions,    ///< Reglages de vitesse, tailles et imprevisibilite.
         Playing,          ///< Partie en cours.
         Paused,           ///< Jeu en pause (touche P ou Echap).
         GoalFlash,        ///< Flash apres un but.
@@ -921,6 +929,9 @@ namespace nkentseu {
 
             /// @brief Modifie l'etat courant du jeu (utilise par Apps.cpp).
             void SetState(GameState newState) noexcept { mState = newState; }
+
+            /// @brief true si le menu principal a demande la fermeture.
+            bool WantsQuit() const noexcept { return mQuitRequested; }
 
             // ── Interface touch (Android) ─────────────────────────────────────────────
 
@@ -1044,6 +1055,9 @@ namespace nkentseu {
             /// @param idx Index de l\'obstacle dans mObstacles.
             void ApplyObstacleEffect(int idx);
 
+            /// @brief Applique une petite rotation aleatoire a la velocite de balle.
+            void JitterBall(float maxAngleRad);
+
             // ── Navigation dans les menus ─────────────────────────────────────────────
 
             /// @brief Fait avancer le splach screen et bascule vers MainMenu quand termine.
@@ -1078,6 +1092,10 @@ namespace nkentseu {
             /// @param right Reserve (navigation future).
             void UpdateObsSelect(bool up, bool down, bool enter, bool esc,
                                 bool left, bool right);
+
+            /// @brief Gere les options de jeu (vitesse, tailles, trajectoire).
+            void UpdateOptionsSelect(bool up, bool down, bool enter, bool esc,
+                                     bool left, bool right);
 
             /// @brief Gere le menu de pause (Reprendre / Menu principal).
             /// @param enter   Confirme l\'action selectionnee.
@@ -1114,6 +1132,9 @@ namespace nkentseu {
 
             /// @brief Dessine l\'ecran de selection d\'obstacles avec preview miniature.
             void RenderObsSelect();
+
+            /// @brief Dessine l\'ecran d\'options de gameplay.
+            void RenderOptionsSelect();
 
             /// @brief Dessine l\'overlay de pause sur la scene courante.
             void RenderPauseOverlay();
@@ -1200,9 +1221,12 @@ namespace nkentseu {
             /// @brief Etat courant du cycle de vie du jeu.
             GameState mState = GameState::MainMenu;
 
+            /// @brief Demande de fermeture emise par le bouton Quitter.
+            bool mQuitRequested = false;
+
             // ── Navigation UI ─────────────────────────────────────────────────────────
 
-            /// @brief Item selectionne dans le menu principal (0=Jouer..3=Quitter).
+            /// @brief Item selectionne dans le menu principal (0=Jouer..4=Quitter).
             int mMainMenuSel = 0;
 
             /// @brief Indice de difficulte selectionne dans SelectDifficulty (0..3).
@@ -1211,11 +1235,23 @@ namespace nkentseu {
             /// @brief Indice de preset selectionne dans SelectObstacles (0..5).
             int mObsSel = 1;
 
-            /// @brief Indice de vitesse selectionne dans SelectSpeed (0=Lent, 1=Normal, 2=Rapide).
+            /// @brief Ligne selectionnee dans le menu Options.
+            int mOptionsSel = 0;
+
+            /// @brief Indice de vitesse selectionne dans Options.
             int mSpeedSel = 1;
 
             /// @brief Vitesse de depart selectionnee pour la balle (pixels/seconde).
-            float mBallStartSpeed = 270.0f;
+            float mBallStartSpeed = 360.0f;
+
+            /// @brief Indice de taille de raquette selectionne dans Options.
+            int mPaddleSizeSel = 1;
+
+            /// @brief Indice de taille de balle selectionne dans Options.
+            int mBallSizeSel = 1;
+
+            /// @brief Active les petites variations aleatoires de trajectoire.
+            bool mUnpredictableBall = true;
 
             /// @brief Anti-repetition pour la navigation clavier (secondes).
             ///        Navigation bloquee tant que > 0. Decremente chaque frame.
