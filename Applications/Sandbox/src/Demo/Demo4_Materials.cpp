@@ -1,8 +1,8 @@
 // =============================================================================
-// Demo4_Materials.cpp  — Demo 3 : systeme de materiaux NkMaterial
+// Demo4_Materials.cpp  — Demo 4 : systeme de materiaux + Planar Reflection
 //
-// 5 spheres, chacune avec un materiau different. Les parametres des materiaux
-// sont modifiables en temps reel via le clavier.
+// 5 spheres, chacune avec un materiau different. Le sol reflete les spheres
+// via NkRenderTarget (planar reflection Y=0).
 //
 // Controles :
 //   1-5     : selectionner le materiau actif (sphere mise en evidence)
@@ -11,10 +11,12 @@
 //   M       : toggle metallic 0<->1 (PBR 1-2 uniquement)
 //   C       : changer couleur albedo (cycle dans une palette)
 //   O       : changer largeur outline (Toon/Anime 3-4 uniquement)
+//   R       : toggle planar reflection on/off
 //   V       : toggle VSync
 // =============================================================================
 #include "DemoCommon.h"
 #include "NKRenderer/Materials/NkMaterial.h"
+#include "NKRenderer/Core/NkRenderTarget.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -53,9 +55,14 @@ struct Demo4MatState {
     const char*  matNames[5] = {"PBR Metal", "PBR Plastic", "Toon", "Anime", "Unlit"};
     NkMeshHandle meshSphere;
     NkMeshHandle meshPlane;
-    float32      angle       = 0.f;
-    int          activeMat   = 0;
+    float32      angle        = 0.f;
+    int          activeMat    = 0;
     MatParams    params[5];
+
+    // Planar Reflection
+    NkRenderTarget reflRT;
+    NkMaterial*    floorMat   = nullptr;   // materiau du sol avec texture reflet
+    bool           reflEnabled = true;
 };
 
 // ── Applique les parametres au materiau ───────────────────────────────────────
@@ -131,6 +138,29 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         }
     }
 
+    // ── Planar Reflection ────────────────────────────────────────────────────
+    {
+        uint32 rtW = ctx.width  / 2;   // demi-resolution : reflet n'a pas besoin d'etre HD
+        uint32 rtH = ctx.height / 2;
+        NkRenderTargetDesc rtDesc;
+        rtDesc.width  = (rtW > 0) ? rtW : 512;
+        rtDesc.height = (rtH > 0) ? rtH : 256;
+        rtDesc.hdr    = false;
+        rtDesc.depth  = true;
+        rtDesc.name   = "PlanarReflection";
+        if (!st->reflRT.Init(ctx.device, ctx.renderer->GetTextures(), rtDesc))
+            logger.Warn("[Demo4] NkRenderTarget init echoue — reflet desactive\n");
+
+        // Materiau du sol : ReflFloor — shader dédié screen-space UV pour le reflet
+        // roughness=0.05 → 95% de réflectivité (quasi miroir)
+        st->floorMat = NkMaterial::Create(matSys, NkMaterialType::NK_REFL_FLOOR);
+        if (st->floorMat && st->floorMat->IsValid()) {
+            st->floorMat->SetAlbedo({0.55f, 0.55f, 0.60f})  // gris ardoise poli
+                         ->SetRoughness(0.05f);
+            // Le reflet sera bind chaque frame via SetTexture("albedo", reflRT.GetColorHandle())
+        }
+    }
+
     // Controles clavier : modifications temps reel
     NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent* e) {
         switch (e->GetKey()) {
@@ -189,6 +219,13 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
                     st->params[i].outlineW = kOutlineWidths[cur];
                     ApplyParams(st->mats[i], i, st->params[i]);
                 }
+                break;
+            }
+            // Toggle planar reflection
+            case NkKey::NK_R: {
+                st->reflEnabled = !st->reflEnabled;
+                logger.Infof("[Demo4] Planar reflection : {0}\n",
+                             st->reflEnabled ? "ON" : "OFF");
                 break;
             }
             // VSync toggle
@@ -259,15 +296,61 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
 
     sctx.ambientIntensity = 0.12f;
 
+    // ── Passe miroir (Planar Reflection) ─────────────────────────────────────
+    // Doit être faite AVANT BeginScene principal pour que la texture de reflet
+    // soit prête quand le sol est rendu.
+    auto* cmd = ctx.renderer->GetCmd();
+    if (st->reflEnabled && st->reflRT.IsValid() && cmd) {
+        // Plan de réflexion : sol Y=0
+        const NkVec4f reflPlane = {0.f, 1.f, 0.f, 0.f};
+
+        // Caméra miroir
+        NkCamera3D mirrorCam = NkRenderTarget::ReflectCamera(cam, reflPlane);
+
+        // Context de la passe miroir : mêmes lumières, caméra miroir
+        NkSceneContext mirrorCtx  = sctx;
+        mirrorCtx.camera          = mirrorCam;
+
+        // Accumuler les spheres (pas le sol : évite self-reflection infinie)
+        r3d->BeginScene(mirrorCtx);
+        for (int i = 0; i < 5; i++) {
+            const float32 x = (float32)(i - 2) * 2.4f;
+            NkDrawCall3D dc;
+            dc.mesh      = st->meshSphere;
+            dc.transform = NkMat4f::Translate({x, 0.6f, 0.f}) *
+                           NkMat4f::Scale({0.55f, 0.55f, 0.55f});
+            dc.aabb      = {{x - 0.35f, 0.2f, -0.35f}, {x + 0.35f, 1.0f, 0.35f}};
+            if (st->mats[i] && st->mats[i]->IsValid())
+                dc.material = st->mats[i]->GetInstHandle();
+            dc.tint      = kPalette[st->params[i].colorIdx % kPaletteSize];
+            dc.metallic  = st->params[i].metallic;
+            dc.roughness = st->params[i].roughness;
+            r3d->Submit(dc);
+        }
+
+        // Rendre dans le render target
+        st->reflRT.BeginRender(cmd, {0.05f, 0.08f, 0.12f, 1.f});
+        st->reflRT.FlushScene(cmd, r3d);
+        st->reflRT.EndRender(cmd);
+
+        // Binder le reflet sur le matériau du sol
+        if (st->floorMat && st->floorMat->IsValid())
+            st->floorMat->SetTexture("albedo", st->reflRT.GetColorHandle());
+    }
+
+    // ── Passe principale ──────────────────────────────────────────────────────
     r3d->BeginScene(sctx);
 
-    // ── Sol ──────────────────────────────────────────────────────────────────
+    // ── Sol avec matériau réfléchissant ───────────────────────────────────────
     {
         NkDrawCall3D dc;
         dc.mesh       = st->meshPlane;
         dc.transform  = NkMat4f::Scale({14.f, 1.f, 14.f});
         dc.aabb       = {{-7.f, -0.01f, -7.f}, {7.f, 0.01f, 7.f}};
         dc.castShadow = false;
+        // Utilise le matériau réfléchissant si disponible
+        if (st->reflEnabled && st->floorMat && st->floorMat->IsValid())
+            dc.material = st->floorMat->GetInstHandle();
         r3d->Submit(dc);
     }
 
@@ -281,11 +364,9 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
                        NkMat4f::Scale({0.55f, 0.55f, 0.55f});
         dc.aabb      = {{x - 0.35f, 0.2f, -0.35f}, {x + 0.35f, 1.0f, 0.35f}};
 
-        // Branche materiau systeme si disponible
         if (st->mats[i] && st->mats[i]->IsValid())
             dc.material = st->mats[i]->GetInstHandle();
 
-        // Tint + override PBR fallback si materiau invalide
         dc.tint      = kPalette[st->params[i].colorIdx % kPaletteSize];
         dc.metallic  = st->params[i].metallic;
         dc.roughness = st->params[i].roughness;
@@ -336,6 +417,8 @@ void Demo4_Materials_Shutdown(DemoCtx& ctx) {
     auto* st = (Demo4MatState*)ctx.userData;
     if (st) {
         for (int i = 0; i < 5; i++) NkMaterial::Destroy(st->mats[i]);
+        NkMaterial::Destroy(st->floorMat);
+        st->reflRT.Shutdown();
         delete st;
     }
     ctx.userData = nullptr;

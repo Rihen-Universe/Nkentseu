@@ -21,6 +21,7 @@ namespace nkentseu {
                 case NkMaterialType::NK_HAIR:          tmpl = sys->DefaultHair();      break;
                 case NkMaterialType::NK_ANIME:         tmpl = sys->DefaultAnime();     break;
                 case NkMaterialType::NK_ARCHIVIZ:      tmpl = sys->DefaultArchviz();   break;
+                case NkMaterialType::NK_REFL_FLOOR:   tmpl = sys->DefaultReflFloor(); break;
                 default:                               tmpl = sys->DefaultPBR();       break;
             }
             if (!tmpl.IsValid()) return nullptr;

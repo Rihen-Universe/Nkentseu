@@ -20,6 +20,7 @@ namespace nkentseu {
             NK_PBR_METALLIC=0, NK_PBR_SPECULAR, NK_ARCHIVIZ,
             NK_SKIN, NK_HAIR, NK_GLASS, NK_CLOTH, NK_CAR_PAINT,
             NK_FOLIAGE, NK_WATER, NK_TERRAIN, NK_EMISSIVE, NK_VOLUME,
+            NK_REFL_FLOOR,     // sol réfléchissant planaire (screen-space RT lookup)
             // Stylisé / NPR
             NK_TOON=20, NK_TOON_INK, NK_ANIME, NK_WATERCOLOR,
             NK_SKETCH, NK_PIXEL_ART, NK_FLAT, NK_UPBGE_EEVEE,
@@ -215,6 +216,7 @@ namespace nkentseu {
                 NkMatHandle DefaultHair()      const { return mTmplHair; }
                 NkMatHandle DefaultAnime()     const { return mTmplAnime; }
                 NkMatHandle DefaultArchviz()   const { return mTmplArchviz; }
+                NkMatHandle DefaultReflFloor() const { return mTmplReflFloor; }
 
             private:
                 struct TemplateEntry {
@@ -245,6 +247,7 @@ namespace nkentseu {
 
                 NkMatHandle mTmplPBR, mTmplToon, mTmplUnlit, mTmplWire;
                 NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;
+                NkMatHandle mTmplReflFloor;
 
                 void RegisterBuiltins();
                 NkPipelineHandle CompilePipeline(TemplateEntry& t);
