@@ -508,8 +508,12 @@ namespace nkentseu {
             uint32 sw=mDevice->GetSwapchainWidth(), sh=mDevice->GetSwapchainHeight();
             if ((sw!=mCfg.width||sh!=mCfg.height)&&sw>0&&sh>0) OnResize(sw,sh);
 
-            // Flush dirty shader compilations before rendering
-            if (mMaterials) mMaterials->FlushCompilations();
+            // FlushCompilations() retire de BeginFrame : il compilait tous les
+            // pipelines avec mCurrentRP={} (avant le 1er Flush qui le set), donc
+            // fallback swapchain RP — incompatible avec Geometry HDR. La compilation
+            // est desormais 100% lazy au 1er BindInstance, ce qui garantit un
+            // mCurrentRP valide. Hitch initial acceptable (5 templates compiles
+            // au 1er drawcall) car amorti sur 1 frame.
 
             // Hot-reload des shaders user-overrides (throttle ~1x/sec a 60fps).
             // PollHotReload est no-op si aucun NkShaderProgram n'a vertPath/fragPath
@@ -519,6 +523,12 @@ namespace nkentseu {
 
             mCmd->Reset();
             mCmd->Begin();
+
+            // Reset l'index du pool d'UBO objets de NkRender3D pour la nouvelle frame.
+            // Doit etre fait ici (et pas dans BeginScene) sinon des passes multiples
+            // dans la meme frame (passe miroir + passe principale, ex. Demo4) se
+            // pietinent les UBOs avec les backends a commandes differees (GL).
+            if (mRender3D.Get()) mRender3D->ResetFrame();
             return true;
         }
 

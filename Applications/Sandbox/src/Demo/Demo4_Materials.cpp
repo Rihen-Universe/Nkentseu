@@ -145,7 +145,11 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         NkRenderTargetDesc rtDesc;
         rtDesc.width  = (rtW > 0) ? rtW : 512;
         rtDesc.height = (rtH > 0) ? rtH : 256;
-        rtDesc.hdr    = false;
+        // HDR (RGBA16F) obligatoire : le pipeline ReflFloor (et tout pipeline materiau)
+        // est compile pour le RP du Geometry pass, qui est HDR quand PostProcess est actif.
+        // Avec hdr=false (SRGB8), validation Vulkan rejette les draws pour incompat
+        // format attachment color (RGBA8_SRGB != RGBA16_FLOAT).
+        rtDesc.hdr    = true;
         rtDesc.depth  = true;
         rtDesc.name   = "PlanarReflection";
         if (!st->reflRT.Init(ctx.device, ctx.renderer->GetTextures(), rtDesc))
@@ -224,7 +228,7 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
             // Toggle planar reflection
             case NkKey::NK_R: {
                 st->reflEnabled = !st->reflEnabled;
-                logger.Infof("[Demo4] Planar reflection : {0}\n",
+                logger.Info("[Demo4] Planar reflection : {0}\n",
                              st->reflEnabled ? "ON" : "OFF");
                 break;
             }
@@ -260,9 +264,12 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
     }
 
     // ── Camera orbite autour de l'origine ────────────────────────────────────
+    // Y bas (1.2) pour vue rasante : les reflets planaires sur le sol miroir
+    // sont nettement visibles à incidence faible (Fresnel élevé + projection
+    // qui étire les reflets vers la caméra au lieu de les écraser à l'horizon).
     const float32 camDist = 9.f;
     NkCamera3DData camData;
-    camData.position  = {cosf(st->angle) * camDist, 3.0f, sinf(st->angle) * camDist};
+    camData.position  = {cosf(st->angle) * camDist, 1.2f, sinf(st->angle) * camDist};
     camData.target    = {0.f, 0.5f, 0.f};
     camData.up        = {0.f, 1.f, 0.f};
     camData.fovY      = 55.f;
@@ -299,27 +306,43 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
     // ── Passe miroir (Planar Reflection) ─────────────────────────────────────
     // Doit être faite AVANT BeginScene principal pour que la texture de reflet
     // soit prête quand le sol est rendu.
+    //
+    // Approche : on garde la cam PRINCIPALE (pas reflectée) et on pré-multiplie
+    // chaque transform de drawcall par mirror_matrix (diag(1,-1,1,1) pour Y=0).
+    // Le RT contient alors `principal_viewProj(mirror(objet))` — exactement la
+    // position screen où le reflet planaire de l'objet doit apparaître dans
+    // l'image principale. Le sol sample en screen-UV simple = reflet correct.
     auto* cmd = ctx.renderer->GetCmd();
     if (st->reflEnabled && st->reflRT.IsValid() && cmd) {
-        // Plan de réflexion : sol Y=0
-        const NkVec4f reflPlane = {0.f, 1.f, 0.f, 0.f};
+        // mirror_matrix pour plan Y=0 : flip Y world.
+        NkMat4f mirrorMat = NkMat4f::Identity();
+        mirrorMat[1][1]   = -1.f;
 
-        // Caméra miroir
-        NkCamera3D mirrorCam = NkRenderTarget::ReflectCamera(cam, reflPlane);
+        // mirrorViewProj envoyé au shader ReflFloor : projette vWorldPos vers
+        // l'UV du RT pour le sample. Pour le sol Y=0 c'est == principal viewProj
+        // (mirror invariant sur Y=0), donc équivalent à un screen-UV simple.
+        sctx.mirrorViewProj = cam.GetViewProj() * mirrorMat;
 
-        // Context de la passe miroir : mêmes lumières, caméra miroir
+        // Context de la passe miroir : MÊME cam principale, mêmes lumières.
+        // (Pas de ReflectCamera : la transformation miroir est appliquée
+        // sur le model de chaque drawcall ci-dessous.)
         NkSceneContext mirrorCtx  = sctx;
-        mirrorCtx.camera          = mirrorCam;
+        // sctx.camera est déjà la cam principale (assignée plus haut).
 
-        // Accumuler les spheres (pas le sol : évite self-reflection infinie)
+        // Accumuler les sphères (pas le sol : évite self-reflection infinie).
+        // Chaque transform est pré-multiplié par mirrorMat ⇒ la sphère est
+        // rendue à mirror(P_real) = (x, -0.6, 0) au lieu de (x, 0.6, 0).
         r3d->BeginScene(mirrorCtx);
         for (int i = 0; i < 5; i++) {
             const float32 x = (float32)(i - 2) * 2.4f;
             NkDrawCall3D dc;
             dc.mesh      = st->meshSphere;
-            dc.transform = NkMat4f::Translate({x, 0.6f, 0.f}) *
+            dc.transform = mirrorMat *
+                           NkMat4f::Translate({x, 0.6f, 0.f}) *
                            NkMat4f::Scale({0.55f, 0.55f, 0.55f});
-            dc.aabb      = {{x - 0.35f, 0.2f, -0.35f}, {x + 0.35f, 1.0f, 0.35f}};
+            // AABB ajustée pour le frustum culling sous la cam principale :
+            // la sphère miroir est à Y=-0.6, sa box descend sous Y=0.
+            dc.aabb      = {{x - 0.35f, -1.0f, -0.35f}, {x + 0.35f, -0.2f, 0.35f}};
             if (st->mats[i] && st->mats[i]->IsValid())
                 dc.material = st->mats[i]->GetInstHandle();
             dc.tint      = kPalette[st->params[i].colorIdx % kPaletteSize];

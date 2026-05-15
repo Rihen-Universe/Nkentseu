@@ -16,6 +16,72 @@
 
 namespace nkentseu {
 
+namespace {
+    // ── Debug callback OpenGL (GL_KHR_debug, core 4.3+) ─────────────────────
+    // Route les messages drivers/validation vers NkLog avec mapping severity.
+    // 'minSeverity' filtre via NkOpenGLRuntimeOptions::debugSeverityLevel :
+    //   0 = NOTIFICATION (tout), 1 = LOW, 2 = MEDIUM (defaut), 3 = HIGH.
+    static uint32 gGLDebugMinSeverity = 2;
+
+    static void GLAPIENTRY GlDebugCallback(GLenum source, GLenum type, GLuint id,
+                                            GLenum severity, GLsizei /*length*/,
+                                            const GLchar* message, const void* /*userParam*/) {
+        // Mapper severity -> tier (0..3) pour filtrage.
+        uint32 tier = 0;
+        switch (severity) {
+            case GL_DEBUG_SEVERITY_HIGH:         tier = 3; break;
+            case GL_DEBUG_SEVERITY_MEDIUM:       tier = 2; break;
+            case GL_DEBUG_SEVERITY_LOW:          tier = 1; break;
+            case GL_DEBUG_SEVERITY_NOTIFICATION: tier = 0; break;
+            default:                              tier = 2; break;
+        }
+        if (tier < gGLDebugMinSeverity) return;
+
+        const char* srcStr = "?";
+        switch (source) {
+            case GL_DEBUG_SOURCE_API:             srcStr = "API"; break;
+            case GL_DEBUG_SOURCE_WINDOW_SYSTEM:   srcStr = "WIN"; break;
+            case GL_DEBUG_SOURCE_SHADER_COMPILER: srcStr = "SHD"; break;
+            case GL_DEBUG_SOURCE_THIRD_PARTY:     srcStr = "3RD"; break;
+            case GL_DEBUG_SOURCE_APPLICATION:     srcStr = "APP"; break;
+            case GL_DEBUG_SOURCE_OTHER:           srcStr = "OTH"; break;
+        }
+        const char* typStr = "?";
+        switch (type) {
+            case GL_DEBUG_TYPE_ERROR:               typStr = "ERROR"; break;
+            case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: typStr = "DEPR";  break;
+            case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  typStr = "UB";    break;
+            case GL_DEBUG_TYPE_PORTABILITY:         typStr = "PORT";  break;
+            case GL_DEBUG_TYPE_PERFORMANCE:         typStr = "PERF";  break;
+            case GL_DEBUG_TYPE_MARKER:              typStr = "MARK";  break;
+            case GL_DEBUG_TYPE_PUSH_GROUP:          typStr = "PUSH";  break;
+            case GL_DEBUG_TYPE_POP_GROUP:           typStr = "POP";   break;
+            case GL_DEBUG_TYPE_OTHER:               typStr = "OTH";   break;
+        }
+        switch (tier) {
+            case 3: logger.Errorf("[NkRHI_GL][%s/%s/%u] %s", srcStr, typStr, id, message); break;
+            case 2: logger.Warnf ("[NkRHI_GL][%s/%s/%u] %s", srcStr, typStr, id, message); break;
+            case 1: logger.Debugf("[NkRHI_GL][%s/%s/%u] %s", srcStr, typStr, id, message); break;
+            default: logger.Tracef("[NkRHI_GL][%s/%s/%u] %s", srcStr, typStr, id, message); break;
+        }
+    }
+
+    static void InstallGLDebugCallback(uint32 minSeverity) {
+        if (!glDebugMessageCallback || !glDebugMessageControl) return;
+        gGLDebugMinSeverity = minSeverity;
+        glEnable(GL_DEBUG_OUTPUT);
+        // GL_DEBUG_OUTPUT_SYNCHRONOUS force le driver a vider sa pipeline avant
+        // chaque callback — la stack du call fautif est preservee pour breakpoint
+        // mais le FPS chute (2-3x). Active uniquement en build debug.
+    #if defined(NKENTSEU_DEBUG)
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+    #endif
+        glDebugMessageCallback(GlDebugCallback, nullptr);
+        // Activer tout, le filtrage fin est fait cote callback via gGLDebugMinSeverity.
+        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+    }
+} // namespace
+
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 namespace {
 
@@ -85,10 +151,69 @@ bool NkOpenGLDevice::Initialize(const NkDeviceInitInfo& init) {
         }
     }
 
-    mNativeGlrc = wglCreateContext(mNativeHdc);
-    if (!mNativeGlrc || !wglMakeCurrent(mNativeHdc, mNativeGlrc)) {
-        NK_GL_ERR("Failed to create/make current WGL context\n");
-        if (mNativeGlrc) wglDeleteContext(mNativeGlrc);
+    // Etape 1 — Dummy context pour charger wglCreateContextAttribsARB.
+    // wglCreateContext seul produit un contexte Compatibility legacy non capturable
+    // par RenderDoc. On a besoin d'un Core profile + Debug bit explicite, qui
+    // n'est accessible que via wglCreateContextAttribsARB (extension ARB).
+    HGLRC dummyCtx = wglCreateContext(mNativeHdc);
+    if (!dummyCtx || !wglMakeCurrent(mNativeHdc, dummyCtx)) {
+        NK_GL_ERR("Bootstrap wglCreateContext failed\n");
+        if (dummyCtx) wglDeleteContext(dummyCtx);
+        ReleaseDC(mNativeHwnd, mNativeHdc);
+        mNativeHdc = nullptr;
+        return false;
+    }
+
+    // Etape 2 — Resolve wglCreateContextAttribsARB depuis le dummy.
+    typedef HGLRC (WINAPI *PFNWGLCREATECONTEXTATTRIBSARBPROC)(HDC, HGLRC, const int*);
+    PFNWGLCREATECONTEXTATTRIBSARBPROC wglCreateContextAttribsARB_ =
+        (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
+
+    if (!wglCreateContextAttribsARB_) {
+        NK_GL_ERR("wglCreateContextAttribsARB introuvable — driver trop ancien?\n");
+        wglMakeCurrent(nullptr, nullptr);
+        wglDeleteContext(dummyCtx);
+        ReleaseDC(mNativeHwnd, mNativeHdc);
+        mNativeHdc = nullptr;
+        return false;
+    }
+
+    // Etape 3 — Vrai contexte avec attribs Core 4.6 + Debug + ForwardCompat.
+    // Ces constantes ARB ne sont pas dans <gl/GL.h> standard ; on les définit
+    // localement (mêmes valeurs que NKContext/Backend/OpenGL/NkOpenGLContext.cpp).
+    constexpr int NK_WGL_CONTEXT_MAJOR_VERSION_ARB           = 0x2091;
+    constexpr int NK_WGL_CONTEXT_MINOR_VERSION_ARB           = 0x2092;
+    constexpr int NK_WGL_CONTEXT_FLAGS_ARB                   = 0x2094;
+    constexpr int NK_WGL_CONTEXT_PROFILE_MASK_ARB            = 0x9126;
+    constexpr int NK_WGL_CONTEXT_CORE_PROFILE_BIT_ARB        = 0x00000001;
+    constexpr int NK_WGL_CONTEXT_DEBUG_BIT_ARB               = 0x00000001;
+    constexpr int NK_WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB  = 0x00000002;
+
+    const int ctxAttribs[] = {
+        NK_WGL_CONTEXT_MAJOR_VERSION_ARB, 4,
+        NK_WGL_CONTEXT_MINOR_VERSION_ARB, 6,
+        NK_WGL_CONTEXT_PROFILE_MASK_ARB,  NK_WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+        NK_WGL_CONTEXT_FLAGS_ARB,         NK_WGL_CONTEXT_DEBUG_BIT_ARB |
+                                          NK_WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
+        0
+    };
+
+    mNativeGlrc = wglCreateContextAttribsARB_(mNativeHdc, nullptr, ctxAttribs);
+    if (!mNativeGlrc) {
+        NK_GL_ERR("wglCreateContextAttribsARB failed (Core 4.6 + Debug)\n");
+        wglMakeCurrent(nullptr, nullptr);
+        wglDeleteContext(dummyCtx);
+        ReleaseDC(mNativeHwnd, mNativeHdc);
+        mNativeHdc = nullptr;
+        return false;
+    }
+
+    // Switch sur le vrai contexte et détruit le dummy.
+    wglMakeCurrent(nullptr, nullptr);
+    wglDeleteContext(dummyCtx);
+    if (!wglMakeCurrent(mNativeHdc, mNativeGlrc)) {
+        NK_GL_ERR("wglMakeCurrent sur Core context failed\n");
+        wglDeleteContext(mNativeGlrc);
         mNativeGlrc = nullptr;
         ReleaseDC(mNativeHwnd, mNativeHdc);
         mNativeHdc = nullptr;
@@ -134,6 +259,15 @@ bool NkOpenGLDevice::Initialize(const NkDeviceInitInfo& init) {
     mHeight = NkDeviceInitHeight(init);
     if (mWidth == 0)  mWidth = 1280;
     if (mHeight == 0) mHeight = 720;
+
+    // Debug callback OpenGL (KHR_debug, core 4.3+). Route les warnings/erreurs
+    // drivers vers NkLog. Filtre selon runtime.debugSeverityLevel (0=tout,
+    // 1=LOW+, 2=MEDIUM+, 3=HIGH only). No-op si extension non chargee.
+    if (init.context.opengl.runtime.installDebugCallback) {
+        InstallGLDebugCallback(init.context.opengl.runtime.debugSeverityLevel);
+        NK_GL_LOG("Debug callback installe (severity>=%u -> NkLog)\n",
+                  init.context.opengl.runtime.debugSeverityLevel);
+    }
 
     QueryCaps();
 

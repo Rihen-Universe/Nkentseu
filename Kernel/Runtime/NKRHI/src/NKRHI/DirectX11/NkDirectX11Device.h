@@ -187,6 +187,7 @@ namespace nkentseu {
             ID3D11DeviceContext1*    mContext   = nullptr;
             IDXGISwapChain1*         mSwapchain = nullptr;
             IDXGIFactory2*           mFactory   = nullptr;
+            struct ID3D11InfoQueue*  mInfoQueue = nullptr;   // debug device only
 
             NkFramebufferHandle mSwapchainFB;
             NkRenderPassHandle  mSwapchainRP;

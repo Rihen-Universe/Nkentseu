@@ -249,6 +249,11 @@ namespace nkentseu {
                 NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;
                 NkMatHandle mTmplReflFloor;
 
+                // Pipelines orphelins par UpdateRenderPass : detruits au Shutdown.
+                // Cf. UpdateRenderPass — DestroyPipeline immediat invalide les
+                // cmd buffers en cours de recording.
+                NkVector<NkPipelineHandle> mPendingDestroy;
+
                 void RegisterBuiltins();
                 NkPipelineHandle CompilePipeline(TemplateEntry& t);
         };
