@@ -80,6 +80,13 @@ namespace nkentseu {
             virtual NkOffscreenTarget* CreateOffscreen(const NkOffscreenDesc& desc) = 0;
             virtual void               DestroyOffscreen(NkOffscreenTarget*& t)      = 0;
 
+            // ── Planar reflections (auto) ─────────────────────────────────────────
+            // L'utilisateur enregistre un plan reflechissant ; le renderer fait
+            // automatiquement la passe miroir avant la passe Geometry principale,
+            // et met a jour le material cible avec le RT du reflet.
+            // L'utilisateur n'a PLUS BESOIN de soumettre les drawcalls deux fois.
+            virtual class NkPlanarReflectionSystem* GetPlanarReflection() = 0;
+
             // ── Configuration dynamique ───────────────────────────────────────────
             virtual void SetVSync     (bool enabled)          = 0;
             virtual void SetPostConfig(const NkPostConfig& pp)= 0;

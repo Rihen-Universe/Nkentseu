@@ -2,6 +2,7 @@
 // NkRendererImpl.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkRendererImpl.h"
+#include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -122,6 +123,17 @@ namespace nkentseu {
             if (needsR3D)                                       { logger.Info("[NkRendererImpl]  step 7: InitShadow\n");       if (!InitShadow())       return false; }
             if (needsR3D)                                       { logger.Info("[NkRendererImpl]  step 8: InitEnvironment\n");  if (!InitEnvironment())  return false; }
             if (needsR3D)                                       { logger.Info("[NkRendererImpl]  step 9: InitRender3D\n");     if (!InitRender3D())     return false; }
+
+            // Planar reflection system (auto). Init apres Render3D + Materials.
+            // L'utilisateur enregistre des plans via GetPlanarReflection()->Register().
+            if (needsR3D) {
+                mPlanarReflection.Reset(AllocOwned<NkPlanarReflectionSystem>());
+                if (!mPlanarReflection->Init(mDevice, mTextures.Get(), mMaterials.Get())) {
+                    logger.Warnf("[NkRendererImpl] NkPlanarReflectionSystem init failed (non bloquant)\n");
+                    mPlanarReflection.Reset();
+                }
+            }
+
             if (mCfg.Has(NK_SS_TEXT))                           { logger.Info("[NkRendererImpl]  step10: InitTextRenderer\n"); if (!InitTextRenderer()) return false; }
             if (mCfg.Has(NK_SS_POST_PROCESS))                   { logger.Info("[NkRendererImpl]  step11: InitPostProcess\n");  if (!InitPostProcess())  return false; }
             if (mCfg.Has(NK_SS_OVERLAY))                        { logger.Info("[NkRendererImpl]  step12: InitOverlay\n");      if (!InitOverlay())      return false; }
@@ -352,14 +364,13 @@ namespace nkentseu {
         void NkRendererImpl::Shutdown() {
             if (!mInitialized) return;
 
-            // Detruire offscreens d'abord
             for (auto* t : mOffscreenTargets) {
                 t->Shutdown();
                 delete t;
             }
             mOffscreenTargets.Clear();
 
-            // Inverse de l'ordre d'init (les Reset sur des NkUniquePtr nul sont no-op)
+            mPlanarReflection.Reset();
             mSimulation.Reset();
             mAnimation.Reset();
             mVFX.Reset();
@@ -551,6 +562,17 @@ namespace nkentseu {
 
         void NkRendererImpl::Present() {
             if (!mCmd) return;
+
+            // Auto-rendering des planar reflections : execute AVANT les passes
+            // du RenderGraph. Le RenderGraph ouvrira/fermera ses propres
+            // render passes (Shadows, Geometry, ...) ; les BeginRenderPass
+            // imbriques sont interdits cote Vulkan, donc les passes RT du
+            // PlanarReflectionSystem doivent etre completees ici, AVANT toute
+            // BeginRenderPass du graph. Le RT (color attachment du plane) est
+            // gere par le system, hors graph.
+            if (mPlanarReflection && mRender3D)
+                mPlanarReflection->RenderReflections(mCmd, mRender3D.Get());
+
             mRenderGraph->Execute(mCmd);
             // NB : pas de Reset() ici — le graph persiste entre frames.
             // RebuildRenderGraph() le reset+rebuilds quand les sous-systemes

@@ -51,6 +51,33 @@ namespace nkentseu {
                 // Surcharge render-to-texture : utilise renderPass au lieu du RP Geometry du graph.
                 void Flush(NkICommandBuffer* cmd, NkRenderPassHandle renderPass);
 
+                // Flush la queue actuelle dans un RT donne, avec une matrice mirror
+                // pre-multipliee a chaque transform de drawcall. Utilise par
+                // NkPlanarReflectionSystem pour la passe miroir auto. Ne consomme
+                // PAS les queues (les memes drawcalls seront re-flushed par Flush
+                // principal) et ne reset PAS mInScene.
+                // mirrorMat : typiquement diag(1,-1,1,1) pour un sol Y=0.
+                // mirrorViewProj : viewProj mirror passe au shader via uCam pour
+                // l'echantillonnage RT cote materiau reflechissant. Optionnel.
+                // clipPlane = (Nx, Ny, Nz, d) — si ||N|| > 0, les drawcalls dont
+                // le centre AABB verifie dot(N, center) + d <= 0 sont skip
+                // (utilise par PlanarReflection pour ne miroirser que les objets
+                // du cote actif du plan ; le sol lui-meme et les objets de l'autre
+                // cote sont exclus).
+                void FlushIntoRT(NkICommandBuffer* cmd, NkRenderPassHandle renderPass,
+                                 const NkMat4f& mirrorMat,
+                                 const NkMat4f& mirrorViewProj,
+                                 const NkVec4f& clipPlane = {0.f, 0.f, 0.f, 0.f});
+
+                // Renvoie true entre BeginScene et le Flush principal.
+                bool IsInScene() const { return mInScene; }
+
+                // Override mCtx.mirrorViewProj depuis l'exterieur (NkPlanarReflection
+                // System notamment) : permet d'injecter la viewProj miroir dans le
+                // CameraUBO sans toucher au context utilisateur. Utile pour les
+                // materiaux qui samplent un RT planar via screen-UV (ReflFloor).
+                void SetMirrorViewProj(const NkMat4f& m) { mCtx.mirrorViewProj = m; }
+
                 // Render des opaques castShadow=true depuis la perspective de la
                 // lumiere (lightVP = lightProj * lightView), dans le FBO shadow
                 // currentement bindé. Appele par NkShadowSystem dans la passe
@@ -129,6 +156,13 @@ namespace nkentseu {
                 bool              mWireframe= false;
                 uint32            mW = 0, mH = 0;  // taille courante (mise a jour par OnResize)
 
+                // Fallback material instance : utilise pour les drawcalls sans
+                // material custom. Le shader PBR canonical sample tAlbedo dans
+                // set=2 binding=3 (convention NkMaterialSystem), donc set=2 doit
+                // toujours etre bind. Cree lazy au premier FlushOpaque a partir
+                // de mMat->DefaultPBR().
+                NkMatInstHandle                 mFallbackMatInst;
+
                 NkVector<SortedDC>              mOpaque;
                 NkVector<SortedDC>              mTransparent;
                 NkVector<NkDrawCallInstanced>   mInstanced;
@@ -172,6 +206,18 @@ namespace nkentseu {
                 // lieu du Geometry RP qui n'existe pas encore a la 1re frame
                 // (FB cree lazy par le RenderGraph). Reset apres chaque Flush.
                 NkRenderPassHandle           mPendingRP{};
+
+                // Mirror matrix pre-multipliee aux transforms de drawcalls quand
+                // != identity. Utilisee par FlushIntoRT (NkPlanarReflectionSystem)
+                // pour reflechir la scene dans un RT sans toucher les drawcalls
+                // d'origine. Reset apres chaque FlushIntoRT.
+                NkMat4f                      mPendingMirror = NkMat4f::Identity();
+                bool                         mPendingMirrorActive = false;
+                NkMat4f                      mPendingMirrorViewProj = NkMat4f::Identity();
+                // Clip plane = (Nx, Ny, Nz, d). Si ||N|| > 0, les drawcalls dont
+                // le centre AABB verifie dot(N, center) + d <= 0 sont skip
+                // (filtre cote actif du plan dans la passe miroir).
+                NkVec4f                      mPendingClipPlane = {0.f, 0.f, 0.f, 0.f};
 
                 // PBR pipeline + shader (charges depuis Resources/Shaders/PBR/GL/).
                 // Le pipeline est cree paresseusement au 1er FlushOpaque, quand

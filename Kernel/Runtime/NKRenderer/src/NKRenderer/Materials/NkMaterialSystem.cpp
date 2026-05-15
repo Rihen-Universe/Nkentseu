@@ -134,6 +134,11 @@ namespace nkentseu {
             mTmplAnime    = reg(NkMaterialType::NK_ANIME,        "Default_Anime",    "Anime");
             mTmplArchviz  = reg(NkMaterialType::NK_ARCHIVIZ,     "Default_Archviz",  "PBR");
             mTmplReflFloor= reg(NkMaterialType::NK_REFL_FLOOR,   "Default_ReflFloor","ReflFloor");
+            // M.1 v0 : Layered material (2 layers PBR + masque vertex-color).
+            // Shader Resources/.../Shaders/Layered/VK/layered.{vert,frag}.vk.glsl.
+            // L'instance Layered ecrit un NkLayeredParams (208B) dans son UBO
+            // au lieu du NkPBRParams (96B) standard — cf. BindInstance branch.
+            mTmplLayered  = reg(NkMaterialType::NK_LAYERED,      "Default_Layered",  "Layered");
         }
 
         // ── Contexte partagé (NkRender3D → NkMaterialSystem) ──────────────────────
@@ -198,8 +203,14 @@ namespace nkentseu {
             inst->mPBR.roughness = 0.5f;
             inst->mPBR.ao        = 1.f;
 
-            // Per-instance GPU UBO
-            inst->mUBO = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkPBRParams)));
+            // Per-instance GPU UBO. Taille selon type :
+            //   NK_LAYERED -> sizeof(NkLayeredParams) (~208 B, 2 PBR + mask)
+            //   autres     -> sizeof(NkPBRParams) (96 B, suffit pour Toon/Anime aussi)
+            const NkMaterialType matType = GetTemplateType(tmpl);
+            const uint64 uboBytes = (matType == NkMaterialType::NK_LAYERED)
+                ? sizeof(NkLayeredParams)
+                : sizeof(NkPBRParams);
+            inst->mUBO = mDevice->CreateBuffer(NkBufferDesc::Uniform(uboBytes));
 
             // Allocate descriptor set
             if (mInstDescLayout.IsValid())
@@ -240,16 +251,20 @@ namespace nkentseu {
 
             if (inst->mDirty && inst->mDescSet.IsValid()) {
                 // Determine which params to upload based on material type.
-                // Toon/Anime use NkToonParams; everything else uses NkPBRParams.
+                //   NK_LAYERED -> NkLayeredParams (2 PBR + mask).
+                //   NK_TOON / NK_TOON_INK / NK_ANIME -> NkToonParams.
+                //   autres -> NkPBRParams (defaut).
                 if (inst->mUBO.IsValid()) {
                     NkMaterialType matType = GetTemplateType(inst->mTemplate);
-                    bool isToon = (matType == NkMaterialType::NK_TOON  ||
-                                   matType == NkMaterialType::NK_TOON_INK ||
-                                   matType == NkMaterialType::NK_ANIME);
-                    if (isToon)
+                    if (matType == NkMaterialType::NK_LAYERED) {
+                        mDevice->WriteBuffer(inst->mUBO, &inst->mLayered, sizeof(NkLayeredParams));
+                    } else if (matType == NkMaterialType::NK_TOON  ||
+                               matType == NkMaterialType::NK_TOON_INK ||
+                               matType == NkMaterialType::NK_ANIME) {
                         mDevice->WriteBuffer(inst->mUBO, &inst->mToon, sizeof(NkToonParams));
-                    else
+                    } else {
                         mDevice->WriteBuffer(inst->mUBO, &inst->mPBR, sizeof(NkPBRParams));
+                    }
                 }
 
                 // Helper to get a texture's RHI handle (fallback to white)
@@ -276,10 +291,21 @@ namespace nkentseu {
                 NkTextureHandle emissiveTex = GetTex("emissive");
 
                 NkDescriptorWrite writes[5] = {};
-                // binding 8: material UBO (binding=4 est pris par texNormal SAMPLER en GL)
-                writes[0].set=inst->mDescSet; writes[0].binding=8;
-                writes[0].type=NkDescriptorType::NK_UNIFORM_BUFFER;
-                writes[0].buffer=inst->mUBO; writes[0].bufferRange=sizeof(NkPBRParams);
+                // binding 8: material UBO (binding=4 est pris par texNormal SAMPLER en GL).
+                // bufferRange depend du type material (sizeof exact).
+                {
+                    NkMaterialType matType = GetTemplateType(inst->mTemplate);
+                    uint64 uboRange = sizeof(NkPBRParams);
+                    if (matType == NkMaterialType::NK_LAYERED)
+                        uboRange = sizeof(NkLayeredParams);
+                    else if (matType == NkMaterialType::NK_TOON ||
+                             matType == NkMaterialType::NK_TOON_INK ||
+                             matType == NkMaterialType::NK_ANIME)
+                        uboRange = sizeof(NkToonParams);
+                    writes[0].set=inst->mDescSet; writes[0].binding=8;
+                    writes[0].type=NkDescriptorType::NK_UNIFORM_BUFFER;
+                    writes[0].buffer=inst->mUBO; writes[0].bufferRange=uboRange;
+                }
                 // binding 3-6: textures
                 auto fillTex = [&](uint32 idx, uint32 binding, NkTextureHandle tex) {
                     writes[idx].set=inst->mDescSet; writes[idx].binding=binding;
@@ -469,6 +495,20 @@ namespace nkentseu {
         }
         NkMaterialInstance* NkMaterialInstance::SetMatcapStrength(float32 v) {
             mToon.matcapStrength=v; mDirty=true; return this;
+        }
+
+        // ── M.1 v0 : Layered material setters ───────────────────────────────────
+        NkMaterialInstance* NkMaterialInstance::SetLayerBase(const NkPBRParams& p) {
+            mLayered.base = p; mDirty = true; return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetLayerTop(const NkPBRParams& p) {
+            mLayered.top = p; mDirty = true; return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetLayerMaskSource(int32 src) {
+            mLayered.maskSource = src; mDirty = true; return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetLayered(const NkLayeredParams& l) {
+            mLayered = l; mDirty = true; return this;
         }
 
         NkMaterialInstance* NkMaterialInstance::SetTexture(const NkString& n, NkTexHandle t) {

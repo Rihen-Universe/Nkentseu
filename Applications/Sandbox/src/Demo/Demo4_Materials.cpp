@@ -13,11 +13,23 @@
 //   O       : changer largeur outline (Toon/Anime 3-4 uniquement)
 //   R       : toggle planar reflection on/off
 //   V       : toggle VSync
+//   Camera (cf. DemoCamera.h) :
+//     LEFT-drag souris  : rotation yaw/pitch
+//     MID/RIGHT-drag    : pan target
+//     mouse wheel       : zoom
+//     WASD / fleches    : pan target XZ
+//     Q/E ou PGUP/PGDN  : monter/descendre target
+//     T                 : toggle auto-orbit
+//     F                 : toggle FPS mode
+//     HOME              : reset camera
 // =============================================================================
 #include "DemoCommon.h"
+#include "DemoCamera.h"
 #include "NKRenderer/Materials/NkMaterial.h"
 #include "NKRenderer/Materials/NkMaterialLibrary.h"   // Phase G
-#include "NKRenderer/Core/NkRenderTarget.h"
+#include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
+#include "NKRenderer/Core/NkTextureAsset.h"            // Phase H
+#include "NKImage/Core/NkImage.h"                     // Phase H smoke test
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -56,14 +68,14 @@ struct Demo4MatState {
     const char*  matNames[5] = {"PBR Metal", "PBR Plastic", "Toon", "Anime", "Unlit"};
     NkMeshHandle meshSphere;
     NkMeshHandle meshPlane;
-    float32      angle        = 0.f;
+    DemoCamera   camera;
     int          activeMat    = 0;
     MatParams    params[5];
 
-    // Planar Reflection
-    NkRenderTarget reflRT;
-    NkMaterial*    floorMat   = nullptr;   // materiau du sol avec texture reflet
-    bool           reflEnabled = true;
+    // Planar Reflection (auto, gere par NkPlanarReflectionSystem du renderer).
+    NkPlanarReflectionHandle reflHandle;
+    NkMaterial*              floorMat    = nullptr;
+    bool                     reflEnabled = true;
 
     // Phase G : sphere #1 (or) chargee depuis un .nkasset au lieu du code.
     // Si valide, remplace mats[0]->GetInstHandle() au moment du draw call.
@@ -97,8 +109,40 @@ static void ApplyParams(NkMaterial* mat, int matIdx, const MatParams& p) {
     }
 }
 
+// ── Phase H smoke test : NkImage charge PNG/JPEG/HDR depuis Resources/vracs ──
+static void NKImageSmokeTest() {
+    logger.Info("[Demo4][NKImage] === Smoke test PNG/JPEG/HDR ===\n");
+
+    struct TestCase { const char* path; const char* label; bool isHDR; };
+    static const TestCase kCases[] = {
+        { "Resources/NKRenderer/Textures/vracs/Checkerboard.png",        "PNG",       false },
+        { "Resources/NKRenderer/Textures/vracs/container.jpg",           "JPEG-JFIF", false },
+        { "Resources/NKRenderer/Textures/vracs/bricks2.jpg",             "JPEG-EXIF", false },
+        { "Resources/NKRenderer/Textures/vracs/HDR/newport_loft.hdr",    "HDR",       true  },
+    };
+    int passed = 0, total = (int)(sizeof(kCases) / sizeof(kCases[0]));
+    for (int i = 0; i < total; i++) {
+        const auto& t = kCases[i];
+        NkImage* img = NkImage::Load(t.path, 0);
+        if (img && img->IsValid()) {
+            logger.Info("[Demo4][NKImage] {0} OK : {1}x{2} ch={3} fmt={4}\n",
+                        t.label, img->Width(), img->Height(),
+                        (int)img->Channels(), (int)img->Format());
+            ++passed;
+        } else {
+            logger.Warnf("[Demo4][NKImage] %s FAIL : '%s' did not load\n",
+                         t.label, t.path);
+        }
+        // NkImage utilise un allocateur custom (nkMalloc) : delete std est UB.
+        if (img) img->Free();
+    }
+    logger.Info("[Demo4][NKImage] === {0}/{1} passed ===\n", passed, total);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 bool Demo4_Materials_Init(DemoCtx& ctx) {
+    NKImageSmokeTest();   // Phase H : valider que NKImage charge les 3 formats clefs
+
     auto* st = new Demo4MatState();
     ctx.userData = st;
 
@@ -125,12 +169,15 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         delete st; ctx.userData = nullptr; return false;
     }
 
+    // M.1 v0 : sphere #4 utilise un Layered (2 layers PBR : or en haut,
+    // cuivre noirci en bas, blend via UV.y) au lieu de Unlit. Visualise
+    // immediatement le mecanisme N-couches.
     static const NkMaterialType kTypes[5] = {
         NkMaterialType::NK_PBR_METALLIC,
         NkMaterialType::NK_PBR_METALLIC,
         NkMaterialType::NK_TOON,
         NkMaterialType::NK_ANIME,
-        NkMaterialType::NK_UNLIT,
+        NkMaterialType::NK_LAYERED,        // remplace NK_UNLIT pour M.1 demo
     };
 
     for (int i = 0; i < 5; i++) {
@@ -138,35 +185,55 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         if (!st->mats[i] || !st->mats[i]->IsValid()) {
             logger.Warnf("[Demo4] Materiau [{0}] ({1}) invalide — fallback tint seul\n",
                          i, st->matNames[i]);
+        } else if (kTypes[i] == NkMaterialType::NK_LAYERED) {
+            // Configure le layered : or brillant (haut) + cuivre noirci (bas).
+            NkPBRParams gold;
+            gold.albedo    = {1.00f, 0.78f, 0.20f, 1.f};
+            gold.metallic  = 1.0f;
+            gold.roughness = 0.15f;
+
+            NkPBRParams burnedCopper;
+            burnedCopper.albedo    = {0.45f, 0.18f, 0.08f, 1.f};
+            burnedCopper.metallic  = 0.6f;
+            burnedCopper.roughness = 0.75f;
+
+            st->mats[i]->SetLayerBase(burnedCopper);     // mask=0 (bas)
+            st->mats[i]->SetLayerTop(gold);              // mask=1 (haut)
+            st->mats[i]->SetLayerMaskSource(4);          // 4 = vUV.y gradient
+            st->matNames[i] = "Layered (or/cuivre)";
         } else {
             ApplyParams(st->mats[i], i, st->params[i]);
         }
     }
 
-    // ── Planar Reflection ────────────────────────────────────────────────────
+    // ── Planar Reflection AUTO ───────────────────────────────────────────────
+    // Phase R.1 : utilise NkPlanarReflectionSystem (NKRenderer). Le renderer
+    // s'occupe automatiquement de la passe miroir et de la mise a jour du RT
+    // du materiau cible chaque frame -- Demo4 n'a plus rien a faire que de
+    // submit ses drawcalls normalement.
     {
-        uint32 rtW = ctx.width  / 2;   // demi-resolution : reflet n'a pas besoin d'etre HD
-        uint32 rtH = ctx.height / 2;
-        NkRenderTargetDesc rtDesc;
-        rtDesc.width  = (rtW > 0) ? rtW : 512;
-        rtDesc.height = (rtH > 0) ? rtH : 256;
-        // HDR (RGBA16F) obligatoire : le pipeline ReflFloor (et tout pipeline materiau)
-        // est compile pour le RP du Geometry pass, qui est HDR quand PostProcess est actif.
-        // Avec hdr=false (SRGB8), validation Vulkan rejette les draws pour incompat
-        // format attachment color (RGBA8_SRGB != RGBA16_FLOAT).
-        rtDesc.hdr    = true;
-        rtDesc.depth  = true;
-        rtDesc.name   = "PlanarReflection";
-        if (!st->reflRT.Init(ctx.device, ctx.renderer->GetTextures(), rtDesc))
-            logger.Warn("[Demo4] NkRenderTarget init echoue — reflet desactive\n");
-
         // Materiau du sol : ReflFloor — shader dédié screen-space UV pour le reflet
         // roughness=0.05 → 95% de réflectivité (quasi miroir)
         st->floorMat = NkMaterial::Create(matSys, NkMaterialType::NK_REFL_FLOOR);
         if (st->floorMat && st->floorMat->IsValid()) {
-            st->floorMat->SetAlbedo({0.55f, 0.55f, 0.60f})  // gris ardoise poli
+            st->floorMat->SetAlbedo({0.55f, 0.55f, 0.60f})
                          ->SetRoughness(0.05f);
-            // Le reflet sera bind chaque frame via SetTexture("albedo", reflRT.GetColorHandle())
+        }
+
+        // Enregistre le plan Y=0 dans le systeme : le renderer fera la passe
+        // miroir auto, mettra a jour `floorMat.albedo` avec le RT, et fournira
+        // `uCam.mirrorViewProj` au shader ReflFloor pour le sample screen-UV.
+        if (auto* refl = ctx.renderer->GetPlanarReflection()) {
+            NkPlanarReflectionDesc desc;
+            desc.normal   = {0.f, 1.f, 0.f};
+            desc.point    = {0.f, 0.f, 0.f};
+            desc.rtWidth  = (ctx.width  / 2 > 0) ? ctx.width  / 2 : 512;
+            desc.rtHeight = (ctx.height / 2 > 0) ? ctx.height / 2 : 256;
+            desc.hdr      = true;
+            desc.debugName= NkString("Demo4_FloorReflection");
+            if (st->floorMat && st->floorMat->IsValid())
+                desc.targetMaterial = st->floorMat->GetInstHandle();
+            st->reflHandle = refl->Register(desc);
         }
     }
 
@@ -212,6 +279,38 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
 
             // Hot-reload : modification du .nkasset a chaud -> patche l'instance.
             matLib->EnableHotReload(true);
+        }
+    }
+
+    // ── Phase H : Texture asset round-trip ──────────────────────────────────
+    // Save un NkTextureAsset qui reference un PNG existant, puis Load pour
+    // recuperer un NkTexHandle a appliquer sur la sphere #2 comme albedo map.
+    {
+        auto* texLib = ctx.renderer->GetTextures();
+        if (texLib) {
+            NkTextureAsset texAsset;
+            texAsset.sourceFilePath = NkString("Resources/NKRenderer/Textures/vracs/awesomeface.png");
+            texAsset.targetFormat   = NkGPUFormat::NK_RGBA8_UNORM;
+            texAsset.generateMips   = true;
+            texAsset.sRGB           = true;
+
+            NkString outAsset    = NkString("Resources/NKRenderer/Materials/AwesomeFace.nkasset");
+            NkString logicalPath = NkString("/Textures/AwesomeFace");
+            NkAssetId savedId;
+            if (NkTextureAssetIO::Save(texAsset, outAsset, logicalPath, &savedId)) {
+                logger.Info("[Demo4][PhaseH] Saved texture asset '{0}' (id={1})\n",
+                            logicalPath, savedId.ToString());
+                NkTexHandle texH = NkTextureAssetIO::LoadById(savedId, texLib);
+                if (texH.IsValid()) {
+                    // Applique sur sphere #2 (PBR Plastic) comme albedo map.
+                    if (st->mats[1] && st->mats[1]->IsValid()) {
+                        st->mats[1]->SetAlbedoMap(texH);
+                        logger.Info("[Demo4][PhaseH] AwesomeFace albedo applied to sphere #2\n");
+                    }
+                } else {
+                    logger.Warnf("[Demo4][PhaseH] LoadById failed for AwesomeFace\n");
+                }
+            }
         }
     }
 
@@ -294,24 +393,37 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         }
     });
 
+    // Camera orbit interactive (souris + clavier) via NkOrbitCameraController3D.
+    // Defaut : target=(0,0.5,0) au centre de la scene, distance=9, yaw=0, pitch=-0.2.
+    // Auto-orbit off : controle full manuel souris + clavier.
+    st->camera.Controller().SetCenter({0.f, 0.5f, 0.f}, 9.f, 0.f, -0.2f);
+    st->camera.Controller().SetAutoOrbit(false);
+    st->camera.InstallEvents();
+
     logger.Info("[Demo4] Init OK — 5 materiaux crees\n");
-    logger.Info("[Demo4] 1-5:selectionner  +/-:roughness/threshold  M:metallic  C:couleur  O:outline\n");
+    logger.Info("[Demo4] 1-5:mat  +/-:roughness  M:metallic  C:couleur  O:outline  R:reflet\n");
+    logger.Info("[Demo4] Camera : LEFT-drag rotate | wheel zoom | WASD/fleches pan | T:auto-orbit | F:FPS | HOME:reset\n");
     return true;
 }
 
 // ── Frame ─────────────────────────────────────────────────────────────────────
 void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
     auto* st = (Demo4MatState*)ctx.userData;
-    st->angle += dt * 0.35f;
+    st->camera.Update(dt);
 
     // Phase G : animation verticale des spheres (monte/descend recursivement).
-    // Differentie Demo4 de Demo3 (statique). Amplitude 0.4u, periode 2s, phase
+    // Differentie Demo4 de Demo3 (statique). Amplitude 0.3u, periode 2s, phase
     // decalee par sphere pour effet "vagues".
-    const float32 bobAmp    = 0.4f;
+    // Centre=1.2, amp=0.3 : Y in [0.9, 1.5], avec radius 0.55 le bottom min est
+    // 0.35 -> sphere entierement au-dessus du plan Y=0 a tout moment du bob.
+    // Important pour la passe miroir auto : sinon la sphere traverse le plan
+    // et le clip plane filter (centre AABB) la garde malgre tout, creant des
+    // "bribes" de reflet visibles vue de dessous.
+    const float32 bobAmp    = 0.3f;
     const float32 bobOmega  = 3.14159f; // 2*pi / 2s
     auto BobY = [&](int i) -> float32 {
         float32 phase = i * 0.6f; // decalage par sphere
-        return 0.6f + bobAmp * sinf(ctx.totalTime * bobOmega + phase);
+        return 1.2f + bobAmp * sinf(ctx.totalTime * bobOmega + phase);
     };
 
     if (!ctx.renderer->BeginFrame()) return;
@@ -323,20 +435,17 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
         return;
     }
 
-    // ── Camera orbite autour de l'origine ────────────────────────────────────
-    // Y bas (1.2) pour vue rasante : les reflets planaires sur le sol miroir
-    // sont nettement visibles à incidence faible (Fresnel élevé + projection
-    // qui étire les reflets vers la caméra au lieu de les écraser à l'horizon).
-    const float32 camDist = 9.f;
+    // ── Camera (controllable via souris + clavier) ───────────────────────────
+    // Cf. DemoCamera.h pour les binds. Le mode auto-orbit reproduit l'animation
+    // historique (rotation auto) ; toggle T pour figer/relancer.
     NkCamera3DData camData;
-    camData.position  = {cosf(st->angle) * camDist, 1.2f, sinf(st->angle) * camDist};
-    camData.target    = {0.f, 0.5f, 0.f};
     camData.up        = {0.f, 1.f, 0.f};
     camData.fovY      = 55.f;
     camData.aspect    = (float32)ctx.width / (float32)ctx.height;
     camData.nearPlane = 0.1f;
     camData.farPlane  = 100.f;
     NkCamera3D cam(camData);
+    st->camera.Controller().Apply(cam);   // ecrit position + target depuis l'orbit state
 
     // ── Scene context : lights ────────────────────────────────────────────────
     NkSceneContext sctx;
@@ -363,68 +472,14 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
 
     sctx.ambientIntensity = 0.12f;
 
-    // ── Passe miroir (Planar Reflection) ─────────────────────────────────────
-    // Doit être faite AVANT BeginScene principal pour que la texture de reflet
-    // soit prête quand le sol est rendu.
-    //
-    // Approche : on garde la cam PRINCIPALE (pas reflectée) et on pré-multiplie
-    // chaque transform de drawcall par mirror_matrix (diag(1,-1,1,1) pour Y=0).
-    // Le RT contient alors `principal_viewProj(mirror(objet))` — exactement la
-    // position screen où le reflet planaire de l'objet doit apparaître dans
-    // l'image principale. Le sol sample en screen-UV simple = reflet correct.
-    auto* cmd = ctx.renderer->GetCmd();
-    if (st->reflEnabled && st->reflRT.IsValid() && cmd) {
-        // mirror_matrix pour plan Y=0 : flip Y world.
-        NkMat4f mirrorMat = NkMat4f::Identity();
-        mirrorMat[1][1]   = -1.f;
-
-        // mirrorViewProj envoyé au shader ReflFloor : projette vWorldPos vers
-        // l'UV du RT pour le sample. Pour le sol Y=0 c'est == principal viewProj
-        // (mirror invariant sur Y=0), donc équivalent à un screen-UV simple.
-        sctx.mirrorViewProj = cam.GetViewProj() * mirrorMat;
-
-        // Context de la passe miroir : MÊME cam principale, mêmes lumières.
-        // (Pas de ReflectCamera : la transformation miroir est appliquée
-        // sur le model de chaque drawcall ci-dessous.)
-        NkSceneContext mirrorCtx  = sctx;
-        // sctx.camera est déjà la cam principale (assignée plus haut).
-
-        // Accumuler les sphères (pas le sol : évite self-reflection infinie).
-        // Chaque transform est pré-multiplié par mirrorMat ⇒ la sphère est
-        // rendue à mirror(P_real) = (x, -0.6, 0) au lieu de (x, 0.6, 0).
-        r3d->BeginScene(mirrorCtx);
-        for (int i = 0; i < 5; i++) {
-            const float32 x = (float32)(i - 2) * 2.4f;
-            const float32 y = BobY(i);
-            NkDrawCall3D dc;
-            dc.mesh      = st->meshSphere;
-            dc.transform = mirrorMat *
-                           NkMat4f::Translate({x, y, 0.f}) *
-                           NkMat4f::Scale({0.55f, 0.55f, 0.55f});
-            // AABB englobante de l'animation (Y reel monde sphere miroir
-            // = -y). Marge bobAmp sur Y pour eviter cull pendant l'oscillation.
-            dc.aabb      = {{x - 0.35f, -1.4f, -0.35f}, {x + 0.35f,  0.2f, 0.35f}};
-            // Phase G : sphere #0 utilise l'instance chargee depuis .nkasset,
-            // les 4 autres restent code-driven (comparaison visuelle directe).
-            if (i == 0 && st->goldFromAsset.IsValid())
-                dc.material = st->goldFromAsset;
-            else if (st->mats[i] && st->mats[i]->IsValid())
-                dc.material = st->mats[i]->GetInstHandle();
-            dc.tint      = kPalette[st->params[i].colorIdx % kPaletteSize];
-            dc.metallic  = st->params[i].metallic;
-            dc.roughness = st->params[i].roughness;
-            r3d->Submit(dc);
-        }
-
-        // Rendre dans le render target
-        st->reflRT.BeginRender(cmd, {0.05f, 0.08f, 0.12f, 1.f});
-        st->reflRT.FlushScene(cmd, r3d);
-        st->reflRT.EndRender(cmd);
-
-        // Binder le reflet sur le matériau du sol
-        if (st->floorMat && st->floorMat->IsValid())
-            st->floorMat->SetTexture("albedo", st->reflRT.GetColorHandle());
-    }
+    // ── Plus de passe miroir manuelle ! ─────────────────────────────────────
+    // NkPlanarReflectionSystem (declenche dans la passe Geometry de
+    // RenderGraph) fait automatiquement :
+    //   1. Calcul mirrorMat + mirrorViewProj
+    //   2. Re-flush des drawcalls deja submit'd avec mirror_matrix dans le RT
+    //   3. Update du materiau cible (st->floorMat) avec le RT comme albedo
+    //   4. Injection mirrorViewProj dans uCam pour le sample screen-UV
+    // L'utilisateur submit ses drawcalls UNE seule fois ci-dessous.
 
     // ── Passe principale ──────────────────────────────────────────────────────
     r3d->BeginScene(sctx);
@@ -451,8 +506,10 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
         dc.mesh      = st->meshSphere;
         dc.transform = NkMat4f::Translate({x, y, 0.f}) *
                        NkMat4f::Scale({0.55f, 0.55f, 0.55f});
-        // AABB englobante de l'oscillation : -bobAmp en bas, +bobAmp en haut.
-        dc.aabb      = {{x - 0.35f, -0.2f, -0.35f}, {x + 0.35f, 1.4f, 0.35f}};
+        // AABB englobante de l'oscillation autour du centre Y=1.2, amp 0.3,
+        // radius 0.55 : Y range [0.35, 2.05]. Centre AABB Y = 1.2 > 0 -> le
+        // clip plane filter (cote +N) garde bien la sphere dans la passe miroir.
+        dc.aabb      = {{x - 0.55f, 0.35f, -0.55f}, {x + 0.55f, 2.05f, 0.55f}};
 
         // Phase G : sphere #0 utilise l'instance chargee depuis .nkasset.
         if (i == 0 && st->goldFromAsset.IsValid())
@@ -465,6 +522,32 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
         dc.roughness = st->params[i].roughness;
 
         r3d->Submit(dc);
+    }
+
+    // ── 2 spheres EN DESSOUS du plan (pour valider que les reflets en dessous
+    // ne montrent que les objets reellement situes sous Y=0) ─────────────────
+    // Y < 0, reutilisent les materiaux des sphere #0 et #4 pour distinction
+    // visuelle (or + layered). Pas de bobbing -> position statique facile a
+    // identifier dans le miroir vue de dessous (cf. roadmap : 2eme passe RT
+    // mirror inverse pour reflets en dessous, pas encore implementee).
+    {
+        const float32 belowY = -1.2f;
+        for (int j = 0; j < 2; j++) {
+            const float32 x = (j == 0) ? -1.5f : 1.5f;
+            const int     matIdx = (j == 0) ? 0 : 4;   // or, puis layered
+            NkDrawCall3D dc;
+            dc.mesh      = st->meshSphere;
+            dc.transform = NkMat4f::Translate({x, belowY, 0.f}) *
+                           NkMat4f::Scale({0.55f, 0.55f, 0.55f});
+            dc.aabb      = {{x - 0.35f, belowY - 0.55f, -0.35f},
+                            {x + 0.35f, belowY + 0.55f,  0.35f}};
+            if (st->mats[matIdx] && st->mats[matIdx]->IsValid())
+                dc.material = st->mats[matIdx]->GetInstHandle();
+            dc.tint      = kPalette[st->params[matIdx].colorIdx % kPaletteSize];
+            dc.metallic  = st->params[matIdx].metallic;
+            dc.roughness = st->params[matIdx].roughness;
+            r3d->Submit(dc);
+        }
     }
 
     // ── Debug gizmos ─────────────────────────────────────────────────────────
@@ -511,7 +594,8 @@ void Demo4_Materials_Shutdown(DemoCtx& ctx) {
     if (st) {
         for (int i = 0; i < 5; i++) NkMaterial::Destroy(st->mats[i]);
         NkMaterial::Destroy(st->floorMat);
-        st->reflRT.Shutdown();
+        // Le NkPlanarReflectionSystem est detruit par NkRendererImpl ;
+        // pas besoin de Unregister explicitement.
         delete st;
     }
     ctx.userData = nullptr;

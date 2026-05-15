@@ -39,248 +39,261 @@ bt full
 thread apply all bt
 quit
 
-Merci ! Pour le design et le côté humain, LinkedIn ne supporte pas le HTML mais on peut jouer sur la **structure visuelle**, les **émojis bien placés**, les **espaces**, et le **rythme des phrases** pour que ça respire et attire l'œil.
-
-Pour les contributeurs de tout genre — oui, c'est le bon moment. Tu présentes Rihen, autant ouvrir la porte à tout le monde dès maintenant.
-
-Oui pour les hashtags — sur LinkedIn ils augmentent la visibilité si bien choisis. Pas plus de 5, placés à la toute fin pour ne pas casser la lecture.
-
-Voici le post final, prêt à copier-coller :
+Voici les trois posts corrigés :
 
 ---
 
-Je dirige Rihen depuis Yaoundé.
-Voici ce qu'on construit vraiment — concrètement.
+**POST 5 — Lundi 18/05 — 14h00 🇫🇷**
+
+---
+
+Mon directeur de master m'a proposé un sujet de recherche inattendu.
+
+Pas un sujet classique d'informatique.
+Un patient virtuel 3D — émotif — capable d'aider les médecins à diagnostiquer.
+
+Ma première réaction ? De la curiosité mélangée à de l'inquiétude.
+Je viens du game programming, pas de la médecine.
+
+Puis j'ai compris pourquoi il avait pensé à moi.
 
 ─────────────────────
 
-Depuis quelques années, une équipe réduite travaille sur quelque chose d'ambitieux.
-Peut-être trop, certains nous l'ont dit.
-On continue quand même. 🙂
+𝗣𝗩𝟯𝗗𝗘 — 𝗣𝗮𝘁𝗶𝗲𝗻𝘁 𝗩𝗶𝗿𝘁𝘂𝗲𝗹 𝟯𝗗 𝗘́𝗺𝗼𝘁𝗶𝗳 𝗽𝗼𝘂𝗿 𝗹𝗲 𝗗𝗶𝗮𝗴𝗻𝗼𝘀𝘁𝗶𝗰 𝗘́𝗱𝘂𝗰𝗮𝘁𝗶𝗳
+
+L'idée : un personnage 3D interactif qui simule un patient réel.
+Il a des expressions. Il réagit. Il décrit ses symptômes.
+Le futur médecin doit observer, interroger, et diagnostiquer.
+
+Sans risque pour un vrai patient.
+Sans attendre d'avoir un cas clinique rare devant soi.
 
 ─────────────────────
 
-𝗖𝗲 𝗾𝘂𝗶 𝗲𝘅𝗶𝘀𝘁𝗲 𝗮𝘂𝗷𝗼𝘂𝗿𝗱'𝗵𝘂𝗶 — 𝗲𝗻 𝗽𝘂𝗯𝗹𝗶𝗰, 𝘀𝘂𝗿 𝗚𝗶𝘁𝗛𝘂𝗯 :
+Pourquoi ce projet me parle profondément :
 
-🔧 Jenga — Build System v2.0.1
-Aucun outil de build ne correspondait à ce dont on avait besoin.
-Alors on en a construit un.
-→ Windows · Linux · macOS · Android · iOS · Web · HarmonyOS · Xbox
-→ 3 releases publiées. Utilisé sur tous nos projets internes.
+En game programming, on passe des années à simuler des humains crédibles.
+Des expressions faciales. Des animations réactives. Des comportements émotifs.
 
-⚙️ Nkentseu — Framework C++ v2.0.0
-Un écosystème modulaire pour créer des jeux, simulateurs, applications médicales et systèmes industriels.
-Foundation complète · 36+ fonctions mathématiques · 75+ tests
-Zero STL · Thread-safe · Conçu pour durer.
-→ Déjà 15 forks. On ne s'y attendait pas vraiment. 🙏
+Ce qu'on fait habituellement pour divertir —
+ici, ça peut former des médecins.
+Ici, ça peut sauver des vies.
+
+C'est la même technologie. Pas le même enjeu.
 
 ─────────────────────
 
-𝗖𝗲 𝗾𝘂'𝗼𝗻 𝗰𝗼𝗻𝘀𝘁𝗿𝘂𝗶𝘁 𝗮𝘃𝗲𝗰 𝗰𝗲𝘁𝘁𝗲 𝗯𝗮𝘀𝗲 :
+Ma trajectoire à l'ENSPY :
 
-🎮 Un moteur de jeux vidéo 2D/3D — made in Cameroun
-🏥 PV3DE — patient virtuel 3D pour le diagnostic médical
-🎬 Griot — plateforme de streaming dédiée au contenu africain
+→ 2018-2023 — étudiant ingénieur, spécialisation Game Programming & Computing Graphics
+→ 2024 — retour comme enseignant, pendant que je construis Rihen
+→ 2025 — retour encore, cette fois en master recherche
+→ Et PV3DE devient mon sujet de recherche
+
+Trois rôles dans la même école.
+Chacun m'apprend quelque chose que les deux autres ne peuvent pas.
 
 ─────────────────────
 
-Est-ce que tout est parfait ? Non.
-Est-ce que tout avance ? Oui — chaque semaine, un peu plus.
+Où en suis-je aujourd'hui ?
 
-On construit en public parce qu'on croit que la transparence est la meilleure façon de bâtir quelque chose de durable.
+Honnêtement — PV3DE n'existe pas encore vraiment.
+C'est une vision, une architecture sur papier, et un stub de code.
+
+Parce qu'avant de construire PV3DE, je dois finir ce sur quoi il va reposer :
+le moteur de rendu de Nkentseu.
+
+On ne construit pas un patient virtuel sans un moteur capable de le faire vivre.
+
+─────────────────────
+
+C'est ça, la recherche réelle.
+Pas une démonstration parfaite à chaque étape.
+Juste un problème difficile qu'on attaque dans le bon ordre.
 
 ─────────────────────
 
 𝗩𝗼𝘂𝘀 𝗽𝗼𝘂𝘃𝗲𝘇 𝗻𝗼𝘂𝘀 𝗿𝗲𝗷𝗼𝗶𝗻𝗱𝗿𝗲 𝗱𝗲 𝗯𝗶𝗲𝗻 𝗱𝗲𝘀 𝗳𝗮𝗰̧𝗼𝗻𝘀 :
 
-👨‍💻 Développeur — contribuer au code sur GitHub
-🎨 Créateur — contenu, design, animation
-🔬 Chercheur — collaborer sur PV3DE ou Nkentseu
-📢 Communauté — partager, donner du feedback, en parler autour de vous
-💼 Partenaire ou investisseur — construire quelque chose ensemble
-
-Il n'y a pas de petite contribution.
-Chaque geste compte quand on part de zéro.
-
-─────────────────────
-
-🔗 github.com/RihenUniverse
-(lien cliquable en commentaire)
-
-Suivez @Rihen Universe pour voir la suite. 👇
-
-#BuildInPublic #AfricaTech #CPlusPlus #Cameroun #OpenSource #GameEngine
-
----
-
-**Rappel avant de publier :**
-Ajoute immédiatement en **premier commentaire** :
-> 🔗 GitHub Rihen Universe : https://github.com/RihenUniverse
-
-Bonne idée — l'invitation à contribuer doit devenir un **réflexe constant**, pas juste une mention occasionnelle. Voici les deux posts réécrits proprement :
-
----
-
-**POST 1 — Jeudi 07/05 — 14h00**
-
----
-
-J'ai passé des mois à chercher le bon système de build pour mes projets C++.
-
-CMake ? Trop rigide pour ce que je voulais faire.
-Bazel ? Trop complexe pour mon contexte.
-Premake ? Pas assez flexible.
-
-À chaque fois, le même mur.
-Alors j'ai fait ce qu'on fait quand rien n'existe : je l'ai construit moi-même.
-
-─────────────────────
-
-𝗝𝗲𝗻𝗴𝗮 — 𝗕𝘂𝗶𝗹𝗱 𝗦𝘆𝘀𝘁𝗲𝗺 𝘃𝟮.𝟬.𝟭
-
-Un système de build multiplatform C++, piloté par un DSL Python.
-Tu décris ton projet en Python. Jenga s'occupe du reste.
-
-→ Windows · Linux · macOS · Android · iOS · Web · HarmonyOS · Xbox
-→ Build incrémental, cache, mode watch
-→ Génération vers CMake · Makefile · Visual Studio · Xcode
-→ 3 releases publiées. Utilisé sur tous mes projets internes.
-
-─────────────────────
-
-𝗖𝗼𝗻𝗰𝗿𝗲̀𝘁𝗲𝗺𝗲𝗻𝘁, 𝘃𝗼𝗶𝗹𝗮̀ 𝗰𝗼𝗺𝗺𝗲𝗻𝘁 𝗼𝗻 𝗰𝗿𝗲́𝗲 𝘂𝗻 𝗽𝗿𝗼𝗷𝗲𝘁 :
-
-# 1. On initialise le workspace et le projet
-mkdir mon-projet && cd mon-projet
-jenga workspace MonWorkspace
-jenga project MonApp --kind console --lang C++
-
-# 2. Le fichier MonApp.jenga généré ressemble à ça :
-from Jenga import *
-
-with workspace("MonWorkspace"):
-    configurations(["Debug", "Release"])
-    targetoses([TargetOS.WINDOWS, TargetOS.LINUX])
-    targetarchs([TargetArch.X86_64])
-
-    with project("MonApp"):
-        consoleapp()
-        language("C++")
-        files(["src/**.cpp"])
-
-# 3. On build et on run
-jenga build --config Debug
-jenga run MonApp
-
-C'est tout.
-Pas 300 lignes de CMakeLists.txt.
-Pas de magie cachée — juste du Python lisible.
-
-─────────────────────
-
-Est-ce que Jenga est parfait ? Non.
-Est-ce qu'il fait exactement ce dont j'ai besoin ? Oui.
-Est-ce qu'il évolue chaque semaine ? Oui.
-
-─────────────────────
-
-𝗩𝗼𝘂𝘀 𝗽𝗼𝘂𝘃𝗲𝘇 𝗻𝗼𝘂𝘀 𝗿𝗲𝗷𝗼𝗶𝗻𝗱𝗿𝗲 𝗱𝗲 𝗯𝗶𝗲𝗻 𝗱𝗲𝘀 𝗳𝗮𝗰̧𝗼𝗻𝘀 :
-
-👨‍💻 Développeur — une idée, un bug trouvé, une PR ? Tout est bienvenu
-🔬 Chercheur — vous travaillez sur des sujets connexes ? Parlons-en
-📢 Communauté — un partage, un commentaire, un avis ? Ça compte énormément
-💼 Partenaire ou investisseur — vous croyez en ce qu'on construit ? Contactez-moi
-
-Il n'y a pas de petite contribution.
-Chaque geste aide quand on construit depuis zéro.
-
-─────────────────────
-
-🔗 github.com/RihenUniverse/Jenga
-(lien cliquable en commentaire)
-
-Vous utilisez quoi comme système de build sur vos projets C++ ?
-Qu'est-ce qui vous manque le plus ? 👇
-
-#CPlusPlus #BuildSystem #DevTools #BuildInPublic #AfricaTech
-
----
-
-**POST 2 — Dimanche 10/05 — 8h00**
-
----
-
-Pourquoi j'ai décidé de tout construire from scratch plutôt que d'utiliser des frameworks existants.
-
-C'est la question qu'on me pose le plus souvent.
-Et honnêtement, au début, je me la posais moi-même.
-
-─────────────────────
-
-La réponse courte : pour comprendre vraiment.
-
-La réponse longue :
-
-Quand tu utilises Unity, Unreal, SDL2 ou n'importe quel framework :
-→ Tu résous tes problèmes en surface
-→ Tu ne vois pas ce qui se passe en dessous
-→ Tu deviens dépendant d'outils que tu ne maîtrises pas vraiment
-
-Ce n'est pas un jugement.
-C'est juste un constat honnête sur ce que j'ai vécu.
-
-─────────────────────
-
-Quand j'ai commencé à construire mon propre moteur de rendu :
-
-La première semaine — je ne comprenais pas pourquoi mon triangle ne s'affichait pas.
-Le premier mois — je comprenais comment le GPU parle à la scène.
-Le troisième mois — je maîtrisais ma stack de A à Z.
-
-Aucun tutoriel ne m'aurait donné ça.
-Seulement la confrontation directe avec le problème.
-
-─────────────────────
-
-𝗖𝗲 𝗾𝘂𝗲 𝗷'𝗮𝗶 𝗮𝗽𝗽𝗿𝗶𝘀 𝗲𝗻 𝗰𝗼𝗻𝘀𝘁𝗿𝘂𝗶𝘀𝗮𝗻𝘁 𝗡𝗸𝗲𝗻𝘁𝘀𝗲𝘂 𝗳𝗿𝗼𝗺 𝘀𝗰𝗿𝗮𝘁𝗰𝗵 :
-
-→ La gestion mémoire manuelle m'a appris à respecter chaque octet
-→ Implémenter mes propres containers m'a appris pourquoi la STL fait certains choix
-→ Écrire mon propre système de threading m'a appris ce que "thread-safe" veut vraiment dire
-
-Je ne dis pas que c'est la bonne voie pour tout le monde.
-Mais pour moi, c'était la seule façon de vraiment apprendre.
-
-─────────────────────
-
-Est-ce que c'est plus long ? Oui, beaucoup plus.
-Est-ce que c'est plus difficile ? Oui, parfois décourageant.
-Est-ce que ça vaut la peine ? Je réponds oui chaque matin quand j'ouvre mon éditeur.
-
-─────────────────────
-
-𝗩𝗼𝘂𝘀 𝗽𝗼𝘂𝘃𝗲𝘇 𝗻𝗼𝘂𝘀 𝗿𝗲𝗷𝗼𝗶𝗻𝗱𝗿𝗲 𝗱𝗲 𝗯𝗶𝗲𝗻 𝗱𝗲𝘀 𝗳𝗮𝗰̧𝗼𝗻𝘀 :
-
-👨‍💻 Développeur — le code est public, les issues sont ouvertes. Plongez dedans.
-🎨 Créateur — design, animation, contenu ? On a besoin de vous aussi.
+👨‍💻 Développeur — moteur de rendu, animation 3D, IA comportementale ? Parlons-en.
+🏥 Médecin ou chercheur en santé — votre regard sur PV3DE nous est précieux.
 🔬 Chercheur — vous travaillez sur des sujets proches ? Échangeons.
-📢 Communauté — un partage, un commentaire, un avis ? Ça nous fait avancer.
-💼 Partenaire ou investisseur — vous croyez en ce qu'on construit ? Parlons-en.
+📢 Communauté — un partage, un commentaire ? Ça nous fait avancer.
+💼 Partenaire ou investisseur — vous croyez en ce qu'on construit ? Contactez-moi.
 
 Il n'y a pas de petite contribution.
-L'Afrique a besoin d'ingénieurs qui construisent l'infrastructure.
-Et ces ingénieurs ont besoin d'une communauté derrière eux. 🙂
+Même une question dans les commentaires peut changer la direction d'une recherche.
 
 ─────────────────────
 
 🔗 github.com/RihenUniverse/Nkentseu
 (lien cliquable en commentaire)
 
-Vous construisez from scratch ou vous utilisez des frameworks ?
-Pourquoi ? Je suis sincèrement curieux. 👇
+Est-ce que vous avez déjà travaillé à l'intersection de la tech et de la santé ?
+Qu'est-ce que vous en pensez ? 👇
 
-#CPlusPlus #SoftwareArchitecture #BuildInPublic #AfricaTech #GameDev
+#MasterRecherche #HealthTech #GameDev #AfricaTech #BuildInPublic
 
 ---
 
-L'invitation à contribuer est maintenant **structurée, complète et cohérente** dans les deux posts, avec des appels spécifiques selon le profil de chaque lecteur. Tu veux qu'on continue avec les posts suivants du calendrier ?
+**POST 6 — Mercredi 20/05 — 8h00 🇫🇷**
+
+---
+
+En 2023, je sors de l'ENSPY avec mon diplôme d'ingénieur.
+
+En 2024, j'y retourne — comme enseignant.
+En 2025, j'y retourne encore — comme étudiant en master recherche.
+
+Dans les couloirs que je connaissais comme étudiant,
+je me retrouve maintenant avec trois casquettes à la fois.
+
+C'est une situation que je n'avais pas planifiée.
+C'est devenu l'une des plus riches de ma vie.
+
+─────────────────────
+
+Ce que personne ne m'avait dit sur l'enseignement :
+
+La première fois que j'ai préparé un cours,
+j'ai réalisé que certaines choses que je croyais maîtriser
+étaient en réalité floues dans ma tête.
+
+Expliquer force à clarifier.
+Clarifier force à comprendre vraiment.
+
+Un étudiant m'a posé une question simple un jour.
+Je suis rentré chez moi et j'ai tout relu.
+Il m'avait appris quelque chose sans le savoir.
+
+─────────────────────
+
+𝗖𝗲 𝗾𝘂𝗲 𝗰𝗲𝘁𝘁𝗲 𝗱𝗼𝘂𝗯𝗹𝗲 𝘃𝗶𝗲 𝗺'𝗮𝗽𝗽𝗿𝗲𝗻𝗱 :
+
+→ Être encore étudiant m'empêche de croire que je sais tout
+→ Être enseignant m'oblige à structurer ce que je sais vraiment
+→ Les deux ensemble créent quelque chose de rare — une humilité active
+→ L'Afrique ne manque pas de talents — elle manque de gens qui transmettent
+
+─────────────────────
+
+Aujourd'hui simultanément :
+
+→ Ingénieur diplômé de l'ENSPY — promotion 2023
+→ Enseignant à l'ENSPY — depuis 2024
+→ Étudiant en master recherche à l'ENSPY — depuis 2025
+→ CEO de Rihen — entreprise camerounaise enregistrée
+
+Est-ce que c'est trop ? Parfois oui.
+Est-ce que je continuerais autrement ? Non.
+
+Parce que construire une infrastructure technologique africaine,
+c'est aussi former les ingénieurs qui vont la faire vivre.
+
+─────────────────────
+
+𝗩𝗼𝘂𝘀 𝗽𝗼𝘂𝘃𝗲𝘁 𝗻𝗼𝘂𝘀 𝗿𝗲𝗷𝗼𝗶𝗻𝗱𝗿𝗲 𝗱𝗲 𝗯𝗶𝗲𝗻 𝗱𝗲𝘀 𝗳𝗮𝗰̧𝗼𝗻𝘀 :
+
+👨‍💻 Développeur — le code est public, les issues sont ouvertes.
+🎓 Enseignant ou chercheur — vous vivez quelque chose de similaire ? Échangeons.
+🔬 Chercheur — collaborons sur PV3DE ou Nkentseu.
+📢 Communauté — un partage, un commentaire ? Ça compte énormément.
+💼 Partenaire ou investisseur — construisons quelque chose ensemble.
+
+Il n'y a pas de petite contribution.
+Chaque geste compte quand on construit depuis zéro.
+
+─────────────────────
+
+🔗 github.com/RihenUniverse
+(lien cliquable en commentaire)
+
+Vous gérez plusieurs rôles en même temps ?
+Comment vous faites pour ne pas vous perdre ? 👇
+
+#ENSPY #MasterRecherche #AfricaTech #BuildInPublic #Cameroun
+
+---
+
+**POST 7 — Vendredi 22/05 — 14h00 🇬🇧**
+
+---
+
+In 2023, I graduated as an engineer from the National Superior Polytechnic School of Yaoundé 1.
+
+In 2024, I came back — as a teacher.
+In 2025, I came back again — as a master's research student.
+
+Same school. Three different roles.
+While running Rihen, a registered Cameroonian tech company.
+
+I'm not telling you this to impress.
+I'm telling you this so you understand what's behind what I build.
+
+─────────────────────
+
+𝗡𝗸𝗲𝗻𝘁𝘀𝗲𝘂 — 𝗮 𝗳𝘂𝗹𝗹 𝗖𝗼𝗿𝗲 𝗲𝗰𝗼𝘀𝘆𝘀𝘁𝗲𝗺, 𝗯𝘂𝗶𝗹𝘁 𝗳𝗿𝗼𝗺 𝘀𝗰𝗿𝗮𝘁𝗰𝗵.
+In Cameroon. In public. Already on GitHub.
+
+A modular C++ ecosystem designed to power :
+→ Game engines
+→ 3D simulations
+→ High-performance medical applications
+→ Industrial systems
+
+─────────────────────
+
+𝗪𝗵𝗮𝘁'𝘀 𝗶𝗻𝘀𝗶𝗱𝗲 𝗮𝗻𝗱 𝘄𝗼𝗿𝗸𝗶𝗻𝗴 𝗿𝗶𝗴𝗵𝘁 𝗻𝗼𝘄 :
+
+✅ Foundation layer — zero external dependencies
+NKCore · NKMath · NKMemory · NKContainers · NKPlatform
+
+✅ System layer — cross-platform services
+NKFileSystem · NKLogger · NKThreading · NKNetwork · NKTime
+
+🔧 Runtime layer — actively in development
+NKWindow ✅ · NKEvent ✅ · NKRHI ✅ · NKECS ✅
+NKRenderer 🔧 · NKAudio 🔧 · NKCollision 🔧
+
+🔧 Engine layer — in progress
+A full 2D/3D game engine on top of all of this.
+
+─────────────────────
+
+Why build all of this from scratch ?
+
+Because I teach students who will need these tools.
+Because my research on PV3DE — a 3D virtual patient for medical diagnosis — needs a real engine.
+Because Africa needs engineers who build infrastructure, not just use it.
+
+─────────────────────
+
+Is it perfect ? No.
+Is it moving forward ? Every single week.
+Is the code public ? Yes — go look.
+
+─────────────────────
+
+𝗬𝗼𝘂 𝗰𝗮𝗻 𝗷𝗼𝗶𝗻 𝘂𝘀 𝗶𝗻 𝗺𝗮𝗻𝘆 𝘄𝗮𝘆𝘀 :
+
+👨‍💻 Developer — code is public, issues are open. Dive in.
+🎨 Creator — design, animation, content ? We need you too.
+🔬 Researcher — working on related topics ? Let's talk.
+📢 Community — a share, a comment, feedback ? It moves us forward.
+💼 Partner or investor — you believe in what we're building ? Reach out.
+
+No contribution is too small.
+Every gesture counts when you're building from zero.
+
+─────────────────────
+
+🔗 github.com/RihenUniverse/Nkentseu
+(clickable link in comments)
+
+What are you building right now ? 👇
+
+#CPlusPlus #GameDev #BuildInPublic #AfricaTech #OpenSource
+
+---
+
+Les 3 posts sont prêts. Tu veux qu'on mette à jour le fichier Excel avec ces versions finales ?

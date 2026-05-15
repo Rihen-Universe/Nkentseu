@@ -337,6 +337,14 @@ namespace nkentseu {
             pd.renderPass   = currentRP;
             pd.descriptorSetLayouts.PushBack(mGlobalLayout);
             pd.descriptorSetLayouts.PushBack(mObjectLayout);
+            // set=2 = layout per-instance materiau (UBO + albedo/normal/orm/emissive).
+            // Le shader PBR canonical sample tAlbedo dans set=2 binding=3 depuis
+            // la migration set=0 -> set=2. Sans ce layout, Vulkan voit le set=2
+            // comme non declare -> validation spam + chute FPS massive (mesuree
+            // 500 -> 150 fps avant ce fix). mMat->GetInstanceLayout() expose le
+            // meme layout que celui utilise par BindInstance().
+            if (mMat && mMat->GetInstanceLayout().IsValid())
+                pd.descriptorSetLayouts.PushBack(mMat->GetInstanceLayout());
 
             // Vertex layout — NkVertex3D : pos(vec3), normal(vec3), tangent(vec3),
             //   uv(vec2), uv2(vec2), color(uint32 RGBA8)
@@ -528,6 +536,48 @@ namespace nkentseu {
             mPendingRP = {};
         }
 
+        void NkRender3D::FlushIntoRT(NkICommandBuffer* cmd, NkRenderPassHandle rp,
+                                     const NkMat4f& mirrorMat,
+                                     const NkMat4f& mirrorViewProj,
+                                     const NkVec4f& clipPlane) {
+            if (!mInScene) return;
+
+            // Sauve l'etat de scene pour permettre le Flush principal apres.
+            // mObjectDrawIdx avance dans le pool ; on le rewind PAS pour que
+            // les UBO de la passe miroir et celle principale ne se chevauchent.
+            const bool   savedInScene  = mInScene;
+            const uint32 savedSlot     = mFrameSlot;
+            const uint32 savedDrawIdx  = mObjectDrawIdx;
+
+            // Active le mode mirror : FlushOpaque/Skinned/etc. pre-multiplie chaque
+            // transform par mPendingMirror. mPendingMirrorViewProj est upload au
+            // CameraUBO pour permettre aux shaders qui en ont besoin (ReflFloor
+            // par exemple) de connaitre la projection miroir — mais durant la
+            // PASSE MIROIR elle-meme, le sol ne devrait pas etre present.
+            mPendingMirror         = mirrorMat;
+            mPendingMirrorActive   = true;
+            mPendingMirrorViewProj = mirrorViewProj;
+            mPendingClipPlane      = clipPlane;
+            mPendingRP             = rp;
+
+            Flush(cmd);
+
+            mPendingRP             = {};
+            mPendingMirror         = NkMat4f::Identity();
+            mPendingMirrorActive   = false;
+            mPendingMirrorViewProj = NkMat4f::Identity();
+            mPendingClipPlane      = {0.f, 0.f, 0.f, 0.f};
+
+            // Restore l'etat de scene pour que le Flush principal puisse continuer.
+            // On garde mObjectDrawIdx avance pour que les UBOs deja ecrits par la
+            // passe miroir ne soient pas overwrites par la passe principale (qui
+            // est encore en flight cote GPU).
+            mInScene       = savedInScene;
+            mFrameSlot     = savedSlot;
+            // mObjectDrawIdx reste avance volontairement (cf. ci-dessus).
+            (void)savedDrawIdx;
+        }
+
         void NkRender3D::UploadUBOs(NkICommandBuffer* cmd) {
             (void)cmd;
             // Camera UBO — layout std140 qui matche EXACTEMENT le shader PBR (binding=0).
@@ -717,6 +767,19 @@ namespace nkentseu {
                     break;
                 }
 
+                // Clip plane filter (planar reflection : ne capture que les
+                // objets cote actif du plan, exclut le sol et le mauvais cote).
+                if (mPendingMirrorActive) {
+                    const NkVec3f n = {mPendingClipPlane.x,
+                                       mPendingClipPlane.y,
+                                       mPendingClipPlane.z};
+                    if (n.x*n.x + n.y*n.y + n.z*n.z > 1e-6f) {
+                        const NkVec3f c = (dc.aabb.min + dc.aabb.max) * 0.5f;
+                        const float32 side = n.x*c.x + n.y*c.y + n.z*c.z + mPendingClipPlane.w;
+                        if (side <= 0.f) continue;
+                    }
+                }
+
                 // Determine pipeline + instance materiau.
                 NkMaterialInstance* matInst = nullptr;
                 NkPipelineHandle    pipeline = mPBRPipeline;  // fallback PBR
@@ -729,6 +792,19 @@ namespace nkentseu {
                     }
                 }
 
+                // Fallback : drawcall sans material custom (Demo3D, raw draws, ...).
+                // Le shader PBR canonical lit tAlbedo dans set=2 binding=3 (convention
+                // NkMaterialSystem) ; sans bind set=2 le sample est undefined behavior.
+                // On instancie lazy une instance Default_PBR avec textures white1x1
+                // et la bind systematiquement pour les drawcalls sans material.
+                if (!matInst && mMat) {
+                    if (!mFallbackMatInst.IsValid()) {
+                        auto* inst = mMat->CreateInstance(mMat->DefaultPBR());
+                        if (inst) mFallbackMatInst = inst->GetHandle();
+                    }
+                    matInst = mMat->GetInstance(mFallbackMatInst);
+                }
+
                 // Bind pipeline seulement si change (evite le cout vkCmdBindPipeline redondant).
                 if (pipeline != lastPipeline) {
                     if (pipeline.IsValid()) cmd->BindGraphicsPipeline(pipeline);
@@ -736,8 +812,13 @@ namespace nkentseu {
                 }
 
                 ObjBlock ob{};
-                ob.model            = dc.transform;
-                ob.normalMatrix     = dc.transform.Inverse().Transpose();
+                // Pre-multiplie par la mirror matrix si actif (passe RT planar
+                // reflection via FlushIntoRT). Identite hors mirror.
+                const NkMat4f xform = mPendingMirrorActive
+                    ? (mPendingMirror * dc.transform)
+                    : dc.transform;
+                ob.model            = xform;
+                ob.normalMatrix     = xform.Inverse().Transpose();
                 ob.tint             = {dc.tint.x, dc.tint.y, dc.tint.z, dc.alpha};
                 ob.metallic         = dc.metallic;
                 ob.roughness        = dc.roughness;

@@ -47,10 +47,15 @@ layout(std140, set=0, binding=3) uniform ShadowUBO {
 } uShadow;
 
 // ── Textures ─────────────────────────────────────────────────
-layout(set=0, binding=4)  uniform sampler2D   tAlbedo;
-layout(set=0, binding=5)  uniform sampler2D   tNormal;
-layout(set=0, binding=6)  uniform sampler2D   tORM;        // R=AO G=Roughness B=Metallic
-layout(set=0, binding=7)  uniform sampler2D   tEmissive;
+// Materiau (set=2) : NkMaterialSystem bind albedo/normal/ORM/emissive
+// dans set=2 binding 3-6. Auparavant ces textures etaient sur set=0
+// binding 4-7 (defaut NkRender3D), ce qui empechait NkMaterialSystem
+// d'overrider l'albedo per-instance. Move vers set=2 pour aligner sur
+// la convention materiaux et permettre SetAlbedoMap a fonctionner.
+layout(set=2, binding=3)  uniform sampler2D   tAlbedo;
+layout(set=2, binding=4)  uniform sampler2D   tNormal;
+layout(set=2, binding=5)  uniform sampler2D   tORM;        // R=AO G=Roughness B=Metallic
+layout(set=2, binding=6)  uniform sampler2D   tEmissive;
 layout(set=0, binding=8)  uniform samplerCube tEnvIrradiance;
 layout(set=0, binding=9)  uniform samplerCube tEnvPrefilter;
 layout(set=0, binding=10) uniform sampler2D   tBRDFLUT;
