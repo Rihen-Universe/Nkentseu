@@ -86,12 +86,12 @@ _REGISTRY: dict = {
     "window"        : ("NKENTSEU_WINDOW",         ["platform", "core", "memory", "containers", "logger", "math", "event"]),
     "context"       : ("NKENTSEU_CONTEXT",        ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
     "rhi"           : ("NKENTSEU_RHI",            ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
-    "renderer"      : ("NKENTSEU_RENDERER",       ["platform", "core", "memory", "containers", "logger", "math", "time", "threading", "event", "window", "rhi", "image", "font", "filesystem"]),
+    "renderer"      : ("NKENTSEU_RENDERER",       ["platform", "core", "memory", "containers", "logger", "math", "time", "threading", "event", "window", "rhi", "image", "font", "filesystem", "serialization", "reflection"]),
     "image"         : ("NKENTSEU_IMAGE",          ["platform", "core", "memory", "containers", "logger", "filesystem"]),
     "font"          : ("NKENTSEU_FONT",           ["platform", "core", "memory", "containers", "logger", "math", "image"]),
     "ecs"           : ("NKENTSEU_ECS",            ["platform", "core", "memory", "containers", "logger", "math"]),
     "camera"        : ("NKENTSEU_CAMERA",         ["platform", "core", "memory", "containers", "logger", "math"]),
-    "ui"            : ("NKENTSEU_UI",             ["platform", "core", "memory", "containers", "logger", "math", "event", "window", "renderer"]),
+    "ui"            : ("NKENTSEU_UI",             ["platform", "core", "memory", "containers", "logger", "math", "event", "font", "image"]),
     "audio"         : ("NKENTSEU_AUDIO",          ["platform", "core", "memory", "containers"]),
 
     # ---- Engine --------------------------------------------------------------

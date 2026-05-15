@@ -11,6 +11,7 @@
 #include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
+#include "NKRenderer/Materials/NkMaterialLibrary.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Tools/Text/NkTextRenderer.h"
@@ -99,6 +100,7 @@ namespace nkentseu {
                 memory::NkUniquePtr<NkTextureLibrary>     mTextures;
                 memory::NkUniquePtr<NkMeshSystem>         mMeshSystem;
                 memory::NkUniquePtr<NkMaterialSystem>     mMaterials;
+                memory::NkUniquePtr<NkMaterialLibrary>    mMaterialLibrary; // Phase G
                 memory::NkUniquePtr<NkShadowSystem>       mShadow;
                 memory::NkUniquePtr<NkEnvironmentSystem>  mEnvironment;
                 memory::NkUniquePtr<NkRender2D>           mRender2D;
