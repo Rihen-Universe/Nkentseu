@@ -26,6 +26,8 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
     float iblStrength;
+    float _pad0, _pad1, _pad2;   // std140 padding pour aligner mirrorViewProj sur 16 bytes
+    mat4  mirrorViewProj;        // Phase Planar Reflection : projection cam miroir
 } uCam;
 
 layout(std140, set=0, binding=2) uniform LightsUBO {
@@ -85,23 +87,42 @@ void main() {
         float NdL = max(dot(N, L), 0.0);
         diffuse += uLights.colors[i].rgb * uLights.colors[i].w * att * NdL;
     }
-    vec3 litBase = baseColor * (diffuse + 0.12);
+    // Lighting du sol : atténué pour éviter la saturation avec des lumières fortes.
+    // Le sol est principalement un miroir — la couleur de base reste subtile.
+    vec3 directLit = baseColor * clamp(diffuse, vec3(0.0), vec3(1.0)) * 0.35;
+    vec3 ambient   = baseColor * 0.10;
+    vec3 litBase   = ambient + directLit;
 
     // Fresnel (Schlick) : plus de reflet aux angles rasants
     float f0      = 0.04;
     float fresnel = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
 
-    // Force du reflet : roughness=0 → miroir, roughness=1 → aucun reflet
-    // +0.5 sur le fresnel pour avoir un reflet visible même à incidence normale
-    float reflStr = (1.0 - uFloor.roughness) * clamp(fresnel + 0.5, 0.0, 1.0);
+    // Force du reflet dominante : roughness=0 → ~95% miroir.
+    // mix entre un plancher de 0.7 (reflet visible même à incidence normale)
+    // et 1.0 aux angles rasants via Fresnel.
+    float reflStr = (1.0 - uFloor.roughness) * mix(0.7, 1.0, fresnel);
 
     // UV espace-écran pour le lookup du RT de réflexion.
     // gl_FragCoord.xy = position pixel du fragment dans le framebuffer courant.
     // Diviser par viewport donne [0,1] dans les deux axes.
     // Pas de flip Y : la caméra miroir rend déjà dans l'orientation correcte.
-    vec2 screenUV  = gl_FragCoord.xy / uCam.viewport;
-    vec3 reflColor = texture(tReflection, screenUV).rgb;
+    // Sample du RT via projection mirror viewProj. Pour un fragment du sol
+    // P_floor, reflUV = position screen du fragment ; le RT à cet UV contient
+    // l'image de l'objet réfléchi (rendu via cam.viewProj * mirror_matrix * P).
+    vec4 reflClip = uCam.mirrorViewProj * vec4(vWorldPos, 1.0);
+    vec2 reflUV   = (reflClip.xy / reflClip.w) * 0.5 + 0.5;
+    // Vulkan : viewport flipY=true inverse Y au rendering -> le RT est stocke
+    // avec les donnees inversees verticalement. Le sample lecture UV (0,0)=top
+    // recupere donc ce qui a ete ecrit en bas image NDC. Pour matcher,
+    // flipper reflUV.y. NB : en OpenGL la convention storage est aussi
+    // top-down via SPIRV-Cross + glClipControl LOWER_LEFT/ZERO_TO_ONE.
+    reflUV.y = 1.0 - reflUV.y;
+    vec3 reflColor = texture(tReflection, reflUV).rgb;
 
-    vec3 color = mix(litBase, reflColor, clamp(reflStr, 0.0, 1.0));
+    // Mix simple : sol = très majoritairement le reflet du RT (95%) + un peu
+    // de couleur de base (5%) pour avoir une teinte ardoise au lieu de noir
+    // pur dans les zones non-reflétées. Les reflets sont visibles car peu
+    // dilués par litBase.
+    vec3 color = reflColor + litBase * 0.05;
     fragColor  = vec4(color, uFloor.albedo.a);
 }

@@ -22,6 +22,14 @@ namespace nkentseu {
             // ── Camera (par valeur — copie a chaque frame, pas de lifetime issue)
             NkCamera3D              camera;
 
+            // ── Planar reflection : viewProj de la cam miroir. Le matériau
+            // ReflFloor (et d'autres effets-miroir futurs) utilise cette matrice
+            // pour échantillonner le RT à la position monde projetée, à la
+            // place d'un screen-space mapping (qui ne marche pas avec up flippé).
+            // Identity par défaut = pas de reflet (le shader peut détecter et
+            // retomber sur un sample neutre).
+            NkMat4f                 mirrorViewProj   = NkMat4f::Identity();
+
             // ── Lights (CPU-side, copie au moment de BeginScene)
             NkVector<NkLightDesc>   lights;
 

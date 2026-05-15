@@ -59,6 +59,11 @@ namespace nkentseu {
                 if (e.pipeline.IsValid()) mDevice->DestroyPipeline(e.pipeline);
             }
             mTemplates.Clear();
+            // Destruction differee des pipelines orphelins par UpdateRenderPass.
+            for (auto& p : mPendingDestroy) {
+                if (p.IsValid()) mDevice->DestroyPipeline(p);
+            }
+            mPendingDestroy.Clear();
             if (mInstDescLayout.IsValid()) mDevice->DestroyDescriptorSetLayout(mInstDescLayout);
             if (mLinearSampler.IsValid())  mDevice->DestroySampler(mLinearSampler);
         }
@@ -98,7 +103,12 @@ namespace nkentseu {
             auto reg = [this](NkMaterialType t, const char* name,
                               const char* shaderDir,
                               NkRenderQueue q  = NkRenderQueue::NK_OPAQUE,
-                              NkCullMode cull  = NkCullMode::NK_BACK,
+                              // NK_NONE par défaut : la passe miroir applique mirror_matrix
+                              // (det=-1) qui inverse le winding des triangles. Avec BACK cull,
+                              // les sphères miroir disparaissent. NoCull permet la double-passe
+                              // sans état de cull dynamique. Coût négligeable sur scènes
+                              // raisonnables, à raffiner avec un toggle CB plus tard si besoin.
+                              NkCullMode cull  = NkCullMode::NK_NONE,
                               NkFillMode fill  = NkFillMode::NK_SOLID) -> NkMatHandle {
                 NkMaterialTemplateDesc d;
                 d.type      = t;
@@ -147,17 +157,15 @@ namespace nkentseu {
         }
 
         void NkMaterialSystem::UpdateRenderPass(NkRenderPassHandle rp) {
-            if (mCurrentRP == rp) return;
+            // Stocke uniquement le RP pour la PROCHAINE compilation lazy. Ne pas
+            // invalider les pipelines deja compiles : Vulkan accepte un pipeline
+            // pour tout RP *compatible* (memes formats d'attachment). Le projet
+            // garantit que tous les RPs utilises partagent HDR R16G16B16A16
+            // + D32_FLOAT (Geometry pass HDR et tout RT planar reflection HDR).
+            // Cela elimine 2 recompiles par frame quand Demo4 alterne passe
+            // miroir (rt_rp) et passe principale (Geometry_rp) -> regression
+            // FPS observee precedemment.
             mCurrentRP = rp;
-            // Invalide les pipelines pour les recompiler avec le nouveau RP.
-            for (auto& pair : mTemplates) {
-                TemplateEntry& e = pair.Second;
-                if (e.compiled && e.pipeline.IsValid()) {
-                    mDevice->DestroyPipeline(e.pipeline);
-                    e.pipeline = {};
-                }
-                e.compiled = false;
-            }
         }
 
         // ── Accès instance / pipeline ─────────────────────────────────────────────

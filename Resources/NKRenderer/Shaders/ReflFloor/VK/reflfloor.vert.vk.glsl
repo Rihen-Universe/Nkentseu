@@ -13,6 +13,8 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
     float iblStrength;
+    float _pad0, _pad1, _pad2;   // std140 padding pour aligner mirrorViewProj sur 16 bytes
+    mat4  mirrorViewProj;        // doit matcher la déclaration du fragment shader
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {
