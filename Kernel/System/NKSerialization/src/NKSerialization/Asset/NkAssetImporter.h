@@ -153,7 +153,6 @@ public:
 
         // ── Construire les métadonnées ────────────────────────────────────────
         NkAssetMetadata meta;
-        meta.id   = NkAssetId::Generate();
         meta.type = DetectType(sourcePath);
 
         // Nom de l'asset
@@ -179,6 +178,8 @@ public:
         } else {
             logicalPath = NkString("/Game/") + name;
         }
+        // ID stable derive du chemin logique : reimport produit le meme ID.
+        meta.id = NkAssetId::FromName(logicalPath.View());
         meta.assetPath      = NkAssetPath(logicalPath.View());
         meta.typeName       = NkString(NkAssetTypeName(meta.type));
         meta.sourceFilePath = NkString(sourcePath);

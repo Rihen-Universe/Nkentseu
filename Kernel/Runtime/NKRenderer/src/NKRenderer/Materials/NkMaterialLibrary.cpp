@@ -163,10 +163,14 @@ namespace nkentseu {
                                      const NkString& outPath,
                                      NkAssetId* outGeneratedId) {
             NkAssetMetadata meta;
-            meta.id              = NkAssetId::Generate();
+            // ID stable derive du chemin logique : memes inputs -> meme ID
+            // entre sessions, indispensable pour referencer un material par
+            // ID dans une scene/blueprint serialise.
+            NkString logicalPath = NkString("/Materials/") + asset.name;
+            meta.id              = NkAssetId::FromName(logicalPath.View());
             meta.type            = NkAssetType::Material;
             meta.typeName        = NkString("Material");
-            meta.assetPath       = NkAssetPath(NkString("/Materials/" + asset.name).View());
+            meta.assetPath       = NkAssetPath(logicalPath.View());
             meta.assetVersion    = 1u;
             meta.importTimestamp = 0u;
             meta.AddTag(NkAssetTypeName(meta.type));
