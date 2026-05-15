@@ -36,6 +36,17 @@ namespace nkentseu {
         class NkMaterialSystem;
         class NkTextureLibrary;
 
+        // Mode d'affichage des faces du sol miroir (style Blender) :
+        //   FRONT_ONLY = face avant visible avec reflet, face arriere = discard
+        //   BACK_ONLY  = face arriere visible (debug surtout), face avant = discard
+        //   BOTH       = les deux faces visibles, chacune avec son propre RT
+        //                (twoSided force auto -> active la 2eme passe miroir)
+        enum class NkPlanarFaceMode : uint8 {
+            FRONT_ONLY = 0,
+            BACK_ONLY  = 1,
+            BOTH       = 2
+        };
+
         struct NkPlanarReflectionDesc {
             // Plane equation : N . (P - point) = 0. Normale orientee vers le
             // "cote actif" (cote dont on capture les objets pour le miroir).
@@ -53,6 +64,17 @@ namespace nkentseu {
             // mirrorViewProj (via UBO Camera). Si invalide, le systeme rend
             // dans le RT mais ne le bind nulle part — utile pour debug.
             NkMatInstHandle targetMaterial;
+
+            // Cull mode pour le sol miroir lui-meme (lecture par le shader
+            // via uniform faceMode dans le UBO materiau). Independant du
+            // pipeline cullMode.
+            NkPlanarFaceMode faceMode = NkPlanarFaceMode::FRONT_ONLY;
+
+            // Si true : alloue un 2eme RT pour la face arriere (objets cote -N)
+            // et fait une passe miroir supplementaire avec clip plane inverse.
+            // Le shader ReflFloor sample le bon RT selon le cote vu. Force
+            // automatiquement si faceMode == BOTH.
+            bool twoSided = false;
         };
 
         struct NkPlanarReflectionHandle {
@@ -84,8 +106,9 @@ namespace nkentseu {
             private:
                 struct Plane {
                     NkPlanarReflectionDesc desc;
-                    NkRenderTarget         rt;
-                    bool                   active = false;
+                    NkRenderTarget         rtPos;    // cote +N (face avant)
+                    NkRenderTarget         rtNeg;    // cote -N (face arriere, si twoSided)
+                    bool                   active   = false;
                 };
 
                 NkIDevice*        mDevice  = nullptr;

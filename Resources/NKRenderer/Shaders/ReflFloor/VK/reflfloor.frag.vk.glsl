@@ -1,18 +1,22 @@
-// reflfloor.frag.vk.glsl — NKRenderer v4.0 — Reflective Floor Fragment (Vulkan)
+// reflfloor.frag.vk.glsl — NKRenderer v5.1 — Reflective Floor Fragment (Vulkan)
 //
 // Planar reflection via render-to-texture + screen-space UV lookup.
-// Le sol échantillonne le RT de réflexion à gl_FragCoord.xy/viewport,
-// garantissant que chaque pixel du sol affiche ce que la caméra miroir voit
-// exactement à cette position écran — pas besoin de coordonnées UV de mesh.
+// NkPlanarReflectionSystem (NKRenderer Tools/Reflection) fait la passe miroir
+// automatiquement (1 ou 2 selon faceMode) et bind les RTs sur ce shader :
+//   - tReflection      (set=2 binding=3) = RT face avant (+N cote camera)
+//   - tReflectionBack  (set=2 binding=4) = RT face arriere (-N), seulement si
+//                                          faceMode == BACK_ONLY ou BOTH
 //
-// Paramètres via NkPBRParams (set=2, binding=8) :
-//   albedo.rgb   = couleur de base du sol (gris par défaut)
-//   roughness    = 0 → miroir parfait, 1 → aucun reflet
+// faceMode (uFloor.reflFloorFaceMode) :
+//   0 = FRONT_ONLY  (face avant visible avec reflet, face arriere = discard)
+//   1 = BACK_ONLY   (face arriere visible avec reflet, face avant = discard)
+//   2 = BOTH        (les deux faces avec leur RT respectif)
 //
 // @material("Default_ReflFloor")
 // @color("albedo", default=(0.55,0.55,0.60,1))  vec4 albedo
 // @param("roughness", min=0.0, max=1.0, default=0.05)  float roughness
-// @texture2D("reflection")  sampler2D tReflection  (binding=3)
+// @texture2D("reflection")     sampler2D tReflection      (binding=3)
+// @texture2D("reflectionBack") sampler2D tReflectionBack  (binding=4)
 #version 460 core
 
 layout(location=0) in vec3 vWorldPos;
@@ -26,8 +30,8 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
     float iblStrength;
-    float _pad0, _pad1, _pad2;   // std140 padding pour aligner mirrorViewProj sur 16 bytes
-    mat4  mirrorViewProj;        // Phase Planar Reflection : projection cam miroir
+    float _pad0, _pad1, _pad2;
+    mat4  mirrorViewProj;
 } uCam;
 
 layout(std140, set=0, binding=2) uniform LightsUBO {
@@ -35,11 +39,11 @@ layout(std140, set=0, binding=2) uniform LightsUBO {
     int   count; int _pad[3];
 } uLights;
 
-// NkPBRParams — std140, 96 bytes (doit correspondre exactement au struct C++)
+// NkPBRParams — std140, 96 bytes. Doit matcher EXACTEMENT le struct C++.
 // offsets : albedo=0, emissive=16, metallic=32, roughness=36, ao=40,
 //           emissiveStrength=44, normalStrength=48, clearcoat=52,
 //           clearcoatRough=56, subsurface=60, subsurfaceColor=64,
-//           anisotropy=80, sheen=84, _pad=88
+//           anisotropy=80, sheen=84, reflFloorFaceMode=88, _pad=92
 layout(std140, set=2, binding=8) uniform ReflFloorUBO {
     vec4  albedo;
     vec4  emissive;
@@ -54,23 +58,21 @@ layout(std140, set=2, binding=8) uniform ReflFloorUBO {
     vec4  subsurfaceColor;
     float anisotropy;
     float sheen;
-    float _pad0;
-    float _pad1;
+    float reflFloorFaceMode;   // 0=FRONT_ONLY, 1=BACK_ONLY, 2=BOTH
+    float _pad;
 } uFloor;
 
-// binding=3 = slot "albedo" du MaterialSystem → ici la texture RT de reflet
-layout(set=2, binding=3) uniform sampler2D tReflection;
+layout(set=2, binding=3) uniform sampler2D tReflection;      // RT face avant
+layout(set=2, binding=4) uniform sampler2D tReflectionBack;  // RT face arriere
 
 void main() {
     vec3 N   = normalize(vNormal);
     vec3 V   = normalize(uCam.camPos.xyz - vWorldPos);
     float NdV_signed = dot(N, V);
-    float NdV = max(NdV_signed, 0.0);
+    float NdV_abs    = abs(NdV_signed);
 
-    // Couleur de base du sol modulée par la teinte par-objet
     vec3 baseColor = uFloor.albedo.rgb * vColor.rgb;
 
-    // Éclairage diffus simple pour la couleur de base
     vec3 diffuse = vec3(0.0);
     for (int i = 0; i < uLights.count && i < 32; i++) {
         vec3  L;
@@ -88,50 +90,48 @@ void main() {
         float NdL = max(dot(N, L), 0.0);
         diffuse += uLights.colors[i].rgb * uLights.colors[i].w * att * NdL;
     }
-    // Lighting du sol : atténué pour éviter la saturation avec des lumières fortes.
-    // Le sol est principalement un miroir — la couleur de base reste subtile.
     vec3 directLit = baseColor * clamp(diffuse, vec3(0.0), vec3(1.0)) * 0.35;
     vec3 ambient   = baseColor * 0.10;
     vec3 litBase   = ambient + directLit;
 
-    // Sol-miroir physique unidirectionnel : la face arriere est invisible
-    // (discard), on voit directement les objets situes derriere a travers
-    // l'emplacement du sol. C'est le comportement d'un miroir reel : il
-    // reflete uniquement la face avant, et l'envers n'existe pas du point
-    // de vue rendering (un miroir realiste serait fin et opaque, on simplifie).
-    if (NdV_signed <= 0.0) discard;
-    float facing = smoothstep(0.0, 0.05, NdV_signed);  // fade les angles rasants
+    // Decision face visible selon faceMode :
+    int faceMode = int(uFloor.reflFloorFaceMode + 0.5);  // round
+    bool seeFront = (NdV_signed >  0.0);
+    bool seeBack  = (NdV_signed <= 0.0);
+    bool discardFrag = false;
+    if (faceMode == 0) {                  // FRONT_ONLY
+        if (seeBack) discardFrag = true;
+    } else if (faceMode == 1) {           // BACK_ONLY
+        if (seeFront) discardFrag = true;
+    }                                     // BOTH : pas de discard
 
-    // Fresnel (Schlick) : plus de reflet aux angles rasants
+    if (discardFrag) discard;
+
+    // Fade aux angles rasants (commun aux deux cotes).
+    float facing = smoothstep(0.0, 0.05, NdV_abs);
+
+    // Fresnel (utilise |NdV| pour gerer les deux cotes uniformement).
     float f0      = 0.04;
-    float fresnel = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
+    float fresnel = f0 + (1.0 - f0) * pow(1.0 - NdV_abs, 5.0);
 
-    // Force du reflet dominante : roughness=0 → ~95% miroir.
-    // Plancher 0.9 pour garantir un reflet visible meme a incidence normale.
-    // Multiplie par 'facing' pour fader aux angles rasants.
     float reflStr = (1.0 - uFloor.roughness) * mix(0.9, 1.0, fresnel) * facing;
 
-    // UV espace-écran pour le lookup du RT de réflexion.
-    // gl_FragCoord.xy = position pixel du fragment dans le framebuffer courant.
-    // Diviser par viewport donne [0,1] dans les deux axes.
-    // Pas de flip Y : la caméra miroir rend déjà dans l'orientation correcte.
-    // Sample du RT via projection mirror viewProj. Pour un fragment du sol
-    // P_floor, reflUV = position screen du fragment ; le RT à cet UV contient
-    // l'image de l'objet réfléchi (rendu via cam.viewProj * mirror_matrix * P).
+    // UV ecran du fragment, project via mirrorViewProj (calc par le system).
     vec4 reflClip = uCam.mirrorViewProj * vec4(vWorldPos, 1.0);
     vec2 reflUV   = (reflClip.xy / reflClip.w) * 0.5 + 0.5;
-    // Vulkan : viewport flipY=true inverse Y au rendering -> le RT est stocke
-    // avec les donnees inversees verticalement. Le sample lecture UV (0,0)=top
-    // recupere donc ce qui a ete ecrit en bas image NDC. Pour matcher,
-    // flipper reflUV.y. NB : en OpenGL la convention storage est aussi
-    // top-down via SPIRV-Cross + glClipControl LOWER_LEFT/ZERO_TO_ONE.
+    // Vulkan viewport flipY=true : RT stocke inversee verticalement. Flip UV.y.
     reflUV.y = 1.0 - reflUV.y;
-    vec3 reflColor = texture(tReflection, reflUV).rgb;
 
-    // Mix module par reflStr : roughness=0 + angle rasant -> ~95% reflet,
-    // roughness=1 ou angle frontal sans Fresnel boost -> presque tout litBase.
-    // Auparavant le mix ignorait reflStr (color = reflColor + litBase * 0.05),
-    // ce qui forcait toujours 100% reflet quel que soit l'angle.
+    // Sample du bon RT selon le cote vu :
+    //   face avant -> tReflection      (RT pos)
+    //   face arriere -> tReflectionBack (RT neg, alloue si twoSided/BOTH/BACK_ONLY)
+    vec3 reflColor;
+    if (seeFront) {
+        reflColor = texture(tReflection, reflUV).rgb;
+    } else {
+        reflColor = texture(tReflectionBack, reflUV).rgb;
+    }
+
     vec3 color = mix(litBase, reflColor, clamp(reflStr, 0.0, 1.0));
     fragColor  = vec4(color, uFloor.albedo.a);
 }

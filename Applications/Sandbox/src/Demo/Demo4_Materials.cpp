@@ -231,6 +231,12 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
             desc.rtHeight = (ctx.height / 2 > 0) ? ctx.height / 2 : 256;
             desc.hdr      = true;
             desc.debugName= NkString("Demo4_FloorReflection");
+            // Phase R.2 : bidirectionnel (BOTH) -> 2 RT, sol visible des deux
+            // cotes. Sphere du dessus refletees sur la face avant, sphere du
+            // dessous refletees sur la face arriere. Touche 'F' cycle le mode
+            // FRONT_ONLY/BACK_ONLY/BOTH (cf. handler clavier ci-dessous).
+            desc.twoSided = true;
+            desc.faceMode = NkPlanarFaceMode::BOTH;
             if (st->floorMat && st->floorMat->IsValid())
                 desc.targetMaterial = st->floorMat->GetInstHandle();
             st->reflHandle = refl->Register(desc);
