@@ -23,6 +23,8 @@
 
 #include "NKSerialization/Asset/NkAssetMetadata.h"
 #include <ctime>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 namespace nkentseu {
 
@@ -138,7 +140,8 @@ public:
         }
 
         nk_size srcSize = static_cast<nk_size>(file.GetSize());
-        NkVector<nk_uint8> payload(srcSize);
+        NkVector<nk_uint8> payload;
+        payload.Resize(srcSize);
 
         if (srcSize > 0 && file.Read(payload.Data(), srcSize) != srcSize) {
             file.Close();
@@ -318,7 +321,7 @@ public:
     [[nodiscard]] static bool Cook(
         const char*        inputAsset,
         const char*        outputDir,
-        const CookOptions& opts = {},
+        const CookOptions& opts,
         NkString*          err  = nullptr) noexcept
     {
         // Lire l'asset complet
