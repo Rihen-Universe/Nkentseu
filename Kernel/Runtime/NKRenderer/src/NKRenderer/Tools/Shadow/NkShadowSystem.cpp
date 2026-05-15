@@ -127,11 +127,15 @@ namespace nkentseu {
             // peter-panning.
             b.shadowBias   = mCfg.shadowBias;
             b.normalBias   = mCfg.normalBias;
-            // softShadows=1 -> PBR shader prend la branche PCSS (blocker search +
-            // PCF Poisson 16-tap kernel adaptatif). Tous les modes sauf NONE
-            // utilisent ce path (PCF3x3/PCF5x5/POISSON/PCSS). PCF dur 3x3 fixe
-            // n'est qu'un fallback de derniere chance quand softShadows=0.
-            b.softShadows  = (mCfg.pcfMode != NkPCFMode::NONE) ? 1 : 0;
+            // softShadows : encode le mode PCF pour le shader PBR.
+            //   0 = NONE     -> PCF 3x3 dur (fallback)
+            //   1 = PCF/Poisson uniforme (PCF3x3/PCF5x5/POISSON modes regroupes)
+            //   2 = PCSS     -> contact-hardening (blocker search via tShadowMapRaw,
+            //                   radius adaptatif selon penumbra calculee)
+            int32 softMode = 0;
+            if (mCfg.pcfMode == NkPCFMode::PCSS)         softMode = 2;
+            else if (mCfg.pcfMode != NkPCFMode::NONE)    softMode = 1;
+            b.softShadows  = softMode;
             b.softness     = mCfg.softness;
             mDevice->WriteBuffer(mUBOShadow, &b, sizeof(b));
         }

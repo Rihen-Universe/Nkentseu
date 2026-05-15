@@ -3,7 +3,7 @@
 //
 // Usage :
 //   renderdemo                       # demo par defaut (Demo 0 — Subsystems)
-//   renderdemo --demo=N              # selectionne la demo (0..2)
+//   renderdemo --demo=N              # selectionne la demo (0=Subsystems, 1=2D, 2=3D, 3=Materials)
 //   renderdemo --backend=opengl      # (par defaut)
 //   renderdemo --backend=vulkan|dx11|dx12|metal|sw
 //
@@ -75,9 +75,12 @@ namespace nkentseu { namespace demo {
                 return c;
             }
             case 3: {
-                // Demo4 : meme config que Demo3D — 5 spheres, scene ~12 unites
+                // Demo4 : meme config que Demo3D — 5 spheres, scene ~12 unites.
+                // PCSS active (contact-hardening) : sphere ↔ sol -> ombres
+                // nettes au contact, plus floues en s'eloignant.
                 auto c = NkRendererConfig::ForGame(api, w, h);
                 c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = true;
                 return c;
             }
             default: return NkRendererConfig::ForGame(api, w, h);
@@ -94,6 +97,9 @@ int nkmain(const NkEntryState& state) {
     // ── Parse args ───────────────────────────────────────────────────────────
     NkGraphicsApi api    = ParseBackend(state.GetArgs());
     int           demoIx = ParseDemo(state.GetArgs(), 0);
+    // Alias : --demo=4 -> Materials (index 3) car le fichier source s'appelle
+    // Demo4_Materials.cpp. Coherence avec le nom plutot que l'index zero-based.
+    if (demoIx == 4) demoIx = 3;
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 
