@@ -30,6 +30,13 @@
 #include "NKSerialization/NkISerializable.h"
 #include "NKSerialization/Asset/NkAssetMetadata.h"
 
+// Windows.h pollue le namespace global avec #define GetObject GetObjectA.
+// Repete la garde apres tous les includes pour s'assurer que nos appels
+// archive.GetObject(...) ne deviennent pas archive.GetObjectA(...).
+#ifdef GetObject
+#undef GetObject
+#endif
+
 namespace nkentseu {
     namespace renderer {
 

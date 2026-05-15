@@ -16,6 +16,7 @@
 // =============================================================================
 #include "DemoCommon.h"
 #include "NKRenderer/Materials/NkMaterial.h"
+#include "NKRenderer/Materials/NkMaterialLibrary.h"   // Phase G
 #include "NKRenderer/Core/NkRenderTarget.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
@@ -63,6 +64,10 @@ struct Demo4MatState {
     NkRenderTarget reflRT;
     NkMaterial*    floorMat   = nullptr;   // materiau du sol avec texture reflet
     bool           reflEnabled = true;
+
+    // Phase G : sphere #1 (or) chargee depuis un .nkasset au lieu du code.
+    // Si valide, remplace mats[0]->GetInstHandle() au moment du draw call.
+    NkMatInstHandle goldFromAsset;
 };
 
 // ── Applique les parametres au materiau ───────────────────────────────────────
@@ -165,6 +170,51 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         }
     }
 
+    // ── Phase G : round-trip Save → Scan → Load via NkMaterialLibrary ────────
+    // Demonstre le pipeline complet : un material code-driven est serialise en
+    // .nkasset binaire, puis re-charge via NkAssetRegistry + NkMaterialLibrary.
+    // L'instance retournee remplace st->mats[0] (sphere #1 "or") au draw.
+    {
+        auto* matLib = matSys->GetLibrary();
+        if (matLib && matLib->IsValid()) {
+            // Construire un NkMaterialAsset code-driven (Gold metallic).
+            NkMaterialAsset gold;
+            gold.type             = NkMaterialType::NK_PBR_METALLIC;
+            gold.name             = NkString("Gold");
+            gold.queue            = NkRenderQueue::NK_OPAQUE;
+            gold.cullMode         = nkentseu::renderer::NkCullMode::NK_NONE;
+            gold.pbr.albedo       = {1.00f, 0.78f, 0.20f, 1.f};
+            gold.pbr.metallic     = 1.0f;
+            gold.pbr.roughness    = 0.15f;
+            gold.pbr.ao           = 1.0f;
+
+            // Save dans Resources/NKRenderer/Materials/Gold.nkasset
+            NkString outPath = NkString("Resources/NKRenderer/Materials/Gold.nkasset");
+            NkAssetId savedId;
+            if (matLib->Save(gold, outPath, &savedId)) {
+                logger.Info("[Demo4][PhaseG] Saved '{0}' (id={1})\n",
+                            outPath, savedId.ToString());
+            } else {
+                logger.Warnf("[Demo4][PhaseG] Save failed for %s\n", outPath.CStr());
+            }
+
+            // Scanner le dossier pour enregistrer l'asset dans NkAssetRegistry.
+            matLib->ScanDirectory(NkString("Resources/NKRenderer/Materials"));
+
+            // Load par chemin logique. Le NkMaterialLibrary construit l'instance
+            // via NkMaterialSystem en utilisant les params PBR du .nkasset.
+            st->goldFromAsset = matLib->Load(NkString("/Materials/Gold"));
+            if (st->goldFromAsset.IsValid()) {
+                logger.Info("[Demo4][PhaseG] Loaded '/Materials/Gold' OK -> sphere #1 will use asset-loaded material\n");
+            } else {
+                logger.Warnf("[Demo4][PhaseG] Load failed for /Materials/Gold\n");
+            }
+
+            // Hot-reload : modification du .nkasset a chaud -> patche l'instance.
+            matLib->EnableHotReload(true);
+        }
+    }
+
     // Controles clavier : modifications temps reel
     NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent* e) {
         switch (e->GetKey()) {
@@ -254,6 +304,16 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
     auto* st = (Demo4MatState*)ctx.userData;
     st->angle += dt * 0.35f;
 
+    // Phase G : animation verticale des spheres (monte/descend recursivement).
+    // Differentie Demo4 de Demo3 (statique). Amplitude 0.4u, periode 2s, phase
+    // decalee par sphere pour effet "vagues".
+    const float32 bobAmp    = 0.4f;
+    const float32 bobOmega  = 3.14159f; // 2*pi / 2s
+    auto BobY = [&](int i) -> float32 {
+        float32 phase = i * 0.6f; // decalage par sphere
+        return 0.6f + bobAmp * sinf(ctx.totalTime * bobOmega + phase);
+    };
+
     if (!ctx.renderer->BeginFrame()) return;
 
     auto* r3d = ctx.renderer->GetRender3D();
@@ -335,15 +395,20 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
         r3d->BeginScene(mirrorCtx);
         for (int i = 0; i < 5; i++) {
             const float32 x = (float32)(i - 2) * 2.4f;
+            const float32 y = BobY(i);
             NkDrawCall3D dc;
             dc.mesh      = st->meshSphere;
             dc.transform = mirrorMat *
-                           NkMat4f::Translate({x, 0.6f, 0.f}) *
+                           NkMat4f::Translate({x, y, 0.f}) *
                            NkMat4f::Scale({0.55f, 0.55f, 0.55f});
-            // AABB ajustée pour le frustum culling sous la cam principale :
-            // la sphère miroir est à Y=-0.6, sa box descend sous Y=0.
-            dc.aabb      = {{x - 0.35f, -1.0f, -0.35f}, {x + 0.35f, -0.2f, 0.35f}};
-            if (st->mats[i] && st->mats[i]->IsValid())
+            // AABB englobante de l'animation (Y reel monde sphere miroir
+            // = -y). Marge bobAmp sur Y pour eviter cull pendant l'oscillation.
+            dc.aabb      = {{x - 0.35f, -1.4f, -0.35f}, {x + 0.35f,  0.2f, 0.35f}};
+            // Phase G : sphere #0 utilise l'instance chargee depuis .nkasset,
+            // les 4 autres restent code-driven (comparaison visuelle directe).
+            if (i == 0 && st->goldFromAsset.IsValid())
+                dc.material = st->goldFromAsset;
+            else if (st->mats[i] && st->mats[i]->IsValid())
                 dc.material = st->mats[i]->GetInstHandle();
             dc.tint      = kPalette[st->params[i].colorIdx % kPaletteSize];
             dc.metallic  = st->params[i].metallic;
@@ -380,14 +445,19 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
     // ── 5 spheres avec leur materiau ──────────────────────────────────────────
     for (int i = 0; i < 5; i++) {
         const float32 x = (float32)(i - 2) * 2.4f;
+        const float32 y = BobY(i);
 
         NkDrawCall3D dc;
         dc.mesh      = st->meshSphere;
-        dc.transform = NkMat4f::Translate({x, 0.6f, 0.f}) *
+        dc.transform = NkMat4f::Translate({x, y, 0.f}) *
                        NkMat4f::Scale({0.55f, 0.55f, 0.55f});
-        dc.aabb      = {{x - 0.35f, 0.2f, -0.35f}, {x + 0.35f, 1.0f, 0.35f}};
+        // AABB englobante de l'oscillation : -bobAmp en bas, +bobAmp en haut.
+        dc.aabb      = {{x - 0.35f, -0.2f, -0.35f}, {x + 0.35f, 1.4f, 0.35f}};
 
-        if (st->mats[i] && st->mats[i]->IsValid())
+        // Phase G : sphere #0 utilise l'instance chargee depuis .nkasset.
+        if (i == 0 && st->goldFromAsset.IsValid())
+            dc.material = st->goldFromAsset;
+        else if (st->mats[i] && st->mats[i]->IsValid())
             dc.material = st->mats[i]->GetInstHandle();
 
         dc.tint      = kPalette[st->params[i].colorIdx % kPaletteSize];
@@ -403,7 +473,7 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
     // Sphere fil-de-fer verte autour de la sphere actuellement selectionnee
     {
         const float32 x = (float32)(st->activeMat - 2) * 2.4f;
-        r3d->DrawDebugSphere({x, 0.6f, 0.f}, 0.72f, {0.1f, 1.f, 0.2f, 1.f});
+        r3d->DrawDebugSphere({x, BobY(st->activeMat), 0.f}, 0.72f, {0.1f, 1.f, 0.2f, 1.f});
     }
 
     // ── Overlay texte ─────────────────────────────────────────────────────────

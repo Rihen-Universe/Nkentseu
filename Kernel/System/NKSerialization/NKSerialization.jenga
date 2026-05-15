@@ -43,6 +43,11 @@ with project("NKSerialization"):
 
     dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKReflection", "NKFileSystem", "NKLogger"])
 
+    # Static lib : la macro NKENTSEU_SERIALIZATION_STATIC_LIB doit etre definie
+    # cote lib ET cote consumer pour eviter __declspec(dllimport) qui produirait
+    # des "undefined reference to __imp_*" au link.
+    defines(["NKENTSEU_SERIALIZATION_STATIC_LIB"])
+
     files([
         "src/NKSerialization/**.cpp",
         "src/NKSerialization/**.h"

@@ -94,6 +94,17 @@ namespace nkentseu {
             mMaterials.Reset(AllocOwned<NkMaterialSystem>());
             if (!mMaterials->Init(mDevice, mTextures.Get(), mShaders.Get(), mCfg.api)) return false;
 
+            // 5b. Material library (Phase G : .nkasset loader + hot-reload).
+            // Sous-systeme bas niveau, toujours actif. ScanDirectory / Load /
+            // EnableHotReload sont a la charge de l'application.
+            mMaterialLibrary.Reset(AllocOwned<NkMaterialLibrary>());
+            if (!mMaterialLibrary->Init(mDevice, mMaterials.Get(), mTextures.Get())) {
+                logger.Warnf("[NkRendererImpl] NkMaterialLibrary init failed (non bloquant)\n");
+                mMaterialLibrary.Reset();
+            } else {
+                mMaterials->SetLibrary(mMaterialLibrary.Get());
+            }
+
             // ─────────────────────────────────────────────────────────────────
             // Sous-systemes opt-in (NkSubsystemFlags) — declenchent les helpers
             // partages avec EnableSubsystem.
@@ -358,6 +369,8 @@ namespace nkentseu {
             mRender3D.Reset();
             mRender2D.Reset();
             mShadow.Reset();
+            if (mMaterialLibrary) mMaterials->SetLibrary(nullptr);
+            mMaterialLibrary.Reset();
             mMaterials.Reset();
             mMeshSystem.Reset();
             mTextures.Reset();

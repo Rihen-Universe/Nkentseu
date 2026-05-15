@@ -96,6 +96,8 @@ with project("NKRenderer"):
     _RENDERER_DEFINES = [
         f"NKRENDERER_USE_NKGLAD={1 if _USE_NKGLAD else 0}",
         f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+        # Phase G : NKSerialization en static lib (cf. NKSerialization.jenga).
+        "NKENTSEU_SERIALIZATION_STATIC_LIB",
     ]
     if _WANT_VULKAN:
         _RENDERER_DEFINES.append("NK_RHI_VK_ENABLED")

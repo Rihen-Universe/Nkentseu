@@ -109,6 +109,7 @@ def sandboxnkfont(project_name: str, source_files: list):
         dependson(_BASE_LINKS)
         defines([
             f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+            "NKENTSEU_SERIALIZATION_STATIC_LIB",
         ])
 
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -184,6 +185,7 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
         dependson(_BASE_LINKS)
         defines([
             f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+            "NKENTSEU_SERIALIZATION_STATIC_LIB",
         ])
 
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -419,6 +421,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
         dependson(_BASE_LINKS)
         defines([
             f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+            "NKENTSEU_SERIALIZATION_STATIC_LIB",
         ])
 
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -606,7 +609,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
 
 def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False):
     with project(project_name):
-        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream", "filesystem", "renderer")
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "logger", "time", "event", "window", "image", "font", "ui", "rhi", "stream", "filesystem", "renderer", "serialization", "reflection")
         windowedapp()
         language("C++")
         cppdialect("C++17")
@@ -634,6 +637,8 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
             "%{NKThreading.location}/src",
             "%{NKRHI.location}/src",
             "%{NKRenderer.location}/src",
+            "%{NKSerialization.location}/src",
+            "%{NKReflection.location}/src",
         ]
         if use_nkimage:
             _SANDBOX_INCLUDE_DIRS.append("%{NKImage.location}/src")
@@ -649,7 +654,8 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
         _BASE_LINKS = [
             "NKEvent", "NKWindow", "NKGlad", "NKLogger",
             "NKMath", "NKTime", "NKStream", "NKFileSystem",
-            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer"
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKRenderer",
+            "NKSerialization", "NKReflection"
         ]
         if use_nkimage:
             _BASE_LINKS.append("NKImage")
@@ -662,6 +668,7 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
         dependson(_BASE_LINKS)
         defines([
             f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+            "NKENTSEU_SERIALIZATION_STATIC_LIB",
         ])
 
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
