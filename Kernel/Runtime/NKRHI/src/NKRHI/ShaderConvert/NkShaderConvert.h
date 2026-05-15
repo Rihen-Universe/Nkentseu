@@ -229,12 +229,43 @@ namespace nkentseu {
             // Vide tout le cache (supprime les fichiers .nksc).
             void Clear() noexcept;
 
+            // ── Garbage collection ────────────────────────────────────────────
+            // Les fichiers .nksc accumulent dans le cache au fil des sessions :
+            // un changement de source produit un nouveau hash -> nouveau .nksc,
+            // mais l'ancien reste sur disque indefiniment. Les helpers ci-dessous
+            // permettent une purge selective.
+
+            // Supprime tous les .nksc dont la cle n'est PAS dans livingKeys.
+            // Retourne le nombre de fichiers supprimes.
+            uint32 PurgeUnused(const NkVector<uint64>& livingKeys) noexcept;
+
+            // Supprime les .nksc non touches (ni Load ni Save) durant cette
+            // session. Appel typique au Shutdown : NkShaderCache::Global()
+            // .PurgeUnusedThisSession(). Tres aggressif : NE PAS l'appeler en
+            // mode dev partiel (modifier 1 shader vide le cache des autres).
+            uint32 PurgeUnusedThisSession() noexcept;
+
+            // Supprime les .nksc dont mtime est plus vieux que maxAgeSeconds.
+            // Plus conservateur que PurgeUnusedThisSession. Pratique en CI :
+            // PurgeOlderThan(30*24*3600) au startup -> garbe 30 jours.
+            uint32 PurgeOlderThan(uint64 maxAgeSeconds) noexcept;
+
             // Singleton global (optionnel).
             static NkShaderCache& Global() noexcept;
 
         private:
             NkString mCacheDir;
             NkString KeyToPath(uint64 key) const noexcept;
+
+            // Tracking des keys touchees (Load ou Save) durant la session.
+            // Utilise par PurgeUnusedThisSession.
+            mutable NkVector<uint64> mTouchedKeys;
+            mutable bool             mTouchedSorted = false;
+
+            void   MarkTouched(uint64 key) const noexcept;
+            bool   IsTouched(uint64 key)  const noexcept;
+            uint32 PurgeImpl(const NkVector<uint64>& keepKeys,
+                             bool ageCheck, uint64 maxAgeSeconds) noexcept;
     };
 
 } // namespace nkentseu

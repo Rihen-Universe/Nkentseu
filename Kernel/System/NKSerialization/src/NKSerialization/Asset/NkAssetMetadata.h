@@ -54,7 +54,9 @@ struct NkAssetId {
         return hi < o.hi || (hi == o.hi && lo < o.lo);
     }
 
-    // Génère un GUID pseudo-aléatoire basé sur le clock + adresse mémoire
+    // Génère un GUID pseudo-aléatoire basé sur le clock + adresse mémoire.
+    // Utile pour les assets transitoires sans nom stable. Pour les materiaux,
+    // textures, etc. avec un chemin logique stable, prefere FromName().
     [[nodiscard]] static NkAssetId Generate() noexcept {
         NkAssetId id;
         // Simple PRNG basé sur les compteurs système (non-cryptographique)
@@ -65,6 +67,39 @@ struct NkAssetId {
         id.lo = s_counter ^ reinterpret_cast<nk_uint64>(&id);
         id.hi = s_counter ^ static_cast<nk_uint64>(
             reinterpret_cast<nk_size>(&s_counter));
+        return id;
+    }
+
+    // Genere un ID DETERMINISTE depuis un nom logique (FNV-1a 64-bit x2).
+    // Memes inputs -> meme ID stable entre sessions. Indispensable pour les
+    // assets references par chemin dans des fichiers scene/blueprint.
+    //
+    // Exemple : NkAssetId::FromName("/Materials/Gold") produit le meme ID
+    //           a chaque Save, garantissant unicite cross-session.
+    //
+    // Collision : 128 bits derive de 2 hashes FNV (seeds differentes).
+    // Probabilite negligeable (~10^-38) pour des noms distincts realistes.
+    [[nodiscard]] static NkAssetId FromName(NkStringView name) noexcept {
+        // FNV-1a 64-bit avec 2 seeds differentes pour generer lo + hi.
+        // Si le meme nom -> meme paire (lo, hi).
+        constexpr nk_uint64 kPrime = 1099511628211ULL;
+        constexpr nk_uint64 kSeedLo = 14695981039346656037ULL; // FNV offset basis
+        constexpr nk_uint64 kSeedHi = 0xCBF29CE484222325ULL ^ 0xDEADBEEFCAFEBABEULL;
+
+        nk_uint64 lo = kSeedLo, hi = kSeedHi;
+        const char* p = name.Data();
+        nk_size n = name.Length();
+        for (nk_size i = 0; i < n; ++i) {
+            nk_uint8 c = static_cast<nk_uint8>(p[i]);
+            lo = (lo ^ c) * kPrime;
+            hi = (hi ^ c) * (kPrime + 2u);  // prime differente pour decorreler
+        }
+        NkAssetId id;
+        id.lo = lo;
+        id.hi = hi;
+        // Garantie d'IsValid() : si lo et hi finissent par 0 (improbable mais
+        // mathematiquement possible), on force un bit a 1.
+        if (id.lo == 0 && id.hi == 0) id.lo = 1;
         return id;
     }
 
