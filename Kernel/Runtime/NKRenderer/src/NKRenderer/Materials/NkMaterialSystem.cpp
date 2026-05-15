@@ -497,6 +497,12 @@ namespace nkentseu {
             mToon.matcapStrength=v; mDirty=true; return this;
         }
 
+        NkMaterialInstance* NkMaterialInstance::SetReflFloorFaceMode(int32 mode) {
+            mPBR.reflFloorFaceMode = (float32)mode;
+            mDirty = true;
+            return this;
+        }
+
         // ── M.1 v0 : Layered material setters ───────────────────────────────────
         NkMaterialInstance* NkMaterialInstance::SetLayerBase(const NkPBRParams& p) {
             mLayered.base = p; mDirty = true; return this;
