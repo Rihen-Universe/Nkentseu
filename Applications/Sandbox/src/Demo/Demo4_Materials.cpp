@@ -68,6 +68,7 @@ struct Demo4MatState {
     const char*  matNames[5] = {"PBR Metal", "PBR Plastic", "Toon", "Anime", "Unlit"};
     NkMeshHandle meshSphere;
     NkMeshHandle meshPlane;
+    NkMeshHandle meshCube;        // Phase M.8 : multi-material cube
     DemoCamera   camera;
     int          activeMat    = 0;
     MatParams    params[5];
@@ -153,6 +154,7 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         delete st; ctx.userData = nullptr; return false;
     }
     st->meshSphere = meshSys->GetIcosphere();
+    st->meshCube   = meshSys->GetCube();   // Phase M.8 : 6 sous-meshes (1 par face)
     st->meshPlane  = meshSys->GetPlane();
 
     // Parametres initiaux par materiau
@@ -233,8 +235,7 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
             desc.debugName= NkString("Demo4_FloorReflection");
             // Phase R.2 : bidirectionnel (BOTH) -> 2 RT, sol visible des deux
             // cotes. Sphere du dessus refletees sur la face avant, sphere du
-            // dessous refletees sur la face arriere. Touche 'F' cycle le mode
-            // FRONT_ONLY/BACK_ONLY/BOTH (cf. handler clavier ci-dessous).
+            // dessous refletees sur la face arriere.
             desc.twoSided = true;
             desc.faceMode = NkPlanarFaceMode::BOTH;
             if (st->floorMat && st->floorMat->IsValid())
@@ -554,6 +555,24 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
             dc.roughness = st->params[matIdx].roughness;
             r3d->Submit(dc);
         }
+    }
+
+    // ── Phase M.8 : cube multi-materiaux (1 material par face) ───────────────
+    {
+        NkDrawCall3D dc;
+        dc.mesh       = st->meshCube;
+        dc.transform  = NkMat4f::Translate({0.f, 1.0f, -4.f}) *
+                        NkMat4f::Scale({1.2f, 1.2f, 1.2f});
+        dc.aabb       = {{-0.6f, 0.4f, -4.6f}, {0.6f, 1.6f, -3.4f}};
+        dc.castShadow = true;
+        for (int s = 0; s < 6; s++) {
+            const int matIdx = s % 5;
+            if (st->mats[matIdx] && st->mats[matIdx]->IsValid())
+                dc.materialSlots.PushBack(st->mats[matIdx]->GetInstHandle());
+            else
+                dc.materialSlots.PushBack({});
+        }
+        r3d->Submit(dc);
     }
 
     // ── Debug gizmos ─────────────────────────────────────────────────────────

@@ -421,6 +421,15 @@ namespace nkentseu {
             uint32          subMeshIdx = 0xFFFFFFFFu;              // -1 = all submeshes
             uint32          sortKey    = 0;                        // material*1000 + meshHash
             int32           lightLayerMask = -1;                   // -1 = lit by all lights
+
+            // Phase M.8 — Multi-material par sous-mesh (style Blender material
+            // slots / glTF primitives). Si non-vide, le renderer itere sur les
+            // sous-meshes du mesh et bind materialSlots[submesh.material.id]
+            // (ou materialSlots[i] selon convention NkSubMesh::material).
+            // Le champ `material` ci-dessus reste utilise comme fallback global
+            // (single-material) si `materialSlots` est vide ou pour les
+            // submeshes sans slot assigne.
+            NkVector<NkMatInstHandle> materialSlots;
         };
 
         struct NkDrawCallInstanced {
