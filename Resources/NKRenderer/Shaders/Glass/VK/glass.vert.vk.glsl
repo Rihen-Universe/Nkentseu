@@ -25,7 +25,7 @@ layout(set=0, binding=0, std140) uniform CameraUBO {
     float iblStrength;
 } uCam;
 
-layout(set=0, binding=1, std140) uniform ObjectUBO {
+layout(set=1, binding=1, std140) uniform ObjectUBO {
     mat4  model, normalMatrix;
     vec4  tint;
     float metallic, roughness, aoStrength, emissiveStrength;

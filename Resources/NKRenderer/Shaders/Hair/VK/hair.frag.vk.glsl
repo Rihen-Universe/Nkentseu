@@ -6,10 +6,10 @@ layout(location=2) in vec3 vTangent;  layout(location=4) in vec2 vUV;
 layout(location=6) in vec4 vColor;
 layout(location=0) out vec4 fragColor;
 layout(set=0,binding=0) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
-layout(set=0,binding=1) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStrength,emissiveStrength,normalStrength,clearcoat,clearcoatRoughness,subsurface;vec4 subsurfaceColor;}uObj;
+layout(set=1,binding=1) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStrength,emissiveStrength,normalStrength,clearcoat,clearcoatRoughness,subsurface;vec4 subsurfaceColor;}uObj;
 layout(set=0,binding=2) uniform LightsUBO{vec4 positions[32],colors[32],directions[32],angles[32];int count;int _pad[3];}uLights;
-layout(set=1,binding=0) uniform sampler2D tAlbedo;
-layout(set=1,binding=1) uniform sampler2D tAlphaMask;  // hair opacity
+layout(set=2,binding=3) uniform sampler2D tAlbedo;
+layout(set=2,binding=4) uniform sampler2D tAlphaMask;  // hair opacity
 
 void main(){
     vec4 albSamp=texture(tAlbedo,vUV)*vColor;

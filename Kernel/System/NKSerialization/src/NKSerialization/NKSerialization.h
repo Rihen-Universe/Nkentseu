@@ -102,6 +102,20 @@
     #include "NKSerialization/Native/NkReflect.h"
 
     // -------------------------------------------------------------------------
+    // SECTION 6b : SYSTEME D'ASSET (file format .nkasset)
+    // -------------------------------------------------------------------------
+    // Format binaire NkNative + header + payload + CRC32 pour assets typees.
+    // Utilise pour les materiaux, textures, meshes, sons, etc. Le mecanisme
+    // est independant du contenu : tout module (NKRenderer, NKAudio, NKMesh)
+    // peut definir ses propres types serialisables et les stocker en .nkasset.
+
+    // Metadata + IO + Registry global
+    #include "NKSerialization/Asset/NkAssetMetadata.h"
+
+    // Importer : pipeline source -> .nkasset
+    #include "NKSerialization/Asset/NkAssetImporter.h"
+
+    // -------------------------------------------------------------------------
     // SECTION 7 : UTILITAIRES ET BENCHMARKING
     // -------------------------------------------------------------------------
     // Inclusion optionnelle des utilitaires de mesure de performance.
