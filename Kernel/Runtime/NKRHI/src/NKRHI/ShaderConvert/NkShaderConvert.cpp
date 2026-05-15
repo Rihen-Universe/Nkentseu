@@ -564,10 +564,10 @@ namespace nkentseu {
         FILE* f = fopen(path.CStr(), "rb");
         if (!f) return out;
 
-        uint32 magic = 0; 
-        uint64 storedKey = 0; 
+        uint32 magic = 0;
+        uint64 storedKey = 0;
         uint32 size = 0;
-        
+
         if (fread(&magic,     sizeof(magic),     1, f) != 1 || magic != kNkscMagic ||
             fread(&storedKey, sizeof(storedKey), 1, f) != 1 || storedKey != key    ||
             fread(&size,      sizeof(size),      1, f) != 1) {
@@ -584,6 +584,8 @@ namespace nkentseu {
         }
         fclose(f);
         out.success = true;
+        // Cache hit -> marquer la cle comme touchee pour la GC.
+        MarkTouched(key);
         return out;
     }
 
@@ -621,13 +623,14 @@ namespace nkentseu {
             // Écrire les données brutes
             fwrite(result.binary.Data(), 1, dataSize, f);
             fclose(f);
+            MarkTouched(key);
             return true;
         }
-        
+
         srcBuf = ToStd(result.source);
         data   = reinterpret_cast<const uint8*>(srcBuf.data());
         size   = (uint32)srcBuf.size();
-            
+
 
         FILE* f = fopen(path.CStr(), "wb");
         if (!f) return false;
@@ -637,6 +640,7 @@ namespace nkentseu {
         fwrite(&size,       sizeof(size),       1, f);
         fwrite(data,        1, size,               f);
         fclose(f);
+        MarkTouched(key);
         return true;
     }
 
@@ -683,6 +687,148 @@ namespace nkentseu {
     NkShaderCache& NkShaderCache::Global() noexcept {
         static NkShaderCache s;
         return s;
+    }
+
+    // ── Tracking session ─────────────────────────────────────────────────────
+    void NkShaderCache::MarkTouched(uint64 key) const noexcept {
+        // Insertion ordonnee + dedup : on garde mTouchedKeys tri pour lookup
+        // O(log n) via binary search. Cout par-Load/Save acceptable (10s
+        // d'entrees par session typique).
+        if (!mTouchedSorted) {
+            mTouchedKeys.PushBack(key);
+            mTouchedSorted = false;
+            return;
+        }
+        // binary search insert
+        nk_size lo = 0, hi = mTouchedKeys.Size();
+        while (lo < hi) {
+            nk_size mid = (lo + hi) >> 1u;
+            if (mTouchedKeys[mid] < key) lo = mid + 1;
+            else                          hi = mid;
+        }
+        if (lo < mTouchedKeys.Size() && mTouchedKeys[lo] == key) return; // dedup
+        mTouchedKeys.PushBack(key);  // append puis on retriera au prochain IsTouched
+        mTouchedSorted = false;
+    }
+
+    bool NkShaderCache::IsTouched(uint64 key) const noexcept {
+        if (!mTouchedSorted) {
+            std::sort(mTouchedKeys.begin(), mTouchedKeys.end());
+            mTouchedSorted = true;
+        }
+        nk_size lo = 0, hi = mTouchedKeys.Size();
+        while (lo < hi) {
+            nk_size mid = (lo + hi) >> 1u;
+            if (mTouchedKeys[mid] < key)      lo = mid + 1;
+            else if (mTouchedKeys[mid] > key) hi = mid;
+            else                              return true;
+        }
+        return false;
+    }
+
+    // ── Purge generique : parcourt le dossier, supprime selon le predicat ────
+    uint32 NkShaderCache::PurgeImpl(const NkVector<uint64>& keepKeys,
+                                     bool ageCheck, uint64 maxAgeSeconds) noexcept {
+        if (mCacheDir.Empty()) return 0;
+        // Trier keepKeys pour binary search
+        NkVector<uint64> sorted = keepKeys;
+        std::sort(sorted.begin(), sorted.end());
+
+        auto isKept = [&](uint64 k) -> bool {
+            nk_size lo = 0, hi = sorted.Size();
+            while (lo < hi) {
+                nk_size mid = (lo + hi) >> 1u;
+                if (sorted[mid] < k)      lo = mid + 1;
+                else if (sorted[mid] > k) hi = mid;
+                else                       return true;
+            }
+            return false;
+        };
+
+        // Now() en secondes Unix epoch (pour ageCheck).
+        uint64 nowSec = (uint64)time(nullptr);
+        uint32 removed = 0;
+        std::string dir = ToStd(mCacheDir);
+
+    #ifdef _WIN32
+        WIN32_FIND_DATAA fd;
+        std::string pattern = dir + "\\*.nksc";
+        HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                const char* name = fd.cFileName;
+                // Parse 16-char hex prefix -> key
+                if (strlen(name) < 21) continue; // "%016llx.nksc" = 21 chars
+                uint64 key = 0;
+                if (sscanf(name, "%16llx.nksc", (unsigned long long*)&key) != 1) continue;
+
+                bool shouldRemove = false;
+                if (!keepKeys.Empty()) {
+                    shouldRemove = !isKept(key);
+                }
+                if (ageCheck) {
+                    ULARGE_INTEGER ull;
+                    ull.LowPart  = fd.ftLastWriteTime.dwLowDateTime;
+                    ull.HighPart = fd.ftLastWriteTime.dwHighDateTime;
+                    // FILETIME = 100ns intervalles depuis 1601. Conversion en sec Unix.
+                    uint64 fileSec = (ull.QuadPart / 10000000ULL) - 11644473600ULL;
+                    if (nowSec > fileSec && (nowSec - fileSec) > maxAgeSeconds)
+                        shouldRemove = true;
+                }
+                if (shouldRemove) {
+                    std::string full = dir + "\\" + name;
+                    if (DeleteFileA(full.c_str())) ++removed;
+                }
+            } while (FindNextFileA(h, &fd));
+            FindClose(h);
+        }
+    #else
+        DIR* d = opendir(dir.c_str());
+        if (d) {
+            struct dirent* ent;
+            while ((ent = readdir(d))) {
+                std::string name = ent->d_name;
+                if (name.size() != 21 || name.substr(name.size()-5) != ".nksc") continue;
+                uint64 key = 0;
+                if (sscanf(name.c_str(), "%16llx.nksc", (unsigned long long*)&key) != 1) continue;
+
+                std::string full = dir + "/" + name;
+                bool shouldRemove = false;
+                if (!keepKeys.Empty()) {
+                    shouldRemove = !isKept(key);
+                }
+                if (ageCheck) {
+                    struct stat st {};
+                    if (stat(full.c_str(), &st) == 0) {
+                        uint64 fileSec = (uint64)st.st_mtime;
+                        if (nowSec > fileSec && (nowSec - fileSec) > maxAgeSeconds)
+                            shouldRemove = true;
+                    }
+                }
+                if (shouldRemove && remove(full.c_str()) == 0) ++removed;
+            }
+            closedir(d);
+        }
+    #endif
+        return removed;
+    }
+
+    uint32 NkShaderCache::PurgeUnused(const NkVector<uint64>& livingKeys) noexcept {
+        return PurgeImpl(livingKeys, /*ageCheck=*/false, 0);
+    }
+
+    uint32 NkShaderCache::PurgeUnusedThisSession() noexcept {
+        // Tri local (la signature de PurgeImpl trie de toute façon).
+        if (!mTouchedSorted) {
+            std::sort(mTouchedKeys.begin(), mTouchedKeys.end());
+            mTouchedSorted = true;
+        }
+        return PurgeImpl(mTouchedKeys, /*ageCheck=*/false, 0);
+    }
+
+    uint32 NkShaderCache::PurgeOlderThan(uint64 maxAgeSeconds) noexcept {
+        NkVector<uint64> empty;
+        return PurgeImpl(empty, /*ageCheck=*/true, maxAgeSeconds);
     }
 
 } // namespace nkentseu
