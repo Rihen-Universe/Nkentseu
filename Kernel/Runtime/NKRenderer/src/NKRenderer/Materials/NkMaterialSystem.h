@@ -27,6 +27,10 @@ namespace nkentseu {
             // Debug
             NK_UNLIT=60, NK_DEBUG_NORMALS, NK_DEBUG_UV,
             NK_WIREFRAME_MAT, NK_DEBUG_DEPTH, NK_DEBUG_AO,
+            // M.1 Material Layering — N couches PBR superposees avec masques.
+            // v0 = 2 layers (base + top), masque via vertex color.R.
+            // Roadmap : extension a N=8 layers + shader generation dynamique.
+            NK_LAYERED=80,
             // Custom
             NK_CUSTOM=100,
         };
@@ -54,6 +58,18 @@ namespace nkentseu {
             float32 anisotropy        = 0.f;
             float32 sheen             = 0.f;
             float32 _pad[2]           = {};
+        };
+
+        // M.1 v0 : 2 layers PBR superposes avec masque vertex-color.
+        // Layout std140 doit matcher EXACTEMENT le UBO LayeredUBO du shader
+        // layered.frag.vk.glsl (set=2 binding=8). Taille = 2 x 96 + 16 = 208 B.
+        struct alignas(16) NkLayeredParams {
+            NkPBRParams base;       // layer 0 (mask=0)
+            NkPBRParams top;        // layer 1 (mask=1)
+            // Source du masque dans vColor : 0=R, 1=G, 2=B, 3=A.
+            // Roadmap v1 : 4=texture (necessitera un slot tMask supplementaire).
+            int32       maskSource    = 0;
+            int32       _pad[3]       = {};
         };
 
         struct alignas(16) NkToonParams {
@@ -129,6 +145,12 @@ namespace nkentseu {
                 NkMaterialInstance* SetBool   (const NkString& n, bool v);
                 NkMaterialInstance* SetTexture(const NkString& n, NkTexHandle t);
 
+                // M.1 v0 : Layered material setters
+                NkMaterialInstance* SetLayerBase     (const NkPBRParams& p);
+                NkMaterialInstance* SetLayerTop      (const NkPBRParams& p);
+                NkMaterialInstance* SetLayerMaskSource(int32 src); // 0=R 1=G 2=B 3=A
+                NkMaterialInstance* SetLayered       (const NkLayeredParams& l);
+
                 NkMatHandle       GetTemplate() const { return mTemplate; }
                 NkRenderQueue     GetQueue()    const;
                 bool              IsDirty()     const { return mDirty; }
@@ -136,6 +158,7 @@ namespace nkentseu {
                 NkDescSetHandle   GetDescSet()  const { return mDescSet; }
                 const NkPBRParams&  GetPBR()    const { return mPBR; }
                 const NkToonParams& GetToon()   const { return mToon; }
+                const NkLayeredParams& GetLayered() const { return mLayered; }
 
             private:
                 friend class NkMaterialSystem;
@@ -146,6 +169,7 @@ namespace nkentseu {
                 bool            mDirty = true;
                 NkPBRParams     mPBR;
                 NkToonParams    mToon;
+                NkLayeredParams mLayered;   // M.1 v0 : utilise si type == NK_LAYERED
                 struct Param {
                     NkString name;
                     enum class Kind:uint8{F,V2,V3,V4,I,B,TEX} kind = Kind::F;
@@ -217,12 +241,20 @@ namespace nkentseu {
                 NkMatHandle DefaultAnime()     const { return mTmplAnime; }
                 NkMatHandle DefaultArchviz()   const { return mTmplArchviz; }
                 NkMatHandle DefaultReflFloor() const { return mTmplReflFloor; }
+                NkMatHandle DefaultLayered()   const { return mTmplLayered; } // M.1
 
                 // Phase G : NkMaterialLibrary (sous-systeme integre).
                 // Charge / cache / hot-reload des materiaux .nkasset.
                 // Initialise par NkRendererImpl apres NkMaterialSystem::Init.
                 class NkMaterialLibrary* GetLibrary() const { return mLibrary; }
                 void SetLibrary(class NkMaterialLibrary* lib) { mLibrary = lib; }
+
+                // Layout du descriptor set per-instance materiau (set=2). Expose
+                // pour que les pipelines crees hors NkMaterialSystem (PBR canonical
+                // dans NkRender3D notamment) puissent le declarer dans leur
+                // descriptorSetLayouts[2] — sinon le shader sample des set=2 non
+                // declares -> validation errors + comportement non defini.
+                NkDescSetHandle GetInstanceLayout() const { return mInstDescLayout; }
 
             private:
                 struct TemplateEntry {
@@ -254,6 +286,7 @@ namespace nkentseu {
                 NkMatHandle mTmplPBR, mTmplToon, mTmplUnlit, mTmplWire;
                 NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;
                 NkMatHandle mTmplReflFloor;
+                NkMatHandle mTmplLayered;  // M.1 v0
 
                 // Pipelines orphelins par UpdateRenderPass : detruits au Shutdown.
                 // Cf. UpdateRenderPass — DestroyPipeline immediat invalide les

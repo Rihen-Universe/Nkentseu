@@ -19,6 +19,7 @@
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRenderer/Core/NkTextureLibrary.h"
+#include "NKRenderer/Materials/NkMaterialSystem.h"   // NkPBRParams, NkMaterialType, ...
 #include "NKRHI/Core/NkIDevice.h"
 
 namespace nkentseu {
@@ -54,6 +55,23 @@ namespace nkentseu {
                 NkMaterial* SetBool   (const char* name, bool       v);
                 NkMaterial* SetTexture(const char* name, NkTexHandle t);
 
+                // Wrappers inline zero-cost. SetScalarParameterValue prend un float,
+                // SetVectorParameterValue un NkVec4f (RGBA), SetTextureParameterValue
+                // une NkTexHandle. Convention UE5 : "Parameter" reference une variable
+                // declaree dans le shader via @param/@color.
+                NkMaterial* SetScalarParameterValue (const char* name, float32     v) {
+                    return SetFloat(name, v);
+                }
+                NkMaterial* SetVectorParameterValue (const char* name, NkVec4f     c) {
+                    return SetVec4(name, c);
+                }
+                NkMaterial* SetTextureParameterValue(const char* name, NkTexHandle t) {
+                    return SetTexture(name, t);
+                }
+                NkMaterial* SetStaticSwitchParameterValue(const char* name, bool b) {
+                    return SetBool(name, b);
+                }
+
                 // ── Raccourcis PBR (SetScalarParameterValue UE-style) ────────────
                 NkMaterial* SetAlbedo      (NkVec3f c, float32 a = 1.f);
                 NkMaterial* SetAlbedoMap   (NkTexHandle t);
@@ -76,6 +94,11 @@ namespace nkentseu {
                 NkMaterial* SetSpecHardness  (float32 v);
                 NkMaterial* SetMatcapMap     (NkTexHandle t);
                 NkMaterial* SetMatcapStrength(float32 v);
+
+                // ── M.1 v0 : Layered material (2 layers PBR + masque vColor) ───────
+                NkMaterial* SetLayerBase     (const NkPBRParams& p);
+                NkMaterial* SetLayerTop      (const NkPBRParams& p);
+                NkMaterial* SetLayerMaskSource(int32 src); // 0=R 1=G 2=B 3=A
 
                 // ── État ──────────────────────────────────────────────────────────
                 bool          IsValid()      const;
