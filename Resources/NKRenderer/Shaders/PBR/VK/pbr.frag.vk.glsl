@@ -168,12 +168,23 @@ float ShadowPCF(int cascade, vec4 coord, float bias) {
 
     vec2 ts = 1.0 / vec2(textureSize(tShadowMap, 0));
 
-    if (uShadow.softShadows != 0) {
+    if (uShadow.softShadows == 2) {
+        // PCSS contact-hardening : blocker search puis kernel adaptatif.
+        // - Recherche les blockers dans un rayon proportionnel a softness.
+        // - Si aucun blocker (recevoir au-dessus de tous les samples) -> no shadow.
+        // - Sinon, penumbra ~ (receiver - blocker) * softness / blocker.
+        //   Plus le blocker est proche du recevoir, plus la penumbra est faible
+        //   (ombre nette au contact). Plus il est loin, plus elle s'elargit.
+        float searchRadius = max(uShadow.softness * 0.5, ts.x * 2.0);
+        float blockerDepth = FindBlockerDepth(p.xy, p.z, searchRadius, tileMin, tileMax, ts);
+        if (blockerDepth < 0.0) return 1.0;
+        float penumbra = (p.z - blockerDepth) * uShadow.softness / max(blockerDepth, 1e-4);
+        float radius   = clamp(penumbra, ts.x, uShadow.softness * 4.0);
+        return PCFAdaptive(cascade, p.xy, p.z, radius, tileMin, tileMax, ts);
+    } else if (uShadow.softShadows == 1) {
         // PCF Poisson 16-tap avec kernel = softness (en UV space).
         // Variante simple sans contact-hardening : ombres uniformement douces,
-        // softness reglable live via N/M dans la demo. Le PCSS complet
-        // (blocker search via tShadowMapRaw) est mis de cote tant que le
-        // sampling du depth-texture comme sampler2D n'est pas valide proprement.
+        // softness reglable live via N/M dans la demo.
         float radius = max(uShadow.softness, ts.x);
         return PCFAdaptive(cascade, p.xy, p.z, radius, tileMin, tileMax, ts);
     } else {
