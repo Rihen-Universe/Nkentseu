@@ -201,9 +201,10 @@ namespace nkentseu {
                     break;
                 }
 
-                // Attente du signal de complétion avec timeout de 1 seconde
-                // Permet de vérifier régulièrement mIsWatching pour arrêt propre
-                DWORD waitResult = WaitForSingleObject(overlapped.hEvent, 1000);
+                // Attente du signal de complétion avec timeout de 100 ms.
+                // Permet de verifier mIsWatching frequemment pour un arret rapide
+                // (ancien timeout 1000ms causait ~800ms de delai au shutdown).
+                DWORD waitResult = WaitForSingleObject(overlapped.hEvent, 100);
                 if (waitResult == WAIT_OBJECT_0)
                 {
                     // Récupération du résultat de l'opération asynchrone
@@ -334,10 +335,11 @@ namespace nkentseu {
                 FD_ZERO(&fds);
                 FD_SET(fd, &fds);
 
-                // Timeout de 1 seconde pour vérification périodique de mIsWatching
+                // Timeout de 100ms pour verification rapide de mIsWatching
+                // (ancien 1s causait ~800ms de delai au shutdown).
                 struct timeval tv;
-                tv.tv_sec = 1;
-                tv.tv_usec = 0;
+                tv.tv_sec = 0;
+                tv.tv_usec = 100 * 1000;
 
                 // Appel bloquant avec timeout sur le descripteur inotify
                 int ret = select(fd + 1, &fds, NULL, NULL, &tv);

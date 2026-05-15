@@ -62,6 +62,8 @@ namespace nkentseu {
                 NkOffscreenTarget* CreateOffscreen(const NkOffscreenDesc& desc) override;
                 void               DestroyOffscreen(NkOffscreenTarget*& t)      override;
 
+                class NkPlanarReflectionSystem* GetPlanarReflection() override { return mPlanarReflection.Get(); }
+
                 void SetVSync     (bool e)          override;
                 void SetPostConfig(const NkPostConfig& pp) override;
                 void SetWireframe (bool e)          override;
@@ -111,6 +113,7 @@ namespace nkentseu {
                 memory::NkUniquePtr<NkVFXSystem>          mVFX;
                 memory::NkUniquePtr<NkAnimationSystem>    mAnimation;
                 memory::NkUniquePtr<NkSimulationRenderer> mSimulation;
+                memory::NkUniquePtr<class NkPlanarReflectionSystem> mPlanarReflection;
 
                 NkVector<NkOffscreenTarget*> mOffscreenTargets;
 

@@ -64,7 +64,8 @@ layout(set=2, binding=3) uniform sampler2D tReflection;
 void main() {
     vec3 N   = normalize(vNormal);
     vec3 V   = normalize(uCam.camPos.xyz - vWorldPos);
-    float NdV = max(dot(N, V), 0.0);
+    float NdV_signed = dot(N, V);
+    float NdV = max(NdV_signed, 0.0);
 
     // Couleur de base du sol modulée par la teinte par-objet
     vec3 baseColor = uFloor.albedo.rgb * vColor.rgb;
@@ -93,14 +94,22 @@ void main() {
     vec3 ambient   = baseColor * 0.10;
     vec3 litBase   = ambient + directLit;
 
+    // Sol-miroir physique unidirectionnel : la face arriere est invisible
+    // (discard), on voit directement les objets situes derriere a travers
+    // l'emplacement du sol. C'est le comportement d'un miroir reel : il
+    // reflete uniquement la face avant, et l'envers n'existe pas du point
+    // de vue rendering (un miroir realiste serait fin et opaque, on simplifie).
+    if (NdV_signed <= 0.0) discard;
+    float facing = smoothstep(0.0, 0.05, NdV_signed);  // fade les angles rasants
+
     // Fresnel (Schlick) : plus de reflet aux angles rasants
     float f0      = 0.04;
     float fresnel = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
 
     // Force du reflet dominante : roughness=0 → ~95% miroir.
-    // mix entre un plancher de 0.7 (reflet visible même à incidence normale)
-    // et 1.0 aux angles rasants via Fresnel.
-    float reflStr = (1.0 - uFloor.roughness) * mix(0.7, 1.0, fresnel);
+    // Plancher 0.9 pour garantir un reflet visible meme a incidence normale.
+    // Multiplie par 'facing' pour fader aux angles rasants.
+    float reflStr = (1.0 - uFloor.roughness) * mix(0.9, 1.0, fresnel) * facing;
 
     // UV espace-écran pour le lookup du RT de réflexion.
     // gl_FragCoord.xy = position pixel du fragment dans le framebuffer courant.
@@ -119,10 +128,10 @@ void main() {
     reflUV.y = 1.0 - reflUV.y;
     vec3 reflColor = texture(tReflection, reflUV).rgb;
 
-    // Mix simple : sol = très majoritairement le reflet du RT (95%) + un peu
-    // de couleur de base (5%) pour avoir une teinte ardoise au lieu de noir
-    // pur dans les zones non-reflétées. Les reflets sont visibles car peu
-    // dilués par litBase.
-    vec3 color = reflColor + litBase * 0.05;
+    // Mix module par reflStr : roughness=0 + angle rasant -> ~95% reflet,
+    // roughness=1 ou angle frontal sans Fresnel boost -> presque tout litBase.
+    // Auparavant le mix ignorait reflStr (color = reflColor + litBase * 0.05),
+    // ce qui forcait toujours 100% reflet quel que soit l'angle.
+    vec3 color = mix(litBase, reflColor, clamp(reflStr, 0.0, 1.0));
     fragColor  = vec4(color, uFloor.albedo.a);
 }

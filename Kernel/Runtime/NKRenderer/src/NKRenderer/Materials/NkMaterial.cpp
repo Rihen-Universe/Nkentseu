@@ -22,6 +22,7 @@ namespace nkentseu {
                 case NkMaterialType::NK_ANIME:         tmpl = sys->DefaultAnime();     break;
                 case NkMaterialType::NK_ARCHIVIZ:      tmpl = sys->DefaultArchviz();   break;
                 case NkMaterialType::NK_REFL_FLOOR:   tmpl = sys->DefaultReflFloor(); break;
+                case NkMaterialType::NK_LAYERED:      tmpl = sys->DefaultLayered();   break;
                 default:                               tmpl = sys->DefaultPBR();       break;
             }
             if (!tmpl.IsValid()) return nullptr;
@@ -140,6 +141,17 @@ namespace nkentseu {
         }
         NkMaterial* NkMaterial::SetMatcapStrength(float32 v) {
             if (mInstance) mInstance->SetMatcapStrength(v); return this;
+        }
+
+        // ── M.1 v0 : Layered passthrough ──────────────────────────────────────
+        NkMaterial* NkMaterial::SetLayerBase(const NkPBRParams& p) {
+            if (mInstance) mInstance->SetLayerBase(p); return this;
+        }
+        NkMaterial* NkMaterial::SetLayerTop(const NkPBRParams& p) {
+            if (mInstance) mInstance->SetLayerTop(p); return this;
+        }
+        NkMaterial* NkMaterial::SetLayerMaskSource(int32 src) {
+            if (mInstance) mInstance->SetLayerMaskSource(src); return this;
         }
 
         // ── État ──────────────────────────────────────────────────────────────
