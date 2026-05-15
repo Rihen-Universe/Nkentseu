@@ -11,7 +11,7 @@ layout(location=6) in uvec4 aBoneIdx;
 layout(location=7) in vec4  aBoneWeight;
 
 layout(set=0,binding=0,std140) uniform CameraUBO{mat4 view,proj,viewProj,invViewProj;vec4 camPos,camDir;vec2 viewport;float time,dt;float iblStrength;}uCam;
-layout(set=0,binding=1,std140) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
+layout(set=1,binding=1,std140) uniform ObjectUBO{mat4 model,normalMatrix;vec4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;vec4 sssColor;}uObj;
 layout(set=0,binding=5,std430) readonly buffer BonesSSBO{mat4 bones[];};
 
 layout(location=0) out vec3 vWorldPos;

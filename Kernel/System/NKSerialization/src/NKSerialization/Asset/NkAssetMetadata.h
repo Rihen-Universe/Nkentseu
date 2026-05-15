@@ -474,7 +474,8 @@ public:
         }
 
         // Lire le bloc metadata
-        NkVector<nk_uint8> metaBinary(header.metadataSize);
+        NkVector<nk_uint8> metaBinary;
+        metaBinary.Resize(header.metadataSize);
         if (file.Read(metaBinary.Data(), metaBinary.Size()) != metaBinary.Size()) {
             file.Close();
             if (err) *err = NkString("Cannot read metadata block");
@@ -697,7 +698,8 @@ public:
         }
 
         nk_size sz = file.Size();
-        NkVector<nk_uint8> binary(sz);
+        NkVector<nk_uint8> binary;
+        binary.Resize(sz);
 
         if (file.Read(binary.Data(), sz) != sz) {
             file.Close();
