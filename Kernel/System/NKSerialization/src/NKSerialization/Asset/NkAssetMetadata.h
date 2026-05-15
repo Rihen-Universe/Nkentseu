@@ -29,6 +29,14 @@
 #include <cstring>
 #include <cstdlib>
 
+// Windows headers define `#define GetObject GetObjectA` (or W) which collides
+// with NkArchive::GetObject. Si un consumer a deja inclus <windows.h> via
+// un autre header (NKRHI, NKWindow...), nos appels GetObject deviennent
+// GetObjectA au preprocessor → undefined references au link.
+#ifdef GetObject
+#undef GetObject
+#endif
+
 namespace nkentseu {
 
 // =============================================================================
@@ -418,7 +426,7 @@ public:
 
         // Écriture sur disque
         NkFile file;
-        if (!file.Open(filePath, NkFileMode::NK_WRITE)) {
+        if (!file.Open(filePath, NkFileMode::NK_WRITE_BINARY)) {
             if (err) *err = NkString("Cannot create asset file");
             return false;
         }
@@ -441,7 +449,7 @@ public:
         if (!filePath) { if (err) *err = NkString("Null file path"); return false; }
 
         NkFile file;
-        if (!file.Open(filePath, NkFileMode::NK_READ)) {
+        if (!file.Open(filePath, NkFileMode::NK_READ_BINARY)) {
             if (err) *err = NkString("Cannot open asset file");
             return false;
         }
@@ -498,7 +506,7 @@ public:
         if (!filePath) { if (err) *err = NkString("Null file path"); return false; }
 
         NkFile file;
-        if (!file.Open(filePath, NkFileMode::NK_READ)) {
+        if (!file.Open(filePath, NkFileMode::NK_READ_BINARY)) {
             if (err) *err = NkString("Cannot open asset file");
             return false;
         }
@@ -676,7 +684,7 @@ public:
         }
 
         NkFile file;
-        if (file.Open(path, NkFileMode::NK_WRITE)) {
+        if (file.Open(path, NkFileMode::NK_WRITE_BINARY)) {
             if (!file.Write(binary.Data(), binary.Size())) {
                 file.Close();
                 if (err) *err = NkString("Failed to write registry");
@@ -692,7 +700,7 @@ public:
 
     [[nodiscard]] nk_bool LoadRegistry(const char* path, NkString* err = nullptr) noexcept {
         NkFile file;
-        if (!file.Open(path, NkFileMode::NK_READ)) {
+        if (!file.Open(path, NkFileMode::NK_READ_BINARY)) {
             if (err) *err = NkString("Cannot open registry file");
             return false;
         }

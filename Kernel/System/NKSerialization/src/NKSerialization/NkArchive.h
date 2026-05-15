@@ -860,6 +860,12 @@
             /// @param key Clé à rechercher
             /// @param out Référence de sortie pour l'archive copiée
             /// @return true si la clé existe et contient un objet valide, false sinon
+            // Windows.h pollue avec #define GetObject GetObjectA. On undef
+            // localement pour declarer la methode avec son vrai nom, sinon les
+            // call sites font reference a un symbole GetObjectA inexistant.
+            #ifdef GetObject
+            #undef GetObject
+            #endif
             [[nodiscard]] nk_bool GetObject(NkStringView key, NkArchive& out) const noexcept;
 
 

@@ -218,6 +218,12 @@ namespace nkentseu {
                 NkMatHandle DefaultArchviz()   const { return mTmplArchviz; }
                 NkMatHandle DefaultReflFloor() const { return mTmplReflFloor; }
 
+                // Phase G : NkMaterialLibrary (sous-systeme integre).
+                // Charge / cache / hot-reload des materiaux .nkasset.
+                // Initialise par NkRendererImpl apres NkMaterialSystem::Init.
+                class NkMaterialLibrary* GetLibrary() const { return mLibrary; }
+                void SetLibrary(class NkMaterialLibrary* lib) { mLibrary = lib; }
+
             private:
                 struct TemplateEntry {
                     NkMaterialTemplateDesc  desc;
@@ -253,6 +259,10 @@ namespace nkentseu {
                 // Cf. UpdateRenderPass — DestroyPipeline immediat invalide les
                 // cmd buffers en cours de recording.
                 NkVector<NkPipelineHandle> mPendingDestroy;
+
+                // Phase G : sous-systeme NkMaterialLibrary (pointe non-owning).
+                // Cree et detruit par NkRendererImpl.
+                class NkMaterialLibrary* mLibrary = nullptr;
 
                 void RegisterBuiltins();
                 NkPipelineHandle CompilePipeline(TemplateEntry& t);
