@@ -317,16 +317,14 @@ namespace nkentseu {
             // Si le pipeline existe deja et est compatible avec le RP courant
             // (meme handle, donc meme format/layout), rien a faire. Cas typique :
             // 2eme frame et plus, le fb cache du graph reutilise le meme RP.
-            if (mPBRPipeline.IsValid() && mPBRPipelineRP == currentRP) return true;
-
-            // RP a change (ou 1er appel). On detruit l'ancien (s'il existe) et
-            // on recree avec le RP courant. Sur OpenGL currentRP est toujours
-            // {} (handle invalide), mais ce cas marche aussi : le backend GL
-            // ignore renderPass dans le pipeline desc.
-            if (mPBRPipeline.IsValid()) {
-                mDevice->DestroyPipeline(mPBRPipeline);
-                mPBRPipeline = {};
-            }
+            // Si pipeline existe deja, on le reutilise tel quel. Le projet garantit
+            // que tous les RPs ou le PBR est dessine partagent les memes formats
+            // (HDR R16G16B16A16 + D32_FLOAT) : Vulkan "render pass compatibility"
+            // accepte un pipeline cree pour rt_rp utilise dans Geometry_rp et
+            // inversement. Detruire+recreer a chaque changement de RP invalide
+            // le cmd buffer en cours (vkCmdPipelineBarrier suivants rejetes →
+            // EndCapture ne transitionne plus l'image RT → reflet noir).
+            if (mPBRPipeline.IsValid()) return true;
 
             NkGraphicsPipelineDesc pd;
             pd.shader       = mPBRShader;
@@ -394,17 +392,21 @@ namespace nkentseu {
         }
 
         // ── Scene ─────────────────────────────────────────────────────────────────
+        void NkRender3D::ResetFrame() {
+            // Appelee une seule fois par frame depuis NkRendererImpl::BeginFrame.
+            // Reset l'index du pool d'UBO objets pour la nouvelle frame.
+            // Doit NE PAS etre fait dans BeginScene : si la frame a deux passes
+            // (ex: passe miroir + passe principale), reset entre les deux ecrase
+            // les UBOs de la 1ere passe au moment du Execute() differe (backend GL).
+            mObjectDrawIdx = 0;
+        }
+
         void NkRender3D::BeginScene(const NkSceneContext& ctx) {
             mCtx = ctx;
             mInScene = true;
             mOpaque.Clear(); mTransparent.Clear();
             mInstanced.Clear(); mSkinned.Clear();
-            // Phase F.B.1 : reset compteur draws de la frame. Shadow pass + opaque
-            // pass + skinned pass partagent le meme compteur monotone et lisent
-            // tous dans mUBOObjectPool[mFrameSlot]. RenderShadowPass est appelee
-            // par NkShadowSystem AVANT que Flush() lance la passe color, donc
-            // l'ordre garanti est : shadow d'abord, puis opaque/skinned.
-            mObjectDrawIdx = 0;
+            // mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
         }
 
         // ── Submit ────────────────────────────────────────────────────────────────
@@ -463,6 +465,12 @@ namespace nkentseu {
             // permet la creation d'un pipeline RP-compatible.
             NkRenderPassHandle currentRP{};
             if (mGraph) currentRP = mGraph->GetPassRenderPass("Geometry");
+            // Override par la passe RT si fournie (planar reflection) : permet
+            // de compiler les pipelines materiaux pour le RP du RT avant que
+            // Geometry FB existe (1re frame). Si rt_rp et Geometry_rp ont memes
+            // formats, les pipelines restent valides pour les deux passes.
+            if (!currentRP.IsValid() && mPendingRP.IsValid())
+                currentRP = mPendingRP;
 
             // ── DEBUG triangle minimal (isolation bug PBR Vulkan) ────────────
             // Mode 1 = non-indexed Draw(3). Mode 2 = indexed DrawIndexed(3).
@@ -509,13 +517,15 @@ namespace nkentseu {
             mFrameSlot = (mFrameSlot + 1) % mFramesInFlight;
         }
 
-        void NkRender3D::Flush(NkICommandBuffer* cmd, NkRenderPassHandle /*renderPass*/) {
-            // Surcharge render-to-texture : on délègue à Flush(cmd) qui utilise
-            // toujours le RP de la Geometry pass pour les pipelines.
-            // Raison : appeler UpdateRenderPass(rtRP) avec un RP différent recompile
-            // TOUS les pipelines matériaux chaque frame → FPS s'effondre.
-            // Le RT doit avoir des formats compatibles avec la Geometry pass.
+        void NkRender3D::Flush(NkICommandBuffer* cmd, NkRenderPassHandle renderPass) {
+            // Render-to-texture : expose le RP du RT a Flush(cmd) via mPendingRP.
+            // Il sera utilise UNIQUEMENT si le Geometry RP du RenderGraph n'est
+            // pas encore disponible (FB lazy, 1re frame). Le RT doit avoir des
+            // formats compatibles avec Geometry pass (HDR R16G16B16A16 + D32_FLOAT)
+            // pour que le pipeline reste utilisable a la 2e passe sans recompile.
+            mPendingRP = renderPass;
             Flush(cmd);
+            mPendingRP = {};
         }
 
         void NkRender3D::UploadUBOs(NkICommandBuffer* cmd) {
@@ -533,6 +543,11 @@ namespace nkentseu {
                 float32 viewportX, viewportY;
                 float32 time, deltaTime;
                 float32 iblStrength, _p0, _p1, _p2;  // offset 304 : force IBL ambient
+                // Phase Planar Reflection : viewProj de la cam miroir, exposée
+                // au shader ReflFloor pour calculer reflectionUV via
+                // projection explicite. Les shaders qui n'utilisent pas ce
+                // champ ignorent simplement les bytes après leur fin de struct.
+                NkMat4f mirrorViewProj;  // offset 320 (apres 16 bytes de padding)
             };
             PBRCamUBO cb{};
             cb.view        = mCtx.camera.GetView();
@@ -562,6 +577,16 @@ namespace nkentseu {
             cb.time        = mCtx.time;
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
+            // Phase Planar Reflection : applique aussi la correction Vulkan
+            // clip-space à mirrorViewProj (sinon le sampling du RT serait clippé
+            // ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
+            cb.mirrorViewProj = mCtx.mirrorViewProj;
+            if (mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN) {
+                NkMat4f vkClip = NkMat4f::Identity();
+                vkClip[2][2] = 0.5f;
+                vkClip[3][2] = 0.5f;
+                cb.mirrorViewProj = vkClip * cb.mirrorViewProj;
+            }
             // Ring : on ecrit dans le buffer du slot courant. Le GPU lit (au pire)
             // celui du slot N-1, donc pas de stall.
             if (mFrameSlot < mUBOCameraRing.Size())

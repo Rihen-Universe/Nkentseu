@@ -60,6 +60,55 @@ namespace nkentseu {
             return false;
         }
 
+        // ── Debug messenger ──────────────────────────────────────────────────
+        // Callback invoque par les validation layers Vulkan. On route vers
+        // NkLog avec un mapping severite -> NkLogLevel. Le source (file/line)
+        // pointe sur ce callback : pas grave, le message contient deja l'ID
+        // VUID + le contexte (object, handle).
+        VKAPI_ATTR VkBool32 VKAPI_CALL VkDebugCallback(
+            VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+            VkDebugUtilsMessageTypeFlagsEXT /*types*/,
+            const VkDebugUtilsMessengerCallbackDataEXT* data,
+            void* /*userData*/) {
+            if (!data || !data->pMessage) return VK_FALSE;
+            const char* msg = data->pMessage;
+            const char* tag = "[NkRHI_VK][validation]";
+            if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+                logger.Errorf("%s %s", tag, msg);
+            } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+                logger.Warnf("%s %s", tag, msg);
+            } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+                logger.Debugf("%s %s", tag, msg);
+            } else {
+                logger.Tracef("%s %s", tag, msg);
+            }
+            return VK_FALSE; // ne pas abort le call Vulkan qui a declenche le message
+        }
+
+        bool CreateVkDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT* outMessenger) {
+            auto pfn = (PFN_vkCreateDebugUtilsMessengerEXT)
+                vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+            if (!pfn) return false;
+            VkDebugUtilsMessengerCreateInfoEXT ci{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+            ci.messageSeverity =
+                  VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
+            ci.messageType =
+                  VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+            ci.pfnUserCallback = VkDebugCallback;
+            return pfn(instance, &ci, nullptr, outMessenger) == VK_SUCCESS;
+        }
+
+        void DestroyVkDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT messenger) {
+            if (messenger == VK_NULL_HANDLE) return;
+            auto pfn = (PFN_vkDestroyDebugUtilsMessengerEXT)
+                vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+            if (pfn) pfn(instance, messenger, nullptr);
+        }
+
     } // namespace
 
     // =============================================================================
@@ -145,6 +194,16 @@ namespace nkentseu {
         ici.enabledLayerCount = (uint32)layers.Size();
         ici.ppEnabledLayerNames = layers.Empty() ? nullptr : layers.Data();
         NK_VK_CHECKRET(vkCreateInstance(&ici, nullptr, &mInstance), "vkCreateInstance");
+
+        // Debug messenger : route les validation layers vers NkLog (severity -> level).
+        // Necessite VK_EXT_debug_utils dans instanceExts (ajoute plus haut si debugMessenger=true).
+        if (vkdesc.debugMessenger && HasCStr(instanceExts, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+            if (!CreateVkDebugMessenger(mInstance, &mDebugMessenger)) {
+                NK_VK_LOG("Debug messenger non cree (procAddr manquant)\n");
+            } else {
+                NK_VK_LOG("Debug messenger actif (validation -> NkLog)\n");
+            }
+        }
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
         VkWin32SurfaceCreateInfoKHR sci{};
@@ -472,6 +531,10 @@ namespace nkentseu {
         vkDestroyDescriptorPool(mDevice,mDescPool,nullptr);
         vkDestroyCommandPool(mDevice,mOneShotPool,nullptr);
         vkDestroyDevice(mDevice, nullptr);
+        if (mDebugMessenger != VK_NULL_HANDLE) {
+            DestroyVkDebugMessenger(mInstance, mDebugMessenger);
+            mDebugMessenger = VK_NULL_HANDLE;
+        }
         mDevice = VK_NULL_HANDLE;
         mGraphicsQueue = VK_NULL_HANDLE;
         mPresentQueue = VK_NULL_HANDLE;

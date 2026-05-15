@@ -40,6 +40,12 @@ namespace nkentseu {
                 void OnResize(uint32 w, uint32 h) { mW = w; mH = h; }
 
                 // ── Frame ────────────────────────────────────────────────────────────
+                // ResetFrame doit etre appelee UNE FOIS par frame, avant toute passe.
+                // Reset le compteur d'UBO objet partage entre toutes les passes de la
+                // frame (shadow + opaque + skinned + passes RT comme planar reflection).
+                // BeginScene ne le fait PAS — sinon une 2e passe (ex: passe miroir) reset
+                // l'index et la 1ere passe relit des UBOs ecrases au moment du Execute().
+                void ResetFrame();
                 void BeginScene(const NkSceneContext& ctx);
                 void Flush(NkICommandBuffer* cmd);
                 // Surcharge render-to-texture : utilise renderPass au lieu du RP Geometry du graph.
@@ -160,6 +166,12 @@ namespace nkentseu {
                 // Phase F.B.1 : pool de descriptor sets per-object (frame x drawIdx).
                 // Chaque set est pre-bind a son UBO du pool a Init (1:1).
                 NkVector<NkVector<NkDescSetHandle>> mObjectSetPool;
+
+                // RP override pour Flush(cmd, rp) : permet aux passes RT (planar
+                // reflection) de compiler leurs pipelines avec le RP du RT au
+                // lieu du Geometry RP qui n'existe pas encore a la 1re frame
+                // (FB cree lazy par le RenderGraph). Reset apres chaque Flush.
+                NkRenderPassHandle           mPendingRP{};
 
                 // PBR pipeline + shader (charges depuis Resources/Shaders/PBR/GL/).
                 // Le pipeline est cree paresseusement au 1er FlushOpaque, quand

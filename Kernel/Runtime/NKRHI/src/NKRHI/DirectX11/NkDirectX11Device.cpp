@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cwchar>
 #include <algorithm>
+#include <d3d11sdklayers.h>
 
 #define NK_DX11_LOG(...)  logger_src.Infof("[NkRHI_DX11] " __VA_ARGS__)
 #define NK_DX11_ERR(...)  logger_src.Infof("[NkRHI_DX11][ERR] " __VA_ARGS__)
@@ -56,6 +57,40 @@ namespace nkentseu {
                 return DXGI_FORMAT_R32_FLOAT;
             }
             return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+        }
+
+        // ── DX11 InfoQueue drain ─────────────────────────────────────────────
+        // Lit les messages accumules dans l'InfoQueue depuis la frame precedente
+        // et les route vers NkLog. Appele une fois par frame dans EndFrame.
+        // No-op si InfoQueue n'a pas pu etre acquise (device non debug).
+        static void DrainDX11InfoQueue(ID3D11InfoQueue* q) {
+            if (!q) return;
+            const UINT64 count = q->GetNumStoredMessagesAllowedByRetrievalFilter();
+            for (UINT64 i = 0; i < count; ++i) {
+                SIZE_T size = 0;
+                q->GetMessage(i, nullptr, &size);
+                if (size == 0) continue;
+                NkVector<uint8> buf;
+                buf.Resize(static_cast<uint32>(size));
+                D3D11_MESSAGE* msg = reinterpret_cast<D3D11_MESSAGE*>(buf.Data());
+                if (FAILED(q->GetMessage(i, msg, &size))) continue;
+                switch (msg->Severity) {
+                    case D3D11_MESSAGE_SEVERITY_CORRUPTION:
+                    case D3D11_MESSAGE_SEVERITY_ERROR:
+                        logger.Errorf("[NkRHI_DX11][%d/%d] %s", (int)msg->Category, (int)msg->ID, msg->pDescription);
+                        break;
+                    case D3D11_MESSAGE_SEVERITY_WARNING:
+                        logger.Warnf("[NkRHI_DX11][%d/%d] %s", (int)msg->Category, (int)msg->ID, msg->pDescription);
+                        break;
+                    case D3D11_MESSAGE_SEVERITY_INFO:
+                        logger.Debugf("[NkRHI_DX11][%d/%d] %s", (int)msg->Category, (int)msg->ID, msg->pDescription);
+                        break;
+                    default:
+                        logger.Tracef("[NkRHI_DX11][%d/%d] %s", (int)msg->Category, (int)msg->ID, msg->pDescription);
+                        break;
+                }
+            }
+            q->ClearStoredMessages();
         }
 
     } // namespace
@@ -236,6 +271,15 @@ namespace nkentseu {
             return false;
         }
 
+        // InfoQueue : route les validation messages vers NkLog (debug device seulement).
+        // QI silencieux : echoue proprement si device cree sans D3D11_CREATE_DEVICE_DEBUG.
+        if (dxCfg.debugDevice) {
+            if (SUCCEEDED(mDevice->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&mInfoQueue)) && mInfoQueue) {
+                mInfoQueue->SetMuteDebugOutput(TRUE); // on a notre propre sink NkLog, evite la duplication OutputDebugString
+                NK_DX11_LOG("InfoQueue actif (validation -> NkLog)\n");
+            }
+        }
+
         // Créer la factory DXGI
         CreateDXGIFactory1(__uuidof(IDXGIFactory2), (void**)&mFactory);
         CreateSwapchain(mWidth, mHeight);
@@ -317,6 +361,8 @@ namespace nkentseu {
 
     void NkDirectX11Device::Shutdown() {
         WaitIdle();
+        DrainDX11InfoQueue(mInfoQueue);
+        NK_DX11_SAFE(mInfoQueue);
         DestroySwapchain();
         for (auto& [id,b] : mBuffers)   NK_DX11_SAFE(b.buf);
         for (auto& [id,t] : mTextures)  if (!t.isSwapchain) {
@@ -964,6 +1010,7 @@ namespace nkentseu {
         return true;
     }
     void NkDirectX11Device::EndFrame(NkFrameContext&) {
+        DrainDX11InfoQueue(mInfoQueue);
         mFrameIndex=(mFrameIndex+1)%MAX_FRAMES; ++mFrameNumber;
     }
     void NkDirectX11Device::OnResize(uint32 w, uint32 h) {

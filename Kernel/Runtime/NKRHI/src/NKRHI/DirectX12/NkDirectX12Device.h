@@ -296,6 +296,12 @@ private:
     ComPtr<IDXGISwapChain4>    mSwapchain;
     ComPtr<IDXGIFactory6>      mFactory;
 
+    // Debug InfoQueue : routage validation -> NkLog.
+    // mInfoQueue1 = callback live (Win10 2004+ / SDK Agility). mInfoQueue = polling fallback.
+    ComPtr<struct ID3D12InfoQueue>  mInfoQueue;
+    ComPtr<struct ID3D12InfoQueue1> mInfoQueue1;
+    DWORD                            mInfoQueueCookie = 0;
+
     // Descriptor heaps
     NkDX12DescHeap mRtvHeap;
     NkDX12DescHeap mDsvHeap;

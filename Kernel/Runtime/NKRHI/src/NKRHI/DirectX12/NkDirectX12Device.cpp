@@ -10,12 +10,63 @@
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+#include <d3d12sdklayers.h>
 
 #define NK_DX12_LOG(...)  logger_src.Infof("[NkRHI_DX12] " __VA_ARGS__)
 #define NK_DX12_ERR(...)  logger_src.Infof("[NkRHI_DX12][ERR] " __VA_ARGS__)
 #define NK_DX12_CHECK(hr, msg) do { if(FAILED(hr)){NK_DX12_ERR(msg " (hr=0x%X)\n",(unsigned)(hr));} } while(0)
 
 namespace nkentseu {
+
+namespace {
+    // ── DX12 InfoQueue routage NkLog ─────────────────────────────────────────
+    static void LogDX12Message(D3D12_MESSAGE_CATEGORY cat,
+                                D3D12_MESSAGE_SEVERITY sev,
+                                D3D12_MESSAGE_ID id,
+                                const char* msg) {
+        if (!msg) return;
+        switch (sev) {
+            case D3D12_MESSAGE_SEVERITY_CORRUPTION:
+            case D3D12_MESSAGE_SEVERITY_ERROR:
+                logger.Errorf("[NkRHI_DX12][%d/%d] %s", (int)cat, (int)id, msg);
+                break;
+            case D3D12_MESSAGE_SEVERITY_WARNING:
+                logger.Warnf("[NkRHI_DX12][%d/%d] %s", (int)cat, (int)id, msg);
+                break;
+            case D3D12_MESSAGE_SEVERITY_INFO:
+                logger.Debugf("[NkRHI_DX12][%d/%d] %s", (int)cat, (int)id, msg);
+                break;
+            default:
+                logger.Tracef("[NkRHI_DX12][%d/%d] %s", (int)cat, (int)id, msg);
+                break;
+        }
+    }
+
+    static void __stdcall DX12MessageCallback(D3D12_MESSAGE_CATEGORY cat,
+                                                D3D12_MESSAGE_SEVERITY sev,
+                                                D3D12_MESSAGE_ID id,
+                                                LPCSTR pDescription,
+                                                void* /*pContext*/) {
+        LogDX12Message(cat, sev, id, pDescription);
+    }
+
+    // Fallback polling pour ID3D12InfoQueue (sans InfoQueue1). Appele dans EndFrame.
+    static void DrainDX12InfoQueue(ID3D12InfoQueue* q) {
+        if (!q) return;
+        const UINT64 count = q->GetNumStoredMessagesAllowedByRetrievalFilter();
+        for (UINT64 i = 0; i < count; ++i) {
+            SIZE_T size = 0;
+            q->GetMessage(i, nullptr, &size);
+            if (size == 0) continue;
+            NkVector<uint8> buf;
+            buf.Resize(static_cast<uint32>(size));
+            D3D12_MESSAGE* msg = reinterpret_cast<D3D12_MESSAGE*>(buf.Data());
+            if (FAILED(q->GetMessage(i, msg, &size))) continue;
+            LogDX12Message(msg->Category, msg->Severity, msg->ID, msg->pDescription);
+        }
+        q->ClearStoredMessages();
+    }
+} // namespace
 
 // =============================================================================
 NkDirectX12Device::~NkDirectX12Device() { if (mIsValid) Shutdown(); }
@@ -121,6 +172,26 @@ bool NkDirectX12Device::Initialize(const NkDeviceInitInfo& init) {
     if (FAILED(hr) || !mDevice) {
         NK_DX12_ERR("D3D12CreateDevice failed (hr=0x%X)\n", (unsigned)hr);
         return false;
+    }
+
+    // InfoQueue : route validation messages vers NkLog (debug device seulement).
+    // Tente d'abord InfoQueue1 (Win10 2004+ / Agility SDK) pour callback live ;
+    // sinon fallback sur InfoQueue + polling cote EndFrame.
+    if (dxCfg.debugDevice) {
+        if (SUCCEEDED(mDevice.As(&mInfoQueue1)) && mInfoQueue1) {
+            if (SUCCEEDED(mInfoQueue1->RegisterMessageCallback(
+                    DX12MessageCallback,
+                    D3D12_MESSAGE_CALLBACK_FLAG_NONE,
+                    nullptr,
+                    &mInfoQueueCookie))) {
+                NK_DX12_LOG("InfoQueue1 callback enregistre (validation -> NkLog)\n");
+            } else {
+                mInfoQueue1.Reset();
+            }
+        }
+        if (!mInfoQueue1 && SUCCEEDED(mDevice.As(&mInfoQueue)) && mInfoQueue) {
+            NK_DX12_LOG("InfoQueue polling actif (fallback, validation -> NkLog)\n");
+        }
     }
 
     // Command queue graphique
@@ -290,6 +361,16 @@ void NkDirectX12Device::ResizeSwapchain(uint32 w, uint32 h) {
 
 void NkDirectX12Device::Shutdown() {
     WaitIdle();
+    // Drain final + desinscription du callback InfoQueue1 avant que le device parte.
+    if (mInfoQueue1 && mInfoQueueCookie != 0) {
+        mInfoQueue1->UnregisterMessageCallback(mInfoQueueCookie);
+        mInfoQueueCookie = 0;
+    }
+    if (!mInfoQueue1 && mInfoQueue) {
+        DrainDX12InfoQueue(mInfoQueue.Get());
+    }
+    mInfoQueue1.Reset();
+    mInfoQueue.Reset();
     DestroySwapchain();
     for (auto& [id, b] : mBuffers)   if (b.mapped) b.resource->Unmap(0, nullptr);
     mBuffers.Clear(); mTextures.Clear(); mSamplers.Clear();
@@ -1282,6 +1363,11 @@ bool NkDirectX12Device::BeginFrame(NkFrameContext& frame) {
     return true;
 }
 void NkDirectX12Device::EndFrame(NkFrameContext&) {
+    // InfoQueue1 livre les messages via callback ; polling necessaire seulement
+    // si on est tombe sur le fallback InfoQueue.
+    if (!mInfoQueue1 && mInfoQueue) {
+        DrainDX12InfoQueue(mInfoQueue.Get());
+    }
     mFrameIndex = (mFrameIndex + 1) % MAX_FRAMES;
     ++mFrameNumber;
 }
