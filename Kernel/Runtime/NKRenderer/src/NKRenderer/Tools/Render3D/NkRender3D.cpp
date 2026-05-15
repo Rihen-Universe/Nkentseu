@@ -832,15 +832,49 @@ namespace nkentseu {
                 if (ubo.IsValid()) mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
                 if (os.IsValid())  cmd->BindDescriptorSet(os, 1);
 
-                // Bind material instance (set 2) si presente.
-                // Charge le UBO PBR/Toon et les textures de l'instance.
-                if (matInst) mMat->BindInstance(cmd, matInst);
-
-                mMesh->BindMesh(cmd, dc.mesh);
-                if (dc.subMeshIdx == 0xFFFFFFFFu)
-                    mMesh->DrawAll(cmd, dc.mesh);
-                else
-                    mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+                // Phase M.8 : multi-material par sous-mesh (style Blender/glTF).
+                // Si materialSlots non-vide, iterer les sous-meshes du mesh et
+                // bind materialSlots[i] avant chaque DrawSubMesh. Sinon comportement
+                // single-material standard (matInst pour tout le mesh).
+                //
+                // Sur OpenGL, BindGraphicsPipeline change le VAO/program courant
+                // -> BindMesh (VBO+IBO) DOIT etre rappele apres chaque switch
+                // de pipeline pour rattacher les buffers au nouveau VAO. C'est
+                // pourquoi BindMesh est dans la boucle (et non avant comme en
+                // single-material classic).
+                if (!dc.materialSlots.Empty() && mMesh) {
+                    const uint32 nSubs = mMesh->GetSubMeshCount(dc.mesh);
+                    for (uint32 si = 0; si < nSubs; si++) {
+                        NkMaterialInstance* sInst = matInst;  // fallback global
+                        if (si < dc.materialSlots.Size()
+                            && dc.materialSlots[si].IsValid()) {
+                            auto* cand = mMat->GetInstance(dc.materialSlots[si]);
+                            if (cand) sInst = cand;
+                        }
+                        bool pipelineChanged = false;
+                        if (sInst) {
+                            NkPipelineHandle sPipeline = mMat->GetPipeline(sInst->GetTemplate());
+                            if (sPipeline.IsValid() && sPipeline != lastPipeline) {
+                                cmd->BindGraphicsPipeline(sPipeline);
+                                lastPipeline = sPipeline;
+                                pipelineChanged = true;
+                            }
+                            mMat->BindInstance(cmd, sInst);
+                        }
+                        // Bind mesh : la 1re iteration ou chaque switch de pipeline.
+                        if (si == 0 || pipelineChanged)
+                            mMesh->BindMesh(cmd, dc.mesh);
+                        mMesh->DrawSubMesh(cmd, dc.mesh, si);
+                    }
+                } else {
+                    // Single-material : bind l'instance globale + DrawAll/SubMesh.
+                    if (matInst) mMat->BindInstance(cmd, matInst);
+                    mMesh->BindMesh(cmd, dc.mesh);
+                    if (dc.subMeshIdx == 0xFFFFFFFFu)
+                        mMesh->DrawAll(cmd, dc.mesh);
+                    else
+                        mMesh->DrawSubMesh(cmd, dc.mesh, dc.subMeshIdx);
+                }
                 mObjectDrawIdx++;
             }
         }

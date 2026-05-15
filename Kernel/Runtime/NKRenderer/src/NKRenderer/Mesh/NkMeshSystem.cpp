@@ -240,6 +240,25 @@ namespace nkentseu {
                 }
                 NkMeshDesc d = NkMeshDesc::Simple(NkVertexLayout::Default3D(), verts,24,idx,36);
                 d.debugName="Cube"; d.bounds=NkAABB::Unit();
+
+                // Phase M.8 : 6 sous-meshes (un par face) pour material slots.
+                // Face order matches `n[6]` above :
+                //   slot 0 = +Z (avant), 1 = -Z (arriere), 2 = -X (gauche),
+                //   slot 3 = +X (droite), 4 = +Y (dessus), 5 = -Y (dessous).
+                // DrawAll(cmd, cube) itere les 6 -> rendu identique au single mesh.
+                // Si dc.materialSlots est rempli, le renderer bind un material
+                // different par face.
+                static const char* kFaceNames[6] = {
+                    "+Z front", "-Z back", "-X left", "+X right", "+Y top", "-Y bottom"
+                };
+                for (int f = 0; f < 6; f++) {
+                    NkSubMesh sm;
+                    sm.name       = NkString(kFaceNames[f]);
+                    sm.firstIndex = (uint32)(f * 6);
+                    sm.indexCount = 6;
+                    sm.bounds     = d.bounds;
+                    d.subMeshes.PushBack(sm);
+                }
                 mCube = Create(d);
             }
 
