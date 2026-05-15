@@ -57,7 +57,14 @@ namespace nkentseu {
             NkVec4f subsurfaceColor   = {1.f,0.5f,0.3f,1.f};
             float32 anisotropy        = 0.f;
             float32 sheen             = 0.f;
-            float32 _pad[2]           = {};
+            // Champ specifique au sol miroir (NkPlanarReflectionSystem) :
+            //   0.0 = FRONT_ONLY (face arriere = discard)
+            //   1.0 = BACK_ONLY  (face avant   = discard)
+            //   2.0 = BOTH       (les deux faces avec leur RT respectif)
+            // Reutilise _pad[0] pour eviter de casser le layout std140 du UBO PBR
+            // (96 bytes total). Ignore par les autres shaders PBR/Toon/Anime.
+            float32 reflFloorFaceMode = 0.f;
+            float32 _pad              = 0.f;
         };
 
         // M.1 v0 : 2 layers PBR superposes avec masque vertex-color.
@@ -144,6 +151,10 @@ namespace nkentseu {
                 NkMaterialInstance* SetInt    (const NkString& n, int32 v);
                 NkMaterialInstance* SetBool   (const NkString& n, bool v);
                 NkMaterialInstance* SetTexture(const NkString& n, NkTexHandle t);
+
+                // Sol miroir : mode d'affichage des faces (0=FrontOnly, 1=BackOnly,
+                // 2=Both). Lu par le shader ReflFloor via uFloor.reflFloorFaceMode.
+                NkMaterialInstance* SetReflFloorFaceMode(int32 mode);
 
                 // M.1 v0 : Layered material setters
                 NkMaterialInstance* SetLayerBase     (const NkPBRParams& p);
