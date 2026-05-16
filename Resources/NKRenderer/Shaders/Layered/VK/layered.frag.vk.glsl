@@ -156,13 +156,14 @@ void main() {
     if (uLayered.maskSource == 4) mask = vUV.y;
     if (uLayered.maskSource == 5) mask = 1.0 - vUV.y;
 
-    // Phase M.2 : module le mask par gameTime (params[1].x) pour animer la
-    // transition base<->top visiblement. Amplitude 0.5 + 0.5 (full swing
-    // [-0.5, +1.0]) clampe a [0, 1] -> balayage complet rouille<->peinture.
-    // Defaut gameTime=0 -> sin(0)=0 -> no-op. Demo5 update gameTime chaque
-    // frame via ctx.totalTime.
-    float gameTime = uMPC.params[1].x;
-    mask = mask + 0.5 * sin(gameTime * 1.5);
+    // Phase M.2 : module le mask par gameTime pour animer la transition.
+    // Anime UNIQUEMENT pour les masks UV (4=vUV.y, 5=1-vUV.y) car les masks
+    // vColor (0-3) sont typiquement controles par l'utilisateur (Dynamic Paint
+    // M.6) -> on les garde STATIQUES pour ne pas pertuber l'observation.
+    if (uLayered.maskSource >= 4) {
+        float gameTime = uMPC.params[1].x;
+        mask = mask + 0.5 * sin(gameTime * 1.5);
+    }
     mask = clamp(mask, 0.0, 1.0);
 
     // Echantillonne le CSM une fois pour le fragment ; partage entre les 2
