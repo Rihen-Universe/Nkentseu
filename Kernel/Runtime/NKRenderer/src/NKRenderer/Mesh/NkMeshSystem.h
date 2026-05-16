@@ -89,6 +89,14 @@ namespace nkentseu {
                 bool UpdateVertices(NkMeshHandle h, const void* data, uint32 count);
                 bool UpdateIndices (NkMeshHandle h, const uint32* data, uint32 count);
 
+                // Phase M.6 : update partiel du VBO. Utile pour Dynamic Paint
+                // ou animation procedurale ou seul un sous-ensemble des vertices
+                // change. firstVertex = index du 1er vertex a mettre a jour ;
+                // count = nombre de vertices a uploader depuis `data`.
+                // Le mesh doit avoir ete cree avec dynamic=true.
+                bool UpdateVerticesRange(NkMeshHandle h, const void* data,
+                                         uint32 firstVertex, uint32 count);
+
                 void Release(NkMeshHandle& h);
                 void ReleaseAll();
 

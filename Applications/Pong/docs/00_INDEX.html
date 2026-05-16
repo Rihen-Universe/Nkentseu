@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#050A14;color:#fff;font-family:'Rajdhani',sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;}
+.logo{font-family:'Orbitron',monospace;font-size:48px;font-weight:900;letter-spacing:8px;color:#fff;text-shadow:0 0 30px #00F5FF;margin-bottom:8px;}
+.sub{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:4px;color:#00F5FF;margin-bottom:48px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;width:100%;max-width:900px;}
+.file-card{border:1px solid rgba(0,245,255,0.15);border-left:3px solid #00F5FF;border-radius:6px;padding:20px;background:rgba(0,245,255,0.03);text-decoration:none;display:flex;align-items:flex-start;gap:14px;transition:all 0.2s;}
+.file-card:hover{background:rgba(0,245,255,0.08);transform:translateX(4px);}
+.file-icon{font-size:28px;}
+.file-info{}
+.file-name{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;color:#fff;text-transform:uppercase;margin-bottom:4px;}
+.file-desc{font-size:12px;color:rgba(255,255,255,0.4);line-height:1.4;}
+.tag{display:inline-block;font-family:'Orbitron',monospace;font-size:8px;letter-spacing:1px;padding:2px 6px;border-radius:3px;background:rgba(0,245,255,0.1);border:1px solid rgba(0,245,255,0.25);color:#00F5FF;margin-top:6px;}
+.note{font-size:11px;color:rgba(255,255,255,0.25);margin-top:40px;text-align:center;letter-spacing:2px;}
+</style>
+</head>
+<body>
+<div class="logo">PONG</div>
+<div class="sub">Ultra Arena — 1 vs 1 — Liasse de Conception v1.1</div>
+<div class="grid">
+  <a class="file-card" href="01_splash_et_menus.html">
+    <div class="file-icon">🎨</div>
+    <div class="file-info">
+      <div class="file-name">Splash & Menus</div>
+      <div class="file-desc">Splash screen, Home, Difficulté IA, Obstacles, Options, Compétition. Navigation interactive.</div>
+      <span class="tag">HTML Interactif</span>
+    </div>
+  </a>
+  <a class="file-card" href="02_terrain_de_jeu_1v1.html">
+    <div class="file-icon">🏟️</div>
+    <div class="file-info">
+      <div class="file-name">Terrain de Jeu 1v1</div>
+      <div class="file-desc">Plateau jouable avec physique réelle. 1 raquette par joueur, obstacles animés, power-ups, particules. Contrôles : W/S et ↑/↓.</div>
+      <span class="tag">HTML Jouable</span>
+    </div>
+  </a>
+  <a class="file-card" href="03_assets_library.html">
+    <div class="file-icon">🖼️</div>
+    <div class="file-info">
+      <div class="file-name">Bibliothèque d'Assets</div>
+      <div class="file-desc">Tous les assets animés : obstacles, bonus, malus, raquettes, balle, éléments de terrain.</div>
+      <span class="tag">HTML Animé</span>
+    </div>
+  </a>
+  <a class="file-card" href="GDD_PONG_ULTRA_ARENA_v1.1.docx">
+    <div class="file-icon">📄</div>
+    <div class="file-info">
+      <div class="file-name">GDD + Cahier des Charges</div>
+      <div class="file-desc">Document complet : vision, mécaniques 1v1, IA, compétition, technique, interfaces, monétisation, roadmap.</div>
+      <span class="tag">Word .docx</span>
+    </div>
+  </a>
+</div>
+<div class="note">PONG ULTRA ARENA — Liasse de Conception v1.1 — 2025 — Confidentiel</div>
+</body>
+</html>

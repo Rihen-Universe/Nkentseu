@@ -128,6 +128,17 @@ namespace nkentseu {
             return mDevice->WriteBuffer(e->vbo, data, count * e->layout.stride);
         }
 
+        bool NkMeshSystem::UpdateVerticesRange(NkMeshHandle h, const void* data,
+                                                uint32 firstVertex, uint32 count) {
+            auto* e = mMeshes.Find(h.id);
+            if (!e || !e->dynamic) return false;
+            if (firstVertex + count > e->vertexCount) return false;
+            const uint32 stride = e->layout.stride;
+            const uint64 offset = (uint64)firstVertex * (uint64)stride;
+            const uint64 bytes  = (uint64)count * (uint64)stride;
+            return mDevice->WriteBuffer(e->vbo, data, bytes, offset);
+        }
+
         bool NkMeshSystem::UpdateIndices(NkMeshHandle h, const uint32* data, uint32 count) {
             auto* e = mMeshes.Find(h.id);
             if (!e || !e->dynamic) return false;
