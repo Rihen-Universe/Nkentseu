@@ -20,6 +20,9 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos; vec4 camDir; vec2 viewport; float time; float deltaTime;
     float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;  // .x = isMirrorPass (skip shadow sampling)
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {
@@ -163,6 +166,11 @@ float PCFAdaptive(int cascade, vec2 uv, float refDepth, float radius,
 
 float ShadowPCF(int cascade, vec4 coord, float bias) {
     if (cascade >= uShadow.cascadeCount) return 1.0;
+    // Skip shadow sampling pendant les passes miroir (NkPlanarReflectionSystem) :
+    // vWorldPos est en espace mirror (Y inverse) donc shadow coord pointe a la
+    // mauvaise position dans le shadow map -> reflet ombre incorrectement (inverse).
+    // Mieux vaut pas d'ombre dans le reflet que une ombre fausse.
+    if (uCam.reflectionFlags.x > 0.5) return 1.0;
     vec3 p = coord.xyz / coord.w;
     p.xy   = p.xy * 0.5 + 0.5;
     p.z    = p.z  * 0.5 + 0.5 - bias;

@@ -68,6 +68,7 @@ namespace nkentseu {
             virtual NkMaterialSystem*     GetMaterials()    = 0;
             virtual NkRender2D*           GetRender2D()     = 0;
             virtual NkRender3D*           GetRender3D()     = 0;
+            virtual class NkMaterialCollection* GetMaterialCollection() = 0;
             virtual NkTextRenderer*       GetTextRenderer() = 0;
             virtual NkPostProcessStack*   GetPostProcess()  = 0;
             virtual NkOverlayRenderer*    GetOverlay()      = 0;

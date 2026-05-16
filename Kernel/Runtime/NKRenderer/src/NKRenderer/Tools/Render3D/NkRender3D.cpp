@@ -6,6 +6,7 @@
 #include "../Environment/NkEnvironmentSystem.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Core/NkResources.h"
+#include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NkRender3D_PBRShaders.inl"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -131,7 +132,11 @@ namespace nkentseu {
                 .Add(21, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
                 .Add(22, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
                 .Add(23, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
-                .Add(24, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+                .Add(24, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // Phase M.2 : binding=25 = Material Parameter Collection UBO
+                // (pool global de params nommes, partage par tous les shaders
+                // qui le declarent).
+                .Add(25, NkDescriptorType::NK_UNIFORM_BUFFER,         ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
             // Object set layout (set 1) : Object UBO(1)
@@ -536,6 +541,19 @@ namespace nkentseu {
             mPendingRP = {};
         }
 
+        void NkRender3D::SetMaterialCollection(NkMaterialCollection* mpc) {
+            if (!mpc) return;
+            const NkBufferHandle ubo = mpc->GetUBO();
+            if (!ubo.IsValid()) return;
+            for (uint32 i = 0; i < mFramesInFlight; i++) {
+                NkDescSetHandle gs = (i < mGlobalSetRing.Size()) ? mGlobalSetRing[i] : NkDescSetHandle{};
+                if (gs.IsValid())
+                    mDevice->BindUniformBuffer(gs, NkMaterialCollection::kBinding, ubo);
+            }
+            logger.Info("[NkRender3D] MaterialCollection UBO bind a set=0 binding={0}\n",
+                        NkMaterialCollection::kBinding);
+        }
+
         void NkRender3D::FlushIntoRT(NkICommandBuffer* cmd, NkRenderPassHandle rp,
                                      const NkMat4f& mirrorMat,
                                      const NkMat4f& mirrorViewProj,
@@ -598,6 +616,13 @@ namespace nkentseu {
                 // projection explicite. Les shaders qui n'utilisent pas ce
                 // champ ignorent simplement les bytes après leur fin de struct.
                 NkMat4f mirrorViewProj;  // offset 320 (apres 16 bytes de padding)
+                // Phase M.2-ish : flag indiquant si la frame courante est rendue
+                // dans une passe miroir (NkPlanarReflectionSystem). Les shaders
+                // doivent skip le shadow sampling pendant ces passes car
+                // vWorldPos est en espace mirror (Y inverse), ce qui fait
+                // sample le shadow map a la mauvaise position -> reflets faux.
+                // .x = isMirrorPass (0=normal, 1=mirror), .yzw = reserve.
+                NkVec4f reflectionFlags; // offset 384
             };
             PBRCamUBO cb{};
             cb.view        = mCtx.camera.GetView();
@@ -637,6 +662,10 @@ namespace nkentseu {
                 vkClip[3][2] = 0.5f;
                 cb.mirrorViewProj = vkClip * cb.mirrorViewProj;
             }
+            // Flag isMirrorPass : lu par les shaders (Layered) pour skip le
+            // shadow sampling pendant les passes miroir (les positions world
+            // sont en Y inverse -> sample shadow incorrect).
+            cb.reflectionFlags = {mPendingMirrorActive ? 1.f : 0.f, 0.f, 0.f, 0.f};
             // Ring : on ecrit dans le buffer du slot courant. Le GPU lit (au pire)
             // celui du slot N-1, donc pas de stall.
             if (mFrameSlot < mUBOCameraRing.Size())

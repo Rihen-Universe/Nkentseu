@@ -18,6 +18,9 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     vec2  viewport;
     float time, deltaTime;
     float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {
