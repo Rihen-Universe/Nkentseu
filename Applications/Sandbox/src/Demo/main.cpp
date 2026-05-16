@@ -39,6 +39,7 @@ namespace nkentseu { namespace demo {
     bool Demo2D_Init                (DemoCtx&); void Demo2D_Frame            (DemoCtx&, float32); void Demo2D_Shutdown            (DemoCtx&);
     bool Demo3D_Init                (DemoCtx&); void Demo3D_Frame            (DemoCtx&, float32); void Demo3D_Shutdown            (DemoCtx&);
     bool Demo4_Materials_Init       (DemoCtx&); void Demo4_Materials_Frame   (DemoCtx&, float32); void Demo4_Materials_Shutdown   (DemoCtx&);
+    bool Demo5_Materials_Init       (DemoCtx&); void Demo5_Materials_Frame   (DemoCtx&, float32); void Demo5_Materials_Shutdown   (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -49,6 +50,8 @@ namespace nkentseu { namespace demo {
             Demo3D_Init,              Demo3D_Frame,            Demo3D_Shutdown },
         { "Materials",  "NkMaterial : 5 spheres multi-materiau, modifications temps reel",
             Demo4_Materials_Init,     Demo4_Materials_Frame,   Demo4_Materials_Shutdown },
+        { "Materials5", "NkMaterial v2 : evolutions M.2+ (MPC, blend vcolor, hierarchies, etc.)",
+            Demo5_Materials_Init,     Demo5_Materials_Frame,   Demo5_Materials_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -83,6 +86,15 @@ namespace nkentseu { namespace demo {
                 c.shadow.pcss         = true;
                 return c;
             }
+            case 4: {
+                // Demo5 : evolutions M.2+ par dessus Demo4, meme config de base.
+                // PCSS off temporairement : on debug shadow CSM pour les spheres
+                // du dessous (Y<0), PCSS peut introduire un bias different.
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = false;
+                return c;
+            }
             default: return NkRendererConfig::ForGame(api, w, h);
         }
     }
@@ -97,9 +109,10 @@ int nkmain(const NkEntryState& state) {
     // ── Parse args ───────────────────────────────────────────────────────────
     NkGraphicsApi api    = ParseBackend(state.GetArgs());
     int           demoIx = ParseDemo(state.GetArgs(), 0);
-    // Alias : --demo=4 -> Materials (index 3) car le fichier source s'appelle
-    // Demo4_Materials.cpp. Coherence avec le nom plutot que l'index zero-based.
+    // Alias : --demo=N -> index N-1 pour les demos numerotees (Demo4 -> 3, Demo5 -> 4).
+    // Coherence avec le nom de fichier plutot que l'index zero-based.
     if (demoIx == 4) demoIx = 3;
+    if (demoIx == 5) demoIx = 4;
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 

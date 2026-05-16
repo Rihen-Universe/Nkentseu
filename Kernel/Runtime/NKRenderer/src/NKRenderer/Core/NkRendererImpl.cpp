@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkRendererImpl.h"
 #include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
+#include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -95,6 +96,13 @@ namespace nkentseu {
             mMaterials.Reset(AllocOwned<NkMaterialSystem>());
             if (!mMaterials->Init(mDevice, mTextures.Get(), mShaders.Get(), mCfg.api)) return false;
 
+            // 5a. Material parameter collection (Phase M.2 : UBO global partage).
+            mMaterialCollection.Reset(AllocOwned<NkMaterialCollection>());
+            if (!mMaterialCollection->Init(mDevice)) {
+                logger.Warnf("[NkRendererImpl] NkMaterialCollection init failed (non bloquant)\n");
+                mMaterialCollection.Reset();
+            }
+
             // 5b. Material library (Phase G : .nkasset loader + hot-reload).
             // Sous-systeme bas niveau, toujours actif. ScanDirectory / Load /
             // EnableHotReload sont a la charge de l'application.
@@ -132,6 +140,9 @@ namespace nkentseu {
                     logger.Warnf("[NkRendererImpl] NkPlanarReflectionSystem init failed (non bloquant)\n");
                     mPlanarReflection.Reset();
                 }
+                // Phase M.2 : bind l'UBO collection aux global set rings de Render3D.
+                if (mMaterialCollection)
+                    mRender3D->SetMaterialCollection(mMaterialCollection.Get());
             }
 
             if (mCfg.Has(NK_SS_TEXT))                           { logger.Info("[NkRendererImpl]  step10: InitTextRenderer\n"); if (!InitTextRenderer()) return false; }
@@ -382,6 +393,7 @@ namespace nkentseu {
             mShadow.Reset();
             if (mMaterialLibrary) mMaterials->SetLibrary(nullptr);
             mMaterialLibrary.Reset();
+            mMaterialCollection.Reset();
             mMaterials.Reset();
             mMeshSystem.Reset();
             mTextures.Reset();
@@ -553,6 +565,8 @@ namespace nkentseu {
             // dans la meme frame (passe miroir + passe principale, ex. Demo4) se
             // pietinent les UBOs avec les backends a commandes differees (GL).
             if (mRender3D.Get()) mRender3D->ResetFrame();
+            // Phase M.2 : upload du UBO de la collection si dirty.
+            if (mMaterialCollection) mMaterialCollection->Upload();
             return true;
         }
 
