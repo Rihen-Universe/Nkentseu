@@ -594,7 +594,8 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
         const char* paramName = (st->activeMat <= 1) ? "roughness" : "threshold";
 
         overlay->DrawText({20.f, 35.f},
-            "Demo Materials  |  actif : %d (%s)",
+            "Demo Materials  |  API : %s  |  actif : %d (%s)",
+            NkGraphicsApiName(ctx.api),
             st->activeMat + 1, st->matNames[st->activeMat]);
         overlay->DrawText({20.f, 55.f},
             "%s : %.2f   metallic : %.0f   outline : %.1f px",

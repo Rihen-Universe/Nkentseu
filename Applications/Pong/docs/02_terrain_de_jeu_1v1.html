@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>PONG ULTRA — Terrain 1v1</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{--neon-cyan:#00F5FF;--neon-orange:#FF6B00;--neon-gold:#FFD700;--neon-green:#00FF64;--neon-purple:#CC77FF;--neon-red:#FF4040;--dark:#050A14;--font-game:'Orbitron',monospace;--font-ui:'Rajdhani',sans-serif;}
+body{background:var(--dark);color:#fff;font-family:var(--font-ui);overflow:hidden;position:relative;height:620px;}
+.grid-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(0,245,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,245,255,0.04) 1px,transparent 1px);background-size:32px 32px;pointer-events:none;}
+
+/* HUD TOP */
+.hud-top{position:absolute;top:0;left:0;right:0;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:rgba(5,10,20,0.92);border-bottom:1px solid rgba(0,245,255,0.1);z-index:20;}
+.player-info{display:flex;align-items:center;gap:10px;}
+.player-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:var(--font-game);font-weight:700;border:2px solid;}
+.player-avatar.cyan{background:rgba(0,245,255,0.15);border-color:rgba(0,245,255,0.6);color:var(--neon-cyan);}
+.player-avatar.orange{background:rgba(255,107,0,0.15);border-color:rgba(255,107,0,0.6);color:var(--neon-orange);}
+.player-name{font-family:var(--font-game);font-size:9px;letter-spacing:2px;text-transform:uppercase;}
+.player-name.cyan{color:var(--neon-cyan);}
+.player-name.orange{color:var(--neon-orange);}
+.score-val{font-family:var(--font-game);font-size:30px;font-weight:900;line-height:1;}
+.score-val.cyan{color:#fff;text-shadow:0 0 20px var(--neon-cyan);}
+.score-val.orange{color:#fff;text-shadow:0 0 20px var(--neon-orange);}
+.hud-center{display:flex;flex-direction:column;align-items:center;gap:2px;}
+.match-timer{font-family:var(--font-game);font-size:16px;font-weight:700;color:#fff;}
+.match-label{font-family:var(--font-game);font-size:8px;letter-spacing:3px;color:rgba(255,255,255,0.3);text-transform:uppercase;}
+.score-sep{font-family:var(--font-game);font-size:24px;color:rgba(255,255,255,0.2);margin:0 12px;}
+
+/* POWER-UP SIDEBAR — réduit à 1 slot par joueur, affiché dans le HUD bas */
+.hud-bottom{position:absolute;bottom:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:rgba(5,10,20,0.92);border-top:1px solid rgba(0,245,255,0.1);z-index:20;gap:12px;}
+.hud-powerups-cyan{display:flex;gap:6px;}
+.hud-powerups-orange{display:flex;gap:6px;}
+.power-slot{width:34px;height:34px;border-radius:5px;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:all 0.2s;position:relative;background:rgba(255,255,255,0.02);}
+.power-slot.active-cyan{border-color:rgba(0,245,255,0.5);background:rgba(0,245,255,0.1);box-shadow:0 0 8px rgba(0,245,255,0.2);}
+.power-slot.active-orange{border-color:rgba(255,107,0,0.5);background:rgba(255,107,0,0.1);box-shadow:0 0 8px rgba(255,107,0,0.2);}
+.power-slot.cooldown{opacity:0.4;}
+.power-cd{position:absolute;bottom:-2px;right:-2px;font-family:var(--font-game);font-size:7px;background:rgba(0,0,0,0.8);color:var(--neon-cyan);padding:1px 3px;border-radius:2px;}
+
+.hud-ctrl{font-family:var(--font-ui);font-size:10px;color:rgba(255,255,255,0.3);display:flex;align-items:center;gap:6px;}
+.key-badge{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:3px;padding:2px 6px;font-family:var(--font-game);font-size:8px;color:rgba(255,255,255,0.5);}
+.hud-btns{display:flex;gap:6px;}
+.hud-btn{font-family:var(--font-game);font-size:9px;letter-spacing:2px;padding:7px 12px;background:transparent;border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.5);border-radius:3px;cursor:pointer;transition:all 0.2s;text-transform:uppercase;}
+.hud-btn:hover{border-color:rgba(0,245,255,0.4);color:var(--neon-cyan);}
+.hud-btn.pause-btn{border-color:rgba(0,245,255,0.3);color:rgba(0,245,255,0.7);}
+.ping-badge{font-family:var(--font-game);font-size:8px;letter-spacing:1px;padding:3px 8px;border-radius:3px;background:rgba(0,255,100,0.1);border:1px solid rgba(0,255,100,0.3);color:var(--neon-green);}
+
+/* ARENA */
+.arena-wrap{position:absolute;top:56px;bottom:52px;left:0;right:0;}
+canvas{display:block;width:100%;height:100%;}
+
+/* OVERLAYS */
+.overlay{position:absolute;inset:0;background:rgba(5,10,20,0.88);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:30;gap:16px;}
+.overlay-title{font-family:var(--font-game);font-size:28px;font-weight:900;letter-spacing:6px;text-shadow:0 0 30px var(--neon-cyan);}
+.overlay-sub{font-family:var(--font-ui);font-size:13px;color:rgba(255,255,255,0.4);letter-spacing:3px;text-transform:uppercase;}
+.overlay-btn{font-family:var(--font-game);font-size:11px;letter-spacing:3px;padding:12px 36px;background:transparent;border:2px solid var(--neon-cyan);color:var(--neon-cyan);cursor:pointer;border-radius:3px;transition:all 0.25s;text-transform:uppercase;}
+.overlay-btn:hover{background:rgba(0,245,255,0.12);box-shadow:0 0 20px rgba(0,245,255,0.3);}
+.goal-flash{position:absolute;inset:0;pointer-events:none;z-index:25;opacity:0;transition:opacity 0.15s;}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="goal-flash" id="goalFlash"></div>
+
+<!-- HUD TOP — 1 joueur par côté -->
+<div class="hud-top">
+  <div class="player-info">
+    <div class="player-avatar cyan">P1</div>
+    <div>
+      <div class="player-name cyan">Joueur 1</div>
+      <div class="score-val cyan" id="scoreL">0</div>
+    </div>
+  </div>
+
+  <div class="hud-center">
+    <div class="match-timer" id="timer">02:34</div>
+    <div class="match-label">1 vs 1 — 11 pts</div>
+  </div>
+
+  <div class="player-info" style="flex-direction:row-reverse">
+    <div class="player-avatar orange">P2</div>
+    <div style="text-align:right">
+      <div class="player-name orange">Joueur 2</div>
+      <div class="score-val orange" id="scoreR">0</div>
+    </div>
+  </div>
+</div>
+
+<!-- ARENA CANVAS -->
+<div class="arena-wrap">
+  <canvas id="gameCanvas"></canvas>
+</div>
+
+<!-- HUD BOTTOM -->
+<div class="hud-bottom">
+  <!-- Power-ups Joueur 1 -->
+  <div class="hud-powerups-cyan">
+    <div class="power-slot active-cyan" title="Raquette géante">🔵<div class="power-cd">8s</div></div>
+    <div class="power-slot cooldown" title="Bouclier">🛡️<div class="power-cd">3s</div></div>
+    <div class="power-slot" title="Double balle">✳️</div>
+  </div>
+
+  <div class="hud-btns">
+    <div class="hud-ctrl"><span class="key-badge">W/S</span>P1 &nbsp;|&nbsp; P2<span class="key-badge">↑/↓</span></div>
+    <button class="hud-btn pause-btn" id="pauseBtn" onclick="togglePause()">⏸ PAUSE</button>
+    <button class="hud-btn" onclick="addGoal('L')">+1 P1</button>
+    <button class="hud-btn" onclick="addGoal('R')">+1 P2</button>
+  </div>
+
+  <!-- Power-ups Joueur 2 -->
+  <div class="hud-powerups-orange">
+    <div class="power-slot" title="Balle lente">🐢</div>
+    <div class="power-slot active-orange" title="Boost vitesse">⚡<div class="power-cd" style="color:var(--neon-orange)">5s</div></div>
+    <div class="power-slot" title="Point double">⭐</div>
+  </div>
+</div>
+
+<!-- PAUSE OVERLAY -->
+<div class="overlay" id="overlay" style="display:none">
+  <div class="overlay-title">PAUSE</div>
+  <div class="overlay-sub">Le match est en attente</div>
+  <button class="overlay-btn" onclick="togglePause()">▶ REPRENDRE</button>
+  <button class="overlay-btn" style="border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.5)" onclick="alert('Retour au menu')">⟵ QUITTER</button>
+</div>
+
+<script>
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+let W,H,paused=false;
+let scores={L:0,R:0};
+
+const state={
+  ball:{x:0,y:0,vx:3.5,vy:2.2,r:7,trail:[]},
+  // 1 raquette par joueur
+  paddles:{
+    left: {x:0,y:0,w:10,h:60,color:'#00F5FF',label:'P1'},
+    right:{x:0,y:0,w:10,h:60,color:'#FF6B00',label:'P2'},
+  },
+  obstacles:[],
+  powerUps:[],
+  particles:[],
+  keys:{}
+};
+
+const OBS_TYPES=[
+  {type:'wall',    color:'#445566',glowColor:'rgba(100,150,200,0.3)'},
+  {type:'portal',  color:'#FFD700',glowColor:'rgba(255,215,0,0.4)'},
+  {type:'gravity', color:'#CC77FF',glowColor:'rgba(204,119,255,0.4)'},
+  {type:'magnet',  color:'#00FF64',glowColor:'rgba(0,255,100,0.4)'},
+  {type:'mine',    color:'#FF4040',glowColor:'rgba(255,64,64,0.4)'},
+];
+
+const PU_TYPES=[
+  {type:'star', color:'#FFD700',label:'⭐'},
+  {type:'speed',color:'#00FF64',label:'⚡'},
+  {type:'big',  color:'#00F5FF',label:'🔵'},
+  {type:'slow', color:'#CC77FF',label:'🐢'},
+];
+
+function resize(){
+  const wrap=canvas.parentElement;
+  W=wrap.clientWidth; H=wrap.clientHeight;
+  canvas.width=W; canvas.height=H;
+  initPositions();
+}
+
+function initPositions(){
+  const cx=W/2,cy=H/2;
+  const b=state.ball;
+  b.x=cx; b.y=cy;
+
+  // 1 raquette à gauche, 1 à droite
+  const p=state.paddles;
+  p.left.x=18;  p.left.y=cy-30;
+  p.right.x=W-28; p.right.y=cy-30;
+
+  state.obstacles=[
+    {x:cx-7,y:cy-80,w:14,h:80, ...OBS_TYPES[0],pulse:0},
+    {x:cx-7,y:cy+10,w:14,h:80, ...OBS_TYPES[0],pulse:0},
+    {x:cx-90,y:cy-7,w:80,h:14,...OBS_TYPES[0],pulse:0},
+    {x:cx+10,y:cy-7,w:80,h:14,...OBS_TYPES[0],pulse:0},
+    {x:cx-16,y:cy-22,w:32,h:32,...OBS_TYPES[2],pulse:0,angle:0},
+    {x:cx-100,y:cy+70,w:24,h:24,...OBS_TYPES[1],pulse:0,blink:0},
+    {x:cx+76, y:cy+70,w:24,h:24,...OBS_TYPES[1],pulse:0,blink:0},
+    {x:cx-130,y:cy-90,w:20,h:20,...OBS_TYPES[4],pulse:0,arm:0},
+    {x:cx+110,y:cy-90,w:20,h:20,...OBS_TYPES[4],pulse:0,arm:0},
+    {x:cx-14, y:10,   w:28,h:14,...OBS_TYPES[3],pulse:0},
+    {x:cx-14, y:H-24, w:28,h:14,...OBS_TYPES[3],pulse:0},
+  ];
+
+  state.powerUps=[
+    {x:cx-160,y:cy,   r:12,...PU_TYPES[0],pulse:0,collected:false},
+    {x:cx+160,y:cy,   r:12,...PU_TYPES[2],pulse:0,collected:false},
+    {x:cx,   y:cy-130,r:12,...PU_TYPES[1],pulse:0,collected:false},
+    {x:cx,   y:cy+130,r:12,...PU_TYPES[3],pulse:0,collected:false},
+  ];
+}
+
+document.addEventListener('keydown',e=>{state.keys[e.key]=true;if(e.key===' ')togglePause();});
+document.addEventListener('keyup',e=>{state.keys[e.key]=false;});
+
+function movePaddles(){
+  const k=state.keys,spd=4,mg=0;
+  const pl=state.paddles.left, pr=state.paddles.right;
+  if(k['w']||k['W']) pl.y=Math.max(mg,pl.y-spd);
+  if(k['s']||k['S']) pl.y=Math.min(H-pl.h-mg,pl.y+spd);
+  if(k['ArrowUp'])   pr.y=Math.max(mg,pr.y-spd);
+  if(k['ArrowDown']) pr.y=Math.min(H-pr.h-mg,pr.y+spd);
+}
+
+let goalCooldown=false;
+function moveBall(){
+  const b=state.ball;
+  b.trail.push({x:b.x,y:b.y});
+  if(b.trail.length>14) b.trail.shift();
+  b.x+=b.vx; b.y+=b.vy;
+
+  if(b.y-b.r<0){b.y=b.r;b.vy=Math.abs(b.vy);spawnParticles(b.x,b.y,'#88CCFF',6);}
+  if(b.y+b.r>H){b.y=H-b.r;b.vy=-Math.abs(b.vy);spawnParticles(b.x,b.y,'#88CCFF',6);}
+
+  if(b.x-b.r<0&&!goalCooldown){triggerGoal('R');return;}
+  if(b.x+b.r>W&&!goalCooldown){triggerGoal('L');return;}
+
+  // Collision raquettes
+  Object.values(state.paddles).forEach(p=>{
+    if(b.x+b.r>p.x && b.x-b.r<p.x+p.w && b.y+b.r>p.y && b.y-b.r<p.y+p.h){
+      const dir=b.x<W/2?1:-1;
+      b.vx=Math.abs(b.vx)*dir;
+      const rel=((b.y-(p.y+p.h/2))/(p.h/2));
+      b.vy=rel*4.5;
+      const spd=Math.min(Math.sqrt(b.vx*b.vx+b.vy*b.vy)*1.04,9);
+      const ang=Math.atan2(b.vy,b.vx);
+      b.vx=Math.cos(ang)*spd; b.vy=Math.sin(ang)*spd;
+      spawnParticles(b.x,b.y,p.color,10);
+    }
+  });
+
+  // Obstacles
+  state.obstacles.forEach(o=>{
+    if(b.x+b.r>o.x&&b.x-b.r<o.x+o.w&&b.y+b.r>o.y&&b.y-b.r<o.y+o.h){
+      if(o.type==='wall'){
+        const fl=Math.abs(b.x-o.x),fr=Math.abs(b.x-(o.x+o.w));
+        const ft=Math.abs(b.y-o.y),fb=Math.abs(b.y-(o.y+o.h));
+        if(Math.min(fl,fr)<Math.min(ft,fb)) b.vx=-b.vx; else b.vy=-b.vy;
+        spawnParticles(b.x,b.y,'#88AACC',8);
+      }
+      if(o.type==='portal'){
+        b.x=W/2+(Math.random()-.5)*80; b.y=H/2+(Math.random()-.5)*80;
+        b.vx=(Math.random()>.5?1:-1)*5; b.vy=(Math.random()-.5)*5;
+        spawnParticles(b.x,b.y,'#FFD700',16);
+      }
+      if(o.type==='gravity'){
+        const cx=o.x+o.w/2,cy=o.y+o.h/2,dx=cx-b.x,dy=cy-b.y,d=Math.sqrt(dx*dx+dy*dy);
+        b.vx+=dx/d*0.8; b.vy+=dy/d*0.8;
+      }
+      if(o.type==='mine'){
+        b.vx=(Math.random()-.5)*10; b.vy=(Math.random()-.5)*10;
+        spawnParticles(b.x,b.y,'#FF4040',20);
+      }
+      if(o.type==='magnet'){
+        const spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy),ang=Math.atan2(b.vy,b.vx);
+        b.vx=Math.cos(ang)*Math.min(spd*1.8,10); b.vy=Math.sin(ang)*Math.min(spd*1.8,10);
+        spawnParticles(b.x,b.y,'#00FF64',10);
+      }
+    }
+  });
+
+  // Power-ups
+  state.powerUps.forEach(pu=>{
+    if(pu.collected) return;
+    const dx=b.x-pu.x,dy=b.y-pu.y;
+    if(Math.sqrt(dx*dx+dy*dy)<pu.r+b.r){
+      pu.collected=true;
+      spawnParticles(pu.x,pu.y,pu.color,20);
+      setTimeout(()=>{pu.x=80+Math.random()*(W-160);pu.y=60+Math.random()*(H-120);pu.collected=false;},5000);
+    }
+  });
+}
+
+function triggerGoal(side){
+  goalCooldown=true;
+  scores[side]++;
+  document.getElementById('scoreL').textContent=scores.L;
+  document.getElementById('scoreR').textContent=scores.R;
+  const fl=document.getElementById('goalFlash');
+  fl.style.background=side==='L'?'rgba(0,245,255,0.14)':'rgba(255,107,0,0.14)';
+  fl.style.opacity='1';
+  setTimeout(()=>fl.style.opacity='0',350);
+  spawnParticles(state.ball.x,state.ball.y,side==='L'?'#00F5FF':'#FF6B00',30);
+  state.ball.x=W/2; state.ball.y=H/2; state.ball.trail=[];
+  state.ball.vx=(side==='L'?-1:1)*3.5;
+  state.ball.vy=(Math.random()-.5)*4;
+  setTimeout(()=>goalCooldown=false,800);
+}
+
+function spawnParticles(x,y,color,n){
+  for(let i=0;i<n;i++){
+    const ang=Math.random()*Math.PI*2,spd=1+Math.random()*4;
+    state.particles.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,r:2+Math.random()*3,life:1,color});
+  }
+}
+
+function updateParticles(){
+  state.particles=state.particles.filter(p=>{
+    p.x+=p.vx; p.y+=p.vy; p.vx*=0.95; p.vy*=0.95; p.vy+=0.05; p.life-=0.03; return p.life>0;
+  });
+}
+
+let tick=0;
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  tick++;
+  drawField();
+  drawTrail();
+  drawObstacles();
+  drawPowerUps();
+  drawPaddles();
+  drawBall();
+  drawParticles();
+}
+
+function drawField(){
+  ctx.save();
+  ctx.strokeStyle='rgba(0,245,255,0.12)'; ctx.lineWidth=1;
+  ctx.strokeRect(0,0,W,H);
+  ctx.setLineDash([8,8]); ctx.strokeStyle='rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle='rgba(255,255,255,0.07)';
+  ctx.beginPath(); ctx.arc(W/2,H/2,50,0,Math.PI*2); ctx.stroke();
+  // Goal glows
+  const gL=ctx.createLinearGradient(0,0,40,0);
+  gL.addColorStop(0,'rgba(0,245,255,0.18)'); gL.addColorStop(1,'transparent');
+  ctx.fillStyle=gL; ctx.fillRect(0,0,40,H);
+  const gR=ctx.createLinearGradient(W-40,0,W,0);
+  gR.addColorStop(0,'transparent'); gR.addColorStop(1,'rgba(255,107,0,0.18)');
+  ctx.fillStyle=gR; ctx.fillRect(W-40,0,40,H);
+  ctx.restore();
+}
+
+function drawTrail(){
+  state.ball.trail.forEach((pt,i)=>{
+    const a=(i/state.ball.trail.length)*0.5;
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.shadowColor='rgba(0,245,255,0.8)'; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(pt.x,pt.y,state.ball.r*(i/state.ball.trail.length)*0.85,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawBall(){
+  const b=state.ball;
+  ctx.save();
+  ctx.shadowColor='rgba(255,255,255,0.9)'; ctx.shadowBlur=18;
+  ctx.fillStyle='#ffffff';
+  ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawPaddles(){
+  Object.values(state.paddles).forEach(p=>{
+    ctx.save();
+    ctx.shadowColor=p.color; ctx.shadowBlur=20;
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.roundRect(p.x,p.y,p.w,p.h,4); ctx.fill();
+    // Label
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.font='7px Orbitron'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(p.label,p.x+p.w/2,p.y+p.h+10);
+    ctx.restore();
+  });
+}
+
+function drawObstacles(){
+  state.obstacles.forEach(o=>{
+    o.pulse=(o.pulse||0)+0.04;
+    ctx.save();
+    const glow=Math.sin(o.pulse)*0.3+0.7;
+    ctx.shadowColor=o.glowColor; ctx.shadowBlur=12*glow;
+    if(o.type==='gravity'){
+      o.angle=(o.angle||0)+0.03;
+      const cx=o.x+o.w/2,cy=o.y+o.h/2,r=o.w/2;
+      for(let i=0;i<3;i++){
+        ctx.strokeStyle=`rgba(204,119,255,${0.2+i*0.15})`; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.arc(cx,cy,r*(0.4+i*0.3),o.angle+i,o.angle+i+Math.PI*1.5); ctx.stroke();
+      }
+      ctx.fillStyle='rgba(204,119,255,0.5)';
+      ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2); ctx.fill();
+    } else if(o.type==='portal'){
+      o.blink=(o.blink||0)+0.08;
+      const cx=o.x+o.w/2,cy=o.y+o.h/2,a=Math.sin(o.blink)*0.5+0.5;
+      ctx.strokeStyle=`rgba(255,215,0,${0.4+a*0.5})`; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(cx,cy,o.w/2,0,Math.PI*2); ctx.stroke();
+      ctx.fillStyle=`rgba(255,215,0,${0.1+a*0.15})`;
+      ctx.beginPath(); ctx.arc(cx,cy,o.w/2,0,Math.PI*2); ctx.fill();
+    } else if(o.type==='mine'){
+      const cx=o.x+o.w/2,cy=o.y+o.h/2,r=o.w/2,pulse=Math.sin(o.pulse)*0.2+0.8;
+      ctx.fillStyle=`rgba(255,64,64,${pulse*0.6})`;
+      ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+      for(let i=0;i<8;i++){
+        const ang=i/8*Math.PI*2;
+        ctx.strokeStyle=`rgba(255,64,64,${pulse})`; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.moveTo(cx+Math.cos(ang)*r,cy+Math.sin(ang)*r); ctx.lineTo(cx+Math.cos(ang)*(r+5),cy+Math.sin(ang)*(r+5)); ctx.stroke();
+      }
+    } else if(o.type==='magnet'){
+      ctx.fillStyle=`rgba(0,255,100,${glow*0.4})`; ctx.strokeStyle=`rgba(0,255,100,${glow})`; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.roundRect(o.x,o.y,o.w,o.h,3); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillStyle='rgba(60,80,110,0.85)'; ctx.strokeStyle='rgba(100,150,200,0.4)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.roundRect(o.x,o.y,o.w,o.h,2); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function drawPowerUps(){
+  state.powerUps.forEach(pu=>{
+    if(pu.collected) return;
+    pu.pulse=(pu.pulse||0)+0.05;
+    const sc=1+Math.sin(pu.pulse)*0.12;
+    ctx.save(); ctx.translate(pu.x,pu.y); ctx.scale(sc,sc);
+    ctx.shadowColor=pu.color; ctx.shadowBlur=18;
+    ctx.strokeStyle=pu.color; ctx.lineWidth=1.5;
+    ctx.fillStyle=pu.color+'22';
+    ctx.beginPath(); ctx.arc(0,0,pu.r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.rotate(pu.pulse); ctx.strokeStyle=pu.color+'55'; ctx.lineWidth=1;
+    ctx.setLineDash([4,6]);
+    ctx.beginPath(); ctx.arc(0,0,pu.r+5,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+    ctx.font=`${pu.r}px serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(pu.label,pu.x,pu.y);
+  });
+}
+
+function drawParticles(){
+  state.particles.forEach(p=>{
+    ctx.save(); ctx.globalAlpha=p.life;
+    ctx.fillStyle=p.color; ctx.shadowColor=p.color; ctx.shadowBlur=6;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+let timeLeft=154;
+setInterval(()=>{
+  if(paused) return;
+  if(timeLeft>0) timeLeft--;
+  const m=Math.floor(timeLeft/60),s=timeLeft%60;
+  document.getElementById('timer').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+},1000);
+
+function loop(){
+  if(!paused){movePaddles();moveBall();updateParticles();}
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function togglePause(){
+  paused=!paused;
+  document.getElementById('overlay').style.display=paused?'flex':'none';
+  document.getElementById('pauseBtn').textContent=paused?'▶ REPRENDRE':'⏸ PAUSE';
+}
+function addGoal(s){triggerGoal(s);}
+
+window.addEventListener('resize',resize);
+resize(); loop();
+</script>
+</body>
+</html>

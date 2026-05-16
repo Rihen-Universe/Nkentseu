@@ -433,7 +433,8 @@ namespace nkentseu { namespace demo {
         if (auto* overlay = ctx.renderer->GetOverlay()) {
             overlay->BeginOverlay(ctx.renderer->GetCmd(), ctx.width, ctx.height);
             overlay->DrawStats(ctx.renderer->GetStats());
-            overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives (orbiting camera)");
+            overlay->DrawText({20.f, 35.f}, "Demo 3D - PBR primitives  |  API : %s",
+                              NkGraphicsApiName(ctx.api));
             overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms",
                               dt > 1e-4f ? 1.f / dt : 0.f, dt * 1000.f);
             // Phase H : indication visuelle du chargement texture file-based.
