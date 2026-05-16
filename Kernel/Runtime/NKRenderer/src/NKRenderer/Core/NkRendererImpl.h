@@ -51,6 +51,7 @@ namespace nkentseu {
                 NkMaterialSystem*     GetMaterials()    override { return mMaterials.Get(); }
                 NkRender2D*           GetRender2D()     override { return mRender2D.Get(); }
                 NkRender3D*           GetRender3D()     override { return mRender3D.Get(); }
+                class NkMaterialCollection* GetMaterialCollection() override { return mMaterialCollection.Get(); }
                 NkTextRenderer*       GetTextRenderer() override { return mTextRenderer.Get(); }
                 NkPostProcessStack*   GetPostProcess()  override { return mPostProcess.Get(); }
                 NkOverlayRenderer*    GetOverlay()      override { return mOverlay.Get(); }
@@ -103,6 +104,7 @@ namespace nkentseu {
                 memory::NkUniquePtr<NkMeshSystem>         mMeshSystem;
                 memory::NkUniquePtr<NkMaterialSystem>     mMaterials;
                 memory::NkUniquePtr<NkMaterialLibrary>    mMaterialLibrary; // Phase G
+                memory::NkUniquePtr<class NkMaterialCollection> mMaterialCollection; // Phase M.2
                 memory::NkUniquePtr<NkShadowSystem>       mShadow;
                 memory::NkUniquePtr<NkEnvironmentSystem>  mEnvironment;
                 memory::NkUniquePtr<NkRender2D>           mRender2D;

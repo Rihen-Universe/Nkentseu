@@ -78,6 +78,13 @@ namespace nkentseu {
                 // materiaux qui samplent un RT planar via screen-UV (ReflFloor).
                 void SetMirrorViewProj(const NkMat4f& m) { mCtx.mirrorViewProj = m; }
 
+                // Phase M.2 : Material Parameter Collection (pool de params
+                // partages, set=0 binding=25). Bind l'UBO dans tous les global
+                // set rings. Si nullptr, le binding=25 reste invalide -> les
+                // shaders qui en dependent ne fonctionnent pas (mais ceux qui
+                // ne le declarent pas continuent de tourner normalement).
+                void SetMaterialCollection(class NkMaterialCollection* mpc);
+
                 // Render des opaques castShadow=true depuis la perspective de la
                 // lumiere (lightVP = lightProj * lightView), dans le FBO shadow
                 // currentement bindé. Appele par NkShadowSystem dans la passe
