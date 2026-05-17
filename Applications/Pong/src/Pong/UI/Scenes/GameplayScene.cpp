@@ -119,8 +119,6 @@ namespace nkentseu
             if (math::NkFabs(newScale - mScale) > 0.001f)
             {
                 mScale     = newScale;
-                // Clamp HUD a max 12% du viewport pour eviter qu'il prenne
-                // toute la hauteur sur mobile haute densite.
                 mHUDTopH = math::NkMin(kHUDTopHBase * mScale,
                                        (float)ctx.viewportH * 0.12f);
                 mHUDBotH = math::NkMin(kHUDBotHBase * mScale,
@@ -132,6 +130,19 @@ namespace nkentseu
             }
             const float arenaW = (float)ctx.viewportW;
             const float arenaH = math::NkMax(1.0f, (float)ctx.viewportH - mHUDTopH - mHUDBotH);
+
+            // ── Re-positionne X des paddles chaque frame ────────────────────
+            // Le paddle droit doit toujours coller au bord droit du viewport
+            // meme si la fenetre est resized en cours de partie. Le paddle
+            // gauche reste a sa marge. On clamp aussi Y pour ne pas sortir
+            // si arenaH a diminue.
+            const float marginX = kPaddleXMargin * mScale;
+            mPaddleLX = marginX;
+            mPaddleRX = arenaW - marginX - mPaddleW;
+            if (mPaddleLY > arenaH - mPaddleH) mPaddleLY = arenaH - mPaddleH;
+            if (mPaddleRY > arenaH - mPaddleH) mPaddleRY = arenaH - mPaddleH;
+            if (mPaddleLY < 0.0f) mPaddleLY = 0.0f;
+            if (mPaddleRY < 0.0f) mPaddleRY = 0.0f;
 
             // Conversion px/frame@60fps -> distance reelle ce frame.
             const float dt60 = dt * 60.0f;
@@ -519,14 +530,16 @@ namespace nkentseu
             DrawHUDTop(r, f, W, mHUDTopH, mScale, mScoreL, mScoreR, mTimeLeft);
             DrawHUDBottom(r, f, W, H, mHUDBotH, mScale, mPaused);
 
-            // ── Bouton PAUSE flottant (haut-droite, HORS arene) ──────────────
-            // Place dans le HUD top, a droite des avatars/score. Tap/clic =
-            // toggle pause. Stylisation : icone "II" (ou triangle quand pause).
+            // ── Bouton PAUSE flottant (HORS arene, hors zone timer) ─────────
+            // Place dans la barre HUD top, juste sous le bord superieur, a
+            // droite du timer central. Ne chevauche ni le timer (centre) ni
+            // les avatars/scores P1/P2 (extremites).
             {
                 const float btnSize = mHUDTopH * 0.65f;
                 mPauseBtnW = btnSize;
                 mPauseBtnH = btnSize;
-                mPauseBtnX = (float)W * 0.5f - btnSize * 0.5f;
+                // Position : ~70% de la largeur (entre le centre et l'avatar P2)
+                mPauseBtnX = (float)W * 0.70f - btnSize * 0.5f;
                 mPauseBtnY = (mHUDTopH - btnSize) * 0.5f;
 
                 // Fond + border cyan
