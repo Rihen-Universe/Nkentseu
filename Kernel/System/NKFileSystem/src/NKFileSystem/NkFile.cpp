@@ -35,12 +35,109 @@
     #include <sys/stat.h>
 #endif
 
+// En-têtes Android NDK pour AAssetManager (fallback assets/ dans l'APK)
+#include "NKPlatform/NkPlatformDetect.h"
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+    #include <android/asset_manager.h>
+#endif
+
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL
 // -------------------------------------------------------------------------
 // Implémentation des méthodes de NkFile dans le namespace nkentseu.
 
 namespace nkentseu {
+
+    // =============================================================================
+    //  Etat global — AAssetManager Android
+    // =============================================================================
+    // Pointeur global vers l'AAssetManager fourni par la NativeActivity au
+    // demarrage. Permet a NkFile::Open() de tomber en fallback sur les assets
+    // de l'APK quand fopen echoue (cas typique : path relatif a Resources/).
+
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+    static AAssetManager* sAndroidAssetMgr = nullptr;
+#else
+    static void* sAndroidAssetMgr = nullptr;  ///< unused hors Android
+#endif
+    static char sAndroidAssetSubFolder[64] = {0};  ///< ex: "Pong"
+    static size_t sAndroidAssetSubFolderLen = 0;
+
+    void NkFile::SetAndroidAssetManager(void* manager) {
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+        sAndroidAssetMgr = static_cast<AAssetManager*>(manager);
+#else
+        (void)manager;  // no-op
+#endif
+    }
+
+    void* NkFile::GetAndroidAssetManager() {
+        return static_cast<void*>(sAndroidAssetMgr);
+    }
+
+    void NkFile::SetAndroidAssetSubFolder(const char* name) {
+        if (!name || !name[0]) {
+            sAndroidAssetSubFolder[0] = '\0';
+            sAndroidAssetSubFolderLen = 0;
+            return;
+        }
+        const size_t n = std::strlen(name);
+        const size_t maxN = sizeof(sAndroidAssetSubFolder) - 1;
+        const size_t copyN = (n < maxN) ? n : maxN;
+        std::memcpy(sAndroidAssetSubFolder, name, copyN);
+        sAndroidAssetSubFolder[copyN] = '\0';
+        sAndroidAssetSubFolderLen = copyN;
+    }
+
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+    // -------------------------------------------------------------------------
+    // Helper : tente d'ouvrir un asset depuis l'AAssetManager avec quelques
+    // variantes du path (strip "Resources/" si present, puis brut). Retourne
+    // un AAsset* (a fermer avec AAsset_close) ou nullptr.
+    // -------------------------------------------------------------------------
+    static AAsset* TryOpenAndroidAsset(const char* path) {
+        if (!sAndroidAssetMgr || !path) return nullptr;
+        // 1. Path tel quel (cas ou androidassets a ete configure pour
+        // preserver l'arborescence complete).
+        AAsset* asset = AAssetManager_open(sAndroidAssetMgr, path,
+                                           AASSET_MODE_BUFFER);
+        if (asset) return asset;
+
+        const char* kPrefix = "Resources/";
+        const size_t prefixLen = 10;
+        const bool hasResPrefix =
+            std::strncmp(path, kPrefix, prefixLen) == 0;
+
+        // 2. Strip "Resources/<SubFolder>/" si SubFolder est configure.
+        // Cas typique : androidassets(["../../Resources/Pong"]) -> les
+        // fichiers vont dans assets/Textures/... ; le path C++
+        // "Resources/Pong/Textures/logo.png" doit donc voir "Resources/Pong/"
+        // strippes pour matcher "Textures/logo.png".
+        if (hasResPrefix && sAndroidAssetSubFolderLen > 0) {
+            const size_t subStart = prefixLen;  // apres "Resources/"
+            if (std::strncmp(path + subStart, sAndroidAssetSubFolder,
+                             sAndroidAssetSubFolderLen) == 0
+                && path[subStart + sAndroidAssetSubFolderLen] == '/')
+            {
+                const size_t fullStrip = subStart
+                                       + sAndroidAssetSubFolderLen
+                                       + 1;  // '/'
+                asset = AAssetManager_open(sAndroidAssetMgr, path + fullStrip,
+                                           AASSET_MODE_BUFFER);
+                if (asset) return asset;
+            }
+        }
+
+        // 3. Strip "Resources/" seul, en dernier recours (cas
+        // androidassets(["../../Resources"]) qui bundle tout).
+        if (hasResPrefix) {
+            asset = AAssetManager_open(sAndroidAssetMgr, path + prefixLen,
+                                       AASSET_MODE_BUFFER);
+            if (asset) return asset;
+        }
+        return nullptr;
+    }
+#endif
 
     // =============================================================================
     //  Méthodes privées
@@ -110,9 +207,9 @@ namespace nkentseu {
         , mPath()
         , mMode(NkFileMode::NK_READ)
         , mIsOpen(false)
+        , mIsAsset(false)
     {
         // Constructeur par défaut : état initial "fermé"
-        // Aucun appel système, aucune allocation
     }
 
     NkFile::NkFile(const char* path, NkFileMode mode)
@@ -120,9 +217,8 @@ namespace nkentseu {
         , mPath(path ? path : "")
         , mMode(mode)
         , mIsOpen(false)
+        , mIsAsset(false)
     {
-        // Gestion défensive : si path est null, utiliser chaîne vide
-        // Tentative d'ouverture immédiate : l'appelant doit vérifier IsOpen()
         Open(path, mode);
     }
 
@@ -131,8 +227,8 @@ namespace nkentseu {
         , mPath(path)
         , mMode(mode)
         , mIsOpen(false)
+        , mIsAsset(false)
     {
-        // Construction depuis NkPath puis tentative d'ouverture
         Open(path, mode);
     }
 
@@ -152,29 +248,24 @@ namespace nkentseu {
         , mPath(other.mPath)
         , mMode(other.mMode)
         , mIsOpen(other.mIsOpen)
+        , mIsAsset(other.mIsAsset)
     {
-        // Transfert des membres par valeur
-        // L'instance source doit être laissée dans un état valide mais inactif
-        other.mHandle = nullptr;
-        other.mIsOpen = false;
-        // other.mPath et other.mMode restent inchangés (valeurs par défaut sûres)
+        other.mHandle  = nullptr;
+        other.mIsOpen  = false;
+        other.mIsAsset = false;
     }
 
     NkFile& NkFile::operator=(NkFile&& other) noexcept {
-        // Guard contre l'auto-affectation pour sécurité
         if (this != &other) {
-            // Fermeture du fichier courant avant prise de possession du nouveau
             Close();
-
-            // Transfert des membres
-            mHandle = other.mHandle;
-            mPath = other.mPath;
-            mMode = other.mMode;
-            mIsOpen = other.mIsOpen;
-
-            // Invalidation de la source
-            other.mHandle = nullptr;
-            other.mIsOpen = false;
+            mHandle  = other.mHandle;
+            mPath    = other.mPath;
+            mMode    = other.mMode;
+            mIsOpen  = other.mIsOpen;
+            mIsAsset = other.mIsAsset;
+            other.mHandle  = nullptr;
+            other.mIsOpen  = false;
+            other.mIsAsset = false;
         }
         return *this;
     }
@@ -196,28 +287,41 @@ namespace nkentseu {
         }
 
         // Mise à jour de l'état interne avant tentative d'ouverture
-        mPath = path;
-        mMode = mode;
+        mPath    = path;
+        mMode    = mode;
+        mIsAsset = false;
 
         // Conversion du mode NKEntseu vers mode fopen C
         const char* modeStr = GetModeString();
         if (!modeStr || !modeStr[0]) {
-            // Mode invalide : échec immédiat sans appel système
             return false;
         }
 
         // Ouverture via l'API C standard
-        // fopen retourne nullptr en cas d'échec (fichier inexistant, permissions, etc.)
         FILE* file = fopen(path, modeStr);
-        if (!file) {
-            // Échec : l'état reste "fermé", mPath/mMode conservés pour debugging
-            return false;
+        if (file) {
+            mHandle = file;
+            mIsOpen = true;
+            return true;
         }
 
-        // Succès : mise à jour de l'état avec le descripteur valide
-        mHandle = file;
-        mIsOpen = true;
-        return true;
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+        // Fallback Android : si fopen echoue ET qu'on est en lecture seule
+        // (les assets de l'APK sont read-only), tenter via AAssetManager.
+        const bool isWriteMode = NkHasFlag(mode, NkFileMode::NK_WRITE)
+                              || NkHasFlag(mode, NkFileMode::NK_APPEND)
+                              || NkHasFlag(mode, NkFileMode::NK_TRUNCATE);
+        if (!isWriteMode) {
+            AAsset* asset = TryOpenAndroidAsset(path);
+            if (asset) {
+                mHandle  = asset;
+                mIsOpen  = true;
+                mIsAsset = true;
+                return true;
+            }
+        }
+#endif
+        return false;
     }
 
     bool NkFile::Open(const NkPath& path, NkFileMode mode) {
@@ -226,15 +330,19 @@ namespace nkentseu {
     }
 
     void NkFile::Close() {
-        // Fermeture conditionnelle : idempotent si déjà fermé
         if (mIsOpen && mHandle) {
-            // Cast explicite vers FILE* pour l'API C
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+            if (mIsAsset) {
+                AAsset_close(static_cast<AAsset*>(mHandle));
+            } else {
+                fclose(static_cast<FILE*>(mHandle));
+            }
+#else
             fclose(static_cast<FILE*>(mHandle));
-
-            // Réinitialisation de l'état interne
-            mHandle = nullptr;
-            mIsOpen = false;
-            // Note : mPath et mMode sont conservés pour inspection post-fermeture
+#endif
+            mHandle  = nullptr;
+            mIsOpen  = false;
+            mIsAsset = false;
         }
     }
 
@@ -249,12 +357,16 @@ namespace nkentseu {
     // Méthodes pour extraire des données depuis le fichier.
 
     usize NkFile::Read(void* buffer, usize size) {
-        // Guards de sécurité : fichier ouvert et buffer valide requis
         if (!mIsOpen || !buffer) {
             return 0;
         }
-
-        // Lecture via fread : retourne le nombre d'éléments lus (size=1 → octets)
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+        if (mIsAsset) {
+            const int r = AAsset_read(static_cast<AAsset*>(mHandle), buffer,
+                                      static_cast<size_t>(size));
+            return (r < 0) ? 0 : static_cast<usize>(r);
+        }
+#endif
         return fread(buffer, 1, size, static_cast<FILE*>(mHandle));
     }
 
@@ -345,12 +457,13 @@ namespace nkentseu {
     // Méthodes pour écrire des données dans le fichier.
 
     usize NkFile::Write(const void* data, usize size) {
-        // Guards de sécurité : fichier ouvert et données valides requis
         if (!mIsOpen || !data) {
             return 0;
         }
-
-        // Écriture via fwrite : retourne le nombre d'éléments écrits
+        // Les assets Android sont en lecture seule — interdire l'ecriture.
+        if (mIsAsset) {
+            return 0;
+        }
         return fwrite(data, 1, size, static_cast<FILE*>(mHandle));
     }
 
@@ -388,47 +501,42 @@ namespace nkentseu {
     // Navigation dans le fichier via fseek/ftell.
 
     nk_int64 NkFile::Tell() const {
-        // Guard : fichier doit être ouvert
         if (!mIsOpen) {
             return -1;
         }
-
-        // ftell retourne la position courante en octets depuis le début
-        // Cast vers nk_int64 pour cohérence avec l'API NKEntseu
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+        if (mIsAsset) {
+            AAsset* a = static_cast<AAsset*>(mHandle);
+            const off_t total = AAsset_getLength(a);
+            const off_t remaining = AAsset_getRemainingLength(a);
+            return static_cast<nk_int64>(total - remaining);
+        }
+#endif
         return static_cast<nk_int64>(ftell(static_cast<FILE*>(mHandle)));
     }
 
     bool NkFile::Seek(nk_int64 offset, NkSeekOrigin origin) {
-        // Guard : fichier doit être ouvert
         if (!mIsOpen) {
             return false;
         }
 
-        // Conversion de NkSeekOrigin vers whence fseek C
-        int whence = SEEK_SET;  // Valeur par défaut sécurisée
-
+        int whence = SEEK_SET;
         switch (origin) {
-            case NkSeekOrigin::NK_BEGIN:
-                whence = SEEK_SET;  // Début du fichier
-                break;
-            case NkSeekOrigin::NK_CURRENT:
-                whence = SEEK_CUR;  // Position courante
-                break;
-            case NkSeekOrigin::NK_END:
-                whence = SEEK_END;  // Fin du fichier
-                break;
-            default:
-                // Valeur inconnue : fallback sécurisé vers SEEK_SET
-                whence = SEEK_SET;
-                break;
+            case NkSeekOrigin::NK_BEGIN:   whence = SEEK_SET; break;
+            case NkSeekOrigin::NK_CURRENT: whence = SEEK_CUR; break;
+            case NkSeekOrigin::NK_END:     whence = SEEK_END; break;
+            default:                       whence = SEEK_SET; break;
         }
 
-        // fseek retourne 0 en cas de succès, non-zéro en cas d'erreur
-        return fseek(
-            static_cast<FILE*>(mHandle),
-            static_cast<long>(offset),
-            whence
-        ) == 0;
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+        if (mIsAsset) {
+            const off_t pos = AAsset_seek(static_cast<AAsset*>(mHandle),
+                                          static_cast<off_t>(offset), whence);
+            return pos != (off_t)-1;
+        }
+#endif
+        return fseek(static_cast<FILE*>(mHandle),
+                     static_cast<long>(offset), whence) == 0;
     }
 
     bool NkFile::SeekToBegin() {
@@ -442,27 +550,20 @@ namespace nkentseu {
     }
 
     nk_int64 NkFile::GetSize() const {
-        // Guard : fichier doit être ouvert
         if (!mIsOpen) {
             return -1;
         }
-
-        // Sauvegarde de la position courante pour restauration
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+        if (mIsAsset) {
+            return static_cast<nk_int64>(
+                AAsset_getLength(static_cast<AAsset*>(mHandle)));
+        }
+#endif
         const nk_int64 current = Tell();
-
-        // Déplacement temporaire à la fin pour obtenir la taille
         fseek(static_cast<FILE*>(mHandle), 0, SEEK_END);
         const nk_int64 size = static_cast<nk_int64>(
-            ftell(static_cast<FILE*>(mHandle))
-        );
-
-        // Restauration de la position d'origine
-        fseek(
-            static_cast<FILE*>(mHandle),
-            static_cast<long>(current),
-            SEEK_SET
-        );
-
+            ftell(static_cast<FILE*>(mHandle)));
+        fseek(static_cast<FILE*>(mHandle), static_cast<long>(current), SEEK_SET);
         return size;
     }
 
@@ -471,10 +572,8 @@ namespace nkentseu {
     // =============================================================================
 
     void NkFile::Flush() {
-        // Flush conditionnel : sans effet si fichier fermé
-        if (mIsOpen) {
-            // fflush force l'écriture des buffers utilisateur vers le système
-            // Ne garantit pas l'écriture physique sur disque (fsync nécessaire)
+        // Sans effet sur les assets Android (read-only).
+        if (mIsOpen && !mIsAsset) {
             fflush(static_cast<FILE*>(mHandle));
         }
     }
@@ -495,13 +594,15 @@ namespace nkentseu {
     }
 
     bool NkFile::IsEOF() const {
-        // Guard : fichier fermé considéré comme "à la fin"
         if (!mIsOpen) {
             return true;
         }
-
-        // feof retourne non-zéro si l'indicateur EOF est positionné
-        // Note : peut retourner false même si le prochain Read() retournerait 0
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+        if (mIsAsset) {
+            return AAsset_getRemainingLength(
+                static_cast<AAsset*>(mHandle)) == 0;
+        }
+#endif
         return feof(static_cast<FILE*>(mHandle)) != 0;
     }
 

@@ -10,16 +10,16 @@
 //   VkDevice dev = NkNativeContext::GetVkDevice(ctx);
 // =============================================================================
 #include "NkIGraphicsContext.h"
-#include "NKContext/Graphics/OpenGL/NkOpenGLContextData.h"
-#include "NKContext/Graphics/Vulkan/NkVulkanContextData.h"
+#include "NKContext/Backend/OpenGL/NkOpenGLContextData.h"
+#include "NKContext/Backend/Vulkan/NkVulkanContextData.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-#   include "NKContext/Graphics/DirectX/NkDirectXContextData.h"
+#   include "NKContext/Backend/DirectX/NkDirectXContextData.h"
 #endif
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-#   include "NKContext/Graphics/Metal/NkMetalContext.h"
+#   include "NKContext/Backend/Metal/NkMetalContext.h"
 #endif
-#include "NKContext/Graphics/Software/NkSoftwareContext.h"
+#include "NKContext/Backend/Software/NkSoftwareContext.h"
 
 namespace nkentseu {
 

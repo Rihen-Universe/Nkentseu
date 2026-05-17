@@ -67,7 +67,7 @@ namespace nkentseu {
                 const NkTexture* mTexture     = nullptr;
                 NkRect2i         mTextureRect;
                 NkTransform2D    mTransform;
-                NkColor2D        mColor       = NkColor2D::White();
+                NkColor2D        mColor       = NkColor2D::White;
                 bool             mFlipX       = false;
                 bool             mFlipY       = false;
         };
@@ -141,8 +141,8 @@ namespace nkentseu {
                 NkTextStyle        mStyle         = NkTextStyle::NK_REGULAR;
                 float32            mLetterSpacing = 1.f;
                 float32            mLineSpacing   = 1.f;
-                NkColor2D          mFillColor     = NkColor2D::White();
-                NkColor2D          mOutlineColor  = NkColor2D::Black();
+                NkColor2D          mFillColor     = NkColor2D::White;
+                NkColor2D          mOutlineColor  = NkColor2D::Black;
                 float32            mOutlineThickness = 0.f;
                 NkTransform2D      mTransform;
 

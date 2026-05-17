@@ -48,7 +48,7 @@ namespace nkentseu {
 
                 // ── Create / load ─────────────────────────────────────────────────────
                 bool Create(NkIRenderer2D& renderer, uint32 width, uint32 height,
-                            const NkColor2D& fillColor = NkColor2D::Transparent());
+                            const NkColor2D& fillColor = NkColor2D::Transparent);
 
                 bool LoadFromFile  (NkIRenderer2D& renderer, const char* path);
                 bool LoadFromImage (NkIRenderer2D& renderer, const NkImage& image,

@@ -64,7 +64,7 @@ namespace nkentseu {
                 virtual void Flush() = 0;
 
                 // ── Clear ─────────────────────────────────────────────────────────────
-                virtual void Clear(const NkColor2D& color = NkColor2D::Black()) = 0;
+                virtual void Clear(const NkColor2D& color = NkColor2D::Black) = 0;
 
                 // ── View (camera) ─────────────────────────────────────────────────────
                 virtual void SetView(const NkView2D& view) = 0;
@@ -93,24 +93,24 @@ namespace nkentseu {
                 virtual void Draw(const NkText& text) = 0;
 
                 // Geometry primitives
-                virtual void DrawPoint(NkVec2f pos, const NkColor2D& color = NkColor2D::White(), float32 size = 1.f) = 0;
+                virtual void DrawPoint(NkVec2f pos, const NkColor2D& color = NkColor2D::White, float32 size = 1.f) = 0;
 
-                virtual void DrawLine(NkVec2f a, NkVec2f b, const NkColor2D& color = NkColor2D::White(), float32 thickness = 1.f) = 0;
+                virtual void DrawLine(NkVec2f a, NkVec2f b, const NkColor2D& color = NkColor2D::White, float32 thickness = 1.f) = 0;
 
-                virtual void DrawRect(NkRect2f rect, const NkColor2D& color = NkColor2D::White(), float32 outline = 0.f, const NkColor2D& outlineColor = NkColor2D::Black()) = 0;
+                virtual void DrawRect(NkRect2f rect, const NkColor2D& color = NkColor2D::White, float32 outline = 0.f, const NkColor2D& outlineColor = NkColor2D::Black) = 0;
 
-                virtual void DrawFilledRect(NkRect2f rect, const NkColor2D& color = NkColor2D::White()) = 0;
+                virtual void DrawFilledRect(NkRect2f rect, const NkColor2D& color = NkColor2D::White) = 0;
 
-                virtual void DrawCircle(NkVec2f center, float32 radius, const NkColor2D& color = NkColor2D::White(), uint32 segments = 32,
-                                        float32 outline = 0.f, const NkColor2D& outlineColor = NkColor2D::Black()) = 0;
+                virtual void DrawCircle(NkVec2f center, float32 radius, const NkColor2D& color = NkColor2D::White, uint32 segments = 32,
+                                        float32 outline = 0.f, const NkColor2D& outlineColor = NkColor2D::Black) = 0;
 
-                virtual void DrawFilledCircle(NkVec2f center, float32 radius, const NkColor2D& color = NkColor2D::White(),
+                virtual void DrawFilledCircle(NkVec2f center, float32 radius, const NkColor2D& color = NkColor2D::White,
                                             uint32 segments = 32) = 0;
 
-                virtual void DrawTriangle(NkVec2f a, NkVec2f b, NkVec2f c, const NkColor2D& color = NkColor2D::White(),
-                                        float32 outline = 0.f, const NkColor2D& outlineColor = NkColor2D::Black()) = 0;
+                virtual void DrawTriangle(NkVec2f a, NkVec2f b, NkVec2f c, const NkColor2D& color = NkColor2D::White,
+                                        float32 outline = 0.f, const NkColor2D& outlineColor = NkColor2D::Black) = 0;
 
-                virtual void DrawFilledTriangle(NkVec2f a, NkVec2f b, NkVec2f c, const NkColor2D& color = NkColor2D::White()) = 0;
+                virtual void DrawFilledTriangle(NkVec2f a, NkVec2f b, NkVec2f c, const NkColor2D& color = NkColor2D::White) = 0;
 
                 // Custom vertex batch (advanced usage)
                 virtual void DrawVertices(const NkVertex2D* vertices, uint32 vertexCount,

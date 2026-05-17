@@ -9,7 +9,7 @@
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
 
 #include "NkMetalComputeContext.h"
-#include "NKContext/Graphics/Metal/NkMetalContext.h"
+#include "NKContext/Backend/Metal/NkMetalContext.h"
 #include "NKContainers/NkContainers.h"
 #import <Metal/Metal.h>
 #include <cstdio>

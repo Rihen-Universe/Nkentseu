@@ -139,6 +139,10 @@ namespace nkentseu {
             // L'instance Layered ecrit un NkLayeredParams (208B) dans son UBO
             // au lieu du NkPBRParams (96B) standard — cf. BindInstance branch.
             mTmplLayered  = reg(NkMaterialType::NK_LAYERED,      "Default_Layered",  "Layered");
+            // M.1 v1 : 8 layers PBR simplifies (albedo+metallic+roughness) avec
+            // masks parametriques. Shader Resources/.../Shaders/LayeredV1/VK/.
+            // L'instance ecrit NkLayeredV1Params (~336B) au lieu du PBR (96B).
+            mTmplLayeredV1= reg(NkMaterialType::NK_LAYERED_V1,   "Default_LayeredV1","LayeredV1");
         }
 
         // ── Contexte partagé (NkRender3D → NkMaterialSystem) ──────────────────────
@@ -204,12 +208,13 @@ namespace nkentseu {
             inst->mPBR.ao        = 1.f;
 
             // Per-instance GPU UBO. Taille selon type :
-            //   NK_LAYERED -> sizeof(NkLayeredParams) (~208 B, 2 PBR + mask)
-            //   autres     -> sizeof(NkPBRParams) (96 B, suffit pour Toon/Anime aussi)
+            //   NK_LAYERED    -> sizeof(NkLayeredParams)   (~208 B, 2 PBR + mask)
+            //   NK_LAYERED_V1 -> sizeof(NkLayeredV1Params) (~336 B, 8 PBRLayer + masks)
+            //   autres        -> sizeof(NkPBRParams)       (96 B, suffit Toon/Anime aussi)
             const NkMaterialType matType = GetTemplateType(tmpl);
-            const uint64 uboBytes = (matType == NkMaterialType::NK_LAYERED)
-                ? sizeof(NkLayeredParams)
-                : sizeof(NkPBRParams);
+            uint64 uboBytes = sizeof(NkPBRParams);
+            if      (matType == NkMaterialType::NK_LAYERED)    uboBytes = sizeof(NkLayeredParams);
+            else if (matType == NkMaterialType::NK_LAYERED_V1) uboBytes = sizeof(NkLayeredV1Params);
             inst->mUBO = mDevice->CreateBuffer(NkBufferDesc::Uniform(uboBytes));
 
             // Allocate descriptor set
@@ -223,6 +228,20 @@ namespace nkentseu {
 
         void NkMaterialSystem::DestroyInstance(NkMaterialInstance*& inst) {
             if (!inst) return;
+            // M.4 : detache du parent (retire de mChildren) et orpheline les enfants
+            // en promouvant leurs valeurs locales (deja copiees -> rien a faire).
+            if (inst->mParent) {
+                auto& siblings = inst->mParent->mChildren;
+                for (uint32 i = 0; i < (uint32)siblings.Size(); ++i) {
+                    if (siblings[i] == inst) { siblings.RemoveAt(i); break; }
+                }
+                inst->mParent = nullptr;
+            }
+            for (auto* child : inst->mChildren) {
+                if (child) child->mParent = nullptr;
+            }
+            inst->mChildren.Clear();
+
             mInstanceMap.Remove(inst->mHandle.id);
             for (uint32 i=0;i<(uint32)mInstances.Size();i++){
                 if (mInstances[i]==inst){
@@ -232,6 +251,233 @@ namespace nkentseu {
                 }
             }
             inst=nullptr;
+        }
+
+        // ── M.4 Hierarchical Instances ───────────────────────────────────────────
+        NkMaterialInstance* NkMaterialSystem::CreateChildInstance(NkMaterialInstance* parent) {
+            if (!parent) return nullptr;
+            auto* child = CreateInstance(parent->mTemplate);
+            if (!child) return nullptr;
+
+            // Copie initiale des params depuis le parent (full snapshot)
+            child->mPBR     = parent->mPBR;
+            child->mToon    = parent->mToon;
+            child->mLayered = parent->mLayered;
+            child->mParams  = parent->mParams;
+            child->mDirty   = true;
+
+            // Tous les masks restent a 0 : l'enfant herite de tout
+            child->mPBROverrideMask    = 0;
+            child->mToonOverrideMask   = 0;
+            child->mLayeredOverridden  = false;
+            child->mOverrideParamNames.Clear();
+
+            // Etablit le lien parent->enfant
+            child->mParent = parent;
+            parent->mChildren.PushBack(child);
+            return child;
+        }
+
+        // ── M.4 : Propagation des changements aux enfants ────────────────────────
+        // Copie un champ PBR depuis ce parent vers tous les enfants non-overrides
+        // pour ce bit (recursivement). Idempotent ; safe a appeler quand pas d'enfants.
+        void NkMaterialInstance::PropagatePBRField(uint32 bit) {
+            for (auto* child : mChildren) {
+                if (!child) continue;
+                if (child->mPBROverrideMask & bit) continue;   // override -> skip
+
+                // Copie le champ corresp depuis ce parent
+                switch (bit) {
+                    case NK_PBR_O_ALBEDO:
+                        child->mPBR.albedo = mPBR.albedo;
+                        break;
+                    case NK_PBR_O_EMISSIVE:
+                        child->mPBR.emissive         = mPBR.emissive;
+                        child->mPBR.emissiveStrength = mPBR.emissiveStrength;
+                        break;
+                    case NK_PBR_O_METALLIC:
+                        child->mPBR.metallic = mPBR.metallic;
+                        break;
+                    case NK_PBR_O_ROUGHNESS:
+                        child->mPBR.roughness = mPBR.roughness;
+                        break;
+                    case NK_PBR_O_AO:
+                        child->mPBR.ao = mPBR.ao;
+                        break;
+                    case NK_PBR_O_NORMAL_STR:
+                        child->mPBR.normalStrength = mPBR.normalStrength;
+                        break;
+                    case NK_PBR_O_CLEARCOAT:
+                        child->mPBR.clearcoat      = mPBR.clearcoat;
+                        child->mPBR.clearcoatRough = mPBR.clearcoatRough;
+                        break;
+                    case NK_PBR_O_SUBSURFACE:
+                        child->mPBR.subsurface      = mPBR.subsurface;
+                        child->mPBR.subsurfaceColor = mPBR.subsurfaceColor;
+                        break;
+                    case NK_PBR_O_ANISOTROPY:
+                        child->mPBR.anisotropy = mPBR.anisotropy;
+                        break;
+                    case NK_PBR_O_SHEEN:
+                        child->mPBR.sheen = mPBR.sheen;
+                        break;
+                    case NK_PBR_O_REFL_FLOOR:
+                        child->mPBR.reflFloorFaceMode = mPBR.reflFloorFaceMode;
+                        break;
+                    default:
+                        break;
+                }
+                child->mDirty = true;
+                child->PropagatePBRField(bit);   // recurse aux petits-enfants
+            }
+        }
+
+        void NkMaterialInstance::PropagateToonField(uint32 bit) {
+            for (auto* child : mChildren) {
+                if (!child) continue;
+                if (child->mToonOverrideMask & bit) continue;
+
+                switch (bit) {
+                    case NK_TOON_O_ALBEDO:
+                        child->mToon.albedoColor = mToon.albedoColor;
+                        break;
+                    case NK_TOON_O_SHADOW_TH:
+                        child->mToon.shadowThreshold = mToon.shadowThreshold;
+                        break;
+                    case NK_TOON_O_SHADOW_SMOOTH:
+                        child->mToon.shadowSmooth = mToon.shadowSmooth;
+                        break;
+                    case NK_TOON_O_SHADOW_COLOR:
+                        child->mToon.shadowColor = mToon.shadowColor;
+                        break;
+                    case NK_TOON_O_OUTLINE:
+                        child->mToon.outlineWidth = mToon.outlineWidth;
+                        child->mToon.outlineColor = mToon.outlineColor;
+                        break;
+                    case NK_TOON_O_RIM:
+                        child->mToon.rimIntensity = mToon.rimIntensity;
+                        child->mToon.rimColor     = mToon.rimColor;
+                        break;
+                    case NK_TOON_O_SPEC:
+                        child->mToon.specHardness = mToon.specHardness;
+                        break;
+                    case NK_TOON_O_MATCAP:
+                        child->mToon.matcapStrength = mToon.matcapStrength;
+                        break;
+                    default:
+                        break;
+                }
+                child->mDirty = true;
+                child->PropagateToonField(bit);
+            }
+        }
+
+        void NkMaterialInstance::PropagateLayered() {
+            for (auto* child : mChildren) {
+                if (!child) continue;
+                if (child->mLayeredOverridden) continue;
+                child->mLayered = mLayered;
+                child->mDirty = true;
+                child->PropagateLayered();
+            }
+        }
+
+        void NkMaterialInstance::PropagateNamedParam(const NkString& name) {
+            for (auto* child : mChildren) {
+                if (!child) continue;
+                if (child->IsNamedOverridden(name)) continue;
+                child->CopyNamedFromParent(name);
+                child->mDirty = true;
+                child->PropagateNamedParam(name);
+            }
+        }
+
+        bool NkMaterialInstance::IsNamedOverridden(const NkString& name) const {
+            for (auto& n : mOverrideParamNames) {
+                if (n == name) return true;
+            }
+            return false;
+        }
+
+        void NkMaterialInstance::AddNamedOverride(const NkString& name) {
+            if (!IsNamedOverridden(name)) mOverrideParamNames.PushBack(name);
+        }
+
+        // Copie un param nomme depuis mParent vers ce->mParams (insert si absent).
+        void NkMaterialInstance::CopyNamedFromParent(const NkString& name) {
+            if (!mParent) return;
+            // Recherche dans le parent
+            for (auto& p : mParent->mParams) {
+                if (p.name == name) {
+                    // Cherche dans this->mParams, remplace si trouve, sinon push
+                    bool found = false;
+                    for (auto& q : mParams) {
+                        if (q.name == name && q.kind == p.kind) {
+                            q = p;   // copy struct (kind+union+tex)
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) mParams.PushBack(p);
+                    return;
+                }
+            }
+        }
+
+        void NkMaterialInstance::MarkPBRChanged(uint32 bit) {
+            mDirty = true;
+            if (mParent) mPBROverrideMask |= bit;
+            PropagatePBRField(bit);
+        }
+
+        void NkMaterialInstance::MarkToonChanged(uint32 bit) {
+            mDirty = true;
+            if (mParent) mToonOverrideMask |= bit;
+            PropagateToonField(bit);
+        }
+
+        void NkMaterialInstance::MarkLayeredChanged() {
+            mDirty = true;
+            if (mParent) mLayeredOverridden = true;
+            PropagateLayered();
+        }
+
+        void NkMaterialInstance::MarkNamedChanged(const NkString& name) {
+            mDirty = true;
+            if (mParent) AddNamedOverride(name);
+            PropagateNamedParam(name);
+        }
+
+        // ── M.4 : Reset overrides (re-link au parent pour un champ) ──────────────
+        NkMaterialInstance* NkMaterialInstance::ResetPBROverride(NkPBROverrideBit bit) {
+            if (!mParent) return this;
+            if (mPBROverrideMask & (uint32)bit) {
+                mPBROverrideMask &= ~(uint32)bit;
+                // Resync ce champ depuis le parent puis propage aux petits-enfants
+                mParent->PropagatePBRField((uint32)bit);
+            }
+            return this;
+        }
+
+        NkMaterialInstance* NkMaterialInstance::ResetToonOverride(NkToonOverrideBit bit) {
+            if (!mParent) return this;
+            if (mToonOverrideMask & (uint32)bit) {
+                mToonOverrideMask &= ~(uint32)bit;
+                mParent->PropagateToonField((uint32)bit);
+            }
+            return this;
+        }
+
+        NkMaterialInstance* NkMaterialInstance::ResetNamedOverride(const NkString& name) {
+            if (!mParent) return this;
+            for (uint32 i = 0; i < (uint32)mOverrideParamNames.Size(); ++i) {
+                if (mOverrideParamNames[i] == name) {
+                    mOverrideParamNames.RemoveAt(i);
+                    mParent->PropagateNamedParam(name);
+                    return this;
+                }
+            }
+            return this;
         }
 
         // ── Bind ─────────────────────────────────────────────────────────────────
@@ -251,13 +497,16 @@ namespace nkentseu {
 
             if (inst->mDirty && inst->mDescSet.IsValid()) {
                 // Determine which params to upload based on material type.
-                //   NK_LAYERED -> NkLayeredParams (2 PBR + mask).
+                //   NK_LAYERED     -> NkLayeredParams   (2 PBR + mask).
+                //   NK_LAYERED_V1  -> NkLayeredV1Params (8 PBRLayer + masks).
                 //   NK_TOON / NK_TOON_INK / NK_ANIME -> NkToonParams.
                 //   autres -> NkPBRParams (defaut).
                 if (inst->mUBO.IsValid()) {
                     NkMaterialType matType = GetTemplateType(inst->mTemplate);
                     if (matType == NkMaterialType::NK_LAYERED) {
                         mDevice->WriteBuffer(inst->mUBO, &inst->mLayered, sizeof(NkLayeredParams));
+                    } else if (matType == NkMaterialType::NK_LAYERED_V1) {
+                        mDevice->WriteBuffer(inst->mUBO, &inst->mLayeredV1, sizeof(NkLayeredV1Params));
                     } else if (matType == NkMaterialType::NK_TOON  ||
                                matType == NkMaterialType::NK_TOON_INK ||
                                matType == NkMaterialType::NK_ANIME) {
@@ -298,6 +547,8 @@ namespace nkentseu {
                     uint64 uboRange = sizeof(NkPBRParams);
                     if (matType == NkMaterialType::NK_LAYERED)
                         uboRange = sizeof(NkLayeredParams);
+                    else if (matType == NkMaterialType::NK_LAYERED_V1)
+                        uboRange = sizeof(NkLayeredV1Params);
                     else if (matType == NkMaterialType::NK_TOON ||
                              matType == NkMaterialType::NK_TOON_INK ||
                              matType == NkMaterialType::NK_ANIME)
@@ -450,78 +701,122 @@ namespace nkentseu {
         }
 
         // ── NkMaterialInstance setters ────────────────────────────────────────────
+        // M.4 : chaque setter marque overridé (si enfant) + propage aux enfants
+        // via MarkPBRChanged / MarkToonChanged.
         NkMaterialInstance* NkMaterialInstance::SetAlbedo(NkVec3f c, float32 a) {
             mPBR.albedo={c.x,c.y,c.z,a};
             mToon.albedoColor={c.x,c.y,c.z,a};
-            mDirty=true; return this;
+            MarkPBRChanged (NK_PBR_O_ALBEDO);
+            MarkToonChanged(NK_TOON_O_ALBEDO);
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetMetallic(float32 v) {
             mPBR.metallic=v;
             mToon.metallic=v;   // teinte spec Toon/Anime : 0=blanc, 1=albedo
-            mDirty=true; return this;
+            MarkPBRChanged (NK_PBR_O_METALLIC);
+            // Pas de bit Toon dédié pour metallic (partage de la valeur — accept
+            // que le metallic Toon suit le PBR via le meme setter, override
+            // groupe sur le bit PBR_METALLIC seul).
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetRoughness(float32 v) {
-            mPBR.roughness=v; mDirty=true; return this;
+            mPBR.roughness=v; MarkPBRChanged(NK_PBR_O_ROUGHNESS); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetEmissive(NkVec3f c, float32 str) {
-            mPBR.emissive={c.x,c.y,c.z,1}; mPBR.emissiveStrength=str; mDirty=true; return this;
+            mPBR.emissive={c.x,c.y,c.z,1}; mPBR.emissiveStrength=str;
+            MarkPBRChanged(NK_PBR_O_EMISSIVE); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetSubsurface(float32 v, NkVec3f c) {
-            mPBR.subsurface=v; mPBR.subsurfaceColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+            mPBR.subsurface=v; mPBR.subsurfaceColor={c.x,c.y,c.z,1};
+            MarkPBRChanged(NK_PBR_O_SUBSURFACE); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetClearcoat(float32 v, float32 r) {
-            mPBR.clearcoat=v; mPBR.clearcoatRough=r; mDirty=true; return this;
+            mPBR.clearcoat=v; mPBR.clearcoatRough=r;
+            MarkPBRChanged(NK_PBR_O_CLEARCOAT); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetToonThreshold(float32 v) {
-            mToon.shadowThreshold=v; mDirty=true; return this;
+            mToon.shadowThreshold=v; MarkToonChanged(NK_TOON_O_SHADOW_TH); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetToonSmooth(float32 v) {
-            mToon.shadowSmooth=v; mDirty=true; return this;
+            mToon.shadowSmooth=v; MarkToonChanged(NK_TOON_O_SHADOW_SMOOTH); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetToonShadowColor(NkVec3f c) {
-            mToon.shadowColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+            mToon.shadowColor={c.x,c.y,c.z,1}; MarkToonChanged(NK_TOON_O_SHADOW_COLOR); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetOutline(float32 w, NkVec3f c) {
-            mToon.outlineWidth=w; mToon.outlineColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+            mToon.outlineWidth=w; mToon.outlineColor={c.x,c.y,c.z,1};
+            MarkToonChanged(NK_TOON_O_OUTLINE); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetRim(float32 intensity, NkVec3f c) {
-            mToon.rimIntensity=intensity; mToon.rimColor={c.x,c.y,c.z,1}; mDirty=true; return this;
+            mToon.rimIntensity=intensity; mToon.rimColor={c.x,c.y,c.z,1};
+            MarkToonChanged(NK_TOON_O_RIM); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetSpecHardness(float32 v) {
-            mToon.specHardness=v; mDirty=true; return this;
+            mToon.specHardness=v; MarkToonChanged(NK_TOON_O_SPEC); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetMatcapMap(NkTexHandle t) {
             return SetTexture("matcap", t);
         }
         NkMaterialInstance* NkMaterialInstance::SetMatcapStrength(float32 v) {
-            mToon.matcapStrength=v; mDirty=true; return this;
+            mToon.matcapStrength=v; MarkToonChanged(NK_TOON_O_MATCAP); return this;
         }
 
         NkMaterialInstance* NkMaterialInstance::SetReflFloorFaceMode(int32 mode) {
             mPBR.reflFloorFaceMode = (float32)mode;
-            mDirty = true;
+            MarkPBRChanged(NK_PBR_O_REFL_FLOOR);
             return this;
         }
 
         // ── M.1 v0 : Layered material setters ───────────────────────────────────
+        // Layered est traite en bloc (un seul bit mLayeredOverridden).
         NkMaterialInstance* NkMaterialInstance::SetLayerBase(const NkPBRParams& p) {
-            mLayered.base = p; mDirty = true; return this;
+            mLayered.base = p; MarkLayeredChanged(); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetLayerTop(const NkPBRParams& p) {
-            mLayered.top = p; mDirty = true; return this;
+            mLayered.top = p; MarkLayeredChanged(); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetLayerMaskSource(int32 src) {
-            mLayered.maskSource = src; mDirty = true; return this;
+            mLayered.maskSource = src; MarkLayeredChanged(); return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetLayered(const NkLayeredParams& l) {
-            mLayered = l; mDirty = true; return this;
+            mLayered = l; MarkLayeredChanged(); return this;
+        }
+
+        // ── M.1 v1 : N=8 layers setters ─────────────────────────────────────────
+        NkMaterialInstance* NkMaterialInstance::SetLayeredV1(const NkLayeredV1Params& l) {
+            mLayeredV1 = l;
+            mDirty = true;
+            // Pas de propagation M.4 fine sur LayeredV1 v0 — copie en bloc.
+            return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetLayerV1(int32 idx, const NkPBRLayer& layer) {
+            if (idx < 0 || idx >= 8) return this;
+            mLayeredV1.layers[idx] = layer;
+            mDirty = true;
+            return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetLayerV1Mask(int32 idx,
+                                                                 NkLayerMaskSource src,
+                                                                 float32 k) {
+            if (idx < 0 || idx >= 8) return this;
+            if (idx < 4) mLayeredV1.maskSources0[idx]     = (int32)src;
+            else         mLayeredV1.maskSources1[idx - 4] = (int32)src;
+            if (idx < 4) mLayeredV1.maskConstants0[idx]     = k;
+            else         mLayeredV1.maskConstants1[idx - 4] = k;
+            mDirty = true;
+            return this;
+        }
+        NkMaterialInstance* NkMaterialInstance::SetLayerV1Count(int32 n) {
+            mLayeredV1.numLayers = (n < 1) ? 1 : (n > 8 ? 8 : n);
+            mDirty = true;
+            return this;
         }
 
         NkMaterialInstance* NkMaterialInstance::SetTexture(const NkString& n, NkTexHandle t) {
             for (auto& p:mParams)
                 if(p.name==n && p.kind==Param::Kind::TEX) {
                     p.tex=t;
-                    mDirty=true;
+                    MarkNamedChanged(n);
                     return this;
                 }
             Param p;
@@ -529,38 +824,67 @@ namespace nkentseu {
             p.kind=Param::Kind::TEX;
             p.tex=t;
             mParams.PushBack(p);
-            mDirty=true;
+            MarkNamedChanged(n);
             return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetAlbedoMap  (NkTexHandle t){return SetTexture("albedo",t);}
-        NkMaterialInstance* NkMaterialInstance::SetNormalMap  (NkTexHandle t,float32 s){mPBR.normalStrength=s;return SetTexture("normal",t);}
+        NkMaterialInstance* NkMaterialInstance::SetNormalMap  (NkTexHandle t,float32 s){
+            mPBR.normalStrength=s;
+            MarkPBRChanged(NK_PBR_O_NORMAL_STR);
+            return SetTexture("normal",t);
+        }
         NkMaterialInstance* NkMaterialInstance::SetORMMap     (NkTexHandle t){return SetTexture("orm",t);}
         NkMaterialInstance* NkMaterialInstance::SetEmissiveMap(NkTexHandle t){return SetTexture("emissive",t);}
         NkMaterialInstance* NkMaterialInstance::SetAOMap      (NkTexHandle t){return SetTexture("ao",t);}
 
+        // Helper interne membre : dedup + assign d'un Param non-tex par
+        // (name, kind). Retourne true si le Param existait deja.
+        bool NkMaterialInstance::DedupNamedParam(const Param& src) {
+            for (auto& p : mParams) {
+                if (p.name == src.name && p.kind == src.kind) {
+                    p = src;
+                    return true;
+                }
+            }
+            mParams.PushBack(src);
+            return false;
+        }
+
         NkMaterialInstance* NkMaterialInstance::SetFloat(const NkString& n,float32 v) {
             Param p; p.name=n; p.kind=Param::Kind::F; p.f=v;
-            mParams.PushBack(p); mDirty=true; return this;
+            DedupNamedParam(p);
+            MarkNamedChanged(n);
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetVec3(const NkString& n,NkVec3f v){
             Param p; p.name=n; p.kind=Param::Kind::V3; p.v3=v;
-            mParams.PushBack(p); mDirty=true; return this;
+            DedupNamedParam(p);
+            MarkNamedChanged(n);
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetVec4(const NkString& n,NkVec4f v){
             Param p; p.name=n; p.kind=Param::Kind::V4; p.v4=v;
-            mParams.PushBack(p); mDirty=true; return this;
+            DedupNamedParam(p);
+            MarkNamedChanged(n);
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetVec2(const NkString& n,NkVec2f v){
             Param p; p.name=n; p.kind=Param::Kind::V2; p.v2=v;
-            mParams.PushBack(p); mDirty=true; return this;
+            DedupNamedParam(p);
+            MarkNamedChanged(n);
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetInt(const NkString& n,int32 v){
             Param p; p.name=n; p.kind=Param::Kind::I; p.i=v;
-            mParams.PushBack(p); mDirty=true; return this;
+            DedupNamedParam(p);
+            MarkNamedChanged(n);
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetBool(const NkString& n,bool v){
             Param p; p.name=n; p.kind=Param::Kind::B; p.b=v;
-            mParams.PushBack(p); mDirty=true; return this;
+            DedupNamedParam(p);
+            MarkNamedChanged(n);
+            return this;
         }
         NkMaterialInstance* NkMaterialInstance::SetColor(const NkString& n,NkVec4f c){return SetVec4(n,c);}
 

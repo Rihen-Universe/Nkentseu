@@ -4,7 +4,7 @@
 // =============================================================================
 #include "NKContext/Core/NkIGraphicsContext.h"
 #include "NKContext/Core/NkSurfaceDesc.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NKMath.h"
 

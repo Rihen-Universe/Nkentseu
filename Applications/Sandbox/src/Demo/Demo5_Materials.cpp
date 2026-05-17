@@ -1404,8 +1404,6 @@ void Demo5_Materials_Frame(DemoCtx& ctx, float32 dt) {
     }
 
     // ── Phase M.6 v4 : texture cube (texture writable + UV atlas 2x3) ────────
-    // DEBUG FPS : commente temporairement pour mesurer impact sur FPS Vulkan.
-#if 0
     if (st->texMat && st->texMat->IsValid() && st->meshTexCube.IsValid()) {
         NkDrawCall3D dc;
         dc.mesh       = st->meshTexCube;
@@ -1416,7 +1414,6 @@ void Demo5_Materials_Frame(DemoCtx& ctx, float32 dt) {
         dc.material   = st->texMat->GetInstHandle();
         r3d->Submit(dc);
     }
-#endif
 
     // ── Debug gizmos ─────────────────────────────────────────────────────────
     r3d->DrawDebugAxes(NkMat4f::Identity(), 0.5f);

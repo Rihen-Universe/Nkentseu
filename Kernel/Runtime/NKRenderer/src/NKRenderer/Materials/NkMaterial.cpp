@@ -23,6 +23,7 @@ namespace nkentseu {
                 case NkMaterialType::NK_ARCHIVIZ:      tmpl = sys->DefaultArchviz();   break;
                 case NkMaterialType::NK_REFL_FLOOR:   tmpl = sys->DefaultReflFloor(); break;
                 case NkMaterialType::NK_LAYERED:      tmpl = sys->DefaultLayered();   break;
+                case NkMaterialType::NK_LAYERED_V1:   tmpl = sys->DefaultLayeredV1(); break;
                 default:                               tmpl = sys->DefaultPBR();       break;
             }
             if (!tmpl.IsValid()) return nullptr;
@@ -42,12 +43,39 @@ namespace nkentseu {
             return mat;
         }
 
+        // M.4 : Cree un enfant heritant des params du parent. L'enfant utilise
+        // le meme template, ses propres UBO/descSet, et a un lien live vers le
+        // parent. Modifier le parent met automatiquement a jour les enfants
+        // dont le champ touche n'est PAS override.
+        NkMaterial* NkMaterial::CreateChild(NkMaterial* parent) {
+            if (!parent || !parent->mSystem || !parent->mInstance) return nullptr;
+            auto* mat = new NkMaterial();
+            mat->mSystem   = parent->mSystem;
+            mat->mInstance = parent->mSystem->CreateChildInstance(parent->mInstance);
+            if (!mat->mInstance) { delete mat; return nullptr; }
+            return mat;
+        }
+
         void NkMaterial::Destroy(NkMaterial*& mat) {
             if (!mat) return;
             if (mat->mSystem && mat->mInstance)
                 mat->mSystem->DestroyInstance(mat->mInstance);
             delete mat;
             mat = nullptr;
+        }
+
+        // ── M.4 : Retrait d'overrides (re-link au parent) ────────────────────
+        NkMaterial* NkMaterial::ResetParameter(const char* name) {
+            if (mInstance && name) mInstance->ResetNamedOverride(NkString(name));
+            return this;
+        }
+        NkMaterial* NkMaterial::ResetPBROverride(NkPBROverrideBit bit) {
+            if (mInstance) mInstance->ResetPBROverride(bit);
+            return this;
+        }
+        NkMaterial* NkMaterial::ResetToonOverride(NkToonOverrideBit bit) {
+            if (mInstance) mInstance->ResetToonOverride(bit);
+            return this;
         }
 
         NkMaterial::~NkMaterial() {

@@ -7,6 +7,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKRHI/ShaderConvert/NkShaderConvert.h"
 #include "NKRHI/ShaderConvert/NkShaderAnnotations.h"
+#include "NkShaderIncludeResolver.h"
 #include <cstdio>
 #include <sys/stat.h>
 #include <cstring>
@@ -157,8 +158,12 @@ namespace nkentseu {
             NkString raw; raw.Resize((uint32)sz);
             fread(raw.Data(), 1, (size_t)sz, f);
             fclose(f);
+            // M.5 Material Functions : resoud les #include "Include/foo.glsli"
+            // AVANT le strip d'annotations (les .glsli ne sont pas censes contenir
+            // d'annotations, mais on prefere les stripper sur le tout au cas ou).
+            NkString withIncludes = NkShaderIncludeResolver::Resolve(raw, path);
             // Strip annotations -> shader prêt à passer aux compilateurs/backends.
-            return NkShaderAnnotationParser::StripAnnotations(raw);
+            return NkShaderAnnotationParser::StripAnnotations(withIncludes);
         }
 
         uint64 NkShaderLibrary::GetFileMtime(const NkString& path) {

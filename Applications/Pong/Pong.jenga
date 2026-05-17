@@ -48,6 +48,7 @@ if _pkg_exists("libdecor-0"):
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 with project("Pong"):
+    useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "context")
     windowedapp()
     language("C++")
     cppdialect("C++17")
@@ -57,23 +58,24 @@ with project("Pong"):
 
     _PONG_INCLUDE_DIRS = [
         "src",
-        "%{wks.location}/Externals",
-        "%{NKGlad.location}/include",
-        "%{NKEvent.location}/src",
-        "%{NKWindow.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKCore.location}/src",
         "%{NKPlatform.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKStream.location}/src",
+        "%{NKCore.location}/src",
         "%{NKMemory.location}/src",
         "%{NKContainers.location}/src",
+        "%{NKMath.location}/src",
         "%{NKThreading.location}/src",
-        "%{NKContext.location}/src",
-        "%{NKFont.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKTime.location}/src",
+        "%{NKEvent.location}/src",
+        "%{NKWindow.location}/src",
         "%{NKImage.location}/src",
+        "%{NKFont.location}/src",
         "%{NKUI.location}/src",
+        "%{NKContext.location}/src",
+        "%{NKStream.location}/src",
+        "%{NKGlad.location}/include",
+        "%{NKFileSystem.location}/src",
+        "%{wks.location}/Externals",
     ]
     if _VULKAN_INCLUDE:
         _PONG_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
@@ -82,6 +84,7 @@ with project("Pong"):
     _BASE_DEPS = [
         "NKEvent", "NKWindow", "NKContext", "NKGlad", "NKLogger",
         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+        "NKFileSystem",
         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
     ]
     links(_BASE_DEPS)
@@ -137,8 +140,22 @@ with project("Pong"):
     # ===== Android ============================================================
     with filter("system:Android"):
         usetoolchain("android-ndk")
-        links(["android", "log", "EGL", "GLESv3"])
-        androidapplicationid(f"com.rihen.nkentseu.pong")
+        _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3"]
+        # NKContext compile avec Vulkan : il faut linker vulkan (API 24+)
+        if _WANT_VULKAN:
+            _ANDROID_LINKS.append("vulkan")
+        links(_ANDROID_LINKS)
+        androidapplicationid(f"com.rihen.nkentseu.noge.pong")
+        # Bundle UNIQUEMENT Resources/Pong/ dans assets/ de l'APK (et pas
+        # tout Resources/ qui contient des assets d'autres projets — Models,
+        # NKRenderer shaders, HDRI, etc. — qui gonfleraient l'APK pour rien).
+        # Jenga copie le contenu du dossier (pas le dossier lui-meme), donc
+        # un fichier Resources/Pong/Textures/logo.png se retrouve dans
+        # assets/Textures/logo.png. Cote C++, le path utilise reste
+        # "Resources/Pong/Textures/logo.png" — NkFile::Open() strip le
+        # prefixe "Resources/<sub-folder>/" en fallback (le sub-folder est
+        # configure par PongApp via NkFile::SetAndroidAssetSubFolder("Pong")).
+        androidassets(["../../Resources/Pong"])
         androidminsdk(24)
         androidtargetsdk(34)
         androidcompilesdk(34)
@@ -151,7 +168,7 @@ with project("Pong"):
     # ===== iOS ================================================================
     with filter("system:iOS"):
         frameworks(["UIKit", "QuartzCore", "OpenGLES"])
-        iosbundleid(f"com.nkentseu.pong")
+        iosbundleid(f"com.rihen.nkentseu.noge.pong")
         iosversion("1.0")
         iosminsdk("14.0")
         iosbuildnumber(1)

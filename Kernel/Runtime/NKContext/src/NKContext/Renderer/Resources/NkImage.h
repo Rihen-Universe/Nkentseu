@@ -19,7 +19,7 @@ namespace nkentseu {
                 // ── Create ────────────────────────────────────────────────────────────
                 // Create blank image filled with color
                 bool Create(uint32 width, uint32 height,
-                            const NkColor2D& fillColor = NkColor2D::Transparent());
+                            const NkColor2D& fillColor = NkColor2D::Transparent);
 
                 // Load from file (PNG, JPG, BMP, TGA, GIF via stb_image)
                 bool LoadFromFile(const char* path);

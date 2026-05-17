@@ -68,11 +68,12 @@ with project("NKWindow"):
         "%{NKMemory.location}/src",
         "%{NKThreading.location}/src",
         "%{NKEvent.location}/src",
+        "%{NKFileSystem.location}/src",
     ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath", "NKTime", "NKContainers", "NKMemory", "NKThreading", "NKEvent"])
+    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath", "NKTime", "NKContainers", "NKMemory", "NKThreading", "NKEvent", "NKFileSystem"])
 
     # Fichiers communs (Core + Events Ã¢â‚¬â€ partagÃƒÂ©s par toutes les plateformes)
     files([

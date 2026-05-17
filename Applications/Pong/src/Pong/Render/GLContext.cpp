@@ -1,10 +1,14 @@
 // =============================================================================
-// GLContext.cpp — implementation
+// GLContext.cpp
+// -----------------------------------------------------------------------------
+// Implementation : utilise NkContextFactory pour creer un NkOpenGLContext
+// adapte a la plateforme, puis charge glad pour acceder a OpenGL/GLES.
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
 
-// ── GLAD2 : inclure avant les autres headers pour eviter conflit gl.h ────────
+// ── GLAD2 : inclure AVANT tout autre header NK* pour eviter le conflit avec
+// les gl.h systeme deja charges par defaut. ─────────────────────────────────
 #if defined(__has_include)
 #   if defined(NKENTSEU_PLATFORM_WINDOWS)
 #       if __has_include(<glad/wgl.h>) && __has_include(<glad/gl.h>)
@@ -44,7 +48,7 @@
 #endif
 
 #if defined(Bool)
-#   undef Bool
+#   undef Bool   // X11/GLX redefinissent Bool en macro, on retire
 #endif
 
 #include "GLContext.h"
@@ -58,74 +62,96 @@
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #   include <emscripten/html5.h>
-static void* GetWebGLProcAddrFallback(const char* name) {
-    return reinterpret_cast<void*>(emscripten_webgl_get_proc_address(name));
-}
+    // Fallback WebGL : si NkContext ne fournit pas de loader, on retombe sur
+    // emscripten_webgl_get_proc_address directement.
+    static void* GetWebGLProcAddrFallback(const char* name)
+    {
+        return reinterpret_cast<void*>(emscripten_webgl_get_proc_address(name));
+    }
 #endif
 
-namespace nkentseu { 
-    namespace pong {
+namespace nkentseu
+{
+    namespace pong
+    {
 
-        GLContext::~GLContext() { Shutdown(); }
-
-        static bool LoadGladFromContext(NkIGraphicsContext* ctx) {
-        #if defined(PONG_HAS_GLAD)
+        // ─────────────────────────────────────────────────────────────────────
+        // Charge glad a partir de la fonction proc-address exposee par
+        // NkContext. On selectionne le bon glad selon la plateforme : GLES sur
+        // Android/Wayland/Web, GL desktop ailleurs.
+        // ─────────────────────────────────────────────────────────────────────
+        static bool LoadGladFromContext(NkIGraphicsContext* ctx)
+        {
+#if defined(PONG_HAS_GLAD)
             auto loader = NkNativeContext::GetOpenGLProcAddressLoader(ctx);
-        #   if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-            if (!loader) loader = &GetWebGLProcAddrFallback;
-        #   endif
-            if (!loader) {
+#   if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+            if (loader == nullptr) loader = &GetWebGLProcAddrFallback;
+#   endif
+            if (loader == nullptr)
+            {
                 logger.Error("[GLContext] OpenGL proc loader unavailable");
                 return false;
             }
-        #   if defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-            int ver = gladLoadGLES2((GLADloadfunc)loader);
-        #   else
-            int ver = gladLoadGL((GLADloadfunc)loader);
-        #   endif
-            if (!ver) {
+#   if defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+            int ver = gladLoadGLES2(reinterpret_cast<GLADloadfunc>(loader));
+#   else
+            int ver = gladLoadGL(reinterpret_cast<GLADloadfunc>(loader));
+#   endif
+            if (ver == 0)
+            {
                 logger.Error("[GLContext] glad load failed");
                 return false;
             }
             return true;
-        #else
+#else
             (void)ctx;
             return true;
-        #endif
+#endif
         }
 
-        bool GLContext::Init(NkWindow& window) {
+        GLContext::~GLContext()
+        {
+            Shutdown();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // GLContext::Init
+        // ─────────────────────────────────────────────────────────────────────
+        bool GLContext::Init(NkWindow& window)
+        {
+            // Construit le NkContextDesc selon la plateforme.
             NkContextDesc desc;
-        #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-            desc.api = NkGraphicsApi::NK_GFX_API_WEBGL;
+#if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+            desc.api                 = NkGraphicsApi::NK_GFX_API_WEBGL;
             desc.opengl.majorVersion = 3;
             desc.opengl.minorVersion = 0;
             desc.opengl.profile      = NkGLProfile::ES;
             desc.opengl.contextFlags = NkGLContextFlags::NoneFlag;
-        #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
+#elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_WINDOWING_WAYLAND)
+            // GLES 3.0 — compatible avec Android API 24+ et Mesa Wayland.
             desc = NkContextDesc::MakeOpenGLES(3, 0);
-        #else
+#else
+            // Desktop : OpenGL 4.6 Core
             desc.api    = NkGraphicsApi::NK_GFX_API_OPENGL;
             desc.opengl = NkOpenGLDesc::Desktop46(/*debug=*/false);
-        #endif
+#endif
 
-            desc.opengl.msaaSamples      = 4;
-            desc.opengl.srgbFramebuffer  = true;
-            desc.opengl.swapInterval     = NkGLSwapInterval::AdaptiveVSync;
-            desc.opengl.runtime.autoLoadEntryPoints = false; // on charge glad nous-memes
-            desc.opengl.runtime.validateVersion     = true;
-        #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+            // Options communes : MSAA, sRGB, VSync adaptatif.
+            desc.opengl.msaaSamples                  = 4;
+            desc.opengl.srgbFramebuffer              = true;
+            desc.opengl.swapInterval                 = NkGLSwapInterval::AdaptiveVSync;
+            desc.opengl.runtime.autoLoadEntryPoints  = false;  // glad manuel
+            desc.opengl.runtime.validateVersion      = true;
             desc.opengl.runtime.installDebugCallback = false;
-        #else
-            desc.opengl.runtime.installDebugCallback = false; // mettre true pour debug
-        #endif
 
             mContext = NkContextFactory::Create(window, desc);
-            if (!mContext) {
+            if (mContext == nullptr)
+            {
                 logger.Error("[GLContext] NkContextFactory::Create failed");
                 return false;
             }
-            if (!LoadGladFromContext(mContext)) {
+            if (!LoadGladFromContext(mContext))
+            {
                 mContext->Shutdown();
                 delete mContext;
                 mContext = nullptr;
@@ -136,8 +162,11 @@ namespace nkentseu {
             return true;
         }
 
-        void GLContext::Shutdown() {
-            if (mContext) {
+        // ─────────────────────────────────────────────────────────────────────
+        void GLContext::Shutdown()
+        {
+            if (mContext != nullptr)
+            {
                 mContext->Shutdown();
                 delete mContext;
                 mContext = nullptr;
@@ -145,21 +174,26 @@ namespace nkentseu {
             mGladLoaded = false;
         }
 
-        bool GLContext::BeginFrame() {
-            return mContext ? mContext->BeginFrame() : false;
-        }
-        
-        void GLContext::EndFrame() {
-            if (mContext) mContext->EndFrame();
+        // ─────────────────────────────────────────────────────────────────────
+        bool GLContext::BeginFrame()
+        {
+            return mContext != nullptr ? mContext->BeginFrame() : false;
         }
 
-        void GLContext::Present() {
-            if (mContext) mContext->Present();
+        void GLContext::EndFrame()
+        {
+            if (mContext != nullptr) mContext->EndFrame();
         }
 
-        bool GLContext::OnResize(uint32 w, uint32 h) {
-            return mContext ? mContext->OnResize(w, h) : false;
+        void GLContext::Present()
+        {
+            if (mContext != nullptr) mContext->Present();
         }
 
-    }
-} // namespace nkentseu::pong
+        bool GLContext::OnResize(uint32 w, uint32 h)
+        {
+            return mContext != nullptr ? mContext->OnResize(w, h) : false;
+        }
+
+    } // namespace pong
+} // namespace nkentseu

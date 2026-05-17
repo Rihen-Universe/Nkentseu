@@ -15,16 +15,16 @@
 //   NkFont    font; font.LoadFromFile(*r2d, "assets/Roboto-Regular.ttf");
 //   NkSprite  sprite(bg);
 //   NkText    label(font, "Hello, NkEngine!", 32);
-//   label.SetFillColor(NkColor2D::Yellow());
+//   label.SetFillColor(NkColor2D::Yellow);
 //   label.SetPosition({50, 50});
 //
 //   // In the render loop:
-//   r2d->Clear(NkColor2D::Black());
+//   r2d->Clear(NkColor2D::Black);
 //   r2d->Begin();
 //     r2d->Draw(sprite);
 //     r2d->Draw(label);
-//     r2d->DrawFilledRect({100,100,200,50}, NkColor2D::Red());
-//     r2d->DrawFilledCircle({400,300}, 80, NkColor2D::Blue());
+//     r2d->DrawFilledRect({100,100,200,50}, NkColor2D::Red);
+//     r2d->DrawFilledCircle({400,300}, 80, NkColor2D::Blue);
 //   r2d->End();
 // =============================================================================
 

@@ -6,7 +6,7 @@
 #include "NKContext/Core/NkNativeContextAccess.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 
 #include <cstdio>
 #include <cstring>

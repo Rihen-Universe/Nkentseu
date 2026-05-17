@@ -154,10 +154,11 @@
             // -------------------------------------------------------------
             // État interne du fichier : handle opaque, chemin, mode, statut.
 
-            void* mHandle;          ///< Descripteur opaque (en pratique FILE*)
+            void* mHandle;          ///< Descripteur opaque (FILE* ou AAsset*)
             NkPath mPath;           ///< Chemin associé au fichier ouvert
             NkFileMode mMode;       ///< Mode d'ouverture actuel
             bool mIsOpen;           ///< État d'ouverture : true si fichier ouvert
+            bool mIsAsset;          ///< true si mHandle pointe sur un AAsset Android (lecture seule)
 
             // -------------------------------------------------------------
             // SOUS-SECTION 2.3.2 : Méthodes privées
@@ -475,6 +476,42 @@
                 const NkPath& path,
                 const NkVector<nk_uint8>& data
             );
+
+            // -------------------------------------------------------------
+            // SOUS-SECTION 2.3.12 : Support des assets Android (read-only)
+            // -------------------------------------------------------------
+            // Sur Android, les fichiers du dossier `assets/` de l'APK ne sont
+            // PAS accessibles via fopen — il faut passer par AAssetManager
+            // (API NDK). NkFile fournit un fallback transparent : si Open()
+            // echoue avec fopen, il tente AAssetManager si un manager a ete
+            // enregistre via SetAndroidAssetManager(). Le path est
+            // automatiquement prefixe (strip "Resources/" si present) pour
+            // matcher la structure d'un APK genere par Jenga (qui place les
+            // fichiers de `androidassets(["../../Resources"])` directement
+            // sous `assets/`).
+            //
+            // Sur les autres plateformes, ces methodes sont no-op.
+
+            /// Enregistre l'AAssetManager Android global (a appeler une fois au
+            /// demarrage par la couche window / activity). Le pointeur est
+            /// non-owning : la duree de vie est geree par Android.
+            /// @param manager Pointeur vers AAssetManager (type void* pour
+            ///                eviter une dependance NDK dans ce header).
+            ///                Passer nullptr pour deregistrer.
+            static void SetAndroidAssetManager(void* manager);
+
+            /// Retourne le AAssetManager enregistre (peut etre nullptr).
+            static void* GetAndroidAssetManager();
+
+            /// Configure un sous-dossier d'application a stripper en plus du
+            /// prefixe "Resources/" pour la resolution des assets Android.
+            /// Exemple : pour Pong qui bundle Resources/Pong/ -> assets/, on
+            /// appelle SetAndroidAssetSubFolder("Pong"). Du coup le path C++
+            /// "Resources/Pong/Textures/logo.png" sera tente, puis strip
+            /// "Resources/Pong/" -> "Textures/logo.png" qui matche l'asset.
+            /// @param name Nom du sous-dossier (sans /), ou nullptr/"" pour
+            ///             desactiver ce strip supplementaire.
+            static void SetAndroidAssetSubFolder(const char* name);
 
         }; // class NkFile
 

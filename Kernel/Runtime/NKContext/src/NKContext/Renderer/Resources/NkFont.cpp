@@ -132,7 +132,7 @@ namespace nkentseu {
             page.atlasH  = 512;
             page.cpuPixels.Resize((NkVector<uint8>::SizeType)(page.atlasW * page.atlasH * 4u), 0u);
             // White background with zero alpha
-            page.texture.Create(renderer, page.atlasW, page.atlasH, NkColor2D::Transparent());
+            page.texture.Create(renderer, page.atlasW, page.atlasH, NkColor2D::Transparent);
             mPages.PushBack(static_cast<AtlasPage&&>(page));
             return mPages.Back();
         }
