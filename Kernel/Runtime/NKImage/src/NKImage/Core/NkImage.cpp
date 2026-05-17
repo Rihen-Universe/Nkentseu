@@ -20,6 +20,7 @@
  *  - Corrigé : if(flg & 0x20) return false  où flg = in[1]
  */
 #include "NKImage/Core/NkImage.h"
+#include "NKFileSystem/NkFile.h"
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 #include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
 #include "NKImage/Codecs/BMP/NkBMPCodec.h"
@@ -735,22 +736,16 @@ namespace nkentseu {
 
     NkImage* NkImage::Load(const char* path, int32 ch) noexcept {
         if (!path) return nullptr;
-        FILE* f = ::fopen(path, "rb");
-        if (!f) return nullptr;
-        ::fseek(f, 0, SEEK_END);
-        long sz = ::ftell(f);
-        ::fseek(f, 0, SEEK_SET);
-        if (sz <= 0) {
-            ::fclose(f);
-            return nullptr;
-        }
+        // Passe par NkFile pour beneficier du fallback cross-platform :
+        // sur Android, si le path n'est pas trouve via fopen, NkFile tente
+        // automatiquement l'AAssetManager (assets/ de l'APK).
+        NkFile file(path, NkFileMode::NK_READ_BINARY);
+        if (!file.IsOpen()) return nullptr;
+        const nk_int64 sz = file.GetSize();
+        if (sz <= 0) return nullptr;
         uint8* buf = static_cast<uint8*>(nkMalloc(usize(sz)));
-        if (!buf) {
-            ::fclose(f);
-            return nullptr;
-        }
-        usize rd = ::fread(buf, 1, usize(sz), f);
-        ::fclose(f);
+        if (!buf) return nullptr;
+        const usize rd = file.Read(buf, usize(sz));
         NkImage* img = nullptr;
         if (rd == usize(sz)) img = LoadFromMemory(buf, rd, ch);
         nkFree(buf);

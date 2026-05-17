@@ -413,7 +413,8 @@ namespace nkentseu {
         void NkDX12Renderer2D::Clear(const NkColor2D& col) {
             NkDX12ContextData* d = NkNativeContext::DX12(mCtx);
             if (!d || !d->cmdList) return;
-            float fc[4] = { col.r * math::c1_255, col.g * math::c1_255, col.b * math::c1_255, col.a * math::c1_255 };
+            math::NkColorF cf = col.ToColorF();
+            float fc[4] = { cf.r, cf.g, cf.b, cf.a };
             const uint32 frame = d->currentBackBuffer;
             d->cmdList->ClearRenderTargetView(d->rtvHandles[frame], fc, 0, nullptr);
         }

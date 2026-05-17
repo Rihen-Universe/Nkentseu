@@ -12,6 +12,7 @@
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKCore/NkAtomic.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <android/configuration.h>
 #include <android/native_window.h>
@@ -511,6 +512,10 @@ namespace nkentseu {
         mData.mAConfig = AConfiguration_new();
         if (mData.mAConfig && mData.mAndroidApp->activity && mData.mAndroidApp->activity->assetManager) {
             AConfiguration_fromAssetManager(mData.mAConfig, mData.mAndroidApp->activity->assetManager);
+            // Expose l'AAssetManager au sous-systeme fichier pour que NkFile
+            // (et donc NkImage::Load, futures NKFont/NKAudio) puisse acceder
+            // aux ressources empaquetees dans assets/ de l'APK.
+            NkFile::SetAndroidAssetManager(mData.mAndroidApp->activity->assetManager);
         }
 
         mData.mOrientation = config.screenOrientation;

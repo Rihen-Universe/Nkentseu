@@ -40,6 +40,9 @@ namespace nkentseu { namespace demo {
     bool Demo3D_Init                (DemoCtx&); void Demo3D_Frame            (DemoCtx&, float32); void Demo3D_Shutdown            (DemoCtx&);
     bool Demo4_Materials_Init       (DemoCtx&); void Demo4_Materials_Frame   (DemoCtx&, float32); void Demo4_Materials_Shutdown   (DemoCtx&);
     bool Demo5_Materials_Init       (DemoCtx&); void Demo5_Materials_Frame   (DemoCtx&, float32); void Demo5_Materials_Shutdown   (DemoCtx&);
+    bool Demo6_HierarchicalMaterials_Init(DemoCtx&); void Demo6_HierarchicalMaterials_Frame(DemoCtx&, float32); void Demo6_HierarchicalMaterials_Shutdown(DemoCtx&);
+    bool Demo7_MaterialFunctions_Init    (DemoCtx&); void Demo7_MaterialFunctions_Frame    (DemoCtx&, float32); void Demo7_MaterialFunctions_Shutdown    (DemoCtx&);
+    bool Demo8_LayeredV1_Init            (DemoCtx&); void Demo8_LayeredV1_Frame            (DemoCtx&, float32); void Demo8_LayeredV1_Shutdown            (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -52,6 +55,12 @@ namespace nkentseu { namespace demo {
             Demo4_Materials_Init,     Demo4_Materials_Frame,   Demo4_Materials_Shutdown },
         { "Materials5", "NkMaterial v2 : evolutions M.2+ (MPC, blend vcolor, hierarchies, etc.)",
             Demo5_Materials_Init,     Demo5_Materials_Frame,   Demo5_Materials_Shutdown },
+        { "Materials6", "M.4 Hierarchical Material Instances (parent/enfants avec override + propagation)",
+            Demo6_HierarchicalMaterials_Init, Demo6_HierarchicalMaterials_Frame, Demo6_HierarchicalMaterials_Shutdown },
+        { "Materials7", "M.5 Material Functions (shader #include + .glsli builtins)",
+            Demo7_MaterialFunctions_Init, Demo7_MaterialFunctions_Frame, Demo7_MaterialFunctions_Shutdown },
+        { "Materials8", "M.1 v1 Material Layering N=8 layers (masks vColor/vUV/const)",
+            Demo8_LayeredV1_Init, Demo8_LayeredV1_Frame, Demo8_LayeredV1_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -95,6 +104,30 @@ namespace nkentseu { namespace demo {
                 c.shadow.pcss         = false;
                 return c;
             }
+            case 5: {
+                // Demo6 M.4 : scene legere (4 spheres + 1 petit-enfant + sol).
+                // Meme config Game que Demo4/5, 1 cascade suffit, pas de PCSS
+                // (les ombres ne sont pas le focus de M.4).
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = false;
+                return c;
+            }
+            case 6: {
+                // Demo7 M.5 : 1 sphere custom shader + sol simple. Pas de
+                // shadow ni PCSS — la demo est purement procedurale.
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = false;
+                return c;
+            }
+            case 7: {
+                // Demo8 M.1 v1 : sphere LayeredV1 + sol. Idem leger.
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = false;
+                return c;
+            }
             default: return NkRendererConfig::ForGame(api, w, h);
         }
     }
@@ -113,6 +146,9 @@ int nkmain(const NkEntryState& state) {
     // Coherence avec le nom de fichier plutot que l'index zero-based.
     if (demoIx == 4) demoIx = 3;
     if (demoIx == 5) demoIx = 4;
+    if (demoIx == 6) demoIx = 5;
+    if (demoIx == 7) demoIx = 6;
+    if (demoIx == 8) demoIx = 7;
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 
