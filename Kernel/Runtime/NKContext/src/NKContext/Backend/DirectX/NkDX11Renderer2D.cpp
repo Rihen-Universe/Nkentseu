@@ -233,7 +233,8 @@ namespace nkentseu {
         void NkDX11Renderer2D::Clear(const NkColor2D& col) {
             NkDX11ContextData* d = NkNativeContext::DX11(mCtx);
             if (!d || !d->context || !d->rtv) return;
-            float fc[4] = { col.r * math::c1_255, col.g * math::c1_255, col.b * math::c1_255, col.a * math::c1_255 };
+            math::NkColorF cf = col.ToColorF();
+            float fc[4] = { cf.r, cf.g, cf.b, cf.a };
             d->context->ClearRenderTargetView(d->rtv.Get(), fc);
         }
 

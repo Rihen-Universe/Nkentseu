@@ -1,7 +1,13 @@
 // =============================================================================
 // Apps.cpp — Point d'entree Pong Ultra Arena
-// Etape 1 (PoC) : init NkContext OpenGL + boucle minimale.
+// Etape 1 (PoC) : init NkContext OpenGL + boucle minimale + lifecycle Android.
 // Conforme au GDD v1.1 (docs/GDD_PONG_ULTRA_ARENA_v1.1.docx).
+//
+// Gestion lifecycle Android :
+//   - FocusLost  : on auto-pause si Playing
+//   - Hidden     : surface detruite (APP_CMD_TERM_WINDOW), on cesse de rendre
+//   - Shown      : surface recreee (APP_CMD_INIT_WINDOW), on reinit le contexte
+//   - FocusGain  : retour foreground, force re-render
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
@@ -66,6 +72,7 @@ int nkmain(const NkEntryState& state) {
 
     bool surfaceReady = true;
     bool needResize   = false;
+    bool appResumed   = true;
     math::NkVec2u pendingSize = window.GetSize();
 
     while (window.IsOpen()) {
@@ -73,7 +80,7 @@ int nkmain(const NkEntryState& state) {
         float dt = static_cast<float>(elapsed.seconds);
         if (dt <= 0.f || dt > 0.25f) dt = 1.0f / 60.0f;
 
-        // ── Evenements ──────────────────────────────────────────────────────
+        // ── Pump events ─────────────────────────────────────────────────────
         while (NkEvent* ev = events.PollEvent()) {
             if (ev->Is<NkWindowCloseEvent>()) {
                 window.Close();
@@ -84,8 +91,38 @@ int nkmain(const NkEntryState& state) {
                 pendingSize.height = wr->GetHeight();
                 needResize = true;
             }
-            if (ev->Is<NkWindowShownEvent>())  surfaceReady = true;
-            if (ev->Is<NkWindowHiddenEvent>()) surfaceReady = false;
+            // Android : surface recreee (APP_CMD_INIT_WINDOW) — reinit GL
+            if (ev->Is<NkWindowShownEvent>()) {
+                auto sz = window.GetSize();
+                if (sz.x > 0 && sz.y > 0) {
+                    app.OnResize(sz.x, sz.y);
+                }
+                surfaceReady = true;
+                appResumed   = true;
+                logger.Info("[Pong] Surface shown");
+            }
+            if (ev->Is<NkWindowHiddenEvent>()) {
+                surfaceReady = false;
+                logger.Info("[Pong] Surface hidden");
+            }
+            if (ev->Is<NkWindowFocusGainedEvent>()) {
+                appResumed = true;
+            }
+            if (ev->Is<NkWindowFocusLostEvent>())
+            {
+                // Auto-pause si on est en gameplay. Pour l'instant le mapping
+                // exact viendra avec la GameplayScene/PauseScene ; le hook
+                // est en place.
+                if (app.State() == pong::GameState::Playing)
+                {
+                    app.SetState(pong::GameState::Paused);
+                }
+            }
+            // Forward de tous les events restants a la scene active (clavier,
+            // souris, touch, gamepad). Les events systeme ci-dessus ont deja
+            // ete consommes pour leur effet de bord mais peuvent etre re-passes
+            // sans danger.
+            app.OnEvent(*ev);
         }
         if (!window.IsOpen()) break;
 
@@ -93,21 +130,32 @@ int nkmain(const NkEntryState& state) {
             NkChrono::Sleep(16.0f);
             continue;
         }
-        if (needResize && pendingSize.width > 0 && pendingSize.height > 0) {
+        if (pendingSize.width == 0 || pendingSize.height == 0) {
+            continue;
+        }
+
+        if (needResize) {
             app.OnResize(pendingSize.width, pendingSize.height);
             needResize = false;
         }
 
-        // ── Update + Render ─────────────────────────────────────────────────
         app.Update(dt);
-        app.Render();
+
+        // Double-render apres reprise foreground (Android : evite frame stale)
+        if (appResumed) {
+            app.Render();
+            app.Render();
+            appResumed = false;
+        } else {
+            app.Render();
+        }
 
         if (app.WantsQuit()) {
-            // window.Close();
+            window.Close();
             break;
         }
 
-        // ── Cap 60 fps ──────────────────────────────────────────────────────
+        // Cap 60 fps
         elapsed = chrono.Elapsed();
         if (elapsed.milliseconds < 16) NkChrono::Sleep(16 - elapsed.milliseconds);
         else                            NkChrono::YieldThread();

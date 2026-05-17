@@ -35,6 +35,7 @@ with project("NKImage"):
         "%{NKContainers.location}/src",
         "%{NKLogger.location}/src",
         "%{NKThreading.location}/src",
+        "%{NKFileSystem.location}/src",
     ])
 
     dependson([
@@ -45,6 +46,7 @@ with project("NKImage"):
         "NKContainers",
         "NKLogger",
         "NKThreading",
+        "NKFileSystem",
     ])
 
     files([

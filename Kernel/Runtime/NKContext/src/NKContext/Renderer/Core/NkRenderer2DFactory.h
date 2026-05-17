@@ -8,15 +8,15 @@
 //   if (!r2d) { /* unsupported API */ }
 //
 //   // Each frame:
-//   r2d->Clear(NkColor2D::Black());
+//   r2d->Clear(NkColor2D::Black);
 //   r2d->Begin();
-//     r2d->DrawFilledRect({100,100,200,50}, NkColor2D::Red());
+//     r2d->DrawFilledRect({100,100,200,50}, NkColor2D::Red);
 //     r2d->DrawSprite(sprite);
 //     r2d->DrawText(label);
 //   r2d->End();
 // =============================================================================
 #include "NKContext/Renderer/Core/NkIRenderer2D.h"
-#include "NKCore/NkCGXDetect.h"
+#include "NKPlatform/NkCGXDetect.h"
 
 namespace nkentseu {
 
@@ -24,7 +24,7 @@ namespace nkentseu {
 
     namespace renderer {
 
-        using NkGraphicsApi = platform::graphics::NkGraphicsApi;
+        using NkGraphicsApi = graphics::NkGraphicsApi;
 
         class NkRenderer2DFactory {
             public:

@@ -2,10 +2,10 @@
 // NkContextFactory.cpp
 // =============================================================================
 #include "NkContextFactory.h"
-#include "NKContext/Graphics/OpenGL/NkOpenGLContext.h"
-#include "NKContext/Graphics/Software/NkSoftwareContext.h"
-#include "NKContext/Compute/NkOpenGLComputeContext.h"
-#include "NKContext/Compute/NkSoftwareComputeContext.h"
+#include "NKContext/Backend/OpenGL/NkOpenGLContext.h"
+#include "NKContext/Backend/Software/NkSoftwareContext.h"
+#include "NKContext/Backend/OpenGL/NkOpenGLComputeContext.h"
+#include "NKContext/Backend/Software/NkSoftwareComputeContext.h"
 #include "NKContext/Core/NkGpuPolicy.h"
 #include <cstdio>
 
@@ -17,19 +17,19 @@
 #endif
 
 #if NKENTSEU_ENABLE_VULKAN_BACKEND
-#   include "NKContext/Graphics/Vulkan/NkVulkanContext.h"
-#   include "NKContext/Compute/NkVulkanComputeContext.h"
+#   include "NKContext/Backend/Vulkan/NkVulkanContext.h"
+#   include "NKContext/Backend/Vulkan/NkVulkanComputeContext.h"
 #endif
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-#   include "NKContext/Graphics/DirectX/NkDXContext.h"
-#   include "NKContext/Compute/NkDX11ComputeContext.h"
-#   include "NKContext/Compute/NkDX12ComputeContext.h"
+#   include "NKContext/Backend/DirectX/NkDXContext.h"
+#   include "NKContext/Backend/DirectX/NkDX11ComputeContext.h"
+#   include "NKContext/Backend/DirectX/NkDX12ComputeContext.h"
 #endif
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-#   include "NKContext/Graphics/Metal/NkMetalContext.h"
-#   include "NKContext/Compute/NkMetalComputeContext.h"
+#   include "NKContext/Backend/Metal/NkMetalContext.h"
+#   include "NKContext/Backend/Metal/NkMetalComputeContext.h"
 #endif
 
 #define NK_FACTORY_LOG(...) logger.Infof("[NkContextFactory] " __VA_ARGS__)

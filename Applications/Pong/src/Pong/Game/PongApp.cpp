@@ -1,10 +1,13 @@
 // =============================================================================
-// PongApp.cpp — implementation PoC (etape 1)
+// PongApp.cpp
+// -----------------------------------------------------------------------------
+// Implementation : push RihenIntroScene au demarrage, le SceneManager se
+// charge ensuite des transitions Rihen -> Noge -> Splash -> MainMenu.
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
 
-// GLAD2 (mêmes inclusions que GLContext.cpp pour avoir glClear/glViewport ici)
+// ── GLAD2 ────────────────────────────────────────────────────────────────────
 #if defined(__has_include)
 #   if defined(NKENTSEU_PLATFORM_WINDOWS)
 #       if __has_include(<glad/wgl.h>) && __has_include(<glad/gl.h>)
@@ -41,12 +44,6 @@
 #   elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #       include <glad/gles2.h>
 #   endif
-#else
-#   if defined(NKENTSEU_PLATFORM_WINDOWS)
-#       include <GL/gl.h>
-#   elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
-#       include <GLES3/gl3.h>
-#   endif
 #endif
 
 #if defined(Bool)
@@ -54,85 +51,135 @@
 #endif
 
 #include "PongApp.h"
+#include "Pong/UI/Scenes/RihenIntroScene.h"
+#include "Pong/UI/Scenes/MainMenuScene.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKLogger/NkLog.h"
-#include "NKMath/NkFunctions.h"
+#include "NKFileSystem/NkFile.h"
 
-namespace nkentseu { 
-    namespace pong {
+namespace nkentseu
+{
+    namespace pong
+    {
 
-        bool PongApp::Init() {
-            if (!mGL.Init(mWindow)) {
+        // ─────────────────────────────────────────────────────────────────────
+        // BuildContext — assemble un AppContext frais (recalcule SafeArea).
+        // ─────────────────────────────────────────────────────────────────────
+        AppContext PongApp::BuildContext()
+        {
+            AppContext ctx;
+            ctx.window     = &mWindow;
+            ctx.renderer   = &mRenderer;
+            ctx.font       = &mFont;
+            ctx.settings   = &mSettings;
+            ctx.scenes     = &mScenes;
+            ctx.viewportW  = static_cast<int>(mViewportW);
+            ctx.viewportH  = static_cast<int>(mViewportH);
+            ctx.globalTime    = mTime;
+            ctx.safe          = SafeArea::From(mWindow, mViewportW, mViewportH);
+            ctx.quitRequested = &mQuit;
+            return ctx;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        bool PongApp::Init()
+        {
+            // Sur Android, les fichiers C++ "Resources/Pong/X" sont en realite
+            // empaquetes dans assets/X par Jenga. On indique a NkFile le
+            // sous-dossier app a stripper pour la resolution AAssetManager.
+            // No-op hors Android.
+            NkFile::SetAndroidAssetSubFolder("Pong");
+
+            if (!mGL.Init(mWindow))
+            {
                 logger.Error("[PongApp] GL init failed");
                 return false;
             }
-            auto sz = mWindow.GetSize();
+            const auto sz = mWindow.GetSize();
             mViewportW = sz.x;
             mViewportH = sz.y;
 
-            mState = GameState::SplashScreen;
-            mSplashTimer = 2.4f;
-            logger.Info("[PongApp] PoC ready - state=Splash");
+            if (!mRenderer.Init())
+            {
+                logger.Error("[PongApp] Renderer init failed");
+                return false;
+            }
+            if (!mFont.Init())
+            {
+                logger.Error("[PongApp] Font atlas init failed");
+                return false;
+            }
+
+            // Premiere scene : intro Rihen (qui chaine vers Noge puis Splash).
+            mScenes.Push(new RihenIntroScene());
+
+            logger.Info("[PongApp] Init OK");
             return true;
         }
 
-        void PongApp::Shutdown() {
+        // ─────────────────────────────────────────────────────────────────────
+        void PongApp::Shutdown()
+        {
+            // Vider la pile de scenes proprement (OnExit).
+            AppContext ctx = BuildContext();
+            mScenes.Clear(ctx);
+
+            mFont.Shutdown();
+            mRenderer.Shutdown();
             mGL.Shutdown();
         }
 
-        void PongApp::OnResize(uint32 w, uint32 h) {
+        // ─────────────────────────────────────────────────────────────────────
+        void PongApp::OnResize(uint32 w, uint32 h)
+        {
             mViewportW = w;
             mViewportH = h;
             mGL.OnResize(w, h);
+            AppContext ctx = BuildContext();
+            mScenes.Resize(ctx, (int)w, (int)h);
         }
 
-        void PongApp::Update(float dt) {
+        // ─────────────────────────────────────────────────────────────────────
+        void PongApp::Update(float dt)
+        {
             mTime += dt;
-            switch (mState) {
-                case GameState::SplashScreen:
-                    mSplashTimer -= dt;
-                    if (mSplashTimer <= 0.0f) {
-                        mState = GameState::MainMenu;
-                        logger.Info("[PongApp] → MainMenu");
-                    }
-                    break;
-                default:
-                    break;
-            }
+            AppContext ctx = BuildContext();
+            // Applique les transitions push/replace/pop en attente.
+            mScenes.ApplyPending(ctx);
+            // Update la scene active.
+            mScenes.Update(ctx, dt);
         }
 
-        void PongApp::RenderClear(float r, float g, float b) {
-            glViewport(0, 0, static_cast<int>(mViewportW), static_cast<int>(mViewportH));
-            glClearColor(r, g, b, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
+        // ─────────────────────────────────────────────────────────────────────
+        void PongApp::OnEvent(NkEvent& ev)
+        {
+            AppContext ctx = BuildContext();
+            mScenes.Event(ctx, ev);
         }
 
-        void PongApp::Render() {
+        // ─────────────────────────────────────────────────────────────────────
+        void PongApp::Render()
+        {
             if (!mGL.BeginFrame()) return;
-
-            // PoC : couleur de fond change subtilement selon l'etat pour valider que tout
-            // s'affiche bien sur Windows et Android.
-            // Palette neon GDD : dark = #050A14 → (0.020, 0.039, 0.078)
-            float r = 0.020f, g = 0.039f, b = 0.078f;
-            switch (mState) {
-                case GameState::SplashScreen: {
-                    // Pulse cyan subtil
-                    float pulse = 0.5f + 0.5f * math::NkSin(mTime * 2.4f);
-                    g += pulse * 0.04f;
-                    b += pulse * 0.06f;
-                    break;
-                }
-                case GameState::MainMenu:
-                    // Fond bleu nuit
-                    break;
-                default:
-                    break;
-            }
-            RenderClear(r, g, b);
-
+            AppContext ctx = BuildContext();
+            mScenes.Render(ctx);
             mGL.EndFrame();
             mGL.Present();
         }
 
-    }
-} // namespace nkentseu::pong
+        // ─────────────────────────────────────────────────────────────────────
+        // State helpers (utilises par Apps.cpp pour l'auto-pause au focus lost).
+        // Pour l'instant on n'a pas encore PlayingScene/PausedScene, on retourne
+        // SplashScreen par defaut. Sera affine quand on ajoutera GameplayScene.
+        // ─────────────────────────────────────────────────────────────────────
+        GameState PongApp::State() const noexcept
+        {
+            return GameState::SplashScreen;
+        }
+        void PongApp::SetState(GameState /*s*/) noexcept
+        {
+            // No-op pour l'instant — sera mappe au SceneManager.
+        }
+
+    } // namespace pong
+} // namespace nkentseu

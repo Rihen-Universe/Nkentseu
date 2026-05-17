@@ -143,6 +143,7 @@ def sandboxnkfont(project_name: str, source_files: list):
 
 def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False):
     with project(project_name):
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "context")
         windowedapp()
         language("C++")
         cppdialect("C++17")
@@ -154,21 +155,23 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
 
         _SANDBOX_INCLUDE_DIRS = [
             "src",
-            "%{wks.location}/Externals",
-            "%{NKGlad.location}/include",
-            "%{NKEvent.location}/src",
-            "%{NKWindow.location}/src",
-            "%{NKLogger.location}/src",
-            "%{NKCore.location}/src",
             "%{NKPlatform.location}/src",
-            "%{NKMath.location}/src",
-            "%{NKTime.location}/src",
-            "%{NKStream.location}/src",
+            "%{NKCore.location}/src",
             "%{NKMemory.location}/src",
             "%{NKContainers.location}/src",
+            "%{NKMath.location}/src",
             "%{NKThreading.location}/src",
-            "%{NKContext.location}/src",
+            "%{NKLogger.location}/src",
+            "%{NKTime.location}/src",
+            "%{NKEvent.location}/src",
+            "%{NKWindow.location}/src",
+            "%{NKImage.location}/src",
             "%{NKFont.location}/src",
+            "%{NKUI.location}/src",
+            "%{NKContext.location}/src",
+            "%{NKStream.location}/src",
+            "%{NKGlad.location}/include",
+            "%{wks.location}/Externals",
         ]
         
         if _VULKAN_INCLUDE:
@@ -177,7 +180,7 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
 
         _BASE_LINKS = [
             "NKEvent", "NKWindow", "NKContext", "NKGlad", "NKLogger",
-            "NKMath", "NKTime", "NKStream", "NKFont",
+            "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI", 
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
         ]
         

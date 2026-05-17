@@ -29,8 +29,11 @@ namespace nkentseu {
             NK_WIREFRAME_MAT, NK_DEBUG_DEPTH, NK_DEBUG_AO,
             // M.1 Material Layering — N couches PBR superposees avec masques.
             // v0 = 2 layers (base + top), masque via vertex color.R.
-            // Roadmap : extension a N=8 layers + shader generation dynamique.
+            // v1 = 8 layers (PBR simplifie : albedo+metallic+roughness) avec
+            //      sources de masque variees (vColor.rgba, vUV.xy, constant,
+            //      layer.albedo.a). Voir NkLayeredV1Params.
             NK_LAYERED=80,
+            NK_LAYERED_V1=81,
             // Custom
             NK_CUSTOM=100,
         };
@@ -79,6 +82,42 @@ namespace nkentseu {
             int32       _pad[3]       = {};
         };
 
+        // M.1 v1 : 8 layers PBR-simplifies (albedo+metallic+roughness) avec
+        // masks parametriques. Sources de masque possibles (NkLayerMaskSource) :
+        //   0=vColor.r 1=.g 2=.b 3=.a 4=vUV.x 5=vUV.y 6=constant 7=layer.albedo.a
+        // Layout std140 doit matcher LayeredV1UBO du shader layeredv1.frag.vk.glsl.
+        struct alignas(16) NkPBRLayer {
+            NkVec4f albedo    = {1.f, 1.f, 1.f, 1.f};   // A : usage masque interne
+            float32 metallic  = 0.f;
+            float32 roughness = 0.5f;
+            float32 _pad0     = 0.f;
+            float32 _pad1     = 0.f;
+        };  // 32 bytes
+
+        enum NkLayerMaskSource : int32 {
+            NK_LAYER_MASK_VCOLOR_R    = 0,
+            NK_LAYER_MASK_VCOLOR_G    = 1,
+            NK_LAYER_MASK_VCOLOR_B    = 2,
+            NK_LAYER_MASK_VCOLOR_A    = 3,
+            NK_LAYER_MASK_UV_X        = 4,
+            NK_LAYER_MASK_UV_Y        = 5,
+            NK_LAYER_MASK_CONSTANT    = 6,
+            NK_LAYER_MASK_LAYER_ALPHA = 7,
+        };
+
+        // Total : 8*32 + 4*16 + 16 = 336 bytes. Bien sous 16 KiB UBO limit.
+        struct alignas(16) NkLayeredV1Params {
+            NkPBRLayer layers[8];
+            // Packed en ivec4/vec4 pour respecter std140 (arrays scalaires
+            // gaspilleraient 12 bytes par element).
+            int32   maskSources0[4]  = {0,0,0,0};   // layers 0..3 (0 ignore)
+            int32   maskSources1[4]  = {0,0,0,0};   // layers 4..7
+            float32 maskConstants0[4]= {0,0,0,0};   // si source==CONSTANT
+            float32 maskConstants1[4]= {0,0,0,0};
+            int32   numLayers        = 1;
+            int32   _pad[3]          = {};
+        };
+
         struct alignas(16) NkToonParams {
             NkVec4f  albedoColor      = {1.f,1.f,1.f,1.f};  // couleur de base (SetAlbedo)
             NkVec4f  shadowColor      = {0.2f,0.1f,0.3f,1.f};
@@ -114,6 +153,39 @@ namespace nkentseu {
             NkString vertSrcDX12, fragSrcDX12;
             NkString vertSrcMSL,  fragSrcMSL;
             NkString nkslSource;
+        };
+
+        // =========================================================================
+        // M.4 Hierarchical Instances — bitfields des champs overridés
+        // =========================================================================
+        // Quand un enfant override un champ, le bit correspondant est set dans
+        // mPBROverrideMask / mToonOverrideMask. Les setters parents propagent
+        // alors uniquement aux enfants dont le bit n'est PAS set (live link).
+        // Pour les params nommés (SetFloat/SetVec/SetTexture), on utilise un
+        // mOverrideParamNames (linear scan, set petit).
+        enum NkPBROverrideBit : uint32 {
+            NK_PBR_O_ALBEDO       = 1u << 0,
+            NK_PBR_O_EMISSIVE     = 1u << 1,
+            NK_PBR_O_METALLIC     = 1u << 2,
+            NK_PBR_O_ROUGHNESS    = 1u << 3,
+            NK_PBR_O_AO           = 1u << 4,
+            NK_PBR_O_NORMAL_STR   = 1u << 5,
+            NK_PBR_O_CLEARCOAT    = 1u << 6,
+            NK_PBR_O_SUBSURFACE   = 1u << 7,
+            NK_PBR_O_ANISOTROPY   = 1u << 8,
+            NK_PBR_O_SHEEN        = 1u << 9,
+            NK_PBR_O_REFL_FLOOR   = 1u << 10,
+        };
+
+        enum NkToonOverrideBit : uint32 {
+            NK_TOON_O_ALBEDO        = 1u << 0,
+            NK_TOON_O_SHADOW_TH     = 1u << 1,
+            NK_TOON_O_SHADOW_SMOOTH = 1u << 2,
+            NK_TOON_O_SHADOW_COLOR  = 1u << 3,
+            NK_TOON_O_OUTLINE       = 1u << 4,
+            NK_TOON_O_RIM           = 1u << 5,
+            NK_TOON_O_SPEC          = 1u << 6,
+            NK_TOON_O_MATCAP        = 1u << 7,
         };
 
         // =========================================================================
@@ -162,6 +234,12 @@ namespace nkentseu {
                 NkMaterialInstance* SetLayerMaskSource(int32 src); // 0=R 1=G 2=B 3=A
                 NkMaterialInstance* SetLayered       (const NkLayeredParams& l);
 
+                // M.1 v1 : Layered N=8 setters
+                NkMaterialInstance* SetLayeredV1     (const NkLayeredV1Params& l);
+                NkMaterialInstance* SetLayerV1       (int32 idx, const NkPBRLayer& layer);
+                NkMaterialInstance* SetLayerV1Mask   (int32 idx, NkLayerMaskSource src, float32 k = 0.f);
+                NkMaterialInstance* SetLayerV1Count  (int32 n);
+
                 NkMatHandle       GetTemplate() const { return mTemplate; }
                 NkRenderQueue     GetQueue()    const;
                 bool              IsDirty()     const { return mDirty; }
@@ -170,9 +248,49 @@ namespace nkentseu {
                 const NkPBRParams&  GetPBR()    const { return mPBR; }
                 const NkToonParams& GetToon()   const { return mToon; }
                 const NkLayeredParams& GetLayered() const { return mLayered; }
+                const NkLayeredV1Params& GetLayeredV1() const { return mLayeredV1; }
+
+                // ── M.4 Hierarchical Instances ───────────────────────────────────
+                NkMaterialInstance* GetParent() const { return mParent; }
+                uint32 GetChildCount() const { return (uint32)mChildren.Size(); }
+
+                // Retire l'override sur un champ PBR/Toon (re-link au parent pour
+                // ce champ). No-op si pas de parent ou si bit non set.
+                NkMaterialInstance* ResetPBROverride (NkPBROverrideBit bit);
+                NkMaterialInstance* ResetToonOverride(NkToonOverrideBit bit);
+                // Retire l'override sur un param nomme (Float/Vec/Tex/etc.). Le param
+                // est synchronise depuis le parent au prochain BindInstance.
+                NkMaterialInstance* ResetNamedOverride(const NkString& name);
 
             private:
                 friend class NkMaterialSystem;
+
+                // M.4 : propage un changement d'un champ PBR aux enfants non-overrides
+                // (recursivement). Le bit indique quel champ a change ; les enfants
+                // qui n'ont PAS marque ce bit comme override resyncent leur valeur
+                // depuis ce parent.
+                void PropagatePBRField (uint32 bit);
+                void PropagateToonField(uint32 bit);
+                // Resync TOUT le mLayered (les Layered sont consideres en bloc).
+                void PropagateLayered();
+                // Resync un param nomme aux enfants non-overrides (par nom).
+                void PropagateNamedParam(const NkString& name);
+                // Helper : check si un param nomme est dans la liste d'overrides
+                bool IsNamedOverridden(const NkString& name) const;
+                void AddNamedOverride (const NkString& name);
+                // Helpers unifies appeles par les setters : set local + marque
+                // override si on est un enfant + propage aux enfants.
+                void MarkPBRChanged   (uint32 bit);
+                void MarkToonChanged  (uint32 bit);
+                void MarkLayeredChanged();
+                void MarkNamedChanged (const NkString& name);
+                // Helper interne : copie un param nomme du parent vers ce param
+                // (utilise pour syncFromParent).
+                void CopyNamedFromParent(const NkString& name);
+                // Helper : dedup + assign d'un Param non-tex par (name, kind)
+                struct Param;
+                bool DedupNamedParam(const Param& src);
+
                 NkMatInstHandle mHandle;
                 NkMatHandle     mTemplate;
                 NkDescSetHandle mDescSet;
@@ -180,21 +298,30 @@ namespace nkentseu {
                 bool            mDirty = true;
                 NkPBRParams     mPBR;
                 NkToonParams    mToon;
-                NkLayeredParams mLayered;   // M.1 v0 : utilise si type == NK_LAYERED
+                NkLayeredParams mLayered;     // M.1 v0 : utilise si type == NK_LAYERED
+                NkLayeredV1Params mLayeredV1; // M.1 v1 : utilise si type == NK_LAYERED_V1
                 struct Param {
                     NkString name;
                     enum class Kind:uint8{F,V2,V3,V4,I,B,TEX} kind = Kind::F;
-                    union { 
+                    union {
                         float32 f = 0.f;
-                        math::NkVec2f v2; 
-                        math::NkVec3f v3; 
-                        math::NkVec4f v4; 
-                        int32 i; 
-                        bool b; 
+                        math::NkVec2f v2;
+                        math::NkVec3f v3;
+                        math::NkVec4f v4;
+                        int32 i;
+                        bool b;
                     };
                     NkTexHandle tex;
                 };
                 NkVector<Param> mParams;
+
+                // M.4 Hierarchical Instances
+                NkMaterialInstance*              mParent = nullptr;
+                NkVector<NkMaterialInstance*>    mChildren;
+                uint32                           mPBROverrideMask  = 0;
+                uint32                           mToonOverrideMask = 0;
+                bool                             mLayeredOverridden = false;
+                NkVector<NkString>               mOverrideParamNames;
         };
 
         // =========================================================================
@@ -213,6 +340,12 @@ namespace nkentseu {
                 NkMatHandle        FindTemplate    (const NkString& name) const;
 
                 NkMaterialInstance* CreateInstance (NkMatHandle tmpl);
+                // M.4 Hierarchical Instances : cree un enfant heritant du parent.
+                // L'enfant utilise le meme template + descSet/UBO independants, et
+                // copie les params initiaux du parent. Tout setter sur l'enfant
+                // marque l'override sur le champ touche ; tout setter sur le parent
+                // propage aux enfants dont le champ n'est PAS overridé.
+                NkMaterialInstance* CreateChildInstance(NkMaterialInstance* parent);
                 void                DestroyInstance(NkMaterialInstance*& inst);
 
                 // Fournit les layouts partagés de NkRender3D (set 0 + set 1 + vertex layout).
@@ -247,6 +380,7 @@ namespace nkentseu {
                 NkMatHandle DefaultToon()      const { return mTmplToon; }
                 NkMatHandle DefaultUnlit()     const { return mTmplUnlit; }
                 NkMatHandle DefaultWireframe() const { return mTmplWire; }
+                NkMatHandle DefaultLayeredV1() const { return mTmplLayeredV1; }
                 NkMatHandle DefaultSkin()      const { return mTmplSkin; }
                 NkMatHandle DefaultHair()      const { return mTmplHair; }
                 NkMatHandle DefaultAnime()     const { return mTmplAnime; }
@@ -297,7 +431,8 @@ namespace nkentseu {
                 NkMatHandle mTmplPBR, mTmplToon, mTmplUnlit, mTmplWire;
                 NkMatHandle mTmplSkin, mTmplHair, mTmplAnime, mTmplArchviz;
                 NkMatHandle mTmplReflFloor;
-                NkMatHandle mTmplLayered;  // M.1 v0
+                NkMatHandle mTmplLayered;     // M.1 v0
+                NkMatHandle mTmplLayeredV1;   // M.1 v1 (N=8 layers)
 
                 // Pipelines orphelins par UpdateRenderPass : detruits au Shutdown.
                 // Cf. UpdateRenderPass — DestroyPipeline immediat invalide les

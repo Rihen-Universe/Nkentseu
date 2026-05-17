@@ -39,9 +39,21 @@ namespace nkentseu {
                 static NkMaterial* Create(NkMaterialSystem* sys, NkMaterialType type);
                 // name  : nom du template builtin ("Default_PBR", "Default_Toon", …)
                 static NkMaterial* Create(NkMaterialSystem* sys, const char* templateName);
+                // M.4 Hierarchical Instances : cree un enfant heritant des params
+                // du parent. Tout setter sur l'enfant marque ce champ overridé ;
+                // tout setter sur le parent propage aux enfants non-overrides.
+                // Le parent doit survivre tant qu'il a des enfants.
+                static NkMaterial* CreateChild(NkMaterial* parent);
                 static void        Destroy(NkMaterial*& mat);
 
                 ~NkMaterial();
+
+                // ── M.4 : Retrait d'overrides (re-link au parent) ────────────────
+                // Apres ResetParameter, le param suit a nouveau le parent. No-op
+                // si pas de parent ou si pas un override actif.
+                NkMaterial* ResetParameter(const char* name);   // param nomme
+                NkMaterial* ResetPBROverride (NkPBROverrideBit  bit);
+                NkMaterial* ResetToonOverride(NkToonOverrideBit bit);
 
                 // ── Paramètres nommés (correspondent aux @param du shader) ───────
                 // Ces méthodes correspondent à SetScalarParameterValue (UE) /

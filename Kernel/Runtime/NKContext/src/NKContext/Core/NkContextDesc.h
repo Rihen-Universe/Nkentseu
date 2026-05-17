@@ -2,7 +2,7 @@
 // NkContextDesc.h — Descripteur unifié création de contexte
 #include "NkGraphicsApi.h"
 #include "NkOpenGLDesc.h"
-#include "NKCore/NkCGXDetect.h"
+#include "NKPlatform/NkCGXDetect.h"
 
 namespace nkentseu {
 
