@@ -146,6 +146,9 @@ with project("Pong"):
             _ANDROID_LINKS.append("vulkan")
         links(_ANDROID_LINKS)
         androidapplicationid(f"com.rihen.nkentseu.noge.pong")
+        # Marque l'application comme JEU (Android Game Dashboard, capture
+        # ecran/audio, categorisation Play Store, optimisations GPU).
+        androidisgame(True)
         # Bundle UNIQUEMENT Resources/Pong/ dans assets/ de l'APK (et pas
         # tout Resources/ qui contient des assets d'autres projets — Models,
         # NKRenderer shaders, HDRI, etc. — qui gonfleraient l'APK pour rien).
