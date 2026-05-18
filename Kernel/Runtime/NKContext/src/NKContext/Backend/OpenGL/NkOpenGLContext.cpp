@@ -409,6 +409,73 @@ bool NkOpenGLContext::MakeCurrent() {
 #endif
 }
 
+bool NkOpenGLContext::RecreateSurface(const NkWindow& window) {
+#if defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
+    if (!mIsValid) {
+        return false;
+    }
+    if (mData.eglDisplay == EGL_NO_DISPLAY ||
+        mData.eglContext == EGL_NO_CONTEXT ||
+        mData.eglConfig  == nullptr) {
+        return false;
+    }
+    const NkSurfaceDesc surf = window.GetSurfaceDesc();
+    if (!surf.nativeWindow) {
+        // Pas de native window valide (app encore en background sur Android).
+        return false;
+    }
+
+    // 1. Libere le current context (eglDestroySurface ne marche pas si la
+    //    surface est encore courante).
+    eglMakeCurrent(mData.eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+    // 2. Detruit l'ancienne surface (qui pointe sur un ANativeWindow detruit).
+    if (mData.eglSurface != EGL_NO_SURFACE) {
+        eglDestroySurface(mData.eglDisplay, mData.eglSurface);
+        mData.eglSurface = EGL_NO_SURFACE;
+    }
+
+#if defined(NKENTSEU_WINDOWING_WAYLAND) && NKENTSEU_OPENGL_HAS_WAYLAND_EGL
+    // Wayland : il faut aussi recreer l'wl_egl_window
+    if (mData.eglNativeWindow) {
+        wl_egl_window_destroy(static_cast<wl_egl_window*>(mData.eglNativeWindow));
+        mData.eglNativeWindow = nullptr;
+    }
+    const int width  = mData.width  > 0 ? (int)mData.width  : 1;
+    const int height = mData.height > 0 ? (int)mData.height : 1;
+    wl_egl_window* wlEglWindow = wl_egl_window_create(surf.surface, width, height);
+    if (!wlEglWindow) {
+        return false;
+    }
+    mData.eglNativeWindow = wlEglWindow;
+    EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(wlEglWindow);
+#else
+    // Android : on stocke le nouveau ANativeWindow et on l'utilise direct
+    mData.eglNativeWindow = surf.nativeWindow;
+    EGLNativeWindowType nwin = reinterpret_cast<EGLNativeWindowType>(surf.nativeWindow);
+#endif
+
+    // 3. Cree une nouvelle eglSurface attachee au nouveau native window.
+    mData.eglSurface = eglCreateWindowSurface(mData.eglDisplay, mData.eglConfig,
+                                              nwin, nullptr);
+    if (mData.eglSurface == EGL_NO_SURFACE) {
+        return false;
+    }
+
+    // 4. Re-bind le contexte sur la nouvelle surface.
+    if (eglMakeCurrent(mData.eglDisplay, mData.eglSurface,
+                       mData.eglSurface, mData.eglContext) != EGL_TRUE) {
+        return false;
+    }
+    eglSwapInterval(mData.eglDisplay, mVSync ? 1 : 0);
+    return true;
+#else
+    // PC / iOS / Web : surface non perdue par le system. No-op.
+    (void)window;
+    return true;
+#endif
+}
+
 void NkOpenGLContext::ReleaseCurrent() {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
     wglMakeCurrent(nullptr, nullptr);

@@ -71,6 +71,10 @@ namespace nkentseu
             /// scenes sous-jacentes ne recoivent rien).
             void Event(AppContext& ctx, NkEvent& ev);
 
+            /// Pause / Resume forward a la scene active.
+            void Pause (AppContext& ctx);
+            void Resume(AppContext& ctx);
+
             /// Retourne la scene au sommet (ou nullptr).
             Scene* Top() const noexcept;
 

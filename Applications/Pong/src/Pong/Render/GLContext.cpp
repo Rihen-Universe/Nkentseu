@@ -58,6 +58,7 @@
 #include "NKContext/Core/NkOpenGLDesc.h"
 #include "NKContext/Core/NkNativeContextAccess.h"
 #include "NKContext/Factory/NkContextFactory.h"
+#include "NKContext/Backend/OpenGL/NkOpenGLContext.h"
 #include "NKLogger/NkLog.h"
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
@@ -193,6 +194,15 @@ namespace nkentseu
         bool GLContext::OnResize(uint32 w, uint32 h)
         {
             return mContext != nullptr ? mContext->OnResize(w, h) : false;
+        }
+
+        bool GLContext::RecreateSurface(NkWindow& window)
+        {
+            if (mContext == nullptr) return false;
+            // Downcast vers NkOpenGLContext : la methode RecreateSurface n'est
+            // pas sur l'interface NkIGraphicsContext (specifique OpenGL/EGL).
+            auto* gl = static_cast<NkOpenGLContext*>(mContext);
+            return gl->RecreateSurface(window);
         }
 
     } // namespace pong
