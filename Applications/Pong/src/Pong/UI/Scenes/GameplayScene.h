@@ -43,6 +43,7 @@ namespace nkentseu
             void OnUpdate(AppContext& ctx, float dt) override;
             void OnRender(AppContext& ctx) override;
             void OnEvent (AppContext& ctx, NkEvent& ev) override;
+            void OnPause (AppContext& ctx) override;
 
         private:
             // ── Scale UI/gameplay ───────────────────────────────────────────

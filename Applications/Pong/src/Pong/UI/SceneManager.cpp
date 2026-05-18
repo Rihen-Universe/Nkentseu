@@ -175,6 +175,18 @@ namespace nkentseu
             if (top != nullptr) top->OnEvent(ctx, ev);
         }
 
+        void SceneManager::Pause(AppContext& ctx)
+        {
+            Scene* top = Top();
+            if (top != nullptr) top->OnPause(ctx);
+        }
+
+        void SceneManager::Resume(AppContext& ctx)
+        {
+            Scene* top = Top();
+            if (top != nullptr) top->OnResume(ctx);
+        }
+
         Scene* SceneManager::Top() const noexcept
         {
             if (mStack.Size() == 0) return nullptr;

@@ -95,6 +95,24 @@ namespace nkentseu
                         (int)arenaW, (int)arenaH, mScale);
         }
 
+        void GameplayScene::OnPause(AppContext& /*ctx*/)
+        {
+            // Auto-pause systeme : Hidden / FocusLost / app en background.
+            // L'overlay pause s'affichera + le user verra "REPRENDRE" au
+            // retour de l'app (NkWindowShownEvent -> OnResume, mais on laisse
+            // la pause active pour qu'il valide manuellement la reprise).
+            if (!mPaused)
+            {
+                mPaused = true;
+                logger.Info("[Gameplay] Auto-pause (lifecycle)");
+            }
+            // Libere les inputs tenus pour eviter qu'au resume le paddle
+            // continue de bouger tout seul.
+            mKeyW = mKeyS = mKeyUp = mKeyDown = false;
+            mMouseDownL = mMouseDownR = false;
+            mTouchIdL = mTouchIdR = -1;
+        }
+
         void GameplayScene::ResetPositions(float arenaW, float arenaH)
         {
             const float cx = arenaW * 0.5f;

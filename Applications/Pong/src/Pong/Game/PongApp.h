@@ -48,6 +48,11 @@ namespace nkentseu
             void Render();
             /// Dispatch d'un event poll-e a la scene active.
             void OnEvent(NkEvent& ev);
+            /// Lifecycle : informer la scene active.
+            void OnPause();
+            void OnResume();
+            /// Recree la surface GL (apres APP_CMD_INIT_WINDOW Android).
+            bool RecreateSurface();
 
             // ── Accesseurs ───────────────────────────────────────────────────
             bool WantsQuit() const noexcept { return mQuit; }
