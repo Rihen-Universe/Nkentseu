@@ -158,6 +158,24 @@ namespace nkentseu
         }
 
         // ─────────────────────────────────────────────────────────────────────
+        void PongApp::OnPause()
+        {
+            AppContext ctx = BuildContext();
+            mScenes.Pause(ctx);
+        }
+
+        void PongApp::OnResume()
+        {
+            AppContext ctx = BuildContext();
+            mScenes.Resume(ctx);
+        }
+
+        bool PongApp::RecreateSurface()
+        {
+            return mGL.RecreateSurface(mWindow);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
         void PongApp::Render()
         {
             if (!mGL.BeginFrame()) return;

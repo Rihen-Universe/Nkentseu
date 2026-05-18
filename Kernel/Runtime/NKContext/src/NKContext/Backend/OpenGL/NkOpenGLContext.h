@@ -35,6 +35,16 @@ namespace nkentseu {
         bool MakeCurrent()    override;
         void ReleaseCurrent() override;
 
+        /// Recree la surface graphique a partir du native window courant de
+        /// la fenetre. Utilise quand la surface OS a ete detruite/recreee
+        /// sans que le contexte GL soit perdu — typiquement sur Android
+        /// (APP_CMD_TERM_WINDOW puis APP_CMD_INIT_WINDOW au retour de
+        /// foreground). Sur PC c'est un no-op (la surface n'est pas perdue).
+        /// Le contexte/display/config EGL sont conserves, seul l'eglSurface
+        /// est detruit puis re-cree avec le nouveau ANativeWindow.
+        /// @return true si la surface a ete recreee avec succes.
+        bool RecreateSurface(const NkWindow& window);
+
         // Crée un contexte fils partageant les textures/buffers (asset loader thread)
         // Caller prend ownership — nullptr si partage non supporté
         NkOpenGLContext* CreateSharedContext(const NkWindow& window);

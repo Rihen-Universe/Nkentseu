@@ -57,6 +57,14 @@ namespace nkentseu
             /// les events significatifs pour leur logique.
             virtual void OnEvent(AppContext& /*ctx*/, NkEvent& /*ev*/) {}
 
+            /// Appele quand l'app perd le focus (Android Hidden, PC focus
+            /// lost). La scene doit suspendre les animations et, pour le
+            /// gameplay, mettre en pause automatique.
+            virtual void OnPause(AppContext& /*ctx*/) {}
+
+            /// Appele quand l'app revient au foreground.
+            virtual void OnResume(AppContext& /*ctx*/) {}
+
             /// Appele juste avant destruction.
             virtual void OnExit(AppContext& /*ctx*/) {}
         };

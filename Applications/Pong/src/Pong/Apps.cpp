@@ -91,8 +91,14 @@ int nkmain(const NkEntryState& state) {
                 pendingSize.height = wr->GetHeight();
                 needResize = true;
             }
-            // Android : surface recreee (APP_CMD_INIT_WINDOW) — reinit GL
+            // Android : surface recreee (APP_CMD_INIT_WINDOW) — il faut
+            // recreer l'eglSurface car l'ancien ANativeWindow a ete detruit
+            // par APP_CMD_TERM_WINDOW. Sans ce RecreateSurface, le rendu
+            // est noir au retour de foreground.
             if (ev->Is<NkWindowShownEvent>()) {
+                if (!app.RecreateSurface()) {
+                    logger.Warn("[Pong] RecreateSurface returned false (no native window yet?)");
+                }
                 auto sz = window.GetSize();
                 if (sz.x > 0 && sz.y > 0) {
                     app.OnResize(sz.x, sz.y);
@@ -100,23 +106,24 @@ int nkmain(const NkEntryState& state) {
                 surfaceReady = true;
                 appResumed   = true;
                 logger.Info("[Pong] Surface shown");
+                app.OnResume();
             }
             if (ev->Is<NkWindowHiddenEvent>()) {
                 surfaceReady = false;
                 logger.Info("[Pong] Surface hidden");
+                // Auto-pause immediate quand on quitte l'app (back/home).
+                // Le gameplay s'arretera proprement, evitant que la balle
+                // bouge "dans le vide" et que la partie continue en bg.
+                app.OnPause();
             }
             if (ev->Is<NkWindowFocusGainedEvent>()) {
                 appResumed = true;
             }
             if (ev->Is<NkWindowFocusLostEvent>())
             {
-                // Auto-pause si on est en gameplay. Pour l'instant le mapping
-                // exact viendra avec la GameplayScene/PauseScene ; le hook
-                // est en place.
-                if (app.State() == pong::GameState::Playing)
-                {
-                    app.SetState(pong::GameState::Paused);
-                }
+                // Auto-pause aussi au simple focus lost (notification overlay,
+                // splitscreen, etc.). La scene gameplay met mPaused=true.
+                app.OnPause();
             }
             // Forward de tous les events restants a la scene active (clavier,
             // souris, touch, gamepad). Les events systeme ci-dessus ont deja

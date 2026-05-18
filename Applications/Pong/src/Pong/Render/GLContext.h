@@ -56,6 +56,11 @@ namespace nkentseu
             /// A appeler quand la fenetre est redimensionnee.
             bool OnResize(uint32 w, uint32 h);
 
+            /// A appeler quand la surface OS a ete recreee (Android, retour
+            /// foreground apres APP_CMD_INIT_WINDOW). Recree l'eglSurface
+            /// sans toucher au contexte GL ; sur PC c'est un no-op.
+            bool RecreateSurface(NkWindow& window);
+
             // ── Accesseurs ───────────────────────────────────────────────────
             bool                IsValid() const noexcept { return mContext != nullptr; }
             NkIGraphicsContext* Raw()             noexcept { return mContext; }
