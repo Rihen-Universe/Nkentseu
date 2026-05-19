@@ -46,8 +46,9 @@ namespace nkentseu
                     Item_Competition = 1,  // tournois, paris, spectateurs
                     Item_Leaderboard = 2,  // classements online + local
                     Item_Options     = 3,  // audio/graphiques/controles globaux
-                    Item_Quit        = 4,  // ferme l'app
-                    kItemCount       = 5
+                    Item_Supporter   = 4,  // partage + dons (Nkentseu+Jenga+jeux)
+                    Item_Quit        = 5,  // ferme l'app
+                    kItemCount       = 6
                 };
 
                 MainMenuScene()  = default;
@@ -75,7 +76,7 @@ namespace nkentseu
                 float mCardListW    = 0.0f;
                 float mCardItemH    = 0.0f;
                 float mCardItemGap  = 0.0f;
-                float mCardItemYs[5]= { 0, 0, 0, 0, 0 };  // kItemCount=5
+                float mCardItemYs[6]= { 0, 0, 0, 0, 0, 0 };  // kItemCount=6
 
                 // ── Actions ──────────────────────────────────────────────────────
                 /// Action declenchee par ENTER ou clic sur @p item.

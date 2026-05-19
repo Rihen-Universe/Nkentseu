@@ -33,9 +33,10 @@ namespace nkentseu
             mDone = false;
             // Le logo Rihen est plaque statique en bas de la scene Noge —
             // signature du designer (sans animation, juste un fade-in global
-            // avec le reste des textes).
+            // avec le reste des textes). Source SVG vectorielle : NkImage::Load
+            // detecte le format et passe par NkSVGCodec pour rasteriser.
             mRihenLogoLoaded = mRihenLogo.LoadFromFile(
-                "Resources/Pong/Textures/logo.png");
+                "Resources/Pong/Textures/logo.svg");
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -194,8 +195,10 @@ namespace nkentseu
                 if (logoW > maxW) { logoW = maxW; logoH = logoW / aspect; }
                 const float logoX = cx - logoW * 0.5f;
                 // En bas, avec une petite marge respectant la safe area.
+                // Logo legerement decale vers le HAUT (sortie de la zone
+                // immediate du bord) — donne plus de respiration visuelle.
                 const float bottomY = (float)(ctx.safe.BottomY());
-                const float logoY = bottomY - logoH - 8.0f;
+                const float logoY = bottomY - logoH - 32.0f;
 
                 r.BindTexture(mRihenLogo.Id());
                 r.DrawTexturedQuadRGBA(logoX, logoY, logoW, logoH,

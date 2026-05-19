@@ -51,6 +51,7 @@ namespace nkentseu {
     enum class NkImageFormat : uint8 {
         NK_UNKNOWN=0, NK_PNG, NK_JPEG, NK_BMP, NK_TGA, NK_HDR,
         NK_PPM, NK_PGM, NK_PBM, NK_QOI, NK_GIF, NK_ICO,
+        NK_SVG,  ///< SVG XML -- rasterize via NkSVGCodec depuis le main Load
     };
 
     enum class NkResizeFilter : uint8 {

@@ -76,6 +76,12 @@ namespace nkentseu
             mPendingScene = nullptr;
         }
 
+        void SceneManager::PopToRoot()
+        {
+            mPendingOp    = Op::PopToRoot;
+            mPendingScene = nullptr;
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         // DestroyAndCallExit — utilitaire : appelle OnExit puis libere.
         // ─────────────────────────────────────────────────────────────────────
@@ -134,6 +140,20 @@ namespace nkentseu
                     Scene* old = mStack[mStack.Size() - 1];
                     mStack.PopBack();
                     logger.Info("[SceneManager] Pop: {0}", old ? old->Name() : "(null)");
+                    mToDestroy.PushBack(old);
+                }
+                break;
+            }
+            case Op::PopToRoot:
+            {
+                // Garde uniquement la scene au fond (racine = MainMenu en
+                // pratique). Toutes les autres sont detruites au prochain frame.
+                while (mStack.Size() > 1)
+                {
+                    Scene* old = mStack[mStack.Size() - 1];
+                    mStack.PopBack();
+                    logger.Info("[SceneManager] PopToRoot drop: {0}",
+                                old ? old->Name() : "(null)");
                     mToDestroy.PushBack(old);
                 }
                 break;

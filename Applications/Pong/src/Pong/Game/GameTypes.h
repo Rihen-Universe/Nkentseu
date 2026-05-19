@@ -157,17 +157,38 @@ namespace nkentseu
         {
             // Mode & IA
             GameMode      mode             = GameMode::VsAI;
+            // difficulty   : IA principale (raquette DROITE en VsAI, raquette
+            //                GAUCHE en AIvsAI). Toujours utilisee.
+            // difficultyP2 : IA secondaire (raquette DROITE en AIvsAI seulement).
+            //                Ignoree dans les autres modes.
             AIDifficulty  difficulty       = AIDifficulty::Competitor;
+            AIDifficulty  difficultyP2     = AIDifficulty::Competitor;
 
             // Obstacles actifs : un toggle par type (index = enum ObstacleType)
             bool          obsActive[8]     = { true, true, true, true, true, true, true, true };
+            // Parametres personnalises par type d'obstacle (modifiable par
+            // le joueur via le panneau dans SelectMatchConfigScene).
+            //   count       : 0 = random selon type, sinon nombre exact
+            //   powerLevel  : 1=Low, 2=Normal (defaut), 3=High
+            //   chaotic     : true = motion random selon profil, false = static
+            int           obsCount     [8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+            int           obsPowerLevel[8] = { 2, 2, 2, 2, 2, 2, 2, 2 };
+            bool          obsChaotic   [8] = { true, true, true, true,
+                                               true, true, true, true };
             bool          powerUpsEnabled  = true;
 
-            // Gameplay
-            int             maxScore         = 11;     ///< Points pour gagner (3/5/7/11/15/21)
+            // Gameplay — conditions de victoire flexibles
+            int             maxScore         = 11;     ///< Points pour gagner (3/5/7/11/15/21). 0 = pas de limite score.
             int             numRounds        = 1;      ///< Nombre de manches (1/3/5)
+            float           timeLimit        = 0.0f;   ///< Limite de temps en secondes (0 = pas de limite). A timeLeft<=0, le joueur en tete gagne.
+            bool            winByTwo         = false;  ///< Si true, il faut 2 pts d'ecart pour gagner (regle tennis).
             BallSpeedPreset ballSpeed        = BallSpeedPreset::Normal;
             bool            ballAcceleration = true;
+            /// Multiplicateur global applique a la vitesse de la balle a chaque
+            /// engagement (>= 1.0 garanti par le menu). 1.0 = vitesse de base
+            /// historique, 1.5 = +50%, etc. Permet au joueur de rythmer la
+            /// partie sans toucher au code.
+            float           ballSpeedMul     = 1.0f;
 
             // Graphique
             VisualQuality visualQuality    = VisualQuality::High;
@@ -187,6 +208,14 @@ namespace nkentseu
             // Réseau
             NetworkRegion region           = NetworkRegion::Auto;
             bool          showPing         = true;
+
+            // Seed RNG pour spawn deterministe (obstacles + power-ups).
+            // - 0 = utilise random_device (mode local classique).
+            // - != 0 = srand(seed) avant spawn pour reproductibilite.
+            // Utilise en mode reseau : le HOST genere la seed et la transmet
+            // au CLIENT via PktStartMatch pour que les 2 cotes spawnent les
+            // mêmes obstacles. Transient, non persiste.
+            uint32        obstacleSeed     = 0;
         };
 
     } // namespace pong

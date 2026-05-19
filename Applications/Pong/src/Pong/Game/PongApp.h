@@ -12,6 +12,7 @@
 #include "Pong/Render/GLContext.h"
 #include "Pong/Render/GLRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
+#include "Pong/Net/NetworkSession.h"
 #include "Pong/UI/AppContext.h"
 #include "Pong/UI/SceneManager.h"
 #include "NKCore/NkTypes.h"
@@ -63,12 +64,13 @@ namespace nkentseu
             void      SetState(GameState s) noexcept;
 
         private:
-            NkWindow&    mWindow;
-            GLContext    mGL;
-            GLRenderer2D mRenderer;
-            FontAtlas    mFont;
-            GameSettings mSettings;
-            SceneManager mScenes;
+            NkWindow&       mWindow;
+            GLContext       mGL;
+            GLRenderer2D    mRenderer;
+            FontAtlas       mFont;
+            GameSettings    mSettings;
+            SceneManager    mScenes;
+            NetworkSession  mNetwork;
 
             bool         mQuit       = false;
             float        mTime       = 0.0f;

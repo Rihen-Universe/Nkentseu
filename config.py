@@ -87,7 +87,7 @@ _REGISTRY: dict = {
     "context"       : ("NKENTSEU_CONTEXT",        ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
     "rhi"           : ("NKENTSEU_RHI",            ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
     "renderer"      : ("NKENTSEU_RENDERER",       ["platform", "core", "memory", "containers", "logger", "math", "time", "threading", "event", "window", "rhi", "image", "font", "filesystem", "serialization", "reflection"]),
-    "image"         : ("NKENTSEU_IMAGE",          ["platform", "core", "memory", "containers", "logger", "filesystem"]),
+    "image"         : ("NKENTSEU_IMAGE",          ["platform", "core", "memory", "containers", "logger", "math", "filesystem"]),
     "font"          : ("NKENTSEU_FONT",           ["platform", "core", "memory", "containers", "logger", "math", "image"]),
     "ecs"           : ("NKENTSEU_ECS",            ["platform", "core", "memory", "containers", "logger", "math"]),
     "camera"        : ("NKENTSEU_CAMERA",         ["platform", "core", "memory", "containers", "logger", "math"]),
