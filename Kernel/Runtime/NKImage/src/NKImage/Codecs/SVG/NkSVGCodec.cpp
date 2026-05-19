@@ -572,7 +572,11 @@ namespace nkentseu {
     void NkSVGCodec::RenderPath(RenderCtx& ctx, const Attr* a, int32 n) noexcept {
         const char* d=GetAttrStr(a,n,"d");
         if(!d) return;
-        static const int32 MAX_PTS=8192,MAX_CNT=256;
+        // Buffers redimensionnes 2026-05-19 : un seul path peut contenir des
+        // milliers de commandes (text-to-path peut produire 700+ Beziers,
+        // chacune flattened en ~16 segments -> ~11000+ points). Idem MAX_CNT
+        // pour les sous-chemins (chaque <path> peut avoir N contours).
+        static const int32 MAX_PTS=131072,MAX_CNT=2048;
         float32* xs=static_cast<float32*>(NkAlloc(MAX_PTS*sizeof(float32)));
         float32* ys=static_cast<float32*>(NkAlloc(MAX_PTS*sizeof(float32)));
         int32* cs=static_cast<int32*>(NkAlloc(MAX_CNT*sizeof(int32)));
@@ -630,7 +634,17 @@ namespace nkentseu {
     {
         const char* p=xml;
         const char* end=xml+xmlLen;
-        char tagBuf[64]; Attr attrsBuf[32]; char attrNames[32][64]; char attrVals[32][256];
+        char tagBuf[64]; Attr attrsBuf[32]; char attrNames[32][64];
+        // ── BUG FIX 2026-05-19 : ancien `char attrVals[32][256]` truncait
+        // silencieusement les valeurs d'attributs au-dela de 255 caracteres.
+        // Pour un SVG text-to-path, l'attribut `d` peut faire 24+ KB. Resultat :
+        // paths corrompus, quasi rien rendu.
+        // Solution : pool unique alloue sur le heap (par tag, reset a chaque
+        // tag). 1 MB couvre largement tous les SVG courants.
+        constexpr usize kAttrPoolSize = 1024 * 1024;  // 1 MB
+        char* attrPool = static_cast<char*>(NkAlloc(kAttrPoolSize));
+        if (!attrPool) return;
+        char* attrValPtrs[32];
 
         while(p<end){
             // Cherche '<'
@@ -645,6 +659,10 @@ namespace nkentseu {
             while(p<end&&*p!=' '&&*p!='>'&&*p!='/'&&ti<63) tagBuf[ti++]=*p++;
             tagBuf[ti]=0;
 
+            // Reset pool offset pour ce tag (les valeurs d'attrs du tag
+            // precedent ne sont plus utilisees).
+            usize poolOff = 0;
+
             // Lit les attributs
             int32 numAttrs=0;
             while(p<end&&*p!='>'&&*p!='/'){
@@ -654,13 +672,38 @@ namespace nkentseu {
                 attrNames[numAttrs][ni]=0;
                 if(*p=='='){++p;
                     const char q=(*p=='"'||*p=='\'')?*p++:' ';
-                    int32 vi=0;
-                    while(p<end&&*p!=q&&*p!='>'&&vi<255) attrVals[numAttrs][vi++]=*p++;
-                    attrVals[numAttrs][vi]=0;
+                    // Ecrit la valeur dans le pool a poolOff. Reserve 1 octet
+                    // pour le terminateur '\0'. Si le pool est sature (cas
+                    // extreme : SVG > 1 MB d'attrs sur un seul tag), on
+                    // tronque mais au moins on logue.
+                    char* dst = attrPool + poolOff;
+                    const usize avail = (poolOff < kAttrPoolSize)
+                                      ? (kAttrPoolSize - poolOff) : 0;
+                    usize vi = 0;
+                    while(p<end && *p!=q && *p!='>' && vi + 1 < avail) {
+                        dst[vi++] = *p++;
+                    }
+                    // Si tronque par le pool, on saute le reste de la valeur
+                    // pour avancer correctement le pointeur de parse.
+                    while(p<end && *p!=q && *p!='>') ++p;
+                    if (vi + 1 <= avail) {
+                        dst[vi] = 0;
+                        attrValPtrs[numAttrs] = dst;
+                        poolOff += vi + 1;
+                    } else {
+                        // Pool epuise pour cet attribut : on pointe sur une
+                        // string vide statique (ne devrait jamais arriver avec
+                        // 1 MB de pool).
+                        static char sEmpty = 0;
+                        attrValPtrs[numAttrs] = &sEmpty;
+                    }
                     if(*p==q) ++p;
-                } else { attrVals[numAttrs][0]=0; }
+                } else {
+                    static char sEmpty = 0;
+                    attrValPtrs[numAttrs] = &sEmpty;
+                }
                 attrsBuf[numAttrs].name=attrNames[numAttrs];
-                attrsBuf[numAttrs].value=attrVals[numAttrs];
+                attrsBuf[numAttrs].value=attrValPtrs[numAttrs];
                 if(numAttrs<31) ++numAttrs;
             }
             const bool selfClose=(*p=='/');
@@ -670,6 +713,8 @@ namespace nkentseu {
             RenderElement(tagBuf,attrsBuf,numAttrs,ctx);
             (void)selfClose;
         }
+
+        NkFree(attrPool);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

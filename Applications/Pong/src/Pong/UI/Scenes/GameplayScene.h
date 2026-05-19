@@ -24,6 +24,11 @@
 // =============================================================================
 
 #include "Pong/UI/Scene.h"
+#include "Pong/Game/GameTypes.h"
+#include "Pong/Game/AIController.h"
+#include "Pong/Game/ObstacleSystem.h"
+#include "Pong/Game/PowerUpSystem.h"
+#include "Pong/Game/ParticleSystem.h"
 #include "NKMath/NkColor.h"
 
 namespace nkentseu
@@ -63,6 +68,10 @@ namespace nkentseu
             float mBallX = 0.0f, mBallY = 0.0f;
             float mBallVX = 0.0f, mBallVY = 0.0f;
             float mBallR  = 7.0f;  // = 7 * mScale
+            // Multiplicateur de vitesse global pour ce match (>= 1.0). Lu
+            // depuis GameSettings.ballSpeedMul en OnEnter et reapplique a
+            // chaque respawn de la balle.
+            float mBallSpeedMul = 1.0f;
             // Trail circulaire — 14 positions (taille HTML).
             static constexpr int kTrailMax = 14;
             float mTrailX[kTrailMax] = {0};
@@ -85,12 +94,48 @@ namespace nkentseu
             float mGoalFlashAlpha = 0.0f;
             int   mGoalFlashSide  = 0;   // -1=left scored, +1=right scored
 
-            // Timer descendant 02:34 -> 0
-            float mTimeLeft = 154.0f;
+            // Timer (descendant si timeLimit > 0, ascendant si timeLimit = 0)
+            float mTimeLeft = 0.0f;      // si timeLimit > 0
+            float mTimeUp   = 0.0f;      // si timeLimit = 0 (chrono ascendant)
+
+            // ── Fin de partie ────────────────────────────────────────────────
+            bool  mGameOver = false;
+            int   mWinner   = 0;         // +1 = P1 gagne, -1 = P2 gagne, 0 = egalite
+
+            // Geometrie boutons GameOver
+            float mGOReplayBtnX = 0.0f, mGOReplayBtnY = 0.0f;
+            float mGOReplayBtnW = 0.0f, mGOReplayBtnH = 0.0f;
+            float mGOMenuBtnX   = 0.0f, mGOMenuBtnY   = 0.0f;
+            float mGOMenuBtnW   = 0.0f, mGOMenuBtnH   = 0.0f;
 
             // ── Etat input (touches tenues) ─────────────────────────────────
             bool mKeyW = false, mKeyS = false;
             bool mKeyUp = false, mKeyDown = false;
+
+            // ── IA pour les modes vs IA / IA vs IA ──────────────────────────
+            AIController mAILeft;
+            AIController mAIRight;
+            bool         mAILeftEnabled  = false;
+            bool         mAIRightEnabled = false;
+
+            // ── Obstacles in-game (8 types, configurable via settings) ──────
+            ObstacleSystem mObstacles;
+
+            // ── Power-ups / Power-downs (6 bonus + 6 malus selon GDD §2.3) ──
+            // Etat des effets actifs, drops periodiques et collision avec
+            // les raquettes. Module la taille raquette, sa vitesse, la vitesse
+            // de balle, et intercepte les goals (Shield / DoublePoint).
+            PowerUpSystem mPowerUps;
+            /// Cote du DERNIER joueur ayant touche la balle (-1 = P1 gauche,
+            /// +1 = P2 droite, 0 = personne encore). Utilise pour attribuer
+            /// le bonus quand une BonusStar est collectee.
+            int mLastToucher = 0;
+
+            // ── Particules (juice visuel) ──────────────────────────────────
+            // Bursts emis aux evenements gameplay : rebond paddle, hit
+            // obstacle, collecte bonus, drop catched, goal. Purement
+            // cosmetique — n'influe sur aucun gameplay.
+            ParticleSystem mParticles;
 
             // ── Touch / souris (drag vertical par moitie) ────────────────────
             long long mTouchIdL    = -1;
@@ -111,6 +156,47 @@ namespace nkentseu
             float mMenuBtnX   = 0.0f, mMenuBtnY   = 0.0f;
             float mMenuBtnW   = 0.0f, mMenuBtnH   = 0.0f;
 
+            // ── Reseau (Phase 2) ────────────────────────────────────────────
+            // Active si ctx.network est Connected a l'entree. Le host fait la
+            // simulation autoritative, le client se contente d'envoyer son
+            // input et d'appliquer les snapshots recus tel quel.
+            bool  mIsNetwork = false;
+            bool  mIsHost    = false;
+            // Timers d'envoi (accumulent dt jusqu'a depasser 1/Hz).
+            float mNetSendStateTimer = 0.0f;  ///< Host : envoi du snapshot
+            float mNetSendInputTimer = 0.0f;  ///< Client : envoi de l'input
+            // Position Y normalisee [0..1] desiree par le client pour son
+            // propre paddle (cote droit chez le host). Supporte clavier ET
+            // souris ET touch en envoyant une position absolue (pas un dir).
+            // - mNetRemotePaddleYN : ce que le HOST a recu en dernier
+            // - mNetLocalPaddleYN  : ce que le CLIENT va envoyer
+            float mNetRemotePaddleYN = 0.5f;
+            float mNetLocalPaddleYN  = 0.5f;
+            // Flag : true si le client a deja envoye au moins un input. Sinon
+            // le HOST utilise sa position locale par defaut (centre arene).
+            bool  mNetHasRemoteInput = false;
+
+            // Detection du depart de l'adversaire (peer disconnect en cours
+            // de match). Si l'autre joueur ferme son app, perd la connexion,
+            // ou appuie sur RETOUR MENU, on bascule en mNetPeerLost et on
+            // affiche un overlay "ADVERSAIRE PARTI" + bouton RETOUR MENU.
+            bool  mNetPeerLost  = false;
+            float mNetLostTimer = 0.0f;  ///< Temps depuis la perte (pour anim)
+            // Coords du bouton RETOUR MENU dans l'overlay de deconnexion.
+            float mLostMenuBtnX = 0.0f, mLostMenuBtnY = 0.0f;
+            float mLostMenuBtnW = 0.0f, mLostMenuBtnH = 0.0f;
+
+            // ── Sync power-ups (Phase 5) ────────────────────────────────────
+            // Cote CLIENT, le HOST envoie ces valeurs dans PktState a chaque
+            // snapshot 60Hz. Le CLIENT les utilise pour rendre les paddles a
+            // la bonne taille et appliquer les effets visuels (gel/aveuglement
+            // de la zone, etc.). En mode local, ces valeurs sont ignorees ;
+            // on utilise mPowerUps.GetPaddleHeightMul directement.
+            float mNetPaddleHMulL = 1.0f;
+            float mNetPaddleHMulR = 1.0f;
+            uint8 mNetEffFlagsL   = 0;
+            uint8 mNetEffFlagsR   = 0;
+
             // Helper : hit-test rectangle.
             static bool PointInRect(float px, float py,
                                     float rx, float ry, float rw, float rh)
@@ -120,9 +206,35 @@ namespace nkentseu
 
             // ── Helpers ─────────────────────────────────────────────────────
             void ResetPositions(float arenaW, float arenaH);
-            void TriggerGoal(int side, float arenaW, float arenaH);
-            void StepBall   (float arenaW, float arenaH, float dt60);
+            void TriggerGoal(AppContext& ctx, int side, float arenaW, float arenaH);
+            void StepBall   (AppContext& ctx, float arenaW, float arenaH, float dt60);
+            /// Pause network-aware. Mode local : toggle classique. Mode reseau
+            /// CLIENT : envoie kMsgPauseToggle au host (qui togglera et
+            /// repropagera via snapshot). Mode reseau HOST : toggle local
+            /// (snapshot propage au client).
+            void RequestPauseToggle(AppContext& ctx);
+            /// Replay network-aware. Mode local OU HOST : StartNewMatch direct.
+            /// Mode reseau CLIENT : envoie kMsgReplayRequest au HOST (qui
+            /// fera StartNewMatch et propagera via snapshot).
+            void RequestReplay(AppContext& ctx);
+            /// Multiplicateur de hauteur paddle effectif par cote :
+            /// - mode local OU HOST : mPowerUps.GetPaddleHeightMul(side)
+            /// - mode reseau CLIENT : mNetPaddleHMulL/R recu du snapshot
+            ///   (mPowerUps cote client n'a pas les effets, seulement les drops).
+            float EffectivePaddleHMul(int side) const
+            {
+                if (mIsNetwork && !mIsHost)
+                {
+                    return (side < 0) ? mNetPaddleHMulL : mNetPaddleHMulR;
+                }
+                return mPowerUps.GetPaddleHeightMul(side);
+            }
             void StepPaddles(float arenaH, float dt60);
+            /// Verifie les conditions de victoire (score >= maxScore avec/sans
+            /// winByTwo, ou timer ecoule). Met mGameOver+mWinner.
+            void CheckWinConditions(const GameSettings& s);
+            /// Reset complet pour rejouer (scores 0, ball au centre).
+            void StartNewMatch(AppContext& ctx);
         };
 
     } // namespace pong

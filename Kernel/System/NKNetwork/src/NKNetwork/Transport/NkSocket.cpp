@@ -849,6 +849,19 @@ namespace nkentseu {
             const NkAddress& target
         ) noexcept
         {
+            // ── DIAGNOSTIC : log d'ENTREE (tous les premiers appels). Permet
+            // de verifier que la fonction est bien appelee depuis le thread
+            // reseau, independamment du resultat de sendto().
+            {
+                static NkAtomic<uint32> sEnterCounter{0};
+                const uint32 idx = sEnterCounter.FetchAdd(1);
+                if (idx < 8)
+                {
+                    NK_NET_LOG_INFO("[NET-DIAG] SendTo enter #{} target={} size={} valid={}",
+                                    idx, target.ToString().CStr(),
+                                    size, IsValid() ? 1 : 0);
+                }
+            }
             // Validation des paramètres
             if (!IsValid() || data == nullptr || size == 0)
             {
@@ -890,6 +903,18 @@ namespace nkentseu {
                 return NkNetResult::NK_NET_SOCKET_ERROR;
             }
 
+            // ── DIAGNOSTIC : log les 5 premiers envois (cible + taille) pour
+            // verifier que les paquets sortent bien sur la bonne destination.
+            {
+                static NkAtomic<uint32> sSendCounter{0};
+                const uint32 idx = sSendCounter.FetchAdd(1);
+                if (idx < 5)
+                {
+                    NK_NET_LOG_INFO("[NET-DIAG] sendto #{} -> {} ({} bytes OK)",
+                                    idx, target.ToString().CStr(), size);
+                }
+            }
+
             return NkNetResult::NK_NET_OK;
         }
 
@@ -900,6 +925,17 @@ namespace nkentseu {
             NkAddress& outFrom
         ) noexcept
         {
+            // ── DIAGNOSTIC : log d'ENTREE (tous les premiers appels). Confirme
+            // que la fonction est appelee depuis le thread reseau.
+            {
+                static NkAtomic<uint32> sEnterCounter{0};
+                const uint32 idx = sEnterCounter.FetchAdd(1);
+                if (idx < 8)
+                {
+                    NK_NET_LOG_INFO("[NET-DIAG] RecvFrom enter #{} bufSize={} valid={}",
+                                    idx, bufferSize, IsValid() ? 1 : 0);
+                }
+            }
             // Validation des paramètres
             if (!IsValid() || buffer == nullptr)
             {
@@ -931,7 +967,7 @@ namespace nkentseu {
                     return NkNetResult::NK_NET_OK;
                 }
 
-                NK_NET_LOG_ERROR("recvfrom() failed: code %d", errorCode);
+                NK_NET_LOG_ERROR("recvfrom() failed: code {0}", errorCode);
                 return NkNetResult::NK_NET_SOCKET_ERROR;
             }
 
@@ -948,6 +984,18 @@ namespace nkentseu {
             {
                 const auto& ipv6Addr = reinterpret_cast<const sockaddr_in6&>(addressStorage);
                 outFrom = NkAddress(ipv6Addr);
+            }
+
+            // ── DIAGNOSTIC : log les 5 premieres receptions (source + taille).
+            {
+                static NkAtomic<uint32> sRecvCounter{0};
+                const uint32 idx = sRecvCounter.FetchAdd(1);
+                if (idx < 5)
+                {
+                    NK_NET_LOG_INFO("[NET-DIAG] recvfrom #{} <- {} ({} bytes)",
+                                    idx, outFrom.ToString().CStr(),
+                                    static_cast<unsigned>(outSize));
+                }
             }
 
             return NkNetResult::NK_NET_OK;
@@ -1155,7 +1203,7 @@ namespace nkentseu {
 
                 if (result != 0)
                 {
-                    NK_NET_LOG_ERROR("WSAStartup failed: code %d", result);
+                    NK_NET_LOG_ERROR("WSAStartup failed: code {0}", result);
                     return NkNetResult::NK_NET_SOCKET_ERROR;
                 }
 

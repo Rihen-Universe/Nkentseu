@@ -73,6 +73,7 @@ namespace nkentseu
             ctx.font       = &mFont;
             ctx.settings   = &mSettings;
             ctx.scenes     = &mScenes;
+            ctx.network    = &mNetwork;
             ctx.viewportW  = static_cast<int>(mViewportW);
             ctx.viewportH  = static_cast<int>(mViewportH);
             ctx.globalTime    = mTime;
@@ -110,6 +111,9 @@ namespace nkentseu
                 return false;
             }
 
+            // Init reseau (sockets plateforme). Idempotent — peut etre rappele.
+            NetworkSession::PlatformInit();
+
             // Premiere scene : intro Rihen (qui chaine vers Noge puis Splash).
             mScenes.Push(new RihenIntroScene());
 
@@ -123,6 +127,10 @@ namespace nkentseu
             // Vider la pile de scenes proprement (OnExit).
             AppContext ctx = BuildContext();
             mScenes.Clear(ctx);
+
+            // Ferme la session reseau et libere les sockets plateforme.
+            mNetwork.Shutdown();
+            NetworkSession::PlatformShutdown();
 
             mFont.Shutdown();
             mRenderer.Shutdown();
@@ -144,6 +152,9 @@ namespace nkentseu
         {
             mTime += dt;
             AppContext ctx = BuildContext();
+            // Tick reseau (drain interne du thread reseau). Aucun cout si
+            // la session est Idle.
+            mNetwork.Tick(dt);
             // Applique les transitions push/replace/pop en attente.
             mScenes.ApplyPending(ctx);
             // Update la scene active.

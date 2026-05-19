@@ -178,17 +178,25 @@
     // -------------------------------------------------------------------------
     // Wrappers autour du logger pour tagging cohérent des messages NKNetwork.
 
-    /// Macro de logging niveau INFO pour NKNetwork.
-    #define NK_NET_LOG_INFO(fmt, ...)  logger.Infof("[NKNet] " fmt "\n", ##__VA_ARGS__)
+    // -------------------------------------------------------------------------
+    // Convention de format : on utilise logger.Info/Warn/Error/Debug (SANS le 'f'
+    // final) qui interpolent les placeholders indexes {0} {1} {2} ... du libfmt.
+    // L'ancienne version utilisait Infof/Warnf/Errorf (printf-style %s/%d) mais
+    // ~98% des appels existants passent du format {} -> tous les logs sortaient
+    // avec des {} litteraux non interpoles, rendant le diag inutile.
+    // -------------------------------------------------------------------------
 
-    /// Macro de logging niveau WARNING pour NKNetwork.
-    #define NK_NET_LOG_WARN(fmt, ...)  logger.Warnf("[NKNet] " fmt "\n", ##__VA_ARGS__)
+    /// Macro de logging niveau INFO pour NKNetwork. Placeholders : {0}, {1}, ...
+    #define NK_NET_LOG_INFO(fmt, ...)  logger.Info("[NKNet] " fmt, ##__VA_ARGS__)
 
-    /// Macro de logging niveau ERROR pour NKNetwork.
-    #define NK_NET_LOG_ERROR(fmt, ...) logger.Errorf("[NKNet] " fmt "\n", ##__VA_ARGS__)
+    /// Macro de logging niveau WARNING pour NKNetwork. Placeholders : {0}, {1}, ...
+    #define NK_NET_LOG_WARN(fmt, ...)  logger.Warn("[NKNet] " fmt, ##__VA_ARGS__)
 
-    /// Macro de logging niveau DEBUG pour NKNetwork (compilée uniquement en debug).
-    #define NK_NET_LOG_DEBUG(fmt, ...) logger.Debugf("[NKNet] " fmt "\n", ##__VA_ARGS__)
+    /// Macro de logging niveau ERROR pour NKNetwork. Placeholders : {0}, {1}, ...
+    #define NK_NET_LOG_ERROR(fmt, ...) logger.Error("[NKNet] " fmt, ##__VA_ARGS__)
+
+    /// Macro de logging niveau DEBUG pour NKNetwork. Placeholders : {0}, {1}, ...
+    #define NK_NET_LOG_DEBUG(fmt, ...) logger.Debug("[NKNet] " fmt, ##__VA_ARGS__)
 
     /// Macro d'assertion réseau avec logging d'erreur détaillé.
     /// @param cond Condition à vérifier
@@ -196,7 +204,7 @@
     #define NK_NET_ASSERT(cond, msg) \
         do { \
             if (!(cond)) { \
-                NK_NET_LOG_ERROR("ASSERT FAILED: %s (%s:%d)", msg, __FILE__, __LINE__); \
+                NK_NET_LOG_ERROR("ASSERT FAILED: {0} ({1}:{2})", msg, __FILE__, __LINE__); \
             } \
         } while(0)
 
@@ -539,44 +547,19 @@
              * @param v Valeur 16-bit en host byte order.
              * @return Valeur convertie en network byte order (big-endian).
              */
-            inline uint16 NkHToN16(uint16 v) noexcept;
-
-            /**
-             * @brief Convertit uint16 de network-order à host-order.
-             * @param v Valeur 16-bit en network byte order.
-             * @return Valeur convertie en host byte order.
-             */
-            inline uint16 NkNToH16(uint16 v) noexcept;
-
-            /**
-             * @brief Convertit uint32 de host-order à network-order.
-             * @param v Valeur 32-bit en host byte order.
-             * @return Valeur convertie en network byte order (big-endian).
-             */
-            inline uint32 NkHToN32(uint32 v) noexcept;
-
-            /**
-             * @brief Convertit uint32 de network-order à host-order.
-             * @param v Valeur 32-bit en network byte order.
-             * @return Valeur convertie en host byte order.
-             */
-            inline uint32 NkNToH32(uint32 v) noexcept;
-
-            /**
-             * @brief Convertit uint64 de host-order à network-order.
-             * @param v Valeur 64-bit en host byte order.
-             * @return Valeur convertie en network byte order (big-endian).
-             * @note Implémentation logicielle : pas de htonl64 standard POSIX.
-             */
-            inline uint64 NkHToN64(uint64 v) noexcept;
-
-            /**
-             * @brief Convertit uint64 de network-order à host-order.
-             * @param v Valeur 64-bit en network byte order.
-             * @return Valeur convertie en host byte order.
-             * @note Symétrique de NkHToN64().
-             */
-            inline uint64 NkNToH64(uint64 v) noexcept;
+            // NOTE : ces fonctions etaient declarees `inline` mais leur
+            // definition est dans le .cpp — ce qui violait la regle "un inline
+            // doit avoir son body visible au site d'appel". Sous Clang/GCC,
+            // cela provoquait des "undefined reference" au link cote consumer.
+            // Solution simple : retirer `inline` pour garder un lien classique
+            // entre declaration ici et definition dans NkNetDefines.cpp.
+            NKENTSEU_NETWORK_API uint16 NkHToN16(uint16 v) noexcept;
+            NKENTSEU_NETWORK_API uint16 NkNToH16(uint16 v) noexcept;
+            NKENTSEU_NETWORK_API uint32 NkHToN32(uint32 v) noexcept;
+            NKENTSEU_NETWORK_API uint32 NkNToH32(uint32 v) noexcept;
+            /// @note Implementation logicielle : pas de htonl64 standard POSIX.
+            NKENTSEU_NETWORK_API uint64 NkHToN64(uint64 v) noexcept;
+            NKENTSEU_NETWORK_API uint64 NkNToH64(uint64 v) noexcept;
 
             /// @} End of ByteOrderHelpers group
 
