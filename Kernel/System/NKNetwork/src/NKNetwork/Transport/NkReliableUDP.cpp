@@ -511,6 +511,18 @@ namespace nkentseu {
 
         void NkReliableUDP::Update(float32 dt) noexcept
         {
+            // ── DIAG : log d'entree (premieres iterations seulement).
+            {
+                static NkAtomic<uint32> sEnterCounter{0};
+                const uint32 idx = sEnterCounter.FetchAdd(1);
+                if (idx < 5)
+                {
+                    NK_NET_LOG_INFO("[NET-DIAG] RUDP::Update enter #{} socket={} valid={}",
+                                    idx,
+                                    mSocket ? "ptr" : "null",
+                                    (mSocket && mSocket->IsValid()) ? 1 : 0);
+                }
+            }
             if (mSocket == nullptr || !mSocket->IsValid())
             {
                 return;

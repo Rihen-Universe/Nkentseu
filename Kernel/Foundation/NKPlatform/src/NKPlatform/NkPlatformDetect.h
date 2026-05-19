@@ -798,9 +798,13 @@
     #endif
 
     // Catégorie Unix-like : regroupe les systèmes POSIX compatibles
+    // Android est POSIX-compatible (bionic libc, sys/socket.h, etc.) — on
+    // l'inclut pour que les modules comme NKNetwork compilent leur branche
+    // POSIX sur NDK.
     #if defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_MACOS) || \
         defined(NKENTSEU_PLATFORM_FREEBSD) || defined(NKENTSEU_PLATFORM_OPENBSD) || \
-        defined(NKENTSEU_PLATFORM_NETBSD) || defined(NKENTSEU_PLATFORM_UNIX)
+        defined(NKENTSEU_PLATFORM_NETBSD) || defined(NKENTSEU_PLATFORM_UNIX) || \
+        defined(NKENTSEU_PLATFORM_ANDROID)
         #define NKENTSEU_PLATFORM_POSIX
         #define NKENTSEU_PLATFORM_UNIX_LIKE
     #endif

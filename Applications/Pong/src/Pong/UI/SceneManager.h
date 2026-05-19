@@ -53,6 +53,12 @@ namespace nkentseu
             /// Depile la scene courante (detruite au prochain frame).
             void Pop();
 
+            /// Depile JUSQU'A ne laisser que la scene racine (le bas de la
+            /// pile, typiquement MainMenu). Utile pour "RETOUR MENU" depuis
+            /// un GameOver / Pause overlay quand la pile est profonde.
+            /// Si la pile contient 0 ou 1 scene, ne fait rien.
+            void PopToRoot();
+
             // ── Cycle de frame ───────────────────────────────────────────────
             /// Applique les operations en attente (push/replace/pop). A appeler
             /// au debut de chaque frame, avant Update.
@@ -82,7 +88,7 @@ namespace nkentseu
             int Depth() const noexcept;
 
         private:
-            enum class Op { None, Push, Replace, Pop };
+            enum class Op { None, Push, Replace, Pop, PopToRoot };
 
             // Pile de scenes (vecteur de pointeurs proprietaires).
             NkVector<Scene*> mStack;

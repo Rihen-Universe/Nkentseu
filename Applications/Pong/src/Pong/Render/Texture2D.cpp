@@ -73,34 +73,38 @@ namespace nkentseu
         // glTexImage2D(GL_RGBA, GL_UNSIGNED_BYTE). Sans la conversion, un PNG
         // RGB (3 canaux) crash l'upload car GL lit 4 octets/pixel.
         // ─────────────────────────────────────────────────────────────────────
-        bool Texture2D::LoadFromFile(const char* path)
+        // Decode UNIQUEMENT (pas d'appel GL). Safe depuis un worker thread.
+        NkImage* Texture2D::DecodeFromFile(const char* path)
         {
             // 4 = force RGBA32. NkImage convertit en interne si la source est
-            // RGB / GRAY / GRAY+A. C'est la meme convention que celle
-            // utilisee par NkRHIDemoFullImage.cpp (Sandbox/Base03).
+            // RGB / GRAY / GRAY+A.
             NkImage* img = NkImage::Load(path, /*desiredChannels=*/4);
             if (img == nullptr || !img->IsValid())
             {
-                logger.Error("[Texture2D] LoadFromFile failed: {0}", path);
-                // ATTENTION : NkImage est alloue via nkMalloc + placement new.
-                // Free() libere les pixels ET le wrapper (nkFree(this)). On
-                // ne doit JAMAIS faire `delete img` — provoque un double-free
-                // (heap corruption c0000374) car operator delete tente de
-                // re-liberer la memoire deja nkFree'd.
+                logger.Error("[Texture2D] DecodeFromFile failed: {0}", path);
+                // Free libere les pixels + wrapper (alloue nkMalloc+placement
+                // new). JAMAIS `delete img` — double-free.
+                if (img != nullptr) img->Free();
+                return nullptr;
+            }
+            return img;
+        }
+
+        // Upload sur le thread GL d'une image deja decodee. Libere l'image
+        // apres upload.
+        bool Texture2D::UploadFromImage(NkImage* img)
+        {
+            if (img == nullptr || !img->IsValid())
+            {
                 if (img != nullptr) img->Free();
                 return false;
             }
-
             mWidth  = img->Width();
             mHeight = img->Height();
 
             // Generation + upload de la texture GL.
             glGenTextures(1, &mTextureId);
             glBindTexture(GL_TEXTURE_2D, mTextureId);
-            // ROW_LENGTH explicite : NkImage peut avoir un stride > width*4
-            // (alignement interne). On informe GL via UNPACK_ROW_LENGTH pour
-            // qu'il sache combien d'octets sauter par ligne. UNPACK_ALIGNMENT=1
-            // evite tout padding implicite.
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
             const int stridePixels = img->Stride() / 4;  // bytes -> pixels (RGBA = 4 bpp)
             glPixelStorei(GL_UNPACK_ROW_LENGTH, stridePixels);
@@ -117,14 +121,21 @@ namespace nkentseu
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
             glBindTexture(GL_TEXTURE_2D, 0);
 
-            // NkImage : Free() libere a la fois les pixels et le wrapper
-            // (alloue via nkMalloc + placement new par Load/Alloc/Wrap).
-            // Ne JAMAIS faire `delete img` apres — double-free.
             img->Free();
-
-            logger.Info("[Texture2D] loaded {0} : {1}x{2}, texId={3}",
-                        path, mWidth, mHeight, mTextureId);
             return true;
+        }
+
+        bool Texture2D::LoadFromFile(const char* path)
+        {
+            NkImage* img = DecodeFromFile(path);
+            if (img == nullptr) return false;
+            const bool ok = UploadFromImage(img);
+            if (ok)
+            {
+                logger.Info("[Texture2D] loaded {0} : {1}x{2}, texId={3}",
+                            path, mWidth, mHeight, mTextureId);
+            }
+            return ok;
         }
 
         // ─────────────────────────────────────────────────────────────────────

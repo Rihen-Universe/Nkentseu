@@ -26,17 +26,22 @@ namespace nkentseu
         class FontAtlas;
         struct GameSettings;
         class SceneManager;
+        class NetworkSession;
 
         // ─────────────────────────────────────────────────────────────────────
         // AppContext — passe a chaque Scene::OnUpdate/OnRender/OnEnter.
         // ─────────────────────────────────────────────────────────────────────
         struct AppContext
         {
-            NkWindow*     window     = nullptr;
-            GLRenderer2D* renderer   = nullptr;
-            FontAtlas*    font       = nullptr;
-            GameSettings* settings   = nullptr;
-            SceneManager* scenes     = nullptr;
+            NkWindow*       window     = nullptr;
+            GLRenderer2D*   renderer   = nullptr;
+            FontAtlas*      font       = nullptr;
+            GameSettings*   settings   = nullptr;
+            SceneManager*   scenes     = nullptr;
+            /// Reseau (LAN/Online). nullptr si pas initialise. Detenu par
+            /// PongApp pour toute la duree de l'app. Les scenes l'utilisent
+            /// pour piloter Host/Join + envoi/reception messages.
+            NetworkSession* network    = nullptr;
 
             int           viewportW  = 0;
             int           viewportH  = 0;

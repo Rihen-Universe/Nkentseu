@@ -10,6 +10,9 @@
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKCore/NkTypes.h"
 
+// Forward declaration : NkImage est dans le namespace nkentseu (pas pong).
+namespace nkentseu { class NkImage; }
+
 namespace nkentseu
 {
     namespace pong
@@ -23,8 +26,21 @@ namespace nkentseu
 
             // ── Lifecycle ────────────────────────────────────────────────────
             /// Charge un fichier image (PNG/JPG/etc.) via NkImage puis upload
-            /// en texture GL_RGBA8. Genere les mipmaps.
+            /// en texture GL_RGBA8. Genere les mipmaps. Bloque le thread.
+            /// Pour un chargement asynchrone, utiliser DecodeFromFile() depuis
+            /// un thread worker, puis UploadFromImage() depuis le thread GL.
             bool LoadFromFile(const char* path);
+
+            /// Decode UNIQUEMENT (lit le fichier + decode RGBA8 via NkImage).
+            /// SAFE depuis un thread worker (n'appelle aucune fonction GL).
+            /// Retourne le NkImage* alloue (a passer a UploadFromImage), ou
+            /// nullptr en cas d'echec. Le caller est responsable de Free().
+            static NkImage* DecodeFromFile(const char* path);
+
+            /// Upload une image deja decodee en texture GL_RGBA8 + mipmaps.
+            /// DOIT etre appele depuis le thread GL (main thread). Libere
+            /// l'image apres upload (Free()).
+            bool UploadFromImage(NkImage* img);
 
             /// Libere la texture GL et l'image source.
             void Shutdown();

@@ -30,6 +30,7 @@
 #include "NKImage/Codecs/QOI/NkQOICodec.h"
 #include "NKImage/Codecs/GIF/NkGIFCodec.h"
 #include "NKImage/Codecs/ICO/NkICOCodec.h"
+#include "NKImage/Codecs/SVG/NkSVGCodec.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKMemory/NkFunction.h"
 #include <new>
@@ -692,6 +693,37 @@ namespace nkentseu {
             if (it == 0 || it == 1 || it == 2 || it == 3 || it == 9 || it == 10 || it == 11)
                 return NkImageFormat::NK_TGA;
         }
+        // SVG : on tolere un BOM UTF-8 (EF BB BF) puis un eventuel espace blanc
+        // avant la balise. On cherche "<?xml" ou "<svg" dans les ~256 premiers
+        // octets (suffisant pour les SVGs typiques avec en-tete XML).
+        {
+            usize off = 0;
+            if (sz >= 3 && d[0] == 0xEF && d[1] == 0xBB && d[2] == 0xBF) off = 3;
+            while (off < sz && (d[off] == ' ' || d[off] == '\t'
+                             || d[off] == '\n' || d[off] == '\r')) ++off;
+            const usize end = (sz < off + 256) ? sz : (off + 256);
+            auto match = [&](const char* lit, usize litLen) -> bool
+            {
+                if (off + litLen > sz) return false;
+                for (usize k = 0; k < litLen; ++k)
+                    if (d[off + k] != (uint8)lit[k]) return false;
+                return true;
+            };
+            if (match("<?xml", 5) || match("<svg", 4))
+            {
+                return NkImageFormat::NK_SVG;
+            }
+            // En-tete XML peut inclure DOCTYPE/commentaires avant <svg : on
+            // scanne les ~256 premiers octets pour le tag <svg.
+            for (usize i = off; i + 4 < end; ++i)
+            {
+                if (d[i] == '<' && d[i+1] == 's' && d[i+2] == 'v' && d[i+3] == 'g'
+                 && (d[i+4] == ' ' || d[i+4] == '\t' || d[i+4] == '\n' || d[i+4] == '>'))
+                {
+                    return NkImageFormat::NK_SVG;
+                }
+            }
+        }
         return NkImageFormat::NK_UNKNOWN;
     }
 
@@ -709,6 +741,7 @@ namespace nkentseu {
             case NkImageFormat::NK_QOI:  img = NkQOICodec::Decode(d, sz); break;
             case NkImageFormat::NK_GIF:  img = NkGIFCodec::Decode(d, sz); break;
             case NkImageFormat::NK_ICO:  img = NkICOCodec::Decode(d, sz); break;
+            case NkImageFormat::NK_SVG:  img = NkSVGCodec::Decode(d, sz); break;
             default: return nullptr;
         }
         if (!img) return nullptr;

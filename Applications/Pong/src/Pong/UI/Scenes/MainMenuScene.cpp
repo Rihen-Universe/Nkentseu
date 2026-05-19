@@ -14,7 +14,10 @@
 // =============================================================================
 
 #include "MainMenuScene.h"
-#include "GameplayScene.h"
+#include "SelectModeScene.h"
+#include "OptionsScene.h"
+#include "SupporterScene.h"
+#include "NKPlatform/NkPlatformDetect.h"
 #include "Pong/Render/GLRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
@@ -32,6 +35,29 @@ namespace nkentseu
 {
     namespace pong
     {
+
+        // ── Plateformes : le bouton QUITTER n'est conserve QUE sur desktop ──
+        // Sur Android/iOS, fermer une app via un bouton interne est anti-pattern
+        // (rejete par App Store, deconseille par Google : le systeme gere le
+        // cycle de vie). Sur Web il est techniquement impossible de fermer un
+        // onglet via window.close() pour une page utilisateur. On retire donc
+        // l'item Item_Quit du menu sur ces plateformes.
+        // PREREQUIS : Item_Quit doit etre le DERNIER de l'enum pour que la
+        // soustraction kItemCount - 1 le retire proprement.
+#if defined(NKENTSEU_PLATFORM_ANDROID) \
+ || defined(NKENTSEU_PLATFORM_IOS) \
+ || defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+        static constexpr bool kHasQuitItem = false;
+#else
+        static constexpr bool kHasQuitItem = true;
+#endif
+
+        static inline int VisibleItemCount()
+        {
+            return kHasQuitItem
+                 ? (int)MainMenuScene::kItemCount
+                 : (int)MainMenuScene::kItemCount - 1;
+        }
 
         // ── Description du menu ──────────────────────────────────────────────
         struct MenuItemDesc
@@ -61,6 +87,7 @@ namespace nkentseu
             { MainMenuScene::Item_Competition, "MODE COMPETITION", "TOURNOIS, PARIS, SPECTATEURS 1V1",     0, 7, 1 },
             { MainMenuScene::Item_Leaderboard, "CLASSEMENT",       "MEILLEURS JOUEURS — ONLINE + LOCAL",   1, 8, 0 },
             { MainMenuScene::Item_Options,     "OPTIONS",          "AUDIO, GRAPHIQUES, CONTROLES, RESEAU", 1, 6, 0 },
+            { MainMenuScene::Item_Supporter,   "SUPPORTER",        "PARTAGER & SOUTENIR LE PROJET",        1, 5, 1 },
             { MainMenuScene::Item_Quit,        "QUITTER",          "FERMER L'APPLICATION",                 1, 9, 0 },
         };
 
@@ -161,7 +188,7 @@ namespace nkentseu
             L.sectionH   = math::NkMax(14.0f, 20.0f * scale);
             L.sectionGap = math::NkMax( 2.0f,  4.0f * scale);
 
-            const int nItems    = (int)MainMenuScene::kItemCount;
+            const int nItems    = VisibleItemCount();
             const int nSections = 2;
             const float footerReserveH = 30.0f * scale;  // hint clavier en bas
             const float headerReserveH = (L.twoCols ? 0.0f : 200.0f);  // si 1 col
@@ -589,7 +616,8 @@ namespace nkentseu
             mCardItemGap = L.itemGap;
 
             int prevSection = -1;
-            for (int i = 0; i < (int)kItemCount; ++i)
+            const int visibleCount = VisibleItemCount();
+            for (int i = 0; i < visibleCount; ++i)
             {
                 const MenuItemDesc& it = kItems[i];
 
@@ -636,7 +664,8 @@ namespace nkentseu
         int MainMenuScene::HitTestItem(float px, float py) const
         {
             if (px < mCardListX || px > mCardListX + mCardListW) return -1;
-            for (int i = 0; i < (int)kItemCount && i < 5; ++i)
+            const int vc = VisibleItemCount();
+            for (int i = 0; i < vc && i < 5; ++i)
             {
                 const float y0 = mCardItemYs[i];
                 const float y1 = y0 + mCardItemH;
@@ -656,11 +685,11 @@ namespace nkentseu
                 const NkKey k = kp->GetKey();
                 if (k == NkKey::NK_DOWN)
                 {
-                    mFocusIndex = (mFocusIndex + 1) % (int)kItemCount;
+                    mFocusIndex = (mFocusIndex + 1) % VisibleItemCount();
                 }
                 else if (k == NkKey::NK_UP)
                 {
-                    mFocusIndex = (mFocusIndex - 1 + (int)kItemCount) % (int)kItemCount;
+                    mFocusIndex = (mFocusIndex - 1 + VisibleItemCount()) % VisibleItemCount();
                 }
                 else if (k == NkKey::NK_ENTER || k == NkKey::NK_NUMPAD_ENTER
                       || k == NkKey::NK_SPACE)
@@ -719,19 +748,27 @@ namespace nkentseu
                 if (ctx.quitRequested != nullptr) *ctx.quitRequested = true;
                 break;
             case Item_Play:
-                // Raccourci : lance directement la GameplayScene 1v1 local.
-                // Le flow complet (SelectMode -> SelectDifficulty si IA ->
-                // SelectObstacles) sera intercale ici dans une tranche
-                // suivante.
-                logger.Info("[MainMenu] Push GameplayScene (1v1 local)");
-                ctx.scenes->Push(new GameplayScene());
+                // Ouvre le flow de selection : SelectMode -> Gameplay
+                // (futur : SelectDifficulty si IA -> SelectObstacles).
+                logger.Info("[MainMenu] Push SelectModeScene");
+                ctx.scenes->Push(new SelectModeScene());
+                break;
+            case Item_Options:
+                // Ouvre le hub OPTIONS : liste de categories (Aide, Audio,
+                // Graphiques, Controles, Reseau). Aide est la seule active
+                // aujourd'hui — les autres sont stubs jusqu'a implementation.
+                logger.Info("[MainMenu] Push OptionsScene");
+                ctx.scenes->Push(new OptionsScene());
+                break;
+            case Item_Supporter:
+                logger.Info("[MainMenu] Push SupporterScene");
+                ctx.scenes->Push(new SupporterScene());
                 break;
             // Sous-ecrans pas encore implementes — on log pour ne pas creer
             // de stubs redondants. (Reprise prevue : CompetitionScene,
-            // LeaderboardScene, OptionsScene.)
+            // LeaderboardScene.)
             case Item_Competition:
             case Item_Leaderboard:
-            case Item_Options:
             default:
                 logger.Info("[MainMenu] Item activated (TODO): {0}",
                             kItems[item].title);
