@@ -3,21 +3,32 @@
 // NkEnvironmentSystem.h  — NKRenderer v5.0  (Tools/Environment/)
 //
 // Image-Based Lighting (IBL) ressources :
-//   - Irradiance cubemap (diffuse pre-integrated)
-//   - Prefilter cubemap  (specular GGX pre-integrated, plusieurs mips)
-//   - BRDF LUT 2D        (split-sum)
+//   - Irradiance cubemap (diffuse pre-integrated, convolution Lambert)
+//   - Prefilter cubemap  (specular GGX pre-integrated, mips par roughness)
+//   - BRDF LUT 2D        (split-sum Karis)
 //
-// Etat actuel : D.2a stub fonctionnel.
-//   - Les 3 textures sont creees a 1x1 avec valeurs neutres (irradiance gris
-//     faible, prefilter noir, BRDF LUT (1,0)) -> le shader PBR peut les bind
-//     et compiler sans crash, mais la contribution IBL est minimale.
-//   - L'integration GGX et les loaders HDR/EXR arrivent en D.2b.
+// Etat actuel : convolution CPU complete (Phase D.2d livree). Le compute GPU
+// pour les convolutions est reporté a Phase N v1 (gain init 0.5-2s -> <50ms).
+//
+// Source IBL parametrable via NkEnvironmentConfig::source :
+//   - NK_ENV_PROCEDURAL : gradient sky (skyTop/horizon/ground), default
+//   - NK_ENV_HDR_FILE   : .hdr equirect 360 charge depuis hdrPath
+//   - NK_ENV_NONE       : pas d'auto-load, l'app appelle LoadProcedural()
+//                          ou LoadFromHDR() explicitement plus tard
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRHI/Core/NkIDevice.h"
+#include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
     namespace renderer {
+
+        // Source de l'environnement IBL choisie au Init par l'application.
+        enum class NkEnvSource : uint8 {
+            NK_ENV_PROCEDURAL = 0,  // gradient sky parametrable (default)
+            NK_ENV_HDR_FILE   = 1,  // charge un .hdr equirect 360 depuis hdrPath
+            NK_ENV_NONE       = 2,  // pas d'auto-load (textures creées mais vides)
+        };
 
         struct NkEnvironmentConfig {
             uint32      irradianceSize  = 32;    // taille du cubemap irradiance (D.2b : 32-64)
@@ -28,6 +39,21 @@ namespace nkentseu {
             // Mettre cacheDir = "" ou enableCache = false pour desactiver.
             bool        enableCache    = true;
             const char* cacheDir       = "";     // "" = repertoire courant
+
+            // ── Source IBL (Phase N v0) ─────────────────────────────────────
+            // L'app choisit comment Init() initialise l'IBL. Retro-compat :
+            // default = PROCEDURAL avec les couleurs ci-dessous.
+            NkEnvSource source         = NkEnvSource::NK_ENV_PROCEDURAL;
+
+            // Parametres du gradient sky (utilises si source == PROCEDURAL).
+            NkVec3f     skyTop         = {0.40f, 0.55f, 0.80f};
+            NkVec3f     horizon        = {0.45f, 0.48f, 0.52f};
+            NkVec3f     ground         = {0.10f, 0.08f, 0.06f};
+
+            // Chemin du .hdr equirect (utilise si source == HDR_FILE).
+            // Le fichier doit etre une projection equirectangulaire 360 RGB96F.
+            // Ex: "Resources/HDRI/studio.hdr" (PolyHaven ou similaire).
+            NkString    hdrPath        = "";
         };
 
         class NkEnvironmentSystem {
@@ -40,11 +66,17 @@ namespace nkentseu {
 
                 // Genere une cubemap procedurale gradient sky -> horizon -> ground
                 // et l'upload dans mIrradiance + mPrefilter. Utile comme placeholder
-                // tant que le compute prefilter d'une vraie HDRI n'est pas wire.
-                // Default appelle avec sky=bleu clair, horizon=blanc casse, ground=marron.
+                // ou pour des scenes stylisees sans HDR realiste.
                 void LoadProcedural(const NkVec3f& skyTop,
                                      const NkVec3f& horizon,
                                      const NkVec3f& ground);
+
+                // Phase N v0 : charge un .hdr equirectangulaire (360 RGB96F) et
+                // l'utilise comme source pour les convolutions irradiance +
+                // prefilter. CPU-side (tout comme LoadProcedural) ; future v1
+                // portera la conversion en compute shader GPU. Retourne true
+                // si le chargement et la convolution ont reussi.
+                bool LoadFromHDR(const NkString& path);
 
                 // Accesseurs RHI pour Render3D / NkMaterialSystem (binding 8/9/10 du shader PBR).
                 NkTextureHandle GetIrradianceCubemap() const { return mIrradiance; }

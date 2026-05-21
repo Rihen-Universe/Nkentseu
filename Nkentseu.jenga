@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 =============================================================================
 Nkentseu.jenga => Workspace principal du framework Nkentseu
 =============================================================================
@@ -60,6 +60,131 @@ Usage :
   jenga build --platform xboxseries                             # Xbox Series
   jenga build --platform xboxone                                # Xbox One
   jenga build --config Release                                  # Build Release
+
+=============================================================================
+PACKAGING (jenga package) -- creer des installers distribuables
+=============================================================================
+
+Une fois le build OK, on peut empaqueter le binaire dans 3 formats Windows :
+
+  jenga package --platform windows --project Pong --type zip --config Release
+                --output ./dist
+        => Pong.zip : archive portable (decompresser + lancer .exe)
+
+  jenga package --platform windows --project Pong --type exe --config Release
+                --output ./dist
+        => Pong_setup.exe : installer Inno Setup avec wizard complet
+           (EULA + choix dossier + raccourcis bureau/menu)
+
+  jenga package --platform windows --project Pong --type msi --config Release
+                --output ./dist
+        => Pong.msi : Windows Installer officiel (WiX 5), idem fonctions
+
+Linux : --type deb (dpkg-deb), --type rpm/appimage/snap (stubs)
+macOS : --type pkg (pkgbuild), --type dmg (create-dmg)
+Web   : --type zip (favicon + html + wasm + assets)
+
+-----------------------------------------------------------------------------
+PREREQUIS A INSTALLER avant de packager (Windows)
+-----------------------------------------------------------------------------
+
+  ZIP : aucun (Python stdlib seulement)
+
+  EXE (Inno Setup) :
+    winget install JRSoftware.InnoSetup
+    -> installe iscc dans %LOCALAPPDATA%\\Programs\\Inno Setup 6\
+    -> jenga le detecte auto (pas besoin de toucher au PATH)
+
+  MSI (WiX Toolset) :
+    dotnet tool install --global wix --version 5.0.2
+    -> ATTENTION : ne pas installer WiX 7+ qui demande l'OSMF EULA payante.
+    -> jenga ajoute auto WiX a son PATH session
+
+  Pillow (pour conversion icones PNG -> .ico/.icns/mipmap) :
+    pip install Pillow>=10.0
+    -> deja installe normalement (dep jenga via requirements.txt)
+
+=============================================================================
+ICONES D'APPLICATION (DSL Jenga, voir Core/IconConverter.py)
+=============================================================================
+
+  Dans un .jenga de projet (ex: Pong.jenga, hors filter) :
+
+  appicon("Resources/MyApp/icon.png")
+        # Source UNIQUE, dispatchee a TOUTES les plateformes :
+        #   - Windows : convertit en .ico embedded via .res
+        #   - macOS   : convertit en .icns dans bundle .app
+        #   - Android : genere hierarchie res/mipmap-* (ldpi..xxxhdpi)
+        #   - iOS     : copie + reference dans Info.plist
+        #   - Web     : favicon.ico + favicon-{16,32,180,192,512}.png
+
+  # Overrides par plateforme (gagnent sur appicon) :
+  androidappicon("path.png")    # accepte PNG ou dossier res/mipmap-*/
+  windowsicon   ("path.ico")    # accepte PNG ou .ico natif
+  macosicon     ("path.icns")   # accepte PNG ou .icns natif
+  iosappicon    ("path.png")    # ou dossier AppIcon.appiconset
+  webfavicon    ("path.png")    # PNG converti automatiquement
+
+  Note : Pong.exe affiche son icone correctement dans la taskbar/titre/
+  Alt+Tab grace a un AppUserModelID stable defini dans NKWindow Win32
+  (Rihen.Nkentseu.<NomApp>). Sans ca, Windows utilise un AUMID auto
+  base sur le ProductCode MSI -> icone generique cassee.
+
+=============================================================================
+METADONNEES INSTALLER (MSI/EXE/DEB/PKG)
+=============================================================================
+
+  Dans un .jenga de projet (hors filter) :
+
+  appversion           ("1.0.0")                  # affichee dans Programs & Features
+  apppublisher         ("Rihen Universe")         # nom editeur
+  licensefile          ("../../LICENSE")          # .txt/.md (auto-converti en RTF pour WiX), ou .rtf direct
+  createdesktopshortcut(True)                     # toggle raccourci bureau
+
+  # Bag d'options libres (extensible) pour les besoins avances :
+  installeroption("autostart_on_login", True)
+  installeroption("registry_entry",     r\"HKLM\\Software\\Pong")
+  installeroption("autoupdate_url",     "https://updates.example.com")
+
+  # Ressources runtime a embarquer dans le package :
+  dependfiles(["../../Resources/MyApp"])          # dossier ou fichier
+        # Preserve la hierarchie relative au workspace.
+        # Auto-inclut aussi les SHARED_LIB declarees via dependson().
+
+=============================================================================
+CYCLE DE BUILD + PACKAGE TYPIQUE (Pong exemple)
+=============================================================================
+
+  # 1. Build optimise
+  jenga build --target Pong --config Release
+
+  # 2. Generer les 3 packages Windows
+  jenga package --platform windows --project Pong --type zip --config Release
+  jenga package --platform windows --project Pong --type exe --config Release
+  jenga package --platform windows --project Pong --type msi --config Release
+
+  # 3. (optionnel) Build + APK Android
+  jenga build --target Pong --config Release --platform android
+  jenga deploy --platform android --project Pong --config Release \
+               --apk path/to/Pong-Release.apk --force-stop --run
+
+  Distribution typique pour testeurs : envoyer Pong_setup.exe (Inno EXE)
+  car wizard plus convivial que MSI. ZIP comme alternative sans install.
+
+=============================================================================
+IDE auto-config (jenga ide-setup)
+=============================================================================
+
+  jenga le fait automatiquement au premier `jenga build` :
+    - VSCode/Cursor/Windsurf : .vscode/settings.json (associations .jenga
+      = Python, extraPaths Jenga, diagnostics)
+    - pyrightconfig.json universel (Neovim+pyright, Helix, Emacs+lsp-mode,
+      Sublime+LSP, Zed)
+  Merge non-destructif : preserve toutes vos prefs IDE existantes.
+  Desactiver : JENGA_NO_IDE_CONFIG=1
+
+  Reload editor apres premiere installation pour activer la coloration
+  Python + autocomplete sur les .jenga.
 
   Notes Wayland :
     Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols, libdecor-0-dev
@@ -415,6 +540,10 @@ with workspace("Nkentseu", location="."):
                 "-DWINVER=0x0601",
                 "-D_WIN32_WINNT=0x0601",
             ])
+            # Static link de la runtime MinGW : evite que l'exe demande
+            # libgcc_s_seh-1.dll / libstdc++-6.dll / libwinpthread-1.dll sur
+            # la machine cible. Sans ca les testeurs ont une erreur
+            # "libgccXXX.dll manquant" au premier lancement.
             ldflags(["--target=x86_64-w64-windows-gnu"])
 
     else:
@@ -449,7 +578,14 @@ with workspace("Nkentseu", location="."):
                     "-DWINVER=0x0601",
                     "-D_WIN32_WINNT=0x0601",
                 ])
-                ldflags(["--target=x86_64-w64-windows-gnu"])
+                # Static link de la runtime MinGW (voir bloc Windows natif).
+                ldflags([
+                    "--target=x86_64-w64-windows-gnu",
+                    "-static-libgcc",
+                    "-static-libstdc++",
+                    "-static",
+                    "-Wl,-Bstatic", "-lpthread",
+                ])
         elif _mingw_gxx:
             with toolchain(TC_WINDOWS, "gcc"):
                 settarget("Windows", "x86_64", "mingw")
@@ -563,6 +699,9 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKFont/NKFont.jenga"):
         pass
 
+    with include("Kernel/Runtime/NKAudio/NKAudio.jenga"):
+        pass
+
     with include("Kernel/System/NKTime/NKTime.jenga"):
         pass
 
@@ -614,6 +753,9 @@ with workspace("Nkentseu", location="."):
     with include("Applications/Sandbox/Sandbox.jenga"):
         pass
 
+    with include("Applications/NkAudioDemo/NkAudioDemo.jenga"):
+        pass
+
     with include("Sandbox/System/NKFileSystem/NKFileSystemSandbox.jenga"):
         pass
 
@@ -642,4 +784,7 @@ with workspace("Nkentseu", location="."):
         pass
 
     with include("Applications/Pong/Pong.jenga"):
+        pass
+
+    with include("Applications/NkImageDemo/NkImageDemo.jenga"):
         pass

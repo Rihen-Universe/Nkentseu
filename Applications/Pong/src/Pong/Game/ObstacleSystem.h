@@ -169,6 +169,29 @@ namespace nkentseu
             /// Helper pour le debug : nombre d'obstacles spawnes.
             int Count() const noexcept { return (int)mObstacles.Size(); }
 
+            /// Acces read-only par index (utilise pour serialiser les obstacles
+            /// en reseau cote HOST). 0 <= i < Count().
+            const Obstacle& Get(int i) const { return mObstacles[(size_t)i]; }
+
+            /// Acces mutable par index (utilise par le CLIENT pour appliquer
+            /// les positions/rotations recues du HOST). 0 <= i < Count().
+            Obstacle& At(int i) { return mObstacles[(size_t)i]; }
+
+            /// Vide la liste (utilise par CLIENT avant de recreer depuis un
+            /// snapshot reseau autoritatif).
+            void Clear() { mObstacles.Clear(); }
+
+            /// Ajoute un obstacle minimal (type/shape + position + dimensions
+            /// + rotation + active/visible) avec les couleurs derivees du
+            /// type. Utilise par le CLIENT pour appliquer un snapshot HOST :
+            /// on n'a besoin que des champs visibles (pas motion params, pas
+            /// power, etc. — ils sont autoritatifs cote HOST et les
+            /// collisions cote CLIENT sont ignorees).
+            void AppendFromNet(ObstacleType type, ObstacleShape shape,
+                               float xTopLeft, float yTopLeft,
+                               float w, float h, float rotation,
+                               bool active, bool visible);
+
         private:
             NkVector<Obstacle> mObstacles;
         };
