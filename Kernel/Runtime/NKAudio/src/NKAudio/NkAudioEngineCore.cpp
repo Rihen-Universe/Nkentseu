@@ -9,7 +9,8 @@
 //        Zéro STL. Utilise NkVector et NkAtomic de la fondation.
 // -----------------------------------------------------------------------------
 
-#include "NkAudio.h"
+#include "NKAudio.h"
+#include "NkAudioBackends.h"
 #include "NkAudioEffects.h"
 #include "NKCore/NkAtomic.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -424,7 +425,11 @@ namespace nkentseu {
         }
 
         AudioEngine::AudioEngine() {
-            mImpl = new Impl{};
+            // Default-init (pas value-init) : evite l'instanciation des
+            // explicit constructors par defaut sur les NkFunction nested
+            // dans le tableau de Voice. Tous les autres membres ont des
+            // initializers in-class qui s'appliquent quand meme.
+            mImpl = new Impl;
         }
 
         AudioEngine::~AudioEngine() {
@@ -435,6 +440,10 @@ namespace nkentseu {
         bool AudioEngine::Initialize(const AudioEngineConfig& config) {
             if (mImpl->initialized) return true;
 
+            // Force l'enregistrement des backends natifs (necessaire en lib
+            // statique : le linker stripe sinon les static initializers).
+            EnsureBackendsRegistered();
+
             mImpl->config = config;
 
             // Limiter maxVoices au pool statique
@@ -444,13 +453,11 @@ namespace nkentseu {
 
             // Allouer le buffer de mix
             mImpl->mixBufferSize = config.bufferSize * config.channels;
-            memory::NkAllocator* alloc = config.allocator;
-            if (alloc) {
-                mImpl->mixBuffer = (float32*)alloc->Allocate(
-                    (usize)mImpl->mixBufferSize * sizeof(float32), sizeof(float32));
-            } else {
-                mImpl->mixBuffer = (float32*)::operator new((usize)mImpl->mixBufferSize * sizeof(float32));
-            }
+            // Allocation unifie via NKMemory : config.allocator peut etre
+            // nullptr (defaut global). Buffer du mixeur audio temps reel.
+            mImpl->mixBuffer = (float32*)memory::NkAlloc(
+                (usize)mImpl->mixBufferSize * sizeof(float32),
+                config.allocator, sizeof(float32));
 
             // Créer le backend
             mImpl->backend = AudioBackendFactory::CreateByType(config.backend);
@@ -488,9 +495,7 @@ namespace nkentseu {
                 mImpl->backend = nullptr;
             }
 
-            memory::NkAllocator* alloc = mImpl->config.allocator;
-            if (alloc) alloc->Free(mImpl->mixBuffer);
-            else ::operator delete(mImpl->mixBuffer);
+            memory::NkFree(mImpl->mixBuffer, mImpl->config.allocator);
             mImpl->mixBuffer = nullptr;
 
             mImpl->initialized = false;
@@ -772,6 +777,8 @@ namespace nkentseu {
                 case AudioBackendType::ALSA:        name = "ALSA";        break;
                 case AudioBackendType::PULSE_AUDIO: name = "PulseAudio";  break;
                 case AudioBackendType::AAUDIO:      name = "AAudio";      break;
+                case AudioBackendType::OPEN_SL_ES:  name = "OpenSLES";    break;
+                case AudioBackendType::WEB_AUDIO:   name = "WebAudio";    break;
                 case AudioBackendType::NULL_OUTPUT: name = "Null";        break;
                 case AudioBackendType::AUTO:
                 default:
@@ -781,9 +788,15 @@ namespace nkentseu {
 #elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
                     name = "CoreAudio";
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
+                    // Android : on essaie AAudio (latence ~5ms, API 26+).
+                    // Si Initialize echoue (Android 24-25), AudioEngine
+                    // retentera en fallback. CreateByType ne sait pas
+                    // tester Initialize ici, mais l'engine s'en charge.
                     name = "AAudio";
 #elif defined(NKENTSEU_PLATFORM_LINUX)
                     name = "ALSA";
+#elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
+                    name = "WebAudio";
 #else
                     name = "Null";
 #endif
@@ -791,7 +804,14 @@ namespace nkentseu {
             }
 
             IAudioBackend* b = name ? Create(name) : nullptr;
-            if (!b) b = Create("Null"); // Fallback
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+            // Sur Android, si AAudio n'est pas dispo (API <26), fallback
+            // automatique sur OpenSL ES (dispo depuis API 9).
+            if (!b && type == AudioBackendType::AUTO) {
+                b = Create("OpenSLES");
+            }
+#endif
+            if (!b) b = Create("Null"); // Fallback ultime
             return b;
         }
 

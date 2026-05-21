@@ -358,6 +358,39 @@ namespace nkentseu
             }
         }
 
+        // ────────────────────────────────────────────────────────────────────
+        // SetNetNotification — cote CLIENT, le HOST envoie ses notifications
+        // power-up via le PktState. On les injecte ici dans mNotifs pour que
+        // le rendering existant (PowerUpSystem::Render OU GameplayScene) les
+        // affiche normalement. timeLeft=0 -> clear la notif.
+        // ────────────────────────────────────────────────────────────────────
+        void PowerUpSystem::SetNetNotification(int side, bool isBonus,
+                                               uint8 kind, float timeLeft)
+        {
+            Notification& n = mNotifs[SideIdx(side)];
+            if (timeLeft <= 0.0f)
+            {
+                n.active = false;
+                return;
+            }
+            // Nouvelle notif (changement de type) : reset duration/timer.
+            if (!n.active || n.kind != kind || n.isBonus != isBonus)
+            {
+                n.isBonus  = isBonus;
+                n.kind     = kind;
+                n.side     = side;
+                n.duration = kNotifDuration;
+                n.timeLeft = timeLeft;
+                n.active   = true;
+            }
+            else
+            {
+                // Meme notif que precedente : juste sync le timer (peut
+                // descendre si plusieurs snapshots arrivent dans la duree).
+                n.timeLeft = timeLeft;
+            }
+        }
+
         void PowerUpSystem::SpawnRandomDrop(float arenaW)
         {
             PowerUpDrop d{};

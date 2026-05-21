@@ -16,6 +16,7 @@
 // =============================================================================
 
 #include "Pong/UI/Scene.h"
+#include "Pong/Render/Texture2D.h"
 
 namespace nkentseu
 {
@@ -36,6 +37,7 @@ namespace nkentseu
             const char* Name() const noexcept override { return "Supporter"; }
 
             void OnEnter (AppContext& ctx) override;
+            void OnExit  (AppContext& ctx) override;
             void OnUpdate(AppContext& ctx, float dt) override;
             void OnRender(AppContext& ctx) override;
             void OnEvent (AppContext& ctx, NkEvent& ev) override;
@@ -66,6 +68,12 @@ namespace nkentseu
             float mSocialX[kSocialCount] = {0};
             float mSocialY[kSocialCount] = {0};
             float mSocialW = 0.0f, mSocialH = 0.0f;
+
+            // Icones reseaux sociaux (Resources/Pong/Textures/socials/).
+            // Chargees synchroneement dans OnEnter (5 fichiers legers PNG+SVG).
+            // Si le chargement echoue, on retombe sur le badge texte (kSocials.badge).
+            Texture2D mSocialIcons [kSocialCount];
+            bool      mSocialLoaded[kSocialCount] = { false, false, false, false, false };
 
             // Touch id du tap en cours
             long long mActiveTouchId = -1;

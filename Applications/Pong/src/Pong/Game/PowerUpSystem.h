@@ -135,6 +135,10 @@ namespace nkentseu
             /// HOST autoritatif gere ces aspects ; le CLIENT ne fait que rendu).
             void SetNetDrops(const PowerUpDrop* drops, int count);
 
+            /// Cote CLIENT reseau : injecte une notification recue du HOST.
+            /// @p timeLeft : duree restante en secondes (0 = clear la notif).
+            void SetNetNotification(int side, bool isBonus, uint8 kind, float timeLeft);
+
             // ── Collision balle <-> drops ──────────────────────────────────
             /// Teste collision cercle-cercle entre la balle (bx, by, br) et
             /// chaque drop actif. A la collision, transfere une fraction du

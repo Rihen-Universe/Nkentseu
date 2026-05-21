@@ -36,7 +36,19 @@ namespace nkentseu {
             NK_LAYERED_V1=81,
             // Custom
             NK_CUSTOM=100,
+            // Phase E : Materials 2D — meme NkMaterialSystem, vertex layout
+            // different (Vert2D : pos+uv+color+flags). Templates utilises par
+            // NkRender2D::DrawSpriteMat. Pas de CamUBO/ObjectUBO 3D ; au lieu :
+            // push constant ortho matrix + set=2 material UBO + set=0 tex.
+            NK_SPRITE_2D=120,
+            NK_GLOW_2D=121,
         };
+
+        // Helper : type 2D ou 3D ? Determine quel vertex layout / pipeline
+        // layout utiliser dans NkMaterialSystem::CompilePipeline.
+        inline bool NkMaterialIsType2D(NkMaterialType t) {
+            return (uint16)t >= 120 && (uint16)t < 200;
+        }
 
         // (NkRenderQueue defini dans Core/NkRendererTypes.h)
 

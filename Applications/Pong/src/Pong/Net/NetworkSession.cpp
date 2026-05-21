@@ -9,6 +9,7 @@
 #include "NKNetwork/Core/NkNetDefines.h"
 #include "NKNetwork/Transport/NkSocket.h"
 #include "NKNetwork/Protocol/NkConnection.h"
+#include "Pong/Net/NetProtocol.h"
 #include "NKLogger/NkLog.h"
 #include <cstdio>
 #include <cstring>
@@ -19,9 +20,11 @@ namespace nkentseu
     {
 
         // ── Constantes ───────────────────────────────────────────────────────
-        // Pong 1v1 : un seul peer attendu cote host. On limite a 1 pour ne pas
-        // accepter de spectateurs / 3e joueur.
-        static constexpr uint32 kMaxClients = 1;
+        // Phase B : on accepte N challengers au niveau transport pour que
+        // l'host puisse en choisir UN seul via AcceptChallenger. Les autres
+        // sont disconnectes par PktReject + Disconnect. 32 est large pour
+        // un evenement / salle de classe.
+        static constexpr uint32 kMaxClients = 32;
 
         // ── Lifecycle plateforme ─────────────────────────────────────────────
         void NetworkSession::PlatformInit()
@@ -61,20 +64,30 @@ namespace nkentseu
             Shutdown();
             if (mConnMgr == nullptr) return false;
 
-            // Callbacks (appeles depuis le thread reseau — on garde des etats
-            // atomiques simples et on fait le polling dans Tick()).
-            mConnMgr->onPeerConnected = [this](net::NkPeerId /*peer*/)
+            // Callbacks (appeles depuis le thread reseau). Phase B : on ne
+            // passe PAS en Connected des qu'un peer arrive — l'host doit
+            // explicitement valider UN challenger via AcceptChallenger.
+            // Tant qu'aucun choix n'est fait, on reste en Hosting.
+            mConnMgr->onPeerConnected = [this](net::NkPeerId peer)
             {
-                const int n = mPeerCount.fetch_add(1) + 1;
-                mState.store(NetworkState::Connected);
-                logger.Info("[Net] Peer connected (host). Total peers: {0}", n);
+                mPeerCount.fetch_add(1);
+                AddChallenger(peer.value);
+                logger.Info("[Net] Challenger connected (host). peerId={0} total={1}",
+                            (unsigned long long)peer.value, mPeerCount.load());
             };
-            mConnMgr->onPeerDisconnected = [this](net::NkPeerId /*peer*/, const char* reason)
+            mConnMgr->onPeerDisconnected = [this](net::NkPeerId peer, const char* reason)
             {
-                int n = mPeerCount.load();
-                if (n > 0) { mPeerCount.fetch_sub(1); n -= 1; }
-                if (n == 0) mState.store(NetworkState::Hosting);
-                logger.Info("[Net] Peer disconnected (host). Reason: {0}",
+                if (mPeerCount.load() > 0) mPeerCount.fetch_sub(1);
+                RemoveChallenger(peer.value);
+                // Si le peer accepte se deconnecte, retour en Hosting (les
+                // autres challengers eventuels restent visibles).
+                if (mAcceptedPeerId == peer.value)
+                {
+                    mAcceptedPeerId = 0;
+                    mState.store(NetworkState::Hosting);
+                }
+                logger.Info("[Net] Challenger disconnected (host). peerId={0} reason={1}",
+                            (unsigned long long)peer.value,
                             reason ? reason : "(unknown)");
             };
 
@@ -166,6 +179,22 @@ namespace nkentseu
             mPeerCount.store(0);
             mJoinElapsed  = 0.0f;
             mLastError[0] = '\0';
+            // Reset identite Pays/Ville-Code distante : la session reseau
+            // peut etre relancee plusieurs fois sans recreer la
+            // NetworkSession, l'identite du pair precedent ne doit pas fuiter.
+            mPeerCountry[0] = '\0';
+            mPeerCity[0]    = '\0';
+            mPeerCode[0]    = '\0';
+            mHelloSent      = false;
+            // Reset etat Phase B : liste challengers + validation.
+            {
+                std::lock_guard<std::mutex> lk(mChallengersMutex);
+                mChallengers.Clear();
+            }
+            mAcceptedPeerId  = 0;
+            mValidatedByHost = false;
+            mRejectedByHost  = false;
+            mRejectReason[0] = '\0';
         }
 
         // ── Tick ─────────────────────────────────────────────────────────────
@@ -219,6 +248,23 @@ namespace nkentseu
             {
                 mJoinElapsed = 0.0f;
             }
+
+            // Drain interne (consomme Hello/Accept/Reject + file pour caller).
+            // Fait CHAQUE FRAME independamment du state pour eviter que les
+            // messages internes restent en attente. Bug fixe 2026-05-20 :
+            // l'host en Hosting ne drainait pas et perdait les Hello des
+            // challengers, du coup ils apparaissaient comme "HANDSHAKE EN COURS".
+            DrainInternal();
+
+            // Echange Hello : des qu'on est Connected, on envoie notre pseudo
+            // Pays/Ville-Code au pair. Idempotent via mHelloSent. SendHello()
+            // est un no-op tant que mLocalCountry n'a pas ete renseigne par
+            // PongApp::Init -> SetLocalIdentity(). Cote HOST, SendHello sera
+            // appele apres AcceptChallenger (passage en Connected).
+            if (st == NetworkState::Connected)
+            {
+                SendHello();
+            }
         }
 
         // ── Envoi / Reception ───────────────────────────────────────────────
@@ -234,9 +280,275 @@ namespace nkentseu
             return r == net::NkNetResult::NK_NET_OK;
         }
 
+        void NetworkSession::DrainInternal()
+        {
+            if (mConnMgr == nullptr) return;
+            // Drain brut depuis NkConnectionManager.
+            NkVector<net::NkReceiveMsg> all;
+            mConnMgr->DrainAll(all);
+            for (uint32 i = 0; i < all.Size(); ++i)
+            {
+                const auto& msg = all[i];
+                if (msg.size >= sizeof(netproto::PktHello)
+                 && msg.data != nullptr
+                 && msg.data[0] == netproto::kMsgHello)
+                {
+                    netproto::PktHello pkt;
+                    std::memcpy(&pkt, msg.data, sizeof(pkt));
+                    // memset preventif puis copie : safe meme si l'emetteur
+                    // n'a pas null-termine.
+                    std::memset(mPeerCountry, 0, sizeof(mPeerCountry));
+                    std::memset(mPeerCity,    0, sizeof(mPeerCity));
+                    std::memset(mPeerCode,    0, sizeof(mPeerCode));
+                    std::memcpy(mPeerCountry, pkt.country, sizeof(mPeerCountry) - 1);
+                    std::memcpy(mPeerCity,    pkt.city,    sizeof(mPeerCity)    - 1);
+                    std::memcpy(mPeerCode,    pkt.code,    sizeof(mPeerCode)    - 1);
+                    logger.Info("[Net] PktHello recu du pair : {0}/{1}-{2}",
+                                mPeerCountry, mPeerCity, mPeerCode);
+                    // Cote HOST : associe ce Hello au peerId qui l'a envoye.
+                    // UpdateChallengerIdentity est tolerant si le challenger
+                    // n'est pas encore dans la liste (race condition entre
+                    // callback onPeerConnected et reception PktHello).
+                    if (mRole == NetworkRole::Host)
+                    {
+                        UpdateChallengerIdentity(msg.from.value,
+                                                 pkt.country, pkt.city, pkt.code);
+                    }
+                    continue;
+                }
+                if (msg.size >= 1 && msg.data != nullptr
+                 && msg.data[0] == netproto::kMsgAccept)
+                {
+                    mValidatedByHost = true;
+                    logger.Info("[Net] PktAccept recu : valide par l'host");
+                    continue;
+                }
+                if (msg.size >= 1 && msg.data != nullptr
+                 && msg.data[0] == netproto::kMsgReject)
+                {
+                    mRejectedByHost = true;
+                    std::snprintf(mRejectReason, sizeof(mRejectReason),
+                                  "L'hote a choisi un autre joueur");
+                    logger.Info("[Net] PktReject recu : refuse par l'host");
+                    continue;
+                }
+                // Message non-interne : reserve pour le caller via DrainReceived.
+                mPendingForUser.PushBack(msg);
+            }
+        }
+
         void NetworkSession::DrainReceived(NkVector<net::NkReceiveMsg>& out)
         {
-            if (mConnMgr != nullptr) mConnMgr->DrainAll(out);
+            // Le drain interne est deja fait chaque frame dans Tick(). Ici on
+            // se contente de transferer la file accumulee au caller et la vider.
+            out.Clear();
+            out.Reserve(mPendingForUser.Size());
+            for (uint32 i = 0; i < mPendingForUser.Size(); ++i)
+            {
+                out.PushBack(mPendingForUser[i]);
+            }
+            mPendingForUser.Clear();
+        }
+
+        // ── Identite Pays/Ville-Code (Phase A multijoueur) ──────────────────
+        void NetworkSession::SetLocalIdentity(const char* country, const char* city,
+                                              const char* code) noexcept
+        {
+            std::memset(mLocalCountry, 0, sizeof(mLocalCountry));
+            std::memset(mLocalCity,    0, sizeof(mLocalCity));
+            std::memset(mLocalCode,    0, sizeof(mLocalCode));
+            if (country != nullptr)
+            {
+                std::strncpy(mLocalCountry, country, sizeof(mLocalCountry) - 1);
+            }
+            if (city != nullptr)
+            {
+                std::strncpy(mLocalCity, city, sizeof(mLocalCity) - 1);
+            }
+            if (code != nullptr)
+            {
+                std::strncpy(mLocalCode, code, sizeof(mLocalCode) - 1);
+            }
+        }
+
+        void NetworkSession::SendHello()
+        {
+            // Echange symetrique Phase A : HOST et CLIENT envoient leur Hello
+            // des Connected. Idempotent via mHelloSent (reset au Shutdown).
+            if (mHelloSent) return;
+            if (mState.load() != NetworkState::Connected) return;
+            if (mLocalCountry[0] == '\0') return;   // pas encore identite local
+
+            netproto::PktHello pkt;
+            std::memset(&pkt, 0, sizeof(pkt));
+            pkt.type = netproto::kMsgHello;
+            std::strncpy(pkt.country, mLocalCountry, sizeof(pkt.country) - 1);
+            std::strncpy(pkt.city,    mLocalCity,    sizeof(pkt.city)    - 1);
+            std::strncpy(pkt.code,    mLocalCode,    sizeof(pkt.code)    - 1);
+            const bool ok = Broadcast(reinterpret_cast<const uint8*>(&pkt),
+                                      (uint32)sizeof(pkt), /*reliable*/1);
+            if (ok)
+            {
+                mHelloSent = true;
+                logger.Info("[Net] PktHello envoye : {0}/{1}-{2}",
+                            mLocalCountry, mLocalCity, mLocalCode);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Phase B : liste challengers (cote HOST)
+        // ─────────────────────────────────────────────────────────────────────
+        void NetworkSession::AddChallenger(uint64 peerId) noexcept
+        {
+            std::lock_guard<std::mutex> lk(mChallengersMutex);
+            // Idempotent : on n'ajoute pas si peerId deja present.
+            for (uint32 i = 0; i < mChallengers.Size(); ++i)
+            {
+                if (mChallengers[i].peerId == peerId) return;
+            }
+            ChallengerInfo info;
+            info.peerId      = peerId;
+            info.hasIdentity = false;
+            mChallengers.PushBack(info);
+        }
+
+        void NetworkSession::RemoveChallenger(uint64 peerId) noexcept
+        {
+            std::lock_guard<std::mutex> lk(mChallengersMutex);
+            for (uint32 i = 0; i < mChallengers.Size(); ++i)
+            {
+                if (mChallengers[i].peerId == peerId)
+                {
+                    // Compact en place : on remplace par le dernier puis on
+                    // PopBack (ordre non garanti mais c'est OK pour la UI).
+                    const uint32 last = mChallengers.Size() - 1;
+                    if (i != last) mChallengers[i] = mChallengers[last];
+                    mChallengers.PopBack();
+                    return;
+                }
+            }
+        }
+
+        void NetworkSession::UpdateChallengerIdentity(uint64 peerId,
+                                                     const char* country,
+                                                     const char* city,
+                                                     const char* code) noexcept
+        {
+            std::lock_guard<std::mutex> lk(mChallengersMutex);
+            for (uint32 i = 0; i < mChallengers.Size(); ++i)
+            {
+                if (mChallengers[i].peerId == peerId)
+                {
+                    std::memset(mChallengers[i].country, 0, sizeof(mChallengers[i].country));
+                    std::memset(mChallengers[i].city,    0, sizeof(mChallengers[i].city));
+                    std::memset(mChallengers[i].code,    0, sizeof(mChallengers[i].code));
+                    if (country) std::strncpy(mChallengers[i].country, country, sizeof(mChallengers[i].country) - 1);
+                    if (city)    std::strncpy(mChallengers[i].city,    city,    sizeof(mChallengers[i].city)    - 1);
+                    if (code)    std::strncpy(mChallengers[i].code,    code,    sizeof(mChallengers[i].code)    - 1);
+                    mChallengers[i].hasIdentity = true;
+                    return;
+                }
+            }
+            // Race condition possible : PktHello recu avant que le callback
+            // onPeerConnected ait pousse l'entry. On cree l'entry avec
+            // l'identite des maintenant ; AddChallenger sera idempotent
+            // quand il sera enfin appele.
+            ChallengerInfo info;
+            info.peerId      = peerId;
+            info.hasIdentity = true;
+            if (country) std::strncpy(info.country, country, sizeof(info.country) - 1);
+            if (city)    std::strncpy(info.city,    city,    sizeof(info.city)    - 1);
+            if (code)    std::strncpy(info.code,    code,    sizeof(info.code)    - 1);
+            mChallengers.PushBack(info);
+            logger.Info("[Net] UpdateChallengerIdentity : entry creee avant onPeerConnected pour peerId={0}",
+                        (unsigned long long)peerId);
+        }
+
+        void NetworkSession::GetChallengers(NkVector<ChallengerInfo>& out) const noexcept
+        {
+            std::lock_guard<std::mutex> lk(mChallengersMutex);
+            out.Clear();
+            out.Reserve(mChallengers.Size());
+            for (uint32 i = 0; i < mChallengers.Size(); ++i)
+            {
+                out.PushBack(mChallengers[i]);
+            }
+        }
+
+        int NetworkSession::ChallengerCount() const noexcept
+        {
+            std::lock_guard<std::mutex> lk(mChallengersMutex);
+            return (int)mChallengers.Size();
+        }
+
+        void NetworkSession::AcceptChallenger(uint64 peerId) noexcept
+        {
+            if (mRole != NetworkRole::Host) return;
+            if (mConnMgr == nullptr) return;
+            // Verifie que ce peer existe dans la liste.
+            bool found = false;
+            {
+                std::lock_guard<std::mutex> lk(mChallengersMutex);
+                for (uint32 i = 0; i < mChallengers.Size(); ++i)
+                {
+                    if (mChallengers[i].peerId == peerId) { found = true; break; }
+                }
+            }
+            if (!found)
+            {
+                logger.Warn("[Net] AcceptChallenger : peerId {0} introuvable",
+                            (unsigned long long)peerId);
+                return;
+            }
+            // 1) Envoie PktAccept au choisi.
+            netproto::PktAccept ack{ netproto::kMsgAccept };
+            const auto ar = mConnMgr->SendTo(net::NkPeerId{ peerId },
+                                             reinterpret_cast<const uint8*>(&ack),
+                                             (uint32)sizeof(ack),
+                                             net::NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED);
+            logger.Info("[Net] AcceptChallenger peerId={0} -> SendTo PktAccept code={1}",
+                        (unsigned long long)peerId, (int)ar);
+            // 2) Envoie PktReject + Disconnect a tous les autres.
+            netproto::PktReject rej{ netproto::kMsgReject };
+            NkVector<uint64> toDisconnect;
+            {
+                std::lock_guard<std::mutex> lk(mChallengersMutex);
+                for (uint32 i = 0; i < mChallengers.Size(); ++i)
+                {
+                    if (mChallengers[i].peerId != peerId)
+                    {
+                        toDisconnect.PushBack(mChallengers[i].peerId);
+                    }
+                }
+            }
+            for (uint32 i = 0; i < toDisconnect.Size(); ++i)
+            {
+                (void)mConnMgr->SendTo(net::NkPeerId{ toDisconnect[i] },
+                                       reinterpret_cast<const uint8*>(&rej),
+                                       (uint32)sizeof(rej),
+                                       net::NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED);
+                mConnMgr->Disconnect(net::NkPeerId{ toDisconnect[i] },
+                                     "Host a choisi un autre challenger");
+            }
+            // 3) Bascule l'etat en Connected (pour ce peer seulement).
+            mAcceptedPeerId = peerId;
+            mState.store(NetworkState::Connected);
+            logger.Info("[Net] State -> Connected (challenger valide)");
+        }
+
+        void NetworkSession::RejectChallenger(uint64 peerId) noexcept
+        {
+            if (mRole != NetworkRole::Host) return;
+            if (mConnMgr == nullptr) return;
+            netproto::PktReject rej{ netproto::kMsgReject };
+            (void)mConnMgr->SendTo(net::NkPeerId{ peerId },
+                                   reinterpret_cast<const uint8*>(&rej),
+                                   (uint32)sizeof(rej),
+                                   net::NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED);
+            mConnMgr->Disconnect(net::NkPeerId{ peerId },
+                                 "Refuse par l'hote");
+            // Le callback onPeerDisconnected enleve l'entry de la liste.
+            logger.Info("[Net] RejectChallenger peerId={0}", (unsigned long long)peerId);
         }
 
     } // namespace pong

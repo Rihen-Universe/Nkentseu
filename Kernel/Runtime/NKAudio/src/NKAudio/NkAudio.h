@@ -19,11 +19,11 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKCore/NkMacros.h"
-#include "NKCore/NkInline.h"
-#include "NkAudioExport.h"
+#include "NKPlatform/NkPlatformInline.h"
+#include "NKAudio/NkAudioApi.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMemory/NkAllocator.h"
-#include "NKMemory/NkFunction.h"
+#include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkAtomic.h"
 
 // ============================================================

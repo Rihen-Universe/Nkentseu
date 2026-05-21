@@ -53,9 +53,11 @@
 #include "PongApp.h"
 #include "Pong/UI/Scenes/RihenIntroScene.h"
 #include "Pong/UI/Scenes/MainMenuScene.h"
+#include "Pong/Net/AfricaPlaces.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
+#include <cstdio>
 
 namespace nkentseu
 {
@@ -74,11 +76,17 @@ namespace nkentseu
             ctx.settings   = &mSettings;
             ctx.scenes     = &mScenes;
             ctx.network    = &mNetwork;
+            ctx.discovery  = &mDiscovery;
+            ctx.audio      = &mAudio;
             ctx.viewportW  = static_cast<int>(mViewportW);
             ctx.viewportH  = static_cast<int>(mViewportH);
             ctx.globalTime    = mTime;
             ctx.safe          = SafeArea::From(mWindow, mViewportW, mViewportH);
             ctx.quitRequested = &mQuit;
+            // Copie l'identite Pays/Ville-Code pour que les scenes y aient acces.
+            std::snprintf(ctx.myCountry, sizeof(ctx.myCountry), "%s", mMyCountry);
+            std::snprintf(ctx.myCity,    sizeof(ctx.myCity),    "%s", mMyCity);
+            std::snprintf(ctx.myCode,    sizeof(ctx.myCode),    "%s", mMyCode);
             return ctx;
         }
 
@@ -114,6 +122,26 @@ namespace nkentseu
             // Init reseau (sockets plateforme). Idempotent — peut etre rappele.
             NetworkSession::PlatformInit();
 
+            // Init audio (NKAudio + generation procedural des SFX). Si echec,
+            // l'app continue mais sans son (mAudio.IsInitialized() == false).
+            if (!mAudio.Initialize())
+            {
+                logger.Warn("[PongApp] Audio init FAILED - le jeu tournera sans son");
+            }
+
+            // Genere l'identifiant Pays/Ville-Code aleatoire pour cette
+            // session. Affiche dans le NetworkLobbyScene comme carte de
+            // visite, envoye via PktHello a la connexion. Code 9 chiffres
+            // ajoute pour reduire le risque de collision a quasi-zero.
+            africa::PickRandomCountryCityCode(mMyCountry, sizeof(mMyCountry),
+                                              mMyCity,    sizeof(mMyCity),
+                                              mMyCode,    sizeof(mMyCode));
+            logger.Info("[PongApp] Identite reseau : {0}/{1}-{2}",
+                        mMyCountry, mMyCity, mMyCode);
+            // Injecte cette identite dans la session reseau : sera envoyee
+            // automatiquement au pair via PktHello des Connected.
+            mNetwork.SetLocalIdentity(mMyCountry, mMyCity, mMyCode);
+
             // Premiere scene : intro Rihen (qui chaine vers Noge puis Splash).
             mScenes.Push(new RihenIntroScene());
 
@@ -131,6 +159,9 @@ namespace nkentseu
             // Ferme la session reseau et libere les sockets plateforme.
             mNetwork.Shutdown();
             NetworkSession::PlatformShutdown();
+
+            // Stop AudioEngine + free samples.
+            mAudio.Shutdown();
 
             mFont.Shutdown();
             mRenderer.Shutdown();
@@ -155,6 +186,10 @@ namespace nkentseu
             // Tick reseau (drain interne du thread reseau). Aucun cout si
             // la session est Idle.
             mNetwork.Tick(dt);
+            // Tick decouverte LAN : emet beacon (host) + drain scan (client).
+            // No-op tant que les sockets internes n'ont pas ete demarres
+            // par NetworkLobbyScene.
+            mDiscovery.Tick(dt);
             // Applique les transitions push/replace/pop en attente.
             mScenes.ApplyPending(ctx);
             // Update la scene active.

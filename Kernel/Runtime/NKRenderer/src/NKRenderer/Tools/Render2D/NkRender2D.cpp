@@ -500,6 +500,42 @@ void main() {
             pd.debugName = "2D_Opaque";
             mPipeOpaque  = mDevice->CreateGraphicsPipeline(pd);
         }
+
+        // ── Phase E Materials 2D : pipeline Glow2D + buffers dedies ─────────
+        // Pipeline charge le shader Glow2D (depuis Resources/.../Glow2D/VK/)
+        // et expose un push constant 96 bytes (mat4 ortho + vec4 color + vec4 params).
+        // VBO/IBO dedies pour 1 quad (4 verts + 6 indices) — pas de batching.
+        if (shaderLib) {
+            ::nkentseu::NkShaderHandle shaderGlow{};
+            auto progGlow = shaderLib->LoadOrCompileVF("Glow2D", "", "");
+            if (progGlow.IsValid()) shaderGlow = shaderLib->GetRHIHandle(progGlow);
+
+            if (shaderGlow.IsValid()) {
+                NkGraphicsPipelineDesc pd;
+                pd.shader       = shaderGlow;
+                pd.depthStencil = NkDepthStencilDesc::NoDepth();
+                pd.rasterizer   = NkRasterizerDesc::NoCull();
+                // Push constant etendu : 0..64 = ortho mat4, 64..96 = glow params
+                pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 96);
+                if (mTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mTexLayout);
+                pd.vertexLayout
+                  .AddBinding(0, sizeof(Vert2D), false)
+                  .AddAttribute(0, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 0,  "POSITION", 0)
+                  .AddAttribute(1, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 8,  "TEXCOORD", 0)
+                  .AddAttribute(2, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   16, "COLOR",    0)
+                  .AddAttribute(3, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   20, "TEXCOORD", 1);
+                pd.blend     = NkBlendDesc::Alpha();
+                pd.debugName = "2D_Glow";
+                mPipeGlow    = mDevice->CreateGraphicsPipeline(pd);
+            }
+            // Buffers dedies : 4 verts + 6 indices fixes.
+            mVBOGlow = mDevice->CreateBuffer(
+                NkBufferDesc::Vertex(sizeof(Vert2D) * 4));
+            const uint16 quadIdx[6] = {0, 1, 2, 0, 2, 3};
+            NkBufferDesc iboDesc = NkBufferDesc::Index(sizeof(quadIdx));
+            iboDesc.initialData  = quadIdx;
+            mIBOGlow = mDevice->CreateBuffer(iboDesc);
+        }
         return mVBO.IsValid();
     }
 
@@ -510,8 +546,11 @@ void main() {
         if(mPipeAlpha.IsValid()) { mDevice->DestroyPipeline(mPipeAlpha); }
         if(mPipeAdd.IsValid())   { mDevice->DestroyPipeline(mPipeAdd); }
         if(mPipeOpaque.IsValid()){ mDevice->DestroyPipeline(mPipeOpaque); }
+        if(mPipeGlow.IsValid())  { mDevice->DestroyPipeline(mPipeGlow);   mPipeGlow={}; }
         if(mVBO.IsValid()){mDevice->DestroyBuffer(mVBO);mVBO={};}
         if(mIBO.IsValid()){mDevice->DestroyBuffer(mIBO);mIBO={};}
+        if(mVBOGlow.IsValid()){mDevice->DestroyBuffer(mVBOGlow);mVBOGlow={};}
+        if(mIBOGlow.IsValid()){mDevice->DestroyBuffer(mIBOGlow);mIBOGlow={};}
         if(mUBOLights2D.IsValid()){mDevice->DestroyBuffer(mUBOLights2D);mUBOLights2D={};}
         if(mUBOShadows2D.IsValid()){mDevice->DestroyBuffer(mUBOShadows2D);mUBOShadows2D={};}
         if(mUBOShadowsAABB2D.IsValid()){mDevice->DestroyBuffer(mUBOShadowsAABB2D);mUBOShadowsAABB2D={};}
@@ -755,6 +794,23 @@ void main() {
         float32 x0=dst.x,y0=dst.y,x1=dst.x+dst.w,y1=dst.y+dst.h;
         float32 u0=uv.x,v0=uv.y,u1=uv.x+uv.w,v1=uv.y+uv.h;
         PushQuad(rot(x0,y0),rot(x1,y0),rot(x1,y1),rot(x0,y1), {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
+    }
+
+    // ── Phase E Materials 2D : Glow sprite ────────────────────────────────
+    void NkRender2D::SetGlowParams(NkVec3f color, float32 intensity, float32 power) {
+        mGlowColor  = {color.x, color.y, color.z, intensity};
+        mGlowParams = {power, 1.f, 0.f, 0.f};
+    }
+
+    void NkRender2D::DrawSpriteGlow(NkRectF dst, NkTexHandle tex,
+                                     NkVec4f tint, NkRectF uv) {
+        // [v0 fallback] L'implementation directe (draw hors render pass) causait
+        // des validation errors VK. Le vrai support necessite un refactor de
+        // FlushPending pour supporter pipeline override par batch. Pour la v0
+        // pragmatique, on fait juste un DrawSprite standard (sans effet glow)
+        // — l'API reste stable pour le code utilisateur, mais l'effet glow
+        // n'est pas applique tant que la v1 unifiee n'est pas faite.
+        DrawSprite(dst, tex, tint, uv);
     }
 
     void NkRender2D::DrawNineSlice(NkRectF dst, NkTexHandle tex,

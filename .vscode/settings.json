@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        "*.jenga": "python",
         "xstring": "cpp",
         "xlocbuf": "cpp",
         "algorithm": "cpp",
@@ -91,9 +92,31 @@
         "__config": "cpp"
     },
     "terminal.integrated.defaultProfile.windows": "PowerShell",
-    "terminal.integrated.shellArgs.windows": ["-NoExit", "chcp 65001 > $null"],
+    "terminal.integrated.shellArgs.windows": [
+        "-NoExit",
+        "chcp 65001 > $null"
+    ],
     "terminal.integrated.env.windows": {
         "PYTHONIOENCODING": "utf-8"
     },
-    "cmake.sourceDirectory": "E:/Projets/2026/Nkentseu/Nkentseu/Externals/Libs/NKGLSlang"
+    "cmake.sourceDirectory": "E:/Projets/2026/Nkentseu/Nkentseu/Externals/Libs/NKGLSlang",
+    "python.analysis.include": [
+        "***.py",
+        "**/*.jenga",
+        "**/*.py"
+    ],
+    "python.analysis.extraPaths": [
+        "E:/Projets/MacShared/Projets/Jenga"
+    ],
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportWildcardImportFromLibrary": "none",
+        "reportMissingImports": "warning",
+        "reportUndefinedVariable": "warning"
+    },
+    "ruff.lint.ignore": [
+        "F401",
+        "F403",
+        "F405"
+    ],
+    "_jengaIdeConfigVersion": "4289828030cf28e2"
 }

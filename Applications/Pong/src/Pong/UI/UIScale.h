@@ -35,12 +35,23 @@ namespace nkentseu
             const float baseScale = math::NkMin((float)vW / refW,
                                                 (float)vH / refH);
 
-            // Note design : on garde un scale modere (max 1.4x). Les positions
-            // absolues des scenes sont actuellement multipliees par mScale, ce
-            // qui les fait deborder verticalement sur mobile si le boost est
-            // trop fort. Refactor futur : positionner en % viewport plutot
-            // qu'en pixels scaled — alors on pourra remonter le boost mobile.
-            return math::NkClamp(baseScale, 0.55f, 1.4f);
+            // Clamp adaptatif (2026-05-19) : un seul couple [min, max] cassait
+            // l'UI sur les ecrans extremes.
+            //   - Plancher precedent 0.55 -> les ecrans tres petits (< 720p)
+            //     debordaient parce que le scale ne pouvait pas descendre.
+            //   - Plafond precedent 1.4 -> les ecrans desktop (>=1080p) ne
+            //     profitaient pas du full screen, l'UI restait minuscule.
+            // On adapte selon le ratio ecran et la taille absolue :
+            //   - Paysage (PC ou mobile landscape) : on autorise un plafond
+            //     plus haut (2.0x) puisque le layout est concu pour 1280x720.
+            //   - Portrait : on garde 1.4 car le layout n'est pas optimise
+            //     pour les rapports hauteur > largeur.
+            //   - Plancher : on descend a 0.35x sur les tres petits ecrans
+            //     pour eviter les overlays qui debordent.
+            const float aspect = (vH > 0) ? (float)vW / (float)vH : 1.0f;
+            const float maxScale = (aspect > 1.5f) ? 2.0f : 1.4f;
+            const float minScale = (vW < 700 || vH < 420) ? 0.35f : 0.55f;
+            return math::NkClamp(baseScale, minScale, maxScale);
         }
 
     } // namespace pong

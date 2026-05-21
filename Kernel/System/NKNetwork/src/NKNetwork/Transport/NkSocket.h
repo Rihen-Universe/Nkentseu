@@ -54,7 +54,11 @@
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
 
         // Réduction de l'empreinte des headers Windows pour compilation optimisée.
-        #define WIN32_LEAN_AND_MEAN
+        // Guarded : evite le warning -Wmacro-redefined si le projet le definit
+        // deja via /D WIN32_LEAN_AND_MEAN en ligne de commande (cf Pong.jenga).
+        #ifndef WIN32_LEAN_AND_MEAN
+            #define WIN32_LEAN_AND_MEAN
+        #endif
 
         // Headers Winsock2 pour la gestion des sockets Windows.
         #include <winsock2.h>

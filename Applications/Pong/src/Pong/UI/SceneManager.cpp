@@ -141,6 +141,14 @@ namespace nkentseu
                     mStack.PopBack();
                     logger.Info("[SceneManager] Pop: {0}", old ? old->Name() : "(null)");
                     mToDestroy.PushBack(old);
+                    // Notifie la nouvelle scene au sommet : permet d'armer
+                    // un grace period anti auto-trigger sur les release/
+                    // touch-end qui fuitent depuis la scene enfant
+                    // (cf Pong Options > Tutoriel > RETOUR triggerait deux
+                    // Pop si les boutons sont au meme endroit).
+                    Scene* newTop = (mStack.Size() > 0)
+                                  ? mStack[mStack.Size() - 1] : nullptr;
+                    if (newTop != nullptr) newTop->OnResumedFromChild(ctx);
                 }
                 break;
             }

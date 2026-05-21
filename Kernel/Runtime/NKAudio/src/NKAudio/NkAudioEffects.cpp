@@ -16,14 +16,15 @@ namespace {
     constexpr nkentseu::float32 PI     = 3.14159265358979323846f;
     constexpr nkentseu::float32 TWO_PI = 6.28318530717958647692f;
 
+    // Allocateur unifie via NKMemory : NkAlloc/NkFree accepte un allocator
+    // nullptr et utilise le defaut global. Plus de fallback ::operator new/delete.
     inline nkentseu::float32* AllocFloat(nkentseu::usize n, nkentseu::memory::NkAllocator* a) {
-        if (a) return (nkentseu::float32*)a->Allocate(n * sizeof(nkentseu::float32), sizeof(nkentseu::float32));
-        return (nkentseu::float32*)::operator new(n * sizeof(nkentseu::float32));
+        return (nkentseu::float32*)nkentseu::memory::NkAlloc(
+            n * sizeof(nkentseu::float32), a, sizeof(nkentseu::float32));
     }
     inline void FreeFloat(nkentseu::float32* p, nkentseu::memory::NkAllocator* a) {
         if (!p) return;
-        if (a) a->Free(p);
-        else ::operator delete(p);
+        nkentseu::memory::NkFree(p, a);
     }
 
     inline nkentseu::float32 Clampf(nkentseu::float32 v, nkentseu::float32 lo, nkentseu::float32 hi) {

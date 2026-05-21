@@ -9,6 +9,7 @@
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "Pong/UI/UIScale.h"
+#include "Pong/UI/ResponsiveLayout.h"
 #include "NKLogger/NkLog.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -72,7 +73,21 @@ namespace nkentseu
             // -1 = aucun touch propre a Options. Tout TouchEnd dont l'id ne
             // matche PAS sera ignore (evite la fuite cross-scene).
             mActiveTouchId = -1;
+            // Grace period a l'entree : evite qu'un click qui a push Options
+            // depuis MainMenu (release sur la pos de TUTORIEL/SUPPORTER de
+            // MainMenu = pos sur Options) retrigger un Activate immediat.
+            mInputArmDelay = 0.20f;
             logger.Info("[Options] OnEnter");
+        }
+
+        // Re-arme le grace period au retour d'un Pop de scene enfant (ex:
+        // RulesScene Tutoriel -> RETOUR -> Options reapparait). Sans ca, le
+        // mouse release / touch end qui a triggere RETOUR sur la scene enfant
+        // se propage a Options et appelle aussi RETOUR -> Pop vers Main.
+        void OptionsScene::OnResumedFromChild(AppContext& /*ctx*/)
+        {
+            mInputArmDelay = 0.20f;
+            mActiveTouchId = -1;
         }
 
         void OptionsScene::OnUpdate(AppContext& /*ctx*/, float dt)
@@ -80,6 +95,7 @@ namespace nkentseu
             mTime += dt;
             mEnterAnim += dt / 0.3f;
             if (mEnterAnim > 1.0f) mEnterAnim = 1.0f;
+            if (mInputArmDelay > 0.0f) mInputArmDelay -= dt;
         }
 
         bool OptionsScene::HitTestBack(float sx, float sy) const
@@ -117,11 +133,14 @@ namespace nkentseu
             r.Begin(W, H);
 
             // ── Header : bouton RETOUR + titre ─────────────────────────────
+            // Dimensions responsive en % viewport (clamps doux). On garde
+            // `scale` UNIQUEMENT pour le rendu des bitmaps (DrawStringScaled)
+            // et les epaisseurs d'outline.
             {
-                mBackW = 90.0f * scale;
-                mBackH = 36.0f * scale;
-                mBackX = (float)ctx.safe.LeftX() + 14.0f * scale;
-                mBackY = (float)ctx.safe.TopY()  + 16.0f * scale;
+                mBackW = Pct::W(W, 0.10f,  70.0f, 140.0f);
+                mBackH = Pct::H(H, 0.055f, 32.0f,  56.0f);
+                mBackX = (float)ctx.safe.LeftX() + Pct::W(W, 0.012f, 8.0f, 24.0f);
+                mBackY = (float)ctx.safe.TopY()  + Pct::H(H, 0.020f, 8.0f, 28.0f);
                 math::NkColor bg = { 0, 245, 255, 30 };
                 math::NkColor bd = { 0, 245, 255, 200 };
                 r.DrawQuad       (mBackX, mBackY, mBackW, mBackH, bg);
@@ -133,21 +152,30 @@ namespace nkentseu
 
                 f.DrawStringCenteredScaled(r, FontAtlas::HeadlineSlot, scale,
                                    (float)W * 0.5f,
-                                   (float)ctx.safe.TopY() + 18.0f * scale,
+                                   (float)ctx.safe.TopY() + Pct::H(H, 0.024f, 10.0f, 32.0f),
                                    "OPTIONS",
                                    theme::White());
             }
 
             // ── Liste des categories ───────────────────────────────────────
             // Layout vertical : 1 card pleine largeur par categorie.
-            const float gridLeft = safeX + 24.0f * scale;
-            const float availW   = safeW - 48.0f * scale;
-            const float cardH    = 76.0f * scale;
-            const float pad      = 12.0f * scale;
-            const float topReserve = 70.0f * scale;
+            // Dimensions responsive (clamps doux).
+            const float sideMargin = Pct::W(W, 0.020f, 12.0f, 36.0f);
+            const float gridLeft = safeX + sideMargin;
+            const float availW   = safeW - sideMargin * 2.0f;
+            const float cardH    = Pct::H(H, 0.105f, 56.0f, 110.0f);
+            const float pad      = Pct::H(H, 0.018f,  8.0f,  20.0f);
+            const float topReserve = Pct::H(H, 0.095f, 56.0f, 110.0f);
             float y = (float)ctx.safe.TopY() + topReserve;
             mCardW = availW;
             mCardH = cardH;
+
+            // Marges internes de la card (responsive).
+            const float cardPadL = Pct::W(W, 0.018f, 12.0f, 28.0f);
+            const float titleY   = Pct::H(H, 0.018f, 10.0f, 22.0f);
+            const float subY     = Pct::H(H, 0.058f, 32.0f, 64.0f);
+            const float sideBarW = Pct::W(W, 0.005f,  3.0f,  6.0f);
+            const float warnW    = Pct::W(W, 0.110f, 70.0f, 130.0f);
 
             for (int i = 0; i < (int)kCatCount; ++i)
             {
@@ -174,21 +202,21 @@ namespace nkentseu
                 // Bande verticale colore a gauche
                 math::NkColor side = d.accent;
                 side.a = static_cast<uint8_t>((d.enabled ? 220 : 100) * a);
-                r.DrawQuad(bx, by, 4.0f * scale, cardH, side);
+                r.DrawQuad(bx, by, sideBarW, cardH, side);
 
                 // Titre
                 math::NkColor titleCol = d.accent;
                 titleCol.a = static_cast<uint8_t>((d.enabled ? 255 : 130) * a);
                 f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
-                             bx + 18.0f * scale,
-                             by + 14.0f * scale,
+                             bx + cardPadL,
+                             by + titleY,
                              d.title, titleCol);
 
                 // Sous-titre
                 math::NkColor subCol = { 255, 255, 255, (uint8_t)((d.enabled ? 160 : 80) * a) };
                 f.DrawStringScaled(r, FontAtlas::SmallSlot, scale,
-                             bx + 18.0f * scale,
-                             by + 44.0f * scale,
+                             bx + cardPadL,
+                             by + subY,
                              d.sub, subCol);
 
                 // Marqueur "BIENTOT" si desactive
@@ -196,8 +224,8 @@ namespace nkentseu
                 {
                     math::NkColor warn = { 255, 200, 60, (uint8_t)(180 * a) };
                     f.DrawStringScaled(r, FontAtlas::SmallSlot, scale,
-                                 bx + availW - 90.0f * scale,
-                                 by + 14.0f * scale,
+                                 bx + availW - warnW,
+                                 by + titleY,
                                  "BIENTOT", warn);
                 }
 
@@ -255,6 +283,9 @@ namespace nkentseu
             // Souris : click = activate (si enabled)
             if (auto* mr = ev.As<NkMouseButtonReleaseEvent>())
             {
+                // Grace period anti auto-trigger : ignore les releases qui
+                // fuitent depuis une scene enfant qui vient d'etre Pop.
+                if (mInputArmDelay > 0.0f) return;
                 if (mr->GetButton() == NkMouseButton::NK_MB_LEFT)
                 {
                     const float px = (float)mr->GetX();
@@ -286,6 +317,8 @@ namespace nkentseu
             // Touch : tap = activate
             if (auto* te = ev.As<NkTouchEndEvent>())
             {
+                // Grace period anti auto-trigger : meme logique que mouse.
+                if (mInputArmDelay > 0.0f) return;
                 if (te->GetNumTouches() > 0)
                 {
                     const NkTouchPoint& tp = te->GetTouch(0);

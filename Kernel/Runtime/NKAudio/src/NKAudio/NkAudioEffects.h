@@ -12,7 +12,7 @@
 #ifndef NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H
 #define NKENTSEU_NKAUDIO_SRC_NKAUDIO_NKAUDIOEFFECTS_H
 
-#include "NkAudio.h"
+#include "NKAudio.h"
 #include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {
@@ -92,7 +92,8 @@ namespace nkentseu {
                 float32 diffusion  = 0.8f;  ///< Diffusion [0,1]
             };
 
-            explicit ReverbEffect(const Params&        params    = Params{},
+            ReverbEffect() : ReverbEffect(Params(), 48000, nullptr) {}
+            explicit ReverbEffect(const Params&        params,
                                   int32                sampleRate = 48000,
                                   memory::NkAllocator* allocator  = nullptr);
             ~ReverbEffect() override;
@@ -164,7 +165,8 @@ namespace nkentseu {
                 bool    softKnee   = true;   ///< Transition douce autour du threshold
             };
 
-            explicit CompressorEffect(const Params& params = Params{},
+            CompressorEffect() : CompressorEffect(Params(), 48000) {}
+            explicit CompressorEffect(const Params& params,
                                       int32 sampleRate = 48000);
 
             void Process(float32* buffer, int32 frameCount, int32 channels) override;
@@ -276,7 +278,8 @@ namespace nkentseu {
                 float32 midQ       = 1.0f;    ///< Q du band-mid
             };
 
-            explicit Eq3BandEffect(const Params& params = Params{},
+            Eq3BandEffect() : Eq3BandEffect(Params(), 48000) {}
+            explicit Eq3BandEffect(const Params& params,
                                    int32 sampleRate = 48000);
 
             void Process(float32* buffer, int32 frameCount, int32 channels) override;

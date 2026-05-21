@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkImageDemo — Viewer minimaliste pour valider les codecs NKImage
+# =============================================================================
+# Demo standalone qui charge differents formats d'image (PNG/JPG/BMP/TGA/GIF/
+# HDR/QOI/WEBP/SVG/PPM/ICO) via NkImage::Load() et les affiche plein ecran
+# avec ratio preserve. Navigation flechee gauche/droite entre fichiers.
+# Phase 2 : support GIF animes + HDR tonemap + SVG stroke.
+# =============================================================================
+
+from Jenga import *
+from config import *
+import os
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+# Vulkan : NKContext lib peut contenir des refs vk* selon comment elle a ete
+# buildee (Pong active Vulkan, NKContext.lib partage). Si VULKAN_SDK existe
+# on link vulkan-1, sinon on assume que NKContext a ete buildee sans Vulkan.
+def _norm(path: str) -> str:
+    return path.replace("\\", "/") if path else path
+_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_WANT_VULKAN = bool(_VULKAN_LIB)
+
+with project("NkImageDemo"):
+    useappdeps("platform", "core", "memory", "containers", "math", "threading",
+               "stream", "logger", "time", "event", "window", "image", "font",
+               "ui", "context", "network")
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    _INCS = [
+        "src",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKTime.location}/src",
+        "%{NKEvent.location}/src",
+        "%{NKWindow.location}/src",
+        "%{NKImage.location}/src",
+        "%{NKFont.location}/src",
+        "%{NKUI.location}/src",
+        "%{NKContext.location}/src",
+        "%{NKStream.location}/src",
+        "%{NKGlad.location}/include",
+        "%{NKFileSystem.location}/src",
+        "%{NKNetwork.location}/src",
+        "%{wks.location}/Externals",
+    ]
+    includedirs(_INCS)
+
+    _DEPS = [
+        "NKEvent", "NKWindow", "NKContext", "NKGlad", "NKLogger",
+        "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+        "NKFileSystem", "NKNetwork",
+        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
+    ]
+    links(_DEPS)
+    dependson(_DEPS)
+
+    defines(["NKENTSEU_ENABLE_VULKAN_BACKEND=0",
+             "NKENTSEU_SERIALIZATION_STATIC_LIB"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # Metadonnees installer
+    apppublisher("Rihen Universe")
+    appversion("1.0.0")
+
+    # Embarque les dossiers d'images test (cf src/Demo/ViewerApp.cpp).
+    # Textures = PNG/SVG/icones, Gif = .gif animes pour la Phase 2 codecs.
+    dependfiles(["../../Resources/Pong/Textures",
+                 "../../Resources/Pong/Gif"])
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE", "UNICODE",
+        ])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        libdirs(["%{NKFont.location}/lib"])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler", "freetype",
+            "ws2_32", "iphlpapi",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    # ===== Linux XLib =========================================================
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

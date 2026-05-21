@@ -26,6 +26,7 @@
 #include "NKImage/Codecs/BMP/NkBMPCodec.h"
 #include "NKImage/Codecs/TGA/NkTGACodec.h"
 #include "NKImage/Codecs/HDR/NkHDRCodec.h"
+#include "NKImage/Codecs/EXR/NkEXRCodec.h"
 #include "NKImage/Codecs/PPM/NkPPMCodec.h"
 #include "NKImage/Codecs/QOI/NkQOICodec.h"
 #include "NKImage/Codecs/GIF/NkGIFCodec.h"
@@ -683,6 +684,9 @@ namespace nkentseu {
             return NkImageFormat::NK_ICO;
         if (sz >= 10 && d[0] == '#' && d[1] == '?')
             return NkImageFormat::NK_HDR;
+        // OpenEXR : magic 0x762F3101 little-endian (76 2F 31 01)
+        if (sz >= 4 && d[0] == 0x76 && d[1] == 0x2F && d[2] == 0x31 && d[3] == 0x01)
+            return NkImageFormat::NK_EXR;
         if (sz >= 2 && d[0] == 'P' && d[1] >= '1' && d[1] <= '6') {
             if (d[1] == '1' || d[1] == '4') return NkImageFormat::NK_PBM;
             if (d[1] == '2' || d[1] == '5') return NkImageFormat::NK_PGM;
@@ -735,6 +739,7 @@ namespace nkentseu {
             case NkImageFormat::NK_BMP:  img = NkBMPCodec::Decode(d, sz); break;
             case NkImageFormat::NK_TGA:  img = NkTGACodec::Decode(d, sz); break;
             case NkImageFormat::NK_HDR:  img = NkHDRCodec::Decode(d, sz); break;
+            case NkImageFormat::NK_EXR:  img = NkEXRCodec::Decode(d, sz); break;
             case NkImageFormat::NK_PPM:
             case NkImageFormat::NK_PGM:
             case NkImageFormat::NK_PBM:  img = NkPPMCodec::Decode(d, sz); break;

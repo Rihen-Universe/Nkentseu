@@ -13,6 +13,8 @@
 #include "Pong/Render/GLRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/Net/NetworkSession.h"
+#include "Pong/Net/NetworkDiscovery.h"
+#include "Pong/Audio/AudioManager.h"
 #include "Pong/UI/AppContext.h"
 #include "Pong/UI/SceneManager.h"
 #include "NKCore/NkTypes.h"
@@ -71,11 +73,27 @@ namespace nkentseu
             GameSettings    mSettings;
             SceneManager    mScenes;
             NetworkSession  mNetwork;
+            // Decouverte LAN (beacon UDP + scan). Ticke chaque frame depuis
+            // Update(). Cf [[pong_multijoueur_internet_strategy]] phase C.
+            NetworkDiscovery mDiscovery;
+            // Gestionnaire audio NKAudio : pre-charge des samples + helpers
+            // PlayPaddle/PlayScore/etc. Init dans PongApp::Init.
+            AudioManager     mAudio;
 
             bool         mQuit       = false;
             float        mTime       = 0.0f;
             uint32       mViewportW  = 0;
             uint32       mViewportH  = 0;
+
+            // ── Identite reseau Pays/Ville + Code ──────────────────────────
+            // Generee une fois dans Init() via africa::PickRandomCountryCityCode.
+            // Visible dans le NetworkLobbyScene et envoyee aux pairs via le
+            // handshake (PktHello). Constants pour toute la duree de l'app
+            // (l'user peut relancer l'app pour avoir un nouveau pseudo).
+            // Format affichable : "Cameroun/Douala-123456789".
+            char         mMyCountry[32] = { 0 };
+            char         mMyCity[32]    = { 0 };
+            char         mMyCode[16]    = { 0 };   ///< 9 chiffres zero-padded
 
             // Construit un AppContext frais pour le frame courant.
             AppContext BuildContext();
