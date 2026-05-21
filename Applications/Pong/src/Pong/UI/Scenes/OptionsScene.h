@@ -40,15 +40,23 @@ namespace nkentseu
 
             const char* Name() const noexcept override { return "Options"; }
 
-            void OnEnter (AppContext& ctx) override;
-            void OnUpdate(AppContext& ctx, float dt) override;
-            void OnRender(AppContext& ctx) override;
-            void OnEvent (AppContext& ctx, NkEvent& ev) override;
+            void OnEnter            (AppContext& ctx) override;
+            void OnUpdate           (AppContext& ctx, float dt) override;
+            void OnRender           (AppContext& ctx) override;
+            void OnEvent            (AppContext& ctx, NkEvent& ev) override;
+            void OnResumedFromChild (AppContext& ctx) override;
 
         private:
             float mTime      = 0.0f;
             float mEnterAnim = 0.0f;
             int   mFocusIndex = 0;
+
+            // Grace period anti auto-trigger (sec restantes). Arme a 0.20s
+            // au OnEnter ET au retour d'une scene enfant (OnResumedFromChild).
+            // Pendant ce delai, on ignore mouse releases et touch ends pour
+            // eviter que le release du click "RETOUR" sur la scene enfant
+            // ne triggere aussi le RETOUR ici (cf Options > Tutoriel bug).
+            float mInputArmDelay = 0.0f;
 
             // Geometrie des cards (sync chaque frame en coords ECRAN).
             float mCardX[kCatCount] = {0};

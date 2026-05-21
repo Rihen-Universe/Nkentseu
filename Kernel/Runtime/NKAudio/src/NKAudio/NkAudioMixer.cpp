@@ -6,7 +6,7 @@
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------
 
-#include "NkAudio.h"
+#include "NKAudio.h"
 #include "NKMemory/NkAllocator.h"
 
 #include <cmath>
@@ -21,14 +21,15 @@ namespace {
     inline nkentseu::float32 Cosf (nkentseu::float32 x) { return ::cosf(x); }
     constexpr nkentseu::float32 HALF_PI = 1.5707963267948966f;
 
+    // Allocateur unifie via NKMemory : NkAlloc/NkFree accepte un allocator
+    // nullptr et utilise le defaut global. Plus de fallback ::operator new/delete.
     inline nkentseu::float32* AllocFloat(nkentseu::usize n, nkentseu::memory::NkAllocator* a) {
-        if (a) return (nkentseu::float32*)a->Allocate(n * sizeof(nkentseu::float32), sizeof(nkentseu::float32));
-        return (nkentseu::float32*)::operator new(n * sizeof(nkentseu::float32));
+        return (nkentseu::float32*)nkentseu::memory::NkAlloc(
+            n * sizeof(nkentseu::float32), a, sizeof(nkentseu::float32));
     }
     inline void FreeFloat(nkentseu::float32* p, nkentseu::memory::NkAllocator* a) {
         if (!p) return;
-        if (a) a->Free(p);
-        else ::operator delete(p);
+        nkentseu::memory::NkFree(p, a);
     }
 } // anonymous namespace
 

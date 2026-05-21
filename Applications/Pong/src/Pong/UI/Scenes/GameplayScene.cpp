@@ -6,12 +6,16 @@
 // =============================================================================
 
 #include "GameplayScene.h"
+#include "SelectMatchConfigScene.h"
+#include "SelectModeScene.h"
 #include "Pong/Render/GLRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "Pong/UI/UIScale.h"
+#include "Pong/UI/ResponsiveLayout.h"
 #include "Pong/Net/NetworkSession.h"
+#include "Pong/Audio/AudioManager.h"
 #include "Pong/Net/NetProtocol.h"
 #include "NKNetwork/Protocol/NkConnection.h"  // pour NkReceiveMsg
 #include "NKLogger/NkLog.h"
@@ -233,6 +237,81 @@ namespace nkentseu
             }
         }
 
+        // ────────────────────────────────────────────────────────────────────
+        // EmitBurstNet — wrapper d'emission de particules avec sync reseau.
+        // Le CLIENT n'appelle pas ce wrapper (il recoit les bursts via drain).
+        // ────────────────────────────────────────────────────────────────────
+        void GameplayScene::EmitBurstNet(AppContext& ctx,
+                                         float x, float y, int count,
+                                         math::NkColor color,
+                                         float speedMin, float speedMax,
+                                         float lifeMin , float lifeMax,
+                                         float sizeMin , float sizeMax)
+        {
+            // Emission locale (HOST et mode local).
+            mParticles.EmitBurst(x, y, count, color,
+                                 speedMin, speedMax,
+                                 lifeMin, lifeMax,
+                                 sizeMin, sizeMax);
+            // En reseau HOST, envoyer aussi au CLIENT.
+            if (!mIsNetwork || !mIsHost || ctx.network == nullptr) return;
+            // arenaW/H pour normalisation.
+            const float aW = (float)ctx.viewportW;
+            const float aH = math::NkMax(1.0f,
+                (float)ctx.viewportH - mHUDTopH - mHUDBotH);
+            if (aW <= 0.f || aH <= 0.f) return;
+            auto quant = [](float v, float maxRange) -> uint8 {
+                const float q = (v / maxRange) * 255.0f;
+                if (q < 0.f)   return 0;
+                if (q > 255.f) return 255;
+                return (uint8)q;
+            };
+            netproto::PktParticleBurst pkt;
+            pkt.type        = netproto::kMsgParticleBurst;
+            pkt.xN          = x / aW;
+            pkt.yN          = y / aH;
+            pkt.colorRGBA   = ((uint32)color.r)
+                            | ((uint32)color.g << 8)
+                            | ((uint32)color.b << 16)
+                            | ((uint32)color.a << 24);
+            pkt.count       = (uint8)math::NkMin(count, 255);
+            // Plages quantifiees : speed 0..500 px/sec (range typique des bursts).
+            pkt.speedMin_q  = quant(speedMin, 500.f);
+            pkt.speedMax_q  = quant(speedMax, 500.f);
+            pkt.lifeMin_q   = quant(lifeMin, 2.55f);
+            pkt.lifeMax_q   = quant(lifeMax, 2.55f);
+            pkt.sizeMin_q   = quant(sizeMin, 25.5f);
+            pkt.sizeMax_q   = quant(sizeMax, 25.5f);
+            ctx.network->Broadcast(reinterpret_cast<const uint8*>(&pkt),
+                                   sizeof(pkt), 0 /*unreliable*/);
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // EmitGoalNet — wrapper d'emission d'explosion de goal avec sync.
+        // EmitGoal sert quand un point est marque : explosion sur le mur du
+        // but franchi. Le CLIENT doit voir cet effet aussi.
+        // ────────────────────────────────────────────────────────────────────
+        void GameplayScene::EmitGoalNet(AppContext& ctx,
+                                        float wallX, float arenaH,
+                                        math::NkColor color)
+        {
+            // Emission locale (HOST et mode local).
+            mParticles.EmitGoal(wallX, arenaH, color);
+            if (!mIsNetwork || !mIsHost || ctx.network == nullptr) return;
+            const float aW = (float)ctx.viewportW;
+            if (aW <= 0.f) return;
+            netproto::PktParticleGoal pkt;
+            pkt.type      = netproto::kMsgParticleGoal;
+            pkt.wallXN    = wallX / aW;
+            pkt.colorRGBA = ((uint32)color.r)
+                          | ((uint32)color.g << 8)
+                          | ((uint32)color.b << 16)
+                          | ((uint32)color.a << 24);
+            // Reliable : event rare, important visuellement.
+            ctx.network->Broadcast(reinterpret_cast<const uint8*>(&pkt),
+                                   sizeof(pkt), 1 /*reliable*/);
+        }
+
         void GameplayScene::RequestReplay(AppContext& ctx)
         {
             // Mode local OU HOST : on relance directement.
@@ -398,6 +477,50 @@ namespace nkentseu
                         logger.Info("[Net][RX] HOST pause toggle -> {0}",
                                     mPaused ? "paused" : "resumed");
                     }
+                    else if (!mIsHost && type == netproto::kMsgParticleGoal
+                          && msg.size >= sizeof(netproto::PktParticleGoal))
+                    {
+                        netproto::PktParticleGoal pg;
+                        std::memcpy(&pg, msg.data, sizeof(pg));
+                        const float aW = (float)ctx.viewportW;
+                        const float aH = math::NkMax(1.0f,
+                            (float)ctx.viewportH - mHUDTopH - mHUDBotH);
+                        math::NkColor col;
+                        col.r = (uint8)( pg.colorRGBA        & 0xFF);
+                        col.g = (uint8)((pg.colorRGBA >>  8) & 0xFF);
+                        col.b = (uint8)((pg.colorRGBA >> 16) & 0xFF);
+                        col.a = (uint8)((pg.colorRGBA >> 24) & 0xFF);
+                        mParticles.EmitGoal(pg.wallXN * aW, aH, col);
+                    }
+                    else if (!mIsHost && type == netproto::kMsgParticleBurst
+                          && msg.size >= sizeof(netproto::PktParticleBurst))
+                    {
+                        // Cote CLIENT : le HOST a emis un burst de particules.
+                        // On le rejoue localement (denormalisation pos +
+                        // dequantification des params).
+                        netproto::PktParticleBurst pb;
+                        std::memcpy(&pb, msg.data, sizeof(pb));
+                        const float aW = (float)ctx.viewportW;
+                        const float aH = math::NkMax(1.0f,
+                            (float)ctx.viewportH - mHUDTopH - mHUDBotH);
+                        const float px = pb.xN * aW;
+                        const float py = pb.yN * aH;
+                        math::NkColor col;
+                        col.r = (uint8)( pb.colorRGBA        & 0xFF);
+                        col.g = (uint8)((pb.colorRGBA >>  8) & 0xFF);
+                        col.b = (uint8)((pb.colorRGBA >> 16) & 0xFF);
+                        col.a = (uint8)((pb.colorRGBA >> 24) & 0xFF);
+                        const float speedMin = (float)pb.speedMin_q / 255.0f * 500.0f;
+                        const float speedMax = (float)pb.speedMax_q / 255.0f * 500.0f;
+                        const float lifeMin  = (float)pb.lifeMin_q  / 100.0f;
+                        const float lifeMax  = (float)pb.lifeMax_q  / 100.0f;
+                        const float sizeMin  = (float)pb.sizeMin_q  / 10.0f;
+                        const float sizeMax  = (float)pb.sizeMax_q  / 10.0f;
+                        mParticles.EmitBurst((float)px, (float)py, (int)pb.count, col,
+                                             speedMin, speedMax,
+                                             lifeMin, lifeMax,
+                                             sizeMin, sizeMax);
+                    }
                     else if (mIsHost && type == netproto::kMsgReplayRequest
                           && msg.size >= sizeof(netproto::PktReplayRequest))
                     {
@@ -479,6 +602,56 @@ namespace nkentseu
                             d.pulse   = 0.0f;
                         }
                         mPowerUps.SetNetDrops(tmpDrops, n);
+                        // ── Notifications recues du HOST (Phase 5b) ─────────
+                        // Dequantification + injection dans mPowerUps via
+                        // SetNetNotification. Si timeLeftQ=0, clear la notif.
+                        auto applyNotif = [&](int side, uint8 packed, uint8 q) {
+                            const float timeLeft = (float)q / 100.0f;
+                            if (timeLeft <= 0.0f) {
+                                mPowerUps.SetNetNotification(side, false, 0, 0.f);
+                                return;
+                            }
+                            const bool isBonus = (packed & 0x80) != 0;
+                            const uint8 kind   = (uint8)(packed & 0x7F);
+                            mPowerUps.SetNetNotification(side, isBonus, kind, timeLeft);
+                        };
+                        applyNotif(-1, st.notifL, st.notifLeftL_q);
+                        applyNotif(+1, st.notifR, st.notifLeftR_q);
+                        // ── Sync obstacles (Phase 6 - V2 server-authoritative) ──
+                        // Le CLIENT RECREE integralement sa liste depuis le
+                        // snapshot. C'est l'approche server-authoritative
+                        // complete : tous les obstacles (type, forme, position,
+                        // taille, rotation, etat) sont controles par le HOST.
+                        // Garantit que les 2 ecrans voient EXACTEMENT la meme
+                        // chose, meme si les RNG initiales divergeaient
+                        // (viewport different, sequence d'appel std::rand
+                        // differente entre HOST et CLIENT).
+                        {
+                            constexpr float kPiDiv32767 = 3.14159265f / 32767.0f;
+                            mObstacles.Clear();
+                            const int nObs = math::NkMin(
+                                (int)st.numObstacles, (int)netproto::kMaxObstaclesSync);
+                            for (int k = 0; k < nObs; ++k)
+                            {
+                                const netproto::PktObstacleEntry& e = st.obstacles[k];
+                                const ObstacleType  t = (ObstacleType)((e.typeShape >> 4) & 0x0F);
+                                const ObstacleShape s = (ObstacleShape)(e.typeShape & 0x0F);
+                                const bool active  = (e.flags & netproto::kObsActive)  != 0;
+                                const bool visible = (e.flags & netproto::kObsVisible) != 0;
+                                // Convertit centre normalise + taille q en
+                                // pixels locaux (relatifs a notre arena).
+                                const float wPx = (float)e.wN_q / 255.0f * aW;
+                                const float hPx = (float)e.hN_q / 255.0f * aH;
+                                const float cxPx = e.xN * aW;
+                                const float cyPx = e.yN * aH;
+                                const float xTL  = cxPx - wPx * 0.5f;
+                                const float yTL  = cyPx - hPx * 0.5f;
+                                const float rot  = (float)e.rot_q * kPiDiv32767;
+                                mObstacles.AppendFromNet(t, s, xTL, yTL,
+                                                         wPx, hPx, rot,
+                                                         active, visible);
+                            }
+                        }
                         // Le flash de but cote client : on declenche localement
                         // si le snapshot dit qu'un but vient d'arriver.
                         if ((st.flags & netproto::kFlagGoalFlash) != 0
@@ -550,8 +723,11 @@ namespace nkentseu
                 mTrailY[mTrailHead] = mBallY;
                 mTrailHead = (mTrailHead + 1) % kTrailMax;
                 if (mTrailCount < kTrailMax) mTrailCount++;
-                // Anims obstacles + particules : tournent localement.
-                mObstacles.Update(dt, arenaW, arenaH);
+                // Phase 6 sync obstacles : le CLIENT n'execute PAS son
+                // ObstacleSystem::Update — les positions/rotations sont
+                // remplacees par le snapshot HOST a chaque PktState recu.
+                // Les particules continuent de tourner localement (animations
+                // visuelles independantes synchronisees via PktParticleBurst).
                 mParticles.Update(dt);
             }
 
@@ -663,6 +839,70 @@ namespace nkentseu
                         st.drops[k].xN = 0.0f;
                         st.drops[k].yN = 0.0f;
                     }
+                    // ── Notifications (par cote) ───────────────────────────────
+                    // Quantification timeLeft : 1.0f -> 100 (s/100). Range
+                    // 0..2.55s, suffit pour kNotifDuration=1.5s.
+                    auto packNotif = [](const PowerUpSystem::Notification& n,
+                                        uint8& outNotif, uint8& outTimeQ) {
+                        if (!n.active || n.timeLeft <= 0.0f) {
+                            outNotif = 0; outTimeQ = 0;
+                            return;
+                        }
+                        outNotif = (uint8)((n.isBonus ? 0x80 : 0x00)
+                                          | (n.kind & 0x7F));
+                        const float q = n.timeLeft * 100.0f;
+                        outTimeQ = (uint8)(q > 255.f ? 255 : (q < 0.f ? 0 : q));
+                    };
+                    packNotif(mPowerUps.GetNotification(-1),
+                              st.notifL, st.notifLeftL_q);
+                    packNotif(mPowerUps.GetNotification(+1),
+                              st.notifR, st.notifLeftR_q);
+                    // ── Sync obstacles (Phase 6) ─────────────────────────────
+                    // HOST autoritatif : on packe chaque obstacle dans le
+                    // snapshot avec position/taille/rotation normalisees.
+                    // CLIENT applique ces valeurs telles quelles, sans Update().
+                    constexpr float kPiInv32767 = 32767.0f / 3.14159265f;
+                    const int nObs = math::NkMin(
+                        (int)netproto::kMaxObstaclesSync, mObstacles.Count());
+                    st.numObstacles = (uint8)nObs;
+                    for (int k = 0; k < nObs; ++k)
+                    {
+                        const Obstacle& o = mObstacles.Get(k);
+                        netproto::PktObstacleEntry& e = st.obstacles[k];
+                        e.typeShape = (uint8)(((int)o.type & 0x0F) << 4
+                                            |  ((int)o.shape & 0x0F));
+                        uint8 ofl = 0;
+                        if (o.active)  ofl |= netproto::kObsActive;
+                        if (o.visible) ofl |= netproto::kObsVisible;
+                        e.flags = ofl;
+                        // Centre normalise (o.x est coin haut-gauche).
+                        const float cxN = (o.x + o.w * 0.5f) * invW;
+                        const float cyN = (o.y + o.h * 0.5f) * invH;
+                        e.xN = cxN;
+                        e.yN = cyN;
+                        // Taille normalisee × 255 (clamp).
+                        auto quant = [](float v) -> uint8
+                        {
+                            const float q = v * 255.0f;
+                            if (q < 0.0f)   return 0;
+                            if (q > 255.0f) return 255;
+                            return (uint8)q;
+                        };
+                        e.wN_q = quant(o.w * invW);
+                        e.hN_q = quant(o.h * invH);
+                        // Rotation [-PI..PI] -> int16
+                        float rotClamped = o.rotation;
+                        while (rotClamped >  3.14159265f) rotClamped -= 6.28318530f;
+                        while (rotClamped < -3.14159265f) rotClamped += 6.28318530f;
+                        const float rq = rotClamped * kPiInv32767;
+                        if      (rq >  32767.0f) e.rot_q =  32767;
+                        else if (rq < -32767.0f) e.rot_q = -32767;
+                        else                     e.rot_q = (int16)rq;
+                    }
+                    for (int k = nObs; k < (int)netproto::kMaxObstaclesSync; ++k)
+                    {
+                        st.obstacles[k] = {};   // zero-init slots inutilises
+                    }
                     ctx.network->Broadcast(reinterpret_cast<const uint8*>(&st),
                                            sizeof(st), 0 /*unreliable*/);
                 }
@@ -708,15 +948,15 @@ namespace nkentseu
                                                mPaddleW, pHL,
                                                &catchX, &catchY, &catchCol))
             {
-                mParticles.EmitBurst(catchX, catchY, 18, catchCol,
-                                     60.0f, 220.0f, 0.4f, 0.8f, 2.0f, 4.0f);
+                EmitBurstNet(ctx, catchX, catchY, 18, catchCol,
+                             60.0f, 220.0f, 0.4f, 0.8f, 2.0f, 4.0f);
             }
             if (mPowerUps.CheckPaddleCollision(+1, mPaddleRX, mPaddleRY,
                                                mPaddleW, pHR,
                                                &catchX, &catchY, &catchCol))
             {
-                mParticles.EmitBurst(catchX, catchY, 18, catchCol,
-                                     60.0f, 220.0f, 0.4f, 0.8f, 2.0f, 4.0f);
+                EmitBurstNet(ctx, catchX, catchY, 18, catchCol,
+                             60.0f, 220.0f, 0.4f, 0.8f, 2.0f, 4.0f);
             }
 
             // HOST (ou mode local) : simulation normale.
@@ -819,16 +1059,18 @@ namespace nkentseu
             mBallX += mBallVX * dt60 * bMul;
             mBallY += mBallVY * dt60 * bMul;
 
-            // Rebond haut / bas
+            // Rebond haut / bas + SFX wall (sec, court).
             if (mBallY - mBallR < 0.0f)
             {
                 mBallY = mBallR;
                 mBallVY = math::NkFabs(mBallVY);
+                if (ctx.audio != nullptr) ctx.audio->PlayWall();
             }
             if (mBallY + mBallR > arenaH)
             {
                 mBallY = arenaH - mBallR;
                 mBallVY = -math::NkFabs(mBallVY);
+                if (ctx.audio != nullptr) ctx.audio->PlayWall();
             }
 
             // Sortie laterale = but (avec cooldown)
@@ -857,6 +1099,9 @@ namespace nkentseu
                     // Memorise le dernier joueur a avoir touche la balle.
                     // Sert a attribuer le bonus quand une BonusStar est collectee.
                     mLastToucher = (i == 0) ? -1 : +1;
+                    // SFX paddle hit ("ping" sine 880 Hz). Variation pitch
+                    // ±8% appliquee par AudioManager pour anti-robotique.
+                    if (ctx.audio != nullptr) ctx.audio->PlayPaddle();
                     // Direction selon position sur le terrain (HTML : b.x<W/2 ? 1 : -1)
                     const float dir = (mBallX < arenaW * 0.5f) ? 1.0f : -1.0f;
                     mBallVX = math::NkFabs(mBallVX) * dir;
@@ -877,11 +1122,20 @@ namespace nkentseu
                     // la direction de rebond. Couleur = celle du joueur qui
                     // a renvoye la balle.
                     const math::NkColor col = (i == 0) ? ColP1() : ColP2();
-                    mParticles.EmitDirectional(mBallX, mBallY, 14, col,
-                                               ang, 0.6f,
-                                               80.0f, 260.0f,
-                                               0.25f, 0.6f,
-                                               1.8f, 3.5f);
+                    // Mode local : EmitDirectional plus joli (cone oriente).
+                    // Mode reseau : EmitBurstNet pour que les 2 cotes voient
+                    // la meme chose (burst non-directionnel). Cosmetique : la
+                    // balle rebondit visiblement, le burst est juste un plus.
+                    if (mIsNetwork) {
+                        EmitBurstNet(ctx, mBallX, mBallY, 14, col,
+                                     80.0f, 260.0f, 0.25f, 0.6f, 1.8f, 3.5f);
+                    } else {
+                        mParticles.EmitDirectional(mBallX, mBallY, 14, col,
+                                                   ang, 0.6f,
+                                                   80.0f, 260.0f,
+                                                   0.25f, 0.6f,
+                                                   1.8f, 3.5f);
+                    }
                     break;  // une seule collision paddle par frame
                 }
             }
@@ -928,27 +1182,27 @@ namespace nkentseu
             if (oh.bonusStarCollected && mLastToucher != 0)
             {
                 if (!mIsNetwork || mIsHost) mPowerUps.ApplyRandomBonus(mLastToucher);
-                mParticles.EmitBurst(mBallX, mBallY, 24,
-                                     oh.particleColor.a > 0
-                                       ? oh.particleColor
-                                       : math::NkColor{255, 215, 0, 255},
-                                     80.0f, 280.0f, 0.5f, 1.0f, 2.0f, 4.0f);
+                EmitBurstNet(ctx, mBallX, mBallY, 24,
+                             oh.particleColor.a > 0
+                               ? oh.particleColor
+                               : math::NkColor{255, 215, 0, 255},
+                             80.0f, 280.0f, 0.5f, 1.0f, 2.0f, 4.0f);
             }
             // Burst generique pour les autres types d'obstacles (Wall, Mine,
             // Portal, Magnet...) selon le particleCount fourni par l'obstacle.
             if (oh.hit && oh.particleCount > 0)
             {
-                mParticles.EmitBurst(mBallX, mBallY, oh.particleCount,
-                                     oh.particleColor,
-                                     60.0f, 200.0f, 0.3f, 0.7f, 1.5f, 3.0f);
+                EmitBurstNet(ctx, mBallX, mBallY, oh.particleCount,
+                             oh.particleColor,
+                             60.0f, 200.0f, 0.3f, 0.7f, 1.5f, 3.0f);
             }
             // Chain reaction Mine : emit particles a chaque centre liste par
             // l'ObstacleSystem (Mines voisines qui ont detone par sympathie).
             for (int c = 0; c < oh.chainCount; ++c)
             {
-                mParticles.EmitBurst(oh.chainX[c], oh.chainY[c], 18,
-                                     oh.particleColor,
-                                     50.0f, 220.0f, 0.4f, 0.8f, 1.8f, 3.5f);
+                EmitBurstNet(ctx, oh.chainX[c], oh.chainY[c], 18,
+                             oh.particleColor,
+                             50.0f, 220.0f, 0.4f, 0.8f, 1.8f, 3.5f);
             }
             if (oh.hit)
             {
@@ -1006,12 +1260,14 @@ namespace nkentseu
             mGoalCooldown   = kGoalCooldown;
             mGoalFlashAlpha = 1.0f;
             mGoalFlashSide  = side;
+            // SFX score : chirp ascendant 220->880 Hz, sensation victoire.
+            if (ctx.audio != nullptr) ctx.audio->PlayScore();
             // Explosion sur la ligne de but adverse (celle qu'on a franchi).
             // side > 0 (P1 marque) -> balle sortie a DROITE -> mur droit (x=arenaW).
             // side < 0 (P2 marque) -> balle sortie a GAUCHE  -> mur gauche (x=0).
             const float wallX = (side > 0) ? arenaW : 0.0f;
             const math::NkColor goalCol = (side > 0) ? ColP1() : ColP2();
-            mParticles.EmitGoal(wallX, arenaH, goalCol);
+            EmitGoalNet(ctx, wallX, arenaH, goalCol);
             // DoublePoint : si le joueur qui marque a l'effet, le but compte
             // double. Le flag est consume.
             const int goalValue = mPowerUps.ConsumeDoublePoint(side) ? 2 : 1;
@@ -1543,6 +1799,8 @@ namespace nkentseu
             }
 
             // ── Overlay GAME OVER (prioritaire sur PAUSE) ────────────────────
+            // Layout responsive : dimensions en % de viewport (Pct::*), avec
+            // clamps doux pour eviter les degeneres sur ecrans extremes.
             if (mGameOver)
             {
                 r.DrawQuad(0, 0, (float)W, (float)H, { 5, 10, 20, 230 });
@@ -1556,26 +1814,34 @@ namespace nkentseu
                 math::NkColor titleC = (mWinner > 0) ? ColP1()
                                     : (mWinner < 0) ? ColP2()
                                                     : math::NkColor{ 255, 215, 0, 255 };
+
+                const float btnW   = Pct::W(W, 0.30f, 200.0f, 420.0f);
+                const float btnH   = Pct::H(H, 0.080f, 40.0f, 72.0f);
+                const float btnGap = Pct::H(H, 0.022f, 10.0f, 22.0f);
+                // Calcul du bloc complet (titre + score + 2 boutons + gaps)
+                // pour centrer verticalement sans deborder.
+                const float titleH  = Pct::H(H, 0.13f, 60.0f, 130.0f);
+                const float scoreH  = Pct::H(H, 0.10f, 50.0f, 100.0f);
+                const float blockH  = titleH + scoreH + 2.0f * btnH + btnGap;
+                const float top     = cy - blockH * 0.5f;
+                const float titleY  = top;
+                const float scoreY  = titleY + titleH;
+
                 f.DrawStringShadowCenteredScaled(r, FontAtlas::HeadlineSlot, mScale,
-                                         cx, cy - 130.0f * mScale, title,
+                                         cx, titleY, title,
                                          { 255, 255, 255, 255 }, titleC, 3);
 
-                // Score final
                 char scoreBuf[24];
                 std::snprintf(scoreBuf, sizeof(scoreBuf), "%d  -  %d",
                               mScoreL, mScoreR);
                 f.DrawStringCenteredScaled(r, FontAtlas::DisplaySlot, mScale,
-                                   cx, cy - 60.0f * mScale, scoreBuf,
+                                   cx, scoreY, scoreBuf,
                                    { 255, 255, 255, 230 });
 
                 // Boutons REJOUER / RETOUR MENU
-                const float btnW = 280.0f * mScale;
-                const float btnH = 56.0f  * mScale;
-                const float btnGap = 16.0f * mScale;
-
                 mGOReplayBtnW = btnW; mGOReplayBtnH = btnH;
                 mGOReplayBtnX = cx - btnW * 0.5f;
-                mGOReplayBtnY = cy + 24.0f * mScale;
+                mGOReplayBtnY = scoreY + scoreH;
                 math::NkColor pbg = ColP1(); pbg.a = 32;
                 math::NkColor pbd = ColP1(); pbd.a = 200;
                 r.DrawQuad       (mGOReplayBtnX, mGOReplayBtnY, btnW, btnH, pbg);
@@ -1597,30 +1863,49 @@ namespace nkentseu
                                    { 255, 64, 64, 230 });
             }
             // ── Overlay PAUSE avec boutons cliquables ────────────────────────
+            // Layout en % viewport (2026-05-19) : les dimensions sont
+            // exprimees comme fractions de W/H plutot que pixels*scale, pour
+            // que l'overlay s'adapte propre a TOUTES les resolutions (mobile
+            // portrait, mobile landscape, PC 720p/1080p/4K, ultrawide).
+            // Les NkClamp evitent les valeurs degenerees aux extremes.
             else if (mPaused)
             {
                 r.DrawQuad(0, 0, (float)W, (float)H, { 5, 10, 20, 220 });
                 const float cx = (float)W * 0.5f;
                 const float cy = (float)H * 0.5f;
+                const float Hf = (float)H;
+                const float Wf = (float)W;
+
+                // Dimensions responsive (clamps doux pour eviter les degeneres)
+                const float btnW  = math::NkClamp(Wf * 0.30f, 200.0f, 420.0f);
+                const float btnH  = math::NkClamp(Hf * 0.075f,  38.0f, 70.0f);
+                const float btnGap = math::NkClamp(Hf * 0.013f,  6.0f, 16.0f);
+                // Bloc total : titre PAUSE + sous-titre + 4 boutons + 3 gaps.
+                // On centre verticalement le bloc complet.
+                const float titleH    = math::NkClamp(Hf * 0.10f, 50.0f, 110.0f);
+                const float subtitleH = math::NkClamp(Hf * 0.045f, 18.0f, 36.0f);
+                const float totalH    = titleH + subtitleH
+                                      + 4.0f * btnH + 3.0f * btnGap;
+                const float blockTop  = cy - totalH * 0.5f;
+                const float titleY    = blockTop;
+                const float subtitleY = titleY + titleH;
 
                 // Titre PAUSE
                 f.DrawStringShadowCenteredScaled(r, FontAtlas::HeadlineSlot, mScale,
-                                         cx, cy - 90.0f * mScale, "PAUSE",
+                                         cx, titleY, "PAUSE",
                                          { 255, 255, 255, 255 }, ColP1(), 3);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, mScale,
-                                   cx, cy - 30.0f * mScale,
+                                   cx, subtitleY,
                                    "LE MATCH EST EN ATTENTE",
                                    { 255, 255, 255, 120 });
 
-                // Boutons REPRENDRE et RETOUR MENU centres
-                const float btnW = 280.0f * mScale;
-                const float btnH = 56.0f  * mScale;
-                const float btnGap = 16.0f * mScale;
+                // 4 boutons centres, empiles verticalement
+                const float y0 = subtitleY + subtitleH;
 
                 // REPRENDRE (cyan)
                 mResumeBtnW = btnW; mResumeBtnH = btnH;
                 mResumeBtnX = cx - btnW * 0.5f;
-                mResumeBtnY = cy + 16.0f * mScale;
+                mResumeBtnY = y0;
                 math::NkColor rbg = ColP1(); rbg.a = 32;
                 math::NkColor rbd = ColP1(); rbd.a = 200;
                 r.DrawQuad       (mResumeBtnX, mResumeBtnY, mResumeBtnW, mResumeBtnH, rbg);
@@ -1629,10 +1914,34 @@ namespace nkentseu
                                    cx, mResumeBtnY + btnH * 0.30f,
                                    "REPRENDRE  (ESPACE / TAP)", ColP1());
 
+                // CONFIGURATION (orange) - retour au setup de match
+                mConfigBtnW = btnW; mConfigBtnH = btnH;
+                mConfigBtnX = cx - btnW * 0.5f;
+                mConfigBtnY = mResumeBtnY + btnH + btnGap;
+                math::NkColor cbg = { 255, 140,  20,  32 };
+                math::NkColor cbd = { 255, 140,  20, 220 };
+                r.DrawQuad       (mConfigBtnX, mConfigBtnY, mConfigBtnW, mConfigBtnH, cbg);
+                r.DrawQuadOutline(mConfigBtnX, mConfigBtnY, mConfigBtnW, mConfigBtnH, cbd, 2.0f * mScale);
+                f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, mScale,
+                                   cx, mConfigBtnY + btnH * 0.30f,
+                                   "CONFIGURATION", { 255, 180, 60, 240 });
+
+                // CHOIX DU JEU (magenta) - retour au mode select
+                mModeBtnW = btnW; mModeBtnH = btnH;
+                mModeBtnX = cx - btnW * 0.5f;
+                mModeBtnY = mConfigBtnY + btnH + btnGap;
+                math::NkColor jbg = { 204, 119, 255,  32 };
+                math::NkColor jbd = { 204, 119, 255, 220 };
+                r.DrawQuad       (mModeBtnX, mModeBtnY, mModeBtnW, mModeBtnH, jbg);
+                r.DrawQuadOutline(mModeBtnX, mModeBtnY, mModeBtnW, mModeBtnH, jbd, 2.0f * mScale);
+                f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, mScale,
+                                   cx, mModeBtnY + btnH * 0.30f,
+                                   "CHOIX DU JEU", { 224, 160, 255, 240 });
+
                 // RETOUR MENU (rouge)
                 mMenuBtnW = btnW; mMenuBtnH = btnH;
                 mMenuBtnX = cx - btnW * 0.5f;
-                mMenuBtnY = mResumeBtnY + btnH + btnGap;
+                mMenuBtnY = mModeBtnY + btnH + btnGap;
                 math::NkColor mbg = { 255, 64, 64, 32 };
                 math::NkColor mbd = { 255, 64, 64, 200 };
                 r.DrawQuad       (mMenuBtnX, mMenuBtnY, mMenuBtnW, mMenuBtnH, mbg);
@@ -1647,21 +1956,26 @@ namespace nkentseu
             // Affiche un fade noir + un panneau central avec message + bouton
             // RETOUR MENU. Le bouton fait PopToRoot pour ramener au MainMenu
             // (la NetworkLobbyScene::OnExit fera Shutdown de la session).
+            // Overlay responsive : dimensions en % viewport (clamps doux).
             if (mNetPeerLost)
             {
-                const float W = (float)ctx.viewportW;
-                const float H = (float)ctx.viewportH;
+                const int   vW = ctx.viewportW;
+                const int   vH = ctx.viewportH;
+                const float W  = (float)vW;
+                const float H  = (float)vH;
                 const float cx = W * 0.5f;
                 const float cy = H * 0.5f;
                 // Fade noir progressif (apparait en ~0.3s)
                 const float fade = math::NkMin(1.0f, mNetLostTimer / 0.3f);
                 r.DrawQuad(0.0f, 0.0f, W, H,
                            { 0, 0, 0, (uint8)(180 * fade) });
-                // Panneau central
-                const float panelW = math::NkMin(560.0f * mScale, W * 0.85f);
-                const float panelH = 220.0f * mScale;
+                // Panneau central responsive
+                const float panelW = math::NkMin(Pct::W(vW, 0.55f, 320.0f, 640.0f), W * 0.85f);
+                const float panelH = Pct::H(vH, 0.30f, 180.0f, 280.0f);
                 const float px = cx - panelW * 0.5f;
                 const float py = cy - panelH * 0.5f;
+                const float padTop = Pct::H(vH, 0.030f, 16.0f, 28.0f);
+                const float lineGap = Pct::H(vH, 0.060f, 32.0f, 60.0f);
                 r.DrawQuad       (px, py, panelW, panelH,
                                   { 24, 28, 36, (uint8)(230 * fade) });
                 r.DrawQuadOutline(px, py, panelW, panelH,
@@ -1669,23 +1983,23 @@ namespace nkentseu
                                   2.0f * mScale);
                 // Titre
                 f.DrawStringCenteredScaled(r, FontAtlas::HeadlineSlot, mScale,
-                                   cx, py + 22.0f * mScale,
+                                   cx, py + padTop,
                                    "ADVERSAIRE PARTI",
                                    { 255, 80, 80, (uint8)(250 * fade) });
                 // Sous-titre
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, mScale,
-                                   cx, py + 70.0f * mScale,
+                                   cx, py + padTop + lineGap,
                                    "LE MATCH EST TERMINE.",
                                    { 255, 255, 255, (uint8)(220 * fade) });
                 f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, mScale,
-                                   cx, py + 100.0f * mScale,
+                                   cx, py + padTop + lineGap + Pct::H(vH, 0.035f, 18.0f, 36.0f),
                                    "TON ADVERSAIRE A QUITTE OU PERDU LA CONNEXION.",
                                    { 255, 255, 255, (uint8)(180 * fade) });
-                // Bouton RETOUR MENU
-                mLostMenuBtnW = 240.0f * mScale;
-                mLostMenuBtnH = 50.0f  * mScale;
+                // Bouton RETOUR MENU (en bas du panneau, marge en %)
+                mLostMenuBtnW = Pct::W(vW, 0.25f, 180.0f, 320.0f);
+                mLostMenuBtnH = Pct::H(vH, 0.075f, 38.0f, 70.0f);
                 mLostMenuBtnX = cx - mLostMenuBtnW * 0.5f;
-                mLostMenuBtnY = py + panelH - mLostMenuBtnH - 18.0f * mScale;
+                mLostMenuBtnY = py + panelH - mLostMenuBtnH - Pct::H(vH, 0.025f, 12.0f, 24.0f);
                 r.DrawQuad       (mLostMenuBtnX, mLostMenuBtnY,
                                   mLostMenuBtnW, mLostMenuBtnH,
                                   { 255, 64, 64, (uint8)(60 * fade) });
@@ -1839,6 +2153,23 @@ namespace nkentseu
                         RequestPauseToggle(ctx);
                         return true;
                     }
+                    if (PointInRect(x, y, mConfigBtnX, mConfigBtnY, mConfigBtnW, mConfigBtnH))
+                    {
+                        // RETOUR CONFIGURATION : on retourne a la scene de
+                        // setup du match (selection bonus/malus, etc.) en
+                        // remplacant l'actuelle. Les options memorisees dans
+                        // ctx.settings sont preservees -> l'user voit son
+                        // setup en cours pre-rempli.
+                        ctx.scenes->Replace(new SelectMatchConfigScene());
+                        return true;
+                    }
+                    if (PointInRect(x, y, mModeBtnX, mModeBtnY, mModeBtnW, mModeBtnH))
+                    {
+                        // CHOIX DU JEU : retour au selecteur de mode (Local 2P,
+                        // Vs IA, IA vs IA, Reseau, ...).
+                        ctx.scenes->Replace(new SelectModeScene());
+                        return true;
+                    }
                     if (PointInRect(x, y, mMenuBtnX, mMenuBtnY, mMenuBtnW, mMenuBtnH))
                     {
                         // RETOUR MENU depuis le panneau Pause : meme logique
@@ -1851,6 +2182,31 @@ namespace nkentseu
                 return false;
             };
 
+            // ── Determination du paddle controle par l'input local ───────────
+            // Retourne 'L', 'R', ou 0 (= pas de controle, ex: 2 IA).
+            //   - Network HOST  : controle paddle L (peu importe ou on touche)
+            //   - Network CLIENT: controle paddle R (peu importe ou on touche)
+            //   - Local 2P (les 2 paddles humains) : split par cote (x < halfW)
+            //   - Local 1v IA  : le joueur humain controle SON paddle peu
+            //     importe ou il touche (l'IA gere son paddle automatiquement).
+            //   - AIvsAI       : aucun paddle controle par l'humain.
+            auto resolveSide = [&](float x) -> char
+            {
+                if (mIsNetwork)
+                {
+                    return mIsHost ? 'L' : 'R';
+                }
+                const bool humanLeft  = !mAILeftEnabled;
+                const bool humanRight = !mAIRightEnabled;
+                if (humanLeft && humanRight)
+                {
+                    return (x < halfW) ? 'L' : 'R';   // local 2P : split
+                }
+                if (humanLeft)  return 'L';
+                if (humanRight) return 'R';
+                return 0;
+            };
+
             // ── Souris (desktop) : drag bouton gauche tenu ──────────────────
             if (auto* mp = ev.As<NkMouseButtonPressEvent>())
             {
@@ -1859,15 +2215,9 @@ namespace nkentseu
                     const float mx = (float)mp->GetX();
                     const float my = (float)mp->GetY();
                     if (handleUIButtons(mx, my)) return;
-                    // Ne PAS prendre le controle d'un paddle pilote par l'IA.
-                    if (mx < halfW)
-                    {
-                        if (!mAILeftEnabled)  { mMouseDownL = true;  mLastMouseY = my; }
-                    }
-                    else
-                    {
-                        if (!mAIRightEnabled) { mMouseDownR = true;  mLastMouseY = my; }
-                    }
+                    const char side = resolveSide(mx);
+                    if      (side == 'L') { mMouseDownL = true; mLastMouseY = my; }
+                    else if (side == 'R') { mMouseDownR = true; mLastMouseY = my; }
                 }
                 return;
             }
@@ -1898,19 +2248,21 @@ namespace nkentseu
                     const NkTouchPoint& tp = tb->GetTouch(i);
                     // Test bouton PAUSE / overlay AVANT le drag paddle
                     if (handleUIButtons(tp.clientX, tp.clientY)) continue;
-                    // Ne PAS prendre le controle d'un paddle pilote par l'IA.
-                    if (tp.clientX < halfW)
+                    // Determine quel paddle controle ce touch :
+                    // network/IA -> peu importe ou on touche, on controle le
+                    // paddle local. Local 2P -> split par cote.
+                    const char side = resolveSide(tp.clientX);
+                    if (side == 'L')
                     {
-                        if (mAILeftEnabled) continue;
                         mTouchIdL    = (long long)tp.id;
                         mLastTouchYL = tp.clientY;
                     }
-                    else
+                    else if (side == 'R')
                     {
-                        if (mAIRightEnabled) continue;
                         mTouchIdR    = (long long)tp.id;
                         mLastTouchYR = tp.clientY;
                     }
+                    // side == 0 -> AIvsAI ou pas autorise : on ignore.
                 }
                 return;
             }

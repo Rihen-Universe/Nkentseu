@@ -23,6 +23,7 @@
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "Pong/UI/UIScale.h"
+#include "Pong/UI/ResponsiveLayout.h"
 #include "NKLogger/NkLog.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -140,13 +141,17 @@ namespace nkentseu
             L.safeW = (float)ctx.safe.SafeW();
             L.safeH = (float)ctx.safe.SafeH();
 
-            // Scale unifie via UIScale (boost mobile inclus).
+            // Scale unifie via UIScale (boost mobile inclus). On garde mScale
+            // pour les bitmaps de police, mais les dimensions geometriques
+            // (padding, gutter, items, panneaux) passent en % de viewport.
             const float scale = GetUIScale(ctx.viewportW, ctx.viewportH);
             L.scale = scale;
-            // Padding et gutter scales (sans clamp upper artificiel — UIScale
-            // a deja clampe le scale).
-            L.padding = math::NkMax(12.0f, 24.0f * scale);
-            L.gutter  = math::NkMax(16.0f, 32.0f * scale);
+            // Padding et gutter responsives : fraction de la plus petite
+            // dimension pour rester proportionnel quel que soit l'aspect.
+            const int   vW = ctx.viewportW;
+            const int   vH = ctx.viewportH;
+            L.padding = Pct::W(vW, 0.020f, 12.0f, 36.0f);
+            L.gutter  = Pct::W(vW, 0.025f, 16.0f, 48.0f);
 
             // Breakpoint : 2 colonnes seulement si on a la place horizontale.
             // En dessous, on passe en single-column (mobile portrait, fenetre
@@ -179,19 +184,20 @@ namespace nkentseu
                 L.slotSmall = FontAtlas::SmallSlot;
             }
 
-            // Dimensions des cards : scale + clamp upper pour eviter overflow
-            // vertical sur mobile haute densite. On calcule la hauteur dispo
-            // pour la liste, puis on plafonne itemH pour que les 5 items + 2
-            // titres de section + footer rentrent en hauteur.
-            L.itemH      = math::NkMax(40.0f, 56.0f * scale);
-            L.itemGap    = math::NkMax( 4.0f,  8.0f * scale);
-            L.sectionH   = math::NkMax(14.0f, 20.0f * scale);
-            L.sectionGap = math::NkMax( 2.0f,  4.0f * scale);
+            // Dimensions des cards en % de hauteur viewport. Les clamps
+            // doux evitent les degeneres sur ecrans extremes (mobile vs 4K).
+            L.itemH      = Pct::H(vH, 0.075f, 40.0f, 84.0f);
+            L.itemGap    = Pct::H(vH, 0.012f,  4.0f, 14.0f);
+            L.sectionH   = Pct::H(vH, 0.028f, 14.0f, 32.0f);
+            L.sectionGap = Pct::H(vH, 0.006f,  2.0f,  8.0f);
 
             const int nItems    = VisibleItemCount();
             const int nSections = 2;
-            const float footerReserveH = 30.0f * scale;  // hint clavier en bas
-            const float headerReserveH = (L.twoCols ? 0.0f : 200.0f);  // si 1 col
+            // Reserves verticales en % de H (footer = hints clavier, header =
+            // hauteur approximative du panneau gauche en mode 1 colonne).
+            const float footerReserveH = Pct::H(vH, 0.045f, 24.0f, 48.0f);
+            const float headerReserveH = L.twoCols ? 0.0f
+                                                   : Pct::H(vH, 0.26f, 140.0f, 260.0f);
             const float availForList = L.safeH - footerReserveH - headerReserveH
                                      - L.padding * 2.0f;
             const float neededList = nSections * (L.sectionH + L.sectionGap + 4.0f)
@@ -206,13 +212,18 @@ namespace nkentseu
 
             if (L.twoCols)
             {
+                // Panneau gauche : 30 % de la largeur safe, clampe pour
+                // garder une colonne lisible mais pas envahissante.
                 L.leftW = Clampf(L.safeW * 0.30f, 220.0f, 360.0f);
                 L.leftX = L.safeX + L.padding;
                 L.listX = L.leftX + L.leftW + L.gutter;
                 L.listW = L.safeW - L.padding * 2.0f - L.leftW - L.gutter;
 
                 L.showMiniField = true;
-                L.miniFieldW    = math::NkMin(L.leftW, 240.0f);
+                // Mini-field dimensionne en % du viewport, plafonne par la
+                // largeur du panneau gauche pour ne jamais deborder.
+                const float maxFieldW = math::NkMin(L.leftW, Pct::W(vW, 0.18f, 140.0f, 280.0f));
+                L.miniFieldW    = maxFieldW;
                 L.miniFieldH    = L.miniFieldW * 120.0f / 180.0f;
             }
             else
@@ -222,11 +233,18 @@ namespace nkentseu
                 L.listX = L.leftX;
                 L.listW = L.leftW;
                 L.showMiniField = (L.safeH >= 520.0f && L.safeW >= 360.0f);
-                L.miniFieldW = L.showMiniField ? math::NkMin(L.leftW, 320.0f) : 0.0f;
+                // En 1 colonne, le mini-field peut prendre plus de place mais
+                // reste plafonne par la largeur disponible.
+                const float maxFieldW = math::NkMin(L.leftW, Pct::W(vW, 0.55f, 180.0f, 360.0f));
+                L.miniFieldW = L.showMiniField ? maxFieldW : 0.0f;
                 L.miniFieldH = L.showMiniField ? L.miniFieldW * 120.0f / 180.0f : 0.0f;
             }
 
             // ── Hauteurs precalculees pour centrage vertical ─────────────────
+            // Les espacements internes du panneau gauche (entre logo / tagline
+            // / mini-field / credit) restent en pixels * mScale parce qu'ils
+            // collent directement a la hauteur des slots de police (kSlotPx),
+            // qui sont eux-memes mScale-dependants.
             const float logoPx  = kSlotPx[(int)L.slotLogo];
             const float smallPx = kSlotPx[(int)L.slotSmall];
 
@@ -243,8 +261,9 @@ namespace nkentseu
                          - L.itemGap;                    // pas de gap apres le dernier
 
             // ── Y de depart centre verticalement ─────────────────────────────
-            // On reserve un footer (~28px) en bas pour les hints clavier.
-            const float footerReserve = 28.0f;
+            // On reserve un footer en % de H pour les hints clavier (avec
+            // clamps doux pour rester lisible).
+            const float footerReserve = Pct::H(vH, 0.040f, 22.0f, 44.0f);
             const float availH = L.safeH - footerReserve;
 
             if (L.twoCols)
@@ -640,18 +659,21 @@ namespace nkentseu
                 if (itemAnim > 1.0f) itemAnim = 1.0f;
                 itemAnim = EaseOutCubic(itemAnim) * enterA;
 
-                // Stocke Y pour hit-test
-                if (i < 5) mCardItemYs[i] = ry;
+                // Stocke Y pour hit-test (cap a kItemCount=6).
+                if (i < (int)MainMenuScene::kItemCount) mCardItemYs[i] = ry;
 
                 const bool focused = (i == mFocusIndex);
                 ry = DrawItemCard(r, f, L, i, ry, focused, mTime, itemAnim);
             }
 
             // ── Footer : hints clavier (toujours visible en bas) ────────────
+            // L'offset vertical du hint est exprime en % de H avec clamp doux,
+            // pour rester lisible sur mobile portrait et grand ecran.
             const math::NkColor hintCol = { 255, 255, 255, 90 };
+            const float hintOffsetY = Pct::H(H, 0.028f, 14.0f, 32.0f);
             f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, L.scale,
                                L.safeX + L.safeW * 0.5f,
-                               L.safeY + L.safeH - 18.0f * L.scale,
+                               L.safeY + L.safeH - hintOffsetY,
                                "FLECHES : NAV       ENTER : SELECT       ECHAP : QUITTER       TAP / CLIC : SELECT",
                                hintCol);
 
@@ -665,7 +687,11 @@ namespace nkentseu
         {
             if (px < mCardListX || px > mCardListX + mCardListW) return -1;
             const int vc = VisibleItemCount();
-            for (int i = 0; i < vc && i < 5; ++i)
+            // Cap a la taille de mCardItemYs (=kItemCount=6). L'ancien cap
+            // arbitraire a 5 empechait le hit-test du bouton QUITTER (index 5
+            // sur desktop), forcait l'user a passer par le clavier.
+            const int cap = (int)MainMenuScene::kItemCount;
+            for (int i = 0; i < vc && i < cap; ++i)
             {
                 const float y0 = mCardItemYs[i];
                 const float y1 = y0 + mCardItemH;

@@ -21,7 +21,10 @@ _TC_WINDOWS = "nk-windows-clang-mingw"
 with project("NKAudio"):
     useglobalkind("audio")
     language("C++")
-    cppdialect("C++20")
+    # C++17 (au lieu de C++20) : Android NDK r27 jni.h utilise va_list&
+    # non-const qui ne compile pas en C++20 strict. C++17 suffit pour NKAudio
+    # (pas de concepts/coroutines/etc. utilises).
+    cppdialect("C++17")
     location(".")
 
     includedirs([
@@ -31,6 +34,8 @@ with project("NKAudio"):
         "%{NKCore.location}/src",
         "%{NKMemory.location}/src",
         "%{NKContainers.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKThreading.location}/src",
     ])
 
     pchheader("pch/pch.h")
@@ -41,6 +46,8 @@ with project("NKAudio"):
         "NKCore",
         "NKMemory",
         "NKContainers",
+        "NKLogger",
+        "NKThreading",
     ])
 
     files([
@@ -53,7 +60,15 @@ with project("NKAudio"):
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
 
-    defines(["NKENTSEU_BUILDING_AUDIO", "NKENTSEU_AUDIO_STATIC"])
+    # Mode build : statique par défaut (cohérent avec les autres modules
+    # Nkentseu). NkAudioApi.h reconnait NKENTSEU_AUDIO_STATIC_LIB pour
+    # neutraliser les decorations d'export. Idem pour NKLogger qu'on inclut
+    # depuis NkAudioBackends.cpp pour les logs WASAPI.
+    defines([
+        "NKENTSEU_AUDIO_STATIC_LIB",
+        "NKENTSEU_LOGGER_STATIC_LIB",
+        "NKENTSEU_CORE_STATIC_LIB",
+    ])
 
     # ── Configurations ────────────────────────────────────────────────────────
 
@@ -61,21 +76,16 @@ with project("NKAudio"):
         defines(["_DEBUG", "DEBUG", "NKENTSEU_DEBUG"])
         optimize("Off")
         symbols(True)
-        flags(["NoRuntimeChecks"])
 
     with filter("config:Release"):
         defines(["NDEBUG", "RELEASE", "NKENTSEU_RELEASE"])
         optimize("Speed")
         symbols(False)
-        flags(["LinkTimeOptimization"])
-        vectorextensions("AVX2")    # SIMD pour le mixage Float32
 
     with filter("config:Distribution"):
         defines(["NDEBUG", "DISTRIBUTION", "NKENTSEU_DISTRIBUTION"])
         optimize("Speed")
         symbols(False)
-        flags(["LinkTimeOptimization"])
-        vectorextensions("AVX2")
 
     # ── Toolchains par plateforme ─────────────────────────────────────────────
 
@@ -106,7 +116,12 @@ with project("NKAudio"):
 
     with filter("system:Android"):
         usetoolchain("android-ndk")
-        links(["aaudio", "OpenSLES"])
+        # Compatible Android 24+. Au runtime :
+        #   - Android 26+ : AAudio (charge via dlopen, latence ~5ms)
+        #   - Android 24-25 : OpenSL ES fallback (latence ~30ms)
+        # dl pour dlopen/dlsym + OpenSLES (link statique, dispo depuis API 9).
+        androidminsdk(24)
+        links(["dl", "OpenSLES"])
 
     with filter("system:Linux"):
         usetoolchain("clang-native")
@@ -114,8 +129,6 @@ with project("NKAudio"):
 
     with filter("system:Web"):
         usetoolchain("emscripten")
-        # WebAudio via Emscripten
-        linkoptions(["-s", "USE_SDL=0", "-s", "ASYNCIFY"])
 
     with filter("system:XboxSeries || system:XboxOne"):
         usetoolchain("xbox-clang")

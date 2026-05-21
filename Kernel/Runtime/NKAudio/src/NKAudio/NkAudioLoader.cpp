@@ -11,7 +11,7 @@
 // INCLUDES
 // ============================================================
 
-#include "NkAudio.h"
+#include "NKAudio.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKCore/NkMacros.h"
 #include "NKMemory/NkAllocator.h"
@@ -93,11 +93,8 @@ namespace {
             if (len <= 0) { fclose(f); return false; }
 
             size = (nkentseu::usize)len;
-            if (alloc) {
-                data = (nkentseu::uint8*)alloc->Allocate(size, 1);
-            } else {
-                data = (nkentseu::uint8*)::operator new(size);
-            }
+            // Allocateur unifie : nullptr -> defaut global via NKMemory.
+            data = (nkentseu::uint8*)nkentseu::memory::NkAlloc(size, alloc);
             if (!data) { fclose(f); return false; }
 
             fread(data, 1, size, f);
@@ -107,11 +104,7 @@ namespace {
 
         ~FileBuffer() {
             if (data) {
-                if (alloc) {
-                    alloc->Free(data);
-                } else {
-                    ::operator delete(data);
-                }
+                nkentseu::memory::NkFree(data, alloc);
                 data = nullptr;
             }
         }
@@ -302,14 +295,10 @@ namespace nkentseu {
 
             usize frameCount = pcmSize / (numChannels * bytesPerSample);
 
-            // Allouer le buffer Float32 de sortie
+            // Allouer le buffer Float32 de sortie via NKMemory (unifie).
             usize sampleCount = frameCount * numChannels;
-            float32* outData = nullptr;
-            if (allocator) {
-                outData = (float32*)allocator->Allocate(sampleCount * sizeof(float32), sizeof(float32));
-            } else {
-                outData = (float32*)::operator new(sampleCount * sizeof(float32));
-            }
+            float32* outData = (float32*)memory::NkAlloc(
+                sampleCount * sizeof(float32), allocator, sizeof(float32));
             if (!outData) return result;
 
             // Conversion vers Float32
@@ -347,8 +336,7 @@ namespace nkentseu {
                     }
                 } else {
                     // Format non géré
-                    if (allocator) allocator->Free(outData);
-                    else ::operator delete(outData);
+                    memory::NkFree(outData, allocator);
                     return result;
                 }
             }
@@ -464,9 +452,9 @@ namespace nkentseu {
             if (!sample.data) return;
 
             if (sample.mAllocator) {
-                sample.mAllocator->Free(sample.data);
+                sample.mAllocator->Deallocate(sample.data);
             } else {
-                ::operator delete(sample.data);
+                memory::NkFree(sample.data);
             }
             sample.data       = nullptr;
             sample.frameCount = 0;
@@ -494,12 +482,9 @@ namespace nkentseu {
             usize  newFrames  = (usize)((double)sample.frameCount * ratio);
             int32  ch         = sample.channels;
 
-            float32* newData = nullptr;
-            if (sample.mAllocator) {
-                newData = (float32*)sample.mAllocator->Allocate(newFrames * (usize)ch * sizeof(float32), sizeof(float32));
-            } else {
-                newData = (float32*)::operator new(newFrames * (usize)ch * sizeof(float32));
-            }
+            float32* newData = (float32*)memory::NkAlloc(
+                newFrames * (usize)ch * sizeof(float32),
+                sample.mAllocator, sizeof(float32));
             if (!newData) return;
 
             for (usize outFrame = 0; outFrame < newFrames; ++outFrame) {
@@ -517,8 +502,7 @@ namespace nkentseu {
             }
 
             // Remplacer le buffer
-            if (sample.mAllocator) sample.mAllocator->Free(sample.data);
-            else ::operator delete(sample.data);
+            memory::NkFree(sample.data, sample.mAllocator);
 
             sample.data        = newData;
             sample.frameCount  = newFrames;
@@ -539,13 +523,9 @@ namespace nkentseu {
             if (!sample.IsValid() || sample.channels == targetChannels) return;
 
             usize   newCount = sample.frameCount * (usize)targetChannels;
-            float32* newData = nullptr;
-
-            if (sample.mAllocator) {
-                newData = (float32*)sample.mAllocator->Allocate(newCount * sizeof(float32), sizeof(float32));
-            } else {
-                newData = (float32*)::operator new(newCount * sizeof(float32));
-            }
+            float32* newData = (float32*)memory::NkAlloc(
+                newCount * sizeof(float32),
+                sample.mAllocator, sizeof(float32));
             if (!newData) return;
 
             int32 srcCh = sample.channels;
@@ -572,8 +552,7 @@ namespace nkentseu {
                 }
             }
 
-            if (sample.mAllocator) sample.mAllocator->Free(sample.data);
-            else ::operator delete(sample.data);
+            memory::NkFree(sample.data, sample.mAllocator);
 
             sample.data     = newData;
             sample.channels = dstCh;

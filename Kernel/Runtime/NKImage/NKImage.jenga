@@ -59,15 +59,15 @@ with project("NKImage"):
         "src/NKImage/Codecs/BMP/NkBMPCodec.cpp",
         "src/NKImage/Codecs/TGA/NkTGACodec.cpp",
         "src/NKImage/Codecs/HDR/NkHDRCodec.cpp",
+        "src/NKImage/Codecs/EXR/NkEXRCodec.cpp",
         "src/NKImage/Codecs/PPM/NkPPMCodec.cpp",
         "src/NKImage/Codecs/QOI/NkQOICodec.cpp",
         "src/NKImage/Codecs/GIF/NkGIFCodec.cpp",
         "src/NKImage/Codecs/ICO/NkICOCodec.cpp",
         "src/NKImage/Codecs/WEBP/NkWebPCodec.cpp",
-        # SVG
+        # SVG (reecrit from scratch 2026-05-19 inspire NanoSVG, mono-fichier)
+        # NkSVGDOM.cpp + NkSVGRenderer.cpp retires (pipeline DOM inutilise).
         "src/NKImage/Codecs/SVG/NkSVGCodec.cpp",
-        "src/NKImage/Codecs/SVG/NkSVGDOM.cpp",
-        "src/NKImage/Codecs/SVG/NkSVGRenderer.cpp",
         # Backend STB (alternatif pendant développement des codecs natifs)
         # "src/NKImage/Codecs/STB/NkSTBCodec.cpp",
         # Headers (pour IDEs)

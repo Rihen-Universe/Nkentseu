@@ -8,6 +8,7 @@
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "Pong/UI/UIScale.h"
+#include "Pong/UI/ResponsiveLayout.h"
 #include "NKLogger/NkLog.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -66,35 +67,32 @@ namespace nkentseu
               kIllModes },
 
             { "RESEAU — COMMENT SE CONNECTER",
-              "PORT UTILISE : 7777 (TCP/UDP). UN JOUEUR HEBERGE,\n"
-              "L'AUTRE TAPE L'IP DE L'HOTE POUR LE REJOINDRE.\n"
+              "AU DEMARRAGE, PONG TE DONNE UN IDENTIFIANT UNIQUE\n"
+              "AU FORMAT : PAYS/VILLE-CODE\n"
+              "(EX: CAMEROUN/DOUALA-047281639). CET IDENTIFIANT EST\n"
+              "TA CARTE DE VISITE SUR LE RESEAU.\n"
               "\n"
-              "1. 2 PCS MEME WIFI / LAN :\n"
+              "1. 2 APPAREILS SUR LE MEME WIFI (LAN) :\n"
               "   - HOTE : OUVRE LE LOBBY, CLIQUE HEBERGER.\n"
-              "   - HOTE : TROUVE SON IP LOCALE (CMD `IPCONFIG` SUR\n"
-              "     WINDOWS, `IP ADDR` SUR LINUX) — EX: 192.168.1.45.\n"
-              "   - INVITE : REJOINDRE, TAPE 192.168.1.45 -> CONNECTER.\n"
+              "   - HOTE : ATTENDS QU'UN INVITE TE REJOIGNE.\n"
+              "   - INVITE : CLIQUE REJOINDRE, LA LISTE DES HOTES\n"
+              "     VISIBLES APPARAIT AVEC LEUR PAYS/VILLE-CODE.\n"
+              "   - INVITE : TAPE SUR LE NOM DE L'HOTE POUR LE\n"
+              "     REJOINDRE — AUCUNE IP A SAISIR.\n"
               "\n"
-              "2. 2 TELEPHONES MEME WIFI :\n"
-              "   - HOTE : VOIR REGLAGES > WIFI > DETAILS DU RESEAU\n"
-              "     POUR LIRE SON IP LOCALE (EX: 192.168.1.78).\n"
-              "   - INVITE : REJOINDRE, TAPE CETTE IP -> CONNECTER.\n"
+              "2. 2 APPAREILS DE RESEAUX DIFFERENTS (INTERNET) :\n"
+              "   - PAS ENCORE SUPPORTE EN V1 (CHANTIER EN COURS).\n"
+              "   - PROCHAINEMENT : MATCHMAKING PAR SERVEUR DEDIE\n"
+              "     QUI ASSOCIERA LES PAYS/VILLE-CODE A TRAVERS\n"
+              "     LE MONDE.\n"
               "\n"
-              "3. 2 APPAREILS DE RESEAUX DIFFERENTS (INTERNET) :\n"
-              "   - HOTE : OUVRIR LE PORT 7777 SUR SON BOX/ROUTEUR\n"
-              "     (NAT PORT FORWARDING -> SON IP LOCALE PRIVE).\n"
-              "   - HOTE : RECUPERER SON IP PUBLIQUE\n"
-              "     (PAR EX. SUR WHATISMYIP.COM) -> EX: 88.123.45.6.\n"
-              "   - INVITE : REJOINDRE, TAPE L'IP PUBLIQUE.\n"
-              "   - ALTERNATIVE : RELAIS / TUNNEL (HAMACHI, ZEROTIER,\n"
-              "     TAILSCALE) POUR EVITER LE PORT FORWARDING.\n"
-              "\n"
-              "4. PC + EMULATEUR ANDROID :\n"
-              "   - DEPUIS L'EMULATEUR, L'IP DE L'HOTE PC EST 10.0.2.2\n"
-              "     (PAS 127.0.0.1, QUI POINTE SUR L'EMULATEUR).\n"
+              "3. VALIDATION DU CHALLENGER (PHASE B EN COURS) :\n"
+              "   - SI PLUSIEURS INVITES TENTENT DE TE REJOINDRE,\n"
+              "     L'HOTE CHOISIRA QUEL JOUEUR ACCEPTER POUR LE\n"
+              "     MATCH ; LES AUTRES SERONT REFUSES.\n"
               "\n"
               "ASTUCE DEBUG : 2 INSTANCES PONG SUR LE MEME PC ->\n"
-              "L'INVITE TAPE 127.0.0.1 ET CONNECTE.",
+              "L'INVITE VERRA L'HOTE DANS SA LISTE.",
               kIllNone },
 
             { "PARAMETRES DU MATCH",
@@ -628,8 +626,11 @@ namespace nkentseu
             r.Begin(W, H);
 
             // ── Zone top reservee (header sticky) ──────────────────────────
-            mTopReserve    = 70.0f * scale;
-            mBottomReserve = 18.0f * scale;
+            // Layout responsive en % viewport (2026-05-19) : on garde `scale`
+            // UNIQUEMENT pour DrawStringScaled (bitmaps police) et epaisseurs
+            // d'outline. Les positions / boites sont en fractions de W/H.
+            mTopReserve    = Pct::H(H, 0.095f, 56.0f, 110.0f);
+            mBottomReserve = Pct::H(H, 0.025f, 12.0f,  30.0f);
             const float scrollTop = (float)ctx.safe.TopY() + mTopReserve;
             const float scrollBot = (float)ctx.safe.TopY() + (float)ctx.safe.SafeH()
                                   - mBottomReserve;
@@ -637,28 +638,38 @@ namespace nkentseu
 
             // Geometrie du header (sticky). Le rendu visible du header est
             // fait EN DERNIER pour passer par-dessus le contenu scrollable.
-            mBackW = 90.0f * scale;
-            mBackH = 36.0f * scale;
-            mBackX = (float)ctx.safe.LeftX() + 14.0f * scale;
-            mBackY = (float)ctx.safe.TopY()  + 16.0f * scale;
+            mBackW = Pct::W(W, 0.10f,  70.0f, 140.0f);
+            mBackH = Pct::H(H, 0.055f, 32.0f,  56.0f);
+            mBackX = (float)ctx.safe.LeftX() + Pct::W(W, 0.012f, 8.0f, 24.0f);
+            mBackY = (float)ctx.safe.TopY()  + Pct::H(H, 0.020f, 8.0f, 28.0f);
 
             // ── Contenu scrollable (accordion) ────────────────────────────
             // Chaque section est une barre cliquable. Si la section est
             // ouverte (mExpandedSection == s), on affiche son corps en
             // dessous. Sinon, seulement le titre. Click sur un titre
             // bascule l'etat (et ferme l'ancien si different).
-            const float gridLeft = safeX + 24.0f * scale;
-            const float availW   = safeW - 48.0f * scale;
-            const float titleBarH = 44.0f * scale;
-            const float lineH     = 18.0f * scale;
-            const float sectionGap = 10.0f * scale;
+            const float sideMargin = Pct::W(W, 0.020f, 12.0f, 36.0f);
+            const float gridLeft = safeX + sideMargin;
+            const float availW   = safeW - sideMargin * 2.0f;
+            const float titleBarH = Pct::H(H, 0.060f, 36.0f,  64.0f);
+            const float lineH     = Pct::H(H, 0.026f, 14.0f,  26.0f);
+            const float sectionGap = Pct::H(H, 0.014f, 6.0f,  18.0f);
 
             mTitleX = gridLeft;
             mTitleW = availW;
             mTitleH = titleBarH;
             mNumSections = (kSectionsN > kMaxSections) ? kMaxSections : kSectionsN;
 
-            float worldY = 4.0f * scale;
+            // Paddings internes responsive.
+            const float titlePadL  = Pct::W(W, 0.014f, 10.0f, 24.0f);
+            const float chevPadR   = Pct::W(W, 0.024f, 16.0f, 36.0f);
+            const float titleClipMargin = Pct::H(H, 0.006f, 3.0f, 8.0f);
+            const float bodyTopGap = Pct::H(H, 0.010f, 4.0f, 12.0f);
+            const float bodyEndGap = Pct::H(H, 0.014f, 6.0f, 14.0f);
+            const float illGap     = Pct::H(H, 0.010f, 4.0f, 12.0f);
+            const float bodyClip   = Pct::H(H, 0.028f, 12.0f, 28.0f);
+
+            float worldY = Pct::H(H, 0.006f, 2.0f, 8.0f);
             for (int s = 0; s < mNumSections; ++s)
             {
                 const RulesSection& sec = kSections[s];
@@ -667,8 +678,8 @@ namespace nkentseu
                 const bool  isOpen = (s == mExpandedSection);
 
                 // Barre titre cliquable : fond + outline + texte + chevron.
-                if (screenTitleY + titleBarH >= scrollTop - 4.0f * scale
-                 && screenTitleY <= scrollBot + 4.0f * scale)
+                if (screenTitleY + titleBarH >= scrollTop - titleClipMargin
+                 && screenTitleY <= scrollBot + titleClipMargin)
                 {
                     math::NkColor bg = isOpen
                         ? math::NkColor{ 0, 245, 255, (uint8_t)(50  * enterA) }
@@ -685,14 +696,14 @@ namespace nkentseu
                         ? math::NkColor{ 255, 255, 255, (uint8_t)(255 * enterA) }
                         : math::NkColor{ 255, 255, 255, (uint8_t)(220 * enterA) };
                     f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
-                                 gridLeft + 16.0f * scale,
+                                 gridLeft + titlePadL,
                                  screenTitleY + titleBarH * 0.22f,
                                  sec.title, txt);
 
                     // Chevron a droite : "v" si ferme, "^" si ouvert.
                     const char* chev = isOpen ? "-" : "+";
                     f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
-                                 gridLeft + availW - 28.0f * scale,
+                                 gridLeft + availW - chevPadR,
                                  screenTitleY + titleBarH * 0.22f,
                                  chev, txt);
                 }
@@ -701,8 +712,8 @@ namespace nkentseu
                 // Corps : visible uniquement si cette section est ouverte.
                 if (isOpen)
                 {
-                    const float bodyPad = 12.0f * scale;
-                    worldY += 6.0f * scale;  // gap titre/corps
+                    const float bodyPad = Pct::W(W, 0.018f, 10.0f, 22.0f);
+                    worldY += bodyTopGap;  // gap titre/corps
 
                     // Illustration au-dessus du texte : icones procedurales
                     // specifiques (obstacles, bonus, malus, modes, etc.).
@@ -713,14 +724,14 @@ namespace nkentseu
                     const float illH = IllustrationHeight(sec.illustration, scale);
                     const float illScreenY = worldY - mScrollY + scrollTop;
                     if (illH > 0.0f
-                     && illScreenY + illH >= scrollTop - 8.0f * scale
-                     && illScreenY <= scrollBot + 8.0f * scale)
+                     && illScreenY + illH >= scrollTop - bodyClip
+                     && illScreenY <= scrollBot + bodyClip)
                     {
                         DrawIllustration(r, f, sec.illustration,
                                          illX, illScreenY, illW, scale, mTime);
                     }
                     worldY += illH;
-                    if (illH > 0.0f) worldY += 6.0f * scale;  // gap entre illustration et corps
+                    if (illH > 0.0f) worldY += illGap;  // gap entre illustration et corps
 
                     const char* p = sec.body;
                     while (*p)
@@ -734,8 +745,8 @@ namespace nkentseu
                         line[li] = '\0';
                         if (*p == '\n') ++p;
                         const float screenLY = worldY - mScrollY + scrollTop;
-                        if (screenLY >= scrollTop - 20.0f * scale
-                         && screenLY <= scrollBot + 20.0f * scale)
+                        if (screenLY >= scrollTop - bodyClip
+                         && screenLY <= scrollBot + bodyClip)
                         {
                             math::NkColor c = { 255, 255, 255, (uint8_t)(220 * enterA) };
                             f.DrawStringScaled(r, FontAtlas::BodySlot, scale,
@@ -743,7 +754,7 @@ namespace nkentseu
                         }
                         worldY += lineH;
                     }
-                    worldY += 8.0f * scale;  // gap fin de corps
+                    worldY += bodyEndGap;  // gap fin de corps
                 }
                 worldY += sectionGap;
             }
@@ -757,13 +768,15 @@ namespace nkentseu
             // ── Scrollbar minimaliste a droite si overflow ─────────────────
             if (mMaxScroll > 0.5f)
             {
-                const float sbW = 4.0f * scale;
-                const float sbX = safeX + safeW - sbW - 3.0f * scale;
-                const float sbY = scrollTop + 2.0f * scale;
-                const float sbH = scrollH - 4.0f * scale;
+                const float sbW = Pct::W(W, 0.006f, 3.0f, 8.0f);
+                const float sbX = safeX + safeW - sbW - Pct::W(W, 0.004f, 2.0f, 6.0f);
+                const float sbInset = Pct::H(H, 0.004f, 1.0f, 4.0f);
+                const float sbY = scrollTop + sbInset;
+                const float sbH = scrollH - sbInset * 2.0f;
                 r.DrawQuad(sbX, sbY, sbW, sbH, { 255, 255, 255, 16 });
                 const float frac = scrollH / contentH;
-                const float thumbH = math::NkMax(20.0f * scale, sbH * frac);
+                const float thumbMin = Pct::H(H, 0.030f, 16.0f, 36.0f);
+                const float thumbH = math::NkMax(thumbMin, sbH * frac);
                 const float thumbY = sbY
                                    + (sbH - thumbH) * (mScrollY / mMaxScroll);
                 r.DrawQuad(sbX, thumbY, sbW, thumbH,
@@ -773,10 +786,11 @@ namespace nkentseu
             // ── Header sticky OPAQUE (dessine en DERNIER pour masquer ce
             // qui scrolle dessous). Bande horizontale + RETOUR + titre.
             {
+                const float hdrSep = Pct::H(H, 0.0035f, 1.5f, 4.0f);
                 math::NkColor headerBg = theme::Dark();
                 headerBg.a = 240;
-                r.DrawQuad(0.0f, 0.0f, (float)W, scrollTop - 2.0f * scale, headerBg);
-                r.DrawQuad(0.0f, scrollTop - 2.0f * scale, (float)W, 2.0f * scale,
+                r.DrawQuad(0.0f, 0.0f, (float)W, scrollTop - hdrSep, headerBg);
+                r.DrawQuad(0.0f, scrollTop - hdrSep, (float)W, hdrSep,
                            { 0, 245, 255, 120 });
                 r.DrawQuad       (mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 30 });
                 r.DrawQuadOutline(mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 200 }, 1.5f);
@@ -786,7 +800,7 @@ namespace nkentseu
                                    "RETOUR", theme::Cyan());
                 f.DrawStringCenteredScaled(r, FontAtlas::HeadlineSlot, scale,
                                    (float)W * 0.5f,
-                                   (float)ctx.safe.TopY() + 18.0f * scale,
+                                   (float)ctx.safe.TopY() + Pct::H(H, 0.024f, 10.0f, 32.0f),
                                    "REGLES DU JEU", theme::White());
             }
 

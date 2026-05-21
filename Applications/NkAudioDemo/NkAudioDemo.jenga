@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkAudioDemo — Console app pour tester NKAudio (load WAV + Play via WASAPI)
+# =============================================================================
+# But : Smoke test du module audio Nkentseu. Charge un WAV depuis Resources/
+# Audio/, le passe a AudioEngine::Play() via le backend natif de la plateforme
+# (WASAPI Windows / CoreAudio macOS / ALSA Linux / Oboe Android), et attend
+# la fin de lecture. Si on entend le son => NKAudio est fonctionnel.
+# =============================================================================
+
+from Jenga import *
+from config import *
+import os
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+with project("NkAudioDemo"):
+    useappdeps("platform", "core", "memory", "containers", "math", "threading",
+               "logger")
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    includedirs([
+        "src",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKAudio.location}/src",
+    ])
+
+    links([
+        "NKLogger", "NKAudio", "NKContainers", "NKMemory", "NKCore",
+        "NKPlatform", "NKThreading", "NKMath",
+    ])
+    dependson([
+        "NKLogger", "NKAudio", "NKContainers", "NKMemory", "NKCore",
+        "NKPlatform", "NKThreading", "NKMath",
+    ])
+
+    # Tous les modules sont link en static -> on neutralise les decorations
+    # d'import/export pour eviter les undefined refs `__imp_*` cote consumer.
+    defines([
+        "NKENTSEU_AUDIO_STATIC_LIB",
+        "NKENTSEU_LOGGER_STATIC_LIB",
+        "NKENTSEU_CORE_STATIC_LIB",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("1.0.0")
+
+    # Embarque le dossier audio test (cf src/main.cpp).
+    dependfiles(["../../Resources/Audio"])
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp"):
+        usetoolchain(_TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        # WASAPI deps : ole32 + mmdevapi + avrt
+        links(["ole32", "winmm", "avrt", "uuid"])
+
+    # ===== Linux ==============================================================
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread", "asound", "m"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["AudioToolbox", "CoreAudio", "CoreFoundation"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

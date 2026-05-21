@@ -42,6 +42,7 @@ namespace nkentseu { namespace demo {
     bool Demo5_Materials_Init       (DemoCtx&); void Demo5_Materials_Frame   (DemoCtx&, float32); void Demo5_Materials_Shutdown   (DemoCtx&);
     bool Demo6_HierarchicalMaterials_Init(DemoCtx&); void Demo6_HierarchicalMaterials_Frame(DemoCtx&, float32); void Demo6_HierarchicalMaterials_Shutdown(DemoCtx&);
     bool Demo7_MaterialFunctions_Init    (DemoCtx&); void Demo7_MaterialFunctions_Frame    (DemoCtx&, float32); void Demo7_MaterialFunctions_Shutdown    (DemoCtx&);
+    bool Demo9_Glow2D_Init               (DemoCtx&); void Demo9_Glow2D_Frame               (DemoCtx&, float32); void Demo9_Glow2D_Shutdown               (DemoCtx&);
     bool Demo8_LayeredV1_Init            (DemoCtx&); void Demo8_LayeredV1_Frame            (DemoCtx&, float32); void Demo8_LayeredV1_Shutdown            (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
@@ -61,6 +62,8 @@ namespace nkentseu { namespace demo {
             Demo7_MaterialFunctions_Init, Demo7_MaterialFunctions_Frame, Demo7_MaterialFunctions_Shutdown },
         { "Materials8", "M.1 v1 Material Layering N=8 layers (masks vColor/vUV/const)",
             Demo8_LayeredV1_Init, Demo8_LayeredV1_Frame, Demo8_LayeredV1_Shutdown },
+        { "Materials9", "Phase E Materials 2D v0 (Glow2D sprite, future unifie NkMaterial)",
+            Demo9_Glow2D_Init, Demo9_Glow2D_Frame, Demo9_Glow2D_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -128,6 +131,11 @@ namespace nkentseu { namespace demo {
                 c.shadow.pcss         = false;
                 return c;
             }
+            case 8: {
+                // Demo9 Phase E Materials 2D : 2D only, pas de shadows ni 3D.
+                // Config For2D allege la scene (pas de PBR/IBL/shadow).
+                return NkRendererConfig::For2D(api, w, h);
+            }
             default: return NkRendererConfig::ForGame(api, w, h);
         }
     }
@@ -149,6 +157,7 @@ int nkmain(const NkEntryState& state) {
     if (demoIx == 6) demoIx = 5;
     if (demoIx == 7) demoIx = 6;
     if (demoIx == 8) demoIx = 7;
+    if (demoIx == 9) demoIx = 8;
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 

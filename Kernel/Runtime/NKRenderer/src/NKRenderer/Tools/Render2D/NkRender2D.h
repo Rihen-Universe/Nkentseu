@@ -92,6 +92,23 @@ namespace nkentseu {
                 void SetIsoTransform(float32 m00, float32 m01, float32 m10, float32 m11);
                 void SetIsoTransformIdentity() { SetIsoTransform(1.f, 0.f, 0.f, 1.f); }
 
+                // ── Phase E Materials 2D : Glow sprite ─────────────────────────────────
+                // SetGlowParams() configure la couleur + intensite + power du
+                // halo radial (rim) ajoute en additive sur les DrawSpriteGlow
+                // suivants. Appliques jusqu'au prochain SetGlowParams.
+                //   color     : couleur RGB du halo (multiplie par intensity)
+                //   intensity : 0..4+ (combien le halo "brille")
+                //   power     : 0.5..8 (concentration au bord ; haut = bord fin)
+                void SetGlowParams(NkVec3f color, float32 intensity = 1.f,
+                                    float32 power = 3.f);
+                // Dessine un sprite avec le pipeline Glow2D (1 quad, pas batche
+                // — donc plus couteux que DrawSprite ; reserver aux objets clefs
+                // comme power-ups / projectiles / UI accent). Le tint multiplie
+                // la texture comme un DrawSprite standard.
+                void DrawSpriteGlow(NkRectF dst, NkTexHandle tex,
+                                     NkVec4f tint = {1,1,1,1},
+                                     NkRectF uv  = {0,0,1,1});
+
                 // ── Sprites ────────────────────────────────────────────────────────────
                 void DrawSprite(NkRectF dst, NkTexHandle tex, NkVec4f tint={1,1,1,1}, NkRectF uv={0,0,1,1});
                 void DrawSpriteRotated(NkRectF dst, NkTexHandle tex, float32 angleDeg, NkVec2f pivot={0.5f,0.5f}, NkVec4f tint={1,1,1,1}, NkRectF uv={0,0,1,1});
@@ -149,6 +166,12 @@ namespace nkentseu {
                 NkBufferHandle    mUBOShadows2D;      // Phase E.5 : circle shadow casters
                 NkBufferHandle    mUBOShadowsAABB2D;  // Phase E.7a : AABB shadow casters
                 NkPipelineHandle  mPipeAlpha, mPipeAdd, mPipeOpaque;
+                // Phase E Materials 2D — pipeline Glow + buffers dedies pour 1 quad.
+                NkPipelineHandle  mPipeGlow;
+                NkBufferHandle    mVBOGlow;           // 4 vertices Vert2D
+                NkBufferHandle    mIBOGlow;           // 6 indices uint16
+                NkVec4f           mGlowColor   = {1.f, 0.5f, 0.1f, 1.f};
+                NkVec4f           mGlowParams  = {3.f, 1.f, 0.f, 0.f}; // x=power
                 NkDescSetHandle   mTexLayout, mTexSet;
                 NkSamplerHandle   mLinearSampler;
                 bool              mLitMode = false;

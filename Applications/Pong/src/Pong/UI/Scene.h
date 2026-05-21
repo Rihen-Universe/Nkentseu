@@ -65,6 +65,14 @@ namespace nkentseu
             /// Appele quand l'app revient au foreground.
             virtual void OnResume(AppContext& /*ctx*/) {}
 
+            /// Appele quand la scene revient en haut de stack apres qu'une
+            /// scene enfant a ete Pop. Permet de re-armer un grace period
+            /// anti auto-trigger : si le user click RETOUR sur la scene
+            /// enfant et que le bouton de retour de cette scene est au meme
+            /// endroit que sur celle-ci, le release/touch-end fuite et
+            /// retrigger un Pop ici aussi (cf bug Pong Options > Tutoriel).
+            virtual void OnResumedFromChild(AppContext& /*ctx*/) {}
+
             /// Appele juste avant destruction.
             virtual void OnExit(AppContext& /*ctx*/) {}
         };

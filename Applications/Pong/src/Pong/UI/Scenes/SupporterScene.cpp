@@ -23,8 +23,10 @@
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "Pong/UI/UIScale.h"
+#include "Pong/UI/ResponsiveLayout.h"
 #include "NKLogger/NkLog.h"
 #include "NKWindow/Core/NkEvent.h"
+#include "NKWindow/Core/NkLauncher.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
@@ -37,32 +39,60 @@ namespace nkentseu
     namespace pong
     {
 
-        // ── Configuration externe (placeholders) ────────────────────────────
-        static constexpr const char* kDonateBaseUrl = "https://rihen.example/donate";
+        // ── Configuration externe ────────────────────────────────────────────
+        // 2026-05-19 : pas de site dedie Rihen Universe pour l'instant. On
+        // utilise la page LinkedIn officielle comme fallback pour le partage
+        // et la donation (en attendant un domaine propre / page Ko-fi / etc.).
+        static constexpr const char* kDonateBaseUrl =
+            "https://www.linkedin.com/company/rihen-universe";
         static constexpr const char* kShareText =
             "Decouvre Pong Ultra Arena — un Pong avec obstacles, bonus, malus et IA.";
-        static constexpr const char* kShareUrl  = "https://rihen.example/pong";
+        static constexpr const char* kShareUrl  =
+            "https://www.linkedin.com/company/rihen-universe";
 
-        // Identifiants paiement directs (placeholders).
+        // Identifiants paiement directs. Mis a jour 2026-05-19 avec les
+        // vraies coordonnees de l'auteur (Cameroun, +237). Visa/MC et PayPal
+        // a venir bientot via un agregateur (Ko-fi / Stripe / CinetPay).
         struct PayId { const char* label; const char* value; math::NkColor accent; };
         static const PayId kPayIds[] = {
-            { "ORANGE MONEY", "+241 XX XX XX XX",       { 255, 107,   0, 255 } },
-            { "MTN MOBILE MONEY", "+241 XX XX XX XX",   { 255, 215,   0, 255 } },
-            { "WAVE",  "+241 XX XX XX XX",              {   0, 200, 255, 255 } },
-            { "PAYPAL", "rihen@example.com",            {  20,  90, 200, 255 } },
-            { "VISA / MC", "VIA AGREGATEUR (BIENTOT)",  { 204, 119, 255, 255 } },
+            { "ORANGE MONEY",     "+237 693 76 17 73",            { 255, 107,   0, 255 } },
+            { "MTN MOBILE MONEY", "+237 673 48 26 14",            { 255, 215,   0, 255 } },
+            { "VISA / MC",        "BIENTOT (VIA AGREGATEUR)",     { 204, 119, 255, 255 } },
         };
         static constexpr int kPayIdsN = (int)(sizeof(kPayIds) / sizeof(kPayIds[0]));
 
-        // Reseaux sociaux (placeholders).
+        // Reseaux sociaux. Mis a jour 2026-05-19 avec les comptes officiels
+        // Rihen Universe. Les vraies icones sont stockees dans
+        // Resources/Pong/Textures/socials/ et chargees dans OnEnter.
+        // Le champ `badge` reste un fallback texte en cas d'echec de chargement
+        // (assets manquants, decodeur SVG defaillant, etc.) — garantit que les
+        // boutons restent reconnaissables meme sans assets.
+        // Note : "linkdin.png" est volontaire (typo du fichier source). Le
+        // github en SVG est gere par NkSVGCodec via NkImage::Load.
         struct Social { const char* name; const char* handle; const char* url;
-                         math::NkColor accent; const char* badge; };
+                         math::NkColor accent; const char* badge;
+                         const char* iconPath; };
         static const Social kSocials[SupporterScene::kSocialCount] = {
-            { "LINKEDIN",  "@rihen",         "https://linkedin.com/in/rihen",        { 10, 102, 194, 255 }, "in" },
-            { "GITHUB",    "@rihen",         "https://github.com/rihen",             { 60,  70,  85, 255 }, "GH" },
-            { "FACEBOOK",  "@nkentseu",      "https://facebook.com/nkentseu",        { 24, 119, 242, 255 }, "f"  },
-            { "INSTAGRAM", "@nkentseu",      "https://instagram.com/nkentseu",       { 220, 50, 130, 255 }, "IG" },
-            { "X (TWITTER)", "@nkentseu",    "https://x.com/nkentseu",               {  30,  30,  30, 255 }, "X"  },
+            { "LINKEDIN",    "@rihen-universe",
+              "https://www.linkedin.com/company/rihen-universe",
+              { 10, 102, 194, 255 }, "in",
+              "Resources/Pong/Textures/socials/linkdin.png" },
+            { "GITHUB",      "@RihenUniverse",
+              "https://github.com/RihenUniverse",
+              { 60,  70,  85, 255 }, "GH",
+              "Resources/Pong/Textures/socials/github.svg" },
+            { "FACEBOOK",    "@Rihen-Universe",
+              "https://www.facebook.com/p/Rihen-Universe-61575051351258/",
+              { 24, 119, 242, 255 }, "f",
+              "Resources/Pong/Textures/socials/facebook.png" },
+            { "INSTAGRAM",   "@rihen.universe",
+              "https://www.instagram.com/rihen.universe/",
+              { 220, 50, 130, 255 }, "IG",
+              "Resources/Pong/Textures/socials/instagram.png" },
+            { "X (TWITTER)", "@RihenUniverse",
+              "https://x.com/RihenUniverse",
+              {  30,  30,  30, 255 }, "X",
+              "Resources/Pong/Textures/socials/x.png" },
         };
 
         // ── Montants preset (USD) ───────────────────────────────────────────
@@ -108,7 +138,33 @@ namespace nkentseu
             mDragWasScroll = false;
             mDragTouchId = -1;
             mMouseDown = false;
+
+            // Charge les icones reseaux sociaux. Synchrone : 5 fichiers tres
+            // legers (icones < 50 ko chacun). Si un fichier manque, on garde
+            // le badge texte en fallback (mSocialLoaded[i] reste a false).
+            for (int i = 0; i < (int)kSocialCount; ++i)
+            {
+                mSocialLoaded[i] = mSocialIcons[i].LoadFromFile(kSocials[i].iconPath);
+                if (!mSocialLoaded[i])
+                {
+                    logger.Warn("[Supporter] icone manquante : {0} -> fallback badge texte",
+                                kSocials[i].iconPath);
+                }
+            }
             logger.Info("[Supporter] OnEnter");
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // OnExit : libere les textures GL (DOIT etre appele depuis le thread
+        // GL — c'est le cas via SceneManager Pop/Replace).
+        // ─────────────────────────────────────────────────────────────────────
+        void SupporterScene::OnExit(AppContext& /*ctx*/)
+        {
+            for (int i = 0; i < (int)kSocialCount; ++i)
+            {
+                mSocialIcons[i].Shutdown();
+                mSocialLoaded[i] = false;
+            }
         }
 
         void SupporterScene::OnUpdate(AppContext& /*ctx*/, float dt)
@@ -161,14 +217,17 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void SupporterScene::DoShare(AppContext& /*ctx*/)
         {
-            logger.Info("[Supporter] SHARE: text='{0}', url='{1}'",
-                        kShareText, kShareUrl);
-            // TODO: cross-platform share natif (Android Intent.ACTION_SEND,
-            // navigator.share() web, clipboard desktop).
+            // Phase 1 : on ouvre la page projet (LinkedIn pour l'instant) via
+            // NkLauncher. Le partage natif (Intent.ACTION_SEND / navigator.share)
+            // viendra plus tard via une API dediee NkShare.
+            logger.Info("[Supporter] SHARE -> open {0}", kShareUrl);
+            NkLauncher::OpenURL(kShareUrl);
         }
 
         void SupporterScene::DoDonate(AppContext& /*ctx*/, int amountIndex)
         {
+            // L'URL de donation peut etre etendue avec ?amount=X (Ko-fi par ex.).
+            // Pour l'instant on ouvre juste kDonateBaseUrl.
             if (amountIndex == -1)
             {
                 logger.Info("[Supporter] DONATE LIBRE -> {0}", kDonateBaseUrl);
@@ -176,10 +235,9 @@ namespace nkentseu
             else
             {
                 const int usd = kAmountUSD[amountIndex];
-                logger.Info("[Supporter] DONATE preset {0}$ -> {1}?amount={2}",
-                            usd, kDonateBaseUrl, usd);
+                logger.Info("[Supporter] DONATE preset {0}$ -> {1}", usd, kDonateBaseUrl);
             }
-            // TODO: ShellOpen / Intent.ACTION_VIEW / window.open
+            NkLauncher::OpenURL(kDonateBaseUrl);
         }
 
         void SupporterScene::DoOpenSocial(AppContext& /*ctx*/, int idx)
@@ -187,7 +245,7 @@ namespace nkentseu
             if (idx < 0 || idx >= (int)kSocialCount) return;
             logger.Info("[Supporter] OPEN SOCIAL {0} -> {1}",
                         kSocials[idx].name, kSocials[idx].url);
-            // TODO: ouvrir l'URL externe (idem DoDonate).
+            NkLauncher::OpenURL(kSocials[idx].url);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -216,28 +274,44 @@ namespace nkentseu
                     theme::Dark().b / 255.0f, 1.0f);
             r.Begin(W, H);
 
-            mTopReserve = 70.0f * scale;
+            // Layout responsive : on exprime les dimensions en % viewport
+            // (W/H) plutot qu'en pixels*scale. Clamps doux pour eviter les
+            // degeneres en petites/grandes resolutions. Le texte garde
+            // scale (FontAtlas bitmap) pour rester net.
+            mTopReserve = Pct::H(H, 0.085f, 56.0f, 110.0f);
             const float scrollTop = (float)ctx.safe.TopY() + mTopReserve;
             const float scrollBot = (float)ctx.safe.TopY() + (float)ctx.safe.SafeH()
-                                  - 12.0f * scale;
+                                  - Pct::H(H, 0.015f, 8.0f, 24.0f);
             const float scrollH   = scrollBot - scrollTop;
 
             // ── Geometrie du header (sticky, dessine en DERNIER pour
             // masquer le contenu scrollable qui passerait dessous). ─────
-            mBackW = 90.0f * scale;
-            mBackH = 36.0f * scale;
-            mBackX = (float)ctx.safe.LeftX() + 14.0f * scale;
-            mBackY = (float)ctx.safe.TopY()  + 16.0f * scale;
+            mBackW = Pct::W(W, 0.11f, 78.0f, 150.0f);
+            mBackH = Pct::H(H, 0.05f, 32.0f, 60.0f);
+            mBackX = (float)ctx.safe.LeftX() + Pct::W(W, 0.02f, 10.0f, 28.0f);
+            mBackY = (float)ctx.safe.TopY()  + Pct::H(H, 0.02f, 10.0f, 28.0f);
 
             // ── Contenu scrollable ──────────────────────────────────────────
-            const float gridLeft = safeX + 24.0f * scale;
-            const float availW   = safeW - 48.0f * scale;
+            // gridLeft + availW : on garde une marge laterale en % avec un
+            // plancher pour qu'on ait toujours un padding lisible sur mobile.
+            const float sidePad  = Pct::W(W, 0.03f, 12.0f, 40.0f);
+            const float gridLeft = safeX + sidePad;
+            const float availW   = safeW - 2.0f * sidePad;
             float worldY = 0.0f;
 
             // 1. STORY block (card avec border accent)
+            // La hauteur de la card et le pas vertical des lignes sont
+            // exprimes en % H — sur petit ecran ca se ramasse, sur grand
+            // ecran ca s'aere. On garde scale pour le rendu glyphe.
             {
-                const float storyH = (kStoryN + 1) * 18.0f * scale + 36.0f * scale;
-                const float screenY = worldY - mScrollY + scrollTop;
+                const float lineH    = Pct::H(H, 0.024f, 14.0f, 26.0f);
+                const float headLineH = Pct::H(H, 0.034f, 20.0f, 36.0f);
+                const float vPad     = Pct::H(H, 0.024f, 12.0f, 28.0f);
+                const float storyH   = (kStoryN + 1) * lineH + 2.0f * vPad;
+                const float bandW    = Pct::W(W, 0.006f, 3.0f, 8.0f);
+                const float textPadL = Pct::W(W, 0.025f, 12.0f, 28.0f);
+                const float blockGap = Pct::H(H, 0.025f, 12.0f, 30.0f);
+                const float screenY  = worldY - mScrollY + scrollTop;
                 if (screenY + storyH >= scrollTop - 20.0f * scale
                  && screenY <= scrollBot + 20.0f * scale)
                 {
@@ -247,10 +321,10 @@ namespace nkentseu
                     r.DrawQuadOutline(gridLeft, screenY, availW, storyH, bd, 1.5f);
 
                     // Trait orange a gauche (accent visuel "combat")
-                    r.DrawQuad(gridLeft, screenY, 4.0f * scale, storyH,
+                    r.DrawQuad(gridLeft, screenY, bandW, storyH,
                                { 255, 107, 0, 220 });
 
-                    float ly = screenY + 14.0f * scale;
+                    float ly = screenY + vPad;
                     for (int i = 0; i < kStoryN; ++i)
                     {
                         // Premiere ligne = headline (subtitle slot), reste body
@@ -261,20 +335,29 @@ namespace nkentseu
                         f.DrawStringScaled(r,
                                      isHead ? FontAtlas::SubtitleSlot : FontAtlas::BodySlot,
                                      scale,
-                                     gridLeft + 16.0f * scale, ly,
+                                     gridLeft + textPadL, ly,
                                      kStory[i], c);
-                        ly += isHead ? 26.0f * scale : 18.0f * scale;
+                        ly += isHead ? headLineH : lineH;
                     }
                 }
-                worldY += storyH + 18.0f * scale;
+                worldY += storyH + blockGap;
             }
 
             // 2. PARTAGER banderole
+            // Largeur = availW (deja en %), hauteur en % H pour rester
+            // proportionnee au viewport.
             {
                 mShareW = availW;
-                mShareH = 60.0f * scale;
+                mShareH = Pct::H(H, 0.085f, 50.0f, 90.0f);
                 mShareX = gridLeft;
                 mShareY = worldY - mScrollY + scrollTop;
+
+                const float iconCx    = Pct::W(W, 0.06f, 28.0f, 60.0f);
+                const float iconSize  = Pct::H(H, 0.015f, 7.0f, 16.0f);
+                const float textPadL  = Pct::W(W, 0.12f, 60.0f, 120.0f);
+                const float titlePadT = Pct::H(H, 0.018f, 10.0f, 22.0f);
+                const float subPadT   = Pct::H(H, 0.05f, 28.0f, 56.0f);
+                const float sectionGap = Pct::H(H, 0.032f, 16.0f, 36.0f);
 
                 if (mShareY + mShareH >= scrollTop - 20.0f * scale
                  && mShareY <= scrollBot + 20.0f * scale)
@@ -285,9 +368,9 @@ namespace nkentseu
                     r.DrawQuad       (mShareX, mShareY, mShareW, mShareH, bg);
                     r.DrawQuadOutline(mShareX, mShareY, mShareW, mShareH, bd, 2.0f);
                     // Icone "share"
-                    const float cx = mShareX + 40.0f * scale;
+                    const float cx = mShareX + iconCx;
                     const float cy = mShareY + mShareH * 0.5f;
-                    const float s2 = 10.0f * scale;
+                    const float s2 = iconSize;
                     r.DrawQuadOutline(cx - s2, cy - s2 * 0.6f, s2 * 1.6f, s2 * 1.6f,
                                       { 0, 245, 255, 240 }, 1.5f);
                     r.DrawLine(cx + s2 * 0.4f, cy - s2 * 1.3f, cx + s2 * 1.3f, cy - s2 * 1.3f,
@@ -296,30 +379,38 @@ namespace nkentseu
                                { 0, 245, 255, 240 }, 2.0f);
 
                     f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
-                                 mShareX + 80.0f * scale, mShareY + 14.0f * scale,
+                                 mShareX + textPadL, mShareY + titlePadT,
                                  "PARTAGER LE JEU", theme::White());
                     f.DrawStringScaled(r, FontAtlas::SmallSlot, scale,
-                                 mShareX + 80.0f * scale, mShareY + 38.0f * scale,
+                                 mShareX + textPadL, mShareY + subPadT,
                                  "RECOMMANDE A UN AMI — 100% GRATUIT",
                                  { 255, 255, 255, 180 });
                 }
-                worldY += mShareH + 24.0f * scale;
+                worldY += mShareH + sectionGap;
             }
 
             // 3. DON USD section (6 cards)
+            // Cards en grille adaptative (3 cols paysage / 2 portrait).
+            // Hauteur card et padding inter-cards en % H.
             {
+                const float titleH      = Pct::H(H, 0.045f, 22.0f, 50.0f);
+                const float pad         = Pct::W(W, 0.012f, 4.0f, 14.0f);
+                const float amountCardH = Pct::H(H, 0.092f, 54.0f, 100.0f);
+                const float sectionGap  = Pct::H(H, 0.03f, 14.0f, 36.0f);
+                const float labelPadT   = Pct::H(H, 0.022f, 12.0f, 26.0f);
+                const float subPadT     = Pct::H(H, 0.06f, 32.0f, 68.0f);
+
                 const float screenSecY = worldY - mScrollY + scrollTop;
                 f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                    (float)W * 0.5f, screenSecY,
                                    "FAIRE UN DON (USD)", theme::Cyan());
-                worldY += 30.0f * scale;
+                worldY += titleH;
 
                 const int total = kAmountCount + 1;
                 const int cols  = ((float)W > (float)H * 1.2f) ? 3 : 2;
                 const int rows  = (total + cols - 1) / cols;
-                const float pad = 8.0f * scale;
                 mAmountW = (availW - pad * (cols - 1)) / cols;
-                mAmountH = 64.0f * scale;
+                mAmountH = amountCardH;
                 for (int i = 0; i < total; ++i)
                 {
                     const int col = i % cols;
@@ -348,7 +439,7 @@ namespace nkentseu
                     else               std::snprintf(buf, sizeof(buf), "%d$", usd);
                     f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                        mAmountX[i] + mAmountW * 0.5f,
-                                       mAmountY[i] + 16.0f * scale,
+                                       mAmountY[i] + labelPadT,
                                        buf, accent);
 
                     const char* sub = isFree
@@ -357,29 +448,38 @@ namespace nkentseu
                     math::NkColor subC = { 255, 255, 255, (uint8_t)(160 * enterA) };
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
                                        mAmountX[i] + mAmountW * 0.5f,
-                                       mAmountY[i] + 42.0f * scale,
+                                       mAmountY[i] + subPadT,
                                        sub, subC);
                 }
                 worldY += rows * (mAmountH + pad);
-                worldY += 22.0f * scale;
+                worldY += sectionGap;
             }
 
             // 4. PAIEMENT DIRECT (identifiants)
+            // Chaque ligne = card pleine largeur avec bande accent gauche.
+            // Hauteur de ligne en % H pour rester lisible mobile/desktop.
             {
+                const float titleH    = Pct::H(H, 0.034f, 18.0f, 38.0f);
+                const float subH      = Pct::H(H, 0.034f, 18.0f, 40.0f);
+                const float rowH      = Pct::H(H, 0.055f, 32.0f, 64.0f);
+                const float rowPad    = Pct::H(H, 0.01f,  4.0f, 12.0f);
+                const float bandW     = Pct::W(W, 0.006f, 3.0f, 8.0f);
+                const float textPadL  = Pct::W(W, 0.025f, 12.0f, 28.0f);
+                const float textPadT  = Pct::H(H, 0.016f, 8.0f, 20.0f);
+                const float sectionGap = Pct::H(H, 0.022f, 10.0f, 28.0f);
+
                 const float screenSecY = worldY - mScrollY + scrollTop;
                 f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                    (float)W * 0.5f, screenSecY,
                                    "PAIEMENT DIRECT", theme::Cyan());
-                worldY += 22.0f * scale;
+                worldY += titleH;
                 const float subY = worldY - mScrollY + scrollTop;
                 f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
                                    (float)W * 0.5f, subY,
                                    "ENVOIE DIRECTEMENT VERS CES COMPTES",
                                    { 255, 255, 255, 160 });
-                worldY += 24.0f * scale;
+                worldY += subH;
 
-                const float rowH = 38.0f * scale;
-                const float pad  = 6.0f * scale;
                 for (int i = 0; i < kPayIdsN; ++i)
                 {
                     const float rx = gridLeft;
@@ -389,37 +489,49 @@ namespace nkentseu
                     r.DrawQuad       (rx, ry, availW, rowH, bg);
                     r.DrawQuadOutline(rx, ry, availW, rowH, bd, 1.0f);
                     // Bande gauche
-                    r.DrawQuad(rx, ry, 4.0f * scale, rowH, kPayIds[i].accent);
+                    r.DrawQuad(rx, ry, bandW, rowH, kPayIds[i].accent);
                     // Label (gauche) + valeur (droite)
                     math::NkColor lab = kPayIds[i].accent;
                     lab.a = (uint8_t)(230 * enterA);
                     f.DrawStringScaled(r, FontAtlas::BodySlot, scale,
-                                 rx + 16.0f * scale, ry + 10.0f * scale,
+                                 rx + textPadL, ry + textPadT,
                                  kPayIds[i].label, lab);
                     f.DrawStringScaled(r, FontAtlas::BodySlot, scale,
-                                 rx + availW * 0.5f, ry + 10.0f * scale,
+                                 rx + availW * 0.5f, ry + textPadT,
                                  kPayIds[i].value,
                                  { 255, 255, 255, (uint8_t)(230 * enterA) });
-                    worldY += rowH + pad;
+                    worldY += rowH + rowPad;
                 }
-                worldY += 16.0f * scale;
+                worldY += sectionGap;
             }
 
             // 5. SUIVEZ-NOUS (reseaux sociaux)
+            // 5 cards en grille adaptative. Pastille = disque accent +
+            // icone (avec fallback badge texte). Toutes les dimensions
+            // (rad, hauteur card, padding) en % H/W.
             {
+                const float titleH      = Pct::H(H, 0.045f, 22.0f, 50.0f);
+                const float pad         = Pct::W(W, 0.012f, 4.0f, 14.0f);
+                const float socialH     = Pct::H(H, 0.09f, 52.0f, 100.0f);
+                const float socialRad   = Pct::H(H, 0.025f, 14.0f, 30.0f);
+                const float socialCx    = Pct::W(W, 0.045f, 22.0f, 50.0f);
+                const float socialTextL = Pct::W(W, 0.085f, 44.0f, 100.0f);
+                const float nameTopPad  = Pct::H(H, 0.015f, 8.0f, 20.0f);
+                const float handleTopPad = Pct::H(H, 0.05f, 28.0f, 60.0f);
+                const float sectionGap  = Pct::H(H, 0.02f, 8.0f, 24.0f);
+
                 const float screenSecY = worldY - mScrollY + scrollTop;
                 f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                    (float)W * 0.5f, screenSecY,
                                    "SUIVEZ-NOUS", theme::Cyan());
-                worldY += 30.0f * scale;
+                worldY += titleH;
 
                 // 5 cards en grille adaptative (5 colonnes si large, sinon 3 + 2)
-                const int cols  = (((float)W > (float)H * 1.2f) && availW > 600.0f * scale)
+                const int cols  = (((float)W > (float)H * 1.2f) && availW > Pct::W(W, 0.6f, 400.0f, 900.0f))
                                   ? 5 : 3;
                 const int rows  = ((int)kSocialCount + cols - 1) / cols;
-                const float pad = 8.0f * scale;
                 mSocialW = (availW - pad * (cols - 1)) / cols;
-                mSocialH = 62.0f * scale;
+                mSocialH = socialH;
                 for (int i = 0; i < (int)kSocialCount; ++i)
                 {
                     const int col = i % cols;
@@ -432,41 +544,65 @@ namespace nkentseu
                     r.DrawQuad       (mSocialX[i], mSocialY[i], mSocialW, mSocialH, bg);
                     r.DrawQuadOutline(mSocialX[i], mSocialY[i], mSocialW, mSocialH, bd, 1.5f);
 
-                    // Pastille avec le badge (lettre/abbrev) a gauche
-                    const float cx = mSocialX[i] + 26.0f * scale;
+                    // Pastille a gauche : disque accent + icone reseau social
+                    // dessinee par dessus avec ratio preserve. Fallback sur
+                    // un badge texte si l'icone n'a pas pu etre chargee.
+                    const float cx = mSocialX[i] + socialCx;
                     const float cy = mSocialY[i] + mSocialH * 0.5f;
-                    const float rad = 18.0f * scale;
+                    const float rad = socialRad;
                     r.DrawCircle(cx, cy, rad, kSocials[i].accent, 24);
                     r.DrawCircleOutline(cx, cy, rad, { 255, 255, 255, 200 }, 1.0f, 24);
-                    f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
-                                       cx, cy - rad * 0.5f,
-                                       kSocials[i].badge,
-                                       { 255, 255, 255, (uint8_t)(240 * enterA) });
+
+                    if (mSocialLoaded[i] && mSocialIcons[i].IsValid())
+                    {
+                        // Icone dans le disque, marge ~22% du rayon. Ratio
+                        // d'aspect preserve (les SVG / PNG ne sont pas tous
+                        // carres parfaitement).
+                        const float aspect = mSocialIcons[i].AspectRatio();
+                        const float box    = rad * 1.55f;
+                        float iconW = box;
+                        float iconH = (aspect > 0.0001f) ? (iconW / aspect) : box;
+                        if (iconH > box) { iconH = box; iconW = iconH * aspect; }
+                        const float ix = cx - iconW * 0.5f;
+                        const float iy = cy - iconH * 0.5f;
+                        r.BindTexture(mSocialIcons[i].Id());
+                        math::NkColor tint = { 255, 255, 255, (uint8_t)(255 * enterA) };
+                        r.DrawTexturedQuadRGBA(ix, iy, iconW, iconH,
+                                               0.0f, 0.0f, 1.0f, 1.0f, tint);
+                    }
+                    else
+                    {
+                        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
+                                           cx, cy - rad * 0.5f,
+                                           kSocials[i].badge,
+                                           { 255, 255, 255, (uint8_t)(240 * enterA) });
+                    }
 
                     // Nom + handle a droite
                     f.DrawStringScaled(r, FontAtlas::BodySlot, scale,
-                                 mSocialX[i] + 56.0f * scale,
-                                 mSocialY[i] + 12.0f * scale,
+                                 mSocialX[i] + socialTextL,
+                                 mSocialY[i] + nameTopPad,
                                  kSocials[i].name,
                                  { 255, 255, 255, (uint8_t)(240 * enterA) });
                     f.DrawStringScaled(r, FontAtlas::SmallSlot, scale,
-                                 mSocialX[i] + 56.0f * scale,
-                                 mSocialY[i] + 36.0f * scale,
+                                 mSocialX[i] + socialTextL,
+                                 mSocialY[i] + handleTopPad,
                                  kSocials[i].handle,
                                  { 255, 255, 255, 170 });
                 }
                 worldY += rows * (mSocialH + pad);
-                worldY += 14.0f * scale;
+                worldY += sectionGap;
             }
 
             // 6. Footer
             {
+                const float footerH = Pct::H(H, 0.035f, 16.0f, 40.0f);
                 const float screenFootY = worldY - mScrollY + scrollTop;
                 f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
                                    (float)W * 0.5f, screenFootY,
                                    "MERCI D'ETRE LA. — RIHEN",
                                    { 255, 107, 0, 200 });
-                worldY += 22.0f * scale;
+                worldY += footerH;
             }
 
             // ── Calcul max scroll ──────────────────────────────────────────
@@ -474,16 +610,20 @@ namespace nkentseu
             mMaxScroll = (contentH > scrollH) ? (contentH - scrollH) : 0.0f;
             if (mScrollY > mMaxScroll) mScrollY = mMaxScroll;
 
-            // Scrollbar discrete a droite si overflow
+            // Scrollbar discrete a droite si overflow. Largeur en % W,
+            // hauteur min thumb en % H pour rester saisissable au doigt.
             if (mMaxScroll > 0.5f)
             {
-                const float sbW = 4.0f * scale;
-                const float sbX = safeX + safeW - sbW - 3.0f * scale;
-                const float sbY = scrollTop + 2.0f * scale;
-                const float sbH = scrollH - 4.0f * scale;
+                const float sbW    = Pct::W(W, 0.005f, 3.0f, 8.0f);
+                const float sbPadR = Pct::W(W, 0.005f, 2.0f, 8.0f);
+                const float sbPadY = Pct::H(H, 0.004f, 2.0f, 6.0f);
+                const float sbX = safeX + safeW - sbW - sbPadR;
+                const float sbY = scrollTop + sbPadY;
+                const float sbH = scrollH - 2.0f * sbPadY;
                 r.DrawQuad(sbX, sbY, sbW, sbH, { 255, 255, 255, 16 });
                 const float frac = scrollH / contentH;
-                const float thumbH = math::NkMax(20.0f * scale, sbH * frac);
+                const float thumbMinH = Pct::H(H, 0.03f, 16.0f, 40.0f);
+                const float thumbH = math::NkMax(thumbMinH, sbH * frac);
                 const float thumbY = sbY
                                    + (sbH - thumbH) * (mScrollY / mMaxScroll);
                 r.DrawQuad(sbX, thumbY, sbW, thumbH,
@@ -494,11 +634,14 @@ namespace nkentseu
             // par-dessus le contenu scrollable). Bande horizontale qui
             // couvre toute la zone reservee + bouton RETOUR + titre.
             {
+                const float sepH      = Pct::H(H, 0.003f, 1.5f, 4.0f);
+                const float titleTopP = Pct::H(H, 0.025f, 12.0f, 32.0f);
+
                 math::NkColor headerBg = theme::Dark();
                 headerBg.a = 240;
-                r.DrawQuad(0.0f, 0.0f, (float)W, scrollTop - 2.0f * scale, headerBg);
+                r.DrawQuad(0.0f, 0.0f, (float)W, scrollTop - sepH, headerBg);
                 // Ligne separatrice cyan fine en bas du header
-                r.DrawQuad(0.0f, scrollTop - 2.0f * scale, (float)W, 2.0f * scale,
+                r.DrawQuad(0.0f, scrollTop - sepH, (float)W, sepH,
                            { 0, 245, 255, 120 });
 
                 // Bouton RETOUR
@@ -511,7 +654,7 @@ namespace nkentseu
                 // Titre centre
                 f.DrawStringCenteredScaled(r, FontAtlas::HeadlineSlot, scale,
                                    (float)W * 0.5f,
-                                   (float)ctx.safe.TopY() + 18.0f * scale,
+                                   (float)ctx.safe.TopY() + titleTopP,
                                    "SUPPORTER", theme::White());
             }
 

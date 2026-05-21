@@ -155,6 +155,13 @@ namespace nkentseu
             float mResumeBtnW = 0.0f, mResumeBtnH = 0.0f;
             float mMenuBtnX   = 0.0f, mMenuBtnY   = 0.0f;
             float mMenuBtnW   = 0.0f, mMenuBtnH   = 0.0f;
+            // Boutons supplementaires du menu pause (2026-05-19) :
+            //   CONFIG  -> Replace par SelectMatchConfigScene (refaire le setup)
+            //   MODE    -> Replace par SelectModeScene (rechoisir le mode de jeu)
+            float mConfigBtnX = 0.0f, mConfigBtnY = 0.0f;
+            float mConfigBtnW = 0.0f, mConfigBtnH = 0.0f;
+            float mModeBtnX   = 0.0f, mModeBtnY   = 0.0f;
+            float mModeBtnW   = 0.0f, mModeBtnH   = 0.0f;
 
             // ── Reseau (Phase 2) ────────────────────────────────────────────
             // Active si ctx.network est Connected a l'entree. Le host fait la
@@ -217,6 +224,24 @@ namespace nkentseu
             /// Mode reseau CLIENT : envoie kMsgReplayRequest au HOST (qui
             /// fera StartNewMatch et propagera via snapshot).
             void RequestReplay(AppContext& ctx);
+            /// Wrapper d'emission de burst network-aware :
+            /// - Emet TOUJOURS localement via mParticles.EmitBurst
+            /// - En reseau HOST : envoie aussi un PktParticleBurst au CLIENT
+            ///   pour que les bursts soient visibles des 2 cotes
+            /// - En reseau CLIENT : ne devrait jamais etre appele (le CLIENT
+            ///   recoit les bursts via drain et appelle mParticles.EmitBurst direct)
+            void EmitBurstNet(AppContext& ctx,
+                              float x, float y, int count,
+                              math::NkColor color,
+                              float speedMin, float speedMax,
+                              float lifeMin , float lifeMax,
+                              float sizeMin , float sizeMax);
+            /// Wrapper d'emission de goal network-aware :
+            /// - Emet TOUJOURS localement via mParticles.EmitGoal
+            /// - En reseau HOST : envoie aussi un PktParticleGoal au CLIENT
+            ///   pour que l'explosion soit visible des 2 cotes
+            void EmitGoalNet(AppContext& ctx,
+                             float wallX, float arenaH, math::NkColor color);
             /// Multiplicateur de hauteur paddle effectif par cote :
             /// - mode local OU HOST : mPowerUps.GetPaddleHeightMul(side)
             /// - mode reseau CLIENT : mNetPaddleHMulL/R recu du snapshot
