@@ -595,6 +595,77 @@ namespace nkentseu
         }
 
         // ─────────────────────────────────────────────────────────────────────
+        // Couleurs visuelles canoniques par ObstacleType. Reproduit le mapping
+        // utilise dans SpawnFromSettings pour les obstacles recus par reseau.
+        // ─────────────────────────────────────────────────────────────────────
+        static void GetColorsForType(ObstacleType t,
+                                     math::NkColor& outColor,
+                                     math::NkColor& outGlow)
+        {
+            switch (t)
+            {
+            case ObstacleType::Wall:
+                outColor = MakeColor(60, 80, 110, 220);
+                outGlow  = MakeColor(100, 150, 200, 80);
+                break;
+            case ObstacleType::Gravity:
+                outColor = MakeColor(204, 119, 255, 200);
+                outGlow  = MakeColor(204, 119, 255, 100);
+                break;
+            case ObstacleType::Portal:
+                outColor = MakeColor(255, 215, 0, 220);
+                outGlow  = MakeColor(255, 215, 0, 100);
+                break;
+            case ObstacleType::Mine:
+                outColor = MakeColor(255, 64, 64, 220);
+                outGlow  = MakeColor(255, 64, 64, 110);
+                break;
+            case ObstacleType::AirCurrent:
+                outColor = MakeColor(0, 255, 100, 200);
+                outGlow  = MakeColor(0, 255, 100, 100);
+                break;
+            case ObstacleType::Magnet:
+                outColor = MakeColor(0, 245, 255, 200);
+                outGlow  = MakeColor(0, 245, 255, 100);
+                break;
+            case ObstacleType::GhostMirror:
+                outColor = MakeColor(204, 119, 255, 180);
+                outGlow  = MakeColor(204, 119, 255, 90);
+                break;
+            case ObstacleType::BonusStar:
+                outColor = MakeColor(255, 215, 0, 240);
+                outGlow  = MakeColor(255, 215, 0, 120);
+                break;
+            default:
+                outColor = MakeColor(200, 200, 200, 200);
+                outGlow  = MakeColor(200, 200, 200, 80);
+                break;
+            }
+        }
+
+        void ObstacleSystem::AppendFromNet(ObstacleType type, ObstacleShape shape,
+                                           float xTopLeft, float yTopLeft,
+                                           float w, float h, float rotation,
+                                           bool active, bool visible)
+        {
+            Obstacle o{};
+            o.type     = type;
+            o.shape    = shape;
+            o.x        = xTopLeft;
+            o.y        = yTopLeft;
+            o.w        = w;
+            o.h        = h;
+            o.rotation = rotation;
+            o.active   = active;
+            o.visible  = visible;
+            GetColorsForType(type, o.color, o.glowColor);
+            // Les autres champs (motion, power, baseX/Y, etc.) restent par
+            // defaut — le CLIENT n'execute pas Update() ni CheckCollision()
+            // sur ces obstacles, donc seuls les champs visuels comptent.
+            mObstacles.PushBack(o);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
         void ObstacleSystem::Update(float dt, float arenaW, float arenaH)
         {
             for (uint32 i = 0; i < mObstacles.Size(); ++i)

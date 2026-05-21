@@ -967,6 +967,24 @@ namespace nkentseu {
                     return NkNetResult::NK_NET_OK;
                 }
 
+                // UDP : WSAECONNRESET (10054) sur Windows est ICMP "port
+                // unreachable" recu d'un peer qui a ferme son socket. C'est
+                // un comportement normal en UDP (pas une vraie erreur de
+                // notre socket) et ne doit pas spammer les logs ni couper
+                // la reception. On retourne OK avec outSize=0 = "rien recu
+                // cette iteration", la prochaine recvfrom reprendra.
+                // Equivalent POSIX : ECONNREFUSED (111) ou ECONNRESET (104).
+#if defined(NKENTSEU_PLATFORM_WINDOWS)
+                if (errorCode == 10054 /* WSAECONNRESET */)
+#else
+                if (errorCode == 104 /* ECONNRESET */ ||
+                    errorCode == 111 /* ECONNREFUSED */)
+#endif
+                {
+                    outSize = 0;
+                    return NkNetResult::NK_NET_OK;
+                }
+
                 NK_NET_LOG_ERROR("recvfrom() failed: code {0}", errorCode);
                 return NkNetResult::NK_NET_SOCKET_ERROR;
             }

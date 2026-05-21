@@ -10,6 +10,7 @@
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "Pong/UI/UIScale.h"
+#include "Pong/UI/ResponsiveLayout.h"
 #include "NKLogger/NkLog.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -154,13 +155,22 @@ namespace nkentseu
             const float safeH = (float)ctx.safe.SafeH();
             const float cx = safeX + safeW * 0.5f;
 
-            // Bouton RETOUR (haut-gauche)
+            // Layout en % viewport (2026-05-19) : les dimensions sont
+            // exprimees comme fractions de W/H plutot que pixels*scale, pour
+            // que la scene s'adapte propre a TOUTES les resolutions (mobile
+            // portrait, mobile landscape, PC 720p/1080p/4K, ultrawide).
+            // Les clamps doux (min/max) evitent les valeurs degenerees aux
+            // extremes. mScale est conserve UNIQUEMENT pour DrawStringScaled
+            // car les glyphes sont des bitmaps d'atlas.
+
+            // Bouton RETOUR (haut-gauche) en % viewport
             {
-                const float bw = 100.0f * scale;
-                const float bh = 36.0f * scale;
+                const float bw   = Pct::W(W, 0.10f,  80.0f, 160.0f);
+                const float bh   = Pct::H(H, 0.05f,  30.0f,  60.0f);
+                const float pad  = Pct::W(W, 0.012f,  8.0f,  24.0f);
                 mBackW = bw; mBackH = bh;
-                mBackX = safeX + 16.0f * scale;
-                mBackY = safeY + 16.0f * scale;
+                mBackX = safeX + pad;
+                mBackY = safeY + pad;
                 r.DrawQuad       (mBackX, mBackY, bw, bh, { 255, 255, 255, 16 });
                 r.DrawQuadOutline(mBackX, mBackY, bw, bh, { 0, 245, 255, 180 }, 1.5f * scale);
                 f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
@@ -168,23 +178,27 @@ namespace nkentseu
                                    "< RETOUR", theme::Cyan());
             }
 
-            // Titre
+            // Titre + sous-titre — positions en % de H pour responsive
+            const float titleY    = safeY + Pct::H(H, 0.05f, 24.0f, 64.0f);
+            const float subtitleY = safeY + Pct::H(H, 0.12f, 60.0f, 130.0f);
             f.DrawStringShadowCenteredScaled(r, FontAtlas::HeadlineSlot, scale,
-                                     cx, safeY + 40.0f * scale,
+                                     cx, titleY,
                                      "CHOISIS UN MODE",
                                      theme::White(), theme::Cyan(), 3);
             f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
-                                cx, safeY + 90.0f * scale,
+                                cx, subtitleY,
                                 "FLECHES GAUCHE/DROITE  -  ENTREE  -  ECHAP",
                                 { 255, 255, 255, 110 });
 
             // ── Layout 4 cards en ligne horizontale ───────────────────────────
-            // Taille adaptative : largeur card = (safeW - padding*5) / 4
-            const float padding = math::NkMax(16.0f, 24.0f * scale);
-            const float gap     = math::NkMax(10.0f, 16.0f * scale);
-            const float cardW   = math::NkMax(140.0f,
-                                  (safeW - padding * 2.0f - gap * 3.0f) / 4.0f);
-            const float cardH   = math::NkMin(safeH * 0.50f,
+            // Toutes les dimensions sont en % du viewport, avec clamps doux.
+            // On calcule d'abord cardW depuis le budget horizontal (safeW
+            // moins padding et gaps), puis on derive cardH du ratio.
+            const float padding = Pct::W(W, 0.02f, 12.0f, 32.0f);
+            const float gap     = Pct::W(W, 0.012f, 8.0f, 24.0f);
+            const float cardWBudget = (safeW - padding * 2.0f - gap * 3.0f) / 4.0f;
+            const float cardW   = math::NkClamp(cardWBudget, 140.0f, 320.0f);
+            const float cardH   = math::NkMin(Pct::H(H, 0.55f, 200.0f, 480.0f),
                                               cardW * 1.20f);
             mCardW = cardW;
             mCardH = cardH;
@@ -220,8 +234,13 @@ namespace nkentseu
                 bg.a   = static_cast<uint8>(bg.a   * a);
                 bord.a = static_cast<uint8>(bord.a * a);
 
+                // Stroke en % de la min-dim viewport pour rester visible
+                // a toutes les resolutions, clamp doux pour eviter degenere.
+                const float strokeFocused = math::NkClamp(
+                    Pct::MinDim(W, H) * 0.0025f, 1.5f, 4.0f);
                 r.DrawQuad       (bx, by + slideY, cardW, cardH, bg);
-                r.DrawQuadOutline(bx, by + slideY, cardW, cardH, bord, focused ? 2.5f * scale : 1.0f);
+                r.DrawQuadOutline(bx, by + slideY, cardW, cardH, bord,
+                                  focused ? strokeFocused : 1.0f);
 
                 // Icone (boite carree au tier superieur)
                 const float iconSize = cardW * 0.45f;
@@ -248,9 +267,10 @@ namespace nkentseu
                                    m.sub, subC);
             }
 
-            // Footer hint
+            // Footer hint — marge bas en % de H
+            const float footerMargin = Pct::H(H, 0.03f, 16.0f, 40.0f);
             f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
-                                cx, safeY + safeH - 24.0f * scale,
+                                cx, safeY + safeH - footerMargin,
                                 "ENTREE / TAP : LANCER       ECHAP : RETOUR MENU",
                                 { 255, 255, 255, 110 });
 

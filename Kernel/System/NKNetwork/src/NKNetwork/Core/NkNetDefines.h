@@ -48,8 +48,12 @@
     // =====================================================================
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
 
-        // Réduction de l'empreinte des headers Windows pour compilation plus rapide
-        #define WIN32_LEAN_AND_MEAN
+        // Réduction de l'empreinte des headers Windows pour compilation plus rapide.
+        // Guarded : Pong.jenga (et d'autres projets) le definit deja en
+        // command-line via /D, qui declenche un warning si on le redefinit ici.
+        #ifndef WIN32_LEAN_AND_MEAN
+            #define WIN32_LEAN_AND_MEAN
+        #endif
 
         // Headers Winsock2 pour sockets Windows
         #include <winsock2.h>

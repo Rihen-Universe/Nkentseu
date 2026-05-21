@@ -13,11 +13,11 @@
 // ── Fondation Nkentseu ────────────────────────────────────────────────────────
 #include "NKCore/NkTypes.h"
 #include "NKCore/NkMacros.h"
-#include "NKCore/NkInline.h"
+#include "NKPlatform/NkPlatformInline.h"
 #include "NKCore/NkPlatform.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKMemory/NkFunction.h"
+#include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkAtomic.h"
 
 // ── C runtime (interne uniquement) ────────────────────────────────────────────
@@ -25,5 +25,5 @@
 #include <cstring>
 #include <cstdio>
 
-// ── Export du module ─────────────────────────────────────────────────────────
-#include "NKAudio/NkAudioExport.h"
+// ── API publique du module ───────────────────────────────────────────────────
+#include "NKAudio/NkAudioApi.h"

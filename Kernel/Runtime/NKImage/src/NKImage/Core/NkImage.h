@@ -52,6 +52,7 @@ namespace nkentseu {
         NK_UNKNOWN=0, NK_PNG, NK_JPEG, NK_BMP, NK_TGA, NK_HDR,
         NK_PPM, NK_PGM, NK_PBM, NK_QOI, NK_GIF, NK_ICO,
         NK_SVG,  ///< SVG XML -- rasterize via NkSVGCodec depuis le main Load
+        NK_EXR,  ///< OpenEXR (.exr) -- decode via NkEXRCodec (RGB96F/RGBA128F)
     };
 
     enum class NkResizeFilter : uint8 {
@@ -159,6 +160,7 @@ namespace nkentseu {
         friend class NkQOICodec;
         friend class NkGIFCodec;
         friend class NkICOCodec;
+        friend class NkEXRCodec;
     };
 
     // ─────────────────────────────────────────────────────────────────────────────

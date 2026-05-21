@@ -22,6 +22,7 @@
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "Pong/UI/UIScale.h"
+#include "Pong/UI/ResponsiveLayout.h"
 #include "Pong/Game/GameTypes.h"
 #include "Pong/Net/NetworkSession.h"
 #include "Pong/Net/NetProtocol.h"
@@ -368,10 +369,11 @@ namespace nkentseu
             const float enterA = EaseOutCubic(mEnterAnim);
 
             // ── Zones reservees ──────────────────────────────────────────────
-            // Top : titre + sous-titre (80 px scaled)
-            // Bottom : bouton LANCER (75 px scaled)
-            mTopReserve    = 90.0f * scale;
-            mBottomReserve = 80.0f * scale;
+            // Layout responsive (2026-05-19) : top/bottom exprimes en % de H
+            // (viewport hauteur) avec clamps doux. Top = bandeau titre +
+            // sous-titre + bouton retour. Bottom = bouton LANCER sticky.
+            mTopReserve    = Pct::H(H, 0.115f, 70.0f, 130.0f);
+            mBottomReserve = Pct::H(H, 0.100f, 64.0f, 110.0f);
 
             const float scrollTop = safeY + mTopReserve;
             const float scrollBot = safeY + safeH - mBottomReserve;
@@ -380,11 +382,11 @@ namespace nkentseu
             // ── Layout du contenu (en coords MONDE, Y depuis scrollTop=0) ────
             // Section Difficulte (si visible) : grille 3 colonnes x 2 lignes
             // Section Obstacles : grille 4 colonnes x 2 lignes
-            const float pad = math::NkMax(10.0f, 14.0f * scale);
+            const float pad = Pct::W(W, 0.014f, 10.0f, 22.0f);
             const float availW = safeW - pad * 2.0f;
             const float gridLeft = safeX + pad;
 
-            float worldY = 12.0f * scale;
+            float worldY = Pct::H(H, 0.015f, 8.0f, 22.0f);
             const math::NkColor sectionCol = { 255, 255, 255, 110 };
 
             // ── Section PARAMETRES DU MATCH (toujours visible, en 1er) ──────
@@ -392,16 +394,17 @@ namespace nkentseu
                 f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
                              gridLeft, worldY - mScrollY + scrollTop,
                              "PARAMETRES DU MATCH", sectionCol);
-                worldY += 38.0f * scale;
+                worldY += Pct::H(H, 0.052f, 28.0f, 56.0f);
 
-                // Layout : 3 lignes (Score, Temps, Win by 2) avec label a
-                // gauche et stepper / toggle a droite.
-                const float lineH   = 56.0f * scale;
-                const float btnW    = 36.0f * scale;
-                const float btnH    = 36.0f * scale;
-                const float valW    = 140.0f * scale;
-                const float toggleW = 80.0f * scale;
-                const float toggleH = 30.0f * scale;
+                // Layout : 4 lignes (Score, Temps, Vitesse, WinByTwo) avec
+                // label a gauche et stepper / toggle a droite. Dimensions en
+                // % du viewport pour rester lisibles sur PC et mobile.
+                const float lineH   = Pct::H(H, 0.080f, 44.0f, 80.0f);
+                const float btnW    = Pct::W(W, 0.045f, 30.0f, 56.0f);
+                const float btnH    = Pct::H(H, 0.055f, 30.0f, 56.0f);
+                const float valW    = Pct::W(W, 0.170f, 100.0f, 200.0f);
+                const float toggleW = Pct::W(W, 0.100f, 64.0f, 120.0f);
+                const float toggleH = Pct::H(H, 0.045f, 24.0f, 48.0f);
                 mStepperW = btnW; mStepperH = btnH;
                 mToggleW = toggleW; mToggleH = toggleH;
 
@@ -573,7 +576,7 @@ namespace nkentseu
                     }
                     worldY += lineH;
                 }
-                worldY += 16.0f * scale;  // gap apres section
+                worldY += Pct::H(H, 0.022f, 12.0f, 28.0f);  // gap apres section
             }
 
             // Section DIFFICULTE
@@ -591,12 +594,14 @@ namespace nkentseu
                              gridLeft, worldY - mScrollY + scrollTop,
                              title,
                              sectionCol);
-                worldY += 38.0f * scale;
+                worldY += Pct::H(H, 0.052f, 28.0f, 56.0f);
 
                 const int cols = 3;
                 const int rows = 2;
                 const float cardW = (availW - pad * (cols - 1)) / cols;
-                const float cardH = math::NkMax(150.0f * scale, 130.0f * scale);
+                // Hauteur de carte difficulte : env. 22% de H, clampee pour
+                // garantir un rendu propre sur mobile portrait comme sur PC.
+                const float cardH = Pct::H(H, 0.220f, 130.0f, 200.0f);
                 mDiffW = cardW;
                 mDiffH = cardH;
 
@@ -633,29 +638,38 @@ namespace nkentseu
                     r.DrawQuadOutline(bx, screenBY, cardW, cardH, bord,
                                       focused ? 2.5f * scale : 1.0f);
 
+                    // Offsets internes carte exprimes en fraction de cardW/cardH.
+                    const float padX  = cardW * 0.08f;
+                    const float rankY = cardH * 0.09f;
+                    const float nameY = cardH * 0.42f;
+                    const float dotsY0 = cardH * 0.60f;
+                    const float descY = cardH * 0.70f;
+
                     math::NkColor topBar = d.color;
                     topBar.a = static_cast<uint8>(255 * a);
-                    r.DrawQuad(bx, screenBY, cardW, 3.0f * scale, topBar);
+                    r.DrawQuad(bx, screenBY, cardW, Pct::H(H, 0.004f, 2.0f, 5.0f), topBar);
 
                     math::NkColor rankCol = d.color;
                     rankCol.a = static_cast<uint8>(220 * a);
                     f.DrawStringShadowScaled(r, FontAtlas::HeadlineSlot, scale,
-                                     bx + 12.0f * scale, screenBY + 14.0f * scale,
+                                     bx + padX, screenBY + rankY,
                                      d.rank, rankCol, d.color, 1);
 
                     math::NkColor nameCol = d.color;
                     nameCol.a = static_cast<uint8>(255 * a);
                     f.DrawStringScaled(r, FontAtlas::BodySlot, scale,
-                                 bx + 12.0f * scale, screenBY + 64.0f * scale,
+                                 bx + padX, screenBY + nameY,
                                  d.name, nameCol);
 
-                    // Dots
-                    const float dotsY = screenBY + 90.0f * scale;
-                    const float dotR  = 4.0f * scale;
-                    const float dotG  = 10.0f * scale;
+                    // Dots : positionnees a 60% de la hauteur de carte,
+                    // taille proportionnelle a cardW pour eviter qu'elles
+                    // debordent ou disparaissent.
+                    const float dotsY = screenBY + dotsY0;
+                    const float dotR  = math::NkMax(3.0f, cardW * 0.025f);
+                    const float dotG  = math::NkMax(8.0f, cardW * 0.065f);
                     for (int dn = 0; dn < 5; ++dn)
                     {
-                        const float ddx = bx + 12.0f * scale + dn * dotG;
+                        const float ddx = bx + padX + dn * dotG;
                         if (dn < d.dots)
                         {
                             math::NkColor dotC = d.color;
@@ -673,11 +687,11 @@ namespace nkentseu
                     math::NkColor descCol = { 255, 255, 255, 140 };
                     descCol.a = static_cast<uint8>(140 * a);
                     f.DrawStringScaled(r, FontAtlas::SmallSlot, scale,
-                                 bx + 12.0f * scale, screenBY + 104.0f * scale,
+                                 bx + padX, screenBY + descY,
                                  d.desc, descCol);
                 }
                 worldY += rows * (cardH + pad);
-                worldY += 20.0f * scale;  // gap inter-section
+                worldY += Pct::H(H, 0.026f, 14.0f, 36.0f);  // gap inter-section
             };  // end renderGrid lambda
 
             if (mShowDifficulty)
@@ -697,13 +711,15 @@ namespace nkentseu
                          gridLeft, worldY - mScrollY + scrollTop,
                          "OBSTACLES  &  TERRAIN",
                          sectionCol);
-            worldY += 38.0f * scale;
+            worldY += Pct::H(H, 0.052f, 28.0f, 56.0f);
 
             {
                 const int cols = 4;
                 const int rows = 2;
                 const float cardW = (availW - pad * (cols - 1)) / cols;
-                const float cardH = math::NkMax(110.0f * scale, 100.0f * scale);
+                // Carte obstacle : un peu plus basse que carte difficulte
+                // (moins de contenu textuel). 16% de H avec clamps doux.
+                const float cardH = Pct::H(H, 0.160f, 95.0f, 150.0f);
                 mObsW = cardW;
                 mObsH = cardH;
                 for (int i = 0; i < kObsCount; ++i)
@@ -743,21 +759,23 @@ namespace nkentseu
 
                     const float iconSize = cardH * 0.35f;
                     const float iconX = bx + (cardW - iconSize) * 0.5f;
-                    const float iconY = screenBY + 8.0f * scale;
+                    const float iconY = screenBY + cardH * 0.07f;
                     math::NkColor iconC = active ? d.color
                                                  : math::NkColor{ 255, 255, 255, 80 };
                     iconC.a = static_cast<uint8>(iconC.a * a);
                     DrawObsIcon(r, d.iconId, iconX, iconY, iconSize, iconC);
 
                     // Case a cocher cliquable en coin haut-droit (toggle on/off
-                    // independant du panneau d'edition).
-                    const float cs = 18.0f * scale;  // taille case
-                    const float cx2 = bx + cardW - cs - 6.0f * scale;
-                    const float cy2 = screenBY + 6.0f * scale;
+                    // independant du panneau d'edition). Taille proportionnelle
+                    // au plus petit cote de la carte.
+                    const float cs = math::NkMin(cardW, cardH) * 0.20f;
+                    const float csInset = cardW * 0.05f;
+                    const float cx2 = bx + cardW - cs - csInset;
+                    const float cy2 = screenBY + csInset;
                     // Stocke en coords MONDE pour le hit-test (le screenBY
                     // inclut deja l'offset scroll, on l'inverse).
                     mObsCheckX[i] = cx2;
-                    mObsCheckY[i] = (screenBY - scrollTop + mScrollY) + 6.0f * scale;
+                    mObsCheckY[i] = (screenBY - scrollTop + mScrollY) + csInset;
                     mObsCheckW = cs; mObsCheckH = cs;
 
                     math::NkColor cbg = active ? d.color : math::NkColor{ 255, 255, 255, 20 };
@@ -771,7 +789,7 @@ namespace nkentseu
                         // Coche
                         math::NkColor white = { 0, 0, 0, 230 };
                         white.a = static_cast<uint8>(230 * a);
-                        const float pad = 4.0f * scale;
+                        const float pad = cs * 0.22f;
                         r.DrawLine(cx2 + pad,        cy2 + cs * 0.5f,
                                    cx2 + cs * 0.45f, cy2 + cs - pad, white, 2.0f);
                         r.DrawLine(cx2 + cs * 0.45f, cy2 + cs - pad,
@@ -793,7 +811,7 @@ namespace nkentseu
                                        d.desc, descC);
                 }
                 worldY += rows * (cardH + pad);
-                worldY += 20.0f * scale;  // marge bas
+                worldY += Pct::H(H, 0.026f, 14.0f, 36.0f);  // marge bas
             }
 
             // ── Maj mMaxScroll (contentH - scrollH) ─────────────────────────
@@ -804,13 +822,13 @@ namespace nkentseu
             // ── TOP : titre + sous-titre (au-dessus du scroll, mask le contenu)
             r.DrawQuad(0.0f, safeY, (float)W, mTopReserve, { 5, 10, 20, 230 });
 
-            // Bouton RETOUR (haut-gauche)
+            // Bouton RETOUR (haut-gauche) — dimensions en % viewport
             {
-                const float bw = 100.0f * scale;
-                const float bh = 36.0f * scale;
+                const float bw = Pct::W(W, 0.110f, 80.0f, 150.0f);
+                const float bh = Pct::H(H, 0.055f, 30.0f, 56.0f);
                 mBackW = bw; mBackH = bh;
-                mBackX = safeX + 16.0f * scale;
-                mBackY = safeY + 12.0f * scale;
+                mBackX = safeX + Pct::W(W, 0.020f, 10.0f, 24.0f);
+                mBackY = safeY + Pct::H(H, 0.018f, 8.0f, 22.0f);
                 r.DrawQuad       (mBackX, mBackY, bw, bh, { 255, 255, 255, 16 });
                 r.DrawQuadOutline(mBackX, mBackY, bw, bh, { 0, 245, 255, 180 }, 1.5f * scale);
                 f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
@@ -818,12 +836,14 @@ namespace nkentseu
                                    "< RETOUR", theme::Cyan());
             }
 
+            // Titre + sous-titre centres en haut. Y exprime en % de H pour
+            // suivre la hauteur de mTopReserve.
             f.DrawStringShadowCenteredScaled(r, FontAtlas::HeadlineSlot, scale,
-                                     cx, safeY + 20.0f * scale,
+                                     cx, safeY + Pct::H(H, 0.028f, 14.0f, 32.0f),
                                      "CONFIGURATION DE LA PARTIE",
                                      theme::White(), theme::Cyan(), 3);
             f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
-                                cx, safeY + 70.0f * scale,
+                                cx, safeY + Pct::H(H, 0.085f, 50.0f, 100.0f),
                                 mShowDifficulty
                                   ? "CHOISIS UNE DIFFICULTE ET CONFIGURE LES OBSTACLES"
                                   : "CONFIGURE LES OBSTACLES",
@@ -832,8 +852,9 @@ namespace nkentseu
             // ── BOTTOM : bouton LANCER sticky + fond opaque ─────────────────
             const float botY = safeY + safeH - mBottomReserve;
             r.DrawQuad(0.0f, botY, (float)W, mBottomReserve, { 5, 10, 20, 230 });
-            const float launchW = 320.0f * scale;
-            const float launchH = 56.0f * scale;
+            // Bouton LANCER : largeur 40% viewport (max 420 px), hauteur 7% H.
+            const float launchW = Pct::W(W, 0.400f, 220.0f, 460.0f);
+            const float launchH = Pct::H(H, 0.075f, 40.0f, 80.0f);
             mLaunchW = launchW; mLaunchH = launchH;
             mLaunchX = cx - launchW * 0.5f;
             mLaunchY = botY + (mBottomReserve - launchH) * 0.5f;
@@ -851,9 +872,11 @@ namespace nkentseu
                 const ObsDescL& d = kObsL[mEditingObsIndex];
                 // Voile sombre par-dessus tout
                 r.DrawQuad(0.0f, 0.0f, (float)W, (float)H, { 5, 10, 20, 200 });
-                // Panneau central
-                const float pW = math::NkMin(safeW * 0.80f, 520.0f * scale);
-                const float pH = 320.0f * scale;
+                // Panneau central : taille en % viewport, centre vertical
+                // et horizontal pour rester ergonomique sur tout ratio.
+                const float pW = math::NkMin(safeW * 0.85f,
+                                             Pct::W(W, 0.55f, 320.0f, 600.0f));
+                const float pH = Pct::H(H, 0.55f, 280.0f, 460.0f);
                 mEditPanelW = pW; mEditPanelH = pH;
                 mEditPanelX = cx - pW * 0.5f;
                 mEditPanelY = safeY + (safeH - pH) * 0.5f;
@@ -862,15 +885,18 @@ namespace nkentseu
                 r.DrawQuadOutline(mEditPanelX, mEditPanelY, pW, pH,
                                   d.color, 2.0f * scale);
 
-                // Titre + close
+                // Titre + close (offsets relatifs au panneau)
+                const float panelPadX = pW * 0.05f;
+                const float panelPadY = pH * 0.045f;
                 f.DrawStringShadowScaled(r, FontAtlas::SubtitleSlot, scale,
-                                 mEditPanelX + 20.0f * scale,
-                                 mEditPanelY + 14.0f * scale,
+                                 mEditPanelX + panelPadX,
+                                 mEditPanelY + panelPadY,
                                  d.name, d.color, d.color, 1);
-                // Bouton close
-                const float closeS = 30.0f * scale;
-                mEditCloseX = mEditPanelX + pW - closeS - 12.0f * scale;
-                mEditCloseY = mEditPanelY + 12.0f * scale;
+                // Bouton close : taille proportionnelle a la plus petite
+                // dimension du panneau pour rester carre et cliquable.
+                const float closeS = math::NkMin(pW, pH) * 0.09f;
+                mEditCloseX = mEditPanelX + pW - closeS - panelPadX * 0.6f;
+                mEditCloseY = mEditPanelY + panelPadY * 0.85f;
                 mEditBtnH = closeS;
                 r.DrawQuad       (mEditCloseX, mEditCloseY, closeS, closeS,
                                   { 255, 64, 64, 60 });
@@ -881,15 +907,15 @@ namespace nkentseu
                                    mEditCloseY + closeS * 0.18f,
                                    "x", { 255, 64, 64, 240 });
 
-                // 3 lignes : NOMBRE, FORCE, IMPREVISIBLE
-                const float bw = 36.0f * scale;
-                const float bh = 36.0f * scale;
-                const float valW = 120.0f * scale;
+                // 3 lignes : NOMBRE, FORCE, IMPREVISIBLE (responsive)
+                const float bw = Pct::W(W, 0.045f, 30.0f, 56.0f);
+                const float bh = Pct::H(H, 0.055f, 30.0f, 56.0f);
+                const float valW = Pct::W(W, 0.145f, 90.0f, 180.0f);
                 mEditBtnW = bw; mEditBtnH = bh;
-                const float lx = mEditPanelX + 30.0f * scale;
-                const float rx = mEditPanelX + pW - 30.0f * scale - (bw * 2 + valW);
-                float ly = mEditPanelY + 70.0f * scale;
-                const float lineH = 56.0f * scale;
+                const float lx = mEditPanelX + pW * 0.07f;
+                const float rx = mEditPanelX + pW - pW * 0.07f - (bw * 2 + valW);
+                float ly = mEditPanelY + pH * 0.22f;
+                const float lineH = Pct::H(H, 0.080f, 44.0f, 80.0f);
 
                 // NOMBRE
                 f.DrawStringScaled(r, FontAtlas::BodySlot, scale,
@@ -940,9 +966,9 @@ namespace nkentseu
                 f.DrawStringScaled(r, FontAtlas::BodySlot, scale,
                              lx, ly + lineH * 0.28f,
                              "IMPREVISIBLE (BOUGE)", { 255, 255, 255, 220 });
-                const float tW = 80.0f * scale;
-                const float tH = 30.0f * scale;
-                mEditChaoticX = mEditPanelX + pW - 30.0f * scale - tW;
+                const float tW = Pct::W(W, 0.100f, 64.0f, 120.0f);
+                const float tH = Pct::H(H, 0.045f, 24.0f, 48.0f);
+                mEditChaoticX = mEditPanelX + pW - pW * 0.07f - tW;
                 mEditChaoticY = ly + (lineH - tH) * 0.5f;
                 mEditChaoticW = tW; mEditChaoticH = tH;
                 math::NkColor tbg = mEditChaotic
@@ -961,12 +987,13 @@ namespace nkentseu
                                                 : math::NkColor{ 255, 255, 255, 160 });
                 ly += lineH;
 
-                // Bouton APPLIQUER
-                const float aW = 200.0f * scale;
-                const float aH = 44.0f * scale;
+                // Bouton APPLIQUER (centre bas du panneau)
+                const float aW = math::NkMin(pW * 0.6f,
+                                             Pct::W(W, 0.25f, 160.0f, 280.0f));
+                const float aH = Pct::H(H, 0.065f, 36.0f, 68.0f);
                 mEditApplyW = aW; mEditApplyH = aH;
                 mEditApplyX = mEditPanelX + (pW - aW) * 0.5f;
-                mEditApplyY = mEditPanelY + pH - aH - 20.0f * scale;
+                mEditApplyY = mEditPanelY + pH - aH - pH * 0.06f;
                 r.DrawQuad       (mEditApplyX, mEditApplyY, aW, aH, { 0, 245, 255, 60 });
                 r.DrawQuadOutline(mEditApplyX, mEditApplyY, aW, aH, theme::Cyan(), 2.0f * scale);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
@@ -981,13 +1008,16 @@ namespace nkentseu
             // de padding 2px qui creait un gap visible).
             if (mMaxScroll > 0.5f)
             {
-                const float sbW = 4.0f * scale;
-                const float sbX = safeX + safeW - sbW - 3.0f * scale;
+                // Scrollbar : largeur en % W (fine), thumb min en % H pour
+                // rester saisissable au doigt sur mobile.
+                const float sbW = Pct::W(W, 0.006f, 3.0f, 8.0f);
+                const float sbX = safeX + safeW - sbW - Pct::W(W, 0.004f, 2.0f, 6.0f);
                 const float sbY = scrollTop;
                 const float sbH = scrollH;
                 r.DrawQuad(sbX, sbY, sbW, sbH, { 255, 255, 255, 16 });
                 const float frac = scrollH / contentH;
-                const float thumbH = math::NkMax(20.0f * scale, sbH * frac);
+                const float thumbH = math::NkMax(Pct::H(H, 0.030f, 18.0f, 40.0f),
+                                                 sbH * frac);
                 const float thumbY = sbY
                                    + (sbH - thumbH) * (mScrollY / mMaxScroll);
                 r.DrawQuad(sbX, thumbY, sbW, thumbH,
