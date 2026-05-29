@@ -10,7 +10,7 @@
  * @File    NkUIMath.h
  * @Brief   Vecteurs 2D/4D, rectangles, couleurs — mathématiques internes NkUI.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  */
 #include "NKUI/NkUIExport.h"
 #include <cmath>

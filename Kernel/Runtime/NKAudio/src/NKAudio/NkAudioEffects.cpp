@@ -388,6 +388,89 @@ namespace nkentseu {
         }
 
         // ====================================================================
+        // LIMITER (Brick-wall)
+        // ====================================================================
+
+        LimiterEffect::LimiterEffect(const Params& params, int32 sampleRate)
+            : mParams(params)
+            , mSampleRate(sampleRate)
+            , mEnvelope(0.0f)
+            , mGainReductionDb(0.0f)
+            , mAttackCoeff(0.0f)
+            , mReleaseCoeff(0.0f)
+            , mThresholdLin(1.0f)
+        {
+            ComputeCoeffs();
+        }
+
+        void LimiterEffect::ComputeCoeffs() {
+            // Coefficients d'enveloppe one-pole (exponentielle)
+            float32 srF = (float32)mSampleRate;
+            float32 attackS  = mParams.attackMs  * 0.001f;
+            float32 releaseS = mParams.releaseMs * 0.001f;
+            mAttackCoeff  = (attackS  > 0.0f) ? ::expf(-1.0f / (attackS  * srF)) : 0.0f;
+            mReleaseCoeff = (releaseS > 0.0f) ? ::expf(-1.0f / (releaseS * srF)) : 0.0f;
+            // Threshold en lineaire (10^(thresholdDb / 20))
+            mThresholdLin = ::powf(10.0f, mParams.thresholdDb / 20.0f);
+        }
+
+        void LimiterEffect::Reset() {
+            mEnvelope        = 0.0f;
+            mGainReductionDb = 0.0f;
+        }
+
+        void LimiterEffect::OnSampleRateChanged(int32 sampleRate) {
+            mSampleRate = sampleRate;
+            ComputeCoeffs();
+        }
+
+        void LimiterEffect::SetParams(const Params& params) noexcept {
+            mParams = params;
+            ComputeCoeffs();
+        }
+
+        void LimiterEffect::Process(float32* buffer, int32 frameCount, int32 channels) {
+            // Algorithme : peak envelope + gain reduction lineaire.
+            // Pour chaque frame :
+            //   1. Trouve le peak max sur tous les canaux (abs).
+            //   2. Met a jour l'envelope (attack si peak > envelope, sinon release).
+            //   3. Si envelope > threshold, calcule gain = threshold / envelope.
+            //   4. Multiplie tous les canaux par gain.
+            if (!buffer || frameCount <= 0 || channels <= 0) return;
+
+            for (int32 f = 0; f < frameCount; ++f) {
+                float32* frame = buffer + f * channels;
+
+                // Find peak across channels (abs)
+                float32 peak = 0.0f;
+                for (int32 c = 0; c < channels; ++c) {
+                    float32 a = frame[c];
+                    if (a < 0.0f) a = -a;
+                    if (a > peak) peak = a;
+                }
+
+                // Update envelope (attack/release one-pole)
+                float32 coeff = (peak > mEnvelope) ? mAttackCoeff : mReleaseCoeff;
+                mEnvelope = peak + coeff * (mEnvelope - peak);
+
+                // Compute gain reduction
+                float32 gain = 1.0f;
+                if (mEnvelope > mThresholdLin) {
+                    gain = mThresholdLin / mEnvelope;
+                    // Update gain reduction in dB (pour debug / VU meter)
+                    mGainReductionDb = 20.0f * ::log10f(gain);
+                } else {
+                    mGainReductionDb = 0.0f;
+                }
+
+                // Apply gain to all channels
+                for (int32 c = 0; c < channels; ++c) {
+                    frame[c] *= gain;
+                }
+            }
+        }
+
+        // ====================================================================
         // BIQUAD FILTER
         // ====================================================================
 

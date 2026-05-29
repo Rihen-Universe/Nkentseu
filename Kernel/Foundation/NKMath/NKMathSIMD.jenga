@@ -60,7 +60,12 @@ project("NKmathIMD"):
     filter("platforms:ios")
         -- ARMv8 NEON support
         defines({"NK_ENABLE_NEON=1"})
-    
+
+    -- Support HarmonyOS (OpenHarmony, aarch64-linux-ohos, NEON ARMv8)
+    filter("platforms:harmonyos")
+        -- ARMv8 NEON support
+        defines({"NK_ENABLE_NEON=1"})
+
     -- Tests
     with group("Tests"):
         project("NKmathIMD_Tests"):

@@ -159,38 +159,38 @@ namespace nkentseu {
             // les bugs de conversion sur HDR (ConvertChannels travaille en
             // uint8 et ne supporte pas les formats float). On convertit ensuite
             // manuellement vers RGBA8 ou RGBA32F selon le besoin.
-            NkImage* img = NkImage::Load(path.CStr(), 0);
-            if (!img) return false;
+            NkImage img;
+            if (!img.Load(path.CStr(), 0)) return false;
 
-            out.width    = (uint32)img->Width();
-            out.height   = (uint32)img->Height();
+            out.width    = (uint32)img.Width();
+            out.height   = (uint32)img.Height();
             out.channels = 4;
-            out.isHDR    = img->IsHDR();
+            out.isHDR    = img.IsHDR();
 
             const uint64 npx = (uint64)out.width * out.height;
             if (out.isHDR) {
                 // RGB96F (3 floats packed avec align stride) ou RGBA128F.
                 // Sortie : RGBA128F densement packe (4 floats / pixel).
                 out.hdrPixels = new float32[npx * 4];
-                if (img->Format() == NkImagePixelFormat::NK_RGB96F) {
+                if (img.Format() == NkImagePixelFormat::NK_RGB96F) {
                     // src stride en bytes, on le convertit en floats (stride/4).
-                    const uint32 srcStrideF = (uint32)(img->Stride() / sizeof(float32));
-                    HdrRgb96fToRgba128fPacked(reinterpret_cast<const float32*>(img->Pixels()),
+                    const uint32 srcStrideF = (uint32)(img.Stride() / sizeof(float32));
+                    HdrRgb96fToRgba128fPacked(reinterpret_cast<const float32*>(img.Pixels()),
                                               srcStrideF, out.hdrPixels,
                                               out.width, out.height);
                 } else {
                     // RGBA128F deja : copie directe (memcpy en bytes).
-                    memcpy(out.hdrPixels, img->Pixels(), npx * 4 * sizeof(float32));
+                    memcpy(out.hdrPixels, img.Pixels(), npx * 4 * sizeof(float32));
                 }
             } else {
                 // LDR : on veut RGBA8 dense. Si le fichier n'est pas RGBA on
                 // fait la conversion via NkImage::Convert(NK_RGBA32) puis on
                 // extrait les pixels denses (en respectant le stride).
                 NkImage* rgba = nullptr;
-                if (img->Format() != NkImagePixelFormat::NK_RGBA32) {
-                    rgba = img->Convert(NkImagePixelFormat::NK_RGBA32);
+                if (img.Format() != NkImagePixelFormat::NK_RGBA32) {
+                    rgba = img.Convert(NkImagePixelFormat::NK_RGBA32);
                 }
-                NkImage* src = rgba ? rgba : img;
+                NkImage* src = rgba ? rgba : &img;
 
                 out.pixels = new uint8[npx * 4];
                 const uint32 srcStride = (uint32)src->Stride();
@@ -206,7 +206,7 @@ namespace nkentseu {
                 }
                 if (rgba) rgba->Free();
             }
-            img->Free();
+            img.Free();
             return true;
         }
 

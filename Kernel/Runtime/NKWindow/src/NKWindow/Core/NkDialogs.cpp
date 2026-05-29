@@ -20,6 +20,25 @@
 // Pour macOS, on utilisera des commandes via osascript
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB) // Linux
 // Pour Linux, on utilisera Zenity (outil GTK en ligne de commande)
+ 
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+// HarmonyOS : les dialogues système passent par ArkTS (showDialog, picker).
+// Il n'existe pas d'API NDK C++ directe pour les file pickers ou color pickers.
+//
+// Pour afficher un dialog depuis C++ sur HarmonyOS, il faut :
+//   1. Exposer une fonction N-API : nkNative.showDialog({type, message, title})
+//   2. Côté ArkTS : promptAction.showDialog() ou picker.DocumentSelectOptions()
+//   3. Le résultat revient via un callback N-API asynchrone
+//
+// Voir la documentation officielle :
+//   developer.huawei.com → ArkTS APIs → @ohos.promptAction (showDialog)
+//   developer.huawei.com → ArkTS APIs → @ohos.file.picker (DocumentSelectOptions)
+//   gitee.com/openharmony/docs → application-dev/reference/apis-basic-services-kit
+//
+// Les stubs ci-dessous retournent des résultats vides.
+// Pour une implémentation complète, utiliser NkHarmonyBridge.ts comme
+// intermédiaire : C++ → N-API → ArkTS picker/dialog → callback → C++.
+
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 // Plateformes mobiles/Web : stubs
 #endif
@@ -321,6 +340,58 @@ namespace nkentseu {
 		(void)initial;
 		return {};
 	}
+ 
+    // ===========================================================================
+    // HarmonyOS — stubs (dialogues via ArkTS N-API)
+    // ===========================================================================
+    // Les dialogues système HarmonyOS utilisent l'API ArkTS promptAction /
+    // picker. Il n'existe pas d'équivalent NDK C++ direct.
+    //
+    // Pour implémenter, exposer des fonctions N-API depuis NkHarmonyOS.h :
+    //
+    //   // Côté C++ (N-API)
+    //   static napi_value NkShowMessageBox(napi_env env, napi_callback_info info) {
+    //       // Appeler ArkTS via napi_call_function sur un callback stocké
+    //   }
+    //
+    //   // Côté ArkTS (NkHarmonyBridge.ts)
+    //   import promptAction from '@ohos.promptAction';
+    //   nkNative.showMessageBox = async (msg, title, type) => {
+    //       await promptAction.showDialog({
+    //           title: title, message: msg,
+    //           buttons: [{ text: 'OK', color: '#000000' }]
+    //       });
+    //   };
+    //
+    //   // Pour les file pickers :
+    //   import picker from '@ohos.file.picker';
+    //   const docPicker = new picker.DocumentSelectOptions();
+    //   docPicker.selectMode = picker.DocumentSelectMode.FILE;
+    //   new picker.DocumentViewPicker().select(docPicker).then(result => {
+    //       nkNative.onFileSelected?.(result[0]); // callback vers C++
+    //   });
+    //
+    // Documentation officielle :
+    //   https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-promptaction
+    //   https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-file-picker
+    //   https://gitee.com/openharmony/docs/tree/master/zh-cn/application-dev/reference/apis-basic-services-kit
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+ 
+    inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
+        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
+        return {};
+    }
+    inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
+        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
+        return {};
+    }
+    inline void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
+        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.promptAction
+    }
+    inline NkDialogResult NkDialogs::ColorPicker(uint32) {
+        // Non implémenté : pas d'équivalent système HarmonyOS
+        return {};
+    }
 
 	// ===========================================================================
 	// Autres plateformes (UWP, Xbox, Android, iOS, WASM) : stubs

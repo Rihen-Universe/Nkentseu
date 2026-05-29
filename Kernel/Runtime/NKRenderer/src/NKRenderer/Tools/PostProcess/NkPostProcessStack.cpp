@@ -227,11 +227,87 @@ void main() {
         CreateTextures();
 
         // ── Descriptor set layout : 1 sampler combine pour la texture d'entree ──
+        // Utilise par bloom_down, bloom_up, ssao, fxaa.
         NkDescriptorSetLayoutDesc layout;
         layout.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
                    ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
         mInputTexLayout = mDevice->CreateDescriptorSetLayout(layout);
         mInputTexSet    = mDevice->AllocateDescriptorSet(mInputTexLayout);
+
+        // Phase H.2 : alloue le pool de descriptor sets pour bloom multi-pass.
+        // 11 sub-passes par frame (6 down + 5 up), on alloue 16 pour marge.
+        for (int i = 0; i < kBloomDescSets; i++) {
+            mBloomSets[i] = mDevice->AllocateDescriptorSet(mInputTexLayout);
+        }
+        mBloomSetCursor = 0;
+
+        // ── Phase H.2/H.3/L : layout du tonemap (4 samplers : uHDR + uBloom + uSSAO + uColorLUT) ──
+        //   - binding 0 = uHDR     (HDR transient = sortie geometry pass)
+        //   - binding 1 = uBloom   (mBloomRT[0].GetColorHandle() apres RunBloom)
+        //   - binding 2 = uSSAO    (Phase H.3 : ambient occlusion factor)
+        //   - binding 3 = uColorLUT (Phase L : 3D LUT cinema grading)
+        NkDescriptorSetLayoutDesc tonelay;
+        tonelay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                    ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        tonelay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                    ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        tonelay.Add(2, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                    ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        tonelay.Add(3, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                    ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        mToneLayout = mDevice->CreateDescriptorSetLayout(tonelay);
+        mToneSet    = mDevice->AllocateDescriptorSet(mToneLayout);
+
+        // Phase L : create identity LUT 16^3 par defaut (no color change).
+        // User upload son LUT custom via NkRenderer::SetColorGradingLUT plus tard.
+        // Format : RGBA8 UNORM, sampler linear-clamp (filter trilinear sur le 3D).
+        //
+        // TEMPORAIREMENT skip sur OpenGL backend : probable bug conversion
+        // SPIRV-Cross sampler3D->GL ou binding 3D texture incorrect. Crash
+        // observe 2026-05-23 sur Demo3D --bgl. Fix V1 = audit conversion +
+        // GL backend 3D texture path. Sur Vulkan ca marche.
+        const bool isGL = mDevice
+                       && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_OPENGL;
+        if (!isGL) {
+            mLUTSize = mCfg.lutSize > 0 ? mCfg.lutSize : 16;
+            if (mLUTSize > 64) mLUTSize = 64;  // hard cap pour eviter VRAM
+            auto td = NkTextureDesc::Tex3D(mLUTSize, mLUTSize, mLUTSize,
+                                            NkGPUFormat::NK_RGBA8_UNORM);
+            td.debugName = "ColorGradingLUT_Identity";
+            mLUTTex = mDevice->CreateTexture(td);
+
+            // Identity LUT data : pixel (r,g,b) = (r/N-1, g/N-1, b/N-1).
+            // Layout 3D : voxel (i,j,k) -> color (i, j, k) / (N-1).
+            const uint32 N = mLUTSize;
+            NkVector<uint8> data;
+            data.Resize(N * N * N * 4);
+            for (uint32 k = 0; k < N; k++)
+                for (uint32 j = 0; j < N; j++)
+                    for (uint32 i = 0; i < N; i++) {
+                        uint32 idx = ((k * N + j) * N + i) * 4;
+                        data[idx + 0] = uint8((i * 255) / (N - 1));
+                        data[idx + 1] = uint8((j * 255) / (N - 1));
+                        data[idx + 2] = uint8((k * 255) / (N - 1));
+                        data[idx + 3] = 255;
+                    }
+            if (mLUTTex.IsValid()) {
+                mDevice->WriteTextureRegion(mLUTTex, data.Data(),
+                                             0, 0, 0,
+                                             N, N, N, 0, 0, 0);
+            }
+        } else {
+            // GL : dummy 1x1x1 3D texture (le shader skip via lutStrength=0
+            // mais le binding doit avoir le target sampler3D pour eviter
+            // undefined behavior si on bind un 2D au slot 3).
+            mLUTSize = 1;
+            auto td = NkTextureDesc::Tex3D(1, 1, 1, NkGPUFormat::NK_RGBA8_UNORM);
+            td.debugName = "ColorGradingLUT_Dummy";
+            mLUTTex = mDevice->CreateTexture(td);
+            if (mLUTTex.IsValid()) {
+                uint8 dummy[4] = {0, 0, 0, 255};
+                mDevice->WriteTextureRegion(mLUTTex, dummy, 0,0,0, 1,1,1, 0,0,0);
+            }
+        }
 
         // ── Vertex layout du fullscreen quad (NkVertex3D) ─────────────────────
         // Le shader VS n'utilise que aPos (loc 0) et aUV (loc 3). On declare
@@ -264,16 +340,121 @@ void main() {
             pd.rasterizer   = NkRasterizerDesc::NoCull();
             pd.blend        = NkBlendDesc::Opaque();
             pd.debugName    = "PP_Tone";
-            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, 32);  // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,bloomThr,invW,invH)
-            if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
-            buildVertexLayout(pd);
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 48);  // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,lutStr,yFlipUV,lutSize) PC[2]=(autoExpStr,autoExpKey,_,_) — VS+FS
+            // Phase H.2 : utilise le layout 2-bindings (uHDR + uBloom)
+            if (mToneLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mToneLayout);
+            // Fullscreen triangle (gl_VertexIndex, pas de VBO) => pas de
+            // vertex layout. Le rasterizer dessinera 3 verts via cmd->Draw(3).
             mPipeTone = mDevice->CreateGraphicsPipeline(pd);
         }
 
-        // ── Pipelines bloom/ssao/fxaa : pas encore wires (shaders pas compiles) ─
-        // Ces pipelines restent invalides tant que mCfg.bloom/ssao/fxaa active des
-        // effets non implementes. RunBloom/RunSSAO/RunFXAA tomberont en no-op
-        // (DrawFullscreen verifie pipe.IsValid()).
+        // ── Phase H.2 : pipelines bloom downsample + upsample ──────────────
+        // Le render pass utilise = celui d'un mBloomRT (tous compatibles car
+        // meme format RGBA16F + pas de depth). On utilise mBloomRT[0] comme
+        // template (cree par CreateTextures juste avant ce bloc).
+        logger.Info("[NkPostProcessStack] Phase H.2 init : mBloomRT[0].IsValid()={0}\n",
+                    mBloomRT[0].IsValid() ? 1 : 0);
+        if (mShaderLib && mBloomRT[0].IsValid()) {
+            auto progDown = mShaderLib->LoadOrCompileVF("PP_BloomDown", "", "");
+            if (progDown.IsValid()) mShaderBloomDown = mShaderLib->GetRHIHandle(progDown);
+            auto progUp = mShaderLib->LoadOrCompileVF("PP_BloomUp", "", "");
+            if (progUp.IsValid())   mShaderBloomUp   = mShaderLib->GetRHIHandle(progUp);
+            logger.Info("[NkPostProcessStack] Bloom shaders : down.valid={0} up.valid={1}\n",
+                        mShaderBloomDown.IsValid() ? 1 : 0,
+                        mShaderBloomUp.IsValid() ? 1 : 0);
+        }
+
+        if (mShaderBloomDown.IsValid() && mBloomRT[0].IsValid()) {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mShaderBloomDown;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "PP_BloomDown";
+            pd.renderPass   = mBloomRT[0].GetRenderPass();
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);  // (srcInvW, srcInvH, threshold, yFlipUV) — VS+FS
+            if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+            // Fullscreen triangle : pas de vertex layout.
+            mPipeBloomDown = mDevice->CreateGraphicsPipeline(pd);
+        }
+
+        if (mShaderBloomUp.IsValid() && mBloomRT[0].IsValid()) {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mShaderBloomUp;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            // Phase H.2 : blend additif (SRC + DST = ONE * src + ONE * dst).
+            // L'upsample accumule par-dessus le contenu (deja downsamples).
+            pd.blend        = NkBlendDesc::Additive();
+            pd.debugName    = "PP_BloomUp";
+            pd.renderPass   = mBloomRT[0].GetRenderPass();
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);  // (srcInvW, srcInvH, strength, yFlipUV) — VS+FS
+            if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+            // Fullscreen triangle : pas de vertex layout.
+            mPipeBloomUp = mDevice->CreateGraphicsPipeline(pd);
+        }
+
+        // ── Phase H.3 : pipeline SSAO ───────────────────────────────────────
+        if (mShaderLib && mSSAORT.IsValid()) {
+            auto progSSAO = mShaderLib->LoadOrCompileVF("PP_SSAO", "", "");
+            if (progSSAO.IsValid()) mShaderSSAO = mShaderLib->GetRHIHandle(progSSAO);
+        }
+        if (mShaderSSAO.IsValid() && mSSAORT.IsValid()) {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mShaderSSAO;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "PP_SSAO";
+            pd.renderPass   = mSSAORT.GetRenderPass();
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);  // (invResW, invResH, radius, yFlipUV) — VS+FS
+            if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+            mPipeSSAO = mDevice->CreateGraphicsPipeline(pd);
+        }
+
+        // ── Phase H.5b : pipeline SSAO Blur (denoise) ───────────────────────
+        if (mShaderLib && mSSAORT.IsValid()) {
+            auto progBlur = mShaderLib->LoadOrCompileVF("PP_SSAOBlur", "", "");
+            if (progBlur.IsValid()) mShaderSSAOBlur = mShaderLib->GetRHIHandle(progBlur);
+        }
+        if (mShaderSSAOBlur.IsValid() && mSSAORT.IsValid()) {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mShaderSSAOBlur;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "PP_SSAOBlur";
+            pd.renderPass   = mSSAORT.GetRenderPass();   // meme format R8_UNORM
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);  // (invResW, invResH, yFlipUV, _pad)
+            if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+            mPipeSSAOBlur = mDevice->CreateGraphicsPipeline(pd);
+        }
+
+        // ── Phase L : pipeline FXAA (Fast Approximate AA, post-tonemap) ────
+        // Shader externalise dans Resources/NKRenderer/Shaders/PP_FXAA/VK/.
+        // Le wirage RenderGraph reste TODO (cf. ExecuteRHI : actuellement
+        // tonemap ecrit direct au swapchain, FXAA necessiterait une pass
+        // dediee). Pour l'instant le pipeline est cree et RunFXAA est appele
+        // par Execute() (chemin non-RenderGraph). V1 : refactor pour split
+        // tonemap -> mToneTex, FXAA -> swapchain.
+        if (mShaderLib) {
+            auto progFXAA = mShaderLib->LoadOrCompileVF("PP_FXAA", "", "");
+            if (progFXAA.IsValid()) mShaderFXAA = mShaderLib->GetRHIHandle(progFXAA);
+        }
+        if (mShaderFXAA.IsValid()) {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mShaderFXAA;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "PP_FXAA";
+            // Pas de renderPass specifie : fallback sur swapchain RP (compat
+            // color-only standard, comme PP_Tone).
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);  // (invResW, invResH, yFlipUV, _pad)
+            if (mInputTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mInputTexLayout);
+            mPipeFXAA = mDevice->CreateGraphicsPipeline(pd);
+        }
+
         (void)kFullscreenVS; (void)kTonemapFS;
         (void)kFXAAFS; (void)kBloomDownFS; (void)kBloomUpFS; (void)kSSAOFS;
 
@@ -281,10 +462,25 @@ void main() {
     }
 
     void NkPostProcessStack::Shutdown() {
-        if (mPipeSSAO.IsValid())     mDevice->DestroyPipeline(mPipeSSAO);
-        if (mPipeBloom.IsValid())    mDevice->DestroyPipeline(mPipeBloom);
-        if (mPipeTone.IsValid())     mDevice->DestroyPipeline(mPipeTone);
-        if (mPipeFXAA.IsValid())     mDevice->DestroyPipeline(mPipeFXAA);
+        if (mPipeSSAO.IsValid())       mDevice->DestroyPipeline(mPipeSSAO);
+        if (mPipeSSAOBlur.IsValid())   mDevice->DestroyPipeline(mPipeSSAOBlur);
+        if (mPipeBloomDown.IsValid())  mDevice->DestroyPipeline(mPipeBloomDown);
+        if (mPipeBloomUp.IsValid())    mDevice->DestroyPipeline(mPipeBloomUp);
+        if (mPipeTone.IsValid())       mDevice->DestroyPipeline(mPipeTone);
+        if (mPipeFXAA.IsValid())       mDevice->DestroyPipeline(mPipeFXAA);
+        if (mLUTTex.IsValid())         { mDevice->DestroyTexture(mLUTTex); mLUTTex={}; }
+        for (int i = 0; i < kBloomMips; i++) {
+            if (mBloomRT[i].IsValid()) mBloomRT[i].Shutdown();
+        }
+        if (mSSAORT.IsValid())         mSSAORT.Shutdown();
+        if (mToneSet.IsValid())        mDevice->FreeDescriptorSet(mToneSet);
+        if (mToneLayout.IsValid())     mDevice->DestroyDescriptorSetLayout(mToneLayout);
+        for (int i = 0; i < kBloomDescSets; i++) {
+            if (mBloomSets[i].IsValid()) {
+                mDevice->FreeDescriptorSet(mBloomSets[i]);
+                mBloomSets[i] = {};
+            }
+        }
         if (mInputTexSet.IsValid())    mDevice->FreeDescriptorSet(mInputTexSet);
         if (mInputTexLayout.IsValid()) mDevice->DestroyDescriptorSetLayout(mInputTexLayout);
         // Le shader handle est detenu par NkShaderLibrary, pas a detruire ici.
@@ -300,14 +496,44 @@ void main() {
         uint32 hw = mW/2 ? mW/2 : 1;
         uint32 hh = mH/2 ? mH/2 : 1;
         mSSAOTex = mTex->CreateRenderTarget(hw,hh,NkGPUFormat::NK_R8_UNORM,false,true,"SSAO");
-        for(int i=0;i<6;i++){
-            uint32 s=1<<i;
-            uint32 bw = mW/s ? mW/s : 1;
-            uint32 bh = mH/s ? mH/s : 1;
-            mBloomTex[i]=mTex->CreateRenderTarget(bw,bh,NkGPUFormat::NK_RGBA16_FLOAT,false,true,"Bloom");
+
+        // Phase H.2 : bloom mipchain via NkRenderTarget. Chaque mip a son
+        // propre render pass + framebuffer pour permettre BeginRender pendant
+        // RunBloom. mBloomRT[0] est en W/2, [5] est en W/64.
+        for (int i = 0; i < kBloomMips; i++) {
+            uint32 div = 1u << (i + 1);   // mip 0 = W/2, mip 5 = W/64
+            uint32 bw = mW / div ? mW / div : 1;
+            uint32 bh = mH / div ? mH / div : 1;
+            NkRenderTargetDesc rtd;
+            rtd.width  = bw;
+            rtd.height = bh;
+            rtd.hdr    = true;    // RGBA16F : preserve HDR pour les bright spots
+            rtd.depth  = false;   // pas besoin de depth pour les passes bloom
+            char nameBuf[32];
+            snprintf(nameBuf, sizeof(nameBuf), "BloomMip%d", i);
+            rtd.name   = NkString(nameBuf);
+            // Note : Init() libere le RT precedent si re-init (utile pour OnResize)
+            if (mBloomRT[i].IsValid()) mBloomRT[i].Shutdown();
+            mBloomRT[i].Init(mDevice, mTex, rtd);
         }
+
         mToneTex  = mTex->CreateRenderTarget(mW,mH,NkGPUFormat::NK_RGBA8_UNORM,false,true,"Tone");
         mFinalTex = mTex->CreateRenderTarget(mW,mH,NkGPUFormat::NK_RGBA8_UNORM,false,true,"Final");
+
+        // Phase H.3 : SSAO render target template (R8_UNORM, W/2 x H/2, no depth).
+        // Sert juste a fournir un render pass pour la creation du pipeline SSAO ;
+        // le rendu effectif passe par un transient du RenderGraph.
+        {
+            if (mSSAORT.IsValid()) mSSAORT.Shutdown();
+            NkRenderTargetDesc rtd;
+            rtd.width    = hw;
+            rtd.height   = hh;
+            rtd.hdr      = false;
+            rtd.depth    = false;
+            rtd.colorFmt = NkGPUFormat::NK_R8_UNORM;
+            rtd.name     = NkString("SSAO_Template");
+            mSSAORT.Init(mDevice, mTex, rtd);
+        }
     }
 
     NkTexHandle NkPostProcessStack::Execute(NkICommandBuffer* cmd,
@@ -342,14 +568,16 @@ void main() {
         }
 
         if (pushConst && pcSize > 0) {
-            // PP shaders : push_constant uniquement utilise par le FS (le VS
-            // fullscreen quad n'a pas de PC). Pusher avec ALL_GRAPHICS declenche
-            // VUID-vkCmdPushConstants-offset-01795 (range pipeline = FRAGMENT
-            // strict). On reste donc en NK_FRAGMENT pour matcher.
-            cmd->PushConstants(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, pcSize, pushConst);
+            // PP shaders : VS ET FS lisent le push constant (VS lit yFlipUV,
+            // FS lit exposure/gamma/etc). Le pipeline declare la range avec
+            // NK_ALL_GRAPHICS (cf. AddPushConstant lors de CreateGraphicsPipeline).
+            // Le push DOIT matcher exactement le stageFlags de la range sinon
+            // VUID-vkCmdPushConstants-offset-01796 (push stages doit inclure
+            // toutes les stages de la range overlappante).
+            cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, pcSize, pushConst);
         }
-        mMesh->BindMesh(cmd, mQuad);
-        mMesh->DrawAll(cmd, mQuad);
+        // Fullscreen triangle : 3 verts sans VBO.
+        cmd->Draw(3, 1, 0, 0);
     }
 
     NkTexHandle NkPostProcessStack::RunSSAO(NkICommandBuffer* cmd,
@@ -365,13 +593,14 @@ void main() {
     }
 
     NkTexHandle NkPostProcessStack::RunBloom(NkICommandBuffer* cmd, NkTexHandle hdr) {
-        struct PC { float invW, invH, threshold, strength; } pc;
-        pc.invW      = 1.0f / (float)(mW > 0 ? mW : 1);
-        pc.invH      = 1.0f / (float)(mH > 0 ? mH : 1);
-        pc.threshold = mCfg.bloomThreshold;
-        pc.strength  = mCfg.bloomStrength;
-        DrawFullscreen(cmd, mPipeBloom, hdr, &pc, sizeof(pc));
-        return mBloomTex[0];
+        // Phase H.2 : RunBloom() legacy n'est plus le path actif. Le bloom
+        // multi-pass est maintenant orchestre par NkRendererImpl::BuildDefault-
+        // RenderGraph qui ajoute les passes Bloom_Down[0..4] + Bloom_Up[0..4]
+        // au RG avec transients RGBA16F, puis appelle DrawBloomDownPass /
+        // DrawBloomUpPass dans chaque pass.
+        // Cette methode reste pour compat avec Execute() (legacy non-RG path).
+        (void)cmd; (void)hdr;
+        return NkTexHandle::Null();
     }
 
     NkTexHandle NkPostProcessStack::RunTonemap(NkICommandBuffer* cmd, NkTexHandle hdr) {
@@ -393,42 +622,254 @@ void main() {
         return mToneTex;
     }
 
-    void NkPostProcessStack::ExecuteRHI(NkICommandBuffer* cmd, NkTextureHandle hdrIn) {
-        if (!cmd || !mPipeTone.IsValid() || !mInputTexSet.IsValid() || !hdrIn.IsValid()) return;
+    void NkPostProcessStack::ExecuteRHI(NkICommandBuffer* cmd, NkTextureHandle hdrIn,
+                                          NkTextureHandle bloomTex,
+                                          NkTextureHandle ssaoTex) {
+        if (!cmd || !mPipeTone.IsValid() || !mToneSet.IsValid() || !hdrIn.IsValid()) return;
 
         NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
         if (!samp.IsValid()) return;
 
-        mDevice->BindTextureSampler(mInputTexSet, 0, hdrIn, samp);
+        // Phase H.2/H.3 : bind 3 textures au tonemap (uHDR=0 + uBloom=1 + uSSAO=2)
+        mDevice->BindTextureSampler(mToneSet, 0, hdrIn, samp);
+        if (bloomTex.IsValid()) {
+            mDevice->BindTextureSampler(mToneSet, 1, bloomTex, samp);
+        } else {
+            // Fallback : pas de bloom — bind l'HDR au binding=1 (shader avec
+            // bloomStrength=0 ignore le sample).
+            mDevice->BindTextureSampler(mToneSet, 1, hdrIn, samp);
+        }
+        if (ssaoTex.IsValid()) {
+            mDevice->BindTextureSampler(mToneSet, 2, ssaoTex, samp);
+        } else {
+            // Fallback : pas de SSAO — bind l'HDR au binding=2 (shader avec
+            // ssaoEnabled=false multiplie par 1.0 = pas d'attenuation).
+            mDevice->BindTextureSampler(mToneSet, 2, hdrIn, samp);
+        }
+        // Phase L : bind le LUT 3D (sampler3D au binding=3). Si pas alloue ou
+        // strength=0 le shader skip. Fallback : bind l'HDR pour eviter undefined.
+        if (mLUTTex.IsValid()) {
+            mDevice->BindTextureSampler(mToneSet, 3, mLUTTex, samp);
+        } else {
+            mDevice->BindTextureSampler(mToneSet, 3, hdrIn, samp);
+        }
         cmd->BindGraphicsPipeline(mPipeTone);
-        cmd->BindDescriptorSet(mInputTexSet, 0);
+        cmd->BindDescriptorSet(mToneSet, 0);
 
-        // Layout PC : 32 bytes = PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,bloomThr,invW,invH)
+        // Layout PC : 32 bytes
+        //   PC[0] = (exposure, gamma, vignetteIntens, saturation)
+        //   PC[1] = (bloomStrength, lutStrength, yFlipUV, lutSize)
+        // Phase L : lutStrength remplace bloomThreshold (inutilise apres le 1er
+        // downsample). lutSize en p1.w pour le bias texel correct cote shader.
         bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
-        float32 pc[8] = {
+        float32 pc[12] = {
+            // p0 = (exposure, gamma, vignetteIntens, saturation)
             mCfg.exposure,
             isVK ? 1.0f : mCfg.gamma,
             mCfg.vignette    ? mCfg.vignetteIntens : 0.f,
             mCfg.colorGrading? mCfg.saturation     : 1.f,
+            // p1 = (bloomStrength, lutStrength, yFlipUV, lutSize)
             mCfg.bloom       ? mCfg.bloomStrength   : 0.f,
-            mCfg.bloom       ? mCfg.bloomThreshold  : 1.f,
-            mW > 0 ? 1.0f / (float32)mW : 0.f,
-            mH > 0 ? 1.0f / (float32)mH : 0.f
+            mCfg.colorGrading? mCfg.lutStrength    : 0.f,
+            // yFlipUV = -1 dans les deux backends : le HDR transient (FBO
+            // custom) est stocke en convention Y-down dans VK ET GL (le RHI
+            // OpenGL flip son viewport pour les FBO custom afin de matcher
+            // la convention storage Vulkan). Le top screen rendu = ligne 0
+            // du storage -> UV.y = 0 pour sampler -> flip via VS.
+            -1.f,
+            float32(mLUTSize),
+            // p2 = (autoExposureStrength, autoExposureKey, _, _)
+            mCfg.autoExposureStrength,
+            mCfg.autoExposureKey,
+            0.f, 0.f
         };
-        cmd->PushConstants(::nkentseu::NkShaderStage::NK_FRAGMENT, 0, sizeof(pc), pc);
+        // Push avec NK_ALL_GRAPHICS pour matcher la range pipeline (cf. fix
+        // VUID-vkCmdPushConstants-offset-01796 — VS lit yFlipUV au slot PC[1].z).
+        cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), pc);
 
-        if (mMesh) {
-            mMesh->BindMesh(cmd, mQuad);
-            mMesh->DrawAll(cmd, mQuad);
+        // Fullscreen triangle : 3 verts sans VBO.
+        cmd->Draw(3, 1, 0, 0);
+    }
+
+    // Phase L FXAA wirage RenderGraph : version "ExecuteFXAA" sans alloc
+    // texture intermediate. Le RG bind deja le swapchain comme RT, on lit
+    // ldrIn (mToneTex via texture handle) au binding=0, draw fullscreen.
+    void NkPostProcessStack::ExecuteFXAA(NkICommandBuffer* cmd, NkTextureHandle ldrIn) {
+        if (!cmd || !mPipeFXAA.IsValid() || !ldrIn.IsValid()) return;
+
+        // Bind input texture (mToneTex sample) au binding=0 du PP_FXAA.
+        if (mInputTexSet.IsValid() && mResources) {
+            NkSamplerHandle samp = mResources->GetSamplerLinearClamp();
+            mDevice->BindTextureSampler(mInputTexSet, 0, ldrIn, samp);
         }
+        cmd->BindGraphicsPipeline(mPipeFXAA);
+        // FXAA shader uses set=0 binding=0 (cf. pp_fxaa.frag.vk.glsl).
+        if (mInputTexSet.IsValid()) cmd->BindDescriptorSet(mInputTexSet, 0);
+
+        // Push 16 bytes : (invResW, invResH, yFlipUV, _pad). Stage ALL_GRAPHICS
+        // pour matcher la range pipeline.
+        // yFlipUV : sur Vulkan le viewport est Y-flipped (storage transient
+        // top-down), donc on flip l'UV cote VS pour matcher. Sur OpenGL le
+        // viewport n'est pas flipped et le transient FBO est aussi top-down,
+        // mais l'output vers swapchain doit etre flippe -> on garde UV direct.
+        // (Convention oppose au tonemap qui ecrit direct au swapchain).
+        const bool isVK = mDevice
+                       && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        struct PC { float invResW, invResH, yFlipUV, _pad; } pc;
+        pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
+        pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
+        pc.yFlipUV = isVK ? -1.f : +1.f;
+        pc._pad    = 0.f;
+        cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS,
+                            0, sizeof(pc), &pc);
+        cmd->Draw(3, 1, 0, 0);
     }
 
     NkTexHandle NkPostProcessStack::RunFXAA(NkICommandBuffer* cmd, NkTexHandle ldr) {
-        struct PC { float invResW, invResH; } pc;
+        // Phase L : push 16 bytes (invResW, invResH, yFlipUV, _pad) pour matcher
+        // le pipeline range NK_ALL_GRAPHICS du VS+FS (cf. pp_fxaa.{vert,frag}.vk.glsl).
+        struct PC { float invResW, invResH, yFlipUV, _pad; } pc;
         pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
         pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
+        pc.yFlipUV = -1.f;   // FBO custom : Y-flip pour matcher la convention
+        pc._pad    = 0.f;
         DrawFullscreen(cmd, mPipeFXAA, ldr, &pc, sizeof(pc));
         return mFinalTex;
+    }
+
+    // ── Phase H.2 : sub-passes bloom multi-pass ──────────────────────────────
+    // Le RenderGraph ouvre la passe (color attachment = mip cible) avant
+    // l'appel, et la ferme apres. On ne fait QUE bind pipeline + descriptor
+    // + push constants + draw fullscreen quad.
+
+    // Phase H.2 : pool rotatif de descriptor sets pour les sub-passes bloom.
+    // Vulkan interdit d'updater un descriptor pendant qu'un draw precedent
+    // l'utilise. Chaque sub-pass prend un set frais via ce helper.
+    static NkDescSetHandle NextBloomSet(NkDescSetHandle (&pool)[33], int& cursor) {
+        NkDescSetHandle h = pool[cursor % 33];
+        cursor++;
+        return h;
+    }
+
+    void NkPostProcessStack::DrawBloomDownPass(NkICommandBuffer* cmd, NkTextureHandle src,
+                                                 uint32 srcW, uint32 srcH, float threshold) {
+        if (!cmd || !mPipeBloomDown.IsValid() ||
+            !src.IsValid()) return;
+
+        NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+        if (!samp.IsValid()) return;
+
+        NkDescSetHandle set = NextBloomSet(mBloomSets, mBloomSetCursor);
+        if (!set.IsValid()) return;
+
+        mDevice->BindTextureSampler(set, 0, src, samp);
+        cmd->BindGraphicsPipeline(mPipeBloomDown);
+        cmd->BindDescriptorSet(set, 0);
+
+        struct PC { float invW, invH, threshold, yFlipUV; } pc;
+        pc.invW       = srcW > 0 ? 1.0f / (float)srcW : 0.f;
+        pc.invH       = srcH > 0 ? 1.0f / (float)srcH : 0.f;
+        pc.threshold  = threshold;
+        // Sub-passes bloom : NE PAS flipper en GL (FBO custom = Y-up storage
+        // natif). Sinon bloomMip storage decale par rapport au HDR storage
+        // -> tonemap sample bloom et HDR a des conventions differentes ->
+        // bloom mal positionne. En VK le storage est Y-down natif, flip OK.
+        bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        pc.yFlipUV    = isVK ? -1.f : +1.f;
+        cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+
+        // Fullscreen triangle : 3 verts sans VBO.
+        cmd->Draw(3, 1, 0, 0);
+    }
+
+    void NkPostProcessStack::DrawBloomUpPass(NkICommandBuffer* cmd, NkTextureHandle src,
+                                               uint32 srcW, uint32 srcH, float strength) {
+        if (!cmd || !mPipeBloomUp.IsValid() ||
+            !src.IsValid()) return;
+
+        NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+        if (!samp.IsValid()) return;
+
+        NkDescSetHandle set = NextBloomSet(mBloomSets, mBloomSetCursor);
+        if (!set.IsValid()) return;
+
+        mDevice->BindTextureSampler(set, 0, src, samp);
+        cmd->BindGraphicsPipeline(mPipeBloomUp);
+        cmd->BindDescriptorSet(set, 0);
+
+        struct PC { float invW, invH, strength, yFlipUV; } pc;
+        pc.invW     = srcW > 0 ? 1.0f / (float)srcW : 0.f;
+        pc.invH     = srcH > 0 ? 1.0f / (float)srcH : 0.f;
+        pc.strength = strength;
+        // Sub-passes bloom : pas de flip en GL (cf. DrawBloomDownPass).
+        bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        pc.yFlipUV  = isVK ? -1.f : +1.f;
+        cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+
+        // Fullscreen triangle : 3 verts sans VBO.
+        cmd->Draw(3, 1, 0, 0);
+    }
+
+    // ── Phase H.3 : SSAO sub-pass ────────────────────────────────────────────
+    // Le RG appelle cette methode dans une pass deja ouverte (color attachment
+    // = ssaoTex transient R8_UNORM, depthSrc = mainDepth transient).
+    // On bind le depth comme sampler au binding=0 et draw fullscreen triangle.
+    void NkPostProcessStack::DrawSSAOPass(NkICommandBuffer* cmd, NkTextureHandle depthSrc,
+                                            uint32 ssaoW, uint32 ssaoH) {
+        if (!cmd || !mPipeSSAO.IsValid() || !depthSrc.IsValid()) return;
+
+        NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+        if (!samp.IsValid()) return;
+
+        // Reutilise le pool rotatif bloom (a renommer en pool generic PP plus
+        // tard) — depth bound au binding=0 du set frais.
+        NkDescSetHandle set = mBloomSets[mBloomSetCursor % kBloomDescSets];
+        mBloomSetCursor++;
+        if (!set.IsValid()) return;
+
+        mDevice->BindTextureSampler(set, 0, depthSrc, samp);
+        cmd->BindGraphicsPipeline(mPipeSSAO);
+        cmd->BindDescriptorSet(set, 0);
+
+        // Push constant : invResW, invResH, radius, yFlipUV
+        // Radius en UV space (0.005 - 0.02 typique pour 720p).
+        bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        struct PC { float invW, invH, radius, yFlipUV; } pc;
+        pc.invW    = ssaoW > 0 ? 1.0f / (float)ssaoW : 0.f;
+        pc.invH    = ssaoH > 0 ? 1.0f / (float)ssaoH : 0.f;
+        pc.radius  = mCfg.ssaoRadius > 0.f ? mCfg.ssaoRadius * 0.01f : 0.01f;
+        // SSAO sub-pass : meme convention que bloom (Y-down VK natif, Y-up GL natif).
+        pc.yFlipUV = isVK ? -1.f : +1.f;
+        cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+
+        cmd->Draw(3, 1, 0, 0);
+    }
+
+    // ── Phase H.5b : SSAO Blur sub-pass (denoise) ───────────────────────────
+    void NkPostProcessStack::DrawSSAOBlurPass(NkICommandBuffer* cmd, NkTextureHandle aoSrc,
+                                                uint32 ssaoW, uint32 ssaoH) {
+        if (!cmd || !mPipeSSAOBlur.IsValid() || !aoSrc.IsValid()) return;
+
+        NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+        if (!samp.IsValid()) return;
+
+        NkDescSetHandle set = mBloomSets[mBloomSetCursor % kBloomDescSets];
+        mBloomSetCursor++;
+        if (!set.IsValid()) return;
+
+        mDevice->BindTextureSampler(set, 0, aoSrc, samp);
+        cmd->BindGraphicsPipeline(mPipeSSAOBlur);
+        cmd->BindDescriptorSet(set, 0);
+
+        bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        struct PC { float invW, invH, yFlipUV, _pad; } pc;
+        pc.invW    = ssaoW > 0 ? 1.0f / (float)ssaoW : 0.f;
+        pc.invH    = ssaoH > 0 ? 1.0f / (float)ssaoH : 0.f;
+        pc.yFlipUV = isVK ? -1.f : +1.f;
+        pc._pad    = 0.f;
+        cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+
+        cmd->Draw(3, 1, 0, 0);
     }
 
 } // namespace renderer

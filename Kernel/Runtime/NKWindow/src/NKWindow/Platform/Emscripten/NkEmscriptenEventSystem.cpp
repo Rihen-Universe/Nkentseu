@@ -17,6 +17,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenDropTarget.h"
 #include "NKWindow/Platform/Emscripten/NkEmscriptenWindow.h"
+#include "NKWindow/Platform/Emscripten/NkEmscriptenEventSystem.h" // struct NkEventSystemData (complet)
 #include "NKMath/NkFunctions.h"
 
 #include <emscripten.h>

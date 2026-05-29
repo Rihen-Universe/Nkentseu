@@ -1,7 +1,7 @@
 ﻿/*
     NkUIDemo.h - Un laboratoire de test pour les fonctionnalités de NkUI
     Auteur: TEUGUIA TADJUIDJE Rodolf Séderis
-    License: Apache-2.0
+    License: Proprietary - Free to use and modify
 
     Ce code est un exemple de démonstration pour NkUI, illustrant diverses fonctionnalités
     telles que les widgets, la gestion de la mise en page, les textures, les entrées utilisateur,

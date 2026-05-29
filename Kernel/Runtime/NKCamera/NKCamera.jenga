@@ -14,7 +14,7 @@ Module runtime de capture photo/vidéo avec backend natif par plateforme :
 
 Ce module expose notamment :
   - NkCameraTypes.h
-  - INkCameraBackend.h
+  - NKICameraBackend.h
   - NkCameraSystem.h / NkCameraSystem.cpp
 """
 
@@ -63,7 +63,9 @@ with project("NKCamera"):
         "%{NKThreading.location}/src",
         "%{NKTime.location}/src",
         "%{NKWindow.location}/src",
-        "%{NKContext.location}/src",
+        "%{NKCanvas.location}/src",
+        "%{NKImage.location}/src",
+        "%{NKStream.location}/src",   # NKIResource.h via NkImage.h
     ])
 
     dependson([
@@ -76,7 +78,8 @@ with project("NKCamera"):
         "NKThreading",
         "NKTime",
         "NKWindow",
-        "NKContext",
+        "NKCanvas",
+        "NKImage",
     ])
 
     files([
@@ -163,6 +166,16 @@ with project("NKCamera"):
             "android.permission.CAMERA",
         ])
 
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android).
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        # Backend camera OHOS via #ifdef (pas de fichier dedie pour l'instant).
+        # camera2ndk / mediandk retires (specifiques Android).
+        links(["hilog_ndk.z"])
+
     # ===== iOS ====================================================================
     with filter("system:iOS"):
         files([
@@ -212,7 +225,8 @@ with project("NKCamera"):
             # Force explicit static link order for GNU/MinGW linkers.
             links([
                 "NKCamera",
-                "NKContext",
+                "NKImage",
+                "NKCanvas",
                 "NKWindow",
                 "NKLogger",
                 "NKContainers",

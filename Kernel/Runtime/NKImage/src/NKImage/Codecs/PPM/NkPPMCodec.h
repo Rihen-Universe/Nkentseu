@@ -3,7 +3,7 @@
  * @File    NkPPMCodec.h
  * @Brief   Codec PPM/PGM/PBM — formats NetPBM P1-P6.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  */
 #include "NKImage/Core/NkImage.h"
 

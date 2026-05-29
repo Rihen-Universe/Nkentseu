@@ -28,6 +28,7 @@
 #include "NKRenderer/Materials/NkMaterial.h"
 #include "NKRenderer/Materials/NkMaterialLibrary.h"   // Phase G
 #include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
+#include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h"   // Phase H.6
 #include "NKRenderer/Core/NkTextureAsset.h"            // Phase H
 #include "NKImage/Core/NkImage.h"                     // Phase H smoke test
 #include "NKWindow/Core/NkWESystem.h"
@@ -153,9 +154,24 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         logger.Errorf("[Demo4] Pas de NkMeshSystem\n");
         delete st; ctx.userData = nullptr; return false;
     }
-    st->meshSphere = meshSys->GetIcosphere();
+    st->meshSphere = meshSys->GetSphere();
     st->meshCube   = meshSys->GetCube();   // Phase M.8 : 6 sous-meshes (1 par face)
     st->meshPlane  = meshSys->GetPlane();
+
+    // ── Phase H.6 : enregistre les occluders pour le Voxel AO ─────────────
+    // Le sol (plane Y=0, 14x14 unités) est le principal occluder : il cache
+    // l'IBL sky pour les sphères placées en dessous (belowY=-1.2).
+    // Le voxel grid bake CPU + upload une fois ici ; le PBR shader sample
+    // automatiquement chaque frame pour atténuer l'IBL irradiance/specular.
+    if (auto* vao = ctx.renderer->GetVoxelAO()) {
+        vao->Clear();
+        // Sol épais (±0.5 Y = 1 unité d'épaisseur) pour que les cone-traces
+        // exponentiels du PBR shader (t = 0.15, 0.225, 0.34, 0.5, 0.76, 1.14...)
+        // captent toujours plusieurs voxels au milieu. Un sol trop fin
+        // (±0.1) est sauté entre 2 samples successifs.
+        vao->RegisterAABB({-7.f, -0.5f, -7.f}, {7.f, 0.5f, 7.f}, 1.0f);
+        vao->Build();
+    }
 
     // Parametres initiaux par materiau
     st->params[0] = {0.15f, 1.0f, 0.3f, 0.f,  0};  // PBR Metal : or, metallic
@@ -497,7 +513,12 @@ void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
         dc.mesh       = st->meshPlane;
         dc.transform  = NkMat4f::Scale({14.f, 1.f, 14.f});
         dc.aabb       = {{-7.f, -0.01f, -7.f}, {7.f, 0.01f, 7.f}};
-        dc.castShadow = false;
+        // castShadow=true : le sol projette son ombre sur les objets en
+        // dessous (sphere belowY=-1.2) -> ils recoivent zero lumiere
+        // directionnelle de la lumiere du dessus, donc apparaissent sombres.
+        // Sans ca, la directional light traverse le sol et eclaire les
+        // objets sous le sol (visuellement incorrect).
+        dc.castShadow = true;
         // Utilise le matériau réfléchissant si disponible
         if (st->reflEnabled && st->floorMat && st->floorMat->IsValid())
             dc.material = st->floorMat->GetInstHandle();

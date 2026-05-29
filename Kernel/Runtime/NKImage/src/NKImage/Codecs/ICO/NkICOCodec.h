@@ -3,7 +3,7 @@
  * @File    NkICOCodec.h
  * @Brief   Codec ICO/CUR — lecture seule, sélectionne la plus grande image.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * Supporte les embeds PNG et BMP DIB dans les fichiers ICO/CUR.
  */

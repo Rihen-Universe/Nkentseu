@@ -182,6 +182,35 @@ namespace nkentseu {
             if (mInstance) mInstance->SetLayerMaskSource(src); return this;
         }
 
+        // ── Shadow overrides (NkVSM v1) ──────────────────────────────────────
+        NkMaterial* NkMaterial::SetReceiveShadow(bool b) {
+            if (mInstance) mInstance->mReceiveShadow = b; return this;
+        }
+        NkMaterial* NkMaterial::SetShadowBiasMul(float32 m) {
+            if (mInstance) mInstance->mShadowBiasMul = m; return this;
+        }
+        NkMaterial* NkMaterial::SetCastShadowAlphaTest(bool b) {
+            if (mInstance) mInstance->mCastShadowAlphaTest = b; return this;
+        }
+        bool NkMaterial::GetReceiveShadow() const {
+            return mInstance ? mInstance->mReceiveShadow : true;
+        }
+        float32 NkMaterial::GetShadowBiasMul() const {
+            return mInstance ? mInstance->mShadowBiasMul : 1.f;
+        }
+        bool NkMaterial::GetCastShadowAlphaTest() const {
+            return mInstance ? mInstance->mCastShadowAlphaTest : false;
+        }
+
+        // ── Triplanar projection (style UE5 World Aligned Texture) ────────────
+        NkMaterial* NkMaterial::SetTriplanarTileSize(float32 tileSizeMeters) {
+            if (mInstance) mInstance->mTriplanarTileSize = tileSizeMeters;
+            return this;
+        }
+        float32 NkMaterial::GetTriplanarTileSize() const {
+            return mInstance ? mInstance->mTriplanarTileSize : 0.f;
+        }
+
         // ── État ──────────────────────────────────────────────────────────────
         bool NkMaterial::IsValid() const {
             return mSystem && mInstance;

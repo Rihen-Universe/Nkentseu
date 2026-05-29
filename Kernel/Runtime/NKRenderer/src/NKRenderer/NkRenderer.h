@@ -24,6 +24,7 @@ namespace nkentseu {
         class NkOverlayRenderer;
         class NkOffscreenTarget;
         class NkShadowSystem;
+        class NkVirtualShadowMaps;
         class NkVFXSystem;
         class NkAnimationSystem;
         class NkSimulationRenderer;
@@ -72,7 +73,7 @@ namespace nkentseu {
             virtual NkTextRenderer*       GetTextRenderer() = 0;
             virtual NkPostProcessStack*   GetPostProcess()  = 0;
             virtual NkOverlayRenderer*    GetOverlay()      = 0;
-            virtual NkShadowSystem*       GetShadow()       = 0;
+            virtual NkVirtualShadowMaps*  GetShadow()       = 0;
             virtual NkVFXSystem*          GetVFX()          = 0;
             virtual NkAnimationSystem*    GetAnimation()    = 0;
             virtual NkSimulationRenderer* GetSimulation()   = 0;
@@ -87,6 +88,13 @@ namespace nkentseu {
             // et met a jour le material cible avec le RT du reflet.
             // L'utilisateur n'a PLUS BESOIN de soumettre les drawcalls deux fois.
             virtual class NkPlanarReflectionSystem* GetPlanarReflection() = 0;
+
+            // Phase H.6 : voxel AO system. L'app enregistre les occluders
+            // (sol, gros meshes static) via GetVoxelAO()->RegisterOccluder()
+            // puis appelle Build() une fois pour bake le voxel grid. Le PBR
+            // shader sample automatiquement le grid pour atténuer l'IBL des
+            // zones occluses (ex: objets sous le sol qui sont cachés du sky).
+            virtual class NkVoxelAOSystem* GetVoxelAO() = 0;
 
             // ── Configuration dynamique ───────────────────────────────────────────
             virtual void SetVSync     (bool enabled)          = 0;

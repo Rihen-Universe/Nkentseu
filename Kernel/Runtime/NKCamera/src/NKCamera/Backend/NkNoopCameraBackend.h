@@ -1,8 +1,8 @@
 #pragma once
 // NkNoopCameraBackend.h — Stub headless (serveurs, tests, plateformes non supportées)
-#include "NKCamera/INkCameraBackend.h"
+#include "NKCamera/NKICameraBackend.h"
 namespace nkentseu {
-class NkNoopCameraBackend : public INkCameraBackend {
+class NkNoopCameraBackend : public NKICameraBackend {
 public:
     bool Init()     override { return true; }
     void Shutdown() override {}

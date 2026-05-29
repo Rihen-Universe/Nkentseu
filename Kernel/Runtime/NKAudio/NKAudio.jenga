@@ -36,6 +36,8 @@ with project("NKAudio"):
         "%{NKContainers.location}/src",
         "%{NKLogger.location}/src",
         "%{NKThreading.location}/src",
+        "%{NKFileSystem.location}/src",
+        "%{NKStream.location}/src",
     ])
 
     pchheader("pch/pch.h")
@@ -48,6 +50,8 @@ with project("NKAudio"):
         "NKContainers",
         "NKLogger",
         "NKThreading",
+        "NKFileSystem",
+        "NKStream",
     ])
 
     files([
@@ -122,6 +126,15 @@ with project("NKAudio"):
         # dl pour dlopen/dlsym + OpenSLES (link statique, dispo depuis API 9).
         androidminsdk(24)
         links(["dl", "OpenSLES"])
+
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android).
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        # Backend audio OHOS via #ifdef. dl pour dlopen/dlsym.
+        # OpenSLES retire (specifique Android).
+        links(["dl"])
 
     with filter("system:Linux"):
         usetoolchain("clang-native")

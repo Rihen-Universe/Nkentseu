@@ -289,6 +289,15 @@ namespace nkentseu {
             // de NkRender3D (8 slots max). -1 = pas de cookie.
             int32       cookieIdx   = -1;
             bool        castShadow  = true;
+            // NkVSM v1 (2026-05-23) : si false, le shadow de cette light est
+            // RE-RENDERE chaque frame (default, safe). Si true, l'engine cache
+            // le shadow tile entre frames tant que la light + ses casters ne
+            // bougent pas (gain perf important pour scenes statiques).
+            // Note : ne pas activer si des casters dans le frustum de la light
+            // bougent — leurs ombres seraient figees a leur ancienne position.
+            // Le runtime detecte les changements de pos/dir/range cote light
+            // automatiquement, mais pas les changements de transform objet.
+            bool        shadowStatic = false;
         };
 
         // ── Shadow caster 2D (Phase E.5) ─────────────────────────────────────

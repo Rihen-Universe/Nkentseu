@@ -3,7 +3,7 @@
  * @File    NkEXRCodec.h
  * @Brief   Codec OpenEXR (.exr) production-ready, from scratch.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Format
  *  OpenEXR 1.x scanline single-part (le plus repandu).
@@ -17,7 +17,9 @@
  *    - Pixel types  : HALF (16-bit float IEEE-754), FLOAT (32-bit float),
  *                     UINT (32-bit, converti en float).
  *    - Compressions : NONE, RLE, ZIPS (per-scanline zlib),
- *                     ZIP (16-scanline blocks zlib), PIZ (wavelet + Huffman).
+ *                     ZIP (16-scanline blocks zlib) -> 100% fonctionnels.
+ *                     PIZ (wavelet + Huffman) -> BETA, decode structurellement
+ *                       correct mais corruption residuelle (a finaliser v1).
  *    - Layouts      : R/G/B/A (alpha optionnel), Y/RY/BY (luminance/chroma
  *                     converti en RGB), Z (depth retourne en grayscale).
  *    - Orientation  : lineOrder INCREASING_Y et DECREASING_Y.

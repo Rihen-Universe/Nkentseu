@@ -1,6 +1,6 @@
 #pragma once
 // NkUIKitCameraBackend.h — iOS AVFoundation + CMMotionManager IMU
-#include "NKCamera/INkCameraBackend.h"
+#include "NKCamera/NKICameraBackend.h"
 #include "NKTime/NkChrono.h"
 #include <mutex>
 #include <condition_variable>
@@ -10,7 +10,7 @@
 
 namespace nkentseu {
 
-class NkUIKitCameraBackend : public INkCameraBackend {
+class NkUIKitCameraBackend : public NKICameraBackend {
 public:
     NkUIKitCameraBackend();
     ~NkUIKitCameraBackend() override;

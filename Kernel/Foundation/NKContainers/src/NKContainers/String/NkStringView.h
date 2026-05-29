@@ -1820,60 +1820,72 @@
 
         // =====================================================================
         // OPÉRATEURS DE COMPARAISON GÉNÉRIQUES (Templates)
+        //
+        // CONTRAINTE SFINAE OBLIGATOIRE : ces templates ne doivent être candidats
+        // QUE si T1 ET T2 sont réellement convertibles en NkStringView. Sans la
+        // contrainte, operator< / <= / > / >= captent N'IMPORTE QUELLE comparaison
+        // dont un opérande vit dans le namespace nkentseu (via ADL), y compris
+        // `int <= enum`. Cela casse la résolution de surcharge dès qu'un TU inclut
+        // NkStringView puis compare deux enums/entiers nkentseu — régression
+        // observée 2026-05-28 (NkImage.h -> NKMath -> NkAngle -> NkString ->
+        // NkStringView faisait échouer NkJPEGCodec.cpp sur un `int <= unnamed_enum`).
         // =====================================================================
+
+        namespace nkdetail_sv {
+            // NkSvLike<T>::value == true ssi NkStringView est constructible
+            // depuis `const T&` (NkString, NkStringView, const char*, char[N]).
+            template<typename T, typename = void>
+            struct NkSvLike : ::nkentseu::traits::NkFalseType {};
+            template<typename T>
+            struct NkSvLike<T, ::nkentseu::traits::NkVoidT<
+                decltype(NkStringView(*static_cast<const T*>(nullptr)))>>
+                : ::nkentseu::traits::NkTrueType {};
+
+            template<typename T1, typename T2>
+            inline constexpr bool kBothSvLike =
+                NkSvLike<T1>::value && NkSvLike<T2>::value;
+        }
 
         /**
          * @brief Comparaison inférieure générique via NkStringView
-         * 
-         * @tparam T1 Type convertible en NkStringView
-         * @tparam T2 Type convertible en NkStringView
-         * @param lhs Opérande gauche
-         * @param rhs Opérande droite
-         * @return true si lhs < rhs lexicographiquement
+         * @tparam T1,T2 Types convertibles en NkStringView (sinon SFINAE-out)
          */
-        template<typename T1, typename T2>
+        template<typename T1, typename T2,
+                 typename = ::nkentseu::traits::NkEnableIf_t<
+                     nkdetail_sv::kBothSvLike<T1, T2>>>
         NKENTSEU_INLINE bool operator<(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) < 0;
         }
 
         /**
          * @brief Comparaison inférieure ou égale générique
-         * 
-         * @tparam T1 Type convertible en NkStringView
-         * @tparam T2 Type convertible en NkStringView
-         * @param lhs Opérande gauche
-         * @param rhs Opérande droite
-         * @return true si lhs <= rhs
+         * @tparam T1,T2 Types convertibles en NkStringView (sinon SFINAE-out)
          */
-        template<typename T1, typename T2>
+        template<typename T1, typename T2,
+                 typename = ::nkentseu::traits::NkEnableIf_t<
+                     nkdetail_sv::kBothSvLike<T1, T2>>>
         NKENTSEU_INLINE bool operator<=(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) <= 0;
         }
 
         /**
          * @brief Comparaison supérieure générique
-         * 
-         * @tparam T1 Type convertible en NkStringView
-         * @tparam T2 Type convertible en NkStringView
-         * @param lhs Opérande gauche
-         * @param rhs Opérande droite
-         * @return true si lhs > rhs
+         * @tparam T1,T2 Types convertibles en NkStringView (sinon SFINAE-out)
          */
-        template<typename T1, typename T2>
+        template<typename T1, typename T2,
+                 typename = ::nkentseu::traits::NkEnableIf_t<
+                     nkdetail_sv::kBothSvLike<T1, T2>>>
         NKENTSEU_INLINE bool operator>(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) > 0;
         }
 
         /**
          * @brief Comparaison supérieure ou égale générique
-         * 
-         * @tparam T1 Type convertible en NkStringView
-         * @tparam T2 Type convertible en NkStringView
-         * @param lhs Opérande gauche
-         * @param rhs Opérande droite
-         * @return true si lhs >= rhs
+         * @tparam T1,T2 Types convertibles en NkStringView (sinon SFINAE-out)
          */
-        template<typename T1, typename T2>
+        template<typename T1, typename T2,
+                 typename = ::nkentseu::traits::NkEnableIf_t<
+                     nkdetail_sv::kBothSvLike<T1, T2>>>
         NKENTSEU_INLINE bool operator>=(const T1& lhs, const T2& rhs) noexcept {
             return NkStringView(lhs).Compare(NkStringView(rhs)) >= 0;
         }

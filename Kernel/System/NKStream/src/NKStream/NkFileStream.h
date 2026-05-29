@@ -1,24 +1,32 @@
 #pragma once
+// =============================================================================
+// NkFileStream.h
+// -----------------------------------------------------------------------------
+// Flux fichier multi-plateforme. Implementation desormais bati sur NkFile
+// (NKFileSystem) au lieu d'appeler directement Win32/POSIX. Avantage :
+//
+//   - Heritage automatique du fallback AAssetManager Android : un .ogg dans
+//     `assets/` de l'APK est ouvert via AAsset si fopen echoue.
+//   - Path handling unifie via NkPath.
+//   - Une seule source de verite pour les operations fichier.
+//
+// L'API publique reste inchangee (NkStream::Open / Read / Write / Seek / ...).
+// Auteur : TEUGUIA TADJUIDJE Rodolf / Rihen
+// License : Proprietary - Free to use and modify
+// =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKPlatform/NkPlatformInline.h"
 #include "NKCore/NkTypes.h"
-#include <cstddef>
-
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-#include <windows.h>
-#else
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#endif
-
+#include "NKFileSystem/NkFile.h"
 #include "NKStream/NkStream.h"
+
+#include <cstddef>
 
 namespace nkentseu {
 
     ///////////////////////////////////////////////////////////////////////////////
-    // Flux fichier multi-plateforme
+    //  NkFileStream : flux fichier construit au-dessus de NkFile
     ///////////////////////////////////////////////////////////////////////////////
 
     class NKSTREAM_API NkFileStream : public NkStream {
@@ -26,169 +34,99 @@ namespace nkentseu {
             NkFileStream() = default;
             ~NkFileStream() override { Close(); }
 
+            // ── Mapping NkStream mode -> NkFileMode ──────────────────────────
+            // NK_READ_MODE   (0x01) -> NK_READ
+            // NK_WRITE_MODE  (0x02) -> NK_WRITE  (+ NK_TRUNCATE par defaut sauf append)
+            // NK_APPEND_MODE        -> NK_APPEND
+            // On force NK_BINARY pour usage stream (pas de conversion newline).
+            // ─────────────────────────────────────────────────────────────────
             bool Open(const char* path, uint32 mode) override {
-                #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                    DWORD dwDesiredAccess = 0;
-                    DWORD dwCreationDisposition = 0;
+                mOpenMode = mode;
 
-                    if(mode & NK_READ_MODE) {
-                        dwDesiredAccess |= GENERIC_READ;
-                        dwCreationDisposition = OPEN_EXISTING;
-                    }
-                    if(mode & NK_WRITE_MODE) {
-                        dwDesiredAccess |= GENERIC_WRITE;
-                        dwCreationDisposition = (mode & NK_APPEND_MODE) ? OPEN_ALWAYS : CREATE_ALWAYS;
-                    }
+                NkFileMode fmode = NkFileMode::NK_BINARY;
+                const bool wantRead   = (mode & NK_READ_MODE)   != 0;
+                const bool wantWrite  = (mode & NK_WRITE_MODE)  != 0;
+                const bool wantAppend = (mode & NK_APPEND_MODE) != 0;
 
-                    mHandle = CreateFileA(
-                        path,
-                        dwDesiredAccess,
-                        FILE_SHARE_READ,
-                        NULL,
-                        dwCreationDisposition,
-                        FILE_ATTRIBUTE_NORMAL,
-                        NULL
-                    );
+                if (wantRead && wantWrite) {
+                    fmode = wantAppend
+                        ? (NkFileMode::NK_READ | NkFileMode::NK_APPEND | NkFileMode::NK_BINARY)
+                        : NkFileMode::NK_READ_WRITE_BINARY;
+                } else if (wantRead) {
+                    fmode = NkFileMode::NK_READ_BINARY;
+                } else if (wantWrite) {
+                    fmode = wantAppend ? NkFileMode::NK_APPEND_BINARY
+                                       : NkFileMode::NK_WRITE_BINARY;
+                }
 
-                    if((mode & NK_APPEND_MODE) && IsOpen()) {
-                        LARGE_INTEGER li{ .QuadPart = 0 };
-                        SetFilePointerEx(mHandle, li, NULL, FILE_END);
-                    }
-
-                #else // POSIX
-                    int32 flags = 0;
-                    mode_t permissions = 0644;
-
-                    // Détermination du mode d'accès
-                    if ((mode & NK_READ_MODE) && (mode & NK_WRITE_MODE)) {
-                        flags |= O_RDWR;
-                    } else if (mode & NK_READ_MODE) {
-                        flags |= O_RDONLY;
-                    } else if (mode & NK_WRITE_MODE) {
-                        flags |= O_WRONLY;
-                    }
-
-                    // Gestion de la création et des modes append/truncate
-                    if (mode & NK_WRITE_MODE) {
-                        flags |= O_CREAT;
-                        if (mode & NK_APPEND_MODE) {
-                            flags |= O_APPEND;
-                        } else {
-                            flags |= O_TRUNC;
-                        }
-                    }
-
-                    mHandle = open(path, flags, permissions);
-                #endif
-
-                return IsOpen();
+                return mFile.Open(path, fmode);
             }
 
-
             void Close() override {
-                if(IsOpen()) {
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                    CloseHandle(mHandle);
-        #else
-                    close(mHandle);
-        #endif
-                    mHandle = InvalidHandle();
-                }
+                if (mFile.IsOpen()) mFile.Close();
             }
 
             bool IsOpen() const override {
-                return mHandle != InvalidHandle();
+                return mFile.IsOpen();
             }
 
+            // ── Lecture / ecriture raw octet ─────────────────────────────────
             usize ReadRaw(void* buffer, usize byteCount) override {
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                DWORD bytesRead = 0;
-                ReadFile(mHandle, buffer, static_cast<DWORD>(byteCount), &bytesRead, NULL);
-                return bytesRead;
-        #else
-                return read(mHandle, buffer, byteCount);
-        #endif
+                return mFile.Read(buffer, byteCount);
             }
 
             usize WriteRaw(const void* data, usize byteCount) override {
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                DWORD bytesWritten = 0;
-                WriteFile(mHandle, data, static_cast<DWORD>(byteCount), &bytesWritten, NULL);
-                return bytesWritten;
-        #else
-                return write(mHandle, data, byteCount);
-        #endif
+                return mFile.Write(data, byteCount);
             }
 
+            // ── Positionnement ───────────────────────────────────────────────
             bool Seek(usize position) override {
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                LARGE_INTEGER li{.QuadPart = 0};
-                li.QuadPart = position;
-                return SetFilePointerEx(mHandle, li, NULL, FILE_BEGIN);
-        #else
-                return lseek(mHandle, position, SEEK_SET) != static_cast<off_t>(-1);
-        #endif
+                return mFile.Seek(static_cast<nk_int64>(position), NkSeekOrigin::NK_BEGIN);
             }
 
             usize Tell() const override {
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                LARGE_INTEGER li{.QuadPart = 0};
-                SetFilePointerEx(mHandle, li, &li, FILE_CURRENT);
-                return li.QuadPart;
-        #else
-                return lseek(mHandle, 0, SEEK_CUR);
-        #endif
+                return static_cast<usize>(mFile.Tell());
             }
 
             usize Size() const override {
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                LARGE_INTEGER size{.QuadPart = 0};
-                GetFileSizeEx(mHandle, &size);
-                return size.QuadPart;
-        #else
-                struct stat st;
-                fstat(mHandle, &st);
-                return st.st_size;
-        #endif
+                return static_cast<usize>(mFile.GetSize());
             }
 
             bool IsEOF() const override {
-                return Tell() >= Size();
+                return mFile.IsOpen() ? Tell() >= Size() : true;
             }
 
+            // ── Flush (sur ecriture seulement) ───────────────────────────────
             void Flush() {
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                FlushFileBuffers(mHandle);
-        #else
-                fsync(mHandle);
-        #endif
+                // NkFile gere son propre flush en interne ; l'appel ici est un
+                // no-op silencieux. Si necessaire, on pourra ajouter une methode
+                // Flush() explicite a NkFile.
             }
 
+            // ── Encodage : reste a la charge de NkFileStream ─────────────────
+            // NkFile ne gere pas l'encodage ; on garde la gestion BOM ici pour
+            // ne pas casser l'API existante.
             bool SetEncoding(Encoding encoding) override {
             #if defined(NKENTSEU_PLATFORM_WINDOWS)
-                // Conversion des BOM pour Windows
                 constexpr uint16 UTF16_BOM = 0xFEFF;
                 constexpr uint8 UTF8_BOM[] = {0xEF, 0xBB, 0xBF};
 
-                switch(encoding) {
+                switch (encoding) {
                     case Encoding::NK_UTF16_LE:
-                        if(IsWriteMode()) WriteRaw(&UTF16_BOM, sizeof(UTF16_BOM));
+                        if (IsWriteMode()) WriteRaw(&UTF16_BOM, sizeof(UTF16_BOM));
                         mEncoding = encoding;
                         return true;
-
                     case Encoding::NK_UTF8:
-                        if(IsWriteMode()) WriteRaw(UTF8_BOM, sizeof(UTF8_BOM));
+                        if (IsWriteMode()) WriteRaw(UTF8_BOM, sizeof(UTF8_BOM));
                         mEncoding = encoding;
                         return true;
-
                     default:
                         mEncoding = Encoding::NK_SYSTEM_DEFAULT;
                         return false;
                 }
             #else
-                // Linux/Mac utilise généralement UTF-8 par défaut
-                mEncoding = (encoding == Encoding::NK_SYSTEM_DEFAULT) ?
-                    Encoding::NK_UTF8 : encoding;
+                mEncoding = (encoding == Encoding::NK_SYSTEM_DEFAULT)
+                            ? Encoding::NK_UTF8 : encoding;
                 return true;
             #endif
             }
@@ -197,21 +135,18 @@ namespace nkentseu {
                 return mEncoding;
             }
 
+            // ── Accesseur direct au NkFile sous-jacent (interop optionnelle) ─
+            NkFile& GetFile()             noexcept { return mFile; }
+            const NkFile& GetFile() const noexcept { return mFile; }
+
         private:
             bool IsWriteMode() const {
-                return mOpenMode & (NK_WRITE_MODE | NK_APPEND_MODE);
+                return (mOpenMode & (NK_WRITE_MODE | NK_APPEND_MODE)) != 0;
             }
-        #if defined(NKENTSEU_PLATFORM_WINDOWS)
-            using HandleType = HANDLE;
-            static HANDLE InvalidHandle() { return INVALID_HANDLE_VALUE; }
-        #else
-            using HandleType = int;
-            static int InvalidHandle() { return -1; }
-        #endif
 
-            HandleType mHandle = InvalidHandle();
-            Encoding mEncoding = Encoding::NK_SYSTEM_DEFAULT;
+            NkFile   mFile;                                       ///< Backing file (gere AAsset Android)
+            Encoding mEncoding  = Encoding::NK_SYSTEM_DEFAULT;
+            uint32   mOpenMode  = 0;
     };
-
 
 } // namespace nkentseu

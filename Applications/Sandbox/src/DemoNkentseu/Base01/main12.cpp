@@ -8,8 +8,8 @@
 #include "NKWindow/NKMain.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKEvent/NkWindowEvent.h"
-#include "NKContext/Deprecate/NkRenderer.h"
-#include "NKContext/Deprecate/NkRendererConfig.h"
+#include "NKCanvas/Deprecate/NkRenderer.h"
+#include "NKCanvas/Deprecate/NkRendererConfig.h"
 #include "NKLogger/NkLog.h"
 
 namespace {

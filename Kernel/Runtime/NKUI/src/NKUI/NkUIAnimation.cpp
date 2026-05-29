@@ -2,7 +2,7 @@
 // @File    NkUIAnimation.cpp
 // @Brief   Implémentation des fonctions d'easing.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Apache-2.0
+// @License Proprietary - Free to use and modify
 // -----------------------------------------------------------------------------
 
 /*

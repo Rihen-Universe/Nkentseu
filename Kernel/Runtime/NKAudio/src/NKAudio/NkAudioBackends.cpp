@@ -467,9 +467,12 @@ namespace nkentseu {
 
         // ====================================================================
         // ALSA BACKEND (Linux) — CORPS PRÊTS À CONNECTER
+        //
+        // NB : HarmonyOS hérite de NKENTSEU_PLATFORM_LINUX (chemins POSIX) mais
+        // n'a pas ALSA — il faut donc l'exclure explicitement. Android idem.
         // ====================================================================
 
-#if defined(NKENTSEU_PLATFORM_LINUX)
+#if defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_ANDROID)
 
 #include <alsa/asoundlib.h>
 

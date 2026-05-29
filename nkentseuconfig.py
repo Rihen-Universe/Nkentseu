@@ -84,9 +84,9 @@ _REGISTRY: dict = {
     # ---- Runtime -------------------------------------------------------------
     "event"         : ("NKENTSEU_EVENT",          ["platform", "core", "memory", "containers", "logger", "math"]),
     "window"        : ("NKENTSEU_WINDOW",         ["platform", "core", "memory", "containers", "logger", "math", "event"]),
-    "context"       : ("NKENTSEU_CONTEXT",        ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
-    "rhi"           : ("NKENTSEU_RHI",            ["platform", "core", "memory", "containers", "logger", "math", "event", "window", "context"]),
-    "renderer"      : ("NKENTSEU_RENDERER",       ["platform", "core", "memory", "containers", "logger", "math", "time", "threading", "event", "window", "context", "rhi", "image", "font", "filesystem"]),
+    "canvas"       : ("NKENTSEU_CANVAS",        ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
+    "rhi"           : ("NKENTSEU_RHI",            ["platform", "core", "memory", "containers", "logger", "math", "event", "window", "canvas"]),
+    "renderer"      : ("NKENTSEU_RENDERER",       ["platform", "core", "memory", "containers", "logger", "math", "time", "threading", "event", "window", "canvas", "rhi", "image", "font", "filesystem"]),
     "image"         : ("NKENTSEU_IMAGE",          ["platform", "core", "memory", "containers", "logger", "filesystem"]),
     "font"          : ("NKENTSEU_FONT",           ["platform", "core", "memory", "containers", "logger", "math", "image"]),
     "ecs"           : ("NKENTSEU_ECS",            ["platform", "core", "memory", "containers", "logger", "math"]),
@@ -99,11 +99,11 @@ _REGISTRY: dict = {
     # "nkentseu" et "engine" sont deux alias de la même entrée.
     "nkentseu"      : ("NKENTSEU_ENGINE",         ["platform", "core", "memory", "containers",
                                                    "math", "threading", "logger", "time",
-                                                   "event", "window", "context", "rhi",
+                                                   "event", "window", "canvas", "rhi",
                                                    "font", "image", "ui"]),
     "engine"        : ("NKENTSEU_ENGINE",         ["platform", "core", "memory", "containers",
                                                    "math", "threading", "logger", "time",
-                                                   "event", "window", "context", "rhi",
+                                                   "event", "window", "canvas", "rhi",
                                                    "font", "image", "ui"]),
 }
 

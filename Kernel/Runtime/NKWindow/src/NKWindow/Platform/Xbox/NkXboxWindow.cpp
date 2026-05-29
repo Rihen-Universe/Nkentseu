@@ -404,6 +404,8 @@ namespace nkentseu {
 
     void NkWindow::CaptureMouse(bool) {}
 
+    void NkWindow::ClipMouseToClient(bool) {}
+
     void NkWindow::SetProgress(float) {}
 
     NkSurfaceDesc NkWindow::GetSurfaceDesc() const {

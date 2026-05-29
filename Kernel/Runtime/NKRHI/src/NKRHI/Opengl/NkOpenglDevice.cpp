@@ -83,40 +83,40 @@ namespace {
 } // namespace
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-namespace {
+    namespace {
 
-static PIXELFORMATDESCRIPTOR BuildFallbackPfd(const NkWGLFallbackPixelFormat& fb) {
-    PIXELFORMATDESCRIPTOR pfd{};
-    pfd.nSize      = sizeof(pfd);
-    pfd.nVersion   = fb.version;
-    pfd.dwFlags    = static_cast<DWORD>(fb.flags);
-    pfd.iPixelType = (fb.pixelType == NkPFDPixelType::NK_PFD_PIXEL_RGBA)
-        ? PFD_TYPE_RGBA
-        : PFD_TYPE_COLORINDEX;
-    pfd.cColorBits   = fb.colorBits;
-    pfd.cAlphaBits   = fb.alphaBits;
-    pfd.cDepthBits   = fb.depthBits;
-    pfd.cStencilBits = fb.stencilBits;
-    pfd.cAccumBits   = fb.accumBits;
-    pfd.cAuxBuffers  = fb.auxBuffers;
-    pfd.iLayerType   = PFD_MAIN_PLANE;
-    return pfd;
-}
+        static PIXELFORMATDESCRIPTOR BuildFallbackPfd(const NkWGLFallbackPixelFormat& fb) {
+            PIXELFORMATDESCRIPTOR pfd{};
+            pfd.nSize      = sizeof(pfd);
+            pfd.nVersion   = fb.version;
+            pfd.dwFlags    = static_cast<DWORD>(fb.flags);
+            pfd.iPixelType = (fb.pixelType == NkPFDPixelType::NK_PFD_PIXEL_RGBA)
+                ? PFD_TYPE_RGBA
+                : PFD_TYPE_COLORINDEX;
+            pfd.cColorBits   = fb.colorBits;
+            pfd.cAlphaBits   = fb.alphaBits;
+            pfd.cDepthBits   = fb.depthBits;
+            pfd.cStencilBits = fb.stencilBits;
+            pfd.cAccumBits   = fb.accumBits;
+            pfd.cAuxBuffers  = fb.auxBuffers;
+            pfd.iLayerType   = PFD_MAIN_PLANE;
+            return pfd;
+        }
 
-static void* NkOpenGLGetProcAddressCompat(const char* name) {
-    if (!name) return nullptr;
-    void* proc = reinterpret_cast<void*>(wglGetProcAddress(name));
-    if (proc && proc != reinterpret_cast<void*>(0x1) &&
-        proc != reinterpret_cast<void*>(0x2) &&
-        proc != reinterpret_cast<void*>(0x3) &&
-        proc != reinterpret_cast<void*>(-1)) {
-        return proc;
-    }
-    static HMODULE opengl32 = GetModuleHandleA("opengl32.dll");
-    return opengl32 ? reinterpret_cast<void*>(GetProcAddress(opengl32, name)) : nullptr;
-}
+        static void* NkOpenGLGetProcAddressCompat(const char* name) {
+            if (!name) return nullptr;
+            void* proc = reinterpret_cast<void*>(wglGetProcAddress(name));
+            if (proc && proc != reinterpret_cast<void*>(0x1) &&
+                proc != reinterpret_cast<void*>(0x2) &&
+                proc != reinterpret_cast<void*>(0x3) &&
+                proc != reinterpret_cast<void*>(-1)) {
+                return proc;
+            }
+            static HMODULE opengl32 = GetModuleHandleA("opengl32.dll");
+            return opengl32 ? reinterpret_cast<void*>(GetProcAddress(opengl32, name)) : nullptr;
+        }
 
-} // namespace
+    } // namespace
 #endif
 
 NkOpenGLDevice::~NkOpenGLDevice() { if(mIsValid) Shutdown(); }
@@ -180,7 +180,7 @@ bool NkOpenGLDevice::Initialize(const NkDeviceInitInfo& init) {
 
     // Etape 3 — Vrai contexte avec attribs Core 4.6 + Debug + ForwardCompat.
     // Ces constantes ARB ne sont pas dans <gl/GL.h> standard ; on les définit
-    // localement (mêmes valeurs que NKContext/Backend/OpenGL/NkOpenGLContext.cpp).
+    // localement (mêmes valeurs que NKCanvas/Backend/OpenGL/NkOpenGLContext.cpp).
     constexpr int NK_WGL_CONTEXT_MAJOR_VERSION_ARB           = 0x2091;
     constexpr int NK_WGL_CONTEXT_MINOR_VERSION_ARB           = 0x2092;
     constexpr int NK_WGL_CONTEXT_FLAGS_ARB                   = 0x2094;
@@ -646,7 +646,9 @@ bool NkOpenGLDevice::WriteTexture(NkTextureHandle t, const void* p, uint32 rp) {
     GLTexture* texture = mTextures.Find(t.id);
     if (!texture) return false;
     const NkTextureDesc& desc = texture->desc;
-    return WriteTextureRegion(t,p,0,0,0,desc.width,desc.height,1,0,0,rp);
+    // Phase H.6 : pour les textures 3D, ecrire les `desc.depth` slices.
+    uint32 d = (desc.type == NkTextureType::NK_TEX3D) ? desc.depth : 1;
+    return WriteTextureRegion(t,p,0,0,0,desc.width,desc.height,d,0,0,rp);
 }
 
 bool NkOpenGLDevice::WriteTextureRegion(NkTextureHandle t, const void* pixels,

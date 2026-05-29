@@ -2,7 +2,7 @@
  * @File    NkPNGCodec.cpp
  * @Brief   Codec PNG — adaptation exacte de stb_image v2.16 (public domain, Sean Barrett).
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @stb_correspondance
  *  Décodage : stbi__parse_png_file + stbi__create_png_image_raw

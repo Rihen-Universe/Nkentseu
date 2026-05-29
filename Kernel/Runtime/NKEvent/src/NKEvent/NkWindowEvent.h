@@ -50,6 +50,7 @@
     #include "NKEvent/NkWindowId.h"                     // Type NkWindowId + constante INVALID
     #include "NKContainers/String/NkStringUtils.h"      // Conversion types → NkString
     #include "NKEvent/NkEventState.h"                   // États de fenêtre (si existant)
+    #include "NKEvent/NkSafeArea.h"
     #include <string>                                   // Pour compatibilité avec std::string si nécessaire
 
     namespace nkentseu {
@@ -1222,6 +1223,330 @@
                 }
         };
 
+ 
+        // =========================================================================
+        // NkWindowSurfaceCreatedEvent
+        // =========================================================================
+        /**
+         * @brief Émis lorsque la surface native est prête pour le rendu.
+         *
+         * Sur HarmonyOS : OH_NativeXComponent_Callback::OnSurfaceCreated
+         * Sur Android   : APP_CMD_INIT_WINDOW
+         *
+         * Cet événement signale que OHNativeWindow* / ANativeWindow* est valide
+         * et que le renderer peut créer son contexte EGL/Vulkan.
+         *
+         * @note Sur mobile/HarmonyOS, la surface peut être détruite et recréée
+         *       pendant le cycle de vie de l'app (OnSurfaceDestroyed → OnSurfaceCreated).
+         *       Le renderer doit gérer ces transitions proprement.
+         */
+        class NKENTSEU_EVENT_CLASS_EXPORT NkWindowSurfaceCreatedEvent final : public NkWindowEvent {
+            public:
+                NK_EVENT_TYPE_FLAGS(NK_WINDOW_SURFACE_CREATED)
+        
+                /**
+                 * @brief Constructeur avec dimensions initiales de la surface
+                 * @param width  Largeur de la surface en pixels physiques
+                 * @param height Hauteur de la surface en pixels physiques
+                 * @param windowId Identifiant de la fenêtre
+                 */
+                NkWindowSurfaceCreatedEvent(
+                    uint32 width    = 0,
+                    uint32 height   = 0,
+                    uint64 windowId = 0
+                ) noexcept
+                    : NkWindowEvent(windowId)
+                    , mWidth(width)
+                    , mHeight(height) {
+                }
+        
+                NkEvent* Clone() const override {
+                    return new NkWindowSurfaceCreatedEvent(*this);
+                }
+        
+                NkString ToString() const override {
+                    return NkString::Fmt("WindowSurfaceCreated({0}x{1})", mWidth, mHeight);
+                }
+        
+                /// @brief Largeur de la surface en pixels physiques
+                NKENTSEU_EVENT_API_INLINE uint32 GetWidth() const noexcept { return mWidth; }
+        
+                /// @brief Hauteur de la surface en pixels physiques
+                NKENTSEU_EVENT_API_INLINE uint32 GetHeight() const noexcept { return mHeight; }
+        
+            private:
+                uint32 mWidth;   ///< Largeur surface [pixels physiques]
+                uint32 mHeight;  ///< Hauteur surface [pixels physiques]
+        };
+    
+        // =========================================================================
+        // NkWindowSurfaceDestroyedEvent
+        // =========================================================================
+        /**
+         * @brief Émis avant la destruction de la surface native.
+         *
+         * Sur HarmonyOS : OH_NativeXComponent_Callback::OnSurfaceDestroyed
+         * Sur Android   : APP_CMD_TERM_WINDOW
+         *
+         * @warning Le renderer DOIT libérer son contexte EGL/Vulkan à réception
+         *          de cet événement. Accéder à la surface après est UB.
+         */
+        class NKENTSEU_EVENT_CLASS_EXPORT NkWindowSurfaceDestroyedEvent final : public NkWindowEvent {
+            public:
+                NK_EVENT_TYPE_FLAGS(NK_WINDOW_SURFACE_DESTROYED)
+        
+                NkWindowSurfaceDestroyedEvent(uint64 windowId = 0) noexcept
+                    : NkWindowEvent(windowId) {
+                }
+        
+                NkEvent* Clone() const override {
+                    return new NkWindowSurfaceDestroyedEvent(*this);
+                }
+        
+                NkString ToString() const override {
+                    return "WindowSurfaceDestroyed()";
+                }
+        };
+    
+        // =========================================================================
+        // NkWindowOrientationChangedEvent
+        // =========================================================================
+        /**
+         * @brief Émis lors d'un changement d'orientation de l'écran.
+         *
+         * Sources :
+         *   - HarmonyOS : display.on('change') → NkHarmonyBridge → C++
+         *   - Android   : APP_CMD_CONFIG_CHANGED + AConfiguration_getOrientation
+         *   - iOS       : UIDevice orientationDidChangeNotification
+         *
+         * Contient à la fois l'orientation sémantique (portrait/landscape) et
+         * l'angle de rotation en degrés pour les renderers qui en ont besoin
+         * (compensation de rotation pour la caméra, layout adaptatif).
+         *
+         * @note rotationDeg est mesuré dans le sens horaire depuis le portrait naturel :
+         *       0   = portrait (tenu à la verticale, bouton en bas)
+         *       90  = landscape droite (bouton à gauche, haut de l'écran à droite)
+         *       180 = portrait inversé (bouton en haut)
+         *       270 = landscape gauche (bouton à droite, haut de l'écran à gauche)
+         */
+        class NKENTSEU_EVENT_CLASS_EXPORT NkWindowOrientationChangedEvent final : public NkWindowEvent {
+            public:
+                NK_EVENT_TYPE_FLAGS(NK_WINDOW_ORIENTATION_CHANGED)
+        
+                /**
+                 * @param orientation  Orientation sémantique (portrait / landscape / auto)
+                 * @param rotationDeg  Angle de rotation en degrés (0 / 90 / 180 / 270)
+                 * @param windowId     Identifiant de la fenêtre
+                 */
+                NkWindowOrientationChangedEvent(
+                    NkScreenOrientation orientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO,
+                    int32   rotationDeg = 0,
+                    uint64  windowId    = 0
+                ) noexcept
+                    : NkWindowEvent(windowId)
+                    , mOrientation(orientation)
+                    , mRotationDeg(rotationDeg) {
+                }
+        
+                NkEvent* Clone() const override {
+                    return new NkWindowOrientationChangedEvent(*this);
+                }
+        
+                NkString ToString() const override {
+                    return NkString::Fmt("WindowOrientationChanged(deg={0})", mRotationDeg);
+                }
+        
+                /// @brief Orientation sémantique (portrait / landscape)
+                NKENTSEU_EVENT_API_INLINE NkScreenOrientation GetOrientation() const noexcept {
+                    return mOrientation;
+                }
+        
+                /// @brief Angle de rotation en degrés (0 / 90 / 180 / 270)
+                NKENTSEU_EVENT_API_INLINE int32 GetRotationDeg() const noexcept {
+                    return mRotationDeg;
+                }
+        
+                /// @brief true si orientation portrait (0° ou 180°)
+                NKENTSEU_EVENT_API_INLINE bool IsPortrait() const noexcept {
+                    return mOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_PORTRAIT
+                        || mRotationDeg == 0 || mRotationDeg == 180;
+                }
+        
+                /// @brief true si orientation landscape (90° ou 270°)
+                NKENTSEU_EVENT_API_INLINE bool IsLandscape() const noexcept {
+                    return mOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE
+                        || mRotationDeg == 90 || mRotationDeg == 270;
+                }
+        
+            private:
+                NkScreenOrientation mOrientation;  ///< Orientation sémantique
+                int32               mRotationDeg;  ///< Angle de rotation [degrés, sens horaire depuis portrait]
+        };
+    
+        // =========================================================================
+        // NkWindowSafeAreaChangedEvent
+        // =========================================================================
+        /**
+         * @brief Émis lorsque les insets de zone sûre changent.
+         *
+         * Les insets de zone sûre (safe area) définissent les marges à respecter
+         * pour que le contenu UI reste visible et accessible :
+         *   - Encoche / notch (haut)
+         *   - Caméra punch-hole
+         *   - Barre de navigation système (bas)
+         *   - Barre de statut (haut)
+         *   - Bords arrondis (coins)
+         *
+         * Sources :
+         *   - HarmonyOS : win.getWindowAvoidArea(AVOID_AREA_TYPE_SYSTEM) → NkHarmonyBridge
+         *   - Android   : WindowInsets.getInsets(systemBars()) via JNI
+         *   - iOS       : safeAreaInsets dans viewSafeAreaInsetsDidChange
+         *
+         * @note Les insets sont en pixels physiques (pas logiques).
+         *       Le renderer doit les prendre en compte pour le placement de l'UI.
+         *
+         * @code
+         *   void OnSafeAreaChanged(NkWindowSafeAreaChangedEvent& e) {
+         *       UI::SetMargins(e.GetTop(), e.GetRight(), e.GetBottom(), e.GetLeft());
+         *   }
+         * @endcode
+         */
+        class NKENTSEU_EVENT_CLASS_EXPORT NkWindowSafeAreaChangedEvent final : public NkWindowEvent {
+            public:
+                NK_EVENT_TYPE_FLAGS(NK_WINDOW_SAFE_AREA_CHANGED)
+        
+                /**
+                 * @param insets    Insets de zone sûre (top/right/bottom/left en pixels)
+                 * @param windowId  Identifiant de la fenêtre
+                 */
+                NkWindowSafeAreaChangedEvent(
+                    const NkSafeAreaInsets& insets    = {},
+                    uint64                  windowId  = 0
+                ) noexcept
+                    : NkWindowEvent(windowId)
+                    , mInsets(insets) {
+                }
+        
+                NkEvent* Clone() const override {
+                    return new NkWindowSafeAreaChangedEvent(*this);
+                }
+        
+                NkString ToString() const override {
+                    return NkString::Fmt(
+                        "WindowSafeAreaChanged(top={0} right={1} bottom={2} left={3})",
+                        mInsets.top, mInsets.right, mInsets.bottom, mInsets.left);
+                }
+        
+                /// @brief Retourne tous les insets de zone sûre
+                NKENTSEU_EVENT_API_INLINE const NkSafeAreaInsets& GetInsets() const noexcept {
+                    return mInsets;
+                }
+        
+                /// @brief Inset supérieur en pixels (notch, caméra, barre de statut)
+                NKENTSEU_EVENT_API_INLINE float GetTop()    const noexcept { return mInsets.top;    }
+                /// @brief Inset droit en pixels
+                NKENTSEU_EVENT_API_INLINE float GetRight()  const noexcept { return mInsets.right;  }
+                /// @brief Inset inférieur en pixels (barre de navigation système)
+                NKENTSEU_EVENT_API_INLINE float GetBottom() const noexcept { return mInsets.bottom; }
+                /// @brief Inset gauche en pixels
+                NKENTSEU_EVENT_API_INLINE float GetLeft()   const noexcept { return mInsets.left;   }
+        
+                /// @brief true si au moins un inset est non nul (zone sûre active)
+                NKENTSEU_EVENT_API_INLINE bool HasInsets() const noexcept {
+                    return mInsets.top > 0.0f || mInsets.right  > 0.0f
+                        || mInsets.bottom > 0.0f || mInsets.left > 0.0f;
+                }
+        
+            private:
+                NkSafeAreaInsets mInsets;  ///< Insets de zone sûre [pixels physiques]
+        };
+    
+        // =========================================================================
+        // NkWindowVirtualKeyboardChangedEvent
+        // =========================================================================
+        /**
+         * @brief Émis lorsque le clavier virtuel apparaît, disparaît ou change de taille.
+         *
+         * Cet événement est crucial pour les jeux/apps qui acceptent de la saisie :
+         *   - Adapter le layout : décaler la zone de saisie vers le haut
+         *   - Repositionner la caméra pour garder le champ de saisie visible
+         *   - Gérer le scroll dans les dialogues de login/chat
+         *
+         * Sources :
+         *   - HarmonyOS : win.on('keyboardHeightChange') → NkHarmonyBridge
+         *   - Android   : ViewTreeObserver.addOnGlobalLayoutListener
+         *   - iOS       : UIKeyboardWillShowNotification / UIKeyboardWillHideNotification
+         *
+         * Pour déclencher l'ouverture du clavier virtuel depuis C++ :
+         *   // Côté ArkTS (HarmonyOS) :
+         *   nkNative.showVirtualKeyboard?.(inputType);
+         *
+         *   // Côté Java (Android) :
+         *   InputMethodManager.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
+         *
+         * @note height == 0 quand le clavier est caché.
+         *
+         * @code
+         *   void OnVirtualKeyboard(NkWindowVirtualKeyboardChangedEvent& e) {
+         *       if (e.IsVisible()) {
+         *           // Décaler le layout vers le haut de e.GetHeight() pixels
+         *           UI::OffsetBottom(e.GetHeight());
+         *       } else {
+         *           UI::ResetLayout();
+         *       }
+         *   }
+         * @endcode
+         */
+        class NKENTSEU_EVENT_CLASS_EXPORT NkWindowVirtualKeyboardChangedEvent final : public NkWindowEvent {
+            public:
+                NK_EVENT_TYPE_FLAGS(NK_WINDOW_VIRTUAL_KEYBOARD_CHANGED)
+        
+                /**
+                 * @param visible   true si le clavier est visible, false s'il est caché
+                 * @param height    Hauteur du clavier en pixels physiques (0 si caché)
+                 * @param windowId  Identifiant de la fenêtre
+                 */
+                NkWindowVirtualKeyboardChangedEvent(
+                    bool    visible  = false,
+                    uint32  height   = 0,
+                    uint64  windowId = 0
+                ) noexcept
+                    : NkWindowEvent(windowId)
+                    , mVisible(visible)
+                    , mHeight(height) {
+                }
+        
+                NkEvent* Clone() const override {
+                    return new NkWindowVirtualKeyboardChangedEvent(*this);
+                }
+        
+                NkString ToString() const override {
+                    return NkString::Fmt(
+                        "WindowVirtualKeyboard(visible={0} height={1})",
+                        mVisible ? "true" : "false", mHeight);
+                }
+        
+                /// @brief true si le clavier virtuel est visible
+                NKENTSEU_EVENT_API_INLINE bool IsVisible() const noexcept { return mVisible; }
+        
+                /// @brief Hauteur du clavier en pixels physiques (0 si caché)
+                NKENTSEU_EVENT_API_INLINE uint32 GetHeight() const noexcept { return mHeight; }
+        
+                /// @brief true si le clavier vient de s'afficher (visible && height > 0)
+                NKENTSEU_EVENT_API_INLINE bool IsShowing() const noexcept {
+                    return mVisible && mHeight > 0;
+                }
+        
+                /// @brief true si le clavier vient de se cacher
+                NKENTSEU_EVENT_API_INLINE bool IsHiding() const noexcept {
+                    return !mVisible;
+                }
+        
+            private:
+                bool   mVisible;  ///< true si le clavier virtuel est visible
+                uint32 mHeight;   ///< Hauteur du clavier [pixels physiques], 0 si caché
+        };
+
     } // namespace nkentseu
 
 #endif // NKENTSEU_EVENT_NKWINDOWEVENT_H
@@ -1479,6 +1804,44 @@
          c) Implémenter Clone() et ToString() pour cohérence avec l'infrastructure
          d) Documenter les cas d'usage et l'ordre d'émission attendu
 */
+
+
+ 
+// =============================================================================
+// INTÉGRATION DANS NkWindowEvent.h
+// =============================================================================
+//
+// 1. Ajouter ces includes en tête de NkWindowEvent.h (si absents) :
+//    #include "NKEvent/NkSafeArea.h"       // NkSafeAreaInsets
+//    #include "NKWindow/Core/NkWindowConfig.h"    // NkScreenOrientation
+//
+// 2. Ajouter ces valeurs dans l'enum NkEventType (NkEvent.h) :
+//    NK_WINDOW_SURFACE_CREATED,
+//    NK_WINDOW_SURFACE_DESTROYED,
+//    NK_WINDOW_ORIENTATION_CHANGED,
+//    NK_WINDOW_SAFE_AREA_CHANGED,
+//    NK_WINDOW_VIRTUAL_KEYBOARD_CHANGED,
+//
+// 3. Remplacer dans NkWindowEvent.h les 5 structs incomplets par les classes ci-dessus.
+//
+// 4. Usage typique dans un NkWindow handler :
+//
+//    NkEvents().AddEventCallback<NkWindowSurfaceCreatedEvent>([](auto& e) {
+//        Renderer::CreateContext(e.GetWidth(), e.GetHeight());
+//    });
+//
+//    NkEvents().AddEventCallback<NkWindowSafeAreaChangedEvent>([](auto& e) {
+//        UI::SetSafeArea(e.GetTop(), e.GetRight(), e.GetBottom(), e.GetLeft());
+//    });
+//
+//    NkEvents().AddEventCallback<NkWindowVirtualKeyboardChangedEvent>([](auto& e) {
+//        if (e.IsShowing()) UI::PushBottomPadding(e.GetHeight());
+//        else               UI::PopBottomPadding();
+//    });
+//
+//    NkEvents().AddEventCallback<NkWindowOrientationChangedEvent>([](auto& e) {
+//        Camera::SetAspectRatio(e.IsLandscape() ? 16.0f/9.0f : 9.0f/16.0f);
+//    });
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

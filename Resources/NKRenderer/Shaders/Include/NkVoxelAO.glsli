@@ -1,0 +1,85 @@
+// =============================================================================
+// NkVoxelAO.glsli  — Phase H.6 Material Function : Voxel-based Ambient Occlusion
+//
+// Cone-tracing dans une texture 3D R/A8 (binding 27 du globalSet) pour
+// calculer l'AO long-range. Utilise par tous les shaders materiau qui
+// echantillonnent l'IBL ambient (PBR, Layered, Toon, Anime, Glass, Skin, ...).
+//
+// Usage :
+//   #include "Include/NkVoxelAO.glsli"
+//   ...
+//   float vAO = NkComputeVoxelAO(vWorldPos, normalWorld);
+//   ambient *= vAO;   // attenue IBL irradiance + specular
+//
+// Bounds hardcoded (devra etre expose en uniform si scenes variables) :
+//   minBounds = (-10, -5, -10) , maxBounds = (+10, +5, +10)
+//   Voxel grid 64 x 32 x 64.
+// =============================================================================
+#ifndef NK_VOXEL_AO_GLSLI
+#define NK_VOXEL_AO_GLSLI
+
+// Le binding 27 est declare globalement via les shaders qui incluent ce file.
+// On ne le redeclare PAS ici pour eviter les duplications dans les shaders qui
+// l'ont deja (ex: pbr.frag.vk.glsl). Les shaders qui veulent l'AO doivent
+// declarer eux-memes :
+//   layout(set=0, binding=27) uniform sampler3D tVoxelOpacity;
+// Avant d'inclure ce file.
+
+// Bounds world hardcoded — doivent matcher NkVoxelAOConfig::minBounds/maxBounds
+// cote CPU dans NkVoxelAOSystem (par defaut : (-10,-5,-10) .. (+10,+5,+10)).
+#define NK_VOXEL_MIN_BOUNDS vec3(-10.0, -5.0, -10.0)
+#define NK_VOXEL_MAX_BOUNDS vec3( 10.0,  5.0,  10.0)
+
+// World pos -> voxel UV [0, 1].
+vec3 NkWorldToVoxelUV(vec3 worldPos) {
+    return (worldPos - NK_VOXEL_MIN_BOUNDS) / (NK_VOXEL_MAX_BOUNDS - NK_VOXEL_MIN_BOUNDS);
+}
+
+// Cone tracing depuis 'origin' dans la direction 'dir' world space.
+// 8 samples exponentiels, Beer's law accumulation.
+// Retourne occlusion [0, 1] (0 = pas occlus, 1 = totalement occlus).
+float NkVoxelConeTrace(vec3 origin, vec3 dir) {
+    float occlusion = 0.0;
+    float t = 0.15;       // offset initial (evite self-occlusion)
+    for (int i = 0; i < 8; i++) {
+        vec3 worldP = origin + dir * t;
+        vec3 uv3    = NkWorldToVoxelUV(worldP);
+        if (any(lessThan(uv3, vec3(0.0))) || any(greaterThan(uv3, vec3(1.0)))) break;
+        float o = texture(tVoxelOpacity, uv3).r;
+        occlusion = occlusion + o * (1.0 - occlusion);
+        t *= 1.5;
+    }
+    return occlusion;
+}
+
+// Compute AO factor via 4 cones dans l'hemisphere normale (cosine-weighted).
+// Retourne 1.0 = pas occlus, 0.0 = totalement occlus.
+float NkComputeVoxelAO(vec3 worldPos, vec3 N) {
+    // Base tangente locale (T, B, N).
+    vec3 T = abs(N.y) < 0.99 ? normalize(cross(vec3(0.0, 1.0, 0.0), N))
+                              : vec3(1.0, 0.0, 0.0);
+    vec3 B = normalize(cross(N, T));
+
+    // 4 cones : axe N + 3 inclinaisons 60° autour de N.
+    const vec3 kConeLocal0 = vec3( 0.0,    1.0,     0.0   );
+    const vec3 kConeLocal1 = vec3( 0.866,  0.5,     0.0   );
+    const vec3 kConeLocal2 = vec3(-0.433,  0.5,     0.75  );
+    const vec3 kConeLocal3 = vec3(-0.433,  0.5,    -0.75  );
+
+    vec3 origin = worldPos + N * 0.15;
+
+    float occSum = 0.0;
+    vec3 lc;
+    lc = kConeLocal0;
+    occSum += NkVoxelConeTrace(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+    lc = kConeLocal1;
+    occSum += NkVoxelConeTrace(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+    lc = kConeLocal2;
+    occSum += NkVoxelConeTrace(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+    lc = kConeLocal3;
+    occSum += NkVoxelConeTrace(origin, normalize(T * lc.x + N * lc.y + B * lc.z));
+
+    return 1.0 - clamp(occSum * 0.25, 0.0, 1.0);
+}
+
+#endif // NK_VOXEL_AO_GLSLI
