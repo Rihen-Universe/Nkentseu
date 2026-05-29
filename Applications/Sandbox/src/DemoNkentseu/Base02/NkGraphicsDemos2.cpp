@@ -94,10 +94,10 @@
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkWindowEvent.h"
-#include "NKContext/NkContextFactory.h"
-#include "NKContext/NkContextDesc.h"
-#include "NKContext/NkNativeContextAccess.h"
-#include "NKContext/Backends/OpenGL/NkOpenGLDesc.h"
+#include "NKCanvas/NkContextFactory.h"
+#include "NKCanvas/NkContextDesc.h"
+#include "NKCanvas/NkNativeContextAccess.h"
+#include "NKCanvas/Backends/OpenGL/NkOpenGLDesc.h"
 #include "NKTime/NkChrono.h"
 
 namespace nkentseu {

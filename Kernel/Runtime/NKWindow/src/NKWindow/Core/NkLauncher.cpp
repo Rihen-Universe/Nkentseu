@@ -158,6 +158,14 @@ namespace nkentseu {
         }, url);
         return true;
 
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // HarmonyOS : ouverture via le framework Ability (startAbility avec un
+        // Want ohos.want.action.viewData + Uri). Necessite un appel natif->ArkTS
+        // expose dans NkHarmonyBridge.ts. Stub pour l'instant.
+        logger.Warn("[NkLauncher] HarmonyOS : OpenURL non implemente (need ArkTS bridge)");
+        (void)url;
+        return false;
+
 #else
         logger.Warn("[NkLauncher] Plateforme non supportee : url={0}", url);
         (void)url;
@@ -190,6 +198,11 @@ namespace nkentseu {
         logger.Warn("[NkLauncher] Android : OpenFile non implemente");
         (void)filePath;
         return false;
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // HarmonyOS : ouverture fichier via Ability/Want (content URI). Stub.
+        logger.Warn("[NkLauncher] HarmonyOS : OpenFile non implemente (need ArkTS bridge)");
+        (void)filePath;
+        return false;
 #else
         (void)filePath;
         return false;
@@ -214,6 +227,12 @@ namespace nkentseu {
         char cmd[2048];
         std::snprintf(cmd, sizeof(cmd), "open '%s' >/dev/null 2>&1 &", folderPath);
         return std::system(cmd) == 0;
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // HarmonyOS : pas de notion d'explorateur de fichiers ouvrable depuis
+        // une app sandboxee. Stub.
+        logger.Warn("[NkLauncher] HarmonyOS : OpenFolder non implemente");
+        (void)folderPath;
+        return false;
 #else
         (void)folderPath;
         return false;

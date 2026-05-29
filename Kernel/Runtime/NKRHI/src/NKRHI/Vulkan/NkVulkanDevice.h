@@ -24,6 +24,20 @@
     #endif
 #endif
 
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+#   if __has_include(<vulkan/vulkan_ohos.h>)
+#       include <vulkan/vulkan_ohos.h>
+#       define NK_VK_OHOS_SURFACE_AVAILABLE 1
+#   else
+#       define NK_VK_OHOS_SURFACE_AVAILABLE 0
+#   endif
+#   if __has_include(<native_window/external_window.h>)
+#       include <native_window/external_window.h>
+#   else
+        struct OHNativeWindow;  // forward declaration
+#   endif
+#endif
+
 namespace nkentseu {
 
 #ifdef NK_RHI_VK_ENABLED

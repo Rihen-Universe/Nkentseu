@@ -75,7 +75,7 @@ _REGISTRY: dict = {
     "threading"     : ("NKENTSEU_THREADING",      ["platform", "core", "memory", "containers"]),
     "logger"        : ("NKENTSEU_LOGGER",         ["platform", "core", "memory", "containers", "threading"]),
     "filesystem"    : ("NKENTSEU_FILESYSTEM",     ["platform", "core", "memory", "containers", "threading", "logger"]),
-    "stream"        : ("NKENTSEU_STREAM",         ["platform", "core", "logger", "filesystem"]),
+    "stream"        : ("NKENTSEU_STREAM",         ["platform", "core", "logger", "containers", "threading", "logger", "filesystem"]),
     "time"          : ("NKENTSEU_TIME",           ["platform", "core", "memory", "containers", "logger"]),
     "reflection"    : ("NKENTSEU_REFLECTION",     ["platform", "core", "memory", "containers", "threading", "logger"]),
     "serialization" : ("NKENTSEU_SERIALIZATION",  ["platform", "core", "memory", "containers", "reflection", "filesystem", "logger"]),
@@ -84,7 +84,7 @@ _REGISTRY: dict = {
     # ---- Runtime -------------------------------------------------------------
     "event"         : ("NKENTSEU_EVENT",          ["platform", "core", "memory", "containers", "logger", "math"]),
     "window"        : ("NKENTSEU_WINDOW",         ["platform", "core", "memory", "containers", "logger", "math", "event"]),
-    "context"       : ("NKENTSEU_CONTEXT",        ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
+    "canvas"       : ("NKENTSEU_CANVAS",        ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
     "rhi"           : ("NKENTSEU_RHI",            ["platform", "core", "memory", "containers", "logger", "math", "event", "window"]),
     "renderer"      : ("NKENTSEU_RENDERER",       ["platform", "core", "memory", "containers", "logger", "math", "time", "threading", "event", "window", "rhi", "image", "font", "filesystem", "serialization", "reflection"]),
     "image"         : ("NKENTSEU_IMAGE",          ["platform", "core", "memory", "containers", "logger", "math", "filesystem"]),
@@ -92,18 +92,18 @@ _REGISTRY: dict = {
     "ecs"           : ("NKENTSEU_ECS",            ["platform", "core", "memory", "containers", "logger", "math"]),
     "camera"        : ("NKENTSEU_CAMERA",         ["platform", "core", "memory", "containers", "logger", "math"]),
     "ui"            : ("NKENTSEU_UI",             ["platform", "core", "memory", "containers", "logger", "math", "event", "font", "image"]),
-    "audio"         : ("NKENTSEU_AUDIO",          ["platform", "core", "memory", "containers"]),
+    "audio"         : ("NKENTSEU_AUDIO",          ["platform", "core", "memory", "containers", "math", "filesystem", "logger", "threading", "stream"]),
 
     # ---- Engine --------------------------------------------------------------
     # Module intégrateur : agrège tous les modules Runtime + System.
     # "nkentseu" et "engine" sont deux alias de la même entrée.
     "nkentseu"      : ("NKENTSEU_ENGINE",         ["platform", "core", "memory", "containers",
                                                    "math", "threading", "logger", "time",
-                                                   "event", "window", "context", "rhi",
+                                                   "event", "window", "canvas", "rhi",
                                                    "font", "image", "ui"]),
     "engine"        : ("NKENTSEU_ENGINE",         ["platform", "core", "memory", "containers",
                                                    "math", "threading", "logger", "time",
-                                                   "event", "window", "context", "rhi",
+                                                   "event", "window", "canvas", "rhi",
                                                    "font", "image", "ui"]),
 }
 

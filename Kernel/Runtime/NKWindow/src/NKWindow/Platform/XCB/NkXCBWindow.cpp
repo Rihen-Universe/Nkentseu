@@ -24,6 +24,7 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_aux.h>
 #include <xcb/xcb_icccm.h>
+#include <xcb/randr.h>
 
 #include <unordered_map>
 #include <cstring>
@@ -72,6 +73,14 @@ namespace nkentseu {
 
     void NkXCBUnregisterWindow(xcb_window_t xid) {
         XCBWindowMap().Erase(xid);
+    }
+
+    NkWindow* NkXCBGetAnyWindow() {
+        NkWindow* first = nullptr;
+        XCBWindowMap().ForEach([&](xcb_window_t, NkWindow* v) {
+            if (!first) first = v;
+        });
+        return first;
     }
 
     // Accesseur connexion pour NkXCBEventSystem.cpp
@@ -572,8 +581,229 @@ namespace nkentseu {
         return pos;
     }
 
-    float   NkWindow::GetDpiScale()        const { return 1.f; }
-    
+    // =============================================================================
+    // Moniteurs / Display (XCB RandR + DPI runtime)
+    // =============================================================================
+
+    // Fallback link-safe : un seul moniteur derive de l'ecran XCB par defaut.
+    static NkDisplayInfo XCBFallbackDisplayInfo(xcb_screen_t* screen) {
+        NkDisplayInfo info;
+        info.index = 0;
+        if (screen) {
+            info.width  = info.physWidth  = (uint32)screen->width_in_pixels;
+            info.height = info.physHeight = (uint32)screen->height_in_pixels;
+            float32 dpiX = 96.f, dpiY = 96.f;
+            if (screen->width_in_millimeters > 0)
+                dpiX = (float32)screen->width_in_pixels  * 25.4f /
+                       (float32)screen->width_in_millimeters;
+            if (screen->height_in_millimeters > 0)
+                dpiY = (float32)screen->height_in_pixels * 25.4f /
+                       (float32)screen->height_in_millimeters;
+            info.dpiX     = dpiX;
+            info.dpiY     = dpiY;
+            info.dpiScale = dpiX / 96.f;
+            if (info.dpiScale < 0.5f) info.dpiScale = 1.f;
+        } else {
+            info.width = info.physWidth = 1920;
+            info.height = info.physHeight = 1080;
+        }
+        info.isPrimary = true;
+        std::strncpy(info.name, "DISPLAY1", sizeof(info.name) - 1);
+        return info;
+    }
+
+    // Remplit un NkDisplayInfo depuis un CRTC RandR actif. DPI calcule depuis la
+    // taille physique (mm) du premier output relie, refresh depuis le mode.
+    static bool XCBFillDisplayInfoFromCrtc(xcb_connection_t* conn,
+                                           xcb_randr_get_screen_resources_current_reply_t* res,
+                                           xcb_randr_crtc_t crtc,
+                                           xcb_randr_output_t primaryOutput,
+                                           uint32 index,
+                                           NkDisplayInfo& info) {
+        xcb_randr_get_crtc_info_cookie_t ck =
+            xcb_randr_get_crtc_info(conn, crtc, XCB_CURRENT_TIME);
+        xcb_randr_get_crtc_info_reply_t* ci =
+            xcb_randr_get_crtc_info_reply(conn, ck, nullptr);
+        if (!ci) return false;
+
+        // CRTC inactif (pas de mode ou pas d'output) : ignore.
+        int noutput = xcb_randr_get_crtc_info_outputs_length(ci);
+        if (ci->mode == XCB_NONE || noutput <= 0) {
+            free(ci);
+            return false;
+        }
+
+        info.index  = index;
+        info.posX   = (int32)ci->x;
+        info.posY   = (int32)ci->y;
+        info.width  = (uint32)ci->width;
+        info.height = (uint32)ci->height;
+        info.physWidth  = (uint32)ci->width;
+        info.physHeight = (uint32)ci->height;
+
+        // Refresh rate : retrouver le mode courant dans les modes de la ressource.
+        xcb_randr_mode_info_iterator_t mit =
+            xcb_randr_get_screen_resources_current_modes_iterator(res);
+        for (; mit.rem; xcb_randr_mode_info_next(&mit)) {
+            xcb_randr_mode_info_t* mi = mit.data;
+            if (mi->id == ci->mode) {
+                if (mi->htotal != 0 && mi->vtotal != 0) {
+                    double vrefresh = (double)mi->dot_clock /
+                                      ((double)mi->htotal * (double)mi->vtotal);
+                    info.refreshRate = (uint32)(vrefresh + 0.5);
+                }
+                break;
+            }
+        }
+
+        // Premier output relie : nom + taille physique (mm) + primaire.
+        xcb_randr_output_t* outs = xcb_randr_get_crtc_info_outputs(ci);
+        xcb_randr_output_t out = outs[0];
+
+        xcb_randr_get_output_info_cookie_t ock =
+            xcb_randr_get_output_info(conn, out, XCB_CURRENT_TIME);
+        xcb_randr_get_output_info_reply_t* oi =
+            xcb_randr_get_output_info_reply(conn, ock, nullptr);
+        if (oi) {
+            int nameLen = xcb_randr_get_output_info_name_length(oi);
+            uint8_t* nameStr = xcb_randr_get_output_info_name(oi);
+            if (nameStr && nameLen > 0) {
+                usize n = (usize)nameLen;
+                if (n > sizeof(info.name) - 1) n = sizeof(info.name) - 1;
+                for (usize i = 0; i < n; ++i) info.name[i] = (char)nameStr[i];
+                info.name[n] = '\0';
+            }
+
+            float32 dpiX = 96.f, dpiY = 96.f;
+            if (oi->mm_width > 0)
+                dpiX = (float32)info.width  * 25.4f / (float32)oi->mm_width;
+            if (oi->mm_height > 0)
+                dpiY = (float32)info.height * 25.4f / (float32)oi->mm_height;
+            info.dpiX     = dpiX;
+            info.dpiY     = dpiY;
+            info.dpiScale = dpiX / 96.f;
+            if (info.dpiScale < 0.5f) info.dpiScale = 1.f;
+
+            free(oi);
+        }
+
+        info.isPrimary = (primaryOutput != XCB_NONE && out == primaryOutput);
+
+        free(ci);
+        return true;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        xcb_connection_t* conn = mData.mConnection ? mData.mConnection : sConnection;
+        xcb_screen_t* screen = mData.mScreen ? mData.mScreen : sDefaultScreen;
+        if (!conn || !screen) {
+            out.PushBack(XCBFallbackDisplayInfo(screen));
+            return out;
+        }
+
+        // Verifier la presence de l'extension RandR.
+        const xcb_query_extension_reply_t* ext =
+            xcb_get_extension_data(conn, &xcb_randr_id);
+        if (!ext || !ext->present) {
+            out.PushBack(XCBFallbackDisplayInfo(screen));
+            return out;
+        }
+
+        xcb_randr_get_screen_resources_current_cookie_t resCk =
+            xcb_randr_get_screen_resources_current(conn, screen->root);
+        xcb_randr_get_screen_resources_current_reply_t* res =
+            xcb_randr_get_screen_resources_current_reply(conn, resCk, nullptr);
+        if (!res) {
+            out.PushBack(XCBFallbackDisplayInfo(screen));
+            return out;
+        }
+
+        // Moniteur primaire.
+        xcb_randr_output_t primary = XCB_NONE;
+        xcb_randr_get_output_primary_cookie_t pck =
+            xcb_randr_get_output_primary(conn, screen->root);
+        xcb_randr_get_output_primary_reply_t* pr =
+            xcb_randr_get_output_primary_reply(conn, pck, nullptr);
+        if (pr) {
+            primary = pr->output;
+            free(pr);
+        }
+
+        int ncrtc = xcb_randr_get_screen_resources_current_crtcs_length(res);
+        xcb_randr_crtc_t* crtcs =
+            xcb_randr_get_screen_resources_current_crtcs(res);
+
+        uint32 idx = 0;
+        for (int i = 0; i < ncrtc; ++i) {
+            NkDisplayInfo info;
+            if (XCBFillDisplayInfoFromCrtc(conn, res, crtcs[i], primary, idx, info)) {
+                out.PushBack(info);
+                ++idx;
+            }
+        }
+
+        free(res);
+
+        if (out.Size() == 0) {
+            out.PushBack(XCBFallbackDisplayInfo(screen));
+        }
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        NkVector<NkDisplayInfo> mons = EnumerateMonitors();
+        if (mons.Size() == 0) {
+            return XCBFallbackDisplayInfo(mData.mScreen ? mData.mScreen : sDefaultScreen);
+        }
+
+        // Centre de la fenetre dans l'espace ecran virtuel.
+        xcb_connection_t* conn = mData.mConnection ? mData.mConnection : sConnection;
+        xcb_screen_t* screen = mData.mScreen ? mData.mScreen : sDefaultScreen;
+        int cx = 0, cy = 0;
+        bool haveWin = false;
+        if (conn && screen && mData.mWindow) {
+            xcb_translate_coordinates_cookie_t tck =
+                xcb_translate_coordinates(conn, mData.mWindow, screen->root, 0, 0);
+            xcb_translate_coordinates_reply_t* tr =
+                xcb_translate_coordinates_reply(conn, tck, nullptr);
+            xcb_get_geometry_cookie_t gck = xcb_get_geometry(conn, mData.mWindow);
+            xcb_get_geometry_reply_t* gr = xcb_get_geometry_reply(conn, gck, nullptr);
+            if (tr && gr) {
+                cx = tr->dst_x + gr->width / 2;
+                cy = tr->dst_y + gr->height / 2;
+                haveWin = true;
+            }
+            if (tr) free(tr);
+            if (gr) free(gr);
+        }
+
+        if (haveWin) {
+            for (usize i = 0; i < mons.Size(); ++i) {
+                const NkDisplayInfo& d = mons[i];
+                if (cx >= d.posX && cx < d.posX + (int32)d.width &&
+                    cy >= d.posY && cy < d.posY + (int32)d.height) {
+                    return d;
+                }
+            }
+        }
+
+        for (usize i = 0; i < mons.Size(); ++i) {
+            if (mons[i].isPrimary) return mons[i];
+        }
+        return mons[0];
+    }
+
+    uint32 NkWindow::GetMonitorCount() const {
+        return (uint32)EnumerateMonitors().Size();
+    }
+
+    float   NkWindow::GetDpiScale()        const {
+        NkDisplayInfo cur = GetCurrentMonitor();
+        float scale = cur.dpiScale;
+        return (scale > 0.f) ? scale : 1.f;
+    }
+
     NkVec2u NkWindow::GetDisplaySize()     const {
         if (!sDefaultScreen) return { 1920, 1080 };
         return { (uint32)sDefaultScreen->width_in_pixels,
@@ -791,6 +1021,28 @@ namespace nkentseu {
     }
 
     void NkWindow::CaptureMouse(bool) {} // XCB grab nécessite xcb_grab_pointer — laissé en no-op
+
+    void NkWindow::ClipMouseToClient(bool clip) {
+        if (!mData.mConnection || !mData.mWindow) return;
+        if (clip) {
+            // xcb_grab_pointer avec confine_to = fenetre client.
+            xcb_grab_pointer_cookie_t ck = xcb_grab_pointer(
+                mData.mConnection,
+                /*owner_events=*/1,
+                mData.mWindow,
+                XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE
+                  | XCB_EVENT_MASK_POINTER_MOTION,
+                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+                mData.mWindow,        // confine_to
+                XCB_NONE,             // cursor
+                XCB_CURRENT_TIME);
+            xcb_grab_pointer_reply_t* r = xcb_grab_pointer_reply(mData.mConnection, ck, nullptr);
+            if (r) free(r);
+        } else {
+            xcb_ungrab_pointer(mData.mConnection, XCB_CURRENT_TIME);
+        }
+        xcb_flush(mData.mConnection);
+    }
 
     // =============================================================================
     // Web / extras (no-op on desktop)

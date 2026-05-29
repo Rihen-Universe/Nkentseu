@@ -6,7 +6,7 @@ Sandbox — Application de démonstration multi-plateformes
 Illustre l'utilisation complète du framework Nkentseu :
   • Création de fenêtre et boucle principale cross-platform
   • Gestion des événements : clavier, souris, touch, drag & drop
-  • Rendu pixel software via NKContext (NkSoftwareRenderer)
+  • Rendu pixel software via NKCanvas (NkSoftwareRenderer)
   • Gamepad, safe area, transforms 2D
 
 Un seul fichier src/main.cpp compile pour TOUTES les plateformes.
@@ -125,9 +125,9 @@ def sandboxnkfont(project_name: str, source_files: list):
             ])
             _WIN_LINKS = [
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "mf", "mfplat", "mfreadwrite", "mfuuid",
                 "uuid", "ole32", "dinput8", "dxguid",
-                "d3d11", "d3d12", "dxgi", "d3dcompiler", "freetype"
+                "d3d11", "d3d12", "dxgi", "d3dcompiler"
             ]
             links(_WIN_LINKS)
 
@@ -143,7 +143,7 @@ def sandboxnkfont(project_name: str, source_files: list):
 
 def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False):
     with project(project_name):
-        useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "context")
+        useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "canvas")
         windowedapp()
         language("C++")
         cppdialect("C++17")
@@ -168,7 +168,7 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
             "%{NKImage.location}/src",
             "%{NKFont.location}/src",
             "%{NKUI.location}/src",
-            "%{NKContext.location}/src",
+            "%{NKCanvas.location}/src",
             "%{NKStream.location}/src",
             "%{NKGlad.location}/include",
             "%{wks.location}/Externals",
@@ -179,8 +179,8 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
         includedirs(_SANDBOX_INCLUDE_DIRS)
 
         _BASE_LINKS = [
-            "NKEvent", "NKWindow", "NKContext", "NKGlad", "NKLogger",
-            "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI", 
+            "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
+            "NKMath", "NKTime", "NKStream", "NKFileSystem", "NKFont", "NKImage", "NKUI",
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
         ]
         
@@ -210,9 +210,9 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
                 libdirs([_VULKAN_LIB])
             _WIN_LINKS = [
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "mf", "mfplat", "mfreadwrite", "mfuuid",
                 "uuid", "ole32", "dinput8", "dxguid",
-                "d3d11", "d3d12", "dxgi", "d3dcompiler", "freetype"
+                "d3d11", "d3d12", "dxgi", "d3dcompiler"
             ]
             libdirs(["%{NKFont.location}/lib"])
         
@@ -356,7 +356,7 @@ def sandboxusenkcontext(project_name: str, source_files: list, app_id_suffix: st
                         libdirs([_VULKAN_LIB])
                     _WIN_TEST_LINKS = [
                         "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                        "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                        "mf", "mfplat", "mfreadwrite", "mfuuid",
                         "uuid", "ole32", "dinput8", "dxguid",
                         "d3d11", "d3d12", "dxgi", "d3dcompiler"
                     ]
@@ -407,7 +407,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
 
         _BASE_LINKS = [
             "NKEvent", "NKWindow", "NKGlad", "NKLogger",
-            "NKMath", "NKTime", "NKStream",
+            "NKMath", "NKTime", "NKStream", "NKFileSystem",  # NKFileSystem requis : NkAndroidWindow appelle NkFile::SetAndroidAssetManager
             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI"
         ]
         if use_nkimage:
@@ -448,13 +448,11 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
                 libdirs(["%{NKFont.location}/lib"])
             _WIN_LINKS = [
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "mf", "mfplat", "mfreadwrite", "mfuuid",
                 "uuid", "ole32", "dinput8", "dxguid",
                 "d3d11", "d3d12", "dxgi", "d3dcompiler"
             ]
             _IS_MINGW_R = "mingw" in _TC_WINDOWS.lower()
-            if use_nkfont:
-                _WIN_LINKS.append("freetype")
             if _WANT_VULKAN:
                 _WIN_LINKS.append("vulkan-1")
                 if not _IS_MINGW_R:
@@ -601,7 +599,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
                         libdirs([_VULKAN_LIB])
                     _WIN_TEST_LINKS = [
                         "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                        "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                        "mf", "mfplat", "mfreadwrite", "mfuuid",
                         "uuid", "ole32", "dinput8", "dxguid",
                         "d3d11", "d3d12", "dxgi", "d3dcompiler"
                     ]
@@ -695,13 +693,11 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
                 libdirs(["%{NKFont.location}/lib"])
             _WIN_LINKS = [
                 "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "mf", "mfplat", "mfreadwrite", "mfuuid",
                 "uuid", "ole32", "dinput8", "dxguid",
                 "d3d11", "d3d12", "dxgi", "d3dcompiler"
             ]
             _IS_MINGW_R = "mingw" in _TC_WINDOWS.lower()
-            if use_nkfont:
-                _WIN_LINKS.append("freetype")
             if _WANT_VULKAN:
                 _WIN_LINKS.append("vulkan-1")
                 if not _IS_MINGW_R:
@@ -848,7 +844,7 @@ def sandboxusenkrenderer(project_name: str, source_files: list, app_id_suffix: s
                         libdirs([_VULKAN_LIB])
                     _WIN_TEST_LINKS = [
                         "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                        "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                        "mf", "mfplat", "mfreadwrite", "mfuuid",
                         "uuid", "ole32", "dinput8", "dxguid",
                         "d3d11", "d3d12", "dxgi", "d3dcompiler"
                     ]

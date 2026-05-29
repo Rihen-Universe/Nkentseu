@@ -193,16 +193,26 @@ namespace nkentseu {
         }
 
         static bool LooksLikeVulkanGlsl(const NkString& src) {
-            // Detecte GLSL Vulkan-style : layout avec 'set=' (dans n'importe quel
-            // ordre de qualificateurs : "layout(set=", "layout(std140, set=", etc.)
-            // ou 'push_constant'. Le token 'set =' peut avoir des espaces autour.
+            // Detecte GLSL Vulkan-style.
+            // Heuristiques :
+            //   1. layout(set=N, binding=N) — convention descriptor set Vulkan
+            //   2. push_constant — Vulkan only
+            //   3. gl_VertexIndex / gl_InstanceIndex — built-ins Vulkan
+            //      (OpenGL utilise gl_VertexID / gl_InstanceID)
+            //   4. nonuniformEXT — extension Vulkan
+            // Critique : un shader peut etre Vulkan SANS UBO (ex: skybox fullscreen
+            // triangle qui n'utilise que gl_VertexIndex). Detecter les built-ins
+            // VK est donc essentiel.
             const char* s = src.CStr();
             return strstr(s, "layout(set=")    != nullptr
                 || strstr(s, "layout(set =")   != nullptr
                 || strstr(s, ", set=")          != nullptr  // layout(std140, set=0, ...)
                 || strstr(s, ", set =")         != nullptr
                 || strstr(s, ",set=")           != nullptr
-                || strstr(s, "push_constant")   != nullptr;
+                || strstr(s, "push_constant")   != nullptr
+                || strstr(s, "gl_VertexIndex")  != nullptr
+                || strstr(s, "gl_InstanceIndex")!= nullptr
+                || strstr(s, "nonuniformEXT")   != nullptr;
         }
 
         static ::nkentseu::NkSLStage ToNkSLStage(NkShaderStage s) {

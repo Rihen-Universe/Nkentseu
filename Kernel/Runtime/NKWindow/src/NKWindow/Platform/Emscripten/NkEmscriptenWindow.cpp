@@ -250,7 +250,7 @@ namespace nkentseu {
     // Fonctions de synchronisation mData ↔ mConfig
     // =========================================================================
 
-    static void SyncConfigFromWindow(const NkEmscriptenWindowData& data, NkWindowConfig& config) {
+    static void SyncConfigFromWindow(const NkWindowData& data, NkWindowConfig& config) {
         config.width = data.mWidth;
         config.height = data.mHeight;
         config.visible = data.mVisible;
@@ -259,7 +259,7 @@ namespace nkentseu {
         // La position n'est pas pertinente en WASM, on garde config.x/config.y
     }
 
-    static void SyncWindowFromConfig(NkEmscriptenWindowData& data, const NkWindowConfig& config) {
+    static void SyncWindowFromConfig(NkWindowData& data, const NkWindowConfig& config) {
         data.mVisible = config.visible;
         data.mFullscreen = config.fullscreen;
         
@@ -582,6 +582,52 @@ namespace nkentseu {
         return {0u, 0u};
     }
 
+    // =========================================================================
+    // Énumération des moniteurs / DPI
+    //
+    // Le Web n'expose qu'un seul « écran » du point de vue de l'application : le
+    // canvas. On synthétise un unique NkDisplayInfo dont la taille correspond à
+    // l'écran (window.screen via GetDisplaySize) et dont le facteur d'échelle
+    // est le device pixel ratio (emscripten_get_device_pixel_ratio).
+    // =========================================================================
+
+    static NkDisplayInfo NkEmscriptenFillDisplayInfo(const NkWindow& window) {
+        NkDisplayInfo info;
+        info.index = 0;
+        info.isPrimary = true;
+
+        const NkVec2u size = window.GetDisplaySize();
+        info.width      = size.x;
+        info.height     = size.y;
+        info.physWidth  = size.x;
+        info.physHeight = size.y;
+
+        const float32 ratio = window.GetDpiScale();
+        info.dpiScale = ratio > 0.0f ? ratio : 1.0f;
+        info.dpiX     = info.dpiScale * 96.0f;
+        info.dpiY     = info.dpiScale * 96.0f;
+
+        info.refreshRate = 60u;
+
+        const char* name = "Web Canvas";
+        usize i = 0;
+        for (; name[i] != '\0' && i < sizeof(info.name) - 1; ++i) info.name[i] = name[i];
+        info.name[i] = '\0';
+        return info;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        out.PushBack(NkEmscriptenFillDisplayInfo(*this));
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        return NkEmscriptenFillDisplayInfo(*this);
+    }
+
+    uint32 NkWindow::GetMonitorCount() const { return 1u; }
+
     void NkWindow::SetTitle(const NkString& title) {
         mConfig.title = title;
         SetDocumentTitle(title);
@@ -715,6 +761,17 @@ namespace nkentseu {
     void NkWindow::CaptureMouse(bool capture) {
         const char* canvasSelector = NormalizeCanvasSelector(mData.mCanvasId);
         if (capture) {
+            emscripten_request_pointerlock(canvasSelector, 1);
+        } else {
+            emscripten_exit_pointerlock();
+        }
+    }
+
+    // Web : pas d'API clip indépendante. La pointer lock seule garantit que
+    // les events souris restent dans le canvas, donc on alias dessus.
+    void NkWindow::ClipMouseToClient(bool clip) {
+        const char* canvasSelector = NormalizeCanvasSelector(mData.mCanvasId);
+        if (clip) {
             emscripten_request_pointerlock(canvasSelector, 1);
         } else {
             emscripten_exit_pointerlock();

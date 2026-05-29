@@ -112,6 +112,29 @@ namespace nkentseu {
                 NkMaterial* SetLayerTop      (const NkPBRParams& p);
                 NkMaterial* SetLayerMaskSource(int32 src); // 0=R 1=G 2=B 3=A
 
+                // ── Shadow overrides per-material (NkVSM v1) ──────────────────────
+                // Permet a un materiau de specifier comment il interagit avec
+                // les shadow maps, en surcharge des defaults globaux.
+                NkMaterial* SetReceiveShadow      (bool b);     // false = skip shadow sample
+                NkMaterial* SetShadowBiasMul      (float32 m);  // multiplicateur shadowBias
+                NkMaterial* SetCastShadowAlphaTest(bool b);     // V1 reserve : alpha-tested
+                bool   GetReceiveShadow()       const;
+                float32 GetShadowBiasMul()      const;
+                bool   GetCastShadowAlphaTest() const;
+
+                // ── Triplanar projection (style UE5 World Aligned Texture) ─────────
+                // Quand actif, la texture est projetee selon les 3 plans monde
+                // (XY/YZ/XZ) et blendee par |normal|. Donne des tiles VRAIMENT
+                // carrees independamment du scale/rotation du mesh, et sans
+                // seams sur les coins du cube. tileSizeMeters = taille en metres
+                // reels d'une tile (ex: 1.0 = 1m, 0.5 = 50cm). 0 = disabled,
+                // fallback UV classique du mesh.
+                // Affecte : albedo + ORM (AO/Roughness/Metallic) + normal map
+                // (via UDN blend a la UE5). Pas l'emissive (souvent decoratif).
+                // Cost : 3x sample par texture concernee (acceptable pour PBR).
+                NkMaterial* SetTriplanarTileSize  (float32 tileSizeMeters);
+                float32     GetTriplanarTileSize() const;
+
                 // ── État ──────────────────────────────────────────────────────────
                 bool          IsValid()      const;
                 NkRenderQueue GetQueue()     const;

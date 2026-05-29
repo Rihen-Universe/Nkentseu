@@ -4,11 +4,15 @@
 
 #include "NkCameraSystem.h"
 #include "NKCamera/NkCamera2D.h"
+#include "NKImage/Core/NkImage.h"
+#include "NKImage/Codecs/JPEG/NkJPEGCodec.h"
 
 #include <ctime>
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 #include <algorithm>
+#include <cstdlib>
 
 namespace nkentseu {
 
@@ -128,9 +132,20 @@ namespace nkentseu {
 
     NkString NkCameraSystem::CapturePhotoToFile(const NkString& path)
     {
-        (void)path;
-        // Écriture disque désactivée : l'appelant doit consommer NkCameraFrame::data.
-        return "";
+        if (!mReady) return "";
+
+        NkPhotoCaptureResult res;
+        if (!mBackend.CapturePhoto(res)) {
+            // Fallback : dernière frame du queue/buffer si le backend ne sait
+            // pas capturer à la demande (cas de certains backends streaming-only).
+            if (!GetLastFrame(res.frame) || !res.frame.IsValid()) return "";
+        }
+
+        NkString outPath = path;
+        if (outPath.Empty()) outPath = GenerateAutoPath("photo", "png");
+
+        if (!SaveFrameToFile(res.frame, outPath, 90)) return "";
+        return outPath;
     }
 
     // ===========================================================================
@@ -143,13 +158,69 @@ namespace nkentseu {
         NkVideoRecordConfig cfg = config;
         if (cfg.outputPath.Empty())
             cfg.outputPath = GenerateAutoPath("video", cfg.container);
-        return mBackend.StartVideoRecord(cfg);
+
+        // Mode IMAGE_SEQUENCE_ONLY : pris en charge par NkCameraSystem
+        // (cross-platform via NKImage). outputPath sert de préfixe
+        // ou de dossier — on ajoute "_NNNNNN.ext" pour chaque frame.
+        if (cfg.mode == NkVideoRecordConfig::Mode::IMAGE_SEQUENCE_ONLY) {
+            std::lock_guard<std::mutex> lk(mFrameMutex);
+            mImageSequenceActive  = true;
+            mImageSequenceDir     = cfg.outputPath; // préfixe complet attendu
+            // Extension par défaut PNG (lossless). L'utilisateur peut forcer
+            // jpg via cfg.videoCodec == "jpg" ou cfg.container == "jpg".
+            mImageSequenceExt = (cfg.container == "jpg" || cfg.videoCodec == "jpg")
+                                 ? NkString("jpg") : NkString("png");
+            mImageSequenceQuality = 90;
+            mImageSequenceIndex   = 0;
+            mImageSequenceStartUs = (uint64)std::time(nullptr) * 1000000ULL;
+            return true;
+        }
+
+        // Mode VIDEO_ONLY / AUTO : déléguer au backend natif (H.264, etc.)
+        bool ok = mBackend.StartVideoRecord(cfg);
+        if (!ok && cfg.mode == NkVideoRecordConfig::Mode::AUTO) {
+            // Fallback transparent : si le backend natif refuse en AUTO,
+            // on bascule en séquence d'images.
+            NkVideoRecordConfig fallback = cfg;
+            fallback.mode = NkVideoRecordConfig::Mode::IMAGE_SEQUENCE_ONLY;
+            return StartVideoRecord(fallback);
+        }
+        return ok;
     }
 
-    void  NkCameraSystem::StopVideoRecord()  { if (mReady) mBackend.StopVideoRecord(); }
-    bool  NkCameraSystem::IsRecording()  const { return mReady && mBackend.IsRecording(); }
+    void  NkCameraSystem::StopVideoRecord()
+    {
+        if (!mReady) return;
+        {
+            std::lock_guard<std::mutex> lk(mFrameMutex);
+            mImageSequenceActive = false;
+            mImageSequenceIndex  = 0;
+        }
+        mBackend.StopVideoRecord();
+    }
+
+    bool  NkCameraSystem::IsRecording()  const
+    {
+        if (!mReady) return false;
+        {
+            std::lock_guard<std::mutex> lk(mFrameMutex);
+            if (mImageSequenceActive) return true;
+        }
+        return mBackend.IsRecording();
+    }
+
     float NkCameraSystem::GetRecordingDurationSeconds() const
-    { return mReady ? mBackend.GetRecordingDurationSeconds() : 0.f; }
+    {
+        if (!mReady) return 0.f;
+        {
+            std::lock_guard<std::mutex> lk(mFrameMutex);
+            if (mImageSequenceActive) {
+                uint64 nowUs = (uint64)std::time(nullptr) * 1000000ULL;
+                return float((nowUs - mImageSequenceStartUs) / 1000000.0);
+            }
+        }
+        return mBackend.GetRecordingDurationSeconds();
+    }
 
     // ===========================================================================
     // Contrôles
@@ -182,18 +253,39 @@ namespace nkentseu {
 
     void NkCameraSystem::OnFrame(const NkCameraFrame& frame)
     {
+        bool   doSequence = false;
+        NkString seqDir, seqExt;
+        uint32  seqIdx = 0;
+        int32   seqQ   = 90;
+
         // Mettre à jour la dernière frame et appeler le callback utilisateur
         {
             std::lock_guard<std::mutex> lk(mFrameMutex);
             mLastFrame = frame;
             mHasFrame  = true;
             if (mUserCallback) mUserCallback(frame);
+
+            if (mImageSequenceActive) {
+                doSequence = true;
+                seqDir = mImageSequenceDir;
+                seqExt = mImageSequenceExt;
+                seqIdx = mImageSequenceIndex++;
+                seqQ   = mImageSequenceQuality;
+            }
         }
         // Queue
         if (mQueueEnabled) {
             std::lock_guard<std::mutex> lk(mQueueMutex);
             if (mFrameQueue.size() >= mMaxQueueSize) mFrameQueue.pop();
             mFrameQueue.push(frame);
+        }
+
+        // Mode IMAGE_SEQUENCE_ONLY : sauve hors lock (I/O potentiellement lent)
+        if (doSequence) {
+            char tail[24] = {};
+            std::snprintf(tail, sizeof(tail), "_%06u.", seqIdx);
+            NkString path = seqDir + NkString(tail) + seqExt;
+            (void)SaveFrameToFile(frame, path, seqQ);
         }
     }
 
@@ -338,9 +430,51 @@ namespace nkentseu {
         }
 
         if (frame.format == NkPixelFormat::NK_PIXEL_MJPEG) {
-            // Décodage JPEG retiré volontairement (plus de dépendance stb):
-            // le buffer MJPEG brut est laissé tel quel pour traitement externe.
-            return false;
+            // Décodage MJPEG via NkJPEGCodec (baseline DCT JFIF/Exif).
+            // Sortie codec : NK_RGB24 ou NK_GRAY8 — on convertit en RGBA8 ici.
+            NkImage* img = NkJPEGCodec::Decode(frame.data.Data(),
+                                                (usize)frame.data.Size());
+            if (!img) return false;
+
+            uint32 iw = (uint32)img->Width();
+            uint32 ih = (uint32)img->Height();
+            int32  channels = img->Channels();
+            const uint8* src = img->Pixels();
+            int32 srcStride = img->Stride();
+
+            out.Resize(iw * ih * 4);
+            if (channels == 3) {
+                for (uint32 y = 0; y < ih; ++y) {
+                    const uint8* row = src + (usize)y * srcStride;
+                    uint8* dst = out.Data() + (usize)y * iw * 4;
+                    for (uint32 x = 0; x < iw; ++x) {
+                        dst[x*4+0] = row[x*3+0];
+                        dst[x*4+1] = row[x*3+1];
+                        dst[x*4+2] = row[x*3+2];
+                        dst[x*4+3] = 255;
+                    }
+                }
+            } else if (channels == 1) {
+                for (uint32 y = 0; y < ih; ++y) {
+                    const uint8* row = src + (usize)y * srcStride;
+                    uint8* dst = out.Data() + (usize)y * iw * 4;
+                    for (uint32 x = 0; x < iw; ++x) {
+                        uint8 g = row[x];
+                        dst[x*4+0] = g; dst[x*4+1] = g; dst[x*4+2] = g; dst[x*4+3] = 255;
+                    }
+                }
+            } else {
+                img->Free();
+                return false;
+            }
+            // Dimensions JPEG peuvent différer du header annoncé : on resync.
+            frame.width  = iw;
+            frame.height = ih;
+            img->Free();
+            frame.data = std::move(out);
+            frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
+            frame.stride = iw * 4;
+            return true;
         }
 
         if (frame.format == NkPixelFormat::NK_PIXEL_NV12) {
@@ -368,9 +502,38 @@ namespace nkentseu {
         }
 
         if (frame.format == NkPixelFormat::NK_PIXEL_YUV420) {
-            // YUV420 (planar) peut varier selon le backend (I420/NV21/alignements).
-            // Sans métadonnées de planes explicites, on ne convertit pas ici.
-            return false;
+            // I420 planar : Y (w*h) + U (w/2 * h/2) + V (w/2 * h/2)
+            // C'est le format produit par V4L2 V4L2_PIX_FMT_YUV420 et Android
+            // YUV_420_888 (mappé sur I420 quand pixel stride U=V=1). Pour NV21
+            // (U/V inversés) l'appelant peut swap les plans U et V avant appel.
+            const uint32 ySize = frame.width * frame.height;
+            const uint32 uvW   = frame.width  / 2;
+            const uint32 uvH   = frame.height / 2;
+            const uint32 uvSize = uvW * uvH;
+            if (frame.data.Size() < ySize + 2 * uvSize) return false;
+
+            const uint8* Y = frame.data.Data();
+            const uint8* U = Y + ySize;
+            const uint8* V = U + uvSize;
+            for (uint32 row = 0; row < frame.height; ++row) {
+                for (uint32 col = 0; col < frame.width; ++col) {
+                    float y = (float)Y[row * frame.width + col]    - 16.f;
+                    float u = (float)U[(row/2) * uvW + (col/2)]    - 128.f;
+                    float v = (float)V[(row/2) * uvW + (col/2)]    - 128.f;
+                    float r = y * 1.164f + v * 1.596f;
+                    float g = y * 1.164f - u * 0.391f - v * 0.813f;
+                    float b = y * 1.164f + u * 2.018f;
+                    uint32 idx = (row * frame.width + col) * 4;
+                    out[idx+0] = (uint8)(r < 0 ? 0 : r > 255 ? 255 : r);
+                    out[idx+1] = (uint8)(g < 0 ? 0 : g > 255 ? 255 : g);
+                    out[idx+2] = (uint8)(b < 0 ? 0 : b > 255 ? 255 : b);
+                    out[idx+3] = 255;
+                }
+            }
+            frame.data = std::move(out);
+            frame.format = NkPixelFormat::NK_PIXEL_RGBA8;
+            frame.stride = frame.width * 4;
+            return true;
         }
 
         return false;
@@ -379,11 +542,31 @@ namespace nkentseu {
     bool NkCameraSystem::SaveFrameToFile(const NkCameraFrame& frame,
                                         const NkString& path, int quality)
     {
-        (void)frame;
-        (void)path;
-        (void)quality;
-        // I/O fichier volontairement désactivé : pipeline data/framebuffer only.
-        return false;
+        if (!frame.IsValid()) return false;
+        if (path.Empty())     return false;
+
+        // Convertir vers RGBA8 si nécessaire (sur une copie pour ne pas
+        // muter la frame d'entrée — l'appelant peut vouloir la conserver).
+        NkCameraFrame copy = frame;
+        if (copy.format != NkPixelFormat::NK_PIXEL_RGBA8) {
+            if (!ConvertToRGBA8(copy)) return false;
+        }
+
+        // Wrap les pixels dans un NkImage non-propriétaire et délègue à NKImage
+        // qui détecte le format depuis l'extension (.png / .jpg / .bmp / .tga
+        // / .qoi / .gif / .ppm / .webp).
+        NkImage* img = NkImage::Wrap(
+            const_cast<uint8*>(copy.data.Data()),
+            (int32)copy.width,
+            (int32)copy.height,
+            NkImagePixelFormat::NK_RGBA32,
+            (int32)copy.stride
+        );
+        if (!img) return false;
+
+        bool ok = img->Save(path.CStr(), quality);
+        img->Free();
+        return ok;
     }
 
     NkString NkCameraSystem::GenerateAutoPath(const NkString& prefix,
@@ -479,9 +662,19 @@ namespace nkentseu {
 
     bool NkMultiCamera::Stream::CapturePhotoToFile(const NkString& path)
     {
-        (void)path;
-        // I/O fichier volontairement désactivé : pipeline data/framebuffer only.
-        return false;
+        if (!mBackendReady) return false;
+
+        NkPhotoCaptureResult res;
+        if (!mBackend.CapturePhoto(res)) {
+            if (!GetLastFrame(res.frame) || !res.frame.IsValid()) return false;
+        }
+
+        NkString outPath = path;
+        if (outPath.Empty())
+            outPath = NkCameraSystem::GenerateAutoPath(
+                NkString::Fmt("photo_cam{0}", mDeviceIndex), "png");
+
+        return NkCameraSystem::SaveFrameToFile(res.frame, outPath, 90);
     }
 
     // ===========================================================================

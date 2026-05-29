@@ -3,9 +3,12 @@
 // =============================================================================
 #include "NkRender3D.h"
 #include "../Shadow/NkShadowSystem.h"
+#include "../Shadow/NkVirtualShadowMaps.h"
 #include "../Environment/NkEnvironmentSystem.h"
+#include "../VoxelAO/NkVoxelAOSystem.h"
 #include "NKRenderer/Shader/NkShaderLibrary.h"
 #include "NKRenderer/Core/NkResources.h"
+#include "NKRenderer/Core/NkRendererConfig.h"   // NkUnits() pour triplanar
 #include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NkRender3D_PBRShaders.inl"
 #include "NKLogger/NkLog.h"
@@ -19,7 +22,7 @@ namespace nkentseu {
 
         bool NkRender3D::Init(NkIDevice* device, NkMeshSystem* mesh,
                             NkMaterialSystem* mat, NkRenderGraph* graph,
-                            NkShadowSystem* shadow,
+                            NkVirtualShadowMaps* shadow,
                             NkEnvironmentSystem* env,
                             NkShaderLibrary* shaderLib,
                             NkResources* resources,
@@ -36,12 +39,14 @@ namespace nkentseu {
             // ecrit un buffer encore lu par le GPU. Avec mFramesInFlight=1 on
             // retombe sur le comportement legacy (1 buffer partage).
             mUBOCameraRing.Resize(mFramesInFlight);
+            mUBOCameraMirrorRing.Resize(mFramesInFlight);  // Phase Planar Reflection fix
             mUBOLightsRing.Resize(mFramesInFlight);
             mUBOObjectPool.Resize(mFramesInFlight);
 
-            // Camera UBO — binding 0
+            // Camera UBO — binding 0 (main + mirror dedicated)
             for (uint32 i=0; i<mFramesInFlight; i++) {
-                mUBOCameraRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
+                mUBOCameraRing[i]       = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
+                mUBOCameraMirrorRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(NkCameraUBO)));
             }
 
             // Lights UBO — binding 2 (32 lights max)
@@ -66,8 +71,19 @@ namespace nkentseu {
                 float32 clearcoatRough;   // 168
                 float32 subsurface;       // 172
                 NkVec4f subsurfaceColor;  // 176 (aligned to 16)
-            };                            // total 192
-            static_assert(sizeof(ObjectUBO) == 192, "ObjectUBO std140 layout");
+                // NkVSM v1 : shadowOverrides (.x receiveShadow, .z shadowBiasMul)
+                // Doit matcher la struct ObjBlock locale dans FlushOpaque +
+                // RenderShadowPass (sinon WriteBuffer overflow le buffer pool
+                // -> GL_INVALID_VALUE silent + rien ne s'affiche).
+                NkVec4f shadowOverrides;  // 192
+                // 2026-05-24 Triplanar : .x = tileSize en metres (0=disabled),
+                // .y = metersPerUnit (echelle globale, copie de NkUnits()),
+                // .z = enable flag (0/1 redondant avec .x>0 mais explicite cote
+                // shader), .w = reserve. Doit matcher ObjBlock 3 endroits +
+                // ObjectUBO dans VS+FS (regle GLSL shared block).
+                NkVec4f triplanarParams;  // 208
+            };                            // total 224
+            static_assert(sizeof(ObjectUBO) == 224, "ObjectUBO std140 layout");
             // Phase F.B.1 : pool d'ObjectUBO (frame x drawIdx). Pre-alloue
             // mFramesInFlight * kMaxObjectsPerFrame buffers a Init pour eviter
             // toute allocation dans le hot path et tout vkCmdUpdateBuffer dans
@@ -136,7 +152,17 @@ namespace nkentseu {
                 // Phase M.2 : binding=25 = Material Parameter Collection UBO
                 // (pool global de params nommes, partage par tous les shaders
                 // qui le declarent).
-                .Add(25, NkDescriptorType::NK_UNIFORM_BUFFER,         ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+                .Add(25, NkDescriptorType::NK_UNIFORM_BUFFER,         ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // Phase N v1 : binding=26 = tSkyEnvCube (samplerCube RGBA32F).
+                // Cubemap HDR brut sans Reinhard, sample uniquement par le
+                // shader skybox (set=0,binding=26). Permet un background avec
+                // vrai dynamic range, separe du tEnvPrefilter qui doit garder
+                // Reinhard pour l'IBL specular.
+                .Add(26, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                // Phase H.6 : binding=27 = tVoxelOpacity (sampler3D R8_UNORM).
+                // Voxel grid de la scene pour AO long-range via cone-tracing
+                // dans le PBR shader. cf. NkVoxelAOSystem.
+                .Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
             // Object set layout (set 1) : Object UBO(1)
@@ -149,9 +175,11 @@ namespace nkentseu {
             // Object : 1 par drawcall x frame (pattern UBO-per-draw, Base03/Vulkan).
             //   Chaque set est bind a son UBO du pool a Init (1:1, jamais re-bind).
             mGlobalSetRing.Resize(mFramesInFlight);
+            mGlobalSetMirrorRing.Resize(mFramesInFlight);   // Phase Planar Reflection fix
             mObjectSetPool.Resize(mFramesInFlight);
             for (uint32 i=0; i<mFramesInFlight; i++) {
-                mGlobalSetRing[i] = mDevice->AllocateDescriptorSet(mGlobalLayout);
+                mGlobalSetRing[i]       = mDevice->AllocateDescriptorSet(mGlobalLayout);
+                mGlobalSetMirrorRing[i] = mDevice->AllocateDescriptorSet(mGlobalLayout);
                 mObjectSetPool[i].Resize(kMaxObjectsPerFrame);
                 for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
                     mObjectSetPool[i][d] = mDevice->AllocateDescriptorSet(mObjectLayout);
@@ -167,62 +195,76 @@ namespace nkentseu {
             NkTextureHandle defEmissive= mResources ? mResources->GetBlackTex()  : NkTextureHandle{};
             NkSamplerHandle defSampler = mResources ? mResources->GetSamplerLinearRepeat() : NkSamplerHandle{};
 
-            for (uint32 i=0; i<mFramesInFlight; i++) {
-                NkDescSetHandle gs = mGlobalSetRing[i];
-                if (gs.IsValid()) {
-                    mDevice->BindUniformBuffer(gs, 0, mUBOCameraRing[i]);
-                    mDevice->BindUniformBuffer(gs, 2, mUBOLightsRing[i]);
+            // Phase Planar Reflection fix : lambda partagee qui pre-bind un
+            // global set (main ou mirror) avec un UBO Camera donne. Toutes les
+            // autres ressources (lights, shadow, env, voxel, cookies) sont
+            // identiques entre les rings main et mirror.
+            auto preBindGlobalSet = [&](NkDescSetHandle gs, NkBufferHandle cameraUBO, uint32 i) {
+                if (!gs.IsValid()) return;
+                mDevice->BindUniformBuffer(gs, 0, cameraUBO);
+                mDevice->BindUniformBuffer(gs, 2, mUBOLightsRing[i]);
 
-                    // ShadowUBO depuis le ShadowSystem (cascadeCount=0 en mode stub D.3a)
-                    if (mShadow && mShadow->GetShadowUBO().IsValid()) {
-                        mDevice->BindUniformBuffer(gs, 3, mShadow->GetShadowUBO());
+                // ShadowSlotsUBO depuis NkVSM : bind le buffer du ring i correspondant
+                // au slot frame i du descriptor set (multi-frame in flight, evite
+                // data hazard CPU/GPU).
+                if (mShadow && i < mShadow->GetRingSize()) {
+                    NkBufferHandle sub = mShadow->GetRingBuffer(i);
+                    if (sub.IsValid()) {
+                        mDevice->BindUniformBuffer(gs, 3, sub);
                     }
+                }
 
-                    if (defAlbedo.IsValid())   mDevice->BindTextureSampler(gs, 4, defAlbedo,   defSampler);
-                    if (defNormal.IsValid())   mDevice->BindTextureSampler(gs, 5, defNormal,   defSampler);
-                    if (defORM.IsValid())      mDevice->BindTextureSampler(gs, 6, defORM,      defSampler);
-                    if (defEmissive.IsValid()) mDevice->BindTextureSampler(gs, 7, defEmissive, defSampler);
+                if (defAlbedo.IsValid())   mDevice->BindTextureSampler(gs, 4, defAlbedo,   defSampler);
+                if (defNormal.IsValid())   mDevice->BindTextureSampler(gs, 5, defNormal,   defSampler);
+                if (defORM.IsValid())      mDevice->BindTextureSampler(gs, 6, defORM,      defSampler);
+                if (defEmissive.IsValid()) mDevice->BindTextureSampler(gs, 7, defEmissive, defSampler);
 
-                    if (mEnv) {
-                        NkSamplerHandle envSamp = mEnv->GetEnvSampler();
-                        NkSamplerHandle lutSamp = mEnv->GetLUTSampler();
-                        if (mEnv->GetIrradianceCubemap().IsValid())
-                            mDevice->BindTextureSampler(gs, 8, mEnv->GetIrradianceCubemap(), envSamp);
-                        if (mEnv->GetPrefilterCubemap().IsValid())
-                            mDevice->BindTextureSampler(gs, 9, mEnv->GetPrefilterCubemap(), envSamp);
-                        if (mEnv->GetBRDFLUT().IsValid())
-                            mDevice->BindTextureSampler(gs, 10, mEnv->GetBRDFLUT(), lutSamp);
+                if (mEnv) {
+                    NkSamplerHandle envSamp = mEnv->GetEnvSampler();
+                    NkSamplerHandle lutSamp = mEnv->GetLUTSampler();
+                    if (mEnv->GetIrradianceCubemap().IsValid())
+                        mDevice->BindTextureSampler(gs, 8, mEnv->GetIrradianceCubemap(), envSamp);
+                    if (mEnv->GetPrefilterCubemap().IsValid())
+                        mDevice->BindTextureSampler(gs, 9, mEnv->GetPrefilterCubemap(), envSamp);
+                    if (mEnv->GetBRDFLUT().IsValid())
+                        mDevice->BindTextureSampler(gs, 10, mEnv->GetBRDFLUT(), lutSamp);
+                    if (mEnv->GetSkyEnvCube().IsValid())
+                        mDevice->BindTextureSampler(gs, 26, mEnv->GetSkyEnvCube(), envSamp);
+                }
+
+                if (mVoxelAO && mVoxelAO->GetVoxelTexture().IsValid()) {
+                    mDevice->BindTextureSampler(gs, 27,
+                        mVoxelAO->GetVoxelTexture(), mVoxelAO->GetVoxelSampler());
+                }
+
+                if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
+                    mDevice->BindTextureSampler(gs, 11,
+                        mShadow->GetAtlasTexture(), mShadow->GetAtlasSampler());
+                    mDevice->BindTextureSampler(gs, 12,
+                        mShadow->GetAtlasTexture(), mShadow->GetAtlasRawSampler());
+                }
+
+                if (mResources) {
+                    NkTextureHandle whiteTex = mResources->GetWhiteTex();
+                    NkSamplerHandle whiteSamp = mResources->GetSamplerLinearRepeat();
+                    for (uint32 ci = 0; ci < kMaxCookies3D; ci++) {
+                        mDevice->BindTextureSampler(gs, 13 + ci, whiteTex, whiteSamp);
                     }
-
-                    if (mShadow && mShadow->GetAtlasTexture().IsValid()) {
-                        mDevice->BindTextureSampler(gs, 11,
-                            mShadow->GetAtlasTexture(), mShadow->GetAtlasSampler());
-                        // Shadow atlas raw read (PCSS blocker search). Meme texture,
-                        // sampler different (clamp/linear sans compare-mode).
-                        mDevice->BindTextureSampler(gs, 12,
-                            mShadow->GetAtlasTexture(), mShadow->GetAtlasRawSampler());
-                    }
-
-                    // Phase E.6 : pre-bind les 8 cookies 3D sur white1x1 (no-op).
-                    // L'utilisateur remplace via SetLightCookie3D(slot, tex).
-                    if (mResources) {
-                        NkTextureHandle whiteTex = mResources->GetWhiteTex();
-                        NkSamplerHandle whiteSamp = mResources->GetSamplerLinearRepeat();
-                        for (uint32 ci = 0; ci < kMaxCookies3D; ci++) {
-                            mDevice->BindTextureSampler(gs, 13 + ci, whiteTex, whiteSamp);
-                        }
-                        // Phase E.6b : pre-bind les 4 cube cookies sur la cubemap
-                        // white par defaut (creee une seule fois pour tous les slots).
-                        if (mDefaultCubeWhite.IsValid()) {
-                            for (uint32 ci = 0; ci < kMaxCookiesCube3D; ci++) {
-                                mDevice->BindTextureSampler(gs, 21 + ci,
-                                    mDefaultCubeWhite, whiteSamp);
-                            }
+                    if (mDefaultCubeWhite.IsValid()) {
+                        for (uint32 ci = 0; ci < kMaxCookiesCube3D; ci++) {
+                            mDevice->BindTextureSampler(gs, 21 + ci,
+                                mDefaultCubeWhite, whiteSamp);
                         }
                     }
                 }
+            };
+
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                // Bind main + mirror sets avec leur UBO Camera respectif.
+                preBindGlobalSet(mGlobalSetRing[i],       mUBOCameraRing[i],       i);
+                preBindGlobalSet(mGlobalSetMirrorRing[i], mUBOCameraMirrorRing[i], i);
+
                 // Phase F.B.1 : bind chaque set du pool a son UBO du pool (1:1).
-                // Bind statique a Init -> au draw on fait juste BindDescriptorSet.
                 for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
                     NkDescSetHandle os = mObjectSetPool[i][d];
                     if (os.IsValid()) {
@@ -290,6 +332,15 @@ namespace nkentseu {
                 mShadowPipeline = mDevice->CreateGraphicsPipeline(pd);
                 logger.Info("[NkRender3D] Shadow pipeline create: shader_valid={0} pipeline_valid={1}\n",
                             mShadowShader.IsValid() ? 1 : 0, mShadowPipeline.IsValid() ? 1 : 0);
+            }
+
+            // ── Phase N v0.5 : Skybox shader ────────────────────────────────
+            // Compile le shader Skybox au Init ; le pipeline est cree lazy au
+            // 1er Flush quand mDrawSkybox=true (cf. EnsureSkyboxPipeline).
+            if (mShaderLib) {
+                auto progSky = mShaderLib->LoadOrCompileVF("Skybox", "", "");
+                if (progSky.IsValid())
+                    mSkyboxShader = mShaderLib->GetRHIHandle(progSky);
             }
 
             // Fournit les layouts partagés au material system afin que ses pipelines
@@ -371,27 +422,92 @@ namespace nkentseu {
             return mPBRPipeline.IsValid();
         }
 
+        // ── Phase N v0.5 : EnsureSkyboxPipeline (lazy, RP-compatible) ───────
+        // Pipeline minimal : pas de VBO (gl_VertexIndex pour 3 verts fullscreen),
+        // depth test LEQUAL + depthWrite=false (les objets dessines apres
+        // peuvent occlure la skybox sans qu'elle leur barre la route).
+        bool NkRender3D::EnsureSkyboxPipeline(NkRenderPassHandle currentRP) {
+            if (!mSkyboxShader.IsValid()) return false;
+            if (mSkyboxPipeline.IsValid()) return true;
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader     = mSkyboxShader;
+            // Depth : test LEQUAL pour passer le clear=1.0 du depth buffer,
+            // mais pas d'ecriture - les objets opaques garderont leur depth.
+            {
+                NkDepthStencilDesc ds;
+                ds.depthTestEnable  = true;
+                ds.depthWriteEnable = false;
+                ds.depthCompareOp   = ::nkentseu::NkCompareOp::NK_LESS_EQUAL;
+                pd.depthStencil = ds;
+            }
+            pd.rasterizer = NkRasterizerDesc::NoCull();
+            pd.blend      = NkBlendDesc::Opaque();
+            pd.debugName  = "Skybox";
+            pd.renderPass = currentRP;
+            // Set 0 = global set (CameraUBO @0 + tEnvPrefilter @9 reuse-direct).
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            // Pas de vertex layout (gl_VertexIndex only dans le vert shader).
+
+            mSkyboxPipeline = mDevice->CreateGraphicsPipeline(pd);
+            mSkyboxPipelineRP = currentRP;
+            logger.Info("[NkRender3D] Skybox pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+                        mSkyboxShader.IsValid() ? 1 : 0, mSkyboxPipeline.IsValid() ? 1 : 0,
+                        currentRP.id);
+            return mSkyboxPipeline.IsValid();
+        }
+
+        // Draw 1 triangle fullscreen avec le pipeline Skybox. Doit etre appele
+        // dans la passe Geometry, AVANT les drawcalls opaques (pour que le
+        // depth=1.0 ecrit par la skybox ne masque pas les objets — bien que
+        // depthWrite=false ait neutralise ce risque, garder l'ordre logique).
+        void NkRender3D::DrawSkybox(NkICommandBuffer* cmd) {
+            if (!mDrawSkybox || !cmd) return;
+            if (!mSkyboxPipeline.IsValid()) return;
+
+            // Bind pipeline + global set (CameraUBO + prefilter cubemap).
+            // Phase Planar Reflection fix : bind le ring mirror si en mirror pass.
+            cmd->BindGraphicsPipeline(mSkyboxPipeline);
+            NkDescSetHandle gs;
+            if (mPendingMirrorActive) {
+                gs = (mFrameSlot < mGlobalSetMirrorRing.Size())
+                     ? mGlobalSetMirrorRing[mFrameSlot] : NkDescSetHandle{};
+            } else {
+                gs = (mFrameSlot < mGlobalSetRing.Size())
+                     ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+            }
+            if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+
+            // 3 vertices, 1 instance (fullscreen triangle sans VBO)
+            cmd->Draw(3, 1, 0, 0);
+        }
+
         void NkRender3D::Shutdown() {
+            if (mSkyboxPipeline.IsValid()) { mDevice->DestroyPipeline(mSkyboxPipeline); mSkyboxPipeline={}; }
             if (mShadowPipeline.IsValid()) { mDevice->DestroyPipeline(mShadowPipeline); mShadowPipeline={}; }
             if (mPBRPipeline.IsValid()) { mDevice->DestroyPipeline(mPBRPipeline); mPBRPipeline={}; }
             // Les shader handles sont detenus par NkShaderLibrary, pas a detruire ici.
-            for (auto& s : mGlobalSetRing) if (s.IsValid()) mDevice->FreeDescriptorSet(s);
+            for (auto& s : mGlobalSetRing)       if (s.IsValid()) mDevice->FreeDescriptorSet(s);
+            for (auto& s : mGlobalSetMirrorRing) if (s.IsValid()) mDevice->FreeDescriptorSet(s);
             // Phase F.B.1 : free le pool object 2D (frame x drawIdx).
             for (auto& perFrame : mObjectSetPool) {
                 for (auto& s : perFrame) if (s.IsValid()) mDevice->FreeDescriptorSet(s);
                 perFrame.Clear();
             }
             mGlobalSetRing.Clear();
+            mGlobalSetMirrorRing.Clear();
             mObjectSetPool.Clear();
             if (mGlobalLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mGlobalLayout); }
             if (mObjectLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mObjectLayout); }
-            for (auto& b : mUBOCameraRing) if (b.IsValid()) mDevice->DestroyBuffer(b);
+            for (auto& b : mUBOCameraRing)       if (b.IsValid()) mDevice->DestroyBuffer(b);
+            for (auto& b : mUBOCameraMirrorRing) if (b.IsValid()) mDevice->DestroyBuffer(b);
             for (auto& perFrame : mUBOObjectPool) {
                 for (auto& b : perFrame) if (b.IsValid()) mDevice->DestroyBuffer(b);
                 perFrame.Clear();
             }
             for (auto& b : mUBOLightsRing) if (b.IsValid()) mDevice->DestroyBuffer(b);
             mUBOCameraRing.Clear();
+            mUBOCameraMirrorRing.Clear();
             mUBOObjectPool.Clear();
             mUBOLightsRing.Clear();
             if(mSSBOBones.IsValid()){mDevice->DestroyBuffer(mSSBOBones);mSSBOBones={};}
@@ -500,6 +616,17 @@ namespace nkentseu {
 
             EnsurePBRPipeline(currentRP);
 
+            // Phase N v0.5 : Background HDR skybox. Cree paresseusement le
+            // pipeline (RP-compatible) puis draw 1 triangle fullscreen. Doit
+            // etre fait AVANT FlushOpaque pour que les objets opaques puissent
+            // ecrire leur depth correctement par dessus la skybox (qui a
+            // depthWrite=false). Le globalSet du slot frame est bind a
+            // l'interieur de DrawSkybox.
+            if (mDrawSkybox) {
+                EnsureSkyboxPipeline(currentRP);
+                DrawSkybox(cmd);
+            }
+
             // Notifie le material system du RP courant (Vulkan compat).
             // UpdateRenderPass invalide les pipelines material si le RP a change
             // (ex: resize swapchain). Idempotent si le RP est identique.
@@ -511,10 +638,17 @@ namespace nkentseu {
             if (mPBRPipeline.IsValid())
                 cmd->BindGraphicsPipeline(mPBRPipeline);
 
-            // Bind per-frame descriptor set du slot courant (camera + lights + shadow
-            // + env + textures defaut). Chaque slot du ring est pre-bound a son UBO,
-            // donc juste un BindDescriptorSet suffit, pas de UpdateDescriptorSets.
-            NkDescSetHandle gs = (mFrameSlot < mGlobalSetRing.Size()) ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+            // Bind per-frame descriptor set du slot courant. Phase Planar Reflection
+            // fix : en mirror pass, bind le ring mirror dedie (UBO Camera mirror
+            // avec view + reflectionFlags=1) au lieu du ring main.
+            NkDescSetHandle gs;
+            if (mPendingMirrorActive) {
+                gs = (mFrameSlot < mGlobalSetMirrorRing.Size())
+                     ? mGlobalSetMirrorRing[mFrameSlot] : NkDescSetHandle{};
+            } else {
+                gs = (mFrameSlot < mGlobalSetRing.Size())
+                     ? mGlobalSetRing[mFrameSlot] : NkDescSetHandle{};
+            }
             if (gs.IsValid())
                 cmd->BindDescriptorSet(gs, 0);
 
@@ -549,9 +683,36 @@ namespace nkentseu {
                 NkDescSetHandle gs = (i < mGlobalSetRing.Size()) ? mGlobalSetRing[i] : NkDescSetHandle{};
                 if (gs.IsValid())
                     mDevice->BindUniformBuffer(gs, NkMaterialCollection::kBinding, ubo);
+                // Phase Planar Reflection fix 2026-05-24 : aussi bind sur le
+                // ring mirror sinon globalTint=undefined -> Layered noir sur VK.
+                NkDescSetHandle gsm = (i < mGlobalSetMirrorRing.Size()) ? mGlobalSetMirrorRing[i] : NkDescSetHandle{};
+                if (gsm.IsValid())
+                    mDevice->BindUniformBuffer(gsm, NkMaterialCollection::kBinding, ubo);
             }
             logger.Info("[NkRender3D] MaterialCollection UBO bind a set=0 binding={0}\n",
                         NkMaterialCollection::kBinding);
+        }
+
+        // Phase H.6 : bind la texture 3D voxel au binding=27 sur tous les
+        // sets du ring. Appele apres Init de Render3D (le pre-bind du Init
+        // skip ce binding car mVoxelAO=nullptr a ce moment).
+        void NkRender3D::SetVoxelAO(NkVoxelAOSystem* vao) {
+            mVoxelAO = vao;
+            if (!mVoxelAO) return;
+            NkTextureHandle tex  = mVoxelAO->GetVoxelTexture();
+            NkSamplerHandle samp = mVoxelAO->GetVoxelSampler();
+            if (!tex.IsValid() || !samp.IsValid()) return;
+            for (uint32 i = 0; i < mFramesInFlight; i++) {
+                NkDescSetHandle gs = (i < mGlobalSetRing.Size()) ? mGlobalSetRing[i] : NkDescSetHandle{};
+                if (gs.IsValid())
+                    mDevice->BindTextureSampler(gs, 27, tex, samp);
+                // Phase Planar Reflection fix 2026-05-24 : aussi bind sur le
+                // ring mirror sinon sample voxel=undefined sur VK.
+                NkDescSetHandle gsm = (i < mGlobalSetMirrorRing.Size()) ? mGlobalSetMirrorRing[i] : NkDescSetHandle{};
+                if (gsm.IsValid())
+                    mDevice->BindTextureSampler(gsm, 27, tex, samp);
+            }
+            logger.Info("[NkRender3D] VoxelAO texture bind a set=0 binding=27\n");
         }
 
         void NkRender3D::FlushIntoRT(NkICommandBuffer* cmd, NkRenderPassHandle rp,
@@ -610,7 +771,17 @@ namespace nkentseu {
                 NkVec4f camDir;       // .xyz = forward, .w = far
                 float32 viewportX, viewportY;
                 float32 time, deltaTime;
-                float32 iblStrength, _p0, _p1, _p2;  // offset 304 : force IBL ambient
+                // iblStrength : force IBL ambient (offset 304)
+                // yFlipNDC : signe a appliquer a vNDC.y dans les shaders qui
+                //   reconstruisent un rayon view-space depuis le clip space
+                //   (cf. Skybox). En Vulkan, le viewport est rendu Y-flipped
+                //   (VkViewport.height < 0) -> top screen = vNDC.y = -1,
+                //   formule viewRay.y = vNDC.y * tanHalfY donne le bon "up".
+                //   En OpenGL, pas de flip viewport -> top screen = vNDC.y = +1,
+                //   donc on doit inverser pour obtenir le meme viewRay.y final.
+                //   +1.0 en VK, -1.0 en GL. Les shaders qui n'utilisent pas ce
+                //   champ ignorent le slot.
+                float32 iblStrength, yFlipNDC, _p1, _p2;
                 // Phase Planar Reflection : viewProj de la cam miroir, exposée
                 // au shader ReflFloor pour calculer reflectionUV via
                 // projection explicite. Les shaders qui n'utilisent pas ce
@@ -652,6 +823,12 @@ namespace nkentseu {
             cb.time        = mCtx.time;
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
+            // yFlipNDC : Vulkan flip viewport Y (VkViewport.height<0), donc
+            // top screen = vNDC.y = -1. OpenGL ne flip pas, top screen = +1.
+            // Pour qu'un meme shader produise le meme viewRay.y dans les deux
+            // cas, on multiplie vNDC.y par yFlipNDC : +1 en VK, -1 en GL.
+            const bool isVK = mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN;
+            cb.yFlipNDC = isVK ? +1.f : -1.f;
             // Phase Planar Reflection : applique aussi la correction Vulkan
             // clip-space à mirrorViewProj (sinon le sampling du RT serait clippé
             // ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
@@ -666,10 +843,17 @@ namespace nkentseu {
             // shadow sampling pendant les passes miroir (les positions world
             // sont en Y inverse -> sample shadow incorrect).
             cb.reflectionFlags = {mPendingMirrorActive ? 1.f : 0.f, 0.f, 0.f, 0.f};
-            // Ring : on ecrit dans le buffer du slot courant. Le GPU lit (au pire)
-            // celui du slot N-1, donc pas de stall.
-            if (mFrameSlot < mUBOCameraRing.Size())
-                mDevice->WriteBuffer(mUBOCameraRing[mFrameSlot], &cb, sizeof(cb));
+            // Phase Planar Reflection fix : ecrire dans le bon UBO selon le mode.
+            // Sans cette redirection, Flush principal (qui suit FlushIntoRT)
+            // ecrasait le UBO main avec reflectionFlags=0 + view=real, perdant
+            // l'etat mirror.
+            if (mPendingMirrorActive) {
+                if (mFrameSlot < mUBOCameraMirrorRing.Size())
+                    mDevice->WriteBuffer(mUBOCameraMirrorRing[mFrameSlot], &cb, sizeof(cb));
+            } else {
+                if (mFrameSlot < mUBOCameraRing.Size())
+                    mDevice->WriteBuffer(mUBOCameraRing[mFrameSlot], &cb, sizeof(cb));
+            }
 
             // Lights UBO
             struct LightsBlock {
@@ -717,7 +901,13 @@ namespace nkentseu {
                 float32 clearcoatRough;
                 float32 subsurface;
                 NkVec4f subsurfaceColor;
+                // NkVSM v1 : doit matcher ObjBlock dans FlushOpaque + ObjectUBO
+                // dans Init (224 bytes std140). Sinon WriteBuffer overflow.
+                NkVec4f shadowOverrides;
+                // 2026-05-24 Triplanar (cf ObjectUBO Init pour le sens des champs).
+                NkVec4f triplanarParams;
             };
+            static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140 shadow");
 
             // Phase F.B.1 : pattern UBO-per-draw. Chaque drawcall consume un slot
             // du pool (UBO + descriptor set pre-bind 1:1). WriteBuffer fait un
@@ -733,7 +923,7 @@ namespace nkentseu {
                 if (!dc.castShadow) continue;
                 if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
                     logger.Errorf("[NkRender3D] ObjectUBO pool overflow (shadow): "
-                                  "drawIdx={0} >= max={1}, skipping draw\n",
+                                  "drawIdx=%u >= max=%u, skipping draw\n",
                                   mObjectDrawIdx, kMaxObjectsPerFrame);
                     break;
                 }
@@ -758,6 +948,16 @@ namespace nkentseu {
 
         void NkRender3D::FlushOpaque(NkICommandBuffer* cmd) {
             // Doit matcher EXACTEMENT la layout std140 du shader pbr.{vert,frag}.gl.glsl.
+            // NkVSM v1 : +vec4 shadowOverrides a la fin (224B au lieu de 192).
+            //   .x = receiveShadow (0/1)
+            //   .y = castShadowAlphaTest (0/1, V1 reserve)
+            //   .z = shadowBiasMul
+            //   .w = reserve
+            // 2026-05-24 Triplanar : +vec4 triplanarParams (224B au lieu de 208).
+            //   .x = tileSize en metres (0 = disabled, UV mesh classique)
+            //   .y = metersPerUnit (echelle globale Blender-style)
+            //   .z = enable flag (0/1)
+            //   .w = reserve
             struct ObjBlock {
                 NkMat4f model;
                 NkMat4f normalMatrix;
@@ -771,8 +971,10 @@ namespace nkentseu {
                 float32 clearcoatRough;
                 float32 subsurface;
                 NkVec4f subsurfaceColor;
+                NkVec4f shadowOverrides;
+                NkVec4f triplanarParams;
             };
-            static_assert(sizeof(ObjBlock) == 192, "ObjBlock std140");
+            static_assert(sizeof(ObjBlock) == 224, "ObjBlock std140");
 
             // Phase F.B.1 : pattern UBO-per-draw. mObjectDrawIdx est deja
             // incremente par RenderShadowPass (qui tourne AVANT cette passe via
@@ -791,7 +993,7 @@ namespace nkentseu {
                 auto& dc = sdc.dc;
                 if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
                     logger.Errorf("[NkRender3D] ObjectUBO pool overflow (opaque): "
-                                  "drawIdx={0} >= max={1}, skipping draw\n",
+                                  "drawIdx=%u >= max=%u, skipping draw\n",
                                   mObjectDrawIdx, kMaxObjectsPerFrame);
                     break;
                 }
@@ -855,6 +1057,37 @@ namespace nkentseu {
                 ob.emissiveStrength = 0.f;
                 ob.normalStrength   = 1.f;
                 // clearcoat / subsurface : 0 par defaut (zero-init via ObjBlock{}).
+
+                // NkVSM v1 : copie les shadow overrides depuis le material.
+                //   .x = receiveShadow (default 1.0 = receive)
+                //   .y = castShadowAlphaTest (V1 reserve)
+                //   .z = shadowBiasMul (default 1.0)
+                //   .w = reserve
+                if (matInst) {
+                    ob.shadowOverrides = NkVec4f{
+                        matInst->mReceiveShadow       ? 1.f : 0.f,
+                        matInst->mCastShadowAlphaTest ? 1.f : 0.f,
+                        matInst->mShadowBiasMul,
+                        0.f
+                    };
+                } else {
+                    ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
+                }
+
+                // 2026-05-24 Triplanar : copie tileSize material + metersPerUnit
+                // global. Le shader fait UV = worldPos / (tileSize/metersPerUnit)
+                // pour avoir des tiles VRAIMENT carres en metres reels meme
+                // si l'echelle globale n'est pas 1m/unit.
+                {
+                    const float32 tile = matInst ? matInst->mTriplanarTileSize : 0.f;
+                    const float32 mpu  = NkUnits().metersPerUnit;
+                    ob.triplanarParams = NkVec4f{
+                        tile,
+                        mpu > 0.f ? mpu : 1.f,
+                        tile > 0.f ? 1.f : 0.f,
+                        0.f
+                    };
+                }
 
                 NkBufferHandle  ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
                 NkDescSetHandle os  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
@@ -985,9 +1218,13 @@ namespace nkentseu {
             NkTextureHandle bind = tex.IsValid() ? tex : mResources->GetWhiteTex();
             NkSamplerHandle samp = mResources->GetSamplerLinearRepeat();
             // Bind sur tous les slots du ring (chaque slot a son descriptor set).
+            // Phase Planar Reflection fix 2026-05-24 : aussi sur le ring mirror.
             for (uint32 i = 0; i < mFramesInFlight; i++) {
                 if (mGlobalSetRing[i].IsValid()) {
                     mDevice->BindTextureSampler(mGlobalSetRing[i], 13 + slot, bind, samp);
+                }
+                if (i < mGlobalSetMirrorRing.Size() && mGlobalSetMirrorRing[i].IsValid()) {
+                    mDevice->BindTextureSampler(mGlobalSetMirrorRing[i], 13 + slot, bind, samp);
                 }
             }
         }
@@ -997,9 +1234,13 @@ namespace nkentseu {
             if (slot >= kMaxCookiesCube3D || !mResources) return;
             NkTextureHandle bind = cubeTex.IsValid() ? cubeTex : mDefaultCubeWhite;
             NkSamplerHandle samp = mResources->GetSamplerLinearRepeat();
+            // Phase Planar Reflection fix 2026-05-24 : aussi sur le ring mirror.
             for (uint32 i = 0; i < mFramesInFlight; i++) {
                 if (mGlobalSetRing[i].IsValid()) {
                     mDevice->BindTextureSampler(mGlobalSetRing[i], 21 + slot, bind, samp);
+                }
+                if (i < mGlobalSetMirrorRing.Size() && mGlobalSetMirrorRing[i].IsValid()) {
+                    mDevice->BindTextureSampler(mGlobalSetMirrorRing[i], 21 + slot, bind, samp);
                 }
             }
         }

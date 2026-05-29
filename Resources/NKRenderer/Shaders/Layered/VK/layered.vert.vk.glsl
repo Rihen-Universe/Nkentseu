@@ -38,11 +38,22 @@ layout(location=3) out vec2 vUV;
 layout(location=4) out vec4 vColor;     // M.1 : .r = masque blend layer1, .gba reserves
 
 void main() {
-    vec4 wp = uObj.model * vec4(aPos, 1.0);
-    vWorldPos = wp.xyz;
-    vNormal   = normalize(mat3(uObj.normalMatrix) * aNormal);
-    vTangent  = normalize(mat3(uObj.model) * aTangent);
+    // Phase Planar Reflection fix 2026-05-24 : en mirror pass, un-mirror Y sur
+    // worldPos/N/T pour que le FS reçoive des valeurs en espace "real geometry".
+    // gl_Position rasterize a la pos miroir comme avant. Cf. pbr.vert.vk.glsl.
+    vec4 wp_mirror = uObj.model * vec4(aPos, 1.0);
+    vec4 wp_real   = wp_mirror;
+    vec3 N_real    = normalize(mat3(uObj.normalMatrix) * aNormal);
+    vec3 T_real    = normalize(mat3(uObj.model) * aTangent);
+    if (uCam.reflectionFlags.x > 0.5) {
+        wp_real.y = -wp_real.y;
+        N_real.y  = -N_real.y;
+        T_real.y  = -T_real.y;
+    }
+    vWorldPos = wp_real.xyz;
+    vNormal   = N_real;
+    vTangent  = T_real;
     vUV       = aUV;
     vColor    = aColor * uObj.tint;
-    gl_Position = uCam.viewProj * wp;
+    gl_Position = uCam.viewProj * wp_mirror;
 }

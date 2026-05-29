@@ -2,7 +2,7 @@
  * @File    NkHDRCodec.cpp
  * @Brief   Codec Radiance HDR (.hdr/.rgbe) production-ready.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Fixes vs version précédente
  *  1. BUG A — Fallback décodeur ancien-format RLE complètement absent.

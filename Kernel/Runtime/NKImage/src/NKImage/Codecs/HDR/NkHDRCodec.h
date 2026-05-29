@@ -3,7 +3,7 @@
  * @File    NkHDRCodec.h
  * @Brief   Codec Radiance HDR (.hdr/.rgbe) production-ready.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Support
  *  Lecture  : Header complet (EXPOSURE, FORMAT), nouveau RLE 4-canaux,
@@ -29,7 +29,11 @@ namespace nkentseu {
             static NkImage* Decode(const uint8* data, usize size) noexcept;
             /// Écrit l'image dans un fichier .hdr avec RLE compressé.
             static bool     Encode(const NkImage& img, const char* path) noexcept;
-            /// Encode en mémoire (buffer à libérer avec free).
+            /// Encode en mémoire. `out` est alloué via l'allocateur NKMemory
+            /// (nkentseu::memory::NkAlloc) ; l'appelant DOIT le libérer avec
+            /// `nkentseu::memory::NkFree(out)`. NE PAS utiliser `std::free` :
+            /// l'allocateur custom n'est pas compatible avec le heap CRT et un
+            /// free CRT cause une heap corruption (crash c0000374 sur Windows).
             static bool     EncodeToMemory(const NkImage& img, uint8*& out, usize& outSize) noexcept;
 
             /// Convertit une image HDR (RGB96F) en texture RGBA8 avec tone mapping.

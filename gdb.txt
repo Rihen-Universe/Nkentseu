@@ -1,4 +1,4 @@
-Commande GDB pour debug
+ Commande GDB pour debug
 Sur Windows avec le toolchain clang-mingw du projet :
 
 

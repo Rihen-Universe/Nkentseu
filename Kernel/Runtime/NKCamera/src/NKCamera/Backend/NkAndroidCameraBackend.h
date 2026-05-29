@@ -14,7 +14,7 @@
 //   android.permission.CAMERA dans AndroidManifest.xml
 // =============================================================================
 
-#include "NKCamera/INkCameraBackend.h"
+#include "NKCamera/NKICameraBackend.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
 #include "NKLogger/NkLog.h"
@@ -47,7 +47,7 @@ namespace nkentseu
 
 extern android_app* nk_android_global_app;
 
-class NkAndroidCameraBackend : public INkCameraBackend
+class NkAndroidCameraBackend : public NKICameraBackend
 {
 public:
     // JNI env du thread principal — à initialiser avant Init()

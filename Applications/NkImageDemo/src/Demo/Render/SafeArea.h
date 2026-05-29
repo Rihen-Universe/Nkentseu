@@ -15,7 +15,7 @@
 //   float rightX  = sa.RightX();
 // =============================================================================
 
-#include "NKWindow/Core/NkSafeArea.h"
+#include "NKEvent/NkSafeArea.h"
 #include "NKCore/NkTypes.h"
 
 namespace nkentseu

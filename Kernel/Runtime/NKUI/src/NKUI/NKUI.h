@@ -10,7 +10,7 @@
  * @File    NkUI.h
  * @Brief   Include unique NkUI — bibliothèque UI complète v1.0.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * ═══════════════════════════════════════════════════════════════════════════
  *  NkUI — système UI immédiat-mode, sans dépendances, offline + realtime
