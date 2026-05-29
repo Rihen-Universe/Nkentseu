@@ -71,6 +71,10 @@ with project("NKSerialization"):
     with filter("system:Android"):
         usetoolchain("android-ndk")
         links(["log"])
+    with filter("system:HarmonyOS"):
+        # NDK OHOS clang (meme contrainte qu'Android)
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):

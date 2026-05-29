@@ -1,6 +1,7 @@
 /**
  * @File   TestEXR.cpp
  * @Brief  Test EXR codec : charge un fichier EXR reel et imprime stats.
+ *         (Code de validation, gardé pour reference future.)
  */
 #include "NKImage/NKImage.h"
 #include "NKImage/Codecs/HDR/NkHDRCodec.h"
@@ -16,23 +17,22 @@ int main(int argc, char** argv) {
         : "Resources/Textures/HDR/piazza_bologni_1k.exr";
 
     std::printf("[TestEXR] Chargement %s ...\n", path);
-    NkImage* img = NkImage::Load(path);
-    if (!img) {
+    NkImage img;
+    if (!img.Load(path)) {
         std::printf("[TestEXR] FAIL : NkImage::Load retourne nullptr\n");
         return 1;
     }
-    const int32 w = img->Width(), h = img->Height();
-    const int32 ch = img->Channels();
-    std::printf("[TestEXR] OK : %dx%d, %d canaux, format=%d, HDR=%d\n",
-                w, h, ch, int(img->Format()), img->IsHDR() ? 1 : 0);
+    const int32 w = img.Width(), h = img.Height();
+    const int32 ch = img.Channels();
+    std::printf("[TestEXR] OK : %dx%d, %d canaux, format=%d, HDR=%d\n", w, h, ch, int(img.Format()), img.IsHDR() ? 1 : 0);
 
     // Stats : min/max/avg sur chaque canal
-    if (img->IsHDR()) {
+    if (img.IsHDR()) {
         float mn[4] = { 1e30f, 1e30f, 1e30f, 1e30f };
         float mx[4] = { -1e30f, -1e30f, -1e30f, -1e30f };
         double sum[4] = { 0, 0, 0, 0 };
         usize nPix = usize(w) * usize(h);
-        const float* p = reinterpret_cast<const float*>(img->Pixels());
+        const float* p = reinterpret_cast<const float*>(img.Pixels());
         for (usize i = 0; i < nPix; ++i) {
             for (int32 c = 0; c < ch; ++c) {
                 float v = p[i * ch + c];
@@ -48,15 +48,14 @@ int main(int argc, char** argv) {
     }
 
     // Convertit en RGBA8 tone-mappe et sauve en PNG pour verification visuelle
-    NkImage* rgba = NkHDRCodec::ConvertToTexture(*img, 1.0f, 2.2f);
+    NkImage* rgba = NkHDRCodec::ConvertToTexture(img, 1.0f, 2.2f);
     if (rgba) {
         const char* outPath = "Build/test_exr_output.png";
         bool ok = rgba->SavePNG(outPath);
-        std::printf("[TestEXR] Sauve PNG %s : %s\n",
-                    outPath, ok ? "OK" : "FAIL");
+        std::printf("[TestEXR] Sauve PNG %s : %s\n", outPath, ok ? "OK" : "FAIL");
         rgba->Free();
     }
 
-    img->Free();
+    img.Free();
     return 0;
 }

@@ -72,6 +72,12 @@ with project("NKThreading"):
         pchsource("")
         usetoolchain("android-ndk")
         links(["log"])
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android)
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):

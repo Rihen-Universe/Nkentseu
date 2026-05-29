@@ -10,7 +10,7 @@
  * @File    NkUILayout.h
  * @Brief   Système de layout NkUI — Row, Column, Tab, Group, Splitter, Scroll.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Design
  *  Le layout NkUI est implémenté en mode immédiat comme ImGui, mais avec

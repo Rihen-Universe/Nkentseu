@@ -27,18 +27,18 @@
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkColor.h"
 
-#include "NKContext/Factory/NkContextFactory.h"
-#include "NKContext/Core/NkIGraphicsContext.h"
-#include "NKContext/Core/NkContextDesc.h"
-#include "NKContext/Core/NkGraphicsApi.h"
+#include "NKCanvas/Factory/NkContextFactory.h"
+#include "NKCanvas/Core/NkIGraphicsContext.h"
+#include "NKCanvas/Core/NkContextDesc.h"
+#include "NKCanvas/Core/NkGraphicsApi.h"
 
-#include "NKContext/Renderer/Core/NkIRenderer2D.h"
-#include "NKContext/Renderer/Core/NkRenderer2DFactory.h"
-#include "NKContext/Renderer/Core/NkRenderer2DTypes.h"
-#include "NKContext/Renderer/Resources/NkImage.h"
-#include "NKContext/Renderer/Resources/NkTexture.h"
-#include "NKContext/Renderer/Resources/NkFont.h"
-#include "NKContext/Renderer/Resources/NkSprite.h"
+#include "NKCanvas/Renderer/Core/NkIRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2DFactory.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2DTypes.h"
+#include "NKCanvas/Renderer/Resources/NkImage.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"
+#include "NKCanvas/Renderer/Resources/NkFont.h"
+#include "NKCanvas/Renderer/Resources/NkSprite.h"
 
 using namespace nkentseu;
 using namespace nkentseu::renderer;

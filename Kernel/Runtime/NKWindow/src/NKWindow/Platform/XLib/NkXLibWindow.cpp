@@ -22,7 +22,9 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
+#include <X11/extensions/Xrandr.h>
 #include <unordered_map>
+#include <cstring>
 
 namespace nkentseu {
     using namespace math;
@@ -511,7 +513,205 @@ namespace nkentseu {
         return pos;
     }
 
-    float NkWindow::GetDpiScale() const { return 1.0f; }
+    // =============================================================================
+    // Moniteurs / Display (XRandR + DPI runtime)
+    // =============================================================================
+
+    // Remplit un NkDisplayInfo depuis un CRTC XRandR actif. Calcule le DPI a
+    // partir de la taille physique (mm) de l'output relie, et le refresh depuis
+    // le mode courant. Retourne false si le CRTC est inactif (pas de mode).
+    static bool XLibFillDisplayInfoFromCrtc(Display* display,
+                                            XRRScreenResources* res,
+                                            RRCrtc crtc,
+                                            RROutput primaryOutput,
+                                            uint32 index,
+                                            NkDisplayInfo& info) {
+        XRRCrtcInfo* ci = XRRGetCrtcInfo(display, res, crtc);
+        if (!ci) return false;
+
+        // Un CRTC sans mode ou sans output est inactif : on l'ignore.
+        if (ci->mode == None || ci->noutput == 0) {
+            XRRFreeCrtcInfo(ci);
+            return false;
+        }
+
+        info.index  = index;
+        info.posX   = (int32)ci->x;
+        info.posY   = (int32)ci->y;
+        info.width  = (uint32)ci->width;
+        info.height = (uint32)ci->height;
+        // La resolution physique = resolution logique sous X11 (pas de scaling natif).
+        info.physWidth  = (uint32)ci->width;
+        info.physHeight = (uint32)ci->height;
+
+        // Refresh rate : retrouver le mode courant dans la liste des modes.
+        for (int m = 0; m < res->nmode; ++m) {
+            const XRRModeInfo& mi = res->modes[m];
+            if (mi.id == ci->mode) {
+                if (mi.hTotal != 0 && mi.vTotal != 0) {
+                    double vrefresh = (double)mi.dotClock /
+                                      ((double)mi.hTotal * (double)mi.vTotal);
+                    info.refreshRate = (uint32)(vrefresh + 0.5);
+                }
+                break;
+            }
+        }
+
+        // Premier output relie a ce CRTC : nom + taille physique (mm) + primaire.
+        RROutput out = ci->outputs[0];
+        XRROutputInfo* oi = XRRGetOutputInfo(display, res, out);
+        if (oi) {
+            // Nom lisible (ex. "HDMI-1", "eDP-1").
+            if (oi->name && oi->nameLen > 0) {
+                usize n = (usize)oi->nameLen;
+                if (n > sizeof(info.name) - 1) n = sizeof(info.name) - 1;
+                for (usize i = 0; i < n; ++i) info.name[i] = oi->name[i];
+                info.name[n] = '\0';
+            }
+
+            // DPI calcule depuis la taille physique (mm). dpi = px * 25.4 / mm.
+            float32 dpiX = 96.f, dpiY = 96.f;
+            if (oi->mm_width > 0)
+                dpiX = (float32)info.width  * 25.4f / (float32)oi->mm_width;
+            if (oi->mm_height > 0)
+                dpiY = (float32)info.height * 25.4f / (float32)oi->mm_height;
+            info.dpiX     = dpiX;
+            info.dpiY     = dpiY;
+            info.dpiScale = dpiX / 96.f;
+            if (info.dpiScale < 0.5f) info.dpiScale = 1.f; // garde-fou valeurs aberrantes
+
+            XRRFreeOutputInfo(oi);
+        }
+
+        info.isPrimary = (primaryOutput != None && out == primaryOutput);
+
+        XRRFreeCrtcInfo(ci);
+        return true;
+    }
+
+    // Fallback link-safe : un seul moniteur derive de l'ecran X11 par defaut.
+    static NkDisplayInfo XLibFallbackDisplayInfo(Display* display, int screen) {
+        NkDisplayInfo info;
+        info.index = 0;
+        if (display) {
+            info.width  = info.physWidth  = (uint32)DisplayWidth(display, screen);
+            info.height = info.physHeight = (uint32)DisplayHeight(display, screen);
+            int mmW = DisplayWidthMM(display, screen);
+            int mmH = DisplayHeightMM(display, screen);
+            float32 dpiX = 96.f, dpiY = 96.f;
+            if (mmW > 0) dpiX = (float32)info.width  * 25.4f / (float32)mmW;
+            if (mmH > 0) dpiY = (float32)info.height * 25.4f / (float32)mmH;
+            info.dpiX     = dpiX;
+            info.dpiY     = dpiY;
+            info.dpiScale = dpiX / 96.f;
+            if (info.dpiScale < 0.5f) info.dpiScale = 1.f;
+        } else {
+            info.width = info.physWidth = 1920;
+            info.height = info.physHeight = 1080;
+        }
+        info.isPrimary = true;
+        const char* nm = "DISPLAY1";
+        std::strncpy(info.name, nm, sizeof(info.name) - 1);
+        return info;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        Display* display = mData.mDisplay ? mData.mDisplay : sDisplay;
+        if (!display) {
+            out.PushBack(XLibFallbackDisplayInfo(nullptr, 0));
+            return out;
+        }
+
+        ::Window root = DefaultRootWindow(display);
+
+        // Verifier la disponibilite de l'extension XRandR.
+        int eventBase = 0, errorBase = 0;
+        if (!XRRQueryExtension(display, &eventBase, &errorBase)) {
+            out.PushBack(XLibFallbackDisplayInfo(display, DefaultScreen(display)));
+            return out;
+        }
+
+        XRRScreenResources* res = XRRGetScreenResources(display, root);
+        if (!res) {
+            out.PushBack(XLibFallbackDisplayInfo(display, DefaultScreen(display)));
+            return out;
+        }
+
+        RROutput primary = XRRGetOutputPrimary(display, root);
+
+        uint32 idx = 0;
+        for (int i = 0; i < res->ncrtc; ++i) {
+            NkDisplayInfo info;
+            if (XLibFillDisplayInfoFromCrtc(display, res, res->crtcs[i],
+                                            primary, idx, info)) {
+                out.PushBack(info);
+                ++idx;
+            }
+        }
+
+        XRRFreeScreenResources(res);
+
+        // Aucun CRTC actif (cas rare) : fallback.
+        if (out.Size() == 0) {
+            out.PushBack(XLibFallbackDisplayInfo(display, DefaultScreen(display)));
+        }
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        NkVector<NkDisplayInfo> mons = EnumerateMonitors();
+        if (mons.Size() == 0) {
+            return XLibFallbackDisplayInfo(mData.mDisplay ? mData.mDisplay : sDisplay,
+                                           mData.mScreen);
+        }
+
+        // Determiner le centre de la fenetre dans l'espace ecran virtuel.
+        Display* display = mData.mDisplay ? mData.mDisplay : sDisplay;
+        int cx = 0, cy = 0;
+        bool haveWin = false;
+        if (display && mData.mXid) {
+            ::Window child;
+            int wx = 0, wy = 0;
+            if (XTranslateCoordinates(display, mData.mXid, DefaultRootWindow(display),
+                                      0, 0, &wx, &wy, &child)) {
+                XWindowAttributes a;
+                if (XGetWindowAttributes(display, mData.mXid, &a)) {
+                    cx = wx + a.width / 2;
+                    cy = wy + a.height / 2;
+                    haveWin = true;
+                }
+            }
+        }
+
+        if (haveWin) {
+            // Moniteur dont le rectangle contient le centre de la fenetre.
+            for (usize i = 0; i < mons.Size(); ++i) {
+                const NkDisplayInfo& d = mons[i];
+                if (cx >= d.posX && cx < d.posX + (int32)d.width &&
+                    cy >= d.posY && cy < d.posY + (int32)d.height) {
+                    return d;
+                }
+            }
+        }
+
+        // A defaut, le moniteur primaire, sinon le premier.
+        for (usize i = 0; i < mons.Size(); ++i) {
+            if (mons[i].isPrimary) return mons[i];
+        }
+        return mons[0];
+    }
+
+    uint32 NkWindow::GetMonitorCount() const {
+        return (uint32)EnumerateMonitors().Size();
+    }
+
+    float NkWindow::GetDpiScale() const {
+        // Echelle DPI reelle du moniteur portant la fenetre.
+        NkDisplayInfo cur = GetCurrentMonitor();
+        float scale = cur.dpiScale;
+        return (scale > 0.f) ? scale : 1.0f;
+    }
 
     NkVec2u NkWindow::GetDisplaySize() const {
         if (!mData.mDisplay) {
@@ -703,6 +903,25 @@ namespace nkentseu {
     }
 
     void NkWindow::CaptureMouse(bool) {}
+
+    void NkWindow::ClipMouseToClient(bool clip) {
+        if (!mData.mDisplay || !mData.mXid) return;
+        if (clip) {
+            // XGrabPointer avec confine_to=window restreint le pointeur
+            // a la zone client de la fenetre. owner_events=True propage
+            // les events normalement.
+            XGrabPointer(mData.mDisplay, mData.mXid,
+                          True,
+                          ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                          GrabModeAsync, GrabModeAsync,
+                          mData.mXid,        // confine_to = la fenetre elle-meme
+                          None,              // cursor (None = default)
+                          CurrentTime);
+        } else {
+            XUngrabPointer(mData.mDisplay, CurrentTime);
+        }
+        XFlush(mData.mDisplay);
+    }
 
     // =============================================================================
     // Web / extras (desktop no-op)

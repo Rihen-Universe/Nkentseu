@@ -19,7 +19,7 @@
 #include "NkTypes.h"
 
 namespace nkentseu {
-    // Forward declarations — évite les dépendances circulaires avec NKContext
+    // Forward declarations — évite les dépendances circulaires avec NKCanvas
     class NkIGraphicsContext;
 
     struct NkSwapchainDesc {

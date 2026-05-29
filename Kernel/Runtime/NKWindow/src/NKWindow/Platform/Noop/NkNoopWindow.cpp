@@ -151,6 +151,47 @@ namespace nkentseu {
         return {0u, 0u};
     }
 
+    // =========================================================================
+    // Énumération des moniteurs / DPI
+    //
+    // Backend headless : on expose un unique moniteur factice 1920x1080 @60Hz,
+    // DPI 96 (scale 1.0). Suffisant pour que le code appelant ne casse pas.
+    // =========================================================================
+
+    static NkDisplayInfo NkNoopFillDisplayInfo() {
+        NkDisplayInfo info;
+        info.index       = 0;
+        info.width       = 1920u;
+        info.height      = 1080u;
+        info.physWidth   = 1920u;
+        info.physHeight  = 1080u;
+        info.refreshRate = 60u;
+        info.dpiScale    = 1.0f;
+        info.dpiX        = 96.0f;
+        info.dpiY        = 96.0f;
+        info.posX        = 0;
+        info.posY        = 0;
+        info.isPrimary   = true;
+
+        const char* name = "Noop Display";
+        usize i = 0;
+        for (; name[i] != '\0' && i < sizeof(info.name) - 1; ++i) info.name[i] = name[i];
+        info.name[i] = '\0';
+        return info;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        out.PushBack(NkNoopFillDisplayInfo());
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        return NkNoopFillDisplayInfo();
+    }
+
+    uint32 NkWindow::GetMonitorCount() const { return 1u; }
+
     void NkWindow::SetSize(uint32 width, uint32 height) {
         const uint32 oldW = mData.mWidth;
         const uint32 oldH = mData.mHeight;
@@ -237,6 +278,8 @@ namespace nkentseu {
     void NkWindow::ShowMouse(bool) {}
 
     void NkWindow::CaptureMouse(bool) {}
+
+    void NkWindow::ClipMouseToClient(bool) {}
 
     void NkWindow::SetWebInputOptions(const NkWebInputOptions&) {}
 

@@ -427,6 +427,69 @@ namespace nkentseu {
     }
 
     // =========================================================================
+    // Interrogation du taux de rafraîchissement de l'écran (JNI)
+    // Chaîne : activity.getWindowManager().getDefaultDisplay().getRefreshRate()
+    // Retourne 60 Hz par défaut si l'API est indisponible.
+    // =========================================================================
+
+    static uint32 NkAndroidQueryRefreshRate(android_app* app) {
+        if (!app || !app->activity || !app->activity->clazz) {
+            return 60u;
+        }
+
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        if (!NkAndroidAcquireJniEnv(app, &env, &attached)) {
+            return 60u;
+        }
+
+        uint32 refresh = 60u;
+        jobject activity = app->activity->clazz;
+        jclass actClass = env->GetObjectClass(activity);
+        if (actClass) {
+            jmethodID getWM = env->GetMethodID(actClass, "getWindowManager", "()Landroid/view/WindowManager;");
+            if (getWM) {
+                jobject wm = env->CallObjectMethod(activity, getWM);
+                if (wm && !env->ExceptionCheck()) {
+                    jclass wmClass = env->GetObjectClass(wm);
+                    if (wmClass) {
+                        jmethodID getDisplay = env->GetMethodID(wmClass, "getDefaultDisplay", "()Landroid/view/Display;");
+                        if (getDisplay) {
+                            jobject display = env->CallObjectMethod(wm, getDisplay);
+                            if (display && !env->ExceptionCheck()) {
+                                jclass displayClass = env->GetObjectClass(display);
+                                if (displayClass) {
+                                    jmethodID getRefresh = env->GetMethodID(displayClass, "getRefreshRate", "()F");
+                                    if (getRefresh) {
+                                        jfloat rate = env->CallFloatMethod(display, getRefresh);
+                                        if (!env->ExceptionCheck() && rate > 0.0f) {
+                                            refresh = static_cast<uint32>(rate + 0.5f);
+                                        } else {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                    env->DeleteLocalRef(displayClass);
+                                }
+                                env->DeleteLocalRef(display);
+                            } else {
+                                env->ExceptionClear();
+                            }
+                        }
+                        env->DeleteLocalRef(wmClass);
+                    }
+                    env->DeleteLocalRef(wm);
+                } else {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(actClass);
+        }
+
+        NkAndroidReleaseJniEnv(app, attached);
+        return refresh;
+    }
+
+    // =========================================================================
     // Fonctions de synchronisation mData ↔ mConfig
     // =========================================================================
 
@@ -654,6 +717,69 @@ namespace nkentseu {
 
     NkVec2u NkWindow::GetDisplayPosition() const { return {0, 0}; }
 
+    // =========================================================================
+    // Énumération des moniteurs / DPI
+    //
+    // Android est mono-écran du point de vue de l'application : un seul moniteur
+    // factice est exposé, rempli à partir de la taille de l'ANativeWindow et de
+    // la densité (DisplayMetrics via AConfiguration). La densité de référence
+    // Android est 160 dpi (et non 96), donc dpiScale = densityDpi / 160.
+    // =========================================================================
+
+    // Construit l'unique NkDisplayInfo décrivant l'écran Android courant.
+    static NkDisplayInfo NkAndroidFillDisplayInfo(const NkWindow& window) {
+        NkDisplayInfo info;
+        info.index = 0;
+        info.isPrimary = true;
+
+        // Taille de l'écran = taille de la surface plein écran.
+        const NkVec2u size = window.GetDisplaySize();
+        info.width      = size.x;
+        info.height     = size.y;
+        info.physWidth  = size.x;
+        info.physHeight = size.y;
+
+        // Densité réelle (dpi) via AConfiguration ; baseline = 160 dpi.
+        android_app* app = window.mData.mAndroidApp ? window.mData.mAndroidApp : nk_android_global_app;
+        uint32 densityDpi = 160;
+        if (app && app->activity && app->activity->assetManager) {
+            AConfiguration* config = AConfiguration_new();
+            if (config) {
+                AConfiguration_fromAssetManager(config, app->activity->assetManager);
+                const int32_t density = AConfiguration_getDensity(config);
+                AConfiguration_delete(config);
+                if (density > 0) {
+                    densityDpi = static_cast<uint32>(density);
+                }
+            }
+        }
+        info.dpiX     = static_cast<float32>(densityDpi);
+        info.dpiY     = static_cast<float32>(densityDpi);
+        info.dpiScale = static_cast<float32>(densityDpi) / 160.0f;
+
+        // Fréquence de rafraîchissement via Display.getRefreshRate() (JNI).
+        info.refreshRate = NkAndroidQueryRefreshRate(app);
+
+        // Nom lisible.
+        const char* name = "Android Display";
+        usize i = 0;
+        for (; name[i] != '\0' && i < sizeof(info.name) - 1; ++i) info.name[i] = name[i];
+        info.name[i] = '\0';
+        return info;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        out.PushBack(NkAndroidFillDisplayInfo(*this));
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        return NkAndroidFillDisplayInfo(*this);
+    }
+
+    uint32 NkWindow::GetMonitorCount() const { return 1u; }
+
     void NkWindow::SetTitle(const NkString& title) { 
         mConfig.title = title; 
         // Sur Android, le titre n'est pas directement modifiable après création
@@ -743,6 +869,9 @@ namespace nkentseu {
     void NkWindow::ShowMouse(bool) {}
 
     void NkWindow::CaptureMouse(bool) {}
+
+    // Mobile : pas de curseur natif (input tactile), no-op.
+    void NkWindow::ClipMouseToClient(bool) {}
 
     void NkWindow::SetWebInputOptions(const NkWebInputOptions& options) {
         mConfig.webInput = options;

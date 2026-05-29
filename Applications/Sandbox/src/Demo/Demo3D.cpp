@@ -15,6 +15,7 @@
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKRenderer/Tools/Shadow/NkShadowSystem.h"
+#include "NKRenderer/Tools/Shadow/NkVirtualShadowMaps.h"
 #include "NKImage/NKImage.h"            // Phase H : test ecriture PNG procedural
 #include <cstdio>
 
@@ -181,7 +182,7 @@ namespace nkentseu { namespace demo {
         ctx.userData = st;
 
         auto* meshSys = ctx.renderer->GetMeshSystem();
-        st->meshSphere = meshSys->GetIcosphere();
+        st->meshSphere = meshSys->GetSphere();
         st->meshPlane  = meshSys->GetPlane();
         st->meshCube   = meshSys->GetCube();
 
@@ -264,23 +265,18 @@ namespace nkentseu { namespace demo {
                         cfg.shadowBias = NkMax(0.0001f, cfg.shadowBias - 0.0005f); break;
                     case NkKey::NK_RBRACKET:
                         cfg.shadowBias += 0.0005f; break;
-                    case NkKey::NK_COMMA:
-                        cfg.sceneRadius = NkMax(2.f, cfg.sceneRadius - 1.f); break;
-                    case NkKey::NK_PERIOD:
-                        cfg.sceneRadius += 1.f; break;
                     case NkKey::NK_P:
                         st->pcfIdx = (st->pcfIdx + 1) % 5;
-                        cfg.pcfMode = (NkPCFMode)st->pcfIdx; break;
+                        cfg.quality = (NkVSMShadowQuality)st->pcfIdx; break;
                     case NkKey::NK_N:    // softness - (ombres plus dures)
                         cfg.softness = NkMax(0.0005f, cfg.softness - 0.001f); break;
                     case NkKey::NK_M:    // softness + (ombres plus douces)
                         cfg.softness = NkMin(0.020f,  cfg.softness + 0.001f); break;
                     case NkKey::NK_R:
                         cfg.shadowBias  = 0.001f;
-                        cfg.sceneRadius = 10.f;
                         cfg.softness    = 0.003f;
-                        cfg.pcfMode     = NkPCFMode::PCF5x5;
-                        st->pcfIdx      = (int32)NkPCFMode::PCF5x5;
+                        cfg.quality     = NkVSMShadowQuality::PCF5x5;
+                        st->pcfIdx      = (int32)NkVSMShadowQuality::PCF5x5;
                         break;
                     default: break;
                 }
@@ -329,7 +325,8 @@ namespace nkentseu { namespace demo {
         sun.direction = {-0.4f, -1.f, -0.3f};
         sun.color     = {1.f, 0.95f, 0.85f};
         sun.intensity = 3.f;
-        sun.castShadow= true;
+        sun.castShadow  = true;
+        sun.shadowStatic= true;  // NkVSM v1 cache : sun ne bouge pas
         sctx.lights.PushBack(sun);
 
         // Lumiere ponctuelle rouge — avec cube cookie "lantern" (E.6b).
@@ -343,6 +340,8 @@ namespace nkentseu { namespace demo {
         redLight.intensity = 12.f;
         redLight.range     = 10.f;
         redLight.cookieIdx = 0;            // utilise le cube bind au slot 0
+        redLight.castShadow  = true;       // NkVSM : cubemap 6 faces shadow
+        redLight.shadowStatic= true;       // position fixe
         sctx.lights.PushBack(redLight);
 
         // Fill bleue
@@ -352,6 +351,8 @@ namespace nkentseu { namespace demo {
         blue.color     = {0.2f, 0.5f, 1.f};
         blue.intensity = 2.5f;
         blue.range     = 8.f;
+        blue.castShadow  = true;           // NkVSM : cubemap 6 faces shadow
+        blue.shadowStatic= true;           // position fixe
         sctx.lights.PushBack(blue);
 
         // E.6 : Spot light avec cookie procedural "window bars" projete au sol.
@@ -369,7 +370,7 @@ namespace nkentseu { namespace demo {
         spot.innerAngle = 18.f;
         spot.outerAngle = 28.f;
         spot.cookieIdx  = 0;            // utilise le slot bind par Init
-        spot.castShadow = false;
+        spot.castShadow = true;         // NkVSM : 1 tile shadow map per spot
         sctx.lights.PushBack(spot);
 
         sctx.ambientIntensity = 0.15f;
@@ -425,6 +426,29 @@ namespace nkentseu { namespace demo {
             r3d->Submit(dc);
         }
 
+        // ── Colonnes bloquantes pour visualiser les ombres point/spot ────────
+        // NkVSM v0 : ces colonnes castent des ombres pour TOUTES les lights
+        // (sun + red + blue + spot) -> on doit voir 4 ombres differentes
+        // projetees sur le sol pour chaque colonne.
+        // Position colonnes :
+        //   - col0 a (-4, 1, -2) : devant la red light pour ombre rouge
+        //   - col1 a (1, 1, 4)   : derriere les spheres pour ombre spot
+        for (int c = 0; c < 2; c++) {
+            float32 cx = (c == 0) ? -4.f : 1.f;
+            float32 cz = (c == 0) ? -2.f :  4.f;
+            NkDrawCall3D dc;
+            dc.mesh      = st->meshCube;
+            dc.transform = NkMat4f::Translate({cx, 1.f, cz}) *
+                           NkMat4f::Scale({0.3f, 2.f, 0.3f});  // colonne 2m haute
+            dc.aabb      = {{cx - 0.2f, 0.f, cz - 0.2f},
+                            {cx + 0.2f, 2.f, cz + 0.2f}};
+            dc.tint      = {0.7f, 0.7f, 0.7f};
+            dc.metallic  = 0.f;
+            dc.roughness = 0.6f;
+            dc.castShadow= true;
+            r3d->Submit(dc);
+        }
+
         // Debug visualizations
         r3d->DrawDebugAxes(NkMat4f::Identity(), 1.f);
         r3d->DrawDebugGrid({0, 0, 0}, 1.f, 20, {0.3f, 0.3f, 0.3f, 1.f});
@@ -454,10 +478,13 @@ namespace nkentseu { namespace demo {
             if (auto* sh = ctx.renderer->GetShadow()) {
                 const auto& cfg = sh->GetConfig();
                 overlay->DrawText({px, 50.f},  "[ / ]      bias     : %.4f", cfg.shadowBias);
-                overlay->DrawText({px, 70.f},  ", / .      radius   : %.1f", cfg.sceneRadius);
-                overlay->DrawText({px, 90.f},  " P         pcf      : %s", PcfModeName(cfg.pcfMode));
+                overlay->DrawText({px, 70.f},  " VSM atlas : %u px",         sh->GetAtlasSize());
+                overlay->DrawText({px, 90.f},  " P         quality  : %d",   (int)cfg.quality);
                 overlay->DrawText({px, 110.f}, " N / M     softness : %.3f", cfg.softness);
-                overlay->DrawText({px, 130.f}, " R         reset");
+                overlay->DrawText({px, 130.f}, " slots: %u (rend %u | cache %u)",
+                                   sh->GetActiveSlotCount(),
+                                   sh->GetRenderedSlotsCount(),
+                                   sh->GetCachedSlotsCount());
             } else {
                 overlay->DrawText({px, 50.f}, "(no shadow system)");
             }

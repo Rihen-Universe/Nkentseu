@@ -15,7 +15,7 @@
     "reportUndefinedVariable": "warning",
     "reportWildcardImportFromLibrary": "none",
     "extraPaths": [
-        "E:/Projets/MacShared/Projets/Jenga"
+        "D:/Projets/MacShared/Projets/Jenga"
     ],
-    "_jengaIdeConfigVersion": "ca54a5bec49e6aed"
+    "_jengaIdeConfigVersion": "c83c01cf0802b63e"
 }

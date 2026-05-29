@@ -13,6 +13,7 @@
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h"
+#include "NKEvent/NkSystemEvent.h"
 #include "NKEvent/NkKeycodeMap.h"
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
 #include "NKWindow/Platform/XLib/NkXLibDropTarget.h"
@@ -20,6 +21,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <X11/extensions/Xrandr.h>
 
 namespace nkentseu {
     using namespace math;
@@ -85,9 +87,50 @@ namespace nkentseu {
 
         const Atom wmProtocols = XInternAtom(display, "WM_PROTOCOLS", True);
 
+        // ------------------------------------------------------------
+        // XRandR : detection hot-plug / changement de resolution.
+        // On selectionne RRScreenChangeNotify une seule fois sur la racine.
+        // ------------------------------------------------------------
+        static int  sRandrEventBase = -1;
+        static bool sRandrAvailable = false;
+        static bool sRandrSelected  = false;
+        static Display* sRandrDisplay = nullptr;
+        if (!sRandrSelected || sRandrDisplay != display) {
+            int errorBase = 0;
+            sRandrAvailable = XRRQueryExtension(display, &sRandrEventBase, &errorBase);
+            if (sRandrAvailable) {
+                XRRSelectInput(display, DefaultRootWindow(display),
+                               RRScreenChangeNotifyMask);
+            }
+            sRandrSelected = true;
+            sRandrDisplay  = display;
+        }
+
         while (XPending(display) > 0) {
             XEvent xev{};
             XNextEvent(display, &xev);
+
+            // ------------------------------------------------------------
+            // XRandR : changement de configuration d'affichage (hot-plug,
+            // resolution, orientation...). Le type est dynamique
+            // (sRandrEventBase + RRScreenChangeNotify), donc traite hors switch.
+            // ------------------------------------------------------------
+            if (sRandrAvailable && sRandrEventBase >= 0 &&
+                xev.type == sRandrEventBase + RRScreenChangeNotify) {
+                // Mettre a jour la configuration cote Xlib.
+                XRRUpdateConfiguration(&xev);
+
+                // Emettre un evenement decrivant le moniteur principal courant.
+                NkWindow* anyWin = NkXLibGetLastWindow();
+                NkDisplayInfo info;
+                if (anyWin) {
+                    info = anyWin->GetCurrentMonitor();
+                }
+                NkSystemDisplayEvent e(
+                    NkDisplayChange::NK_DISPLAY_RESOLUTION_CHANGED, info, 0);
+                Enqueue(e, NK_INVALID_WINDOW_ID);
+                continue;
+            }
 
             ::Window srcXid = xev.xany.window;
             if (xev.type == SelectionNotify) {

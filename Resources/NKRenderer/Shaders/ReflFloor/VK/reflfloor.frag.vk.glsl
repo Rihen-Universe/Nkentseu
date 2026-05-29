@@ -125,6 +125,10 @@ void main() {
     // Sample du bon RT selon le cote vu :
     //   face avant -> tReflection      (RT pos)
     //   face arriere -> tReflectionBack (RT neg, alloue si twoSided/BOTH/BACK_ONLY)
+    // Note 2026-05-23 : le SWAP testé empire le bug HDRI inversé et casse en
+    // plus le rendering des sphères dans le reflet. Bug racine = ailleurs
+    // (probablement BuildMirrorMatrix CPU + HDR cubemap Y convention).
+    // cf. memory/nkrenderer_planar_reflection_bugs.md
     vec3 reflColor;
     if (seeFront) {
         reflColor = texture(tReflection, reflUV).rgb;

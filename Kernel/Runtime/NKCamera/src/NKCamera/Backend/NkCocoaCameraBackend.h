@@ -6,7 +6,7 @@
 // AVAssetWriter pour l'enregistrement vidéo H.264 en temps réel.
 // =============================================================================
 
-#include "NKCamera/INkCameraBackend.h"
+#include "NKCamera/NKICameraBackend.h"
 #include "NKTime/NkChrono.h"
 #include <string>
 #include <vector>
@@ -30,7 +30,7 @@
 namespace nkentseu
 {
 
-class NkCocoaCameraBackend : public INkCameraBackend
+class NkCocoaCameraBackend : public NKICameraBackend
 {
 public:
     NkCocoaCameraBackend();

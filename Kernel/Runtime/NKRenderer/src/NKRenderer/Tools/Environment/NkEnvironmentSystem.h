@@ -85,6 +85,15 @@ namespace nkentseu {
                 NkSamplerHandle GetEnvSampler()       const { return mEnvSampler; }
                 NkSamplerHandle GetLUTSampler()       const { return mLutSampler; }
 
+                // Phase N v1 : cubemap dedie au skybox (RGBA32F, mip 0, sans
+                // Reinhard tonemap) pour preserver le vrai dynamic range HDR
+                // dans le background. Le tEnvPrefilter (binding=9) reste
+                // utilise par le shader PBR pour l'IBL specular (avec tonemap
+                // necessaire pour eviter le clamp blanc des reflexions).
+                // En source PROCEDURAL, ce cubemap est rempli avec le gradient
+                // sky pour que le skybox reste utilisable sans HDR.
+                NkTextureHandle GetSkyEnvCube()       const { return mSkyEnvCube; }
+
             private:
                 NkIDevice*       mDevice = nullptr;
                 NkEnvironmentConfig mCfg;
@@ -92,6 +101,7 @@ namespace nkentseu {
                 NkTextureHandle  mIrradiance;   // samplerCube (binding 8)
                 NkTextureHandle  mPrefilter;    // samplerCube (binding 9, mip-mapped)
                 NkTextureHandle  mBrdfLUT;      // sampler2D   (binding 10)
+                NkTextureHandle  mSkyEnvCube;   // samplerCube (binding 11, RGBA32F, HDR brut)
 
                 NkSamplerHandle  mEnvSampler;   // linear clamp pour cubemaps
                 NkSamplerHandle  mLutSampler;   // linear clamp pour BRDF LUT

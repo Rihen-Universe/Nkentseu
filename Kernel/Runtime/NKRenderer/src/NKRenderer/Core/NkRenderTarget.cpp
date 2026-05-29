@@ -18,6 +18,11 @@ namespace nkentseu {
             od.readable = true;
             od.readback = false;
             od.name     = desc.name;
+            // Phase H.3 : si colorFmt explicite, override le default
+            // RGBA8_SRGB / RGBA16F (decide par hdr bool).
+            if (desc.colorFmt != NkGPUFormat::NK_UNDEFINED) {
+                od.colorFmt = desc.colorFmt;
+            }
             return mOffscreen.Init(dev, texLib, od);
         }
 

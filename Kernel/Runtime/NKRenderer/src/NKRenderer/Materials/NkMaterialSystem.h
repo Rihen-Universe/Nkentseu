@@ -276,6 +276,8 @@ namespace nkentseu {
 
             private:
                 friend class NkMaterialSystem;
+                friend class NkMaterial;       // setters/getters shadow override + autres
+                friend class NkRender3D;       // lit mReceiveShadow/mShadowBiasMul
 
                 // M.4 : propage un changement d'un champ PBR aux enfants non-overrides
                 // (recursivement). Le bit indique quel champ a change ; les enfants
@@ -312,6 +314,21 @@ namespace nkentseu {
                 NkToonParams    mToon;
                 NkLayeredParams mLayered;     // M.1 v0 : utilise si type == NK_LAYERED
                 NkLayeredV1Params mLayeredV1; // M.1 v1 : utilise si type == NK_LAYERED_V1
+                // NkVSM v1 (2026-05-23) : overrides shadow per-material.
+                // Lus par NkRender3D pour propager dans ObjBlock.shadowOverrides.
+                // Pas dans le UBO PBR (qui est plein std140 96B) pour eviter
+                // un refactor cross-shader. Public via friend class NkMaterial
+                // qui expose les setters/getters.
+                bool    mReceiveShadow        = true;
+                bool    mCastShadowAlphaTest  = false;
+                float32 mShadowBiasMul        = 1.0f;
+
+                // 2026-05-24 : Triplanar projection (style UE5 World Aligned
+                // Texture). tileSize en metres reels (converti en units via
+                // metersPerUnit dans le shader). 0 = disabled, UV classique
+                // depuis le mesh est utilise (compat). Lu par NkRender3D pour
+                // propager dans ObjBlock.triplanarParams.
+                float32 mTriplanarTileSize    = 0.0f;
                 struct Param {
                     NkString name;
                     enum class Kind:uint8{F,V2,V3,V4,I,B,TEX} kind = Kind::F;

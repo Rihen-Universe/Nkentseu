@@ -48,6 +48,11 @@ with project("NKPlatform"):
         pchheader("")
         pchsource("")
         usetoolchain("android-ndk")
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android)
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):

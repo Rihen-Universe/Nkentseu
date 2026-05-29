@@ -13,6 +13,9 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
     float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;  // .x = isMirrorPass
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {
@@ -28,10 +31,19 @@ layout(location=2) out vec2 vUV;
 layout(location=3) out vec4 vColor;
 
 void main() {
-    vec4 worldPos = uObj.model * vec4(aPos, 1.0);
-    vWorldPos     = worldPos.xyz;
-    vNormal       = normalize(mat3(uObj.normalMatrix) * aNormal);
+    // Phase Planar Reflection fix 2026-05-24 : un-mirror Y sur worldPos/N en
+    // mirror pass pour que lighting/shadow soient calcules en espace real.
+    // Cf. pbr.vert.vk.glsl pour le détail.
+    vec4 wp_mirror = uObj.model * vec4(aPos, 1.0);
+    vec4 wp_real   = wp_mirror;
+    vec3 N_real    = normalize(mat3(uObj.normalMatrix) * aNormal);
+    if (uCam.reflectionFlags.x > 0.5) {
+        wp_real.y = -wp_real.y;
+        N_real.y  = -N_real.y;
+    }
+    vWorldPos     = wp_real.xyz;
+    vNormal       = N_real;
     vUV           = aUV;
     vColor        = aColor * uObj.tint;
-    gl_Position   = uCam.viewProj * worldPos;
+    gl_Position   = uCam.viewProj * wp_mirror;
 }

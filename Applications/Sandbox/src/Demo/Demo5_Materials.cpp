@@ -511,7 +511,7 @@ bool Demo5_Materials_Init(DemoCtx& ctx) {
         logger.Errorf("[Demo5] Pas de NkMeshSystem\n");
         delete st; ctx.userData = nullptr; return false;
     }
-    st->meshSphere = meshSys->GetIcosphere();
+    st->meshSphere = meshSys->GetSphere();
     st->meshCube   = meshSys->GetCube();   // Phase M.8 : 6 sous-meshes (1 par face)
 
     // ── Phase M.3 + M.6 v3 : painted cube subdivise (vColors par face) ───────

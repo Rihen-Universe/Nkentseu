@@ -21,6 +21,10 @@
     #endif
 #endif
 
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+    #include <vulkan/vulkan_ohos.h>
+#endif
+
 #define NK_VK_LOG(...)  logger_src.Infof("[NkRHI_VK] " __VA_ARGS__)
 #define NK_VK_ERR(...)  logger_src.Infof("[NkRHI_VK][ERR] " __VA_ARGS__)
 #define NK_VK_CHECK(r)  do { VkResult _r=(r); if(_r!=VK_SUCCESS) { NK_VK_ERR("VkResult=%d at %s:%d\n",(int)_r,__FILE__,__LINE__); } } while(0)
@@ -74,13 +78,13 @@ namespace nkentseu {
             const char* msg = data->pMessage;
             const char* tag = "[NkRHI_VK][validation]";
             if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                logger.Errorf("%s %s", tag, msg);
+                logger.Error("{0} {1}", tag, msg);
             } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-                logger.Warnf("%s %s", tag, msg);
+                logger.Warn("{0} {1}", tag, msg);
             } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-                logger.Debugf("%s %s", tag, msg);
+                logger.Debug("{0} {1}", tag, msg);
             } else {
-                logger.Tracef("%s %s", tag, msg);
+                logger.Trace("{0} {1}", tag, msg);
             }
             return VK_FALSE; // ne pas abort le call Vulkan qui a declenche le message
         }
@@ -154,6 +158,8 @@ namespace nkentseu {
         instanceExts.PushBack(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
     #elif defined(NKENTSEU_PLATFORM_ANDROID)
         instanceExts.PushBack(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        instanceExts.PushBack("VK_OHOS_surface");
     #elif defined(NKENTSEU_PLATFORM_MACOS)
         instanceExts.PushBack(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
         instanceExts.PushBack(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
@@ -238,6 +244,26 @@ namespace nkentseu {
         sci.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
         sci.window = static_cast<ANativeWindow*>(init.surface.nativeWindow);
         NK_VK_CHECK(vkCreateAndroidSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        {
+            OHNativeWindow* ohWin = static_cast<OHNativeWindow*>(init.surface.ohNativeWindow);
+            if (!ohWin) {
+                NK_VK_ERR("OHNativeWindow manquant (fourni par NkHarmonyOnSurfaceCreated)\n");
+                return false;
+            }
+    
+        #if defined(VK_OHOS_surface)
+            // Chemin standard NDK OHOS
+            VkSurfaceCreateInfoOHOS sci{};
+            sci.sType  = VK_STRUCTURE_TYPE_SURFACE_CREATE_INFO_OHOS;
+            sci.window = ohWin;
+            NK_VK_CHECK(vkCreateSurfaceOHOS(mInstance, &sci, nullptr, &mSurface));
+        #else
+            // VK_OHOS_surface non disponible → erreur explicite
+            NK_VK_ERR("VK_OHOS_surface non disponible. Mettre à jour le NDK OHOS ou utiliser OpenGL ES.\n");
+            return false;
+        #endif
+        }
     #elif defined(NKENTSEU_PLATFORM_MACOS)
         VkMetalSurfaceCreateInfoEXT sci{};
         sci.sType  = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
@@ -336,12 +362,16 @@ namespace nkentseu {
         }
 
         // ── Descriptor pool global ────────────────────────────────────────────────
+        // NkVSM v0 (2026-05-23) : pool agrandi pour supporter
+        // kMaxObjectsPerFrame * mFramesInFlight = 1024 * 3 = 3072 ObjectSets
+        // (un par draw call pour ring multi-frame), plus les autres rings
+        // (mGlobalSetRing, mGlobalSetMirrorRing, etc).
         VkDescriptorPoolSize poolSizes[] = {
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          1000},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          4096},
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,  256},
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,          1000},
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,  256},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  1000},
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  4096},
             {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,           1000},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,           256},
             {VK_DESCRIPTOR_TYPE_SAMPLER,                 256},
@@ -355,7 +385,7 @@ namespace nkentseu {
         // re-bindent textures/samplers entre draws (cas Render2D atlas, etc).
         dpci.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
                            | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        dpci.maxSets       = 4096;
+        dpci.maxSets       = 8192;
         dpci.poolSizeCount = (uint32)std::size(poolSizes);
         dpci.pPoolSizes    = poolSizes;
         NK_VK_CHECKRET(vkCreateDescriptorPool(mDevice, &dpci, nullptr, &mDescPool),
@@ -1079,7 +1109,11 @@ namespace nkentseu {
     bool NkVulkanDevice::WriteTexture(NkTextureHandle t,const void* p,uint32 rp) {
         auto it=mTextures.Find(t.id); if (!it) return false;
         auto& desc=it->desc;
-        return WriteTextureRegion(t,p,0,0,0,desc.width,desc.height,1,0,0,rp);
+        // Phase H.6 : pour les textures 3D, on doit ecrire les `desc.depth`
+        // slices, pas juste 1. Sinon les voxels Z > 0 restent uninitialized
+        // et le sample retourne 0 (Vulkan layout UNDEFINED).
+        uint32 d = (desc.type == NkTextureType::NK_TEX3D) ? desc.depth : 1;
+        return WriteTextureRegion(t,p,0,0,0,desc.width,desc.height,d,0,0,rp);
     }
 
     bool NkVulkanDevice::WriteTextureRegion(NkTextureHandle t,const void* pixels,

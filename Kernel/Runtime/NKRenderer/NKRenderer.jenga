@@ -76,6 +76,7 @@ with project("NKRenderer"):
         "%{NKRHI.location}/pch",
         "%{NKFont.location}/src",
         "%{NKImage.location}/src",
+        "%{NKStream.location}/src",   # NKIResource.h via NkImage.h
         "%{NKFileSystem.location}/src",
         "%{NKSerialization.location}/src",
         "%{NKReflection.location}/src",
@@ -173,6 +174,17 @@ with project("NKRenderer"):
             _ANDROID_LINKS.append("vulkan")
         links(_ANDROID_LINKS)
 
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android).
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
+        if _WANT_VULKAN:
+            _HARMONY_LINKS.append("vulkan")
+        links(_HARMONY_LINKS)
+
     with filter("system:iOS"):
         frameworks(["UIKit", "QuartzCore", "OpenGLES", "Metal"])
 
@@ -196,7 +208,7 @@ with project("NKRenderer"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            _TEST_LINKS = ["NKRenderer", "NKContext", "NKWindow", "NKTime"]
+            _TEST_LINKS = ["NKRenderer", "NKCanvas", "NKWindow", "NKTime"]
             if _USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
             links(_TEST_LINKS)

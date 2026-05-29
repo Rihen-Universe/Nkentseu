@@ -44,6 +44,7 @@ namespace nkentseu { namespace demo {
     bool Demo7_MaterialFunctions_Init    (DemoCtx&); void Demo7_MaterialFunctions_Frame    (DemoCtx&, float32); void Demo7_MaterialFunctions_Shutdown    (DemoCtx&);
     bool Demo9_Glow2D_Init               (DemoCtx&); void Demo9_Glow2D_Frame               (DemoCtx&, float32); void Demo9_Glow2D_Shutdown               (DemoCtx&);
     bool Demo8_LayeredV1_Init            (DemoCtx&); void Demo8_LayeredV1_Frame            (DemoCtx&, float32); void Demo8_LayeredV1_Shutdown            (DemoCtx&);
+    bool Demo11_FPSArena_Init            (DemoCtx&); void Demo11_FPSArena_Frame            (DemoCtx&, float32); void Demo11_FPSArena_Shutdown            (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -64,6 +65,16 @@ namespace nkentseu { namespace demo {
             Demo8_LayeredV1_Init, Demo8_LayeredV1_Frame, Demo8_LayeredV1_Shutdown },
         { "Materials9", "Phase E Materials 2D v0 (Glow2D sprite, future unifie NkMaterial)",
             Demo9_Glow2D_Init, Demo9_Glow2D_Frame, Demo9_Glow2D_Shutdown },
+        // Phase N v1 : meme scene 5 spheres que Demo4 mais avec newport_loft.hdr
+        // (contraste fort interieur-loft <-> fenetres lumineuses) + iblStrength
+        // boost pour valider visuellement le cubemap HDR brut + tonemap ACES.
+        // Reutilise les callbacks Demo4_Materials_* (config differe en BuildConfig).
+        { "PhaseNv1",   "Phase N v1 : skybox HDR brut + ACES tonemap (newport_loft, contraste fort)",
+            Demo4_Materials_Init, Demo4_Materials_Frame, Demo4_Materials_Shutdown },
+        // Demo11 FPS Arena : scene cubes (sol+murs) + spheres + cylindres,
+        // textures procedural REPEAT, camera FPS souris+WASD via NkInputQuery.
+        { "FPSArena",   "Demo11 : arene FPS style x.jpg (sol+murs cubes texturees, FPS cam)",
+            Demo11_FPSArena_Init, Demo11_FPSArena_Frame, Demo11_FPSArena_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -96,6 +107,18 @@ namespace nkentseu { namespace demo {
                 auto c = NkRendererConfig::ForGame(api, w, h);
                 c.shadow.cascadeCount = 1;
                 c.shadow.pcss         = true;
+                // Phase N v0 : utilise un vrai HDR equirect pour l'IBL au lieu
+                // du gradient sky procedural. Visuel beaucoup plus realiste.
+                // studio.hdr (256x128) etait trop low-res / peu contraste pour
+                // qu'on voie la difference — piazza_bologni_1k.hdr (1024x512)
+                // a un ciel bleu + architecture qui apparait visiblement sur
+                // les spheres metalliques.
+                c.ibl.useHDR     = true;
+                c.ibl.hdrPath    = "Resources/NKRenderer/Textures/Vracs/HDR/piazza_bologni_1k.hdr";
+                // Booste iblStrength pour mieux voir l'apport HDR (default 0.3).
+                c.ibl.iblStrength = 1.0f;
+                // Phase N v0.5 : affiche le HDR comme background skybox visible.
+                c.ibl.drawSkybox  = true;
                 return c;
             }
             case 4: {
@@ -136,6 +159,39 @@ namespace nkentseu { namespace demo {
                 // Config For2D allege la scene (pas de PBR/IBL/shadow).
                 return NkRendererConfig::For2D(api, w, h);
             }
+            case 9: {
+                // Demo10 Phase N v1 : meme scene 5 spheres que Demo4 (reutilise
+                // callbacks Demo4_Materials_*) mais avec un HDR a fort contraste
+                // (newport_loft : loft sombre + fenetres tres lumineuses) +
+                // iblStrength boost. Objectif : valider visuellement le cubemap
+                // skybox dedie HDR brut (RGBA32F, sans Reinhard) + tonemap ACES
+                // applique dans le shader skybox. Le contraste rend les bright
+                // spots du sun/fenetres bien visibles (vs Reinhard CPU qui les
+                // fait disparaitre en gris fade).
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = true;
+                c.ibl.useHDR     = true;
+                c.ibl.hdrPath    = "Resources/NKRenderer/Textures/Vracs/HDR/newport_loft.hdr";
+                c.ibl.iblStrength = 1.5f;   // boost pour amplifier bright spots
+                c.ibl.drawSkybox  = true;
+                return c;
+            }
+            case 10: {
+                // Demo11 FPS Arena : scene 30x30m clos. UNE seule cascade fixe
+                // centree origine couvrant toute l'arene. Le mode N=1 dans
+                // NkShadowSystem utilise une sphere fixe au lieu de fit-camera
+                // -> shadow texels stables, pas de swim/shimmering quand la
+                // camera bouge. sceneRadius reglé dans Demo11_Init via
+                // GetShadow()->GetConfig().sceneRadius = 25.
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = true;
+                c.ibl.useHDR          = false;   // sky procedural suffit
+                c.ibl.drawSkybox      = true;
+                c.ibl.iblStrength     = 0.6f;
+                return c;
+            }
             default: return NkRendererConfig::ForGame(api, w, h);
         }
     }
@@ -158,6 +214,8 @@ int nkmain(const NkEntryState& state) {
     if (demoIx == 7) demoIx = 6;
     if (demoIx == 8) demoIx = 7;
     if (demoIx == 9) demoIx = 8;
+    if (demoIx == 10) demoIx = 9;   // Demo10 PhaseNv1 -> kDemos[9]
+    if (demoIx == 11) demoIx = 10;  // Demo11 FPSArena -> kDemos[10]
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 

@@ -320,7 +320,7 @@ with project("NKContext"):
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 #include "NkDX11ComputeContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include <d3dcompiler.h>
 #include <cstdio>
 
@@ -644,7 +644,7 @@ namespace nkentseu {
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 #include "NkDX12ComputeContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include <d3dcompiler.h>
 #include <cstdio>
 
@@ -1312,7 +1312,7 @@ void NkMetalComputeContext::Dispatch(uint32 gx, uint32 gy, uint32 gz) {
 
 #include "NkMetalComputeContext.h"
 #include "NKContext/Graphics/Metal/NkMetalContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #import <Metal/Metal.h>
 #include <cstdio>
 #include <cstring>
@@ -1641,7 +1641,7 @@ bool NkMetalComputeContext::SupportsFloat64() const { return false; } // Metal n
 #include "NKContext/Core/NkNativeContextAccess.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 
 #include <cstdio>
 #include <cstring>
@@ -2278,7 +2278,7 @@ namespace nkentseu {
 [FICHIER: src\NKContext\Compute\NkSoftwareComputeContext.cpp]
 ==================================================
 #include "NkSoftwareComputeContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKLogger/NkLog.h"
 
 #include <cstdio>
@@ -2629,7 +2629,7 @@ private:
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKContainers/CacheFriendly/NkArray.h"
 
 #include <cstdio>
@@ -7637,7 +7637,7 @@ namespace nkentseu {
 
 #include "NkOpenGLContext.h"
 #include "NKContext/Core/NkSurfaceDesc.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #import <AppKit/AppKit.h>
 #import <OpenGL/OpenGL.h>
 
@@ -8260,7 +8260,7 @@ void NkSoftwareContext::PresentNative() {
 // =============================================================================
 #include "NKContext/Core/NkIGraphicsContext.h"
 #include "NKContext/Core/NkSurfaceDesc.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NKMath.h"
 
@@ -8759,7 +8759,7 @@ namespace nkentseu {
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKMath/NkFunctions.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKContext/Core/NkGpuPolicy.h"

@@ -18,9 +18,11 @@
 // =============================================================================
 
 #include "NkWindowConfig.h"
-#include "NkSafeArea.h"
+#include "NKEvent/NkSafeArea.h"
 #include "NkSurface.h"
 #include "NKEvent/NkWindowId.h"
+#include "NKEvent/NkSystemEvent.h"   // NkDisplayInfo, NkDisplayChange (énumération moniteurs)
+#include "NKContainers/Sequential/NkVector.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKMath/NKMath.h"
 #include <string>
@@ -48,6 +50,8 @@
     #include "NKWindow/Platform/UIKit/NkUIKitWindow.h"
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
     #include "NKWindow/Platform/Emscripten/NkEmscriptenWindow.h"
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+    #include "NKWindow/Platform/HarmonyOS/NkHarmonyWindow.h"
 #else
     #include "NKWindow/Platform/Noop/NkNoopWindow.h"
 #endif
@@ -91,6 +95,18 @@ namespace nkentseu {
             NkError             GetLastError() const;
             NkWindowConfig      GetConfig() const;
 
+            // --- Moniteurs / Display (hot-plug + DPI runtime) ---
+            // Énumère tous les moniteurs connectés. Recalcule à chaque appel
+            // (reflète l'état courant — utile après un NkSystemDisplayEvent de
+            // hot-plug). Le premier élément n'est pas garanti d'être le primaire :
+            // utiliser NkDisplayInfo::isPrimary pour l'identifier.
+            NkVector<NkDisplayInfo> EnumerateMonitors() const;
+            // Moniteur qui contient (majoritairement) cette fenêtre. Sur les
+            // plateformes mono-écran (mobile/web) retourne l'écran courant.
+            NkDisplayInfo           GetCurrentMonitor() const;
+            // Nombre de moniteurs connectés (>= 1 si au moins un écran).
+            uint32                  GetMonitorCount() const;
+
             // --- Manipulation ---
             void SetSize(uint32 width, uint32 height);
             void SetSize(const math::NkVec2u& size) { SetSize(size.x, size.y); }
@@ -118,6 +134,14 @@ namespace nkentseu {
             void SetMousePosition(const math::NkVec2u& pos) { SetMousePosition(pos.x, pos.y); }
             void ShowMouse(bool show);
             void CaptureMouse(bool capture);
+
+            // Empeche le curseur de sortir de la zone client de la fenetre
+            // (clip rectangulaire). Indispensable pour les FPS / RTS qui
+            // veulent tenir la souris en jeu sans qu'elle parte sur un autre
+            // ecran. Cross-platform : implem native quand possible (Win32
+            // ClipCursor, XLib XGrabPointer, ...), no-op sur les plateformes
+            // sans curseur (mobile / web tactile).
+            void ClipMouseToClient(bool clip);
 
             // --- Web / WASM ---
             void SetWebInputOptions(const NkWebInputOptions& options);

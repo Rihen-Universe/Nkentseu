@@ -14,6 +14,7 @@ namespace nkentseu {
     namespace renderer {
 
         class NkShadowSystem;
+        class NkVirtualShadowMaps;
         class NkEnvironmentSystem;
         class NkShaderLibrary;
         class NkResources;
@@ -27,7 +28,7 @@ namespace nkentseu {
 
                 bool Init(NkIDevice* device, NkMeshSystem* mesh, NkMaterialSystem* mat,
                         NkRenderGraph* graph,
-                        NkShadowSystem* shadow,
+                        NkVirtualShadowMaps* shadow,
                         NkEnvironmentSystem* env,
                         NkShaderLibrary* shaderLib,
                         NkResources* resources,
@@ -85,6 +86,11 @@ namespace nkentseu {
                 // ne le declarent pas continuent de tourner normalement).
                 void SetMaterialCollection(class NkMaterialCollection* mpc);
 
+                // Phase H.6 : injecter le NkVoxelAOSystem. Bind immediatement
+                // la texture 3D voxel au binding=27 sur tous les sets du ring.
+                // Le pre-bind du Init est skip car mVoxelAO=nullptr a ce moment.
+                void SetVoxelAO(class NkVoxelAOSystem* vao);
+
                 // Render des opaques castShadow=true depuis la perspective de la
                 // lumiere (lightVP = lightProj * lightView), dans le FBO shadow
                 // currentement bindé. Appele par NkShadowSystem dans la passe
@@ -94,6 +100,10 @@ namespace nkentseu {
                 // Acces au scene context courant (pour NkShadowSystem qui a besoin
                 // de la light direction + camera frustum pour le fitting).
                 const NkSceneContext& GetSceneContext() const noexcept { return mCtx; }
+
+                // Accesseurs pour NkVirtualShadowMaps (ring UBO multi-frame).
+                uint32 GetFrameSlot()       const noexcept { return mFrameSlot; }
+                uint32 GetFramesInFlight()  const noexcept { return mFramesInFlight; }
 
                 // ── Submit ───────────────────────────────────────────────────────────
                 void Submit         (const NkDrawCall3D& dc);
@@ -107,6 +117,12 @@ namespace nkentseu {
                 // Contrôle de la force du terme ambient IBL (0=aucun, 1=complet).
                 // Défaut 0.3 — réduit le blanchiment par le ciel procédural.
                 void SetIBLStrength(float32 s) { mIBLStrength = s; }
+
+                // Phase N v0.5 : active/desactive le rendu de la skybox HDR en
+                // background. Necessite un NkEnvironmentSystem charge (HDR ou
+                // procedural) pour avoir un cubemap a sampler.
+                void SetSkyboxEnabled(bool e) { mDrawSkybox = e; }
+                bool IsSkyboxEnabled() const  { return mDrawSkybox; }
                 float32 GetIBLStrength() const  { return mIBLStrength; }
 
                 // Phase E.6 : bind une texture comme cookie 3D au slot [0..7].
@@ -119,8 +135,14 @@ namespace nkentseu {
                 // Phase F.B.1 : taille du pool d'ObjectUBO par frame. Chaque drawcall
                 // (shadow + opaque + skinned) consume un slot. Si le total des draws
                 // d'une frame > kMaxObjectsPerFrame, on overflow et on log un warning.
-                // 256 couvre largement les scenes de test (5 spheres + plane + cube).
-                static constexpr uint32 kMaxObjectsPerFrame = 256;
+                // NkVSM v0 (2026-05-23) : avec multi-light shadows, le total scale
+                // = (4 cascades + 6*Npoint_casters + Nspot_casters) * objets +
+                // geometry pass. Pour Demo3D : 17 slots * 20 objets + 20 = 360.
+                // 1024 = marge 3x sans exploser le descriptor pool Vulkan (qui
+                // alloue maxSets=8192 et UNIFORM_BUFFER=4096 dans NkVulkanDevice).
+                // V1 future : dynamic offsets UBO (1 buffer + per-draw offset) pour
+                // scale a 10k+ draws sans alloc de descriptor sets supplementaires.
+                static constexpr uint32 kMaxObjectsPerFrame = 1024;
                 void SetLightCookie3D(uint32 slot, NkTextureHandle tex);
 
                 // E.6b : bind une cubemap comme cookie pour point lights
@@ -153,8 +175,9 @@ namespace nkentseu {
                 NkMeshSystem*        mMesh    = nullptr;
                 NkMaterialSystem*    mMat     = nullptr;
                 NkRenderGraph*       mGraph   = nullptr;
-                NkShadowSystem*      mShadow  = nullptr;
+                NkVirtualShadowMaps* mShadow  = nullptr;
                 NkEnvironmentSystem* mEnv     = nullptr;
+                class NkVoxelAOSystem* mVoxelAO = nullptr;   // Phase H.6
                 NkShaderLibrary*     mShaderLib = nullptr;
                 NkResources*         mResources = nullptr;
 
@@ -182,6 +205,11 @@ namespace nkentseu {
                 // par frame dans UploadUBOs).
                 NkVector<NkBufferHandle>   mUBOCameraRing;
                 NkVector<NkBufferHandle>   mUBOLightsRing;
+                // Phase Planar Reflection fix 2026-05-24 : UBO Camera dedie pour
+                // la mirror pass. Sans ca, FlushIntoRT (mirror) puis Flush
+                // principal ecrasent le meme UBO -> mirror pass lit le state
+                // final (main) au lieu du state mirror.
+                NkVector<NkBufferHandle>   mUBOCameraMirrorRing;
 
                 // Phase F.B.1 : pool d'ObjectUBO (frame x drawIdx). Vulkan interdit
                 // vkCmdUpdateBuffer dans un renderPass actif, donc on ne peut pas
@@ -203,6 +231,11 @@ namespace nkentseu {
                 //                  set 1 = per-object (model+bones)
                 NkDescSetHandle              mGlobalLayout;
                 NkVector<NkDescSetHandle>    mGlobalSetRing;
+                // Phase Planar Reflection fix : descriptor set mirror dedie,
+                // bind a mUBOCameraMirrorRing[slot] au lieu de mUBOCameraRing.
+                // Tous les autres bindings (lights, shadow, env, voxel, etc.)
+                // sont identiques au ring main.
+                NkVector<NkDescSetHandle>    mGlobalSetMirrorRing;
                 NkDescSetHandle              mObjectLayout;
                 // Phase F.B.1 : pool de descriptor sets per-object (frame x drawIdx).
                 // Chaque set est pre-bind a son UBO du pool a Init (1:1).
@@ -241,7 +274,21 @@ namespace nkentseu {
                 ::nkentseu::NkShaderHandle mShadowShader;
                 NkPipelineHandle           mShadowPipeline;
 
+                // ── Phase N v0.5 : Background HDR Skybox ───────────────────────
+                // Skybox dessinee en debut de Flush (avant FlushOpaque) avec
+                // depth=1.0 LEQUAL, donc cachee par tout objet opaque dessine
+                // apres. Sample le cubemap prefilter (binding=9) du set global.
+                // mDrawSkybox = true active le rendu, mis par SetSkyboxEnabled().
+                ::nkentseu::NkShaderHandle mSkyboxShader;
+                NkPipelineHandle           mSkyboxPipeline;
+                NkRenderPassHandle         mSkyboxPipelineRP{};
+                bool                       mDrawSkybox = false;
+
                 void UploadUBOs(NkICommandBuffer* cmd);
+
+                // Phase N v0.5 : Skybox lazy pipeline + draw call.
+                bool EnsureSkyboxPipeline(NkRenderPassHandle currentRP);
+                void DrawSkybox(NkICommandBuffer* cmd);
                 void FlushOpaque     (NkICommandBuffer* cmd);
                 void FlushTransparent(NkICommandBuffer* cmd);
                 void FlushInstanced  (NkICommandBuffer* cmd);

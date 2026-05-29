@@ -113,7 +113,7 @@ with project("NKPA"):
             libdirs([_VULKAN_LIB])
         _WIN_LINKS = [
             "user32","gdi32","opengl32","dwmapi","shell32",
-            "xinput","mf","mfplat","mfreadwrite","mfuuid",
+            "mf","mfplat","mfreadwrite","mfuuid",
             "uuid","ole32","dinput8","dxguid",
             "d3d11","d3d12","dxgi","d3dcompiler",
         ]

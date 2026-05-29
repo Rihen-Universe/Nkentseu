@@ -192,6 +192,62 @@ namespace nkentseu {
         };
 
         // ====================================================================
+        // LIMITER (Brick-wall, anti-clipping)
+        // ====================================================================
+
+        /**
+         * @brief Limiter brick-wall : clamp les pics au-dessus du threshold.
+         *
+         * Empêche le clipping en attenuant rapidement les peaks qui depassent
+         * le seuil (typiquement -0.5 dB pour le bus Master). Plus simple et
+         * plus rapide qu'un compressor (pas de ratio mathematique).
+         *
+         * Algorithme : tracking peak envelope avec attack ultra-rapide
+         * (~0.1ms) et release moderee (~50ms). Si peak > threshold,
+         * applique un gain reduction pour ramener au threshold.
+         *
+         * @usage
+         * @code
+         * auto* limiter = new LimiterEffect();          // threshold -0.5 dB par defaut
+         * engine.GetMasterBus()->AddEffect(limiter);
+         * // Maintenant tout l'audio est garanti sans clipping.
+         * @endcode
+         */
+        class NKENTSEU_AUDIO_API LimiterEffect : public IAudioEffect {
+        public:
+            struct Params {
+                float32 thresholdDb = -0.5f; ///< Plafond en dBFS (typique -0.5 a -1.0)
+                float32 attackMs    = 0.1f;  ///< Attaque ultra-rapide
+                float32 releaseMs   = 50.0f; ///< Release moderee
+            };
+
+            LimiterEffect() : LimiterEffect(Params(), 48000) {}
+            explicit LimiterEffect(const Params& params, int32 sampleRate = 48000);
+
+            void Process(float32* buffer, int32 frameCount, int32 channels) override;
+            void Reset() override;
+            void OnSampleRateChanged(int32 sampleRate) override;
+            AudioEffectType GetType() const override { return AudioEffectType::COMPRESSOR; }
+
+            void SetParams(const Params& params) noexcept;
+            const Params& GetParams() const noexcept { return mParams; }
+
+            /// Reduction de gain courante en dB (info debug / VU meter).
+            float32 GetCurrentGainReductionDb() const noexcept { return mGainReductionDb; }
+
+        private:
+            Params  mParams;
+            int32   mSampleRate;
+            float32 mEnvelope;        ///< Peak envelope courante (lineaire)
+            float32 mGainReductionDb; ///< Reduction courante (dB, negatif)
+            float32 mAttackCoeff;
+            float32 mReleaseCoeff;
+            float32 mThresholdLin;    ///< threshold converti en lineaire
+
+            void ComputeCoeffs();
+        };
+
+        // ====================================================================
         // BIQUAD FILTER (Low-pass, High-pass, Band-pass, Notch, Peak EQ)
         // ====================================================================
 

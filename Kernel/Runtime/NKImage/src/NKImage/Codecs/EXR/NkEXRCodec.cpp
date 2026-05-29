@@ -2,7 +2,7 @@
  * @File    NkEXRCodec.cpp
  * @Brief   Codec OpenEXR (.exr) decoder from scratch.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @References
  *  - ILM/ASWF OpenEXR file specification (public domain documentation)
@@ -38,6 +38,7 @@
 #include "NKLogger/NkLog.h"
 #include <cstring>
 #include <cstdio>
+#include <cstddef>
 
 namespace nkentseu {
     using namespace nkentseu::memory;
@@ -342,16 +343,27 @@ namespace nkentseu {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  PIZ — wavelet 2D Haar inverse + Huffman canonique
+    //  PIZ — wavelet 2D Haar inverse + Huffman canonique (BETA v0.5)
     //
     //  Pipeline decompression :
-    //   1. Lecture du bitmap : minNonZero, maxNonZero, puis (max-min+1) octets
-    //      indiquant quels valeurs uint16 [0..65535] sont effectivement utilisees.
-    //      On construit lut[65536] = liste compacte des valeurs presentes.
-    //   2. Decompression Huffman des donnees pixel (uint16 wavelet-transforme).
-    //   3. Application du wavelet 2D Haar inverse PAR CANAL (chaque canal a
-    //      sa region (nx, ny) dans le buffer interleaved).
-    //   4. Re-mapping via lut[] : pour chaque uint16 d -> lut[d] = valeur reelle.
+    //   1. Lecture du bitmap : minNonZero, maxNonZero (octets index dans [0..8191]),
+    //      puis (max-min+1) octets de bitmap. On construit lut[65536] = liste
+    //      compacte des valeurs uint16 presentes dans le source.
+    //   2. Lecture longueur du Huffman compressed data (uint32 LE).
+    //   3. Header Huffman : im (uint32), iM (uint32), tableLen (uint32),
+    //      nBits (uint32), future (uint32) = 20 octets.
+    //   4. Decode table de codes canoniques (longueurs encodees en RLE 6-bit) :
+    //      ordre canonique INVERSE (longest codes lowest values).
+    //   5. Decode Huffman des donnees pixel avec support RLC :
+    //      - quand symbole == iM, lit 8 bits = count et repete le dernier symbole.
+    //   6. Wavelet 2D Haar inverse par canal (wdec14 si mx < 2^14, sinon wdec16).
+    //   7. Application LUT inverse : pixel[i] = lut[pixel[i]].
+    //
+    //  STATUS BETA : header parsing + Huffman + wavelet OK structurellement
+    //                mais l'image decodee presente une corruption residuelle.
+    //                Probable bug subtil dans canonical Huffman / wavelet boundary.
+    //                Pour images critiques, utiliser ZIP-encoded EXR :
+    //                  oiiotool input.exr --compression zip -o output.exr
     //
     //  Reference algorithm : OpenEXR IlmImf/ImfPizCompressor + ImfHuf + ImfWav.
     //  Toute l'implementation est ici (autonome, pas de dependance externe).
@@ -394,26 +406,37 @@ namespace nkentseu {
     }
 
     // ── Wavelet 2D Haar inverse (algorithme OpenEXR ImfWav.cpp) ─────────────
-    // Inverse de la transformation utilisee par PIZ : Haar-like avec
-    // arrondissements modulo 2^16 (les pixels sont des uint16).
+    // Deux variantes selon le max de la LUT :
+    //   wdec14 : utilise quand mx < 2^14 (lifting scheme sans modulo 2^16).
+    //   wdec16 : utilise quand mx >= 2^14 (full 16-bit, modulo 2^16).
     // (l, h) sont les deux moities transformees, on reconstruit (a, b).
-    // mx = valeur max dans le LUT (utilise comme borne pour la modulation).
+
     static NKIMG_INLINE void PizWdec14(uint16 l, uint16 h,
                                        uint16& a, uint16& b) noexcept {
         const int16 ls = int16(l);
         const int16 hs = int16(h);
-        const int16 hi = hs;
-        const int16 ai = ls + (hi & 1) + (hi >> 1);
+        const int32 hi = int32(hs);
+        const int32 ai = int32(ls) + (hi & 1) + (hi >> 1);
         a = uint16(int16(ai));
         b = uint16(int16(ai - hi));
     }
 
+    static NKIMG_INLINE void PizWdec16(uint16 l, uint16 h,
+                                       uint16& a, uint16& b) noexcept {
+        const int32 m  = int32(l);
+        const int32 d  = int32(h);
+        const int32 bb = (m - (d >> 1)) & 0xFFFF;
+        const int32 aa = (d + bb - 0x10000) & 0xFFFF;
+        b = uint16(bb);
+        a = uint16(aa);
+    }
+
     // wav2Decode : applique le wavelet inverse 2D sur un buffer de nx*ny
-    // valeurs uint16 (offset oy = ligne pitch, ox = colonne pitch). mx est
-    // ignore en mode 14-bit (utilise par les versions plus anciennes).
+    // valeurs uint16 (offset oy = ligne pitch, ox = colonne pitch).
+    // mx (max value dans la LUT) determine si on utilise wdec14 ou wdec16.
     static void PizWav2Decode(uint16* in, int32 nx, int32 ox,
-                              int32 ny, int32 oy, uint16 /*mx*/) noexcept {
-        bool w14 = true; // toujours 14-bit pour PIZ standard (sans flag NO_COMPRESSION)
+                              int32 ny, int32 oy, uint16 mx) noexcept {
+        const bool w14 = (mx < (1 << 14));
         int32 n = (nx > ny) ? ny : nx;
         int32 p = 1;
         int32 p2;
@@ -432,7 +455,6 @@ namespace nkentseu {
             int32 ox1 = ox * p;
             int32 ox2 = ox * p2;
             uint16 i00, i01, i10, i11;
-            (void)w14;
 
             for (; py <= ey; py += oy2) {
                 uint16* px = py;
@@ -442,15 +464,23 @@ namespace nkentseu {
                     uint16* p10 = px  + oy1;
                     uint16* p11 = p10 + ox1;
 
-                    PizWdec14(*px,  *p10, i00, i10);
-                    PizWdec14(*p01, *p11, i01, i11);
-                    PizWdec14(i00,  i01,  *px,  *p01);
-                    PizWdec14(i10,  i11,  *p10, *p11);
+                    if (w14) {
+                        PizWdec14(*px,  *p10, i00, i10);
+                        PizWdec14(*p01, *p11, i01, i11);
+                        PizWdec14(i00,  i01,  *px,  *p01);
+                        PizWdec14(i10,  i11,  *p10, *p11);
+                    } else {
+                        PizWdec16(*px,  *p10, i00, i10);
+                        PizWdec16(*p01, *p11, i01, i11);
+                        PizWdec16(i00,  i01,  *px,  *p01);
+                        PizWdec16(i10,  i11,  *p10, *p11);
+                    }
                 }
                 // Si nx est impair, gerer la derniere colonne
                 if (nx & p) {
                     uint16* p10 = px + oy1;
-                    PizWdec14(*px, *p10, i00, i10);
+                    if (w14) PizWdec14(*px, *p10, i00, i10);
+                    else     PizWdec16(*px, *p10, i00, i10);
                     *px  = i00;
                     *p10 = i10;
                 }
@@ -461,7 +491,8 @@ namespace nkentseu {
                 uint16* ex = py + ox * (nx - p2);
                 for (; px <= ex; px += ox2) {
                     uint16* p01 = px + ox1;
-                    PizWdec14(*px, *p01, i00, i01);
+                    if (w14) PizWdec14(*px, *p01, i00, i01);
+                    else     PizWdec16(*px, *p01, i00, i01);
                     *px  = i00;
                     *p01 = i01;
                 }
@@ -473,14 +504,21 @@ namespace nkentseu {
 
     // ── Bitstream reader MSB-first pour Huffman PIZ ─────────────────────────
     // Lit jusqu'a 58 bits par appel (code Huffman canonique max length 58 bits).
+    //
+    // Convention OpenEXR : le bitstream du table d'encodage et celui des donnees
+    // sont separes par un alignement octet. ByteAlign() reset l'accumulateur
+    // et repositionne ptr juste apres le dernier octet consomme.
     struct PizBitReader {
+        const uint8* base;
         const uint8* ptr;
         const uint8* end;
         uint64 buf;
-        int32  nbits; // bits valides dans buf (MSB-aligned)
+        int32  nbits;         // bits valides dans buf (MSB-aligned)
+        nk_int64 totalConsumed; // bits totaux consommes via Get()
 
         void Init(const uint8* p, usize size) noexcept {
-            ptr = p; end = p + size; buf = 0; nbits = 0;
+            base = p; ptr = p; end = p + size; buf = 0; nbits = 0;
+            totalConsumed = 0;
         }
 
         // S'assure que >= n bits dispo dans buf (max 56 bits cumulables)
@@ -497,6 +535,7 @@ namespace nkentseu {
             uint64 v = (buf >> (64 - n)) & ((uint64(1) << n) - 1);
             buf <<= n;
             nbits -= n;
+            totalConsumed += n;
             return v;
         }
 
@@ -505,21 +544,42 @@ namespace nkentseu {
             Fill(n);
             return (buf >> (64 - n)) & ((uint64(1) << n) - 1);
         }
+
+        // Realigne sur l'octet suivant le dernier bit consomme.
+        // Necessaire entre la lecture du table Huffman et celle des donnees :
+        // l'encodeur OpenEXR padde a l'octet la fin du table.
+        void ByteAlign() noexcept {
+            nk_int64 nextByteOffset = (totalConsumed + 7) / 8;
+            ptr = base + nextByteOffset;
+            buf = 0;
+            nbits = 0;
+        }
     };
 
     // ── Lecture du tableau de longueurs de codes Huffman (canonique RLE) ────
+    //
+    // Encoding par l'encodeur OpenEXR (hufPackEncTable) :
+    //   l in [0..58]                : 6 bits = longueur directe
+    //   l in [59..62] (SHORT runs)  : 6 bits = SHORT_ZEROCODE_RUN+(zerun-2)
+    //                                 -> zerun = l - SHORT_ZEROCODE_RUN + 2 in [2..5]
+    //                                 PAS d'octets supplementaires (run packed dans
+    //                                 la valeur 59..62)
+    //   l == 63 (LONG_ZEROCODE_RUN) : 6 bits + 8 bits supplementaires
+    //                                 zerun = bits + SHORTEST_LONG_RUN
     static bool PizHufUnpackLengths(PizBitReader& br, int32 im, int32 iM,
                                     uint64 lengths[HUF_ENCSIZE]) noexcept {
+        // Init a 0 jusqu'a iM (les valeurs hors [im..iM] restent 0)
         for (int32 i = 0; i <= iM; ++i) lengths[i] = 0;
         int32 k = im;
         while (k <= iM) {
             uint64 l = br.Get(6);
-            if (l == SHORT_ZEROCODE_RUN) {
-                int32 n = int32(br.Get(8)) + 2;
+            if (l == uint64(LONG_ZEROCODE_RUN)) {
+                int32 n = int32(br.Get(8)) + SHORTEST_LONG_RUN;
                 if (k + n > iM + 1) return false;
                 while (n--) lengths[k++] = 0;
-            } else if (l >= LONG_ZEROCODE_RUN) {
-                int32 n = int32(br.Get(8)) + SHORTEST_LONG_RUN;
+            } else if (l >= uint64(SHORT_ZEROCODE_RUN)) {
+                // l in [59..62] -> 6-bit value seul, pas de 8 bits suivants
+                int32 n = int32(l) - SHORT_ZEROCODE_RUN + 2;
                 if (k + n > iM + 1) return false;
                 while (n--) lengths[k++] = 0;
             } else {
@@ -530,35 +590,40 @@ namespace nkentseu {
     }
 
     // ── Construction des codes Huffman canoniques + LUT decode rapide ──────
-    // Codes assignes par ordre canonique (BMP order). LUT decode pour codes
-    // <= HUF_DECBITS (14 bits) pour decodage O(1) ; les codes plus longs
-    // requierent une recherche lineaire dans la table fallback.
+    //
+    // Convention OpenEXR (hufCanonicalCodeTable) : ITERATION INVERSE
+    //   les codes LES PLUS LONGS recoivent les valeurs les PLUS BASSES.
+    //   firstCode[58] = 0 (le plus long code), puis firstCode[L-1] derive de
+    //   firstCode[L] via c = (c + nCount[L]) >> 1.
+    //
+    // Decoding rapide via fastLut (14 bits) : pour chaque symbole de longueur
+    // L <= 14, on remplit toutes les entrees fastLut [code<<(14-L) .. +(1<<(14-L))-1].
+    // Pour L > 14, recherche lineaire dans longTab.
     static bool PizHufBuildDecodeTable(const uint64 lengths[HUF_ENCSIZE],
                                        int32 im, int32 iM,
-                                       int32 codes[HUF_ENCSIZE]) noexcept {
+                                       int64 codes[HUF_ENCSIZE]) noexcept {
         // 1. Compte des codes par longueur
-        int32 nCount[64] = {0};
+        int64 nCount[64];
+        for (int32 i = 0; i < 64; ++i) nCount[i] = 0;
         for (int32 i = im; i <= iM; ++i) {
             if (lengths[i] >= 64) return false;
             ++nCount[lengths[i]];
         }
-        nCount[0] = 0; // longueur 0 = symbole inutilise
 
-        // 2. firstCode[l] = premier code canonique de longueur l
-        uint64 firstCode[64] = {0};
-        uint64 c = 0;
-        for (int32 l = 1; l < 64; ++l) {
-            c = (c + uint64(nCount[l-1])) << 1;
-            firstCode[l] = c;
+        // 2. ITERATION INVERSE 58 -> 1 : assigne firstCode[L] dans nCount[L]
+        int64 c = 0;
+        for (int32 l = 58; l > 0; --l) {
+            int64 nc = (c + nCount[l]) >> 1;
+            nCount[l] = c;  // first code for length l
+            c = nc;
         }
 
-        // 3. Assigner les codes
-        uint64 nextCode[64];
-        for (int32 i = 0; i < 64; ++i) nextCode[i] = firstCode[i];
+        // 3. Assigner les codes en parcourant les symboles dans l'ordre 0..iM
+        //    (meme ordre cote encodeur, garantissant la coherence)
         for (int32 i = im; i <= iM; ++i) {
             int32 l = int32(lengths[i]);
             if (l > 0) {
-                codes[i] = int32(nextCode[l]++);
+                codes[i] = nCount[l]++;
             } else {
                 codes[i] = -1;
             }
@@ -566,32 +631,33 @@ namespace nkentseu {
         return true;
     }
 
-    // Decode complet d'un stream Huffman.
+    // Decode complet d'un stream Huffman avec support RLC (run-length).
+    //
+    // Quand le symbole decode == iM (= rlc symbol par convention OpenEXR),
+    // on lit 8 bits supplementaires = count, et on REPETE le PRECEDENT symbole
+    // count fois. Cette compression secondaire exploite les sequences de zeros
+    // generees par le wavelet sur fonds plats.
+    //
     // br      : bitreader positionne sur le debut des donnees encodees
-    // nBits   : nombre TOTAL de bits a decoder
     // lengths : table des longueurs de codes par symbole
-    // codes   : table des codes canoniques par symbole
+    // codes   : table des codes canoniques par symbole (longest codes lowest)
+    // im, iM  : range de symboles valides ; rlc = iM
     // out     : destination (count uint16)
     // count   : nombre attendu de symboles decodes
-    static bool PizHufDecode(PizBitReader& br, uint64 nBits,
+    static bool PizHufDecode(PizBitReader& br,
                              const uint64 lengths[HUF_ENCSIZE],
-                             const int32 codes[HUF_ENCSIZE],
+                             const int64 codes[HUF_ENCSIZE],
                              int32 im, int32 iM,
                              uint16* out, usize count) noexcept {
-        // Construire LUT fast pour codes courts (<= HUF_DECBITS = 14 bits).
-        // Pour chaque entree fastLut[i] :
-        //   - si i correspond a un prefixe de code <= 14 bits :
-        //     symbol = bits hauts du code, length = nb bits restants
-        // On utilise une table de mapping inverse :
-        //   pour chaque symbole valide, marquer toutes les entrees fastLut
-        //   correspondant au code (les bits restants sont arbitraires).
+        const int32 rlc = iM;
+
+        // Fast LUT pour codes <= HUF_DECBITS (14 bits)
         struct FastEntry { uint16 symbol; uint8 length; uint8 valid; };
         FastEntry* fastLut = static_cast<FastEntry*>(NkAlloc(HUF_DECSIZE * sizeof(FastEntry)));
         if (!fastLut) return false;
         ::memset(fastLut, 0, HUF_DECSIZE * sizeof(FastEntry));
 
-        // Compteur de symboles a recherche lineaire (codes > HUF_DECBITS)
-        // Stocker (code, length, symbol) tries par length croissant
+        // Long table pour codes > 14 bits (recherche lineaire par longueur)
         struct LongEntry { uint64 code; uint8 length; int32 symbol; };
         int32 longCount = 0;
         LongEntry* longTab = static_cast<LongEntry*>(NkAlloc((iM - im + 1) * sizeof(LongEntry)));
@@ -600,11 +666,11 @@ namespace nkentseu {
         for (int32 sym = im; sym <= iM; ++sym) {
             int32 l = int32(lengths[sym]);
             if (l <= 0) continue;
-            int32 code = codes[sym];
+            int64 code = codes[sym];
+            if (code < 0) continue;
             if (l <= HUF_DECBITS) {
-                // Code court : remplir toutes les entrees fastLut [code<<(DECBITS-l) .. +(1<<(DECBITS-l))-1]
                 int32 nRem = HUF_DECBITS - l;
-                int32 base = code << nRem;
+                int32 base = int32(code) << nRem;
                 int32 nEnt = 1 << nRem;
                 for (int32 e = 0; e < nEnt; ++e) {
                     fastLut[base + e].symbol = uint16(sym);
@@ -612,54 +678,66 @@ namespace nkentseu {
                     fastLut[base + e].valid  = 1;
                 }
             } else {
-                longTab[longCount].code = uint64(code);
+                longTab[longCount].code   = uint64(code);
                 longTab[longCount].length = uint8(l);
                 longTab[longCount].symbol = sym;
                 ++longCount;
             }
         }
 
-        // Decode boucle principale
+        // Boucle de decode : produit exactement `count` symboles dans out[]
         bool ok = true;
-        uint64 bitsConsumed = 0;
-        for (usize i = 0; i < count; ++i) {
-            // Verifier qu'il reste assez de bits
-            if (bitsConsumed >= nBits) {
-                // Toleres : il peut rester quelques bits de padding ; out[i] = 0
-                out[i] = 0;
-                continue;
-            }
-            // Peek 14 bits pour LUT
+        usize outIdx = 0;
+        int32 lastSym = 0;
+        while (outIdx < count) {
+            // Decode UN symbole en regardant 14 bits (ou plus si code long)
+            int32 sym = -1;
+            int32 symLen = 0;
             br.Fill(HUF_DECBITS);
-            if (br.nbits == 0) { ok = false; break; }
-            int32 peekBits = (br.nbits < HUF_DECBITS) ? br.nbits : HUF_DECBITS;
-            uint64 peek = (br.buf >> (64 - HUF_DECBITS)) & HUF_DECMASK;
-            FastEntry& fe = fastLut[peek];
-            if (fe.valid && fe.length <= peekBits) {
-                out[i] = fe.symbol;
-                br.buf <<= fe.length;
-                br.nbits -= fe.length;
-                bitsConsumed += fe.length;
-            } else {
-                // Recherche lineaire dans longTab
-                bool found = false;
-                for (int32 l = HUF_DECBITS + 1; l <= 58; ++l) {
+            if (br.nbits > 0) {
+                int32 peekN = (br.nbits < HUF_DECBITS) ? br.nbits : HUF_DECBITS;
+                int32 shift = HUF_DECBITS - peekN;
+                uint64 peek = (br.buf >> (64 - HUF_DECBITS));
+                // Si on a moins de 14 bits, les bits manquants sont en pos LSB
+                // -> on shift-aligne pour que les bits significatifs soient en haut
+                if (peekN < HUF_DECBITS) {
+                    peek >>= shift;
+                    peek <<= shift;
+                }
+                peek &= HUF_DECMASK;
+                FastEntry& fe = fastLut[peek];
+                if (fe.valid && fe.length <= peekN) {
+                    sym = fe.symbol;
+                    symLen = fe.length;
+                }
+            }
+            if (sym < 0) {
+                // Recherche lineaire pour les codes longs
+                for (int32 l = HUF_DECBITS + 1; l <= 58 && sym < 0; ++l) {
                     br.Fill(l);
-                    if (br.nbits < l) break;
-                    uint64 v = (br.buf >> (64 - l));
+                    if (br.nbits < l) { ok = false; break; }
+                    uint64 v = br.buf >> (64 - l);
                     for (int32 j = 0; j < longCount; ++j) {
                         if (longTab[j].length == l && longTab[j].code == v) {
-                            out[i] = uint16(longTab[j].symbol);
-                            br.buf <<= l;
-                            br.nbits -= l;
-                            bitsConsumed += l;
-                            found = true;
+                            sym = longTab[j].symbol;
+                            symLen = l;
                             break;
                         }
                     }
-                    if (found) break;
                 }
-                if (!found) { ok = false; break; }
+                if (sym < 0) { ok = false; break; }
+            }
+            br.Get(symLen); // consomme effectivement les bits
+
+            // RLC : si sym == rlc (=iM), repeter le PRECEDENT lastSym N fois
+            if (sym == rlc) {
+                int32 cs = int32(br.Get(8));
+                if (outIdx + cs > count) { ok = false; break; }
+                for (int32 r = 0; r < cs; ++r)
+                    out[outIdx++] = uint16(lastSym);
+            } else {
+                out[outIdx++] = uint16(sym);
+                lastSym = sym;
             }
         }
 
@@ -703,26 +781,25 @@ namespace nkentseu {
         uint16* lut = static_cast<uint16*>(NkAlloc(PIZ_USHORT_RANGE * sizeof(uint16)));
         if (!lut) return false;
         uint16 mx = PizBitmapToLut(bitmap, lut);
-        (void)mx;
 
         // Lire la longueur des donnees Huffman compressees (32 bits LE)
         if (p + 4 > pEnd) { NkFree(lut); return false; }
         uint32 hufCompLen = RD_U32LE(p); p += 4;
         if (p + hufCompLen > pEnd) { NkFree(lut); return false; }
 
-        // Decode Huffman : header = 5 * uint32 LE
+        // Decode Huffman : header = 5 * uint32 LE (im, iM, tableLen, nBits, future)
         const uint8* hp = p;
         if (hufCompLen < 20) { NkFree(lut); return false; }
-        uint32 im   = RD_U32LE(hp + 0);
-        uint32 iM   = RD_U32LE(hp + 4);
-        // hp + 8 = tableLength (info packed dans bits, on calcule via nBits)
-        // hp + 12 = nBits
-        uint32 nBitsLow  = RD_U32LE(hp + 12);
-        uint32 nBitsHigh = RD_U32LE(hp + 16);
-        uint64 nBits = uint64(nBitsLow) | (uint64(nBitsHigh) << 32);
+        uint32 im          = RD_U32LE(hp + 0);
+        uint32 iM          = RD_U32LE(hp + 4);
+        uint32 tableLength = RD_U32LE(hp + 8);
+        uint32 nBits       = RD_U32LE(hp + 12);
+        // hp + 16 = future (reserve)
+        (void)nBits; // on decode jusqu'a atteindre 'count' symboles, RLC supporte
         if (im >= uint32(HUF_ENCSIZE) || iM >= uint32(HUF_ENCSIZE) || im > iM) {
             NkFree(lut); return false;
         }
+        (void)tableLength; // info redondante avec totalConsumed/ByteAlign
 
         // Buffer pour les uint16 decodes (count = somme des pixels par canal)
         // Layout EXR : pour chaque ligne, [ch0 pixels][ch1 pixels]...
@@ -738,20 +815,27 @@ namespace nkentseu {
 
         PizBitReader br;
         br.Init(hp + 20, hufCompLen - 20);
-        uint64 lengths[HUF_ENCSIZE];
+        uint64* lengths = static_cast<uint64*>(NkAlloc(HUF_ENCSIZE * sizeof(uint64)));
+        if (!lengths) { NkFree(decoded); NkFree(lut); return false; }
         if (!PizHufUnpackLengths(br, int32(im), int32(iM), lengths)) {
-            NkFree(decoded); NkFree(lut); return false;
+            NkFree(lengths); NkFree(decoded); NkFree(lut); return false;
         }
-        int32* canon = static_cast<int32*>(NkAlloc(HUF_ENCSIZE * sizeof(int32)));
-        if (!canon) { NkFree(decoded); NkFree(lut); return false; }
+        // BYTE-ALIGN entre table et donnees : l'encodeur a padde la fin du
+        // table avec des zeros pour atteindre un octet ; on doit jeter ces bits
+        // et reprendre la lecture a l'octet suivant.
+        br.ByteAlign();
+
+        int64* canon = static_cast<int64*>(NkAlloc(HUF_ENCSIZE * sizeof(int64)));
+        if (!canon) { NkFree(lengths); NkFree(decoded); NkFree(lut); return false; }
         if (!PizHufBuildDecodeTable(lengths, int32(im), int32(iM), canon)) {
-            NkFree(canon); NkFree(decoded); NkFree(lut); return false;
+            NkFree(canon); NkFree(lengths); NkFree(decoded); NkFree(lut); return false;
         }
-        if (!PizHufDecode(br, nBits, lengths, canon, int32(im), int32(iM),
+        if (!PizHufDecode(br, lengths, canon, int32(im), int32(iM),
                           decoded, totalU16)) {
-            NkFree(canon); NkFree(decoded); NkFree(lut); return false;
+            NkFree(canon); NkFree(lengths); NkFree(decoded); NkFree(lut); return false;
         }
         NkFree(canon);
+        NkFree(lengths);
 
         // Appliquer le wavelet 2D Haar inverse par canal
         // Le buffer 'decoded' est organise PAR CANAL (pas interleaved par ligne) :

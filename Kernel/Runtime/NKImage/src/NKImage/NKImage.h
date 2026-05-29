@@ -3,7 +3,7 @@
  * @File    NKImage.h
  * @Brief   Include unique — bibliothèque NKImage complète.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Formats
  *  Lecture  : PNG, JPEG, BMP, TGA, HDR, PPM/PGM/PBM, QOI, GIF, ICO, WebP, SVG

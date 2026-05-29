@@ -25,8 +25,10 @@ namespace nkentseu {
             NSWindow*      mParentWindow = nullptr;
 #ifdef __OBJC__
             id             mDelegate   = nil;   // NkCocoaWindowDelegate*
+            id             mScreenObserver = nil; // token NSNotificationCenter (hot-plug écrans)
 #else
             void*          mDelegate   = nullptr;
+            void*          mScreenObserver = nullptr;
 #endif
             NkSurfaceHints mAppliedHints{};
             uint32 mWidth      = 0;

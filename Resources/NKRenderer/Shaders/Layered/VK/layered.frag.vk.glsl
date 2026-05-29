@@ -40,39 +40,29 @@ layout(std140, set=0, binding=2) uniform LightsUBO {
     int count; int _pad[3];
 } uLights;
 
-// CSM shadow data (meme layout que PBR canonical).
-layout(std140, set=0, binding=3) uniform ShadowUBO {
-    mat4  cascadeMats[4];
-    float cascadeSplits[4];
-    vec4  cascadeTileBounds[4];
-    int   cascadeCount;
-    float shadowBias;
-    float normalBias;
-    int   softShadows;
-    float softness;
-    float _pads0, _pads1, _pads2;
-} uShadow;
+// Phase NkVSM : nouveau UBO multi-lights remplace l'ancien ShadowUBO cascade-only.
+// Layout doit matcher ShadowSlotsUBOBlock cote C++ (NkVirtualShadowMaps.cpp).
+struct NkShadowSlot {
+    mat4 shadowMatrix;
+    vec4 tileUV;
+    vec4 lightPosOrDir;
+    vec4 packedIds;
+};
+layout(std140, set=0, binding=3) uniform ShadowSlotsUBO {
+    NkShadowSlot slots[256];
+    vec4 firstSlotPerLight[8];
+    vec4 slotCountPerLight[8];
+    vec4 globalCfg;
+    vec4 biasParams;
+} uShadows;
 
-layout(set=0, binding=11) uniform sampler2DShadow tShadowMap;
+layout(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+layout(set=0, binding=12) uniform sampler2D       tShadowAtlasRaw;
+#include "Include/NkShadowAtlas.glsli"
 
-// Sample du shadow map (hard shadow, simple). Pour le shader Layered on
-// se contente d'un sample point ; PCF/PCSS gere par le shader PBR canonical.
-float SampleShadowSimple() {
-    if (uShadow.cascadeCount == 0) return 1.0;
-    // Skip shadow sampling pendant les passes miroir (NkPlanarReflectionSystem)
-    // car vWorldPos est en espace mirror (Y inverse) -> sample mauvaise position.
-    // Le reflet est donc rendu "pleine lumiere" : moins faux qu'une ombre inversee.
-    if (uCam.reflectionFlags.x > 0.5) return 1.0;
-    vec4 coord = uShadow.cascadeMats[0] * vec4(vWorldPos, 1.0);
-    vec3 p = coord.xyz / coord.w;
-    p.xy = p.xy * 0.5 + 0.5;
-    p.z  = p.z  * 0.5 + 0.5 - uShadow.shadowBias;
-    vec2 tileMin = uShadow.cascadeTileBounds[0].xy;
-    vec2 tileMax = uShadow.cascadeTileBounds[0].zw;
-    if (any(lessThan(p.xy, tileMin)) || any(greaterThan(p.xy, tileMax))) return 1.0;
-    if (p.z < 0.0 || p.z > 1.0) return 1.0;
-    return texture(tShadowMap, vec3(p.xy, p.z));
-}
+// Phase H.6 : voxel AO grid (3D R8) au binding=27.
+layout(set=0, binding=27) uniform sampler3D tVoxelOpacity;
+#include "Include/NkVoxelAO.glsli"
 
 // Phase M.2 : Material Parameter Collection (pool global de params partages).
 // Convention de slots stables (cf. NkMaterialCollection::Init) :
@@ -103,28 +93,29 @@ layout(std140, set=2, binding=8) uniform LayeredUBO {
 } uLayered;
 
 // Evaluation simplifiee : Lambert diffus + Phong spec teinte metal/albedo.
-// shadowFactor : 1.0 = pas d'ombre, 0.0 = totalement dans l'ombre. Applique
-// uniquement a la light directionnelle (soleil) car le CSM ne shadow pas les
-// point lights (qui demanderaient des shadow cubemaps, hors scope ici).
-vec3 EvalLayer(LayerPBR p, vec3 N, vec3 V, float shadowFactor) {
+// Phase NkVSM : shadow per-light est sample via SampleLightShadow (atlas).
+// Dispatch automatique selon le type de light (DIR/POINT/SPOT).
+vec3 EvalLayer(LayerPBR p, vec3 N, vec3 V, float voxAO) {
     vec3 albedo = p.albedo.rgb;
-    vec3 result = albedo * 0.10; // ambient
+    // Phase H.6 : ambient attenue par voxel AO (cones traverse le sol etc).
+    vec3 result = albedo * 0.10 * voxAO;
 
     for (int i = 0; i < uLights.count && i < 32; i++) {
         int lt = int(uLights.positions[i].w);
         vec3 L;
         float att = 1.0;
-        float lightShadow = 1.0;  // par defaut, lumiere non-ombree
         if (lt == 0) { // directional
             L = normalize(-uLights.directions[i].xyz);
-            lightShadow = shadowFactor;  // soleil = lit par le shadow map CSM
-        } else {       // point
+        } else {       // point/spot
             vec3 d = uLights.positions[i].xyz - vWorldPos;
             float dist = length(d);
             L = normalize(d);
             att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
             att *= att;
         }
+        // NkVSM : sample shadow atlas pour cette light. angles[i].z = castShadow.
+        float lightShadow = (uLights.angles[i].z > 0.5)
+                            ? SampleLightShadow(i, vWorldPos, N, L) : 1.0;
         float NdL = max(dot(N, L), 0.0);
         vec3 diffuse = albedo * NdL;
 
@@ -143,7 +134,11 @@ vec3 EvalLayer(LayerPBR p, vec3 N, vec3 V, float shadowFactor) {
 
 void main() {
     vec3 N = normalize(vNormal);
-    vec3 V = normalize(uCam.camPos.xyz - vWorldPos);
+    // Phase Planar Reflection fix 2026-05-24 : un-mirror camPos pour V quand on
+    // shade un fragment d'une passe miroir (vWorldPos deja en espace real).
+    vec3 camPosForV = uCam.camPos.xyz;
+    if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
+    vec3 V = normalize(camPosForV - vWorldPos);
 
     // Selection du masque selon maskSource :
     //   0=vColor.r 1=.g 2=.b 3=.a 4=vUV.y (gradient vertical) 5=1-vUV.y
@@ -168,10 +163,12 @@ void main() {
 
     // Echantillonne le CSM une fois pour le fragment ; partage entre les 2
     // layers (meme position monde).
-    float shadow = SampleShadowSimple();
+    // Phase NkVSM : shadow par-light deja sample dans EvalLayer.
+    // Phase H.6 : voxel AO partage entre les 2 layers (meme position monde).
+    float voxAO  = NkComputeVoxelAO(vWorldPos, N);
 
-    vec3 c0 = EvalLayer(uLayered.base, N, V, shadow);
-    vec3 c1 = EvalLayer(uLayered.top,  N, V, shadow);
+    vec3 c0 = EvalLayer(uLayered.base, N, V, voxAO);
+    vec3 c1 = EvalLayer(uLayered.top,  N, V, voxAO);
     vec3 color = mix(c0, c1, mask);
 
     // Phase M.2 : applique globalTint depuis la Material Parameter Collection.

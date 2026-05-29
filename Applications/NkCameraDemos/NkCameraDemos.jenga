@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkCameraDemos -- Suite de demos NKCamera (viewer / multi / format)
+# =============================================================================
+# Trois demos packagees dans un seul executable, selection via --demo=<name> :
+#   NkCameraDemos --demo=viewer  : flux camera 0 plein ecran + photo/record
+#   NkCameraDemos --demo=multi   : grille 2x2 de cameras (jusqu'a 4)
+#   NkCameraDemos --demo=format  : test cross-format ConvertToRGBA8 (synthetique)
+#
+# Pipeline : NkContext (OpenGL/GLES/WebGL) + NKGlad (OpenGL direct) + NKCamera +
+#            NKImage (JPEG codec pour le test format).
+# =============================================================================
+
+from Jenga import *
+from config import *
+import os
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+def _norm(path: str) -> str:
+    return path.replace("\\", "/") if path else path
+
+_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
+_WANT_VULKAN = bool(_VULKAN_LIB)
+
+with project("NkCameraDemos"):
+    # camera = NKCamera ; les autres = pipeline graphique standard (cf Pong.jenga).
+    useappdeps("platform", "core", "memory", "containers", "math", "threading",
+               "stream", "logger", "time", "event", "window", "image", "font",
+               "ui", "canvas", "camera")
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    _INCS = [
+        "src",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKTime.location}/src",
+        "%{NKEvent.location}/src",
+        "%{NKWindow.location}/src",
+        "%{NKImage.location}/src",
+        "%{NKFont.location}/src",
+        "%{NKUI.location}/src",
+        "%{NKCanvas.location}/src",
+        "%{NKStream.location}/src",
+        "%{NKGlad.location}/include",
+        "%{NKFileSystem.location}/src",
+        "%{NKCamera.location}/src",
+        "%{wks.location}/Externals",
+    ]
+    includedirs(_INCS)
+
+    _DEPS = [
+        "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
+        "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+        "NKFileSystem", "NKCamera",
+        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
+    ]
+    links(_DEPS)
+    dependson(_DEPS)
+
+    defines([
+        "NKENTSEU_ENABLE_VULKAN_BACKEND=0",
+        "NKENTSEU_SERIALIZATION_STATIC_LIB",
+        "NKENTSEU_LOGGER_STATIC_LIB",
+        "NKENTSEU_CORE_STATIC_LIB",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("1.0.0")
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE", "UNICODE",
+        ])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        libdirs(["%{NKFont.location}/lib"])
+        # NOTE: aucune lib XInput au link. NKWindow charge la DLL
+        # dynamiquement (LoadLibrary fallback XInput1_4 -> XInput1_3
+        # -> XInput9_1_0) dans NkWin32Gamepad.h via nk_xinput_dyn.
+        # Evite l'erreur runtime "XInput1_3.dll missing" sur Win 10/11
+        # vanilla et le warning link "undefined reference to
+        # XInputGetBatteryInformation" sur certains MinGW.
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    # ===== Linux XLib =========================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL",
+                    "AVFoundation", "CoreMedia", "CoreVideo"])
+
+    # ===== Android ============================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        links(["android", "log", "EGL", "GLESv3",
+               "camera2ndk", "mediandk"])
+        androidapplicationid("com.nkentseu.nkcamerademos")
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+        androidstl("c++_shared")
+        androidpermissions([
+            "android.permission.CAMERA",
+        ])
+
+    # ===== HarmonyOS ==========================================================
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+        # camera2ndk / mediandk retires (Android-only) ; log -> hilog_ndk.z.
+        links(["hilog_ndk.z", "EGL", "GLESv3"])
+        harmonybundlename("com.nkentseu.nkcamerademos")
+        harmonyminsdk(12)
+        harmonytargetapi(12)
+        harmonypermissions(["ohos.permission.CAMERA"])
+
+    # ===== iOS ================================================================
+    with filter("system:iOS"):
+        frameworks(["UIKit", "QuartzCore", "OpenGLES",
+                    "AVFoundation", "CoreMedia", "CoreVideo", "CoreMotion"])
+        iosbundleid("com.nkentseu.nkcamerademos")
+        iosversion("1.0")
+        iosminsdk("14.0")
+        iosbuildnumber(1)
+
+    # ===== Web ================================================================
+    with filter("system:Web"):
+        consoleapp()
+        usetoolchain("emscripten")
+        emscriptencanvasid("canvas")
+        emscripteninitialmemory(32)
+        emscriptenextraflags([
+            "-s", "ASYNCIFY",
+            "-s", "DYNAMIC_EXECUTION",
+            "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']",
+            "-s", "INITIAL_MEMORY=67108864",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "ASSERTIONS=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+            "-s", "SAFE_HEAP=1",
+        ])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

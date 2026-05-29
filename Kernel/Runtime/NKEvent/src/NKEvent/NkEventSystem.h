@@ -40,7 +40,16 @@
 
 #include "NKTime/NkChrono.h"
 
-#define NK_EVENTSYS_ANDROID_TRACE(...) logger.Infof(__VA_ARGS__)
+// NK_EVENTSYS_TRACE_VERBOSE = 1 pour logger chaque step de AddEventCallback / dispatch.
+// Off par defaut (spammait le terminal a chaque init de demo / scene).
+#ifndef NK_EVENTSYS_TRACE_VERBOSE
+    #define NK_EVENTSYS_TRACE_VERBOSE 0
+#endif
+#if NK_EVENTSYS_TRACE_VERBOSE
+    #define NK_EVENTSYS_ANDROID_TRACE(...) logger.Infof(__VA_ARGS__)
+#else
+    #define NK_EVENTSYS_ANDROID_TRACE(...) ((void)0)
+#endif
 
 namespace nkentseu {
 

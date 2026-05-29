@@ -6,7 +6,7 @@ Nogee — Application de démonstration multi-plateformes
 Illustre l'utilisation complète du framework Nkentseu :
   • Création de fenêtre et boucle principale cross-platform
   • Gestion des événements : clavier, souris, touch, drag & drop
-  • Rendu pixel software via NKContext (NkSoftwareRenderer)
+  • Rendu pixel software via NKCanvas (NkSoftwareRenderer)
   • Gamepad, safe area, transforms 2D
 
 Un seul fichier src/main.cpp compile pour TOUTES les plateformes.
@@ -137,7 +137,7 @@ with project("Nogee"):
             libdirs([_VULKAN_LIB])
         _WIN_LINKS = [
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler"
         ]

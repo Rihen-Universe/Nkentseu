@@ -10,7 +10,7 @@
  * @File    NkUIInput.h
  * @Brief   Abstraction input clavier/souris/touch — platform-agnostic.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Design
  *  L'utilisateur remplit NkUIInputState à chaque frame depuis son

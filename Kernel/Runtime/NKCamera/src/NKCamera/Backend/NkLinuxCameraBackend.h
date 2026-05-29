@@ -4,7 +4,7 @@
 // GetOrientation: via /sys/bus/iio/devices/iio:device* (accéléromètre intégré)
 // Vidéo: ffmpeg pipe (MP4/H.264) ou écriture RAW si ffmpeg absent
 // =============================================================================
-#include "NKCamera/INkCameraBackend.h"
+#include "NKCamera/NKICameraBackend.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
 #include "NKMath/NKMath.h"
@@ -38,7 +38,7 @@ namespace nkentseu
 
 struct V4L2Buf { void* start=nullptr; size_t length=0; };
 
-class NkLinuxCameraBackend : public INkCameraBackend
+class NkLinuxCameraBackend : public NKICameraBackend
 {
 public:
     NkLinuxCameraBackend()  = default;

@@ -19,7 +19,7 @@
 //   // Chaque frame : si IMU disponible, mise Ã  jour automatique de myCamera2D
 // =============================================================================
 
-#include "INkCameraBackend.h"
+#include "NKICameraBackend.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)
@@ -153,8 +153,8 @@ namespace nkentseu
             NkString   GetLastError() const;
             uint32         GetCurrentDeviceIndex() const { return mCurrentDeviceIndex; }
 
-            INkCameraBackend* GetBackend() { return &mBackend; }
-            const INkCameraBackend* GetBackend() const { return &mBackend; }
+            NKICameraBackend* GetBackend() { return &mBackend; }
+            const NKICameraBackend* GetBackend() const { return &mBackend; }
 
             // -----------------------------------------------------------------------
             // MAPPING CAMÃ‰RA VIRTUELLE â† CAMÃ‰RA RÃ‰ELLE (IMU)
@@ -239,6 +239,15 @@ namespace nkentseu
             NkCamera2D*          mVirtualCamera         = nullptr;
             bool                 mVirtualMappingEnabled = false;
             VirtualCameraMapConfig mMapConfig;
+
+            // Mode IMAGE_SEQUENCE_ONLY â€” fallback cross-platform sans encodeur
+            // video natif. Quand actif, OnFrame sauve chaque frame en PNG/JPG.
+            bool                 mImageSequenceActive   = false;
+            NkString             mImageSequenceDir;       ///< dossier ou prefix
+            NkString             mImageSequenceExt;       ///< "png" / "jpg" / "bmp"
+            uint32                mImageSequenceIndex    = 0;
+            int32                 mImageSequenceQuality  = 90;
+            uint64                mImageSequenceStartUs  = 0;
 
             // Orientation de rÃ©fÃ©rence (lors de l'activation du mapping)
             NkCameraOrientation  mRefOrientation {};

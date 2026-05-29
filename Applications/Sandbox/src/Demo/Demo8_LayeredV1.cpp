@@ -94,7 +94,7 @@ bool Demo8_LayeredV1_Init(DemoCtx& ctx) {
         logger.Errorf("[Demo8] MeshSystem/MaterialSystem manquant\n");
         delete st; ctx.userData = nullptr; return false;
     }
-    st->meshSphere = meshSys->GetIcosphere();
+    st->meshSphere = meshSys->GetSphere();
     st->meshPlane  = meshSys->GetPlane();
 
     // Material : utilise le template builtin "Default_LayeredV1".

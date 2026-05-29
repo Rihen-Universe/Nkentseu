@@ -11,7 +11,8 @@ layout(location=3) in vec3 vBitangent;
 layout(location=4) in vec2 vUV;
 layout(location=5) in vec2 vUV2;
 layout(location=6) in vec4 vColor;
-layout(location=7) in vec4 vShadowCoord[4];
+// Phase NkVSM : vShadowCoord retire — shadow coord est calcule dans le FS via
+// la shadowMatrix du slot correspondant (ShadowSlotsUBO).
 
 layout(location=0) out vec4 fragColor;
 
@@ -30,6 +31,11 @@ layout(std140, set=1, binding=1) uniform ObjectUBO {
     float metallic, roughness, aoStrength, emissiveStrength;
     float normalStrength, clearcoat, clearcoatRoughness, subsurface;
     vec4  subsurfaceColor;
+    // NkVSM v1 : .x=receiveShadow, .y=castShadowAlphaTest(V1), .z=shadowBiasMul, .w=reserve
+    vec4  shadowOverrides;
+    // 2026-05-24 Triplanar : .x = tileSize en metres reels (0 = disabled),
+    // .y = metersPerUnit, .z = enable flag (0/1), .w = reserve.
+    vec4  triplanarParams;
 } uObj;
 
 layout(std140, set=0, binding=2) uniform LightsUBO {
@@ -37,17 +43,21 @@ layout(std140, set=0, binding=2) uniform LightsUBO {
     int count; int _pad[3];
 } uLights;
 
-layout(std140, set=0, binding=3) uniform ShadowUBO {
-    mat4  cascadeMats[4];
-    float cascadeSplits[4];
-    vec4  cascadeTileBounds[4];
-    int   cascadeCount;
-    float shadowBias;
-    float normalBias;
-    int   softShadows;
-    float softness;
-    float _pad0, _pad1, _pad2;
-} uShadow;
+// Phase NkVSM : nouveau UBO multi-lights remplace l'ancien ShadowUBO cascade-only.
+// Layout doit matcher ShadowSlotsUBOBlock cote C++ (NkVirtualShadowMaps.cpp).
+struct NkShadowSlot {
+    mat4 shadowMatrix;
+    vec4 tileUV;          // .xy=minUV .zw=maxUV
+    vec4 lightPosOrDir;   // .xyz pos/dir, .w range/splitFar
+    vec4 packedIds;       // .x=lightIdx .y=slotType .z=subIdx .w=0
+};
+layout(std140, set=0, binding=3) uniform ShadowSlotsUBO {
+    NkShadowSlot slots[256];
+    vec4         firstSlotPerLight[8];  // 32 lights packes 4-per-vec4
+    vec4         slotCountPerLight[8];
+    vec4         globalCfg;             // .x=numSlots .y=softShadowMode
+    vec4         biasParams;             // .x=shadowBias .y=normalBias .z=softness
+} uShadows;
 
 // ── Textures ─────────────────────────────────────────────────
 // Materiau (set=2) : NkMaterialSystem bind albedo/normal/ORM/emissive
@@ -62,8 +72,18 @@ layout(set=2, binding=6)  uniform sampler2D   tEmissive;
 layout(set=0, binding=8)  uniform samplerCube tEnvIrradiance;
 layout(set=0, binding=9)  uniform samplerCube tEnvPrefilter;
 layout(set=0, binding=10) uniform sampler2D   tBRDFLUT;
-layout(set=0, binding=11) uniform sampler2DShadow tShadowMap;
-layout(set=0, binding=12) uniform sampler2D       tShadowMapRaw;
+// Phase I : cubemap HDR brut (RGBA32F, sans Reinhard) pour le specular
+// IBL des materiaux quasi-mirror (roughness ~ 0). Les metalliques purs
+// recevront ainsi le vrai HDR > 1.0 et brilleront (bloom appliqué apres
+// dans le PostProcess).
+layout(set=0, binding=26) uniform samplerCube tSkyEnvCube;
+// Phase H.6 : voxel AO grid (3D R8) pour cone-tracing long-range AO. Bounds
+// world hardcoded (-10..+10 X/Z, -5..+5 Y). Atténue l'IBL pour les pixels
+// qui ont des occluders dans leur hémisphère normale.
+layout(set=0, binding=27) uniform sampler3D tVoxelOpacity;
+layout(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+layout(set=0, binding=12) uniform sampler2D       tShadowAtlasRaw;
+#include "Include/NkShadowAtlas.glsli"
 // Phase E.6 : 8 light cookies (gobos) pour SPOT lights.
 layout(set=0, binding=13) uniform sampler2D tLight3DCookie0;
 layout(set=0, binding=14) uniform sampler2D tLight3DCookie1;
@@ -87,6 +107,11 @@ float SampleLight3DCubeCookie(int idx, vec3 dir) {
     if (idx == 3) return texture(tLight3DCubeCookie3, dir).r;
     return 1.0;
 }
+
+// Phase H.6 : Voxel AO helpers — extraits dans Material Function partagée
+// pour que tous les shaders materiau (Layered, Toon, Anime, ...) puissent
+// inclure le meme code.
+#include "Include/NkVoxelAO.glsli"
 
 float SampleLight3DCookie(int idx, vec2 uv) {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
@@ -133,131 +158,123 @@ const vec2 kPoissonDisk[16] = vec2[](
     vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790)
 );
 
-float FindBlockerDepth(vec2 uv, float receiverDepth, float searchRadius,
-                        vec2 tileMin, vec2 tileMax, vec2 ts) {
-    vec2 safeMin = tileMin + ts;
-    vec2 safeMax = tileMax - ts;
-    float blockerSum = 0.0;
-    int   blockerCnt = 0;
-    for (int i = 0; i < 16; i++) {
-        vec2 sUV = clamp(uv + kPoissonDisk[i] * searchRadius, safeMin, safeMax);
-        float storedDepth = texture(tShadowMapRaw, sUV).r;
-        if (storedDepth < receiverDepth) {
-            blockerSum += storedDepth;
-            blockerCnt++;
-        }
-    }
-    if (blockerCnt == 0) return -1.0;
-    return blockerSum / float(blockerCnt);
+// Phase NkVSM : sampling shadow par light via NkShadowAtlas.glsli.
+// La fonction SampleLightShadow(lightIdx, worldPos, N, L) dispatche selon le
+// type de light (DIR/POINT/SPOT) et sample le tile correspondant de l'atlas.
+
+// =============================================================================
+// Triplanar projection helpers (2026-05-24)
+//
+// Quand uObj.triplanarParams.z > 0.5, la texture est projetee selon les 3
+// plans monde (YZ, XZ, XY) et blendee par |normal|. Resultat : tiles vraiment
+// carrees independant du scale/rotation, sans seams sur les coins du cube.
+//
+// tileSize est exprime en METRES REELS. Pour la projection world, on convertit
+// en units via metersPerUnit (echelle Blender-style configurable).
+//
+// Pour la normal map : UDN blend (Unreal Devs Network) — chaque sample est
+// reoriente selon l'axe de projection avant blend.
+// =============================================================================
+
+vec3 NkTriplanarWeights(vec3 N) {
+    // Puissance 4 pour des transitions plus nettes entre axes (moins de blur).
+    vec3 w = abs(N);
+    w = pow(w, vec3(4.0));
+    return w / max(w.x + w.y + w.z, 1e-5);
 }
 
-float PCFAdaptive(int cascade, vec2 uv, float refDepth, float radius,
-                   vec2 tileMin, vec2 tileMax, vec2 ts) {
-    vec2 safeMin = tileMin + ts;
-    vec2 safeMax = tileMax - ts;
-    radius = max(radius, ts.x);
-    float s = 0.0;
-    for (int i = 0; i < 16; i++) {
-        vec2 sUV = clamp(uv + kPoissonDisk[i] * radius, safeMin, safeMax);
-        s += texture(tShadowMap, vec3(sUV, refDepth));
-    }
-    return s / 16.0;
+vec3 NkTriplanarSampleRGB(sampler2D tex, vec3 worldPos, vec3 w, float invTile) {
+    // Sample sur les 3 plans monde. Pas de besoin de Y-flip car les textures
+    // sont en UV standard (origin = top-left ou bottom-left selon backend, mais
+    // ici c'est REPEAT donc invariant).
+    vec3 cYZ = texture(tex, worldPos.zy * invTile).rgb;  // proj plan X (normal +/-X)
+    vec3 cXZ = texture(tex, worldPos.xz * invTile).rgb;  // proj plan Y (normal +/-Y)
+    vec3 cXY = texture(tex, worldPos.xy * invTile).rgb;  // proj plan Z (normal +/-Z)
+    return cYZ * w.x + cXZ * w.y + cXY * w.z;
 }
 
-float ShadowPCF(int cascade, vec4 coord, float bias) {
-    if (cascade >= uShadow.cascadeCount) return 1.0;
-    // Skip shadow sampling pendant les passes miroir (NkPlanarReflectionSystem) :
-    // vWorldPos est en espace mirror (Y inverse) donc shadow coord pointe a la
-    // mauvaise position dans le shadow map -> reflet ombre incorrectement (inverse).
-    // Mieux vaut pas d'ombre dans le reflet que une ombre fausse.
-    if (uCam.reflectionFlags.x > 0.5) return 1.0;
-    vec3 p = coord.xyz / coord.w;
-    p.xy   = p.xy * 0.5 + 0.5;
-    p.z    = p.z  * 0.5 + 0.5 - bias;
-    vec2 tileMin = uShadow.cascadeTileBounds[cascade].xy;
-    vec2 tileMax = uShadow.cascadeTileBounds[cascade].zw;
-    if (any(lessThan(p.xy, tileMin)) || any(greaterThan(p.xy, tileMax))) return 1.0;
-    if (p.z < 0.0 || p.z > 1.0) return 1.0;
-
-    vec2 ts = 1.0 / vec2(textureSize(tShadowMap, 0));
-
-    if (uShadow.softShadows == 2) {
-        // PCSS contact-hardening : blocker search puis kernel adaptatif.
-        // - Recherche les blockers dans un rayon proportionnel a softness.
-        // - Si aucun blocker (recevoir au-dessus de tous les samples) -> no shadow.
-        // - Sinon, penumbra ~ (receiver - blocker) * softness / blocker.
-        //   Plus le blocker est proche du recevoir, plus la penumbra est faible
-        //   (ombre nette au contact). Plus il est loin, plus elle s'elargit.
-        float searchRadius = max(uShadow.softness * 0.5, ts.x * 2.0);
-        float blockerDepth = FindBlockerDepth(p.xy, p.z, searchRadius, tileMin, tileMax, ts);
-        if (blockerDepth < 0.0) return 1.0;
-        float penumbra = (p.z - blockerDepth) * uShadow.softness / max(blockerDepth, 1e-4);
-        float radius   = clamp(penumbra, ts.x, uShadow.softness * 4.0);
-        return PCFAdaptive(cascade, p.xy, p.z, radius, tileMin, tileMax, ts);
-    } else if (uShadow.softShadows == 1) {
-        // PCF Poisson 16-tap avec kernel = softness (en UV space).
-        // Variante simple sans contact-hardening : ombres uniformement douces,
-        // softness reglable live via N/M dans la demo.
-        float radius = max(uShadow.softness, ts.x);
-        return PCFAdaptive(cascade, p.xy, p.z, radius, tileMin, tileMax, ts);
-    } else {
-        vec2 safeMin = tileMin + ts;
-        vec2 safeMax = tileMax - ts;
-        float s = 0.0;
-        for (int x=-1;x<=1;x++) for (int y=-1;y<=1;y++) {
-            vec2 uv = clamp(p.xy + vec2(x,y) * ts, safeMin, safeMax);
-            s += texture(tShadowMap, vec3(uv, p.z));
-        }
-        return s / 9.0;
-    }
+vec4 NkTriplanarSampleRGBA(sampler2D tex, vec3 worldPos, vec3 w, float invTile) {
+    vec4 cYZ = texture(tex, worldPos.zy * invTile);
+    vec4 cXZ = texture(tex, worldPos.xz * invTile);
+    vec4 cXY = texture(tex, worldPos.xy * invTile);
+    return cYZ * w.x + cXZ * w.y + cXY * w.z;
 }
 
-// ── Cascade selection + slope-scaled bias ─────────────────────
-float GetShadow() {
-    if (uShadow.cascadeCount <= 0) return 1.0;
-    float depth = (uCam.view * vec4(vWorldPos,1.0)).z;
-
-    // Slope-scaled bias : plus la surface est rasante par rapport au directional
-    // (NdL faible), plus on doit pousser le bias pour eviter le shadow acne.
-    vec3 N = normalize(vNormal);
-    vec3 L = vec3(0.0, 1.0, 0.0);
-    if (uLights.count > 0 && int(uLights.positions[0].w) == 0) {
-        L = normalize(-uLights.directions[0].xyz);
-    }
-    float NdL  = max(dot(N, L), 0.0);
-    float bias = uShadow.shadowBias * max(1.0, 4.0 * (1.0 - NdL));
-
-    for (int c = 0; c < uShadow.cascadeCount; c++) {
-        if (depth > -uShadow.cascadeSplits[c])
-            return ShadowPCF(c, vShadowCoord[c], bias);
-    }
-    return 1.0;
+// UDN normal blend : reoriente chaque normal map sample selon l'axe de proj,
+// puis blend par poids. Standard pour triplanar avec normal maps.
+// Ref: Ben Golus "Normal Mapping for a Triplanar Shader" (2017).
+vec3 NkTriplanarNormalUDN(sampler2D nMap, vec3 worldPos, vec3 N,
+                          vec3 w, float invTile, float strength) {
+    vec3 nYZ = texture(nMap, worldPos.zy * invTile).xyz * 2.0 - 1.0;
+    vec3 nXZ = texture(nMap, worldPos.xz * invTile).xyz * 2.0 - 1.0;
+    vec3 nXY = texture(nMap, worldPos.xy * invTile).xyz * 2.0 - 1.0;
+    nYZ.xy *= strength;
+    nXZ.xy *= strength;
+    nXY.xy *= strength;
+    // UDN : ajouter la geometric normal en XY de la tangent space sample,
+    // puis swizzle pour aligner sur l'axe world correspondant.
+    vec3 wN_YZ = vec3(nYZ.xy + N.zy, N.x * sign(N.x));   // plan X -> swizzle zy
+    vec3 wN_XZ = vec3(nXZ.xy + N.xz, N.y * sign(N.y));   // plan Y -> swizzle xz
+    vec3 wN_XY = vec3(nXY.xy + N.xy, N.z * sign(N.z));   // plan Z -> swizzle xy
+    vec3 outN = normalize(
+        vec3(wN_YZ.z, wN_YZ.y, wN_YZ.x) * w.x +
+        vec3(wN_XZ.x, wN_XZ.z, wN_XZ.y) * w.y +
+        vec3(wN_XY.x, wN_XY.y, wN_XY.z) * w.z
+    );
+    return outN;
 }
 
 void main() {
+    // ── Triplanar setup ─────────────────────────────────────────
+    // tileSize en metres -> en units world (divise par metersPerUnit).
+    // UV = worldPos / tileSizeUnits = worldPos * invTile.
+    bool  triplanarOn = uObj.triplanarParams.z > 0.5;
+    float tileMeters  = max(uObj.triplanarParams.x, 1e-4);
+    float mpu         = max(uObj.triplanarParams.y, 1e-4);
+    float invTile     = mpu / tileMeters;   // 1 / (tileMeters / mpu)
+    vec3  geomN       = normalize(vNormal);
+    vec3  triW        = triplanarOn ? NkTriplanarWeights(geomN) : vec3(0.0);
+
     // ── Albedo + alpha ─────────────────────────────────────────
-    vec4 albSample = texture(tAlbedo, vUV) * vColor;
+    vec4 albSample = triplanarOn
+        ? NkTriplanarSampleRGBA(tAlbedo, vWorldPos, triW, invTile)
+        : texture(tAlbedo, vUV);
+    albSample *= vColor;
     vec3 albedo    = pow(albSample.rgb, vec3(2.2));
     float alpha    = albSample.a;
     if (alpha < 0.01) discard;
 
     // ── ORM + overrides ───────────────────────────────────────
-    vec3 orm  = texture(tORM, vUV).rgb;
+    vec3 orm = triplanarOn
+        ? NkTriplanarSampleRGB(tORM, vWorldPos, triW, invTile)
+        : texture(tORM, vUV).rgb;
     float ao  = orm.r * uObj.aoStrength;
     float rog = orm.g * uObj.roughness;
     float met = orm.b * uObj.metallic;
 
     // ── Normal mapping ────────────────────────────────────────
-    vec3 nTs  = texture(tNormal, vUV).xyz * 2.0 - 1.0;
-    nTs.xy   *= uObj.normalStrength;
-    mat3 TBN  = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
-    vec3 N    = normalize(TBN * nTs);
-    vec3 V    = normalize(uCam.camPos.xyz - vWorldPos);
+    vec3 N;
+    if (triplanarOn) {
+        // UDN blend : aucune dependance vTangent/vBitangent (le cube primitive
+        // a des tangents fragiles selon la face — triplanar les bypass).
+        N = NkTriplanarNormalUDN(tNormal, vWorldPos, geomN, triW, invTile,
+                                  uObj.normalStrength);
+    } else {
+        vec3 nTs = texture(tNormal, vUV).xyz * 2.0 - 1.0;
+        nTs.xy  *= uObj.normalStrength;
+        mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
+        N = normalize(TBN * nTs);
+    }
+    // Phase Planar Reflection fix 2026-05-24 : en mirror pass, vWorldPos est en
+    // espace "real geometry" (un-mirror Y fait dans le VS) -> camPos doit etre
+    // un-mirror aussi pour que V represente la vue depuis la mirror cam.
+    vec3 camPosForV = uCam.camPos.xyz;
+    if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
+    vec3 V    = normalize(camPosForV - vWorldPos);
     vec3 F0   = mix(vec3(0.04), albedo, met);
 
     // ── Direct lighting ───────────────────────────────────────
     vec3 Lo = vec3(0.0);
-    float shadow = GetShadow();
 
     for (int i = 0; i < uLights.count && i < 32; i++) {
         int   lt  = int(uLights.positions[i].w);
@@ -320,7 +337,13 @@ void main() {
             }
         }
 
-        float csf = (uLights.angles[i].z > 0.5) ? shadow : 1.0;
+        // NkVSM : shadow per-light via atlas multi-tiles. angles[i].z = castShadow flag.
+        // NkVSM v1 : material override receiveShadow (.x) skip le sample
+        // + shadowBiasMul (.z) scale le bias per-material.
+        float csf = 1.0;
+        if (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5) {
+            csf = SampleLightShadowEx(i, vWorldPos, N, L, uObj.shadowOverrides.z);
+        }
         vec3 H    = normalize(V + L);
         float NdL = max(dot(N, L), 0.0);
         vec3 rad  = uLights.colors[i].rgb * uLights.colors[i].w * att;
@@ -334,13 +357,34 @@ void main() {
     }
 
     // ── IBL ───────────────────────────────────────────────────
+    // Phase Planar Reflection fix 2026-05-24 : en mirror pass, N et vWorldPos
+    // sont deja en espace "real geometry" grace au un-mirror Y dans le VS,
+    // donc R = reflect(-V, N) est en world space reel -> sample direct du
+    // cubemap (qui est aussi en world space reel). Pas besoin de Y-flipper R.
     vec3 Fi   = F_SchlickR(max(dot(N,V),0.0), F0, rog);
     vec3 kDi  = (1.0-Fi)*(1.0-met);
-    vec3 irr  = texture(tEnvIrradiance, N).rgb;
     vec3 R    = reflect(-V, N);
-    vec3 pref = textureLod(tEnvPrefilter, R, rog*4.0).rgb;
-    vec2 brdf = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), rog)).rg;
-    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * uCam.iblStrength;
+    vec3 irr  = texture(tEnvIrradiance, N).rgb;
+    // Phase I : mix entre cubemap HDR brut (mirror) et prefilter Reinhard (rough).
+    // Le tSkyEnvCube preserve les valeurs > 1.0 du HDR original donc les
+    // metalliques quasi-mirror brillent vraiment + recoivent du bloom apres
+    // tonemap.
+    // Range elargi (0.05 .. 0.50) pour qu'une sphere metal avec rough=0.5
+    // garde un peu de contribution HDR brut, ce qui matche mieux le
+    // comportement intuitif "metal brille fort en reflet".
+    // - rough < 0.05  : 100% mirror (HDR brut)
+    // - rough = 0.30  : 50/50 mix
+    // - rough > 0.50  : 100% prefilter (Reinhard tonemape)
+    vec3 prefMirror = texture(tSkyEnvCube, R).rgb;
+    vec3 prefRough  = textureLod(tEnvPrefilter, R, rog*4.0).rgb;
+    float mirrorMix = 1.0 - smoothstep(0.05, 0.50, rog);
+    vec3 pref       = mix(prefRough, prefMirror, mirrorMix);
+    vec2 brdf       = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), rog)).rg;
+    // Phase H.6 : voxel cone-trace AO long-range. Atténue l'IBL irradiance
+    // et specular pour les pixels qui ont des occluders dans leur hémisphère
+    // (ex: sphères sous le sol qui ne devraient pas recevoir l'IBL sky).
+    float voxAO = NkComputeVoxelAO(vWorldPos, N);
+    vec3 amb  = (kDi*irr*albedo + pref*(Fi*brdf.x+brdf.y)) * ao * voxAO * uCam.iblStrength;
 
     // ── Clearcoat ─────────────────────────────────────────────
     vec3 ccContrib = vec3(0.0);

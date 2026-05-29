@@ -34,9 +34,13 @@ namespace nkentseu {
         struct NkRenderTargetDesc {
             uint32   width  = 512;
             uint32   height = 512;
-            bool     hdr    = false;   // true = RGBA16F, false = RGBA8
+            bool     hdr    = false;   // true = RGBA16F, false = RGBA8 (override par colorFmt si != UNDEFINED)
             bool     depth  = true;
             NkString name   = "RT";
+            // Phase H.3 : format color explicite (override hdr). Permet de
+            // creer des RTs R8_UNORM (SSAO) ou autres formats specialises.
+            // NK_UNDEFINED -> utilise hdr (retro-compat).
+            NkGPUFormat colorFmt = NkGPUFormat::NK_UNDEFINED;
         };
 
         // =====================================================================

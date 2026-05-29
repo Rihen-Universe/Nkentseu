@@ -12,9 +12,13 @@
 // ============================================================
 
 #include "NKAudio.h"
+#include "NKAudio/Codecs/FLAC/NkFLACCodec.h"
+#include "NKAudio/Codecs/MP3/NkMP3Codec.h"
+#include "NKAudio/Codecs/OGG/NkOGGVorbisCodec.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKCore/NkMacros.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <cmath>
 #include <cstring>
@@ -83,22 +87,20 @@ namespace {
 
         bool Load(const char* path, nkentseu::memory::NkAllocator* a) {
             alloc = a;
-            FILE* f = fopen(path, "rb");
-            if (!f) return false;
+            // NkFile gere automatiquement le fallback AAssetManager Android :
+            // un .wav dans assets/ de l'APK est ouvert via AAsset si fopen echoue.
+            nkentseu::NkFile f;
+            if (!f.Open(path, nkentseu::NkFileMode::NK_READ_BINARY)) return false;
 
-            fseek(f, 0, SEEK_END);
-            long len = ftell(f);
-            fseek(f, 0, SEEK_SET);
-
-            if (len <= 0) { fclose(f); return false; }
+            nkentseu::nk_int64 len = f.GetSize();
+            if (len <= 0) { f.Close(); return false; }
 
             size = (nkentseu::usize)len;
-            // Allocateur unifie : nullptr -> defaut global via NKMemory.
             data = (nkentseu::uint8*)nkentseu::memory::NkAlloc(size, alloc);
-            if (!data) { fclose(f); return false; }
+            if (!data) { f.Close(); return false; }
 
-            fread(data, 1, size, f);
-            fclose(f);
+            f.Read(data, size);
+            f.Close();
             return true;
         }
 
@@ -357,29 +359,23 @@ namespace nkentseu {
 
         AudioSample AudioLoader::LoadMP3(const uint8* data, usize size,
                                           memory::NkAllocator* allocator) {
-            // TODO: Intégrer minimp3.h (header-only, ~60Ko, MIT license, zéro STL)
-            // #define MINIMP3_IMPLEMENTATION
-            // #include "minimp3.h"
-            (void)data; (void)size; (void)allocator;
-            return {};
+            // Decodeur MP3 from scratch (NkMP3Codec). v0 : header+stats OK,
+            // decode complet (Huffman/IMDCT/synthesis) en cours en v1.
+            return NkMP3Codec::Decode(data, size, allocator);
         }
 
         AudioSample AudioLoader::LoadOGG(const uint8* data, usize size,
                                           memory::NkAllocator* allocator) {
-            // TODO: Intégrer stb_vorbis.c (header-only, ~200Ko, public domain)
-            // #define STB_VORBIS_NO_STDIO
-            // #include "stb_vorbis.c"
-            (void)data; (void)size; (void)allocator;
-            return {};
+            // Decodeur OGG Vorbis from-scratch (NkOGGVorbisCodec).
+            // v0 : skeleton + parse identification header. Decode complet en
+            // sessions futures (codebooks + floors + residues + MDCT).
+            return NkOGGVorbisCodec::Decode(data, size, allocator);
         }
 
         AudioSample AudioLoader::LoadFLAC(const uint8* data, usize size,
                                            memory::NkAllocator* allocator) {
-            // TODO: Intégrer dr_flac.h (header-only, ~130Ko, MIT license)
-            // #define DR_FLAC_IMPLEMENTATION
-            // #include "dr_flac.h"
-            (void)data; (void)size; (void)allocator;
-            return {};
+            // Decodeur FLAC from scratch (NkFLACCodec). Aucun dependance externe.
+            return NkFLACCodec::Decode(data, size, allocator);
         }
 
         // ──────────────────────────────────────────────────────────────────────
@@ -389,8 +385,10 @@ namespace nkentseu {
         bool AudioLoader::SaveWAV(const char* path, const AudioSample& sample) {
             if (!path || !sample.IsValid()) return false;
 
-            FILE* f = fopen(path, "wb");
-            if (!f) return false;
+            // NkFile gere cross-platform + Android (l'ecriture sur Android
+            // utilise le filesystem normal, pas AAsset qui est lecture seule).
+            NkFile f;
+            if (!f.Open(path, NkFileMode::NK_WRITE_BINARY)) return false;
 
             usize sampleCount = sample.GetSampleCount();
             uint32 dataSize   = (uint32)(sampleCount * sizeof(int16)); // export en 16-bit
@@ -427,20 +425,19 @@ namespace nkentseu {
             header[40]=(uint8)(dataSize); header[41]=(uint8)(dataSize>>8);
             header[42]=(uint8)(dataSize>>16); header[43]=(uint8)(dataSize>>24);
 
-            fwrite(header, 1, 44, f);
+            f.Write(header, 44);
 
             // Écrire samples en Int16
             for (usize i = 0; i < sampleCount; ++i) {
                 float32 s = sample.data[i];
-                // Clamp
                 if (s >  1.0f) s =  1.0f;
                 if (s < -1.0f) s = -1.0f;
                 int16 pcm = (int16)(s * 32767.0f);
                 uint8 bytes[2] = { (uint8)(pcm), (uint8)((uint16)pcm >> 8) };
-                fwrite(bytes, 1, 2, f);
+                f.Write(bytes, 2);
             }
 
-            fclose(f);
+            f.Close();
             return true;
         }
 
