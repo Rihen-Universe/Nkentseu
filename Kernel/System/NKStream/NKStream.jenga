@@ -31,9 +31,13 @@ with project("NKStream"):
         "%{NKCore.location}/src",
         "%{NKPlatform.location}/src",
         "%{NKLogger.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKFileSystem.location}/src",
     ])
 
-    dependson(["NKCore", "NKPlatform", "NKLogger"])
+    dependson(["NKCore", "NKPlatform", "NKLogger", "NKMemory", "NKContainers", "NKThreading", "NKFileSystem"])
 
     files([
         "src/NKStream/**.cpp",
@@ -58,6 +62,10 @@ with project("NKStream"):
     with filter("system:Android"):
         usetoolchain("android-ndk")
         links(["log"])
+    with filter("system:HarmonyOS"):
+        # NDK OHOS clang (meme contrainte qu'Android)
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):

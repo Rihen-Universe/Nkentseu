@@ -341,6 +341,14 @@ namespace nkentseu {
                 td.debugName = "BRDFLUT";
                 mBrdfLUT = mDevice->CreateTexture(td);
             }
+            // Phase N v1 : cubemap dedie skybox HDR brut (RGBA32F, mip 0).
+            // Format full-float pour preserver les valeurs > 1.0 (sans
+            // Reinhard tonemap) — c'est ce qui rend le sky HDR "vivant".
+            {
+                auto td = NkTextureDesc::Cubemap(prefSize, NkGPUFormat::NK_RGBA32_FLOAT, 1);
+                td.debugName = "SkyEnvCube";
+                mSkyEnvCube = mDevice->CreateTexture(td);
+            }
 
             mEnvSampler = mDevice->CreateSampler(NkSamplerDesc::Clamp());
             mLutSampler = mDevice->CreateSampler(NkSamplerDesc::Clamp());
@@ -386,6 +394,39 @@ namespace nkentseu {
             const uint32 prefMips = mCfg.prefilterMips  > 0 ? mCfg.prefilterMips  : 5;
             const uint32 lutSize  = mCfg.brdfLUTSize    > 0 ? mCfg.brdfLUTSize    : 256;
 
+            auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
+
+            // ── Phase N v1 : skybox cubemap procedural (gradient direct) ────
+            // En mode PROCEDURAL on n'a pas de "vrai HDR" — on sample le
+            // gradient sky directement sans tonemap (les valeurs sont deja
+            // dans [0,1]). Genere TOUJOURS avant le cache check IBL.
+            if (mSkyEnvCube.IsValid()) {
+                std::vector<std::vector<float>> skyData(6);
+                auto skyFaceWork = [&](uint32 face) {
+                    auto& buf = skyData[face];
+                    buf.assign(prefSize * prefSize * 4, 0.f);
+                    for (uint32 y = 0; y < prefSize; y++) {
+                        for (uint32 x = 0; x < prefSize; x++) {
+                            float u = ((float)x + 0.5f) / (float)prefSize * 2.f - 1.f;
+                            float v = ((float)y + 0.5f) / (float)prefSize * 2.f - 1.f;
+                            float Nx, Ny, Nz;
+                            CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
+                            NkVec3f s = SampleSkyGradient(Nx, Ny, Nz, skyTop, horizon, ground);
+                            uint32 idx = (y * prefSize + x) * 4;
+                            buf[idx+0] = s.x;
+                            buf[idx+1] = s.y;
+                            buf[idx+2] = s.z;
+                            buf[idx+3] = 1.f;
+                        }
+                    }
+                };
+                pool.ParallelFor(6, [&](nk_size f) { skyFaceWork((uint32)f); }, 1);
+                pool.Join();
+                for (uint32 f = 0; f < 6; f++)
+                    mDevice->WriteTextureRegion(mSkyEnvCube, skyData[f].data(),
+                                                 0, 0, 0, prefSize, prefSize, 1, 0, f);
+            }
+
             // ── Cache disque ────────────────────────────────────────────────────
             uint32 hash = IBLHash(skyTop, horizon, ground, irrSize, prefSize, prefMips, lutSize);
             if (mCfg.enableCache) {
@@ -395,8 +436,6 @@ namespace nkentseu {
                     return;  // charge depuis cache : aucun calcul CPU
                 }
             }
-
-            auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
 
             // ── BRDF LUT ────────────────────────────────────────────────────────
             // 32 samples suffisent pour un gradient sky sans hautes frequences.
@@ -599,6 +638,39 @@ namespace nkentseu {
             mix(kIBLVersion);
             mix(0x48445201u); // marker "HDR1" pour ne pas collisionner avec LoadProcedural
 
+            auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
+
+            // ── Phase N v1 : skybox cubemap HDR brut (sans Reinhard) ────────
+            // Genere TOUJOURS (avant le cache check IBL) car ce cubemap n'est
+            // pas serialise dans nk_ibl_*.bin (regeneration ~10ms, negligeable).
+            // Mirror direct du HDR equirect sur les 6 faces du cube en RGBA32F.
+            if (mSkyEnvCube.IsValid()) {
+                std::vector<std::vector<float>> skyData(6);
+                auto skyFaceWork = [&](uint32 face) {
+                    auto& buf = skyData[face];
+                    buf.assign(prefSize * prefSize * 4, 0.f);
+                    for (uint32 y = 0; y < prefSize; y++) {
+                        for (uint32 x = 0; x < prefSize; x++) {
+                            float u = ((float)x + 0.5f) / (float)prefSize * 2.f - 1.f;
+                            float v = ((float)y + 0.5f) / (float)prefSize * 2.f - 1.f;
+                            float Nx, Ny, Nz;
+                            CubemapFaceUVToDir(face, u, v, Nx, Ny, Nz);
+                            NkVec3f s = SampleEquirect(Nx, Ny, Nz, *hdr);
+                            uint32 idx = (y * prefSize + x) * 4;
+                            buf[idx+0] = s.x;
+                            buf[idx+1] = s.y;
+                            buf[idx+2] = s.z;
+                            buf[idx+3] = 1.f;
+                        }
+                    }
+                };
+                pool.ParallelFor(6, [&](nk_size f) { skyFaceWork((uint32)f); }, 1);
+                pool.Join();
+                for (uint32 f = 0; f < 6; f++)
+                    mDevice->WriteTextureRegion(mSkyEnvCube, skyData[f].data(),
+                                                 0, 0, 0, prefSize, prefSize, 1, 0, f);
+            }
+
             if (mCfg.enableCache) {
                 auto cpath = IBLCachePath(mCfg.cacheDir, hash);
                 if (TryLoadIBLCache(cpath, hash, mDevice, mBrdfLUT, mIrradiance, mPrefilter,
@@ -607,8 +679,6 @@ namespace nkentseu {
                     return true;
                 }
             }
-
-            auto& pool = ::nkentseu::threading::NkThreadPool::GetGlobal();
 
             // ── BRDF LUT (identique a LoadProcedural — universel) ───────────
             std::vector<uint8_t> lutData(lutSize * lutSize * 2);
@@ -758,6 +828,8 @@ namespace nkentseu {
             }
 
             // ── Sauvegarde du cache ─────────────────────────────────────────
+            // Note v1 : mSkyEnvCube n'est PAS dans le cache (genere avant le
+            // cache check, regenere a chaque boot ~10ms negligeable).
             if (mCfg.enableCache) {
                 auto cpath = IBLCachePath(mCfg.cacheDir, hash);
                 SaveIBLCache(cpath, hash, irrSize, prefSize, prefMips, lutSize,
@@ -772,6 +844,7 @@ namespace nkentseu {
             if (mLutSampler.IsValid()) { mDevice->DestroySampler(mLutSampler); mLutSampler={}; }
             if (mEnvSampler.IsValid()) { mDevice->DestroySampler(mEnvSampler); mEnvSampler={}; }
             if (mBrdfLUT.IsValid())    { mDevice->DestroyTexture(mBrdfLUT);    mBrdfLUT={}; }
+            if (mSkyEnvCube.IsValid()) { mDevice->DestroyTexture(mSkyEnvCube); mSkyEnvCube={}; }
             if (mPrefilter.IsValid())  { mDevice->DestroyTexture(mPrefilter);  mPrefilter={}; }
             if (mIrradiance.IsValid()) { mDevice->DestroyTexture(mIrradiance); mIrradiance={}; }
         }

@@ -34,15 +34,16 @@ with project("NkAudioDemo"):
         "%{NKMath.location}/src",
         "%{NKThreading.location}/src",
         "%{NKLogger.location}/src",
+        "%{NKFileSystem.location}/src",
         "%{NKAudio.location}/src",
     ])
 
     links([
-        "NKLogger", "NKAudio", "NKContainers", "NKMemory", "NKCore",
+        "NKLogger", "NKAudio", "NKFileSystem", "NKContainers", "NKMemory", "NKCore",
         "NKPlatform", "NKThreading", "NKMath",
     ])
     dependson([
-        "NKLogger", "NKAudio", "NKContainers", "NKMemory", "NKCore",
+        "NKLogger", "NKAudio", "NKFileSystem", "NKContainers", "NKMemory", "NKCore",
         "NKPlatform", "NKThreading", "NKMath",
     ])
 
@@ -79,6 +80,12 @@ with project("NkAudioDemo"):
     with filter("system:macOS"):
         usetoolchain("clang-native")
         frameworks(["AudioToolbox", "CoreAudio", "CoreFoundation"])
+
+    # ===== HarmonyOS ==========================================================
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+        # Pas de backend audio Harmony pour l'instant -> NKAudio tombe sur Null.
+        links(["hilog_ndk.z"])
 
     with filter("config:Debug"):
         defines(["_DEBUG"])

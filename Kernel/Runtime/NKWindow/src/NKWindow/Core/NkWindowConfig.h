@@ -11,16 +11,10 @@
 // =============================================================================
 
 #include "NkTypes.h"
-#include "NkSafeArea.h"
+#include "NKEvent/NkSafeArea.h"
 #include "NkSurfaceHint.h"   // ← seul ajout d'include
 
 namespace nkentseu {
-
-	enum class NkScreenOrientation : uint32 {
-		NK_SCREEN_ORIENTATION_AUTO = 0,
-		NK_SCREEN_ORIENTATION_PORTRAIT,
-		NK_SCREEN_ORIENTATION_LANDSCAPE,
-	};
 
 	struct NkWebInputOptions {
 		bool captureKeyboard        = true;

@@ -12,6 +12,8 @@
 // =============================================================================
 #include "NKCore/NkTypes.h"
 #include "NKPlatform/NkCGXDetect.h"
+#include "NKContainers/String/NkString.h"
+#include "NKMath/NkVec.h"
 
 namespace nkentseu {
     namespace renderer {
@@ -126,6 +128,18 @@ namespace nkentseu {
             bool    colorGrading      = false;
             float32 contrast          = 1.f;
             float32 saturation        = 1.f;
+            // Phase L : 3D LUT cinema (16^3 par defaut identity).
+            // Si lutStrength > 0, le tonemap blend la mapped color avec LUT(mapped).
+            // User peut uploader son LUT custom via NkRenderer::SetColorGradingLUT().
+            float32 lutStrength       = 0.f;     // 0 = no grading, 1 = full LUT applied
+            uint32  lutSize           = 16;      // resolution du LUT 3D (16/32/64)
+            // Phase L : Auto-exposure V0 simple — le tonemap sample le centre
+            // du bloom RT (assume Dual-Kawase upsample = bonne moyenne) et adapte
+            // l'exposure pour que la moyenne mappe vers `autoExposureKey`.
+            // 0 = no auto, 1 = full auto-exp (override user exposure).
+            // V1 future : compute reduction proper + eye adaptation temporelle.
+            float32 autoExposureStrength = 0.f;
+            float32 autoExposureKey      = 0.18f;  // mid-gray target (Reinhard standard)
             // SSR
             bool    ssr               = false;
             // Vignette / grain
@@ -142,6 +156,26 @@ namespace nkentseu {
             uint32  specularMapSize    = 256;      // GGX prefiltered (mips = roughness)
             uint32  brdfLUTSize        = 512;      // 2D R16G16
             uint32  prefilterMipCount  = 6;        // mips de la specular map
+
+            // ── Phase N v0 : source IBL parametrable par l'application ──────
+            // useHDR=false (default) -> gradient sky procedural avec les
+            //   couleurs skyTop / horizon / ground ci-dessous.
+            // useHDR=true + hdrPath non vide -> charge un .hdr equirect 360
+            //   et l'utilise comme source pour les convolutions IBL CPU.
+            //   Cache disque automatique (cf. NkEnvironmentSystem).
+            bool    useHDR             = false;
+            NkString hdrPath           = "";
+
+            // Couleurs du gradient procedural (si useHDR=false).
+            math::NkVec3f skyTop       = {0.40f, 0.55f, 0.80f};
+            math::NkVec3f horizon      = {0.45f, 0.48f, 0.52f};
+            math::NkVec3f ground       = {0.10f, 0.08f, 0.06f};
+
+            // Phase N v0.5 : afficher le cubemap d'environnement en arriere-plan
+            // (skybox). Sinon le fond reste celui du clear color du framebuffer.
+            // Recommande : true quand useHDR=true pour voir l'environnement HDR
+            // entier (pas juste son reflet sur les objets).
+            bool          drawSkybox   = false;
         };
 
         struct NkClusterConfig {
@@ -150,6 +184,62 @@ namespace nkentseu {
             uint32 sliceCount = 24;     // depth slices (logarithmique)
             uint32 maxLightsPerCluster = 256;
         };
+
+        // =====================================================================
+        // NkUnitSystem — Echelle spatiale globale (style Blender).
+        //
+        // Convention : 1 unite world-space = `metersPerUnit` metres reels.
+        //   metersPerUnit = 1.f    -> 1 unit = 1 metre (defaut, style Blender/
+        //                              Godot/Unity).
+        //   metersPerUnit = 0.001f -> 1 unit = 1 millimetre (micro-scenes,
+        //                              molecules, microscopie).
+        //   metersPerUnit = 1000.f -> 1 unit = 1 kilometre (planetes, espace,
+        //                              terrain immense).
+        //
+        // Cette echelle affecte les conversions "mesure physique reelle <->
+        // coordonnees world" : triplanar tile size (m), distance attenuation
+        // lights (m), camera near/far par defaut, vitesse caracteres, audio
+        // 3D, etc.
+        //
+        // Le shader recoit metersPerUnit via les UBOs concernes (ex. ObjectUBO
+        // .triplanarParams.y). Convertir une distance metres -> units :
+        //   units = metres / metersPerUnit.
+        //
+        // ⚠ Unreal Engine utilise 1 unit = 1 cm (legacy Quake-era). On suit
+        // Blender (1 unit = 1 m) car c'est le standard moderne et plus
+        // intuitif pour les artistes.
+        // =====================================================================
+        struct NkUnitSystem {
+            float32 metersPerUnit = 1.f;
+
+            // m -> units : pratique pour ecrire "MetersToUnits(0.5f)" et que
+            // ca donne le scale correct quelle que soit l'echelle globale.
+            float32 MetersToUnits(float32 meters) const noexcept {
+                return metersPerUnit > 0.f ? meters / metersPerUnit : meters;
+            }
+            float32 UnitsToMeters(float32 units) const noexcept {
+                return units * metersPerUnit;
+            }
+        };
+
+        // Accesseurs globaux. Initial : metersPerUnit = 1.0f (1 unit = 1 m).
+        // Modifier via NkSetUnits() AVANT de creer la scene si tu veux
+        // travailler en mm ou en km — apres coup, tous les materials, lights,
+        // cameras, etc. devraient idealement etre re-scales (TODO V1).
+        //
+        // Inline pour zero setup : pas de .cpp dedie a NkRendererConfig.
+        // Storage Meyers singleton — initialise lazy au premier appel,
+        // thread-safe C++11.
+        inline NkUnitSystem& NkUnitsMutable() noexcept {
+            static NkUnitSystem sUnits;
+            return sUnits;
+        }
+        inline const NkUnitSystem& NkUnits() noexcept {
+            return NkUnitsMutable();
+        }
+        inline void NkSetUnits(const NkUnitSystem& u) noexcept {
+            NkUnitsMutable() = u;
+        }
 
         // =====================================================================
         // NkRendererConfig — la config globale

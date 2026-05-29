@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkRendererImpl.h"
 #include "NKRenderer/Tools/Reflection/NkPlanarReflectionSystem.h"
+#include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h"
 #include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
@@ -143,6 +144,17 @@ namespace nkentseu {
                 // Phase M.2 : bind l'UBO collection aux global set rings de Render3D.
                 if (mMaterialCollection)
                     mRender3D->SetMaterialCollection(mMaterialCollection.Get());
+
+                // Phase H.6 : Voxel AO system. L'app enregistre les occluders
+                // via GetVoxelAO()->RegisterOccluder() puis Build(). Le PBR
+                // shader sample auto la texture 3D au binding=27.
+                mVoxelAO.Reset(AllocOwned<NkVoxelAOSystem>());
+                if (!mVoxelAO->Init(mDevice)) {
+                    logger.Warnf("[NkRendererImpl] NkVoxelAOSystem init failed (non bloquant)\n");
+                    mVoxelAO.Reset();
+                }
+                if (mVoxelAO && mRender3D)
+                    mRender3D->SetVoxelAO(mVoxelAO.Get());
             }
 
             if (mCfg.Has(NK_SS_TEXT))                           { logger.Info("[NkRendererImpl]  step10: InitTextRenderer\n"); if (!InitTextRenderer()) return false; }
@@ -166,16 +178,24 @@ namespace nkentseu {
         // =====================================================================
         bool NkRendererImpl::InitShadow() {
             if (mShadow) return true;
-            NkShadowSystemConfig sc;
-            sc.resolution  = mCfg.shadow.resolution;
-            sc.numCascades = mCfg.shadow.cascadeCount;
-            sc.pcfMode     = mCfg.shadow.pcss
-                              ? NkPCFMode::PCSS
-                              : (mCfg.shadow.softShadows ? NkPCFMode::PCF3x3 : NkPCFMode::NONE);
-            mShadow.Reset(AllocOwned<NkShadowSystem>());
-            if (!mShadow->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(), sc)) {
+            NkVirtualShadowMapsConfig sc;
+            // Atlas size : on prefere 4096 par defaut pour pouvoir packer
+            // plusieurs lights. Si la config NkShadowConfig demande une taille
+            // plus petite (resolution per-tile), on la respecte mais sur l'atlas.
+            sc.atlasSize       = (mCfg.shadow.resolution > 0)
+                                  ? mCfg.shadow.resolution * 2 : 4096;
+            sc.numCascades     = mCfg.shadow.cascadeCount > 0
+                                  ? mCfg.shadow.cascadeCount : 3;
+            sc.quality         = mCfg.shadow.pcss
+                                  ? NkVSMShadowQuality::PCSS
+                                  : (mCfg.shadow.softShadows
+                                      ? NkVSMShadowQuality::PCF3x3
+                                      : NkVSMShadowQuality::NONE);
+            mShadow.Reset(AllocOwned<NkVirtualShadowMaps>());
+            if (!mShadow->Init(mDevice, mMeshSystem.Get(), mMaterials.Get(), sc,
+                               mCfg.framesInFlight)) {
                 mShadow.Reset();
-                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkShadowSystem::Init failed");
+                NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkVirtualShadowMaps::Init failed");
                 return false;
             }
             return true;
@@ -206,12 +226,33 @@ namespace nkentseu {
             // mRender3D dans sa passe shadow. Necessaire pour D.3b.
             if (mShadow) mShadow->SetRenderer3D(mRender3D.Get());
             mRender3D->SetIBLStrength(mCfg.ibl.iblStrength);
+            // Phase N v0.5 : active la skybox HDR en background si l'app le
+            // demande (recommande quand useHDR=true pour voir l'environnement
+            // entier, pas juste ses reflets sur les objets).
+            mRender3D->SetSkyboxEnabled(mCfg.ibl.drawSkybox);
             return true;
         }
         bool NkRendererImpl::InitEnvironment() {
             if (mEnvironment) return true;
             mEnvironment.Reset(AllocOwned<NkEnvironmentSystem>());
-            if (!mEnvironment->Init(mDevice)) {
+
+            // Phase N v0 : build NkEnvironmentConfig depuis mCfg.ibl (NkIBLConfig).
+            // L'app peut customiser via cfg.ibl.useHDR + hdrPath OU les couleurs
+            // procedurales skyTop/horizon/ground.
+            NkEnvironmentConfig ecfg;
+            ecfg.irradianceSize = mCfg.ibl.irradianceMapSize > 0 ? mCfg.ibl.irradianceMapSize : 32;
+            ecfg.prefilterSize  = mCfg.ibl.specularMapSize   > 0 ? mCfg.ibl.specularMapSize   : 128;
+            ecfg.prefilterMips  = mCfg.ibl.prefilterMipCount > 0 ? mCfg.ibl.prefilterMipCount : 5;
+            ecfg.brdfLUTSize    = mCfg.ibl.brdfLUTSize       > 0 ? mCfg.ibl.brdfLUTSize       : 256;
+            ecfg.source         = mCfg.ibl.useHDR
+                                  ? NkEnvSource::NK_ENV_HDR_FILE
+                                  : NkEnvSource::NK_ENV_PROCEDURAL;
+            ecfg.hdrPath        = mCfg.ibl.hdrPath;
+            ecfg.skyTop         = mCfg.ibl.skyTop;
+            ecfg.horizon        = mCfg.ibl.horizon;
+            ecfg.ground         = mCfg.ibl.ground;
+
+            if (!mEnvironment->Init(mDevice, ecfg)) {
                 mEnvironment.Reset();
                 NkRSetLastError(NkRResult::NK_ERR_UNKNOWN, "NkEnvironmentSystem::Init failed");
                 return false;
@@ -381,6 +422,7 @@ namespace nkentseu {
             }
             mOffscreenTargets.Clear();
 
+            mVoxelAO.Reset();
             mPlanarReflection.Reset();
             mSimulation.Reset();
             mAnimation.Reset();
@@ -462,7 +504,7 @@ namespace nkentseu {
                 g.AddPass("Shadows", NkPassType::NK_SHADOW)
                  .SetAlwaysExecute(true)   // outputs hors-graph (FBO interne au ShadowSystem)
                  .Execute([this](NkICommandBuffer* cmd) {
-                     mShadow->RenderShadowPasses(cmd);
+                     mShadow->RenderAllShadows(cmd);
                  });
             }
 
@@ -489,22 +531,177 @@ namespace nkentseu {
                  });
             }
 
+            // ── Phase H.3 : SSAO (Screen Space Ambient Occlusion) ──────────────
+            // Atténue l'ambient/IBL des zones occluses par geometrie proche
+            // (objets sous le sol, dans les coins, sous une table, etc.).
+            // Pass : Reads(mainDepth) -> SetColor(ssaoTex, R8_UNORM, W/2 x H/2).
+            // Le tonemap multiplie HDR par le SSAO factor avant ACES.
+            NkGraphResId ssaoTex        = NK_INVALID_RES_ID;
+            NkGraphResId ssaoBlurredTex = NK_INVALID_RES_ID;
+            const bool hasSSAO = has3D && hasPP && mPostProcess
+                                 && mCfg.postProcess.ssao
+                                 && mainDepth != NK_INVALID_RES_ID;
+            if (hasSSAO) {
+                uint32 sw = mCfg.width  / 2 ? mCfg.width  / 2 : 1;
+                uint32 sh = mCfg.height / 2 ? mCfg.height / 2 : 1;
+                ssaoTex = g.CreateTransient("SSAO",
+                    NkTextureDesc::RenderTarget(sw, sh, NkGPUFormat::NK_R8_UNORM));
+
+                auto& sp = g.AddPass("SSAO", NkPassType::NK_POST_PROCESS);
+                sp.Reads(mainDepth);
+                sp.SetColor(0, ssaoTex, NkLoadOp::NK_CLEAR, {1.f, 1.f, 1.f, 1.f});
+                NkGraphResId depthId = mainDepth;
+                sp.Execute([this, depthId, sw, sh](NkICommandBuffer* cmd) {
+                    NkTextureHandle depthTex = mRenderGraph->GetResourceTexture(depthId);
+                    if (mPostProcess && depthTex.IsValid()) {
+                        mPostProcess->DrawSSAOPass(cmd, depthTex, sw, sh);
+                    }
+                });
+
+                // Phase H.5b : pass blur denoise sur le ssaoTex noisy.
+                // Le tonemap sample ssaoBlurredTex au lieu de ssaoTex.
+                ssaoBlurredTex = g.CreateTransient("SSAO_Blurred",
+                    NkTextureDesc::RenderTarget(sw, sh, NkGPUFormat::NK_R8_UNORM));
+                auto& bp = g.AddPass("SSAO_Blur", NkPassType::NK_POST_PROCESS);
+                bp.Reads(ssaoTex);
+                bp.SetColor(0, ssaoBlurredTex, NkLoadOp::NK_CLEAR, {1.f, 1.f, 1.f, 1.f});
+                NkGraphResId aoId = ssaoTex;
+                bp.Execute([this, aoId, sw, sh](NkICommandBuffer* cmd) {
+                    NkTextureHandle aoTex = mRenderGraph->GetResourceTexture(aoId);
+                    if (mPostProcess && aoTex.IsValid()) {
+                        mPostProcess->DrawSSAOBlurPass(cmd, aoTex, sw, sh);
+                    }
+                });
+            }
+
+            // ── Phase H.2 : Bloom Dual-Kawase multi-pass (Jorge Jimenez 2014) ──
+            // Pyramide downsample (5 mips RGBA16F) + upsample additif + sample
+            // dans le tonemap. State-of-the-art moderne (COD Advanced Warfare).
+            // bloomMip[0] = W/2, bloomMip[5] = W/64. Le 1er downsample applique
+            // un soft threshold (bright pass). Les upsamples blendent additif.
+            constexpr int kBloomMipsRG = 6;
+            NkGraphResId bloomMip[kBloomMipsRG];
+            for (int i = 0; i < kBloomMipsRG; i++) bloomMip[i] = NK_INVALID_RES_ID;
+
+            const bool hasBloom = has3D && hasPP && mPostProcess
+                                  && mCfg.postProcess.bloom;
+            if (hasBloom) {
+                // Cree les transients pyramide.
+                for (int i = 0; i < kBloomMipsRG; i++) {
+                    uint32 div = 1u << (i + 1);   // mip 0 = W/2, mip 5 = W/64
+                    uint32 bw = mCfg.width  / div ? mCfg.width  / div : 1;
+                    uint32 bh = mCfg.height / div ? mCfg.height / div : 1;
+                    char name[32];
+                    snprintf(name, sizeof(name), "BloomMip%d", i);
+                    bloomMip[i] = g.CreateTransient(name,
+                        NkTextureDesc::RenderTarget(bw, bh, NkGPUFormat::NK_RGBA16_FLOAT));
+                }
+
+                // 6 passes downsample : extrait highlights + downsample x2 par mip.
+                // Pass 0 : src = mainColor (HDR), threshold actif.
+                // Pass 1..5 : src = bloomMip[i-1], threshold = 0 (passthrough).
+                const float bloomThr = mCfg.postProcess.bloomThreshold;
+                for (int i = 0; i < kBloomMipsRG; i++) {
+                    char passName[32];
+                    snprintf(passName, sizeof(passName), "Bloom_Down_%d", i);
+                    auto& dp = g.AddPass(passName, NkPassType::NK_POST_PROCESS);
+                    NkGraphResId src = (i == 0) ? mainColor : bloomMip[i-1];
+                    dp.Reads(src);
+                    dp.SetColor(0, bloomMip[i], NkLoadOp::NK_CLEAR, {0,0,0,1});
+                    uint32 div = 1u << i;   // mip i source resolution = W/(2^i) avant downsample
+                    uint32 srcW = (i == 0) ? mCfg.width  : (mCfg.width  / div ? mCfg.width  / div : 1);
+                    uint32 srcH = (i == 0) ? mCfg.height : (mCfg.height / div ? mCfg.height / div : 1);
+                    float thr = (i == 0) ? bloomThr : 0.0f;
+                    dp.Execute([this, src, srcW, srcH, thr](NkICommandBuffer* cmd) {
+                        NkTextureHandle srcTex = mRenderGraph->GetResourceTexture(src);
+                        if (mPostProcess && srcTex.IsValid()) {
+                            mPostProcess->DrawBloomDownPass(cmd, srcTex, srcW, srcH, thr);
+                        }
+                    });
+                }
+
+                // 5 passes upsample : tent filter 3x3 + blend additif sur la mip
+                // courante (cible = mip plus grande, source = mip plus petite).
+                // Ordre : Bloom_Up_4 (mip5->mip4), ..., Bloom_Up_0 (mip1->mip0).
+                for (int i = kBloomMipsRG - 2; i >= 0; i--) {
+                    char passName[32];
+                    snprintf(passName, sizeof(passName), "Bloom_Up_%d", i);
+                    auto& up = g.AddPass(passName, NkPassType::NK_POST_PROCESS);
+                    up.Reads(bloomMip[i+1]);
+                    // NK_LOAD pour preserver le downsample de la mip courante
+                    // (la pass upsample blende additif par-dessus).
+                    up.SetColor(0, bloomMip[i], NkLoadOp::NK_LOAD);
+                    uint32 div = 1u << (i + 2);   // mip i+1 = W/(2^(i+2))
+                    uint32 srcW = mCfg.width  / div ? mCfg.width  / div : 1;
+                    uint32 srcH = mCfg.height / div ? mCfg.height / div : 1;
+                    NkGraphResId src = bloomMip[i+1];
+                    up.Execute([this, src, srcW, srcH](NkICommandBuffer* cmd) {
+                        NkTextureHandle srcTex = mRenderGraph->GetResourceTexture(src);
+                        if (mPostProcess && srcTex.IsValid()) {
+                            mPostProcess->DrawBloomUpPass(cmd, srcTex, srcW, srcH, 1.0f);
+                        }
+                    });
+                }
+            }
+
             // ── Post-process ──────────────────────────────────────────────────
             if (has3D && hasPP) {
+                // Phase L FXAA wirage : si FXAA actif, on split en 2 passes.
+                //   Pass 1 PostProcess  -> ecrit dans transient ToneLDR
+                //   Pass 2 FXAA_Final   -> lit ToneLDR, ecrit dans colorId
+                // Le RG track auto les state transitions des transients
+                // (contraire aux ImportTexture). Transient sera GC apres le draw.
+                const bool fxaaOn = mPostProcess && mPostProcess->IsFXAAEnabled();
+                NkGraphResId postTargetId = colorId;
+                NkGraphResId toneTexId    = NK_INVALID_RES_ID;
+                if (fxaaOn) {
+                    auto tdesc = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height,
+                                                              NkGPUFormat::NK_RGBA8_UNORM);
+                    tdesc.debugName = "ToneLDR_Transient";
+                    toneTexId = g.CreateTransient("ToneLDR", tdesc);
+                    if (toneTexId != NK_INVALID_RES_ID) {
+                        postTargetId = toneTexId;
+                    }
+                }
+
                 auto& pp = g.AddPass("PostProcess", NkPassType::NK_POST_PROCESS);
                 pp.Reads(mainColor);
                 if (mainDepth != NK_INVALID_RES_ID) pp.Reads(mainDepth);
-                pp.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0,0,0,1});
-                NkGraphResId hdrColorId = mainColor;   // capture by value
-                pp.Execute([this, hdrColorId](NkICommandBuffer* cmd) {
-                    // Resoud le handle RHI du transient HDR et passe-le au PostProcess
-                    // qui dessine le tonemap fullscreen vers le swapchain (FBO 0,
-                    // bindé par BeginRenderPass de cette passe car colorId=swapchain).
-                    NkTextureHandle hdr = mRenderGraph->GetResourceTexture(hdrColorId);
+                if (hasBloom && bloomMip[0] != NK_INVALID_RES_ID) pp.Reads(bloomMip[0]);
+                if (hasSSAO && ssaoBlurredTex != NK_INVALID_RES_ID) pp.Reads(ssaoBlurredTex);
+                pp.SetColor(0, postTargetId, NkLoadOp::NK_CLEAR, {0,0,0,1});
+                NkGraphResId hdrColorId   = mainColor;   // capture by value
+                NkGraphResId bloomColorId = hasBloom ? bloomMip[0]    : NK_INVALID_RES_ID;
+                NkGraphResId ssaoColorId  = hasSSAO  ? ssaoBlurredTex : NK_INVALID_RES_ID;
+                pp.Execute([this, hdrColorId, bloomColorId, ssaoColorId](NkICommandBuffer* cmd) {
+                    NkTextureHandle hdr   = mRenderGraph->GetResourceTexture(hdrColorId);
+                    NkTextureHandle bloom = (bloomColorId != NK_INVALID_RES_ID)
+                                           ? mRenderGraph->GetResourceTexture(bloomColorId)
+                                           : NkTextureHandle{};
+                    NkTextureHandle ssao  = (ssaoColorId != NK_INVALID_RES_ID)
+                                           ? mRenderGraph->GetResourceTexture(ssaoColorId)
+                                           : NkTextureHandle{};
                     if (mPostProcess && hdr.IsValid()) {
-                        mPostProcess->ExecuteRHI(cmd, hdr);
+                        mPostProcess->ExecuteRHI(cmd, hdr, bloom, ssao);
                     }
                 });
+
+                // Pass 2 : FXAA -> swapchain. Active uniquement si fxaaOn.
+                // Le RG insere auto la barrier COLOR_ATTACHMENT -> SHADER_READ
+                // pour le transient toneTexId entre la pass PostProcess (Writes)
+                // et la pass FXAA_Final (Reads).
+                if (fxaaOn && toneTexId != NK_INVALID_RES_ID) {
+                    auto& fxaa = g.AddPass("FXAA_Final", NkPassType::NK_POST_PROCESS);
+                    fxaa.Reads(toneTexId);
+                    fxaa.SetColor(0, colorId, NkLoadOp::NK_CLEAR, {0,0,0,1});
+                    NkGraphResId capturedToneId = toneTexId;
+                    fxaa.Execute([this, capturedToneId](NkICommandBuffer* cmd) {
+                        NkTextureHandle ldr = mRenderGraph->GetResourceTexture(capturedToneId);
+                        if (mPostProcess && ldr.IsValid()) {
+                            mPostProcess->ExecuteFXAA(cmd, ldr);
+                        }
+                    });
+                }
             }
 
             // ── DEBUG : pass dediee dessin direct triangle (DESACTIVEE) ────────

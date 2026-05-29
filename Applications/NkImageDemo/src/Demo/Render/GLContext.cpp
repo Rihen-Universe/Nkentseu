@@ -53,12 +53,12 @@
 
 #include "GLContext.h"
 #include "NKWindow/Core/NkWindow.h"
-#include "NKContext/Core/NkIGraphicsContext.h"
-#include "NKContext/Core/NkContextDesc.h"
-#include "NKContext/Core/NkOpenGLDesc.h"
-#include "NKContext/Core/NkNativeContextAccess.h"
-#include "NKContext/Factory/NkContextFactory.h"
-#include "NKContext/Backend/OpenGL/NkOpenGLContext.h"
+#include "NKCanvas/Core/NkIGraphicsContext.h"
+#include "NKCanvas/Core/NkContextDesc.h"
+#include "NKCanvas/Core/NkOpenGLDesc.h"
+#include "NKCanvas/Core/NkNativeContextAccess.h"
+#include "NKCanvas/Factory/NkContextFactory.h"
+#include "NKCanvas/Backend/OpenGL/NkOpenGLContext.h"
 #include "NKLogger/NkLog.h"
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)

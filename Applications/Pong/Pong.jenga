@@ -48,7 +48,7 @@ if _pkg_exists("libdecor-0"):
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 with project("Pong"):
-    useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "context", "network", "audio")
+    useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "canvas", "network", "audio")
     windowedapp()
     language("C++")
     cppdialect("C++17")
@@ -71,7 +71,7 @@ with project("Pong"):
         "%{NKImage.location}/src",
         "%{NKFont.location}/src",
         "%{NKUI.location}/src",
-        "%{NKContext.location}/src",
+        "%{NKCanvas.location}/src",
         "%{NKStream.location}/src",
         "%{NKGlad.location}/include",
         "%{NKFileSystem.location}/src",
@@ -84,7 +84,7 @@ with project("Pong"):
     includedirs(_PONG_INCLUDE_DIRS)
 
     _BASE_DEPS = [
-        "NKEvent", "NKWindow", "NKContext", "NKGlad", "NKLogger",
+        "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
         "NKFileSystem", "NKNetwork",
         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio"
@@ -145,9 +145,9 @@ with project("Pong"):
         libdirs(["%{NKFont.location}/lib"])
         _WIN_LINKS = [
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
-            "d3d11", "d3d12", "dxgi", "d3dcompiler", "freetype",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
             # Winsock pour NKNetwork (sockets UDP/TCP, ntohs/htons, etc.)
             "ws2_32", "iphlpapi",
             # WASAPI (NKAudio) : avrt pour MMCSS (Pro Audio thread priority)
@@ -183,7 +183,7 @@ with project("Pong"):
                           # NKAudio Android : dl (dlopen AAudio) + OpenSL ES
                           # fallback pour 24-25.
                           "dl", "OpenSLES"]
-        # NKContext compile avec Vulkan : il faut linker vulkan (API 24+)
+        # NKCanvas compile avec Vulkan : il faut linker vulkan (API 24+)
         if _WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
         links(_ANDROID_LINKS)
@@ -223,6 +223,26 @@ with project("Pong"):
             "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.ACCESS_WIFI_STATE",
             "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        ])
+
+    # ===== HarmonyOS ==========================================================
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+        # android/log/dl/OpenSLES retires (Android-only) ; log -> hilog_ndk.z.
+        _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
+        if _WANT_VULKAN:
+            _HARMONY_LINKS.append("vulkan")
+        links(_HARMONY_LINKS)
+        harmonybundlename("com.rihen.nkentseu.noge.pong")
+        harmonyassets(["../../Resources/Pong"])
+        harmonyminsdk(12)
+        harmonytargetapi(12)
+        # Permissions reseau OHOS (multijoueur LAN) : equivalent INTERNET +
+        # infos reseau/wifi Android (broadcast UDP decouverte LAN).
+        harmonypermissions([
+            "ohos.permission.INTERNET",
+            "ohos.permission.GET_NETWORK_INFO",
+            "ohos.permission.GET_WIFI_INFO",
         ])
 
     # ===== iOS ================================================================

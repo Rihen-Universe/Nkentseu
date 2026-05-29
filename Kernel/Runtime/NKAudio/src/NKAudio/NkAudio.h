@@ -36,6 +36,7 @@ namespace nkentseu {
         class AudioEngine;
         class IAudioBackend;
         class IAudioEffect;
+        class NkAudioBus;
         struct AudioSample;
         struct AudioHandle;
         struct AudioSource3D;
@@ -194,6 +195,20 @@ namespace nkentseu {
             EXPONENTIAL     ///< Exponentielle
         };
 
+        /**
+         * @brief Qualite du resampling (interpolation samples) pendant la lecture
+         *        quand pitch != 1.0 ou source sample rate != engine sample rate.
+         *
+         * LINEAR : 2 taps, le plus rapide. Aliasing audible sur sons aigus.
+         * SINC_4 : 8 taps (Lanczos a=4). Qualite pro, ~10x plus cher.
+         * SINC_8 : 16 taps (Lanczos a=8). Qualite mastering, ~20x plus cher.
+         */
+        enum class ResamplingQuality {
+            LINEAR = 0,
+            SINC_4,
+            SINC_8
+        };
+
     } // namespace audio
 } // namespace nkentseu
 
@@ -280,6 +295,20 @@ namespace nkentseu {
             AttenuationModel attenuationModel = AttenuationModel::INVERSE;
             bool             positional       = false; ///< Active le mode 3D
             bool             useDoppler       = true;  ///< Active l'effet Doppler
+
+            /// Occlusion [0..1] : 0 = aucun obstacle, 1 = totalement occlus.
+            /// L'application fait le raycast et fournit cette valeur.
+            /// Atténue le volume + lowpass filter (frequences hautes coupees).
+            float32 occlusion       = 0.0f;
+
+            /// Active l'air absorption : lowpass filter croissant avec distance
+            /// (simule l'attenuation des hautes frequences par l'atmosphere).
+            bool    airAbsorption   = false;
+
+            /// Active la spatialisation HRTF (convolution avec HRIR pre-mesures).
+            /// Requiert un dataset HRTF charge via LoadHrtfDataset.
+            /// Necessite positional=true. Recommande pour casque audio / VR.
+            bool    useHrtf         = false;
         };
 
         // ----------------------------------------------------------------
@@ -310,6 +339,7 @@ namespace nkentseu {
             float32         startOffset     = 0.0f;     ///< Offset de départ (s)
             int32           priority        = 128;      ///< Priorité de voix [0-255]
             AudioSource3D   source3d;                   ///< Paramètres spatiaux
+            const char*     bus             = "SFX";    ///< Bus de routage (SFX/Music/Voice/UI)
         };
 
         // ----------------------------------------------------------------
@@ -357,6 +387,14 @@ namespace nkentseu {
             bool                enableDoppler   = true;
             float32             masterVolume    = 1.0f;
             memory::NkAllocator* allocator      = nullptr;  ///< nullptr = allocateur global
+
+            /// Active automatiquement un limiter brick-wall sur le bus Master
+            /// pour eviter le clipping. Threshold typique -0.5 dB.
+            bool                enableMasterLimiter   = true;
+            float32             masterLimiterThresholdDb = -0.5f;
+
+            /// Qualite du resampling global (LINEAR par defaut, SINC_4 = AAA).
+            ResamplingQuality   resamplingQuality     = ResamplingQuality::LINEAR;
         };
 
     } // namespace audio
@@ -1144,6 +1182,54 @@ namespace nkentseu {
             void SetSourceMinDistance(AudioHandle handle, float32 dist);
             void SetSourceMaxDistance(AudioHandle handle, float32 dist);
 
+            /// Occlusion [0..1] (0 = aucun obstacle, 1 = totalement occlus).
+            /// Atténue volume + lowpass filter sur frequences hautes.
+            /// L'application fait le raycast pour calculer cette valeur.
+            void SetSourceOcclusion  (AudioHandle handle, float32 occlusion);
+
+            /// Active/désactive l'air absorption (lowpass selon distance).
+            /// Simule l'attenuation des hautes frequences par l'atmosphere.
+            void SetSourceAirAbsorption(AudioHandle handle, bool enabled);
+
+            /// Active/desactive le HRTF sur cette voix. Necessite un dataset
+            /// charge via LoadHrtfDataset(). Recommande casque audio / VR.
+            void SetSourceHRTF(AudioHandle handle, bool enabled);
+
+            // ── HRTF dataset (spatialisation 3D AAA) ──────────────────────
+
+            /**
+             * @brief Charge un dataset HRTF depuis un fichier .nkhrtf.
+             *
+             * Une fois charge, les voix avec source3d.useHrtf=true seront
+             * spatialisees par convolution avec les HRIR du dataset.
+             *
+             * @param path Chemin du fichier .nkhrtf
+             * @return true si chargement reussi.
+             */
+            bool LoadHrtfDataset(const char* path);
+
+            /**
+             * @brief Genere un dataset HRTF synthetique (modele spherique).
+             *
+             * Aucun fichier requis. Donne une spatialisation 3D fonctionnelle
+             * via ITD/ILD/head shadow approximatifs. Moins precis qu'un
+             * dataset mesure (MIT KEMAR) mais immediat et sans dependance.
+             *
+             * @param irLength    Longueur HRIR (default 128 samples)
+             * @param nAzimuths   Resolution azimut (default 36 = pas 10°)
+             * @param nElevations Resolution elevation (default 9)
+             * @return true si genere avec succes.
+             */
+            bool GenerateSyntheticHrtf(int32 irLength = 128,
+                                        int32 nAzimuths = 36,
+                                        int32 nElevations = 9);
+
+            /// Decharge le dataset HRTF courant.
+            void UnloadHrtfDataset();
+
+            /// true si un dataset HRTF est charge.
+            bool IsHrtfLoaded() const;
+
             void SetListenerPosition   (float32 x, float32 y, float32 z);
             void SetListenerVelocity   (float32 x, float32 y, float32 z);
             void SetListenerOrientation(float32 fwdX, float32 fwdY, float32 fwdZ,
@@ -1168,6 +1254,67 @@ namespace nkentseu {
             void RemoveMasterEffect(IAudioEffect* effect);
             void ClearMasterEffects();
 
+            // ── Audio Buses hierarchiques (Master -> SFX/Music/Voice/UI) ─
+
+            /**
+             * @brief Retourne le bus Master (root de la hierarchie).
+             *
+             * Le bus Master est cree automatiquement a Initialize() avec ses
+             * 4 sous-buses standard : SFX (default), Music, Voice, UI.
+             *
+             * Volume effectif d'une voix = voix.volume * bus.volume *
+             *                              bus.parent.volume * ... * Master.volume.
+             *
+             * @return Bus Master ou nullptr si engine non initialise.
+             */
+            NkAudioBus* GetMasterBus();
+
+            /**
+             * @brief Cherche un bus par nom (recursif depuis Master).
+             *
+             * Noms standards crees au Initialize : "Master", "SFX", "Music",
+             * "Voice", "UI".
+             *
+             * @param name Nom du bus
+             * @return Pointeur ou nullptr si introuvable.
+             */
+            NkAudioBus* GetBus(const char* name);
+
+            /**
+             * @brief Cree un nouveau bus, attache au parent (ou Master si null).
+             *        Si un bus du meme nom existe deja, le retourne.
+             *
+             * @param name   Nom du nouveau bus
+             * @param parent Bus parent (nullptr = Master)
+             * @return Bus cree (ou existant).
+             */
+            NkAudioBus* GetOrCreateBus(const char* name, NkAudioBus* parent = nullptr);
+
+            // ── Crossfade musique ────────────────────────────────────────
+
+            /**
+             * @brief Joue une nouvelle musique avec crossfade automatique :
+             *        fade out de la musique courante + fade in de la nouvelle.
+             *
+             * Toutes les voix actuellement sur le bus "Music" sont fade-out
+             * sur fadeTime secondes, puis la nouvelle musique demarre en
+             * fade-in sur fadeTime secondes (routee sur le bus "Music").
+             *
+             * @param newMusic   Sample de la nouvelle musique
+             * @param fadeTime   Duree du crossfade en secondes (defaut 2.0s)
+             * @param params     Parametres additionnels (volume, loop, etc.)
+             * @return Handle de la nouvelle musique (invalide si echec)
+             *
+             * @example
+             * @code
+             * AudioSample battleMusic = AudioLoader::Load("battle.ogg");
+             * engine.PlayMusicCrossfade(battleMusic, 2.0f);
+             * @endcode
+             */
+            AudioHandle PlayMusicCrossfade(const AudioSample& newMusic,
+                                            float32 fadeTime = 2.0f,
+                                            const VoiceParams& params = VoiceParams{});
+
             // ── Contrôles globaux ────────────────────────────────────────
 
             void    SetMasterVolume(float32 volume);
@@ -1176,6 +1323,21 @@ namespace nkentseu {
             void StopAll();
             void PauseAll();
             void ResumeAll();
+
+            /**
+             * @brief Rend `frameCount` frames du mix dans `outputBuffer`.
+             *
+             * Utile pour les tests offline (capture vers WAV), backend custom,
+             * benchmarks. Le buffer doit etre alloue par le caller : taille
+             * minimum = frameCount * channels * sizeof(float32).
+             *
+             * Ne demarre PAS le thread audio. Appel synchrone.
+             *
+             * @param outputBuffer Buffer float32 interleaved
+             * @param frameCount   Nombre de frames a produire
+             * @param channels     Canaux output (typique 2 = stereo)
+             */
+            void RenderToBuffer(float32* outputBuffer, int32 frameCount, int32 channels = 2);
 
             // ── Informations ─────────────────────────────────────────────
 

@@ -10,8 +10,8 @@
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkGamepadSystem.h"
 #include "NKWindow/NKMain.h"
-#include "NKContext/Deprecate/NkRenderer.h"
-#include "NKContext/Deprecate/NkRendererConfig.h"
+#include "NKCanvas/Deprecate/NkRenderer.h"
+#include "NKCanvas/Deprecate/NkRendererConfig.h"
 #include "NKTime/NkChrono.h"
 
 #include "NKLogger/NkLog.h"

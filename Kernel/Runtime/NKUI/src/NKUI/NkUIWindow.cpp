@@ -2,7 +2,7 @@
 // @File    NkUIWindow.cpp
 // @Brief   Fenêtres flottantes NkUI — production-ready.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Apache-2.0
+// @License Proprietary - Free to use and modify
 //
 // @Fonctionnalités
 //  - Barre de titre : drag, double-clic collapse, boutons fermeture/min/max

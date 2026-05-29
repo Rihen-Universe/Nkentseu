@@ -1,6 +1,10 @@
 # Created by https://www.toptal.com/developers/gitignore/api/c++,vs,visualstudio,visualstudiocode,lua,batch,powershell
 # Edit at https://www.toptal.com/developers/gitignore?templates=c++,vs,visualstudio,visualstudiocode,lua,batch,powershell
 
+### Claude Code (contexte local, non versionné) ###
+CLAUDE.md
+.claude/
+
 ### Batch ###
 # BatchFiles
 *.cmd

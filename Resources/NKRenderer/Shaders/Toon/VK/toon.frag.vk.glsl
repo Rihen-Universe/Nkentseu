@@ -27,12 +27,32 @@ layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
     vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
     float iblStrength;
+    float _p0, _p1, _p2;
+    mat4  mirrorViewProj;
+    vec4  reflectionFlags;  // .x = isMirrorPass
 } uCam;
 
 layout(std140, set=0, binding=2) uniform LightsUBO {
     vec4  positions[32], colors[32], directions[32], angles[32];
     int   count; int _pad[3];
 } uLights;
+
+// Phase NkVSM : multi-lights shadow atlas (cf. ShadowSlotsUBOBlock C++).
+struct NkShadowSlot {
+    mat4 shadowMatrix;
+    vec4 tileUV;
+    vec4 lightPosOrDir;
+    vec4 packedIds;
+};
+layout(std140, set=0, binding=3) uniform ShadowSlotsUBO {
+    NkShadowSlot slots[256];
+    vec4 firstSlotPerLight[8];
+    vec4 slotCountPerLight[8];
+    vec4 globalCfg;
+    vec4 biasParams;
+} uShadows;
+layout(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
+#include "Include/NkShadowAtlas.glsli"
 
 // Per-instance : NkToonParams (set=2, binding=8) — std140, 96 bytes
 // offset  0 : albedoColor   (vec4)
@@ -61,7 +81,11 @@ layout(set=2, binding=4) uniform sampler2D tMatcap;  // sphère de réflexion st
 
 void main() {
     vec3 N = normalize(vNormal);
-    vec3 V = normalize(uCam.camPos.xyz - vWorldPos);
+    // Phase Planar Reflection fix 2026-05-24 : un-mirror camPos pour V quand on
+    // shade un fragment d'une passe miroir (vWorldPos deja en espace real par VS).
+    vec3 camPosForV = uCam.camPos.xyz;
+    if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
+    vec3 V = normalize(camPosForV - vWorldPos);
     float NdotV = dot(N, V);
 
     // albedoColor est la source de vérité du matériau (SetAlbedo).
@@ -87,19 +111,23 @@ void main() {
                     : normalize(lPos.xyz - vWorldPos);
         float NdotL = dot(N, L);
 
+        // NkVSM : shadow per-light via atlas. angles[i].z = castShadow flag.
+        float shadow = (uLights.angles[i].z > 0.5)
+                       ? SampleLightShadow(i, vWorldPos, N, L) : 1.0;
+
         // Rampe cel (diffuse)
         float cel   = smoothstep(uToon.shadowThreshold - uToon.shadowSmooth,
                                  uToon.shadowThreshold + uToon.shadowSmooth,
                                  NdotL);
         vec3 lit    = uLights.colors[i].rgb * albedo.rgb;
         vec3 shad   = uToon.shadowColor.rgb  * albedo.rgb;
-        totalDiffuse += mix(shad, lit, cel);
+        totalDiffuse += mix(shad, lit, cel) * shadow;
 
         // Specular quantifié — teinté par albedo si metallic > 0 (effet métal cel)
         vec3 H         = normalize(L + V);
         float s        = step(0.5, pow(max(dot(N, H), 0.0), uToon.specHardness));
         vec3 specColor = mix(vec3(1.0), albedo.rgb, uToon.metallic);
-        totalSpec     += uLights.colors[i].rgb * specColor * s;
+        totalSpec     += uLights.colors[i].rgb * specColor * s * shadow;
     }
     if (uLights.count == 0) totalDiffuse = albedo.rgb;
 

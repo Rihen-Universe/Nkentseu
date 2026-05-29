@@ -2,7 +2,7 @@
 // @File    NkUIRenderer.cpp
 // @Brief   NkUICPURenderer — rastériseur logiciel, rendu hors ligne.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Apache-2.0
+// @License Proprietary - Free to use and modify
 //
 // @Correctness
 //  Rastérisation de triangles : couverture barycentrique, scanline Z.

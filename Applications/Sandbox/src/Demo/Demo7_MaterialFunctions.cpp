@@ -65,7 +65,7 @@ bool Demo7_MaterialFunctions_Init(DemoCtx& ctx) {
         logger.Errorf("[Demo7] MeshSystem/MaterialSystem manquant\n");
         delete st; ctx.userData = nullptr; return false;
     }
-    st->meshSphere = meshSys->GetIcosphere();
+    st->meshSphere = meshSys->GetSphere();
     st->meshPlane  = meshSys->GetPlane();
 
     // ── Enregistrement du template M5Demo via "hint" ─────────────────────

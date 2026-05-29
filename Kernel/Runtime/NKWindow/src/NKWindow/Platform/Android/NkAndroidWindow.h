@@ -4,7 +4,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkSafeArea.h"
+#include "NKEvent/NkSafeArea.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKEvent/NkWindowId.h"
 

@@ -100,7 +100,7 @@ with project("Pong"):
         
         links([
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler"
         ])
@@ -227,7 +227,7 @@ with project("Pong"):
             with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
                 _WIN_TEST_LINKS = [
                     "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-                    "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+                    "mf", "mfplat", "mfreadwrite", "mfuuid",
                     "uuid", "ole32", "dinput8", "dxguid",
                     "d3d11", "d3d12", "dxgi", "d3dcompiler"
                 ]

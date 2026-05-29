@@ -102,11 +102,13 @@
     "cmake.sourceDirectory": "E:/Projets/2026/Nkentseu/Nkentseu/Externals/Libs/NKGLSlang",
     "python.analysis.include": [
         "***.py",
+        "***.py",
         "**/*.jenga",
         "**/*.py"
     ],
     "python.analysis.extraPaths": [
-        "E:/Projets/MacShared/Projets/Jenga"
+        "E:/Projets/MacShared/Projets/Jenga",
+        "D:/Projets/MacShared/Projets/Jenga"
     ],
     "python.analysis.diagnosticSeverityOverrides": {
         "reportWildcardImportFromLibrary": "none",
@@ -118,5 +120,5 @@
         "F403",
         "F405"
     ],
-    "_jengaIdeConfigVersion": "4289828030cf28e2"
+    "_jengaIdeConfigVersion": "cd053e69e27bba8e"
 }

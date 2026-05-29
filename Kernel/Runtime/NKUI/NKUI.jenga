@@ -101,6 +101,13 @@ with project("NKUI"):
         androidcompilesdk(34)
         androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
 
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android).
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+
     # ===== iOS ====================================================================
     with filter("system:iOS"):
         iosminsdk("13.0")

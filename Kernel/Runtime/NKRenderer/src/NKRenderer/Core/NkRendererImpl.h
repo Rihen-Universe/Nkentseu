@@ -16,6 +16,7 @@
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Tools/Text/NkTextRenderer.h"
 #include "NKRenderer/Tools/Shadow/NkShadowSystem.h"
+#include "NKRenderer/Tools/Shadow/NkVirtualShadowMaps.h"
 #include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h"
 #include "NKRenderer/Tools/PostProcess/NkPostProcessStack.h"
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
@@ -55,7 +56,7 @@ namespace nkentseu {
                 NkTextRenderer*       GetTextRenderer() override { return mTextRenderer.Get(); }
                 NkPostProcessStack*   GetPostProcess()  override { return mPostProcess.Get(); }
                 NkOverlayRenderer*    GetOverlay()      override { return mOverlay.Get(); }
-                NkShadowSystem*       GetShadow()       override { return mShadow.Get(); }
+                NkVirtualShadowMaps*  GetShadow()       override { return mShadow.Get(); }
                 NkVFXSystem*          GetVFX()          override { return mVFX.Get(); }
                 NkAnimationSystem*    GetAnimation()    override { return mAnimation.Get(); }
                 NkSimulationRenderer* GetSimulation()   override { return mSimulation.Get(); }
@@ -64,6 +65,7 @@ namespace nkentseu {
                 void               DestroyOffscreen(NkOffscreenTarget*& t)      override;
 
                 class NkPlanarReflectionSystem* GetPlanarReflection() override { return mPlanarReflection.Get(); }
+                class NkVoxelAOSystem*          GetVoxelAO()          override { return mVoxelAO.Get(); }
 
                 void SetVSync     (bool e)          override;
                 void SetPostConfig(const NkPostConfig& pp) override;
@@ -105,7 +107,7 @@ namespace nkentseu {
                 memory::NkUniquePtr<NkMaterialSystem>     mMaterials;
                 memory::NkUniquePtr<NkMaterialLibrary>    mMaterialLibrary; // Phase G
                 memory::NkUniquePtr<class NkMaterialCollection> mMaterialCollection; // Phase M.2
-                memory::NkUniquePtr<NkShadowSystem>       mShadow;
+                memory::NkUniquePtr<NkVirtualShadowMaps>  mShadow;
                 memory::NkUniquePtr<NkEnvironmentSystem>  mEnvironment;
                 memory::NkUniquePtr<NkRender2D>           mRender2D;
                 memory::NkUniquePtr<NkRender3D>           mRender3D;
@@ -116,6 +118,7 @@ namespace nkentseu {
                 memory::NkUniquePtr<NkAnimationSystem>    mAnimation;
                 memory::NkUniquePtr<NkSimulationRenderer> mSimulation;
                 memory::NkUniquePtr<class NkPlanarReflectionSystem> mPlanarReflection;
+                memory::NkUniquePtr<class NkVoxelAOSystem>          mVoxelAO;     // Phase H.6
 
                 NkVector<NkOffscreenTarget*> mOffscreenTargets;
 
