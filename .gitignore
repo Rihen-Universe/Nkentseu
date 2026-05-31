@@ -5,6 +5,20 @@
 CLAUDE.md
 .claude/
 
+### Nkentseu — artefacts debug/scratch racine (ménage 2026) ###
+# Ancrés racine (/) pour ne PAS toucher Resources/ ni les Captures légitimes ailleurs.
+/*.apk
+/*.gdb
+/gdb.txt
+/progresse.txt
+/nk_ibl_*.bin
+/format_*.png
+/format_*.jpg
+/test_pattern.png
+/x.jpg
+/stock.pdf
+/rasterisation.pdf
+
 ### Batch ###
 # BatchFiles
 *.cmd
