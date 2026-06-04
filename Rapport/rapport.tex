@@ -1,8 +1,9 @@
 \documentclass[12pt,a4paper]{report}
 
+
 % =========================
 % PACKAGES
-% =========================
+
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[french]{babel}
@@ -18,18 +19,20 @@
 \usepackage{hyperref}
 \usepackage{longtable}
 
+
 % =========================
 % PAGE SETUP
-% =========================
+
 \geometry{left=3cm,right=3cm,top=2.5cm,bottom=2.5cm}
 \onehalfspacing
 \hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue}
 
 \begin{document}
 
+
 % =========================
 % PAGE DE GARDE
-% =========================
+
 \begin{titlepage}
 \begin{center}
 \vspace*{5cm}
@@ -64,28 +67,34 @@ Année académique 2025--2026
 \end{center}
 \end{titlepage}
 
+
 % =========================
 % TABLE DES MATIERES
-% =========================
+
 \pagenumbering{roman}
 \tableofcontents
 \clearpage
 \pagenumbering{arabic}
 
+
 % =========================
 % INTRODUCTION
-% =========================
+
 \chapter*{Introduction}
 \addcontentsline{toc}{chapter}{Introduction}
 
-L'objectif de ces quatre premières semaines était de poser les bases numériques et mathématiques indispensables au pipeline complet de réalité augmentée.
-Il était donc question ici de fournir des éléments de réponse à travers des tests et des implémentations.
+Ce projet s'inscrit dans le cadre de l'implémentation complète d'un système de Réalité Augmentée (RA) sur flux vidéo, régi par une contrainte : \textbf{l'interdiction absolue d'utiliser des dépendances externes (telles qu'OpenCV, Eigen, glm, OpenGL ou DirectX) pour le cœur de calcul. L'intégralité du code devant reposer sur des concepts fondamentaux réimplémentés en C++ natif.}
+
+L'objectif ici est de franchir, étape par étape, la chaîne complète de la RA :
+\begin{itemize}
+    \item \textbf{Semaines 1 à 4 (Fondations)} : Conception d'un moteur d'algèbre linéaire (NKMath) immunisé contre la dérive numérique, capable de gérer les transformations spatiales (matrices TRS, quaternions, interpolations SLERP) et de simuler informatiquement une caméra (fonctions LookAt et de projection perspective) à travers un rasteriseur logiciel rudimentaire.
+    \item \textbf{Semaines 5 et 6 (Vision par Ordinateur)} : Transition vers l'analyse de flux et la géométrie projective. Cette phase exploite le moteur géométrique pour traiter des matrices de données complexes (décomposition en valeurs singulières ou SVD) afin de résoudre les équations d'homographie, et met en place un pipeline d'analyse d'image bas niveau performant (convolutions spatiales, filtrages de Sobel, construction d'images intégrales et seuillage adaptatif) destiné à détecter des marqueurs de type ArUco.
+\end{itemize}
 
 
-% =========================
 % =========================
 % Semaine 1
-% =========================
+
 \chapter{SEMAINE 1: IEEE 754 & Arithmétique Flottante}
 
 L'objectif de cette semaine était d'apprendre la représentation et la manipulation des nombres flottants : coordonnées 3D, matrices de projection, résidus de calibration, valeurs de pixels avec \textbf{IEEE 754}.
@@ -115,9 +124,10 @@ Il était question ici de démontrez empiriquement les problèmes de précision.
     \item Les deux valeurs de Epsilon machine sont exactement sont identique soit 1.19209e-07 
 \end{enumerate}
 
+
 % =========================
 % SEMAINE 2
-% =========================
+
 \chapter{SEMAINE 2 : Géométrie Vectorielle ($Vec2d$, $Vec3d$, $Vec4d$)}
 
 L'objectif de cette semaine était la compréhension des vecteurs qui sont la base du pipeline AR.
@@ -136,7 +146,6 @@ Nous avons implémenté les calculs de directions et de normales, ainsi que le p
 
 \text{Projection d'un vecteur $\vec{v}$ sur $\vec{u}$ (Gram-Schmidt) :   } $$\text{proj}_{\vec{u}}(\vec{v}) = \frac{\vec{u} \cdot \vec{v}}{\|\vec{u}\|^2} \vec{u}$$
 
-
 % -------------------------
 \section{Vec4d et projection perspective simple}
 
@@ -144,9 +153,8 @@ Nous avos implémenté des vecteurs à 4 composantes en différenciant les point
 
 
 % =========================
-% =========================
 % SEMAINE 3
-% =========================
+
 \chapter{SEMAINE 3 : Matrices et Visualisation}
 
 Cette semaine avait pour objectif la compréhension des matrices et leur visualisation.
@@ -170,9 +178,8 @@ Nous avons ici procédé par :
 
 
 % =========================
-% =========================
 % SEMAINE 4
-% =========================
+
 \chapter{SEMAINE 4 : Rotations et Quaternions ($Quat$)}
 
 Cette semaine a pour objectif de montrer le rôle crucial que jouent les Quaternions dans le pipeline AR tout en mettant le problème majeur qu'ils résolvent.
@@ -190,12 +197,69 @@ En comparaison avec une série parallèle de 60 frames d'animation en utilisant 
 
 Les images se trouvent au chemin: $.\Nkentseu\Images$ dans les deux formats.
 
+
+% =========================
+% SEMAINE 5
+
+\chapter{SEMAINE 5 : Décomposition en Valeurs Singulières (SVD) et Géométrie Projective}
+
+Cette a marqué l'introduction d'outils d'algèbre avancée indispensables à l'estimation de pose et à la calibration à partir de correspondances de points 2D/3D. Il était principalement question ici de saisir l'importance  de la compréhension de la SVD.
+
+% -------------------------
+\section{Validation de l'algorithme SVD 3x3 et Pseudo-Inverse}
+
+La décomposition en valeurs singulières (SVD) factorise une matrice $A$ sous la forme $U \Sigma V^T$. Notre implémentation valide trois aspects mathématiques cruciaux :
+\begin{itemize}
+    \item \textbf{Reconstruction et Orthogonalité} : La vérification que $U \cdot \Sigma \cdot V^T = A$ à une tolérance près de $10^{-6}$, et l'assurance que $U$ et $V$ sont strictement orthogonales ($U \cdot U^T = I$).
+    \item \textbf{Gestion du Rang Déficient} : Le test sur une matrice de rang 1 (lignes colinéaires) démontre que l'algorithme isole correctement les directions nulles en renvoyant une dernière valeur singulière $\sigma_z \approx 0$.
+    \item \textbf{Résolution des Moindres Carrés via la Pseudo-Inverse ($A^+$)} : Face à un système surdéterminé $Ax = b$ (plus d'équations que d'inconnues), la pseudo-inverse calculée par la SVD permet de trouver le vecteur $x$ qui minimise l'erreur quadratique $\|Ax - b\|$. Les tests unitaires valident la convergence de l'erreur résiduelle sous le seuil de $10^{-5}$.
+\end{itemize}
+
+% -------------------------
+\section{Perspective de Résolution d'Homographie}
+
+L'architecture mise en place prépare la résolution de la matrice d'homographie $H$ (matrice $3 \times 3$). La SVD de cette matrice d'équations permet d'extraire la solution optimale (le vecteur propre associé à la plus petite valeur singulière), ouvrant la voie à la projection de textures virtuelles sur le marqueur plan.
+
+
+% =========================
+% SEMAINE 6
+
+\chapter{SEMAINE 6 : Pipeline de Traitement d'Image Linéaire et Algorithmes Rapides}
+
+Cette dernière semaine concrétise la lecture des pixels et la manipulation de structures de données d'images (NkImage) pour isoler les motifs géométriques des marqueurs ArUco.
+
+% -------------------------
+\section{Manipulation et primitives de structures de pixels}
+
+La structure $NkImage$ permet l'allocation, la modification de pixels en mémoire ($SetPixelRGBA$) et l'écriture au format brut PPM ($SavePPM$). Les tests valident la génération de dégradés mathématiques et le dessin de primitives géométriques (lignes, rectangles, cercles) par manipulation directe du tampon mémoire (buffer).
+
+% -------------------------
+\section{Convolutions spatiales (Flou Gaussien et Filtres de Sobel)}
+
+Pour extraire les contours du marqueur ArUco présent dans l'image d'entrée ($input_arUCO.ppm$), un pipeline classique de traitement du signal est implémenté :
+\begin{itemize}
+    \item \textbf{Réduction du bruit} : Application d'un noyau Gaussien $5 \times 5$ normalisé (somme des coefficients égale à 1) pour l'élimination des hautes fréquences parasites.
+    \item \textbf{Calcul de gradients} : Application des masques de Sobel $3 \times 3$ en $X$ (horizontal) et $Y$ (vertical) pour mettre en évidence les sauts d'intensité.
+    \item \textbf{Magnitude}  : Fusion des deux images de gradients par la fonction CombineGradient ($\sqrt{G_x^2 + G_y^2}$). 
+    \textit{L'instrumentation temporelle intégrée au code mesure l'efficacité de ces convolutions imbriquées sur l'image entière.}
+\end{itemize}
+
+% -------------------------
+\section{Image Intégrale et Seuillage Adaptatif de Bradley}
+
+La binarisation (conversion en noir et blanc strict) est une étape critique sous conditions d'éclairage variable.
+\begin{itemize}
+    \item \textbf{Algorithme d'Image Intégrale (SAT - Summed-Area Table)} : Une structure IntegralImage est générée à partir du niveau de gris. Chaque cellule $(x,y)$ contient la somme de tous les pixels situés au-dessus et à gauche. Le code évalue précisément le temps de construction de cette table en millisecondes.
+    \item \textbf{Seuillage Adaptatif (Bradley-Roth)} : Grâce à l'image intégrale, le calcul de la moyenne des pixels d'un voisinage de taille variable ($31 \times 31$) s'exécute en temps constant $\mathcal{O}(1)$ (seulement 4 accès mémoire par pixel au lieu de $31 \times 31 = 961$ accès). Le pixel est binarisé à noir si sa valeur est inférieure à un certain pourcentage (seuil de $7\%$) de la moyenne locale. Cela permet d'isoler parfaitement les carrés noirs et blancs du marqueur ArUco, indépendamment des ombres portées.
+\end{itemize}
+
+
 % =========================
 % CONCLUSION
-% =========================
+
 \chapter*{Conclusion}
 \addcontentsline{toc}{chapter}{Conclusion}
 
-Ce travail a permis à la compréhension de la précision numérique, de l'algèbre géométrique dans l'espace, de la projection et la simulation de caméra et de la fluidité cinématique et l'évitement du "Gimbal Lock", qui constituent une base solide pour la suite de cours.
+L'intégration et la validation des différents modules de tests au cours de ces six semaines marquent l'achèvement d'un moteur de traitement et de simulation complet, conçu de manière totalement autonome et sans aucune dépendance tierce. Ce parcours a permis de transformer des concepts théoriques exigeants en briques logicielles robustes et interconnectées : les deux premières semaines ont posé les bases de la rigueur numérique à travers la maîtrise de la norme IEEE 754 (sommation de Kahan, variance de Welford) et l'élaboration d'une bibliothèque d'algèbre vectorielle alignée en mémoire ; les semaines 3 et 4 ont concrétisé la manipulation spatiale en introduisant les matrices de transformation TRS, le calcul de caméras virtuelles ($LookAt$, projections perspectives) et la gestion fluide des rotations par les quaternions (SLERP) afin d'aboutir à un premier rasteriseur logiciel capable de projeter et d'animer des objets 3D ; enfin, les semaines 5 et 6 ont propulsé ce système vers la vision par ordinateur en combinant la décomposition en valeurs singulières (SVD) pour la résolution de systèmes complexes au moindres carrés avec un pipeline complet d'analyse d'image (convolutions de Sobel/Gauss, image intégrale et seuillage adaptatif de Bradley).
 
 \end{document}
