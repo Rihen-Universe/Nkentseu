@@ -13,7 +13,7 @@
 #include "NKMath/NKMath.h"
 #include "SVD.h"
 #include "Quat.h" 
-#include "NKImage.h" 
+#include "IntegralImage.h" 
 
 
 using namespace NkMath;
@@ -572,4 +572,54 @@ TEST_CASE(TP1, NkImageDeBase) {
 
     // Sauvegarde
     img.SavePPM("fade_test_image.ppm");
+}
+
+
+// TP2 : SampleBilinear et Convolve
+
+TEST_CASE(TP2, SampleBilinearEtConvolve) {
+    // 58. Appliquez flou Gauss 5×5 et Sobel horizontal/vertical sur une photo PPM
+    std::vector<double> gaussian5 = {
+        1, 4, 6, 4, 1,
+        4,16,24,16, 4,
+        6,24,36,24, 6,
+        4,16,24,16, 4,
+        1, 4, 6, 4, 1
+    };
+
+    for(auto& v : gaussian5) v /= 256.0;
+
+    std::vector<double> sobelX = {
+        -1,0,1,
+        -2,0,2,
+        -1,0,1
+    };
+
+    std::vector<double> sobelY = {
+        -1,-2,-1,
+        0, 0, 0,
+        1, 2, 1
+    };
+
+    img.LoadPPM("input_arUCO.ppm");
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    // 1. flou
+    NkImage blurred = img.Convolve(gaussian5, 5);
+
+    // 2. gradients
+    NkImage gx = blurred.Convolve(sobelX, 3);
+    NkImage gy = blurred.Convolve(sobelY, 3);
+
+    // 3. magnitude
+    NkImage edges = NkImage::CombineGradient(gx, gy);
+
+    // 4. sauvegarde
+    edges.SavePPM("convolve_test_image.ppm");
+
+    // 5. Mesurer le temps d'exécution de la convolution pour 5×5 et 3×3
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    logger.Info("Convolution 5x5 + 3x3 + magnitude took {0} ms", std::chrono::duration<double, std::milli>(t1-t0).count());
 }
