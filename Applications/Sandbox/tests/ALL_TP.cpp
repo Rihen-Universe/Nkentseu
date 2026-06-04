@@ -11,7 +11,7 @@
 
 #include "NKLogger/NkLog.h"
 #include "NKMath/NKMath.h"
-#include "Mat4d.h" 
+#include "SVD.h"
 #include "Quat.h" 
 #include "NKImage.h" 
 
@@ -375,9 +375,9 @@ TEST_CASE(TP3, TRS_Et_Decomposition) {
 }
 
 
-    // TPs semaine 4
+// TPs semaine 4
 
-    // TP1 : Quaternions complets 
+// TP1 : Quaternions complets 
 
 TEST_CASE(TP1, Quaternions) {
     Mat3d m1, m2, m3;
@@ -459,4 +459,68 @@ TEST_CASE(TP2, Animation_SLERP) {
             img.DrawLine((int)screen[edge.x].x, (int)screen[edge.x].y, (int)screen[edge.y].x, (int)screen[edge.y].y, 255);
         img.SavePPM("Lerp__frame_TP11_"+std::to_string(frame)+".ppm");
     }
+}
+
+
+// Semaine 5
+
+// TP1 : Test de l'implémentation de SVD fournie
+TEST_CASE(TP1, TestsSVD) {
+    Mat3d A{}, Aplus{}, S{}, R{}, Iu{}, Iv{};
+    SVD3x3 s;
+    Vec3d b, x, r;
+
+    // 1. Tests svd3x3 sur 20 matrices aléatoires
+    dist = std::uniform_real_distribution<double>(-1.0, 1.0);
+
+    for(int i = 0; i < 20; i++){
+        for(int j = 0; j < 3; j++)
+            for(int k = 0; k < 3; k++)
+                A(j, k) = dist(rng);
+
+        s = svd3x3(A);
+
+        // Reconstruction
+        S(0,0) = s.sigma.x;
+        S(1,1) = s.sigma.y;
+        S(2,2) = s.sigma.z;
+
+        R = s.U * S * s.V.Transposed();
+
+        ASSERT_TRUE((R - A).norm() < 1e-6);
+
+        // Orthogonalité U, V
+        Iu = s.U * s.U.Transposed();
+        Iv = s.V * s.V.Transposed();
+
+        ASSERT_TRUE((Iu - Mat3d::Identity()).norm() < 1e-6);
+        ASSERT_TRUE((Iv - Mat3d::Identity()).norm() < 1e-6);
+
+        // Sigma triés
+        ASSERT_TRUE(s.sigma.x >= s.sigma.y);
+        ASSERT_TRUE(s.sigma.y >= s.sigma.z);
+    }
+
+    // 2. Tests sur une matrice rang-déficiente : les dernières σ doivent être ≈ 0 
+    // rang 1 : lignes dépendantes
+    A.setRow(0, {1,2,3});
+    A.setRow(1, {2,4,6});
+    A.setRow(2, {3,6,9});
+
+    s = svd3x3(A);
+    ASSERT_TRUE(std::fabs(s.sigma.z) < 1e-6);
+
+    // 3. Vérification pseudo-inverse (3×2)
+    // système sur-déterminé Ax = b
+    A.setRow(0, {1, 2, 0});        
+    A.setRow(1, {3, 4, 0});
+    A.setRow(2, {5, 6, 0});
+    b = Vec3d(7, 8, 9);
+    s = svd3x3(A);
+    Aplus = s.pseudoInverse();
+    x = Aplus * b;
+    
+    // vérifier Ax ≈ b (moindres carrés)
+    r = A * x - b;
+    ASSERT_TRUE(r.Norm() < 1e-5);
 }
