@@ -532,3 +532,44 @@ TEST_CASE(TP1, TestsSVD) {
 TEST_CASE(TP2, ResolutionHomographie) {
     (void)0; // placeholder pour éviter warning "unused function"
 }
+
+
+// Semaine 6
+
+// TP1 : NkImage de base
+
+TEST_CASE(TP1, NkImageDeBase) {
+    // 2. Créer une image 512x512 avec un dégradé et des formes
+    // dégradé
+    for(int y = 0; y < height; y++){
+        for(int x = 0; x < width; x++){
+            uint8_t r = (uint8_t)(255.0 * x / width);
+            uint8_t g = (uint8_t)(255.0 * y / height);
+            uint8_t b = 128;
+
+            img.SetPixelRGBA(x,y,r,g,b);
+        }
+    }
+
+    // rectangle
+    for(int y = 100; y < 200; y++)
+        for(int x = 100; x < 300; x++)
+            img.SetPixelRGBA(x,y,255,0,0);
+
+    // ligne diagonale
+    for(int i = 0; i < 512; i++)
+        img.SetPixelRGBA(i,i,0,255,0);
+
+    // cercle simple
+    int cx=256, cy=256, r=80;
+    for(int y = 0; y < height; y++){
+        for(int x = 0; x < width; x++){
+            int dx = x - cx, dy = y - cy;
+            if(dx * dx + dy * dy < r * r)
+                img.SetPixelRGBA(x,y,0,0,255);
+        }
+    }
+
+    // Sauvegarde
+    img.SavePPM("fade_test_image.ppm");
+}
