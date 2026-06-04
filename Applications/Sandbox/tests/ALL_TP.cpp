@@ -465,6 +465,7 @@ TEST_CASE(TP2, Animation_SLERP) {
 // Semaine 5
 
 // TP1 : Test de l'implémentation de SVD fournie
+
 TEST_CASE(TP1, TestsSVD) {
     Mat3d A{}, Aplus{}, S{}, R{}, Iu{}, Iv{};
     SVD3x3 s;
@@ -523,4 +524,11 @@ TEST_CASE(TP1, TestsSVD) {
     // vérifier Ax ≈ b (moindres carrés)
     r = A * x - b;
     ASSERT_TRUE(r.Norm() < 1e-5);
+}
+
+
+// TP2 : Résolution d'homographie
+
+TEST_CASE(TP2, ResolutionHomographie) {
+    (void)0; // placeholder pour éviter warning "unused function"
 }
