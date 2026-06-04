@@ -623,3 +623,24 @@ TEST_CASE(TP2, SampleBilinearEtConvolve) {
 
     logger.Info("Convolution 5x5 + 3x3 + magnitude took {0} ms", std::chrono::duration<double, std::milli>(t1-t0).count());
 }
+
+
+// TP3 : Image intégrale et seuillage
+
+TEST_CASE(TP3, ImageIntegraleEtSeuillage) {
+    // 62. AR UCO : détectez les coins via l'image intégrale + seuillage
+    NkImage img;
+    img.LoadPPM("input_arUCO.ppm");
+
+    NkImage bin = AdaptiveThreshold(img, 31, 7);
+    bin.SavePPM("adaptivethreshold_test_image.ppm");
+
+    // 63. Temps de construction de l'image intégrale
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    IntegralImage ii(img.ToGrayscale(), img.Width(), img.Height());
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    logger.Info("Integral image construction took {0} ms", std::chrono::duration<double, std::milli>(t1-t0).count());
+}
