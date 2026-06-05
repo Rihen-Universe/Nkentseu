@@ -176,9 +176,13 @@ bool NkVulkanContext::RecreateSwapchain(uint32 w, uint32 h) {
 }
 
 // =============================================================================
+void NkVulkanContext::SetClearColor(float r, float g, float b, float a) {
+    mClearColor[0] = r; mClearColor[1] = g; mClearColor[2] = b; mClearColor[3] = a;
+}
+
 bool NkVulkanContext::BeginFrame() {
     if (!mIsValid) return false;
-    
+
     mData.isAcquire = false;
     
     // Protection contre la minimisation (inspiré du second code)
@@ -256,7 +260,7 @@ bool NkVulkanContext::BeginFrame() {
     rpInfo.renderArea.extent = mData.swapExtent;
     
     VkClearValue clearVals[2];
-    clearVals[0].color = {{0.1f, 0.1f, 0.1f, 1.0f}};
+    clearVals[0].color = {{ mClearColor[0], mClearColor[1], mClearColor[2], mClearColor[3] }};
     clearVals[1].depthStencil = {1.0f, 0};
     rpInfo.clearValueCount = 2;
     rpInfo.pClearValues = clearVals;
@@ -882,6 +886,8 @@ bool NkVulkanContext::CreateSwapchain(uint32 w, uint32 h, const NkVulkanDesc& d)
             if (f.format != VK_FORMAT_B8G8R8A8_SRGB && f.format != VK_FORMAT_R8G8B8A8_SRGB)
                 { fmt = f; break; }
     mData.swapFormat = fmt.format;
+    NK_VK_LOG("Swapchain format choisi = %d (44=BGRA_UNORM 50=BGRA_SRGB 37=RGBA_UNORM 43=RGBA_SRGB), colorSpace=%d",
+              (int)mData.swapFormat, (int)fmt.colorSpace);
 
     // Present mode
     uint32 modeCount = 0;
