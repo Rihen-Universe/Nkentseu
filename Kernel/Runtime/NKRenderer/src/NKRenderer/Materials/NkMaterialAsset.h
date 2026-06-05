@@ -65,9 +65,9 @@ namespace nkentseu {
             }
             nk_bool Deserialize(const NkArchive& ar) noexcept {
                 NkString idStr;
-                ar.GetString("slot",     slot);
-                ar.GetString("assetId",  idStr);
-                ar.GetString("fallback", fallbackPath);
+                (void)ar.GetString("slot",     slot);
+                (void)ar.GetString("assetId",  idStr);
+                (void)ar.GetString("fallback", fallbackPath);
                 assetId = NkAssetId::FromString(idStr.View());
                 return true;
             }
@@ -215,78 +215,78 @@ namespace nkentseu {
 
             [[nodiscard]] nk_bool Deserialize(const NkArchive& archive) override {
                 // Identite + type
-                nk_uint32 rawType = 0; archive.GetUInt32("type", rawType);
+                nk_uint32 rawType = 0; (void)archive.GetUInt32("type", rawType);
                 type = static_cast<NkMaterialType>(rawType);
-                archive.GetString("name", name);
+                (void)archive.GetString("name", name);
                 nk_uint32 rawQ=0, rawB=0, rawC=0, rawF=0;
-                archive.GetUInt32("queue",     rawQ); queue     = static_cast<NkRenderQueue>(rawQ);
-                archive.GetUInt32("blendMode", rawB); blendMode = static_cast<NkBlendMode>(rawB);
-                archive.GetUInt32("cullMode",  rawC); cullMode  = static_cast<NkCullMode>(rawC);
-                archive.GetUInt32("fillMode",  rawF); fillMode  = static_cast<NkFillMode>(rawF);
-                archive.GetBool("depthWrite",  depthWrite);
-                archive.GetBool("depthTest",   depthTest);
-                archive.GetBool("doubleSided", doubleSided);
+                (void)archive.GetUInt32("queue",     rawQ); queue     = static_cast<NkRenderQueue>(rawQ);
+                (void)archive.GetUInt32("blendMode", rawB); blendMode = static_cast<NkBlendMode>(rawB);
+                (void)archive.GetUInt32("cullMode",  rawC); cullMode  = static_cast<NkCullMode>(rawC);
+                (void)archive.GetUInt32("fillMode",  rawF); fillMode  = static_cast<NkFillMode>(rawF);
+                (void)archive.GetBool("depthWrite",  depthWrite);
+                (void)archive.GetBool("depthTest",   depthTest);
+                (void)archive.GetBool("doubleSided", doubleSided);
 
                 // PBR params
                 NkArchive p;
                 if (archive.GetObject("pbr", p)) {
-                    p.GetFloat32("albedoR",          pbr.albedo.x);
-                    p.GetFloat32("albedoG",          pbr.albedo.y);
-                    p.GetFloat32("albedoB",          pbr.albedo.z);
-                    p.GetFloat32("albedoA",          pbr.albedo.w);
-                    p.GetFloat32("emissiveR",        pbr.emissive.x);
-                    p.GetFloat32("emissiveG",        pbr.emissive.y);
-                    p.GetFloat32("emissiveB",        pbr.emissive.z);
-                    p.GetFloat32("emissiveA",        pbr.emissive.w);
-                    p.GetFloat32("metallic",         pbr.metallic);
-                    p.GetFloat32("roughness",        pbr.roughness);
-                    p.GetFloat32("ao",               pbr.ao);
-                    p.GetFloat32("emissiveStrength", pbr.emissiveStrength);
-                    p.GetFloat32("normalStrength",   pbr.normalStrength);
-                    p.GetFloat32("clearcoat",        pbr.clearcoat);
-                    p.GetFloat32("clearcoatRough",   pbr.clearcoatRough);
-                    p.GetFloat32("subsurface",       pbr.subsurface);
-                    p.GetFloat32("subsurfaceR",      pbr.subsurfaceColor.x);
-                    p.GetFloat32("subsurfaceG",      pbr.subsurfaceColor.y);
-                    p.GetFloat32("subsurfaceB",      pbr.subsurfaceColor.z);
-                    p.GetFloat32("subsurfaceA",      pbr.subsurfaceColor.w);
-                    p.GetFloat32("anisotropy",       pbr.anisotropy);
-                    p.GetFloat32("sheen",            pbr.sheen);
+                    (void)p.GetFloat32("albedoR",          pbr.albedo.x);
+                    (void)p.GetFloat32("albedoG",          pbr.albedo.y);
+                    (void)p.GetFloat32("albedoB",          pbr.albedo.z);
+                    (void)p.GetFloat32("albedoA",          pbr.albedo.w);
+                    (void)p.GetFloat32("emissiveR",        pbr.emissive.x);
+                    (void)p.GetFloat32("emissiveG",        pbr.emissive.y);
+                    (void)p.GetFloat32("emissiveB",        pbr.emissive.z);
+                    (void)p.GetFloat32("emissiveA",        pbr.emissive.w);
+                    (void)p.GetFloat32("metallic",         pbr.metallic);
+                    (void)p.GetFloat32("roughness",        pbr.roughness);
+                    (void)p.GetFloat32("ao",               pbr.ao);
+                    (void)p.GetFloat32("emissiveStrength", pbr.emissiveStrength);
+                    (void)p.GetFloat32("normalStrength",   pbr.normalStrength);
+                    (void)p.GetFloat32("clearcoat",        pbr.clearcoat);
+                    (void)p.GetFloat32("clearcoatRough",   pbr.clearcoatRough);
+                    (void)p.GetFloat32("subsurface",       pbr.subsurface);
+                    (void)p.GetFloat32("subsurfaceR",      pbr.subsurfaceColor.x);
+                    (void)p.GetFloat32("subsurfaceG",      pbr.subsurfaceColor.y);
+                    (void)p.GetFloat32("subsurfaceB",      pbr.subsurfaceColor.z);
+                    (void)p.GetFloat32("subsurfaceA",      pbr.subsurfaceColor.w);
+                    (void)p.GetFloat32("anisotropy",       pbr.anisotropy);
+                    (void)p.GetFloat32("sheen",            pbr.sheen);
                 }
 
                 // Toon params
                 NkArchive t;
                 if (archive.GetObject("toon", t)) {
-                    t.GetFloat32("albedoR",         toon.albedoColor.x);
-                    t.GetFloat32("albedoG",         toon.albedoColor.y);
-                    t.GetFloat32("albedoB",         toon.albedoColor.z);
-                    t.GetFloat32("albedoA",         toon.albedoColor.w);
-                    t.GetFloat32("shadowR",         toon.shadowColor.x);
-                    t.GetFloat32("shadowG",         toon.shadowColor.y);
-                    t.GetFloat32("shadowB",         toon.shadowColor.z);
-                    t.GetFloat32("shadowA",         toon.shadowColor.w);
-                    t.GetFloat32("shadowThreshold", toon.shadowThreshold);
-                    t.GetFloat32("shadowSmooth",    toon.shadowSmooth);
-                    t.GetFloat32("outlineWidth",    toon.outlineWidth);
-                    t.GetFloat32("rimIntensity",    toon.rimIntensity);
-                    t.GetFloat32("outlineR",        toon.outlineColor.x);
-                    t.GetFloat32("outlineG",        toon.outlineColor.y);
-                    t.GetFloat32("outlineB",        toon.outlineColor.z);
-                    t.GetFloat32("outlineA",        toon.outlineColor.w);
-                    t.GetFloat32("rimR",            toon.rimColor.x);
-                    t.GetFloat32("rimG",            toon.rimColor.y);
-                    t.GetFloat32("rimB",            toon.rimColor.z);
-                    t.GetFloat32("rimA",            toon.rimColor.w);
-                    t.GetFloat32("specHardness",    toon.specHardness);
-                    t.GetFloat32("metallic",        toon.metallic);
-                    t.GetFloat32("matcapStrength",  toon.matcapStrength);
+                    (void)t.GetFloat32("albedoR",         toon.albedoColor.x);
+                    (void)t.GetFloat32("albedoG",         toon.albedoColor.y);
+                    (void)t.GetFloat32("albedoB",         toon.albedoColor.z);
+                    (void)t.GetFloat32("albedoA",         toon.albedoColor.w);
+                    (void)t.GetFloat32("shadowR",         toon.shadowColor.x);
+                    (void)t.GetFloat32("shadowG",         toon.shadowColor.y);
+                    (void)t.GetFloat32("shadowB",         toon.shadowColor.z);
+                    (void)t.GetFloat32("shadowA",         toon.shadowColor.w);
+                    (void)t.GetFloat32("shadowThreshold", toon.shadowThreshold);
+                    (void)t.GetFloat32("shadowSmooth",    toon.shadowSmooth);
+                    (void)t.GetFloat32("outlineWidth",    toon.outlineWidth);
+                    (void)t.GetFloat32("rimIntensity",    toon.rimIntensity);
+                    (void)t.GetFloat32("outlineR",        toon.outlineColor.x);
+                    (void)t.GetFloat32("outlineG",        toon.outlineColor.y);
+                    (void)t.GetFloat32("outlineB",        toon.outlineColor.z);
+                    (void)t.GetFloat32("outlineA",        toon.outlineColor.w);
+                    (void)t.GetFloat32("rimR",            toon.rimColor.x);
+                    (void)t.GetFloat32("rimG",            toon.rimColor.y);
+                    (void)t.GetFloat32("rimB",            toon.rimColor.z);
+                    (void)t.GetFloat32("rimA",            toon.rimColor.w);
+                    (void)t.GetFloat32("specHardness",    toon.specHardness);
+                    (void)t.GetFloat32("metallic",        toon.metallic);
+                    (void)t.GetFloat32("matcapStrength",  toon.matcapStrength);
                 }
 
                 // Textures
                 textures.Clear();
                 NkArchive arr;
                 if (archive.GetObject("textures", arr)) {
-                    nk_uint32 count = 0; arr.GetUInt32("count", count);
+                    nk_uint32 count = 0; (void)arr.GetUInt32("count", count);
                     for (nk_uint32 i = 0; i < count; ++i) {
                         NkString k = NkString::Fmtf("t_%u", i);
                         NkArchive sub;
@@ -299,8 +299,8 @@ namespace nkentseu {
 
                 // Shader custom
                 NkString idStr;
-                archive.GetString("customShaderId",  idStr);
-                archive.GetString("customShaderDir", customShaderDir);
+                (void)archive.GetString("customShaderId",  idStr);
+                (void)archive.GetString("customShaderDir", customShaderDir);
                 customShaderAssetId = NkAssetId::FromString(idStr.View());
                 return true;
             }

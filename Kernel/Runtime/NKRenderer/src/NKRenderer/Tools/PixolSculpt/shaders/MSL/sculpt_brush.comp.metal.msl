@@ -1,0 +1,68 @@
+// =============================================================================
+// sculpt_brush.comp.metal.msl — NKRenderer (Tools/PixolSculpt/shaders/MSL/)
+//
+// Variante Metal (MSL, override optionnel). Les image2D deviennent des
+// texture2d<..., access::read_write> ; push_constant -> constant buffer.
+//
+// ⚠️ SQUELETTE. Le struct PushConsts doit matcher renderer::NkSculptBrushGPU.
+// =============================================================================
+#include <metal_stdlib>
+using namespace metal;
+
+struct PushConsts {
+    float2 center;
+    float  radius;
+    float  strength;
+    float4 color;
+    uint   mode;
+    uint   falloff;
+    float  hardness;
+    float  depthBias;
+    int    tileOffsetX;
+    int    tileOffsetY;
+    uint   _pad0;
+    uint   _pad1;
+};
+
+constant uint MODE_RAISE = 0u;
+constant uint MODE_LOWER = 1u;
+constant uint MODE_PAINT = 7u;
+
+static float Falloff(float t, uint kind, float hardness) {
+    t = clamp(t, 0.0, 1.0);
+    if (kind == 2u) return 1.0;
+    if (kind == 1u) return 1.0 - t;
+    if (kind == 3u) return pow(1.0 - t, 3.0);
+    if (kind == 4u) return sqrt(max(0.0, 1.0 - t*t));
+    float e = mix(1.0, 4.0, hardness);
+    return pow(1.0 - smoothstep(0.0, 1.0, t), e);
+}
+
+kernel void main0(
+    texture2d<float, access::read_write> uPixolDepth  [[texture(0)]],
+    texture2d<float, access::read_write> uPixolNormal [[texture(1)]],
+    texture2d<float, access::read_write> uPixolColor  [[texture(2)]],
+    constant PushConsts& pc [[buffer(0)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    int2 p = int2(pc.tileOffsetX, pc.tileOffsetY) + int2(gid);
+    if (p.x < 0 || p.y < 0 ||
+        p.x >= (int)uPixolDepth.get_width() || p.y >= (int)uPixolDepth.get_height())
+        return;
+
+    float dist = distance(float2(p) + 0.5, pc.center);
+    if (dist > pc.radius) return;
+    float w = Falloff(dist / pc.radius, pc.falloff, pc.hardness) * pc.strength;
+
+    uint2 up = uint2(p);
+    if (pc.mode == MODE_RAISE || pc.mode == MODE_LOWER) {
+        float z = uPixolDepth.read(up).r;
+        float dir = (pc.mode == MODE_RAISE) ? -1.0 : 1.0;
+        z += dir * w + pc.depthBias;
+        uPixolDepth.write(float4(z, 0, 0, 0), up);
+    } else if (pc.mode == MODE_PAINT) {
+        float4 c = uPixolColor.read(up);
+        uPixolColor.write(mix(c, pc.color, w), up);
+    }
+    // TODO: autres modes.
+}

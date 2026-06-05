@@ -1,0 +1,24 @@
+// =============================================================================
+// pixol_resolve.comp.metal.msl — NKRenderer (Tools/PixolSculpt/shaders/MSL/)
+// Variante Metal (MSL, override optionnel). ⚠️ SQUELETTE.
+// =============================================================================
+#include <metal_stdlib>
+using namespace metal;
+
+kernel void main0(
+    texture2d<float, access::read_write> uPixolDepth          [[texture(0)]],
+    texture2d<float, access::read_write> uPixolNormal         [[texture(1)]],
+    texture2d<float, access::read_write> uPixolColor          [[texture(2)]],
+    texture2d<float, access::read_write> uGBufAlbedoMetallic  [[texture(3)]],
+    texture2d<float, access::read_write> uGBufNormalRoughness [[texture(4)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= uPixolDepth.get_width() || gid.y >= uPixolDepth.get_height())
+        return;
+
+    float4 col = uPixolColor.read(gid);
+    float4 nrm = uPixolNormal.read(gid);
+
+    uGBufAlbedoMetallic.write(float4(col.rgb, 0.0), gid);
+    uGBufNormalRoughness.write(float4(normalize(nrm.xyz + 1e-5), 0.5), gid);
+}

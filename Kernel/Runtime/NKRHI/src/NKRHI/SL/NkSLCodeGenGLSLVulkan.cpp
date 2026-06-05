@@ -91,6 +91,10 @@ NkString NkSLCodeGenGLSLVulkan::LayoutQualifier(const NkSLBinding& b,
 
     if (extra && extra[0]) {
         snprintf(buf, sizeof(buf), "layout(set=%d, binding=%d, %s) ", set, binding, extra);
+    } else if (b.HasImageFormat()) {
+        // Storage image : le qualifier de format est obligatoire en GLSL Vulkan.
+        snprintf(buf, sizeof(buf), "layout(set=%d, binding=%d, %s) ", set, binding,
+                 b.imageFormat.CStr());
     } else {
         snprintf(buf, sizeof(buf), "layout(set=%d, binding=%d) ", set, binding);
     }
@@ -108,6 +112,8 @@ NkSLCompileResult NkSLCodeGenGLSLVulkan::Generate(NkSLProgramNode* ast,
     mOutput      = "";
     mAutoSet     = 0;
     mAutoBinding = 0;
+    mAutoInLoc   = 0;
+    mAutoOutLoc  = 0;
     mErrors.Clear();
     mWarnings.Clear();
 
@@ -136,8 +142,12 @@ void NkSLCodeGenGLSLVulkan::GenProgram(NkSLProgramNode* prog) {
     snprintf(buf, sizeof(buf), "#version %u\n", ver);
     Emit(NkString(buf));
 
-    // Extension obligatoire pour le GLSL Vulkan
-    EmitLine("#extension GL_KHR_vulkan_glsl : require");
+    // NOTE: NE PAS emettre "#extension GL_KHR_vulkan_glsl : require". Ce n'est PAS
+    // une extension declarable dans la source : c'est le nom de la spec "Vulkan
+    // GLSL", implicitement activee quand glslang compile en mode client Vulkan
+    // (set/binding, push_constant, gl_VertexIndex...). L'emettre fait echouer
+    // glslang ("extension not supported: GL_KHR_vulkan_glsl") -> SPIR-V echoue ->
+    // fallback texte -> le device Vulkan refuse le shader -> crash.
 
     // Extensions optionnelles
     if (mOpts->vkDrawParams) {
@@ -146,10 +156,23 @@ void NkSLCodeGenGLSLVulkan::GenProgram(NkSLProgramNode* prog) {
     if (mOpts->vkDebugPrintf) {
         EmitLine("#extension GL_EXT_debug_printf : enable");
     }
+    mLocalSizeX = prog->localSizeX;
+    mLocalSizeY = prog->localSizeY;
+    mLocalSizeZ = prog->localSizeZ;
     if (mStage == NkSLStage::NK_COMPUTE) {
         EmitLine("#extension GL_ARB_compute_shader : require");
     }
     EmitNewLine();
+
+    // Taille de workgroup compute.
+    if (mStage == NkSLStage::NK_COMPUTE) {
+        char lsbuf[96];
+        snprintf(lsbuf, sizeof(lsbuf),
+                 "layout(local_size_x = %u, local_size_y = %u, local_size_z = %u) in;",
+                 mLocalSizeX, mLocalSizeY, mLocalSizeZ);
+        EmitLine(NkString(lsbuf));
+        EmitNewLine();
+    }
 
     // Déclarations globales
     for (auto* child : prog->children) {
@@ -202,6 +225,19 @@ void NkSLCodeGenGLSLVulkan::GenVarDecl(NkSLVarDeclNode* v, bool isGlobal) {
             // (rare en Vulkan, mais supporté)
             line += LayoutQualifier(v->binding, false, false, false);
             line += "uniform ";
+        } else if (v->storage == NkSLStorageQual::NK_IN ||
+                   v->storage == NkSLStorageQual::NK_OUT) {
+            // Vulkan GLSL EXIGE une location explicite sur toute l'interface
+            // in/out, sinon glslang refuse de generer le SPIR-V. Auto-assignation
+            // dans l'ordre de declaration (compteurs separes in/out) quand la
+            // source NkSL ne la precise pas.
+            int loc;
+            if (v->binding.HasLocation()) loc = v->binding.location;
+            else loc = (v->storage == NkSLStorageQual::NK_IN) ? mAutoInLoc++
+                                                              : mAutoOutLoc++;
+            char buf[64];
+            snprintf(buf, sizeof(buf), "layout(location = %d) ", loc);
+            line += NkString(buf);
         } else if (v->binding.HasLocation()) {
             char buf[64];
             snprintf(buf, sizeof(buf), "layout(location = %d) ", v->binding.location);

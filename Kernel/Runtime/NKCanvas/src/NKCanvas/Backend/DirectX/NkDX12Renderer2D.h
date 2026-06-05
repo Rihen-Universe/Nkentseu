@@ -5,6 +5,8 @@
 // Dynamic ring buffer for VB/IB (double-buffered to avoid GPU/CPU stalls).
 // =============================================================================
 #include "NKCanvas/Renderer/Batch/NkBatchRenderer2D.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"
+#include "NKCanvas/Renderer/Resources/NkTextureBackend.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -105,6 +107,22 @@ namespace nkentseu {
             // PSO creation helper
             bool MakePSO(D3D12_BLEND_DESC blendDesc, ComPtr<ID3D12PipelineState>& out,
                         ID3DBlob* vsBlob, ID3DBlob* psBlob);
+
+            // ── NkTextureBackend dispatch (registry globale, cf. .cpp) ────────────
+            // Les 5 callbacks doivent etre statiques pour matcher la signature de
+            // NkTextureBackend (function pointers sans `this`). Une registry
+            // globale (gDX12Registry) tient device/cmdQueue/srvHeap captures
+            // depuis Initialize() ainsi que la table des entrees.
+            // NOTE : SetFilter/SetWrap sont des NO-OP en DX12 car la root sig
+            // utilise un sampler de descriptor heap unique (cree dans CreateSampler
+            // avec LINEAR + CLAMP). Pour du per-texture filter/wrap il faudrait
+            // ajouter un sampler heap multi-slots ; non implemente pour l'instant.
+            static uint32 CreateDX12Texture(uint32 w, uint32 h, const uint8* rgba);
+            static void   UpdateDX12Texture(uint32 id, uint32 x, uint32 y,
+                                            uint32 w, uint32 h, const uint8* rgba);
+            static void   DeleteDX12Texture(uint32 id);
+            static void   SetDX12TextureFilter(uint32 id, NkTextureFilter f);
+            static void   SetDX12TextureWrap  (uint32 id, NkTextureWrap   w);
         };
 
     } // namespace renderer

@@ -3,7 +3,7 @@
 // =============================================================================
 
 #include "RulesScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -183,7 +183,7 @@ namespace nkentseu
         };
 
         // Helper : icone obstacle (8 types) dans une zone (cx, cy) rayon ~r.
-        static void DrawObstacleIcon(GLRenderer2D& r,
+        static void DrawObstacleIcon(renderer::NkRenderer2D& r,
                                      int kind,        // 0..7 = ObstacleType
                                      float cx, float cy, float rad,
                                      float pulse01)
@@ -191,34 +191,34 @@ namespace nkentseu
             switch (kind)
             {
             case 0:  // Wall : carre teal
-                r.DrawQuad       (cx - rad, cy - rad, rad * 2, rad * 2, MakeColor(60, 80, 110, 230));
-                r.DrawQuadOutline(cx - rad, cy - rad, rad * 2, rad * 2, MakeColor(100, 150, 200, 220), 1.5f);
+                r.DrawFilledRect ({ cx - rad, cy - rad, rad * 2, rad * 2 }, MakeColor(60, 80, 110, 230));
+                r.DrawRectOutline({ cx - rad, cy - rad, rad * 2, rad * 2 }, MakeColor(100, 150, 200, 220), 1.5f);
                 break;
             case 1:  // Portal : cercle dore
-                r.DrawCircle       (cx, cy, rad, MakeColor(255, 215, 0, 90 + (int)(pulse01 * 80)), 24);
-                r.DrawCircleOutline(cx, cy, rad, MakeColor(255, 215, 0, 230), 1.5f, 24);
+                r.DrawFilledCircle ({ cx, cy }, rad, MakeColor(255, 215, 0, 90 + (int)(pulse01 * 80)), 24);
+                r.DrawCircleOutline({ cx, cy }, rad, MakeColor(255, 215, 0, 230), 1.5f, 24);
                 break;
             case 2:  // Gravity : 3 cercles concentriques
                 for (int k = 0; k < 3; ++k)
                 {
                     const float rr = rad * (0.35f + 0.25f * k);
-                    r.DrawCircleOutline(cx, cy, rr, MakeColor(204, 119, 255, 180), 1.5f, 24);
+                    r.DrawCircleOutline({ cx, cy }, rr, MakeColor(204, 119, 255, 180), 1.5f, 24);
                 }
-                r.DrawCircle(cx, cy, rad * 0.18f, MakeColor(204, 119, 255, 230), 12);
+                r.DrawFilledCircle({ cx, cy }, rad * 0.18f, MakeColor(204, 119, 255, 230), 12);
                 break;
             case 3:  // Magnet : U
-                r.DrawQuad(cx - rad,            cy - rad,        rad * 0.55f, rad * 2,     MakeColor(0, 245, 255, 230));
-                r.DrawQuad(cx + rad * 0.45f,    cy - rad,        rad * 0.55f, rad * 2,     MakeColor(0, 245, 255, 230));
-                r.DrawQuad(cx - rad,            cy + rad * 0.55f,rad * 2,     rad * 0.45f, MakeColor(0, 245, 255, 230));
+                r.DrawFilledRect({ cx - rad,            cy - rad,        rad * 0.55f, rad * 2 },     MakeColor(0, 245, 255, 230));
+                r.DrawFilledRect({ cx + rad * 0.45f,    cy - rad,        rad * 0.55f, rad * 2 },     MakeColor(0, 245, 255, 230));
+                r.DrawFilledRect({ cx - rad,            cy + rad * 0.55f,rad * 2,     rad * 0.45f }, MakeColor(0, 245, 255, 230));
                 break;
             case 4:  // Mine : cercle rouge + pics
-                r.DrawCircle(cx, cy, rad * 0.55f, MakeColor(255, 64, 64, 200), 16);
+                r.DrawFilledCircle({ cx, cy }, rad * 0.55f, MakeColor(255, 64, 64, 200), 16);
                 for (int k = 0; k < 8; ++k)
                 {
                     const float a  = 6.28318f * k / 8.0f;
                     const float r1 = rad * 0.60f, r2 = rad;
-                    r.DrawLine(cx + math::NkCos(a) * r1, cy + math::NkSin(a) * r1,
-                               cx + math::NkCos(a) * r2, cy + math::NkSin(a) * r2,
+                    r.DrawLine({ cx + math::NkCos(a) * r1, cy + math::NkSin(a) * r1 },
+                               { cx + math::NkCos(a) * r2, cy + math::NkSin(a) * r2 },
                                MakeColor(255, 64, 64, 230), 1.5f);
                 }
                 break;
@@ -226,15 +226,15 @@ namespace nkentseu
             {
                 const float a = 0.6f + pulse01 * 0.3f;
                 const math::NkColor c = MakeColor(204, 119, 255, (uint8_t)(a * 255));
-                r.DrawTriangle(cx,        cy - rad, cx + rad, cy,        cx,        cy + rad, c);
-                r.DrawTriangle(cx,        cy - rad, cx - rad, cy,        cx,        cy + rad, c);
+                r.DrawFilledTriangle({ cx,        cy - rad }, { cx + rad, cy }, { cx,        cy + rad }, c);
+                r.DrawFilledTriangle({ cx,        cy - rad }, { cx - rad, cy }, { cx,        cy + rad }, c);
                 break;
             }
             case 6:  // AirCurrent : 3 bandes vertes horizontales
                 for (int k = 0; k < 3; ++k)
                 {
                     const float yy = cy - rad * 0.6f + k * rad * 0.6f;
-                    r.DrawQuad(cx - rad, yy, rad * 2, rad * 0.2f, MakeColor(0, 255, 100, 200));
+                    r.DrawFilledRect({ cx - rad, yy, rad * 2, rad * 0.2f }, MakeColor(0, 255, 100, 200));
                 }
                 break;
             case 7:  // BonusStar : pentagram dore
@@ -244,8 +244,8 @@ namespace nkentseu
                 {
                     const float a1 = -1.5708f + 6.28318f * k / 5.0f;
                     const float a2 = -1.5708f + 6.28318f * (k + 2) / 5.0f;
-                    r.DrawLine(cx + math::NkCos(a1) * rad * scl, cy + math::NkSin(a1) * rad * scl,
-                               cx + math::NkCos(a2) * rad * scl, cy + math::NkSin(a2) * rad * scl,
+                    r.DrawLine({ cx + math::NkCos(a1) * rad * scl, cy + math::NkSin(a1) * rad * scl },
+                               { cx + math::NkCos(a2) * rad * scl, cy + math::NkSin(a2) * rad * scl },
                                MakeColor(255, 215, 0, 240), 1.5f);
                 }
                 break;
@@ -255,21 +255,21 @@ namespace nkentseu
 
         // Helper : orbe bonus/malus (orbe halo + cercle plein + marqueur).
         // @p isBonus controle le marqueur (point blanc vs croix).
-        static void DrawOrbIcon(GLRenderer2D& r, math::NkColor color,
+        static void DrawOrbIcon(renderer::NkRenderer2D& r, math::NkColor color,
                                 bool isBonus, float cx, float cy, float rad)
         {
-            r.DrawCircle       (cx, cy, rad * 1.5f, MakeColor(color.r, color.g, color.b, 50), 20);
-            r.DrawCircle       (cx, cy, rad,         color,                                    20);
-            r.DrawCircleOutline(cx, cy, rad,         MakeColor(255, 255, 255, 220), 1.0f, 20);
+            r.DrawFilledCircle ({ cx, cy }, rad * 1.5f, MakeColor(color.r, color.g, color.b, 50), 20);
+            r.DrawFilledCircle ({ cx, cy }, rad,         color,                                    20);
+            r.DrawCircleOutline({ cx, cy }, rad,         MakeColor(255, 255, 255, 220), 1.0f, 20);
             if (isBonus)
             {
-                r.DrawCircle(cx, cy, rad * 0.30f, MakeColor(255, 255, 255, 230), 12);
+                r.DrawFilledCircle({ cx, cy }, rad * 0.30f, MakeColor(255, 255, 255, 230), 12);
             }
             else
             {
                 const float k = rad * 0.50f;
-                r.DrawLine(cx - k, cy - k, cx + k, cy + k, MakeColor(255, 255, 255, 230), 2.0f);
-                r.DrawLine(cx - k, cy + k, cx + k, cy - k, MakeColor(255, 255, 255, 230), 2.0f);
+                r.DrawLine({ cx - k, cy - k }, { cx + k, cy + k }, MakeColor(255, 255, 255, 230), 2.0f);
+                r.DrawLine({ cx - k, cy + k }, { cx + k, cy - k }, MakeColor(255, 255, 255, 230), 2.0f);
             }
         }
 
@@ -303,7 +303,7 @@ namespace nkentseu
 
         // Dessine l'illustration appropriee pour la section donnee.
         // Retourne la hauteur dessinee (= IllustrationHeight pour le meme kind).
-        static float DrawIllustration(GLRenderer2D& r, FontAtlas& f,
+        static float DrawIllustration(renderer::NkRenderer2D& r, FontAtlas& f,
                                       IllustrationKind kind,
                                       float x, float y, float w, float scale,
                                       float anim)
@@ -413,16 +413,16 @@ namespace nkentseu
                     const float pX = cx - pondW * 0.5f;
                     const float pY = cy - pondH * 0.5f;
                     // Terrain (rectangle outline)
-                    r.DrawQuadOutline(pX, pY, pondW, pondH, { 0, 245, 255, 120 }, 1.0f);
+                    r.DrawRectOutline({ pX, pY, pondW, pondH }, { 0, 245, 255, 120 }, 1.0f);
                     // 2 raquettes
                     const float padW = 3.0f * scale;
                     const float padH = pondH * 0.40f;
                     const float padYL = pY + pondH * 0.30f;
                     const float padYR = pY + pondH * 0.30f;
-                    r.DrawQuad(pX + 2.0f * scale,            padYL, padW, padH, { 0, 245, 255, 220 });
-                    r.DrawQuad(pX + pondW - padW - 2.0f * scale, padYR, padW, padH, { 255, 107, 0, 220 });
+                    r.DrawFilledRect({ pX + 2.0f * scale,            padYL, padW, padH }, { 0, 245, 255, 220 });
+                    r.DrawFilledRect({ pX + pondW - padW - 2.0f * scale, padYR, padW, padH }, { 255, 107, 0, 220 });
                     // Petit cercle = ball au centre
-                    r.DrawCircle(pX + pondW * 0.5f, pY + pondH * 0.5f, 2.0f * scale,
+                    r.DrawFilledCircle({ pX + pondW * 0.5f, pY + pondH * 0.5f }, 2.0f * scale,
                                  { 255, 255, 255, 220 }, 10);
                     // Marqueurs IA pour mode 1 (droite) et 2 (les deux)
                     if (i == 1 || i == 2)
@@ -454,11 +454,11 @@ namespace nkentseu
                 {
                     const float cx = x + cellW * 0.5f;
                     const float cy = y + rowH * 0.45f;
-                    r.DrawQuad       (cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH, { 0, 245, 255, 40 });
-                    r.DrawQuadOutline(cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH, { 0, 245, 255, 220 }, 1.0f);
+                    r.DrawFilledRect ({ cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH }, { 0, 245, 255, 40 });
+                    r.DrawRectOutline({ cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH }, { 0, 245, 255, 220 }, 1.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy - keyH + 3.0f * scale, "W", { 255, 255, 255, 240 });
-                    r.DrawQuad       (cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH, { 0, 245, 255, 40 });
-                    r.DrawQuadOutline(cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH, { 0, 245, 255, 220 }, 1.0f);
+                    r.DrawFilledRect ({ cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH }, { 0, 245, 255, 40 });
+                    r.DrawRectOutline({ cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH }, { 0, 245, 255, 220 }, 1.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy + 6.0f * scale, "S", { 255, 255, 255, 240 });
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy + keyH + 10.0f * scale, "P1", { 0, 245, 255, 220 });
                 }
@@ -466,11 +466,11 @@ namespace nkentseu
                 {
                     const float cx = x + cellW * 1.5f;
                     const float cy = y + rowH * 0.45f;
-                    r.DrawQuad       (cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH, { 255, 107, 0, 40 });
-                    r.DrawQuadOutline(cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH, { 255, 107, 0, 220 }, 1.0f);
+                    r.DrawFilledRect ({ cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH }, { 255, 107, 0, 40 });
+                    r.DrawRectOutline({ cx - keyW * 0.5f, cy - keyH - 2.0f * scale, keyW, keyH }, { 255, 107, 0, 220 }, 1.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy - keyH + 3.0f * scale, "^", { 255, 255, 255, 240 });
-                    r.DrawQuad       (cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH, { 255, 107, 0, 40 });
-                    r.DrawQuadOutline(cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH, { 255, 107, 0, 220 }, 1.0f);
+                    r.DrawFilledRect ({ cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH }, { 255, 107, 0, 40 });
+                    r.DrawRectOutline({ cx - keyW * 0.5f, cy + 2.0f * scale, keyW, keyH }, { 255, 107, 0, 220 }, 1.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy + 6.0f * scale, "v", { 255, 255, 255, 240 });
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy + keyH + 10.0f * scale, "P2", { 255, 107, 0, 220 });
                 }
@@ -478,9 +478,9 @@ namespace nkentseu
                 {
                     const float cx = x + cellW * 2.5f;
                     const float cy = y + rowH * 0.45f;
-                    r.DrawCircle       (cx, cy - 6.0f * scale, 8.0f * scale, { 255, 255, 255, 60 }, 16);
-                    r.DrawCircleOutline(cx, cy - 6.0f * scale, 8.0f * scale, { 255, 255, 255, 220 }, 1.5f, 16);
-                    r.DrawLine(cx, cy + 2.0f * scale, cx, cy + 18.0f * scale, { 255, 255, 255, 220 }, 2.0f);
+                    r.DrawFilledCircle ({ cx, cy - 6.0f * scale }, 8.0f * scale, { 255, 255, 255, 60 }, 16);
+                    r.DrawCircleOutline({ cx, cy - 6.0f * scale }, 8.0f * scale, { 255, 255, 255, 220 }, 1.5f, 16);
+                    r.DrawLine({ cx, cy + 2.0f * scale }, { cx, cy + 18.0f * scale }, { 255, 255, 255, 220 }, 2.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy + keyH + 10.0f * scale, "DRAG", { 255, 255, 255, 220 });
                 }
                 return rowH + pad + 12.0f * scale;
@@ -499,11 +499,11 @@ namespace nkentseu
                     const math::NkColor c = isB ? MakeColor(80, 255, 100) : MakeColor(255, 60, 60);
                     DrawOrbIcon(r, c, isB, cx, cy, rad);
                     // Fleche vers le bas
-                    r.DrawLine(cx, cy + rad + 3.0f * scale, cx, cy + rad + 16.0f * scale,
+                    r.DrawLine({ cx, cy + rad + 3.0f * scale }, { cx, cy + rad + 16.0f * scale },
                                { 255, 255, 255, 180 }, 1.5f);
-                    r.DrawLine(cx, cy + rad + 16.0f * scale, cx - 4.0f * scale, cy + rad + 12.0f * scale,
+                    r.DrawLine({ cx, cy + rad + 16.0f * scale }, { cx - 4.0f * scale, cy + rad + 12.0f * scale },
                                { 255, 255, 255, 180 }, 1.5f);
-                    r.DrawLine(cx, cy + rad + 16.0f * scale, cx + 4.0f * scale, cy + rad + 12.0f * scale,
+                    r.DrawLine({ cx, cy + rad + 16.0f * scale }, { cx + 4.0f * scale, cy + rad + 12.0f * scale },
                                { 255, 255, 255, 180 }, 1.5f);
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
                                        cx, cy + rad + 22.0f * scale,
@@ -521,12 +521,12 @@ namespace nkentseu
                 {
                     const float cx = x + cellW * 0.5f;
                     const float cy = y + rowH * 0.45f;
-                    r.DrawQuad       (cx - 38.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale, { 0, 245, 255, 40 });
-                    r.DrawQuadOutline(cx - 38.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale, { 0, 245, 255, 220 }, 1.0f);
+                    r.DrawFilledRect ({ cx - 38.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale }, { 0, 245, 255, 40 });
+                    r.DrawRectOutline({ cx - 38.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale }, { 0, 245, 255, 220 }, 1.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale, cx - 27.0f * scale, cy - 7.0f * scale, "-", { 0, 245, 255, 240 });
                     f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale, cx,              cy - 7.0f * scale, "11", { 255, 255, 255, 240 });
-                    r.DrawQuad       (cx + 16.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale, { 0, 245, 255, 40 });
-                    r.DrawQuadOutline(cx + 16.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale, { 0, 245, 255, 220 }, 1.0f);
+                    r.DrawFilledRect ({ cx + 16.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale }, { 0, 245, 255, 40 });
+                    r.DrawRectOutline({ cx + 16.0f * scale, cy - 12.0f * scale, keyW, 24.0f * scale }, { 0, 245, 255, 220 }, 1.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale, cx + 27.0f * scale, cy - 7.0f * scale, "+", { 0, 245, 255, 240 });
                     // Label decale vers le bas pour ne pas chevaucher le bouton +.
                     f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale, cx, cy + 24.0f * scale, "SCORE", { 255, 255, 255, 200 });
@@ -610,7 +610,7 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void RulesScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
@@ -620,11 +620,6 @@ namespace nkentseu
             const float enterA = EaseOutCubic(mEnterAnim);
 
             // Fond degrade simple
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
-
             // ── Zone top reservee (header sticky) ──────────────────────────
             // Layout responsive en % viewport (2026-05-19) : on garde `scale`
             // UNIQUEMENT pour DrawStringScaled (bitmaps police) et epaisseurs
@@ -687,8 +682,8 @@ namespace nkentseu
                     math::NkColor bd = isOpen
                         ? math::NkColor{ 0, 245, 255, (uint8_t)(220 * enterA) }
                         : math::NkColor{ 0, 245, 255, (uint8_t)(90  * enterA) };
-                    r.DrawQuad       (gridLeft, screenTitleY, availW, titleBarH, bg);
-                    r.DrawQuadOutline(gridLeft, screenTitleY, availW, titleBarH, bd,
+                    r.DrawFilledRect ({ gridLeft, screenTitleY, availW, titleBarH }, bg);
+                    r.DrawRectOutline({ gridLeft, screenTitleY, availW, titleBarH }, bd,
                                       isOpen ? 2.0f : 1.5f);
 
                     // Texte titre, centre vertical
@@ -773,13 +768,13 @@ namespace nkentseu
                 const float sbInset = Pct::H(H, 0.004f, 1.0f, 4.0f);
                 const float sbY = scrollTop + sbInset;
                 const float sbH = scrollH - sbInset * 2.0f;
-                r.DrawQuad(sbX, sbY, sbW, sbH, { 255, 255, 255, 16 });
+                r.DrawFilledRect({ sbX, sbY, sbW, sbH }, { 255, 255, 255, 16 });
                 const float frac = scrollH / contentH;
                 const float thumbMin = Pct::H(H, 0.030f, 16.0f, 36.0f);
                 const float thumbH = math::NkMax(thumbMin, sbH * frac);
                 const float thumbY = sbY
                                    + (sbH - thumbH) * (mScrollY / mMaxScroll);
-                r.DrawQuad(sbX, thumbY, sbW, thumbH,
+                r.DrawFilledRect({ sbX, thumbY, sbW, thumbH },
                            { 0, 245, 255, 180 });
             }
 
@@ -789,11 +784,11 @@ namespace nkentseu
                 const float hdrSep = Pct::H(H, 0.0035f, 1.5f, 4.0f);
                 math::NkColor headerBg = theme::Dark();
                 headerBg.a = 240;
-                r.DrawQuad(0.0f, 0.0f, (float)W, scrollTop - hdrSep, headerBg);
-                r.DrawQuad(0.0f, scrollTop - hdrSep, (float)W, hdrSep,
+                r.DrawFilledRect({ 0.0f, 0.0f, (float)W, scrollTop - hdrSep }, headerBg);
+                r.DrawFilledRect({ 0.0f, scrollTop - hdrSep, (float)W, hdrSep },
                            { 0, 245, 255, 120 });
-                r.DrawQuad       (mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 30 });
-                r.DrawQuadOutline(mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 200 }, 1.5f);
+                r.DrawFilledRect ({ mBackX, mBackY, mBackW, mBackH }, { 0, 245, 255, 30 });
+                r.DrawRectOutline({ mBackX, mBackY, mBackW, mBackH }, { 0, 245, 255, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mBackX + mBackW * 0.5f,
                                    mBackY + mBackH * 0.18f,
@@ -803,8 +798,6 @@ namespace nkentseu
                                    (float)ctx.safe.TopY() + Pct::H(H, 0.024f, 10.0f, 32.0f),
                                    "REGLES DU JEU", theme::White());
             }
-
-            r.End();
         }
 
         // ─────────────────────────────────────────────────────────────────────

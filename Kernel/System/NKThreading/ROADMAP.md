@@ -174,5 +174,5 @@ Job System fibres-aware façon Naughty Dog / Unreal :
   `NkGetLogicalCoreCount`).
 - **Modules au-dessus qui en dépendent** : NKLogger (mutex, condvar, thread),
   NKFileSystem (FileWatcher), NKNetwork (sockets blocking), NKRenderer (ring
-  buffer multi-frame, command submission), Runtime (frame loop), Unkeny
+  buffer multi-frame, command submission), Runtime (frame loop), Noge
   (PluginSystem chargements concurrents).

@@ -11,6 +11,18 @@
 #include <algorithm>
 #include <cmath>
 #include <d3d12sdklayers.h>
+// DXC (vrai compilateur DX12 : HLSL SM6 -> DXIL). Disponible si le SDK Vulkan/
+// Windows fournit dxc/dxcapi.h. Chargé dynamiquement (pas de lien dxcompiler.lib).
+#if defined(__has_include)
+#  if __has_include(<dxc/dxcapi.h>)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wignored-attributes"
+#    pragma clang diagnostic ignored "-Wunknown-attributes"
+#    include <dxc/dxcapi.h>
+#    pragma clang diagnostic pop
+#    define NK_HAS_DXC 1
+#  endif
+#endif
 
 #define NK_DX12_LOG(...)  logger_src.Infof("[NkRHI_DX12] " __VA_ARGS__)
 #define NK_DX12_ERR(...)  logger_src.Infof("[NkRHI_DX12][ERR] " __VA_ARGS__)
@@ -102,7 +114,14 @@ bool NkDirectX12Device::Initialize(const NkDeviceInitInfo& init) {
     if (mHeight == 0) mHeight = 720;
 
     UINT factoryFlags = 0;
-    if (dxCfg.debugDevice) {
+#ifdef _DEBUG
+    // Build Debug : debug layer DX12 actif par defaut (no-op si la feature Windows
+    // « Graphics Tools » est absente — D3D12GetDebugInterface echoue gracieusement).
+    const bool wantDebug = true;
+#else
+    const bool wantDebug = dxCfg.debugDevice || getenv("NK_DX12_DEBUG") != nullptr;
+#endif
+    if (wantDebug) {
         ComPtr<ID3D12Debug> debug;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
             debug->EnableDebugLayer();
@@ -177,7 +196,7 @@ bool NkDirectX12Device::Initialize(const NkDeviceInitInfo& init) {
     // InfoQueue : route validation messages vers NkLog (debug device seulement).
     // Tente d'abord InfoQueue1 (Win10 2004+ / Agility SDK) pour callback live ;
     // sinon fallback sur InfoQueue + polling cote EndFrame.
-    if (dxCfg.debugDevice) {
+    if (wantDebug) {
         if (SUCCEEDED(mDevice.As(&mInfoQueue1)) && mInfoQueue1) {
             if (SUCCEEDED(mInfoQueue1->RegisterMessageCallback(
                     DX12MessageCallback,
@@ -434,57 +453,44 @@ ComPtr<ID3D12RootSignature> NkDirectX12Device::CreateDefaultRootSignature(bool c
     //   3 -> UAV table (u0..u15)
     //   4 -> Sampler table (s0..s15)
     (void)compute;
+    using namespace NkDX12RootLayout;
 
-    D3D12_ROOT_PARAMETER params[5]{};
+    D3D12_ROOT_PARAMETER params[NUM_PARAMS]{};
+    // Ranges persistants jusqu'a D3D12SerializeRootSignature (refs par pointeur).
+    D3D12_DESCRIPTOR_RANGE srvRanges[NUM_SRV]{};
+    D3D12_DESCRIPTOR_RANGE sampRanges[NUM_SAMP]{};
+    D3D12_DESCRIPTOR_RANGE uavRanges[NUM_UAV]{};
 
-    params[0].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    params[0].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
-    params[0].Constants.ShaderRegister  = 15;
-    params[0].Constants.RegisterSpace   = 0;
-    params[0].Constants.Num32BitValues  = 32;
+    params[ROOT_CONSTANTS].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[ROOT_CONSTANTS].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
+    params[ROOT_CONSTANTS].Constants.ShaderRegister = 15;
+    params[ROOT_CONSTANTS].Constants.RegisterSpace  = 0;
+    params[ROOT_CONSTANTS].Constants.Num32BitValues = 32;
 
-    params[1].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    params[1].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
-    params[1].Descriptor.ShaderRegister = 0;
-    params[1].Descriptor.RegisterSpace  = 0;
+    params[ROOT_CBV].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    params[ROOT_CBV].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
+    params[ROOT_CBV].Descriptor.ShaderRegister = 0;
+    params[ROOT_CBV].Descriptor.RegisterSpace  = 0;
 
-    D3D12_DESCRIPTOR_RANGE srvRange{};
-    srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srvRange.NumDescriptors                    = 16;
-    // Aligne le registre SRV avec les shaders de la démo (uShadowMap : register(t1)).
-    srvRange.BaseShaderRegister                = 1;
-    srvRange.RegisterSpace                     = 0;
-    srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-    params[2].ParameterType                    = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    params[2].ShaderVisibility                 = D3D12_SHADER_VISIBILITY_ALL;
-    params[2].DescriptorTable.NumDescriptorRanges = 1;
-    params[2].DescriptorTable.pDescriptorRanges   = &srvRange;
-
-    D3D12_DESCRIPTOR_RANGE uavRange{};
-    uavRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    uavRange.NumDescriptors                    = 16;
-    uavRange.BaseShaderRegister                = 0;
-    uavRange.RegisterSpace                     = 0;
-    uavRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-    params[3].ParameterType                    = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    params[3].ShaderVisibility                 = D3D12_SHADER_VISIBILITY_ALL;
-    params[3].DescriptorTable.NumDescriptorRanges = 1;
-    params[3].DescriptorTable.pDescriptorRanges   = &uavRange;
-
-    D3D12_DESCRIPTOR_RANGE sampRange{};
-    sampRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-    sampRange.NumDescriptors                    = 16;
-    // Aligne le registre sampler avec les shaders de la démo (uShadowSampler : register(s1)).
-    sampRange.BaseShaderRegister                = 1;
-    sampRange.RegisterSpace                     = 0;
-    sampRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-    params[4].ParameterType                     = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    params[4].ShaderVisibility                  = D3D12_SHADER_VISIBILITY_ALL;
-    params[4].DescriptorTable.NumDescriptorRanges = 1;
-    params[4].DescriptorTable.pDescriptorRanges   = &sampRange;
+    // UNE table d'1 descripteur par registre t0..t7 / s0..s7 / u0..u3.
+    auto fillTable = [](D3D12_ROOT_PARAMETER& p, D3D12_DESCRIPTOR_RANGE& r,
+                        D3D12_DESCRIPTOR_RANGE_TYPE type, uint32 reg) {
+        r.RangeType                         = type;
+        r.NumDescriptors                    = 1;
+        r.BaseShaderRegister                = reg;
+        r.RegisterSpace                     = 0;
+        r.OffsetInDescriptorsFromTableStart = 0;
+        p.ParameterType                     = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        p.ShaderVisibility                  = D3D12_SHADER_VISIBILITY_ALL;
+        p.DescriptorTable.NumDescriptorRanges = 1;
+        p.DescriptorTable.pDescriptorRanges   = &r;
+    };
+    for (uint32 k = 0; k < NUM_SRV;  ++k) fillTable(params[SRV_BASE + k],  srvRanges[k],  D3D12_DESCRIPTOR_RANGE_TYPE_SRV,     k);
+    for (uint32 k = 0; k < NUM_SAMP; ++k) fillTable(params[SAMP_BASE + k], sampRanges[k], D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, k);
+    for (uint32 k = 0; k < NUM_UAV;  ++k) fillTable(params[UAV_BASE + k],  uavRanges[k],  D3D12_DESCRIPTOR_RANGE_TYPE_UAV,     k);
 
     D3D12_ROOT_SIGNATURE_DESC rsd{};
-    rsd.NumParameters     = 5;
+    rsd.NumParameters     = NUM_PARAMS;
     rsd.pParameters       = params;
     rsd.NumStaticSamplers = 0;
     rsd.pStaticSamplers   = nullptr;
@@ -519,7 +525,7 @@ NkBufferHandle NkDirectX12Device::CreateBuffer(const NkBufferDesc& desc) {
     NkBufferHandle h;
 
     {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
 
     D3D12_HEAP_TYPE heapType = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON;
@@ -640,7 +646,7 @@ NkBufferHandle NkDirectX12Device::CreateBuffer(const NkBufferDesc& desc) {
 }
 
 void NkDirectX12Device::DestroyBuffer(NkBufferHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     auto it = mBuffers.Find(h.id); if(!it) return;
     if (it->mapped) it->resource->Unmap(0, nullptr);
     mBuffers.Erase(h.id); h.id = 0;
@@ -711,7 +717,7 @@ void NkDirectX12Device::UnmapBuffer(NkBufferHandle buf) {
 // Textures
 // =============================================================================
 NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
 
     DXGI_FORMAT fmt = ToDXGIFormat(desc.format);
     bool isDepth = NkFormatIsDepth(desc.format);
@@ -829,12 +835,22 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
     if (desc.initialData) {
         uint32 bpp = NkFormatBytesPerPixel(desc.format);
         uint32 rowPitch = desc.rowPitch > 0 ? desc.rowPitch : desc.width * bpp;
-        uint64 imgSz = (uint64)rowPitch * desc.height;
+        // DX12 exige que le RowPitch du placed-footprint soit aligné sur 256 octets
+        // (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) ; sinon CopyTextureRegion provoque une
+        // faute GPU -> "Removing Device". On copie donc ligne par ligne dans le
+        // staging avec un pitch aligné, et on déclare ce pitch dans le footprint.
+        const uint32 kPitchAlign = 256u; // D3D12_TEXTURE_DATA_PITCH_ALIGNMENT
+        uint32 alignedRowPitch = (rowPitch + (kPitchAlign - 1)) & ~(kPitchAlign - 1);
+        uint64 imgSz = (uint64)alignedRowPitch * desc.height;
 
         NkBufferDesc sd = NkBufferDesc::Staging(imgSz);
         auto stageH = CreateBuffer(sd);
         auto& stage = mBuffers[stageH.id];
-        memcpy(stage.mapped, desc.initialData, (size_t)imgSz);
+        for (uint32 y = 0; y < desc.height; ++y) {
+            memcpy((uint8*)stage.mapped + (uint64)y * alignedRowPitch,
+                   (const uint8*)desc.initialData + (uint64)y * rowPitch,
+                   (size_t)rowPitch);
+        }
 
         ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
             TransitionResource(cmd, res.Get(), initState, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -845,7 +861,8 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
             D3D12_TEXTURE_COPY_LOCATION src{};
             src.pResource        = stage.resource.Get();
             src.Type             = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            src.PlacedFootprint.Footprint = { rd.Format, desc.width, desc.height, 1, rowPitch };
+            src.PlacedFootprint.Offset    = 0;
+            src.PlacedFootprint.Footprint = { rd.Format, desc.width, desc.height, 1, alignedRowPitch };
             cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
             TransitionResource(cmd, res.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -859,7 +876,7 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
 }
 
 void NkDirectX12Device::DestroyTexture(NkTextureHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     auto it = mTextures.Find(h.id); if(!it) return;
     mTextures.Erase(h.id); h.id = 0;
 }
@@ -876,11 +893,19 @@ bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void* pixels
     auto it = mTextures.Find(t.id); if(!it) return false;
     uint32 bpp = NkFormatBytesPerPixel(it->desc.format);
     uint32 rp  = rowPitch > 0 ? rowPitch : w * bpp;
-    uint64 sz  = (uint64)rp * h;
+    // RowPitch du placed-footprint aligné sur 256 (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT),
+    // sinon CopyTextureRegion -> faute GPU -> "Removing Device".
+    const uint32 kPitchAlign = 256u;
+    uint32 alignedRowPitch = (rp + (kPitchAlign - 1)) & ~(kPitchAlign - 1);
+    uint64 sz  = (uint64)alignedRowPitch * h;
     NkBufferDesc sd = NkBufferDesc::Staging(sz);
     auto stageH = CreateBuffer(sd);
     auto& stage = mBuffers[stageH.id];
-    memcpy(stage.mapped, pixels, (size_t)sz);
+    for (uint32 row = 0; row < h; ++row) {
+        memcpy((uint8*)stage.mapped + (uint64)row * alignedRowPitch,
+               (const uint8*)pixels + (uint64)row * rp,
+               (size_t)rp);
+    }
 
     auto prevState = it->state;
     ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
@@ -892,8 +917,11 @@ bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void* pixels
         D3D12_TEXTURE_COPY_LOCATION src{};
         src.pResource = stage.resource.Get();
         src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-        src.PlacedFootprint.Footprint = { it->format, w, h, 1, rp };
-        D3D12_BOX box{ x, y, 0, x + w, y + h, 1 };
+        src.PlacedFootprint.Offset    = 0;
+        src.PlacedFootprint.Footprint = { it->format, w, h, 1, alignedRowPitch };
+        // Le staging ne contient que la région w×h (0-based) ; le décalage destination
+        // (x,y) est passé à CopyTextureRegion.
+        D3D12_BOX box{ 0, 0, 0, w, h, 1 };
         cmd->CopyTextureRegion(&dst, x, y, 0, &src, &box);
         TransitionResource(cmd, it->resource.Get(), D3D12_RESOURCE_STATE_COPY_DEST, prevState);
     });
@@ -911,9 +939,13 @@ bool NkDirectX12Device::GenerateMipmaps(NkTextureHandle, NkFilter) {
 // Samplers
 // =============================================================================
 NkSamplerHandle NkDirectX12Device::CreateSampler(const NkSamplerDesc& d) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     D3D12_SAMPLER_DESC sd{};
-    sd.Filter         = ToDX12Filter(d.magFilter, d.minFilter, d.mipFilter, d.compareEnable);
+    // Anisotrope si maxAnisotropy>1 : anti-aliasing a angle rasant (avec mipmaps).
+    if (!d.compareEnable && d.maxAnisotropy > 1.f)
+        sd.Filter     = D3D12_FILTER_ANISOTROPIC;
+    else
+        sd.Filter     = ToDX12Filter(d.magFilter, d.minFilter, d.mipFilter, d.compareEnable);
     sd.AddressU       = ToDX12Address(d.addressU);
     sd.AddressV       = ToDX12Address(d.addressV);
     sd.AddressW       = ToDX12Address(d.addressW);
@@ -930,15 +962,99 @@ NkSamplerHandle NkDirectX12Device::CreateSampler(const NkSamplerDesc& d) {
 }
 
 void NkDirectX12Device::DestroySampler(NkSamplerHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     mSamplers.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
-// Shaders (DXBC/DXIL via D3DCompile ou pré-compilés)
+#ifdef NK_HAS_DXC
+// =============================================================================
+// Compilation HLSL -> DXIL via DXC (vrai compilateur Shader Model 6 de DX12).
+// dxcompiler.dll est chargé dynamiquement (1re fois) -> pas de dépendance lien.
+// CLSIDs hardcodés (stables) pour ne pas avoir besoin de dxcompiler.lib.
+// Retourne false si dxc indisponible (le device retombe alors sur fxc).
+// =============================================================================
+namespace {
+    // CLSIDs + IIDs DXC hardcodés : clang-mingw ignore __declspec(uuid()) donc
+    // __uuidof/IID_PPV_ARGS ne marchent pas pour ces interfaces -> on passe les
+    // IID explicitement (valeurs canoniques tirées de dxcapi.h).
+    static const CLSID kCLSID_DxcCompiler =
+        {0x73e22d93,0xe6ce,0x47f3,{0xb5,0xbf,0xf0,0x66,0x4f,0x39,0xc1,0xb0}};
+    static const IID kIID_IDxcCompiler3 =
+        {0x228B4687,0x5A6A,0x4730,{0x90,0x0C,0x97,0x02,0xB2,0x20,0x3F,0x54}};
+    static const IID kIID_IDxcResult =
+        {0x58346CDA,0xDDE7,0x4497,{0x94,0x61,0x6F,0x87,0xAF,0x5E,0x06,0x59}};
+    static const IID kIID_IDxcBlob =
+        {0x8BA5FB08,0x5195,0x40e2,{0xAC,0x58,0x0D,0x98,0x9C,0x3A,0x01,0x02}};
+    static const IID kIID_IDxcBlobUtf8 =
+        {0x3DA636C9,0xBA71,0x4024,{0xA3,0x01,0x30,0xCB,0xF1,0x25,0x30,0x5B}};
+    typedef HRESULT (__stdcall *NkDxcCreateInstanceFn)(REFCLSID, REFIID, LPVOID*);
+
+    template <typename T>
+    static void** NkPpv(ComPtr<T>& p) { return reinterpret_cast<void**>(p.GetAddressOf()); }
+
+    static bool NkDxcCompileHLSL(const char* src, const wchar_t* profile,
+                                 const char* entryUtf8,
+                                 NkVector<uint8>& out, NkString& errOut) {
+        // Switch diagnostic : NK_DISABLE_DXC=1 force le fallback fxc.
+        if (getenv("NK_DISABLE_DXC")) { errOut = "dxc desactive (NK_DISABLE_DXC)"; return false; }
+        static NkDxcCreateInstanceFn createInstance = nullptr;
+        static bool tried = false;
+        if (!tried) {
+            tried = true;
+            HMODULE dll = LoadLibraryA("dxcompiler.dll");
+            if (dll) createInstance =
+                (NkDxcCreateInstanceFn)GetProcAddress(dll, "DxcCreateInstance");
+        }
+        if (!createInstance) { errOut = "dxcompiler.dll indisponible"; return false; }
+
+        ComPtr<IDxcCompiler3> compiler;
+        if (FAILED(createInstance(kCLSID_DxcCompiler, kIID_IDxcCompiler3, NkPpv(compiler)))
+            || !compiler) {
+            errOut = "DxcCreateInstance(compiler) a echoue"; return false;
+        }
+
+        DxcBuffer buf{};
+        buf.Ptr = src; buf.Size = strlen(src); buf.Encoding = DXC_CP_UTF8;
+
+        // Entree : convertir l'UTF-8 (s.entryPoint, ex "VSMain") en wchar pour dxc.
+        // Bug historique : "-E main" code en dur -> "missing entry point definition"
+        // quand le generateur NkSL nomme l'entree VSMain/PSMain.
+        wchar_t entryW[128];
+        {
+            const char* e = (entryUtf8 && *entryUtf8) ? entryUtf8 : "main";
+            usize n = 0;
+            for (; e[n] && n < 127; ++n) entryW[n] = (wchar_t)(unsigned char)e[n];
+            entryW[n] = L'\0';
+        }
+        const wchar_t* args[] = { L"-T", profile, L"-E", entryW };
+        ComPtr<IDxcResult> result;
+        HRESULT hr = compiler->Compile(&buf, args, (UINT32)(sizeof(args)/sizeof(args[0])),
+                                       nullptr, kIID_IDxcResult, NkPpv(result));
+        if (FAILED(hr) || !result) { errOut = "IDxcCompiler3::Compile a echoue"; return false; }
+
+        HRESULT status = E_FAIL; result->GetStatus(&status);
+        if (FAILED(status)) {
+            ComPtr<IDxcBlobUtf8> errs;
+            result->GetOutput(DXC_OUT_ERRORS, kIID_IDxcBlobUtf8, NkPpv(errs), nullptr);
+            if (errs && errs->GetStringLength())
+                errOut = NkString((const char*)errs->GetStringPointer());
+            else errOut = "dxc: erreur de compilation";
+            return false;
+        }
+        ComPtr<IDxcBlob> obj;
+        result->GetOutput(DXC_OUT_OBJECT, kIID_IDxcBlob, NkPpv(obj), nullptr);
+        if (!obj || obj->GetBufferSize() == 0) { errOut = "dxc: DXIL vide"; return false; }
+        out.Assign((const uint8*)obj->GetBufferPointer(), (usize)obj->GetBufferSize());
+        return true;
+    }
+} // namespace
+#endif // NK_HAS_DXC
+
+// Shaders (DXBC/DXIL via DXC en priorité, sinon D3DCompile, ou pré-compilés)
 // =============================================================================
 NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     NkDX12Shader sh;
     bool compiledAtLeastOneStage = false;
 
@@ -964,24 +1080,49 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
             stageCompiled = true;
         } else if (s.hlslSource) {
             const char* entry = s.entryPoint ? s.entryPoint : "main";
-            UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
-#ifdef _DEBUG
-            flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+            // Diag : NK_DX12_DUMPHLSL=1 logge le HLSL que le device compile
+            // (utile pour comparer NkSL vs SPIRV-Cross sur un PSO qui echoue).
+            if (getenv("NK_DX12_DUMPHLSL"))
+                NK_DX12_LOG("[DUMPHLSL stage %u]\n%s\n", (unsigned)s.stage, s.hlslSource);
+#ifdef NK_HAS_DXC
+            // 1) Vrai compilateur DX12 : dxc -> DXIL (Shader Model 6.0).
+            const wchar_t* dxcProfile =
+                  s.stage == NkShaderStage::NK_VERTEX   ? L"vs_6_0"
+                : s.stage == NkShaderStage::NK_FRAGMENT ? L"ps_6_0"
+                : s.stage == NkShaderStage::NK_COMPUTE  ? L"cs_6_0"
+                : s.stage == NkShaderStage::NK_GEOMETRY ? L"gs_6_0" : nullptr;
+            NkString dxcErr;
+            bool dxcOk = dxcProfile &&
+                         NkDxcCompileHLSL(s.hlslSource, dxcProfile, entry, *target, dxcErr);
+            if (dxcOk) {
+                stageCompiled = true;
+            } else {
+                if (dxcProfile && !dxcErr.Empty())
+                    NK_DX12_ERR("dxc stage %u indispo/echec -> fallback fxc: %s\n",
+                                (unsigned)s.stage, dxcErr.CStr());
 #endif
-            ComPtr<ID3DBlob> code, err;
-            HRESULT hr = D3DCompile(s.hlslSource, strlen(s.hlslSource), nullptr,
-                nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-                entry, hlslTarget, flags, 0, &code, &err);
-            if (FAILED(hr)) {
-                if (err) NK_DX12_ERR("Shader: %s\n", (char*)err->GetBufferPointer());
-                NK_DX12_ERR("Shader compile failed for stage %u (hr=0x%X)\n",
-                            (unsigned)s.stage, (unsigned)hr);
-                return {};
+                // 2) Fallback : fxc (D3DCompile) -> DXBC SM5.1.
+                UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
+#ifdef _DEBUG
+                flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+                ComPtr<ID3DBlob> code, err;
+                HRESULT hr = D3DCompile(s.hlslSource, strlen(s.hlslSource), nullptr,
+                    nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
+                    entry, hlslTarget, flags, 0, &code, &err);
+                if (FAILED(hr)) {
+                    if (err) NK_DX12_ERR("Shader: %s\n", (char*)err->GetBufferPointer());
+                    NK_DX12_ERR("Shader compile failed for stage %u (hr=0x%X)\n",
+                                (unsigned)s.stage, (unsigned)hr);
+                    return {};
+                }
+                target->Assign(static_cast<const uint8*>(code->GetBufferPointer()),
+                               static_cast<usize>(code->GetBufferSize()));
+                if (s.stage == NkShaderStage::NK_VERTEX) sh.vsBlob = code;
+                stageCompiled = true;
+#ifdef NK_HAS_DXC
             }
-            target->Assign(static_cast<const uint8*>(code->GetBufferPointer()),
-                           static_cast<usize>(code->GetBufferSize()));
-            if (s.stage == NkShaderStage::NK_VERTEX) sh.vsBlob = code;
-            stageCompiled = true;
+#endif
         }
 
         if (!stageCompiled || target->empty()) {
@@ -1001,7 +1142,7 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
 }
 
 void NkDirectX12Device::DestroyShader(NkShaderHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     mShaders.Erase(h.id); h.id = 0;
 }
 
@@ -1009,7 +1150,7 @@ void NkDirectX12Device::DestroyShader(NkShaderHandle& h) {
 // Pipelines
 // =============================================================================
 NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     auto sit = mShaders.Find(d.shader.id); if(!sit) return {};
     auto& sh = *sit;
 
@@ -1124,6 +1265,24 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
     HRESULT hr = mDevice->CreateGraphicsPipelineState(&psd, IID_PPV_ARGS(&pso));
     if (FAILED(hr) || !pso) {
         NK_DX12_ERR("CreateGraphicsPipelineState failed (hr=0x%X)\n", (unsigned)hr);
+        // Diag (sans debug layer) : dump des champs cles du PSO desc.
+        NK_DX12_ERR("  PSO desc: numInputElems=%u NumRenderTargets=%u RTV0=%d DSVFormat=%d "
+                    "DepthEnable=%d topoType=%d sampleCount=%u VS=%zu PS=%zu rootSig=%p\n",
+                    (unsigned)elems.size(), (unsigned)psd.NumRenderTargets,
+                    (int)psd.RTVFormats[0], (int)psd.DSVFormat,
+                    (int)psd.DepthStencilState.DepthEnable,
+                    (int)psd.PrimitiveTopologyType, (unsigned)psd.SampleDesc.Count,
+                    (size_t)sh.vs.bytecode.size(), (size_t)sh.ps.bytecode.size(),
+                    (void*)rootSig.Get());
+        for (uint32 ie = 0; ie < (uint32)elems.size(); ie++)
+            NK_DX12_ERR("    in[%u] sem=%s idx=%u fmt=%d slot=%u off=%u\n", ie,
+                        elems[ie].SemanticName ? elems[ie].SemanticName : "(null)",
+                        (unsigned)elems[ie].SemanticIndex, (int)elems[ie].Format,
+                        (unsigned)elems[ie].InputSlot, (unsigned)elems[ie].AlignedByteOffset);
+        // Vide l'InfoQueue MAINTENANT : les messages de validation (STATE_CREATION)
+        // sont stockes mais normalement draines en EndFrame, jamais atteint si on
+        // abandonne ici. Sans ca, on n'a que le E_INVALIDARG opaque.
+        if (mInfoQueue) DrainDX12InfoQueue(mInfoQueue.Get());
         return {};
     }
 
@@ -1141,7 +1300,7 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
 }
 
 NkPipelineHandle NkDirectX12Device::CreateComputePipeline(const NkComputePipelineDesc& d) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     auto sit = mShaders.Find(d.shader.id); if(!sit) return {};
     auto& sh = *sit;
     if (sh.cs.bytecode.empty()) {
@@ -1172,7 +1331,7 @@ NkPipelineHandle NkDirectX12Device::CreateComputePipeline(const NkComputePipelin
 }
 
 void NkDirectX12Device::DestroyPipeline(NkPipelineHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     mPipelines.Erase(h.id); h.id = 0;
 }
 
@@ -1180,16 +1339,16 @@ void NkDirectX12Device::DestroyPipeline(NkPipelineHandle& h) {
 // Render Passes & Framebuffers (metadata only en DX12)
 // =============================================================================
 NkRenderPassHandle NkDirectX12Device::CreateRenderPass(const NkRenderPassDesc& d) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     uint64 hid = NextId(); mRenderPasses[hid] = { d };
     NkRenderPassHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::DestroyRenderPass(NkRenderPassHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex); mRenderPasses.Erase(h.id); h.id = 0;
 }
 
 NkFramebufferHandle NkDirectX12Device::CreateFramebuffer(const NkFramebufferDesc& d) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     NkDX12Framebuffer fb; fb.w = d.width; fb.h = d.height;
     for (uint32 i = 0; i < d.colorAttachments.Size(); i++) {
         auto it = mTextures.Find(d.colorAttachments[i].id);
@@ -1210,32 +1369,32 @@ NkFramebufferHandle NkDirectX12Device::CreateFramebuffer(const NkFramebufferDesc
     NkFramebufferHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::DestroyFramebuffer(NkFramebufferHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
 // Descriptor Sets
 // =============================================================================
 NkDescSetHandle NkDirectX12Device::CreateDescriptorSetLayout(const NkDescriptorSetLayoutDesc& d) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     uint64 hid = NextId(); mDescLayouts[hid] = { d };
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::DestroyDescriptorSetLayout(NkDescSetHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mDescLayouts.Erase(h.id); h.id = 0;
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex); mDescLayouts.Erase(h.id); h.id = 0;
 }
 NkDescSetHandle NkDirectX12Device::AllocateDescriptorSet(NkDescSetHandle layout) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     NkDX12DescSet ds; ds.layoutId = layout.id;
     uint64 hid = NextId(); mDescSets[hid] = ds;
     NkDescSetHandle h; h.id = hid; return h;
 }
 void NkDirectX12Device::FreeDescriptorSet(NkDescSetHandle& h) {
-    threading::NkScopedLockMutex lock(mMutex); mDescSets.Erase(h.id); h.id = 0;
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex); mDescSets.Erase(h.id); h.id = 0;
 }
 
 void NkDirectX12Device::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32 n) {
-    threading::NkScopedLockMutex lock(mMutex);
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     for (uint32 i = 0; i < n; i++) {
         auto& w = writes[i];
         auto sit = mDescSets.Find(w.set.id); if(!sit) continue;
@@ -1342,10 +1501,19 @@ void NkDirectX12Device::ResetFence(NkFenceHandle f) {
     mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&it->fence));
 }
 void NkDirectX12Device::WaitIdle() {
+    // Null-safe : si le device a été retiré (DEVICE_REMOVED), CreateFence échoue et
+    // renvoie un fence null — déréférencer fence->SetEventOnCompletion crasherait.
+    // Ce chemin est notamment emprunté par le cleanup après un échec d'init.
+    if (!mDevice || !mGraphicsQueue) return;
     ComPtr<ID3D12Fence> fence;
-    mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
-    mGraphicsQueue->Signal(fence.Get(), 1);
+    HRESULT hr = mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    if (FAILED(hr) || !fence) {
+        NK_DX12_ERR("WaitIdle: CreateFence failed (hr=0x%X, device removed ?)\n", (unsigned)hr);
+        return;
+    }
+    if (FAILED(mGraphicsQueue->Signal(fence.Get(), 1))) return;
     HANDLE ev = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!ev) return;
     fence->SetEventOnCompletion(1, ev);
     WaitForSingleObject(ev, INFINITE);
     CloseHandle(ev);

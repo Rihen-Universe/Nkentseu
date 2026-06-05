@@ -31,6 +31,11 @@ namespace nkentseu {
             mIndices.Clear();
             mGroups.Clear();
             mCurrentTexture = nullptr;
+            // Chaque frame demarre sans clip (le scissor sera (re)desactive au
+            // premier Flush via ApplyScissor(false, ...)).
+            mClipStack.Clear();
+            mClipRect = NkRect2i{};
+            mHasClip  = false;
             BeginBackend();
             return true;
         }
@@ -63,6 +68,9 @@ namespace nkentseu {
             }
 
             if (validCount > 0) {
+                // Applique le clip courant juste avant la soumission : tout le batch
+                // partage ce scissor (un changement de clip a Flush() au prealable).
+                ApplyScissor(mHasClip, mClipRect);
                 SubmitBatches(mGroups.Data(), validCount,
                             mVertices.Data(), mVertices.Size(),
                             mIndices.Data(),  mIndices.Size());
@@ -75,6 +83,48 @@ namespace nkentseu {
             mIndices.Clear();
             mGroups.Clear();
             mCurrentTexture = nullptr;
+        }
+
+        // =============================================================================
+        // Intersection de deux rects entiers (clip nesting : enfant ⊆ parent).
+        // =============================================================================
+        static NkRect2i NkIntersectClip(const NkRect2i& a, const NkRect2i& b) {
+            const int32 x0  = (a.x > b.x) ? a.x : b.x;
+            const int32 y0  = (a.y > b.y) ? a.y : b.y;
+            const int32 ax1 = a.x + a.width,  ay1 = a.y + a.height;
+            const int32 bx1 = b.x + b.width,  by1 = b.y + b.height;
+            const int32 x1  = (ax1 < bx1) ? ax1 : bx1;
+            const int32 y1  = (ay1 < by1) ? ay1 : by1;
+            int32 w = x1 - x0; if (w < 0) w = 0;
+            int32 h = y1 - y0; if (h < 0) h = 0;
+            return NkRect2i(x0, y0, w, h);
+        }
+
+        // =============================================================================
+        void NkBatchRenderer2D::SetClip(const NkRect2i& rect) {
+            Flush(); // committe la geometrie en cours avec le clip actuel
+            const NkRect2i clip = mHasClip ? NkIntersectClip(mClipRect, rect) : rect;
+            mClipStack.PushBack(clip);
+            mClipRect = clip;
+            mHasClip  = true;
+        }
+
+        // =============================================================================
+        void NkBatchRenderer2D::PopClip() {
+            if (mClipStack.Empty()) return;
+            Flush();
+            mClipStack.PopBack();
+            if (mClipStack.Empty()) { mHasClip = false; mClipRect = NkRect2i{}; }
+            else                    { mHasClip = true;  mClipRect = mClipStack.Back(); }
+        }
+
+        // =============================================================================
+        void NkBatchRenderer2D::ResetClip() {
+            if (!mHasClip && mClipStack.Empty()) return;
+            Flush();
+            mClipStack.Clear();
+            mHasClip  = false;
+            mClipRect = NkRect2i{};
         }
 
         // =============================================================================

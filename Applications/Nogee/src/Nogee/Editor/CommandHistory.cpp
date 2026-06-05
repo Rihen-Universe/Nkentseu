@@ -2,7 +2,7 @@
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         void CommandHistory::Do(NkEditorCommand* cmd) noexcept {
             if (!cmd) return;
@@ -64,5 +64,5 @@ namespace nkentseu {
             }
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

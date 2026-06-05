@@ -260,4 +260,4 @@ Effort estimé : L (un fichier de test minimal par conteneur).
   `NkMathFormat.h`), NKRHI (handles + NkVector dans command buffers), NKRenderer
   (NkVector / NkHashMap / NkString partout), services moteur (NKFont
   glyph cache, NKImage formats, NKAudio sources, NKScene ECS storage), Nkentseu
-  application framework (EventBus, LayerStack), Unkeny éditeur, PV3DE
+  application framework (EventBus, LayerStack), Noge éditeur, PV3DE

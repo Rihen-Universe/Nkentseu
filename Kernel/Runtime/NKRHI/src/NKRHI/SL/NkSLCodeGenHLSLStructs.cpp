@@ -410,8 +410,13 @@ NkString NkSLCodeGen_MSL::BuildEntryPointSignature(NkSLFunctionDeclNode* fn) {
             if (!first) sig += ", ";
             int bidx = v->binding.HasBinding() ? v->binding.binding : texIdx++;
             char buf[256];
+            // texture2d<T, access::read_write> typé selon le format si fourni.
+            NkString imgT = v->binding.HasImageFormat()
+                ? (NkString("texture2d<") + NkSLImageFormatToMSLElem(v->binding.imageFormat) +
+                   ", access::read_write>")
+                : BaseTypeToMSL(v->type->baseType);
             snprintf(buf, sizeof(buf), "%s %s_tex [[texture(%d)]]",
-                     BaseTypeToMSL(v->type->baseType).CStr(), v->name.CStr(), bidx);
+                     imgT.CStr(), v->name.CStr(), bidx);
             sig += NkString(buf);
             first = false;
         }

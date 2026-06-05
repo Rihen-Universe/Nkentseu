@@ -7,7 +7,7 @@
 //
 // Objectif :
 //   - Maintenir la compatibilité avec le code existant utilisant l'ancien
-//     namespace nkentseu::entseu pour la primitive NkRecursiveMutex
+//     namespace nkentseu pour la primitive NkRecursiveMutex
 //   - Faciliter la migration progressive vers nkentseu::threading
 //   - Éviter les breaking changes dans les projets dépendants
 //
@@ -17,7 +17,7 @@
 //   - Aucune implémentation supplémentaire : pure couche de compatibilité
 //
 // Type redirigé :
-//   nkentseu::entseu::NkRecursiveMutex → nkentseu::threading::NkRecursiveMutex
+//   nkentseu::NkRecursiveMutex → nkentseu::threading::NkRecursiveMutex
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits réservés.
@@ -66,7 +66,7 @@
     // mais générera un warning de dépréciation si configuré.
 
     #include <NKThreading/NkRecursiveMutex.h>  // Inclut l'alias legacy
-    using namespace nkentseu::entseu;           // Ancien namespace (déprécié)
+    using namespace nkentseu;           // Ancien namespace (déprécié)
 
     void LegacyRecursiveFunction(int depth);
 
@@ -163,7 +163,7 @@
 
     // Dans le code client :
     #if NKENTSEU_USE_LEGACY_THREADING
-        namespace sync = nkentseu::entseu;      // Legacy pendant transition
+        namespace sync = nkentseu;      // Legacy pendant transition
     #else
         namespace sync = nkentseu::threading;   // Moderne après migration
     #endif
@@ -191,7 +191,7 @@
 
     static_assert(
         std::is_same_v<
-            nkentseu::entseu::NkRecursiveMutex,
+            nkentseu::NkRecursiveMutex,
             nkentseu::threading::NkRecursiveMutex
         >,
         "Legacy alias NkRecursiveMutex doit pointer vers threading::NkRecursiveMutex"
@@ -214,7 +214,7 @@
     }
 
     // Usage avec legacy alias :
-    nkentseu::entseu::NkRecursiveMutex legacyMutex;
+    nkentseu::NkRecursiveMutex legacyMutex;
     ProtectedCall(legacyMutex, []() { DoWork(); });  // OK
 
     // Usage avec type moderne :
@@ -287,7 +287,7 @@
     TEST(LegacyAliasTest, NkRecursiveMutexTypeEquivalence)
     {
         // Vérifie que l'alias legacy produit le même type que le target
-        using LegacyMutex = nkentseu::entseu::NkRecursiveMutex;
+        using LegacyMutex = nkentseu::NkRecursiveMutex;
         using ModernMutex = nkentseu::threading::NkRecursiveMutex;
 
         static_assert(std::is_same_v<LegacyMutex, ModernMutex>,
@@ -309,13 +309,13 @@
     // ---------------------------------------------------------------------
     /\*
     ============================================================================
-    GUIDE DE MIGRATION : nkentseu::entseu → nkentseu::threading
+    GUIDE DE MIGRATION : nkentseu → nkentseu::threading
     ============================================================================
 
     Contexte :
     ----------
     Les primitives de synchronisation (Mutex, RecursiveMutex, etc.) ont été
-    déplacées du namespace nkentseu::entseu vers nkentseu::threading pour
+    déplacées du namespace nkentseu vers nkentseu::threading pour
     une meilleure organisation et cohérence avec les autres modules.
 
     Impact :
@@ -334,7 +334,7 @@
        APRÈS : #include <NKThreading/NkMutex.h>  // Contient NkRecursiveMutex
 
     3. Mettre à jour les using namespace :
-       AVANT : using namespace nkentseu::entseu;
+       AVANT : using namespace nkentseu;
        APRÈS : using namespace nkentseu::threading;
 
     4. Ou utiliser des qualifications complètes :

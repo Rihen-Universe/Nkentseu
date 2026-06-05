@@ -3,6 +3,7 @@
 // NkDX11Renderer2D.h — DirectX 11 2D renderer backend
 // =============================================================================
 #include "NKCanvas/Renderer/Batch/NkBatchRenderer2D.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -37,6 +38,18 @@ namespace nkentseu {
                                 const NkVertex2D* verts, uint32 vCount,
                                 const uint32*     idx,   uint32 iCount) override;
                 void UploadProjection(const float32 proj[16]) override;
+
+                // ── Dispatch NkTexture (cf. NkTextureBackend.h) ──────────────────
+                // Callbacks statiques utilises par NkTexture::Create/Update/...
+                // pour gerer la ressource GPU cote backend DX11. Les 3 COM
+                // pointers (texture/SRV/sampler) sont stockes dans une registry
+                // globale indexee par l'ID 1-based retourne par Create.
+                static uint32 CreateDX11Texture(uint32 w, uint32 h, const uint8* rgba);
+                static void   UpdateDX11Texture(uint32 id, uint32 x, uint32 y,
+                                                uint32 w, uint32 h, const uint8* rgba);
+                static void   DeleteDX11Texture(uint32 id);
+                static void   SetDX11TextureFilter(uint32 id, NkTextureFilter f);
+                static void   SetDX11TextureWrap  (uint32 id, NkTextureWrap   w);
 
             private:
                 bool CreateShaders();

@@ -215,6 +215,6 @@ Web / Xbox. État réel :
 - **Modules au-dessus qui en dépendent** : **tous** — NKCore (types + asserts),
   NKMemory (export + alignment), NKMath (SIMD detection), NKContainers
   (export), NKRHI (graphics API detection), NKRenderer, services moteur,
-  application framework Nkentseu/Core, Unkeny éditeur, PV3DE. Le `Readme.md`
+  application framework Nkentseu/Core, Noge éditeur, PV3DE. Le `Readme.md`
   documente explicitement la position au sommet de la pyramide
   "Bibliothèques de base".

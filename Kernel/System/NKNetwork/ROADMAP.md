@@ -137,7 +137,7 @@ HTTPS n'est pas requis pour le MVP, documenter HTTP-only.
 ## À venir / À ajouter (futur proche)
 
 ### Replication ECS — couche prioritaire
-Pilier annoncé du module pour PV3DE/Unkeny et tout jeu multijoueur :
+Pilier annoncé du module pour PV3DE/Noge et tout jeu multijoueur :
 - **NkNetEntity** : composant marquant qu'une entité est répliquée + son
   `NkNetId` global.
 - **NkNetAuthority** : flag client-authoritative / server-authoritative /
@@ -204,6 +204,6 @@ server reconciliation, lag compensation (rewind/replay).
   NkFunction), NKThreading (Mutex, Thread pour async + ConnectionManager),
   NKLogger (debug des connexions).
 - **Modules au-dessus qui en dépendent** : NKScene (NetEntity components une
-  fois implémentés), Runtime (NetWorld dans la game loop), Unkeny (HTTP pour
+  fois implémentés), Runtime (NetWorld dans la game loop), Noge (HTTP pour
   marketplace assets, télémétrie, plugins remote), PV3DE (HTTPClient pour API
   médicale FHIR — cf. ARCHITECTURE.md §5.10 export rapport FHIR/PDF).

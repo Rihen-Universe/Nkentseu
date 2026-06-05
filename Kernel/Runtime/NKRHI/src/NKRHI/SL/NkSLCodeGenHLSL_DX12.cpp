@@ -136,6 +136,34 @@ NkString NkSLCodeGenHLSL_DX12::BaseTypeToHLSL(NkSLBaseType t) {
         case NkSLBaseType::NK_IMAGE2D:               return "RWTexture2D<float4>";
         case NkSLBaseType::NK_IIMAGE2D:              return "RWTexture2D<int4>";
         case NkSLBaseType::NK_UIMAGE2D:              return "RWTexture2D<uint4>";
+        // --- Samplers/images additionnels (HLSL SM6). Cube en UAV -> RWTexture2DArray.
+        case NkSLBaseType::NK_SAMPLER1D:               return "Texture1D";
+        case NkSLBaseType::NK_SAMPLER1D_ARRAY:         return "Texture1DArray";
+        case NkSLBaseType::NK_SAMPLER_CUBE_ARRAY:      return "TextureCubeArray";
+        case NkSLBaseType::NK_SAMPLER_CUBE_ARRAY_SHADOW:return "TextureCubeArray";
+        case NkSLBaseType::NK_SAMPLER2DMS:             return "Texture2DMS<float4>";
+        case NkSLBaseType::NK_ISAMPLER1D:              return "Texture1D<int4>";
+        case NkSLBaseType::NK_USAMPLER1D:              return "Texture1D<uint4>";
+        case NkSLBaseType::NK_ISAMPLER3D:              return "Texture3D<int4>";
+        case NkSLBaseType::NK_USAMPLER3D:              return "Texture3D<uint4>";
+        case NkSLBaseType::NK_ISAMPLER_CUBE:           return "TextureCube<int4>";
+        case NkSLBaseType::NK_USAMPLER_CUBE:           return "TextureCube<uint4>";
+        case NkSLBaseType::NK_ISAMPLER2D_ARRAY:        return "Texture2DArray<int4>";
+        case NkSLBaseType::NK_USAMPLER2D_ARRAY:        return "Texture2DArray<uint4>";
+        case NkSLBaseType::NK_ISAMPLER_CUBE_ARRAY:     return "TextureCubeArray<int4>";
+        case NkSLBaseType::NK_USAMPLER_CUBE_ARRAY:     return "TextureCubeArray<uint4>";
+        case NkSLBaseType::NK_IMAGE1D:                 return "RWTexture1D<float4>";
+        case NkSLBaseType::NK_IIMAGE1D:                return "RWTexture1D<int4>";
+        case NkSLBaseType::NK_UIMAGE1D:                return "RWTexture1D<uint4>";
+        case NkSLBaseType::NK_IMAGE3D:                 return "RWTexture3D<float4>";
+        case NkSLBaseType::NK_IIMAGE3D:                return "RWTexture3D<int4>";
+        case NkSLBaseType::NK_UIMAGE3D:                return "RWTexture3D<uint4>";
+        case NkSLBaseType::NK_IMAGE_CUBE:              return "RWTexture2DArray<float4>";
+        case NkSLBaseType::NK_IIMAGE_CUBE:             return "RWTexture2DArray<int4>";
+        case NkSLBaseType::NK_UIMAGE_CUBE:             return "RWTexture2DArray<uint4>";
+        case NkSLBaseType::NK_IMAGE2D_ARRAY:           return "RWTexture2DArray<float4>";
+        case NkSLBaseType::NK_IIMAGE2D_ARRAY:          return "RWTexture2DArray<int4>";
+        case NkSLBaseType::NK_UIMAGE2D_ARRAY:          return "RWTexture2DArray<uint4>";
         default: return "float";
     }
 }
@@ -193,6 +221,21 @@ NkString NkSLCodeGenHLSL_DX12::WaveIntrinsicToDX12(const NkString& name) {
 // IntrinsicToHLSL (partagé DX11/DX12 + wave SM6)
 // =============================================================================
 NkString NkSLCodeGenHLSL_DX12::IntrinsicToHLSL_Static(const NkString& name) {
+    // Constructeurs de types GLSL → HLSL
+    if (name == "vec2")  return "float2";
+    if (name == "vec3")  return "float3";
+    if (name == "vec4")  return "float4";
+    if (name == "ivec2") return "int2";
+    if (name == "ivec3") return "int3";
+    if (name == "ivec4") return "int4";
+    if (name == "uvec2") return "uint2";
+    if (name == "uvec3") return "uint3";
+    if (name == "uvec4") return "uint4";
+    if (name == "mat2")  return "float2x2";
+    if (name == "mat3")  return "float3x3";
+    if (name == "mat4")  return "float4x4";
+    // HLSL n'a pas de inverse() natif → helper nksl_inverse émis dans le préambule
+    if (name == "inverse")   return "nksl_inverse";
     // Math
     if (name == "mix")       return "lerp";
     if (name == "fract")     return "frac";
@@ -257,7 +300,19 @@ NkString NkSLCodeGenHLSL_DX12::SemanticFor(NkSLVarDeclNode* v, NkSLStage stage,
             }
             return r.fragOutSem;
         }
-        if (isInput && r.inputSem && r.inputSem[0]) return r.inputSem;
+        // inputSem (POSITION/NORMAL/COLOR…) UNIQUEMENT pour les attributs d'entree
+        // du VERTEX (ils matchent le vertex layout cote device). Pour l'entree du
+        // FRAGMENT (varyings issus du VS), la semantique DOIT etre identique a la
+        // sortie du vertex -> TEXCOORD<loc>. Sinon le linkage VS->PS echoue : ex.
+        // vnormal sort en TEXCOORD1 mais entrerait en NORMAL -> les signatures ne
+        // matchent pas -> CreateGraphicsPipelineState E_INVALIDARG.
+        if (isInput && stage == NkSLStage::NK_VERTEX && r.inputSem && r.inputSem[0])
+            return r.inputSem;
+        if (isInput && stage != NkSLStage::NK_VERTEX) {
+            int loc = v->binding.HasLocation() ? v->binding.location : autoIndex;
+            char buf[32]; snprintf(buf, sizeof(buf), "TEXCOORD%d", loc);
+            return NkString(buf);
+        }
         if (!isInput && !isFragOut && r.outputSem && r.outputSem[0]) {
             int loc = v->binding.HasLocation() ? v->binding.location : autoIndex;
             char buf[32]; snprintf(buf, sizeof(buf), "TEXCOORD%d", loc);
@@ -285,7 +340,7 @@ void NkSLCodeGenHLSL_DX12::CollectDecls(NkSLProgramNode* prog) {
     mInputVars.Clear(); mOutputVars.Clear();
     mUniforms.Clear(); mCBuffers.Clear(); mSBuffers.Clear();
     mMatrixNames.Clear(); mWritesDepth = false;
-    mRegB = mRegT = mRegS = mRegU = 0;
+    mReg = 0;
 
     for (auto* node : prog->children) {
         if (!node) continue;
@@ -336,10 +391,10 @@ void NkSLCodeGenHLSL_DX12::GenRootSignature() {
         if (!isSampler) continue;
         if (!first) rs += ", ";
         char buf[64];
-        snprintf(buf, sizeof(buf), "DescriptorTable(SRV(t%d, space%d))", mRegT, space);
+        snprintf(buf, sizeof(buf), "DescriptorTable(SRV(t%d, space%d))", mReg, space);
         rs += NkString(buf);
         first = false;
-        mRegT++;
+        mReg++;
     }
     rs += "\"";
 
@@ -372,6 +427,14 @@ void NkSLCodeGenHLSL_DX12::GenInputOutputStructs() {
     EmitLine("struct " + mInputStructName);
     EmitLine("{");
     IndentPush();
+    // FRAGMENT : SV_Position declare AVANT les varyings, dans le MEME ordre que la
+    // sortie du VERTEX (qui met SV_Position en premier). D3D12 assigne les registres
+    // hardware dans l'ordre de declaration ; si SV_Position est en 1er cote VS-out
+    // mais en dernier cote PS-in, les TEXCOORD/SV_Position tombent sur des registres
+    // differents -> « Signatures between stages are incompatible » au PSO. (DX11 met
+    // aussi SV_Position en premier des deux cotes.)
+    if (mStage == NkSLStage::NK_FRAGMENT)
+        EmitLine("float4 _Position  : SV_Position;");
     int autoIdx = 0;
     for (auto* v : mInputVars) {
         NkString type = TypeToHLSL(v->type);
@@ -386,10 +449,8 @@ void NkSLCodeGenHLSL_DX12::GenInputOutputStructs() {
         EmitLine("uint _VertexID   : SV_VertexID;");
         EmitLine("uint _InstanceID : SV_InstanceID;");
     }
-    if (mStage == NkSLStage::NK_FRAGMENT) {
-        EmitLine("float4 _Position  : SV_Position;");
+    if (mStage == NkSLStage::NK_FRAGMENT)
         EmitLine("bool   IsFrontFace: SV_IsFrontFace;");
-    }
     IndentPop();
     EmitLine("};");
     EmitNewLine();
@@ -424,7 +485,11 @@ void NkSLCodeGenHLSL_DX12::GenInputOutputStructs() {
 // GenCBuffer — DX12 : register(bN, spaceM)
 // =============================================================================
 void NkSLCodeGenHLSL_DX12::GenCBuffer(NkSLBlockDeclNode* b) {
-    int slot  = b->binding.HasBinding() ? b->binding.binding : mRegB++;
+    // Compteur partage : avancer mReg meme si le binding est explicite (le parser
+    // capture @binding pour les blocs mais PAS pour les samplers -> sans cet
+    // avancement, les samplers repartiraient de t0 au lieu de suivre le ubo).
+    int slot  = b->binding.HasBinding() ? b->binding.binding : mReg;
+    if (slot >= mReg) mReg = slot + 1;
     int space = (int)mOpts->dx12DefaultSpace;
 
     if (b->storage == NkSLStorageQual::NK_PUSH_CONSTANT) {
@@ -438,7 +503,7 @@ void NkSLCodeGenHLSL_DX12::GenCBuffer(NkSLBlockDeclNode* b) {
         EmitLine("{");
         IndentPush();
         for (auto* m : b->members) {
-            NkString line = TypeToHLSL(m->type) + " " + m->name;
+            NkString line = TypeToHLSL(m->type) + " " + m->name.ToLower();
             if (m->type && NkSLTypeIsMatrix(m->type->baseType)) {
                 mMatrixNames.PushBack(m->name.ToLower());
             }
@@ -454,7 +519,7 @@ void NkSLCodeGenHLSL_DX12::GenCBuffer(NkSLBlockDeclNode* b) {
     EmitLine("{");
     IndentPush();
     for (auto* m : b->members) {
-        NkString line = TypeToHLSL(m->type) + " " + m->name;
+        NkString line = TypeToHLSL(m->type) + " " + m->name.ToLower();
         if (m->type && NkSLTypeIsMatrix(m->type->baseType)) {
             mMatrixNames.PushBack(m->name.ToLower());
         }
@@ -475,7 +540,7 @@ void NkSLCodeGenHLSL_DX12::GenSBuffer(NkSLBlockDeclNode* b) {
     EmitLine("struct " + b->blockName + "Elem");
     EmitLine("{");
     IndentPush();
-    for (auto* m : b->members) EmitLine(TypeToHLSL(m->type) + " " + m->name + ";");
+    for (auto* m : b->members) EmitLine(TypeToHLSL(m->type) + " " + m->name.ToLower() + ";");
     IndentPop();
     EmitLine("};");
 
@@ -485,11 +550,11 @@ void NkSLCodeGenHLSL_DX12::GenSBuffer(NkSLBlockDeclNode* b) {
     NkString instName = b->instanceName.Empty() ? b->blockName : b->instanceName;
 
     if (readOnly) {
-        int slot = b->binding.HasBinding() ? b->binding.binding : mRegT++;
+        int slot = b->binding.HasBinding() ? b->binding.binding : mReg++;
         EmitLine("StructuredBuffer<" + b->blockName + "Elem> " +
                  instName + RegisterDecl("t", slot, space) + ";");
     } else {
-        int slot = b->binding.HasBinding() ? b->binding.binding : mRegU++;
+        int slot = b->binding.HasBinding() ? b->binding.binding : mReg++;
         EmitLine("RWStructuredBuffer<" + b->blockName + "Elem> " +
                  instName + RegisterDecl("u", slot, space) + ";");
     }
@@ -504,7 +569,7 @@ void NkSLCodeGenHLSL_DX12::GenStruct(NkSLStructDeclNode* s) {
     EmitLine("{");
     IndentPush();
     for (auto* m : s->members) {
-        NkString line = TypeToHLSL(m->type) + " " + m->name;
+        NkString line = TypeToHLSL(m->type) + " " + m->name.ToLower();
         EmitLine(line + ";");
     }
     IndentPop();
@@ -518,10 +583,18 @@ void NkSLCodeGenHLSL_DX12::GenStruct(NkSLStructDeclNode* s) {
 void NkSLCodeGenHLSL_DX12::GenVarDecl(NkSLVarDeclNode* v, bool isGlobal) {
     if (!v || !v->type) return;
     if (!isGlobal) {
-        // Variable locale : identique à DX11
+        // Variable locale : identique à DX11. Nom en lowercase pour matcher les
+        // references du corps (l'AST garde la casse d'origine sur la decl mais
+        // lowercase les idents references -> sans ToLower, decl 'worldPos' != ref
+        // 'worldpos' -> X3004 undeclared en HLSL sensible a la casse).
+        // Traquer les variables LOCALES de type matrice : GenExpr BINARY doit
+        // emettre mul() (et non '*' composante-a-composante) quand elles
+        // multiplient un vecteur/matrice (ex. normalmat * aNormal).
+        if (NkSLTypeIsMatrix(v->type->baseType))
+            mMatrixNames.PushBack(v->name.ToLower());
         NkString line;
         if (v->isConst) line += "static const ";
-        line += TypeToHLSL(v->type) + " " + v->name;
+        line += TypeToHLSL(v->type) + " " + v->name.ToLower();
         if (v->initializer) line += " = " + GenExpr(v->initializer);
         EmitLine(line + ";");
         return;
@@ -537,26 +610,35 @@ void NkSLCodeGenHLSL_DX12::GenVarDecl(NkSLVarDeclNode* v, bool isGlobal) {
             // — les textures sont accédées via NKSL_TEX2D(idx)
             return;
         }
-        // Texture
-        int tSlot = v->binding.HasBinding() ? v->binding.binding : mRegT++;
+        // Texture. Nom en lowercase pour matcher les references du corps (GenCall
+        // construit "<tex>_tex" a partir du nom lowercase de l'ident) -> sinon
+        // decl 'uShadowMap_tex' != ref 'ushadowmap_tex' (HLSL sensible a la casse).
+        NkString vn = v->name.ToLower();
+        // Un sampler combine = UNE ressource -> texture ET sampler partagent le MEME
+        // index de binding (t<n>/s<n>), pris sur le compteur PARTAGE (mReg).
+        int slot = v->binding.HasBinding() ? v->binding.binding : mReg++;
+        int tSlot = slot;
         NkString texType = BaseTypeToHLSL(v->type->baseType);
-        EmitLine(texType + " " + v->name + "_tex" + RegisterDecl("t", tSlot, space) + ";");
+        EmitLine(texType + " " + vn + "_tex" + RegisterDecl("t", tSlot, space) + ";");
 
-        // Sampler associé
-        int sSlot = v->binding.HasBinding() ? v->binding.binding : mRegS++;
+        // Sampler associé (meme index que la texture)
+        int sSlot = slot;
         bool isShadow = (v->type->baseType == NkSLBaseType::NK_SAMPLER2D_SHADOW ||
                          v->type->baseType == NkSLBaseType::NK_SAMPLER2D_ARRAY_SHADOW ||
                          v->type->baseType == NkSLBaseType::NK_SAMPLER_CUBE_SHADOW);
         NkString sampType = isShadow ? "SamplerComparisonState" : "SamplerState";
-        EmitLine(sampType + " " + v->name + "_smp" + RegisterDecl("s", sSlot, space) + ";");
+        EmitLine(sampType + " " + vn + "_smp" + RegisterDecl("s", sSlot, space) + ";");
     } else if (isImage) {
         if (mOpts->dx12BindlessHeap) return;
-        int uSlot = v->binding.HasBinding() ? v->binding.binding : mRegU++;
-        EmitLine(BaseTypeToHLSL(v->type->baseType) + " " +
-                 v->name + RegisterDecl("u", uSlot, space) + ";");
+        int uSlot = v->binding.HasBinding() ? v->binding.binding : mReg++;
+        // RWTexture2D typé selon le format si fourni (sinon float4/int4/uint4).
+        NkString imgType = v->binding.HasImageFormat()
+            ? (NkString("RWTexture2D<") + NkSLImageFormatToHLSLElem(v->binding.imageFormat) + ">")
+            : BaseTypeToHLSL(v->type->baseType);
+        EmitLine(imgType + " " + v->name.ToLower() + RegisterDecl("u", uSlot, space) + ";");
     } else if (v->storage == NkSLStorageQual::NK_UNIFORM) {
         // Uniform scalaire isolé — rare, on le met dans un cbuffer anonyme
-        int bSlot = v->binding.HasBinding() ? v->binding.binding : mRegB++;
+        int bSlot = v->binding.HasBinding() ? v->binding.binding : mReg++;
         EmitLine("cbuffer _NkAutoUB" + v->name + RegisterDecl("b", bSlot, space));
         EmitLine("{");
         IndentPush();
@@ -605,6 +687,29 @@ void NkSLCodeGenHLSL_DX12::GenProgram(NkSLProgramNode* prog) {
     EmitLine("#define NKSL_SM " + NkString(smBuf));
     EmitNewLine();
 
+    // ── Helpers NKSL (identiques DX11) ───────────────────────────────────────
+    // nksl_texsize2d : textureSize(sampler2D) — GetDimensions() est void en HLSL
+    EmitLine("float2 nksl_texsize2d(Texture2D t) { uint w,h; t.GetDimensions(w,h); return float2(w,h); }");
+    // nksl_inverse : HLSL n'a pas de inverse() natif pour les matrices
+    EmitLine("column_major float3x3 nksl_inverse(column_major float3x3 m) {");
+    IndentPush();
+    EmitLine("float a=m[0][0],b=m[0][1],c=m[0][2],d=m[1][0],e=m[1][1],f=m[1][2],g=m[2][0],h=m[2][1],k=m[2][2];");
+    EmitLine("float det = a*(e*k-f*h) - b*(d*k-f*g) + c*(d*h-e*g);");
+    EmitLine("float inv = 1.0f/det;");
+    EmitLine("column_major float3x3 r;");
+    EmitLine("r[0]=float3( (e*k-f*h)*inv, -(b*k-c*h)*inv,  (b*f-c*e)*inv );");
+    EmitLine("r[1]=float3(-(d*k-f*g)*inv,  (a*k-c*g)*inv, -(a*f-c*d)*inv );");
+    EmitLine("r[2]=float3( (d*h-e*g)*inv, -(a*h-b*g)*inv,  (a*e-b*d)*inv );");
+    EmitLine("return r;");
+    IndentPop();
+    EmitLine("}");
+    EmitNewLine();
+
+    // Taille de workgroup compute (depuis l'AST), pour [numthreads(...)].
+    mLocalSizeX = prog->localSizeX;
+    mLocalSizeY = prog->localSizeY;
+    mLocalSizeZ = prog->localSizeZ;
+
     // SM6.6 bindless header
     if (mOpts->dx12BindlessHeap && sm >= 66) {
         GenBindlessHeader();
@@ -637,18 +742,19 @@ void NkSLCodeGenHLSL_DX12::GenProgram(NkSLProgramNode* prog) {
     // I/O structs
     GenInputOutputStructs();
 
-    // Fonctions non-entry
+    // Fonctions non-entry (le point d'entree est isEntry OU nomme "main",
+    // car la source NkSL ne flague pas toujours isEntry — aligne sur DX11).
     for (auto* node : prog->children) {
         if (!node || node->kind != NkSLNodeKind::NK_DECL_FUNCTION) continue;
         auto* fn = static_cast<NkSLFunctionDeclNode*>(node);
-        if (!fn->isEntry) GenFunction(fn);
+        if (!fn->isEntry && fn->name != "main") GenFunction(fn);
     }
 
     // Entry points (avec RootSignature inline si demandé)
     for (auto* node : prog->children) {
         if (!node || node->kind != NkSLNodeKind::NK_DECL_FUNCTION) continue;
         auto* fn = static_cast<NkSLFunctionDeclNode*>(node);
-        if (!fn->isEntry) continue;
+        if (!fn->isEntry && fn->name != "main") continue;
         if (mOpts->dx12InlineRootSignature) GenRootSignature();
         GenFunction(fn);
     }
@@ -673,7 +779,24 @@ void NkSLCodeGenHLSL_DX12::GenFunction(NkSLFunctionDeclNode* fn) {
         return;
     }
 
-    if (fn->isEntry) {
+    if (fn->isEntry || fn->name == "main") {
+        // Entrée compute : [numthreads(X,Y,Z)] + sémantiques SV_* (les builtins
+        // gl_GlobalInvocationID/gl_WorkGroupID/gl_LocalInvocationID sont déjà
+        // mappés vers DispatchThreadID/GroupID/GroupThreadID par BuiltinToHLSL).
+        if (mStage == NkSLStage::NK_COMPUTE) {
+            char nt[96];
+            snprintf(nt, sizeof(nt), "[numthreads(%u, %u, %u)]",
+                     mLocalSizeX, mLocalSizeY, mLocalSizeZ);
+            EmitLine(NkString(nt));
+            EmitLine("void " + fn->name +
+                     "(uint3 DispatchThreadID : SV_DispatchThreadID,"
+                     " uint3 GroupID : SV_GroupID,"
+                     " uint3 GroupThreadID : SV_GroupThreadID,"
+                     " uint GroupIndex : SV_GroupIndex)");
+            GenStmt(fn->body);
+            EmitNewLine();
+            return;
+        }
         // Entry point — signature HLSL DX12
         NkString stageSuffix;
         switch (mStage) {
@@ -691,7 +814,8 @@ void NkSLCodeGenHLSL_DX12::GenFunction(NkSLFunctionDeclNode* fn) {
         EmitLine("{");
         IndentPush();
         EmitLine(mOutputStructName + " output;");
-        EmitLine("(void)output;");
+        // NB : pas de "(void)output;" — invalide en HLSL (X3017 : on ne caste pas
+        // un struct en void). 'output' est de toute façon utilisé/retourné.
         GenStmt(fn->body);
         EmitLine("return output;");
         IndentPop();
@@ -748,7 +872,7 @@ void NkSLCodeGenHLSL_DX12::GenStmt(NkSLNode* node) {
             if (n->init) {
                 if (n->init->kind == NkSLNodeKind::NK_DECL_VAR) {
                     auto* vd = static_cast<NkSLVarDeclNode*>(n->init);
-                    init = TypeToHLSL(vd->type) + " " + vd->name;
+                    init = TypeToHLSL(vd->type) + " " + vd->name.ToLower();
                     if (vd->initializer) init += " = " + GenExpr(vd->initializer);
                 } else { init = GenExpr(n->init); }
             }
@@ -804,7 +928,19 @@ NkString NkSLCodeGenHLSL_DX12::GenExpr(NkSLNode* node) {
             return LiteralToStr(static_cast<NkSLLiteralNode*>(node));
         case NkSLNodeKind::NK_EXPR_IDENT: {
             auto* id = static_cast<NkSLIdentNode*>(node);
-            return BuiltinToHLSL(id->name, mStage);
+            // Builtin GLSL (gl_Position…) d'abord
+            NkString builtin = BuiltinToHLSL(id->name, mStage);
+            if (builtin != id->name) return builtin;
+            // Référence à une entrée/sortie de stage → input.x / output.x.
+            // L'AST normalise v->name en lowercase à la déclaration mais garde la
+            // casse d'origine dans le corps → comparaison insensible à la casse,
+            // et on renvoie v->name pour matcher le champ de struct généré.
+            NkString idLow = id->name.ToLower();
+            for (auto* v : mInputVars)
+                if (v->name.ToLower() == idLow) return "input." + v->name;
+            for (auto* v : mOutputVars)
+                if (v->name.ToLower() == idLow) return "output." + v->name;
+            return id->name;
         }
         case NkSLNodeKind::NK_EXPR_UNARY: {
             auto* u = static_cast<NkSLUnaryNode*>(node);
@@ -815,12 +951,16 @@ NkString NkSLCodeGenHLSL_DX12::GenExpr(NkSLNode* node) {
             auto* b = static_cast<NkSLBinaryNode*>(node);
             NkString lhs = GenExpr(b->left);
             NkString rhs = GenExpr(b->right);
-            // mat * vec → mul() en HLSL
+            // mat * vec / mat * mat → mul() en HLSL. Un résultat de mul() est
+            // lui-même une matrice → détecter aussi StartsWith("mul(") pour les
+            // chaînes (proj*view)*world.
             if (b->op == "*") {
-                NkString lname = lhs.ToLower();
-                bool lhsMat = false;
-                for (auto& mn : mMatrixNames)
-                    if (lname == mn) { lhsMat = true; break; }
+                bool lhsMat = lhs.StartsWith("mul(");
+                if (!lhsMat) {
+                    NkString lname = lhs.ToLower();
+                    for (auto& mn : mMatrixNames)
+                        if (lname == mn) { lhsMat = true; break; }
+                }
                 if (lhsMat) return "mul(" + lhs + ", " + rhs + ")";
             }
             return "(" + lhs + " " + b->op + " " + rhs + ")";
@@ -837,6 +977,20 @@ NkString NkSLCodeGenHLSL_DX12::GenExpr(NkSLNode* node) {
             return GenCall(static_cast<NkSLCallNode*>(node));
         case NkSLNodeKind::NK_EXPR_MEMBER: {
             auto* m = static_cast<NkSLMemberNode*>(node);
+            // Supprimer le préfixe d'instance cbuffer (ubo.model → model) : en
+            // HLSL les membres d'un cbuffer sont des globales, pas un struct.
+            if (m->object && m->object->kind == NkSLNodeKind::NK_EXPR_IDENT) {
+                auto* id = static_cast<NkSLIdentNode*>(m->object);
+                NkString idLow = id->name.ToLower();
+                for (auto* cb : mCBuffers)
+                    if (!cb->instanceName.Empty() &&
+                        cb->instanceName.ToLower() == idLow)
+                        // Lowercase : la casse de m->member dans l'AST est
+                        // incoherente (parfois origine, parfois lowercase) et les
+                        // membres cbuffer sont declares en lowercase. Force la
+                        // coherence decl/ref.
+                        return m->member.ToLower();
+            }
             return GenExpr(m->object) + "." + m->member;
         }
         case NkSLNodeKind::NK_EXPR_INDEX: {
@@ -876,14 +1030,47 @@ NkString NkSLCodeGenHLSL_DX12::GenCall(NkSLCallNode* call) {
         return result + ")";
     }
 
+    // textureSize → helper (GetDimensions() est void, non inlinable)
+    if (callee == "textureSize" && !argStrs.Empty())
+        return "nksl_texsize2d(" + argStrs[0] + "_tex)";
+
     // Texture calls
     if ((callee == "texture" || callee == "textureLod" || callee == "texelFetch" ||
          callee == "textureGather" || callee == "textureGrad" || callee == "textureOffset" ||
          callee == "imageLoad" || callee == "imageStore") && !argStrs.Empty()) {
         NkString tex = argStrs[0] + "_tex";
         NkString smp = argStrs[0] + "_smp";
-        if (callee == "texture" && argStrs.Size() >= 2)
+        if (callee == "texture" && argStrs.Size() >= 2) {
+            // sampler2DShadow → SampleCmpLevelZero (comparaison hardware).
+            bool isShadow = false;
+            NkString texLow = argStrs[0].ToLower();
+            for (auto* v : mUniforms) {
+                if (!v->type) continue;
+                if (v->name.ToLower() == texLow) {
+                    isShadow = (v->type->baseType == NkSLBaseType::NK_SAMPLER2D_SHADOW       ||
+                                v->type->baseType == NkSLBaseType::NK_SAMPLER2D_ARRAY_SHADOW ||
+                                v->type->baseType == NkSLBaseType::NK_SAMPLER_CUBE_SHADOW);
+                    break;
+                }
+            }
+            if (isShadow) {
+                // texture(sampler2DShadow, vec3(u,v,z)) → tex.SampleCmpLevelZero(smp, float2(u,v), z)
+                auto* coordNode = call->args[1];
+                if (coordNode && coordNode->kind == NkSLNodeKind::NK_EXPR_CALL) {
+                    auto* vc = static_cast<NkSLCallNode*>(coordNode);
+                    if ((vc->callee == "vec3" || vc->callee == "float3") && vc->args.Size() == 3) {
+                        NkString su = GenExpr(vc->args[0]);
+                        NkString sv = GenExpr(vc->args[1]);
+                        NkString sz = GenExpr(vc->args[2]);
+                        return tex + ".SampleCmpLevelZero(" + smp + ", float2(" +
+                               su + ", " + sv + "), " + sz + ")";
+                    }
+                }
+                return tex + ".SampleCmpLevelZero(" + smp + ", (" + argStrs[1] +
+                       ").xy, (" + argStrs[1] + ").z)";
+            }
             return tex + ".Sample(" + smp + ", " + argStrs[1] + ")";
+        }
         if (callee == "textureLod" && argStrs.Size() >= 3)
             return tex + ".SampleLevel(" + smp + ", " + argStrs[1] + ", " + argStrs[2] + ")";
         if (callee == "textureOffset" && argStrs.Size() >= 3)
@@ -907,8 +1094,18 @@ NkString NkSLCodeGenHLSL_DX12::GenCall(NkSLCallNode* call) {
     if (callee == "groupMemoryBarrier")
         return "GroupMemoryBarrier()";
 
-    // Intrinsèques GLSL→HLSL génériques
+    // Intrinsèques GLSL→HLSL génériques (vec4→float4, mat3→float3x3,
+    // inverse→nksl_inverse, mix→lerp… via IntrinsicToHLSL)
     NkString mapped = IntrinsicToHLSL(callee);
+    // FXC/dxc n'acceptent pas floatN(scalaire) ni floatNxN(matN) en forme
+    // fonction → forme cast (float3x3)(m) / (float3)(s) (extraction / broadcast).
+    if (argStrs.Size() == 1 &&
+        (mapped == "float2"   || mapped == "float3"   || mapped == "float4"   ||
+         mapped == "int2"     || mapped == "int3"     || mapped == "int4"     ||
+         mapped == "uint2"    || mapped == "uint3"    || mapped == "uint4"    ||
+         mapped == "float2x2" || mapped == "float3x3" || mapped == "float4x4")) {
+        return "(" + mapped + ")(" + argStrs[0] + ")";
+    }
     NkString result = mapped + "(";
     for (uint32 i = 0; i < (uint32)argStrs.Size(); i++) {
         if (i > 0) result += ", ";
@@ -929,7 +1126,10 @@ NkString NkSLCodeGenHLSL_DX12::LiteralToStr(NkSLLiteralNode* lit) {
             bool hasDot = false;
             for (int i = 0; buf[i]; i++) if (buf[i]=='.'||buf[i]=='e'||buf[i]=='E') hasDot=true;
             NkString s(buf); if (!hasDot) s += ".0";
-            return s;
+            // Suffixe 'f' explicite (comme DX11) : sans lui, dxc/fxc traitent le
+            // littéral comme un double → promotions/mismatch de type dans les ops
+            // vectorielles (X3020). Force le type float.
+            return s + "f";
         }
         case NkSLBaseType::NK_DOUBLE:
             snprintf(buf, sizeof(buf), "%.16glf", lit->floatVal); return buf;

@@ -29,14 +29,13 @@ namespace nkentseu
     // Forward declarations
     struct NkFontAtlas;
     struct NkFont;
+    namespace renderer { class NkRenderer2D; class NkTexture; }
 }
 
 namespace nkentseu
 {
     namespace pong
     {
-
-        class GLRenderer2D;
 
         class FontAtlas
         {
@@ -57,14 +56,12 @@ namespace nkentseu
 
             // ── Lifecycle ────────────────────────────────────────────────────
             /// Charge la meilleure police embarquee dispo, rasterise les
-            /// 5 tailles et upload l'atlas en texture GL. Retourne false sur
-            /// echec (NKFont indisponible ou GL invalide).
-            bool Init();
-            /// Libere la texture GL et detruit l'atlas CPU.
+            /// 5 tailles et upload l'atlas en NkTexture (NKCanvas). Retourne
+            /// false sur echec (NKFont indisponible ou renderer invalide).
+            /// @p renderer sert a creer la texture GPU de l'atlas.
+            bool Init(renderer::NkRenderer2D& renderer);
+            /// Libere la texture GPU et detruit l'atlas CPU.
             void Shutdown();
-
-            // ── Accesseurs ───────────────────────────────────────────────────
-            uint32 TextureId() const noexcept { return mTextureId; }
 
             // ── Mesures ──────────────────────────────────────────────────────
             /// Largeur en pixels d'une chaine ASCII pour le slot @p s.
@@ -77,12 +74,12 @@ namespace nkentseu
             // ── Trace ────────────────────────────────────────────────────────
             /// Trace une chaine LTR. Coordonnees (x, y) = top-left.
             /// Retourne la largeur tracee (en pixels).
-            float DrawString(GLRenderer2D& r, SizeSlot s,
+            float DrawString(renderer::NkRenderer2D& r, SizeSlot s,
                            float x, float y,
                            const char* text,
                            math::NkColor color);
             /// Idem, centre horizontalement autour de @p cx.
-            float DrawStringCentered(GLRenderer2D& r, SizeSlot s,
+            float DrawStringCentered(renderer::NkRenderer2D& r, SizeSlot s,
                                    float cx, float y,
                                    const char* text,
                                    math::NkColor color);
@@ -92,18 +89,18 @@ namespace nkentseu
             // emis en taille (px_base * scale) — donne un upsampling bilineaire
             // GL (texture filter LINEAR). Acceptable visuellement jusqu'a
             // scale ~3x ; au dela il vaut mieux ajouter un slot plus grand.
-            float DrawStringScaled(GLRenderer2D& r, SizeSlot s, float scale,
+            float DrawStringScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
                                  float x, float y, const char* text,
                                  math::NkColor color);
-            float DrawStringCenteredScaled(GLRenderer2D& r, SizeSlot s, float scale,
+            float DrawStringCenteredScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
                                          float cx, float y, const char* text,
                                          math::NkColor color);
-            void DrawStringShadowScaled(GLRenderer2D& r, SizeSlot s, float scale,
+            void DrawStringShadowScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
                                       float x, float y, const char* text,
                                       math::NkColor textColor,
                                       math::NkColor shadowColor,
                                       int blurPixels = 2);
-            void DrawStringShadowCenteredScaled(GLRenderer2D& r, SizeSlot s, float scale,
+            void DrawStringShadowCenteredScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
                                               float cx, float y, const char* text,
                                               math::NkColor textColor,
                                               math::NkColor shadowColor,
@@ -112,13 +109,13 @@ namespace nkentseu
             // ── Text-shadow CSS-like ─────────────────────────────────────────
             /// Trace 8 directions avec alpha decroissant + le texte principal.
             /// Simule l'effet `text-shadow` CSS (halo neon autour des lettres).
-            void DrawStringShadow(GLRenderer2D& r, SizeSlot s,
+            void DrawStringShadow(renderer::NkRenderer2D& r, SizeSlot s,
                                 float x, float y,
                                 const char* text,
                                 math::NkColor textColor,
                                 math::NkColor shadowColor,
                                 int blurPixels = 2);
-            void DrawStringShadowCentered(GLRenderer2D& r, SizeSlot s,
+            void DrawStringShadowCentered(renderer::NkRenderer2D& r, SizeSlot s,
                                         float cx, float y,
                                         const char* text,
                                         math::NkColor textColor,
@@ -128,7 +125,7 @@ namespace nkentseu
         private:
             NkFontAtlas* mAtlas             = nullptr;  ///< Possede ; libere par Shutdown
             NkFont*      mFonts[SlotCount]  = { nullptr, nullptr, nullptr, nullptr, nullptr };
-            uint32       mTextureId         = 0;
+            renderer::NkTexture* mTexture   = nullptr;  ///< Texture GPU de l'atlas (NKCanvas)
             int          mAtlasW            = 0;
             int          mAtlasH            = 0;
         };

@@ -932,7 +932,7 @@ int nkmain(const NkEntryState& state) {
     devInfo.width           = (uint32)window.GetSize().width;
     devInfo.height          = (uint32)window.GetSize().height;
     devInfo.context.vulkan.appName    = "NKRenderer_Demo";
-    devInfo.context.vulkan.engineName = "Unkeny";
+    devInfo.context.vulkan.engineName = "Noge";
 
     NkIDevice* device = NkDeviceFactory::Create(devInfo);
     if(!device||!device->IsValid()){

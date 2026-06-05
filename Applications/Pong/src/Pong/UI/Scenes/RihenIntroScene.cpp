@@ -14,7 +14,7 @@
 
 #include "RihenIntroScene.h"
 #include "NogeIntroScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
 #include "NKLogger/NkLog.h"
@@ -37,7 +37,7 @@ namespace nkentseu
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        void RihenIntroScene::OnEnter(AppContext& /*ctx*/)
+        void RihenIntroScene::OnEnter(AppContext& ctx)
         {
             mState        = State::Loading;
             mLoadingTime  = 0.0f;
@@ -56,7 +56,7 @@ namespace nkentseu
             // Charge le logo statique "loadingicon.png" affiche pendant la
             // phase Loading. Si echec, on continue sans logo (le spinner
             // restera seul). Petit fichier => chargement quasi-instantane.
-            mLoadingLogo.LoadFromFile("Resources/Pong/Textures/iconexe/loadingicon.png");
+            mLoadingLogo.LoadFromFile(*ctx.renderer->GetBackend(), "Resources/Pong/Textures/iconexe/loadingicon.png");
 
             // Lance le decode en background.
             StartWorker();
@@ -77,9 +77,7 @@ namespace nkentseu
                 }
             }
             // Libere les textures GL deja uploadees.
-            for (int i = 0; i < kFrameCount; ++i) mFrames[i].Shutdown();
             mFramesLoaded = 0;
-            mLoadingLogo.Shutdown();
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -124,7 +122,8 @@ namespace nkentseu
                 // est utilise directement dans le path.
                 std::snprintf(path, sizeof(path),
                               "Resources/Pong/Textures/animrihen/rihen_%05d.png", i);
-                NkImage* img = Texture2D::DecodeFromFile(path);
+                NkImage* img = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
+                if (img != nullptr && (!img->Load(path, 4) || !img->IsValid())) { img->Free(); img = nullptr; }
                 if (img == nullptr)
                 {
                     // Frame manquante : on continue (au lieu de break) pour
@@ -157,7 +156,7 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         // OnUpdate : avance le timer + drain la queue (upload GL)
         // ─────────────────────────────────────────────────────────────────────
-        int RihenIntroScene::DrainQueue(int maxUploads)
+        int RihenIntroScene::DrainQueue(AppContext& ctx, int maxUploads)
         {
             int uploaded = 0;
             for (int n = 0; n < maxUploads; ++n)
@@ -196,10 +195,11 @@ namespace nkentseu
                 else
                 {
                     // Upload sur le main thread (contexte GL).
-                    if (mFrames[mPendingNext].UploadFromImage(img))
+                    bool _ok = mFrames[mPendingNext].LoadFromImage(*ctx.renderer->GetBackend(), *img); img->Free();
+                    if (_ok)
                     {
                         if (mPendingNext == 0)
-                            mAspect = mFrames[0].AspectRatio();
+                            mAspect = ((mFrames[0].GetHeight() > 0) ? (float)mFrames[0].GetWidth() / (float)mFrames[0].GetHeight() : 1.0f);
                         mFramesLoaded = mPendingNext + 1;
                     }
                 }
@@ -229,7 +229,7 @@ namespace nkentseu
                 // Temps total = max(decode, upload) au lieu de decode+upload.
                 // Sur Android : ~1-3s perceptibles avec saccade tres legere
                 // (vs 1.3-4s avec saccade concentree sur la fin).
-                DrainQueue(kUploadsPerUpdateLoading);
+                DrainQueue(ctx, kUploadsPerUpdateLoading);
                 if (mFramesLoaded >= kFrameCount)
                 {
                     mState = State::Playing;
@@ -275,15 +275,13 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void RihenIntroScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             const int   W  = ctx.viewportW;
             const int   H  = ctx.viewportH;
             const float cx = ctx.safe.SafeCX();
             const float cy = ctx.safe.SafeCY();
 
             // Fond BLANC.
-            r.Clear(1.0f, 1.0f, 1.0f, 1.0f);
-            r.Begin(W, H);
 
             if (mState == State::Loading)
             {
@@ -296,18 +294,13 @@ namespace nkentseu
                 {
                     const float logoMaxW = safeW * 0.35f;
                     const float logoMaxH = safeH * 0.35f;
-                    const float aspect   = mLoadingLogo.AspectRatio();
+                    const float aspect   = ((mLoadingLogo.GetHeight() > 0) ? (float)mLoadingLogo.GetWidth() / (float)mLoadingLogo.GetHeight() : 1.0f);
                     logoW = logoMaxW;
                     logoH = (aspect > 0.0001f) ? (logoW / aspect) : logoMaxH;
                     if (logoH > logoMaxH) { logoH = logoMaxH; logoW = logoH * aspect; }
                     logoCX = cx;
                     logoCY = cy;
-                    r.BindTexture(mLoadingLogo.Id());
-                    r.DrawTexturedQuadRGBA(logoCX - logoW * 0.5f,
-                                           logoCY - logoH * 0.5f,
-                                           logoW, logoH,
-                                           0.0f, 0.0f, 1.0f, 1.0f,
-                                           theme::White());
+                    r.DrawTexturedRect({ logoCX - logoW * 0.5f, logoCY - logoH * 0.5f, logoW, logoH }, &mLoadingLogo, theme::White());
                 }
 
                 // ── Spinner thematique : balle Pong qui orbite AUTOUR du logo
@@ -350,14 +343,13 @@ namespace nkentseu
                     const float rad = ballRadius * (1.0f - t * 0.6f);
                     math::NkColor col = ballColor;
                     col.a = static_cast<uint8>(255.0f * (1.0f - t));
-                    r.DrawCircle(bx, by, rad, col, 24);
+                    r.DrawFilledCircle({ bx, by }, rad, col, 24);
                 }
                 // La balle (devant) : pleine, cyan, opaque.
                 const float bx = spinnerCX + math::NkCos(currentAngle) * orbitR;
                 const float by = spinnerCY + math::NkSin(currentAngle) * orbitR;
-                r.DrawCircle(bx, by, ballRadius, ballColor, 32);
+                r.DrawFilledCircle({ bx, by }, ballRadius, ballColor, 32);
 
-                r.End();
                 return;
             }
 
@@ -387,10 +379,7 @@ namespace nkentseu
                 const float drawX = cx - drawW * 0.5f;
                 const float drawY = cy - drawH * 0.5f;
 
-                r.BindTexture(mFrames[idx].Id());
-                r.DrawTexturedQuadRGBA(drawX, drawY, drawW, drawH,
-                                       0.0f, 0.0f, 1.0f, 1.0f,
-                                       theme::White());
+                r.DrawTexturedRect({ drawX, drawY, drawW, drawH }, &mFrames[idx], theme::White());
             }
 
             // ── Fade out blanc en fin d'animation ─────────────────────────
@@ -412,12 +401,8 @@ namespace nkentseu
                 a = EaseOutCubic(a);
                 math::NkColor whiteFade = theme::White();
                 whiteFade.a = static_cast<uint8_t>(255.0f * a);
-                r.DrawQuad(0.0f, 0.0f,
-                           static_cast<float>(W), static_cast<float>(H),
-                           whiteFade);
+                r.DrawFilledRect({ 0.0f, 0.0f, static_cast<float>(W), static_cast<float>(H) }, whiteFade);
             }
-
-            r.End();
         }
 
     } // namespace pong

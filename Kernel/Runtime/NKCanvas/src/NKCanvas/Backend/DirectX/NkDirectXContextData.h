@@ -99,6 +99,10 @@ namespace nkentseu {
         uint64                          fenceValues[kNkDX12MaxFrames] = {};
         HANDLE                          fenceEvent = nullptr;
 
+        // ID3D12InfoQueue1::RegisterMessageCallback cookie (pour Unregister
+        // au Shutdown). 0 si pas branche (Windows < 10 2004 ou debugDevice=false).
+        DWORD                           dbgCallbackCookie = 0;
+
         // Infos
         HWND        hwnd      = nullptr;
         uint32      width     = 0;

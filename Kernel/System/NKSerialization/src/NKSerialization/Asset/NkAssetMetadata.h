@@ -337,47 +337,47 @@ struct NkAssetMetadata {
 
     nk_bool Deserialize(const NkArchive& archive) noexcept {
         NkString idStr;
-        archive.GetString("__id__",       idStr);       id       = NkAssetId::FromString(idStr.View());
+        (void)archive.GetString("__id__",       idStr);       id       = NkAssetId::FromString(idStr.View());
         NkString pathStr;
-        archive.GetString("__path__",     pathStr);     assetPath = NkAssetPath(pathStr.View());
-        archive.GetString("__typeName__", typeName);
-        archive.GetString("__source__",   sourceFilePath);
+        (void)archive.GetString("__path__",     pathStr);     assetPath = NkAssetPath(pathStr.View());
+        (void)archive.GetString("__typeName__", typeName);
+        (void)archive.GetString("__source__",   sourceFilePath);
 
-        nk_uint32 typeRaw = 0; archive.GetUInt32("__type__",    typeRaw); type = static_cast<NkAssetType>(typeRaw);
-        archive.GetUInt32("__assetVer__",  assetVersion);
-        archive.GetUInt32("__engineVer__", engineVersion);
-        archive.GetUInt64("__importTs__",  importTimestamp);
-        archive.GetUInt64("__payloadOff__",payloadOffset);
-        archive.GetUInt64("__payloadSz__", payloadSize);
-        archive.GetUInt32("__payloadCRC__",payloadCRC);
+        nk_uint32 typeRaw = 0; (void)archive.GetUInt32("__type__",    typeRaw); type = static_cast<NkAssetType>(typeRaw);
+        (void)archive.GetUInt32("__assetVer__",  assetVersion);
+        (void)archive.GetUInt32("__engineVer__", engineVersion);
+        (void)archive.GetUInt64("__importTs__",  importTimestamp);
+        (void)archive.GetUInt64("__payloadOff__",payloadOffset);
+        (void)archive.GetUInt64("__payloadSz__", payloadSize);
+        (void)archive.GetUInt32("__payloadCRC__",payloadCRC);
 
         // Tags
         NkArchive tagArchive;
         if (archive.GetObject("__tags__", tagArchive)) {
-            nk_uint32 cnt = 0; tagArchive.GetUInt32("count", cnt);
+            nk_uint32 cnt = 0; (void)tagArchive.GetUInt32("count", cnt);
             for (nk_uint32 i = 0; i < cnt; ++i) {
                 NkString k = NkString::Fmtf("tag_%u", i);
-                NkString tv; tagArchive.GetString(k.View(), tv);
+                NkString tv; (void)tagArchive.GetString(k.View(), tv);
                 tags.PushBack(std::move(tv));
             }
         }
 
         // Propriétés
-        archive.GetObject("__props__", properties);
+        (void)archive.GetObject("__props__", properties);
 
         // Dépendances
         NkArchive depsArchive;
         if (archive.GetObject("__deps__", depsArchive)) {
-            nk_uint32 cnt = 0; depsArchive.GetUInt32("count", cnt);
+            nk_uint32 cnt = 0; (void)depsArchive.GetUInt32("count", cnt);
             for (nk_uint32 i = 0; i < cnt; ++i) {
                 NkString k = NkString::Fmtf("dep_%u", i);
                 NkArchive depArc;
                 if (!depsArchive.GetObject(k.View(), depArc)) continue;
                 NkAssetDependency dep;
                 NkString depId, depPath;
-                depArc.GetString("id",   depId);
-                depArc.GetString("path", depPath);
-                depArc.GetBool("hard",   dep.hardRef);
+                (void)depArc.GetString("id",   depId);
+                (void)depArc.GetString("path", depPath);
+                (void)depArc.GetBool("hard",   dep.hardRef);
                 dep.id   = NkAssetId::FromString(depId.View());
                 dep.path = NkAssetPath(depPath.View());
                 dependencies.PushBack(std::move(dep));
@@ -755,20 +755,20 @@ public:
         if (!native::NkNativeReader::ReadArchive(binary.Data(), sz, archive, err)) return false;
 
         mRecords.Clear();
-        nk_uint32 count = 0; archive.GetUInt32("count", count);
+        nk_uint32 count = 0; (void)archive.GetUInt32("count", count);
         for (nk_uint32 i = 0; i < count; ++i) {
             NkString k = NkString::Fmtf("rec_%u", i);
             NkArchive recArc;
             if (!archive.GetObject(k.View(), recArc)) continue;
             NkAssetRecord rec;
             NkString idStr;
-            recArc.GetString("id",       idStr);     rec.id = NkAssetId::FromString(idStr.View());
+            (void)recArc.GetString("id",       idStr);     rec.id = NkAssetId::FromString(idStr.View());
             NkString pathStr;
-            recArc.GetString("path",     pathStr);   rec.assetPath = NkAssetPath(pathStr.View());
-            recArc.GetString("typeName", rec.typeName);
-            nk_uint32 typeRaw = 0; recArc.GetUInt32("type", typeRaw);
+            (void)recArc.GetString("path",     pathStr);   rec.assetPath = NkAssetPath(pathStr.View());
+            (void)recArc.GetString("typeName", rec.typeName);
+            nk_uint32 typeRaw = 0; (void)recArc.GetUInt32("type", typeRaw);
             rec.type = static_cast<NkAssetType>(typeRaw);
-            recArc.GetString("diskPath", rec.diskPath);
+            (void)recArc.GetString("diskPath", rec.diskPath);
             mRecords.PushBack(std::move(rec));
         }
         return true;

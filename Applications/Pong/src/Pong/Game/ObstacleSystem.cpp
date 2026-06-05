@@ -3,7 +3,7 @@
 // =============================================================================
 
 #include "ObstacleSystem.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "NKMath/NkFunctions.h"
 #include <cstdlib>
 
@@ -779,7 +779,7 @@ namespace nkentseu
         // Rendu : chaque type a son look propre. Tous restent dans le style
         // neon / line-art coherent avec le reste du jeu.
         // ─────────────────────────────────────────────────────────────────────
-        void ObstacleSystem::Render(GLRenderer2D& r, float ax, float ay,
+        void ObstacleSystem::Render(renderer::NkRenderer2D& r, float ax, float ay,
                                     float scale) const
         {
             for (uint32 i = 0; i < mObstacles.Size(); ++i)
@@ -800,14 +800,14 @@ namespace nkentseu
                     switch (o.shape)
                     {
                     case ObstacleShape::Rectangle:
-                        r.DrawQuad       (ox, oy, o.w, o.h, o.color);
-                        r.DrawQuadOutline(ox, oy, o.w, o.h, o.glowColor, lineW);
+                        r.DrawFilledRect ({ ox, oy, o.w, o.h }, o.color);
+                        r.DrawRectOutline({ ox, oy, o.w, o.h }, o.glowColor, lineW);
                         break;
                     case ObstacleShape::Circle:
                     {
                         const float rad = math::NkMin(o.w, o.h) * 0.5f;
-                        r.DrawCircle       (ocx, ocy, rad, o.color, 48);
-                        r.DrawCircleOutline(ocx, ocy, rad, o.glowColor, lineW, 48);
+                        r.DrawFilledCircle ({ ocx, ocy }, rad, o.color, 48);
+                        r.DrawCircleOutline({ ocx, ocy }, rad, o.glowColor, lineW, 48);
                         break;
                     }
                     case ObstacleShape::Triangle:
@@ -825,18 +825,18 @@ namespace nkentseu
                         {
                             const Vec2& a0 = verts[k];
                             const Vec2& a1 = verts[(k + 1) % n];
-                            r.DrawTriangle(pcx,           pcy,
-                                           a0.x + ax,     a0.y + ay,
-                                           a1.x + ax,     a1.y + ay,
-                                           o.color);
+                            r.DrawFilledTriangle({ pcx,           pcy },
+                                                 { a0.x + ax,     a0.y + ay },
+                                                 { a1.x + ax,     a1.y + ay },
+                                                 o.color);
                         }
                         // Outline (lignes joignant les sommets)
                         for (int k = 0; k < n; ++k)
                         {
                             const Vec2& a0 = verts[k];
                             const Vec2& a1 = verts[(k + 1) % n];
-                            r.DrawLine(a0.x + ax, a0.y + ay,
-                                       a1.x + ax, a1.y + ay,
+                            r.DrawLine({ a0.x + ax, a0.y + ay },
+                                       { a1.x + ax, a1.y + ay },
                                        o.glowColor, lineW);
                         }
                         break;
@@ -852,32 +852,32 @@ namespace nkentseu
                         const float rr = o.w * (0.20f + 0.18f * k);
                         math::NkColor c = WithAlpha(o.color,
                                           (0.20f + 0.15f * k) + pulse01 * 0.10f);
-                        r.DrawCircleOutline(ocx, ocy, rr, c, 1.5f * lineW, 32);
+                        r.DrawCircleOutline({ ocx, ocy }, rr, c, 1.5f * lineW, 32);
                     }
-                    r.DrawCircle(ocx, ocy, math::NkMax(2.0f, 3.0f * scale),
+                    r.DrawFilledCircle({ ocx, ocy }, math::NkMax(2.0f, 3.0f * scale),
                                  WithAlpha(o.color, 0.7f), 12);
                     break;
                 }
                 case ObstacleType::Portal:
                 {
                     const float a = 0.4f + pulse01 * 0.5f;
-                    r.DrawCircle       (ocx, ocy, o.w * 0.5f, WithAlpha(o.color, a * 0.25f), 32);
-                    r.DrawCircleOutline(ocx, ocy, o.w * 0.5f, WithAlpha(o.color, a), 2.0f * lineW, 32);
+                    r.DrawFilledCircle ({ ocx, ocy }, o.w * 0.5f, WithAlpha(o.color, a * 0.25f), 32);
+                    r.DrawCircleOutline({ ocx, ocy }, o.w * 0.5f, WithAlpha(o.color, a), 2.0f * lineW, 32);
                     break;
                 }
                 case ObstacleType::Mine:
                 {
                     // Cercle rouge + pics autour
                     const float pulse = 0.8f + pulse01 * 0.2f;
-                    r.DrawCircle(ocx, ocy, o.w * 0.30f,
+                    r.DrawFilledCircle({ ocx, ocy }, o.w * 0.30f,
                                  WithAlpha(o.color, pulse * 0.6f), 16);
                     for (int k = 0; k < 8; ++k)
                     {
                         const float a = 6.28318f * k / 8.0f;
                         const float r1 = o.w * 0.35f;
                         const float r2 = o.w * 0.50f;
-                        r.DrawLine(ocx + math::NkCos(a) * r1, ocy + math::NkSin(a) * r1,
-                                   ocx + math::NkCos(a) * r2, ocy + math::NkSin(a) * r2,
+                        r.DrawLine({ ocx + math::NkCos(a) * r1, ocy + math::NkSin(a) * r1 },
+                                   { ocx + math::NkCos(a) * r2, ocy + math::NkSin(a) * r2 },
                                    WithAlpha(o.color, pulse), 1.5f * lineW);
                     }
                     break;
@@ -888,18 +888,18 @@ namespace nkentseu
                     for (int k = 0; k < 3; ++k)
                     {
                         const float yy = oy + 3.0f + k * (o.h - 6.0f) / 2.0f;
-                        r.DrawQuad(ox + 2.0f, yy, o.w - 4.0f, 1.5f * lineW, o.color);
+                        r.DrawFilledRect({ ox + 2.0f, yy, o.w - 4.0f, 1.5f * lineW }, o.color);
                     }
-                    r.DrawQuadOutline(ox, oy, o.w, o.h, o.glowColor, lineW);
+                    r.DrawRectOutline({ ox, oy, o.w, o.h }, o.glowColor, lineW);
                     break;
                 }
                 case ObstacleType::Magnet:
                 {
                     // U vert : 2 bras + base. Effet d'attirance par halo.
-                    r.DrawQuad(ox, oy, o.w * 0.30f, o.h, o.color);
-                    r.DrawQuad(ox + o.w * 0.70f, oy, o.w * 0.30f, o.h, o.color);
-                    r.DrawQuad(ox, oy + o.h * 0.75f, o.w, o.h * 0.25f, o.color);
-                    r.DrawQuadOutline(ox, oy, o.w, o.h,
+                    r.DrawFilledRect({ ox, oy, o.w * 0.30f, o.h }, o.color);
+                    r.DrawFilledRect({ ox + o.w * 0.70f, oy, o.w * 0.30f, o.h }, o.color);
+                    r.DrawFilledRect({ ox, oy + o.h * 0.75f, o.w, o.h * 0.25f }, o.color);
+                    r.DrawRectOutline({ ox, oy, o.w, o.h },
                                       WithAlpha(o.glowColor, 0.6f + pulse01 * 0.3f),
                                       lineW);
                     break;
@@ -909,8 +909,8 @@ namespace nkentseu
                     // Losange semi-transparent qui pulse
                     const float a = 0.30f + pulse01 * 0.35f;
                     math::NkColor c = WithAlpha(o.color, a);
-                    r.DrawTriangle(ocx, oy, ox + o.w, ocy, ocx, oy + o.h, c);
-                    r.DrawTriangle(ocx, oy, ox,       ocy, ocx, oy + o.h, c);
+                    r.DrawFilledTriangle({ ocx, oy }, { ox + o.w, ocy }, { ocx, oy + o.h }, c);
+                    r.DrawFilledTriangle({ ocx, oy }, { ox,       ocy }, { ocx, oy + o.h }, c);
                     break;
                 }
                 case ObstacleType::BonusStar:
@@ -923,10 +923,10 @@ namespace nkentseu
                     {
                         const float a1 = -1.5708f + 6.28318f * k / 5.0f;
                         const float a2 = -1.5708f + 6.28318f * (k + 2) / 5.0f;
-                        r.DrawLine(ocx + math::NkCos(a1) * rad * scl,
-                                   ocy + math::NkSin(a1) * rad * scl,
-                                   ocx + math::NkCos(a2) * rad * scl,
-                                   ocy + math::NkSin(a2) * rad * scl,
+                        r.DrawLine({ ocx + math::NkCos(a1) * rad * scl,
+                                   ocy + math::NkSin(a1) * rad * scl },
+                                   { ocx + math::NkCos(a2) * rad * scl,
+                                   ocy + math::NkSin(a2) * rad * scl },
                                    o.color, 1.5f * lineW);
                     }
                     break;

@@ -29,7 +29,14 @@
     // -------------------------------------------------------------------------
     // SECTION 1 : EN-TÊTES ET DÉPENDANCES
     // -------------------------------------------------------------------------
-    // Ce fichier est conçu pour être autonome et sans dépendances lourdes.
+    // Sources UNIQUES des macros partagées (évite les redéfinitions -Wmacro-redefined) :
+    //  - NkPlatform.h : NKENTSEU_BUILTIN_FILE/LINE/FUNCTION/COLUMN (forme __builtin_* multi-plateforme,
+    //    utilisable comme argument par défaut de NkSourceLocation::Current()).
+    //  - NkMacros.h   : NKENTSEU_TODO/FIXME/UNUSED + CONCAT/STRINGIFY/COMPILE_MESSAGE.
+    // Ces includes sont inclus en premier pour que les définitions canoniques priment
+    // sur les éventuels fallbacks #ifndef locaux de ce fichier.
+    #include "NKCore/NkPlatform.h"
+    #include "NKCore/NkMacros.h"
 
     // Inclusion optionnelle des types de base si nécessaire pour les namespaces log/debug
     // #include "NKCore/NkTypes.h"  // Décommenter si nkentseu::log::Error etc. nécessitent des types
@@ -74,7 +81,7 @@
      * @note Le format du chemin dépend du compilateur et des flags de compilation.
      * Sur MSVC : chemin relatif au projet, sur GCC : peut être absolu selon -I.
      */
-    #define NKENTSEU_BUILTIN_FILE __FILE__
+    // NKENTSEU_BUILTIN_FILE : déclaration UNIQUE dans NKCore/NkPlatform.h (forme __builtin_FILE()).
 
     /** @brief Alias de compatibilité pour NKENTSEU_BUILTIN_FILE */
     #define NK_BUILTIN_FILE NKENTSEU_BUILTIN_FILE
@@ -85,7 +92,7 @@
      * @ingroup BuiltinMacros
      * @value Équivalent à __LINE__ du compilateur (entier)
      */
-    #define NKENTSEU_BUILTIN_LINE __LINE__
+    // NKENTSEU_BUILTIN_LINE : déclaration UNIQUE dans NKCore/NkPlatform.h (forme __builtin_LINE()).
 
     /** @brief Alias de compatibilité pour NKENTSEU_BUILTIN_LINE */
     #define NK_BUILTIN_LINE NKENTSEU_BUILTIN_LINE
@@ -114,27 +121,8 @@
      * }
      * @endcode
      */
-    #ifdef __cplusplus
-        // C++ : sélection du builtin le plus informatif selon le compilateur
-        #if defined(_MSC_VER)
-            // MSVC : __FUNCTION__ donne le nom simple, suffisant pour la plupart des usages
-            #define NKENTSEU_BUILTIN_FUNCTION __FUNCTION__
-        #elif defined(__GNUC__) || defined(__clang__)
-            // GCC/Clang : __PRETTY_FUNCTION__ inclut la signature complète avec types
-            #define NKENTSEU_BUILTIN_FUNCTION __PRETTY_FUNCTION__
-        #else
-            // Fallback vers le standard C++ : __func__ (nom simple)
-            #define NKENTSEU_BUILTIN_FUNCTION __func__
-        #endif
-    #else
-        // C : utilisation de __func__ (standard C99+)
-        #if __STDC_VERSION__ >= 199901L
-            #define NKENTSEU_BUILTIN_FUNCTION __func__
-        #else
-            // Compilateurs C très anciens : fallback vers chaîne vide
-            #define NKENTSEU_BUILTIN_FUNCTION ""
-        #endif
-    #endif
+    // NKENTSEU_BUILTIN_FUNCTION : déclaration UNIQUE dans NKCore/NkPlatform.h
+    // (forme __builtin_FUNCTION() multi-plateforme, avec fallbacks par compilateur).
 
     /** @brief Alias de compatibilité pour NKENTSEU_BUILTIN_FUNCTION */
     #ifndef NK_BUILTIN_FUNCTION
@@ -314,32 +302,8 @@
         #define NKENTSEU_COMPILE_MESSAGE(msg)
     #endif
 
-    /**
-     * @brief Marque une tâche TODO avec localisation fichier:ligne
-     * @def NKENTSEU_TODO(msg)
-     * @param msg Description de la tâche à implémenter
-     * @ingroup DebugMacros
-     *
-     * @example Output de compilation :
-     * @code
-     * warning: TODO at myfile.cpp:123: Refactor this function to use new API by Q2 2026
-     * @endcode
-     */
-    #define NKENTSEU_TODO(msg) \
-    NKENTSEU_COMPILE_MESSAGE( \
-        "TODO at " NKENTSEU_BUILTIN_FILE ":" NKENTSEU_STRINGIFY(NKENTSEU_BUILTIN_LINE) ": " msg)
-
-    /**
-     * @brief Signale un bug connu ou problème à corriger
-     * @def NKENTSEU_FIXME(msg)
-     * @param msg Description du problème à résoudre
-     * @ingroup DebugMacros
-     *
-     * @note Différence avec TODO : FIXME indique un bug, TODO une fonctionnalité manquante
-     */
-    #define NKENTSEU_FIXME(msg) \
-    NKENTSEU_COMPILE_MESSAGE( \
-        "FIXME at " NKENTSEU_BUILTIN_FILE ":" NKENTSEU_STRINGIFY(NKENTSEU_BUILTIN_LINE) ": " msg)
+    // NKENTSEU_TODO / NKENTSEU_FIXME : déclaration UNIQUE dans NKCore/NkMacros.h
+    // (le compilateur préfixe déjà le message #pragma par fichier:ligne du site d'appel).
 
     /**
      * @brief Ajoute une note informative pour les développeurs
@@ -347,11 +311,15 @@
      * @param msg Note ou remarque importante
      * @ingroup DebugMacros
      *
-     * @note Moins urgent que TODO/FIXME, utile pour la documentation inline
+     * @note Moins urgent que TODO/FIXME, utile pour la documentation inline.
+     *       Utilise __FILE__/__LINE__ bruts (littéraux) car NKENTSEU_BUILTIN_FILE
+     *       est désormais la forme __builtin_FILE() (non concaténable à une chaîne).
      */
-    #define NKENTSEU_NOTE(msg) \
-    NKENTSEU_COMPILE_MESSAGE( \
-        "NOTE at " NKENTSEU_BUILTIN_FILE ":" NKENTSEU_STRINGIFY(NKENTSEU_BUILTIN_LINE) ": " msg)
+    #ifndef NKENTSEU_NOTE
+        #define NKENTSEU_NOTE(msg) \
+        NKENTSEU_COMPILE_MESSAGE( \
+            "NOTE at " __FILE__ ":" NKENTSEU_STRINGIFY(__LINE__) ": " msg)
+    #endif
 
     /** @} */ // End of DebugMacros
 
@@ -406,23 +374,9 @@
         } \
     } while (0)
 
-    /**
-     * @brief Assertion avec message d'erreur personnalisé
-     * @def NKENTSEU_ASSERT_MSG(condition, msg)
-     * @param condition Expression booléenne à vérifier
-     * @param msg Message explicatif en cas d'échec
-     * @ingroup AssertMacros
-     *
-     * @note Le message est concaténé avec le contexte automatique (fichier, ligne, fonction)
-     * via le système de logging pour un débogage complet.
-     */
-    #define NKENTSEU_ASSERT_MSG(condition, msg) \
-    do { \
-        if (!(condition)) { \
-            /* Placeholder: connecter à NKENTSEU_LOG_ERROR_CONTEXT */ \
-            /* Exemple: NKENTSEU_LOG_ERROR_CONTEXT(msg, NKENTSEU_BUILTIN_FILE, NKENTSEU_BUILTIN_LINE, NKENTSEU_BUILTIN_FUNCTION); */ \
-        } \
-    } while (0)
+    // NKENTSEU_ASSERT_MSG : déclaration UNIQUE dans NKCore/Assert/NkAssert.h (assertion réelle
+    // avec handler + break). L'ancien placeholder no-op de ce fichier a été retiré pour éviter
+    // une redéfinition (-Wmacro-redefined) et le risque d'écraser silencieusement la vraie macro.
 
     /** @} */ // End of AssertMacros
 
@@ -675,13 +629,7 @@
      * @note Utile pour les variables de débogage qui ne sont utilisées qu'en mode debug
      * ou pour les paramètres temporairement non utilisés pendant le développement.
      */
-    #ifndef NKENTSEU_UNUSED
-        #if defined(_MSC_VER)
-            #define NKENTSEU_UNUSED(var) (void)(var)
-        #else
-            #define NKENTSEU_UNUSED(var) (void)(var)
-        #endif
-    #endif
+    // NKENTSEU_UNUSED : déclaration UNIQUE dans NKCore/NkMacros.h (+ famille UNUSED2/3/4).
 
     #define NKENTSEU_DECLARE_WITH_CONTEXT(type, name, value) \
     type name = (value); \

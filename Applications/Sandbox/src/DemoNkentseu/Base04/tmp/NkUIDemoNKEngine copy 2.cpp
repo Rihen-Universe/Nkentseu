@@ -685,7 +685,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
     deviceInfo.width   = window.GetSize().width;
     deviceInfo.height  = window.GetSize().height;
     deviceInfo.context.vulkan.appName    = "NkUIDemoEngine";
-    deviceInfo.context.vulkan.engineName = "Unkeny";
+    deviceInfo.context.vulkan.engineName = "Noge";
 
     NkIDevice* device = NkDeviceFactory::Create(deviceInfo);
     if (!device || !device->IsValid()) {
