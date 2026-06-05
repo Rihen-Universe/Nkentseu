@@ -3,7 +3,7 @@
 État actuel (mai 2026) : Noge est le **framework Application** au-dessus du
 moteur Nkentseu (NKECS, NKRenderer, NKRHI…). Son ambition : fournir une API de
 type Unity/Unreal (Application, LayerStack, EventBus, NkGameObject, NkActor,
-NkPrefab, NkSceneGraph, NkComponentHandle) pour bâtir Unkeny (éditeur, codename
+NkPrefab, NkSceneGraph, NkComponentHandle) pour bâtir Noge (éditeur, codename
 Nogee) et PV3DE (Patient Virtuel 3D Emotif).
 
 À ce jour, le **squelette d'Application est en place** : `NkApplication.h/.cpp`,
@@ -20,7 +20,7 @@ En revanche, **toute la galaxie design/anim/modeling déclarée dans
 Facial, IO FBX/GLTF/OBJ/SVG, Modeling, Rigging IK, Sculpt, Sequencer, Topology
 half-edge/boolean, UV editor, Viewport gizmo) est à l'état **headers de
 spécification** — riches en commentaires et en API, mais sans `.cpp`
-d'implémentation. **Aucune application Unkeny ni PV3DE n'existe encore** : on
+d'implémentation. **Aucune application Noge ni PV3DE n'existe encore** : on
 trouve une coquille `Applications/Nogee` (éditeur en gestation) et un dossier
 `Applications/PV3DE` réduit à de la documentation.
 
@@ -60,7 +60,7 @@ trouve une coquille `Applications/Nogee` (éditeur en gestation) et un dossier
 | IO (FBX, GLTF, OBJ, SVG) | ❌ | Spec seulement | Moyenne |
 | Text (NkTextPath) | ❌ | Spec seulement | Basse |
 | Layer NkEngineLayer (Layers/) | 🔶 | OnAttach/OnUpdate écrits, intégration scheduler à finir | Haute |
-| Unkeny / Nogee (éditeur) | 🔶 | Coquille NogeApp + EditorLayer/ViewportLayer/UILayer ; panels stubs | Haute |
+| Noge / Nogee (éditeur) | 🔶 | Coquille NogeApp + EditorLayer/ViewportLayer/UILayer ; panels stubs | Haute |
 | PV3DE | ❌ | Dossier vide (doc uniquement) | Plus tard |
 
 Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abandonné
@@ -130,7 +130,7 @@ Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abando
   qui enregistre le lifecycle dans le scheduler et appelle `BeginPlay()`.
 - `Resize(w, h)` propagé au renderer.
 
-### Éditeur Nogee (coquille Unkeny)
+### Éditeur Nogee (coquille Noge)
 
 - `Applications/Nogee` : `NogeApp` hérite de `Application`, expose les
   callbacks standard, possède `EditorLayer`, `ViewportLayer`, `UILayer` et
@@ -300,7 +300,7 @@ Tous présents en `*.h` riches (commentaires, structs, API publique) mais
   `NKSerialization/Asset/NkAssetImporter` + `NkAssetMetadata` mais
   AssetManager runtime à finaliser.
 
-### Unkeny (éditeur — codename Nogee)
+### Noge (éditeur — codename Nogee)
 
 - **Statut** : 🔶 coquille (`NogeApp` + EditorLayer/ViewportLayer/UILayer +
   4 panels stubs) ; aucun panel n'est encore fonctionnel.
@@ -361,7 +361,7 @@ Tous présents en `*.h` riches (commentaires, structs, API publique) mais
 
 ### Applications qui dépendent de Noge
 
-- **Applications/Nogee** (codename éditeur, futur Unkeny) — `NogeApp :
+- **Applications/Nogee** (codename éditeur, futur Noge) — `NogeApp :
   public Application`, utilise tous les Layers et Panels Noge.
 - **Applications/PV3DE** — placeholder (docs seulement) ; à venir
   `PatientVirtualApp : public Application`.

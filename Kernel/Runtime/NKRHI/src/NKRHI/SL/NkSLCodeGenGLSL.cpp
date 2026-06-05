@@ -48,6 +48,34 @@ NkString NkSLCodeGenBase::BaseTypeToString(NkSLBaseType t) {
         case NkSLBaseType::NK_IMAGE2D:              return "image2D";
         case NkSLBaseType::NK_IIMAGE2D:             return "iimage2D";
         case NkSLBaseType::NK_UIMAGE2D:             return "uimage2D";
+        // --- Samplers/images additionnels (noms GLSL natifs) ---
+        case NkSLBaseType::NK_SAMPLER1D:               return "sampler1D";
+        case NkSLBaseType::NK_SAMPLER1D_ARRAY:         return "sampler1DArray";
+        case NkSLBaseType::NK_SAMPLER_CUBE_ARRAY:      return "samplerCubeArray";
+        case NkSLBaseType::NK_SAMPLER_CUBE_ARRAY_SHADOW:return "samplerCubeArrayShadow";
+        case NkSLBaseType::NK_SAMPLER2DMS:             return "sampler2DMS";
+        case NkSLBaseType::NK_ISAMPLER1D:              return "isampler1D";
+        case NkSLBaseType::NK_USAMPLER1D:              return "usampler1D";
+        case NkSLBaseType::NK_ISAMPLER3D:              return "isampler3D";
+        case NkSLBaseType::NK_USAMPLER3D:              return "usampler3D";
+        case NkSLBaseType::NK_ISAMPLER_CUBE:           return "isamplerCube";
+        case NkSLBaseType::NK_USAMPLER_CUBE:           return "usamplerCube";
+        case NkSLBaseType::NK_ISAMPLER2D_ARRAY:        return "isampler2DArray";
+        case NkSLBaseType::NK_USAMPLER2D_ARRAY:        return "usampler2DArray";
+        case NkSLBaseType::NK_ISAMPLER_CUBE_ARRAY:     return "isamplerCubeArray";
+        case NkSLBaseType::NK_USAMPLER_CUBE_ARRAY:     return "usamplerCubeArray";
+        case NkSLBaseType::NK_IMAGE1D:                 return "image1D";
+        case NkSLBaseType::NK_IIMAGE1D:                return "iimage1D";
+        case NkSLBaseType::NK_UIMAGE1D:                return "uimage1D";
+        case NkSLBaseType::NK_IMAGE3D:                 return "image3D";
+        case NkSLBaseType::NK_IIMAGE3D:                return "iimage3D";
+        case NkSLBaseType::NK_UIMAGE3D:                return "uimage3D";
+        case NkSLBaseType::NK_IMAGE_CUBE:              return "imageCube";
+        case NkSLBaseType::NK_IIMAGE_CUBE:             return "iimageCube";
+        case NkSLBaseType::NK_UIMAGE_CUBE:             return "uimageCube";
+        case NkSLBaseType::NK_IMAGE2D_ARRAY:           return "image2DArray";
+        case NkSLBaseType::NK_IIMAGE2D_ARRAY:          return "iimage2DArray";
+        case NkSLBaseType::NK_UIMAGE2D_ARRAY:          return "uimage2DArray";
         default: return "float";
     }
 }
@@ -125,9 +153,20 @@ void NkSLCodeGenGLSL::GenProgram(NkSLProgramNode* prog) {
     EmitLine(NkString(buf));
     EmitNewLine();
 
+    // Taille de workgroup compute (renseignée depuis l'AST).
+    mLocalSizeX = prog->localSizeX;
+    mLocalSizeY = prog->localSizeY;
+    mLocalSizeZ = prog->localSizeZ;
+
     // Extensions
     if (mStage == NkSLStage::NK_COMPUTE) {
         EmitLine("#extension GL_ARB_compute_shader : require");
+        EmitNewLine();
+        char lsbuf[96];
+        snprintf(lsbuf, sizeof(lsbuf),
+                 "layout(local_size_x = %u, local_size_y = %u, local_size_z = %u) in;",
+                 mLocalSizeX, mLocalSizeY, mLocalSizeZ);
+        EmitLine(NkString(lsbuf));
         EmitNewLine();
     }
 
@@ -186,7 +225,26 @@ void NkSLCodeGenGLSL::GenVarDecl(NkSLVarDeclNode* v, bool isGlobal) {
                                 NkSLTypeIsImage(v->type->baseType);
         if (isSamplerOrImage && mOpts->flattenGLSLBindings) {
             int b = v->binding.HasBinding() ? v->binding.binding : mAutoBinding++;
-            char buf[64]; snprintf(buf, sizeof(buf), "layout(binding = %d) ", b);
+            char buf[96];
+            // Une storage image en écriture EXIGE un qualifier de format en GLSL.
+            if (NkSLTypeIsImage(v->type->baseType) && v->binding.HasImageFormat())
+                snprintf(buf, sizeof(buf), "layout(binding = %d, %s) ",
+                         b, v->binding.imageFormat.CStr());
+            else
+                snprintf(buf, sizeof(buf), "layout(binding = %d) ", b);
+            line += NkString(buf);
+        } else if (v->storage == NkSLStorageQual::NK_IN ||
+                   v->storage == NkSLStorageQual::NK_OUT) {
+            // Interface in/out : TOUJOURS emettre une location (explicite ou
+            // auto-assignee dans l'ordre de declaration). Sans ca, le linker GL
+            // choisit des locations d'attributs arbitraires -> mismatch avec le
+            // vertex layout du device -> ecran noir. Le vertex-out et le
+            // fragment-in matchent car declares dans le meme ordre.
+            int loc;
+            if (v->binding.HasLocation()) loc = v->binding.location;
+            else loc = (v->storage == NkSLStorageQual::NK_IN) ? mAutoInLoc++
+                                                              : mAutoOutLoc++;
+            char buf[64]; snprintf(buf, sizeof(buf), "layout(location = %d) ", loc);
             line += NkString(buf);
         } else if (v->binding.HasLocation()) {
             char buf[64]; snprintf(buf, sizeof(buf), "layout(location = %d) ", v->binding.location);
@@ -249,7 +307,16 @@ void NkSLCodeGenGLSL::GenBlock(NkSLBlockDeclNode* b) {
         }
         Emit(NkString(buf));
     } else {
-        Emit("layout(std140) ");
+        // Pas de binding explicite : auto-assigner via le compteur PARTAGE
+        // mAutoBinding (le MEME que les samplers/images), en ordre de declaration.
+        // Crucial : le device GL utilise le numero de binding du descriptor set a
+        // la fois comme point de bind UBO (glBindBufferRange) ET comme unite de
+        // texture (glBindTextureUnit). Donc UBO=0, sampler1=1, sampler2=2 doivent
+        // suivre une numerotation UNIFIEE qui reproduit le descriptor layout.
+        // (Un compteur separe pour les UBO decalait les samplers -> ecran noir.)
+        char buf[64];
+        snprintf(buf, sizeof(buf), "layout(binding = %d, std140) ", mAutoBinding++);
+        Emit(NkString(buf));
     }
 
     // Qualificateur du block

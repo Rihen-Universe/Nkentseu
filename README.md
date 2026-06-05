@@ -8,6 +8,23 @@
 
 ---
 
+## 🧭 Comprendre le projet en 2 minutes
+
+Nouveau ici ? Avant de plonger dans le code, deux fiches expliquent **Nkentseu,
+Jenga, Noge et Nogee** et comment ils s'articulent :
+
+- 👶 **[EXPLICATION_SIMPLE.md](EXPLICATION_SIMPLE.md)** — version grand public, sans
+  aucun jargon (métaphore de la construction d'une maison).
+- 🛠️ **[PRESENTATION_TECHNIQUE.md](PRESENTATION_TECHNIQUE.md)** — version technique :
+  architecture en couches, modules, les deux chemins de rendu (2D NKCanvas / 3D
+  NKRenderer→NKRHI), schéma de dépendances.
+
+> En une phrase : **Jenga** (build) construit **Nkentseu** (moteur C++ zero-STL) ;
+> **Noge** (*Nkentseu Onirique Game Engine*) en est la couche moteur de jeu ; et
+> **Nogee** est l'éditeur bâti sur Noge.
+
+---
+
 ## 📖 Table des Matières
 
 1. [Vue d'Ensemble](#vue-densemble)

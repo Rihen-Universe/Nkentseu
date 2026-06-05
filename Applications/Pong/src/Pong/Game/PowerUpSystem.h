@@ -27,12 +27,13 @@
 #include "NKMath/NkColor.h"
 #include "NKCore/NkTypes.h"
 
+namespace nkentseu { namespace renderer { class NkRenderer2D; } }
+
 namespace nkentseu
 {
     namespace pong
     {
 
-        class GLRenderer2D;
         class FontAtlas;
 
         // ── Effet actif sur un joueur ────────────────────────────────────────
@@ -70,7 +71,7 @@ namespace nkentseu
         public:
             void Reset();
             void Update(float dt, float arenaW, float arenaH, float scale);
-            void Render(GLRenderer2D& r, FontAtlas& f,
+            void Render(renderer::NkRenderer2D& r, FontAtlas& f,
                         float arenaOX, float arenaOY, float scale) const;
 
             // ── Application d'un effet ──────────────────────────────────────

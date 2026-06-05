@@ -8,6 +8,8 @@
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include "NKThreading/NkMutex.h"
+#include "NKThreading/NkRecursiveMutex.h"
+#include "NKThreading/NkScopedLock.h"
 #include "NKCore/NkAtomic.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include <queue>
@@ -41,10 +43,18 @@ struct NkDX12DescHeap {
     UINT                         capacity      = 0;
     UINT                         allocated     = 0;
 
+    bool overflowed = false;  ///< passé à true dès qu'AllocCPU dépasse capacity.
+
     D3D12_CPU_DESCRIPTOR_HANDLE AllocCPU() {
+        // Garde-fou anti-OOB : un handle hors-limites passé à Create*View provoque
+        // un "Removing Device" silencieux. Si le heap est plein, on clamp sur le
+        // dernier slot (rendu faux par aliasing mais pas de device-removal) et on
+        // marque overflowed pour diagnostic / agrandissement futur du heap.
+        UINT slot = (capacity > 0 && allocated >= capacity) ? (capacity - 1) : allocated;
+        if (capacity > 0 && allocated >= capacity) overflowed = true;
         D3D12_CPU_DESCRIPTOR_HANDLE h = cpuBase;
-        h.ptr += (SIZE_T)allocated * incrementSize;
-        allocated++;
+        h.ptr += (SIZE_T)slot * incrementSize;
+        if (allocated < capacity) allocated++;
         return h;
     }
     D3D12_GPU_DESCRIPTOR_HANDLE GPUFrom(UINT idx) const {
@@ -56,6 +66,23 @@ struct NkDX12DescHeap {
         return (UINT)((h.ptr - cpuBase.ptr) / incrementSize);
     }
 };
+
+// =============================================================================
+// Layout de la root signature : UNE table de descripteurs PAR registre.
+// Une table d'1 seul descripteur peut pointer sur n'importe quel slot du heap
+// (meme non contigu) -> resout le bug ou un shader lisant t1/t2 ne tombait pas
+// sur les bons SRV (la table t0..t15 offsetait par numero de registre depuis
+// une base individuelle ecrasee par la derniere texture liee).
+// Budget DWORD (max 64) : 32 (constants) + 2 (CBV) + 8+8+4 tables = 54.
+// =============================================================================
+namespace NkDX12RootLayout {
+    constexpr uint32 ROOT_CONSTANTS = 0;          // b15, 32 valeurs (PushConstants)
+    constexpr uint32 ROOT_CBV       = 1;          // b0 (UBO principal)
+    constexpr uint32 SRV_BASE       = 2;  constexpr uint32 NUM_SRV  = 8;  // t0..t7
+    constexpr uint32 SAMP_BASE      = 10; constexpr uint32 NUM_SAMP = 8;  // s0..s7
+    constexpr uint32 UAV_BASE       = 18; constexpr uint32 NUM_UAV  = 4;  // u0..u3
+    constexpr uint32 NUM_PARAMS     = 22;
+}
 
 // =============================================================================
 // Internal resource structs
@@ -334,7 +361,10 @@ private:
     struct DX12Fence { ComPtr<ID3D12Fence> fence; UINT64 value=0; HANDLE event=nullptr; };
     NkUnorderedMap<uint64, DX12Fence>          mFences;
 
-    mutable threading::NkMutex  mMutex;
+    // Mutex RÉCURSIF : certaines méthodes verrouillées appellent d'autres méthodes
+    // verrouillées sur le même thread (ex. CreateTexture → CreateBuffer pour le
+    // staging) — un mutex non-récursif provoquerait un auto-deadlock.
+    mutable threading::NkRecursiveMutex  mMutex;
     NkDeviceInitInfo    mInit   {};
     NkDeviceCaps        mCaps   {};
     bool                mIsValid= false;

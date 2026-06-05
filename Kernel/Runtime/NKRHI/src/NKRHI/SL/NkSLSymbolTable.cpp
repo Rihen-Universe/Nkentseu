@@ -306,12 +306,7 @@ void NkSLSymbolTable::RegisterBuiltinFunctions() {
     auto defFunc = [&](const NkString& name,
                         std::initializer_list<NkSLBaseType> params,
                         NkSLBaseType ret) {
-        NkSLSymbol* existing = mCurrent->symbols.Find(name);
-        if (!existing) {
-            NkSLSymbol sym; sym.name=name; sym.kind=NkSLSymbolKind::NK_BUILTIN_FUNC;
-            mCurrent->Define(sym);
-            existing = mCurrent->symbols.Find(name);
-        }
+        // Construire la surcharge d'abord.
         NkSLFunctionOverload ov;
         ov.isBuiltin  = true;
         ov.returnType.base = ret;
@@ -319,7 +314,18 @@ void NkSLSymbolTable::RegisterBuiltinFunctions() {
             NkSLResolvedType pt; pt.base = p;
             ov.paramTypes.PushBack(pt);
         }
-        existing->overloads.PushBack(ov);
+        // NE PAS faire Define()+re-Find()+deref : NkUnorderedMap peut rehasher dans
+        // operator[] (Define) et le Find suivant retourne intermittemment null ->
+        // SIGSEGV. Ajouter au symbole existant (pointeur frais) sinon construire le
+        // symbole COMPLET et l'inserer une seule fois.
+        NkSLSymbol* existing = mCurrent->symbols.Find(name);
+        if (existing) {
+            existing->overloads.PushBack(ov);
+        } else {
+            NkSLSymbol sym; sym.name=name; sym.kind=NkSLSymbolKind::NK_BUILTIN_FUNC;
+            sym.overloads.PushBack(ov);
+            mCurrent->Define(sym);
+        }
     };
 
     // Utiliser un type générique "genType" représenté par FLOAT
@@ -434,6 +440,18 @@ void NkSLSymbolTable::RegisterBuiltinFunctions() {
     defFunc("textureSize",{NkSLBaseType::NK_SAMPLER3D, NkSLBaseType::NK_INT}, NkSLBaseType::NK_IVEC3);
     defFunc("textureSize",{NkSLBaseType::NK_SAMPLER_CUBE, NkSLBaseType::NK_INT}, NkSLBaseType::NK_IVEC2);
     defFunc("texelFetch", {NkSLBaseType::NK_SAMPLER2D, NkSLBaseType::NK_IVEC2, NkSLBaseType::NK_INT}, NkSLBaseType::NK_VEC4);
+    // --- Overloads pour les dimensionalites additionnelles ---
+    defFunc("texture",    {NkSLBaseType::NK_SAMPLER1D, NkSLBaseType::NK_FLOAT}, NkSLBaseType::NK_VEC4);
+    defFunc("texture",    {NkSLBaseType::NK_SAMPLER1D_ARRAY, NkSLBaseType::NK_VEC2}, NkSLBaseType::NK_VEC4);
+    defFunc("texture",    {NkSLBaseType::NK_SAMPLER_CUBE_ARRAY, NkSLBaseType::NK_VEC4}, NkSLBaseType::NK_VEC4);
+    defFunc("texture",    {NkSLBaseType::NK_ISAMPLER3D, NkSLBaseType::NK_VEC3}, NkSLBaseType::NK_IVEC4);
+    defFunc("texture",    {NkSLBaseType::NK_USAMPLER3D, NkSLBaseType::NK_VEC3}, NkSLBaseType::NK_UVEC4);
+    defFunc("textureLod", {NkSLBaseType::NK_SAMPLER1D, NkSLBaseType::NK_FLOAT, NkSLBaseType::NK_FLOAT}, NkSLBaseType::NK_VEC4);
+    defFunc("textureLod", {NkSLBaseType::NK_SAMPLER_CUBE_ARRAY, NkSLBaseType::NK_VEC4, NkSLBaseType::NK_FLOAT}, NkSLBaseType::NK_VEC4);
+    defFunc("textureSize",{NkSLBaseType::NK_SAMPLER1D, NkSLBaseType::NK_INT}, NkSLBaseType::NK_INT);
+    defFunc("textureSize",{NkSLBaseType::NK_SAMPLER_CUBE_ARRAY, NkSLBaseType::NK_INT}, NkSLBaseType::NK_IVEC3);
+    defFunc("textureSize",{NkSLBaseType::NK_SAMPLER2DMS}, NkSLBaseType::NK_IVEC2);
+    defFunc("texelFetch", {NkSLBaseType::NK_SAMPLER2DMS, NkSLBaseType::NK_IVEC2, NkSLBaseType::NK_INT}, NkSLBaseType::NK_VEC4);
 
     // ── Image load/store ───────────────────────────────────────────────────────
     defFunc("imageLoad",       {NkSLBaseType::NK_IMAGE2D,  NkSLBaseType::NK_IVEC2}, NkSLBaseType::NK_VEC4);
@@ -447,6 +465,23 @@ void NkSLSymbolTable::RegisterBuiltinFunctions() {
     defFunc("imageAtomicExchange",{NkSLBaseType::NK_IMAGE2D, NkSLBaseType::NK_IVEC2, NkSLBaseType::NK_INT}, NkSLBaseType::NK_INT);
     defFunc("imageAtomicCompSwap",{NkSLBaseType::NK_IMAGE2D, NkSLBaseType::NK_IVEC2, NkSLBaseType::NK_INT, NkSLBaseType::NK_INT}, NkSLBaseType::NK_INT);
     defFunc("imageSize",       {NkSLBaseType::NK_IMAGE2D},  NkSLBaseType::NK_IVEC2);
+    // --- imageLoad/Store/Size pour les autres dimensionalites (dont image3D : voxel) ---
+    defFunc("imageLoad",  {NkSLBaseType::NK_IMAGE3D, NkSLBaseType::NK_IVEC3}, NkSLBaseType::NK_VEC4);
+    defFunc("imageStore", {NkSLBaseType::NK_IMAGE3D, NkSLBaseType::NK_IVEC3, NkSLBaseType::NK_VEC4}, NkSLBaseType::NK_VOID);
+    defFunc("imageSize",  {NkSLBaseType::NK_IMAGE3D}, NkSLBaseType::NK_IVEC3);
+    defFunc("imageLoad",  {NkSLBaseType::NK_IIMAGE3D, NkSLBaseType::NK_IVEC3}, NkSLBaseType::NK_IVEC4);
+    defFunc("imageStore", {NkSLBaseType::NK_IIMAGE3D, NkSLBaseType::NK_IVEC3, NkSLBaseType::NK_IVEC4}, NkSLBaseType::NK_VOID);
+    defFunc("imageLoad",  {NkSLBaseType::NK_UIMAGE3D, NkSLBaseType::NK_IVEC3}, NkSLBaseType::NK_UVEC4);
+    defFunc("imageStore", {NkSLBaseType::NK_UIMAGE3D, NkSLBaseType::NK_IVEC3, NkSLBaseType::NK_UVEC4}, NkSLBaseType::NK_VOID);
+    defFunc("imageLoad",  {NkSLBaseType::NK_IMAGE2D_ARRAY, NkSLBaseType::NK_IVEC3}, NkSLBaseType::NK_VEC4);
+    defFunc("imageStore", {NkSLBaseType::NK_IMAGE2D_ARRAY, NkSLBaseType::NK_IVEC3, NkSLBaseType::NK_VEC4}, NkSLBaseType::NK_VOID);
+    defFunc("imageSize",  {NkSLBaseType::NK_IMAGE2D_ARRAY}, NkSLBaseType::NK_IVEC3);
+    defFunc("imageLoad",  {NkSLBaseType::NK_IMAGE1D, NkSLBaseType::NK_INT}, NkSLBaseType::NK_VEC4);
+    defFunc("imageStore", {NkSLBaseType::NK_IMAGE1D, NkSLBaseType::NK_INT, NkSLBaseType::NK_VEC4}, NkSLBaseType::NK_VOID);
+    defFunc("imageSize",  {NkSLBaseType::NK_IMAGE1D}, NkSLBaseType::NK_INT);
+    defFunc("imageLoad",  {NkSLBaseType::NK_IMAGE_CUBE, NkSLBaseType::NK_IVEC3}, NkSLBaseType::NK_VEC4);
+    defFunc("imageStore", {NkSLBaseType::NK_IMAGE_CUBE, NkSLBaseType::NK_IVEC3, NkSLBaseType::NK_VEC4}, NkSLBaseType::NK_VOID);
+    defFunc("imageSize",  {NkSLBaseType::NK_IMAGE_CUBE}, NkSLBaseType::NK_IVEC2);
 
     // ── Constructeurs vecteurs / matrices ──────────────────────────────────────
     for (auto t : {NkSLBaseType::NK_VEC2, NkSLBaseType::NK_VEC3, NkSLBaseType::NK_VEC4,

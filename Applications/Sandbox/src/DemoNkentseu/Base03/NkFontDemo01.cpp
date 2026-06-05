@@ -5,7 +5,7 @@
 //   • Backends : OpenGL / Vulkan / DX11 / DX12 / Software / Metal
 //     sélection via : --backend=opengl|vulkan|dx11|dx12|sw|metal
 //   • Police   : --font=<chemin.ttf>  ou police système automatique
-//   • Rendu    : "RIHEN", "NKENTSEU", "UNKENY" en 2D avec alpha blending
+//   • Rendu    : "RIHEN", "NKENTSEU", "Noge" en 2D avec alpha blending
 //   • Atlas    : Gray8 → RGBA8 uploadé comme texture GPU
 //   • ESC      : quitter
 //
@@ -420,11 +420,11 @@ int nkmain(const NkEntryState& state) {
     logger_src.Infof("[FontDemo] LoadFont 64px...\n");
     NkFontFace* faceNkentseu= lib.LoadFont(fontData, fontDataSize, 64);
     logger_src.Infof("[FontDemo] LoadFont 40px...\n");
-    NkFontFace* faceUnkeny  = lib.LoadFont(fontData, fontDataSize, 40);
+    NkFontFace* faceNoge  = lib.LoadFont(fontData, fontDataSize, 40);
 
-    if (!faceRihen || !faceNkentseu || !faceUnkeny) {
+    if (!faceRihen || !faceNkentseu || !faceNoge) {
         logger_src.Errorf("[FontDemo] Echec chargement NkFontFace (r=%p n=%p u=%p)\n",
-                          (void*)faceRihen, (void*)faceNkentseu, (void*)faceUnkeny);
+                          (void*)faceRihen, (void*)faceNkentseu, (void*)faceNoge);
         ::free(fontData); lib.Destroy(); return 1;
     }
     logger_src.Infof("[FontDemo] Faces chargees OK\n");
@@ -434,7 +434,7 @@ int nkmain(const NkEntryState& state) {
     logger_src.Infof("[FontDemo] PreloadASCII...\n");
     faceRihen->PreloadASCII();
     faceNkentseu->PreloadASCII();
-    faceUnkeny->PreloadASCII();
+    faceNoge->PreloadASCII();
     logger_src.Infof("[FontDemo] PreloadASCII OK\n");
 
     // Libération du buffer TTF après rastérisation complète.
@@ -442,7 +442,7 @@ int nkmain(const NkEntryState& state) {
 
     // ── Fenêtre ────────────────────────────────────────────────────────────
     NkWindowConfig winCfg;
-    winCfg.title     = "NkFontDemo — RIHEN / NKENTSEU / UNKENY (ESC=quit)";
+    winCfg.title     = "NkFontDemo — RIHEN / NKENTSEU / Noge (ESC=quit)";
     winCfg.width     = 900;
     winCfg.height    = 500;
     winCfg.resizable = true;
@@ -478,7 +478,7 @@ int nkmain(const NkEntryState& state) {
     n = BuildWord(faceNkentseu, "NKENTSEU", 60.f, 310.f, 0.20f,0.80f,1.00f,
                   gTextVerts + gTextVertCount, kMaxTextVerts - gTextVertCount);
     gTextVertCount += n;
-    n = BuildWord(faceUnkeny,   "UNKENY",   60.f, 420.f, 0.75f,1.00f,0.20f,
+    n = BuildWord(faceNoge,   "Noge",   60.f, 420.f, 0.75f,1.00f,0.20f,
                   gTextVerts + gTextVertCount, kMaxTextVerts - gTextVertCount);
     gTextVertCount += n;
 

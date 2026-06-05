@@ -25,20 +25,220 @@ Core/, Factory/, Renderer/.
 - **Dossier STB supprimé** (~2 Mo, 24 headers) : NKCanvas n'utilise plus
   stb_image/stb_truetype — tout passe par NKImage et NKFont maison.
 
-## À venir / À ajouter (futur proche) — vision SFML-like
+## Évolutions 2026-05-30 — Refonte SFML-like (8/10 étapes livrées)
 
-- **Système de dessin bas niveau SFML-like** (priorité) : `NkVertex`
-  (position + couleur + texCoords), `NkVertexArray`, `NkTransform` (matrice),
-  `NkTransformable`, `NkRenderStates`, `NkRenderTarget`, `NkPrimitiveType`.
-  Compléter NkIDrawable2D / NkSprite / NkText déjà présents.
-- **Refonte Pong sur NKCanvas** : Pong utilise actuellement son propre
+Couche **complète style SFML** posée par-dessus l'infrastructure existante.
+Build NKCanvas vert à chaque étape. Voir aussi [USAGE.md](USAGE.md) pour les
+exemples d'utilisation.
+
+### A.1 — Types fondamentaux (livré)
+- [`NkRenderer2DTypes.h`](src/NKCanvas/Renderer/Core/NkRenderer2DTypes.h) :
+  ajout `NkPrimitiveType` (POINTS, LINES, LINE_STRIP, TRIANGLES,
+  TRIANGLE_STRIP, TRIANGLE_FAN) + alias `NkVertex = NkVertex2D`.
+- [`NkTransform.h`](src/NKCanvas/Renderer/Core/NkTransform.h) : matrice 2D
+  affine wrappant `math::NkMat4f` (interop NKRenderer 3D/NKCamera) avec
+  ops 2D spécialisées (Combine 12 mul, Rotate cols 0/1, TransformPoint/Rect).
+  `GetMatrix() → const float32*` pour upload GPU direct, `GetMatrix4() →
+  const NkMat4f&` pour passer aux systèmes 3D.
+- [`NkTransformable.h`](src/NKCanvas/Renderer/Core/NkTransformable.h) : base
+  SFML-like position/rotation/scale/origin avec cache de transform (dirty
+  flag, recalcul lazy).
+
+### A.2 — VertexArray + RenderStates (livré)
+- [`NkVertexArray.h`](src/NKCanvas/Renderer/Core/NkVertexArray.h) : conteneur
+  `NkVector<NkVertex>` + `NkPrimitiveType`, GetBounds, Append/Resize/Clear.
+- [`NkRenderStates.h`](src/NKCanvas/Renderer/Core/NkRenderStates.h) :
+  POD {transform, blendMode, texture, shader} + ctors mince + `Default()`.
+
+### A.3 — NkDrawable (livré)
+- [`NkDrawable.h`](src/NKCanvas/Renderer/Core/NkDrawable.h) : nouvelle
+  interface `Draw(NkRenderTarget&, const NkRenderStates&)`. NkIDrawable2D
+  legacy reste en place (dual heritage temporaire).
+
+### A.4 — Shapes (livré) — SFML-like
+- [`NkShape.h/cpp`](src/NKCanvas/Renderer/Shapes/NkShape.h) : base
+  abstraite NkTransformable + NkDrawable. Fill via TRIANGLE_FAN (n vertices),
+  outline via LINE_STRIP (n+1 vertices, ferme la boucle).
+- [`NkRectangleShape.h`](src/NKCanvas/Renderer/Shapes/NkRectangleShape.h)
+- [`NkCircleShape.h`](src/NKCanvas/Renderer/Shapes/NkCircleShape.h)
+- [`NkConvexShape.h`](src/NKCanvas/Renderer/Shapes/NkConvexShape.h)
+- [`NkLineShape.h`](src/NKCanvas/Renderer/Shapes/NkLineShape.h)
+- Support `LINE_STRIP`, `TRIANGLE_STRIP`, `TRIANGLE_FAN` ajouté dans
+  `NkRenderWindow::Draw(raw vertices)` (expansion vers TRIANGLES list).
+
+### A.5 — RenderTarget + RenderWindow + RenderTexture (livré)
+- [`NkRenderTarget.h/cpp`](src/NKCanvas/Renderer/Targets/NkRenderTarget.h) :
+  abstract base, Draw(drawable)/Draw(vertexArray)/Draw(raw)/Draw(NkIDrawable2D
+  compat), Clear/Display/View/Viewport/MapPixelCoords.
+- [`NkRenderWindow.h/cpp`](src/NKCanvas/Renderer/Targets/NkRenderWindow.h) :
+  concret. Wrappe NkWindow + NkIGraphicsContext (factory) + NkIRenderer2D
+  (factory). Frame management (Begin/End auto). **`OnResize()` et
+  `OnDpiChange()`** pour la recréation swapchain cross-API.
+- [`NkRenderTexture.h`](src/NKCanvas/Renderer/Targets/NkRenderTexture.h) :
+  STUB (API posée, `Create()` retourne false). Impl réelle à venir.
+
+### A.6 — NkRenderer2D facade concrete (livré)
+- [`NkRenderer2D.h`](src/NKCanvas/Renderer/Core/NkRenderer2D.h) : facade
+  user-facing wrappant NkIRenderer2D. Aucune virtualisation supplémentaire,
+  forwarding inline. Accessible via `target.GetRenderer2D()`.
+
+### A.7 — NkTextureSetBackend wiring 5 backends (livré)
+**Bug critique listé depuis 2026-05-26 enfin résolu.** Chaque backend
+appelle `NkTextureSetBackend()` à la fin de son Initialize avec ses 5
+callbacks (Create/Update/Destroy/SetFilter/SetWrap).
+- [`NkTextureBackend.h`](src/NKCanvas/Renderer/Resources/NkTextureBackend.h)
+  exposé publiquement (était privé dans NkTexture.cpp).
+- **OpenGL** : helpers statiques déjà présents, juste câblage en fin d'Init.
+- **Software** : callbacks no-op + ID monotone (le rasterizer sample
+  directement via NkTexture::GetCPUPixels).
+- **Vulkan** : registry globale (gVkTexRegistry) capturant device/queue/cmd
+  pool ; chaque entry = VkImage + VkImageView + VkDeviceMemory ; upload via
+  staging buffer + transition layouts. SetFilter/Wrap = no-op (sampler
+  immutable dans descriptor set layout — TODO pour sampler-per-texture).
+- **DX11** : registry globale (gDX11Registry), chaque entry = ID3D11Texture2D
+  + SRV + sampler dédié. SetFilter/Wrap rebuildent le sampler. Binding
+  par-batch dans SubmitBatches.
+- **DX12** : registry globale (gDX12Registry), upload synchrone via fence
+  dédiée. Default heap + upload heap, transitions COPY_DEST↔PIXEL_SHADER_RESOURCE.
+  SetFilter/Wrap = no-op (root signature avec sampler unique — TODO sampler
+  heap multi-slots).
+
+### A.8 — Migration NkSprite/NkText vers NkDrawable (livré)
+- Dual heritage : `class NkSprite : public NkIDrawable2D, public NkDrawable`.
+  Idem NkText.
+- Ancien `Draw(NkIRenderer2D&)` conservé pour compat backends.
+- Nouveau `Draw(NkRenderTarget&, NkRenderStates)` ajouté ; delegate pour
+  l'instant à l'ancien path (composition `states.transform` sera intégrée à
+  la refonte Pong A.9 quand un besoin concret se présente).
+
+### Matrice backend × plateforme (état actuel)
+
+| Backend | Win clang-mingw | Linux X11/XCB/Wayland | macOS | Android | HarmonyOS | iOS | Web | Xbox/UWP |
+|---------|---|---|---|---|---|---|---|---|
+| Software | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| OpenGL/GLES | ✅ | ✅ | ✅ | ✅ ES3 | ✅ ES3 | – | ✅ WebGL | – |
+| Vulkan | ✅ (VULKAN_SDK) | ✅ (VULKAN_SDK) | – (MoltenVK possible) | ✅ (si dispo) | ✅ (si dispo) | – | – | – |
+| DX11 | ✅ linké (2026-05-30) | – | – | – | – | – | – | – |
+| DX12 | ✅ linké (2026-05-30) | – | – | – | – | – | – | ✅ |
+| Metal Renderer2D | ❌ pas implémenté | – | ⚠️ context seul | – | – | ⚠️ context seul | – | – |
+
+DX11/DX12 désormais linkés par défaut sur Windows desktop clang-mingw : libs `libd3d11.a`,
+`libd3d12.a`, `libdxgi.a`, `libdxguid.a` sont dans `C:/msys64/ucrt64/lib/` (msys2 ucrt64
+toolchain). Les .exe consommateurs de NKCanvas n'ont donc plus besoin de re-déclarer ces
+libs côté app.
+
+## Extensions 2026-05-30 — NkShader / NkMaterial / NkRenderTexture / Pong refonte
+
+Architecture **autonome de NKRHI** (pas de couplage NkSL/shaderc/spirv-cross). Trois nouvelles
+dispatch tables backend, parallèles à `NkTextureBackend` :
+
+- **`NkShader`** (`Renderer/Resources/NkShader.h` + `NkShaderBackend.h`) : shader programmable
+  user-écrit. L'utilisateur fournit le source dans le langage du backend cible (GLSL / HLSL /
+  MSL / SPIR-V). Uniforms par nom : `SetFloat/Vec2/Vec3/Vec4/Mat4/Color/Texture`. Permet
+  notamment la **modification UV / couleurs dans le fragment shader** (scroll, ondulation,
+  color grading, distortion, etc.).
+- **`NkMaterial`** (`Renderer/Resources/NkMaterial.h`) : wrap d'un `NkShader` + uniforms
+  préconfigurés + states GPU. Pour effets réutilisables : toon 2D, lumière 2D, feu (additive
+  + noise UV), eau (sin wave UV), distortion, color grading, glow. `material.States()`
+  applique tous les uniforms et retourne un `NkRenderStates` prêt pour `target.Draw(drawable, states)`.
+- **`NkRenderTexture`** (`Renderer/Targets/NkRenderTexture.h` + `NkRenderTextureBackend.h`) :
+  rendu offscreen vers texture (FBO OpenGL real), pour post-process / mini-map / blit UI.
+
+### NkShape — UV modifiable + bugfix triangulation
+
+- **`mTextureRect`** est maintenant câblé (était documenté mais ignoré). `SetTextureRect()`
+  remappe les UV vers une sous-région de texture.
+- Méthode virtuelle **`GetPointUV(index, bounds)`** : sous-classes peuvent override pour
+  mappings custom (polaire, cylindrique, etc.).
+- **Bug fix « rectangles creux »** : NkShape émet maintenant en **NK_TRIANGLES directs** au
+  lieu de NK_TRIANGLE_FAN. Raison : la conversion FAN→TRIANGLES dans `NkRenderWindow::Draw`
+  utilise un buffer scratch local au switch ; si le backend batch lazyement (NkBatchRenderer2D),
+  le scratch est détruit avant flush → artefacts. Triangulation côté NkShape garantit la
+  durée de vie du buffer pendant tout l'appel `target.Draw`.
+
+### A.9 — Refonte Pong sur NKCanvas (livré, 2026-05-30)
+
+`Applications/Pong/src/Pong/Apps.cpp` réécrit en démo NKCanvas SFML-like. **Sélection backend
+dynamique** via fichier `pong.config` :
+
+```
+backend=opengl | vulkan | dx11 | dx12 | software | auto
+```
+
+- `auto` → `PongConfig::PickBestForPlatform()` + fallback chain (DX12→DX11→Vulkan→OpenGL→Software
+  sur Windows, etc.).
+- **`PongConfig`** utilise **`NkFile` (NKFileSystem)** pour la portabilité (Android AAssetManager
+  reroute, Web virtual FS, Harmony resource pack).
+- **Event pump correct** via `NkEvents().PollEvent()` → résout le freeze "Not Responding".
+- **Input clavier** : W/S (paddle gauche), ↑/↓ (paddle droit), ESC (quit). Fallback IA auto si
+  aucune touche pressée.
+- **Resize + DPI change** → `target.OnResize()` / `target.OnDpiChange()` via events.
+
+L'ancien Pong Ultra Arena (PongApp + AI + obstacles + particles + power-ups) reste sur disque
+dans `Game/` / `Render/` mais hors-build le temps de la migration progressive.
+
+### NK_GFX_API_AUTO ajouté à `NkGraphicsApi`
+
+Nouvelle valeur dans l'enum `NkGraphicsApi` (`NKPlatform/NkCGXDetect.h`) pour exprimer
+« sélection automatique selon plateforme et disponibilité backend ».
+
+### Bugs runtime détectés 2026-05-30 (à debug sur hardware par le user)
+
+Compile clean sur les 5 backends, mais le user a testé Pong runtime et observé :
+
+| Backend | Symptôme runtime | Hypothèse |
+|---|---|---|
+| OpenGL | Rectangles « creux » (corrigé par triangulation directe NkShape côté A.9) | Buffer scratch lifetime — **FIXÉ** |
+| Vulkan | Crash | Init device/swapchain à investiguer (logs validation layer) |
+| DX11 | Affiche rien | Probable : sampler state ou viewport non initialisé, à inspecter |
+| DX12 | Crash | Init PSO ou descriptor heap à investiguer |
+| Software | Écran noir | Probable : framebuffer non blité en fenêtre, ou format pixel mismatch |
+| Tous | Shutdown lent | Destructor `NkRenderWindow` attend probablement une opération GPU bloquante |
+
+Ces bugs **nécessitent validation runtime sur hardware** (logs Vulkan validation, RenderDoc /
+PIX pour DX, breakpoints debug) — non faisables depuis l'environnement de développement
+distant qui n'a pas de GPU. À traiter en sessions dédiées avec accès au runtime.
+
+## À venir (futur proche)
+
+- **A.9 — Refonte Pong sur NKCanvas** : Pong utilise actuellement son propre
   GLContext/GLRenderer2D/Texture2D maison ; le migrer sur NKCanvas pour en
-  faire la démo vitrine SFML-like. (Idem démos NkCameraDemos.)
-- **Intégration NKUI** : voir comment NKCanvas s'articule avec le module NKUI.
-- **BUG MAJEUR persistant** : `NkTexture_SetBackend` n'est appelé par aucun
-  backend Renderer2D → NkTexture::Create/Update retournent false (textures
-  dynamiques invisibles). Bloque NkText/NkSprite à l'écran. À câbler dans
-  chaque backend (DX11/OpenGL/Vulkan/DX12/Metal/Software).
+  faire la démo vitrine SFML-like. (Idem démos NkCameraDemos.) Résout aussi
+  bugs Pong (NkSafeArea include obsolète, Texture2D.cpp ancien API NkImage).
+- **A.10 — Doc/ROADMAP/mémoire finale**.
+- **`NkRenderTexture` cross-API** : implémentation réelle (FBO OpenGL,
+  VkFramebuffer Vulkan, RTV DX11/12, MTLTexture Metal, framebuffer offscreen
+  Software). Posera l'infra pour post-process/mini-map/blit UI.
+- **Outline épais** (`mOutlineThickness > 1`) : expansion en quads avec
+  joints miter/bevel — actuellement DrawLine thickness=1 hardcodé.
+- **Sampler per-texture sur DX12 et Vulkan** : descriptor heap sampler
+  multi-slots OU sampler cache (filter+wrap → VkSampler).
+- **Composition `states.transform`** : NkSprite/NkText/NkShape passent
+  actuellement `states.transform` au backend via path legacy. Construire
+  les vertices client-side avec le transform composé permettra de pleinement
+  exploiter le pattern parent→enfants (utile pour widgets imbriqués).
+- **Metal Renderer2D** : currently `Backend/Metal/` n'a que les
+  ComputeContext + Context placeholder. Manque NkMetalRenderer2D complet
+  (rendu sur CAMetalLayer + MTLRenderCommandEncoder).
+- **`NkShader` cross-API (shaders custom user-écrits)** : actuellement
+  `NkRenderStates::shader` est un forward-decl placeholder ; chaque backend
+  utilise un shader hardcodé qui fait `texture(uTex, uv) * color`. Pour
+  permettre à l'utilisateur de modifier les UV (scroll, distortion), les
+  couleurs (color grading), ou faire du post-process custom, il faut :
+  - Une classe `NkShader` qui charge du **NkSL** (langage shader Nkentseu
+    existant côté NKRHI, à exposer ici) → transpilé en GLSL/HLSL/MSL via
+    `NkVulkanShaderCompiler` (shaderc + spirv-cross, déjà dans NKRHI).
+  - Une API uniformes : `SetFloat/Vec/Matrix/Texture(name, value)`.
+  - Un binding shader-courant dans chaque backend Renderer2D (Vulkan/DX12
+    impliquent un cache pipeline car ils sont objet-state-monolithique).
+  - Intégration dans le batcher : flush quand `states.shader` change.
+  Cible : `NkRenderStates st; st.shader = &monShaderDistorsion; target.Draw(va, st);`.
+- **Intégration NKUI** : voir comment NKCanvas s'articule avec le module
+  NKUI. Probable que NKUI rende ses widgets via NkRenderTarget/NkRenderer2D
+  (DrawNinePatch, DrawText, scissor stack pour clipping). À planifier post-A.10.
+- **Hot-reload shaders 2D**.
+- **Tests cross-backend** : suite end-to-end qui itère sur les 5 backends
+  et valide draws identiques (à pixel-diff près).
 
 ---
 
@@ -66,9 +266,28 @@ Core/, Factory/, Renderer/.
 | Recreate surface (Android background/foreground) | Livré | — | — |
 | Callbacks swapchain (Clean/Recreate) | Livré | — | — |
 | STB vendored (24 headers, image/font/textedit/...) | Livré | — | — |
-| Renderer2D Metal | TODO | L | Basse |
-| Hot-reload shaders 2D | TODO | M | Moyenne |
-| Tests cross-backend | TODO | L | Haute |
+| **`NkPrimitiveType` + `NkVertex` alias** (A.1, 2026-05-30) | ✅ Livré | — | — |
+| **`NkTransform` (wraps `math::NkMat4f`)** (A.1) | ✅ Livré | — | — |
+| **`NkTransformable` (base SFML-like)** (A.1) | ✅ Livré | — | — |
+| **`NkVertexArray` + `NkRenderStates`** (A.2) | ✅ Livré | — | — |
+| **`NkDrawable` (nouveau pattern target.Draw)** (A.3) | ✅ Livré | — | — |
+| **`NkShape` + Rectangle/Circle/Convex/Line** (A.4) | ✅ Livré | — | — |
+| **`NkRenderTarget` + `NkRenderWindow` concret** (A.5) | ✅ Livré | — | — |
+| **`OnResize` + `OnDpiChange` cross-API swapchain recreate** (A.5) | ✅ Livré | — | — |
+| **`NkRenderTexture` stub (API posée)** (A.5) | 🔶 Partiel | M | Moyenne |
+| **`NkRenderer2D` facade concrete** (A.6) | ✅ Livré | — | — |
+| **`NkTextureSetBackend` wiring 5 backends** (A.7) | ✅ Livré | — | — |
+| **Migration `NkSprite`/`NkText` vers `NkDrawable`** (A.8) | ✅ Livré (dual) | — | — |
+| `LINE_STRIP` / `TRIANGLE_STRIP` / `TRIANGLE_FAN` dans Draw(raw) (A.4) | ✅ Livré | — | — |
+| **Refonte Pong sur NKCanvas (vitrine SFML)** (A.9) | ⏳ À venir | L | Haute |
+| **`NkRenderTexture` impl cross-API réelle** (post-A.9) | ⏳ À venir | L | Moyenne |
+| **Outline épais (joints miter/bevel)** | ⏳ À venir | M | Basse |
+| **Sampler per-texture DX12 + Vulkan** | ⏳ À venir | M | Basse |
+| **Composition `states.transform` Sprite/Text/Shape** | ⏳ À venir | M | Moyenne |
+| **Intégration NKUI (widgets via NkRenderTarget)** | ⏳ À venir | L | Moyenne |
+| Renderer2D Metal | ❌ TODO | L | Basse |
+| Hot-reload shaders 2D | ❌ TODO | M | Moyenne |
+| Tests cross-backend | ❌ TODO | L | Haute |
 
 Légende : Livré, Partiel, En cours, TODO, Abandonné.
 
@@ -463,8 +682,8 @@ Légende : Livré, Partiel, En cours, TODO, Abandonné.
   similaire noté dans NKRenderer roadmap).
 - **`<algorithm>` STL** : utilisé dans NkUWPWindow.cpp, NkXboxWindow.cpp,
   NkCocoaWindow.mm — à migrer vers NKMath helpers.
-- **`NkTexture_SetBackend` jamais appelé (BUG MAJEUR pré-existant)** :
-  identifié 2026-05-27. La fonction `NkTexture_SetBackend()` définie dans
+- **`NkTextureSetBackend` jamais appelé (BUG MAJEUR pré-existant)** :
+  identifié 2026-05-27. La fonction `NkTextureSetBackend()` définie dans
   [NkTexture.cpp](src/NKContext/Renderer/Resources/NkTexture.cpp) **n'est
   appelée par AUCUN backend Renderer2D** (DX11, OpenGL, Vulkan, DX12,
   Software, Metal). Conséquence : `NkTexture::LoadFromImage` / `Create` /
@@ -475,7 +694,7 @@ Légende : Livré, Partiel, En cours, TODO, Abandonné.
   warning et continue avec sprite invisible. Pong contourne en utilisant
   son propre `GLContext + GLRenderer2D + Texture2D` (glXxx direct via glad).
   Les démos NkCameraDemos suivent la même approche (OpenGL pur).
-  **Fix requis** : câbler `NkTexture_SetBackend({Create, Update, Destroy,
+  **Fix requis** : câbler `NkTextureSetBackend({Create, Update, Destroy,
   SetFilter, SetWrap})` dans `NkDX11Renderer2D::Initialize` et équivalents
   OpenGL/Vulkan/DX12/Metal. ~1-2h par backend.
 
@@ -502,4 +721,4 @@ Légende : Livré, Partiel, En cours, TODO, Abandonné.
   - NKRenderer (consomme NKRHI + Renderer2D pour overlays)
   - NKUI (consomme Renderer2D pour widgets, NkFont pour text)
   - Nkentseu/Core (Application init crée le contexte via factory)
-  - Unkeny, PV3DE
+  - Noge, PV3DE

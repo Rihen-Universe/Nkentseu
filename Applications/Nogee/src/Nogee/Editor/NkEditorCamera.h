@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Editor/NkEditorCamera.h
+// Noge/Editor/NkEditorCamera.h
 // =============================================================================
 // Caméra éditeur avec deux modes :
 //   Orbit  : tourne autour d'un point cible (Alt+Drag, Scroll=zoom)
@@ -20,7 +20,7 @@
 using namespace nkentseu::math;
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         enum class NkEditorCameraMode : nk_uint8 { Orbit = 0, Fly };
 
@@ -86,5 +86,5 @@ namespace nkentseu {
             bool    mAltDown    = false;
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

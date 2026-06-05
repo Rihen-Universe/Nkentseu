@@ -34,35 +34,42 @@ namespace nkentseu {
             const NkGraphicsApi api = ctx->GetApi();
             NK_R2D_FACTORY_LOG("Creating 2D renderer for API: %s", NkGraphicsApiName(api));
 
+            // IMPORTANT : on alloue via l'allocateur NKMemory (NkGetDefaultAllocator)
+            // et NON via `new`. Raison : le NkUniquePtr<NkIRenderer2D> (CreateUnique)
+            // desalloue via NkDefaultDelete -> ce MEME allocateur (-> _aligned_free).
+            // Allouer avec `new` (malloc) puis liberer avec _aligned_free = mismatch
+            // d'allocateur -> heap corruption c0000374 au free du renderer (shutdown).
+            // cf BugReports/NKCanvas/heap-c0000374-renderer-alloc-mismatch.md.
+            auto& alloc = ::nkentseu::memory::NkGetDefaultAllocator();
             NkIRenderer2D* r2d = nullptr;
 
             switch (api) {
                 // ── Software ─────────────────────────────────────────────────────────
                 case NkGraphicsApi::NK_GFX_API_SOFTWARE:
-                    r2d = new NkSoftwareRenderer2D();
+                    r2d = alloc.New<NkSoftwareRenderer2D>();
                     break;
 
                 // ── OpenGL / OpenGL ES / WebGL ────────────────────────────────────────
                 case NkGraphicsApi::NK_GFX_API_OPENGL:
                 case NkGraphicsApi::NK_GFX_API_OPENGLES:
                 case NkGraphicsApi::NK_GFX_API_WEBGL:
-                    r2d = new NkOpenGLRenderer2D();
+                    r2d = alloc.New<NkOpenGLRenderer2D>();
                     break;
 
                 // ── Vulkan ────────────────────────────────────────────────────────────
                 case NkGraphicsApi::NK_GFX_API_VULKAN:
-                    r2d = new NkVulkanRenderer2D();
+                    r2d = alloc.New<NkVulkanRenderer2D>();
                     break;
 
         #if defined(NKENTSEU_PLATFORM_WINDOWS)
                 // ── DirectX 11 ───────────────────────────────────────────────────────
                 case NkGraphicsApi::NK_GFX_API_DX11:
-                    r2d = new NkDX11Renderer2D();
+                    r2d = alloc.New<NkDX11Renderer2D>();
                     break;
 
                 // ── DirectX 12 ───────────────────────────────────────────────────────
                 case NkGraphicsApi::NK_GFX_API_DX12:
-                    r2d = new NkDX12Renderer2D();
+                    r2d = alloc.New<NkDX12Renderer2D>();
                     break;
         #endif
 
@@ -82,7 +89,7 @@ namespace nkentseu {
 
             if (!r2d->Initialize(ctx)) {
                 NK_R2D_FACTORY_ERR("Initialize failed for API: %s", NkGraphicsApiName(api));
-                delete r2d;
+                alloc.Delete(r2d);   // meme allocateur que l'allocation (pas `delete`)
                 return nullptr;
             }
 

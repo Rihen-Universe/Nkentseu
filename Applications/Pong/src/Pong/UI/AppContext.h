@@ -15,6 +15,7 @@
 namespace nkentseu
 {
     class NkWindow;
+    namespace renderer { class NkRenderer2D; }   // moteur 2D NKCanvas (remplace GLRenderer2D)
 }
 
 namespace nkentseu
@@ -22,7 +23,6 @@ namespace nkentseu
     namespace pong
     {
 
-        class GLRenderer2D;
         class FontAtlas;
         struct GameSettings;
         class SceneManager;
@@ -35,9 +35,9 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         struct AppContext
         {
-            NkWindow*       window     = nullptr;
-            GLRenderer2D*   renderer   = nullptr;
-            FontAtlas*      font       = nullptr;
+            NkWindow*           window   = nullptr;
+            renderer::NkRenderer2D* renderer = nullptr;   ///< Moteur 2D NKCanvas (ex-GLRenderer2D)
+            FontAtlas*          font     = nullptr;
             GameSettings*   settings   = nullptr;
             SceneManager*   scenes     = nullptr;
             /// Reseau (LAN/Online). nullptr si pas initialise. Detenu par

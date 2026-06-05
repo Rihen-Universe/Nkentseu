@@ -16,7 +16,7 @@
 // =============================================================================
 
 #include "Pong/UI/Scene.h"
-#include "Pong/Render/Texture2D.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"
 
 namespace nkentseu
 {
@@ -41,7 +41,7 @@ namespace nkentseu
             bool      mDone = false;
             // Logo Rihen affiche statique en bas de l'ecran (signature
             // designer). Charge depuis Resources/Pong/Textures/logo.png.
-            Texture2D mRihenLogo;
+            renderer::NkTexture mRihenLogo;
             bool      mRihenLogoLoaded = false;
         };
 

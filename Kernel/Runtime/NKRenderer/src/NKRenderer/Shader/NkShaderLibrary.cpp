@@ -434,23 +434,63 @@ namespace nkentseu {
 
             const char* vsGlsl = vsGlslStr.CStr();
             const char* fsGlsl = fsGlslStr.CStr();
-            logger.Info("[CompileVF] '{0}' vsGlsl={1} chars (conv={2}) fsGlsl={3} chars (conv={4})\n",
+
+            // ── Cross-compilation SPIR-V → HLSL pour les backends DirectX ─────────
+            // DX11/DX12 ne consomment ni GLSL ni SPIR-V : ils compilent du HLSL via
+            // D3DCompile (DX11 vs_5_0/ps_5_0, DX12 vs_5_1/ps_5_1). On convertit le
+            // SPIR-V déjà produit par glslang en HLSL via SPIRV-Cross. Pour DX on NE
+            // remplit PAS spirvBinary : le device DX12 prendrait le SPIR-V pour du
+            // DXBC. L'entry point reste "main" (SPIRV-Cross conserve le nom du SPIR-V).
+            const bool isDX = (mApi == NkGraphicsApi::NK_GFX_API_DX11 ||
+                               mApi == NkGraphicsApi::NK_GFX_API_DX12);
+            NkString vsHlslStr, fsHlslStr;
+            if (isDX) {
+                if (!NkShaderConverter::CanSpirvToHlsl()) {
+                    logger.Info("[CompileVF] '{0}' : SPIRV-Cross desactive -> HLSL impossible (DX KO)\n", prog.name);
+                } else {
+                    // HLSL DX11 != HLSL DX12 :
+                    //   DX11 -> SM 5.0 : registres plats register(t0) (pas de spaces), compile vs_5_0.
+                    //   DX12 -> SM 5.1 : register(t0, spaceN) (descriptor set Vulkan N -> space N),
+                    //                    compile vs_5_1 et s'aligne sur la root signature.
+                    const uint32 sm = (mApi == NkGraphicsApi::NK_GFX_API_DX12) ? 51u : 50u;
+                    if (!prog.vertBytecode.Empty()) {
+                        auto r = NkShaderConverter::SpirvToHlsl(
+                            reinterpret_cast<const uint32*>(prog.vertBytecode.Data()),
+                            (uint32)(prog.vertBytecode.Size() / sizeof(uint32)),
+                            NkSLStage::NK_VERTEX, sm);
+                        if (r.success) vsHlslStr = r.source;
+                        else logger.Info("[CompileVF] '{0}' VS SPIRV->HLSL ECHEC: {1}\n", prog.name, r.errors);
+                    }
+                    if (!prog.fragBytecode.Empty()) {
+                        auto r = NkShaderConverter::SpirvToHlsl(
+                            reinterpret_cast<const uint32*>(prog.fragBytecode.Data()),
+                            (uint32)(prog.fragBytecode.Size() / sizeof(uint32)),
+                            NkSLStage::NK_FRAGMENT, sm);
+                        if (r.success) fsHlslStr = r.source;
+                        else logger.Info("[CompileVF] '{0}' FS SPIRV->HLSL ECHEC: {1}\n", prog.name, r.errors);
+                    }
+                }
+            }
+
+            logger.Info("[CompileVF] '{0}' vsGlsl={1} fsGlsl={2} hlsl(vs={3},fs={4})\n",
                         prog.name,
-                        (uint32)(vsGlsl ? strlen(vsGlsl) : 0), (vsGlslStr != vSrc) ? 1 : 0,
-                        (uint32)(fsGlsl ? strlen(fsGlsl) : 0), (fsGlslStr != fSrc) ? 1 : 0);
+                        (uint32)(vsGlsl ? strlen(vsGlsl) : 0),
+                        (uint32)(fsGlsl ? strlen(fsGlsl) : 0),
+                        (uint32)vsHlslStr.Size(), (uint32)fsHlslStr.Size());
 
             // Une SEULE entree NkShaderStageDesc par stage : sinon le backend
             // Vulkan recoit 2 stages NK_VERTEX (un pour GLSL, un pour SPIRV) et
             // produit 2 VkShaderModule -> validation error VUID-...stage-06897.
-            // On porte les deux infos (GLSL pour OpenGL, SPIRV pour Vulkan/DX12)
-            // dans la meme entree, le device choisira ce qui lui convient.
+            // Selon l'API : GLSL pour OpenGL, SPIRV pour Vulkan, HLSL pour DX11/DX12.
             NkShaderDesc desc;
             {
                 ::nkentseu::NkShaderStageDesc vs{};
                 vs.stage      = ::nkentseu::NkShaderStage::NK_VERTEX;
                 vs.glslSource = vsGlsl;
                 vs.entryPoint = "main";
-                if (!prog.vertBytecode.Empty()) {
+                if (isDX) {
+                    if (!vsHlslStr.Empty()) vs.hlslSource = vsHlslStr.CStr();
+                } else if (!prog.vertBytecode.Empty()) {
                     vs.spirvBinary.Resize((uint32)prog.vertBytecode.Size());
                     memcpy(vs.spirvBinary.Data(),
                            prog.vertBytecode.Data(),
@@ -462,7 +502,9 @@ namespace nkentseu {
                 fs.stage      = ::nkentseu::NkShaderStage::NK_FRAGMENT;
                 fs.glslSource = fsGlsl;
                 fs.entryPoint = "main";
-                if (!prog.fragBytecode.Empty()) {
+                if (isDX) {
+                    if (!fsHlslStr.Empty()) fs.hlslSource = fsHlslStr.CStr();
+                } else if (!prog.fragBytecode.Empty()) {
                     fs.spirvBinary.Resize((uint32)prog.fragBytecode.Size());
                     memcpy(fs.spirvBinary.Data(),
                            prog.fragBytecode.Data(),

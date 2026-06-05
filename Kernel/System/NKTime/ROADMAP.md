@@ -160,5 +160,5 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - **Modules au-dessus qui en dépendent** : NKLogger (timestamps des messages
   via NkLogMessage), NKThreading (sleep dans spin/backoff), NKFileSystem
   (timestamps fichier), NKNetwork (timeouts), NKRenderer (frame timing,
-  `delta` pour animation), Runtime (boucle d'application), Unkeny
+  `delta` pour animation), Runtime (boucle d'application), Noge
   (profilage, animations UI).

@@ -18,12 +18,13 @@
 #include "NKMath/NkColor.h"
 #include "NKCore/NkTypes.h"
 
+namespace nkentseu { namespace renderer { class NkRenderer2D; } }
+
 namespace nkentseu
 {
     namespace pong
     {
 
-        class GLRenderer2D;
 
         // ── Particule simple (dot) ───────────────────────────────────────────
         // Toutes en coords MONDE de l'arene (sans offset HUD). Le caller du
@@ -48,7 +49,7 @@ namespace nkentseu
 
             void Reset();
             void Update(float dt);
-            void Render(GLRenderer2D& r, float arenaOX, float arenaOY) const;
+            void Render(renderer::NkRenderer2D& r, float arenaOX, float arenaOY) const;
 
             // ── Helpers d'emission ──────────────────────────────────────────
             /// Burst omnidirectionnel : @p count particules dispersees autour

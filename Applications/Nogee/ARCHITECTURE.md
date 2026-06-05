@@ -1,7 +1,7 @@
 # Architecture Nkentseu — Moteur, Éditeur & Patient Virtuel 3D Emotif
 
 > Document de référence — Nken / 2026  
-> Framework : Nkentseu · Éditeur : Unkeny · Application cible : PV3DE
+> Framework : Nkentseu · Éditeur : Noge · Application cible : PV3DE
 
 ---
 
@@ -10,7 +10,7 @@
 1. [Vue d'ensemble](#1-vue-densemble)
 2. [Couches du moteur Nkentseu](#2-couches-du-moteur-nkentseu)
 3. [Framework Application — Nkentseu/Core](#3-framework-application--nkentseucore)
-4. [Éditeur — Unkeny](#4-éditeur--unkeny)
+4. [Éditeur — Noge](#4-éditeur--Noge)
 5. [Patient Virtuel 3D Emotif (PV3DE)](#5-patient-virtuel-3d-emotif-pv3de)
 6. [Système ECS — NKScene](#6-système-ecs--nkscene)
 7. [Ordre d'implémentation](#7-ordre-dimplémentation)
@@ -26,7 +26,7 @@ Le projet se décompose en trois niveaux indépendants mais liés :
 ┌─────────────────────────────────────────────────────────────┐
 │  Applications cibles                                        │
 │  ┌──────────────────┐   ┌──────────────────────────────┐   │
-│  │  Unkeny (éditeur)│   │  PV3DE (patient virtuel)     │   │
+│  │  Noge (éditeur)│   │  PV3DE (patient virtuel)     │   │
 │  └──────────────────┘   └──────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │  Nkentseu — Application Framework                           │
@@ -50,7 +50,7 @@ Le projet se décompose en trois niveaux indépendants mais liés :
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Principe fondamental** : chaque couche ne connaît que les couches situées en dessous d'elle. `PV3DE` ne dépend pas de `Unkeny`. `Unkeny` ne dépend pas de `PV3DE`. Les deux dépendent de `Nkentseu/Core`.
+**Principe fondamental** : chaque couche ne connaît que les couches situées en dessous d'elle. `PV3DE` ne dépend pas de `Noge`. `Noge` ne dépend pas de `PV3DE`. Les deux dépendent de `Nkentseu/Core`.
 
 ---
 
@@ -197,14 +197,14 @@ EventBus::Dispatch(keyEvent);
 
 ---
 
-## 4. Éditeur — Unkeny
+## 4. Éditeur — Noge
 
 ### 4.1 Vue d'ensemble
 
-`Unkeny` est une `Application` spécialisée. Elle ne réimplémente pas la boucle, elle ajoute des **couches éditeur** au-dessus du moteur.
+`Noge` est une `Application` spécialisée. Elle ne réimplémente pas la boucle, elle ajoute des **couches éditeur** au-dessus du moteur.
 
 ```
-UnkenyApp : Application
+NogeApp : Application
   └── LayerStack
         ├── EditorLayer       — orchestration des panels
         ├── ViewportLayer     — rendu scène dans FBO offscreen
@@ -470,8 +470,8 @@ scene.ForEach<TransformComponent, MeshComponent>(
 - `Nkentseu/Core/LayerStack.h` / `.cpp` — gestion de la pile
 - `Nkentseu/Core/EventBus.h` — publish/subscribe typé
 - `Nkentseu/Core/NkApplicationConfig.h` — mis à jour
-- `Unkeny/src/Unkeny/UnkenyApp.h` / `.cpp` — application éditeur
-- `Unkeny/src/Unkeny/EditorLayer.h` / `.cpp` — couche éditeur squelette
+- `Noge/src/Noge/NogeApp.h` / `.cpp` — application éditeur
+- `Noge/src/Noge/EditorLayer.h` / `.cpp` — couche éditeur squelette
 
 ### Phase 2 — ECS minimal
 - `NKScene/Entity.h` · `Component.h` · `System.h`

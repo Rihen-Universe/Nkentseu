@@ -77,6 +77,16 @@ namespace nkentseu {
 
         void FlushGPU();  // WaitIdle — appeler avant Shutdown ou resize manuel
 
+        // Callback ID3D12InfoQueue1 : forwarde les messages debug GPU vers
+        // NkLogger (sans ca, les messages partent vers OutputDebugString et
+        // sont invisibles hors debugger). Signature stdcall imposee par DX12.
+        static void __stdcall DebugMessageCallback(
+            D3D12_MESSAGE_CATEGORY category,
+            D3D12_MESSAGE_SEVERITY severity,
+            D3D12_MESSAGE_ID       id,
+            LPCSTR                 description,
+            void*                  context);
+
         // Callbacks de recréation de swapchain
         NkSwapchainCallbackHandle AddCleanUpCallback(NkSwapchainCleanFn fn)     override;
         NkSwapchainCallbackHandle AddRecreateCallback(NkSwapchainRecreateFn fn) override;

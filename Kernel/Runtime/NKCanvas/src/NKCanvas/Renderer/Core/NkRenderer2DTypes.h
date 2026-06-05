@@ -17,11 +17,13 @@ namespace nkentseu {
         // ── 2D float vector ──────────────────────────────────────────────────────
         using NkVec2f = math::NkVec2f;
 
-        // ── Integer rectangle ────────────────────────────────────────────────────
-        using NkRect2i = math::NkIntRect;
-
-        // ── Float rectangle ──────────────────────────────────────────────────────
-        using NkRect2f = math::NkFloatRect;
+        // ── Rectangles : noms canoniques domicilies dans NKMath, re-exportes ici ──
+        // (cf. NKMath/NkRectangle.h — ce sont des types purement math). NkRect2i et
+        // NkRect2f restent identiques a math::NkIntRect / NkFloatRect (meme NkRectT).
+        using NkRect2i = math::NkRect2i;   // int32  — clip, viewport, UI
+        using NkRect2f = math::NkRect2f;   // float32 — geometrie 2D
+        using NkRect2u = math::NkRect2u;   // uint32
+        using NkRect2d = math::NkRect2d;   // float64
 
         // ── 2D transform (position, rotation in radians, scale, origin) ──────────
         struct NkTransform2D {
@@ -52,12 +54,32 @@ namespace nkentseu {
             NK_NONE,       // no blending (overwrite)
         };
 
+        // ── Primitive type ───────────────────────────────────────────────────────
+        // Type de primitive consommee par NkVertexArray et le backend.
+        // Calque SFML : POINTS, LINES, LINE_STRIP, TRIANGLES, TRIANGLE_STRIP,
+        // TRIANGLE_FAN. Pas de QUADS — les quads sont decomposes en 2 triangles
+        // par le batcher (compatible cross-API : Vulkan/DX/Metal n'ont pas de
+        // QUADS natif).
+        enum class NkPrimitiveType : uint8 {
+            NK_POINTS         = 0,
+            NK_LINES          = 1,
+            NK_LINE_STRIP     = 2,
+            NK_TRIANGLES      = 3,
+            NK_TRIANGLE_STRIP = 4,
+            NK_TRIANGLE_FAN   = 5,
+        };
+
         // ── Vertex for 2D rendering ──────────────────────────────────────────────
         struct NkVertex2D {
             float32 x, y;           // position
             float32 u, v;           // texture coords
             uint8   r, g, b, a;     // color
         };
+
+        // Alias SFML-friendly : NkVertex (sans le « 2D ») pour les nouvelles APIs.
+        // NkVertex2D est conserve comme nom canonique du POD pour la compat des
+        // sous-systemes existants (NkIRenderer2D::DrawVertices, batchers, etc.).
+        using NkVertex = NkVertex2D;
 
         // ── Render stats (per frame) ─────────────────────────────────────────────
         struct NkRenderStats2D {

@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Editor/NkSelectionManager.h
+// Noge/Editor/NkSelectionManager.h
 // =============================================================================
 // Gère l'entité sélectionnée dans l'éditeur.
 // Notifie les panels via EventBus quand la sélection change.
@@ -13,7 +13,7 @@
 #include "Nkentseu/Core/EventBus.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         // Événement émis sur l'EventBus quand la sélection change
         struct NkSelectionChangedEvent {
@@ -54,5 +54,5 @@ namespace nkentseu {
             ecs::NkEntityId           mPrimary = ecs::NkEntityId::Invalid();
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

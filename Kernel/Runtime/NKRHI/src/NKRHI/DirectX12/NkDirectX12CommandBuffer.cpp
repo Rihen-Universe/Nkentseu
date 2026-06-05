@@ -200,6 +200,29 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
     auto* ds = mDev->GetDescSet(set.id);
     if (!ds) return;
 
+    using namespace NkDX12RootLayout;
+    // Une table d'1 descripteur par registre : on pointe la table du registre
+    // b.slot directement sur le slot heap (potentiellement non contigu) de la
+    // ressource. Plus de probleme d'offset par numero de registre.
+    auto bindSrv = [&](uint32 slot, UINT idx) {
+        if (idx == UINT_MAX || slot >= NUM_SRV) return;
+        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(idx);
+        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(SRV_BASE + slot, h);
+        else            mCmdList->SetGraphicsRootDescriptorTable(SRV_BASE + slot, h);
+    };
+    auto bindSamp = [&](uint32 slot, UINT idx) {
+        if (idx == UINT_MAX || slot >= NUM_SAMP) return;
+        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->SamplerHeap().GPUFrom(idx);
+        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(SAMP_BASE + slot, h);
+        else            mCmdList->SetGraphicsRootDescriptorTable(SAMP_BASE + slot, h);
+    };
+    auto bindUav = [&](uint32 slot, UINT idx) {
+        if (idx == UINT_MAX || slot >= NUM_UAV) return;
+        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(idx);
+        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(UAV_BASE + slot, h);
+        else            mCmdList->SetGraphicsRootDescriptorTable(UAV_BASE + slot, h);
+    };
+
     for (auto& b : ds->bindings) {
         switch (b.type) {
             case NkDescriptorType::NK_UNIFORM_BUFFER:
@@ -207,75 +230,35 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
                 if (b.bufId != 0) {
                     D3D12_GPU_VIRTUAL_ADDRESS gpuAddr = mDev->GetBufferGPUAddr(b.bufId);
                     if (gpuAddr != 0) {
-                        if (mIsCompute) mCmdList->SetComputeRootConstantBufferView(1, gpuAddr);
-                        else            mCmdList->SetGraphicsRootConstantBufferView(1, gpuAddr);
+                        // Seul b0 est un root CBV ; les cbuffers additionnels ne
+                        // sont pas encore supportes par ce modele de root sig.
+                        if (mIsCompute) mCmdList->SetComputeRootConstantBufferView(ROOT_CBV, gpuAddr);
+                        else            mCmdList->SetGraphicsRootConstantBufferView(ROOT_CBV, gpuAddr);
                     }
                 }
                 break;
 
             case NkDescriptorType::NK_SAMPLED_TEXTURE:
             case NkDescriptorType::NK_INPUT_ATTACHMENT:
-                if (b.texId != 0) {
-                    UINT idx = mDev->GetTextureSrvIndex(b.texId);
-                    if (idx != UINT_MAX) {
-                        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(idx);
-                        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(2, h);
-                        else            mCmdList->SetGraphicsRootDescriptorTable(2, h);
-                    }
-                }
+                if (b.texId != 0) bindSrv(b.slot, mDev->GetTextureSrvIndex(b.texId));
                 break;
 
             case NkDescriptorType::NK_STORAGE_BUFFER:
             case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
-                if (b.bufId != 0) {
-                    UINT idx = mDev->GetBufferUavIndex(b.bufId);
-                    if (idx != UINT_MAX) {
-                        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(idx);
-                        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(3, h);
-                        else            mCmdList->SetGraphicsRootDescriptorTable(3, h);
-                    }
-                }
+                if (b.bufId != 0) bindUav(b.slot, mDev->GetBufferUavIndex(b.bufId));
                 break;
 
             case NkDescriptorType::NK_STORAGE_TEXTURE:
-                if (b.texId != 0) {
-                    UINT idx = mDev->GetTextureUavIndex(b.texId);
-                    if (idx != UINT_MAX) {
-                        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(idx);
-                        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(3, h);
-                        else            mCmdList->SetGraphicsRootDescriptorTable(3, h);
-                    }
-                }
+                if (b.texId != 0) bindUav(b.slot, mDev->GetTextureUavIndex(b.texId));
                 break;
 
             case NkDescriptorType::NK_SAMPLER:
-                if (b.sampId != 0) {
-                    UINT idx = mDev->GetSamplerHeapIndex(b.sampId);
-                    if (idx != UINT_MAX) {
-                        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->SamplerHeap().GPUFrom(idx);
-                        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(4, h);
-                        else            mCmdList->SetGraphicsRootDescriptorTable(4, h);
-                    }
-                }
+                if (b.sampId != 0) bindSamp(b.slot, mDev->GetSamplerHeapIndex(b.sampId));
                 break;
 
             case NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER:
-                if (b.texId != 0) {
-                    UINT srvIdx = mDev->GetTextureSrvIndex(b.texId);
-                    if (srvIdx != UINT_MAX) {
-                        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(srvIdx);
-                        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(2, h);
-                        else            mCmdList->SetGraphicsRootDescriptorTable(2, h);
-                    }
-                }
-                if (b.sampId != 0) {
-                    UINT sampIdx = mDev->GetSamplerHeapIndex(b.sampId);
-                    if (sampIdx != UINT_MAX) {
-                        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->SamplerHeap().GPUFrom(sampIdx);
-                        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(4, h);
-                        else            mCmdList->SetGraphicsRootDescriptorTable(4, h);
-                    }
-                }
+                if (b.texId  != 0) bindSrv (b.slot, mDev->GetTextureSrvIndex(b.texId));
+                if (b.sampId != 0) bindSamp(b.slot, mDev->GetSamplerHeapIndex(b.sampId));
                 break;
         }
     }

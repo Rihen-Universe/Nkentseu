@@ -403,6 +403,12 @@ NkContextInfo NkOpenGLContext::GetInfo() const {
     i.renderer         = mData.renderer;
     i.vendor           = mData.vendor;
     i.version          = mData.version;
+    // Fix 2026-05-30 : windowWidth/Height etaient laisses a 0 -> consommateurs
+    // (NkOpenGLRenderer2D::Initialize) tombent sur fallback W=800,H=600 ->
+    // mViewport et mDefaultView trop petits -> seule la moitie gauche du
+    // monde est visible (le reste culled par le clipping NDC ortho).
+    i.windowWidth      = mData.width;
+    i.windowHeight     = mData.height;
     i.debugMode        = HasFlag(mDesc.opengl.contextFlags, NkGLContextFlags::Debug);
     i.computeSupported = SupportsCompute();
     return i;

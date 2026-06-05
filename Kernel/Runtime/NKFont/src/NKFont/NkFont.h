@@ -74,6 +74,27 @@ namespace nkentseu {
     // ============================================================
     // NkFontAtlas
     // ============================================================
+    //
+    // DOCTRINE — NkFontAtlas / NkFont n'implementent PAS NKIResource (NKStream/NKIResource.h)
+    //
+    //   NKIResource modelise « 1 fichier <-> 1 etat » (NkImage, NkAudioSample,
+    //   etc.). NkFontAtlas est par construction multi-resource atlas-centric :
+    //   AddFontFromFile / AddFontFromMemory peuvent etre appeles N fois pour
+    //   empiler plusieurs fontes/tailles dans la meme texture, puis Build()
+    //   rasterise l'ensemble. Forcer NKIResource avec un LoadFromFile unique
+    //   imposerait des defauts arbitraires (taille px, range glyphes) et
+    //   perdrait l'usage avance.
+    //
+    //   NkFont (le struct produit) n'est pas auto-portant : il est detenu par
+    //   son `containerAtlas` qui parse le TTF, fournit les glyphes et la
+    //   texture. NkFont seul ne « se charge » pas.
+    //
+    //   Pour un cas « charge cette police en RAM, fais-moi une texture »
+    //   simple, utiliser directement l'API AddFontFromFile + Build, ou
+    //   construire un wrapper renderer-side (cf. NKCanvas/renderer::NkFont).
+    //   Decision 2026-05-29, cf. [[project_session_20260528_canvas_dpi]].
+    //
+    // ============================================================
 
     static constexpr nkft_uint32 NK_FONT_ATLAS_MAX_FONTS        = 16u;
     static constexpr nkft_uint32 NK_FONT_ATLAS_MAX_CUSTOM_RECTS = 64u;

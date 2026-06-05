@@ -134,7 +134,7 @@ et expose l'API documentée.
 - Hot-reload de configuration depuis un fichier `.nkconfig` ou des variables
   d'environnement (`NKLOG_LEVEL`, `NKLOG_PATTERN`, etc. — documentés dans
   Readme mais non câblés).
-- Intégration `ConsolePanel` Unkeny : afficher les logs en temps réel avec
+- Intégration `ConsolePanel` Noge : afficher les logs en temps réel avec
   filtres par niveau, recherche, et clic sur source.
 
 ---
@@ -154,5 +154,5 @@ et expose l'API documentée.
   NKMemory (SharedPtr, UniquePtr), NKThreading (Mutex, ConditionVariable,
   Thread, ScopedLock), NKPlatform (détection OS).
 - **Modules au-dessus qui en dépendent** : tous (Runtime, RHI, Renderer,
-  Application, Unkeny). Le module est consommé via la macro `logger` ou
+  Application, Noge). Le module est consommé via la macro `logger` ou
   `NkLog::Instance()`.

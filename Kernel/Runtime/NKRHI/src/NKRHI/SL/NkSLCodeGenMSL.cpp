@@ -62,6 +62,36 @@ NkString NkSLCodeGen_MSL::BaseTypeToMSL(NkSLBaseType t) {
         case NkSLBaseType::NK_ISAMPLER2D:           return "texture2d<int>";
         case NkSLBaseType::NK_USAMPLER2D:           return "texture2d<uint>";
         case NkSLBaseType::NK_IMAGE2D:              return "texture2d<float, access::read_write>";
+        case NkSLBaseType::NK_IIMAGE2D:             return "texture2d<int, access::read_write>";
+        case NkSLBaseType::NK_UIMAGE2D:             return "texture2d<uint, access::read_write>";
+        // --- Samplers/images additionnels (types MSL) ---
+        case NkSLBaseType::NK_SAMPLER1D:               return "texture1d<float>";
+        case NkSLBaseType::NK_SAMPLER1D_ARRAY:         return "texture1d_array<float>";
+        case NkSLBaseType::NK_SAMPLER_CUBE_ARRAY:      return "texturecube_array<float>";
+        case NkSLBaseType::NK_SAMPLER_CUBE_ARRAY_SHADOW:return "depthcube_array<float>";
+        case NkSLBaseType::NK_SAMPLER2DMS:             return "texture2d_ms<float>";
+        case NkSLBaseType::NK_ISAMPLER1D:              return "texture1d<int>";
+        case NkSLBaseType::NK_USAMPLER1D:              return "texture1d<uint>";
+        case NkSLBaseType::NK_ISAMPLER3D:              return "texture3d<int>";
+        case NkSLBaseType::NK_USAMPLER3D:              return "texture3d<uint>";
+        case NkSLBaseType::NK_ISAMPLER_CUBE:           return "texturecube<int>";
+        case NkSLBaseType::NK_USAMPLER_CUBE:           return "texturecube<uint>";
+        case NkSLBaseType::NK_ISAMPLER2D_ARRAY:        return "texture2d_array<int>";
+        case NkSLBaseType::NK_USAMPLER2D_ARRAY:        return "texture2d_array<uint>";
+        case NkSLBaseType::NK_ISAMPLER_CUBE_ARRAY:     return "texturecube_array<int>";
+        case NkSLBaseType::NK_USAMPLER_CUBE_ARRAY:     return "texturecube_array<uint>";
+        case NkSLBaseType::NK_IMAGE1D:                 return "texture1d<float, access::read_write>";
+        case NkSLBaseType::NK_IIMAGE1D:                return "texture1d<int, access::read_write>";
+        case NkSLBaseType::NK_UIMAGE1D:                return "texture1d<uint, access::read_write>";
+        case NkSLBaseType::NK_IMAGE3D:                 return "texture3d<float, access::read_write>";
+        case NkSLBaseType::NK_IIMAGE3D:                return "texture3d<int, access::read_write>";
+        case NkSLBaseType::NK_UIMAGE3D:                return "texture3d<uint, access::read_write>";
+        case NkSLBaseType::NK_IMAGE_CUBE:              return "texturecube<float, access::read_write>";
+        case NkSLBaseType::NK_IIMAGE_CUBE:             return "texturecube<int, access::read_write>";
+        case NkSLBaseType::NK_UIMAGE_CUBE:             return "texturecube<uint, access::read_write>";
+        case NkSLBaseType::NK_IMAGE2D_ARRAY:           return "texture2d_array<float, access::read_write>";
+        case NkSLBaseType::NK_IIMAGE2D_ARRAY:          return "texture2d_array<int, access::read_write>";
+        case NkSLBaseType::NK_UIMAGE2D_ARRAY:          return "texture2d_array<uint, access::read_write>";
         default: return "float";
     }
 }
@@ -337,6 +367,37 @@ NkString NkSLCodeGen_MSL::GenCall(NkSLCallNode* call) {
         NkString texName = GenExpr(call->args[0]);
         NkString coord   = GenExpr(call->args[1]);
         return texName + "_tex.sample(" + texName + "_smp, " + coord + ")";
+    }
+    // textureLod(s, uv, lod) → s_tex.sample(s_smp, uv, level(lod))
+    if (name == "textureLod" && call->args.Size() >= 3) {
+        NkString t = GenExpr(call->args[0]);
+        return t + "_tex.sample(" + t + "_smp, " + GenExpr(call->args[1]) +
+               ", level(" + GenExpr(call->args[2]) + "))";
+    }
+    // textureGrad(s, uv, dPdx, dPdy) → s_tex.sample(s_smp, uv, gradient2d(dPdx, dPdy))
+    if (name == "textureGrad" && call->args.Size() >= 4) {
+        NkString t = GenExpr(call->args[0]);
+        return t + "_tex.sample(" + t + "_smp, " + GenExpr(call->args[1]) +
+               ", gradient2d(" + GenExpr(call->args[2]) + ", " + GenExpr(call->args[3]) + "))";
+    }
+    // texelFetch(s, coord, lod) → s_tex.read(uint2(coord), lod)
+    if (name == "texelFetch" && call->args.Size() >= 2) {
+        NkString t   = GenExpr(call->args[0]);
+        NkString lod = (call->args.Size() >= 3) ? GenExpr(call->args[2]) : NkString("0");
+        return t + "_tex.read(uint2(" + GenExpr(call->args[1]) + "), " + lod + ")";
+    }
+    // imageLoad(img, coord) → img_tex.read(uint2(coord))
+    // ⚠️ chemin MSL NATIF (fallback) : coord supposé 2D. Pour image3D/array,
+    //    utiliser le chemin SPIRV-Cross (preferSpirvCrossForMSL = true par défaut).
+    if (name == "imageLoad" && call->args.Size() >= 2) {
+        NkString t = GenExpr(call->args[0]);
+        return t + "_tex.read(uint2(" + GenExpr(call->args[1]) + "))";
+    }
+    // imageStore(img, coord, val) → img_tex.write(val, uint2(coord))
+    if (name == "imageStore" && call->args.Size() >= 3) {
+        NkString t = GenExpr(call->args[0]);
+        return t + "_tex.write(" + GenExpr(call->args[2]) + ", uint2(" +
+               GenExpr(call->args[1]) + "))";
     }
 
     NkString args;

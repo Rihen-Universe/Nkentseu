@@ -28,6 +28,25 @@ namespace nkentseu {
                 static void   SetGLTextureFilter(uint32 id, NkTextureFilter filter);
                 static void   SetGLTextureWrap  (uint32 id, NkTextureWrap   wrap);
 
+                // GPU shader ops (called by NkShader via dispatch). GLSL vert+frag.
+                struct NkShaderSources_OpaqueFwd; // pour eviter d'inclure NkShaderBackend.h ici
+                static uint32 CreateGLShader (const struct NkShaderSources& sources);
+                static void   DestroyGLShader(uint32 id);
+                static void   UseGLShader    (uint32 id);
+                static void   SetGLShaderFloat  (uint32 id, const char* name, float v);
+                static void   SetGLShaderVec2   (uint32 id, const char* name, float x, float y);
+                static void   SetGLShaderVec3   (uint32 id, const char* name, float x, float y, float z);
+                static void   SetGLShaderVec4   (uint32 id, const char* name, float x, float y, float z, float w);
+                static void   SetGLShaderMat4   (uint32 id, const char* name, const float* mat16);
+                static void   SetGLShaderTexture(uint32 id, const char* name, uint32 texGPUId, uint32 slot);
+
+                // GPU render-texture ops (FBO + color attachment 2D RGBA8).
+                static uint32 CreateGLRenderTexture(uint32 w, uint32 h);
+                static void   DestroyGLRenderTexture(uint32 handle);
+                static void   BindGLRenderTexture(uint32 handle);
+                static void   UnbindGLRenderTexture();
+                static uint32 GetGLRenderTextureColorId(uint32 handle);
+
             protected:
                 void BeginBackend()  override;
                 void EndBackend()    override;
@@ -35,6 +54,7 @@ namespace nkentseu {
                                 const NkVertex2D* verts, uint32 vCount,
                                 const uint32*     idx,   uint32 iCount) override;
                 void UploadProjection(const float32 proj[16]) override;
+                void ApplyScissor(bool enabled, const NkRect2i& rect) override;
 
             private:
                 bool CompileShader();

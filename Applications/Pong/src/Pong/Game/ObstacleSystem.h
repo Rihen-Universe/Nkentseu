@@ -23,12 +23,13 @@
 #include "NKMath/NkColor.h"
 #include "NKCore/NkTypes.h"
 
+namespace nkentseu { namespace renderer { class NkRenderer2D; } }
+
 namespace nkentseu
 {
     namespace pong
     {
 
-        class GLRenderer2D;
 
         // ── Forme geometrique d'un obstacle ──────────────────────────────────
         // L'AABB englobant reste (x,y,w,h) — la forme decrite par "shape"
@@ -152,7 +153,7 @@ namespace nkentseu
             void Update(float dt, float arenaW = 0.0f, float arenaH = 0.0f);
 
             /// Trace tous les obstacles dans l'arene avec offset (ax, ay).
-            void Render(GLRenderer2D& r, float ax, float ay, float scale) const;
+            void Render(renderer::NkRenderer2D& r, float ax, float ay, float scale) const;
 
             /// Teste les collisions balle-obstacle et applique les effets.
             /// La balle est decrite par (bx, by, br) + (vx, vy). On retourne

@@ -49,6 +49,17 @@ namespace nkentseu {
                 void SetViewport(const NkRect2i& vp) override { mViewport = vp; }
                 NkRect2i GetViewport()               const override { return mViewport; }
 
+                // ── Clip / Scissor (pile, en pixels, origine haut-gauche) ──────────────
+                // SetClip empile et intersecte avec le clip courant ; PopClip depile ;
+                // ResetClip vide la pile. Chaque changement Flush() le batch en cours
+                // (la geometrie deja accumulee garde l'ancien clip). Le scissor GPU est
+                // applique par les backends via ApplyScissor(), appele depuis Flush().
+                void     SetClip(const NkRect2i& rect) override;
+                void     PopClip() override;
+                void     ResetClip() override;
+                bool     HasClip() const override { return mHasClip; }
+                NkRect2i GetClip()  const override { return mClipRect; }
+
                 void SetBlendMode(NkBlendMode mode) override;
                 NkBlendMode GetBlendMode()          const override { return mBlendMode; }
 
@@ -89,6 +100,13 @@ namespace nkentseu {
                 // Builds and uploads the orthographic projection from the current view.
                 virtual void UploadProjection(const float32 proj[16]) = 0;
 
+                // Applique (ou retire) le scissor GPU. Appele par Flush() juste avant
+                // SubmitBatches, donc tout le batch courant partage ce clip. rect en
+                // pixels, origine haut-gauche de la surface. enabled=false => scissor
+                // desactive (rendu plein). Defaut no-op : un backend sans override rend
+                // tout (le clip est ignore mais ne casse rien).
+                virtual void ApplyScissor(bool enabled, const NkRect2i& rect) { (void)enabled; (void)rect; }
+
                 // ── Batch state ───────────────────────────────────────────────────────
                 NkVector<NkVertex2D>  mVertices;
                 NkVector<uint32>      mIndices;
@@ -100,6 +118,11 @@ namespace nkentseu {
                 NkBlendMode     mBlendMode = NkBlendMode::NK_ALPHA;
                 NkRenderStats2D mStats;
                 bool            mInFrame   = false;
+
+                // ── Clip / Scissor state ───────────────────────────────────────────────
+                NkVector<NkRect2i> mClipStack;          ///< pile de rects deja intersectes
+                NkRect2i           mClipRect{};         ///< clip courant (sommet de pile)
+                bool               mHasClip = false;    ///< true si un clip est actif
 
             private:
                 // Ensure the current texture/blend group is open; close old one if changed.

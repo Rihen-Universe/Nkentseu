@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Layers/ViewportLayer.h  —  v2
+// Noge/Layers/ViewportLayer.h  —  v2
 // =============================================================================
 // Rend la scène ECS dans un FBO offscreen.
 // Se connecte à NkWorld via NkRenderSystem pour produire les draw calls.
@@ -34,7 +34,7 @@ namespace nkentseu {
                 void OnUpdate(float dt) override;
                 void OnRender()         override;
 
-                // ── Connexions (injectées par UnkenyApp::OnInit) ──────────────────
+                // ── Connexions (injectées par NogeApp::OnInit) ──────────────────
                 void SetEditorCamera   (NkEditorCamera*    cam)  noexcept { mCamera = cam; }
                 void SetGizmoSystem    (NkGizmoSystem*     gizmo)noexcept { mGizmos = gizmo; }
                 void SetSelectionManager(NkSelectionManager* sel) noexcept { mSel = sel; }

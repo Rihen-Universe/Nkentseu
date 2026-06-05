@@ -74,7 +74,12 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias) {
             vec2 uv = atlasUV + vec2(dx, dy) * ts;
             // Clamp aux bornes du tile pour eviter le bleed vers tile voisin.
             uv = clamp(uv, tileUV.xy + ts, tileUV.zw - ts);
-            s += texture(tShadowAtlas, vec3(uv, p.z));
+            // textureLod(..., 0.0) au lieu de texture() : l'atlas d'ombre est mono-mip,
+            // donc le LOD 0 explicite est exact ET gradient-free. Indispensable pour DX :
+            // ce sample est inliné dans une boucle à compte dynamique (slotCount/cascades),
+            // et un sample à GRADIENT en boucle variable fait échouer fxc (warning X3570 →
+            // déroulage impossible / hang). SPIRV-Cross émet SampleCmpLevelZero (sans gradient).
+            s += textureLod(tShadowAtlas, vec3(uv, p.z), 0.0);
         }
     }
     return s / 9.0;

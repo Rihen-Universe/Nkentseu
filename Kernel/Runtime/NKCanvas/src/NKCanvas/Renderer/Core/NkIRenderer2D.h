@@ -75,6 +75,23 @@ namespace nkentseu {
                 virtual void SetViewport(const NkRect2i& viewport) = 0;
                 virtual NkRect2i GetViewport() const = 0;
 
+                // ── Clip / Scissor ────────────────────────────────────────────────────
+                // Restreint le rendu a un rectangle (scissor test GPU), en pixels,
+                // origine haut-gauche de la surface. Tout ce qui sort du rect est
+                // ecarte. Utile pour les panneaux UI scrollables, le masquage, etc.
+                //
+                // Pile : SetClip empile le rect (intersecte avec le clip courant) ;
+                // PopClip depile. ResetClip vide la pile (plus aucune restriction).
+                // Implementation backend : glScissor (GL), VkRect2D dynamique
+                // (Vulkan), RSSetScissorRects (DX11/12), clamp CPU (Software).
+                //
+                // Defaut : no-op (backend qui ne gere pas encore le clip rend tout).
+                virtual void SetClip(const NkRect2i& rectPixels) { (void)rectPixels; }
+                virtual void PopClip() {}
+                virtual void ResetClip() {}
+                virtual bool HasClip() const { return false; }
+                virtual NkRect2i GetClip() const { return NkRect2i{}; }
+
                 // ── Blend mode ────────────────────────────────────────────────────────
                 virtual void SetBlendMode(NkBlendMode mode) = 0;
                 virtual NkBlendMode GetBlendMode() const = 0;
@@ -112,9 +129,56 @@ namespace nkentseu {
 
                 virtual void DrawFilledTriangle(NkVec2f a, NkVec2f b, NkVec2f c, const NkColor2D& color = NkColor2D::White) = 0;
 
+                // Contour seul (sans remplissage) — pratique style SFML. Impl par
+                // defaut composee a partir des primitives existantes (aucun backend
+                // a modifier). Geometrie alignee sur l'outline de DrawRect.
+                virtual void DrawRectOutline(NkRect2f rect, const NkColor2D& color, float32 thickness = 1.f) {
+                    if (thickness <= 0.f) return;
+                    const float32 t = thickness;
+                    DrawFilledRect({ rect.left - t,          rect.top - t,           rect.width + 2*t, t }, color); // haut
+                    DrawFilledRect({ rect.left - t,          rect.top + rect.height, rect.width + 2*t, t }, color); // bas
+                    DrawFilledRect({ rect.left - t,          rect.top,               t, rect.height },     color); // gauche
+                    DrawFilledRect({ rect.left + rect.width, rect.top,               t, rect.height },     color); // droite
+                }
+
+                // Anneau (contour de cercle) via segments de ligne.
+                virtual void DrawCircleOutline(NkVec2f center, float32 radius, const NkColor2D& color,
+                                               float32 thickness = 1.f, uint32 segments = 32) {
+                    if (thickness <= 0.f || segments < 3) return;
+                    NkVec2f prev{ center.x + radius, center.y };
+                    for (uint32 i = 1; i <= segments; ++i) {
+                        const float32 a = (float32)i / (float32)segments * 6.28318530718f;
+                        NkVec2f cur{ center.x + math::NkCos(a) * radius, center.y + math::NkSin(a) * radius };
+                        DrawLine(prev, cur, color, thickness);
+                        prev = cur;
+                    }
+                }
+
                 // Custom vertex batch (advanced usage)
                 virtual void DrawVertices(const NkVertex2D* vertices, uint32 vertexCount,
                                         const uint32* indices, uint32 indexCount, const NkTexture* texture = nullptr) = 0;
+
+                // Dessine une texture sur un rectangle (style SFML), modulee par
+                // color. uv = sous-region normalisee [0..1] (defaut = texture
+                // entiere). Impl par defaut composee sur DrawVertices (aucun
+                // backend a modifier). Pratique pour sprites/logos/icones UI.
+                virtual void DrawTexturedRect(NkRect2f rect, const NkTexture* texture,
+                                              const NkColor2D& color = NkColor2D::White,
+                                              NkRect2f uv = NkRect2f{ 0.f, 0.f, 1.f, 1.f }) {
+                    if (texture == nullptr) return;
+                    const float32 x0 = rect.left,        y0 = rect.top;
+                    const float32 x1 = rect.left + rect.width, y1 = rect.top + rect.height;
+                    const float32 u0 = uv.left,          t0 = uv.top;
+                    const float32 u1 = uv.left + uv.width, t1 = uv.top + uv.height;
+                    NkVertex2D v[4];
+                    for (int i = 0; i < 4; ++i) { v[i].r = color.r; v[i].g = color.g; v[i].b = color.b; v[i].a = color.a; }
+                    v[0].x = x0; v[0].y = y0; v[0].u = u0; v[0].v = t0; // TL
+                    v[1].x = x1; v[1].y = y0; v[1].u = u1; v[1].v = t0; // TR
+                    v[2].x = x1; v[2].y = y1; v[2].u = u1; v[2].v = t1; // BR
+                    v[3].x = x0; v[3].y = y1; v[3].u = u0; v[3].v = t1; // BL
+                    const uint32 idx[6] = { 0, 1, 2, 0, 2, 3 };
+                    DrawVertices(v, 4, idx, 6, texture);
+                }
 
                 // ── Stats ─────────────────────────────────────────────────────────────
                 virtual NkRenderStats2D GetStats() const = 0;

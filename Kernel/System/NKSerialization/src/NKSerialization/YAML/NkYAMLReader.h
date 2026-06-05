@@ -344,7 +344,7 @@
 
     // Usage :
     // auto* player = LoadSerializableFromYAML(yamlData, "PlayerData");
-    // if (player) { /* utiliser... *\/ delete player; }
+    // if (player) { utiliser... delete player; }
 */
 
 

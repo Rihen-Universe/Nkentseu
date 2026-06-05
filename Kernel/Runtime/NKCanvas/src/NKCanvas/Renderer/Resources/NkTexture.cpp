@@ -5,32 +5,20 @@
 // is owned by the backend that created it.
 // =============================================================================
 #include "NkTexture.h"
+#include "NkTextureBackend.h"
 #include "NKCanvas/Renderer/Core/NkIRenderer2D.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
 
-// Forward-declare backend static helpers to avoid circular includes
-namespace nkentseu { 
+namespace nkentseu {
     namespace renderer {
 
-        // Each backend registers static helpers when it initializes:
-        // These are resolved at link time — the backend .cpp defines them.
-        // We use a simple dispatch table so NkTexture stays backend-agnostic.
-
-        struct NkTextureBackend {
-            uint32 (*Create)(uint32 w, uint32 h, const uint8* rgba)       = nullptr;
-            void   (*Update)(uint32 id, uint32 x, uint32 y, uint32 w,
-                            uint32 h, const uint8* rgba)                  = nullptr;
-            void   (*Destroy)(uint32 id)                                   = nullptr;
-            void   (*SetFilter)(uint32 id, NkTextureFilter f)              = nullptr;
-            void   (*SetWrap)  (uint32 id, NkTextureWrap w)               = nullptr;
-        };
-
-        // Active backend dispatch (set by NkIRenderer2D::Initialize via
-        // NkTexture::SetBackend()):
+        // Active backend dispatch table. Initialement vide (callbacks null) :
+        // les operations sur NkTexture sont des no-ops tant qu'aucun renderer
+        // n'a appele NkTextureSetBackend() a la fin de son Initialize().
         static NkTextureBackend gTextureBackend{};
 
-        void NkTexture_SetBackend(const NkTextureBackend& backend) {
+        void NkTextureSetBackend(const NkTextureBackend& backend) {
             gTextureBackend = backend;
         }
 
@@ -43,6 +31,7 @@ namespace nkentseu {
             , mHandle(other.mHandle), mGPUId(other.mGPUId)
             , mFilter(other.mFilter), mWrap(other.mWrap)
             , mRenderer(other.mRenderer)
+            , mCPUPixels(static_cast<NkVector<uint8>&&>(other.mCPUPixels)) // transfere les pixels CPU
         {
             other.mHandle   = nullptr;
             other.mGPUId    = 0;
@@ -59,6 +48,7 @@ namespace nkentseu {
                 mFilter   = other.mFilter;
                 mWrap     = other.mWrap;
                 mRenderer = other.mRenderer;
+                mCPUPixels = static_cast<NkVector<uint8>&&>(other.mCPUPixels); // transfere les pixels CPU
                 other.mHandle   = nullptr;
                 other.mGPUId    = 0;
                 other.mRenderer = nullptr;

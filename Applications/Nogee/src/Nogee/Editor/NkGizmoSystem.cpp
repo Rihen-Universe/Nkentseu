@@ -4,7 +4,7 @@
 using namespace nkentseu::math;
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         static const NkVec4f kColorX     = {1.f, 0.2f, 0.2f, 1.f};
         static const NkVec4f kColorY     = {0.2f, 1.f, 0.2f, 1.f};
@@ -181,5 +181,5 @@ namespace nkentseu {
             }
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

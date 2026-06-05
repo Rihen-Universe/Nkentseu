@@ -4,15 +4,21 @@
 ([src/NKRHI/Core/NkIDevice.h](src/NKRHI/Core/NkIDevice.h)) couvrant 6 backends
 sélectionnables par `NkDeviceFactory`
 ([src/NKRHI/Core/NkDeviceFactory.cpp](src/NKRHI/Core/NkDeviceFactory.cpp)).
-Vulkan ([src/NKRHI/Vulkan/NkVulkanDevice.cpp](src/NKRHI/Vulkan/NkVulkanDevice.cpp),
+**Validé bout-en-bout sur 5 backends (2026-05-31)** : la démo bas-niveau
+`NkRHIDemoFull` ([Applications/Sandbox/src/DemoNkentseu/Base03/NkRHIDemoFull.cpp](../../../Applications/Sandbox/src/DemoNkentseu/Base03/NkRHIDemoFull.cpp))
+rend une scène complète (géométrie + Phong + shadow mapping) sur **Vulkan,
+OpenGL, DirectX 11, DirectX 12 et Software**, sélectionnables par
+`-bgl/-bvk/-bdx11/-bdx12/-bsw`. Avant cette session seuls Vulkan
+([src/NKRHI/Vulkan/NkVulkanDevice.cpp](src/NKRHI/Vulkan/NkVulkanDevice.cpp),
 2158 lignes) et OpenGL 4.3+
 ([src/NKRHI/Opengl/NkOpenglDevice.cpp](src/NKRHI/Opengl/NkOpenglDevice.cpp),
-1348 lignes) sont les seuls backends validés bout en bout par les démos
-NKRenderer. DX11 (1156 l.), DX12 (1638 l.) et Metal (798 l.) compilent et
-implémentent l'interface mais ne sont pas validés par démos. Software
+1348 lignes) étaient validés (par les démos NKRenderer). DX11 (1156 l.) et
+DX12 (1638 l.) sont désormais validés par démo (rendu + ombres corrects).
+Metal (798 l.) compile mais non testable sur Windows. Software
 ([src/NKRHI/Software/NkSoftwareDevice.cpp](src/NKRHI/Software/NkSoftwareDevice.cpp),
 1419 l.) est un rasterizer CPU complet avec pixel shaders émulés via lambdas
-(`NkSWShaderBridge`). Compute cross-API VK+GL opérationnel
+(`NkSWShaderBridge`) — validé (Phong + ombres) mais via un `fragFn` C++ écrit
+à la main dans la démo (pas encore branché sur NkSL→C++ ni sur le compute). Compute cross-API VK+GL opérationnel
 (`NkComputeContext` + `NkMLContext` MatMul/Conv2D/Attention/AdamW). Pipeline
 shader complet : NkSL → glslang → SPIR-V → SPIRV-Cross →
 GLSL/HLSL/MSL/C++ via [src/NKRHI/ShaderConvert/NkShaderConvert.h](src/NKRHI/ShaderConvert/NkShaderConvert.h)
@@ -28,8 +34,8 @@ binaire disque (.nksc, FNV-1a 64-bit).
 | Backend Vulkan 1.2+                     | Livré     | —      | —        |
 | Backend OpenGL 4.3+ (DSA, compute)      | Livré     | —      | —        |
 | Backend Software (rasterizer CPU)       | Livré     | —      | —        |
-| Backend DirectX 11.1                    | Partiel   | M      | P1       |
-| Backend DirectX 12                      | Partiel   | M      | P1       |
+| Backend DirectX 11.1                    | Livré     | —      | —        |
+| Backend DirectX 12                      | Livré     | —      | —        |
 | Backend Metal (macOS/iOS)               | Partiel   | L      | P2       |
 | Backend WebGL / WebGPU                  | TODO      | XL     | P3       |
 | `NkIDevice` (handles, frame, submit)    | Livré     | —      | —        |
@@ -159,26 +165,29 @@ Effort : S (≤1j) · M (2-5j) · L (1-2 sem) · XL (>2 sem)
 - `NkGrid3D` ([Tools/Grid3D/](src/NKRHI/Tools/Grid3D/)) — grille
   3D world-space avec subdivisions, fade, axes XZ colorés
 - `NkGizmo3D` ([Tools/NkGizmo/](src/NKRHI/Tools/NkGizmo/)) — gizmos
-  translate/rotate/scale réutilisables depuis l'éditeur Unkeny
+  translate/rotate/scale réutilisables depuis l'éditeur Noge
 
 ---
 
 ## En cours / TODO immédiat
 
-### Backend DirectX 11 — validation
-- `NkDirectX11Device` ([src/NKRHI/DirectX11/](src/NKRHI/DirectX11/)) compile
-  mais aucune démo NKRenderer ne tourne dessus en mai 2026
-- Manque : exécution Demo1..Demo10 + cross-check pixel-parfait vs VK/GL
+### Backend DirectX 11 — validé par démo (2026-05-31)
+- `NkDirectX11Device` ([src/NKRHI/DirectX11/](src/NKRHI/DirectX11/)) rend
+  `NkRHIDemoFull` (`-bdx11`) : géométrie + Phong + shadow map OK.
+- Reste : cross-check pixel-parfait vs VK/GL sur Demo1..Demo10 NKRenderer ;
+  **acné d'auto-ombrage** résiduelle sur le cube (bias HLSL à monter) ;
+  brancher DX11 sur NKRenderer (cf. NKRenderer ROADMAP).
 - Compute DX11 limité (cf. NkRenderer ROADMAP) — vérifier
   `DispatchCompute`, SRV/UAV slots, `ID3D11DeviceContext::CSSetShader`
-- `D3D11_DESCRIPTOR_*` flat slots — re-tester binding shadow atlas (>16 SRV)
 - HLSL fxc SM5 vs DXC SM5 : choisir un chemin officiel
 
-### Backend DirectX 12 — validation
+### Backend DirectX 12 — validé par démo (2026-05-31)
 - `NkDirectX12Device` ([src/NKRHI/DirectX12/](src/NKRHI/DirectX12/)) avec
-  `NkDX12DescHeap` CPU+GPU implémenté mais pas testé sur démos
-- Manque : root signature auto-générée depuis `NkDescriptorSetLayoutDesc`
-- Manque : validation des barrières `D3D12_RESOURCE_STATES` vs `NkResourceState`
+  `NkDX12DescHeap` CPU+GPU rend `NkRHIDemoFull` (`-bdx12`) : rendu + ombres OK
+  (mêmes résultats que DX11, acné d'auto-ombrage identique).
+- Reste : root signature auto-générée depuis `NkDescriptorSetLayoutDesc` ;
+  validation des barrières `D3D12_RESOURCE_STATES` vs `NkResourceState` ;
+  brancher DX12 sur NKRenderer.
 - Async compute queue théorique — pas validé bout en bout
 - DXC SM6+ : intégrer dans `NkShaderConverter::GlslToHlsl(sm=60)`
 - Pipeline cache disque : implémenter `ID3D12PipelineLibrary`
@@ -246,7 +255,7 @@ Effort : S (≤1j) · M (2-5j) · L (1-2 sem) · XL (>2 sem)
 - WebGL 2.0 : sous-ensemble OpenGL ES 3.0 → adapter le backend GL
   (pas de DSA, pas de SSBO, pas de compute → trade-off lourd)
 - WebGPU (recommandé) : ajouter `NkWebGPUDevice` en s'inspirant de Vulkan
-- Cibler PV3DE web demo + Unkeny editor web preview
+- Cibler PV3DE web demo + Noge editor web preview
 
 ### Mesh shaders / Task shaders
 - `NkDeviceCaps::meshShaders` déjà déclaré
@@ -278,14 +287,14 @@ Effort : S (≤1j) · M (2-5j) · L (1-2 sem) · XL (>2 sem)
   défaut
 - Actuellement chaque device gère 1 swapchain interne
   (`GetSwapchainFramebuffer/Width/Height/Format` déprécié mais maintenu)
-- Cible : éditeur Unkeny avec docking et plusieurs vues 3D simultanées
+- Cible : éditeur Noge avec docking et plusieurs vues 3D simultanées
 
 ### Timestamp queries production-ready
 - API présente (`BeginTimestampQuery/EndTimestampQuery/GetTimestampResults`)
   mais implémentations par défaut retournent `false`
 - Implémenter sur VK (`vkCmdWriteTimestamp` + query pool), DX12
   (`ID3D12QueryHeap`), GL (`GL_TIMESTAMP` queries)
-- Use case : profiler frame Unkeny + stats NKRenderer
+- Use case : profiler frame Noge + stats NKRenderer
 
 ### Texture compression upload (BC1-7 / ASTC / ETC2)
 - Caps déclarés (`textureCompressionBC/ETC2/ASTC`)
@@ -305,6 +314,25 @@ Effort : S (≤1j) · M (2-5j) · L (1-2 sem) · XL (>2 sem)
 - Compute software (single-threaded ou tile-based) pour tester `NkComputeContext`
   sans GPU
 
+### Conformité NKMemory — retirer les allocations brutes (À VÉRIFIER / À FAIRE)
+> Audit 2026-06-04. La convention projet (CLAUDE.md §1) impose les allocateurs
+> NKMemory (`nkentseu::memory::NkAlloc` / `NkFree`, ou `nkMalloc`/`nkFree`) et
+> **interdit** `new`/`delete`/`malloc`/`free` bruts (risque heap corruption
+> Windows c0000374 si on mélange allocateur custom et heap CRT).
+>
+> NKRHI **ne respecte pas encore** cette règle : ~33 sites de `new`/`delete`
+> bruts repérés. À convertir :
+> - `Core/NkDeviceFactory.cpp` : `new NkXxxDevice()` / `delete dev` (6 backends +
+>   Create/Destroy/Fallback/AutoDetect) → `NkAlloc`/placement-new + `NkFree`.
+> - `DirectX12/NkDirectX12Device.cpp:1421` + `DirectX11`/`Opengl` : `new`/`delete`
+>   des `NkXxxCommandBuffer` (Create/DestroyCommandBuffer).
+> - `SL/NkSLCompiler.cpp`, `SL/NkSLIntegration.cpp:31` (`new NkSLCompiler`),
+>   `SL/NkSLCodeGenAdvanced.cpp` : `new`/`delete` des AST/compiler.
+>
+> Tâche : remplacer par le pattern NKMemory (allocate + placement-new, destructeur
+> explicite + `NkFree`), comme dans NKImage/NKContainers. Vérifier qu'aucun objet
+> alloué NKMemory n'est libéré via `delete`/`free` (et inversement).
+
 ---
 
 ## Bugs / quirks connus
@@ -316,6 +344,23 @@ Effort : S (≤1j) · M (2-5j) · L (1-2 sem) · XL (>2 sem)
 - **Software : pas de compute**. `CreateComputePipeline` / `Dispatch`
   ne sont pas opérationnels — toute la couche `NkComputeContext` /
   `NkMLContext` ne fonctionne pas dessus.
+- **OpenGL : `BeginRenderPass` ne clear pas tout seul** en usage RHI direct
+  (sans RenderGraph). `GL_BeginRenderPass` ne clear que si `SetClearColor`/
+  `SetClearDepth` ont armé `mClearColorPending`/`mClearDepthPending` ; DX/VK/SW
+  clear inconditionnellement. Sans appel, le depth buffer GL n'est jamais remis
+  à 1.0 → depth test rejette tout → écran noir. Une app RHI directe DOIT appeler
+  `SetClearColor/SetClearDepth` avant chaque `BeginRenderPass`.
+- **Vulkan : swapchain sRGB par défaut** (`NkVulkanDesc::srgbSwapchain=true`).
+  Un shader qui écrit du linéaire « brut » (sans tonemapping/gamma) paraît
+  délavé/pâle vs OpenGL/DX (UNORM). Mettre `srgbSwapchain=false` pour un rendu
+  identique cross-backend sans gestion gamma ; un vrai renderer (ACES) garde sRGB.
+- **Vulkan : validation OFF par défaut** (`validationLayers=false` depuis
+  2026-05-31) — l'activer peut crasher `vkCreateInstance` si un `msvcp140.dll`
+  incompatible est sur le PATH (ex. Huawei DevEco Studio). Opt-in explicite.
+- **Shadow mapping cross-backend** : la convention d'échantillonnage de la
+  shadow map diffère par API (DX flip Y dans le HLSL `-y*0.5+0.5` ; GL/VK pas de
+  flip ; Software flip car `NDCToScreen` écrit Y-inversé). Résidus à 2026-05-31 :
+  acné d'auto-ombrage sur DX (bias à monter), ombre GL pas parfaite.
 - **Vulkan : FPS chute en mode Debug** (500→100 fps en ~2s observé
   2026-05-16, validation layers + UBO writes + descriptor updates intensifs).
   À retester en Release. Cf. NkRenderer ROADMAP.
@@ -353,5 +398,5 @@ Effort : S (≤1j) · M (2-5j) · L (1-2 sem) · XL (>2 sem)
   - `NKUI` — rendu widgets (utilise `NkICommandBuffer` + `NkIDevice`)
   - `NKAnimation` — morph targets en compute (utilise `NkComputeContext`)
   - `NKImage` ↔ NKRHI — pipeline texture (loaders → upload GPU)
-  - `Engine` / `Noge` (PV3DE, Unkeny éditeur) — consommateurs indirects
+  - `Engine` / `Noge` (PV3DE, Noge éditeur) — consommateurs indirects
     via NKRenderer

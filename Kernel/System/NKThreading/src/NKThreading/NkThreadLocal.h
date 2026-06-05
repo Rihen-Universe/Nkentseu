@@ -175,7 +175,7 @@
     // -------------------------------------------------------------------------
     // SECTION 3 : NAMESPACE LEGACY (compatibilité rétroactive)
     // -------------------------------------------------------------------------
-    // Ces alias dans nkentseu::entseu sont conservés uniquement pour la
+    // Ces alias dans nkentseu sont conservés uniquement pour la
     // rétrocompatibilité avec le code existant. Tout nouveau code doit
     // utiliser directement le namespace nkentseu::threading.
     // =====================================================================
@@ -614,7 +614,7 @@ namespace nkentseu {
     // ---------------------------------------------------------------------
     // AVANT (code utilisant l'alias legacy) :
     // #include <NKThreading/NkThreadLocal.h>
-    // using namespace nkentseu::entseu;
+    // using namespace nkentseu;
     // NkThreadLocal<int> legacyLocal;
 
     // APRÈS (code moderne recommandé) :

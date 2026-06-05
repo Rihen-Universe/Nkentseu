@@ -7,55 +7,18 @@
 
 #include "NKPlatform/NkPlatformDetect.h"
 
-// ── GLAD2 : inclure avant tout (evite conflit gl.h systeme) ──────────────────
-#if defined(__has_include)
-#   if defined(NKENTSEU_PLATFORM_WINDOWS)
-#       if __has_include(<glad/wgl.h>) && __has_include(<glad/gl.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
-#       if __has_include(<glad/gl.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
-#       if __has_include(<glad/gles2.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-#       if __has_include(<glad/gles2.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   endif
-#endif
-
-#if defined(PONG_HAS_GLAD)
-#   if defined(NKENTSEU_PLATFORM_WINDOWS)
-#       include <glad/wgl.h>
-#       include <glad/gl.h>
-#   elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
-#       if defined(__has_include)
-#           if __has_include(<glad/glx.h>)
-#               include <glad/glx.h>
-#           endif
-#       endif
-#       include <glad/gl.h>
-#   elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
-#       include <glad/gles2.h>
-#   elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-#       include <glad/gles2.h>
-#   endif
-#endif
-
-#if defined(Bool)
-#   undef Bool   // X11 pollue le namespace global avec un macro Bool
-#endif
-
 #include "FontAtlas.h"
-#include "GLRenderer2D.h"
 #include "NKFont/NkFont.h"
 #include "NKFont/Embedded/NkFontEmbedded.h"
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkFunctions.h"
+
+// Rendu via NKCanvas : l'atlas devient une NkTexture, le texte est emis en
+// quads textures via NkRenderer2D::DrawVertices (plus de raw-GL).
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"
+#include "NKImage/Core/NkImage.h"
+
 #include <cstring>
 #include <cstdlib>
 
@@ -86,7 +49,7 @@ namespace nkentseu
         // premiere police embarquee disponible est rasterisee aux 5 tailles
         // configurees puis uploadee en texture GL_R8 (1 canal alpha).
         // ─────────────────────────────────────────────────────────────────────
-        bool FontAtlas::Init()
+        bool FontAtlas::Init(renderer::NkRenderer2D& r)
         {
             mAtlas = new NkFontAtlas();
 
@@ -142,19 +105,49 @@ namespace nkentseu
             mAtlasW = w;
             mAtlasH = h;
 
-            // Upload en texture GL_R8 (single-channel alpha-mask).
-            glGenTextures(1, &mTextureId);
-            glBindTexture(GL_TEXTURE_2D, mTextureId);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0,
-                         GL_RED, GL_UNSIGNED_BYTE, pixels);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
-            glBindTexture(GL_TEXTURE_2D, 0);
+            // L'atlas NKFont est alpha8 (1 canal = couverture du glyphe). Le
+            // shader 2D de NKCanvas echantillonne la texture en RGBA puis la
+            // multiplie par la couleur du vertex. On convertit donc l'atlas en
+            // RGBA8 "blanc + alpha=couverture" : texture(1,1,1,cov) * color =
+            // (color.rgb, color.a*cov) => exactement le rendu de texte voulu.
+            const usize pixCount = static_cast<usize>(w) * static_cast<usize>(h);
+            NkVector<uint8> rgba;
+            rgba.Resize(pixCount * 4u);
+            for (usize i = 0; i < pixCount; ++i)
+            {
+                rgba[i * 4 + 0] = 255;
+                rgba[i * 4 + 1] = 255;
+                rgba[i * 4 + 2] = 255;
+                rgba[i * 4 + 3] = pixels[i];   // couverture du glyphe
+            }
 
-            logger.Info("[FontAtlas] atlas built: {0}x{1}, texId={2}",
-                        w, h, mTextureId);
+            // On enveloppe nos pixels RGBA dans une NkImage puis on upload en un
+            // seul LoadFromImage (qui passe par gTextureBackend.Create — cable).
+            // NB : surtout PAS Create()+Update() : Update exige gTextureBackend.Update
+            // qui n'est pas cable sur tous les backends -> echec silencieux.
+            // Signature : Create(w, h, fillColor, desiredChannels=4). On cree une
+            // image RGBA (4 canaux) ; la couleur de remplissage importe peu car on
+            // ecrase tout via memcpy juste apres.
+            NkImage atlasImg;
+            if (!atlasImg.Create(static_cast<uint32>(w), static_cast<uint32>(h),
+                                 math::NkColor(0, 0, 0, 0), 4))
+            {
+                logger.Error("[FontAtlas] atlas NkImage create failed");
+                return false;
+            }
+            std::memcpy(atlasImg.Pixels(), rgba.Data(), pixCount * 4);
+
+            mTexture = new renderer::NkTexture();
+            if (!mTexture->LoadFromImage(*r.GetBackend(), atlasImg))
+            {
+                logger.Error("[FontAtlas] NkTexture LoadFromImage failed");
+                delete mTexture;
+                mTexture = nullptr;
+                return false;
+            }
+            mTexture->SetFilter(renderer::NkTextureFilter::NK_LINEAR);
+
+            logger.Info("[FontAtlas] atlas built: {0}x{1} (NkTexture)", w, h);
             return true;
         }
 
@@ -163,10 +156,10 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void FontAtlas::Shutdown()
         {
-            if (mTextureId != 0)
+            if (mTexture != nullptr)
             {
-                glDeleteTextures(1, &mTextureId);
-                mTextureId = 0;
+                delete mTexture;   // ~NkTexture libere la ressource GPU
+                mTexture = nullptr;
             }
             if (mAtlas != nullptr)
             {
@@ -195,61 +188,78 @@ namespace nkentseu
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // DrawString — emet un quad texturé par glyphe via GLRenderer2D.
-        // Coordonnees : (x, y) = top-left du texte ; on convertit en baseline
-        // via une approximation 0.82 * sizePx (suffisant pour les polices
-        // sans-serif Karla / DroidSans).
+        // PushGlyphQuad — append un quad texture (4 sommets + 6 indices) dans
+        // les buffers locaux. UV = position du glyphe dans l'atlas, couleur =
+        // couleur du texte (le shader fait texture(blanc,alpha) * color).
         // ─────────────────────────────────────────────────────────────────────
-        float FontAtlas::DrawString(GLRenderer2D& r, SizeSlot s,
+        static void PushGlyphQuad(NkVector<renderer::NkVertex>& verts,
+                                  NkVector<uint32>& idx,
+                                  float gx, float gy, float gw, float gh,
+                                  float u0, float v0, float u1, float v1,
+                                  const math::NkColor& c)
+        {
+            const uint32 base = static_cast<uint32>(verts.Size());
+            renderer::NkVertex vtx;
+            vtx.r = c.r; vtx.g = c.g; vtx.b = c.b; vtx.a = c.a;
+            vtx.x = gx;      vtx.y = gy;      vtx.u = u0; vtx.v = v0; verts.PushBack(vtx); // TL
+            vtx.x = gx + gw; vtx.y = gy;      vtx.u = u1; vtx.v = v0; verts.PushBack(vtx); // TR
+            vtx.x = gx + gw; vtx.y = gy + gh; vtx.u = u1; vtx.v = v1; verts.PushBack(vtx); // BR
+            vtx.x = gx;      vtx.y = gy + gh; vtx.u = u0; vtx.v = v1; verts.PushBack(vtx); // BL
+            idx.PushBack(base + 0); idx.PushBack(base + 1); idx.PushBack(base + 2);
+            idx.PushBack(base + 0); idx.PushBack(base + 2); idx.PushBack(base + 3);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // DrawString — accumule les glyphes en quads textures puis emet 1 seul
+        // DrawVertices (atlas NkTexture). (x, y) = top-left du texte ; baseline
+        // approximee a 0.82 * sizePx (polices sans-serif Karla / DroidSans).
+        // ─────────────────────────────────────────────────────────────────────
+        float FontAtlas::DrawString(renderer::NkRenderer2D& r, SizeSlot s,
                                   float x, float y,
                                   const char* text,
                                   math::NkColor color)
         {
-            if (text == nullptr || mFonts[s] == nullptr || mTextureId == 0)
+            if (text == nullptr || mFonts[s] == nullptr || mTexture == nullptr)
             {
                 return 0.0f;
             }
             NkFont* font = mFonts[s];
 
-            // S'assure que la texture font est bindee avant les draws.
-            r.BindTexture(mTextureId);
-
-            // Approximation baseline = ascent (~82% de la taille en px).
             const float fontPx = kSizePx[s];
             const float ascent = fontPx * 0.82f;
             float cursorX = x;
             float cursorY = y + ascent;
 
-            // Parcourt la chaine UTF-8 codepoint par codepoint.
+            NkVector<renderer::NkVertex> verts;
+            NkVector<uint32>             idx;
+
             const char* p = text;
             while (*p != '\0')
             {
                 const char* pBefore = p;
                 NkFontCodepoint cp = NkFont::DecodeUTF8(&p, nullptr);
-                if (cp == 0)
-                {
-                    // Decodage echoue, on avance pour eviter boucle infinie.
-                    if (p == pBefore) ++p;
-                    continue;
-                }
+                if (cp == 0) { if (p == pBefore) ++p; continue; }
                 const NkFontGlyph* g = font->FindGlyph(cp);
                 if (g == nullptr) continue;
                 if (g->visible)
                 {
-                    const float gx = cursorX + g->x0;
-                    const float gy = cursorY + g->y0;
-                    const float gw = g->x1 - g->x0;
-                    const float gh = g->y1 - g->y0;
-                    r.DrawTexturedQuad(gx, gy, gw, gh,
-                                       g->u0, g->v0, g->u1, g->v1,
-                                       color);
+                    PushGlyphQuad(verts, idx,
+                                  cursorX + g->x0, cursorY + g->y0,
+                                  g->x1 - g->x0,   g->y1 - g->y0,
+                                  g->u0, g->v0, g->u1, g->v1, color);
                 }
                 cursorX += g->advanceX;
+            }
+            if (!verts.Empty())
+            {
+                r.DrawVertices(verts.Data(), static_cast<uint32>(verts.Size()),
+                               idx.Data(),   static_cast<uint32>(idx.Size()),
+                               mTexture);
             }
             return cursorX - x;
         }
 
-        float FontAtlas::DrawStringCentered(GLRenderer2D& r, SizeSlot s,
+        float FontAtlas::DrawStringCentered(renderer::NkRenderer2D& r, SizeSlot s,
                                           float cx, float y,
                                           const char* text,
                                           math::NkColor color)
@@ -270,23 +280,25 @@ namespace nkentseu
             return mFonts[s]->CalcTextSizeX(text) * scale;
         }
 
-        float FontAtlas::DrawStringScaled(GLRenderer2D& r, SizeSlot s, float scale,
+        float FontAtlas::DrawStringScaled(renderer::NkRenderer2D& r, SizeSlot s, float scale,
                                         float x, float y,
                                         const char* text,
                                         math::NkColor color)
         {
-            if (text == nullptr || mFonts[s] == nullptr || mTextureId == 0
+            if (text == nullptr || mFonts[s] == nullptr || mTexture == nullptr
                 || scale <= 0.0f)
             {
                 return 0.0f;
             }
             NkFont* font = mFonts[s];
-            r.BindTexture(mTextureId);
 
             const float fontPx = kSizePx[s];
             const float ascent = fontPx * 0.82f * scale;
             float cursorX = x;
             float cursorY = y + ascent;
+
+            NkVector<renderer::NkVertex> verts;
+            NkVector<uint32>             idx;
 
             const char* p = text;
             while (*p != '\0')
@@ -298,20 +310,23 @@ namespace nkentseu
                 if (g == nullptr) continue;
                 if (g->visible)
                 {
-                    const float gx = cursorX + g->x0 * scale;
-                    const float gy = cursorY + g->y0 * scale;
-                    const float gw = (g->x1 - g->x0) * scale;
-                    const float gh = (g->y1 - g->y0) * scale;
-                    r.DrawTexturedQuad(gx, gy, gw, gh,
-                                       g->u0, g->v0, g->u1, g->v1,
-                                       color);
+                    PushGlyphQuad(verts, idx,
+                                  cursorX + g->x0 * scale, cursorY + g->y0 * scale,
+                                  (g->x1 - g->x0) * scale, (g->y1 - g->y0) * scale,
+                                  g->u0, g->v0, g->u1, g->v1, color);
                 }
                 cursorX += g->advanceX * scale;
+            }
+            if (!verts.Empty())
+            {
+                r.DrawVertices(verts.Data(), static_cast<uint32>(verts.Size()),
+                               idx.Data(),   static_cast<uint32>(idx.Size()),
+                               mTexture);
             }
             return cursorX - x;
         }
 
-        float FontAtlas::DrawStringCenteredScaled(GLRenderer2D& r, SizeSlot s,
+        float FontAtlas::DrawStringCenteredScaled(renderer::NkRenderer2D& r, SizeSlot s,
                                                 float scale,
                                                 float cx, float y,
                                                 const char* text,
@@ -321,7 +336,7 @@ namespace nkentseu
             return DrawStringScaled(r, s, scale, cx - w * 0.5f, y, text, color);
         }
 
-        void FontAtlas::DrawStringShadowScaled(GLRenderer2D& r, SizeSlot s,
+        void FontAtlas::DrawStringShadowScaled(renderer::NkRenderer2D& r, SizeSlot s,
                                              float scale, float x, float y,
                                              const char* text,
                                              math::NkColor textColor,
@@ -349,7 +364,7 @@ namespace nkentseu
             DrawStringScaled(r, s, scale, x, y, text, textColor);
         }
 
-        void FontAtlas::DrawStringShadowCenteredScaled(GLRenderer2D& r, SizeSlot s,
+        void FontAtlas::DrawStringShadowCenteredScaled(renderer::NkRenderer2D& r, SizeSlot s,
                                                      float scale,
                                                      float cx, float y,
                                                      const char* text,
@@ -366,7 +381,7 @@ namespace nkentseu
         // DrawStringShadow — simule un text-shadow CSS (halo neon autour du texte).
         // On trace 8 directions avec alpha decroissant puis le texte principal.
         // ─────────────────────────────────────────────────────────────────────
-        void FontAtlas::DrawStringShadow(GLRenderer2D& r, SizeSlot s,
+        void FontAtlas::DrawStringShadow(renderer::NkRenderer2D& r, SizeSlot s,
                                        float x, float y,
                                        const char* text,
                                        math::NkColor textColor,
@@ -394,7 +409,7 @@ namespace nkentseu
             DrawString(r, s, x, y, text, textColor);
         }
 
-        void FontAtlas::DrawStringShadowCentered(GLRenderer2D& r, SizeSlot s,
+        void FontAtlas::DrawStringShadowCentered(renderer::NkRenderer2D& r, SizeSlot s,
                                                 float cx, float y,
                                                 const char* text,
                                                 math::NkColor textColor,

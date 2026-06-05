@@ -148,9 +148,9 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 
 ## En cours / TODO immédiat
 
-### Câblage formats projet PV3DE / Unkeny (priorité 1)
+### Câblage formats projet PV3DE / Noge (priorité 1)
 ARCHITECTURE.md §8 demande explicitement :
-- `.nkproj` (projet Unkeny) : JSON via `SaveToFile<NkProject>(path, NK_JSON)`.
+- `.nkproj` (projet Noge) : JSON via `SaveToFile<NkProject>(path, NK_JSON)`.
 - `.nkscene` (scène ECS) : JSON, sérialisation de `NkScene` (entities +
   components réfléchies).
 - `.nkcase` (cas clinique PV3DE) : JSON étendu, sérialisation de
@@ -200,7 +200,7 @@ NKReflection :
 - Couplage `NkFileWatcher` (NKFileSystem) + `NkAssetRegistry` : détection
   modification → rechargement automatique → notification consommateurs
   (`onAssetReloaded(NkAssetId)`).
-- Cas d'usage Unkeny : modifier un `.nkasset` matériau → renderer recharge à
+- Cas d'usage Noge : modifier un `.nkasset` matériau → renderer recharge à
   la volée (cf. NKRenderer Phase G material hot-reload déjà livré).
 
 ### Compression dans NkNative
@@ -257,9 +257,9 @@ NKReflection :
 - **Couches en dessous optionnelles** : NKReflection (pour
   `NkSerializeReflect<T>` runtime — pas encore câblé).
 - **Modules au-dessus qui en dépendent** :
-  - **Unkeny / ProjectManager** : I/O `.nkproj`, `.nkscene`
+  - **Noge / ProjectManager** : I/O `.nkproj`, `.nkscene`
     (cf. ARCHITECTURE.md §4.3).
-  - **Unkeny / AssetManager** : `.nkasset` registry, hot-reload.
+  - **Noge / AssetManager** : `.nkasset` registry, hot-reload.
   - **NKRenderer / NkMaterialAsset** : déjà livré, charge `.nkasset` JSON
     pour les matériaux (cf. NKRenderer ROADMAP Phase G).
   - **NKScene** : sérialisation entities + components (via NKReflection une

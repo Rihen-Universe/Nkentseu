@@ -220,12 +220,11 @@ void main() {
     vec3 V = normalize(ubo.eyePosW.xyz - vWorldPos);
     vec3 H = normalize(L + V);
     vec3 baseColor = vColor;
-    if (vColor.g > vColor.r && vColor.g > vColor.b) {
-        baseColor *= texture(uAlbedoMap, clamp(vUV, 0.0, 1.0)).rgb;
-    }
+    // DIAG : texture damier appliquee a TOUS les objets (cube + sol) pour comparer.
+    baseColor *= texture(uAlbedoMap, clamp(vUV, 0.0, 1.0)).rgb;
     float diff = max(dot(N, L), 0.0);
     float spec = pow(max(dot(N, H), 0.0), 32.0);
-    float shadow = max(ShadowFactor(vShadowCoord), 0.35);
+    float shadow = 1.0;  // DIAG : ombre desactivee pour isoler l'UV du plan
     vec3 ambient  = 0.15 * baseColor;
     vec3 diffuse  = shadow * diff * baseColor;
     vec3 specular = shadow * spec * vec3(0.4);
@@ -330,13 +329,12 @@ float4 PSMain(PSIn i) : SV_Target {
     float3 V = normalize(eyePosW.xyz - i.wp);
     float3 H = normalize(L + V);
     float3 baseColor = i.c;
-    if (i.c.y > i.c.x && i.c.y > i.c.z) {
-        float2 uv = clamp(i.uv, float2(0.0, 0.0), float2(1.0, 1.0));
-        baseColor *= uAlbedoMap.Sample(uAlbedoSampler, uv).rgb;
-    }
+    // DIAG : texture damier appliquee a TOUS les objets (cube + sol) pour comparer.
+    float2 uv = clamp(i.uv, float2(0.0, 0.0), float2(1.0, 1.0));
+    baseColor *= uAlbedoMap.Sample(uAlbedoSampler, uv).rgb;
     float diff = max(dot(N, L), 0.0);
     float spec = pow(max(dot(N, H), 0.0), 32.0);
-    float shadow = max(ShadowFactor(i.shadowPos, N), 0.35);
+    float shadow = 1.0;  // DIAG : ombre desactivee pour isoler l'UV du plan
     float3 col = 0.15 * baseColor + shadow * diff * baseColor + shadow * spec * 0.4;
     return float4(col, 1.0);
 }
@@ -810,7 +808,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
     // â”€â”€ FenÃªtre â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NkWindowConfig winCfg;
-    winCfg.title     = NkFormat("NkRHI Full Demo â€” {0}", apiName);
+    winCfg.title     = NkFormat("NkRHI Full Demo Image {0}", apiName);
     winCfg.width     = 1280;
     winCfg.height    = 720;
     winCfg.centered  = true;
@@ -831,7 +829,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
     deviceInitInfo.width = window.GetSize().width;
 
     deviceInitInfo.context.vulkan.appName = "NkRHIDemoFull";
-    deviceInitInfo.context.vulkan.engineName = "Unkeny";
+    deviceInitInfo.context.vulkan.engineName = "Noge";
 
     // â”€â”€ Device RHI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NkIDevice* device = NkDeviceFactory::Create(deviceInitInfo);
@@ -1100,15 +1098,20 @@ int nkmain(const nkentseu::NkEntryState& state) {
     // loadedTexturePath = "Resources/Textures/architecture-biologique-dévoilé-bâtiment-futuriste-avec-des-formes-sinueuses-empilées-et-du-verre-incurvé-vers-un-ciel-394868255.webp";
     // loadedTexturePath = "Resources/Textures/this-photo-that-has-two-260nw-2622058673.webp";
     // loadedTexturePath = "Resources/Textures/HDR/newport_loft.hdr";
-    loadedTexturePath = "Resources/Textures/HDR/rihen-logo.svg";
+    // DIAG : on force le damier procedural (chemin vide -> fallback) pour un test
+    // texture clair sur le sol (le SVG logo a un fond transparent -> sol noir).
+    loadedTexturePath = "";
     // loadedTexturePath = "Resources/Textures/awesomeface.png";
     // loadedTexturePath = "Resources/Textures/concreteTexture.png";
     // loadedTexturePath = "Resources/Textures/StreaksRotationPattern.bmp";
     // loadedTexturePath = "Resources/Textures/gamepad_front.bmp";
     if (!loadedTexturePath.empty()) {
         logger.Info("[RHIFullDemoImage] Texture candidate: {0}\n", loadedTexturePath.c_str());
-        loadedTextureImage = NkImage::Load(loadedTexturePath.c_str(), 4);
-        // loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
+        loadedTextureImage = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
+        if (loadedTextureImage && !loadedTextureImage->Load(loadedTexturePath.c_str(), 4)) {
+            loadedTextureImage->Free();
+            loadedTextureImage = nullptr;
+        }
         if (loadedTextureImage && loadedTextureImage->IsValid()) {
 
             // NkImage* rgbaImage = NkImage::ConvertToTexture(*loadedTextureImage);
@@ -1134,21 +1137,29 @@ int nkmain(const nkentseu::NkEntryState& state) {
     }
     if (!loadedTextureImage || !loadedTextureImage->IsValid()) {
         if (loadedTextureImage) { loadedTextureImage->Free(); loadedTextureImage = nullptr; }
-        loadedTextureImage = NkImage::Alloc(256, 256, NkImagePixelFormat::NK_RGBA32);
+        const int CKN = 256;
+        loadedTextureImage = NkImage::Alloc(CKN, CKN, NkImagePixelFormat::NK_RGBA32);
         if (loadedTextureImage && loadedTextureImage->IsValid()) {
-            for (int y = 0; y < loadedTextureImage->Height(); ++y) {
+            // DIAG : 4 quadrants colores (TL=rouge, TR=vert, BL=bleu, BR=jaune) +
+            // damier en luminance. Revele sans ambiguite flip / shear / interpolation
+            // entre backends : on sait exactement quel coin UV mappe ou.
+            for (int y = 0; y < CKN; ++y) {
                 uint8* row = loadedTextureImage->RowPtr(y);
-                for (int x = 0; x < loadedTextureImage->Width(); ++x) {
-                    const int tile = ((x / 32) + (y / 32)) & 1;
-                    const uint8 c = tile ? (uint8)220 : (uint8)40;
-                    row[x * 4 + 0] = c;
-                    row[x * 4 + 1] = c;
-                    row[x * 4 + 2] = c;
-                    row[x * 4 + 3] = 255;
+                const bool top  = (y < CKN/2);
+                for (int x = 0; x < CKN; ++x) {
+                    const bool left = (x < CKN/2);
+                    const int tile = ((x / 16) + (y / 16)) & 1;
+                    const uint8 lum = tile ? (uint8)255 : (uint8)70;
+                    uint8 r=lum, g=lum, b=lum;
+                    if (top && left)  { r=lum; g=0;   b=0;   }                       // TL (u0,v0) rouge
+                    else if (top)     { r=0;   g=lum; b=0;   }                       // TR (u1,v0) vert
+                    else if (left)    { r=(uint8)(lum*0.55f); g=(uint8)(lum*0.8f); b=lum; } // BL (u0,v1) bleu clair
+                    else              { r=lum; g=lum; b=0;   }                       // BR (u1,v1) jaune
+                    row[x * 4 + 0] = r; row[x * 4 + 1] = g; row[x * 4 + 2] = b; row[x * 4 + 3] = 255;
                 }
             }
-            loadedTexturePath = "<procedural_checkerboard>";
-            logger.Info("[RHIFullDemoImage] Fallback texture generee (checkerboard 256x256).\\n");
+            loadedTexturePath = "<procedural_quadrants>";
+            logger.Info("[RHIFullDemoImage] Fallback texture generee (quadrants colores 256x256).\\n");
         }
     }
     if (loadedTextureImage && loadedTextureImage->IsValid()) {
@@ -1340,8 +1351,8 @@ int nkmain(const nkentseu::NkEntryState& state) {
     float camYaw     = 0.f;
     float camPitch   = 20.f;
     float camDist    = 4.f;
-    float lightYaw   = -45.f;
-    float lightPitch = -30.f;
+    float lightYaw   = -150.f;  // lumiere dirigee vers l'arriere (-Z) -> faces avant eclairees
+    float lightPitch = -35.f;
     bool  keys[512]  = {};
     bool  requestSaveScene  = false;
     bool  requestSaveSource = false;
@@ -1427,7 +1438,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         NkVec3f up(0.f, 1.f, 0.f);
 
         NkMat4f matView = NkMat4f::LookAt(eye, center, up);
-        NkMat4f matProj = NkMat4f::Perspective(NkAngle(60.f), aspect, 0.1f, 100.f);
+        // IMPORTANT : passer depthZeroToOne pour que la projection utilise la bonne
+        // convention NDC Z ([0,1] DX/VK/Metal, [-1,1] GL/SW). Sans ca, DX clippe le
+        // demi near -> rasterisation/interpolation incorrecte sur les triangles rasants.
+        NkMat4f matProj = NkMat4f::Perspective(NkAngle(60.f), aspect, 0.1f, 100.f, depthZeroToOne);
 
         // Direction lumiÃ¨re
         float lx = NkCos(NkToRadians(lightPitch)) * NkSin(NkToRadians(lightYaw));
@@ -1499,6 +1513,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         if (hasShadowMap && hShadowFBO.IsValid() && hShadowRP.IsValid()) {
 
             NkRect2D shadowArea{0, 0, (int32)kShadowSize, (int32)kShadowSize};
+            // IMPORTANT : armer le clear depth AVANT BeginRenderPass. En OpenGL/
+            // Software, BeginRenderPass ne clear QUE si SetClearDepth/Color a ete
+            // appele (sinon depth jamais reset -> ecran noir).
+            cmd->SetClearDepth(1.f);
             const bool shadowPassBegan = cmd->BeginRenderPass(hShadowRP, hShadowFBO, shadowArea);
             if (shadowPassBegan && useRealShadowPass && hShadowPipe.IsValid()) {
                 NkViewport svp{0.f, 0.f, (float)kShadowSize, (float)kShadowSize, 0.f, 1.f};
@@ -1568,6 +1586,12 @@ int nkmain(const nkentseu::NkEntryState& state) {
         // Passe 2 : Rendu principal (Phong + shadow + albedo texture)
         // =====================================================================
         NkRect2D area{0, 0, (int32)W, (int32)H};
+        // Armer clear couleur + depth AVANT BeginRenderPass (cf. note passe shadow) :
+        // sinon OpenGL/Software n'effacent pas -> ecran noir.
+        // DIAG : fond MAGENTA (distinct de noir/rouge/vert/bleu/jaune) pour
+        // distinguer "uv=(0,0) -> noir" d'un pixel NON rendu (-> magenta).
+        cmd->SetClearColor(0.7f, 0.f, 0.7f, 1.f);
+        cmd->SetClearDepth(1.f);
         if (!cmd->BeginRenderPass(hRP, hFBO, area)) {
             cmd->End();
             if (targetApi == NkGraphicsApi::NK_GFX_API_VULKAN && W > 0 && H > 0) {
@@ -1596,14 +1620,16 @@ int nkmain(const nkentseu::NkEntryState& state) {
         };
 
         {
-            NkMat4f matModel = NkMat4f::RotationY(NkAngle(rotAngle))
-                             * NkMat4f::RotationX(NkAngle(rotAngle * 0.5f));
+            // DIAG : cube STATIQUE a droite, texture damier (comparaison vs sol).
+            NkMat4f matModel = NkMat4f::Translation(NkVec3f(1.6f, 0.f, 0.f))
+                             * NkMat4f::RotationY(NkAngle(25.f));
             UboData ubo{};
             fillUboMain(ubo, matModel);
             device->WriteBuffer(hUBO[0], &ubo, sizeof(ubo));
             if (hDescSet[0].IsValid()) cmd->BindDescriptorSet(hDescSet[0], 0);
-            cmd->BindVertexBuffer(0, hCube);
-            cmd->Draw((uint32)cubeVerts.Size());
+            // DIAG SWAP : on dessine le PLAN dans le slot du cube (hUBO[0]/descSet[0]).
+            cmd->BindVertexBuffer(0, hPlane);
+            cmd->Draw((uint32)planeVerts.Size());
         }
 
         {
@@ -1612,18 +1638,23 @@ int nkmain(const nkentseu::NkEntryState& state) {
             fillUboMain(ubo, matModel);
             device->WriteBuffer(hUBO[1], &ubo, sizeof(ubo));
             if (hDescSet[1].IsValid()) cmd->BindDescriptorSet(hDescSet[1], 0);
-            cmd->BindVertexBuffer(0, hSphere);
-            cmd->Draw((uint32)sphereVerts.Size());
+            // DIAG : sphere desactivee pour isoler le sol.
+            // cmd->BindVertexBuffer(0, hSphere);
+            // cmd->Draw((uint32)sphereVerts.Size());
         }
 
         {
-            NkMat4f matModel = NkMat4f::Translation(NkVec3f(0.f, -1.0f, 0.f));
+            // DIAG : sol redresse VERTICAL a gauche du cube (plus en dessous), pour
+            // comparer le meme damier sur plan vs cube cote a cote. 1 seule instance.
+            NkMat4f matModel = NkMat4f::Translation(NkVec3f(-1.8f, 0.f, 0.f))
+                             * NkMat4f::RotationX(NkAngle(90.f));
             UboData ubo{};
             fillUboMain(ubo, matModel);
             device->WriteBuffer(hUBO[2], &ubo, sizeof(ubo));
             if (hDescSet[2].IsValid()) cmd->BindDescriptorSet(hDescSet[2], 0);
-            cmd->BindVertexBuffer(0, hPlane);
-            cmd->Draw((uint32)planeVerts.Size(), 2u);
+            // DIAG SWAP : on dessine le CUBE dans le slot du plan (hUBO[2]/descSet[2]).
+            cmd->BindVertexBuffer(0, hCube);
+            cmd->Draw((uint32)cubeVerts.Size());
         }
 
         cmd->EndRenderPass();

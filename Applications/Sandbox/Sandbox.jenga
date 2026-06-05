@@ -870,7 +870,7 @@ sandboxusenkrhi("NkFontDemo", ["src/DemoNkentseu/Base03/NkFontDemoFromScratch.cp
 sandboxusenkrhi("NkFDV2", ["src/DemoNkentseu/Base03/NkFontDemoVI.cpp"], "sandbox.nkfont.demov2", use_nkfont=True)
 # sandboxusenkrhi("NkRHIDemoFullText", ["src/DemoNkentseu/Base03/NkRHIDemoFullText.cpp"], "sandbox.rhidemo.fulltext", use_nkimage=True, use_nkfont=True)
 sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
-# sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
+sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl")
 # sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
 sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")

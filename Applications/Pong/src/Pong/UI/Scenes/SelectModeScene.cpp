@@ -5,7 +5,7 @@
 #include "SelectModeScene.h"
 #include "SelectMatchConfigScene.h"
 #include "NetworkLobbyScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -47,7 +47,7 @@ namespace nkentseu
         };
 
         // ── Icones simples (style identique aux icones MainMenu) ─────────────
-        static void DrawModeIcon(GLRenderer2D& r, int iconId,
+        static void DrawModeIcon(renderer::NkRenderer2D& r, int iconId,
                                  float boxX, float boxY, float boxSize,
                                  math::NkColor c)
         {
@@ -60,28 +60,28 @@ namespace nkentseu
             {
                 const float w = boxSize * 0.8f;
                 const float h = boxSize * 0.5f;
-                r.DrawQuadOutline(cx - w * 0.5f, cy - h * 0.5f, w, h, c, 1.5f);
-                r.DrawCircle(cx + w * 0.25f, cy,         2.0f, c, 8);
-                r.DrawCircle(cx + w * 0.35f, cy - 4.0f,  2.0f, c, 8);
-                r.DrawQuad  (cx - w * 0.4f,  cy - 1.0f,  8.0f, 2.0f, c);
-                r.DrawQuad  (cx - w * 0.35f, cy - 4.0f,  2.0f, 8.0f, c);
+                r.DrawRectOutline({ cx - w * 0.5f, cy - h * 0.5f, w, h }, c, 1.5f);
+                r.DrawFilledCircle({ cx + w * 0.25f, cy },         2.0f, c, 8);
+                r.DrawFilledCircle({ cx + w * 0.35f, cy - 4.0f },  2.0f, c, 8);
+                r.DrawFilledRect  ({ cx - w * 0.4f,  cy - 1.0f,  8.0f, 2.0f }, c);
+                r.DrawFilledRect  ({ cx - w * 0.35f, cy - 4.0f,  2.0f, 8.0f }, c);
                 break;
             }
             case 1:  // Antenne wifi (Reseau)
             {
-                r.DrawCircle(cx, cy + 6.0f, 2.0f, c, 12);
-                r.DrawCircleOutline(cx, cy + 6.0f, 6.0f, c, 1.5f, 24);
-                r.DrawCircleOutline(cx, cy + 6.0f, 10.0f, c, 1.5f, 28);
+                r.DrawFilledCircle({ cx, cy + 6.0f }, 2.0f, c, 12);
+                r.DrawCircleOutline({ cx, cy + 6.0f }, 6.0f, c, 1.5f, 24);
+                r.DrawCircleOutline({ cx, cy + 6.0f }, 10.0f, c, 1.5f, 28);
                 break;
             }
             case 2:  // Robot (vs IA)
             {
                 const float w = boxSize * 0.55f;
                 const float h = boxSize * 0.55f;
-                r.DrawQuadOutline(cx - w * 0.5f, cy - h * 0.4f, w, h, c, 1.5f);
-                r.DrawQuad(cx - w * 0.25f, cy - h * 0.2f, 3.0f, 3.0f, c);
-                r.DrawQuad(cx + w * 0.15f, cy - h * 0.2f, 3.0f, 3.0f, c);
-                r.DrawQuad(cx - 0.5f, cy - h * 0.4f - 4.0f, 1.0f, 4.0f, c);
+                r.DrawRectOutline({ cx - w * 0.5f, cy - h * 0.4f, w, h }, c, 1.5f);
+                r.DrawFilledRect({ cx - w * 0.25f, cy - h * 0.2f, 3.0f, 3.0f }, c);
+                r.DrawFilledRect({ cx + w * 0.15f, cy - h * 0.2f, 3.0f, 3.0f }, c);
+                r.DrawFilledRect({ cx - 0.5f, cy - h * 0.4f - 4.0f, 1.0f, 4.0f }, c);
                 break;
             }
             case 3:  // 2 robots face-a-face (IA vs IA)
@@ -89,15 +89,15 @@ namespace nkentseu
                 for (int i = 0; i < 2; ++i)
                 {
                     const float fx = (i == 0) ? cx - 8.0f : cx + 8.0f;
-                    r.DrawQuadOutline(fx - 4.0f, cy - 4.0f, 8.0f, 8.0f, c, 1.2f);
-                    r.DrawQuad(fx - 1.5f, cy - 1.5f, 1.5f, 1.5f, c);
+                    r.DrawRectOutline({ fx - 4.0f, cy - 4.0f, 8.0f, 8.0f }, c, 1.2f);
+                    r.DrawFilledRect({ fx - 1.5f, cy - 1.5f, 1.5f, 1.5f }, c);
                 }
-                r.DrawQuad(cx - 0.5f, cy - 3.0f, 1.0f, 6.0f, c);
+                r.DrawFilledRect({ cx - 0.5f, cy - 3.0f, 1.0f, 6.0f }, c);
                 break;
             }
             default:
             {
-                r.DrawQuadOutline(boxX, boxY, boxSize, boxSize, c, 1.5f);
+                r.DrawRectOutline({ boxX, boxY, boxSize, boxSize }, c, 1.5f);
                 (void)hb;
                 break;
             }
@@ -132,22 +132,17 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void SelectModeScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
             const float scale = GetUIScale(W, H);
 
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
-
             // Background grille (rapide)
             const math::NkColor grid = { 0, 245, 255, 10 };
             const float step = 40.0f;
-            for (float x = 0; x < (float)W; x += step) r.DrawQuad(x, 0.0f, 1.0f, (float)H, grid);
-            for (float y = 0; y < (float)H; y += step) r.DrawQuad(0.0f, y, (float)W, 1.0f, grid);
+            for (float x = 0; x < (float)W; x += step) r.DrawFilledRect({ x, 0.0f, 1.0f, (float)H }, grid);
+            for (float y = 0; y < (float)H; y += step) r.DrawFilledRect({ 0.0f, y, (float)W, 1.0f }, grid);
 
             const float safeX = (float)ctx.safe.LeftX();
             const float safeY = (float)ctx.safe.TopY();
@@ -171,8 +166,8 @@ namespace nkentseu
                 mBackW = bw; mBackH = bh;
                 mBackX = safeX + pad;
                 mBackY = safeY + pad;
-                r.DrawQuad       (mBackX, mBackY, bw, bh, { 255, 255, 255, 16 });
-                r.DrawQuadOutline(mBackX, mBackY, bw, bh, { 0, 245, 255, 180 }, 1.5f * scale);
+                r.DrawFilledRect ({ mBackX, mBackY, bw, bh }, { 255, 255, 255, 16 });
+                r.DrawRectOutline({ mBackX, mBackY, bw, bh }, { 0, 245, 255, 180 }, 1.5f * scale);
                 f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
                                    mBackX + bw * 0.5f, mBackY + bh * 0.30f,
                                    "< RETOUR", theme::Cyan());
@@ -238,8 +233,8 @@ namespace nkentseu
                 // a toutes les resolutions, clamp doux pour eviter degenere.
                 const float strokeFocused = math::NkClamp(
                     Pct::MinDim(W, H) * 0.0025f, 1.5f, 4.0f);
-                r.DrawQuad       (bx, by + slideY, cardW, cardH, bg);
-                r.DrawQuadOutline(bx, by + slideY, cardW, cardH, bord,
+                r.DrawFilledRect ({ bx, by + slideY, cardW, cardH }, bg);
+                r.DrawRectOutline({ bx, by + slideY, cardW, cardH }, bord,
                                   focused ? strokeFocused : 1.0f);
 
                 // Icone (boite carree au tier superieur)
@@ -273,8 +268,6 @@ namespace nkentseu
                                 cx, safeY + safeH - footerMargin,
                                 "ENTREE / TAP : LANCER       ECHAP : RETOUR MENU",
                                 { 255, 255, 255, 110 });
-
-            r.End();
         }
 
         // ─────────────────────────────────────────────────────────────────────

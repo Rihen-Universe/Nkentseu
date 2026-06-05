@@ -205,5 +205,5 @@ Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abando
 - **Modules au-dessus qui en dépendent** : NKRHI (matrices upload GPU),
   NKRenderer (Vec/Mat/Quat partout), NKPhysics (Vec/Mat/Quat + AABB futur),
   NKAnimation (Quat + interpolation), NKUI (Color + Rect 2D), NKScene
-  (TransformComponent), Unkeny éditeur (gizmos), PV3DE (Face/Body animation
+  (TransformComponent), Noge éditeur (gizmos), PV3DE (Face/Body animation
   pose)

@@ -18,7 +18,7 @@
 #include "OptionsScene.h"
 #include "SupporterScene.h"
 #include "NKPlatform/NkPlatformDetect.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -321,7 +321,7 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         // Background : grille + scanlines + sweep cyan
         // ─────────────────────────────────────────────────────────────────────
-        static void DrawBackgroundGrid(GLRenderer2D& r, int W, int H, float globalTime)
+        static void DrawBackgroundGrid(renderer::NkRenderer2D& r, int W, int H, float globalTime)
         {
             // Step de la grille en fonction de la taille (plus grand sur petit
             // ecran pour eviter le moire).
@@ -329,26 +329,26 @@ namespace nkentseu
             const math::NkColor lineCol = { 0, 245, 255, 12 };
             for (float x = 0.0f; x < (float)W; x += gridStep)
             {
-                r.DrawQuad(x, 0.0f, 1.0f, (float)H, lineCol);
+                r.DrawFilledRect({ x, 0.0f, 1.0f, (float)H }, lineCol);
             }
             for (float y = 0.0f; y < (float)H; y += gridStep)
             {
-                r.DrawQuad(0.0f, y, (float)W, 1.0f, lineCol);
+                r.DrawFilledRect({ 0.0f, y, (float)W, 1.0f }, lineCol);
             }
             const math::NkColor scan = { 0, 0, 0, 36 };
             for (float y = 0.0f; y < (float)H; y += 8.0f)
             {
-                r.DrawQuad(0.0f, y, (float)W, 1.0f, scan);
+                r.DrawFilledRect({ 0.0f, y, (float)W, 1.0f }, scan);
             }
             const float sweepY = math::NkFmod(globalTime * 60.0f, (float)H + 200.0f) - 100.0f;
-            r.DrawQuad(0.0f, sweepY, (float)W, 2.0f, { 0, 245, 255, 14 });
+            r.DrawFilledRect({ 0.0f, sweepY, (float)W, 2.0f }, { 0, 245, 255, 14 });
         }
 
         // ─────────────────────────────────────────────────────────────────────
         // Mini-field decoratif. Tailles passees en parametres pour suivre le
         // layout responsive.
         // ─────────────────────────────────────────────────────────────────────
-        static void DrawMiniField(GLRenderer2D& r, FontAtlas& f,
+        static void DrawMiniField(renderer::NkRenderer2D& r, FontAtlas& f,
                                   float x, float y, float w, float h,
                                   FontAtlas::SizeSlot scoreSlot)
         {
@@ -357,8 +357,8 @@ namespace nkentseu
             // utilise un scale local proportionnel a la hauteur.
             const float localScale = math::NkMax(1.0f, h / 120.0f);
 
-            r.DrawQuad        (x, y, w, h, { 0, 245, 255, 8  });
-            r.DrawQuadOutline (x, y, w, h, { 0, 245, 255, 64 }, 1.0f);
+            r.DrawFilledRect({ x, y, w, h }, { 0, 245, 255, 8  });
+            r.DrawRectOutline({ x, y, w, h }, { 0, 245, 255, 64 }, 1.0f);
 
             // Ligne pointillee centrale
             const float midX = x + w * 0.5f;
@@ -366,12 +366,12 @@ namespace nkentseu
             const float dashStep = 8.0f * localScale;
             for (float yy = y + 4.0f * localScale; yy < y + h - 4.0f * localScale; yy += dashStep)
             {
-                r.DrawQuad(midX - 0.5f, yy, 1.0f, dashLen, { 255, 255, 255, 50 });
+                r.DrawFilledRect({ midX - 0.5f, yy, 1.0f, dashLen }, { 255, 255, 255, 50 });
             }
 
             // Cercle central
             const float ringR = math::NkMin(w, h) * 0.16f;
-            r.DrawCircleOutline(midX, y + h * 0.5f, ringR,
+            r.DrawCircleOutline({ midX, y + h * 0.5f }, ringR,
                                 { 255, 255, 255, 40 }, 1.0f, 32);
 
             // Score 0 : 0 (scaled selon la hauteur du mini-field)
@@ -383,14 +383,14 @@ namespace nkentseu
             const float padH = math::NkMin(h * 0.32f, 40.0f * localScale);
             const float padW = 4.0f * localScale;
             const float padY = y + (h - padH) * 0.5f;
-            r.DrawQuad(x + 6.0f * localScale,             padY, padW, padH, theme::Cyan());
-            r.DrawQuad(x + w - 6.0f * localScale - padW,  padY, padW, padH, theme::Orange());
+            r.DrawFilledRect({ x + 6.0f * localScale,             padY, padW, padH }, theme::Cyan());
+            r.DrawFilledRect({ x + w - 6.0f * localScale - padW,  padY, padW, padH }, theme::Orange());
         }
 
         // ─────────────────────────────────────────────────────────────────────
         // Icones procedurales — chaque case dessine une icone dans un carre.
         // ─────────────────────────────────────────────────────────────────────
-        static void DrawIcon(GLRenderer2D& r, int iconId,
+        static void DrawIcon(renderer::NkRenderer2D& r, int iconId,
                              float boxX, float boxY, float boxSize,
                              math::NkColor c)
         {
@@ -405,25 +405,25 @@ namespace nkentseu
                 // simple avec 2 boutons + d-pad.
                 const float w = boxSize * 0.8f;
                 const float h = boxSize * 0.5f;
-                r.DrawQuadOutline(cx - w * 0.5f, cy - h * 0.5f, w, h, c, 1.5f);
-                r.DrawCircle     (cx + w * 0.25f, cy,         2.0f, c, 8);
-                r.DrawCircle     (cx + w * 0.35f, cy - 4.0f,  2.0f, c, 8);
-                r.DrawQuad       (cx - w * 0.4f,  cy - 1.0f,  8.0f, 2.0f, c);
-                r.DrawQuad       (cx - w * 0.35f, cy - 4.0f,  2.0f, 8.0f, c);
+                r.DrawRectOutline({ cx - w * 0.5f, cy - h * 0.5f, w, h }, c, 1.5f);
+                r.DrawFilledCircle({ cx + w * 0.25f, cy }, 2.0f, c, 8);
+                r.DrawFilledCircle({ cx + w * 0.35f, cy - 4.0f }, 2.0f, c, 8);
+                r.DrawFilledRect({ cx - w * 0.4f,  cy - 1.0f, 8.0f, 2.0f }, c);
+                r.DrawFilledRect({ cx - w * 0.35f, cy - 4.0f, 2.0f, 8.0f }, c);
                 break;
             }
             case 6:
             {
                 // Engrenage (Options)
-                r.DrawCircleOutline(cx, cy, hb * 0.5f, c, 1.5f, 32);
-                r.DrawCircle       (cx, cy, 2.0f, c, 8);
+                r.DrawCircleOutline({ cx, cy }, hb * 0.5f, c, 1.5f, 32);
+                r.DrawFilledCircle({ cx, cy }, 2.0f, c, 8);
                 const int N = 6;
                 for (int i = 0; i < N; ++i)
                 {
                     const float a = 6.28318f * i / N;
                     const float rx = cx + math::NkCos(a) * hb * 0.65f;
                     const float ry = cy + math::NkSin(a) * hb * 0.65f;
-                    r.DrawQuad(rx - 1.5f, ry - 1.5f, 3.0f, 3.0f, c);
+                    r.DrawFilledRect({ rx - 1.5f, ry - 1.5f, 3.0f, 3.0f }, c);
                 }
                 break;
             }
@@ -432,13 +432,13 @@ namespace nkentseu
                 // Trophee (Mode Competition)
                 const float cupW = boxSize * 0.45f;
                 const float cupH = boxSize * 0.40f;
-                r.DrawQuadOutline(cx - cupW * 0.5f, cy - cupH * 0.6f, cupW, cupH, c, 1.5f);
-                r.DrawLine(cx - cupW * 0.5f, cy - cupH * 0.4f,
-                           cx - cupW * 0.7f, cy - cupH * 0.1f, c, 1.5f);
-                r.DrawLine(cx + cupW * 0.5f, cy - cupH * 0.4f,
-                           cx + cupW * 0.7f, cy - cupH * 0.1f, c, 1.5f);
-                r.DrawQuad(cx - 1.5f, cy + cupH * 0.4f, 3.0f, 4.0f, c);
-                r.DrawQuad(cx - cupW * 0.4f, cy + cupH * 0.4f + 4.0f, cupW * 0.8f, 2.0f, c);
+                r.DrawRectOutline({ cx - cupW * 0.5f, cy - cupH * 0.6f, cupW, cupH }, c, 1.5f);
+                r.DrawLine({ cx - cupW * 0.5f, cy - cupH * 0.4f },
+                           { cx - cupW * 0.7f, cy - cupH * 0.1f }, c, 1.5f);
+                r.DrawLine({ cx + cupW * 0.5f, cy - cupH * 0.4f },
+                           { cx + cupW * 0.7f, cy - cupH * 0.1f }, c, 1.5f);
+                r.DrawFilledRect({ cx - 1.5f, cy + cupH * 0.4f, 3.0f, 4.0f }, c);
+                r.DrawFilledRect({ cx - cupW * 0.4f, cy + cupH * 0.4f + 4.0f, cupW * 0.8f, 2.0f }, c);
                 break;
             }
             case 8:
@@ -451,7 +451,7 @@ namespace nkentseu
                 {
                     const float bh = maxH * (0.35f + 0.30f * i);
                     const float bx = cx - bw * 2.0f + i * bw * 1.4f;
-                    r.DrawQuad(bx, baseY - bh, bw, bh, c);
+                    r.DrawFilledRect({ bx, baseY - bh, bw, bh }, c);
                 }
                 break;
             }
@@ -459,17 +459,17 @@ namespace nkentseu
             default:
             {
                 // Croix (Quitter)
-                r.DrawLine(cx - hb * 0.45f, cy - hb * 0.45f,
-                           cx + hb * 0.45f, cy + hb * 0.45f, c, 2.0f);
-                r.DrawLine(cx + hb * 0.45f, cy - hb * 0.45f,
-                           cx - hb * 0.45f, cy + hb * 0.45f, c, 2.0f);
+                r.DrawLine({ cx - hb * 0.45f, cy - hb * 0.45f },
+                           { cx + hb * 0.45f, cy + hb * 0.45f }, c, 2.0f);
+                r.DrawLine({ cx + hb * 0.45f, cy - hb * 0.45f },
+                           { cx - hb * 0.45f, cy + hb * 0.45f }, c, 2.0f);
                 break;
             }
             }
         }
 
         // ── Badge (NEW / HOT) — texte scaled ────────────────────────────────
-        static void DrawBadge(GLRenderer2D& r, FontAtlas& f,
+        static void DrawBadge(renderer::NkRenderer2D& r, FontAtlas& f,
                               FontAtlas::SizeSlot slot, float scale,
                               float x, float y, const char* text,
                               math::NkColor accent)
@@ -479,15 +479,15 @@ namespace nkentseu
             const float w = textW + padX * 2.0f;
             const float h = 16.0f * scale;
             math::NkColor bg = accent; bg.a = 50;
-            r.DrawQuad       (x, y, w, h, bg);
-            r.DrawQuadOutline(x, y, w, h, accent, 1.0f);
+            r.DrawFilledRect({ x, y, w, h }, bg);
+            r.DrawRectOutline({ x, y, w, h }, accent, 1.0f);
             f.DrawStringScaled(r, slot, scale, x + padX, y + 1.0f * scale, text, accent);
         }
 
         // ─────────────────────────────────────────────────────────────────────
         // DrawItemCard — dessine un item complet. Retourne la nouvelle Y.
         // ─────────────────────────────────────────────────────────────────────
-        static float DrawItemCard(GLRenderer2D& r, FontAtlas& f,
+        static float DrawItemCard(renderer::NkRenderer2D& r, FontAtlas& f,
                                   const MenuLayout& L,
                                   int itemIndex, float baseY,
                                   bool focused, float globalTime,
@@ -520,14 +520,14 @@ namespace nkentseu
             }
             bg.a   = static_cast<uint8>(bg.a   * alphaItem);
             bord.a = static_cast<uint8>(bord.a * alphaItem);
-            r.DrawQuad       (cardX, cardY, cardW, cardH, bg);
-            r.DrawQuadOutline(cardX, cardY, cardW, cardH, bord, 1.0f);
+            r.DrawFilledRect({ cardX, cardY, cardW, cardH }, bg);
+            r.DrawRectOutline({ cardX, cardY, cardW, cardH }, bord, 1.0f);
 
             if (focused)
             {
                 math::NkColor lb = accent;
                 lb.a = static_cast<uint8>(255 * alphaItem);
-                r.DrawQuad(cardX, cardY, 3.0f, cardH, lb);
+                r.DrawFilledRect({ cardX, cardY, 3.0f, cardH }, lb);
             }
 
             // Icone
@@ -579,15 +579,11 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void MainMenuScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
 
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
             DrawBackgroundGrid(r, W, H, mTime);
 
             const MenuLayout L = ComputeLayout(ctx);
@@ -676,8 +672,6 @@ namespace nkentseu
                                L.safeY + L.safeH - hintOffsetY,
                                "FLECHES : NAV       ENTER : SELECT       ECHAP : QUITTER       TAP / CLIC : SELECT",
                                hintCol);
-
-            r.End();
         }
 
         // ─────────────────────────────────────────────────────────────────────

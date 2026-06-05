@@ -421,4 +421,4 @@ backend.
   - NKRenderer (au-dessus de NKContext/NKRHI)
   - NKUI, NKAudio (events keyboard/mouse/touch)
   - Nkentseu/Core (`Application` framework)
-  - Unkeny (éditeur), PV3DE (patient virtuel)
+  - Noge (éditeur), PV3DE (patient virtuel)

@@ -204,9 +204,11 @@ namespace nkentseu {
                                out.width * 4);
                     }
                 }
-                if (rgba) rgba->Free();
+                if (rgba) rgba->Free();   // rgba vient de Convert() (heap) → Free() OK
             }
-            img.Free();
+            // `img` est sur la PILE : ne JAMAIS appeler img.Free() (qui ferait
+            // nkFree(this) sur une adresse pile → heap corruption c0000374).
+            // Le destructeur ~NkImage() libère les pixels à la sortie de scope.
             return true;
         }
 

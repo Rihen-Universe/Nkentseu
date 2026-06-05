@@ -87,7 +87,34 @@ protected:
     NkString   mOutput;
     uint32     mIndent = 0;
     NkVector<NkSLCompileError> mErrors, mWarnings;
+
+    // Compute : taille de workgroup, renseignée par chaque GenProgram() depuis
+    // NkSLProgramNode::localSize*. Sert à émettre layout(local_size_*) (GLSL/VK)
+    // ou [numthreads(...)] (HLSL). Défaut 1,1,1 (stages non-compute).
+    uint32 mLocalSizeX = 1, mLocalSizeY = 1, mLocalSizeZ = 1;
 };
+
+// Mappe un format d'image NkSL ("r32f"/"rgba8"/"rgba16f"...) vers le type
+// d'élément HLSL d'un RWTexture2D (cs_5_0/cs_6_0). Défaut float4.
+inline const char* NkSLImageFormatToHLSLElem(const NkString& fmt) {
+    if (fmt == "r32f"  || fmt == "r16f")                       return "float";
+    if (fmt == "rg32f" || fmt == "rg16f")                      return "float2";
+    if (fmt == "r32i"  || fmt == "r16i"  || fmt == "r8i")      return "int";
+    if (fmt == "r32ui" || fmt == "r16ui" || fmt == "r8ui")     return "uint";
+    if (fmt == "rgba32i" || fmt == "rgba16i" || fmt == "rgba8i")  return "int4";
+    if (fmt == "rgba32ui"|| fmt == "rgba16ui"|| fmt == "rgba8ui") return "uint4";
+    // rgba8 / rgba16f / rgba32f / rgb10_a2 / ...
+    return "float4";
+}
+
+// Mappe un format d'image NkSL vers le type d'élément MSL (texture2d<T,...>).
+inline const char* NkSLImageFormatToMSLElem(const NkString& fmt) {
+    if (fmt == "r32i" || fmt == "r16i" || fmt == "r8i" ||
+        fmt == "rgba32i" || fmt == "rgba16i" || fmt == "rgba8i")  return "int";
+    if (fmt == "r32ui" || fmt == "r16ui" || fmt == "r8ui" ||
+        fmt == "rgba32ui" || fmt == "rgba16ui" || fmt == "rgba8ui") return "uint";
+    return "float"; // formats float et normalisés (r32f, rgba8, rgba16f...)
+}
 
 // =============================================================================
 // GLSL — OpenGL 4.30+ (bindings aplatis, pas de set=)
@@ -114,6 +141,14 @@ private:
     const NkSLCompileOptions* mOpts  = nullptr;
     NkSLStage                 mStage = NkSLStage::NK_VERTEX;
     int                       mAutoBinding = 0;
+    // Auto-assignation des locations d'interface (in/out) et bindings UBO quand
+    // la source NkSL ne les precise pas. Indispensable en OpenGL : sans
+    // layout(location=) explicite, le linker GL assigne les locations d'attributs
+    // dans un ordre NON garanti -> aPos peut ne pas etre a la location 0 -> les
+    // positions sont melangees -> ecran noir. Compteurs separes in/out, dans
+    // l'ordre de declaration (le vertex out et le fragment in matchent alors).
+    int                       mAutoInLoc   = 0;
+    int                       mAutoOutLoc  = 0;
 };
 
 // =============================================================================
@@ -154,6 +189,11 @@ private:
     NkSLStage                 mStage = NkSLStage::NK_VERTEX;
     int                       mAutoSet     = 0;
     int                       mAutoBinding = 0;
+    // Vulkan GLSL EXIGE des layout(location=) explicites sur toute l'interface
+    // in/out (sinon glslang refuse -> SPIR-V echoue). Auto-assignation dans
+    // l'ordre de declaration, compteurs separes in/out.
+    int                       mAutoInLoc   = 0;
+    int                       mAutoOutLoc  = 0;
 };
 
 // =============================================================================
@@ -202,6 +242,9 @@ private:
     NkVector<NkSLBlockDeclNode*> mCBuffers, mSBuffers;
     NkVector<NkString>           mMatrixNames;
     bool                         mWritesDepth = false;
+    // Compteur de binding PARTAGE (b/t/s/u) : le device DX mappe binding->slot.
+    // Doit matcher le compteur partage du cote demo (ubo=0, shadow=1, albedo=2).
+    int                          mReg = 0;
 };
 
 // Alias de rétrocompatibilité — l'ancien NkSLCodeGenHLSL pointe sur DX11
@@ -260,7 +303,12 @@ private:
     NkVector<NkString>           mMatrixNames;
     bool                         mWritesDepth = false;
     // Register counters par slot type (DX12 utilise space séparé)
-    int  mRegB = 0, mRegT = 0, mRegS = 0, mRegU = 0;
+    // Compteur de binding PARTAGE (b/t/s/u). Le device DX mappe le numero de
+    // binding du descripteur directement sur le slot du registre, et le demo binde
+    // avec un compteur partage (ubo=0, shadow=1, albedo=2) comme GLSL. Donc le
+    // registre HLSL doit = ce numero partage (ubo->b0, shadow->t1/s1, albedo->t2/s2)
+    // et NON des compteurs separes par namespace (qui donnaient shadow->t0, albedo->t1).
+    int  mReg = 0;
 };
 
 // =============================================================================

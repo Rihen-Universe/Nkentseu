@@ -36,6 +36,21 @@ namespace nkentseu {
 using threading::NkScopedLockMutex;
 
 // =============================================================================
+// RAII : libère l'AST sur TOUS les chemins de sortie (retours anticipés ET
+// exceptions des codegens / allocations). NkSLNode::~NkSLNode() détruit
+// récursivement ses enfants, donc supprimer la racine libère tout l'arbre.
+// =============================================================================
+namespace {
+    struct NkSLAstScope {
+        NkSLProgramNode* ast = nullptr;
+        explicit NkSLAstScope(NkSLProgramNode* a) noexcept : ast(a) {}
+        ~NkSLAstScope() { delete ast; }
+        NkSLAstScope(const NkSLAstScope&)            = delete;
+        NkSLAstScope& operator=(const NkSLAstScope&) = delete;
+    };
+} // namespace
+
+// =============================================================================
 // Hachage FNV-1a 64-bit
 // =============================================================================
 static uint64 FNV1a64(const void* data, size_t len,
@@ -202,15 +217,25 @@ NkSLCompileResult NkSLCompiler::Compile(
     NkSLLexer  lexer(processed, filename);
     NkSLParser parser(lexer);
     NkSLProgramNode* ast = parser.Parse();
+    NkSLAstScope astScope(ast); // libération garantie (retours + exceptions)
 
     if (parser.HasErrors()) {
         NkSLCompileResult res; res.success = false;
         res.errors = parser.GetErrors(); res.target = target; res.stage = stage;
-        delete ast;
         for (auto& e : res.errors)
             NKSL_ERR("%s:%u: %s\n", filename.CStr(), e.line, e.message.CStr());
         return res;
     }
+
+    // 3.5. Diagnostics sémantiques NON bloquants.
+    // L'analyseur détecte déjà variables non déclarées, mismatch de type/retour,
+    // swizzles invalides, etc. (NkSLSemantic). On les remonte en WARNINGS sans
+    // jamais faire échouer un shader qui compilait : l'analyse reste permissive
+    // par endroits (overloads, conversions implicites) et on évite toute
+    // régression sur les shaders existants. Pour une validation BLOQUANTE,
+    // utiliser CompileWithSemantic().
+    NkSLSemantic semDiag(stage);
+    NkSLSemanticResult semRes = semDiag.Analyze(ast);
 
     // 4. Dispatch par target
     NkSLCompileResult res;
@@ -301,7 +326,11 @@ NkSLCompileResult NkSLCompiler::Compile(
         }
     }
 
-    delete ast;
+    // Remonter les diagnostics sémantiques en warnings (non bloquant).
+    for (auto& e : semRes.errors)   res.warnings.PushBack(e);
+    for (auto& e : semRes.warnings) res.warnings.PushBack(e);
+
+    // (AST libéré automatiquement par astScope en fin de portée.)
 
     // 5. Mise en cache
     if (mCacheEnabled && res.success) {
@@ -346,11 +375,11 @@ NkSLReflection NkSLCompiler::Reflect(const NkString& source,
     NkSLLexer  lexer(processed, filename);
     NkSLParser parser(lexer);
     NkSLProgramNode* ast = parser.Parse();
-    if (parser.HasErrors()) { delete ast; return empty; }
+    NkSLAstScope astScope(ast);
+    if (parser.HasErrors()) return empty;
 
     NkSLReflector reflector;
     NkSLReflection result = reflector.Reflect(ast, stage);
-    delete ast;
     return result;
 }
 
@@ -372,11 +401,11 @@ NkSLCompiler::MultiTargetResult NkSLCompiler::CompileAllTargets(
         NkSLLexer  lexer(processed, filename);
         NkSLParser parser(lexer);
         NkSLProgramNode* ast = parser.Parse();
+        NkSLAstScope astScope(ast);
         if (!parser.HasErrors()) {
             NkSLReflector reflector;
             multi.reflection = reflector.Reflect(ast, stage);
         }
-        delete ast;
     }
     // Compiler chaque target
     for (auto t : targets) {
@@ -439,6 +468,7 @@ NkVector<NkSLCompileError> NkSLCompiler::Validate(const NkString& source,
     NkSLLexer  lexer(processed, filename);
     NkSLParser parser(lexer);
     NkSLProgramNode* ast = parser.Parse();
+    NkSLAstScope astScope(ast);
     for (auto& e : parser.GetErrors())   errors.PushBack(e);
     for (auto& e : parser.GetWarnings()) errors.PushBack(e);
 
@@ -449,7 +479,6 @@ NkVector<NkSLCompileError> NkSLCompiler::Validate(const NkString& source,
         for (auto& e : semRes.warnings) errors.PushBack(e);
     }
 
-    delete ast;
     return errors;
 }
 
@@ -582,11 +611,12 @@ NkSLCompileResult NkSLCompiler::CompileWithSemantic(
     NkSLLexer  lexer(processed, filename);
     NkSLParser parser(lexer);
     NkSLProgramNode* ast = parser.Parse();
+    NkSLAstScope astScope(ast);
 
     if (parser.HasErrors()) {
         NkSLCompileResult res; res.success = false;
         res.errors = parser.GetErrors(); res.target = target; res.stage = stage;
-        delete ast; return res;
+        return res;
     }
 
     // Analyse sémantique
@@ -597,7 +627,7 @@ NkSLCompileResult NkSLCompiler::CompileWithSemantic(
         res.errors   = semResult.errors;
         res.warnings = semResult.warnings;
         res.target = target; res.stage = stage;
-        delete ast; return res;
+        return res;
     }
 
     // Génération
@@ -613,7 +643,6 @@ NkSLCompileResult NkSLCompiler::CompileWithSemantic(
     }
 
     for (auto& w : semResult.warnings) res.warnings.PushBack(w);
-    delete ast;
     return res;
 }
 

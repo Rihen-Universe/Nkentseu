@@ -294,6 +294,13 @@ struct NkSLProgramNode : NkSLNode {
     NkSLStage stage = NkSLStage::NK_VERTEX;
     // children = déclarations globales dans l'ordre
 
+    // Compute : taille de workgroup déclarée via
+    //   layout(local_size_x = X, local_size_y = Y, local_size_z = Z) in;
+    // Défaut 1,1,1 (ignoré pour les stages non-compute).
+    uint32 localSizeX = 1;
+    uint32 localSizeY = 1;
+    uint32 localSizeZ = 1;
+
     NkSLProgramNode() : NkSLNode(NkSLNodeKind::NK_PROGRAM) {}
 };
 

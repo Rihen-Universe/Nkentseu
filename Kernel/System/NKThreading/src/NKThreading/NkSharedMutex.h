@@ -13,7 +13,7 @@
 // Architecture :
 //   - Pure couche d'alias : zero overhead à l'exécution
 //   - Inclusion unique de NkReaderWriterLock.h qui contient l'implémentation
-//   - Support dual-namespace : nkentseu::threading (moderne) + nkentseu::entseu (legacy)
+//   - Support dual-namespace : nkentseu::threading (moderne) + nkentseu (legacy)
 //
 // Alias exposés :
 //   nkentseu::threading::NkSharedMutex → NkReaderWriterLock
@@ -82,7 +82,7 @@
     // -------------------------------------------------------------------------
     // SECTION 3 : NAMESPACE LEGACY (compatibilité rétroactive)
     // -------------------------------------------------------------------------
-    // Ces alias dans nkentseu::entseu sont conservés uniquement pour la
+    // Ces alias dans nkentseu sont conservés uniquement pour la
     // rétrocompatibilité avec le code existant. Tout nouveau code doit
     // utiliser directement le namespace nkentseu::threading.
     // =====================================================================
@@ -402,7 +402,7 @@
 
     # Option pour activer/désactiver les warnings de dépréciation
     option(NKENTSEU_WARN_ON_LEGACY_THREADING
-           "Emit warnings when using nkentseu::entseu namespace"
+           "Emit warnings when using nkentseu namespace"
            ON)
 
     if(NKENTSEU_WARN_ON_LEGACY_THREADING)
@@ -424,7 +424,7 @@
     )
 
     # Guide de migration dans les commentaires du code :
-    // AVANT : #include <NKThreading/NkSharedMutex.h> + using namespace nkentseu::entseu;
+    // AVANT : #include <NKThreading/NkSharedMutex.h> + using namespace nkentseu;
     // APRÈS : #include <NKThreading/NkSharedMutex.h> + using namespace nkentseu::threading;
 
     // ---------------------------------------------------------------------
@@ -457,12 +457,12 @@
     {
         // Vérifie que les aliases legacy fonctionnent aussi
         static_assert(std::is_same_v<
-            nkentseu::entseu::NkSharedMutex,
+            nkentseu::NkSharedMutex,
             nkentseu::threading::NkSharedMutex
         >, "Legacy alias doit pointer vers moderne");
 
         // Test fonctionnel : les deux namespaces sont interchangeables
-        nkentseu::entseu::NkSharedMutex legacyMutex;
+        nkentseu::NkSharedMutex legacyMutex;
         nkentseu::threading::NkSharedLock readLock(legacyMutex);  // OK
     }
 
@@ -482,7 +482,7 @@
 
     Impact :
     --------
-    - Code legacy nkentseu::entseu : continue via aliases de compatibilité
+    - Code legacy nkentseu : continue via aliases de compatibilité
     - Nouveau code : utiliser directement nkentseu::threading
     - Warning optionnel : configurable via NKENTSEU_WARN_ON_LEGACY_THREADING
 
@@ -492,7 +492,7 @@
        // Aucun changement requis : NkSharedMutex.h inclut déjà l'implémentation
 
     2. Mettre à jour les using namespace :
-       AVANT : using namespace nkentseu::entseu;
+       AVANT : using namespace nkentseu;
        APRÈS : using namespace nkentseu::threading;
 
     3. Ou utiliser des qualifications complètes :

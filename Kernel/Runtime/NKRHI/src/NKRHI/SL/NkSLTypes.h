@@ -134,8 +134,22 @@ namespace nkentseu {
         NK_SAMPLER_CUBE, NK_SAMPLER_CUBE_SHADOW,
         NK_SAMPLER3D,
         NK_ISAMPLER2D, NK_USAMPLER2D,
-        // Storage images
+        // --- Samplers additionnels (toutes dimensionalites). DOIVENT rester
+        //     contigus avec les precedents : NkSLTypeIsSampler() teste une plage.
+        NK_SAMPLER1D, NK_SAMPLER1D_ARRAY,
+        NK_SAMPLER_CUBE_ARRAY, NK_SAMPLER_CUBE_ARRAY_SHADOW,
+        NK_SAMPLER2DMS,
+        NK_ISAMPLER1D, NK_USAMPLER1D,
+        NK_ISAMPLER3D, NK_USAMPLER3D,
+        NK_ISAMPLER_CUBE, NK_USAMPLER_CUBE,
+        NK_ISAMPLER2D_ARRAY, NK_USAMPLER2D_ARRAY,
+        NK_ISAMPLER_CUBE_ARRAY, NK_USAMPLER_CUBE_ARRAY, // <- dernier sampler
+        // Storage images (DOIVENT rester contigus : NkSLTypeIsImage() teste une plage)
         NK_IMAGE2D, NK_IIMAGE2D, NK_UIMAGE2D,
+        NK_IMAGE1D, NK_IIMAGE1D, NK_UIMAGE1D,
+        NK_IMAGE3D, NK_IIMAGE3D, NK_UIMAGE3D,
+        NK_IMAGE_CUBE, NK_IIMAGE_CUBE, NK_UIMAGE_CUBE,
+        NK_IMAGE2D_ARRAY, NK_IIMAGE2D_ARRAY, NK_UIMAGE2D_ARRAY, // <- derniere image
         // Vulkan specifics
         NK_SUBPASS_INPUT,    // subpassInput (Vulkan input attachment)
         NK_SUBPASS_INPUT_MS, // subpassInputMS (multisampled)
@@ -145,10 +159,10 @@ namespace nkentseu {
     };
 
     inline bool NkSLTypeIsSampler(NkSLBaseType t) {
-        return t >= NkSLBaseType::NK_SAMPLER2D && t <= NkSLBaseType::NK_USAMPLER2D;
+        return t >= NkSLBaseType::NK_SAMPLER2D && t <= NkSLBaseType::NK_USAMPLER_CUBE_ARRAY;
     }
     inline bool NkSLTypeIsImage(NkSLBaseType t) {
-        return t >= NkSLBaseType::NK_IMAGE2D && t <= NkSLBaseType::NK_UIMAGE2D;
+        return t >= NkSLBaseType::NK_IMAGE2D && t <= NkSLBaseType::NK_UIMAGE2D_ARRAY;
     }
     inline bool NkSLTypeIsMatrix(NkSLBaseType t) {
         return t == NkSLBaseType::NK_MAT2   || t == NkSLBaseType::NK_MAT3   ||
@@ -191,11 +205,15 @@ namespace nkentseu {
         int32  location         = -1;
         int32  offset           = -1;
         int32  inputAttachment  = -1; // subpass input index (Vulkan)
+        // Format d'une storage image : "r32f", "rgba8", "rgba16f", "rgba32f"...
+        // Vide si non applicable. Requis pour les images en écriture (GLSL).
+        NkString imageFormat;
 
         bool HasBinding()         const { return binding         >= 0; }
         bool HasLocation()        const { return location        >= 0; }
         bool HasSet()             const { return set             >= 0; }
         bool HasInputAttachment() const { return inputAttachment >= 0; }
+        bool HasImageFormat()     const { return !imageFormat.Empty(); }
     };
 
     // =============================================================================

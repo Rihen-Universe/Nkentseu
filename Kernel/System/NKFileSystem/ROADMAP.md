@@ -111,7 +111,7 @@ DEVELOPMENT_MODE.
 
 ### Glob avancé
 - Actuellement `*` et `?` ; ajouter `**` (récursif), classes `[a-z]`,
-  alternance `{a,b,c}`. Utile pour AssetBrowser de Unkeny.
+  alternance `{a,b,c}`. Utile pour AssetBrowser de Noge.
 
 ---
 
@@ -149,7 +149,7 @@ DEVELOPMENT_MODE.
 ## Bugs / quirks connus
 - Enum `NkFileSystemType::NK_UNKNOW` (sic — typo conservée pour
   compatibilité). Documenter ou ajouter alias `NK_UNKNOWN`.
-- Le test `test_smoke.cpp` utilise `using namespace nkentseu::entseu;` —
+- Le test `test_smoke.cpp` utilise `using namespace nkentseu;` —
   vestige legacy. Vérifier que le namespace `entseu` est encore exposé en
   alias, sinon le test ne compile plus.
 - Sur Android, le fallback AAssetManager est en lecture seule ; le test des
@@ -163,5 +163,5 @@ DEVELOPMENT_MODE.
 - **Modules au-dessus qui en dépendent** : NKStream (NkFileStream wrap NkFile),
   NKSerialization (lecture/écriture .nkproj/.nkscene/.nkcase/.nkb via NkFile),
   NKImage / NKAudio / NKFont (chargement assets), NKRenderer (chargement
-  shaders, textures, HDRI), Unkeny (AssetBrowser → enumerate + watch,
+  shaders, textures, HDRI), Noge (AssetBrowser → enumerate + watch,
   ProjectManager → I/O .nkproj), Runtime (config files).

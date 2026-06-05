@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Editor/CommandHistory.h
+// Noge/Editor/CommandHistory.h
 // =============================================================================
 // Undo/redo via pattern Command.
 // Chaque opération éditable implémente NkEditorCommand.
@@ -21,7 +21,7 @@
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         // =====================================================================
         // NkEditorCommand — interface
@@ -96,5 +96,5 @@ namespace nkentseu {
             nk_uint32                  mMaxDepth;
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

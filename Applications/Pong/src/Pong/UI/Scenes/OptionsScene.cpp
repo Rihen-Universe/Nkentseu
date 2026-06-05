@@ -4,7 +4,7 @@
 
 #include "OptionsScene.h"
 #include "RulesScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -117,7 +117,7 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void OptionsScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
@@ -127,10 +127,6 @@ namespace nkentseu
             const float enterA = EaseOutCubic(mEnterAnim);
 
             // Fond
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
 
             // ── Header : bouton RETOUR + titre ─────────────────────────────
             // Dimensions responsive en % viewport (clamps doux). On garde
@@ -143,8 +139,8 @@ namespace nkentseu
                 mBackY = (float)ctx.safe.TopY()  + Pct::H(H, 0.020f, 8.0f, 28.0f);
                 math::NkColor bg = { 0, 245, 255, 30 };
                 math::NkColor bd = { 0, 245, 255, 200 };
-                r.DrawQuad       (mBackX, mBackY, mBackW, mBackH, bg);
-                r.DrawQuadOutline(mBackX, mBackY, mBackW, mBackH, bd, 1.5f);
+                r.DrawFilledRect({ mBackX, mBackY, mBackW, mBackH }, bg);
+                r.DrawRectOutline({ mBackX, mBackY, mBackW, mBackH }, bd, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mBackX + mBackW * 0.5f,
                                    mBackY + mBackH * 0.18f,
@@ -195,14 +191,14 @@ namespace nkentseu
                 math::NkColor bd = d.accent;
                 bd.a = static_cast<uint8_t>((focused && d.enabled ? 220 : 70) * a);
 
-                r.DrawQuad       (bx, by, availW, cardH, bg);
-                r.DrawQuadOutline(bx, by, availW, cardH, bd,
+                r.DrawFilledRect({ bx, by, availW, cardH }, bg);
+                r.DrawRectOutline({ bx, by, availW, cardH }, bd,
                                   focused && d.enabled ? 2.5f * scale : 1.0f);
 
                 // Bande verticale colore a gauche
                 math::NkColor side = d.accent;
                 side.a = static_cast<uint8_t>((d.enabled ? 220 : 100) * a);
-                r.DrawQuad(bx, by, sideBarW, cardH, side);
+                r.DrawFilledRect({ bx, by, sideBarW, cardH }, side);
 
                 // Titre
                 math::NkColor titleCol = d.accent;
@@ -231,8 +227,6 @@ namespace nkentseu
 
                 y += cardH + pad;
             }
-
-            r.End();
         }
 
         // ─────────────────────────────────────────────────────────────────────
