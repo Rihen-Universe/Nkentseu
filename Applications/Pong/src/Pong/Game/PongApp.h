@@ -9,8 +9,6 @@
 // =============================================================================
 
 #include "Pong/Game/GameTypes.h"
-#include "Pong/Render/GLContext.h"
-#include "Pong/Render/GLRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/Net/NetworkSession.h"
 #include "Pong/Net/NetworkDiscovery.h"
@@ -23,6 +21,7 @@ namespace nkentseu
 {
     class NkWindow;
     class NkEvent;
+    namespace renderer { class NkRenderWindow; }   // cible de rendu NKCanvas (ctx+renderer2D)
 }
 
 namespace nkentseu
@@ -67,8 +66,10 @@ namespace nkentseu
 
         private:
             NkWindow&       mWindow;
-            GLContext       mGL;
-            GLRenderer2D    mRenderer;
+            // Cible de rendu NKCanvas : possede le NkIGraphicsContext + le
+            // NkRenderer2D (backend choisi via pong.config). Cree dans Init(),
+            // detruit dans Shutdown(). Remplace l'ancien duo GLContext+GLRenderer2D.
+            renderer::NkRenderWindow* mTarget = nullptr;
             FontAtlas       mFont;
             GameSettings    mSettings;
             SceneManager    mScenes;

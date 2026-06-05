@@ -425,32 +425,73 @@ bool NkVulkanContext::CreateInstance(const NkVulkanDesc& d) {
     appInfo.engineVersion      = VK_MAKE_VERSION(1,0,0);
     appInfo.apiVersion         = d.apiVersion ? d.apiVersion : VK_API_VERSION_1_3;
 
-    NkVector<const char*> extensions;
-    extensions.PushBack(VK_KHR_SURFACE_EXTENSION_NAME);
+    // ── Liste BRUTE des extensions desirees (filtre vs dispo apres) ─────────
+    NkVector<const char*> desiredExt;
+    desiredExt.PushBack(VK_KHR_SURFACE_EXTENSION_NAME);
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-    extensions.PushBack(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+    desiredExt.PushBack(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #elif defined(NKENTSEU_WINDOWING_XLIB)
-    extensions.PushBack(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+    desiredExt.PushBack(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 #elif defined(NKENTSEU_WINDOWING_XCB)
-    extensions.PushBack(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
+    desiredExt.PushBack(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
 #elif defined(NKENTSEU_WINDOWING_WAYLAND)
-    extensions.PushBack(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+    desiredExt.PushBack(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
-    extensions.PushBack(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
+    desiredExt.PushBack(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
 #elif defined(NKENTSEU_PLATFORM_MACOS)
-    extensions.PushBack(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
-    extensions.PushBack(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-    extensions.PushBack(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    desiredExt.PushBack(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
+    desiredExt.PushBack(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    desiredExt.PushBack(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 #endif
     if (d.debugMessenger)
-        extensions.PushBack(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        desiredExt.PushBack(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     for (uint32 i = 0; i < d.extraInstanceExtCount; ++i)
-        extensions.PushBack(d.extraInstanceExt[i]);
+        desiredExt.PushBack(d.extraInstanceExt[i]);
 
+    // ── Enumere les EXTENSIONS disponibles et filtre desiredExt ─────────────
+    // Fix 2026-05-30 : vkCreateInstance crash si une extension demandee est
+    // absente (driver Vulkan partiellement installe, version SDK incomplete).
+    // On enumere d'abord, puis on ne demande que ce qui est dispo.
+    NkVector<const char*> extensions;
+    {
+        uint32 availCount = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &availCount, nullptr);
+        NkVector<VkExtensionProperties> avail(availCount);
+        vkEnumerateInstanceExtensionProperties(nullptr, &availCount, avail.Data());
+        for (uint32 i = 0; i < (uint32)desiredExt.Size(); ++i) {
+            const char* want = desiredExt[i];
+            bool found = false;
+            for (uint32 j = 0; j < availCount; ++j) {
+                if (strcmp(avail[j].extensionName, want) == 0) { found = true; break; }
+            }
+            if (found) {
+                extensions.PushBack(want);
+            } else {
+                logger.Warnf("[NkVulkan] Instance extension '%s' requested but not available — skipping\n", want);
+            }
+        }
+    }
+
+    // ── Enumere les LAYERS disponibles et filtre l'eventuelle validation ────
+    // Sans cette enumeration, vkCreateInstance crash si la layer est absente
+    // (Vulkan SDK sans validation layer installee, ou ICD partiel).
     NkVector<const char*> layers;
     if (d.validationLayers) {
-        layers.PushBack("VK_LAYER_KHRONOS_validation");
-        logger.Infof("[NkVulkan] Validation layers enabled");  // ← AJOUTEZ
+        uint32 availCount = 0;
+        vkEnumerateInstanceLayerProperties(&availCount, nullptr);
+        NkVector<VkLayerProperties> avail(availCount);
+        vkEnumerateInstanceLayerProperties(&availCount, avail.Data());
+        bool found = false;
+        for (uint32 i = 0; i < availCount; ++i) {
+            if (strcmp(avail[i].layerName, "VK_LAYER_KHRONOS_validation") == 0) { found = true; break; }
+        }
+        if (found) {
+            layers.PushBack("VK_LAYER_KHRONOS_validation");
+            logger.Infof("[NkVulkan] Validation layers enabled");
+        } else {
+            logger.Warnf("[NkVulkan] VK_LAYER_KHRONOS_validation requested but not available "
+                         "(check your Vulkan SDK install) — continuing without\n");
+        }
     }
 
     VkInstanceCreateInfo info{};
@@ -825,11 +866,21 @@ bool NkVulkanContext::CreateSwapchain(uint32 w, uint32 h, const NkVulkanDesc& d)
     NkVector<VkSurfaceFormatKHR> fmts(fmtCount);
     vkGetPhysicalDeviceSurfaceFormatsKHR(mData.physicalDevice, mData.surface, &fmtCount, fmts.Data());
 
+    // On prefere un format UNORM (et NON _SRGB). Les couleurs 2D de Pong/NKCanvas
+    // sont deja encodees sRGB (octets 0-255). Un swapchain _SRGB ferait re-encoder
+    // ces valeurs par le GPU (linear->sRGB) au moment de l'ecriture -> DOUBLE
+    // encodage -> rendu delave/pale. UNORM = aucune conversion auto, on ecrit les
+    // octets tels quels (comportement identique a OpenGL ici).
     VkSurfaceFormatKHR fmt = fmts[0];
+    bool fmtFound = false;
     for (auto& f : fmts)
-        if (f.format == VK_FORMAT_B8G8R8A8_SRGB &&
+        if ((f.format == VK_FORMAT_B8G8R8A8_UNORM || f.format == VK_FORMAT_R8G8B8A8_UNORM) &&
             f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-            { fmt = f; break; }
+            { fmt = f; fmtFound = true; break; }
+    if (!fmtFound)  // a defaut, eviter quand meme un format _SRGB explicite
+        for (auto& f : fmts)
+            if (f.format != VK_FORMAT_B8G8R8A8_SRGB && f.format != VK_FORMAT_R8G8B8A8_SRGB)
+                { fmt = f; break; }
     mData.swapFormat = fmt.format;
 
     // Present mode

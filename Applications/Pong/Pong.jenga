@@ -54,6 +54,10 @@ with project("Pong"):
     cppdialect("C++17")
     location(".")
 
+    # Migration NKCanvas (chantier A.9) : on recompile le jeu complet (PongApp +
+    # Game/Render/UI/Net/Audio) pour repartir de la baseline fonctionnelle, puis
+    # on remplacera progressivement le rendu maison (GLContext/GLRenderer2D/
+    # FontAtlas) par NKCanvas.
     files(["src/**.cpp"])
 
     _PONG_INCLUDE_DIRS = [

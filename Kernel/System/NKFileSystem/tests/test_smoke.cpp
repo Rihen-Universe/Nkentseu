@@ -8,7 +8,7 @@
 
 #include <cstdio>
 
-using namespace nkentseu::entseu;
+using namespace nkentseu;
 using nkentseu::NkString;
 
 TEST_CASE(NKFileSystemSmoke, PathHelpers) {

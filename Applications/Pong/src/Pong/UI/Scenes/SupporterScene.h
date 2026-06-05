@@ -16,7 +16,7 @@
 // =============================================================================
 
 #include "Pong/UI/Scene.h"
-#include "Pong/Render/Texture2D.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"
 
 namespace nkentseu
 {
@@ -72,7 +72,7 @@ namespace nkentseu
             // Icones reseaux sociaux (Resources/Pong/Textures/socials/).
             // Chargees synchroneement dans OnEnter (5 fichiers legers PNG+SVG).
             // Si le chargement echoue, on retombe sur le badge texte (kSocials.badge).
-            Texture2D mSocialIcons [kSocialCount];
+            renderer::NkTexture mSocialIcons [kSocialCount];
             bool      mSocialLoaded[kSocialCount] = { false, false, false, false, false };
 
             // Touch id du tap en cours

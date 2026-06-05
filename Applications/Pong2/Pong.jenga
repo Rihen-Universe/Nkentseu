@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# Pong Ultra Arena — Build config Jenga
+# Stack : NkContext (OpenGL/GLES) + NKGlad + NKFont + NKImage + NKUI
+# Conforme au GDD v1.1 (docs/GDD_PONG_ULTRA_ARENA_v1.1.docx).
+# =============================================================================
+
+from Jenga import *
+from Jenga.Core.Api import androidallowrotation
+import os
+import shutil
+import subprocess
+from config import *
+
+def _pkg_exists(pkg_name: str) -> bool:
+    if not shutil.which("pkg-config"):
+        return False
+    try:
+        return subprocess.call(
+            ["pkg-config", "--exists", pkg_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+def _norm(path: str) -> str:
+    return path.replace("\\", "/") if path else path
+
+_TC_WINDOWS = "nk-windows-clang-mingw"
+
+_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
+_VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib"))     if _VULKAN_SDK else ""
+_VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    _WANT_VULKAN = True
+else:
+    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
+
+_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
+_WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
+if _pkg_exists("libdecor-0"):
+    _WAYLAND_LINKS.append("decor-0")
+    _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
+
+with project("Pong"):
+    useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "canvas", "network", "audio")
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    # Refonte SFML-like 2026-05-30 (chantier A.9) : pour l'instant on compile
+    # uniquement le nouveau main + helpers config. L'ancien code Render/Game
+    # (GLContext/GLRenderer2D/Texture2D/FontAtlas/PongApp/AIController/...)
+    # reste sur disque mais hors build le temps de la migration sur NKCanvas.
+    files(["src/Pong/Apps.cpp"])
+
+    _PONG_INCLUDE_DIRS = [
+        "src",
+        "%{NKPlatform.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKTime.location}/src",
+        "%{NKEvent.location}/src",
+        "%{NKWindow.location}/src",
+        "%{NKImage.location}/src",
+        "%{NKFont.location}/src",
+        "%{NKUI.location}/src",
+        "%{NKCanvas.location}/src",
+        "%{NKStream.location}/src",
+        "%{NKGlad.location}/include",
+        "%{NKFileSystem.location}/src",
+        "%{NKNetwork.location}/src",
+        "%{NKAudio.location}/src",
+        "%{wks.location}/Externals",
+    ]
+    if _VULKAN_INCLUDE:
+        _PONG_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
+    includedirs(_PONG_INCLUDE_DIRS)
+
+    _BASE_DEPS = [
+        "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
+        "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+        "NKFileSystem", "NKNetwork",
+        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio"
+    ]
+    links(_BASE_DEPS)
+    dependson(_BASE_DEPS)
+
+    defines([
+        f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+        "NKENTSEU_SERIALIZATION_STATIC_LIB",
+        # Tous les modules sont link en static -> defines pour neutraliser
+        # les decorations d'import/export (sinon undefined refs `__imp_*`).
+        "NKENTSEU_AUDIO_STATIC_LIB",
+        "NKENTSEU_LOGGER_STATIC_LIB",
+        "NKENTSEU_CORE_STATIC_LIB",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # Icone d'application (cross-platform). Jenga la convertit en interne :
+    #   - Android : hierarchie res/mipmap-* (ldpi..xxxhdpi) + android:icon
+    #   - Windows : .ico embarque via .rc / .res dans Pong.exe
+    #   - macOS   : .icns + bundle Pong.app/Contents/Resources
+    #   - iOS     : CFBundleIconFile dans Info.plist
+    #   - Web     : favicon.ico + favicon-*.png a cote du .html
+    # Source : Resources/Pong/Textures/iconexe/ponicon2.png (rasterise depuis le SVG).
+    # IconConverter pad les non-carres en transparent automatiquement.
+    appicon("../../Resources/Pong/Textures/iconexe/ponicon2.png")
+
+    # Ressources runtime a embarquer dans les packages (jenga package).
+    # Seule Resources/Pong/ est packagee : pas Resources/Models, ni
+    # Resources/Icons (assets d'autres projets, gonflent le package inutilement).
+    # Le path est preserve relatif au workspace -> dans le ZIP/MSI/DEB/PKG,
+    # les fichiers seront a "Resources/Pong/..." (matche les paths C++).
+    # Sur Android, c'est `androidassets` qui gere le packaging (deja configure).
+    dependfiles(["../../Resources/Pong"])
+
+    # ── Metadonnees installer (MSI/EXE/DEB/PKG) ──────────────────────────
+    # Affichees dans "Programs and Features" + dialogues d'install.
+    apppublisher("Rihen Universe")
+    appversion("1.0.0")
+    # Licence GPL3 affichee a l'install : l'user doit l'accepter. Inno EXE
+    # lit le .txt directement ; WiX MSI le convertit en RTF automatiquement.
+    licensefile("../../LICENSE")
+    # Raccourci bureau optionnel propose pendant l'install (toggle visible).
+    createdesktopshortcut(True)
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(_TC_WINDOWS)
+        defines([
+            "WIN32_LEAN_AND_MEAN",
+            "_UNICODE", "UNICODE",
+        ])
+        if _VULKAN_LIB:
+            libdirs([_VULKAN_LIB])
+        libdirs(["%{NKFont.location}/lib"])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            # Winsock pour NKNetwork (sockets UDP/TCP, ntohs/htons, etc.)
+            "ws2_32", "iphlpapi",
+            # WASAPI (NKAudio) : avrt pour MMCSS (Pro Audio thread priority)
+            "avrt", "winmm",
+        ]
+        if _WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    # ===== Linux XLib =========================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== Linux Wayland ======================================================
+    with filter("system:Linux && options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        defines(_WAYLAND_DEFINES)
+        links(_WAYLAND_LINKS)
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    # ===== Android ============================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3",
+                          # NKAudio Android : dl (dlopen AAudio) + OpenSL ES
+                          # fallback pour 24-25.
+                          "dl", "OpenSLES"]
+        # NKCanvas compile avec Vulkan : il faut linker vulkan (API 24+)
+        if _WANT_VULKAN:
+            _ANDROID_LINKS.append("vulkan")
+        links(_ANDROID_LINKS)
+        androidapplicationid(f"com.rihen.nkentseu.noge.pong")
+        # Marque l'application comme JEU (Android Game Dashboard, capture
+        # ecran/audio, categorisation Play Store, optimisations GPU).
+        androidisgame(True)
+        # Bundle UNIQUEMENT Resources/Pong/ dans assets/ de l'APK (et pas
+        # tout Resources/ qui contient des assets d'autres projets — Models,
+        # NKRenderer shaders, HDRI, etc. — qui gonfleraient l'APK pour rien).
+        # Jenga copie le contenu du dossier (pas le dossier lui-meme), donc
+        # un fichier Resources/Pong/Textures/logo.png se retrouve dans
+        # assets/Textures/logo.png. Cote C++, le path utilise reste
+        # "Resources/Pong/Textures/logo.png" — NkFile::Open() strip le
+        # prefixe "Resources/<sub-folder>/" en fallback (le sub-folder est
+        # configure par PongApp via NkFile::SetAndroidAssetSubFolder("Pong")).
+        androidassets(["../../Resources/Pong"])
+        # minSdk 24 (Android 7.0 Nougat) pour compatibilite maximale. NKAudio
+        # charge AAudio via dlopen/dlsym au runtime : sur Android 26+ le son
+        # marche, sur 24-25 fallback silencieux (Null backend, pas de crash).
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidnativeactivity(True)
+        androidallowrotation(False)
+        androidscreenorientation("landscape")
+        androidstl("c++_shared")
+        # Permissions Android indispensables pour le multijoueur LAN.
+        # Sans INTERNET, bind() / socket() echouent avec EPERM (code 7
+        # NK_NET_SOCKET_ERROR cote NKNetwork). ACCESS_WIFI_STATE et
+        # CHANGE_WIFI_MULTICAST_STATE sont requis pour le broadcast UDP de
+        # la decouverte LAN (NetworkDiscovery, port 7778). Cf
+        # [[pong_multijoueur_internet_strategy]].
+        androidpermissions([
+            "android.permission.INTERNET",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.ACCESS_WIFI_STATE",
+            "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        ])
+
+    # ===== HarmonyOS ==========================================================
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+        # android/log/dl/OpenSLES retires (Android-only) ; log -> hilog_ndk.z.
+        _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
+        if _WANT_VULKAN:
+            _HARMONY_LINKS.append("vulkan")
+        links(_HARMONY_LINKS)
+        harmonybundlename("com.rihen.nkentseu.noge.pong")
+        harmonyassets(["../../Resources/Pong"])
+        harmonyminsdk(12)
+        harmonytargetapi(12)
+        # Permissions reseau OHOS (multijoueur LAN) : equivalent INTERNET +
+        # infos reseau/wifi Android (broadcast UDP decouverte LAN).
+        harmonypermissions([
+            "ohos.permission.INTERNET",
+            "ohos.permission.GET_NETWORK_INFO",
+            "ohos.permission.GET_WIFI_INFO",
+        ])
+
+    # ===== iOS ================================================================
+    with filter("system:iOS"):
+        frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+        iosbundleid(f"com.rihen.nkentseu.noge.pong")
+        iosversion("1.0")
+        iosminsdk("14.0")
+        iosbuildnumber(1)
+
+    # ===== Web ================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+        emscriptenshellfile("web/emscripten_fullscreen_nofavicon.html")
+        emscriptencanvasid("canvas")
+        emscripteninitialmemory(32)
+        emscriptenextraflags([
+            "-s", "ASYNCIFY",
+            "-s", "DYNAMIC_EXECUTION",
+            "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']",
+            "-s", "INITIAL_MEMORY=67108864",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "ASSERTIONS=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+            "-s", "SAFE_HEAP=1",
+        ])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

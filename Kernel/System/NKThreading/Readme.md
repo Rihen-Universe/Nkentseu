@@ -958,14 +958,14 @@ cmake .. \
 
 ### Contexte
 
-Les primitives de threading étaient précédemment exposées dans le namespace `nkentseu::entseu`. Pour une meilleure organisation et cohérence, elles ont été déplacées vers `nkentseu::threading`.
+Les primitives de threading étaient précédemment exposées dans le namespace `nkentseu`. Pour une meilleure organisation et cohérence, elles ont été déplacées vers `nkentseu::threading`.
 
 ### Impact
 
 | Type de code | Impact | Action requise |
 |-------------|--------|---------------|
 | **Nouveau code** | Aucun | Utiliser directement `nkentseu::threading::` |
-| **Code legacy** | Aucun (pour l'instant) | Les aliases `nkentseu::entseu::` redirigent vers `threading::` |
+| **Code legacy** | Aucun (pour l'instant) | Les aliases `nkentseu::` redirigent vers `threading::` |
 | **Binaires existants** | Aucun | ABI stable grâce au pattern Pimpl |
 
 ### Étapes de migration
@@ -975,7 +975,7 @@ Les primitives de threading étaient précédemment exposées dans le namespace 
 ```cpp
 // AVANT
 #include <NKThreading/NkMutex.h>
-using namespace nkentseu::entseu;
+using namespace nkentseu;
 
 // APRÈS (recommandé)
 #include <NKThreading/NKThreading.h>  // Master header unique
@@ -986,8 +986,8 @@ using namespace nkentseu::threading;
 
 ```cpp
 // AVANT
-nkentseu::entseu::NkMutex mutex;
-nkentseu::entseu::NkThreadPool pool(4);
+nkentseu::NkMutex mutex;
+nkentseu::NkThreadPool pool(4);
 
 // APRÈS
 nkentseu::threading::NkMutex mutex;
@@ -1004,7 +1004,7 @@ NkThreadPool pool(4);
 ```cmake
 # Dans votre CMakeLists.txt
 option(NKENTSEU_WARN_ON_LEGACY_THREADING
-       "Emit warnings when using nkentseu::entseu namespace"
+       "Emit warnings when using nkentseu namespace"
        ON)
 
 if(NKENTSEU_WARN_ON_LEGACY_THREADING)
@@ -1047,8 +1047,8 @@ target_compile_definitions(mon_app PRIVATE NKENTSEU_DISABLE_LEGACY_ALIASES)
 ```bash
 # scripts/migrate_threading_namespace.py --dry-run src/ include/
 # Règles de remplacement :
-# 1. nkentseu::entseu::Nk* → nkentseu::threading::Nk*
-# 2. using namespace nkentseu::entseu; → using namespace nkentseu::threading;
+# 1. nkentseu::Nk* → nkentseu::threading::Nk*
+# 2. using namespace nkentseu; → using namespace nkentseu::threading;
 # 3. #include <NKThreading/Nk*.h> → #include <NKThreading/NKThreading.h> (optionnel)
 
 # Exclusions (ne pas modifier) :
@@ -1063,7 +1063,7 @@ target_compile_definitions(mon_app PRIVATE NKENTSEU_DISABLE_LEGACY_ALIASES)
 // Dans vos tests de migration :
 static_assert(
     std::is_same_v<
-        nkentseu::entseu::NkMutex,
+        nkentseu::NkMutex,
         nkentseu::threading::NkMutex
     >,
     "Alias legacy doit pointer vers l'implémentation moderne"

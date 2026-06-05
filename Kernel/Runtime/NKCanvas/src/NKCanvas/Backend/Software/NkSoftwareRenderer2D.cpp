@@ -14,6 +14,9 @@
 #include "NkSoftwareRenderer2D.h"
 #include "NkSWPixel.h"
 #include "NKCanvas/Renderer/Resources/NkTexture.h"
+#include "NKCanvas/Renderer/Resources/NkTextureBackend.h"
+#include "NKCanvas/Renderer/Resources/NkShaderBackend.h"
+#include "NKCanvas/Renderer/Targets/NkRenderTextureBackend.h"
 #include "NKCanvas/Renderer/Resources/NkSprite.h"
 #include "NKCanvas/Core/NkNativeContextAccess.h"
 #include "NKLogger/NkLog.h"
@@ -43,6 +46,42 @@ namespace nkentseu {
     namespace renderer {
 
         // =============================================================================
+        // Dispatch table NkTexture pour le backend Software.
+        //
+        // Le software rasterizer echantillonne directement les pixels CPU de
+        // NkTexture (mCPUPixels, copies a LoadFromImage). Il n'y a donc PAS
+        // de ressource GPU a allouer/maj/detruire ici — les callbacks ne font
+        // que renvoyer un ID factice non-nul pour satisfaire le contrat (un
+        // mGPUId = 0 invalide la texture cote NkTexture).
+        //
+        // L'ID retourne est un compteur monotone (1, 2, 3, …) — l'unicite par
+        // session suffit, et les Set/Filter/Wrap sont stockes dans NkTexture
+        // (mFilter/mWrap) que le sampler software peut consulter directement
+        // via NkTexture::GetFilter/GetWrap si besoin (pour l'instant, le path
+        // BlitTexture utilise du nearest-neighbor clampe — voir ligne ~136).
+        // =============================================================================
+        namespace {
+            static uint32 gSWNextTextureId{1};
+
+            static uint32 NkSW_CreateTexture(uint32 /*w*/, uint32 /*h*/, const uint8* /*rgba*/) {
+                return gSWNextTextureId++;
+            }
+            static void NkSW_UpdateTexture(uint32 /*id*/, uint32 /*x*/, uint32 /*y*/,
+                                            uint32 /*w*/, uint32 /*h*/, const uint8* /*rgba*/) {
+                // No-op : NkTexture::Update a deja mis a jour mCPUPixels.
+            }
+            static void NkSW_DeleteTexture(uint32 /*id*/) {
+                // No-op : pas de ressource GPU a liberer.
+            }
+            static void NkSW_SetTextureFilter(uint32 /*id*/, NkTextureFilter /*f*/) {
+                // No-op : le sampling software est nearest-neighbor pour l'instant.
+            }
+            static void NkSW_SetTextureWrap(uint32 /*id*/, NkTextureWrap /*w*/) {
+                // No-op : le sampling software est clampe pour l'instant.
+            }
+        } // anon
+
+        // =============================================================================
         bool NkSoftwareRenderer2D::Initialize(NkIGraphicsContext* ctx) {
             if (mIsValid) return false;
             if (!ctx || !ctx->IsValid()) { NK_SW2D_ERR("Invalid context"); return false; }
@@ -61,6 +100,24 @@ namespace nkentseu {
             mDefaultView.size   = { (float32)W, (float32)H };
             mCurrentView        = mDefaultView;
             mViewport           = { 0, 0, (int32)W, (int32)H };
+
+            // Enregistre la dispatch table NkTexture (callbacks software no-op).
+            {
+                NkTextureBackend backend{};
+                backend.Create    = &NkSW_CreateTexture;
+                backend.Update    = &NkSW_UpdateTexture;
+                backend.Destroy   = &NkSW_DeleteTexture;
+                backend.SetFilter = &NkSW_SetTextureFilter;
+                backend.SetWrap   = &NkSW_SetTextureWrap;
+                NkTextureSetBackend(backend);
+            }
+
+            // Le rasterizer Software n'a pas de pipeline programmable (les
+            // fragments sont produits cote CPU avec un sampler bilineaire fixe).
+            // On installe un stub NkShader « non supporte » pour que l'API
+            // utilisateur reste consistante (NkShader::Compile renverra false).
+            NkShaderInstallUnsupportedBackend("Software");
+            NkRenderTextureInstallUnsupportedBackend("Software");
 
             mIsValid = true;
             NK_SW2D_LOG("Initialized (%ux%u)", W, H);
@@ -88,8 +145,12 @@ namespace nkentseu {
             }
         }
 
-        void NkSoftwareRenderer2D::BeginBackend() {}
-        void NkSoftwareRenderer2D::EndBackend()   {}
+        // Meme principe que Vulkan : le cycle de frame du contexte doit etre pilote
+        // ici. BeginFrame() efface le back-buffer CPU (Clear 25,25,25) et EndFrame()
+        // le finalise ; sans ca, le buffer reste noir, les draws ne landent pas et
+        // Present() BitBlt une image noire -> ECRAN NOIR.
+        void NkSoftwareRenderer2D::BeginBackend() { if (mCtx) mCtx->BeginFrame(); }
+        void NkSoftwareRenderer2D::EndBackend()   { if (mCtx) mCtx->EndFrame(); }
 
         // =============================================================================
         // Draw sprite — blit direct sans passer par le batch
@@ -147,10 +208,21 @@ namespace nkentseu {
             const int32  texH   = (int32)tex->GetHeight();
             if (!pixels || texW <= 0 || texH <= 0) return;
 
-            const int32 x0 = nk_clampi(dstX, 0, (int32)fb.width);
-            const int32 y0 = nk_clampi(dstY, 0, (int32)fb.height);
-            const int32 x1 = nk_clampi(dstX + dstW, 0, (int32)fb.width);
-            const int32 y1 = nk_clampi(dstY + dstH, 0, (int32)fb.height);
+            int32 x0 = nk_clampi(dstX, 0, (int32)fb.width);
+            int32 y0 = nk_clampi(dstY, 0, (int32)fb.height);
+            int32 x1 = nk_clampi(dstX + dstW, 0, (int32)fb.width);
+            int32 y1 = nk_clampi(dstY + dstH, 0, (int32)fb.height);
+            // Clip / scissor (origine haut-gauche, idem framebuffer CPU).
+            if (mHasClip) {
+                const int32 cx0 = nk_clampi(mClipRect.x, 0, (int32)fb.width);
+                const int32 cy0 = nk_clampi(mClipRect.y, 0, (int32)fb.height);
+                const int32 cx1 = nk_clampi(mClipRect.x + mClipRect.width,  0, (int32)fb.width);
+                const int32 cy1 = nk_clampi(mClipRect.y + mClipRect.height, 0, (int32)fb.height);
+                if (x0 < cx0) x0 = cx0;
+                if (y0 < cy0) y0 = cy0;
+                if (x1 > cx1) x1 = cx1;
+                if (y1 > cy1) y1 = cy1;
+            }
             if (x0 >= x1 || y0 >= y1) return;
 
             // Facteurs de scale en virgule fixe (Q16.16)
@@ -265,8 +337,18 @@ namespace nkentseu {
             if (sv[0].y > sv[1].y) { SWScanVert tmp = sv[0]; sv[0] = sv[1]; sv[1] = tmp; }
 
             // Bornes Y clampées au framebuffer
-            const int32 yMin = nk_clampi((int32)ceilf(sv[0].y),  0, (int32)fb.height - 1);
-            const int32 yMax = nk_clampi((int32)floorf(sv[2].y), 0, (int32)fb.height - 1);
+            int32 yMin = nk_clampi((int32)ceilf(sv[0].y),  0, (int32)fb.height - 1);
+            int32 yMax = nk_clampi((int32)floorf(sv[2].y), 0, (int32)fb.height - 1);
+            // Clip / scissor (origine haut-gauche, identique au framebuffer CPU).
+            int32 clipX0 = 0, clipY0 = 0, clipX1 = (int32)fb.width, clipY1 = (int32)fb.height;
+            if (mHasClip) {
+                clipX0 = nk_clampi(mClipRect.x, 0, (int32)fb.width);
+                clipY0 = nk_clampi(mClipRect.y, 0, (int32)fb.height);
+                clipX1 = nk_clampi(mClipRect.x + mClipRect.width,  0, (int32)fb.width);
+                clipY1 = nk_clampi(mClipRect.y + mClipRect.height, 0, (int32)fb.height);
+                if (yMin < clipY0)     yMin = clipY0;
+                if (yMax > clipY1 - 1) yMax = clipY1 - 1;
+            }
             if (yMin > yMax) return;
 
             // Texture CPU
@@ -306,8 +388,12 @@ namespace nkentseu {
                 }
 
                 // Span X (inclure les demi-pixels bord)
-                const int32 xStart = nk_clampi((int32)ceilf(xL - 0.5f),  0, (int32)fb.width - 1);
-                const int32 xEnd   = nk_clampi((int32)floorf(xR + 0.5f), 0, (int32)fb.width - 1);
+                int32 xStart = nk_clampi((int32)ceilf(xL - 0.5f),  0, (int32)fb.width - 1);
+                int32 xEnd   = nk_clampi((int32)floorf(xR + 0.5f), 0, (int32)fb.width - 1);
+                if (mHasClip) {
+                    if (xStart < clipX0)     xStart = clipX0;
+                    if (xEnd   > clipX1 - 1) xEnd   = clipX1 - 1;
+                }
                 if (xStart > xEnd) continue;
 
                 const float32 spanW = xR - xL;

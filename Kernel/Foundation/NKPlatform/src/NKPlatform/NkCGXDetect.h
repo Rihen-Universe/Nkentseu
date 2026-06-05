@@ -259,6 +259,7 @@
                 NK_GFX_API_GNM,               ///< GNM (PlayStation 4/5, API propriétaire Sony)
                 NK_GFX_API_NVN,               ///< NVN (Nintendo Switch, API NVIDIA)
                 NK_GFX_API_MAX,               ///< Valeur sentinelle : nombre total d'APIs
+                NK_GFX_API_AUTO,              ///< Selection automatique selon plateforme (preference utilisateur)
             };
 
             // ====================================================================

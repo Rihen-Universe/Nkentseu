@@ -357,7 +357,7 @@
         // -------------------------------------------------------------------------
         // SECTION 3 : ALIAS DE COMPATIBILITÉ LEGACY
         // -------------------------------------------------------------------------
-        // Fournit des alias pour compatibilité avec l'ancien namespace nkentseu::entseu.
+        // Fournit des alias pour compatibilité avec l'ancien namespace nkentseu.
 
         namespace entseu {
             using NkDirectoryEntry = ::nkentseu::NkDirectoryEntry;

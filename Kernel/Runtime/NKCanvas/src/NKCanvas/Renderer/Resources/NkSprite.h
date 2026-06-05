@@ -1,20 +1,35 @@
 #pragma once
 // =============================================================================
 // NkSprite.h + NkText.h — High-level 2D drawables (similar to SFML)
+//
+// MIGRATION A.8 (2026-05-30) : NkSprite/NkText heritent maintenant des DEUX
+// interfaces drawable :
+//   - NkIDrawable2D (ancienne) : Draw(NkIRenderer2D&) — pour compat avec les
+//     5 backends existants (NkOpenGLRenderer2D::Draw(NkSprite), …) et le code
+//     legacy qui passe par NkIRenderer2D::Draw(NkSprite).
+//   - NkDrawable (nouvelle, SFML-like) : Draw(NkRenderTarget&, NkRenderStates)
+//     — pour le pattern moderne target.Draw(sprite).
+// Le second Draw construit le quad et appelle target.Draw(vertices, …) qui
+// passera par notre NkRenderTarget::Draw raw + transform CPU + dispatch
+// primitive — compatible cross-API par construction.
 // =============================================================================
 #include "NkTexture.h"
 #include "NkFont.h"
 #include "NKCanvas/Renderer/Core/NkIRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkDrawable.h"
+#include "NKCanvas/Renderer/Core/NkRenderStates.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
     namespace renderer {
 
+        class NkRenderTarget;
+
         // =========================================================================
         // NkSprite — textured, transformable 2D quad
         // Similar to sf::Sprite
         // =========================================================================
-        class NkSprite : public NkIDrawable2D {
+        class NkSprite : public NkIDrawable2D, public NkDrawable {
             public:
                 NkSprite()  = default;
                 explicit NkSprite(const NkTexture& texture);
@@ -60,8 +75,15 @@ namespace nkentseu {
                 NkRect2f GetLocalBounds()  const;
                 NkRect2f GetGlobalBounds() const;
 
-                // ── NkIDrawable2D ─────────────────────────────────────────────────────
+                // ── NkIDrawable2D (legacy) ────────────────────────────────────────────
                 void Draw(NkIRenderer2D& renderer) const override;
+
+                // ── NkDrawable (nouveau, SFML-like) ───────────────────────────────────
+                /// Genere un quad TRIANGLE_FAN (4 vertices) avec position/UV/color,
+                /// remplit le RenderStates avec la texture du sprite + ajoute notre
+                /// transform au transform parent, puis submit via target.Draw.
+                void Draw(NkRenderTarget& target,
+                          const NkRenderStates& states) const override;
 
             private:
                 const NkTexture* mTexture     = nullptr;
@@ -76,7 +98,7 @@ namespace nkentseu {
         // NkText — UTF-8 text drawable with FreeType-rasterized glyphs
         // Similar to sf::Text
         // =========================================================================
-        class NkText : public NkIDrawable2D {
+        class NkText : public NkIDrawable2D, public NkDrawable {
             public:
                 NkText()  = default;
                 NkText(const NkFont& font, const char* string, uint32 characterSize = 24);
@@ -125,8 +147,16 @@ namespace nkentseu {
                 // Find the index of the character at a given position
                 uint32 FindCharacterPos(NkVec2f point) const;
 
-                // ── NkIDrawable2D ─────────────────────────────────────────────────────
+                // ── NkIDrawable2D (legacy) ────────────────────────────────────────────
                 void Draw(NkIRenderer2D& renderer) const override;
+
+                // ── NkDrawable (nouveau, SFML-like) ───────────────────────────────────
+                /// Submit chaque glyphe comme un quad textured TRIANGLE_FAN via le
+                /// target. Le transform du parent est compose avec le notre, la
+                /// texture est celle de l'atlas du font (currently TODO : la page
+                /// d'atlas correcte selon characterSize doit etre wrapped en NkTexture).
+                void Draw(NkRenderTarget& target,
+                          const NkRenderStates& states) const override;
 
                 // Internal: build vertex array for the current string
                 struct GlyphVertex { NkVertex2D v[4]; };

@@ -177,7 +177,7 @@ namespace nkentseu {
 
             // Serialise le payload NkMaterialAsset en NkNative binaire
             NkArchive payloadArchive;
-            asset.Serialize(payloadArchive);
+            (void)asset.Serialize(payloadArchive);
             NkVector<nk_uint8> payload;
             if (!native::NkNativeWriter::WriteArchive(payloadArchive, payload)) {
                 logger.Errorf("[NkMaterialLibrary] Save: failed to encode payload\n");

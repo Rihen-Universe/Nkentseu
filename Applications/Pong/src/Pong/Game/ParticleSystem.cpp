@@ -3,7 +3,7 @@
 // =============================================================================
 
 #include "ParticleSystem.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "NKMath/NkFunctions.h"
 #include <cstdlib>
 
@@ -53,7 +53,7 @@ namespace nkentseu
 
         // Rendu : cercles pleins de rayon decroissant + alpha decroissant
         // avec l'age (life/maxLife).
-        void ParticleSystem::Render(GLRenderer2D& r, float ax, float ay) const
+        void ParticleSystem::Render(renderer::NkRenderer2D& r, float ax, float ay) const
         {
             for (uint32 i = 0; i < mParts.Size(); ++i)
             {
@@ -64,7 +64,7 @@ namespace nkentseu
                 c.a = static_cast<uint8_t>(c.a * a01);
                 // Taille decroissante (legerement) pour effet "puff"
                 const float radius = math::NkMax(0.5f, p.size * (1.0f - t * 0.40f));
-                r.DrawCircle(ax + p.x, ay + p.y, radius, c, 10);
+                r.DrawFilledCircle({ ax + p.x, ay + p.y }, radius, c, 10);
             }
         }
 

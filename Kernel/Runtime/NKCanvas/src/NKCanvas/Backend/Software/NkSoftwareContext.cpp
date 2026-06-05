@@ -176,7 +176,15 @@ namespace nkentseu {
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
         mData.hwnd = surf.hwnd;
         HWND hwnd  = static_cast<HWND>(surf.hwnd);
+        if (!hwnd) { NK_SW_ERR("InitNativePresenter: surf.hwnd is null\n"); return false; }
         mData.hdc  = GetDC(hwnd);
+        if (!mData.hdc) {
+            NK_SW_ERR("InitNativePresenter: GetDC(hwnd) returned null (last error=%lu)\n",
+                      (unsigned long)GetLastError());
+            return false;
+        }
+        NK_SW_LOG("InitNativePresenter: hwnd=%p hdc=%p size=%ux%u\n",
+                  (void*)hwnd, mData.hdc, w, h);
 
         BITMAPINFO bmi = {};
         bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
@@ -190,12 +198,26 @@ namespace nkentseu {
         mData.dibBitmap = CreateDIBSection(
             static_cast<HDC>(mData.hdc), &bmi,
             DIB_RGB_COLORS, &bits, nullptr, 0);
-        if (!mData.dibBitmap) { NK_SW_ERR("CreateDIBSection failed\n"); return false; }
+        if (!mData.dibBitmap) {
+            NK_SW_ERR("CreateDIBSection failed (last error=%lu)\n", (unsigned long)GetLastError());
+            ReleaseDC(hwnd, static_cast<HDC>(mData.hdc));
+            mData.hdc = nullptr;
+            return false;
+        }
 
         mData.dibBits = bits;
         mData.dibDC   = CreateCompatibleDC(static_cast<HDC>(mData.hdc));
+        if (!mData.dibDC) {
+            NK_SW_ERR("CreateCompatibleDC failed\n");
+            DeleteObject(static_cast<HBITMAP>(mData.dibBitmap));
+            mData.dibBitmap = nullptr;
+            ReleaseDC(hwnd, static_cast<HDC>(mData.hdc));
+            mData.hdc = nullptr;
+            return false;
+        }
         SelectObject(static_cast<HDC>(mData.dibDC),
                     static_cast<HBITMAP>(mData.dibBitmap));
+        NK_SW_LOG("InitNativePresenter: DIB OK (%ux%u, bits=%p)\n", w, h, bits);
         return true;
 
     // â”€â”€ Linux XLib â€” XShm (shared memory) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -395,17 +417,35 @@ namespace nkentseu {
     // =============================================================================
     void NkSoftwareContext::PresentNative() {
         const NkSoftwareFramebuffer& fb = mFrontBuffer;
-        if (!fb.IsValid()) return;
+        if (!fb.IsValid()) {
+            NK_SW_ERR("PresentNative: front buffer invalid (w=%u h=%u pixels=%zu)\n",
+                      fb.width, fb.height, fb.pixels.Size());
+            return;
+        }
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        // Copier pixels â†’ DIBSection puis BitBlt vers l'Ã©cran
-        if (mData.dibBits && mData.dibDC && mData.hdc) {
-            // DIRECT memcpy : le framebuffer est déjà en BGRA (ordre GDI)
-            // grâce à NK_SW_PIXEL_BGRA dans NkSWPixel.h
-            memcpy(mData.dibBits, fb.pixels.Data(), fb.pixels.Size());
-            BitBlt(static_cast<HDC>(mData.hdc), 0, 0,
-                (int)fb.width, (int)fb.height,
-                static_cast<HDC>(mData.dibDC), 0, 0, SRCCOPY);
+        // Copier pixels â†’ DIBSection puis BitBlt vers l'Ã©cran. Validations
+        // ajoutees 2026-05-30 pour eviter ecran noir silencieux quand un
+        // composant DIB n'est pas initialise correctement.
+        if (!mData.dibBits || !mData.dibDC || !mData.hdc) {
+            NK_SW_ERR("PresentNative: DIB state incomplete (dibBits=%p dibDC=%p hdc=%p)\n",
+                      mData.dibBits, mData.dibDC, mData.hdc);
+            return;
+        }
+        const usize expected = (usize)fb.width * (usize)fb.height * 4u;
+        if (fb.pixels.Size() < expected) {
+            NK_SW_ERR("PresentNative: framebuffer size mismatch (have %zu, need %zu for %ux%u)\n",
+                      fb.pixels.Size(), expected, fb.width, fb.height);
+            return;
+        }
+        // DIRECT memcpy : le framebuffer est déjà en BGRA (ordre GDI)
+        // grâce à NK_SW_PIXEL_BGRA dans NkSWPixel.h
+        memcpy(mData.dibBits, fb.pixels.Data(), expected);
+        if (!BitBlt(static_cast<HDC>(mData.hdc), 0, 0,
+                    (int)fb.width, (int)fb.height,
+                    static_cast<HDC>(mData.dibDC), 0, 0, SRCCOPY)) {
+            NK_SW_ERR("PresentNative: BitBlt failed (last error=%lu)\n",
+                      (unsigned long)GetLastError());
         }
 
     #elif defined(NKENTSEU_WINDOWING_XLIB)

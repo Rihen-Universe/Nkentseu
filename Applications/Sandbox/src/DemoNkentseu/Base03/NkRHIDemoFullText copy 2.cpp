@@ -1046,7 +1046,7 @@ int nkmain(const NkEntryState& state) {
     dii.api = targetApi; dii.surface = surface;
     dii.height = window.GetSize().height; dii.width = window.GetSize().width;
     dii.context.vulkan.appName    = "NkRHIDemoFull";
-    dii.context.vulkan.engineName = "Unkeny";
+    dii.context.vulkan.engineName = "Noge";
 
     NkIDevice* device = NkDeviceFactory::Create(dii);
     if (!device||!device->IsValid()) {

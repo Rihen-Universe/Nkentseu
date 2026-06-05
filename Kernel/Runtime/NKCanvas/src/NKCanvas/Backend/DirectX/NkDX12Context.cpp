@@ -126,13 +126,23 @@ bool NkDX12Context::Initialize(const NkWindow& window, const NkContextDesc& desc
     mData.vsync  = desc.dx12.vsync;
 
     const NkDirectX12Desc& d = desc.dx12;
+    // Trace step-by-step pour identifier ou un crash survient en init (sans
+    // debug device active les drivers ne sortent rien — ces logs aident).
+    NK_DX12_LOG("Init: CreateDevice...\n");
     if (!CreateDevice(d))          return false;
+    NK_DX12_LOG("Init: CreateCommandQueues...\n");
     if (!CreateCommandQueues(d))   return false;
+    NK_DX12_LOG("Init: CreateSwapchain (%ux%u)...\n", surf.width, surf.height);
     if (!CreateSwapchain(surf.width, surf.height, d)) return false;
+    NK_DX12_LOG("Init: CreateDescriptorHeaps...\n");
     if (!CreateDescriptorHeaps(d)) return false;
+    NK_DX12_LOG("Init: CreateRenderTargets...\n");
     if (!CreateRenderTargets())    return false;
+    NK_DX12_LOG("Init: CreateDepthBuffer...\n");
     if (!CreateDepthBuffer(surf.width, surf.height))  return false;
+    NK_DX12_LOG("Init: CreateCommandObjects...\n");
     if (!CreateCommandObjects())   return false;
+    NK_DX12_LOG("Init: CreateSyncObjects...\n");
     if (!CreateSyncObjects())      return false;
 
     mIsValid = true;
@@ -141,16 +151,62 @@ bool NkDX12Context::Initialize(const NkWindow& window, const NkContextDesc& desc
 }
 
 // =============================================================================
+// Callback ID3D12InfoQueue1 (forwarde les messages debug GPU vers NkLogger).
+// Signature stdcall imposee par l'API DX12. Free function (header expose
+// `static __stdcall` mais l'impl est ici).
+// =============================================================================
+void __stdcall NkDX12Context::DebugMessageCallback(
+    D3D12_MESSAGE_CATEGORY /*category*/,
+    D3D12_MESSAGE_SEVERITY severity,
+    D3D12_MESSAGE_ID       id,
+    LPCSTR                 description,
+    void*                  /*context*/)
+{
+    const char* sevStr =
+        (severity == D3D12_MESSAGE_SEVERITY_CORRUPTION) ? "CORRUPTION" :
+        (severity == D3D12_MESSAGE_SEVERITY_ERROR)      ? "ERROR"      :
+        (severity == D3D12_MESSAGE_SEVERITY_WARNING)    ? "WARNING"    :
+        (severity == D3D12_MESSAGE_SEVERITY_INFO)       ? "INFO"       : "MESSAGE";
+    if (severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+        logger.Errorf("[NkDX12 Debug][%s][id=%d] %s", sevStr, (int)id, description ? description : "(null)");
+    } else if (severity == D3D12_MESSAGE_SEVERITY_WARNING) {
+        logger.Warnf("[NkDX12 Debug][%s][id=%d] %s", sevStr, (int)id, description ? description : "(null)");
+    } else {
+        logger.Infof("[NkDX12 Debug][%s][id=%d] %s", sevStr, (int)id, description ? description : "(null)");
+    }
+}
+
+// =============================================================================
 bool NkDX12Context::CreateDevice(const NkDirectX12Desc& d) {
-    // Debug layer
+    // Debug layer — verifier d'abord que D3D12SDKLayers.dll est presente
+    // (Windows Graphics Tools optional feature). Sans ce check prealable,
+    // `EnableDebugLayer()` peut crasher en access violation, et clang-mingw
+    // ne supporte pas __try/__except SEH pour rattraper. Fix 2026-05-30.
     if (d.debugDevice) {
-        ComPtr<ID3D12Debug> debug;
-        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
-            debug->EnableDebugLayer();
-        if (d.gpuValidation) {
-            ComPtr<ID3D12Debug1> debug1;
-            if (SUCCEEDED(debug.As(&debug1)))
-                debug1->SetEnableGPUBasedValidation(TRUE);
+        HMODULE sdkLayersDll = LoadLibraryA("D3D12SDKLayers.dll");
+        if (sdkLayersDll) {
+            FreeLibrary(sdkLayersDll);
+            NK_DX12_LOG("DebugLayer: D3D12SDKLayers.dll found, requesting debug interface...\n");
+            ComPtr<ID3D12Debug> debug;
+            HRESULT hrDbg = D3D12GetDebugInterface(IID_PPV_ARGS(&debug));
+            if (SUCCEEDED(hrDbg) && debug) {
+                debug->EnableDebugLayer();
+                NK_DX12_LOG("DebugLayer: EnableDebugLayer OK\n");
+                if (d.gpuValidation) {
+                    ComPtr<ID3D12Debug1> debug1;
+                    if (SUCCEEDED(debug.As(&debug1)) && debug1) {
+                        debug1->SetEnableGPUBasedValidation(TRUE);
+                        NK_DX12_LOG("DebugLayer: GPU-based validation enabled\n");
+                    }
+                }
+            } else {
+                NK_DX12_LOG("DebugLayer: D3D12GetDebugInterface failed (hr=0x%08X)\n", (unsigned)hrDbg);
+            }
+        } else {
+            NK_DX12_ERR("DebugLayer requested but D3D12SDKLayers.dll not found. "
+                        "Install Windows Graphics Tools optional feature "
+                        "(Settings > Apps > Optional features > Add > Graphics Tools). "
+                        "Continuing without debug layer.\n");
         }
     }
 
@@ -173,8 +229,25 @@ bool NkDX12Context::CreateDevice(const NkDirectX12Desc& d) {
     if (d.debugDevice) {
         ComPtr<ID3D12InfoQueue1> infoQueue;
         if (SUCCEEDED(mData.device.As(&infoQueue))) {
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
+            // Break-on-severity reste utile en debugger ; en parallele on enregistre
+            // un callback qui forwarde TOUS les messages vers NkLogger pour que
+            // les diagnostics GPU apparaissent dans la console (sinon ils ne
+            // sortent que vers OutputDebugString — invisibles sans debugger).
+            // Ne casser (DebugBreak) que si un debugger est attache : sinon, sans
+            // IDE, le break termine brutalement l'app au 1er message — alors qu'on
+            // veut justement CAPTURER tous les messages via le callback -> NkLogger.
+            const BOOL brkOnMsg = IsDebuggerPresent();
+            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, brkOnMsg);
+            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, brkOnMsg);
+            DWORD cookie = 0;
+            infoQueue->RegisterMessageCallback(
+                &NkDX12Context::DebugMessageCallback,
+                D3D12_MESSAGE_CALLBACK_FLAG_NONE,
+                nullptr, &cookie);
+            mData.dbgCallbackCookie = cookie;
+            NK_DX12_LOG("DX12 InfoQueue1 RegisterMessageCallback OK (cookie=%lu)", cookie);
+        } else {
+            NK_DX12_LOG("DX12 InfoQueue1 unavailable (Windows < 10 2004 ?) — debug messages -> OutputDebugString only");
         }
     }
     NK_DX12_LOG("Device OK (adapter #%u vendor=0x%04X device=0x%04X VRAM %u MB)\n",

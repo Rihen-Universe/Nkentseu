@@ -345,7 +345,7 @@
 
     // Usage :
     // auto* player = LoadSerializableFromXML(xmlData, "PlayerData");
-    // if (player) { /* utiliser... *\/ delete player; }
+    // if (player) { utiliser... delete player; }
 */
 
 

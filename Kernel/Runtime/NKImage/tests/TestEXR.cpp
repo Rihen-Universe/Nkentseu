@@ -53,9 +53,10 @@ int main(int argc, char** argv) {
         const char* outPath = "Build/test_exr_output.png";
         bool ok = rgba->SavePNG(outPath);
         std::printf("[TestEXR] Sauve PNG %s : %s\n", outPath, ok ? "OK" : "FAIL");
-        rgba->Free();
+        rgba->Free();   // rgba vient de ConvertToTexture() (heap) → Free() OK
     }
 
-    img.Free();
+    // `img` est sur la PILE : pas de Free() (nkFree(this) sur la pile = corruption).
+    // Le destructeur ~NkImage() libère les pixels à la sortie de scope.
     return 0;
 }

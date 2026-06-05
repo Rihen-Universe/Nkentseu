@@ -72,14 +72,14 @@ namespace nkentseu {
             }
 
             [[nodiscard]] nk_bool Deserialize(const NkArchive& ar) override {
-                ar.GetString("sourceFilePath", sourceFilePath);
+                (void)ar.GetString("sourceFilePath", sourceFilePath);
                 nk_uint32 fmt = 0;
-                ar.GetUInt32("targetFormat",   fmt); targetFormat = static_cast<NkGPUFormat>(fmt);
-                ar.GetBool  ("generateMips",   generateMips);
-                ar.GetBool  ("sRGB",           sRGB);
-                ar.GetInt32 ("samplerPreset",  samplerPreset);
-                ar.GetInt32 ("alphaMode",      alphaMode);
-                ar.GetFloat32("alphaCutoff",   alphaCutoff);
+                (void)ar.GetUInt32("targetFormat",   fmt); targetFormat = static_cast<NkGPUFormat>(fmt);
+                (void)ar.GetBool  ("generateMips",   generateMips);
+                (void)ar.GetBool  ("sRGB",           sRGB);
+                (void)ar.GetInt32 ("samplerPreset",  samplerPreset);
+                (void)ar.GetInt32 ("alphaMode",      alphaMode);
+                (void)ar.GetFloat32("alphaCutoff",   alphaCutoff);
                 return true;
             }
         };

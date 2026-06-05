@@ -7,7 +7,7 @@
 
 #include "SplashScene.h"
 #include "MainMenuScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/Render/SafeArea.h"
 #include "Pong/UI/Theme.h"
@@ -27,7 +27,7 @@ namespace nkentseu
         // Grille de fond style HTML : lignes cyan 4% alpha espacees de 40 px.
         // On respecte les insets SafeArea pour ne pas tracer sous la status
         // bar Android (les marges restent noires uniformes).
-        static void DrawGridBackground(GLRenderer2D& r, const SafeArea& sa)
+        static void DrawGridBackground(renderer::NkRenderer2D& r, const SafeArea& sa)
         {
             const math::NkColor gc = theme::GridLine();
             const int spacing = 40;
@@ -35,16 +35,16 @@ namespace nkentseu
             const int H = (int)sa.vpH;
             for (int x = 0; x <= W; x += spacing)
             {
-                r.DrawQuad((float)x, 0.0f, 1.0f, (float)H, gc);
+                r.DrawFilledRect({ (float)x, 0.0f, 1.0f, (float)H }, gc);
             }
             for (int y = 0; y <= H; y += spacing)
             {
-                r.DrawQuad(0.0f, (float)y, (float)W, 1.0f, gc);
+                r.DrawFilledRect({ 0.0f, (float)y, (float)W, 1.0f }, gc);
             }
         }
 
         // Mini-field anime : terrain miniature avec balle qui rebondit.
-        static void DrawMiniField(GLRenderer2D& r, float x, float y,
+        static void DrawMiniField(renderer::NkRenderer2D& r, float x, float y,
                                   float w, float h, float t)
         {
             // Ligne centrale degradee
@@ -56,17 +56,17 @@ namespace nkentseu
                 const float fi = (float)i / (segs - 1);
                 float a = 1.0f - std::abs(fi - 0.5f) * 2.0f;
                 if (a < 0.0f) a = 0.0f;
-                r.DrawQuad(x + i * segW, midY - 1.0f, segW + 1.0f, 2.0f,
+                r.DrawFilledRect({ x + i * segW, midY - 1.0f, segW + 1.0f, 2.0f },
                            AlphaF(theme::Cyan(), a * 0.30f));
             }
             // Paddles cyan / orange aux bords
-            r.DrawQuad(x + 8.0f,      midY - 25.0f, 6.0f, 50.0f, theme::Cyan());
-            r.DrawQuad(x + w - 14.0f, midY - 25.0f, 6.0f, 50.0f, theme::Orange());
+            r.DrawFilledRect({ x + 8.0f,      midY - 25.0f, 6.0f, 50.0f }, theme::Cyan());
+            r.DrawFilledRect({ x + w - 14.0f, midY - 25.0f, 6.0f, 50.0f }, theme::Orange());
             // Balle anime : oscillation sinusoidale
             const float bx = x + 14.0f + (w - 28.0f) * (0.5f + 0.5f * math::NkSin(t * 2.0f - 1.5707963f));
             const float by = midY + math::NkSin(t * 4.0f) * (h * 0.30f);
-            r.DrawCircle(bx, by, 5.0f, theme::White(), 18);
-            r.DrawCircleOutline(bx, by, 6.0f, AlphaF(theme::White(), 0.6f), 1.0f, 18);
+            r.DrawFilledCircle({ bx, by }, 5.0f, theme::White(), 18);
+            r.DrawCircleOutline({ bx, by }, 6.0f, AlphaF(theme::White(), 0.6f), 1.0f, 18);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void SplashScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
@@ -101,10 +101,6 @@ namespace nkentseu
             // Scale unifie (boost mobile inclus).
             const float scale = GetUIScale(W, H);
 
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
             DrawGridBackground(r, sa);
 
             // ── Logo PONG ────────────────────────────────────────────────────
@@ -131,8 +127,8 @@ namespace nkentseu
             const float badgeH = 18.0f * scale + badgePadY * 2.0f;
             const float badgeX = cx - badgeW * 0.5f;
             const float badgeY = subY + 50.0f * scale;
-            r.DrawQuad(badgeX, badgeY, badgeW, badgeH, AlphaF(theme::Orange(), 0.12f));
-            r.DrawQuadOutline(badgeX, badgeY, badgeW, badgeH, AlphaF(theme::Orange(), 0.55f), 1.0f);
+            r.DrawFilledRect({ badgeX, badgeY, badgeW, badgeH }, AlphaF(theme::Orange(), 0.12f));
+            r.DrawRectOutline({ badgeX, badgeY, badgeW, badgeH }, AlphaF(theme::Orange(), 0.55f), 1.0f);
             f.DrawStringCentered(r, FontAtlas::BodySlot,
                                cx, badgeY + badgePadY,
                                badge, theme::Orange());
@@ -155,8 +151,8 @@ namespace nkentseu
             const float ctaY = mfY + mfH + 36.0f * scale;
             const float blink = (math::NkSin(t * 3.4f) > 0.0f) ? 1.0f : 0.45f;
             const math::NkColor borderC = AlphaF(theme::Cyan(), blink);
-            r.DrawQuad(ctaX, ctaY, ctaW, ctaH, AlphaF(theme::Cyan(), blink * 0.08f));
-            r.DrawQuadOutline(ctaX, ctaY, ctaW, ctaH, borderC, 2.0f);
+            r.DrawFilledRect({ ctaX, ctaY, ctaW, ctaH }, AlphaF(theme::Cyan(), blink * 0.08f));
+            r.DrawRectOutline({ ctaX, ctaY, ctaW, ctaH }, borderC, 2.0f);
             f.DrawStringCentered(r, FontAtlas::BodySlot,
                                cx, ctaY + ctaPadY,
                                cta, AlphaF(theme::Cyan(), 0.95f));
@@ -166,8 +162,6 @@ namespace nkentseu
             f.DrawStringCentered(r, FontAtlas::SmallSlot,
                                cx, sa.BottomY(12.0f) - 16.0f,
                                credits, AlphaF(theme::White(), 0.30f));
-
-            r.End();
         }
 
     } // namespace pong

@@ -97,7 +97,8 @@ layout(std140, binding = 0) uniform ShadowUBO {
     vec4  eyePosW;
     float ndcZScale;
     float ndcZOffset;
-    vec2  _pad;
+    float shadowYScale;
+    float _pad;
 } ubo;
 
 void main() {
@@ -127,7 +128,8 @@ layout(std140, binding = 0) uniform MainUBO {
     vec4  eyePosW;
     float ndcZScale;
     float ndcZOffset;
-    vec2  _pad;
+    float shadowYScale;
+    float _pad;
 } ubo;
 
 layout(location = 0) out vec3 vWorldPos;
@@ -171,7 +173,8 @@ layout(std140, binding = 0) uniform MainUBO {
     vec4  eyePosW;
     float ndcZScale;
     float ndcZOffset;
-    vec2  _pad;
+    float shadowYScale;
+    float _pad;
 } ubo;
 
 // sampler2DShadow avec compare mode LESS_OR_EQUAL
@@ -187,7 +190,10 @@ float ShadowFactor(vec4 shadowCoord) {
     // z  : remap selon la convention de l'API (ndcZScale/ndcZOffset dans l'UBO)
     //      OpenGL: z ∈ [-1,1] → scale=0.5, offset=0.5
     //      Vulkan/DX: z ∈ [0,1] → scale=1.0, offset=0.0
-    projCoords.xy = projCoords.xy * 0.5 + 0.5;
+    projCoords.x = projCoords.x * 0.5 + 0.5;
+    // shadowYScale = +1 (Vulkan : pas de flip) ou -1 (OpenGL : la shadow map est
+    // échantillonnée Y-inversée). DX gère son flip dans le HLSL, SW dans son fragFn.
+    projCoords.y = projCoords.y * ubo.shadowYScale * 0.5 + 0.5;
     projCoords.z  = projCoords.z * ubo.ndcZScale + ubo.ndcZOffset;
 
     // Rejeter les fragments hors du frustum lumière
@@ -436,7 +442,8 @@ struct alignas(16) UboData {
     float eyePosW[4];    // position caméra world space (xyz) + pad
     float ndcZScale;     // 0.5 pour OpenGL/SW (z NDC ∈ [-1,1]), 1.0 pour Vulkan/DX/Metal
     float ndcZOffset;    // 0.5 pour OpenGL/SW, 0.0 pour Vulkan/DX/Metal
-    float _pad[2];
+    float shadowYScale;  // +1 (pas de flip) ; -1 pour OpenGL (shadow map échantillonnée Y-inversée)
+    float _pad;
 };
 
 // =============================================================================
@@ -663,7 +670,19 @@ int nkmain(const nkentseu::NkEntryState& state) {
     deviceInitInfo.width = window.GetSize().width;
 
     deviceInitInfo.context.vulkan.appName = "NkRHIDemoFull";
-    deviceInitInfo.context.vulkan.engineName = "Unkeny";
+    deviceInitInfo.context.vulkan.engineName = "Noge";
+    // Validation layers Vulkan OFF par défaut : sur certaines machines la DLL de la
+    // couche de validation résout son import msvcp140.dll vers une version
+    // incompatible présente sur le PATH (ex. C:\Program Files\Huawei\DevEco Studio\bin)
+    // -> SIGSEGV dans vkCreateInstance. Opt-in via --vk-validation / -vkval.
+    const bool wantVkValidation = HasArg(state.GetArgs(), "--vk-validation", "-vkval");
+    deviceInitInfo.context.vulkan.validationLayers = wantVkValidation;
+    deviceInitInfo.context.vulkan.debugMessenger   = wantVkValidation;
+    // Cette démo n'applique pas de gestion gamma (le shader écrit directement la
+    // couleur Phong). On demande un swapchain UNORM pour que Vulkan affiche les
+    // couleurs telles quelles, comme OpenGL/DX, au lieu de les ré-encoder en sRGB
+    // (ce qui rendait le rendu délavé/pâle vs les autres backends).
+    deviceInitInfo.context.vulkan.srgbSwapchain = false;
 
     // ── Device RHI ───────────────────────────────────────────────────────────
     NkIDevice* device = NkDeviceFactory::Create(deviceInitInfo);
@@ -1037,15 +1056,67 @@ int nkmain(const nkentseu::NkEntryState& state) {
                     }
                 }
             
-                // Retourner une couleur de debug pour voir si le shader est appelé du tout
-                // Rouge = shader appelé, attrs[0] non nul = worldPos correct
-                if (frag.attrs[0] == 0.f && frag.attrs[1] == 0.f && frag.attrs[2] == 0.f) {
-                    return {1.f, 0.f, 0.f, 1.f}; // ROUGE = attrs perdus
+                // ── Éclairage Phong + ombre (équivalent CPU de kGLSL_Frag) ──────
+                const UboData* ubo = static_cast<const UboData*>(udata);
+
+                // Albedo = couleur par-vertex interpolée
+                math::NkVec3f albedo = { frag.color.r, frag.color.g, frag.color.b };
+                if (!ubo) return { albedo.x, albedo.y, albedo.z, 1.f };
+
+                // Normale monde (renormalisée par sûreté)
+                math::NkVec3f N = { frag.normal.x, frag.normal.y, frag.normal.z };
+                { float nl = NkSqrt(N.x*N.x + N.y*N.y + N.z*N.z);
+                  if (nl > 1e-6f) { N.x/=nl; N.y/=nl; N.z/=nl; } }
+
+                // World position (attrs[0..2]), direction lumière, vue, halfway
+                math::NkVec3f wpos = { frag.attrs[0], frag.attrs[1], frag.attrs[2] };
+                math::NkVec3f L = { -ubo->lightDirW[0], -ubo->lightDirW[1], -ubo->lightDirW[2] };
+                { float ll = NkSqrt(L.x*L.x+L.y*L.y+L.z*L.z);
+                  if (ll > 1e-6f) { L.x/=ll; L.y/=ll; L.z/=ll; } }
+                math::NkVec3f V = { ubo->eyePosW[0]-wpos.x, ubo->eyePosW[1]-wpos.y, ubo->eyePosW[2]-wpos.z };
+                { float vl = NkSqrt(V.x*V.x+V.y*V.y+V.z*V.z);
+                  if (vl > 1e-6f) { V.x/=vl; V.y/=vl; V.z/=vl; } }
+                math::NkVec3f H = { L.x+V.x, L.y+V.y, L.z+V.z };
+                { float hl = NkSqrt(H.x*H.x+H.y*H.y+H.z*H.z);
+                  if (hl > 1e-6f) { H.x/=hl; H.y/=hl; H.z/=hl; } }
+
+                float ndotl = N.x*L.x + N.y*L.y + N.z*L.z; if (ndotl < 0.f) ndotl = 0.f;
+                float ndoth = N.x*H.x + N.y*H.y + N.z*H.z; if (ndoth < 0.f) ndoth = 0.f;
+                // spec = pow(ndoth, 32) via 5 élévations au carré (évite powf)
+                float spec = ndoth; spec*=spec; spec*=spec; spec*=spec; spec*=spec; spec*=spec;
+
+                // ── Ombre 1-tap (shadow map depth en [0,1], cf. rasterizer z*0.5+0.5) ──
+                float shadow = 1.f;
+                if (swShadowTex && !swShadowTex->mips.Empty()) {
+                    float lw = frag.attrs[6];
+                    if (fabsf(lw) > 1e-6f) {
+                        float px = frag.attrs[3] / lw;
+                        float py = frag.attrs[4] / lw;
+                        float pz = frag.attrs[5] / lw;
+                        float u = px * 0.5f + 0.5f;
+                        // Le rasteriseur SW écrit la shadow map avec Y-flip
+                        // (NDCToScreen: screenY = (1-ndcY)*0.5*h), donc on échantillonne
+                        // en (1-py)*0.5 et NON py*0.5+0.5, sinon les ombres sont projetées
+                        // à l'envers verticalement.
+                        float v = (1.f - py) * 0.5f;
+                        float fragDepth = pz * ubo->ndcZScale + ubo->ndcZOffset;
+                        if (u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f && fragDepth <= 1.f) {
+                            // bias adaptatif identique au GLSL : mix(0.005, 0.0005, cosA)
+                            float bias = 0.005f * (1.f - ndotl) + 0.0005f * ndotl;
+                            uint32 tw = swShadowTex->Width(), th = swShadowTex->Height();
+                            int tx = (int)(u * (float)tw); if (tx < 0) tx = 0; if (tx >= (int)tw) tx = (int)tw - 1;
+                            int ty = (int)(v * (float)th); if (ty < 0) ty = 0; if (ty >= (int)th) ty = (int)th - 1;
+                            float stored = swShadowTex->Read((uint32)tx, (uint32)ty).r;
+                            shadow = (fragDepth - bias <= stored) ? 1.f : 0.f;
+                        }
+                    }
                 }
-                if (frag.normal.x == 0.f && frag.normal.y == 0.f && frag.normal.z == 0.f) {
-                    return {1.f, 1.f, 0.f, 1.f}; // JAUNE = normale perdue
-                }
-                return {0.f, 1.f, 0.f, 1.f}; // VERT = tout est là
+                if (shadow < 0.35f) shadow = 0.35f;   // plancher identique au GLSL (max(.,0.35))
+
+                float r = 0.15f*albedo.x + shadow*ndotl*albedo.x + shadow*spec*0.4f;
+                float g = 0.15f*albedo.y + shadow*ndotl*albedo.y + shadow*spec*0.4f;
+                float b = 0.15f*albedo.z + shadow*ndotl*albedo.z + shadow*spec*0.4f;
+                return { r, g, b, 1.f };
             };
         }
     }
@@ -1106,6 +1177,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
 
     logger.Info("[RHIFullDemo] Boucle principale. ESC=quitter, WASD=caméra, Flèches=lumière\n");
 
+    // ── Compteur FPS affiché dans la barre de titre (mise à jour ~2 Hz) ────────
+    float fpsTimer  = 0.f;   // accumulateur de temps depuis la dernière MAJ titre
+    int   fpsFrames = 0;     // frames depuis la dernière MAJ titre
+
     // =========================================================================
     // Boucle principale
     // =========================================================================
@@ -1124,6 +1199,18 @@ int nkmain(const nkentseu::NkEntryState& state) {
         // ── Delta time ────────────────────────────────────────────────────────
         float dt = clock.Tick().delta;
         if (dt <= 0.f || dt > 0.25f) dt = 1.f / 60.f;
+
+        // ── FPS dans la barre de titre (rafraîchi 2×/s pour éviter le scintillement) ─
+        fpsTimer += dt;
+        ++fpsFrames;
+        if (fpsTimer >= 0.5f) {
+            const float fps = (float)fpsFrames / fpsTimer;
+            window.SetTitle(NkFormat("NkRHI Full Demo — {0} — {1} FPS ({2} ms)",
+                                     apiName, (int)(fps + 0.5f),
+                                     (int)(1000.f / (fps > 0.f ? fps : 1.f) + 0.5f)));
+            fpsTimer  = 0.f;
+            fpsFrames = 0;
+        }
 
         // ── Contrôles clavier ─────────────────────────────────────────────────
         const float camSpd = 60.f, lightSpd = 90.f;
@@ -1223,6 +1310,10 @@ int nkmain(const nkentseu::NkEntryState& state) {
         if (hasShadowMap && hShadowFBO.IsValid() && hShadowRP.IsValid()) {
 
             NkRect2D shadowArea{0, 0, (int32)kShadowSize, (int32)kShadowSize};
+            // Arme le clear depth (passe depth-only). Indispensable pour OpenGL, dont
+            // BeginRenderPass ne clear que si SetClearDepth a été appelé en amont
+            // (DX/VK/SW clear de façon inconditionnelle, d'où l'écran noir GL sans ceci).
+            cmd->SetClearDepth(1.f);
             const bool shadowPassBegan = cmd->BeginRenderPass(hShadowRP, hShadowFBO, shadowArea);
             if (shadowPassBegan && useRealShadowPass && hShadowPipe.IsValid()) {
                 NkViewport svp{0.f, 0.f, (float)kShadowSize, (float)kShadowSize, 0.f, 1.f};
@@ -1294,6 +1385,11 @@ int nkmain(const nkentseu::NkEntryState& state) {
         // Passe 2 : Rendu principal (Phong + shadow)
         // =====================================================================
         NkRect2D area{0, 0, (int32)W, (int32)H};
+        // Arme le clear color+depth de la passe principale. Requis pour OpenGL
+        // (sinon le depth buffer n'est jamais remis à 1.0 → depth test rejette tout
+        // → écran noir). Inoffensif pour DX/VK/SW qui clear déjà inconditionnellement.
+        cmd->SetClearColor(0.f, 0.f, 0.f, 1.f);
+        cmd->SetClearDepth(1.f);
         if (!cmd->BeginRenderPass(hRP, hFBO, area)) {
             cmd->End();
             if (targetApi == NkGraphicsApi::NK_GFX_API_VULKAN && W > 0 && H > 0) {
@@ -1320,6 +1416,12 @@ int nkmain(const nkentseu::NkEntryState& state) {
             ubo.eyePosW[2]   = eye.z;        ubo.eyePosW[3]   = 0.f;
             ubo.ndcZScale    = ndcZScale;
             ubo.ndcZOffset   = ndcZOffset;
+            // OpenGL et Vulkan partagent le même GLSL et la même convention
+            // d'échantillonnage de la shadow map (NDC y → UV v sans flip) : +1 pour
+            // les deux. Le bug d'ombre GL d'origine venait du depth de la shadow map
+            // non-cleared (corrigé via SetClearDepth), pas d'un flip Y. DX gère son
+            // flip dans le HLSL, Software dans son fragFn.
+            ubo.shadowYScale = 1.f;
         };
 
         // Cube rotatif

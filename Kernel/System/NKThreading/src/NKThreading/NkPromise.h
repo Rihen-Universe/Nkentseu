@@ -7,7 +7,7 @@
 //
 // Objectif :
 //   - Maintenir la compatibilité avec le code existant utilisant l'ancien
-//     namespace nkentseu::entseu pour les primitives async Future/Promise
+//     namespace nkentseu pour les primitives async Future/Promise
 //   - Faciliter la migration progressive vers nkentseu::threading
 //   - Éviter les breaking changes dans les projets dépendants
 //
@@ -17,8 +17,8 @@
 //   - Aucune implémentation supplémentaire : pure couche de compatibilité
 //
 // Types redirigés :
-//   nkentseu::entseu::NkPromise<T> → nkentseu::threading::NkPromise<T>
-//   nkentseu::entseu::NkFuture<T>  → nkentseu::threading::NkFuture<T>
+//   nkentseu::NkPromise<T> → nkentseu::threading::NkPromise<T>
+//   nkentseu::NkFuture<T>  → nkentseu::threading::NkFuture<T>
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits réservés.
@@ -79,7 +79,7 @@
     // mais générera un warning de dépréciation si configuré.
 
     #include <NKThreading/NkPromise.h>  // Inclut les aliases legacy
-    using namespace nkentseu::entseu;    // Ancien namespace (déprécié)
+    using namespace nkentseu;    // Ancien namespace (déprécié)
 
     void LegacyFunction()
     {
@@ -128,7 +128,7 @@
 
     // Étape 2 : Utiliser un namespace alias conditionnel dans le code client
     #if NKENTSEU_USE_LEGACY_ASYNC
-        namespace async = nkentseu::entseu;   // Legacy pendant la transition
+        namespace async = nkentseu;   // Legacy pendant la transition
     #else
         namespace async = nkentseu::threading;  // Moderne après migration
     #endif
@@ -157,7 +157,7 @@
 
     static_assert(
         std::is_same_v<
-            nkentseu::entseu::NkPromise<int>,
+            nkentseu::NkPromise<int>,
             nkentseu::threading::NkPromise<int>
         >,
         "Legacy alias NkPromise<int> doit pointer vers threading::NkPromise<int>"
@@ -165,7 +165,7 @@
 
     static_assert(
         std::is_same_v<
-            nkentseu::entseu::NkFuture<void>,
+            nkentseu::NkFuture<void>,
             nkentseu::threading::NkFuture<void>
         >,
         "Legacy alias NkFuture<void> doit pointer vers threading::NkFuture<void>"
@@ -180,14 +180,14 @@
     template<typename PromiseType>
     void ProcessAsync(PromiseType&& promise, int value)
     {
-        // Fonctionne avec nkentseu::entseu::NkPromise<T>
+        // Fonctionne avec nkentseu::NkPromise<T>
         // ET avec nkentseu::threading::NkPromise<T>
         // grâce à l'interface commune et aux alias compatibles
         promise.SetValue(value);
     }
 
     // Usage avec legacy alias :
-    nkentseu::entseu::NkPromise<int> legacyPromise;
+    nkentseu::NkPromise<int> legacyPromise;
     ProcessAsync(legacyPromise, 100);  // OK
 
     // Usage avec type moderne :
@@ -234,9 +234,9 @@
     # migrate_async_namespace.py --dry-run src/
 
     Règles de remplacement :
-    1. nkentseu::entseu::NkPromise< → nkentseu::threading::NkPromise<
-    2. nkentseu::entseu::NkFuture<  → nkentseu::threading::NkFuture<
-    3. using namespace nkentseu::entseu; → using namespace nkentseu::threading;
+    1. nkentseu::NkPromise< → nkentseu::threading::NkPromise<
+    2. nkentseu::NkFuture<  → nkentseu::threading::NkFuture<
+    3. using namespace nkentseu; → using namespace nkentseu::threading;
     4. #include <NKThreading/NkPromise.h> → #include <NKThreading/NkFuture.h>
 
     Exclusions (ne pas modifier) :
@@ -287,7 +287,7 @@
     TEST(LegacyAliasTest, NkPromiseTypeEquivalence)
     {
         // Vérifie que l'alias legacy produit le même type que le target
-        using LegacyPromise = nkentseu::entseu::NkPromise<int>;
+        using LegacyPromise = nkentseu::NkPromise<int>;
         using ModernPromise = nkentseu::threading::NkPromise<int>;
 
         static_assert(std::is_same_v<LegacyPromise, ModernPromise>,
@@ -302,7 +302,7 @@
     TEST(LegacyAliasTest, NkFutureVoidSpecialization)
     {
         // Vérifie que la spécialisation void est également redirigée
-        using LegacyFutureVoid = nkentseu::entseu::NkFuture<void>;
+        using LegacyFutureVoid = nkentseu::NkFuture<void>;
         using ModernFutureVoid = nkentseu::threading::NkFuture<void>;
 
         static_assert(std::is_same_v<LegacyFutureVoid, ModernFutureVoid>,
@@ -314,13 +314,13 @@
     // ---------------------------------------------------------------------
     /*
     ============================================================================
-    GUIDE DE MIGRATION : nkentseu::entseu → nkentseu::threading
+    GUIDE DE MIGRATION : nkentseu → nkentseu::threading
     ============================================================================
 
     Contexte :
     ----------
     Les primitives async (Future/Promise) ont été déplacées du namespace
-    nkentseu::entseu vers nkentseu::threading pour une meilleure organisation
+    nkentseu vers nkentseu::threading pour une meilleure organisation
     et cohérence avec les autres modules de threading.
 
     Impact :
@@ -339,7 +339,7 @@
        APRÈS : #include <NKThreading/NkFuture.h>
 
     3. Mettre à jour les using namespace :
-       AVANT : using namespace nkentseu::entseu;
+       AVANT : using namespace nkentseu;
        APRÈS : using namespace nkentseu::threading;
 
     4. Ou utiliser des qualifications complètes :

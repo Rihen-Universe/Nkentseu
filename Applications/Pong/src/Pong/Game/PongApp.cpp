@@ -7,56 +7,20 @@
 
 #include "NKPlatform/NkPlatformDetect.h"
 
-// ── GLAD2 ────────────────────────────────────────────────────────────────────
-#if defined(__has_include)
-#   if defined(NKENTSEU_PLATFORM_WINDOWS)
-#       if __has_include(<glad/wgl.h>) && __has_include(<glad/gl.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
-#       if __has_include(<glad/gl.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
-#       if __has_include(<glad/gles2.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-#       if __has_include(<glad/gles2.h>)
-#           define PONG_HAS_GLAD 1
-#       endif
-#   endif
-#endif
-
-#if defined(PONG_HAS_GLAD)
-#   if defined(NKENTSEU_PLATFORM_WINDOWS)
-#       include <glad/wgl.h>
-#       include <glad/gl.h>
-#   elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
-#       if defined(__has_include)
-#           if __has_include(<glad/glx.h>)
-#               include <glad/glx.h>
-#           endif
-#       endif
-#       include <glad/gl.h>
-#   elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID)
-#       include <glad/gles2.h>
-#   elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
-#       include <glad/gles2.h>
-#   endif
-#endif
-
-#if defined(Bool)
-#   undef Bool
-#endif
-
 #include "PongApp.h"
+#include "Pong/PongConfig.h"
+#include "Pong/UI/Theme.h"
 #include "Pong/UI/Scenes/RihenIntroScene.h"
 #include "Pong/UI/Scenes/MainMenuScene.h"
 #include "Pong/Net/AfricaPlaces.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
+
+// Cible de rendu NKCanvas (remplace l'ancien GLContext + GLRenderer2D raw-GL).
+#include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
+#include "NKCanvas/Core/NkContextDesc.h"
+
 #include <cstdio>
 
 namespace nkentseu
@@ -71,7 +35,7 @@ namespace nkentseu
         {
             AppContext ctx;
             ctx.window     = &mWindow;
-            ctx.renderer   = &mRenderer;
+            ctx.renderer   = (mTarget != nullptr) ? &mTarget->GetRenderer2D() : nullptr;
             ctx.font       = &mFont;
             ctx.settings   = &mSettings;
             ctx.scenes     = &mScenes;
@@ -99,21 +63,49 @@ namespace nkentseu
             // No-op hors Android.
             NkFile::SetAndroidAssetSubFolder("Pong");
 
-            if (!mGL.Init(mWindow))
+            // Backend graphique choisi dynamiquement via pong.config
+            // (opengl | vulkan | dx11 | dx12 | software | auto). Permet de
+            // valider chaque backend NKCanvas sans recompiler.
+            const PongConfig pcfg = PongConfig::LoadOrCreateDefault();
+            NkContextDesc desc;
+            desc.api = (pcfg.backend == NkGraphicsApi::NK_GFX_API_AUTO)
+                     ? PongConfig::PickBestForPlatform()
+                     : pcfg.backend;
+            logger.Info("[PongApp] Backend graphique : {0}",
+                        PongConfig::BackendName(desc.api));
+
+            // Validation GPU optionnelle (pong.config: debug=1) : couche debug
+            // DX11/DX12 + validation layers Vulkan. Les messages sont forwardes
+            // vers NkLogger (utile pour diagnostiquer un backend qui n'affiche
+            // rien). Off par defaut (overhead). Le check D3D12SDKLayers.dll cote
+            // contexte degrade proprement si la feature Graphics Tools manque.
+            if (pcfg.debug)
             {
-                logger.Error("[PongApp] GL init failed");
+                desc.dx11.debugDevice        = true;
+                desc.dx12.debugDevice        = true;
+                desc.vulkan.validationLayers = true;
+                desc.vulkan.debugMessenger   = true;
+                logger.Warn("[PongApp] VALIDATION GPU ACTIVE (pong.config debug=1) - backend {0}",
+                            PongConfig::BackendName(desc.api));
+            }
+
+            // Cree le contexte GPU + le renderer 2D NKCanvas sur la fenetre.
+            // (Remplace l'ancien duo GLContext + GLRenderer2D raw-GL.)
+            mTarget = new renderer::NkRenderWindow(mWindow, desc);
+            if (mTarget == nullptr || !mTarget->IsValid())
+            {
+                logger.Error("[PongApp] NkRenderWindow init FAILED (backend {0})",
+                             PongConfig::BackendName(desc.api));
                 return false;
             }
+
             const auto sz = mWindow.GetSize();
             mViewportW = sz.x;
             mViewportH = sz.y;
 
-            if (!mRenderer.Init())
-            {
-                logger.Error("[PongApp] Renderer init failed");
-                return false;
-            }
-            if (!mFont.Init())
+            // Atlas de polices : rasterise via NKFont puis upload en NkTexture
+            // (NKCanvas) — a besoin du renderer pour creer la texture GPU.
+            if (!mFont.Init(mTarget->GetRenderer2D()))
             {
                 logger.Error("[PongApp] Font atlas init failed");
                 return false;
@@ -164,8 +156,8 @@ namespace nkentseu
             mAudio.Shutdown();
 
             mFont.Shutdown();
-            mRenderer.Shutdown();
-            mGL.Shutdown();
+            delete mTarget;
+            mTarget = nullptr;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -173,7 +165,7 @@ namespace nkentseu
         {
             mViewportW = w;
             mViewportH = h;
-            mGL.OnResize(w, h);
+            if (mTarget) mTarget->OnResize(w, h);
             AppContext ctx = BuildContext();
             mScenes.Resize(ctx, (int)w, (int)h);
         }
@@ -218,17 +210,28 @@ namespace nkentseu
 
         bool PongApp::RecreateSurface()
         {
-            return mGL.RecreateSurface(mWindow);
+            // Desktop : NO-OP. La swapchain est geree par OnResize (event resize,
+            // teste dans la boucle). On NE declenche SURTOUT PAS OnResize ici :
+            // l'appeler au demarrage (event Shown) AVANT que la 1ere frame ne soit
+            // presentee fait, sur DX12, un reset de cmdList non-consommee -> echec
+            // -> contexte invalide -> ecran blanc.
+            // Android : la recreation reelle de surface apres APP_CMD_INIT_WINDOW
+            // devra etre cablee dans le contexte NKCanvas (TODO hardware).
+            return mTarget != nullptr;
         }
 
         // ─────────────────────────────────────────────────────────────────────
         void PongApp::Render()
         {
-            if (!mGL.BeginFrame()) return;
+            if (mTarget == nullptr || !mTarget->IsValid()) return;
+            // Le cycle de frame est possede ICI, pas dans les scenes :
+            //   Clear()   -> ouvre la frame + efface l'ecran (fond sombre)
+            //   Render()  -> les scenes ne font QUE dessiner (pas de Begin/End)
+            //   Display() -> termine la frame + presente (swap buffers)
+            mTarget->Clear(theme::Dark());
             AppContext ctx = BuildContext();
             mScenes.Render(ctx);
-            mGL.EndFrame();
-            mGL.Present();
+            mTarget->Display();
         }
 
         // ─────────────────────────────────────────────────────────────────────

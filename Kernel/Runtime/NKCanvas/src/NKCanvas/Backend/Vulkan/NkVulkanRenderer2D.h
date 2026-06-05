@@ -7,6 +7,7 @@
 // Dynamic VBO/IBO via host-visible buffer (re-mapped each frame).
 // =============================================================================
 #include "NKCanvas/Renderer/Batch/NkBatchRenderer2D.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"   // NkTextureFilter / NkTextureWrap enums
 #include "NkVulkanContextData.h"
 #include "NKLogger/NkLog.h"
 
@@ -31,6 +32,16 @@ namespace nkentseu {
 
                 // Texture ops (called by NkTexture integration)
                 static VkSampler GetDefaultSampler() { return sSampler; }
+
+                // GPU texture ops (called by NkTexture via NkTextureBackend
+                // dispatch table — see NkTextureBackend.h).
+                // Les callbacks sont statiques : ils s'appuient sur une registry
+                // globale (gVkTexRegistry dans le .cpp) capturee a Initialize().
+                static uint32 CreateVulkanTexture(uint32 w, uint32 h, const uint8* rgba);
+                static void   UpdateVulkanTexture(uint32 id, uint32 x, uint32 y, uint32 w, uint32 h, const uint8* rgba);
+                static void   DeleteVulkanTexture(uint32 id);
+                static void   SetVulkanTextureFilter(uint32 id, NkTextureFilter f);
+                static void   SetVulkanTextureWrap  (uint32 id, NkTextureWrap   w);
 
             protected:
                 void BeginBackend()  override;

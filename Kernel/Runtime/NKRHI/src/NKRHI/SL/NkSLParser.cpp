@@ -7,6 +7,18 @@
 
 namespace nkentseu {
 
+// Incremente/decremente un compteur de profondeur de recursion. Le decrement
+// est garanti sur tous les chemins de sortie (anti stack-overflow). NkSL ne
+// leve pas d'exception au parsing, donc inc/dec manuel suffirait, mais le RAII
+// reste correct pour les fonctions a sorties multiples (ParseStatement).
+namespace {
+    struct NkSLDepthGuard {
+        uint32& d;
+        explicit NkSLDepthGuard(uint32& depth) noexcept : d(depth) { ++d; }
+        ~NkSLDepthGuard() { --d; }
+    };
+}
+
 // =============================================================================
 NkSLParser::NkSLParser(NkSLLexer& lexer) : mLexer(lexer) {}
 
@@ -135,6 +147,34 @@ NkSLBaseType NkSLParser::TokenToBaseType(NkSLTokenKind k) const {
         case NkSLTokenKind::NK_KW_IMAGE2D:              return NkSLBaseType::NK_IMAGE2D;
         case NkSLTokenKind::NK_KW_IIMAGE2D:             return NkSLBaseType::NK_IIMAGE2D;
         case NkSLTokenKind::NK_KW_UIMAGE2D:             return NkSLBaseType::NK_UIMAGE2D;
+        // --- Samplers/images additionnels ---
+        case NkSLTokenKind::NK_KW_SAMPLER1D:                return NkSLBaseType::NK_SAMPLER1D;
+        case NkSLTokenKind::NK_KW_SAMPLER1D_ARRAY:          return NkSLBaseType::NK_SAMPLER1D_ARRAY;
+        case NkSLTokenKind::NK_KW_SAMPLERCUBE_ARRAY:        return NkSLBaseType::NK_SAMPLER_CUBE_ARRAY;
+        case NkSLTokenKind::NK_KW_SAMPLERCUBE_ARRAY_SHADOW: return NkSLBaseType::NK_SAMPLER_CUBE_ARRAY_SHADOW;
+        case NkSLTokenKind::NK_KW_SAMPLER2DMS:              return NkSLBaseType::NK_SAMPLER2DMS;
+        case NkSLTokenKind::NK_KW_ISAMPLER1D:               return NkSLBaseType::NK_ISAMPLER1D;
+        case NkSLTokenKind::NK_KW_USAMPLER1D:               return NkSLBaseType::NK_USAMPLER1D;
+        case NkSLTokenKind::NK_KW_ISAMPLER3D:               return NkSLBaseType::NK_ISAMPLER3D;
+        case NkSLTokenKind::NK_KW_USAMPLER3D:               return NkSLBaseType::NK_USAMPLER3D;
+        case NkSLTokenKind::NK_KW_ISAMPLERCUBE:             return NkSLBaseType::NK_ISAMPLER_CUBE;
+        case NkSLTokenKind::NK_KW_USAMPLERCUBE:             return NkSLBaseType::NK_USAMPLER_CUBE;
+        case NkSLTokenKind::NK_KW_ISAMPLER2D_ARRAY:         return NkSLBaseType::NK_ISAMPLER2D_ARRAY;
+        case NkSLTokenKind::NK_KW_USAMPLER2D_ARRAY:         return NkSLBaseType::NK_USAMPLER2D_ARRAY;
+        case NkSLTokenKind::NK_KW_ISAMPLERCUBE_ARRAY:       return NkSLBaseType::NK_ISAMPLER_CUBE_ARRAY;
+        case NkSLTokenKind::NK_KW_USAMPLERCUBE_ARRAY:       return NkSLBaseType::NK_USAMPLER_CUBE_ARRAY;
+        case NkSLTokenKind::NK_KW_IMAGE1D:                  return NkSLBaseType::NK_IMAGE1D;
+        case NkSLTokenKind::NK_KW_IIMAGE1D:                 return NkSLBaseType::NK_IIMAGE1D;
+        case NkSLTokenKind::NK_KW_UIMAGE1D:                 return NkSLBaseType::NK_UIMAGE1D;
+        case NkSLTokenKind::NK_KW_IMAGE3D:                  return NkSLBaseType::NK_IMAGE3D;
+        case NkSLTokenKind::NK_KW_IIMAGE3D:                 return NkSLBaseType::NK_IIMAGE3D;
+        case NkSLTokenKind::NK_KW_UIMAGE3D:                 return NkSLBaseType::NK_UIMAGE3D;
+        case NkSLTokenKind::NK_KW_IMAGECUBE:                return NkSLBaseType::NK_IMAGE_CUBE;
+        case NkSLTokenKind::NK_KW_IIMAGECUBE:               return NkSLBaseType::NK_IIMAGE_CUBE;
+        case NkSLTokenKind::NK_KW_UIMAGECUBE:               return NkSLBaseType::NK_UIMAGE_CUBE;
+        case NkSLTokenKind::NK_KW_IMAGE2D_ARRAY:            return NkSLBaseType::NK_IMAGE2D_ARRAY;
+        case NkSLTokenKind::NK_KW_IIMAGE2D_ARRAY:           return NkSLBaseType::NK_IIMAGE2D_ARRAY;
+        case NkSLTokenKind::NK_KW_UIMAGE2D_ARRAY:           return NkSLBaseType::NK_UIMAGE2D_ARRAY;
         default: return NkSLBaseType::NK_UNKNOWN;
     }
 }
@@ -148,10 +188,17 @@ NkSLProgramNode* NkSLParser::Parse() {
         try {
             NkSLNode* decl = ParseTopLevel();
             if (decl) prog->AddChild(decl);
+            // Drainer les declarateurs supplementaires (declaration multiple).
+            for (auto* extra : mPendingDecls) prog->AddChild(extra);
+            mPendingDecls.Clear();
         } catch (...) {
             Synchronize();
         }
     }
+    // Reporte la taille de workgroup collectée pendant le parsing.
+    prog->localSizeX = mLocalSizeX;
+    prog->localSizeY = mLocalSizeY;
+    prog->localSizeZ = mLocalSizeZ;
     return prog;
 }
 
@@ -191,14 +238,29 @@ NkSLNode* NkSLParser::ParseTopLevel() {
     if (k == NkSLTokenKind::NK_KW_IN || k == NkSLTokenKind::NK_KW_OUT) return ParseVarDecl(true);
 
     // layout(push_constant) uniform Block { ... }
+    // layout(local_size_x = X, local_size_y = Y, local_size_z = Z) in;  (compute)
     if (k == NkSLTokenKind::NK_KW_LAYOUT) {
-        // Traitement simplifié : on reconnaît layout(push_constant)
         Consume(); // 'layout'
         Consume(NkSLTokenKind::NK_LPAREN, "Expected '(' after 'layout'");
         bool isPushConst = false;
+        bool isLocalSize = false;
         while (!Check(NkSLTokenKind::NK_RPAREN) && !IsAtEnd()) {
             NkSLToken qual = Consume();
-            if (qual.text == "push_constant") isPushConst = true;
+            if (qual.text == "push_constant") { isPushConst = true; }
+            // Taille de workgroup compute. On lit la valeur ici (= N) pour ne
+            // pas dépendre du classement keyword/ident du lexer (on teste .text).
+            else if (qual.text == "local_size_x" || qual.text == "local_size_y" ||
+                     qual.text == "local_size_z") {
+                isLocalSize = true;
+                if (Match(NkSLTokenKind::NK_OP_ASSIGN)) {
+                    NkSLToken val = Consume(NkSLTokenKind::NK_LIT_INT,
+                                            "Expected integer for local_size");
+                    uint32 v = (uint32)val.intVal;
+                    if      (qual.text == "local_size_x") mLocalSizeX = v;
+                    else if (qual.text == "local_size_y") mLocalSizeY = v;
+                    else                                  mLocalSizeZ = v;
+                }
+            }
             else if (qual.kind == NkSLTokenKind::NK_OP_COMMA) continue;
             // On ignore les autres qualificateurs (binding=N, location=N, etc.)
             else if (qual.kind == NkSLTokenKind::NK_OP_ASSIGN || IsTypeToken(qual.kind)) continue;
@@ -206,6 +268,13 @@ NkSLNode* NkSLParser::ParseTopLevel() {
             else if (qual.kind == NkSLTokenKind::NK_IDENT) continue;
         }
         Consume(NkSLTokenKind::NK_RPAREN, "Expected ')' after layout qualifiers");
+        if (isLocalSize) {
+            // layout(local_size_*) in;  — ce n'est pas une déclaration :
+            // on absorbe le 'in' et le ';' optionnels et on ne produit aucun nœud.
+            Match(NkSLTokenKind::NK_KW_IN);
+            Match(NkSLTokenKind::NK_OP_SEMICOLON);
+            return nullptr;
+        }
         if (isPushConst)
             return ParseBlockDecl(NkSLStorageQual::NK_PUSH_CONSTANT);
         return ParseBlockDecl(NkSLStorageQual::NK_UNIFORM);
@@ -302,11 +371,16 @@ NkSLBinding NkSLParser::ParseBindingArgs() {
         if (name.kind == NkSLTokenKind::NK_IDENT) {
             Consume(); // nom
             if (Match(NkSLTokenKind::NK_OP_ASSIGN)) {
-                NkSLToken val = Consume(NkSLTokenKind::NK_LIT_INT, "Expected integer binding value");
-                if (name.text == "set")      b.set     = (int32)val.intVal;
-                if (name.text == "binding")  b.binding = (int32)val.intVal;
-                if (name.text == "location") b.location= (int32)val.intVal;
-                if (name.text == "offset")   b.offset  = (int32)val.intVal;
+                if (name.text == "format") {
+                    // Valeur = identifiant de format d'image (r32f, rgba8, rgba16f...).
+                    b.imageFormat = Consume().text;
+                } else {
+                    NkSLToken val = Consume(NkSLTokenKind::NK_LIT_INT, "Expected integer binding value");
+                    if (name.text == "set")      b.set     = (int32)val.intVal;
+                    if (name.text == "binding")  b.binding = (int32)val.intVal;
+                    if (name.text == "location") b.location= (int32)val.intVal;
+                    if (name.text == "offset")   b.offset  = (int32)val.intVal;
+                }
             }
         } else if (name.kind == NkSLTokenKind::NK_LIT_INT) {
             // @location(0) syntax courte
@@ -358,6 +432,7 @@ NkSLTypeNode* NkSLParser::ParseType() {
 // Déclaration de variable
 // =============================================================================
 NkSLVarDeclNode* NkSLParser::ParseVarDecl(bool expectSemi) {
+    mPendingDecls.Clear(); // isole les declarateurs supplementaires de CET appel
     auto* decl = new NkSLVarDeclNode();
     decl->line = Peek().line;
 
@@ -395,6 +470,35 @@ NkSLVarDeclNode* NkSLParser::ParseVarDecl(bool expectSemi) {
         decl->initializer = ParseAssignment();
     }
 
+    // Déclarateurs supplémentaires : "type a, b = expr, c;". Chacun partage les
+    // qualificateurs/stockage et CLONE le type (le type n'est pas un enfant de
+    // l'AST -> pas de double-free). Empilés dans mPendingDecls (drainés par
+    // l'appelant).
+    while (Check(NkSLTokenKind::NK_OP_COMMA)) {
+        Consume(); // ','
+        auto* d = new NkSLVarDeclNode();
+        d->line        = Peek().line;
+        d->kind        = decl->kind;
+        d->storage     = decl->storage;
+        d->interp      = decl->interp;
+        d->precision   = decl->precision;
+        d->isConst     = decl->isConst;
+        d->isInvariant = decl->isInvariant;
+        auto* ct = new NkSLTypeNode();
+        if (decl->type) {
+            ct->baseType  = decl->type->baseType;
+            ct->typeName  = decl->type->typeName;
+            ct->arraySize = decl->type->arraySize;
+            ct->isUnsized = decl->type->isUnsized;
+            ct->kind      = decl->type->kind;
+            ct->line      = decl->type->line;
+        }
+        d->type = ct;
+        if (Check(NkSLTokenKind::NK_IDENT)) d->name = Consume().text;
+        if (Match(NkSLTokenKind::NK_OP_ASSIGN)) d->initializer = ParseAssignment();
+        mPendingDecls.PushBack(d);
+    }
+
     if (expectSemi)
         Consume(NkSLTokenKind::NK_OP_SEMICOLON, "Expected ';' after variable declaration");
 
@@ -423,6 +527,9 @@ NkSLBlockDeclNode* NkSLParser::ParseBlockDecl(NkSLStorageQual storage) {
         NkSLVarDeclNode* member = ParseVarDecl(true);
         block->members.PushBack(member);
         block->AddChild(member);
+        // Membres multiples : "vec3 a, b;" dans un uniform/buffer block.
+        for (auto* extra : mPendingDecls) { block->members.PushBack(extra); block->AddChild(extra); }
+        mPendingDecls.Clear();
     }
 
     Consume(NkSLTokenKind::NK_RBRACE, "Expected '}'");
@@ -454,6 +561,9 @@ NkSLStructDeclNode* NkSLParser::ParseStructDecl() {
         NkSLVarDeclNode* m = ParseVarDecl(true);
         s->members.PushBack(m);
         s->AddChild(m);
+        // Membres multiples : "float x, y, z;" dans un struct.
+        for (auto* extra : mPendingDecls) { s->members.PushBack(extra); s->AddChild(extra); }
+        mPendingDecls.Clear();
     }
     Consume(NkSLTokenKind::NK_RBRACE, "Expected '}'");
     Consume(NkSLTokenKind::NK_OP_SEMICOLON, "Expected ';' after struct");
@@ -507,12 +617,21 @@ NkSLBlockNode* NkSLParser::ParseBlock() {
     while (!Check(NkSLTokenKind::NK_RBRACE) && !IsAtEnd()) {
         NkSLNode* stmt = ParseStatement();
         if (stmt) block->AddChild(stmt);
+        // Declaration locale multiple : "float a, b, c;"
+        for (auto* extra : mPendingDecls) block->AddChild(extra);
+        mPendingDecls.Clear();
     }
     Consume(NkSLTokenKind::NK_RBRACE, "Expected '}'");
     return block;
 }
 
 NkSLNode* NkSLParser::ParseStatement() {
+    NkSLDepthGuard _g(mDepth);
+    if (mDepth > kMaxParseDepth) {
+        Error("Imbrication d'instructions trop profonde (profondeur max atteinte)");
+        if (!IsAtEnd()) Consume(); // garantir la progression pour eviter une boucle
+        return nullptr;
+    }
     switch (Peek().kind) {
         case NkSLTokenKind::NK_LBRACE:      return ParseBlock();
         case NkSLTokenKind::NK_KW_IF:       return ParseIfStmt();
@@ -572,6 +691,9 @@ NkSLNode* NkSLParser::ParseForStmt() {
         else
             n->init = ParseExprStmt();
     } else { Consume(); }
+    // Multi-decl en for-init ("for(int i,j;...)") non supporte : on jette les
+    // extras pour ne pas polluer le drainage du bloc englobant.
+    mPendingDecls.Clear();
     if (!Check(NkSLTokenKind::NK_OP_SEMICOLON)) n->condition = ParseExpression();
     Consume(NkSLTokenKind::NK_OP_SEMICOLON, "Expected ';'");
     if (!Check(NkSLTokenKind::NK_RPAREN)) n->increment = ParseExpression();
@@ -650,7 +772,14 @@ NkSLNode* NkSLParser::ParseExprStmt() {
 // =============================================================================
 // Expressions — escalade de précédence
 // =============================================================================
-NkSLNode* NkSLParser::ParseExpression()    { return ParseAssignment(); }
+NkSLNode* NkSLParser::ParseExpression() {
+    NkSLDepthGuard _g(mDepth);
+    if (mDepth > kMaxParseDepth) {
+        Error("Expression trop imbriquee (profondeur max atteinte)");
+        return nullptr;
+    }
+    return ParseAssignment();
+}
 NkSLNode* NkSLParser::ParseAssignment() {
     NkSLNode* lhs = ParseTernary();
     // Opérateurs d'assignation

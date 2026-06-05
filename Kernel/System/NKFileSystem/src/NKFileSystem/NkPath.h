@@ -328,7 +328,7 @@
         // -------------------------------------------------------------------------
         // SECTION 3 : ALIAS DE COMPATIBILITÉ LEGACY
         // -------------------------------------------------------------------------
-        // Fournit un alias pour compatibilité avec l'ancien namespace nkentseu::entseu.
+        // Fournit un alias pour compatibilité avec l'ancien namespace nkentseu.
 
         namespace entseu {
             // Alias vers le type principal pour compatibilité ascendante

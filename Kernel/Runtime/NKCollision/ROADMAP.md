@@ -181,5 +181,5 @@ Conservé comme **référence d'implémentation** — à porter, pas à intégre
   - `Engine/Noge/.../Components/Physics/NkPhysics.h` et `NkPhysicsComponents.h` (déjà déclarés, attendent NKCollision)
   - `NKPhysics` (à créer ou existant ?) — résolution d'impulses, contraintes, joints au-dessus des contacts produits par NKCollision
   - `Engine/Noge/.../ECS/Systems/NkRaycastSystem` (futur)
-  - Applications : `Unkeny` (gizmos collider), `Sandbox`, `PV3DE` (si physique de salle d'opération)
+  - Applications : `Noge` (gizmos collider), `Sandbox`, `PV3DE` (si physique de salle d'opération)
 - **Relation à NKPhysics** : ARCHITECTURE.md §2.4 mentionne `NKPhysics: Rigidbody, collision AABB/OBB/sphere/capsule, raycast`. La décomposition recommandée est `NKCollision` (géométrie + détection seule) + `NKPhysics` (dynamique + résolution + contraintes) au-dessus. Cette séparation est saine et alignée avec PhysX (`PxScene` / `PxRigidActor`) et Bullet (`btCollisionWorld` / `btDynamicsWorld`).

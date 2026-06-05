@@ -2,7 +2,7 @@
 // CameraViewerDemo.cpp -- Visualiseur plein ecran d'une camera physique.
 //
 // Refonte OpenGL pur (glad) : aucune dependance sur NkTexture / NkSprite /
-// NkIRenderer2D (cf bug NkTexture_SetBackend non appele par les backends 2D
+// NkIRenderer2D (cf bug NkTextureSetBackend non appele par les backends 2D
 // dans NKCanvas, qui logge "No backend registered" a chaque LoadFromImage).
 //
 // Pipeline : GLContext + CameraGLTexture + FullscreenBlit, modele Pong.

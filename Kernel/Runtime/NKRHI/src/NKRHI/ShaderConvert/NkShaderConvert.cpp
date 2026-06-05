@@ -315,7 +315,7 @@ namespace nkentseu {
     // =============================================================================
 
     NkShaderConvertResult NkShaderConverter::SpirvToHlsl(
-        const uint32* spirvWords, uint32 wordCount, NkSLStage /*stage*/,
+        const uint32* spirvWords, uint32 wordCount, NkSLStage stage,
         uint32 hlslShaderModel)
     {
         NkShaderConvertResult out;
@@ -326,6 +326,79 @@ namespace nkentseu {
             spirv_cross::CompilerHLSL::Options opts;
             opts.shader_model = hlslShaderModel;
             compiler.set_hlsl_options(opts);
+
+            // ── Remapping compact des registres DX ────────────────────────────────
+            // NKRenderer met des ressources à des bindings élevés (25,26,27…) dans un
+            // set. Par défaut SPIRV-Cross émet register(b25/t25/s25) ; or DX11 plafonne
+            // à 14 cbuffer (b0-b13) et 16 sampler (s0-s15) -> erreur X4567. On réassigne
+            // donc des registres COMPACTS par classe (b/t/s/u) et on enregistre le
+            // mapping dans out.dxBindings pour que le device binde aux mêmes registres.
+            //   - DX11 (SM<=50) : pas de register space -> compaction PLATE (toutes sets
+            //     confondues dans space 0).
+            //   - DX12 (SM>=51) : on utilise space = descriptor set, register = compteur
+            //     par (classe, space).
+            const bool useSpaces = (hlslShaderModel >= 51);
+            spv::ExecutionModel em =
+                (stage == NkSLStage::NK_VERTEX)   ? spv::ExecutionModelVertex   :
+                (stage == NkSLStage::NK_FRAGMENT) ? spv::ExecutionModelFragment :
+                (stage == NkSLStage::NK_COMPUTE)  ? spv::ExecutionModelGLCompute:
+                (stage == NkSLStage::NK_GEOMETRY) ? spv::ExecutionModelGeometry :
+                                                    spv::ExecutionModelFragment;
+
+            struct ResEntry { uint32 set; uint32 binding; spirv_cross::ID id; int cls; }; // cls 0=cbv 1=srv 2=combined 3=sampler 4=uav
+            std::vector<ResEntry> entries;
+            auto add = [&](const spirv_cross::SmallVector<spirv_cross::Resource>& list, int cls) {
+                for (auto& r : list) {
+                    uint32 set = compiler.get_decoration(r.id, spv::DecorationDescriptorSet);
+                    uint32 bnd = compiler.get_decoration(r.id, spv::DecorationBinding);
+                    entries.push_back({set, bnd, r.id, cls});
+                }
+            };
+            auto resources = compiler.get_shader_resources();
+            add(resources.uniform_buffers,   0); // CBV
+            add(resources.storage_buffers,   1); // SRV (StructuredBuffer lu en graphics)
+            add(resources.separate_images,   1); // SRV
+            add(resources.sampled_images,    2); // SRV + Sampler (combiné)
+            add(resources.separate_samplers, 3); // Sampler
+            add(resources.storage_images,    4); // UAV
+
+            // Ordre déterministe (set, binding) pour une assignation reproductible côté device.
+            std::sort(entries.begin(), entries.end(), [](const ResEntry& a, const ResEntry& b){
+                return (a.set != b.set) ? (a.set < b.set) : (a.binding < b.binding);
+            });
+
+            // Compteurs par classe et par space (état LOCAL à cet appel, pas de static).
+            // DX11 (useSpaces=false) : tout dans space 0. DX12 : un compteur par space=set.
+            uint32 cB[16]={0}, cT[16]={0}, cS[16]={0}, cU[16]={0};
+            auto alloc = [&](uint32* table, uint32 space) -> uint32 {
+                uint32 sp = useSpaces ? (space & 15u) : 0u;
+                return table[sp]++;
+            };
+
+            for (auto& e : entries) {
+                spirv_cross::HLSLResourceBinding hb{};
+                hb.stage    = em;
+                hb.desc_set = e.set;
+                hb.binding  = e.binding;
+                NkDXResourceBinding map{};
+                map.set = e.set; map.binding = e.binding;
+                map.space = useSpaces ? e.set : 0u;
+                const uint32 space = e.set;
+                switch (e.cls) {
+                    case 0: { uint32 r=alloc(cB,space); hb.cbv.register_space=map.space; hb.cbv.register_binding=r; map.cbvReg=r; } break;
+                    case 1: { uint32 r=alloc(cT,space); hb.srv.register_space=map.space; hb.srv.register_binding=r; map.srvReg=r; } break;
+                    case 2: { uint32 t=alloc(cT,space); uint32 s=alloc(cS,space);
+                              hb.srv.register_space=map.space; hb.srv.register_binding=t;
+                              hb.sampler.register_space=map.space; hb.sampler.register_binding=s;
+                              map.srvReg=t; map.samplerReg=s; } break;
+                    case 3: { uint32 r=alloc(cS,space); hb.sampler.register_space=map.space; hb.sampler.register_binding=r; map.samplerReg=r; } break;
+                    case 4: { uint32 r=alloc(cU,space); hb.uav.register_space=map.space; hb.uav.register_binding=r; map.uavReg=r; } break;
+                    default: break;
+                }
+                compiler.add_hlsl_resource_binding(hb);
+                out.dxBindings.PushBack(map);
+            }
+
             out.source  = NkString(compiler.compile().c_str());
             out.success = true;
         } catch (const std::exception& e) {

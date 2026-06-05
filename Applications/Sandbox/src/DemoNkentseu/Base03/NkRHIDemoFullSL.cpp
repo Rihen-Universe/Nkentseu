@@ -41,7 +41,7 @@
 #include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
 #include "NKImage/Core/NkImage.h"
-#include "NKFont/NKFont.h"
+#include "NKFont/NkFont.h"
 
 // ── NkSL : le seul include shader nécessaire ─────────────────────────────────
 #include "NKRHI/SL/NkSLIntegration.h"
@@ -198,7 +198,7 @@ void main() {
     // Couleur de base + texture albedo si hasTexture (vColor.w > 0.5)
     vec3 baseColor = vColor.rgb;
     if (vColor.w > 0.5) {
-        baseColor *= texture(uAlbedoMap, clamp(vUV, 0.0, 1.0)).rgb;
+        baseColor = texture(uAlbedoMap, vUV / 3.0).rgb;  // DIAG mips
     }
 
     float diff = max(dot(N, L), 0.0);
@@ -617,7 +617,8 @@ static bool CompileNkSLShader(
                     sd.glslSource = storeSource(res.source);
                 }
                 break;
-            case NkSLTarget::NK_HLSL:
+            case NkSLTarget::NK_HLSL:       // = NK_HLSL_DX11 (alias)
+            case NkSLTarget::NK_HLSL_DX12:  // DX12 SM6 : meme champ hlslSource
                 sd.hlslSource = storeSource(res.source);
                 break;
             case NkSLTarget::NK_MSL:
@@ -712,6 +713,22 @@ static std::vector<uint8_t> LoadFileBytes(const std::string& path){
     fread(buf.data(),1,(size_t)sz,f);fclose(f);
     return buf;
 }
+
+// Le rendu texte de ce demo est desactive (les text-quads ne sont appeles que
+// depuis du code commente). On neutralise l'ancienne API NKFont (NkFontFace/
+// NkFontLibrary supprimes a la refonte) par un stub local, pour pouvoir valider
+// la chaine NkSL sur la scene 3D. Le FPS s'affiche dans la barre de titre.
+struct NkFontFace {
+    int32 GetAscender()  const { return 16; }
+    int32 GetDescender() const { return -4; }
+    bool  IsValid()      const { return false; }
+};
+struct NkFontLibrary {
+    void        Init()                               {}
+    NkFontFace* LoadFont(const void*, usize, uint32) { return nullptr; }
+    void        FreeFont(NkFontFace*)                {}
+    void        Destroy()                            {}
+};
 
 static std::vector<uint8_t> BuildStringBitmap(NkFontFace* face,const char* text, uint32& outW,uint32& outH){
     if(!face||!text||!*text){outW=outH=0;return{};}
@@ -885,7 +902,11 @@ int nkmain(const NkEntryState& state) {
     dii.api=targetApi;dii.surface=surface;
     dii.height=window.GetSize().height;dii.width=window.GetSize().width;
     dii.context.vulkan.appName="NkRHIDemoNkSL";
-    dii.context.vulkan.engineName="Unkeny";
+    dii.context.vulkan.engineName="Noge";
+    // UNORM comme GL/DX (pas d'encodage sRGB auto a la presentation) : sinon le
+    // rendu Vulkan parait plus clair/sature que les autres backends. Le shader
+    // ecrit deja des couleurs "telles quelles" (pas de tonemapping/gamma).
+    dii.context.vulkan.srgbSwapchain=false;
     NkIDevice* device=NkDeviceFactory::Create(dii);
     if(!device||!device->IsValid()){
         logger.Errorf("[RHIFullDemo-NkSL] Device creation failed (%s)\n",apiName);
@@ -1121,13 +1142,18 @@ int nkmain(const NkEntryState& state) {
     NkImage* loadedTextureImage=nullptr;
     std::string loadedTexturePath=FindTextureInResources();
 
-    if(!loadedTexturePath.empty())
-        loadedTextureImage = NkImage::Load(loadedTexturePath.c_str(), 4);
-        // loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
+    if(!loadedTexturePath.empty()){
+        // Load() est une methode d'instance (NKIResource) : allouer puis charger.
+        loadedTextureImage = NkImage::Alloc(1,1,NkImagePixelFormat::NK_RGBA32);
+        if(loadedTextureImage && !loadedTextureImage->Load(loadedTexturePath.c_str(), 4)){
+            loadedTextureImage->Free();loadedTextureImage=nullptr;
+        }
+    }
 
+    // Fallback : damier procedural si aucune texture trouvee.
     if(!loadedTextureImage||!loadedTextureImage->IsValid()){
         if(loadedTextureImage){loadedTextureImage->Free();loadedTextureImage=nullptr;}
-        loadedTextureImage=NkImage::Alloc(256,256,NkImagePixelFormat::NK_RGBA32,true);
+        loadedTextureImage=NkImage::Alloc(256,256,NkImagePixelFormat::NK_RGBA32);
         if(loadedTextureImage&&loadedTextureImage->IsValid()){
             for(int y=0;y<loadedTextureImage->Height();++y){
                 uint8* row=loadedTextureImage->RowPtr(y);
@@ -1141,18 +1167,37 @@ int nkmain(const NkEntryState& state) {
     }
 
     if(loadedTextureImage&&loadedTextureImage->IsValid()){
-        NkTextureDesc ad=NkTextureDesc::Tex2D(
-            (uint32)loadedTextureImage->Width(),
-            (uint32)loadedTextureImage->Height(),
-            NkGPUFormat::NK_RGBA8_UNORM,1);
+        const uint32 albW=(uint32)loadedTextureImage->Width();
+        const uint32 albH=(uint32)loadedTextureImage->Height();
+        // mipLevels=0 => le device alloue la chaine complete. On genere les mips
+        // cote CPU (NkImage::Resize) et on uploade chaque niveau : minification
+        // PROPRE et IDENTIQUE sur les 5 backends (independant du GenerateMips
+        // driver, absent sur DX12). Corrige l'aliasing/streaking far-field DX11.
+        NkTextureDesc ad=NkTextureDesc::Tex2D(albW,albH,NkGPUFormat::NK_RGBA8_UNORM,0);
         ad.bindFlags=NkBindFlags::NK_SHADER_RESOURCE;
         hAlbedoTex=device->CreateTexture(ad);
-        if(hAlbedoTex.IsValid())
-            device->WriteTexture(hAlbedoTex,loadedTextureImage->Pixels(),
-                                 (uint32)loadedTextureImage->Stride());
+        if(hAlbedoTex.IsValid()){
+            // niveau 0 = pleine resolution
+            device->WriteTextureRegion(hAlbedoTex,loadedTextureImage->Pixels(),
+                0,0,0, albW,albH,1, 0,0, (uint32)loadedTextureImage->Stride());
+            // niveaux suivants : downsample depuis la pleine resolution
+            uint32 mw=albW, mh=albH, level=1;
+            while(mw>1||mh>1){
+                uint32 nw=mw>1?mw/2:1, nh=mh>1?mh/2:1;
+                NkImage* mipImg=loadedTextureImage->Resize((int32)nw,(int32)nh,NkResizeFilter::NK_BILINEAR);
+                if(mipImg){
+                    if(mipImg->IsValid())
+                        device->WriteTextureRegion(hAlbedoTex,mipImg->Pixels(),
+                            0,0,0, nw,nh,1, level,0, (uint32)mipImg->Stride());
+                    mipImg->Free();
+                }
+                mw=nw; mh=nh; ++level;
+            }
+        }
         NkSamplerDesc asd{};
         asd.magFilter=NkFilter::NK_LINEAR;asd.minFilter=NkFilter::NK_LINEAR;
-        asd.mipFilter=NkMipFilter::NK_NONE;
+        asd.mipFilter=NkMipFilter::NK_LINEAR;   // trilineaire (mips)
+        asd.maxAnisotropy=16.f;                  // anti-aliasing a angle rasant (sol)
         asd.addressU=asd.addressV=asd.addressW=NkAddressMode::NK_REPEAT;
         hAlbedoSampler=device->CreateSampler(asd);
         for(int i=0;i<3;++i){
@@ -1280,7 +1325,10 @@ int nkmain(const NkEntryState& state) {
     NkVertexLayout textVtxLayout;
     textVtxLayout
         .AddAttribute(0,0,NkGPUFormat::NK_RG32_FLOAT,0,              "POSITION",0)
-        .AddAttribute(1,0,NkGPUFormat::NK_RG32_FLOAT,2*sizeof(float),"TEXCOORD",0)
+        // aUV est a la location 1 -> NkSL genere la semantique HLSL TEXCOORD1 (idx
+        // = ordre de declaration). Le layout DX doit fournir TEXCOORD index 1 sinon
+        // CreateInputLayout echoue ('TEXCOORD'/1 attendu). GL/VK bindent par location.
+        .AddAttribute(1,0,NkGPUFormat::NK_RG32_FLOAT,2*sizeof(float),"TEXCOORD",1)
         .AddBinding(0,sizeof(TextVtx));
 
     NkPipelineHandle hTextPipe;
@@ -1398,7 +1446,7 @@ int nkmain(const NkEntryState& state) {
         if(keys[(uint32)NkKey::NK_UP])   lightPitch+=lightSpd*dt;
         if(keys[(uint32)NkKey::NK_DOWN]) lightPitch-=lightSpd*dt;
         camPitch=NkClamp(camPitch,-80.f,80.f);
-        rotAngle+=45.f*dt;
+        // rotAngle+=45.f*dt; // DIAG fige
 
         float aspect=(H>0)?(float)W/(float)H:1.f;
         float eyeX=camDist*NkCos(NkToRadians(camPitch))*NkSin(NkToRadians(camYaw));
@@ -1438,6 +1486,12 @@ int nkmain(const NkEntryState& state) {
         // ── Passe 1 : Shadow ────────────────────────────────────────────────
         if(hasShadowMap&&hShadowFBO.IsValid()&&hShadowRP.IsValid()){
             NkRect2D sa{0,0,(int32)kShadowSize,(int32)kShadowSize};
+            // IMPORTANT : armer le clear depth AVANT BeginRenderPass. En OpenGL/
+            // Software, GL_BeginRenderPass ne clear QUE si SetClearDepth/Color a ete
+            // appele en amont (les autres backends clear inconditionnellement). Sans
+            // ca, le depth buffer n'est jamais reset -> le depth test (LESS) rejette
+            // toute la geometrie -> ecran noir.
+            cmd->SetClearDepth(1.f);
             bool ok=cmd->BeginRenderPass(hShadowRP,hShadowFBO,sa);
             if(ok&&useRealShadowPass&&hShadowPipe.IsValid()){
                 NkViewport svp{0.f,0.f,(float)kShadowSize,(float)kShadowSize,0.f,1.f};
@@ -1479,6 +1533,10 @@ int nkmain(const NkEntryState& state) {
 
         // ── Passe 2 : Rendu principal ────────────────────────────────────────
         NkRect2D area{0,0,(int32)W,(int32)H};
+        // Armer clear couleur + depth AVANT BeginRenderPass (cf. note passe shadow) :
+        // indispensable en OpenGL/Software sinon depth jamais reset -> noir.
+        cmd->SetClearColor(0.f,0.f,0.f,1.f);
+        cmd->SetClearDepth(1.f);
         if(!cmd->BeginRenderPass(hRP,hFBO,area)){
             cmd->End();
             if(targetApi==NkGraphicsApi::NK_GFX_API_VULKAN&&W>0&&H>0)device->OnResize(W,H);
