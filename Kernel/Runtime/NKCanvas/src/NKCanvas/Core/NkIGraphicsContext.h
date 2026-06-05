@@ -36,6 +36,14 @@ namespace nkentseu {
             virtual void EndFrame()   = 0;
             virtual void Present()    = 0;
 
+            // Couleur de clear (0..1) utilisee par BeginFrame pour le render pass.
+            // No-op par defaut : OpenGL/DX clearent via le renderer (glClearColor /
+            // ClearRenderTargetView). Vulkan/Software, eux, clearent dans BeginFrame
+            // (render pass loadOp / back-buffer CPU) et ont besoin de cette couleur
+            // AVANT BeginFrame -> NkRenderWindow::Clear l'appelle. Sans ca, leur fond
+            // reste une couleur en dur (gris) au lieu de celle demandee par la scene.
+            virtual void SetClearColor(float /*r*/, float /*g*/, float /*b*/, float /*a*/) {}
+
             // Rend le contexte courant pour le thread appelant (no-op sur les backends non-GL)
             virtual bool MakeCurrent()    { return true; }
             virtual void ReleaseCurrent() {}

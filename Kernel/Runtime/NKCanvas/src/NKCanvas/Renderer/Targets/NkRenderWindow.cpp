@@ -135,6 +135,14 @@ namespace nkentseu {
 
         void NkRenderWindow::Clear(const NkColor2D& color) {
             if (!mRenderer) return;
+            // Pousser la couleur de clear au contexte AVANT Begin() : sur Vulkan/
+            // Software, BeginFrame() ouvre le render pass / clear le back-buffer avec
+            // cette couleur (sinon ils utilisent un gris en dur -> fond incorrect).
+            // No-op sur OpenGL/DX (ils clearent via le renderer->Clear ci-dessous).
+            if (mContext) {
+                mContext->SetClearColor(color.r / 255.f, color.g / 255.f,
+                                        color.b / 255.f, color.a / 255.f);
+            }
             // Begin() ouvre la frame si pas deja ouverte (idempotent par convention
             // du backend) ; Clear() est appelable en milieu de frame.
             if (!mFrameOpen) {

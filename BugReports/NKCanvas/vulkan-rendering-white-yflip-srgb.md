@@ -95,6 +95,33 @@ Fichier : `Kernel/Runtime/NKCanvas/src/NKCanvas/Backend/Vulkan/NkVulkanContext.c
 
 ---
 
+## Bug 4 — Couleur de fond incorrecte (clear non propagé)
+
+### Symptôme
+Après les bugs 1-3, le rendu Vulkan est correct SAUF le **fond** : gris neutre
+(~0.1) au lieu du **bleu nuit** `theme::Dark()` des autres backends. L'utilisateur
+le perçoit comme « couleur cassée » (alors que les éléments dessinés, eux,
+matchent — confirmé : format swapchain = `B8G8R8A8_UNORM`, pas un souci de gamma).
+
+### Cause racine
+`NkVulkanRenderer2D::Clear(color)` est un **no-op** (commentaire : « BeginFrame
+sets the clear color »), et `NkVulkanContext::BeginFrame()` clearait le render
+pass avec une couleur **EN DUR** `{0.1,0.1,0.1,1}`. La couleur demandée par la
+scène (`mTarget->Clear(theme::Dark())`) n'était **jamais transmise** au contexte.
+(OpenGL/DX clearent via `renderer->Clear` → `glClearColor`/`ClearRTV`, donc OK.)
+
+### Solution — `SetClearColor` sur l'interface contexte
+Nouveau `virtual NkIGraphicsContext::SetClearColor(r,g,b,a)` (no-op par défaut,
+donc OpenGL/DX inchangés). `NkVulkanContext` le stocke (`mClearColor[4]`) et
+l'utilise dans `BeginFrame` (`clearVals[0]`). **`NkRenderWindow::Clear(color)`
+appelle `mContext->SetClearColor(color/255)` AVANT `mRenderer->Begin()`** (donc
+avant que BeginFrame n'ouvre le render pass). → fond Vulkan = couleur de la scène.
+Même mécanisme réutilisable pour **Software** (qui clear aussi en dur `25,25,25`
+dans son BeginFrame).
+
+Fichiers : `NkIGraphicsContext.h`, `NkVulkanContext.h/.cpp`,
+`Renderer/Targets/NkRenderWindow.cpp`.
+
 ## Notes / pièges (règles générales Vulkan vs OpenGL)
 
 - **Cycle de frame explicite** : Vulkan exige `BeginFrame` (acquire + begin render
