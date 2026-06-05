@@ -101,7 +101,15 @@ with project("NKCanvas"):
         ])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
-        _WIN_LINKS = ["gdi32", "user32"]
+        # Backends graphiques toujours linkes sur Windows desktop :
+        #   - gdi32/user32 : Software (BitBlt) + Window infrastructure
+        #   - d3d11/d3d12/dxgi/dxguid : DirectX 11 + 12 backends Renderer2D
+        #     (les .cpp dans Backend/DirectX/ etaient deja compiles, mais sans
+        #      les .lib correspondantes, les .exe consommateurs avaient des
+        #      "undefined reference to D3D11CreateDevice / CreateDXGIFactory1"
+        #      des qu'ils referencaient un symbole DX. Maintenant linkes par defaut.)
+        #   - vulkan-1 : optionnel via NK_ENABLE_VULKAN ou VULKAN_SDK detecte.
+        _WIN_LINKS = ["gdi32", "user32", "d3d11", "d3d12", "dxgi", "dxguid"]
         if _WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
@@ -207,5 +215,7 @@ with project("NKCanvas"):
                 links([
                     "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                     "mf", "mfplat", "mfreadwrite", "mfuuid",
-                    "uuid", "ole32", "dinput8", "dxguid", "vulkan-1"
+                    "uuid", "ole32", "dinput8",
+                    "d3d11", "d3d12", "dxgi", "dxguid",
+                    "vulkan-1"
                 ])

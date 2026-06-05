@@ -300,7 +300,7 @@ Légende : Livré, Partiel, En cours, TODO, Abandonné.
 ### Reflection minimal
 - `NkEventType::ForEach(callback)` pour énumérer les types à l'exécution.
 - `NkEvent::GetFields()` schema → utile pour debug viewer en éditeur
-  (Unkeny).
+  (Noge).
 
 ### Refactor `NkFunction` overhead
 - `NkFunction` (NKContainers) utilise small-buffer optimization mais

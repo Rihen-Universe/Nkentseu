@@ -8,9 +8,15 @@
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 
 #include "NKCanvas/Renderer/Resources/NkTexture.h"
+#include "NKCanvas/Renderer/Resources/NkTextureBackend.h"
+#include "NKCanvas/Renderer/Resources/NkShaderBackend.h"
+#include "NKCanvas/Renderer/Targets/NkRenderTextureBackend.h"
 #include "NKCanvas/Core/NkNativeContextAccess.h"
 #include "NkDirectXContextData.h"
 #include "NKLogger/NkLog.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkAllocator.h"
+#include <new>  // placement new
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -51,6 +57,355 @@ namespace nkentseu {
         )";
 
         // =============================================================================
+        // Registry globale pour le dispatch NkTextureBackend.
+        // Les 5 callbacks sont statiques (pas de `this`), donc l'etat partage
+        // (device, cmdQueue, srvHeap, ...) vit dans une struct file-scope. Capture
+        // dans Initialize(), purge dans Shutdown(). Pas thread-safe : tout doit
+        // s'executer sur le thread du contexte GPU.
+        // =============================================================================
+        struct NkDX12TextureEntry {
+            ID3D12Resource* resource    = nullptr;  // tex2D dans DEFAULT heap
+            ID3D12Resource* uploadHeap  = nullptr;  // upload heap conserve pour Update
+            uint32          srvIndex    = 0;        // slot dans gDX12Registry.srvHeap
+            NkTextureFilter filter      = NkTextureFilter::NK_LINEAR;
+            NkTextureWrap   wrap        = NkTextureWrap::NK_CLAMP;
+            uint32          width       = 0;
+            uint32          height      = 0;
+            uint32          uploadRowPitch = 0;     // pitch aligne 256 (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT)
+            bool            alive       = false;    // false apres Delete (slot recyclable)
+        };
+
+        static struct {
+            ID3D12Device*              device        = nullptr;
+            ID3D12CommandQueue*        cmdQueue      = nullptr;
+            ID3D12DescriptorHeap*      srvHeap       = nullptr;  // CBV_SRV_UAV heap (du renderer)
+            uint32                     srvHeapStride = 0;
+            uint32                     srvHeapMaxSlots = 0;
+            uint32*                    nextSrvSlot   = nullptr;  // ref sur mNextSRVSlot du renderer
+
+            // Command list + allocator + fence dedies aux uploads de textures.
+            // Ne reutilise PAS le cmdList du contexte (qui appartient au frame
+            // courant et n'est ferme qu'a Present).
+            ID3D12CommandAllocator*    uploadAllocator = nullptr;
+            ID3D12GraphicsCommandList* uploadCmdList   = nullptr;
+            ID3D12Fence*               uploadFence     = nullptr;
+            HANDLE                     uploadEvent     = nullptr;
+            uint64                     uploadFenceVal  = 0;
+
+            NkVector<NkDX12TextureEntry*> entries;    // index = id-1 (id=0 reserve "invalide")
+        } gDX12Registry;
+
+        // -----------------------------------------------------------------------------
+        // Helpers internes a la registry (anonymes pour eviter polluer la classe)
+        // -----------------------------------------------------------------------------
+        namespace {
+
+            inline D3D12_CPU_DESCRIPTOR_HANDLE NkDX12_RegCPUHandle(uint32 slot) {
+                D3D12_CPU_DESCRIPTOR_HANDLE h = gDX12Registry.srvHeap->GetCPUDescriptorHandleForHeapStart();
+                h.ptr += (uint64)slot * gDX12Registry.srvHeapStride;
+                return h;
+            }
+
+            // Soumet uploadCmdList sur cmdQueue puis attend la completion via fence.
+            // CRITIQUE : sans cette attente, le DEFAULT heap ne contiendrait pas
+            // encore les pixels au moment du premier draw qui reference la SRV.
+            void NkDX12_FlushUpload() {
+                if (!gDX12Registry.uploadCmdList || !gDX12Registry.cmdQueue) return;
+                gDX12Registry.uploadCmdList->Close();
+                ID3D12CommandList* lists[] = { gDX12Registry.uploadCmdList };
+                gDX12Registry.cmdQueue->ExecuteCommandLists(1, lists);
+                const uint64 v = ++gDX12Registry.uploadFenceVal;
+                gDX12Registry.cmdQueue->Signal(gDX12Registry.uploadFence, v);
+                if (gDX12Registry.uploadFence->GetCompletedValue() < v) {
+                    gDX12Registry.uploadFence->SetEventOnCompletion(v, gDX12Registry.uploadEvent);
+                    ::WaitForSingleObject(gDX12Registry.uploadEvent, INFINITE);
+                }
+                // Reset pour la prochaine commande
+                gDX12Registry.uploadAllocator->Reset();
+                gDX12Registry.uploadCmdList->Reset(gDX12Registry.uploadAllocator, nullptr);
+            }
+
+            // Recupere l'entree par id (id == index+1, id=0 => nullptr).
+            inline NkDX12TextureEntry* NkDX12_GetEntry(uint32 id) {
+                if (id == 0) return nullptr;
+                const uint32 idx = id - 1;
+                if (idx >= gDX12Registry.entries.Size()) return nullptr;
+                NkDX12TextureEntry* e = gDX12Registry.entries[idx];
+                return (e && e->alive) ? e : nullptr;
+            }
+
+        } // anonymous namespace
+
+        // -----------------------------------------------------------------------------
+        // NkTextureBackend::Create
+        // -----------------------------------------------------------------------------
+        uint32 NkDX12Renderer2D::CreateDX12Texture(uint32 w, uint32 h, const uint8* rgba) {
+            if (!gDX12Registry.device || w == 0 || h == 0) return 0;
+            if (gDX12Registry.nextSrvSlot &&
+                *gDX12Registry.nextSrvSlot >= gDX12Registry.srvHeapMaxSlots) {
+                NK_DX12_2D_ERR("SRV heap full (max=%u)", gDX12Registry.srvHeapMaxSlots);
+                return 0;
+            }
+
+            ID3D12Device* dev = gDX12Registry.device;
+
+            // 1) Texture DEFAULT heap (COPY_DEST initial)
+            D3D12_HEAP_PROPERTIES hpDef{ D3D12_HEAP_TYPE_DEFAULT };
+            D3D12_RESOURCE_DESC td{};
+            td.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            td.Width              = w;
+            td.Height             = h;
+            td.DepthOrArraySize   = 1;
+            td.MipLevels          = 1;
+            td.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
+            td.SampleDesc.Count   = 1;
+            td.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            td.Flags              = D3D12_RESOURCE_FLAG_NONE;
+
+            ID3D12Resource* tex = nullptr;
+            if (FAILED(dev->CreateCommittedResource(&hpDef, D3D12_HEAP_FLAG_NONE, &td,
+                       D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&tex)))) {
+                NK_DX12_2D_ERR("CreateCommittedResource(texture) failed");
+                return 0;
+            }
+
+            // 2) Layout pour buffer d'upload (pitch aligne 256)
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+            UINT   numRows       = 0;
+            UINT64 rowSizeBytes  = 0;
+            UINT64 totalBytes    = 0;
+            dev->GetCopyableFootprints(&td, 0, 1, 0, &footprint, &numRows, &rowSizeBytes, &totalBytes);
+
+            // 3) Upload heap (taille = totalBytes)
+            D3D12_HEAP_PROPERTIES hpUp{ D3D12_HEAP_TYPE_UPLOAD };
+            D3D12_RESOURCE_DESC ud{};
+            ud.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+            ud.Width            = totalBytes;
+            ud.Height           = 1;
+            ud.DepthOrArraySize = 1;
+            ud.MipLevels        = 1;
+            ud.SampleDesc.Count = 1;
+            ud.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+            ID3D12Resource* upload = nullptr;
+            if (FAILED(dev->CreateCommittedResource(&hpUp, D3D12_HEAP_FLAG_NONE, &ud,
+                       D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload)))) {
+                tex->Release();
+                NK_DX12_2D_ERR("CreateCommittedResource(upload) failed");
+                return 0;
+            }
+
+            // 4) Map + memcpy row-by-row avec pitch aligne (si rgba != nullptr)
+            if (rgba) {
+                void* mapped = nullptr;
+                if (SUCCEEDED(upload->Map(0, nullptr, &mapped))) {
+                    uint8* dst = (uint8*)mapped + footprint.Offset;
+                    const uint32 srcRowBytes = w * 4;
+                    const uint32 dstRowPitch = footprint.Footprint.RowPitch;
+                    for (uint32 row = 0; row < h; ++row) {
+                        memcpy(dst + row * dstRowPitch, rgba + row * srcRowBytes, srcRowBytes);
+                    }
+                    upload->Unmap(0, nullptr);
+                }
+            }
+
+            // 5) Copy upload -> tex puis transition COPY_DEST -> PIXEL_SHADER_RESOURCE
+            D3D12_TEXTURE_COPY_LOCATION dst{};
+            dst.pResource         = tex;
+            dst.Type              = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst.SubresourceIndex  = 0;
+
+            D3D12_TEXTURE_COPY_LOCATION src{};
+            src.pResource         = upload;
+            src.Type              = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            src.PlacedFootprint   = footprint;
+
+            gDX12Registry.uploadCmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource   = tex;
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            gDX12Registry.uploadCmdList->ResourceBarrier(1, &barrier);
+
+            // 6) Flush synchronous (fence wait) — sinon premier draw lit du noir
+            NkDX12_FlushUpload();
+
+            // 7) Allocation du slot SRV (compteur partage avec le renderer)
+            uint32 srvSlot = (*gDX12Registry.nextSrvSlot)++;
+            D3D12_SHADER_RESOURCE_VIEW_DESC srvd{};
+            srvd.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+            srvd.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srvd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srvd.Texture2D.MipLevels     = 1;
+            dev->CreateShaderResourceView(tex, &srvd, NkDX12_RegCPUHandle(srvSlot));
+
+            // 8) Entree registry (recycle un slot mort si possible)
+            NkDX12TextureEntry* entry = nullptr;
+            uint32 idx = 0;
+            for (; idx < gDX12Registry.entries.Size(); ++idx) {
+                if (gDX12Registry.entries[idx] && !gDX12Registry.entries[idx]->alive) {
+                    entry = gDX12Registry.entries[idx];
+                    break;
+                }
+            }
+            if (!entry) {
+                void* mem = nkentseu::memory::NkAlloc(sizeof(NkDX12TextureEntry));
+                if (!mem) {
+                    tex->Release();
+                    upload->Release();
+                    NK_DX12_2D_ERR("NkAlloc(NkDX12TextureEntry) failed");
+                    return 0;
+                }
+                entry = new(mem) NkDX12TextureEntry();
+                gDX12Registry.entries.PushBack(entry);
+                idx = gDX12Registry.entries.Size() - 1;
+            }
+            entry->resource       = tex;
+            entry->uploadHeap     = upload;
+            entry->srvIndex       = srvSlot;
+            entry->filter         = NkTextureFilter::NK_LINEAR;
+            entry->wrap           = NkTextureWrap::NK_CLAMP;
+            entry->width          = w;
+            entry->height         = h;
+            entry->uploadRowPitch = footprint.Footprint.RowPitch;
+            entry->alive          = true;
+
+            return idx + 1;  // id != 0
+        }
+
+        // -----------------------------------------------------------------------------
+        // NkTextureBackend::Update — sub-region upload
+        // -----------------------------------------------------------------------------
+        void NkDX12Renderer2D::UpdateDX12Texture(uint32 id, uint32 x, uint32 y,
+                                                  uint32 w, uint32 h, const uint8* rgba) {
+            NkDX12TextureEntry* e = NkDX12_GetEntry(id);
+            if (!e || !rgba || w == 0 || h == 0) return;
+            if (x + w > e->width || y + h > e->height) {
+                NK_DX12_2D_ERR("UpdateDX12Texture: region out of bounds");
+                return;
+            }
+
+            // Recree un upload buffer dimensionne pour le sous-rect (e->uploadHeap
+            // peut etre trop petit ou re-utilise par une autre Update). Plus simple
+            // et correct que de reutiliser uploadHeap initial.
+            ID3D12Device* dev = gDX12Registry.device;
+
+            D3D12_RESOURCE_DESC td{};
+            td.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            td.Width              = w;
+            td.Height             = h;
+            td.DepthOrArraySize   = 1;
+            td.MipLevels          = 1;
+            td.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
+            td.SampleDesc.Count   = 1;
+
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+            UINT   numRows = 0;
+            UINT64 rowSize = 0;
+            UINT64 total   = 0;
+            dev->GetCopyableFootprints(&td, 0, 1, 0, &footprint, &numRows, &rowSize, &total);
+
+            D3D12_HEAP_PROPERTIES hpUp{ D3D12_HEAP_TYPE_UPLOAD };
+            D3D12_RESOURCE_DESC ud{};
+            ud.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
+            ud.Width            = total;
+            ud.Height           = 1;
+            ud.DepthOrArraySize = 1;
+            ud.MipLevels        = 1;
+            ud.SampleDesc.Count = 1;
+            ud.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+            ID3D12Resource* upload = nullptr;
+            if (FAILED(dev->CreateCommittedResource(&hpUp, D3D12_HEAP_FLAG_NONE, &ud,
+                       D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload)))) {
+                NK_DX12_2D_ERR("UpdateDX12Texture: upload alloc failed");
+                return;
+            }
+
+            void* mapped = nullptr;
+            if (SUCCEEDED(upload->Map(0, nullptr, &mapped))) {
+                uint8* dst = (uint8*)mapped + footprint.Offset;
+                const uint32 srcRowBytes = w * 4;
+                const uint32 dstRowPitch = footprint.Footprint.RowPitch;
+                for (uint32 row = 0; row < h; ++row) {
+                    memcpy(dst + row * dstRowPitch, rgba + row * srcRowBytes, srcRowBytes);
+                }
+                upload->Unmap(0, nullptr);
+            }
+
+            // Transition texture PIXEL_SHADER_RESOURCE -> COPY_DEST
+            D3D12_RESOURCE_BARRIER toCopy{};
+            toCopy.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            toCopy.Transition.pResource   = e->resource;
+            toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            toCopy.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
+            toCopy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            gDX12Registry.uploadCmdList->ResourceBarrier(1, &toCopy);
+
+            // CopyTextureRegion vers (x, y, 0)
+            D3D12_TEXTURE_COPY_LOCATION dst{};
+            dst.pResource        = e->resource;
+            dst.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst.SubresourceIndex = 0;
+
+            D3D12_TEXTURE_COPY_LOCATION src{};
+            src.pResource        = upload;
+            src.Type             = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            src.PlacedFootprint  = footprint;
+
+            gDX12Registry.uploadCmdList->CopyTextureRegion(&dst, x, y, 0, &src, nullptr);
+
+            // Transition retour COPY_DEST -> PIXEL_SHADER_RESOURCE
+            D3D12_RESOURCE_BARRIER toRead{};
+            toRead.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            toRead.Transition.pResource   = e->resource;
+            toRead.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            toRead.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            toRead.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            gDX12Registry.uploadCmdList->ResourceBarrier(1, &toRead);
+
+            NkDX12_FlushUpload();
+
+            // upload buffer n'est plus utile apres le flush (fence wait)
+            upload->Release();
+        }
+
+        // -----------------------------------------------------------------------------
+        // NkTextureBackend::Destroy
+        // -----------------------------------------------------------------------------
+        void NkDX12Renderer2D::DeleteDX12Texture(uint32 id) {
+            NkDX12TextureEntry* e = NkDX12_GetEntry(id);
+            if (!e) return;
+            if (e->resource)   { e->resource->Release();   e->resource = nullptr; }
+            if (e->uploadHeap) { e->uploadHeap->Release(); e->uploadHeap = nullptr; }
+            // Le slot SRV reste alloue (allocateur croissant simple, pas de free-list).
+            e->alive = false;
+        }
+
+        // -----------------------------------------------------------------------------
+        // NkTextureBackend::SetFilter — NO-OP en DX12
+        // -----------------------------------------------------------------------------
+        void NkDX12Renderer2D::SetDX12TextureFilter(uint32 id, NkTextureFilter f) {
+            // La root signature utilise un sampler unique (LINEAR + CLAMP) lie via
+            // mSamplerHeap dans BeginBackend(). Pour supporter du per-texture
+            // filter/wrap il faudrait un sampler heap multi-slots + un slot par
+            // entree. Non implemente : on stocke la valeur pour information.
+            NkDX12TextureEntry* e = NkDX12_GetEntry(id);
+            if (e) e->filter = f;
+        }
+
+        // -----------------------------------------------------------------------------
+        // NkTextureBackend::SetWrap — NO-OP en DX12 (cf. SetFilter)
+        // -----------------------------------------------------------------------------
+        void NkDX12Renderer2D::SetDX12TextureWrap(uint32 id, NkTextureWrap w) {
+            NkDX12TextureEntry* e = NkDX12_GetEntry(id);
+            if (e) e->wrap = w;
+        }
+
+        // =============================================================================
         bool NkDX12Renderer2D::Initialize(NkIGraphicsContext* ctx) {
             if (mIsValid) return false;
             if (!ctx || ctx->GetApi() != NkGraphicsApi::NK_GFX_API_DX12) {
@@ -69,7 +424,11 @@ namespace nkentseu {
             if (!CreateRootSignature())  return false;
             if (!CreatePSOs())           return false;
             if (!CreateBuffers())        return false;
-            if (!CreateWhiteTexture())   return false;
+            // NB : CreateWhiteTexture() est volontairement DIFFEREE apres l'init
+            // de la registry d'upload (gDX12Registry.uploadCmdList) ci-dessous —
+            // sinon elle se rabattait sur le cmdList du contexte (ferme a l'init)
+            // -> "API cannot be called on a closed command list" + corruption ->
+            // toutes les BeginFrame::Reset echouaient -> ecran vide.
 
             NkContextInfo info = ctx->GetInfo();
             const uint32 W = info.windowWidth  > 0 ? info.windowWidth  : 800;
@@ -82,6 +441,76 @@ namespace nkentseu {
             float proj[16];
             mCurrentView.ToProjectionMatrix(proj);
             UploadProjection(proj);
+
+            // ── Enregistrement dispatch table NkTexture ──────────────────────────
+            // Capture les handles GPU dans la registry globale (les 5 callbacks
+            // sont statiques et n'ont pas acces a `this`). On cree aussi un
+            // command allocator + cmdList + fence dedies aux uploads de textures
+            // pour ne pas perturber le frame courant du contexte.
+            {
+                gDX12Registry.device          = mDevice.Get();
+                gDX12Registry.cmdQueue        = d->commandQueue.Get();
+                gDX12Registry.srvHeap         = mSRVHeap.Get();
+                gDX12Registry.srvHeapStride   = mSRVDescSize;
+                gDX12Registry.srvHeapMaxSlots = kMaxSRVSlots;
+                gDX12Registry.nextSrvSlot     = &mNextSRVSlot;
+
+                ID3D12CommandAllocator*    alloc = nullptr;
+                ID3D12GraphicsCommandList* list  = nullptr;
+                ID3D12Fence*               fence = nullptr;
+
+                if (FAILED(mDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                           IID_PPV_ARGS(&alloc)))) {
+                    NK_DX12_2D_ERR("Upload allocator failed");
+                    return false;
+                }
+                if (FAILED(mDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                           alloc, nullptr, IID_PPV_ARGS(&list)))) {
+                    alloc->Release();
+                    NK_DX12_2D_ERR("Upload cmd list failed");
+                    return false;
+                }
+                // CreateCommandList ouvre la liste -> deja prete a recevoir des cmds
+                if (FAILED(mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                           IID_PPV_ARGS(&fence)))) {
+                    list->Release(); alloc->Release();
+                    NK_DX12_2D_ERR("Upload fence failed");
+                    return false;
+                }
+                HANDLE evt = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                if (!evt) {
+                    fence->Release(); list->Release(); alloc->Release();
+                    NK_DX12_2D_ERR("Upload event failed");
+                    return false;
+                }
+
+                gDX12Registry.uploadAllocator = alloc;
+                gDX12Registry.uploadCmdList   = list;
+                gDX12Registry.uploadFence     = fence;
+                gDX12Registry.uploadEvent     = evt;
+                gDX12Registry.uploadFenceVal  = 0;
+
+                NkTextureBackend backend{};
+                backend.Create    = &NkDX12Renderer2D::CreateDX12Texture;
+                backend.Update    = &NkDX12Renderer2D::UpdateDX12Texture;
+                backend.Destroy   = &NkDX12Renderer2D::DeleteDX12Texture;
+                backend.SetFilter = &NkDX12Renderer2D::SetDX12TextureFilter;
+                backend.SetWrap   = &NkDX12Renderer2D::SetDX12TextureWrap;
+                NkTextureSetBackend(backend);
+            }
+
+            // Texture blanche 1x1 (default des quads non textures). DOIT etre
+            // creee APRES la registry d'upload ci-dessus : elle passe par la
+            // command list d'upload dediee (gDX12Registry.uploadCmdList), pas par
+            // le cmdList du contexte (ferme a l'init).
+            if (!CreateWhiteTexture())   return false;
+
+            // NkShader sur DX12 : compile HLSL + reconstruction du PSO (root
+            // signature partagee, mais pipeline state inclut les shaders).
+            // Implementation differee — stub installe pour preserver la
+            // consistance API.
+            NkShaderInstallUnsupportedBackend("DX12");
+            NkRenderTextureInstallUnsupportedBackend("DX12");
 
             mIsValid = true;
             NK_DX12_2D_LOG("Initialized");
@@ -304,7 +733,11 @@ namespace nkentseu {
             D3D12_HEAP_PROPERTIES uhp{ D3D12_HEAP_TYPE_UPLOAD };
             D3D12_RESOURCE_DESC urd{};
             urd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            urd.Width = 4; urd.Height = urd.DepthOrArraySize = urd.MipLevels = 1;
+            // RowPitch d'une copie buffer->texture DOIT etre multiple de 256
+            // (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT). Le staging fait donc 256 octets
+            // (on n'ecrit que les 4 premiers = le pixel blanc).
+            urd.Width = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+            urd.Height = urd.DepthOrArraySize = urd.MipLevels = 1;
             urd.SampleDesc = {1,0}; urd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
             ComPtr<ID3D12Resource> staging;
             mDevice->CreateCommittedResource(&uhp, D3D12_HEAP_FLAG_NONE, &urd,
@@ -329,14 +762,24 @@ namespace nkentseu {
             src.PlacedFootprint.Footprint.Width = 1;
             src.PlacedFootprint.Footprint.Height = 1;
             src.PlacedFootprint.Footprint.Depth = 1;
-            src.PlacedFootprint.Footprint.RowPitch = 4;
+            src.PlacedFootprint.Footprint.RowPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT; // 256, requis
 
-            // One-shot copy
-            NkDX12ContextData* d = NkNativeContext::DX12(mCtx);
-            d->cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-            TransitionResource(d->cmdList.Get(), mWhiteTex.Get(),
-                            D3D12_RESOURCE_STATE_COPY_DEST,
-                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            // One-shot copy via la command list d'upload DEDIEE (ouverte), PAS le
+            // cmdList du contexte (ferme a l'init -> "API cannot be called on a
+            // closed command list" + corruption de la liste). NkDX12_FlushUpload()
+            // Close+Execute+attend la fence : le `staging` local reste vivant
+            // jusqu'au retour de fonction (donc apres la completion GPU).
+            gDX12Registry.uploadCmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+            {
+                D3D12_RESOURCE_BARRIER b{};
+                b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                b.Transition.pResource   = mWhiteTex.Get();
+                b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                gDX12Registry.uploadCmdList->ResourceBarrier(1, &b);
+            }
+            NkDX12_FlushUpload();   // Close + Execute + attend la fence GPU
 
             // Create SRV
             mWhiteSRVSlot = mNextSRVSlot++;
@@ -379,11 +822,21 @@ namespace nkentseu {
         // =============================================================================
         uint32 NkDX12Renderer2D::GetOrCreateSRVSlot(const NkTexture* tex) {
             if (!tex || !tex->IsValid()) return mWhiteSRVSlot;
-            for (const auto& e : mTexSRVCache) {
-                if (e.texture == tex) return e.slot;
+            // Avec le dispatch NkTextureBackend, le slot SRV a deja ete cree
+            // par CreateDX12Texture (registry globale, cf. plus haut). tex->GetGPUId()
+            // est l'id renvoye par Create == index+1 dans gDX12Registry.entries.
+            const uint32 id = tex->GetGPUId();
+            if (id != 0 && id - 1 < gDX12Registry.entries.Size()) {
+                NkDX12TextureEntry* e = gDX12Registry.entries[id - 1];
+                if (e && e->alive) return e->srvIndex;
+            }
+            // Compat : si la texture a ete remplie en direct par un autre chemin
+            // (mHandle = ID3D12Resource*), on alloue un SRV a la volee. Conserve
+            // pour eviter de casser d'eventuels usages externes.
+            for (const auto& cached : mTexSRVCache) {
+                if (cached.texture == tex) return cached.slot;
             }
             if (mNextSRVSlot >= kMaxSRVSlots) return mWhiteSRVSlot;
-            // tex->GetHandle() should be a ID3D12Resource* (the texture resource)
             ID3D12Resource* res = static_cast<ID3D12Resource*>(tex->GetHandle());
             if (!res) return mWhiteSRVSlot;
 
@@ -405,6 +858,39 @@ namespace nkentseu {
             if (!mIsValid) return;
             if (mVBMap) { mVB->Unmap(0, nullptr); mVBMap = nullptr; }
             if (mIBMap) { mIB->Unmap(0, nullptr); mIBMap = nullptr; }
+
+            // Vider la registry NkTexture : release des ressources, des objets
+            // helper d'upload et desenregistrement du dispatch.
+            {
+                // Reset dispatch a "vide" : les Destroy ulterieurs de NkTexture
+                // sont alors no-op (callbacks null).
+                NkTextureBackend empty{};
+                NkTextureSetBackend(empty);
+
+                for (uint32 i = 0; i < gDX12Registry.entries.Size(); ++i) {
+                    NkDX12TextureEntry* e = gDX12Registry.entries[i];
+                    if (!e) continue;
+                    if (e->resource)   e->resource->Release();
+                    if (e->uploadHeap) e->uploadHeap->Release();
+                    e->~NkDX12TextureEntry();
+                    nkentseu::memory::NkFree(e);
+                }
+                gDX12Registry.entries.Clear();
+
+                if (gDX12Registry.uploadCmdList)  { gDX12Registry.uploadCmdList->Release();  gDX12Registry.uploadCmdList  = nullptr; }
+                if (gDX12Registry.uploadAllocator){ gDX12Registry.uploadAllocator->Release();gDX12Registry.uploadAllocator= nullptr; }
+                if (gDX12Registry.uploadFence)    { gDX12Registry.uploadFence->Release();    gDX12Registry.uploadFence    = nullptr; }
+                if (gDX12Registry.uploadEvent)    { ::CloseHandle(gDX12Registry.uploadEvent);gDX12Registry.uploadEvent    = nullptr; }
+
+                gDX12Registry.device          = nullptr;
+                gDX12Registry.cmdQueue        = nullptr;
+                gDX12Registry.srvHeap         = nullptr;
+                gDX12Registry.srvHeapStride   = 0;
+                gDX12Registry.srvHeapMaxSlots = 0;
+                gDX12Registry.nextSrvSlot     = nullptr;
+                gDX12Registry.uploadFenceVal  = 0;
+            }
+
             mIsValid = false;
             NK_DX12_2D_LOG("Shutdown");
         }
@@ -423,7 +909,21 @@ namespace nkentseu {
         void NkDX12Renderer2D::BeginBackend() {
             NkDX12ContextData* d = NkNativeContext::DX12(mCtx);
             if (!d || !d->cmdList) return;
+
+            // Demarre la frame cote CONTEXTE : WaitForFence + Reset allocator/cmdList
+            // + barrier PRESENT->RENDER_TARGET + bind RTV/DSV + clear defaut + viewport.
+            // INDISPENSABLE en DX12 : sans ca le back buffer reste en etat PRESENT et
+            // le cmdList n'est jamais reset -> les drawcalls sont invisibles. (Le
+            // EndFrame = barrier RENDER_TARGET->PRESENT + Close + Execute est appele
+            // dans EndBackend ; le Present() par NkRenderWindow::Display.)
+            if (mCtx) mCtx->BeginFrame();
+
             mCmdList = d->cmdList;
+
+            // Le PSO 2D a DSVFormat=UNKNOWN (pas de depth). BeginFrame() a bind
+            // RTV+DSV ; on REBIND la RTV SEULE (DSV null) pour matcher le PSO. Sinon
+            // mismatch RTV/DSV au moment du draw -> cmdList en erreur -> Close echoue.
+            mCmdList->OMSetRenderTargets(1, &d->rtvHandles[d->currentBackBuffer], FALSE, nullptr);
 
             ID3D12DescriptorHeap* heaps[] = { mSRVHeap.Get(), mSamplerHeap.Get() };
             mCmdList->SetDescriptorHeaps(2, heaps);
@@ -437,7 +937,12 @@ namespace nkentseu {
         }
 
         // =============================================================================
-        void NkDX12Renderer2D::EndBackend() {}
+        void NkDX12Renderer2D::EndBackend() {
+            // Termine la frame cote contexte : barrier RENDER_TARGET->PRESENT + Close
+            // du cmdList + ExecuteCommandLists. Le Present() est ensuite appele par
+            // NkRenderWindow::Display via context->Present().
+            if (mCtx) mCtx->EndFrame();
+        }
 
         // =============================================================================
         void NkDX12Renderer2D::SubmitBatches(const NkBatchGroup* groups, uint32 groupCount,
@@ -454,9 +959,23 @@ namespace nkentseu {
                 (float)mViewport.width, (float)mViewport.height,
                 0.f, 1.f
             };
+            // Scissor : plein viewport par defaut ; si un clip est actif, on le
+            // restreint (intersection avec le viewport — D3D12_RECT {l,t,r,b},
+            // origine haut-gauche, donc pas de flip Y).
             D3D12_RECT scissor{ mViewport.left, mViewport.top,
                                 mViewport.left + mViewport.width,
                                 mViewport.top  + mViewport.height };
+            if (mHasClip) {
+                const int32 vx1 = mViewport.left + mViewport.width;
+                const int32 vy1 = mViewport.top  + mViewport.height;
+                int32 l = mClipRect.x > mViewport.left ? mClipRect.x : mViewport.left;
+                int32 t = mClipRect.y > mViewport.top  ? mClipRect.y : mViewport.top;
+                int32 r = (mClipRect.x + mClipRect.width)  < vx1 ? (mClipRect.x + mClipRect.width)  : vx1;
+                int32 b = (mClipRect.y + mClipRect.height) < vy1 ? (mClipRect.y + mClipRect.height) : vy1;
+                if (r < l) r = l;
+                if (b < t) b = t;
+                scissor.left = l; scissor.top = t; scissor.right = r; scissor.bottom = b;
+            }
             mCmdList->RSSetViewports(1, &vp);
             mCmdList->RSSetScissorRects(1, &scissor);
 

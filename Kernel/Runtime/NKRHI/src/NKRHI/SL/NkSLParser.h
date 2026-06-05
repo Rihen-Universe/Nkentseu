@@ -88,6 +88,24 @@ private:
     bool                       mHasCurrent = false;
     NkVector<NkSLCompileError> mErrors;
     NkVector<NkSLCompileError> mWarnings;
+
+    // Compute : taille de workgroup collectée depuis layout(local_size_*) in;
+    // puis recopiée dans le NkSLProgramNode à la fin de Parse().
+    uint32 mLocalSizeX = 1;
+    uint32 mLocalSizeY = 1;
+    uint32 mLocalSizeZ = 1;
+
+    // Garde anti stack-overflow : profondeur de récursion expression/statement.
+    // Au-delà, on émet une erreur et on arrête de récurser (pas de crash).
+    static constexpr uint32 kMaxParseDepth = 512;
+    uint32 mDepth = 0;
+
+    // Déclarateurs supplémentaires d'une déclaration multiple (ex. "vec3 a, b, c;").
+    // ParseVarDecl renvoie le 1er déclarateur et empile les suivants ici ; les
+    // sites qui construisent des listes (top-level, blocs, membres struct/block)
+    // les drainent juste après l'appel (puis Clear()). Évite un nœud "groupe"
+    // que tous les backends devraient connaître.
+    NkVector<NkSLVarDeclNode*> mPendingDecls;
 };
 
 } // namespace nkentseu

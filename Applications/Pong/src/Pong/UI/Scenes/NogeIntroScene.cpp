@@ -8,7 +8,7 @@
 
 #include "NogeIntroScene.h"
 #include "SplashScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -27,7 +27,7 @@ namespace nkentseu
         static constexpr float kT_End      = 3.30f;  // fin du fade out
 
         // ─────────────────────────────────────────────────────────────────────
-        void NogeIntroScene::OnEnter(AppContext& /*ctx*/)
+        void NogeIntroScene::OnEnter(AppContext& ctx)
         {
             mTime = 0.0f;
             mDone = false;
@@ -36,13 +36,13 @@ namespace nkentseu
             // avec le reste des textes). Source SVG vectorielle : NkImage::Load
             // detecte le format et passe par NkSVGCodec pour rasteriser.
             mRihenLogoLoaded = mRihenLogo.LoadFromFile(
+                *ctx.renderer->GetBackend(),
                 "Resources/Pong/Textures/logo.svg");
         }
 
         // ─────────────────────────────────────────────────────────────────────
         void NogeIntroScene::OnExit(AppContext& /*ctx*/)
         {
-            mRihenLogo.Shutdown();
             mRihenLogoLoaded = false;
         }
 
@@ -62,7 +62,7 @@ namespace nkentseu
         // dans [0..1]. Style neon : segments cyan avec une legere lueur via
         // dessin a 3 epaisseurs decroissantes.
         // ─────────────────────────────────────────────────────────────────────
-        static void DrawNeonHexagon(GLRenderer2D& r, float cx, float cy, float radius,
+        static void DrawNeonHexagon(renderer::NkRenderer2D& r, float cx, float cy, float radius,
                                     float progress, math::NkColor primary, math::NkColor glow)
         {
             const float PI = 3.14159265f;
@@ -88,9 +88,9 @@ namespace nkentseu
                 const float x1 = x0 + (fullX1 - x0) * t;
                 const float y1 = y0 + (fullY1 - y0) * t;
                 // Glow : 3 traits de plus en plus fins, primary par-dessus
-                r.DrawLine(x0, y0, x1, y1, glow, 6.0f);
-                r.DrawLine(x0, y0, x1, y1, AlphaF(glow, 0.85f), 4.0f);
-                r.DrawLine(x0, y0, x1, y1, primary, 2.0f);
+                r.DrawLine({ x0, y0 }, { x1, y1 }, glow, 6.0f);
+                r.DrawLine({ x0, y0 }, { x1, y1 }, AlphaF(glow, 0.85f), 4.0f);
+                r.DrawLine({ x0, y0 }, { x1, y1 }, primary, 2.0f);
             }
             // Points lumineux aux sommets traces.
             const int reached = static_cast<int>(math::NkFloor(totalSeg));
@@ -99,15 +99,15 @@ namespace nkentseu
                 const float pa = a0 + 2.0f * PI * static_cast<float>(i) / N;
                 const float px = cx + math::NkCos(pa) * radius;
                 const float py = cy + math::NkSin(pa) * radius;
-                r.DrawCircle(px, py, 4.0f, glow, 16);
-                r.DrawCircle(px, py, 2.0f, primary, 16);
+                r.DrawFilledCircle({ px, py }, 4.0f, glow, 16);
+                r.DrawFilledCircle({ px, py }, 2.0f, primary, 16);
             }
         }
 
         // ─────────────────────────────────────────────────────────────────────
         void NogeIntroScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
@@ -115,12 +115,6 @@ namespace nkentseu
             const float cy = H * 0.5f;
             const float t  = mTime;
             const float scale = GetUIScale(W, H);
-
-            // Fond noir profond + grille fine
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
 
             // ── Hexagone neon (centre haut) ──────────────────────────────────
             const float hexY = cy - 60.0f * scale;
@@ -138,13 +132,13 @@ namespace nkentseu
                 const float dprog = math::NkMin((t - kT_HexDraw) / 0.30f, 1.0f);
                 const float dSize = 18.0f * scale * dprog;
                 // 4 triangles en diamond
-                r.DrawTriangle(cx, hexY - dSize,
-                               cx + dSize, hexY,
-                               cx, hexY + dSize,
+                r.DrawFilledTriangle({ cx, hexY - dSize },
+                               { cx + dSize, hexY },
+                               { cx, hexY + dSize },
                                AlphaF(theme::Cyan(), 0.95f));
-                r.DrawTriangle(cx, hexY - dSize,
-                               cx, hexY + dSize,
-                               cx - dSize, hexY,
+                r.DrawFilledTriangle({ cx, hexY - dSize },
+                               { cx, hexY + dSize },
+                               { cx - dSize, hexY },
                                AlphaF(theme::Cyan(), 0.95f));
             }
 
@@ -187,7 +181,7 @@ namespace nkentseu
             // d'un texte "DESIGNED BY RIHEN".
             if (mRihenLogoLoaded)
             {
-                const float aspect = mRihenLogo.AspectRatio();
+                const float aspect = ((mRihenLogo.GetHeight() > 0) ? (float)mRihenLogo.GetWidth() / (float)mRihenLogo.GetHeight() : 1.0f);
                 float logoH = (float)H * 0.07f;
                 float logoW = logoH * (aspect > 0.001f ? aspect : 4.0f);
                 // Bornage largeur : pas plus de 30% du viewport.
@@ -200,10 +194,8 @@ namespace nkentseu
                 const float bottomY = (float)(ctx.safe.BottomY());
                 const float logoY = bottomY - logoH - 32.0f;
 
-                r.BindTexture(mRihenLogo.Id());
-                r.DrawTexturedQuadRGBA(logoX, logoY, logoW, logoH,
-                                       0.0f, 0.0f, 1.0f, 1.0f,
-                                       AlphaF(theme::White(), textAlpha * 0.85f));
+                r.DrawTexturedRect({ logoX, logoY, logoW, logoH }, &mRihenLogo,
+                                   AlphaF(theme::White(), textAlpha * 0.85f));
             }
             else
             {
@@ -220,11 +212,9 @@ namespace nkentseu
                 const float fadeOutDur = kT_End - kT_Hold;
                 float a = (t - kT_Hold) / fadeOutDur;
                 if (a > 1.0f) a = 1.0f;
-                r.DrawQuad(0.0f, 0.0f, (float)W, (float)H,
+                r.DrawFilledRect({ 0.0f, 0.0f, (float)W, (float)H },
                            AlphaF(theme::Dark(), a));
             }
-
-            r.End();
         }
 
     } // namespace pong

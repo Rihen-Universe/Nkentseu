@@ -25,7 +25,7 @@
 // =============================================================================
 
 #include "Pong/UI/Scene.h"
-#include "Pong/Render/Texture2D.h"
+#include "NKCanvas/Renderer/Resources/NkTexture.h"
 
 #include <atomic>
 #include <mutex>
@@ -91,14 +91,14 @@ namespace nkentseu
             float     mLoadingTime = 0.0f;      ///< Temps en Loading (pour spinner)
 
             // ── Textures GL (uploadees au fur et a mesure par OnUpdate) ─────
-            Texture2D mFrames[kFrameCount];
+            renderer::NkTexture mFrames[kFrameCount];
             int       mFramesLoaded = 0;        ///< Nb de textures uploadees (monotone)
             float     mAspect       = 4.0f;     ///< Ratio W/H mesure sur la 1ere frame
             float     mTime         = 0.0f;     ///< Temps anim ecoule (depuis Playing, pour fade-out + transition)
             bool      mDone         = false;
 
             // Logo statique affiche pendant Loading. Charge a OnEnter.
-            Texture2D mLoadingLogo;
+            renderer::NkTexture mLoadingLogo;
 
             // ── Avance frame-par-frame (anti-saut) ──────────────────────────
             // mCurrentFrame avance de 1 chaque kFrameDuration sec accumule
@@ -138,7 +138,7 @@ namespace nkentseu
             /// Upload jusqu'a @p maxUploads textures GL depuis la file
             /// du worker. Appel avec kUploadsPerUpdateLoading pendant Loading
             /// (spinner fluide) ou kUploadsPerUpdate pendant Playing.
-            int  DrainQueue(int maxUploads);
+            int  DrainQueue(AppContext& ctx, int maxUploads);
         };
 
     } // namespace pong

@@ -9,7 +9,7 @@
 #include "Pong/Net/NetworkDiscovery.h"
 #include "Pong/Net/NetProtocol.h"
 #include "NKNetwork/Protocol/NkConnection.h"  // pour NkReceiveMsg
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -264,7 +264,7 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void NetworkLobbyScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
@@ -272,11 +272,6 @@ namespace nkentseu
             const float safeX = (float)ctx.safe.LeftX();
             const float safeW = (float)ctx.safe.SafeW();
             const float enterA = EaseOutCubic(mEnterAnim);
-
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
 
             // Layout responsive : dimensions en % viewport (2026-05-19).
             // On exprime tout en fractions de W/H avec clamps doux, pour que
@@ -289,8 +284,8 @@ namespace nkentseu
             mBackH = Pct::H(H, 0.050f, 30.0f,  56.0f);
             mBackX = (float)ctx.safe.LeftX() + Pct::W(W, 0.015f,  8.0f, 24.0f);
             mBackY = (float)ctx.safe.TopY()  + Pct::H(H, 0.020f, 10.0f, 28.0f);
-            r.DrawQuad       (mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 30 });
-            r.DrawQuadOutline(mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 200 }, 1.5f);
+            r.DrawFilledRect({ mBackX, mBackY, mBackW, mBackH }, { 0, 245, 255, 30 });
+            r.DrawRectOutline({ mBackX, mBackY, mBackW, mBackH }, { 0, 245, 255, 200 }, 1.5f);
             f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                mBackX + mBackW * 0.5f,
                                mBackY + mBackH * 0.18f,
@@ -409,8 +404,8 @@ namespace nkentseu
                 {
                     math::NkColor bg = { 0, 245, 255, (uint8_t)(30 * enterA) };
                     math::NkColor bd = { 0, 245, 255, (uint8_t)(220 * enterA) };
-                    r.DrawQuad       (mHostX, mHostY, mHostW, mHostH, bg);
-                    r.DrawQuadOutline(mHostX, mHostY, mHostW, mHostH, bd, 1.5f);
+                    r.DrawFilledRect({ mHostX, mHostY, mHostW, mHostH }, bg);
+                    r.DrawRectOutline({ mHostX, mHostY, mHostW, mHostH }, bd, 1.5f);
                     f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
                                  mHostX + padX,
                                  mHostY + titleY,
@@ -433,8 +428,8 @@ namespace nkentseu
                 {
                     math::NkColor bg = { 255, 107, 0, (uint8_t)(30 * enterA) };
                     math::NkColor bd = { 255, 107, 0, (uint8_t)(220 * enterA) };
-                    r.DrawQuad       (mJoinX, mJoinY, mJoinW, mJoinH, bg);
-                    r.DrawQuadOutline(mJoinX, mJoinY, mJoinW, mJoinH, bd, 1.5f);
+                    r.DrawFilledRect({ mJoinX, mJoinY, mJoinW, mJoinH }, bg);
+                    r.DrawRectOutline({ mJoinX, mJoinY, mJoinW, mJoinH }, bd, 1.5f);
                     f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
                                  mJoinX + padX,
                                  mJoinY + titleY,
@@ -525,8 +520,8 @@ namespace nkentseu
                         }
                         math::NkColor bg = { 255, 107, 0, (uint8_t)(30 * enterA) };
                         math::NkColor bd = { 255, 107, 0, (uint8_t)(220 * enterA) };
-                        r.DrawQuad       (bx, by, bw, bh, bg);
-                        r.DrawQuadOutline(bx, by, bw, bh, bd, 1.5f);
+                        r.DrawFilledRect({ bx, by, bw, bh }, bg);
+                        r.DrawRectOutline({ bx, by, bw, bh }, bd, 1.5f);
                         char nameBuf[96];
                         std::snprintf(nameBuf, sizeof(nameBuf), "%s/%s-%s",
                                       h.country, h.city, h.code);
@@ -569,8 +564,8 @@ namespace nkentseu
                 mCancelH = cancelBtnH;
                 mCancelX = gridLeft + (availW - mCancelW) * 0.5f;
                 mCancelY = y + Pct::H(H, 0.015f, 8.0f, 18.0f);
-                r.DrawQuad       (mCancelX, mCancelY, mCancelW, mCancelH, { 255, 100, 100, 30 });
-                r.DrawQuadOutline(mCancelX, mCancelY, mCancelW, mCancelH, { 255, 100, 100, 200 }, 1.5f);
+                r.DrawFilledRect({ mCancelX, mCancelY, mCancelW, mCancelH }, { 255, 100, 100, 30 });
+                r.DrawRectOutline({ mCancelX, mCancelY, mCancelW, mCancelH }, { 255, 100, 100, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                    mCancelX + mCancelW * 0.5f,
                                    mCancelY + cancelPadT,
@@ -643,8 +638,8 @@ namespace nkentseu
                         }
                         math::NkColor bg = { 0, 245, 255, (uint8_t)(30 * enterA) };
                         math::NkColor bd = { 0, 245, 255, (uint8_t)(220 * enterA) };
-                        r.DrawQuad       (bx, by, bw, bh, bg);
-                        r.DrawQuadOutline(bx, by, bw, bh, bd, 1.5f);
+                        r.DrawFilledRect({ bx, by, bw, bh }, bg);
+                        r.DrawRectOutline({ bx, by, bw, bh }, bd, 1.5f);
                         char nameBuf[96];
                         if (c.hasIdentity)
                         {
@@ -688,8 +683,8 @@ namespace nkentseu
                 mCancelH = cancelBtnH;
                 mCancelX = gridLeft + (availW - mCancelW) * 0.5f;
                 mCancelY = y + Pct::H(H, 0.015f, 8.0f, 18.0f);
-                r.DrawQuad       (mCancelX, mCancelY, mCancelW, mCancelH, { 255, 100, 100, 30 });
-                r.DrawQuadOutline(mCancelX, mCancelY, mCancelW, mCancelH, { 255, 100, 100, 200 }, 1.5f);
+                r.DrawFilledRect({ mCancelX, mCancelY, mCancelW, mCancelH }, { 255, 100, 100, 30 });
+                r.DrawRectOutline({ mCancelX, mCancelY, mCancelW, mCancelH }, { 255, 100, 100, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                    mCancelX + mCancelW * 0.5f,
                                    mCancelY + cancelPadT,
@@ -705,8 +700,8 @@ namespace nkentseu
                 mCancelH = cancelBtnH;
                 mCancelX = gridLeft + (availW - mCancelW) * 0.5f;
                 mCancelY = y;
-                r.DrawQuad       (mCancelX, mCancelY, mCancelW, mCancelH, { 255, 100, 100, 30 });
-                r.DrawQuadOutline(mCancelX, mCancelY, mCancelW, mCancelH, { 255, 100, 100, 200 }, 1.5f);
+                r.DrawFilledRect({ mCancelX, mCancelY, mCancelW, mCancelH }, { 255, 100, 100, 30 });
+                r.DrawRectOutline({ mCancelX, mCancelY, mCancelW, mCancelH }, { 255, 100, 100, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                    mCancelX + mCancelW * 0.5f,
                                    mCancelY + cancelPadT,
@@ -735,8 +730,8 @@ namespace nkentseu
                 mCancelH = cancelBtnH;
                 mCancelX = gridLeft + (availW - mCancelW) * 0.5f;
                 mCancelY = y;
-                r.DrawQuad       (mCancelX, mCancelY, mCancelW, mCancelH, { 0, 245, 255, 40 });
-                r.DrawQuadOutline(mCancelX, mCancelY, mCancelW, mCancelH, { 0, 245, 255, 240 }, 1.5f);
+                r.DrawFilledRect({ mCancelX, mCancelY, mCancelW, mCancelH }, { 0, 245, 255, 40 });
+                r.DrawRectOutline({ mCancelX, mCancelY, mCancelW, mCancelH }, { 0, 245, 255, 240 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                    mCancelX + mCancelW * 0.5f,
                                    mCancelY + cancelPadT,
@@ -781,8 +776,8 @@ namespace nkentseu
                     mLaunchY = y;
                     math::NkColor bg = { 0, 245, 255, (uint8_t)((40 + 40 * pulse)) };
                     math::NkColor bd = { 0, 245, 255, 240 };
-                    r.DrawQuad       (mLaunchX, mLaunchY, mLaunchW, mLaunchH, bg);
-                    r.DrawQuadOutline(mLaunchX, mLaunchY, mLaunchW, mLaunchH, bd, 2.0f);
+                    r.DrawFilledRect({ mLaunchX, mLaunchY, mLaunchW, mLaunchH }, bg);
+                    r.DrawRectOutline({ mLaunchX, mLaunchY, mLaunchW, mLaunchH }, bd, 2.0f);
                     f.DrawStringCenteredScaled(r, FontAtlas::HeadlineSlot, scale,
                                        mLaunchX + mLaunchW * 0.5f,
                                        mLaunchY + mLaunchH * 0.25f,
@@ -820,8 +815,8 @@ namespace nkentseu
                     const float cardY = y;
                     math::NkColor bg = { 255, 215, 0, (uint8_t)(30 + 30 * pulse) };
                     math::NkColor bd = { 255, 215, 0, 200 };
-                    r.DrawQuad       (cardX, cardY, cardW, cardH, bg);
-                    r.DrawQuadOutline(cardX, cardY, cardW, cardH, bd, 1.5f);
+                    r.DrawFilledRect({ cardX, cardY, cardW, cardH }, bg);
+                    r.DrawRectOutline({ cardX, cardY, cardW, cardH }, bd, 1.5f);
                     f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
                                        cardX + cardW * 0.5f,
                                        cardY + cardH * 0.20f,
@@ -835,8 +830,6 @@ namespace nkentseu
                                        dots[dotIdx], theme::Cyan());
                 }
             }
-
-            r.End();
         }
 
         // ─────────────────────────────────────────────────────────────────────

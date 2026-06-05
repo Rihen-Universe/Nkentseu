@@ -48,21 +48,27 @@ void NkSLSemantic::AnalyzeProgram(NkSLProgramNode* prog) {
             mSymbols.Define(sym);
         } else if (child->kind == NkSLNodeKind::NK_DECL_FUNCTION) {
             auto* fn = static_cast<NkSLFunctionDeclNode*>(child);
-            NkSLSymbol* existing = mSymbols.Resolve(fn->name);
-            if (!existing) {
-                NkSLSymbol sym;
-                sym.name = fn->name;
-                sym.kind = NkSLSymbolKind::NK_FUNCTION;
-                mSymbols.Define(sym);
-                existing = mSymbols.Resolve(fn->name);
-            }
-            // Ajouter cette surcharge
+            // Construire la surcharge d'abord.
             NkSLFunctionOverload ov;
             ov.decl       = fn;
             ov.returnType = NkSLResolvedType::FromNode(fn->returnType);
             for (auto* p : fn->params)
                 ov.paramTypes.PushBack(NkSLResolvedType::FromNode(p->type));
-            existing->overloads.PushBack(ov);
+            // NE PAS faire Define() puis re-Resolve()+deref : NkUnorderedMap peut
+            // rehasher dans operator[] (Define), et le Find qui suit retourne
+            // intermittemment null -> SIGSEGV. On ajoute l'overload AU symbole
+            // existant (pointeur frais, pas d'insert apres), sinon on construit le
+            // symbole COMPLET et on l'insere une seule fois.
+            NkSLSymbol* existing = mSymbols.Resolve(fn->name);
+            if (existing) {
+                existing->overloads.PushBack(ov);
+            } else {
+                NkSLSymbol sym;
+                sym.name = fn->name;
+                sym.kind = NkSLSymbolKind::NK_FUNCTION;
+                sym.overloads.PushBack(ov);
+                mSymbols.Define(sym);
+            }
         }
     }
 
@@ -419,6 +425,20 @@ NkString NkSLSemantic::TypeName(const NkSLResolvedType& t) {
         case NkSLBaseType::NK_SAMPLER3D:        return "sampler3D";
         case NkSLBaseType::NK_SAMPLER_CUBE:     return "samplerCube";
         case NkSLBaseType::NK_IMAGE2D:          return "image2D";
+        case NkSLBaseType::NK_SAMPLER1D:           return "sampler1D";
+        case NkSLBaseType::NK_SAMPLER1D_ARRAY:     return "sampler1DArray";
+        case NkSLBaseType::NK_SAMPLER2D_ARRAY:     return "sampler2DArray";
+        case NkSLBaseType::NK_SAMPLER_CUBE_ARRAY:  return "samplerCubeArray";
+        case NkSLBaseType::NK_SAMPLER2DMS:         return "sampler2DMS";
+        case NkSLBaseType::NK_ISAMPLER2D:          return "isampler2D";
+        case NkSLBaseType::NK_USAMPLER2D:          return "usampler2D";
+        case NkSLBaseType::NK_ISAMPLER3D:          return "isampler3D";
+        case NkSLBaseType::NK_USAMPLER3D:          return "usampler3D";
+        case NkSLBaseType::NK_IMAGE3D:             return "image3D";
+        case NkSLBaseType::NK_IIMAGE3D:            return "iimage3D";
+        case NkSLBaseType::NK_UIMAGE3D:            return "uimage3D";
+        case NkSLBaseType::NK_IMAGE_CUBE:          return "imageCube";
+        case NkSLBaseType::NK_IMAGE2D_ARRAY:       return "image2DArray";
         default: return "unknown";
     }
 }

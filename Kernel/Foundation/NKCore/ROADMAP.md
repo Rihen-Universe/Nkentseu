@@ -193,4 +193,4 @@ devront être créés :
 - **Modules au-dessus qui en dépendent** : NKMath, NKMemory, NKContainers,
   NKRHI, NKRenderer, tous les services moteur (NKFont, NKImage, NKAudio,
   NKPhysics, NKAnimation, NKScript, NKScene, NKUI), Nkentseu/Core application
-  framework, Unkeny éditeur, PV3DE
+  framework, Noge éditeur, PV3DE

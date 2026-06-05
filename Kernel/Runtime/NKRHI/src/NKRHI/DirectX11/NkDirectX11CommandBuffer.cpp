@@ -132,9 +132,20 @@ namespace nkentseu {
                                                 uint32* /*off*/, uint32 /*cnt*/) {
         auto* ds = mDev->GetDescSet(set.id);
         if (!ds) return;
+        // D3D11 : 128 slots SRV (t0..t127) mais seulement 16 slots sampler (s0..s15,
+        // D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT). NKRenderer utilise des bindings
+        // élevés (16, 25, 26, 27…) dans un seul set : un sampler à slot>=16 passé à
+        // *SetSamplers est hors-limites -> crash dans d3d11.dll. On garde le SRV (slot
+        // valide en t#) et on saute le sampler hors-limites.
+        // TODO #4 : remapping propre des registres sampler en SPIRV-Cross (s0..s15)
+        // pour que les textures à binding>=16 disposent quand même d'un sampler.
+        constexpr UINT kMaxSamplerSlot = D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; // 16
+        constexpr UINT kMaxSrvSlot     = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; // 128
         for (uint32 i = 0; i < ds->count; i++) {
             auto& s = ds->slots[i];
             UINT slot = s.slot;
+            const bool srvOk     = slot < kMaxSrvSlot;
+            const bool samplerOk = slot < kMaxSamplerSlot;
             switch (s.kind) {
                 case NkDX11DescSet::Slot::Buffer:
                     if (s.type == NkDescriptorType::NK_UNIFORM_BUFFER) {
@@ -147,23 +158,31 @@ namespace nkentseu {
                     }
                     break;
                 case NkDX11DescSet::Slot::Texture:
-                    mDeferred->VSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->PSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->CSSetShaderResources(slot, 1, &s.srv);
-                    if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
+                    if (srvOk) {
+                        mDeferred->VSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->PSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->CSSetShaderResources(slot, 1, &s.srv);
+                        if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
+                    }
                     break;
                 case NkDX11DescSet::Slot::Sampler:
-                    mDeferred->VSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->PSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->CSSetSamplers(slot, 1, &s.ss);
+                    if (samplerOk) {
+                        mDeferred->VSSetSamplers(slot, 1, &s.ss);
+                        mDeferred->PSSetSamplers(slot, 1, &s.ss);
+                        mDeferred->CSSetSamplers(slot, 1, &s.ss);
+                    }
                     break;
                 case NkDX11DescSet::Slot::TextureAndSampler:
-                    mDeferred->VSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->PSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->CSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->VSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->PSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->CSSetSamplers(slot, 1, &s.ss);
+                    if (srvOk) {
+                        mDeferred->VSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->PSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->CSSetShaderResources(slot, 1, &s.srv);
+                    }
+                    if (samplerOk) {
+                        mDeferred->VSSetSamplers(slot, 1, &s.ss);
+                        mDeferred->PSSetSamplers(slot, 1, &s.ss);
+                        mDeferred->CSSetSamplers(slot, 1, &s.ss);
+                    }
                     break;
                 default: break;
             }

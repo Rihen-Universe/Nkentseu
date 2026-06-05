@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Panels/InspectorPanel.h
+// Noge/Panels/InspectorPanel.h
 // =============================================================================
 // Affiche et édite les composants de l'entité sélectionnée.
 // Utilise NkComponentMetaRegistry (NkReflectComponents.h) pour générer

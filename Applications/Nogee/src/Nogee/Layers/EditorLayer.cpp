@@ -3,7 +3,7 @@
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         EditorLayer::EditorLayer(const NkString& name,
                                  NkIDevice* device,
@@ -172,5 +172,5 @@ namespace nkentseu {
             logger.Infof("[Editor] Pause\n");
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

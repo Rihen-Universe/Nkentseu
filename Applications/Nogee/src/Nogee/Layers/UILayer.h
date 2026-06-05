@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Layers/UILayer.h  —  v2
+// Noge/Layers/UILayer.h  —  v2
 // =============================================================================
 // Overlay NKUI de l'éditeur. Intègre :
 //   - MenuBar fonctionnel (Fichier, Édition, Affichage, Aide)
@@ -30,12 +30,12 @@
 #include "NKUI/NKUI.h"
 #include "NKUI/NkUILayout2.h"
 #include "NKUI/NkUIMenu.h"
-#include "Unkeny/Panels/SceneTreePanel.h"
-#include "Unkeny/Panels/InspectorPanel.h"
-#include "Unkeny/Panels/AssetBrowser.h"
-#include "Unkeny/Panels/ConsolePanel.h"
-#include "Unkeny/Layers/EditorLayer.h"
-#include "Unkeny/Layers/ViewportLayer.h"
+#include "Noge/Panels/SceneTreePanel.h"
+#include "Noge/Panels/InspectorPanel.h"
+#include "Noge/Panels/AssetBrowser.h"
+#include "Noge/Panels/ConsolePanel.h"
+#include "Noge/Layers/EditorLayer.h"
+#include "Noge/Layers/ViewportLayer.h"
 
 namespace nkentseu {
     namespace noge {
@@ -55,7 +55,7 @@ namespace nkentseu {
             void OnUIRender()        override;
             bool OnEvent(NkEvent*)   override;
 
-            // ── Injections depuis UnkenyApp ───────────────────────────────────
+            // ── Injections depuis NogeApp ───────────────────────────────────
             void SetEditorLayer  (EditorLayer*   el) noexcept { mEditorLayer   = el; }
             void SetViewportLayer(ViewportLayer* vl) noexcept { mViewportLayer = vl; }
             void SetWorld        (ecs::NkWorld*  w)  noexcept { mWorld         = w;  }

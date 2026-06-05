@@ -3,7 +3,7 @@
 // =============================================================================
 
 #include "PowerUpSystem.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "NKMath/NkFunctions.h"
 #include <cstdlib>
 #include <cmath>
@@ -170,7 +170,7 @@ namespace nkentseu
 
         // ── Rendu ────────────────────────────────────────────────────────────
         // Drops : orbe glow + cercle plein. Couleur depend du type.
-        void PowerUpSystem::Render(GLRenderer2D& r, FontAtlas& /*f*/,
+        void PowerUpSystem::Render(renderer::NkRenderer2D& r, FontAtlas& /*f*/,
                                    float arenaOX, float arenaOY, float scale) const
         {
             (void)scale;
@@ -186,23 +186,23 @@ namespace nkentseu
                 const float cx = arenaOX + d.x;
                 const float cy = arenaOY + d.y;
                 // Halo exterieur
-                r.DrawCircle(cx, cy, d.r * 1.6f, WithAlpha(base, 0.10f + pulse01 * 0.10f), 24);
+                r.DrawFilledCircle({ cx, cy }, d.r * 1.6f, WithAlpha(base, 0.10f + pulse01 * 0.10f), 24);
                 // Orbe pleine
-                r.DrawCircle(cx, cy, d.r,         WithAlpha(base, 0.85f), 24);
+                r.DrawFilledCircle({ cx, cy }, d.r,         WithAlpha(base, 0.85f), 24);
                 // Outline
-                r.DrawCircleOutline(cx, cy, d.r,  WithAlpha(base, 1.0f), 1.5f, 24);
+                r.DrawCircleOutline({ cx, cy }, d.r,  WithAlpha(base, 1.0f), 1.5f, 24);
                 // Marqueur central pour distinguer bonus/malus :
                 //   bonus = petit cercle blanc, malus = croix rouge clair
                 if (d.isBonus)
                 {
-                    r.DrawCircle(cx, cy, d.r * 0.30f, MakeColor(255, 255, 255, 220), 12);
+                    r.DrawFilledCircle({ cx, cy }, d.r * 0.30f, MakeColor(255, 255, 255, 220), 12);
                 }
                 else
                 {
                     const float k = d.r * 0.45f;
-                    r.DrawLine(cx - k, cy - k, cx + k, cy + k,
+                    r.DrawLine({ cx - k, cy - k }, { cx + k, cy + k },
                                MakeColor(255, 255, 255, 220), 2.0f);
-                    r.DrawLine(cx - k, cy + k, cx + k, cy - k,
+                    r.DrawLine({ cx - k, cy + k }, { cx + k, cy - k },
                                MakeColor(255, 255, 255, 220), 2.0f);
                 }
             }

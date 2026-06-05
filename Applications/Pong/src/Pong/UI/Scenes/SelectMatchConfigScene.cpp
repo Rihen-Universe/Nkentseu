@@ -17,7 +17,7 @@
 
 #include "SelectMatchConfigScene.h"
 #include "GameplayScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -81,7 +81,7 @@ namespace nkentseu
             { "ETOILE BONUS",        "BONUS ALEATOIRE.",      7, { 255, 215,   0, 255 } },
         };
 
-        static void DrawObsIcon(GLRenderer2D& r, int iconId,
+        static void DrawObsIcon(renderer::NkRenderer2D& r, int iconId,
                                 float bx, float by, float bs,
                                 math::NkColor c)
         {
@@ -100,48 +100,48 @@ namespace nkentseu
                     const float xx = cx - bw * 1.5f + col * bw
                                    + ((row & 1) ? bw * 0.5f : 0.0f);
                     const float yy = cy - bh + row * bh;
-                    r.DrawQuadOutline(xx, yy, bw - 1.0f, bh - 1.0f, c, 1.0f);
+                    r.DrawRectOutline({ xx, yy, bw - 1.0f, bh - 1.0f }, c, 1.0f);
                 }
                 break;
             }
             case 1:
-                r.DrawCircleOutline(cx, cy, hb * 0.6f, c, 2.0f, 32);
-                r.DrawCircle(cx, cy, hb * 0.2f, c, 16);
+                r.DrawCircleOutline({ cx, cy }, hb * 0.6f, c, 2.0f, 32);
+                r.DrawFilledCircle({ cx, cy }, hb * 0.2f, c, 16);
                 break;
             case 2:
                 for (int i = 0; i < 3; ++i)
-                    r.DrawCircleOutline(cx, cy, hb * (0.25f + 0.18f * i), c, 1.5f, 32);
-                r.DrawCircle(cx, cy, 2.5f, c, 10);
+                    r.DrawCircleOutline({ cx, cy }, hb * (0.25f + 0.18f * i), c, 1.5f, 32);
+                r.DrawFilledCircle({ cx, cy }, 2.5f, c, 10);
                 break;
             case 3:
                 for (int i = 0; i < 3; ++i)
                 {
                     const float yy = cy - 6.0f + i * 6.0f;
-                    r.DrawQuad(cx - hb * 0.5f, yy, hb, 1.5f, c);
+                    r.DrawFilledRect({ cx - hb * 0.5f, yy, hb, 1.5f }, c);
                 }
                 break;
             case 4:
-                r.DrawTriangle(cx, cy - hb * 0.5f, cx + hb * 0.45f, cy,
-                               cx, cy + hb * 0.5f, c);
-                r.DrawTriangle(cx, cy - hb * 0.5f, cx - hb * 0.45f, cy,
-                               cx, cy + hb * 0.5f, c);
+                r.DrawFilledTriangle({ cx, cy - hb * 0.5f }, { cx + hb * 0.45f, cy },
+                               { cx, cy + hb * 0.5f }, c);
+                r.DrawFilledTriangle({ cx, cy - hb * 0.5f }, { cx - hb * 0.45f, cy },
+                               { cx, cy + hb * 0.5f }, c);
                 break;
             case 5:
-                r.DrawCircle(cx, cy, hb * 0.35f, c, 16);
+                r.DrawFilledCircle({ cx, cy }, hb * 0.35f, c, 16);
                 for (int i = 0; i < 8; ++i)
                 {
                     const float a = 6.28318f * i / 8.0f;
                     const float r1 = hb * 0.40f;
                     const float r2 = hb * 0.55f;
-                    r.DrawLine(cx + math::NkCos(a) * r1, cy + math::NkSin(a) * r1,
-                               cx + math::NkCos(a) * r2, cy + math::NkSin(a) * r2,
+                    r.DrawLine({ cx + math::NkCos(a) * r1, cy + math::NkSin(a) * r1 },
+                               { cx + math::NkCos(a) * r2, cy + math::NkSin(a) * r2 },
                                c, 1.5f);
                 }
                 break;
             case 6:
-                r.DrawQuad(cx - hb * 0.4f, cy - hb * 0.3f, hb * 0.2f, hb * 0.6f, c);
-                r.DrawQuad(cx + hb * 0.2f, cy - hb * 0.3f, hb * 0.2f, hb * 0.6f, c);
-                r.DrawQuad(cx - hb * 0.4f, cy + hb * 0.20f, hb * 0.8f, hb * 0.1f, c);
+                r.DrawFilledRect({ cx - hb * 0.4f, cy - hb * 0.3f, hb * 0.2f, hb * 0.6f }, c);
+                r.DrawFilledRect({ cx + hb * 0.2f, cy - hb * 0.3f, hb * 0.2f, hb * 0.6f }, c);
+                r.DrawFilledRect({ cx - hb * 0.4f, cy + hb * 0.20f, hb * 0.8f, hb * 0.1f }, c);
                 break;
             case 7:
             default:
@@ -151,8 +151,8 @@ namespace nkentseu
                 {
                     const float a1 = -1.5708f + 6.28318f * i / 5.0f;
                     const float a2 = -1.5708f + 6.28318f * (i + 2) / 5.0f;
-                    r.DrawLine(cx + math::NkCos(a1) * rad, cy + math::NkSin(a1) * rad,
-                               cx + math::NkCos(a2) * rad, cy + math::NkSin(a2) * rad,
+                    r.DrawLine({ cx + math::NkCos(a1) * rad, cy + math::NkSin(a1) * rad },
+                               { cx + math::NkCos(a2) * rad, cy + math::NkSin(a2) * rad },
                                c, 1.5f);
                 }
                 break;
@@ -344,22 +344,17 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void SelectMatchConfigScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
             const float scale = GetUIScale(W, H);
 
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
-
             // Background grille
             const math::NkColor grid = { 0, 245, 255, 10 };
             const float step = 40.0f;
-            for (float x = 0; x < (float)W; x += step) r.DrawQuad(x, 0.0f, 1.0f, (float)H, grid);
-            for (float y = 0; y < (float)H; y += step) r.DrawQuad(0.0f, y, (float)W, 1.0f, grid);
+            for (float x = 0; x < (float)W; x += step) r.DrawFilledRect({ x, 0.0f, 1.0f, (float)H }, grid);
+            for (float y = 0; y < (float)H; y += step) r.DrawFilledRect({ 0.0f, y, (float)W, 1.0f }, grid);
 
             const float safeX = (float)ctx.safe.LeftX();
             const float safeY = (float)ctx.safe.TopY();
@@ -424,10 +419,10 @@ namespace nkentseu
                         // Boutons -
                         mScoreMinusX = rxStart;
                         mScoreMinusY = ly + (lineH - btnH) * 0.5f;
-                        r.DrawQuad       (mScoreMinusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 40 });
-                        r.DrawQuadOutline(mScoreMinusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 200 }, 1.5f);
+                        r.DrawFilledRect ({ mScoreMinusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 40 });
+                        r.DrawRectOutline({ mScoreMinusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 200 }, 1.5f);
                         f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                            mScoreMinusX + btnW * 0.5f,
                                            screenLY + (lineH - btnH) * 0.5f
@@ -443,10 +438,10 @@ namespace nkentseu
                         // Bouton +
                         mScorePlusX = rxStart + btnW + valW;
                         mScorePlusY = mScoreMinusY;
-                        r.DrawQuad       (mScorePlusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 40 });
-                        r.DrawQuadOutline(mScorePlusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 200 }, 1.5f);
+                        r.DrawFilledRect ({ mScorePlusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 40 });
+                        r.DrawRectOutline({ mScorePlusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 200 }, 1.5f);
                         f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                            mScorePlusX + btnW * 0.5f,
                                            screenLY + (lineH - btnH) * 0.5f
@@ -470,10 +465,10 @@ namespace nkentseu
                         const float rxStart = gridLeft + availW - (btnW * 2 + valW);
                         mTimeMinusX = rxStart;
                         mTimeMinusY = ly + (lineH - btnH) * 0.5f;
-                        r.DrawQuad       (mTimeMinusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 40 });
-                        r.DrawQuadOutline(mTimeMinusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 200 }, 1.5f);
+                        r.DrawFilledRect ({ mTimeMinusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 40 });
+                        r.DrawRectOutline({ mTimeMinusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 200 }, 1.5f);
                         f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                            mTimeMinusX + btnW * 0.5f,
                                            screenLY + (lineH - btnH) * 0.5f
@@ -487,10 +482,10 @@ namespace nkentseu
                                            buf, theme::White());
                         mTimePlusX = rxStart + btnW + valW;
                         mTimePlusY = mTimeMinusY;
-                        r.DrawQuad       (mTimePlusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 40 });
-                        r.DrawQuadOutline(mTimePlusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 200 }, 1.5f);
+                        r.DrawFilledRect ({ mTimePlusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 40 });
+                        r.DrawRectOutline({ mTimePlusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 200 }, 1.5f);
                         f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                            mTimePlusX + btnW * 0.5f,
                                            screenLY + (lineH - btnH) * 0.5f
@@ -514,10 +509,10 @@ namespace nkentseu
                         const float rxStart = gridLeft + availW - (btnW * 2 + valW);
                         mSpeedMinusX = rxStart;
                         mSpeedMinusY = ly + (lineH - btnH) * 0.5f;
-                        r.DrawQuad       (mSpeedMinusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 40 });
-                        r.DrawQuadOutline(mSpeedMinusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 200 }, 1.5f);
+                        r.DrawFilledRect ({ mSpeedMinusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 40 });
+                        r.DrawRectOutline({ mSpeedMinusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 200 }, 1.5f);
                         f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                            mSpeedMinusX + btnW * 0.5f,
                                            screenLY + (lineH - btnH) * 0.5f
@@ -531,10 +526,10 @@ namespace nkentseu
                                            buf, theme::White());
                         mSpeedPlusX = rxStart + btnW + valW;
                         mSpeedPlusY = mSpeedMinusY;
-                        r.DrawQuad       (mSpeedPlusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 40 });
-                        r.DrawQuadOutline(mSpeedPlusX, screenLY + (lineH - btnH) * 0.5f,
-                                          btnW, btnH, { 0, 245, 255, 200 }, 1.5f);
+                        r.DrawFilledRect ({ mSpeedPlusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 40 });
+                        r.DrawRectOutline({ mSpeedPlusX, screenLY + (lineH - btnH) * 0.5f,
+                                          btnW, btnH }, { 0, 245, 255, 200 }, 1.5f);
                         f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                            mSpeedPlusX + btnW * 0.5f,
                                            screenLY + (lineH - btnH) * 0.5f
@@ -565,8 +560,8 @@ namespace nkentseu
                         math::NkColor bd = mWinByTwo
                             ? math::NkColor{ 0, 245, 255, 220 }
                             : math::NkColor{ 255, 255, 255, 100 };
-                        r.DrawQuad       (tx, screenTY, toggleW, toggleH, bg);
-                        r.DrawQuadOutline(tx, screenTY, toggleW, toggleH, bd, 1.5f);
+                        r.DrawFilledRect ({ tx, screenTY, toggleW, toggleH }, bg);
+                        r.DrawRectOutline({ tx, screenTY, toggleW, toggleH }, bd, 1.5f);
                         f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                            tx + toggleW * 0.5f,
                                            screenTY + toggleH * 0.20f,
@@ -634,8 +629,8 @@ namespace nkentseu
                     }
                     bg.a   = static_cast<uint8>(bg.a   * a);
                     bord.a = static_cast<uint8>(bord.a * a);
-                    r.DrawQuad       (bx, screenBY, cardW, cardH, bg);
-                    r.DrawQuadOutline(bx, screenBY, cardW, cardH, bord,
+                    r.DrawFilledRect ({ bx, screenBY, cardW, cardH }, bg);
+                    r.DrawRectOutline({ bx, screenBY, cardW, cardH }, bord,
                                       focused ? 2.5f * scale : 1.0f);
 
                     // Offsets internes carte exprimes en fraction de cardW/cardH.
@@ -647,7 +642,7 @@ namespace nkentseu
 
                     math::NkColor topBar = d.color;
                     topBar.a = static_cast<uint8>(255 * a);
-                    r.DrawQuad(bx, screenBY, cardW, Pct::H(H, 0.004f, 2.0f, 5.0f), topBar);
+                    r.DrawFilledRect({ bx, screenBY, cardW, Pct::H(H, 0.004f, 2.0f, 5.0f) }, topBar);
 
                     math::NkColor rankCol = d.color;
                     rankCol.a = static_cast<uint8>(220 * a);
@@ -674,13 +669,13 @@ namespace nkentseu
                         {
                             math::NkColor dotC = d.color;
                             dotC.a = static_cast<uint8>(255 * a);
-                            r.DrawCircle(ddx, dotsY, dotR, dotC, 12);
+                            r.DrawFilledCircle({ ddx, dotsY }, dotR, dotC, 12);
                         }
                         else
                         {
                             math::NkColor dotC = { 255, 255, 255, 30 };
                             dotC.a = static_cast<uint8>(30 * a);
-                            r.DrawCircleOutline(ddx, dotsY, dotR, dotC, 1.0f, 12);
+                            r.DrawCircleOutline({ ddx, dotsY }, dotR, dotC, 1.0f, 12);
                         }
                     }
 
@@ -754,8 +749,8 @@ namespace nkentseu
                     }
                     bg.a   = static_cast<uint8>(bg.a   * a);
                     bord.a = static_cast<uint8>(bord.a * a);
-                    r.DrawQuad       (bx, screenBY, cardW, cardH, bg);
-                    r.DrawQuadOutline(bx, screenBY, cardW, cardH, bord, 1.5f * scale);
+                    r.DrawFilledRect ({ bx, screenBY, cardW, cardH }, bg);
+                    r.DrawRectOutline({ bx, screenBY, cardW, cardH }, bord, 1.5f * scale);
 
                     const float iconSize = cardH * 0.35f;
                     const float iconX = bx + (cardW - iconSize) * 0.5f;
@@ -782,18 +777,18 @@ namespace nkentseu
                     cbg.a = static_cast<uint8>(cbg.a * a);
                     math::NkColor cbd = active ? d.color : math::NkColor{ 255, 255, 255, 100 };
                     cbd.a = static_cast<uint8>(cbd.a * a);
-                    r.DrawQuad       (cx2, cy2, cs, cs, cbg);
-                    r.DrawQuadOutline(cx2, cy2, cs, cs, cbd, 1.5f * scale);
+                    r.DrawFilledRect ({ cx2, cy2, cs, cs }, cbg);
+                    r.DrawRectOutline({ cx2, cy2, cs, cs }, cbd, 1.5f * scale);
                     if (active)
                     {
                         // Coche
                         math::NkColor white = { 0, 0, 0, 230 };
                         white.a = static_cast<uint8>(230 * a);
                         const float pad = cs * 0.22f;
-                        r.DrawLine(cx2 + pad,        cy2 + cs * 0.5f,
-                                   cx2 + cs * 0.45f, cy2 + cs - pad, white, 2.0f);
-                        r.DrawLine(cx2 + cs * 0.45f, cy2 + cs - pad,
-                                   cx2 + cs - pad,   cy2 + pad,       white, 2.0f);
+                        r.DrawLine({ cx2 + pad,        cy2 + cs * 0.5f },
+                                   { cx2 + cs * 0.45f, cy2 + cs - pad }, white, 2.0f);
+                        r.DrawLine({ cx2 + cs * 0.45f, cy2 + cs - pad },
+                                   { cx2 + cs - pad,   cy2 + pad },       white, 2.0f);
                     }
 
                     math::NkColor nameC = active ? math::NkColor{ 255, 255, 255, 245 }
@@ -820,7 +815,7 @@ namespace nkentseu
             mScrollY = ClampScroll(mScrollY);
 
             // ── TOP : titre + sous-titre (au-dessus du scroll, mask le contenu)
-            r.DrawQuad(0.0f, safeY, (float)W, mTopReserve, { 5, 10, 20, 230 });
+            r.DrawFilledRect({ 0.0f, safeY, (float)W, mTopReserve }, { 5, 10, 20, 230 });
 
             // Bouton RETOUR (haut-gauche) — dimensions en % viewport
             {
@@ -829,8 +824,8 @@ namespace nkentseu
                 mBackW = bw; mBackH = bh;
                 mBackX = safeX + Pct::W(W, 0.020f, 10.0f, 24.0f);
                 mBackY = safeY + Pct::H(H, 0.018f, 8.0f, 22.0f);
-                r.DrawQuad       (mBackX, mBackY, bw, bh, { 255, 255, 255, 16 });
-                r.DrawQuadOutline(mBackX, mBackY, bw, bh, { 0, 245, 255, 180 }, 1.5f * scale);
+                r.DrawFilledRect ({ mBackX, mBackY, bw, bh }, { 255, 255, 255, 16 });
+                r.DrawRectOutline({ mBackX, mBackY, bw, bh }, { 0, 245, 255, 180 }, 1.5f * scale);
                 f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, scale,
                                    mBackX + bw * 0.5f, mBackY + bh * 0.30f,
                                    "< RETOUR", theme::Cyan());
@@ -851,7 +846,7 @@ namespace nkentseu
 
             // ── BOTTOM : bouton LANCER sticky + fond opaque ─────────────────
             const float botY = safeY + safeH - mBottomReserve;
-            r.DrawQuad(0.0f, botY, (float)W, mBottomReserve, { 5, 10, 20, 230 });
+            r.DrawFilledRect({ 0.0f, botY, (float)W, mBottomReserve }, { 5, 10, 20, 230 });
             // Bouton LANCER : largeur 40% viewport (max 420 px), hauteur 7% H.
             const float launchW = Pct::W(W, 0.400f, 220.0f, 460.0f);
             const float launchH = Pct::H(H, 0.075f, 40.0f, 80.0f);
@@ -860,8 +855,8 @@ namespace nkentseu
             mLaunchY = botY + (mBottomReserve - launchH) * 0.5f;
             math::NkColor lbg = theme::Cyan(); lbg.a = 50;
             math::NkColor lbd = theme::Cyan(); lbd.a = 230;
-            r.DrawQuad       (mLaunchX, mLaunchY, launchW, launchH, lbg);
-            r.DrawQuadOutline(mLaunchX, mLaunchY, launchW, launchH, lbd, 2.0f * scale);
+            r.DrawFilledRect ({ mLaunchX, mLaunchY, launchW, launchH }, lbg);
+            r.DrawRectOutline({ mLaunchX, mLaunchY, launchW, launchH }, lbd, 2.0f * scale);
             f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                cx, mLaunchY + launchH * 0.30f,
                                "LANCER LA PARTIE  (ENTREE)", theme::Cyan());
@@ -871,7 +866,7 @@ namespace nkentseu
             {
                 const ObsDescL& d = kObsL[mEditingObsIndex];
                 // Voile sombre par-dessus tout
-                r.DrawQuad(0.0f, 0.0f, (float)W, (float)H, { 5, 10, 20, 200 });
+                r.DrawFilledRect({ 0.0f, 0.0f, (float)W, (float)H }, { 5, 10, 20, 200 });
                 // Panneau central : taille en % viewport, centre vertical
                 // et horizontal pour rester ergonomique sur tout ratio.
                 const float pW = math::NkMin(safeW * 0.85f,
@@ -880,9 +875,9 @@ namespace nkentseu
                 mEditPanelW = pW; mEditPanelH = pH;
                 mEditPanelX = cx - pW * 0.5f;
                 mEditPanelY = safeY + (safeH - pH) * 0.5f;
-                r.DrawQuad       (mEditPanelX, mEditPanelY, pW, pH,
+                r.DrawFilledRect ({ mEditPanelX, mEditPanelY, pW, pH },
                                   { 8, 16, 28, 250 });
-                r.DrawQuadOutline(mEditPanelX, mEditPanelY, pW, pH,
+                r.DrawRectOutline({ mEditPanelX, mEditPanelY, pW, pH },
                                   d.color, 2.0f * scale);
 
                 // Titre + close (offsets relatifs au panneau)
@@ -898,9 +893,9 @@ namespace nkentseu
                 mEditCloseX = mEditPanelX + pW - closeS - panelPadX * 0.6f;
                 mEditCloseY = mEditPanelY + panelPadY * 0.85f;
                 mEditBtnH = closeS;
-                r.DrawQuad       (mEditCloseX, mEditCloseY, closeS, closeS,
+                r.DrawFilledRect ({ mEditCloseX, mEditCloseY, closeS, closeS },
                                   { 255, 64, 64, 60 });
-                r.DrawQuadOutline(mEditCloseX, mEditCloseY, closeS, closeS,
+                r.DrawRectOutline({ mEditCloseX, mEditCloseY, closeS, closeS },
                                   { 255, 64, 64, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mEditCloseX + closeS * 0.5f,
@@ -922,8 +917,8 @@ namespace nkentseu
                              lx, ly + lineH * 0.28f,
                              "NOMBRE D'ELEMENTS", { 255, 255, 255, 220 });
                 mEditCountMinusX = rx; mEditCountMinusY = ly + (lineH - bh) * 0.5f;
-                r.DrawQuad       (mEditCountMinusX, mEditCountMinusY, bw, bh, { 0, 245, 255, 40 });
-                r.DrawQuadOutline(mEditCountMinusX, mEditCountMinusY, bw, bh, { 0, 245, 255, 200 }, 1.5f);
+                r.DrawFilledRect ({ mEditCountMinusX, mEditCountMinusY, bw, bh }, { 0, 245, 255, 40 });
+                r.DrawRectOutline({ mEditCountMinusX, mEditCountMinusY, bw, bh }, { 0, 245, 255, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mEditCountMinusX + bw * 0.5f,
                                    mEditCountMinusY + bh * 0.20f, "-", theme::Cyan());
@@ -932,8 +927,8 @@ namespace nkentseu
                                    rx + bw + valW * 0.5f,
                                    ly + lineH * 0.28f, nbuf, theme::White());
                 mEditCountPlusX = rx + bw + valW; mEditCountPlusY = mEditCountMinusY;
-                r.DrawQuad       (mEditCountPlusX, mEditCountPlusY, bw, bh, { 0, 245, 255, 40 });
-                r.DrawQuadOutline(mEditCountPlusX, mEditCountPlusY, bw, bh, { 0, 245, 255, 200 }, 1.5f);
+                r.DrawFilledRect ({ mEditCountPlusX, mEditCountPlusY, bw, bh }, { 0, 245, 255, 40 });
+                r.DrawRectOutline({ mEditCountPlusX, mEditCountPlusY, bw, bh }, { 0, 245, 255, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mEditCountPlusX + bw * 0.5f,
                                    mEditCountPlusY + bh * 0.20f, "+", theme::Cyan());
@@ -944,8 +939,8 @@ namespace nkentseu
                              lx, ly + lineH * 0.28f,
                              "FORCE", { 255, 255, 255, 220 });
                 mEditPowerMinusX = rx; mEditPowerMinusY = ly + (lineH - bh) * 0.5f;
-                r.DrawQuad       (mEditPowerMinusX, mEditPowerMinusY, bw, bh, { 0, 245, 255, 40 });
-                r.DrawQuadOutline(mEditPowerMinusX, mEditPowerMinusY, bw, bh, { 0, 245, 255, 200 }, 1.5f);
+                r.DrawFilledRect ({ mEditPowerMinusX, mEditPowerMinusY, bw, bh }, { 0, 245, 255, 40 });
+                r.DrawRectOutline({ mEditPowerMinusX, mEditPowerMinusY, bw, bh }, { 0, 245, 255, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mEditPowerMinusX + bw * 0.5f,
                                    mEditPowerMinusY + bh * 0.20f, "-", theme::Cyan());
@@ -955,8 +950,8 @@ namespace nkentseu
                                    rx + bw + valW * 0.5f,
                                    ly + lineH * 0.28f, pwlbl, theme::White());
                 mEditPowerPlusX = rx + bw + valW; mEditPowerPlusY = mEditPowerMinusY;
-                r.DrawQuad       (mEditPowerPlusX, mEditPowerPlusY, bw, bh, { 0, 245, 255, 40 });
-                r.DrawQuadOutline(mEditPowerPlusX, mEditPowerPlusY, bw, bh, { 0, 245, 255, 200 }, 1.5f);
+                r.DrawFilledRect ({ mEditPowerPlusX, mEditPowerPlusY, bw, bh }, { 0, 245, 255, 40 });
+                r.DrawRectOutline({ mEditPowerPlusX, mEditPowerPlusY, bw, bh }, { 0, 245, 255, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mEditPowerPlusX + bw * 0.5f,
                                    mEditPowerPlusY + bh * 0.20f, "+", theme::Cyan());
@@ -977,8 +972,8 @@ namespace nkentseu
                 math::NkColor tbd = mEditChaotic
                     ? math::NkColor{ 0, 245, 255, 220 }
                     : math::NkColor{ 255, 255, 255, 100 };
-                r.DrawQuad       (mEditChaoticX, mEditChaoticY, tW, tH, tbg);
-                r.DrawQuadOutline(mEditChaoticX, mEditChaoticY, tW, tH, tbd, 1.5f);
+                r.DrawFilledRect ({ mEditChaoticX, mEditChaoticY, tW, tH }, tbg);
+                r.DrawRectOutline({ mEditChaoticX, mEditChaoticY, tW, tH }, tbd, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mEditChaoticX + tW * 0.5f,
                                    mEditChaoticY + tH * 0.20f,
@@ -994,8 +989,8 @@ namespace nkentseu
                 mEditApplyW = aW; mEditApplyH = aH;
                 mEditApplyX = mEditPanelX + (pW - aW) * 0.5f;
                 mEditApplyY = mEditPanelY + pH - aH - pH * 0.06f;
-                r.DrawQuad       (mEditApplyX, mEditApplyY, aW, aH, { 0, 245, 255, 60 });
-                r.DrawQuadOutline(mEditApplyX, mEditApplyY, aW, aH, theme::Cyan(), 2.0f * scale);
+                r.DrawFilledRect ({ mEditApplyX, mEditApplyY, aW, aH }, { 0, 245, 255, 60 });
+                r.DrawRectOutline({ mEditApplyX, mEditApplyY, aW, aH }, theme::Cyan(), 2.0f * scale);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mEditApplyX + aW * 0.5f,
                                    mEditApplyY + aH * 0.28f,
@@ -1014,17 +1009,15 @@ namespace nkentseu
                 const float sbX = safeX + safeW - sbW - Pct::W(W, 0.004f, 2.0f, 6.0f);
                 const float sbY = scrollTop;
                 const float sbH = scrollH;
-                r.DrawQuad(sbX, sbY, sbW, sbH, { 255, 255, 255, 16 });
+                r.DrawFilledRect({ sbX, sbY, sbW, sbH }, { 255, 255, 255, 16 });
                 const float frac = scrollH / contentH;
                 const float thumbH = math::NkMax(Pct::H(H, 0.030f, 18.0f, 40.0f),
                                                  sbH * frac);
                 const float thumbY = sbY
                                    + (sbH - thumbH) * (mScrollY / mMaxScroll);
-                r.DrawQuad(sbX, thumbY, sbW, thumbH,
+                r.DrawFilledRect({ sbX, thumbY, sbW, thumbH },
                            { 0, 245, 255, 180 });
             }
-
-            r.End();
         }
 
         // ─────────────────────────────────────────────────────────────────────

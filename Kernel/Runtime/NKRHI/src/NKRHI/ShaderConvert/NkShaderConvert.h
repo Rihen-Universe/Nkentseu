@@ -40,11 +40,25 @@ namespace nkentseu {
     //         return (uint32)(binary.Size() / sizeof(uint32));
     //     }
     // };
+    // Remapping d'un binding Vulkan (set,binding) vers les registres DX compacts
+    // assignés lors de la conversion HLSL (set_hlsl_resource_binding). Le device DX
+    // DOIT binder aux mêmes registres. ~0u = non utilisé pour cette classe.
+    struct NkDXResourceBinding {
+        uint32 set        = 0;
+        uint32 binding    = 0;
+        uint32 cbvReg     = 0xFFFFFFFFu; // register(bN)
+        uint32 srvReg     = 0xFFFFFFFFu; // register(tN)
+        uint32 samplerReg = 0xFFFFFFFFu; // register(sN)
+        uint32 uavReg     = 0xFFFFFFFFu; // register(uN)
+        uint32 space      = 0;           // register space (DX12 SM5.1 ; 0 pour DX11)
+    };
+
     struct NkShaderConvertResult {
         bool            success = false;
         NkString        source;       // Source texte (GLSL / HLSL / MSL)
         NkVector<uint8> binary;       // Binaire (SPIR-V : mots uint32 emballés en bytes)
         NkString        errors;
+        NkVector<NkDXResourceBinding> dxBindings; // rempli par SpirvToHlsl (remap compact)
 
         // Accès au SPIR-V comme tableau de uint32 avec vérification d'alignement
         const uint32* SpirvWords() const {

@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkSprite.h"
 #include "NKCanvas/Renderer/Core/NkIRenderer2D.h"
+#include "NKCanvas/Renderer/Targets/NkRenderTarget.h"  // pour Draw(NkRenderTarget&, …)
 #include "NKLogger/NkLog.h"
 #include <cstring>
 #include <cmath>
@@ -57,6 +58,15 @@ namespace nkentseu {
 
         void NkSprite::Draw(NkIRenderer2D& renderer) const {
             renderer.Draw(*this);
+        }
+
+        // ── NkDrawable (nouveau pattern SFML target.Draw(sprite)) ────────────────
+        // A.8 minimal : delegue a l'ancien path NkIRenderer2D::Draw(NkSprite&) via
+        // target.GetRenderer(). states.transform et states.blendMode/texture ne sont
+        // pas encore consommes — sera ameliore quand un cas concret le requiert
+        // (refonte Pong sera l'occasion d'integrer la composition parent transform).
+        void NkSprite::Draw(NkRenderTarget& target, const NkRenderStates& /*states*/) const {
+            if (auto* r = target.GetRenderer()) r->Draw(*this);
         }
 
         // =============================================================================
@@ -276,6 +286,16 @@ namespace nkentseu {
             renderer.DrawVertices(tverts.Data(), tverts.Size(),
                                 indices.Data(), indices.Size(),
                                 atlas);
+        }
+
+        // ── NkDrawable (nouveau pattern SFML target.Draw(text)) ──────────────────
+        // Comme NkSprite::Draw(target, states), on delegue a l'ancien path pour
+        // l'instant via target.GetRenderer()->Draw(*this). La composition avec
+        // states.transform/blendMode sera ajoutee lors de la refonte Pong (A.9)
+        // ou plus tard quand un besoin concret de composition parent-enfant
+        // pour le texte se presente.
+        void NkText::Draw(NkRenderTarget& target, const NkRenderStates& /*states*/) const {
+            if (auto* r = target.GetRenderer()) r->Draw(*this);
         }
 
         uint32 NkText::FindCharacterPos(NkVec2f /*point*/) const {

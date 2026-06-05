@@ -166,7 +166,7 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - **NkUINodeGraph** (Blueprint visuel) — déjà esquissé côté Noge (`NkBlueprint.h`), backend NKUI à créer.
 - **NkUICurveEditor** (édition de courbes Bézier, easing).
 - **NkUISpreadsheet** (édition CSV/data assets).
-- **NkUIConsole** (logger + commandes — déjà partiellement présent côté Unkeny).
+- **NkUIConsole** (logger + commandes — déjà partiellement présent côté Noge).
 
 ---
 
@@ -190,7 +190,7 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
   - `nlohmann/json` (sauvegarde/chargement layout et thème)
 - **Modules au-dessus qui en dépendent** :
   - `Engine/Noge/src/Noge/ECS/Components/UI/NkUIComponent.h` (composant ECS qui pilote un panel NkUI)
-  - `Applications/Unkeny/` (éditeur) : `EditorLayer`, `ViewportPanel`, `SceneTreePanel`, `InspectorPanel`, `AssetBrowser`, `ConsolePanel`, `DiagnosticPanel`
+  - `Applications/Noge/` (éditeur) : `EditorLayer`, `ViewportPanel`, `SceneTreePanel`, `InspectorPanel`, `AssetBrowser`, `ConsolePanel`, `DiagnosticPanel`
   - `Sandbox/` (démos et bancs d'essai)
   - PV3DE (`MedicalUILayer` selon ARCHITECTURE.md §4.5)
 - **Relation à NKRenderer** : NKUI produit des DrawLists indépendantes du backend. Le `NkUIRenderer` interne fournit deux implémentations (CPU + GL) en bout de chaîne. La cible long terme est de déléguer la soumission à `NKRenderer` (BeginRenderPass / BindPipeline / Draw) pour bénéficier de Vulkan/DX12 et de l'unification des viewports.

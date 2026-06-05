@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Layers/EditorLayer.h  —  v2
+// Noge/Layers/EditorLayer.h  —  v2
 // =============================================================================
 // Orchestre tous les systèmes éditeur.
 // N'effectue aucun rendu direct — délègue à ViewportLayer et UILayer.

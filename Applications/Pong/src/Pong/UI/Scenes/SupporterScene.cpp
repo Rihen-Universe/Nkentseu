@@ -18,7 +18,7 @@
 // =============================================================================
 
 #include "SupporterScene.h"
-#include "Pong/Render/GLRenderer2D.h"
+#include "NKCanvas/Renderer/Core/NkRenderer2D.h"
 #include "Pong/Render/FontAtlas.h"
 #include "Pong/UI/Theme.h"
 #include "Pong/UI/SceneManager.h"
@@ -127,7 +127,7 @@ namespace nkentseu
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        void SupporterScene::OnEnter(AppContext& /*ctx*/)
+        void SupporterScene::OnEnter(AppContext& ctx)
         {
             mTime = 0.0f;
             mEnterAnim = 0.0f;
@@ -144,7 +144,7 @@ namespace nkentseu
             // le badge texte en fallback (mSocialLoaded[i] reste a false).
             for (int i = 0; i < (int)kSocialCount; ++i)
             {
-                mSocialLoaded[i] = mSocialIcons[i].LoadFromFile(kSocials[i].iconPath);
+                mSocialLoaded[i] = mSocialIcons[i].LoadFromFile(*ctx.renderer->GetBackend(), kSocials[i].iconPath);
                 if (!mSocialLoaded[i])
                 {
                     logger.Warn("[Supporter] icone manquante : {0} -> fallback badge texte",
@@ -162,7 +162,6 @@ namespace nkentseu
         {
             for (int i = 0; i < (int)kSocialCount; ++i)
             {
-                mSocialIcons[i].Shutdown();
                 mSocialLoaded[i] = false;
             }
         }
@@ -260,7 +259,7 @@ namespace nkentseu
         // ─────────────────────────────────────────────────────────────────────
         void SupporterScene::OnRender(AppContext& ctx)
         {
-            GLRenderer2D& r = *ctx.renderer;
+            renderer::NkRenderer2D& r = *ctx.renderer;
             FontAtlas&    f = *ctx.font;
             const int W = ctx.viewportW;
             const int H = ctx.viewportH;
@@ -268,11 +267,6 @@ namespace nkentseu
             const float safeX = (float)ctx.safe.LeftX();
             const float safeW = (float)ctx.safe.SafeW();
             const float enterA = EaseOutCubic(mEnterAnim);
-
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
 
             // Layout responsive : on exprime les dimensions en % viewport
             // (W/H) plutot qu'en pixels*scale. Clamps doux pour eviter les
@@ -317,11 +311,11 @@ namespace nkentseu
                 {
                     math::NkColor bg = { 0, 245, 255, (uint8_t)(18 * enterA) };
                     math::NkColor bd = { 0, 245, 255, (uint8_t)(180 * enterA) };
-                    r.DrawQuad       (gridLeft, screenY, availW, storyH, bg);
-                    r.DrawQuadOutline(gridLeft, screenY, availW, storyH, bd, 1.5f);
+                    r.DrawFilledRect({ gridLeft, screenY, availW, storyH }, bg);
+                    r.DrawRectOutline({ gridLeft, screenY, availW, storyH }, bd, 1.5f);
 
                     // Trait orange a gauche (accent visuel "combat")
-                    r.DrawQuad(gridLeft, screenY, bandW, storyH,
+                    r.DrawFilledRect({ gridLeft, screenY, bandW, storyH },
                                { 255, 107, 0, 220 });
 
                     float ly = screenY + vPad;
@@ -365,17 +359,17 @@ namespace nkentseu
                     const float pulse = 0.5f + 0.5f * math::NkSin(mTime * 2.0f);
                     math::NkColor bg = { 0, 245, 255, (uint8_t)((30 + 20 * pulse) * enterA) };
                     math::NkColor bd = { 0, 245, 255, (uint8_t)(220 * enterA) };
-                    r.DrawQuad       (mShareX, mShareY, mShareW, mShareH, bg);
-                    r.DrawQuadOutline(mShareX, mShareY, mShareW, mShareH, bd, 2.0f);
+                    r.DrawFilledRect({ mShareX, mShareY, mShareW, mShareH }, bg);
+                    r.DrawRectOutline({ mShareX, mShareY, mShareW, mShareH }, bd, 2.0f);
                     // Icone "share"
                     const float cx = mShareX + iconCx;
                     const float cy = mShareY + mShareH * 0.5f;
                     const float s2 = iconSize;
-                    r.DrawQuadOutline(cx - s2, cy - s2 * 0.6f, s2 * 1.6f, s2 * 1.6f,
+                    r.DrawRectOutline({ cx - s2, cy - s2 * 0.6f, s2 * 1.6f, s2 * 1.6f },
                                       { 0, 245, 255, 240 }, 1.5f);
-                    r.DrawLine(cx + s2 * 0.4f, cy - s2 * 1.3f, cx + s2 * 1.3f, cy - s2 * 1.3f,
+                    r.DrawLine({ cx + s2 * 0.4f, cy - s2 * 1.3f }, { cx + s2 * 1.3f, cy - s2 * 1.3f },
                                { 0, 245, 255, 240 }, 2.0f);
-                    r.DrawLine(cx + s2 * 1.3f, cy - s2 * 1.3f, cx + s2 * 1.3f, cy - s2 * 0.4f,
+                    r.DrawLine({ cx + s2 * 1.3f, cy - s2 * 1.3f }, { cx + s2 * 1.3f, cy - s2 * 0.4f },
                                { 0, 245, 255, 240 }, 2.0f);
 
                     f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
@@ -430,8 +424,8 @@ namespace nkentseu
                                 : math::NkColor{   0, 245, 255, 255 }));
                     math::NkColor bg = accent; bg.a = (uint8_t)(30 * enterA);
                     math::NkColor bd = accent; bd.a = (uint8_t)(220 * enterA);
-                    r.DrawQuad       (mAmountX[i], mAmountY[i], mAmountW, mAmountH, bg);
-                    r.DrawQuadOutline(mAmountX[i], mAmountY[i], mAmountW, mAmountH, bd, 1.5f);
+                    r.DrawFilledRect({ mAmountX[i], mAmountY[i], mAmountW, mAmountH }, bg);
+                    r.DrawRectOutline({ mAmountX[i], mAmountY[i], mAmountW, mAmountH }, bd, 1.5f);
 
                     char buf[16];
                     if (isFree)        std::snprintf(buf, sizeof(buf), "LIBRE");
@@ -486,10 +480,10 @@ namespace nkentseu
                     const float ry = worldY - mScrollY + scrollTop;
                     math::NkColor bg = kPayIds[i].accent; bg.a = (uint8_t)(22 * enterA);
                     math::NkColor bd = kPayIds[i].accent; bd.a = (uint8_t)(180 * enterA);
-                    r.DrawQuad       (rx, ry, availW, rowH, bg);
-                    r.DrawQuadOutline(rx, ry, availW, rowH, bd, 1.0f);
+                    r.DrawFilledRect({ rx, ry, availW, rowH }, bg);
+                    r.DrawRectOutline({ rx, ry, availW, rowH }, bd, 1.0f);
                     // Bande gauche
-                    r.DrawQuad(rx, ry, bandW, rowH, kPayIds[i].accent);
+                    r.DrawFilledRect({ rx, ry, bandW, rowH }, kPayIds[i].accent);
                     // Label (gauche) + valeur (droite)
                     math::NkColor lab = kPayIds[i].accent;
                     lab.a = (uint8_t)(230 * enterA);
@@ -541,8 +535,8 @@ namespace nkentseu
 
                     math::NkColor bg = kSocials[i].accent; bg.a = (uint8_t)(40 * enterA);
                     math::NkColor bd = kSocials[i].accent; bd.a = (uint8_t)(220 * enterA);
-                    r.DrawQuad       (mSocialX[i], mSocialY[i], mSocialW, mSocialH, bg);
-                    r.DrawQuadOutline(mSocialX[i], mSocialY[i], mSocialW, mSocialH, bd, 1.5f);
+                    r.DrawFilledRect({ mSocialX[i], mSocialY[i], mSocialW, mSocialH }, bg);
+                    r.DrawRectOutline({ mSocialX[i], mSocialY[i], mSocialW, mSocialH }, bd, 1.5f);
 
                     // Pastille a gauche : disque accent + icone reseau social
                     // dessinee par dessus avec ratio preserve. Fallback sur
@@ -550,25 +544,23 @@ namespace nkentseu
                     const float cx = mSocialX[i] + socialCx;
                     const float cy = mSocialY[i] + mSocialH * 0.5f;
                     const float rad = socialRad;
-                    r.DrawCircle(cx, cy, rad, kSocials[i].accent, 24);
-                    r.DrawCircleOutline(cx, cy, rad, { 255, 255, 255, 200 }, 1.0f, 24);
+                    r.DrawFilledCircle({ cx, cy }, rad, kSocials[i].accent, 24);
+                    r.DrawCircleOutline({ cx, cy }, rad, { 255, 255, 255, 200 }, 1.0f, 24);
 
                     if (mSocialLoaded[i] && mSocialIcons[i].IsValid())
                     {
                         // Icone dans le disque, marge ~22% du rayon. Ratio
                         // d'aspect preserve (les SVG / PNG ne sont pas tous
                         // carres parfaitement).
-                        const float aspect = mSocialIcons[i].AspectRatio();
+                        const float aspect = ((mSocialIcons[i].GetHeight() > 0) ? (float)mSocialIcons[i].GetWidth() / (float)mSocialIcons[i].GetHeight() : 1.0f);
                         const float box    = rad * 1.55f;
                         float iconW = box;
                         float iconH = (aspect > 0.0001f) ? (iconW / aspect) : box;
                         if (iconH > box) { iconH = box; iconW = iconH * aspect; }
                         const float ix = cx - iconW * 0.5f;
                         const float iy = cy - iconH * 0.5f;
-                        r.BindTexture(mSocialIcons[i].Id());
                         math::NkColor tint = { 255, 255, 255, (uint8_t)(255 * enterA) };
-                        r.DrawTexturedQuadRGBA(ix, iy, iconW, iconH,
-                                               0.0f, 0.0f, 1.0f, 1.0f, tint);
+                        r.DrawTexturedRect({ ix, iy, iconW, iconH }, &mSocialIcons[i], tint);
                     }
                     else
                     {
@@ -620,13 +612,13 @@ namespace nkentseu
                 const float sbX = safeX + safeW - sbW - sbPadR;
                 const float sbY = scrollTop + sbPadY;
                 const float sbH = scrollH - 2.0f * sbPadY;
-                r.DrawQuad(sbX, sbY, sbW, sbH, { 255, 255, 255, 16 });
+                r.DrawFilledRect({ sbX, sbY, sbW, sbH }, { 255, 255, 255, 16 });
                 const float frac = scrollH / contentH;
                 const float thumbMinH = Pct::H(H, 0.03f, 16.0f, 40.0f);
                 const float thumbH = math::NkMax(thumbMinH, sbH * frac);
                 const float thumbY = sbY
                                    + (sbH - thumbH) * (mScrollY / mMaxScroll);
-                r.DrawQuad(sbX, thumbY, sbW, thumbH,
+                r.DrawFilledRect({ sbX, thumbY, sbW, thumbH },
                            { 0, 245, 255, 180 });
             }
 
@@ -639,14 +631,14 @@ namespace nkentseu
 
                 math::NkColor headerBg = theme::Dark();
                 headerBg.a = 240;
-                r.DrawQuad(0.0f, 0.0f, (float)W, scrollTop - sepH, headerBg);
+                r.DrawFilledRect({ 0.0f, 0.0f, (float)W, scrollTop - sepH }, headerBg);
                 // Ligne separatrice cyan fine en bas du header
-                r.DrawQuad(0.0f, scrollTop - sepH, (float)W, sepH,
+                r.DrawFilledRect({ 0.0f, scrollTop - sepH, (float)W, sepH },
                            { 0, 245, 255, 120 });
 
                 // Bouton RETOUR
-                r.DrawQuad       (mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 30 });
-                r.DrawQuadOutline(mBackX, mBackY, mBackW, mBackH, { 0, 245, 255, 200 }, 1.5f);
+                r.DrawFilledRect({ mBackX, mBackY, mBackW, mBackH }, { 0, 245, 255, 30 });
+                r.DrawRectOutline({ mBackX, mBackY, mBackW, mBackH }, { 0, 245, 255, 200 }, 1.5f);
                 f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
                                    mBackX + mBackW * 0.5f,
                                    mBackY + mBackH * 0.18f,
@@ -657,8 +649,6 @@ namespace nkentseu
                                    (float)ctx.safe.TopY() + titleTopP,
                                    "SUPPORTER", theme::White());
             }
-
-            r.End();
         }
 
         // ─────────────────────────────────────────────────────────────────────

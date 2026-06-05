@@ -166,18 +166,19 @@ static void NKImageSmokeTest() {
     int passed = 0, total = (int)(sizeof(kCases) / sizeof(kCases[0]));
     for (int i = 0; i < total; i++) {
         const auto& t = kCases[i];
-        NkImage* img = NkImage::Load(t.path, 0);
-        if (img && img->IsValid()) {
+        // Load() est une méthode INSTANCE qui charge dans *this. On utilise une
+        // image sur la pile : son destructeur libère les pixels (allocateur custom),
+        // pas besoin de Free() (réservé aux images allouées via Alloc/Create).
+        NkImage img;
+        if (img.Load(t.path, 0) && img.IsValid()) {
             logger.Info("[Demo5][NKImage] {0} OK : {1}x{2} ch={3} fmt={4}\n",
-                        t.label, img->Width(), img->Height(),
-                        (int)img->Channels(), (int)img->Format());
+                        t.label, img.Width(), img.Height(),
+                        (int)img.Channels(), (int)img.Format());
             ++passed;
         } else {
             logger.Warnf("[Demo5][NKImage] %s FAIL : '%s' did not load\n",
                          t.label, t.path);
         }
-        // NkImage utilise un allocateur custom (nkMalloc) : delete std est UB.
-        if (img) img->Free();
     }
     logger.Info("[Demo5][NKImage] === {0}/{1} passed ===\n", passed, total);
 }

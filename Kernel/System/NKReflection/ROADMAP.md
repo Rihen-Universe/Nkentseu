@@ -7,7 +7,7 @@ L'infrastructure runtime existe (`NkType`, `NkProperty`, `NkMethod`, `NkClass`,
 `NKENTSEU_REFLECT_CLASS`, `NKENTSEU_PROPERTY`, `NKENTSEU_REGISTER_CLASS` sont
 exposées via `NkRegistry.h`. **Stockage des propriétés/méthodes dans un tableau
 statique de capacité fixe 64**. Tests smoke uniquement (categorie + lookup).
-Pas encore intégré au flux `InspectorPanel` de Unkeny ni câblé pour la
+Pas encore intégré au flux `InspectorPanel` de Noge ni câblé pour la
 sérialisation.
 
 ---
@@ -156,7 +156,7 @@ Le système actuel ne sait pas itérer dynamiquement sur un `NkVector<T>` ou
   `GetAt(instance, i)`, `PushBack(instance, value)`).
 
 ### Sérialisation via réflexion
-Intégration avec NKSerialization (priorité haute pour PV3DE et Unkeny) :
+Intégration avec NKSerialization (priorité haute pour PV3DE et Noge) :
 - `NkSerializeReflect<T>(writer, instance)` itère sur les `NkProperty` et
   appelle le sérialiseur générique selon `NkTypeCategory`.
 - `NkDeserializeReflect<T>(reader, instance)` symétrique.
@@ -164,7 +164,7 @@ Intégration avec NKSerialization (priorité haute pour PV3DE et Unkeny) :
 - Format JSON `.nkscene` / `.nkproj` automatiquement piloté par les classes
   réfléchies.
 
-### InspectorPanel binding — pilier Unkeny
+### InspectorPanel binding — pilier Noge
 Cf. `ARCHITECTURE.md §4.2 InspectorPanel` : la réflexion est la clé.
 - Itération `NkClass::GetPropertyAt(i)` sur le component sélectionné.
 - Widget UI dérivé du `NkTypeCategory` + attributes (cf. ci-dessus).
@@ -211,9 +211,9 @@ Aujourd'hui les macros sont intrusives. Alternative :
   - **NKSerialization** (priorité 1) : besoin de la réflexion pour itérer sur
     les fields et sérialiser/désérialiser automatiquement
     (cf. `Native/NkReflect.h` qui est probablement le pont).
-  - **Unkeny / InspectorPanel** (cf. ARCHITECTURE.md §4.2) : édition live des
+  - **Noge / InspectorPanel** (cf. ARCHITECTURE.md §4.2) : édition live des
     composants via les `NkProperty`.
   - **NKScene** (ECS) : enregistrement des components → introspection
     automatique sans plumbing manuel.
   - **NKScript** (futur) : binding C++ ↔ Lua via les métadonnées.
-  - **PluginSystem** Unkeny : chargement de classes additionnelles à chaud.
+  - **PluginSystem** Noge : chargement de classes additionnelles à chaud.

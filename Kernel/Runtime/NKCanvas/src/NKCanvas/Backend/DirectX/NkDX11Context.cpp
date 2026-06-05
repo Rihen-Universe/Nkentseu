@@ -133,12 +133,30 @@ bool NkDX11Context::CreateDeviceAndSwapchain(const NkContextDesc& d, HWND hwnd) 
     UINT flags = 0;
     if (dx11.debugDevice) flags |= D3D11_CREATE_DEVICE_DEBUG;
 
-    D3D_FEATURE_LEVEL featureLevels[] = {
-        D3D_FEATURE_LEVEL_11_1,
-        D3D_FEATURE_LEVEL_11_0,
-        D3D_FEATURE_LEVEL_10_1,
+    // ── Cascade de feature levels (haut → bas). Fix 2026-05-30 :
+    // D3D11CreateDevice retournait DXGI_ERROR_UNSUPPORTED (hr=0x887A002D) sur
+    // un GPU qui ne supporte pas 11_1 + 11_0 + 10_1 ensemble dans la même
+    // requête (la spec autorise un fallback, mais certains drivers le rejette
+    // si la première level demandee est trop haute pour la combo). On retry
+    // explicitement avec des combos plus modestes avant de tomber sur WARP.
+    D3D_FEATURE_LEVEL levelsFull[] = {
+        D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0,
+        D3D_FEATURE_LEVEL_9_3,
     };
-    D3D_FEATURE_LEVEL chosenLevel;
+    D3D_FEATURE_LEVEL levelsMid[] = {
+        D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0,
+    };
+    D3D_FEATURE_LEVEL levelsLow[] = {
+        D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_9_3,
+    };
+    struct LevelSet { D3D_FEATURE_LEVEL* arr; uint32 count; const char* label; };
+    LevelSet attempts[] = {
+        { levelsFull, ARRAYSIZE(levelsFull), "11_1+" },
+        { levelsMid,  ARRAYSIZE(levelsMid),  "11_0+" },
+        { levelsLow,  ARRAYSIZE(levelsLow),  "10_0+" },
+    };
+    D3D_FEATURE_LEVEL chosenLevel = D3D_FEATURE_LEVEL_11_0;
 
     ComPtr<ID3D11Device>        dev;
     ComPtr<ID3D11DeviceContext> ctx;
@@ -150,20 +168,39 @@ bool NkDX11Context::CreateDeviceAndSwapchain(const NkContextDesc& d, HWND hwnd) 
     uint32 selectedIndex = UINT32_MAX;
     PickDx11Adapter(pickFactory.Get(), d, dx11, selectedAdapter, selectedDesc, selectedIndex);
 
-    HRESULT hr = D3D11CreateDevice(
-        selectedAdapter.Get(),
-        selectedAdapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
-        nullptr,
-        flags, featureLevels, ARRAYSIZE(featureLevels),
-        D3D11_SDK_VERSION, &dev, &chosenLevel, &ctx);
+    // Type driver : si on a un adapter explicite -> UNKNOWN, sinon HARDWARE.
+    const D3D_DRIVER_TYPE drvType = selectedAdapter
+        ? D3D_DRIVER_TYPE_UNKNOWN
+        : D3D_DRIVER_TYPE_HARDWARE;
+
+    HRESULT hr = E_FAIL;
+    for (uint32 i = 0; i < ARRAYSIZE(attempts); ++i) {
+        hr = D3D11CreateDevice(
+            selectedAdapter.Get(), drvType, nullptr,
+            flags, attempts[i].arr, attempts[i].count,
+            D3D11_SDK_VERSION, &dev, &chosenLevel, &ctx);
+        if (SUCCEEDED(hr)) {
+            NK_DX11_LOG("D3D11CreateDevice OK with %s (chosen FL=0x%04X)\n",
+                        attempts[i].label, (unsigned)chosenLevel);
+            break;
+        }
+        NK_DX11_LOG("D3D11CreateDevice failed with %s (hr=0x%08X) — retrying lower\n",
+                    attempts[i].label, (unsigned)hr);
+    }
 
     if (FAILED(hr) && d.gpu.allowSoftwareAdapter) {
-        // Fallback WARP (software)
+        // Fallback WARP (software). Re-essaie aussi la cascade complete.
         NK_DX11_LOG("Hardware device failed, trying WARP\n");
-        hr = D3D11CreateDevice(
-            nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
-            flags, featureLevels, ARRAYSIZE(featureLevels),
-            D3D11_SDK_VERSION, &dev, &chosenLevel, &ctx);
+        for (uint32 i = 0; i < ARRAYSIZE(attempts); ++i) {
+            hr = D3D11CreateDevice(
+                nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+                flags, attempts[i].arr, attempts[i].count,
+                D3D11_SDK_VERSION, &dev, &chosenLevel, &ctx);
+            if (SUCCEEDED(hr)) {
+                NK_DX11_LOG("WARP D3D11CreateDevice OK with %s\n", attempts[i].label);
+                break;
+            }
+        }
     }
     NK_DX11_CHECK(hr, "D3D11CreateDevice");
 

@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Editor/NkGizmoSystem.h
+// Noge/Editor/NkGizmoSystem.h
 // =============================================================================
 // Gizmos de transformation 3D dans le viewport éditeur.
 // Dessine les handles Translate/Rotate/Scale sur l'entité sélectionnée
@@ -21,7 +21,7 @@
 using namespace nkentseu::math;
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         enum class NkGizmoMode : nk_uint8 { Translate = 0, Rotate, Scale, None };
         enum class NkGizmoSpace: nk_uint8 { World = 0, Local };
@@ -81,5 +81,5 @@ namespace nkentseu {
             NkVec4f AxisColor(NkGizmoAxis axis, bool hovered) const noexcept;
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

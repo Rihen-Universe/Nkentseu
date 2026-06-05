@@ -190,7 +190,19 @@ namespace nkentseu {
 
         NkVector<const char*> layers;
         if (vkdesc.validationLayers) {
-            layers.PushBack("VK_LAYER_KHRONOS_validation");
+            // Ne demander la couche que si elle est réellement disponible : sinon
+            // vkCreateInstance échoue avec VK_ERROR_LAYER_NOT_PRESENT.
+            bool hasValidation = false;
+            for (const auto& layer : availableLayers) {
+                if (strcmp(layer.layerName, "VK_LAYER_KHRONOS_validation") == 0) {
+                    hasValidation = true; break;
+                }
+            }
+            if (hasValidation) {
+                layers.PushBack("VK_LAYER_KHRONOS_validation");
+            } else {
+                NK_VK_LOG("Validation layer demandée mais absente -> ignorée\n");
+            }
         }
 
         VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
@@ -594,10 +606,15 @@ namespace nkentseu {
         vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice,mSurface,&fmtCnt,fmts.Data());
         mSwapFormat = fmts[0].format;
         VkColorSpaceKHR colorSpace = fmts[0].colorSpace;
+        // srgbSwapchain=true  → préférer un format sRGB (encode gamma auto à la présentation).
+        // srgbSwapchain=false → préférer un format UNORM (couleur écrite affichée telle quelle,
+        //                       cohérent avec OpenGL/DX pour les démos sans gestion gamma).
+        const bool wantSrgb = mInit.context.vulkan.srgbSwapchain;
+        const VkFormat preferredFmt = wantSrgb ? VK_FORMAT_B8G8R8A8_SRGB : VK_FORMAT_B8G8R8A8_UNORM;
         for (auto& f:fmts) {
-            if (f.format==VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                mSwapFormat = f.format; 
-                colorSpace = f.colorSpace; 
+            if (f.format==preferredFmt && f.colorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                mSwapFormat = f.format;
+                colorSpace = f.colorSpace;
                 break;
             }
         }

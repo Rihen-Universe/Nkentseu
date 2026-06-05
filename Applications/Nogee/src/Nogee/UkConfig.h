@@ -8,14 +8,14 @@ namespace nkentseu {
 
         // =====================================================================
         // NogeAppConfig
-        // Configuration spécifique à l'éditeur Unkeny.
+        // Configuration spécifique à l'éditeur Noge.
         // Étend NkApplicationConfig avec des paramètres propres à l'éditeur.
         // =====================================================================
         struct NogeAppConfig {
             NkApplicationConfig appConfig;
 
             // Titre fenêtre (le backend GPU est ajouté automatiquement)
-            NkString windowTitle = "Unkeny Editor";
+            NkString windowTitle = "Noge Editor";
 
             // Chemin du projet ouvert au démarrage (optionnel)
             NkString startupProjectPath;
@@ -57,5 +57,5 @@ namespace nkentseu {
             }
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

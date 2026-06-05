@@ -31,12 +31,23 @@ namespace nkentseu {
 
     struct NkVulkanDesc {
         const char*  appName               = "NkApp";
-        const char*  engineName            = "Unkeny";
+        const char*  engineName            = "Noge";
         uint32       appVersion            = 1;
         uint32       apiVersion            = 0; // 0 = auto
-        bool         validationLayers      = true;
-        bool         debugMessenger        = true;
+        // Validation OFF par défaut (opt-in debug). La couche VK_LAYER_KHRONOS_validation
+        // est un outil de dev : l'activer par défaut peut crasher selon l'environnement
+        // (ex. un msvcp140.dll incompatible chargé depuis le PATH — Huawei DevEco Studio —
+        // provoque un SIGSEGV dans vkCreateInstance). Les apps qui veulent la validation
+        // mettent explicitement validationLayers/debugMessenger = true.
+        bool         validationLayers      = false;
+        bool         debugMessenger        = false;
         bool         vsync                 = true;
+        // true  : swapchain sRGB (le shader écrit du linéaire, encode auto → gestion gamma correcte,
+        //         usage normal pour un renderer faisant son tonemapping comme NKRenderer).
+        // false : swapchain UNORM (le shader écrit directement la couleur affichée, comme OpenGL/DX
+        //         qui n'utilisent pas de framebuffer sRGB par défaut). À mettre false pour les démos
+        //         sans gestion gamma qui veulent un rendu identique cross-backend.
+        bool         srgbSwapchain         = true;
         uint32       swapchainImages       = 3;
         int32        msaaSamples           = 1;
         uint32       preferredAdapterIndex = UINT32_MAX;
@@ -64,10 +75,14 @@ namespace nkentseu {
         bool   vsync              = true;
         bool   allowTearing       = true;
         uint32 swapchainBuffers   = 3;
-        uint32 rtvHeapSize        = 256;
-        uint32 dsvHeapSize        = 64;
-        uint32 srvHeapSize        = 1024;
-        uint32 samplerHeapSize    = 64;
+        uint32 rtvHeapSize        = 1024;
+        uint32 dsvHeapSize        = 256;
+        // CBV/SRV/UAV : NKRenderer alloue beaucoup de descripteurs (UBO par draw,
+        // textures bindless, IBL, shadow…) et l'allocateur de heap actuel ne libère
+        // pas les slots (allocated ne fait que croître). Heap large pour éviter le
+        // débordement (handle hors-limites = "Removing Device"). À terme : free-list.
+        uint32 srvHeapSize        = 65536;
+        uint32 samplerHeapSize    = 256;
         uint32 preferredAdapter   = UINT32_MAX;
         bool   enableComputeQueue = true;
     };

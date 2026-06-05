@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <ctime>
 
-using namespace nkentseu::entseu;
+using namespace nkentseu;
 
 static double NkToNs(const timespec& ts) {
     return (static_cast<double>(ts.tv_sec) * 1000000000.0) + static_cast<double>(ts.tv_nsec);

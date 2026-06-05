@@ -101,5 +101,5 @@ namespace nkentseu {
             (void)w; (void)h;
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

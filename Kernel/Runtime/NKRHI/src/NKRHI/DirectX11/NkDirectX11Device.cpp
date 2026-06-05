@@ -497,7 +497,15 @@ namespace nkentseu {
         D3D11_TEXTURE2D_DESC td{};
         td.Width=desc.width;
         td.Height=desc.height;
-        td.MipLevels=desc.mipLevels==0?1:desc.mipLevels;
+        // mipLevels==0 => chaine complete (floor(log2(maxDim))+1), comme DX12/VK/GL.
+        // (avant : 0 -> 1 mip seulement, ce qui empechait les mipmaps -> aliasing.)
+        uint32 mipCount = desc.mipLevels;
+        if (mipCount == 0) {
+            mipCount = 1;
+            uint32 d = desc.width > desc.height ? desc.width : desc.height;
+            while (d > 1) { d >>= 1; ++mipCount; }
+        }
+        td.MipLevels=mipCount;
         td.ArraySize=math::NkMax(1u, desc.arrayLayers);
         td.Format=resourceFormat;
         td.SampleDesc.Count=(UINT)math::NkMax(1u, (uint32)desc.samples);
@@ -623,7 +631,13 @@ namespace nkentseu {
     NkSamplerHandle NkDirectX11Device::CreateSampler(const NkSamplerDesc& d) {
         threading::NkScopedLockMutex lock(mMutex);
         D3D11_SAMPLER_DESC sd{};
-        sd.Filter=ToDX11Filter(d.magFilter,d.minFilter,d.mipFilter,d.compareEnable);
+        // Anisotrope si maxAnisotropy>1 : anti-aliasing a angle rasant (sols, etc.).
+        // Avec mipmaps, l'anisotrope echantillonne le long du footprint -> rendu
+        // propre identique a OpenGL (qui honore deja GL_TEXTURE_MAX_ANISOTROPY).
+        if(!d.compareEnable && d.maxAnisotropy>1.f)
+            sd.Filter=D3D11_FILTER_ANISOTROPIC;
+        else
+            sd.Filter=ToDX11Filter(d.magFilter,d.minFilter,d.mipFilter,d.compareEnable);
         sd.AddressU=ToDX11Address(d.addressU);
         sd.AddressV=ToDX11Address(d.addressV);
         sd.AddressW=ToDX11Address(d.addressW);
@@ -663,7 +677,11 @@ namespace nkentseu {
             }
 
             ID3DBlob* code=nullptr; ID3DBlob* err=nullptr;
-            UINT flags=D3DCOMPILE_ENABLE_STRICTNESS;
+            // PREFER_FLOW_CONTROL : garder les boucles au lieu de les dérouler. Le HLSL
+            // issu de SPIRV-Cross contient des `.Sample` (gradient) dans des boucles à
+            // grand compte (PCF ombre, prefilter IBL) ; sans ce flag fxc tente de
+            // dérouler -> flood de warnings X3570 + compilation très lente ("hang").
+            UINT flags=D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_PREFER_FLOW_CONTROL;
             #ifdef _DEBUG
             flags|=D3DCOMPILE_DEBUG|D3DCOMPILE_SKIP_OPTIMIZATION;
             #endif
@@ -727,20 +745,17 @@ namespace nkentseu {
         // Input Layout
         if (sh.vsBlob && d.vertexLayout.attributes.Size()>0) {
             NkVector<D3D11_INPUT_ELEMENT_DESC> elems(d.vertexLayout.attributes.Size());
-            static const DXGI_FORMAT fmtTable[]={
-                DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
-                DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT,
-                DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT,
-                DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SNORM,
-                DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16B16A16_UNORM,
-                DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32G32_UINT, DXGI_FORMAT_R32G32B32A32_UINT,
-                DXGI_FORMAT_R32_SINT, DXGI_FORMAT_R32G32_SINT, DXGI_FORMAT_R32G32B32A32_SINT,
-            };
             for (uint32 i=0;i<d.vertexLayout.attributes.Size();i++) {
                 auto& a=d.vertexLayout.attributes[i];
                 elems[i].SemanticName=a.semanticName?a.semanticName:"TEXCOORD";
                 elems[i].SemanticIndex=a.semanticIdx;
-                elems[i].Format=fmtTable[math::NkMin((uint32)a.format,15u)];
+                // BUG FIX : utiliser ToDXGIFormat (mapping enum correct) au lieu d'un
+                // fmtTable indexe par la valeur d'enum brute. NkGPUFormat::NK_RG32_FLOAT=23,
+                // NK_RGB32_FLOAT=24 (pas 1/2) -> l'ancien fmtTable[min(fmt,15)] donnait
+                // R32G32B32A32_SINT (16 octets) pour TOUS les attributs vertex. L'IA lisait
+                // alors 16 octets/attribut ; pour le DERNIER sommet ca depassait le vertex
+                // buffer -> DX11 renvoyait 0 -> UV=(0,0) -> dernier triangle "effondre".
+                elems[i].Format=ToDXGIFormat(a.format);
                 elems[i].InputSlot=a.binding;
                 elems[i].AlignedByteOffset=a.offset;
                 // Trouver le binding pour savoir si c'est instancé

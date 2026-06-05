@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/NogeApp.h  —  v2
+// Noge/NogeApp.h  —  v2
 // =============================================================================
 
 #include "Nkentseu/Core/Application.h"
@@ -40,5 +40,5 @@ namespace nkentseu {
                 NkEditorCamera* mEditorCamera  = nullptr;
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu
