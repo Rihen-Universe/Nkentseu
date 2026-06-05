@@ -91,19 +91,7 @@ namespace nkentseu {
             if (!image.IsValid()) return false;
             mRenderer = &renderer;
 
-            {
-                const uint32 w = image.Width();
-                const uint32 h = image.Height();
-                const uint8* src = image.Pixels();
-                if (src && w > 0 && h > 0) {
-                    const usize byteCount = (usize)w * h * 4;
-                    // mCPUPixels.Assign(0, (NkVector<uint8>::SizeType)byteCount);
-                    mCPUPixels.Resize(byteCount, 0);
-                    memcpy(mCPUPixels.Data(), src, byteCount);
-                }
-            }
-
-            // If area is given, extract sub-region
+            // If area is given, extract sub-region (recurse sur l'image recadree).
             if (area.width > 0 && area.height > 0) {
                 NkImage sub;
                 sub.Create((uint32)area.width, (uint32)area.height);
@@ -111,7 +99,24 @@ namespace nkentseu {
                 return LoadFromImage(renderer, sub);
             }
 
-            Destroy();
+            Destroy();   // libere l'ancien etat AVANT de (re)remplir mCPUPixels
+
+            // Copie CPU des pixels — DOIT etre APRES Destroy() : Destroy() appelle
+            // mCPUPixels.Clear(), donc faire la copie avant l'effacait aussitot
+            // (=> GetCPUPixels()==null). Le rasterizer Software echantillonne
+            // directement mCPUPixels ; sans cette copie -> textures/texte
+            // INVISIBLES en Software. Fix bug 2026-06-05.
+            {
+                const uint32 w = image.Width();
+                const uint32 h = image.Height();
+                const uint8* src = image.Pixels();
+                if (src && w > 0 && h > 0) {
+                    const usize byteCount = (usize)w * h * 4;
+                    mCPUPixels.Resize(byteCount, 0);
+                    memcpy(mCPUPixels.Data(), src, byteCount);
+                }
+            }
+
             mWidth  = image.Width();
             mHeight = image.Height();
 

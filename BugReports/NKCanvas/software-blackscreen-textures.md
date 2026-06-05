@@ -3,7 +3,19 @@
 - **Catégorie** : NKCanvas (backend Software / rasterizer CPU)
 - **Sévérité** : élevée
 - **Date** : 2026-06-05
-- **Statut** : **partiel** — écran noir RÉSOLU ; textures/texte ENCORE absents
+- **Statut** : **RÉSOLU** (les 2 bugs). Écran noir + textures/texte : corrigés.
+  (Reste un raffinement mineur sur le dessin de certains éléments — hors scope.)
+
+## FIX du Bug 2 (textures/texte) — `Destroy()` effaçait `mCPUPixels`
+
+Dans `NkTexture::LoadFromImage`, l'ordre était : (1) remplir `mCPUPixels`
+(Resize+memcpy), puis (2) `Destroy()` — **qui appelle `mCPUPixels.Clear()`** →
+la copie CPU était **aussitôt effacée** (`GetCPUPixels()==null`). OpenGL/Vulkan/DX
+ne s'en apercevaient pas (ils n'utilisent que la texture GPU) ; seul le rasterizer
+**Software** (qui lit `mCPUPixels`) en pâtissait. **Fix : appeler `Destroy()`
+AVANT la copie `mCPUPixels`** (et déplacer le test sub-rect `area` en tête).
+Fichier : `Kernel/Runtime/NKCanvas/src/NKCanvas/Renderer/Resources/NkTexture.cpp`.
+→ Software affiche désormais textures + texte.
 
 ## Bug 1 — Écran noir (RÉSOLU)
 
@@ -33,7 +45,27 @@ Fichier : `Kernel/Runtime/NKCanvas/src/NKCanvas/Backend/Software/NkSoftwareRende
 Après le fix du Bug 1 : les **formes** s'affichent, mais **toute texture**
 (images) et **tout texte** (atlas de police) restent **invisibles**.
 
-### Analyse statique (code correct — bug runtime)
+### ✅ CAUSE RACINE CONFIRMÉE (diagnostic runtime, 2026-06-05)
+Un log temporaire dans `SubmitBatches` (8 premiers groupes) a donné :
+```
+group=0 tex=0x78a010 valid=1 cpuPix=0000000000000000 W=1040 H=1042 idxCount=6
+group=1 tex=NULL (forme plate) idxCount=744
+```
+→ Pour une texture **valide** (`IsValid()==1`, W=1040×1042 = le logo RihenIntro
+chargé via image), **`GetCPUPixels()` retourne NULL** : `mCPUPixels` n'est **pas
+peuplé**. Donc `texPix == nullptr` dans `RasterizeTriangle` → la texture n'est
+jamais échantillonnée → **invisible**. (Les formes plates, `tex=NULL`, rendent
+bien — cohérent.)
+
+**Conclusion : `NkTexture::LoadFromImage` ne conserve PAS `mCPUPixels` pour ces
+textures** (alors qu'OpenGL/Vulkan/DX uploadent en GPU et marchent, eux n'ont pas
+besoin du CPU). À investiguer : pourquoi le `mCPUPixels.Resize+memcpy` de
+`LoadFromImage` ne s'exécute pas / est vidé ensuite (condition ? overload
+sub-rect ligne ~111 qui court-circuite ? `Unload()`/`mCPUPixels.Clear()` appelé
+après upload pour économiser la RAM ?). **Le fix devra garantir la copie CPU
+quand le backend est Software** (ou toujours la garder).
+
+### Analyse statique (le reste du chemin est correct)
 Tout semble correct à la lecture :
 - `FontAtlas::Init` construit l'atlas en **RGBA8 blanc + alpha=couverture** et
   l'upload via **`NkTexture::LoadFromImage`** (PAS Create+Update) →

@@ -20,6 +20,7 @@ namespace nkentseu {
             bool          BeginFrame()                                           override;
             void          EndFrame()                                             override;
             void          Present()                                              override;
+            void          SetClearColor(float r, float g, float b, float a)      override;
             bool          OnResize(uint32 w, uint32 h)                           override;
             void          SetVSync(bool enabled)                                 override;
             bool          GetVSync() const                                       override;
@@ -85,6 +86,7 @@ namespace nkentseu {
             NkVulkanContextData mData;
         #endif
             NkContextDesc       mDesc;
+            float               mClearColor[4] = { 0.1f, 0.1f, 0.1f, 1.0f }; // utilise par BeginFrame (render pass)
             bool                mIsValid = false;
             bool                mVSync   = true;
     };
