@@ -8,6 +8,7 @@
 // =============================================================================
 #include "NkSLIntegration.h"
 #include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkFile.h"   // lecture via NKFileSystem (pas de fopen CRT)
 #include <cstdio>
 #include <mutex>   // std::call_once, std::once_flag
 
@@ -143,12 +144,9 @@ NkShaderHandle CreateShaderFromSource(
 // CreateShaderFromFile
 // =============================================================================
 static NkString ReadFile(const NkString& path) {
-    FILE* f = fopen(path.CStr(), "r");
-    if (!f) return "";
-    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    NkVector<char> buf; buf.Resize(sz + 1);
-    fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
-    return NkString(buf.Data());
+    // Lecture via NKFileSystem (pas de fopen CRT dans NKRHI).
+    if (!NkFile::Exists(path.CStr())) return "";
+    return NkFile::ReadAllText(path.CStr());
 }
 
 NkShaderHandle CreateShaderFromFile(

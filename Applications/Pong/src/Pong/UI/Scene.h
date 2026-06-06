@@ -17,6 +17,7 @@
 // =============================================================================
 
 #include "AppContext.h"
+#include "Pong/UI/Theme.h"   // theme::Dark() pour la couleur de fond par defaut
 
 namespace nkentseu
 {
@@ -38,6 +39,12 @@ namespace nkentseu
 
             /// Identifiant lisible pour les logs (optionnel).
             virtual const char* Name() const noexcept { return "Scene"; }
+
+            /// Couleur de fond (clear) de la scene. PongApp::Render efface la cible
+            /// avec cette couleur AVANT OnRender. Defaut = theme::Dark() ; une scene
+            /// peut l'override (ex. RihenIntro -> blanc). Remplace l'ancien
+            /// r.Clear(...) par-scene retire lors de la migration NKCanvas.
+            virtual math::NkColor BackgroundColor() const { return theme::Dark(); }
 
             /// Appele quand la scene devient active.
             virtual void OnEnter(AppContext& /*ctx*/) {}

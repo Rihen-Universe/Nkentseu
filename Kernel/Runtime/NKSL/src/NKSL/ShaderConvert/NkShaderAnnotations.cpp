@@ -2,7 +2,7 @@
 // NkShaderAnnotations.cpp
 // Implementation du preprocesseur d'annotations semantiques pour GLSL Vulkan.
 // =============================================================================
-#include "NKRHI/ShaderConvert/NkShaderAnnotations.h"
+#include "NKSL/ShaderConvert/NkShaderAnnotations.h"
 
 #include "NKLogger/NkLog.h"
 

@@ -19,7 +19,7 @@
 //
 // La résolution de fichiers (NkShaderFileResolver) est toujours disponible.
 // =============================================================================
-#include "NKRHI/SL/NkSLTypes.h"
+#include "NKSL/NkSLTypes.h"
 
 namespace nkentseu {
 

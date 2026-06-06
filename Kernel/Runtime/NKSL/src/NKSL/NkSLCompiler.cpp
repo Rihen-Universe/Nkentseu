@@ -13,6 +13,7 @@
 #include "NkSLLexer.h"
 #include "NkSLParser.h"
 #include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkFile.h"   // cache via NKFileSystem (pas de fopen CRT)
 #include <cstdio>
 #include <cstring>
 #include <mutex>      // std::call_once, std::once_flag
@@ -109,50 +110,59 @@ void NkSLCache::Flush() {
     NkScopedLockMutex lock(mMutex);
     if (mCacheDir.Empty()) return;
     NkString path = mCacheDir + "/nksl.cache";
-    FILE* f = fopen(path.CStr(), "wb");
-    if (!f) return;
+    // Sérialisation binaire en mémoire puis écriture via NKFileSystem (pas de fopen).
+    NkVector<nk_uint8> buf;
+    auto wr = [&](const void* p, usize n) {
+        const nk_uint8* b = (const nk_uint8*)p;
+        for (usize i = 0; i < n; ++i) buf.PushBack(b[i]);
+    };
     uint32 count = (uint32)mEntries.Size();
-    fwrite(&count, sizeof(count), 1, f);
+    wr(&count, sizeof(count));
     mEntries.ForEach([&](uint64 /*key*/, NkSLCacheEntry& e) {
-        fwrite(&e.sourceHash, sizeof(e.sourceHash), 1, f);
-        fwrite(&e.target,     sizeof(e.target),     1, f);
-        fwrite(&e.stage,      sizeof(e.stage),      1, f);
-        fwrite(&e.isSpirv,    sizeof(e.isSpirv),    1, f);
+        wr(&e.sourceHash, sizeof(e.sourceHash));
+        wr(&e.target,     sizeof(e.target));
+        wr(&e.stage,      sizeof(e.stage));
+        wr(&e.isSpirv,    sizeof(e.isSpirv));
         uint32 bsz = (uint32)e.bytecode.Size();
-        fwrite(&bsz, sizeof(bsz), 1, f);
-        if (bsz) fwrite(e.bytecode.Data(), 1, bsz, f);
+        wr(&bsz, sizeof(bsz));
+        if (bsz) wr(e.bytecode.Data(), bsz);
         uint32 ssz = (uint32)e.source.Size();
-        fwrite(&ssz, sizeof(ssz), 1, f);
-        if (ssz) fwrite(e.source.CStr(), 1, ssz, f);
+        wr(&ssz, sizeof(ssz));
+        if (ssz) wr(e.source.CStr(), ssz);
     });
-    fclose(f);
+    NkFile::WriteAllBytes(path.CStr(), buf);
 }
 
 void NkSLCache::Load() {
     NkScopedLockMutex lock(mMutex);
     NkString path = mCacheDir + "/nksl.cache";
-    FILE* f = fopen(path.CStr(), "rb");
-    if (!f) return;
+    if (!NkFile::Exists(path.CStr())) return;
+    NkVector<nk_uint8> buf = NkFile::ReadAllBytes(path.CStr());
+    usize off = 0;
+    auto rd = [&](void* p, usize n) -> bool {
+        if (off + n > buf.Size()) return false;
+        memcpy(p, buf.Data() + off, n); off += n; return true;
+    };
     uint32 count = 0;
-    fread(&count, sizeof(count), 1, f);
+    if (!rd(&count, sizeof(count))) return;
     for (uint32 i = 0; i < count; i++) {
         NkSLCacheEntry e;
-        fread(&e.sourceHash, sizeof(e.sourceHash), 1, f);
-        fread(&e.target,     sizeof(e.target),     1, f);
-        fread(&e.stage,      sizeof(e.stage),      1, f);
-        fread(&e.isSpirv,    sizeof(e.isSpirv),    1, f);
-        uint32 bsz = 0; fread(&bsz, sizeof(bsz), 1, f);
-        if (bsz) { e.bytecode.Resize(bsz); fread(e.bytecode.Data(), 1, bsz, f); }
-        uint32 ssz = 0; fread(&ssz, sizeof(ssz), 1, f);
+        if (!rd(&e.sourceHash, sizeof(e.sourceHash))) break;
+        if (!rd(&e.target,     sizeof(e.target)))     break;
+        if (!rd(&e.stage,      sizeof(e.stage)))      break;
+        if (!rd(&e.isSpirv,    sizeof(e.isSpirv)))    break;
+        uint32 bsz = 0; if (!rd(&bsz, sizeof(bsz))) break;
+        if (bsz) { e.bytecode.Resize(bsz); if (!rd(e.bytecode.Data(), bsz)) break; }
+        uint32 ssz = 0; if (!rd(&ssz, sizeof(ssz))) break;
         if (ssz) {
-            NkVector<char> buf; buf.Resize(ssz+1);
-            fread(buf.Data(), 1, ssz, f); buf[ssz] = '\0';
-            e.source = NkString(buf.Data());
+            NkVector<char> sbuf; sbuf.Resize(ssz+1);
+            if (!rd(sbuf.Data(), ssz)) break;
+            sbuf[ssz] = '\0';
+            e.source = NkString(sbuf.Data());
         }
         uint64 k = MakeKey(e.sourceHash, e.target, e.stage);
         mEntries[k] = e;
     }
-    fclose(f);
 }
 
 // =============================================================================
@@ -528,18 +538,15 @@ NkString NkSLCompiler::Preprocess(const NkString& source,
 
                 if (!alreadyIncluded) {
                     includedFiles->PushBack(fullPath);
-                    FILE* f = fopen(fullPath.CStr(), "r");
-                    if (f) {
-                        fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-                        NkVector<char> buf; buf.Resize(sz + 1);
-                        fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
+                    if (NkFile::Exists(fullPath.CStr())) {
+                        NkString incSrc = NkFile::ReadAllText(fullPath.CStr());
 
                         // Inclure avec traçage de numéros de lignes (#line)
                         char lineBuf[64];
                         snprintf(lineBuf, sizeof(lineBuf),
                                  "#line 1 \"%s\"\n", fullPath.CStr());
                         result += NkString(lineBuf);
-                        result += Preprocess(NkString(buf.Data()), baseDir, errors, includedFiles);
+                        result += Preprocess(incSrc, baseDir, errors, includedFiles);
                         snprintf(lineBuf, sizeof(lineBuf),
                                  "#line %u \"%s\"\n", line + 1, filename.Empty() ? "shader" : filename.CStr());
                         result += NkString(lineBuf);
@@ -841,16 +848,12 @@ bool NkSLShaderLibrary::Register(const NkString& name,
                                    const NkVector<NkSLStage>& stages) {
     NkSLMutexLock lock(mMutex);
     NkString fullPath = mBaseDir.Empty() ? filePath : (mBaseDir + "/" + filePath);
-    FILE* f = fopen(fullPath.CStr(), "r");
-    if (!f) { NKSL_ERR("ShaderLibrary: cannot open '%s'\n", fullPath.CStr()); return false; }
-    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    NkVector<char> buf; buf.Resize(sz + 1);
-    fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
+    if (!NkFile::Exists(fullPath.CStr())) { NKSL_ERR("ShaderLibrary: cannot open '%s'\n", fullPath.CStr()); return false; }
 
     ShaderEntry e;
     e.name       = name;
     e.sourcePath = fullPath;
-    e.source     = NkString(buf.Data());
+    e.source     = NkFile::ReadAllText(fullPath.CStr());
     e.stages     = stages;
     e.dirty      = true;
     mEntries.PushBack(e);
@@ -975,12 +978,8 @@ uint32 NkSLShaderLibrary::HotReload(NkSLTarget target,
         NkSLMutexLock lock(mMutex);
         for (auto& e : mEntries) {
             if (e.sourcePath.Empty()) continue;
-            FILE* f = fopen(e.sourcePath.CStr(), "r");
-            if (!f) continue;
-            fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-            NkVector<char> buf; buf.Resize(sz + 1);
-            fread(buf.Data(), 1, sz, f); buf[sz] = '\0'; fclose(f);
-            NkString newSrc(buf.Data());
+            if (!NkFile::Exists(e.sourcePath.CStr())) continue;
+            NkString newSrc = NkFile::ReadAllText(e.sourcePath.CStr());
             if (newSrc != e.source) {
                 e.source = newSrc; e.dirty = true;
                 NKSL_LOG("HotReload: '%s' changed\n", e.name.CStr());

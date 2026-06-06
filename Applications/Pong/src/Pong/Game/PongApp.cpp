@@ -225,10 +225,13 @@ namespace nkentseu
         {
             if (mTarget == nullptr || !mTarget->IsValid()) return;
             // Le cycle de frame est possede ICI, pas dans les scenes :
-            //   Clear()   -> ouvre la frame + efface l'ecran (fond sombre)
+            //   Clear()   -> ouvre la frame + efface l'ecran (fond de la scene)
             //   Render()  -> les scenes ne font QUE dessiner (pas de Begin/End)
             //   Display() -> termine la frame + presente (swap buffers)
-            mTarget->Clear(theme::Dark());
+            // La couleur de fond vient de la scene active (Scene::BackgroundColor,
+            // defaut theme::Dark ; RihenIntro -> blanc).
+            Scene* top = mScenes.Top();
+            mTarget->Clear(top ? top->BackgroundColor() : theme::Dark());
             AppContext ctx = BuildContext();
             mScenes.Render(ctx);
             mTarget->Display();
