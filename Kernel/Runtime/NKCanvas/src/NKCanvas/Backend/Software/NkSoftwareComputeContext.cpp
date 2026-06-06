@@ -1,6 +1,7 @@
 #include "NkSoftwareComputeContext.h"
 #include "NKContainers/NKContainers.h"
 #include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <cstdio>
 #include <cstring>
@@ -27,35 +28,13 @@ struct NkSoftwareComputeContext::PipelineHandle {
 };
 
 static bool ReadTextFile(const char* path, NkVector<char>& outText) {
-    if (!path || !*path) {
-        return false;
-    }
-
-    FILE* file = fopen(path, "rb");
-    if (!file) {
-        return false;
-    }
-
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        return false;
-    }
-
-    const long fileSize = ftell(file);
-    if (fileSize < 0) {
-        fclose(file);
-        return false;
-    }
-    rewind(file);
-
-    outText.Resize((NkVector<char>::SizeType)fileSize + 1, '\0');
-    const size_t readBytes = fread(outText.Data(), 1, (size_t)fileSize, file);
-    fclose(file);
-    if (readBytes != (size_t)fileSize) {
-        outText.Clear();
-        return false;
-    }
-    outText[(NkVector<char>::SizeType)fileSize] = '\0';
+    if (!path || !*path) return false;
+    // NKFileSystem (NkFile) au lieu de fopen/fread : coherent moteur + assets.
+    NkVector<nk_uint8> data = NkFile::ReadAllBytes(path);
+    if (data.Empty()) return false;
+    outText.Resize((NkVector<char>::SizeType)data.Size() + 1, '\0');
+    ::memcpy(outText.Data(), data.Data(), (size_t)data.Size());
+    outText[(NkVector<char>::SizeType)data.Size()] = '\0';  // null-terminaison (source shader)
     return true;
 }
 
