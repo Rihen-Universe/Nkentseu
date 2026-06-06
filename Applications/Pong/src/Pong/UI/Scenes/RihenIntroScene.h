@@ -74,6 +74,10 @@ namespace nkentseu
 
             const char* Name() const noexcept override { return "RihenIntro"; }
 
+            /// Fond BLANC : les frames PNG sont keyees transparent et composees
+            /// sur blanc (cf. en-tete). Override du defaut theme::Dark().
+            math::NkColor BackgroundColor() const override { return math::NkColor(255, 255, 255, 255); }
+
             void OnEnter (AppContext& ctx) override;
             void OnUpdate(AppContext& ctx, float dt) override;
             void OnRender(AppContext& ctx) override;
