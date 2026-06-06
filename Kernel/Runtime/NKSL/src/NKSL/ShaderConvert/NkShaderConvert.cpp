@@ -2,7 +2,8 @@
 // NkShaderConvert.cpp
 // Implémentation de NkShaderFileResolver, NkShaderConverter, NkShaderCache.
 // =============================================================================
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/ShaderConvert/NkShaderConvert.h"
+#include "NKFileSystem/NkFile.h"   // I/O via NKFileSystem (pas de fopen CRT dans NKRHI)
 
 #include <cstdio>
 #include <cstring>
@@ -95,9 +96,7 @@ namespace nkentseu {
     }
 
     bool NkShaderFileResolver::FileExists(const NkString& path) {
-        FILE* f = fopen(path.CStr(), "rb");
-        if (f) { fclose(f); return true; }
-        return false;
+        return NkFile::Exists(path.CStr());
     }
 
     NkVector<NkString> NkShaderFileResolver::FindVariants(const NkString& path) {
@@ -450,26 +449,18 @@ namespace nkentseu {
         NkShaderConvertResult out;
         std::string ext = ToStd(NkShaderFileResolver::FormatExt(path));
 
-        FILE* f = fopen(path.CStr(), "rb");
-        if (!f) {
+        if (!NkFile::Exists(path.CStr())) {
             out.errors = NkString("Impossible d'ouvrir : ") + path;
             return out;
         }
-        fseek(f, 0, SEEK_END);
-        long sz = ftell(f);
-        fseek(f, 0, SEEK_SET);
 
         bool isBinary = (ext == "spirv" || ext == "spv");
 
         if (isBinary) {
-            out.binary.Resize((uint32)sz);
-            fread(out.binary.Data(), 1, sz, f);
+            out.binary = NkFile::ReadAllBytes(path.CStr());
         } else {
-            std::string buf(sz, '\0');
-            fread(&buf[0], 1, sz, f);
-            out.source = NkString(buf.c_str());
+            out.source = NkFile::ReadAllText(path.CStr());
         }
-        fclose(f);
         out.success = true;
         return out;
     }
@@ -634,28 +625,30 @@ namespace nkentseu {
         if (mCacheDir.Empty()) return out;
 
         NkString path = KeyToPath(key);
-        FILE* f = fopen(path.CStr(), "rb");
-        if (!f) return out;
+        if (!NkFile::Exists(path.CStr())) return out;
+        NkVector<nk_uint8> fbuf = NkFile::ReadAllBytes(path.CStr());
+        usize off = 0;
+        auto rd = [&](void* p, usize n) -> bool {
+            if (off + n > fbuf.Size()) return false;
+            memcpy(p, fbuf.Data() + off, n); off += n; return true;
+        };
 
         uint32 magic = 0;
         uint64 storedKey = 0;
         uint32 size = 0;
 
-        if (fread(&magic,     sizeof(magic),     1, f) != 1 || magic != kNkscMagic ||
-            fread(&storedKey, sizeof(storedKey), 1, f) != 1 || storedKey != key    ||
-            fread(&size,      sizeof(size),      1, f) != 1) {
-            fclose(f);
+        if (!rd(&magic, sizeof(magic))         || magic != kNkscMagic ||
+            !rd(&storedKey, sizeof(storedKey)) || storedKey != key     ||
+            !rd(&size, sizeof(size))) {
             return out;
         }
 
         // Allouer seulement pour les données SPIR-V, pas pour le header
         out.binary.Resize(size);
-        if (fread(out.binary.Data(), 1, size, f) != size) {
-            fclose(f);
+        if (size && !rd(out.binary.Data(), size)) {
             out.binary.Clear();
             return out;
         }
-        fclose(f);
         out.success = true;
         // Cache hit -> marquer la cle comme touchee pour la GC.
         MarkTouched(key);
@@ -668,51 +661,35 @@ namespace nkentseu {
 
         NkString path = KeyToPath(key);
 
-        // Choix de la donnée à sauvegarder : binaire (SPIR-V) prioritaire, sinon texte
-        const uint8* data = nullptr;
-        uint32 size = 0;
-        std::string srcBuf;
-        // if (!result.binary.IsEmpty()) {
-        //     data = result.binary.Data();
-        //     size = (uint32)result.binary.Size();
-        // } 
+        // Sérialisation binaire en mémoire puis écriture via NKFileSystem (pas de fopen).
+        // Header commun : magic(u32) + key(u64) + size(u32) + data.
+        NkVector<nk_uint8> fbuf;
+        auto wr = [&](const void* p, usize n) {
+            const nk_uint8* b = (const nk_uint8*)p;
+            for (usize i = 0; i < n; ++i) fbuf.PushBack(b[i]);
+        };
+
         if (!result.binary.IsEmpty()) {
             // Vérifier que c'est bien du SPIR-V valide
             const uint32* words = reinterpret_cast<const uint32*>(result.binary.Data());
             if (result.binary.Size() >= 4 && words[0] != 0x07230203) {
                 logger.Info("[ShaderCache] Warning: saving non-SPIRV data (magic=0x{0:08x})\n", words[0]);
             }
-            
-            FILE* f = fopen(path.CStr(), "wb");
-            if (!f) return false;
-            
-            // Écrire le header
-            fwrite(&kNkscMagic, sizeof(kNkscMagic), 1, f);
-            fwrite(&key, sizeof(key), 1, f);
-            
             uint32 dataSize = (uint32)result.binary.Size();
-            fwrite(&dataSize, sizeof(dataSize), 1, f);
-            
-            // Écrire les données brutes
-            fwrite(result.binary.Data(), 1, dataSize, f);
-            fclose(f);
-            MarkTouched(key);
-            return true;
+            wr(&kNkscMagic, sizeof(kNkscMagic));
+            wr(&key,        sizeof(key));
+            wr(&dataSize,   sizeof(dataSize));
+            wr(result.binary.Data(), dataSize);
+        } else {
+            std::string srcBuf = ToStd(result.source);
+            uint32 size = (uint32)srcBuf.size();
+            wr(&kNkscMagic, sizeof(kNkscMagic));
+            wr(&key,        sizeof(key));
+            wr(&size,       sizeof(size));
+            if (size) wr(srcBuf.data(), size);
         }
 
-        srcBuf = ToStd(result.source);
-        data   = reinterpret_cast<const uint8*>(srcBuf.data());
-        size   = (uint32)srcBuf.size();
-
-
-        FILE* f = fopen(path.CStr(), "wb");
-        if (!f) return false;
-
-        fwrite(&kNkscMagic, sizeof(kNkscMagic), 1, f);
-        fwrite(&key,        sizeof(key),        1, f);
-        fwrite(&size,       sizeof(size),       1, f);
-        fwrite(data,        1, size,               f);
-        fclose(f);
+        if (!NkFile::WriteAllBytes(path.CStr(), fbuf)) return false;
         MarkTouched(key);
         return true;
     }

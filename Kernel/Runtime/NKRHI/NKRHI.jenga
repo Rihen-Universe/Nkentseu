@@ -92,6 +92,8 @@ with project("NKRHI"):
         "%{NKEvent.location}/src",
         "%{NKWindow.location}/src",
         "%{NKThreading.location}/src",
+        "%{NKFileSystem.location}/src",
+        "%{NKSL.location}/src",
     ]
     if _USE_NKGLAD:
         _INCLUDE_DIRS.append("%{NKGlad.location}/include")
@@ -112,7 +114,7 @@ with project("NKRHI"):
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    _DEPS = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"]
+    _DEPS = ["NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKFileSystem", "NKSL"]
     if _USE_NKGLAD:
         _DEPS.append("NKGlad")
     if _USE_NKGLSLANG:
@@ -151,10 +153,9 @@ with project("NKRHI"):
         "src/NKRHI/Vulkan/**.cpp",
         "src/NKRHI/Vulkan/**.h",
         "src/NKRHI/Metal/**.h",
-        "src/NKRHI/SL/**.cpp",
+        # NkSL + ShaderConvert ont été extraits dans le module NKSL.
+        # Reste ici uniquement l'adaptateur Software (NkSWShaderBridge.h).
         "src/NKRHI/SL/**.h",
-        "src/NKRHI/ShaderConvert/**.cpp",
-        "src/NKRHI/ShaderConvert/**.h",
     ])
 
     with filter("system:macOS || system:iOS"):

@@ -5,7 +5,7 @@
 #include "NkVulkanDevice.h"
 #include "NkVulkanCommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
-#include "NKRHI/SL/NkGLSLCompiler.h"
+#include "NKSL/NkGLSLCompiler.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Associative/NkSet.h"
 #include <cstring>
