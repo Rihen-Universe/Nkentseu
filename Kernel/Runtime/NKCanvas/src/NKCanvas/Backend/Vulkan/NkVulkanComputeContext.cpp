@@ -10,6 +10,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKContainers/NKContainers.h"
 #include "NKContainers/CacheFriendly/NkArray.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <cstdio>
 #include <cstring>
@@ -31,35 +32,11 @@ static constexpr nkentseu::uint32 kMaxBindings = 16;
 namespace nkentseu {
 
 static bool ReadBinaryFile(const char* path, NkVector<uint8>& outBytes) {
-    if (!path || !*path) {
-        return false;
-    }
-
-    FILE* file = fopen(path, "rb");
-    if (!file) {
-        return false;
-    }
-
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        return false;
-    }
-
-    const long fileSize = ftell(file);
-    if (fileSize <= 0) {
-        fclose(file);
-        return false;
-    }
-
-    rewind(file);
-    outBytes.Resize((NkVector<uint8>::SizeType)fileSize, static_cast<uint8>(0));
-    const size_t readBytes = fread(outBytes.Data(), 1, (size_t)fileSize, file);
-    fclose(file);
-    if (readBytes != (size_t)fileSize) {
-        outBytes.Clear();
-        return false;
-    }
-    return true;
+    if (!path || !*path) return false;
+    // NKFileSystem (NkFile) au lieu de fopen/fread : coherent avec le reste du
+    // moteur + gere la resolution de chemins/assets (Android) de maniere unifiee.
+    outBytes = NkFile::ReadAllBytes(path);
+    return !outBytes.Empty();
 }
 
 NkVulkanComputeContext::~NkVulkanComputeContext() { if (mIsValid) Shutdown(); }

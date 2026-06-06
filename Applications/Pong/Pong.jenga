@@ -48,7 +48,7 @@ if _pkg_exists("libdecor-0"):
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
 with project("Pong"):
-    useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "canvas", "network", "audio")
+    useappdeps("platform", "core", "memory", "containers", "math", "threading", "stream", "logger", "time", "event", "window", "image", "font", "ui", "canvas", "network", "audio", "filesystem")
     windowedapp()
     language("C++")
     cppdialect("C++17")

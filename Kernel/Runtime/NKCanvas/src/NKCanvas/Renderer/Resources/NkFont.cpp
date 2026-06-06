@@ -13,6 +13,7 @@
 
 #include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <cstdio>
 #include <cstring>
@@ -65,19 +66,15 @@ namespace nkentseu {
 
         bool NkFont::LoadFromFile(NkIRenderer2D& renderer, const char* path) {
             if (!path) return false;
-            std::FILE* f = std::fopen(path, "rb");
-            if (!f) { NK_FONT_ERR("LoadFromFile: ouverture impossible : %s", path); return false; }
-            std::fseek(f, 0, SEEK_END);
-            long sz = std::ftell(f);
-            std::fseek(f, 0, SEEK_SET);
-            if (sz <= 0) { std::fclose(f); return false; }
+            // NKFileSystem (NkFile) au lieu de fopen/fread : coherent avec le moteur
+            // + resolution unifiee des chemins/assets (Android).
+            NkVector<nk_uint8> data = NkFile::ReadAllBytes(path);
+            if (data.Empty()) { NK_FONT_ERR("LoadFromFile: ouverture/lecture impossible : %s", path); return false; }
 
             Destroy();
             mRenderer = &renderer;
-            mFontData.Resize((uint32)sz);
-            usize rd = std::fread(mFontData.Data(), 1, (size_t)sz, f);
-            std::fclose(f);
-            if (rd != (usize)sz) { NK_FONT_ERR("LoadFromFile: lecture partielle : %s", path); mFontData.Clear(); return false; }
+            mFontData.Resize((uint32)data.Size());
+            ::memcpy(mFontData.Data(), data.Data(), (size_t)data.Size());
             return true;
         }
 

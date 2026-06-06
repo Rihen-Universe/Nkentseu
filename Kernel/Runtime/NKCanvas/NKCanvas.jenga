@@ -70,12 +70,13 @@ with project("NKCanvas"):
         "%{NKFont.location}/src",
         "%{NKImage.location}/src",
         "%{NKStream.location}/src",   # NKIResource.h tiré transitivement par NkImage.h
+        "%{NKFileSystem.location}/src",
     ]
     if _VULKAN_INCLUDE:
         _CONTEXT_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
     includedirs(_CONTEXT_INCLUDE_DIRS)
 
-    dependson(["NKGlad", "NKMath", "NKFont", "NKImage", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"])
+    dependson(["NKGlad", "NKMath", "NKFont", "NKImage", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKFileSystem"])
     defines([
         "NK_NO_GLAD2",
         f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
