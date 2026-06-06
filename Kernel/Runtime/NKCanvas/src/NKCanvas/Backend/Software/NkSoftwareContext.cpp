@@ -106,7 +106,11 @@ namespace nkentseu {
 
     bool NkSoftwareContext::BeginFrame() {
         if (!mIsValid) return false;
-        mBackBuffer.Clear(25, 25, 25);
+        // Pre-clear NEUTRE (noir) : filet de securite si l'appelant ne clear pas.
+        // La vraie couleur de fond vient de NkSoftwareRenderer2D::Clear(color)
+        // (source unique, coherent avec OpenGL/Vulkan/DX qui n'auto-clearent pas),
+        // qui remplit ensuite TOUT le back-buffer -> ce pre-clear est ecrase.
+        mBackBuffer.Clear(0, 0, 0);
         return true;
     }
 
