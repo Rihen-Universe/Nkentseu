@@ -8,6 +8,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKMath/NkRectangle.h"
 #include "NKMath/NkColor.h"
+#include "NKSL/Core/NkSLTypes.h"   // enum NkSLStage (possédé par NKSL) -> NkShaderStage
 #include <cstddef>
 
 namespace nkentseu {
@@ -221,22 +222,10 @@ namespace nkentseu {
     // Shader stage
     // =============================================================================
 
-    enum class NkShaderStage : uint32 {
-        NK_VERTEX       = 1<<0,
-        NK_FRAGMENT     = 1<<1,  // Pixel
-        NK_GEOMETRY     = 1<<2,
-        NK_TESS_CTRL    = 1<<3,
-        NK_TESS_EVAL    = 1<<4,
-        NK_COMPUTE      = 1<<5,
-        NK_MESH         = 1<<6,  // Mesh shaders (DX12/Vulkan 1.2+/Metal 3)
-        NK_TASK         = 1<<7,  // Amplification / Task
-        NK_ALL_GRAPHICS = NK_VERTEX|NK_FRAGMENT|NK_GEOMETRY|NK_TESS_CTRL|NK_TESS_EVAL,
-        NK_ALL          = NK_ALL_GRAPHICS|NK_COMPUTE|NK_MESH|NK_TASK
-    };
-
-    inline NkShaderStage operator|(NkShaderStage a, NkShaderStage b) {
-        return (NkShaderStage)((uint32)a|(uint32)b);
-    }
+    // NkShaderStage = nom historique RHI de l'étage de shader. L'enum unique est
+    // NkSLStage (possédé par NKSL, NkSLShaderStage.h) ; on en porte le nom ici.
+    // Les opérateurs |, &, ~ et NkSLStageToString viennent de NkSLShaderStage.h.
+    using NkShaderStage = NkSLStage;
 
     // =============================================================================
     // Push Constant Range

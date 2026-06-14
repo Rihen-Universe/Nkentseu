@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkAudioDemo — Console app pour tester NKAudio (load WAV + Play via WASAPI)
+# =============================================================================
+# But : Smoke test du module audio Nkentseu. Charge un WAV depuis Resources/
+# Audio/, le passe a AudioEngine::Play() via le backend natif de la plateforme
+# (WASAPI Windows / CoreAudio macOS / ALSA Linux / Oboe Android), et attend
+# la fin de lecture. Si on entend le son => NKAudio est fonctionnel.
+# =============================================================================
+
+from Jenga import *
+from jengaconfig import *
+
+import os
+
+with project("NkAudioDemo"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["NKLogger", "NKAudio", "NKFileSystem", "NKContainers", "NKMemory",
+         "NKCore", "NKPlatform", "NKThreading", "NKMath"],
+        extra_includes=["src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("1.0.0")
+
+    # Embarque le dossier audio test (cf src/main.cpp).
+    dependfiles(["../../Resources/Audio"])
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        # WASAPI deps : ole32 + mmdevapi + avrt
+        links(["ole32", "winmm", "avrt", "uuid"])
+
+    # ===== Linux ==============================================================
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread", "asound", "m"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["AudioToolbox", "CoreAudio", "CoreFoundation"])
+
+    # ===== HarmonyOS ==========================================================
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+        # Pas de backend audio Harmony pour l'instant -> NKAudio tombe sur Null.
+        links(["hilog_ndk.z"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

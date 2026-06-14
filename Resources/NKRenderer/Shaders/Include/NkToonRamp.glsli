@@ -1,0 +1,30 @@
+// =============================================================================
+// NkToonRamp.glsli  — M.5 Material Functions : Toon shading ramps
+//
+// Steps quantises pour rendu NPR / cel-shading.
+// =============================================================================
+
+// 2-step ramp : 0 si NdotL < threshold, 1 sinon, lisse sur [threshold-smooth,
+// threshold+smooth].
+float NkToonRamp2(float NdotL, float threshold, float smoothW) {
+    return smoothstep(threshold - smoothW, threshold + smoothW, NdotL);
+}
+
+// 3-step ramp : shadow / mid / highlight via 2 seuils.
+float NkToonRamp3(float NdotL, float th1, float th2, float smoothW) {
+    float s1 = smoothstep(th1 - smoothW, th1 + smoothW, NdotL);
+    float s2 = smoothstep(th2 - smoothW, th2 + smoothW, NdotL);
+    return (s1 + s2) * 0.5;
+}
+
+// N-step ramp generique (quantise NdotL en N bandes).
+float NkToonRampN(float NdotL, int steps) {
+    float f = max(NdotL, 0.0) * float(steps);
+    return floor(f) / float(steps - 1);
+}
+
+// Mix d'un albedo "lit" et d'un albedo "shadow" selon la ramp 2-step.
+vec3 NkToonShade(vec3 litColor, vec3 shadowColor,
+                 float NdotL, float threshold, float smoothW) {
+    return mix(shadowColor, litColor, NkToonRamp2(NdotL, threshold, smoothW));
+}

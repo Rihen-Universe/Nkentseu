@@ -2,7 +2,7 @@
  * @File    NkUIDrawList.cpp
  * @Brief   Implémentation NkUIDrawList — tessellation, primitives, path.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  */
 
 /*

@@ -663,7 +663,7 @@
     // AVANT (code utilisant les aliases legacy) :
     /*
     #include <NKThreading/NKThreading.h>
-    using namespace nkentseu::entseu;  // ❌ Ancien namespace (déprécié)
+    using namespace nkentseu;  // ❌ Ancien namespace (déprécié)
 
     void LegacyCode() {
         NkMutex mutex;

@@ -41,7 +41,15 @@
 #   include <sys/mman.h>
 #   include <unistd.h>
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
-#   include <android/native_window.h>
+#   include <android/native_window.h> 
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+    // HarmonyOS : présentation via OHNativeWindow (identique à ANativeWindow côté ABI)
+    // Le XComponent héberge la surface native — OH_NativeXComponent fournit le handle.
+    // Format RGBA8888 — pas de swap de canaux (NK_SW_PIXEL_BGRA = 0).
+#   include <native_window/external_window.h>      // OHNativeWindow
+    // Note : l'include exact dépend de la version du NDK OHOS.
+    // Si external_window.h n'est pas disponible, utiliser le handle vide et
+    // implémenter la présentation via un callback ArkTS (NkHarmonyBridge.presentFrame).
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #   include <emscripten.h>
 #   include <emscripten/html5.h>
@@ -585,6 +593,28 @@ namespace nkentseu {
         uint64 shmSize    = 0;
 #elif defined(NKENTSEU_PLATFORM_ANDROID)
         void*  nativeWindow = nullptr;
+ 
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // HarmonyOS : le backend software présente via OHNativeWindow
+        // ou via un callback ArkTS (NkHarmonyBridge.presentFrame) si le NDK
+        // ne fournit pas d'accès direct à la mémoire de la surface.
+        //
+        // Stratégie recommandée :
+        //   1. Méthode directe  : OH_NativeWindow_NativeWindowRequestBuffer → lock pixels
+        //   2. Méthode bridge   : copier pixels dans un ArrayBuffer JS via N-API,
+        //      ArkTS les dessine dans le XComponent via ImageBitmap.
+        //   3. Méthode EGL      : créer un EGL context + glTexImage2D + blit quad.
+        //      (préférable si le hardware supporte OpenGL ES 3.2)
+        //
+        // Pour Nkentseu, le backend Software sur HarmonyOS est un fallback.
+        // Le backend Vulkan ou OpenGL ES est préférable en production.
+        void*  ohNativeWindow = nullptr;   // OHNativeWindow* (handle XComponent)
+        void*  eglDisplay     = nullptr;   // EGLDisplay (optionnel, pour blit EGL)
+        void*  eglSurface     = nullptr;   // EGLSurface
+        void*  eglContext     = nullptr;   // EGLContext
+        // Callback de présentation ArkTS (bridge) — utilisé si EGL non dispo
+        // Signature : void(*)(const uint8* pixels, uint32 w, uint32 h)
+        void*  presentCallback = nullptr;
 #elif defined(NKENTSEU_PLATFORM_MACOS)
         void*  nsView    = nullptr;
         void*  cgContext = nullptr;
@@ -688,6 +718,10 @@ namespace nkentseu {
             const uint8*                BackbufferSize() const;
             uint32                      BackbufferWidth()  const { return mWidth; }
             uint32                      BackbufferHeight() const { return mHeight; }
+ 
+            // HarmonyOS — permet à NkHarmonyBridge de fournir le handle OHNativeWindow
+            // appelé depuis NkHarmonyOnSurfaceCreated() côté C++.
+            void                        SetHarmonyNativeWindow(void* ohNativeWindow);
 
         private:
             void CreateSwapchainObjects();

@@ -65,6 +65,9 @@
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #include "NKWindow/EntryPoints/NkEmscripten.h"
 
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+#include "NKWindow/EntryPoints/NkHarmonyOS.h"
+
 #else
 #include "NKWindow/EntryPoints/NkNoob.h"
 #endif

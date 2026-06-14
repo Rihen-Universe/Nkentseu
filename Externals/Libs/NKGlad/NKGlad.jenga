@@ -5,6 +5,7 @@ NKGlad - GLAD loader as standalone static library.
 """
 
 from Jenga import *
+from jengaconfig import *
 
 with project("NKGlad"):
     staticlib()

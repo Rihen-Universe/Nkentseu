@@ -18,7 +18,7 @@
 //   - SIMD optionnel : NkSIMD.h (activé via NK_ENABLE_SSE42 / NK_ENABLE_NEON)
 //
 // Usage recommandé :
-//   #include "NKMath/NkMath.h"  // Inclure ce fichier uniquement
+//   #include "NKMath/NKMath.h"  // Inclure ce fichier uniquement
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024 Rihen. Tous droits réservés.
@@ -189,7 +189,7 @@
     // ---------------------------------------------------------------------
     // Exemple 1 : Inclusion unique et accès aux types de base
     // ---------------------------------------------------------------------
-    #include "NKMath/NkMath.h"
+    #include "NKMath/NKMath.h"
     using namespace nkentseu::math;
 
     // Constantes mathématiques

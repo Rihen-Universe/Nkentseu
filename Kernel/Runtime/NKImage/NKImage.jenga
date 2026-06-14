@@ -15,37 +15,18 @@ Pipeline SVG complet :
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKImage"):
-    useglobalkind("image")
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKThreading.location}/src",
-    ])
-
-    dependson([
-        "NKPlatform",
-        "NKCore",
-        "NKMemory",
-        "NKMath",
-        "NKContainers",
-        "NKLogger",
-        "NKThreading",
-    ])
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger", "NKThreading", "NKFileSystem", "NKStream"],
+        selfexport="NKImage",
+        extra_includes=["src"],
+    )
 
     files([
         # Core
@@ -57,15 +38,15 @@ with project("NKImage"):
         "src/NKImage/Codecs/BMP/NkBMPCodec.cpp",
         "src/NKImage/Codecs/TGA/NkTGACodec.cpp",
         "src/NKImage/Codecs/HDR/NkHDRCodec.cpp",
+        "src/NKImage/Codecs/EXR/NkEXRCodec.cpp",
         "src/NKImage/Codecs/PPM/NkPPMCodec.cpp",
         "src/NKImage/Codecs/QOI/NkQOICodec.cpp",
         "src/NKImage/Codecs/GIF/NkGIFCodec.cpp",
         "src/NKImage/Codecs/ICO/NkICOCodec.cpp",
         "src/NKImage/Codecs/WEBP/NkWebPCodec.cpp",
-        # SVG
+        # SVG (reecrit from scratch 2026-05-19 inspire NanoSVG, mono-fichier)
+        # NkSVGDOM.cpp + NkSVGRenderer.cpp retires (pipeline DOM inutilise).
         "src/NKImage/Codecs/SVG/NkSVGCodec.cpp",
-        "src/NKImage/Codecs/SVG/NkSVGDOM.cpp",
-        "src/NKImage/Codecs/SVG/NkSVGRenderer.cpp",
         # Backend STB (alternatif pendant développement des codecs natifs)
         # "src/NKImage/Codecs/STB/NkSTBCodec.cpp",
         # Headers (pour IDEs)
@@ -83,7 +64,7 @@ with project("NKImage"):
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE",
@@ -118,6 +99,14 @@ with project("NKImage"):
         androidtargetsdk(34)
         androidcompilesdk(34)
         androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android).
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
 
     # ===== iOS ====================================================================
     with filter("system:iOS"):

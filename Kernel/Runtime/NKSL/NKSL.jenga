@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKSL - Nkentseu Shader Language (module Runtime)
+================================================
+Compilateur NkSL (lexer / parser / semantic / reflection / codegen multi-backend
+GLSL · GLSL-Vulkan · HLSL DX11 · HLSL DX12 · MSL · C++ · bytecode) + ShaderConvert
+(glslang GLSL->SPIR-V, SPIRV-Cross SPIR-V->GLSL/HLSL/MSL).
+
+Pur CPU, sans dépendance GPU. Couche Runtime, consommé par NKRHI et NKRenderer
+(inversion de dépendance : NKSL ne connaît pas NKRHI).
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+# USE_NKGLSLANG / USE_NKSPIRVCROSS viennent de config/graphics.jenga (propages).
+
+with project("NKSL"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    pchheader("pch/pch.h")
+    pchsource("pch/pch.cpp")
+
+    # Dependances (mode lib) : kindexport(NKENTSEU_NKSL) + src/pch + includedirs +
+    # dependson + defines _STATIC_LIB auto. NKGLSlang/NKSPIRVCross (includes du
+    # registre %{NKGLSlang.location} / %{NKSPIRVCross.location}/src) conditionnels.
+    # Le LINK de NKGLSlang/NKSPIRVCross reste dans les filtres plateforme ci-dessous.
+    nkslDeps = ["NKMath", "NKLogger", "NKContainers", "NKMemory", "NKCore",
+                "NKPlatform", "NKThreading", "NKFileSystem"]
+    nkslDefines = []
+    if USE_NKGLSLANG:
+        nkslDeps.append("NKGLSlang")
+        nkslDefines += ["NK_RHI_GLSLANG_ENABLED", "ENABLE_HLSL", "ENABLE_OPT=0"]
+    if USE_NKSPIRVCROSS:
+        nkslDeps.append("NKSPIRVCross")
+        nkslDefines.append("NK_RHI_SPIRVCROSS_ENABLED")
+    nkentseudependson(
+        nkslDeps,
+        selfexport="NKSL",
+        extra_includes=["%{wks.location}/Externals"],
+        extra_defines=nkslDefines,
+    )
+
+    files([
+        "src/**.cpp",
+        "src/NKSL/**.cpp",
+        "src/NKSL/**.h",
+        "src/NKSL/ShaderConvert/**.cpp",
+        "src/NKSL/ShaderConvert/**.h",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    # ── Windows desktop (clang-mingw) : link NKGLSlang/NKSPIRVCross (compilés source) ──
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        _WIN_LINKS = []
+        if USE_NKGLSLANG:
+            _WIN_LINKS.append("NKGLSlang")
+        if USE_NKSPIRVCROSS:
+            _WIN_LINKS.append("NKSPIRVCross")
+        if _WIN_LINKS:
+            links(_WIN_LINKS)
+
+    with filter("system:Linux"):
+        _LX_LINKS = ["pthread"]
+        if USE_NKGLSLANG:
+            _LX_LINKS.append("NKGLSlang")
+        if USE_NKSPIRVCROSS:
+            _LX_LINKS.append("NKSPIRVCross")
+        links(_LX_LINKS)
+
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        _MAC_LINKS = []
+        if USE_NKGLSLANG:
+            _MAC_LINKS.append("NKGLSlang")
+        if USE_NKSPIRVCROSS:
+            _MAC_LINKS.append("NKSPIRVCross")
+        if _MAC_LINKS:
+            links(_MAC_LINKS)
+
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+
+    with filter("system:HarmonyOS"):
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

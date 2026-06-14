@@ -1,0 +1,220 @@
+// render2d.frag.nksl — NKRenderer — Render2D FS (VRAI dialecte NkSL)
+// Traduit de Render2D/VK/render2d.frag.vk.glsl. Atlas + éclairage 2D (lumières,
+// cookies, ombres cercles/AABB, normal map). Déclarations groupées avant les fonctions.
+
+@location(0) in vec2 vUV;
+@location(1) in vec4 vColor;
+@location(2) in flat uint vFlags;
+@location(3) in vec2 vWorldPos;
+@location(0) out vec4 fragColor;
+
+struct Light2D {
+    vec4 posIntRad;
+    vec4 colorCookie;
+    vec4 dirCone;
+};
+
+@binding(set=0, binding=0)
+uniform sampler2D tAtlas;
+
+@binding(set=0, binding=1)
+uniform Lights2DUBO {
+    Light2D lights[16];
+    vec4    ambient;
+} uL2D;
+
+@binding(set=0, binding=10)
+uniform Shadows2DUBO {
+    vec4 occluders[32];
+    vec4 meta;
+    vec4 isoMat;
+} uSh2D;
+
+@binding(set=0, binding=11)
+uniform ShadowsAABB2DUBO {
+    vec4 boxes[32];
+    vec4 metaAABB;
+} uShAABB2D;
+
+@binding(set=0, binding=2)  uniform sampler2D tCookie0;
+@binding(set=0, binding=3)  uniform sampler2D tCookie1;
+@binding(set=0, binding=4)  uniform sampler2D tCookie2;
+@binding(set=0, binding=5)  uniform sampler2D tCookie3;
+@binding(set=0, binding=6)  uniform sampler2D tCookie4;
+@binding(set=0, binding=7)  uniform sampler2D tCookie5;
+@binding(set=0, binding=8)  uniform sampler2D tCookie6;
+@binding(set=0, binding=9)  uniform sampler2D tCookie7;
+@binding(set=0, binding=12) uniform sampler2D tNormal;
+
+bool SegmentIntersectsCircle(vec2 a, vec2 b, vec2 c, float r) {
+    vec2 ab = b - a;
+    vec2 ac = c - a;
+    float lab2 = dot(ab, ab);
+    if (lab2 < 1e-6) return false;
+    float t = clamp(dot(ac, ab) / lab2, 0.0, 1.0);
+    vec2 closest = a + ab * t;
+    vec2 d = c - closest;
+    return dot(d, d) <= r * r;
+}
+
+bool SegmentIntersectsAABB(vec2 a, vec2 b, vec2 mn, vec2 mx) {
+    vec2 dir = b - a;
+    float tmin = 0.0;
+    float tmax = 1.0;
+    for (int i = 0; i < 2; i++) {
+        if (abs(dir[i]) < 1e-6) {
+            if (a[i] < mn[i] || a[i] > mx[i]) return false;
+        } else {
+            float inv = 1.0 / dir[i];
+            float t1 = (mn[i] - a[i]) * inv;
+            float t2 = (mx[i] - a[i]) * inv;
+            if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; }
+            tmin = max(tmin, t1);
+            tmax = min(tmax, t2);
+            if (tmin > tmax) return false;
+        }
+    }
+    return true;
+}
+
+float ShadowVisibility2D(vec2 fragPos, vec2 lightPos) {
+    mat2 isoMat = mat2(uSh2D.isoMat.x, uSh2D.isoMat.y,
+                       uSh2D.isoMat.z, uSh2D.isoMat.w);
+    vec2 fragI  = isoMat * fragPos;
+    vec2 lightI = isoMat * lightPos;
+
+    vec2 dir   = lightI - fragI;
+    float L    = length(dir);
+    if (L < 1.0) return 1.0;
+    vec2 ndir  = dir / L;
+    vec2 b     = lightI - ndir * 1.0;
+
+    int n = int(uSh2D.meta.x);
+    for (int i = 0; i < n && i < 32; i++) {
+        vec4 occ = uSh2D.occluders[i];
+        vec2 occI = isoMat * occ.xy;
+        vec2 oc = occI - fragI;
+        if (dot(oc, oc) <= occ.z * occ.z) continue;
+        if (SegmentIntersectsCircle(fragI, b, occI, occ.z))
+            return 0.0;
+    }
+
+    int m = int(uShAABB2D.metaAABB.x);
+    for (int j = 0; j < m && j < 32; j++) {
+        vec4 box = uShAABB2D.boxes[j];
+        vec2 mn = isoMat * box.xy;
+        vec2 mx = isoMat * box.zw;
+        vec2 mnR = vec2(min(mn.x, mx.x), min(mn.y, mx.y));
+        vec2 mxR = vec2(max(mn.x, mx.x), max(mn.y, mx.y));
+        if (fragI.x >= mnR.x && fragI.x <= mxR.x &&
+            fragI.y >= mnR.y && fragI.y <= mxR.y) continue;
+        if (SegmentIntersectsAABB(fragI, b, mnR, mxR))
+            return 0.0;
+    }
+    return 1.0;
+}
+
+float SampleCookie(int idx, vec2 uv) {
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+    if (idx == 0) return texture(tCookie0, uv).r;
+    if (idx == 1) return texture(tCookie1, uv).r;
+    if (idx == 2) return texture(tCookie2, uv).r;
+    if (idx == 3) return texture(tCookie3, uv).r;
+    if (idx == 4) return texture(tCookie4, uv).r;
+    if (idx == 5) return texture(tCookie5, uv).r;
+    if (idx == 6) return texture(tCookie6, uv).r;
+    if (idx == 7) return texture(tCookie7, uv).r;
+    return 1.0;
+}
+
+vec3 ComputeLighting2D(vec2 worldPos, uint shapeLayerMask, vec3 normal) {
+    float LIGHT_Z = 80.0;
+    int n = int(uL2D.ambient.w);
+    vec3 lit = uL2D.ambient.xyz;
+    for (int i = 0; i < n && i < 16; i++) {
+        uint lightLayer = uint(uL2D.lights[i].dirCone.w);
+        if ((lightLayer & shapeLayerMask) == 0u) continue;
+        vec2 lp         = uL2D.lights[i].posIntRad.xy;
+        float intensity = uL2D.lights[i].posIntRad.z;
+        float radius    = max(uL2D.lights[i].posIntRad.w, 1.0);
+        vec3  lcol      = uL2D.lights[i].colorCookie.xyz;
+        float ckEnc     = uL2D.lights[i].colorCookie.w;
+        bool  castSh    = ckEnc > -500.0;
+        int   cookieIdx = castSh ? int(ckEnc) : int(ckEnc + 1000.0);
+        float angleRad  = uL2D.lights[i].dirCone.x;
+        float innerRad  = uL2D.lights[i].dirCone.y;
+        float outerRad  = uL2D.lights[i].dirCone.z;
+
+        vec2 toFrag = worldPos - lp;
+        float dist  = length(toFrag);
+
+        float t = clamp(1.0 - dist / radius, 0.0, 1.0);
+        float att = t * t;
+        if (att < 1e-4) continue;
+
+        if (outerRad < 6.28) {
+            float fragAngle = atan(toFrag.y, toFrag.x);
+            float delta     = fragAngle - angleRad;
+            delta = mod(delta + 3.14159, 6.28318) - 3.14159;
+            float adelta = abs(delta);
+            float coneFalloff = clamp((outerRad * 0.5 - adelta) /
+                                       max(outerRad * 0.5 - innerRad * 0.5, 1e-3),
+                                       0.0, 1.0);
+            att *= coneFalloff;
+            if (att < 1e-4) continue;
+        }
+
+        if (cookieIdx >= 0) {
+            float ca = cos(-angleRad), sa = sin(-angleRad);
+            vec2 local = vec2(ca * toFrag.x - sa * toFrag.y,
+                              sa * toFrag.x + ca * toFrag.y);
+            vec2 uv = local / (2.0 * radius) + 0.5;
+            att *= SampleCookie(cookieIdx, uv);
+        }
+
+        if (castSh) att *= ShadowVisibility2D(worldPos, lp);
+
+        if (dot(normal, normal) > 0.0) {
+            vec3 L3 = normalize(vec3(-toFrag, LIGHT_Z));
+            float ndl = max(dot(normalize(normal), L3), 0.0);
+            att *= ndl;
+        }
+
+        lit += lcol * intensity * att;
+    }
+    return lit;
+}
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 baseColor;
+    if ((vFlags & 2u) != 0u) {
+        vec4 t = texture(tAtlas, vUV);
+        if ((vFlags & 1u) != 0u) {
+            float d  = t.a;
+            float aa = fwidth(d) * 0.7;
+            float a  = smoothstep(0.5 - aa, 0.5 + aa, d);
+            if (a < 0.01) discard;
+            baseColor = vec4(vColor.rgb, vColor.a * a);
+        } else {
+            baseColor = t * vColor;
+            if (baseColor.a < 0.01) discard;
+        }
+    } else {
+        baseColor = vColor;
+        if (baseColor.a < 0.01) discard;
+    }
+
+    if ((vFlags & 4u) != 0u) {
+        uint shapeLayer = (vFlags >> 8) & 0xFFu;
+        vec3 normal = vec3(0.0);
+        if ((vFlags & 8u) != 0u) {
+            vec3 nTs = texture(tNormal, vUV).xyz * 2.0 - 1.0;
+            normal = nTs;
+        }
+        vec3 lit = ComputeLighting2D(vWorldPos, shapeLayer, normal);
+        baseColor.rgb *= lit;
+    }
+    fragColor = baseColor;
+}

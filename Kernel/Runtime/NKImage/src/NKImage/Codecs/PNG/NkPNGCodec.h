@@ -3,7 +3,7 @@
  * @File    NkPNGCodec.h
  * @Brief   Codec PNG — décodage et encodage RFC 2083.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  */
 #include "NKImage/Core/NkImage.h"
 
@@ -22,7 +22,13 @@ namespace nkentseu {
             /**
              * @Brief Encode une NkImage en PNG vers un buffer mémoire.
              * @param img     Image source (tout format de pixel entier).
-             * @param out     Buffer de sortie alloué avec malloc (appelant libère avec free).
+             * @param out     Buffer de sortie alloué via l'allocateur NKMemory
+             *                (nkentseu::memory::NkAlloc). L'appelant DOIT le
+             *                libérer avec `nkentseu::memory::NkFree(out)`.
+             *                NE PAS utiliser `std::free` / `delete[]` :
+             *                l'allocateur custom n'est pas compatible avec le
+             *                heap CRT et un free CRT cause une heap corruption
+             *                (crash c0000374 sur Windows).
              * @param outSize Taille du buffer de sortie.
              * @return true si succès.
              */

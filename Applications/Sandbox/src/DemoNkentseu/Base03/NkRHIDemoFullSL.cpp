@@ -41,10 +41,13 @@
 #include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
 #include "NKImage/Core/NkImage.h"
-#include "NKFont/NKFont.h"
+#include "NKFont/NkFont.h"
 
 // ── NkSL : le seul include shader nécessaire ─────────────────────────────────
 #include "NKRHI/SL/NkSLIntegration.h"
+#include "NKSL/VM/NkSLByteCode.h"     // VM bytecode (Software)
+#include "NKSL/VM/NkSLVM.h"
+#include "NKSL/VM/NkSLByteCodeIO.h"
 
 #include <algorithm>
 #include <cctype>
@@ -198,7 +201,7 @@ void main() {
     // Couleur de base + texture albedo si hasTexture (vColor.w > 0.5)
     vec3 baseColor = vColor.rgb;
     if (vColor.w > 0.5) {
-        baseColor *= texture(uAlbedoMap, clamp(vUV, 0.0, 1.0)).rgb;
+        baseColor = texture(uAlbedoMap, vUV / 3.0).rgb;  // DIAG mips
     }
 
     float diff = max(dot(N, L), 0.0);
@@ -617,7 +620,8 @@ static bool CompileNkSLShader(
                     sd.glslSource = storeSource(res.source);
                 }
                 break;
-            case NkSLTarget::NK_HLSL:
+            case NkSLTarget::NK_HLSL:       // = NK_HLSL_DX11 (alias)
+            case NkSLTarget::NK_HLSL_DX12:  // DX12 SM6 : meme champ hlslSource
                 sd.hlslSource = storeSource(res.source);
                 break;
             case NkSLTarget::NK_MSL:
@@ -712,6 +716,22 @@ static std::vector<uint8_t> LoadFileBytes(const std::string& path){
     fread(buf.data(),1,(size_t)sz,f);fclose(f);
     return buf;
 }
+
+// Le rendu texte de ce demo est desactive (les text-quads ne sont appeles que
+// depuis du code commente). On neutralise l'ancienne API NKFont (NkFontFace/
+// NkFontLibrary supprimes a la refonte) par un stub local, pour pouvoir valider
+// la chaine NkSL sur la scene 3D. Le FPS s'affiche dans la barre de titre.
+struct NkFontFace {
+    int32 GetAscender()  const { return 16; }
+    int32 GetDescender() const { return -4; }
+    bool  IsValid()      const { return false; }
+};
+struct NkFontLibrary {
+    void        Init()                               {}
+    NkFontFace* LoadFont(const void*, usize, uint32) { return nullptr; }
+    void        FreeFont(NkFontFace*)                {}
+    void        Destroy()                            {}
+};
 
 static std::vector<uint8_t> BuildStringBitmap(NkFontFace* face,const char* text, uint32& outW,uint32& outH){
     if(!face||!text||!*text){outW=outH=0;return{};}
@@ -885,7 +905,11 @@ int nkmain(const NkEntryState& state) {
     dii.api=targetApi;dii.surface=surface;
     dii.height=window.GetSize().height;dii.width=window.GetSize().width;
     dii.context.vulkan.appName="NkRHIDemoNkSL";
-    dii.context.vulkan.engineName="Unkeny";
+    dii.context.vulkan.engineName="Noge";
+    // UNORM comme GL/DX (pas d'encodage sRGB auto a la presentation) : sinon le
+    // rendu Vulkan parait plus clair/sature que les autres backends. Le shader
+    // ecrit deja des couleurs "telles quelles" (pas de tonemapping/gamma).
+    dii.context.vulkan.srgbSwapchain=false;
     NkIDevice* device=NkDeviceFactory::Create(dii);
     if(!device||!device->IsValid()){
         logger.Errorf("[RHIFullDemo-NkSL] Device creation failed (%s)\n",apiName);
@@ -1121,13 +1145,18 @@ int nkmain(const NkEntryState& state) {
     NkImage* loadedTextureImage=nullptr;
     std::string loadedTexturePath=FindTextureInResources();
 
-    if(!loadedTexturePath.empty())
-        loadedTextureImage = NkImage::Load(loadedTexturePath.c_str(), 4);
-        // loadedTextureImage = NkImage::LoadSTB(loadedTexturePath.c_str(), 4);
+    if(!loadedTexturePath.empty()){
+        // Load() est une methode d'instance (NKIResource) : allouer puis charger.
+        loadedTextureImage = NkImage::Alloc(1,1,NkImagePixelFormat::NK_RGBA32);
+        if(loadedTextureImage && !loadedTextureImage->Load(loadedTexturePath.c_str(), 4)){
+            loadedTextureImage->Free();loadedTextureImage=nullptr;
+        }
+    }
 
+    // Fallback : damier procedural si aucune texture trouvee.
     if(!loadedTextureImage||!loadedTextureImage->IsValid()){
         if(loadedTextureImage){loadedTextureImage->Free();loadedTextureImage=nullptr;}
-        loadedTextureImage=NkImage::Alloc(256,256,NkImagePixelFormat::NK_RGBA32,true);
+        loadedTextureImage=NkImage::Alloc(256,256,NkImagePixelFormat::NK_RGBA32);
         if(loadedTextureImage&&loadedTextureImage->IsValid()){
             for(int y=0;y<loadedTextureImage->Height();++y){
                 uint8* row=loadedTextureImage->RowPtr(y);
@@ -1141,18 +1170,37 @@ int nkmain(const NkEntryState& state) {
     }
 
     if(loadedTextureImage&&loadedTextureImage->IsValid()){
-        NkTextureDesc ad=NkTextureDesc::Tex2D(
-            (uint32)loadedTextureImage->Width(),
-            (uint32)loadedTextureImage->Height(),
-            NkGPUFormat::NK_RGBA8_UNORM,1);
+        const uint32 albW=(uint32)loadedTextureImage->Width();
+        const uint32 albH=(uint32)loadedTextureImage->Height();
+        // mipLevels=0 => le device alloue la chaine complete. On genere les mips
+        // cote CPU (NkImage::Resize) et on uploade chaque niveau : minification
+        // PROPRE et IDENTIQUE sur les 5 backends (independant du GenerateMips
+        // driver, absent sur DX12). Corrige l'aliasing/streaking far-field DX11.
+        NkTextureDesc ad=NkTextureDesc::Tex2D(albW,albH,NkGPUFormat::NK_RGBA8_UNORM,0);
         ad.bindFlags=NkBindFlags::NK_SHADER_RESOURCE;
         hAlbedoTex=device->CreateTexture(ad);
-        if(hAlbedoTex.IsValid())
-            device->WriteTexture(hAlbedoTex,loadedTextureImage->Pixels(),
-                                 (uint32)loadedTextureImage->Stride());
+        if(hAlbedoTex.IsValid()){
+            // niveau 0 = pleine resolution
+            device->WriteTextureRegion(hAlbedoTex,loadedTextureImage->Pixels(),
+                0,0,0, albW,albH,1, 0,0, (uint32)loadedTextureImage->Stride());
+            // niveaux suivants : downsample depuis la pleine resolution
+            uint32 mw=albW, mh=albH, level=1;
+            while(mw>1||mh>1){
+                uint32 nw=mw>1?mw/2:1, nh=mh>1?mh/2:1;
+                NkImage* mipImg=loadedTextureImage->Resize((int32)nw,(int32)nh,NkResizeFilter::NK_BILINEAR);
+                if(mipImg){
+                    if(mipImg->IsValid())
+                        device->WriteTextureRegion(hAlbedoTex,mipImg->Pixels(),
+                            0,0,0, nw,nh,1, level,0, (uint32)mipImg->Stride());
+                    mipImg->Free();
+                }
+                mw=nw; mh=nh; ++level;
+            }
+        }
         NkSamplerDesc asd{};
         asd.magFilter=NkFilter::NK_LINEAR;asd.minFilter=NkFilter::NK_LINEAR;
-        asd.mipFilter=NkMipFilter::NK_NONE;
+        asd.mipFilter=NkMipFilter::NK_LINEAR;   // trilineaire (mips)
+        asd.maxAnisotropy=16.f;                  // anti-aliasing a angle rasant (sol)
         asd.addressU=asd.addressV=asd.addressW=NkAddressMode::NK_REPEAT;
         hAlbedoSampler=device->CreateSampler(asd);
         for(int i=0;i<3;++i){
@@ -1185,7 +1233,7 @@ int nkmain(const NkEntryState& state) {
                                        m[3]*x+m[7]*y+m[11]*z+m[15]*w);
                     };
                     NkVec4f wp=mul4(ubo->model,v->pos.x,v->pos.y,v->pos.z,1.f);
-                    // out.position=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
+                    out.position=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
                     return out;
                 };
                 swSh->fragFn=nullptr;
@@ -1196,7 +1244,92 @@ int nkmain(const NkEntryState& state) {
         NkSWTexture* swShadowTex =hasShadowMap?swDev->GetTex(hShadowTex.id):nullptr;
         NkSWTexture* swAlbedoTex =hAlbedoTex.IsValid()?swDev->GetTex(hAlbedoTex.id):nullptr;
 
-        if(sw){
+        // ── Chemin VM bytecode NkSL (remplace les lambdas manuelles) ───────────
+        // On compile le shader principal NkSL en NK_BYTECODE et on exécute la VM
+        // par vertex/fragment. Fallback sur les lambdas manuelles si échec.
+        bool vmOk = false;
+        // Programmes persistants (référencés sans capture par les lambdas).
+        static NkSLByteProgram s_vmVert, s_vmFrag;
+        struct SwTexCtx { NkSWTexture* tex[8] = {}; bool isShadow[8] = {}; };
+        // VM bytecode NkSL en OPT-IN (NK_SW_VM=1). Par défaut = lambdas manuelles
+        // natives (rapides, éprouvées). La VM interprète le bytecode par pixel →
+        // bien plus lente (surtout en Debug) + résidus lighting (cube top magenta,
+        // liseré sphère). À reprendre — voir BugReports/NkSL-VM/.
+        if (sw && getenv("NK_SW_VM")) {
+            NkSLCompiler& comp = nksl::GetCompiler();
+            NkSLCompileOptions bcOpts; bcOpts.optimize=false; bcOpts.debugInfo=true;
+            auto vr = comp.CompileWithReflection(NkString(kNkSL_MainVert), NkSLStage::NK_VERTEX,
+                                                 NkSLTarget::NK_BYTECODE, bcOpts, "sw.main.vert");
+            auto fr = comp.CompileWithReflection(NkString(kNkSL_MainFrag), NkSLStage::NK_FRAGMENT,
+                                                 NkSLTarget::NK_BYTECODE, bcOpts, "sw.main.frag");
+            if (!vr.result.success)
+                for (auto& e : vr.result.errors) logger.Errorf("[NkSL-VM] vert: line %u: %s\n", e.line, e.message.CStr());
+            if (!fr.result.success)
+                for (auto& e : fr.result.errors) logger.Errorf("[NkSL-VM] frag: line %u: %s\n", e.line, e.message.CStr());
+            if (vr.result.success && fr.result.success) {
+                bool dv = NkSLByteCodeDeserialize(vr.result.bytecode.Data(), vr.result.bytecode.Size(), s_vmVert);
+                bool df = NkSLByteCodeDeserialize(fr.result.bytecode.Data(), fr.result.bytecode.Size(), s_vmFrag);
+                if (dv && df && s_vmVert.IsValid() && s_vmFrag.IsValid()) {
+                    const uint32 vStride = (uint32)sizeof(Vtx3D);
+                    sw->vertFn = [vStride](const void* vdata, uint32 idx, const void* udata)->NkVertexSoftware {
+                        NkVertexSoftware out;
+                        float outBuf[64] = {0};
+                        NkSLVMEnv env;
+                        env.inputs   = (const float*)((const uint8*)vdata + (usize)idx*vStride);
+                        env.uniforms = (const uint8*)udata;
+                        env.outputs  = outBuf;
+                        bool ok = NkSLVM::Execute(s_vmVert, env);
+                        { static int s_vl=0; if(s_vl<3){ s_vl++;
+                            logger.Infof("[NkSL-VM] vert#%d ok=%d pos=(%.3f,%.3f,%.3f,%.3f) wp=(%.2f,%.2f,%.2f)\n",
+                                s_vl, ok?1:0, outBuf[0],outBuf[1],outBuf[2],outBuf[3], outBuf[4],outBuf[5],outBuf[6]); } }
+                        out.position = NkVec4f(outBuf[0], outBuf[1], outBuf[2], outBuf[3]);  // gl_Position
+                        const uint32 nv = (s_vmVert.outputFloats > 4) ? (s_vmVert.outputFloats - 4) : 0;
+                        for (uint32 k=0; k<nv && k<16; ++k) out.attrs[k] = outBuf[4+k];      // varyings
+                        out.attrCount = nv;
+                        return out;
+                    };
+                    sw->fragFn = [swShadowTex, swAlbedoTex](const NkVertexSoftware& frag, const void* udata, const void*)->math::NkVec4f {
+                        SwTexCtx ctx;
+                        for (auto& smp : s_vmFrag.samplers)
+                            if (smp.index < 8) { ctx.tex[smp.index] = smp.isShadow ? swShadowTex : swAlbedoTex; ctx.isShadow[smp.index] = smp.isShadow; }
+                        float outBuf[8] = {0};
+                        NkSLVMEnv env;
+                        env.inputs   = frag.attrs;
+                        env.uniforms = (const uint8*)udata;
+                        env.outputs  = outBuf;
+                        env.ctx      = &ctx;
+                        env.sampleTex = [](void* c,int s,float u,float v,float /*lod*/,float o[4]){
+                            auto* t=(SwTexCtx*)c; NkSWTexture* tex=(s>=0&&s<8)?t->tex[s]:nullptr;
+                            if(tex){ auto col=tex->Sample(u,v,0); o[0]=col.x;o[1]=col.y;o[2]=col.z;o[3]=col.w; }
+                            else { o[0]=o[1]=o[2]=o[3]=1.f; }
+                        };
+                        env.sampleShadow = [](void* c,int s,float u,float v,float z)->float{
+                            auto* t=(SwTexCtx*)c; NkSWTexture* tex=(s>=0&&s<8)?t->tex[s]:nullptr; if(!tex)return 1.f;
+                            float vv=1.f-v; // shadow map SW rendue Y-inversée (NDCToScreen)
+                            uint32 W=tex->Width(), H=tex->Height(); if(!W||!H)return 1.f;
+                            uint32 px=(uint32)(u*W), py=(uint32)(vv*H);
+                            if(px>=W)px=W-1; if(py>=H)py=H-1;
+                            return (z <= tex->Read(px,py).r)?1.f:0.f;
+                        };
+                        env.texSize = [](void* c,int s,float o[2]){
+                            auto* t=(SwTexCtx*)c; NkSWTexture* tex=(s>=0&&s<8)?t->tex[s]:nullptr;
+                            o[0]=tex?(float)tex->Width():1.f; o[1]=tex?(float)tex->Height():1.f;
+                        };
+                        bool ok = NkSLVM::Execute(s_vmFrag, env);
+                        { static int s_fl=0; if(s_fl<3){ s_fl++;
+                            logger.Infof("[NkSL-VM] frag#%d ok=%d color=(%.3f,%.3f,%.3f,%.3f) in0=(%.2f,%.2f,%.2f)\n",
+                                s_fl, ok?1:0, outBuf[0],outBuf[1],outBuf[2],outBuf[3], frag.attrs[0],frag.attrs[1],frag.attrs[2]); } }
+                        return { outBuf[0], outBuf[1], outBuf[2], outBuf[3] };
+                    };
+                    vmOk = true;
+                    logger.Infof("[NkSL-VM] Software : VM bytecode ACTIVE (vert outFloats=%u, frag inFloats=%u, samplers=%zu)\n",
+                                 s_vmVert.outputFloats, s_vmFrag.inputFloats, (size_t)s_vmFrag.samplers.Size());
+                }
+            }
+            if (!vmOk) logger.Infof("[NkSL-VM] Software : bytecode KO -> fallback lambdas manuelles\n");
+        }
+
+        if(sw && !vmOk){
             sw->vertFn=[](const void* vdata,uint32 idx,const void* udata)->NkVertexSoftware{
                 const Vtx3D* v=static_cast<const Vtx3D*>(vdata)+idx;
                 const UboData* ubo=static_cast<const UboData*>(udata);
@@ -1209,64 +1342,66 @@ int nkmain(const NkEntryState& state) {
                 };
                 NkVec4f wp=mul4(ubo->model, v->pos.x,v->pos.y,v->pos.z,1.f);
                 NkVec4f vp=mul4(ubo->view,  wp.x,wp.y,wp.z,wp.w);
-                // out.position=mul4(ubo->proj,vp.x,vp.y,vp.z,vp.w);
-                // float nx=ubo->model[0]*v->normal.x+ubo->model[4]*v->normal.y+ubo->model[8]*v->normal.z;
-                // float ny=ubo->model[1]*v->normal.x+ubo->model[5]*v->normal.y+ubo->model[9]*v->normal.z;
-                // float nz=ubo->model[2]*v->normal.x+ubo->model[6]*v->normal.y+ubo->model[10]*v->normal.z;
-                // float nl=NkSqrt(nx*nx+ny*ny+nz*nz);
-                // if(nl>0.001f){nx/=nl;ny/=nl;nz/=nl;}
-                // out.normal={nx,ny,nz};
-                // out.color={v->color.x,v->color.y,v->color.z,1.f};
-                // out.attrs[0]=wp.x;out.attrs[1]=wp.y;out.attrs[2]=wp.z;
-                // NkVec4f lsc=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
-                // out.attrs[3]=lsc.x;out.attrs[4]=lsc.y;
-                // out.attrs[5]=lsc.z;out.attrs[6]=lsc.w;
-                // out.attrs[7]=v->uv.x;out.attrs[8]=v->uv.y;
-                // out.attrs[9]=v->color.w; // hasTexture
+                out.position=mul4(ubo->proj,vp.x,vp.y,vp.z,vp.w);
+                // Normale en espace monde (partie 3x3 du model, column-major).
+                float nx=ubo->model[0]*v->normal.x+ubo->model[4]*v->normal.y+ubo->model[8]*v->normal.z;
+                float ny=ubo->model[1]*v->normal.x+ubo->model[5]*v->normal.y+ubo->model[9]*v->normal.z;
+                float nz=ubo->model[2]*v->normal.x+ubo->model[6]*v->normal.y+ubo->model[10]*v->normal.z;
+                float nl=NkSqrt(nx*nx+ny*ny+nz*nz);
+                if(nl>0.001f){nx/=nl;ny/=nl;nz/=nl;}
+                out.normal={nx,ny,nz};
+                out.color={v->color.x,v->color.y,v->color.z,1.f};
+                out.attrs[0]=wp.x;out.attrs[1]=wp.y;out.attrs[2]=wp.z;       // worldPos
+                NkVec4f lsc=mul4(ubo->lightVP,wp.x,wp.y,wp.z,wp.w);
+                out.attrs[3]=lsc.x;out.attrs[4]=lsc.y;                       // shadowCoord
+                out.attrs[5]=lsc.z;out.attrs[6]=lsc.w;
+                out.attrs[7]=v->uv.x;out.attrs[8]=v->uv.y;                   // uv (0..kPlaneUVScale)
+                out.attrs[9]=v->color.w;                                     // hasTexture
+                out.attrCount=10;
                 return out;
             };
             sw->fragFn=[swShadowTex,swAlbedoTex](const NkVertexSoftware& frag,const void* udata,const void*)->math::NkVec4f{
-                // const UboData* ubo=static_cast<const UboData*>(udata);
-                // float nx=frag.normal.x,ny=frag.normal.y,nz=frag.normal.z;
-                // float lx=-ubo->lightDirW[0],ly=-ubo->lightDirW[1],lz=-ubo->lightDirW[2];
-                // float ll2=lx*lx+ly*ly+lz*lz;
-                // if(ll2>1e-6f){float il=1.f/NkSqrt(ll2);lx*=il;ly*=il;lz*=il;}
-                // float diff=nx*lx+ny*ly+nz*lz;if(diff<0.f)diff=0.f;
-                // float vx=ubo->eyePosW[0]-frag.attrs[0],vy=ubo->eyePosW[1]-frag.attrs[1],vz=ubo->eyePosW[2]-frag.attrs[2];
-                // float vl2=vx*vx+vy*vy+vz*vz;
-                // if(vl2>1e-6f){float iv=1.f/NkSqrt(vl2);vx*=iv;vy*=iv;vz*=iv;}
-                // float hx=lx+vx,hy=ly+vy,hz=lz+vz,hl2=hx*hx+hy*hy+hz*hz;
-                // if(hl2>1e-6f){float ih=1.f/NkSqrt(hl2);hx*=ih;hy*=ih;hz*=ih;}
-                // float sp=nx*hx+ny*hy+nz*hz;if(sp<0.f)sp=0.f;
-                // float spec=sp*sp;spec*=spec;spec*=spec;spec*=spec;
-                // float br=frag.color.x,bg=frag.color.y,bb=frag.color.z;
-                // if(swAlbedoTex&&frag.attrs[9]>0.5f){
-                //     float u=NkFmod(NkClamp(frag.attrs[7],0.f,1.f)*kPlaneUVScale,1.f);
-                //     float v=NkFmod(NkClamp(frag.attrs[8],0.f,1.f)*kPlaneUVScale,1.f);
-                //     NkVec4f tex=swAlbedoTex->Sample(u,v,0);
-                //     br*=tex.x;bg*=tex.y;bb*=tex.z;
-                // }
-                // float shadow=1.f;
-                // if(swShadowTex){
-                //     float sw4=frag.attrs[6],invW=(sw4!=0.f)?1.f/sw4:1.f;
-                //     float su=frag.attrs[3]*invW*.5f+.5f;
-                //     float sv=-frag.attrs[4]*invW*.5f+.5f;
-                //     float sz=frag.attrs[5]*invW*.5f+.5f-.002f;
-                //     if(su>=0.f&&su<=1.f&&sv>=0.f&&sv<=1.f&&sz<=1.f){
-                //         uint32 px=(uint32)(su*(float)swShadowTex->Width());
-                //         uint32 py=(uint32)(sv*(float)swShadowTex->Height());
-                //         if(px>=swShadowTex->Width())px=swShadowTex->Width()-1;
-                //         if(py>=swShadowTex->Height())py=swShadowTex->Height()-1;
-                //         shadow=(sz<=swShadowTex->Read(px,py).r)?1.f:0.f;
-                //     }
-                // }
-                // shadow=shadow<.35f?.35f:shadow;
-                // float r=.15f*br+shadow*(diff*br+spec*.4f);
-                // float g=.15f*bg+shadow*(diff*bg+spec*.4f);
-                // float b=.15f*bb+shadow*(diff*bb+spec*.4f);
-                // r=r<0.f?0.f:(r>1.f?1.f:r);g=g<0.f?0.f:(g>1.f?1.f:g);b=b<0.f?0.f:(b>1.f?1.f:b);
-                // return{r,g,b,1.f};
-                return {0, 0, 0, 1.0f};
+                const UboData* ubo=static_cast<const UboData*>(udata);
+                float nx=frag.normal.x,ny=frag.normal.y,nz=frag.normal.z;
+                float lx=-ubo->lightDirW[0],ly=-ubo->lightDirW[1],lz=-ubo->lightDirW[2];
+                float ll2=lx*lx+ly*ly+lz*lz;
+                if(ll2>1e-6f){float il=1.f/NkSqrt(ll2);lx*=il;ly*=il;lz*=il;}
+                float diff=nx*lx+ny*ly+nz*lz;if(diff<0.f)diff=0.f;
+                float vx=ubo->eyePosW[0]-frag.attrs[0],vy=ubo->eyePosW[1]-frag.attrs[1],vz=ubo->eyePosW[2]-frag.attrs[2];
+                float vl2=vx*vx+vy*vy+vz*vz;
+                if(vl2>1e-6f){float iv=1.f/NkSqrt(vl2);vx*=iv;vy*=iv;vz*=iv;}
+                float hx=lx+vx,hy=ly+vy,hz=lz+vz,hl2=hx*hx+hy*hy+hz*hz;
+                if(hl2>1e-6f){float ih=1.f/NkSqrt(hl2);hx*=ih;hy*=ih;hz*=ih;}
+                float sp=nx*hx+ny*hy+nz*hz;if(sp<0.f)sp=0.f;
+                float spec=sp*sp;spec*=spec;spec*=spec;spec*=spec;spec*=spec; // sp^32
+                float br=frag.color.x,bg=frag.color.y,bb=frag.color.z;
+                if(swAlbedoTex&&frag.attrs[9]>0.5f){
+                    // UV plan 0..kPlaneUVScale -> /kPlaneUVScale = 0..1 (comme vUV/3.0 cote GPU).
+                    float u=frag.attrs[7]*(1.f/kPlaneUVScale); u=u<0.f?0.f:(u>1.f?1.f:u);
+                    float v=frag.attrs[8]*(1.f/kPlaneUVScale); v=v<0.f?0.f:(v>1.f?1.f:v);
+                    NkVec4f tex=swAlbedoTex->Sample(u,v,0);
+                    br*=tex.x;bg*=tex.y;bb*=tex.z;
+                }
+                float shadow=1.f;
+                if(swShadowTex){
+                    float sw4=frag.attrs[6],invW=(sw4!=0.f)?1.f/sw4:1.f;
+                    float su=frag.attrs[3]*invW*.5f+.5f;
+                    float sv=-frag.attrs[4]*invW*.5f+.5f;   // Y-flip (NDCToScreen SW inverse Y)
+                    float sz=frag.attrs[5]*invW*.5f+.5f-.002f;
+                    if(su>=0.f&&su<=1.f&&sv>=0.f&&sv<=1.f&&sz<=1.f){
+                        uint32 px=(uint32)(su*(float)swShadowTex->Width());
+                        uint32 py=(uint32)(sv*(float)swShadowTex->Height());
+                        if(px>=swShadowTex->Width())px=swShadowTex->Width()-1;
+                        if(py>=swShadowTex->Height())py=swShadowTex->Height()-1;
+                        shadow=(sz<=swShadowTex->Read(px,py).r)?1.f:0.f;
+                    }
+                }
+                shadow=shadow<.35f?.35f:shadow;
+                float r=.15f*br+shadow*(diff*br+spec*.4f);
+                float g=.15f*bg+shadow*(diff*bg+spec*.4f);
+                float b=.15f*bb+shadow*(diff*bb+spec*.4f);
+                r=r<0.f?0.f:(r>1.f?1.f:r);g=g<0.f?0.f:(g>1.f?1.f:g);b=b<0.f?0.f:(b>1.f?1.f:b);
+                return {r,g,b,1.f};
             };
         }
     }
@@ -1280,7 +1415,10 @@ int nkmain(const NkEntryState& state) {
     NkVertexLayout textVtxLayout;
     textVtxLayout
         .AddAttribute(0,0,NkGPUFormat::NK_RG32_FLOAT,0,              "POSITION",0)
-        .AddAttribute(1,0,NkGPUFormat::NK_RG32_FLOAT,2*sizeof(float),"TEXCOORD",0)
+        // aUV est a la location 1 -> NkSL genere la semantique HLSL TEXCOORD1 (idx
+        // = ordre de declaration). Le layout DX doit fournir TEXCOORD index 1 sinon
+        // CreateInputLayout echoue ('TEXCOORD'/1 attendu). GL/VK bindent par location.
+        .AddAttribute(1,0,NkGPUFormat::NK_RG32_FLOAT,2*sizeof(float),"TEXCOORD",1)
         .AddBinding(0,sizeof(TextVtx));
 
     NkPipelineHandle hTextPipe;
@@ -1398,7 +1536,7 @@ int nkmain(const NkEntryState& state) {
         if(keys[(uint32)NkKey::NK_UP])   lightPitch+=lightSpd*dt;
         if(keys[(uint32)NkKey::NK_DOWN]) lightPitch-=lightSpd*dt;
         camPitch=NkClamp(camPitch,-80.f,80.f);
-        rotAngle+=45.f*dt;
+        // rotAngle+=45.f*dt; // DIAG fige
 
         float aspect=(H>0)?(float)W/(float)H:1.f;
         float eyeX=camDist*NkCos(NkToRadians(camPitch))*NkSin(NkToRadians(camYaw));
@@ -1438,6 +1576,12 @@ int nkmain(const NkEntryState& state) {
         // ── Passe 1 : Shadow ────────────────────────────────────────────────
         if(hasShadowMap&&hShadowFBO.IsValid()&&hShadowRP.IsValid()){
             NkRect2D sa{0,0,(int32)kShadowSize,(int32)kShadowSize};
+            // IMPORTANT : armer le clear depth AVANT BeginRenderPass. En OpenGL/
+            // Software, GL_BeginRenderPass ne clear QUE si SetClearDepth/Color a ete
+            // appele en amont (les autres backends clear inconditionnellement). Sans
+            // ca, le depth buffer n'est jamais reset -> le depth test (LESS) rejette
+            // toute la geometrie -> ecran noir.
+            cmd->SetClearDepth(1.f);
             bool ok=cmd->BeginRenderPass(hShadowRP,hShadowFBO,sa);
             if(ok&&useRealShadowPass&&hShadowPipe.IsValid()){
                 NkViewport svp{0.f,0.f,(float)kShadowSize,(float)kShadowSize,0.f,1.f};
@@ -1479,6 +1623,10 @@ int nkmain(const NkEntryState& state) {
 
         // ── Passe 2 : Rendu principal ────────────────────────────────────────
         NkRect2D area{0,0,(int32)W,(int32)H};
+        // Armer clear couleur + depth AVANT BeginRenderPass (cf. note passe shadow) :
+        // indispensable en OpenGL/Software sinon depth jamais reset -> noir.
+        cmd->SetClearColor(0.f,0.f,0.f,1.f);
+        cmd->SetClearDepth(1.f);
         if(!cmd->BeginRenderPass(hRP,hFBO,area)){
             cmd->End();
             if(targetApi==NkGraphicsApi::NK_GFX_API_VULKAN&&W>0&&H>0)device->OnResize(W,H);

@@ -1,0 +1,5 @@
+// trail.frag.metal.msl — Trail Ribbon Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct VSOut{float4 pos[[position]];float2 uv;float4 color;};
+fragment float4 trailFrag(VSOut i[[stage_in]],texture2d<float> tT[[texture(0)]],sampler sL[[sampler(0)]]){float4 t=tT.sample(sL,i.uv)*i.color;float e=smoothstep(0.f,.15f,i.uv.x)*smoothstep(0.f,.15f,1.f-i.uv.x);t.a*=e;if(t.a<.01f)discard_fragment();return t;}

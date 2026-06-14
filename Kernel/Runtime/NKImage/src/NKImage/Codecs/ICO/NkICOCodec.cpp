@@ -2,7 +2,7 @@
  * @File    NkICOCodec.cpp
  * @Brief   Codec ICO/CUR — lecture seule, sélectionne la plus grande image.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Fixes vs version précédente
  *  1. Le fake BMP header calculait pixelOffset = 14+40 (supposant toujours

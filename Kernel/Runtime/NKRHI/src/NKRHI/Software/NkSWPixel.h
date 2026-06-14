@@ -11,11 +11,17 @@
 //   mémoire → [B][G][R][A]   (BGRA little-endian)
 //   NkVertex2D.r/g/b/a → on stocke r→[2], g→[1], b→[0], a→[3]
 //
-// Sur toutes les autres plateformes :
+// Sur HarmonyOS (OH_NativeWindow / EGL) :
+//   mémoire → [R][G][B][A]   (RGBA — identique Android/Linux)
+//   Le XComponent natif expose une surface RGBA8888.
+//   Aucune conversion nécessaire à la présentation.
+//
+// Sur toutes les autres plateformes (Android, Linux, macOS, iOS, Web) :
 //   mémoire → [R][G][B][A]   (RGBA)
 //   NkVertex2D.r/g/b/a → r→[0], g→[1], b→[2], a→[3]
 //
-// SIMD : SSE2 (disponible sur tout x86_64), NEON sur ARM/Android.
+// SIMD : SSE2 (disponible sur tout x86_64), NEON sur ARM/Android/HarmonyOS.
+//        HarmonyOS tourne sur Kirin (ARM64) → NEON toujours disponible.
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
@@ -41,12 +47,16 @@
 // ── Ordre de stockage natif ───────────────────────────────────────────────────
 // Sur Windows GDI, le DIBSection top-down attend BGRA.
 // On stocke BGRA dans le framebuffer pour éviter toute conversion à la présentation.
+//
+// Sur HarmonyOS : le XComponent expose une surface RGBA8888 (identique Android).
+// L'OHNativeWindow / EGL attend du RGBA → pas de swap de canaux.
+//
 // Sur les autres plateformes on stocke RGBA.
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
-#  define NK_SW_PIXEL_BGRA 1  // ordre mémoire: [B][G][R][A]
+#  define NK_SW_PIXEL_BGRA 1  // ordre mémoire: [B][G][R][A]  — GDI DIBSection
 #else
-#  define NK_SW_PIXEL_BGRA 0  // ordre mémoire: [R][G][B][A]
+#  define NK_SW_PIXEL_BGRA 0  // ordre mémoire: [R][G][B][A]  — Android, HarmonyOS, Linux, macOS...
 #endif
 
 namespace nkentseu {
@@ -139,6 +149,8 @@ namespace nkentseu {
             while (count-- > 0) *p++ = color32;
 
         #elif NK_SW_SIMD_NEON
+            // NEON : ARM64 (Kirin sur HarmonyOS, Snapdragon sur Android)
+            // vdupq_n_u32 broadcast 32 bits → 128 bits (4 pixels)
             const uint32x4_t vColor = vdupq_n_u32(color32);
             while (count >= 4) {
                 vst1q_u32(p, vColor);
@@ -169,8 +181,6 @@ namespace nkentseu {
 
         #if NK_SW_SIMD_SSE2
             // Traitement scalaire pour le blend additif (rare path en 2D)
-            // SSE2 ne facilite pas beaucoup ici sans SSSE3 pour le shuffle
-            // → scalaire optimisé avec variables locales
             while (count-- > 0) {
         #if NK_SW_PIXEL_BGRA
                 p[0] = (uint8)((uint32)p[0] + sb > 255u ? 255u : (uint32)p[0] + sb);
@@ -218,49 +228,66 @@ namespace nkentseu {
             const uint32 inv = 255u - sa;
 
         #if NK_SW_SIMD_SSE2
-            // SSE2 : traiter 2 pixels par itération (les calculs 16 bits permettent
-            // de gérer sans débordement les multiplications uint8×uint8)
-            const __m128i vAlpha  = _mm_set1_epi16(static_cast<int16_t>(sa));
+            // SSE2 : traiter 2 pixels par itération
+            const __m128i vAlpha    = _mm_set1_epi16(static_cast<int16_t>(sa));
             const __m128i vInvAlpha = _mm_set1_epi16(static_cast<int16_t>(inv));
-            const __m128i vZero = _mm_setzero_si128();
+            const __m128i vZero     = _mm_setzero_si128();
 
             while (count >= 2) {
                 // Charger 2 pixels dst (8 bytes)
-                __m128i dst8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(p));
-                // Expand uint8 → uint16
-                __m128i dst16 = _mm_unpacklo_epi8(dst8, vZero);  // 8×uint16
+                __m128i dst8  = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(p));
+                __m128i dst16 = _mm_unpacklo_epi8(dst8, vZero);
 
-                // Src color pour 2 pixels (répété)
         #if NK_SW_PIXEL_BGRA
                 __m128i src16 = _mm_set_epi16(0, (int16_t)r, (int16_t)g, (int16_t)b,
-                                            0, (int16_t)r, (int16_t)g, (int16_t)b);
+                                              0, (int16_t)r, (int16_t)g, (int16_t)b);
         #else
                 __m128i src16 = _mm_set_epi16(0, (int16_t)b, (int16_t)g, (int16_t)r,
-                                            0, (int16_t)b, (int16_t)g, (int16_t)r);
+                                              0, (int16_t)b, (int16_t)g, (int16_t)r);
         #endif
-                // result = (src * alpha + dst * inv_alpha + 127) / 255
-                // Approximation rapide : >> 8 au lieu de / 255 (erreur max = 1/256)
                 __m128i blended = _mm_srli_epi16(
                     _mm_add_epi16(
                         _mm_add_epi16(_mm_mullo_epi16(src16, vAlpha),
-                                    _mm_mullo_epi16(dst16, vInvAlpha)),
+                                      _mm_mullo_epi16(dst16, vInvAlpha)),
                         _mm_set1_epi16(127)),
                     8);
 
-                // Forcer alpha=255 dans les canaux A (position 3 et 7)
                 const __m128i vAlpha255 = _mm_set_epi16(255, 0, 0, 0, 255, 0, 0, 0);
                 blended = _mm_or_si128(
                     _mm_andnot_si128(_mm_set_epi16(-1, 0, 0, 0, -1, 0, 0, 0), blended),
                     vAlpha255);
 
-                // Pack uint16 → uint8 et stocker
                 __m128i result8 = _mm_packus_epi16(blended, vZero);
                 _mm_storel_epi64(reinterpret_cast<__m128i*>(p), result8);
                 p += 8; count -= 2;
             }
+
+        #elif NK_SW_SIMD_NEON
+            // NEON : blend par pixel, vectorisé sur 4 canaux simultanément
+            // vmull_u8 → uint16x8 permet de multiplier sans overflow
+            const uint16_t nSa  = (uint16_t)sa;
+            const uint16_t nInv = (uint16_t)inv;
+            while (count >= 1) {
+        #if NK_SW_PIXEL_BGRA
+                const uint8_t src4[4] = { b, g, r, 255u };
+        #else
+                const uint8_t src4[4] = { r, g, b, 255u };
+        #endif
+                uint8x8_t vSrc = vld1_u8(src4);   // [r,g,b,a, r,g,b,a] — dupliquer
+                uint8x8_t vDst = vld1_u8(p);
+
+                uint16x8_t vBlend = vaddq_u16(
+                    vmull_u8(vSrc, vdup_n_u8((uint8_t)sa)),
+                    vmull_u8(vDst, vdup_n_u8((uint8_t)inv)));
+                // >> 8 (approx /255)
+                uint8x8_t vResult = vshrn_n_u16(vBlend, 8);
+                vst1_u8(p, vResult);
+                p += 4; --count;
+            }
+            return; // NEON gère les résidus dans la boucle ci-dessus
         #endif
 
-            // Résidus scalaires
+            // Résidus scalaires (aussi chemin complet sans SIMD)
             while (count-- > 0) {
         #if NK_SW_PIXEL_BGRA
                 p[0] = (uint8)((b * sa + p[0] * inv + 127u) / 255u);
@@ -280,7 +307,7 @@ namespace nkentseu {
         // SIMD : Clear d'une ligne (memset accéléré)
         // =============================================================================
         NK_FORCE_INLINE void ClearRow(uint8* __restrict row, uint32 width,
-                                    uint8 r, uint8 g, uint8 b, uint8 a = 255u) noexcept {
+                                      uint8 r, uint8 g, uint8 b, uint8 a = 255u) noexcept {
             FillSpanOpaque(row, 0, (int32)width, r, g, b);
             // Alpha channel : géré séparément si ≠ 255
             if (a != 255u) {

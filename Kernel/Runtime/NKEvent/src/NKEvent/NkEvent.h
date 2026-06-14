@@ -213,6 +213,12 @@
                 NK_WINDOW_SHOWN,        ///< Fenêtre rendue visible à l'écran
                 NK_WINDOW_HIDDEN,       ///< Fenêtre masquée (toujours en mémoire)
 
+                NK_WINDOW_VIRTUAL_KEYBOARD_CHANGED,
+                NK_WINDOW_SAFE_AREA_CHANGED,
+                NK_WINDOW_ORIENTATION_CHANGED,
+                NK_WINDOW_SURFACE_DESTROYED,
+                NK_WINDOW_SURFACE_CREATED,
+
                 // -----------------------------------------------------------------
                 // Groupe : Clavier — Entrées texte et touches
                 // -----------------------------------------------------------------

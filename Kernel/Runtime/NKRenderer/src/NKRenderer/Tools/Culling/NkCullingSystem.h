@@ -42,18 +42,8 @@ namespace nkentseu {
             bool    alwaysVisible = false;
         };
 
-        // =========================================================================
-        // Frustum 6 plans (view-space ou world-space)
-        // =========================================================================
-        struct NkFrustum {
-            NkVec4f planes[6]; // left, right, bottom, top, near, far (normale + d)
-
-            static NkFrustum FromViewProj(const NkMat4f& vp);
-
-            bool TestAABB  (const NkAABB& b)    const noexcept;
-            bool TestSphere(NkVec3f c, float32 r) const noexcept;
-            bool TestPoint (NkVec3f p)           const noexcept;
-        };
+        // (NkFrustum est defini dans Core/NkRendererTypes.h —
+        //  on le consomme directement ici.)
 
         // =========================================================================
         // Configuration du culling

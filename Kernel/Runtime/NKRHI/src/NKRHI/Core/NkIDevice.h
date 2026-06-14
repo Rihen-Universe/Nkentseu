@@ -65,6 +65,7 @@ namespace nkentseu {
         bool    drawIndirect            = false;
         bool    drawIndirectCount       = false;         // DX12/VK 1.2+
         bool    multiDrawIndirect       = false;
+        bool    indirectDispatch        = false;         // compute DispatchIndirect
         bool    bindlessTextures        = false;         // DX12/VK descriptor indexing
         bool    rayTracing              = false;         // DX12 DXR / VK KHR_ray_tracing
         bool    variableRateShading     = false;
@@ -129,6 +130,11 @@ namespace nkentseu {
             virtual void         Shutdown()                             = 0;
             virtual bool         IsValid()                       const  = 0;
             virtual NkGraphicsApi GetApi()                       const  = 0;
+            // Le swapchain applique-t-il l'encodage gamma sRGB à la présentation ?
+            // (dépend de NkContextDesc::swapchainFormat, cf. NkSwapchainFormat). Sert au
+            // tonemap : si true → gamma=1.0 (le swapchain encode), sinon gamma manuel.
+            // Défaut false (UNORM, comportement par défaut Nkentseu).
+            virtual bool          IsSwapchainSrgb()              const  { return false; }
             virtual const NkDeviceCaps& GetCaps()                const  = 0;
             virtual NkContextInfo GetContextInfo() const {
                 NkContextInfo info{};
@@ -223,6 +229,15 @@ namespace nkentseu {
 
             virtual NkFramebufferHandle CreateFramebuffer (const NkFramebufferDesc& desc)   = 0;
             virtual void                DestroyFramebuffer(NkFramebufferHandle& handle)     = 0;
+
+            // Recupere le RP associe a un fb. En Vulkan : retourne le RP utilise
+            // pour creer ce fb (soit fourni par fbd.renderPass, soit auto-cree par
+            // CreateFramebuffer si rp.id==0). Permet aux sous-systemes ecrits
+            // GL-style (NkShadowSystem) de recuperer le RP implicite et de le
+            // passer aux pipelines qui rendent dans ce fb. En GL/Software :
+            // retourne {} (concept inutile, GL n'a pas de renderPass concret).
+            // Defaut non-pur pour ne pas obliger tous les backends a override.
+            virtual NkRenderPassHandle  GetFramebufferRenderPass(NkFramebufferHandle /*fb*/) const { return {}; }
 
             // DEPRECATED — utiliser NkISwapchain::GetCurrentFramebuffer() / Resize() etc.
             // Conservé pour compatibilité arrière des backends existants.
@@ -376,6 +391,10 @@ namespace nkentseu {
             // =========================================================================
             // Submit avec queues et semaphores
             // =========================================================================
+            // Indique si le device expose une queue compute dédiée (séparée de la queue graphics).
+            // Sur Vulkan/DX12 modernes, oui. Sur OpenGL/DX11, non (tout passe par la queue unique).
+            virtual bool HasDedicatedComputeQueue() const { return false; }
+
             // Submit complet avec contrôle du type de queue et des semaphores.
             // Par défaut, délègue à Submit() pour la compatibilité des backends simples.
             virtual void SubmitOnQueue(NkQueueType queue, const NkSubmitInfo& info) {

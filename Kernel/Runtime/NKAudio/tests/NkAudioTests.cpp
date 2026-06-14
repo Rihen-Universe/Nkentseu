@@ -7,7 +7,7 @@
 // VERSION: 2.0.0
 // -----------------------------------------------------------------------------
 
-#include "NKAudio/NkAudio.h"
+#include "NKAudio/NKAudio.h"
 #include "NKAudio/NkAudioEffects.h"
 #include "NKAudio/NkAudioBackends.h"
 

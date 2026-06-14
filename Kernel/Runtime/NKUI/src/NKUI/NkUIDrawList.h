@@ -10,7 +10,7 @@
  * @File    NkUIDrawList.h
  * @Brief   Liste de commandes de dessin — le cœur du rendu NkUI.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Design
  *  NkUIDrawList est une liste de commandes de dessin qui peuvent être

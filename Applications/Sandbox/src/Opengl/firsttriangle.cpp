@@ -16,10 +16,10 @@
     #undef Bool
 #endif
 
-#include "NKContext/Factory/NkContextFactory.h"
-#include "NKContext/Core/NkContextDesc.h"
-#include "NKContext/Core/NkNativeContextAccess.h"
-#include "NKContext/Core/NkOpenGLDesc.h"
+#include "NKCanvas/Factory/NkContextFactory.h"
+#include "NKCanvas/Core/NkContextDesc.h"
+#include "NKCanvas/Core/NkNativeContextAccess.h"
+#include "NKCanvas/Core/NkOpenGLDesc.h"
 
 #include <cstdio>
 #include <cmath>

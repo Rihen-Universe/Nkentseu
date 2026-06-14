@@ -1,65 +1,43 @@
 #pragma once
-/**
- * @File    NkSVGCodec.h
- * @Brief   Parser SVG → rasterisation logicielle.
- * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
- *
- * @Design
- *  SVG est un format vectoriel XML. Ce module lit un sous-ensemble
- *  de SVG 1.1 et rastérise en NkImage (RGBA32).
- *
- *  Éléments supportés :
- *    <svg>     — viewBox, width, height
- *    <rect>    — x, y, width, height, rx, ry, fill, stroke, stroke-width, opacity
- *    <circle>  — cx, cy, r, fill, stroke, opacity
- *    <ellipse> — cx, cy, rx, ry, fill, stroke
- *    <line>    — x1, y1, x2, y2, stroke, stroke-width
- *    <polyline>— points, stroke, fill
- *    <polygon> — points, fill, stroke
- *    <path>    — d (M, L, H, V, C, S, Q, T, A, Z)
- *    <g>       — groupes, transformations (translate, scale, rotate, matrix)
- *    <text>    — non supporté (nécessite NKFont)
- *    <image>   — non supporté
- *    <use>     — non supporté
- *
- *  Propriétés CSS supportées :
- *    fill, stroke, stroke-width, opacity, fill-opacity, stroke-opacity
- *    fill-rule (nonzero, evenodd)
- *    stroke-linecap (butt, round, square)
- *    stroke-linejoin (miter, round, bevel)
- *    display, visibility
- *    Transformations : translate, scale, rotate, matrix
- *
- *  Couleurs supportées :
- *    #RRGGBB, #RGB, rgb(r,g,b), rgba(r,g,b,a)
- *    Noms CSS : red, green, blue, white, black, none, transparent + 140 noms courants
- *
- *  Rasterisation :
- *    Lignes et contours : algorithme de Bresenham avec antialiasing (Wu)
- *    Remplissage : scanline avec règle non-zero ou evenodd
- *    Courbes de Bézier : décomposition adaptative en segments
- *    Arcs elliptiques : conversion en Bézier
- *
- *  Sauvegarde : génère du SVG textuel depuis une NkImage (pas de vecteur → vecteur).
- *    La sauvegarde encode l'image comme <image> base64 PNG embarquée.
- *
- * @Limitations
- *  - Pas de clip-path, mask, filter, gradient, pattern
- *  - Pas de CSS externe ni <style> complexe
- *  - Pas de symboles/defs réutilisables
- *  - La précision des transformations est float32
- */
+// =============================================================================
+// NkSVGCodec.h
+// -----------------------------------------------------------------------------
+// Rasterisation logicielle de SVG vers NkImage RGBA32.
+//
+// API publique simple :
+//   - NkSVGCodec::Decode(data, size, outW, outH)      : XML buffer -> NkImage
+//   - NkSVGCodec::DecodeFromFile(path, outW, outH)    : .svg disque -> NkImage
+//   - NkSVGCodec::Encode(img, out, outSize)           : NkImage -> SVG enrobe
+//   - NkSVGCodec::EncodeToFile(img, path)             : NkImage -> .svg disque
+//
+// Implementation : single-file dans NkSVGCodec.cpp, inspiree de NanoSVG
+// (Mikko Mononen), reecrite from scratch 2026-05-19 pour gerer correctement :
+//   - Cascade <g> transform + style (push/pop sur fermeture </g>)
+//   - Path data de taille arbitraire (>24 KB pour text-to-path)
+//   - Rasterizer scanline AA (supersample 2x) avec fill-rule nonzero/evenodd
+//   - Beziers cubiques/quadratiques avec subdivision adaptative
+//   - Arc elliptique converti en Beziers
+//
+// Elements supportes : <svg> <g> <path> <rect> <circle> <ellipse> <line>
+//                      <polyline> <polygon>
+// Attributs styles  : fill, stroke, stroke-width, opacity, fill-rule, transform
+// Couleurs          : #RGB, #RRGGBB, rgb(), rgba(), nom CSS (148 noms standards)
+//
+// Pas supporte (Phase 2 +) : <text>, <use>, <defs><style>, gradients, patterns,
+// masks, clipPath, filters.
+//
+// Auteur : Rihen (reecriture 2026-05-19), inspire de NanoSVG par Mikko Mononen.
+// =============================================================================
 
 #include "NKImage/Core/NkImage.h"
-// #include "NkSVGDOM.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 
-    // ── Couleur RGBA ──────────────────────────────────────────────────────────
+    // ── Couleur RGBA pour parsing SVG ─────────────────────────────────────────
     struct NkSVGColor {
         uint8 r=0, g=0, b=0, a=255;
-        bool  none=false; // fill="none" ou stroke="none"
+        bool  none=false;  ///< fill="none" ou stroke="none"
 
         static NkSVGColor Parse(const char* str) noexcept;
         static NkSVGColor Transparent() noexcept { NkSVGColor c; c.a=0; return c; }
@@ -68,7 +46,7 @@ namespace nkentseu {
         static NkSVGColor None()        noexcept { NkSVGColor c; c.none=true; return c; }
     };
 
-    // ── Style de dessin ───────────────────────────────────────────────────────
+    // ── Style de dessin (cumulable via cascade <g>) ───────────────────────────
     struct NkSVGStyle {
         NkSVGColor fill         = NkSVGColor::Black();
         NkSVGColor stroke       = NkSVGColor::None();
@@ -76,145 +54,173 @@ namespace nkentseu {
         float32    opacity      = 1.f;
         float32    fillOpacity  = 1.f;
         float32    strokeOpacity= 1.f;
-        bool       fillEvenOdd  = false;  // fill-rule evenodd
-        uint8      linecap      = 0;      // 0=butt, 1=round, 2=square
-        uint8      linejoin     = 0;      // 0=miter, 1=round, 2=bevel
-        float32    miterLimit   = 4.f;
+        bool       fillEvenOdd  = false;  ///< fill-rule="evenodd"
         bool       visible      = true;
     };
 
-    // ── Matrice de transformation 3×3 ────────────────────────────────────────
+    // ── Matrice affine 2D (a,b,c,d,e,f) = [a c e; b d f; 0 0 1] ──────────────
     struct NkSVGTransform {
-        float32 a=1,b=0,c=0,d=1,e=0,f=0; // [a c e; b d f; 0 0 1]
+        float32 a=1, b=0, c=0, d=1, e=0, f=0;
 
-        static NkSVGTransform Identity()  noexcept { return {}; }
-        static NkSVGTransform Translate(float32 tx,float32 ty) noexcept { return {1,0,0,1,tx,ty}; }
-        static NkSVGTransform Scale(float32 sx,float32 sy)     noexcept { return {sx,0,0,sy,0,0}; }
-        static NkSVGTransform Rotate(float32 deg) noexcept;
-        static NkSVGTransform Parse(const char* str) noexcept;
-        NkSVGTransform operator*(const NkSVGTransform& o) const noexcept;
-        void Apply(float32& x, float32& y) const noexcept {
-            const float32 nx=a*x+c*y+e, ny=b*x+d*y+f; x=nx; y=ny;
+        static NkSVGTransform Identity()                          noexcept { return {}; }
+        static NkSVGTransform Translate(float32 tx, float32 ty)   noexcept { return {1,0,0,1,tx,ty}; }
+        static NkSVGTransform Scale    (float32 sx, float32 sy)   noexcept { return {sx,0,0,sy,0,0}; }
+        static NkSVGTransform Rotate   (float32 deg)              noexcept;
+        static NkSVGTransform Parse    (const char* str)          noexcept;
+        NkSVGTransform operator*(const NkSVGTransform& o) const   noexcept;
+        void Apply(float32& x, float32& y) const noexcept
+        {
+            const float32 nx = a*x + c*y + e;
+            const float32 ny = b*x + d*y + f;
+            x = nx; y = ny;
         }
     };
 
     // =========================================================================
-    //  NkSVGCodec
+    // NkSVGShapeView — Vue read-only sur une shape vectorielle parsee
+    // -------------------------------------------------------------------------
+    // Permet d'acceder aux vertices/contours sans materialiser une copie. Les
+    // pointeurs retournes restent valides tant que le NkSVGImage parent est
+    // vivant. Coords en espace SVG (avant viewBox->output scaling), utile pour
+    // generation de mesh 3D, polygons collisions, extrusion, etc.
     // =========================================================================
-
-    class NKENTSEU_IMAGE_API NkSVGCodec {
+    class NKENTSEU_IMAGE_API NkSVGShapeView
+    {
     public:
-        /**
-         * @Brief Rastérise un fichier SVG en NkImage RGBA32.
-         * @param data       Données SVG (texte XML UTF-8).
-         * @param size       Taille en octets.
-         * @param outW       Largeur de sortie. 0 = utilise viewBox.
-         * @param outH       Hauteur de sortie. 0 = utilise viewBox.
-         * @return Image RGBA32 allouée, nullptr si erreur.
-         */
-        static NkImage* Decode(const uint8* data, usize size,
-                                int32 outW = 0, int32 outH = 0) noexcept;
+        NkSVGShapeView() noexcept = default;
 
-        static NkImage* DecodeFromFile(const char* path,
-                                        int32 outW = 0, int32 outH = 0) noexcept;
+        /// Nombre de contours dans cette shape (typiquement 1 pour un path
+        /// simple, N pour fill-rule evenodd avec trous, etc.).
+        int32 ContourCount() const noexcept;
 
-        /**
-         * @Brief Encode une NkImage comme SVG contenant une <image> PNG base64.
-         *        Ce n'est pas une vectorisation — c'est une encapsulation SVG.
-         */
-        static bool Encode(const NkImage& img, uint8*& out, usize& outSize) noexcept;
-        static bool EncodeToFile(const NkImage& img, const char* path) noexcept;
+        /// Nombre de vertices d'un contour donne.
+        int32 ContourPointCount(int32 contourIdx) const noexcept;
+
+        /// Pointeur vers les coordonnees X du contour (durabilite = vie du
+        /// NkSVGImage parent). Coords en espace SVG.
+        const float32* ContourXs(int32 contourIdx) const noexcept;
+        const float32* ContourYs(int32 contourIdx) const noexcept;
+
+        /// Style fill/stroke applique a cette shape (cascade + transform deja
+        /// appliques aux vertices).
+        NkSVGColor FillColor()    const noexcept;
+        NkSVGColor StrokeColor()  const noexcept;
+        float32    StrokeWidth()  const noexcept;
+        float32    Opacity()      const noexcept;
+        bool       FillEvenOdd()  const noexcept;
+
+        /// Triangulation par ear-clipping (par contour separe, sans gestion
+        /// de trous pour cette version). Produit des indices triangle-list
+        /// pretes pour upload GPU. @p baseIndex permet de chainer plusieurs
+        /// shapes dans le meme buffer (= taille de outXs avant l'appel).
+        /// @return Nombre de triangles produits (== outIndices.Size()/3 delta).
+        int32 Triangulate(NkVector<float32>& outXs,
+                          NkVector<float32>& outYs,
+                          NkVector<uint32>&  outIndices,
+                          uint32 baseIndex = 0) const noexcept;
+
+        /// True si la vue pointe sur une shape valide.
+        bool IsValid() const noexcept { return mShapePtr != nullptr; }
 
     private:
-        // ── Parser XML minimal ────────────────────────────────────────────────
-        struct Attr { const char* name; const char* value; };
-        struct Element {
-            const char* tag;
-            Attr*       attrs;
-            int32       numAttrs;
-        };
+        friend class NkSVGImage;
+        const void* mShapePtr = nullptr;  // pointe sur Shape interne
+    };
 
-        // ── Contexte de rendu ─────────────────────────────────────────────────
-        struct RenderCtx {
-            NkImage*       img;
-            float32        scaleX, scaleY;
-            float32        viewX, viewY, viewW, viewH;
-            NkSVGTransform ctm; // current transform matrix
-            NkSVGStyle     style;
-        };
+    // =========================================================================
+    // NkSVGImage — Representation vectorielle d'un SVG, rasterisable a la demande
+    // -------------------------------------------------------------------------
+    // Apres parsing, le SVG est stocke comme une liste de shapes (paths +
+    // styles + transforms) en memoire. On peut ensuite appeler Rasterize(W,H)
+    // pour generer une NkImage RGBA a la resolution souhaitee SANS perte
+    // (chaque appel re-rasterise depuis les shapes vectoriels).
+    //
+    // Usage typique :
+    //   NkSVGImage* svg = NkSVGImage::LoadFromFile("logo.svg");
+    //   if (svg) {
+    //       NkImage* img100  = svg->Rasterize(100, 50);    // mini
+    //       NkImage* img2000 = svg->Rasterize(2000, 1000); // hi-res
+    //       // ... use img100 / img2000 ...
+    //       img100->Free();  img2000->Free();
+    //       svg->Free();
+    //   }
+    //
+    // Stockage opaque : les internes (Shape) ne sont pas exposes -- on
+    // expose uniquement la taille naturelle (Width/Height depuis viewBox) +
+    // la rasterization.
+    // =========================================================================
+    class NKENTSEU_IMAGE_API NkSVGImage
+    {
+    public:
+        /// Lit + parse un fichier .svg. Retourne nullptr si erreur.
+        /// Caller doit appeler ->Free() pour liberer.
+        static NkSVGImage* LoadFromFile(const char* path) noexcept;
 
-        // ── Chemin (path) ─────────────────────────────────────────────────────
-        struct PathPoint { float32 x,y; bool onCurve; };
-        struct Contour { PathPoint* pts; int32 n; };
-        struct Path {
-            Contour* contours; int32 numContours;
-            PathPoint* allPts; int32 totalPts;
-        };
+        /// Parse depuis un buffer en memoire. Caller doit appeler ->Free().
+        static NkSVGImage* LoadFromMemory(const uint8* data, usize size) noexcept;
 
-        // ── Parser XML simplifié ──────────────────────────────────────────────
-        static const char* SkipWS(const char* p) noexcept;
-        static bool  MatchTag(const char* p, const char* tag, const char** end) noexcept;
-        static const char* ParseAttrValue(const char* p, char* buf, int32 bufLen) noexcept;
-        static float32 ParseFloat(const char* s, const char** end=nullptr) noexcept;
-        static float32 GetAttr(const Attr* attrs, int32 n, const char* name,
-                                float32 defVal=0.f) noexcept;
-        static const char* GetAttrStr(const Attr* attrs, int32 n,
-                                       const char* name) noexcept;
+        /// Rasterise les shapes a la resolution (outW, outH). Si outW=0 ou
+        /// outH=0, calcule la taille manquante en preservant l'aspect ratio.
+        /// Retourne un NkImage RGBA32 alloue (caller appelle ->Free()), nullptr si KO.
+        NkImage* Rasterize(int32 outW, int32 outH) const noexcept;
 
-        // ── Style ──────────────────────────────────────────────────────────────
-        static NkSVGStyle ParseStyle(const Attr* attrs, int32 n,
-                                      const NkSVGStyle& parent) noexcept;
-        static void ParseInlineStyle(const char* css, NkSVGStyle& out) noexcept;
+        /// Taille naturelle (depuis viewBox ou width/height du <svg>).
+        int32 NaturalWidth()  const noexcept;
+        int32 NaturalHeight() const noexcept;
 
-        // ── Rendu des primitives ──────────────────────────────────────────────
-        static void RenderRect    (RenderCtx& ctx, const Attr* a, int32 n) noexcept;
-        static void RenderCircle  (RenderCtx& ctx, const Attr* a, int32 n) noexcept;
-        static void RenderEllipse (RenderCtx& ctx, const Attr* a, int32 n) noexcept;
-        static void RenderLine    (RenderCtx& ctx, const Attr* a, int32 n) noexcept;
-        static void RenderPolyline(RenderCtx& ctx, const Attr* a, int32 n, bool close) noexcept;
-        static void RenderPath    (RenderCtx& ctx, const Attr* a, int32 n) noexcept;
+        /// Nombre de shapes parsees (paths/rect/circle/ellipse/line/polygon).
+        int32 ShapeCount() const noexcept;
 
-        // ── Primitives de dessin ──────────────────────────────────────────────
-        static void DrawLine    (NkImage& img, float32 x0,float32 y0,
-                                  float32 x1,float32 y1,
-                                  NkSVGColor col, float32 width) noexcept;
-        static void FillPolygon (NkImage& img, const float32* xs, const float32* ys,
-                                  int32 n, NkSVGColor col, bool evenOdd) noexcept;
-        static void StrokePolyline(NkImage& img, const float32* xs, const float32* ys,
-                                    int32 n, NkSVGColor col, float32 width,
-                                    bool closed, uint8 cap, uint8 join) noexcept;
-        static void BlendPixel  (NkImage& img, int32 x, int32 y,
-                                  NkSVGColor col, float32 alpha=1.f) noexcept;
-        static void DrawAALine  (NkImage& img, float32 x0, float32 y0,
-                                  float32 x1, float32 y1,
-                                  NkSVGColor col, float32 width) noexcept;
+        /// Vue read-only sur la i-eme shape. Pour usage 3D / mesh / collision.
+        NkSVGShapeView GetShape(int32 idx) const noexcept;
 
-        // ── Path parser ───────────────────────────────────────────────────────
-        static const char* ParsePathData(const char* d,
-                                          float32* xs, float32* ys,
-                                          int32* contourStarts, int32* contourLens,
-                                          int32& numPts, int32& numContours,
-                                          int32 maxPts, int32 maxContours) noexcept;
-        static void BezierFlatten(float32 x0,float32 y0,
-                                   float32 x1,float32 y1,
-                                   float32 x2,float32 y2,
-                                   float32 x3,float32 y3,
-                                   float32* xs,float32* ys,int32& n,int32 maxN,
-                                   int32 depth=0) noexcept;
-        static void ArcToLines(float32 x1,float32 y1,float32 rx,float32 ry,
-                                float32 xAngle,bool largeArc,bool sweep,
-                                float32 x2,float32 y2,
-                                float32* xs,float32* ys,int32& n,int32 maxN) noexcept;
+        /// Triangulation globale de toutes les shapes en un seul mesh.
+        /// Produit des coordonnees vertices (xs/ys en espace SVG) et indices
+        /// triangle-list pretes pour upload GPU. Couleurs par triangle dans
+        /// outTriColors (RGBA8888 packed uint32).
+        bool TriangulateAll(NkVector<float32>& outXs,
+                            NkVector<float32>& outYs,
+                            NkVector<uint32>&  outIndices,
+                            NkVector<uint32>&  outTriColors) const noexcept;
 
-        // ── Main parser ───────────────────────────────────────────────────────
-        static void ParseAndRender(const char* xml, usize xmlLen,
-                                    RenderCtx& ctx) noexcept;
-        static void RenderElement(const char* tag, const Attr* attrs, int32 numAttrs,
-                                   RenderCtx& ctx) noexcept;
+        /// Libere les ressources (shapes + image vectorielle).
+        void Free() noexcept;
 
-        // ── Encodage base64 pour SVG export ──────────────────────────────────
-        static usize Base64Encode(const uint8* in, usize inLen,
-                                   char* out, usize outLen) noexcept;
+    private:
+        NkSVGImage()  noexcept = default;
+        ~NkSVGImage() noexcept = default;
+        NkSVGImage(const NkSVGImage&) = delete;
+        NkSVGImage& operator=(const NkSVGImage&) = delete;
+        // PIMPL : la structure interne (NkVector<Shape> + viewBox) est dans le
+        // .cpp pour eviter d'exposer Shape dans l'API publique.
+        void* mImpl = nullptr;
+    };
+
+    // =========================================================================
+    // NkSVGCodec — API publique. L'implementation interne est totalement
+    // privee au .cpp (pas de declarations dans le .h pour eviter le couplage).
+    // =========================================================================
+    class NKENTSEU_IMAGE_API NkSVGCodec
+    {
+    public:
+        /// Decode un buffer SVG (XML UTF-8) en NkImage RGBA32 alloue sur le heap.
+        /// @param data    Buffer XML UTF-8.
+        /// @param size    Taille en octets.
+        /// @param outW    Largeur de sortie en pixels (0 = taille SVG ou viewBox).
+        /// @param outH    Hauteur de sortie (0 = idem largeur).
+        /// @return        NkImage RGBA32 alloue (caller appelle ->Free()), ou nullptr.
+        static NkImage* Decode(const uint8* data, usize size,
+                               int32 outW = 0, int32 outH = 0) noexcept;
+
+        /// Lit un fichier .svg disque et le rasterise.
+        static NkImage* DecodeFromFile(const char* path,
+                                       int32 outW = 0, int32 outH = 0) noexcept;
+
+        /// Encode une NkImage en SVG : enrobe l'image comme <image href="data:png;base64,...">
+        /// dans un <svg> de la meme taille. **Pas une vectorisation** -- conserve
+        /// le pixel-perfect via PNG base64. Utile pour export/round-trip.
+        static bool Encode(const NkImage& img, uint8*& out, usize& outSize) noexcept;
+        static bool EncodeToFile(const NkImage& img, const char* path) noexcept;
     };
 
 } // namespace nkentseu

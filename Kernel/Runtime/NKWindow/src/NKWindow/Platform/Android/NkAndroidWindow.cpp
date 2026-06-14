@@ -12,9 +12,11 @@
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKCore/NkAtomic.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <android/configuration.h>
 #include <android/native_window.h>
+#include <android/native_activity.h>
 #include <android/window.h>
 #include <android_native_app_glue.h>
 #include <jni.h>
@@ -125,6 +127,151 @@ namespace nkentseu {
             return;
         }
         app->activity->vm->DetachCurrentThread();
+    }
+
+    // =========================================================================
+    // Masquage des barres système (status bar + navigation bar) via JNI
+    // =========================================================================
+    
+    bool NkAndroidHideSystemUI(android_app* app) {
+        if (!app || !app->activity || !app->activity->clazz) {
+            return false;
+        }
+
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        if (!NkAndroidAcquireJniEnv(app, &env, &attached)) {
+            return false;
+        }
+
+#if defined(AWINDOW_FLAG_FULLSCREEN)
+        ANativeActivity_setWindowFlags(app->activity, AWINDOW_FLAG_FULLSCREEN, 0);
+#endif
+
+        bool ok = false;
+        jobject activity = app->activity->clazz;
+        jclass actClass = env->GetObjectClass(activity);
+        if (actClass) {
+            jmethodID getWindow = env->GetMethodID(actClass, "getWindow", "()Landroid/view/Window;");
+            if (getWindow) {
+                jobject windowObj = env->CallObjectMethod(activity, getWindow);
+                if (windowObj && !env->ExceptionCheck()) {
+                    jclass windowClass = env->GetObjectClass(windowObj);
+                    if (windowClass) {
+                        // API 30+ : cacher status bar + navigation bar via WindowInsetsController.
+                        jmethodID getInsetsController = env->GetMethodID(
+                            windowClass, "getInsetsController", "()Landroid/view/WindowInsetsController;"
+                        );
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            getInsetsController = nullptr;
+                        }
+                        if (getInsetsController) {
+                            jobject controller = env->CallObjectMethod(windowObj, getInsetsController);
+                            if (controller && !env->ExceptionCheck()) {
+                                jclass controllerClass = env->GetObjectClass(controller);
+                                jclass typeClass = env->FindClass("android/view/WindowInsets$Type");
+                                if (env->ExceptionCheck()) {
+                                    env->ExceptionClear();
+                                    typeClass = nullptr;
+                                }
+
+                                if (controllerClass && typeClass) {
+                                    jmethodID hideBars = env->GetMethodID(controllerClass, "hide", "(I)V");
+                                    if (env->ExceptionCheck()) {
+                                        env->ExceptionClear();
+                                        hideBars = nullptr;
+                                    }
+                                    jmethodID setBehavior = env->GetMethodID(controllerClass, "setSystemBarsBehavior", "(I)V");
+                                    if (env->ExceptionCheck()) {
+                                        env->ExceptionClear();
+                                        setBehavior = nullptr;
+                                    }
+                                    jmethodID systemBars = env->GetStaticMethodID(typeClass, "systemBars", "()I");
+                                    if (env->ExceptionCheck()) {
+                                        env->ExceptionClear();
+                                        systemBars = nullptr;
+                                    }
+
+                                    jint bars = 0;
+                                    if (systemBars) {
+                                        bars = env->CallStaticIntMethod(typeClass, systemBars);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear();
+                                            bars = 0;
+                                        }
+                                    }
+                                    if (setBehavior) {
+                                        env->CallVoidMethod(controller, setBehavior, 2);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                    if (hideBars && bars != 0) {
+                                        env->CallVoidMethod(controller, hideBars, bars);
+                                        if (!env->ExceptionCheck()) {
+                                            ok = true;
+                                        } else {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                }
+
+                                if (typeClass) {
+                                    env->DeleteLocalRef(typeClass);
+                                }
+                                if (controllerClass) {
+                                    env->DeleteLocalRef(controllerClass);
+                                }
+                                env->DeleteLocalRef(controller);
+                            } else {
+                                env->ExceptionClear();
+                            }
+                        }
+
+                        // Appel à DecorView
+                        jmethodID getDecorView = env->GetMethodID(windowClass, "getDecorView", "()Landroid/view/View;");
+                        if (getDecorView) {
+                            jobject decorView = env->CallObjectMethod(windowObj, getDecorView);
+                            if (decorView && !env->ExceptionCheck()) {
+                                jclass viewClass = env->GetObjectClass(decorView);
+                                if (viewClass) {
+                                    // setSystemUiVisibility(flags)
+                                    // Flags: LOW_PROFILE=1, HIDE_NAVIGATION=2, FULLSCREEN=4,
+                                    // LAYOUT_STABLE=256, LAYOUT_HIDE_NAVIGATION=512,
+                                    // LAYOUT_FULLSCREEN=1024, IMMERSIVE=2048,
+                                    // IMMERSIVE_STICKY=4096.
+                                    jmethodID setSystemUiVis = env->GetMethodID(
+                                        viewClass, "setSystemUiVisibility", "(I)V"
+                                    );
+                                    if (setSystemUiVis) {
+                                        jint flags = 1 | 2 | 4 | 256 | 512 | 1024 | 2048 | 4096;
+                                        env->CallVoidMethod(decorView, setSystemUiVis, flags);
+                                        if (!env->ExceptionCheck()) {
+                                            ok = true;
+                                        } else {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                    env->DeleteLocalRef(viewClass);
+                                }
+                                env->DeleteLocalRef(decorView);
+                            } else {
+                                env->ExceptionClear();
+                            }
+                        }
+                        env->DeleteLocalRef(windowClass);
+                    }
+                    env->DeleteLocalRef(windowObj);
+                } else {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(actClass);
+        }
+
+        NkAndroidReleaseJniEnv(app, attached);
+        return ok;
     }
 
     static void NkAndroidUpdateSafeArea(NkWindow& window) {
@@ -280,6 +427,69 @@ namespace nkentseu {
     }
 
     // =========================================================================
+    // Interrogation du taux de rafraîchissement de l'écran (JNI)
+    // Chaîne : activity.getWindowManager().getDefaultDisplay().getRefreshRate()
+    // Retourne 60 Hz par défaut si l'API est indisponible.
+    // =========================================================================
+
+    static uint32 NkAndroidQueryRefreshRate(android_app* app) {
+        if (!app || !app->activity || !app->activity->clazz) {
+            return 60u;
+        }
+
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        if (!NkAndroidAcquireJniEnv(app, &env, &attached)) {
+            return 60u;
+        }
+
+        uint32 refresh = 60u;
+        jobject activity = app->activity->clazz;
+        jclass actClass = env->GetObjectClass(activity);
+        if (actClass) {
+            jmethodID getWM = env->GetMethodID(actClass, "getWindowManager", "()Landroid/view/WindowManager;");
+            if (getWM) {
+                jobject wm = env->CallObjectMethod(activity, getWM);
+                if (wm && !env->ExceptionCheck()) {
+                    jclass wmClass = env->GetObjectClass(wm);
+                    if (wmClass) {
+                        jmethodID getDisplay = env->GetMethodID(wmClass, "getDefaultDisplay", "()Landroid/view/Display;");
+                        if (getDisplay) {
+                            jobject display = env->CallObjectMethod(wm, getDisplay);
+                            if (display && !env->ExceptionCheck()) {
+                                jclass displayClass = env->GetObjectClass(display);
+                                if (displayClass) {
+                                    jmethodID getRefresh = env->GetMethodID(displayClass, "getRefreshRate", "()F");
+                                    if (getRefresh) {
+                                        jfloat rate = env->CallFloatMethod(display, getRefresh);
+                                        if (!env->ExceptionCheck() && rate > 0.0f) {
+                                            refresh = static_cast<uint32>(rate + 0.5f);
+                                        } else {
+                                            env->ExceptionClear();
+                                        }
+                                    }
+                                    env->DeleteLocalRef(displayClass);
+                                }
+                                env->DeleteLocalRef(display);
+                            } else {
+                                env->ExceptionClear();
+                            }
+                        }
+                        env->DeleteLocalRef(wmClass);
+                    }
+                    env->DeleteLocalRef(wm);
+                } else {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(actClass);
+        }
+
+        NkAndroidReleaseJniEnv(app, attached);
+        return refresh;
+    }
+
+    // =========================================================================
     // Fonctions de synchronisation mData ↔ mConfig
     // =========================================================================
 
@@ -365,12 +575,20 @@ namespace nkentseu {
         mData.mAConfig = AConfiguration_new();
         if (mData.mAConfig && mData.mAndroidApp->activity && mData.mAndroidApp->activity->assetManager) {
             AConfiguration_fromAssetManager(mData.mAConfig, mData.mAndroidApp->activity->assetManager);
+            // Expose l'AAssetManager au sous-systeme fichier pour que NkFile
+            // (et donc NkImage::Load, futures NKFont/NKAudio) puisse acceder
+            // aux ressources empaquetees dans assets/ de l'APK.
+            NkFile::SetAndroidAssetManager(mData.mAndroidApp->activity->assetManager);
         }
 
         mData.mOrientation = config.screenOrientation;
         if (mData.mAndroidApp) {
             NkAndroidApplyOrientation(*this, mData.mOrientation);
             NkAndroidUpdateSafeArea(*this);
+            // Appliquer la configuration hideSystemUI a la creation de la fenetre
+            if (config.hideSystemUI) {
+                NkAndroidHideSystemUI(mData.mAndroidApp);
+            }
         }
 
         mId = NkWESystem::Instance().RegisterWindow(this);
@@ -499,6 +717,69 @@ namespace nkentseu {
 
     NkVec2u NkWindow::GetDisplayPosition() const { return {0, 0}; }
 
+    // =========================================================================
+    // Énumération des moniteurs / DPI
+    //
+    // Android est mono-écran du point de vue de l'application : un seul moniteur
+    // factice est exposé, rempli à partir de la taille de l'ANativeWindow et de
+    // la densité (DisplayMetrics via AConfiguration). La densité de référence
+    // Android est 160 dpi (et non 96), donc dpiScale = densityDpi / 160.
+    // =========================================================================
+
+    // Construit l'unique NkDisplayInfo décrivant l'écran Android courant.
+    static NkDisplayInfo NkAndroidFillDisplayInfo(const NkWindow& window) {
+        NkDisplayInfo info;
+        info.index = 0;
+        info.isPrimary = true;
+
+        // Taille de l'écran = taille de la surface plein écran.
+        const NkVec2u size = window.GetDisplaySize();
+        info.width      = size.x;
+        info.height     = size.y;
+        info.physWidth  = size.x;
+        info.physHeight = size.y;
+
+        // Densité réelle (dpi) via AConfiguration ; baseline = 160 dpi.
+        android_app* app = window.mData.mAndroidApp ? window.mData.mAndroidApp : nk_android_global_app;
+        uint32 densityDpi = 160;
+        if (app && app->activity && app->activity->assetManager) {
+            AConfiguration* config = AConfiguration_new();
+            if (config) {
+                AConfiguration_fromAssetManager(config, app->activity->assetManager);
+                const int32_t density = AConfiguration_getDensity(config);
+                AConfiguration_delete(config);
+                if (density > 0) {
+                    densityDpi = static_cast<uint32>(density);
+                }
+            }
+        }
+        info.dpiX     = static_cast<float32>(densityDpi);
+        info.dpiY     = static_cast<float32>(densityDpi);
+        info.dpiScale = static_cast<float32>(densityDpi) / 160.0f;
+
+        // Fréquence de rafraîchissement via Display.getRefreshRate() (JNI).
+        info.refreshRate = NkAndroidQueryRefreshRate(app);
+
+        // Nom lisible.
+        const char* name = "Android Display";
+        usize i = 0;
+        for (; name[i] != '\0' && i < sizeof(info.name) - 1; ++i) info.name[i] = name[i];
+        info.name[i] = '\0';
+        return info;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        out.PushBack(NkAndroidFillDisplayInfo(*this));
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        return NkAndroidFillDisplayInfo(*this);
+    }
+
+    uint32 NkWindow::GetMonitorCount() const { return 1u; }
+
     void NkWindow::SetTitle(const NkString& title) { 
         mConfig.title = title; 
         // Sur Android, le titre n'est pas directement modifiable après création
@@ -560,11 +841,37 @@ namespace nkentseu {
         return mData.mOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO;
     }
 
+    void NkWindow::SetHideSystemUI(bool hide) {
+        mConfig.hideSystemUI = hide;
+        if (hide && mData.mAndroidApp) {
+            NkAndroidHideSystemUI(mData.mAndroidApp);
+        }
+    }
+
+    bool NkWindow::GetHideSystemUI() const {
+        return mConfig.hideSystemUI;
+    }
+
+    void NkWindow::SetLockOrientation(bool lock) {
+        mConfig.lockOrientation = lock;
+        if (lock && mData.mOrientation == NkScreenOrientation::NK_SCREEN_ORIENTATION_AUTO) {
+            // Forcer le paysage si verrouillé et en AUTO
+            SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
+        }
+    }
+
+    bool NkWindow::GetLockOrientation() const {
+        return mConfig.lockOrientation;
+    }
+
     void NkWindow::SetMousePosition(uint32, uint32) {}
 
     void NkWindow::ShowMouse(bool) {}
 
     void NkWindow::CaptureMouse(bool) {}
+
+    // Mobile : pas de curseur natif (input tactile), no-op.
+    void NkWindow::ClipMouseToClient(bool) {}
 
     void NkWindow::SetWebInputOptions(const NkWebInputOptions& options) {
         mConfig.webInput = options;

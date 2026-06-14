@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>PONG ULTRA — Menus</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --neon-cyan:#00F5FF;--neon-orange:#FF6B00;--neon-gold:#FFD700;
+  --dark:#050A14;--font-game:'Orbitron',monospace;--font-ui:'Rajdhani',sans-serif;
+}
+body{background:var(--dark);color:#fff;font-family:var(--font-ui);min-height:600px;overflow:hidden;position:relative;}
+.grid-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(0,245,255,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(0,245,255,0.06) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;}
+.scanline{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.15) 2px,rgba(0,0,0,0.15) 4px);pointer-events:none;opacity:0.4;}
+.page{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.4s ease;padding:20px;}
+.page.active{opacity:1;pointer-events:all;}
+
+/* SPLASH */
+#splash{text-align:center;}
+.splash-logo{font-family:var(--font-game);font-size:72px;font-weight:900;letter-spacing:12px;color:#fff;text-shadow:0 0 20px var(--neon-cyan),0 0 60px rgba(0,245,255,0.4);animation:logoPulse 3s ease-in-out infinite;}
+.splash-sub{font-family:var(--font-game);font-size:13px;letter-spacing:6px;color:var(--neon-cyan);margin-bottom:8px;text-transform:uppercase;}
+.splash-1v1{display:inline-flex;align-items:center;gap:12px;background:rgba(255,107,0,0.15);border:1px solid rgba(255,107,0,0.5);padding:6px 20px;border-radius:4px;margin-bottom:32px;}
+.splash-1v1 span{font-family:var(--font-game);font-size:11px;letter-spacing:3px;color:var(--neon-orange);}
+.splash-ball-anim{position:relative;width:280px;height:80px;margin:0 auto 32px;}
+.field-line{position:absolute;left:0;right:0;top:50%;height:2px;background:linear-gradient(90deg,transparent,rgba(0,245,255,0.3) 20%,rgba(0,245,255,0.3) 80%,transparent);}
+.paddle-l,.paddle-r{position:absolute;top:50%;width:6px;height:50px;background:var(--neon-cyan);border-radius:3px;transform:translateY(-50%);box-shadow:0 0 10px var(--neon-cyan);}
+.paddle-l{left:8px;}.paddle-r{right:8px;background:var(--neon-orange);box-shadow:0 0 10px var(--neon-orange);}
+.ball{position:absolute;width:10px;height:10px;background:#fff;border-radius:50%;top:50%;transform:translateY(-50%);box-shadow:0 0 15px rgba(255,255,255,0.9);animation:ballBounce 2.2s linear infinite;}
+@keyframes ballBounce{0%{left:20px;top:30%;}25%{left:135px;top:70%;}50%{left:248px;top:30%;}75%{left:135px;top:60%;}100%{left:20px;top:30%;}}
+@keyframes logoPulse{0%,100%{text-shadow:0 0 20px var(--neon-cyan),0 0 60px rgba(0,245,255,0.4);}50%{text-shadow:0 0 30px var(--neon-cyan),0 0 80px rgba(0,245,255,0.6);}}
+.btn-start{font-family:var(--font-game);font-size:13px;letter-spacing:4px;text-transform:uppercase;padding:14px 48px;background:transparent;border:2px solid var(--neon-cyan);color:var(--neon-cyan);cursor:pointer;transition:all 0.3s;animation:blinkBtn 1.8s step-end infinite;}
+.btn-start:hover{background:rgba(0,245,255,0.12);box-shadow:0 0 30px rgba(0,245,255,0.4);animation:none;}
+@keyframes blinkBtn{0%,49%{opacity:1;}50%,100%{opacity:0.3;}}
+.splash-credits{position:absolute;bottom:16px;font-size:11px;color:rgba(255,255,255,0.25);letter-spacing:3px;text-transform:uppercase;}
+
+/* HOME */
+#home{flex-direction:row;gap:40px;align-items:center;padding:30px;}
+.home-left{flex:0 0 200px;text-align:center;}
+.home-logo-sm{font-family:var(--font-game);font-size:28px;font-weight:900;letter-spacing:6px;color:#fff;text-shadow:0 0 20px var(--neon-cyan);margin-bottom:4px;}
+.home-tag{font-family:var(--font-game);font-size:9px;letter-spacing:3px;color:var(--neon-cyan);margin-bottom:24px;}
+.mini-field{width:180px;height:120px;border:1px solid rgba(0,245,255,0.25);border-radius:6px;margin:0 auto 20px;position:relative;overflow:hidden;background:rgba(0,245,255,0.03);}
+.mini-field::before{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:repeating-linear-gradient(180deg,rgba(255,255,255,0.2) 0,rgba(255,255,255,0.2) 6px,transparent 6px,transparent 12px);}
+.mini-center-circle{position:absolute;left:50%;top:50%;width:40px;height:40px;border:1px solid rgba(255,255,255,0.15);border-radius:50%;transform:translate(-50%,-50%);}
+.mini-score{font-family:var(--font-game);font-size:18px;font-weight:700;letter-spacing:8px;color:#fff;text-align:center;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);}
+.mini-pad{position:absolute;width:4px;height:36px;border-radius:2px;}
+.mini-pad.l1{left:6px;top:50%;transform:translateY(-50%);background:var(--neon-cyan);box-shadow:0 0 6px var(--neon-cyan);}
+.mini-pad.r1{right:6px;top:50%;transform:translateY(-50%);background:var(--neon-orange);box-shadow:0 0 6px var(--neon-orange);}
+.mode-badges{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;}
+.mode-badge{font-family:var(--font-ui);font-size:9px;letter-spacing:2px;padding:3px 8px;border:1px solid rgba(0,245,255,0.3);border-radius:3px;color:rgba(0,245,255,0.7);text-transform:uppercase;}
+.home-right{flex:1;display:flex;flex-direction:column;gap:8px;}
+.menu-section-title{font-family:var(--font-game);font-size:9px;letter-spacing:4px;color:rgba(255,255,255,0.25);text-transform:uppercase;margin-bottom:4px;margin-top:8px;}
+.menu-item{display:flex;align-items:center;gap:16px;padding:12px 20px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.08);border-left:3px solid transparent;cursor:pointer;transition:all 0.2s;border-radius:4px;}
+.menu-item:hover,.menu-item.active{background:rgba(0,245,255,0.08);border-left-color:var(--neon-cyan);transform:translateX(4px);}
+.menu-item.danger:hover{border-left-color:#FF4040;background:rgba(255,64,64,0.08);}
+.menu-item.competition:hover{border-left-color:var(--neon-gold);background:rgba(255,215,0,0.08);}
+.menu-icon{font-size:20px;width:28px;text-align:center;flex-shrink:0;}
+.menu-label{flex:1;}
+.menu-label-title{font-family:var(--font-game);font-size:12px;letter-spacing:2px;color:#fff;text-transform:uppercase;}
+.menu-label-sub{font-family:var(--font-ui);font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px;letter-spacing:1px;}
+.menu-arrow{font-size:14px;color:rgba(0,245,255,0.4);transition:transform 0.2s;}
+.menu-item:hover .menu-arrow{transform:translateX(4px);color:var(--neon-cyan);}
+.menu-badge-new{font-family:var(--font-game);font-size:8px;letter-spacing:1px;padding:2px 6px;background:rgba(255,215,0,0.2);border:1px solid rgba(255,215,0,0.4);color:var(--neon-gold);border-radius:3px;text-transform:uppercase;}
+.menu-badge-hot{font-family:var(--font-game);font-size:8px;letter-spacing:1px;padding:2px 6px;background:rgba(255,107,0,0.2);border:1px solid rgba(255,107,0,0.4);color:var(--neon-orange);border-radius:3px;text-transform:uppercase;}
+
+/* SUB PAGES */
+#difficulty,#obstacles,#options,#competition{flex-direction:column;align-items:flex-start;padding:30px 40px;gap:0;overflow-y:auto;max-height:600px;}
+.page-header{display:flex;align-items:center;gap:16px;margin-bottom:24px;width:100%;}
+.back-btn{font-family:var(--font-game);font-size:11px;letter-spacing:2px;padding:8px 16px;background:transparent;border:1px solid rgba(0,245,255,0.3);color:rgba(0,245,255,0.7);cursor:pointer;border-radius:3px;transition:all 0.2s;}
+.back-btn:hover{background:rgba(0,245,255,0.1);color:var(--neon-cyan);}
+.page-title{font-family:var(--font-game);font-size:18px;font-weight:700;letter-spacing:4px;color:#fff;text-transform:uppercase;}
+.page-title span{color:var(--neon-cyan);}
+
+/* DIFFICULTY */
+.diff-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;margin-bottom:24px;}
+.diff-card{border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:16px 14px;cursor:pointer;transition:all 0.25s;position:relative;overflow:hidden;background:rgba(255,255,255,0.02);}
+.diff-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;opacity:0;}
+.diff-card:hover,.diff-card.selected{border-color:rgba(0,245,255,0.3);background:rgba(0,245,255,0.06);}
+.diff-card.selected::before{opacity:1;background:var(--neon-cyan);box-shadow:0 0 10px var(--neon-cyan);}
+.diff-card.orange.selected{border-color:rgba(255,107,0,0.4);background:rgba(255,107,0,0.06);}
+.diff-card.orange::before{background:var(--neon-orange);}
+.diff-card.red.selected{border-color:rgba(255,64,64,0.4);background:rgba(255,64,64,0.06);}
+.diff-card.red::before{background:#FF4040;}
+.diff-card.gold.selected{border-color:rgba(255,215,0,0.4);background:rgba(255,215,0,0.06);}
+.diff-card.gold::before{background:var(--neon-gold);}
+.diff-rank{font-family:var(--font-game);font-size:24px;font-weight:900;margin-bottom:6px;}
+.diff-name{font-family:var(--font-game);font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
+.diff-dots{display:flex;gap:4px;margin-bottom:8px;}
+.diff-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.15);}
+.diff-dot.filled{background:var(--neon-cyan);}
+.diff-dot.filled.orange{background:var(--neon-orange);}
+.diff-dot.filled.red{background:#FF4040;}
+.diff-dot.filled.gold{background:var(--neon-gold);}
+.diff-dot.filled.purple{background:#CC77FF;}
+.diff-desc{font-family:var(--font-ui);font-size:11px;color:rgba(255,255,255,0.4);line-height:1.5;}
+.diff-stats{margin-top:8px;display:flex;flex-direction:column;gap:4px;}
+.diff-stat{display:flex;justify-content:space-between;font-family:var(--font-ui);font-size:10px;color:rgba(255,255,255,0.3);}
+.diff-stat-val{color:rgba(255,255,255,0.6);}
+
+/* OBSTACLES */
+.obs-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;width:100%;}
+.obs-card{border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:14px;cursor:pointer;transition:all 0.25s;background:rgba(255,255,255,0.02);display:flex;gap:14px;align-items:flex-start;}
+.obs-card.selected{border-color:rgba(0,245,255,0.35);background:rgba(0,245,255,0.05);}
+.obs-icon-box{width:48px;height:48px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;position:relative;}
+.obs-check{position:absolute;top:-4px;right:-4px;width:14px;height:14px;background:var(--neon-cyan);border-radius:50%;display:none;align-items:center;justify-content:center;font-size:8px;color:#000;font-weight:700;}
+.obs-card.selected .obs-check{display:flex;}
+.obs-info{flex:1;}
+.obs-name{font-family:var(--font-game);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#fff;margin-bottom:4px;}
+.obs-desc{font-family:var(--font-ui);font-size:10px;color:rgba(255,255,255,0.4);line-height:1.4;margin-bottom:6px;}
+.obs-tags{display:flex;flex-wrap:wrap;gap:4px;}
+.obs-tag{font-size:9px;padding:2px 6px;border-radius:3px;font-family:var(--font-ui);letter-spacing:1px;text-transform:uppercase;}
+.obs-tag.plus{background:rgba(0,255,100,0.15);color:#00FF64;border:1px solid rgba(0,255,100,0.3);}
+.obs-tag.minus{background:rgba(255,64,64,0.15);color:#FF6464;border:1px solid rgba(255,64,64,0.3);}
+.obs-tag.bonus{background:rgba(255,215,0,0.15);color:var(--neon-gold);border:1px solid rgba(255,215,0,0.3);}
+
+/* OPTIONS */
+.opts-sections{width:100%;display:flex;flex-direction:column;gap:20px;}
+.opts-section-title{font-family:var(--font-game);font-size:9px;letter-spacing:4px;color:rgba(255,255,255,0.25);text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.06);}
+.opt-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.opt-label{font-family:var(--font-ui);font-size:13px;color:rgba(255,255,255,0.8);}
+.opt-sub{font-family:var(--font-ui);font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px;}
+.toggle-switch{position:relative;width:44px;height:22px;background:rgba(255,255,255,0.1);border-radius:11px;cursor:pointer;transition:background 0.3s;border:1px solid rgba(255,255,255,0.15);flex-shrink:0;}
+.toggle-switch.on{background:rgba(0,245,255,0.3);border-color:rgba(0,245,255,0.5);box-shadow:0 0 10px rgba(0,245,255,0.2);}
+.toggle-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;background:rgba(255,255,255,0.4);border-radius:50%;transition:all 0.3s;}
+.toggle-switch.on .toggle-knob{left:24px;background:var(--neon-cyan);}
+.opt-select{font-family:var(--font-game);font-size:10px;letter-spacing:2px;background:rgba(0,245,255,0.06);border:1px solid rgba(0,245,255,0.2);color:var(--neon-cyan);padding:0;border-radius:3px;cursor:pointer;display:flex;gap:0;}
+.opt-select-item{padding:6px 10px;border-radius:2px;cursor:pointer;color:rgba(255,255,255,0.4);transition:all 0.2s;}
+.opt-select-item.active{background:rgba(0,245,255,0.15);color:var(--neon-cyan);}
+.opt-slider-wrap{display:flex;align-items:center;gap:10px;}
+.opt-slider{-webkit-appearance:none;appearance:none;width:120px;height:3px;background:rgba(0,245,255,0.2);outline:none;border-radius:3px;}
+.opt-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--neon-cyan);border-radius:50%;cursor:pointer;box-shadow:0 0 8px rgba(0,245,255,0.6);}
+.opt-slider-val{font-family:var(--font-game);font-size:11px;color:var(--neon-cyan);min-width:24px;text-align:right;}
+
+/* COMPETITION */
+.comp-header-info{width:100%;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;}
+.comp-stat-card{background:rgba(255,215,0,0.05);border:1px solid rgba(255,215,0,0.15);border-radius:6px;padding:12px;text-align:center;}
+.comp-stat-val{font-family:var(--font-game);font-size:18px;font-weight:700;color:var(--neon-gold);}
+.comp-stat-label{font-family:var(--font-ui);font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:2px;text-transform:uppercase;margin-top:4px;}
+.bracket-section-title{font-family:var(--font-game);font-size:10px;letter-spacing:3px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin:0 0 12px;width:100%;}
+.bracket-flow{width:100%;display:flex;gap:12px;align-items:center;margin-bottom:20px;overflow-x:auto;padding-bottom:8px;}
+.bracket-round{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;}
+.br-label{font-family:var(--font-game);font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-bottom:4px;}
+.br-match{background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.2);border-radius:4px;padding:6px 12px;text-align:center;}
+.br-match-teams{font-family:var(--font-game);font-size:9px;color:rgba(255,255,255,0.6);letter-spacing:1px;}
+.br-match-prize{font-family:var(--font-ui);font-size:9px;color:var(--neon-gold);margin-top:2px;}
+.br-arrow{color:rgba(255,215,0,0.3);font-size:16px;align-self:center;}
+.prize-structure{width:100%;background:rgba(255,215,0,0.04);border:1px solid rgba(255,215,0,0.1);border-radius:6px;padding:14px;margin-bottom:14px;}
+.prize-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-family:var(--font-ui);font-size:12px;color:rgba(255,255,255,0.5);}
+.prize-row:last-child{border-bottom:none;}
+.prize-row span:last-child{color:var(--neon-gold);font-weight:600;}
+.spectator-box{width:100%;background:rgba(255,107,0,0.05);border:1px solid rgba(255,107,0,0.2);border-radius:6px;padding:14px;display:flex;gap:20px;align-items:center;}
+.spec-icon{font-size:32px;}
+.spec-info{flex:1;}
+.spec-title{font-family:var(--font-game);font-size:11px;letter-spacing:2px;color:var(--neon-orange);text-transform:uppercase;margin-bottom:4px;}
+.spec-desc{font-family:var(--font-ui);font-size:11px;color:rgba(255,255,255,0.4);line-height:1.5;}
+.spec-btn{font-family:var(--font-game);font-size:10px;letter-spacing:2px;padding:8px 16px;background:rgba(255,107,0,0.15);border:1px solid rgba(255,107,0,0.4);color:var(--neon-orange);border-radius:3px;cursor:pointer;text-transform:uppercase;white-space:nowrap;transition:all 0.2s;}
+.spec-btn:hover{background:rgba(255,107,0,0.25);}
+
+/* NAV TABS */
+.nav-tabs{position:absolute;bottom:0;left:0;right:0;display:flex;background:rgba(5,10,20,0.95);border-top:1px solid rgba(0,245,255,0.1);}
+.nav-tab{flex:1;padding:10px 6px;text-align:center;cursor:pointer;transition:all 0.2s;border:none;background:transparent;}
+.nav-tab:hover{background:rgba(0,245,255,0.05);}
+.nav-tab.active{background:rgba(0,245,255,0.08);}
+.nav-tab-icon{font-size:16px;display:block;}
+.nav-tab-label{font-family:var(--font-game);font-size:7px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.3);display:block;margin-top:2px;}
+.nav-tab.active .nav-tab-label{color:var(--neon-cyan);}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="scanline"></div>
+
+<!-- SPLASH -->
+<div class="page active" id="splash">
+  <div class="splash-logo">PONG</div>
+  <div class="splash-sub">Ultra Arena Edition</div>
+  <div class="splash-1v1"><span>★ 1 VS 1 ★</span></div>
+  <div class="splash-ball-anim">
+    <div class="field-line"></div>
+    <div class="paddle-l"></div>
+    <div class="paddle-r"></div>
+    <div class="ball"></div>
+  </div>
+  <button class="btn-start" onclick="showPage('home')">APPUYER POUR JOUER</button>
+  <div class="splash-credits">© 2025 PONG ULTRA — v1.0</div>
+</div>
+
+<!-- HOME -->
+<div class="page" id="home">
+  <div class="home-left">
+    <div class="home-logo-sm">PONG</div>
+    <div class="home-tag">Ultra Arena</div>
+    <div class="mini-field">
+      <div class="mini-center-circle"></div>
+      <div class="mini-score">0 : 0</div>
+      <div class="mini-pad l1"></div>
+      <div class="mini-pad r1"></div>
+    </div>
+    <div class="mode-badges">
+      <div class="mode-badge">Local</div>
+      <div class="mode-badge">Réseau</div>
+      <div class="mode-badge">vs IA</div>
+      <div class="mode-badge">IA vs IA</div>
+    </div>
+  </div>
+  <div class="home-right">
+    <div class="menu-section-title">— Jouer —</div>
+    <div class="menu-item" onclick="alert('Partie locale 1v1')">
+      <div class="menu-icon">🎮</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Jouer en Local</div>
+        <div class="menu-label-sub">1v1 — même écran, 2 joueurs</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-item" onclick="alert('Multijoueur réseau')">
+      <div class="menu-icon">🌐</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Multijoueur Réseau</div>
+        <div class="menu-label-sub">1v1 — LAN / Internet</div>
+      </div>
+      <span class="menu-badge-hot">En ligne</span>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-item" onclick="alert('Vs IA')">
+      <div class="menu-icon">🤖</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Vs Intelligence Artificielle</div>
+        <div class="menu-label-sub">1 joueur contre l'IA</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-item" onclick="alert('IA vs IA')">
+      <div class="menu-icon">👁️</div>
+      <div class="menu-label">
+        <div class="menu-label-title">IA vs IA</div>
+        <div class="menu-label-sub">Mode démo automatique</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-section-title">— Configuration —</div>
+    <div class="menu-item" onclick="showPage('difficulty')">
+      <div class="menu-icon">⚡</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Difficulté IA</div>
+        <div class="menu-label-sub">Niveau de l'adversaire IA</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-item" onclick="showPage('obstacles')">
+      <div class="menu-icon">🧱</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Obstacles & Terrain</div>
+        <div class="menu-label-sub">Obstacles, bonus et malus</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-item" onclick="showPage('options')">
+      <div class="menu-icon">⚙️</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Options</div>
+        <div class="menu-label-sub">Audio, graphiques, contrôles</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-section-title">— Compétition —</div>
+    <div class="menu-item competition" onclick="showPage('competition')">
+      <div class="menu-icon">🏆</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Mode Compétition</div>
+        <div class="menu-label-sub">Tournoi 1v1 avec prize pool réel</div>
+      </div>
+      <span class="menu-badge-new">Nouveau</span>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-section-title">— Système —</div>
+    <div class="menu-item" onclick="alert('Classement global')">
+      <div class="menu-icon">📊</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Classement</div>
+        <div class="menu-label-sub">Meilleurs joueurs globaux</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+    <div class="menu-item danger" onclick="alert('Quitter (PC uniquement)')">
+      <div class="menu-icon">✕</div>
+      <div class="menu-label">
+        <div class="menu-label-title">Quitter</div>
+        <div class="menu-label-sub">PC uniquement</div>
+      </div>
+      <div class="menu-arrow">›</div>
+    </div>
+  </div>
+</div>
+
+<!-- DIFFICULTY -->
+<div class="page" id="difficulty">
+  <div class="page-header">
+    <button class="back-btn" onclick="showPage('home')">‹ Retour</button>
+    <div class="page-title">Difficulté <span>IA</span></div>
+  </div>
+  <div class="diff-grid">
+    <div class="diff-card" onclick="selectDiff(this)">
+      <div class="diff-rank" style="color:rgba(0,245,255,0.8)">01</div>
+      <div class="diff-name" style="color:rgba(0,245,255,0.6)">Débutant</div>
+      <div class="diff-dots"><div class="diff-dot filled"></div><div class="diff-dot"></div><div class="diff-dot"></div><div class="diff-dot"></div><div class="diff-dot"></div></div>
+      <div class="diff-desc">L'IA fait des erreurs fréquentes, réagit lentement.</div>
+      <div class="diff-stats">
+        <div class="diff-stat"><span>Vitesse IA</span><span class="diff-stat-val">20%</span></div>
+        <div class="diff-stat"><span>Précision</span><span class="diff-stat-val">40%</span></div>
+        <div class="diff-stat"><span>Anticipation</span><span class="diff-stat-val">Aucune</span></div>
+      </div>
+    </div>
+    <div class="diff-card" onclick="selectDiff(this)">
+      <div class="diff-rank" style="color:rgba(0,245,255,0.9)">02</div>
+      <div class="diff-name" style="color:rgba(0,245,255,0.7)">Apprenti</div>
+      <div class="diff-dots"><div class="diff-dot filled"></div><div class="diff-dot filled"></div><div class="diff-dot"></div><div class="diff-dot"></div><div class="diff-dot"></div></div>
+      <div class="diff-desc">Erreurs occasionnelles, anticipe les trajectoires simples.</div>
+      <div class="diff-stats">
+        <div class="diff-stat"><span>Vitesse IA</span><span class="diff-stat-val">40%</span></div>
+        <div class="diff-stat"><span>Précision</span><span class="diff-stat-val">60%</span></div>
+        <div class="diff-stat"><span>Anticipation</span><span class="diff-stat-val">Faible</span></div>
+      </div>
+    </div>
+    <div class="diff-card selected orange" onclick="selectDiff(this)">
+      <div class="diff-rank" style="color:var(--neon-orange)">03</div>
+      <div class="diff-name" style="color:var(--neon-orange)">Compétiteur</div>
+      <div class="diff-dots"><div class="diff-dot filled orange"></div><div class="diff-dot filled orange"></div><div class="diff-dot filled orange"></div><div class="diff-dot"></div><div class="diff-dot"></div></div>
+      <div class="diff-desc">Bonne anticipation, exploite les rebonds à 1 mur.</div>
+      <div class="diff-stats">
+        <div class="diff-stat"><span>Vitesse IA</span><span class="diff-stat-val">65%</span></div>
+        <div class="diff-stat"><span>Précision</span><span class="diff-stat-val">78%</span></div>
+        <div class="diff-stat"><span>Anticipation</span><span class="diff-stat-val">Moyenne</span></div>
+      </div>
+    </div>
+    <div class="diff-card red" onclick="selectDiff(this)">
+      <div class="diff-rank" style="color:#FF4040">04</div>
+      <div class="diff-name" style="color:#FF4040">Expert</div>
+      <div class="diff-dots"><div class="diff-dot filled red"></div><div class="diff-dot filled red"></div><div class="diff-dot filled red"></div><div class="diff-dot filled red"></div><div class="diff-dot"></div></div>
+      <div class="diff-desc">Anticipe angles complexes, exploite les obstacles.</div>
+      <div class="diff-stats">
+        <div class="diff-stat"><span>Vitesse IA</span><span class="diff-stat-val">85%</span></div>
+        <div class="diff-stat"><span>Précision</span><span class="diff-stat-val">92%</span></div>
+        <div class="diff-stat"><span>Anticipation</span><span class="diff-stat-val">Élevée</span></div>
+      </div>
+    </div>
+    <div class="diff-card gold" onclick="selectDiff(this)">
+      <div class="diff-rank" style="color:var(--neon-gold)">05</div>
+      <div class="diff-name" style="color:var(--neon-gold)">Légende</div>
+      <div class="diff-dots"><div class="diff-dot filled gold"></div><div class="diff-dot filled gold"></div><div class="diff-dot filled gold"></div><div class="diff-dot filled gold"></div><div class="diff-dot filled gold"></div></div>
+      <div class="diff-desc">IA quasi-parfaite, anticipe tous les rebonds + obstacles.</div>
+      <div class="diff-stats">
+        <div class="diff-stat"><span>Vitesse IA</span><span class="diff-stat-val">100%</span></div>
+        <div class="diff-stat"><span>Précision</span><span class="diff-stat-val">99%</span></div>
+        <div class="diff-stat"><span>Anticipation</span><span class="diff-stat-val">Parfaite</span></div>
+      </div>
+    </div>
+    <div class="diff-card" onclick="selectDiff(this)">
+      <div class="diff-rank" style="color:#CC77FF">06</div>
+      <div class="diff-name" style="color:#CC77FF">Chaos</div>
+      <div class="diff-dots"><div class="diff-dot filled purple"></div><div class="diff-dot filled purple"></div><div class="diff-dot filled purple"></div><div class="diff-dot filled purple"></div><div class="diff-dot filled purple"></div></div>
+      <div class="diff-desc">Comportement totalement imprévisible et aléatoire !</div>
+      <div class="diff-stats">
+        <div class="diff-stat"><span>Vitesse IA</span><span class="diff-stat-val">Variable</span></div>
+        <div class="diff-stat"><span>Précision</span><span class="diff-stat-val">??%</span></div>
+        <div class="diff-stat"><span>Anticipation</span><span class="diff-stat-val">Aléatoire</span></div>
+      </div>
+    </div>
+  </div>
+  <button class="btn-start" style="font-size:11px;padding:10px 32px" onclick="alert('Difficulté sauvegardée !')">CONFIRMER</button>
+</div>
+
+<!-- OBSTACLES -->
+<div class="page" id="obstacles">
+  <div class="page-header">
+    <button class="back-btn" onclick="showPage('home')">‹ Retour</button>
+    <div class="page-title">Obstacles <span>& Terrain</span></div>
+  </div>
+  <div class="obs-grid">
+    <div class="obs-card selected" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(0,245,255,0.1);border:1px solid rgba(0,245,255,0.25)">🧱<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Mur Solide</div><div class="obs-desc">Rebond parfait à 90°. Stratégique à placer.</div><div class="obs-tags"><span class="obs-tag plus">Rebond précis</span><span class="obs-tag minus">Zone morte</span></div></div>
+    </div>
+    <div class="obs-card" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.25)">⚡<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Portail Électrique</div><div class="obs-desc">Téléporte la balle à l'opposé avec +vitesse.</div><div class="obs-tags"><span class="obs-tag bonus">+Vitesse ×1.5</span><span class="obs-tag minus">Direction aléatoire</span></div></div>
+    </div>
+    <div class="obs-card" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(255,64,64,0.1);border:1px solid rgba(255,64,64,0.25)">🌀<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Zone Gravitationnelle</div><div class="obs-desc">Attire la balle vers son centre, dévie la trajectoire.</div><div class="obs-tags"><span class="obs-tag minus">Déviation forcée</span><span class="obs-tag bonus">Piège ennemi</span></div></div>
+    </div>
+    <div class="obs-card" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(0,255,100,0.1);border:1px solid rgba(0,255,100,0.25)">💨<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Courant d'Air</div><div class="obs-desc">Pousse la balle dans une direction fixe.</div><div class="obs-tags"><span class="obs-tag plus">Prévisible</span><span class="obs-tag bonus">Boost vitesse</span></div></div>
+    </div>
+    <div class="obs-card" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(204,119,255,0.1);border:1px solid rgba(204,119,255,0.25)">🔮<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Miroir Fantôme</div><div class="obs-desc">La balle traverse et laisse un clone temporaire.</div><div class="obs-tags"><span class="obs-tag bonus">Double menace</span><span class="obs-tag minus">Clone imprévisible</span></div></div>
+    </div>
+    <div class="obs-card" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(255,107,0,0.1);border:1px solid rgba(255,107,0,0.25)">💣<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Mine</div><div class="obs-desc">Explose au contact — aveugle les 2 joueurs 2s.</div><div class="obs-tags"><span class="obs-tag minus">Aveuglement</span><span class="obs-tag bonus">Chaos offensif</span></div></div>
+    </div>
+    <div class="obs-card" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(0,245,255,0.08);border:1px solid rgba(0,245,255,0.2)">🧲<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Aimant</div><div class="obs-desc">Ralentit puis propulse la balle à ×2 vitesse.</div><div class="obs-tags"><span class="obs-tag plus">Tension tactique</span><span class="obs-tag bonus">+Vitesse ×2</span></div></div>
+    </div>
+    <div class="obs-card" onclick="toggleObs(this)">
+      <div class="obs-icon-box" style="background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.2)">⭐<div class="obs-check">✓</div></div>
+      <div class="obs-info"><div class="obs-name">Étoile Bonus</div><div class="obs-desc">Donne un bonus aléatoire au dernier joueur à toucher.</div><div class="obs-tags"><span class="obs-tag bonus">Raquette géante</span><span class="obs-tag bonus">Point double</span></div></div>
+    </div>
+  </div>
+  <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
+    <button class="btn-start" style="font-size:10px;padding:10px 28px" onclick="alert('Sauvegardé !')">VALIDER</button>
+    <button class="back-btn" onclick="document.querySelectorAll('.obs-card').forEach(c=>c.classList.add('selected'))">Tout sélectionner</button>
+    <button class="back-btn" onclick="document.querySelectorAll('.obs-card').forEach(c=>c.classList.remove('selected'))">Vider</button>
+  </div>
+</div>
+
+<!-- OPTIONS -->
+<div class="page" id="options">
+  <div class="page-header">
+    <button class="back-btn" onclick="showPage('home')">‹ Retour</button>
+    <div class="page-title">Op<span>tions</span></div>
+  </div>
+  <div class="opts-sections">
+    <div>
+      <div class="opts-section-title">— Audio —</div>
+      <div class="opt-row">
+        <div><div class="opt-label">Musique</div><div class="opt-sub">Bande-son électronique</div></div>
+        <div class="opt-slider-wrap"><input type="range" class="opt-slider" min="0" max="100" value="75" oninput="this.nextElementSibling.textContent=this.value"><div class="opt-slider-val">75</div></div>
+      </div>
+      <div class="opt-row">
+        <div><div class="opt-label">Effets sonores</div><div class="opt-sub">Impacts, buts, power-ups</div></div>
+        <div class="opt-slider-wrap"><input type="range" class="opt-slider" min="0" max="100" value="90" oninput="this.nextElementSibling.textContent=this.value"><div class="opt-slider-val">90</div></div>
+      </div>
+      <div class="opt-row">
+        <div><div class="opt-label">Annonceur vocal</div></div>
+        <div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="opts-section-title">— Graphiques —</div>
+      <div class="opt-row">
+        <div><div class="opt-label">Qualité visuelle</div></div>
+        <div class="opt-select">
+          <div class="opt-select-item" onclick="setQ(this)">Basse</div>
+          <div class="opt-select-item" onclick="setQ(this)">Moy.</div>
+          <div class="opt-select-item active" onclick="setQ(this)">Haute</div>
+          <div class="opt-select-item" onclick="setQ(this)">Ultra</div>
+        </div>
+      </div>
+      <div class="opt-row"><div><div class="opt-label">Effets néon</div></div><div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div></div>
+      <div class="opt-row"><div><div class="opt-label">Particules</div></div><div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div></div>
+      <div class="opt-row"><div><div class="opt-label">Scanlines rétro</div></div><div class="toggle-switch" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div></div>
+      <div class="opt-row"><div><div class="opt-label">Mode daltonien</div></div><div class="toggle-switch" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div></div>
+    </div>
+    <div>
+      <div class="opts-section-title">— Gameplay —</div>
+      <div class="opt-row">
+        <div><div class="opt-label">Points pour gagner</div></div>
+        <div class="opt-slider-wrap"><input type="range" class="opt-slider" min="3" max="21" step="2" value="11" oninput="this.nextElementSibling.textContent=this.value"><div class="opt-slider-val">11</div></div>
+      </div>
+      <div class="opt-row">
+        <div><div class="opt-label">Vitesse de balle</div></div>
+        <div class="opt-select">
+          <div class="opt-select-item" onclick="setQ(this)">Lente</div>
+          <div class="opt-select-item active" onclick="setQ(this)">Norm.</div>
+          <div class="opt-select-item" onclick="setQ(this)">Rapide</div>
+        </div>
+      </div>
+      <div class="opt-row"><div><div class="opt-label">Vibration manette</div></div><div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div></div>
+    </div>
+    <div>
+      <div class="opts-section-title">— Contrôles (PC) —</div>
+      <div class="opt-row"><div><div class="opt-label">Joueur Gauche (Cyan)</div><div class="opt-sub">Déplacement raquette</div></div><div style="font-family:var(--font-game);font-size:11px;color:var(--neon-cyan)">W / S</div></div>
+      <div class="opt-row"><div><div class="opt-label">Joueur Droit (Orange)</div><div class="opt-sub">Déplacement raquette</div></div><div style="font-family:var(--font-game);font-size:11px;color:var(--neon-orange)">↑ / ↓</div></div>
+      <div class="opt-row"><div><div class="opt-label">Pause</div></div><div style="font-family:var(--font-game);font-size:11px;color:rgba(255,255,255,0.5)">ESPACE</div></div>
+    </div>
+    <div>
+      <div class="opts-section-title">— Réseau —</div>
+      <div class="opt-row">
+        <div><div class="opt-label">Région serveur</div></div>
+        <div class="opt-select">
+          <div class="opt-select-item active">Auto</div>
+          <div class="opt-select-item">EU</div>
+          <div class="opt-select-item">US</div>
+          <div class="opt-select-item">AF</div>
+        </div>
+      </div>
+      <div class="opt-row"><div><div class="opt-label">Afficher le ping</div></div><div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div></div>
+    </div>
+  </div>
+  <div style="margin-top:16px"><button class="btn-start" style="font-size:10px;padding:10px 28px" onclick="alert('Options sauvegardées !')">SAUVEGARDER</button></div>
+</div>
+
+<!-- COMPETITION -->
+<div class="page" id="competition">
+  <div class="page-header">
+    <button class="back-btn" onclick="showPage('home')">‹ Retour</button>
+    <div class="page-title">Mode <span>Compétition</span></div>
+  </div>
+  <div class="comp-header-info">
+    <div class="comp-stat-card"><div class="comp-stat-val">16</div><div class="comp-stat-label">Joueurs max</div></div>
+    <div class="comp-stat-card"><div class="comp-stat-val">2 500 XAF</div><div class="comp-stat-label">Mise d'entrée</div></div>
+    <div class="comp-stat-card"><div class="comp-stat-val">68%</div><div class="comp-stat-label">Prize pool net</div></div>
+  </div>
+  <div class="bracket-section-title">— Structure du Tournoi 1v1 (16 joueurs) —</div>
+  <div class="bracket-flow">
+    <div class="bracket-round">
+      <div class="br-label">1/8 Finale</div>
+      <div class="br-match"><div class="br-match-teams">8 matchs</div><div class="br-match-prize">Éliminé = 0</div></div>
+    </div>
+    <div class="br-arrow">›</div>
+    <div class="bracket-round">
+      <div class="br-label">Quarts</div>
+      <div class="br-match"><div class="br-match-teams">4 matchs</div><div class="br-match-prize">Éliminé = 5%</div></div>
+    </div>
+    <div class="br-arrow">›</div>
+    <div class="bracket-round">
+      <div class="br-label">Demies</div>
+      <div class="br-match"><div class="br-match-teams">2 matchs</div><div class="br-match-prize">Éliminé = 6%</div></div>
+    </div>
+    <div class="br-arrow">›</div>
+    <div class="bracket-round">
+      <div class="br-label">Finale</div>
+      <div class="br-match" style="border-color:rgba(255,215,0,0.5)"><div class="br-match-teams" style="color:var(--neon-gold)">1 match</div><div class="br-match-prize">2e = 28%</div></div>
+    </div>
+    <div class="br-arrow">›</div>
+    <div class="bracket-round">
+      <div class="br-label">Vainqueur</div>
+      <div class="br-match" style="border-color:rgba(255,215,0,0.8);background:rgba(255,215,0,0.1)"><div class="br-match-teams" style="color:var(--neon-gold)">🏆 Champion</div><div class="br-match-prize">55% du pool</div></div>
+    </div>
+  </div>
+  <div class="prize-structure">
+    <div class="prize-row"><span>🏆 Vainqueur</span><span>55% du prize pool</span></div>
+    <div class="prize-row"><span>🥈 Finaliste</span><span>28% du prize pool</span></div>
+    <div class="prize-row"><span>🥉 Demi-finalistes (×2)</span><span>12% (6% chacun)</span></div>
+    <div class="prize-row"><span>🏅 Quart-finalistes (×4)</span><span>5% (1.25% chacun)</span></div>
+    <div class="prize-row"><span>📡 Maintenance plateforme</span><span>10% prélevés</span></div>
+    <div class="prize-row"><span>⚖️ Arbitrage</span><span>5% prélevés</span></div>
+  </div>
+  <div class="spectator-box">
+    <div class="spec-icon">👁️</div>
+    <div class="spec-info">
+      <div class="spec-title">Mode Spectateur & Paris 1v1</div>
+      <div class="spec-desc">Regardez les duels en direct. Accès spectateur payant (10% reversé au prize pool). Pariez sur votre joueur favori selon les cotes en temps réel.</div>
+    </div>
+    <button class="spec-btn" onclick="alert('Rejoindre comme spectateur')">Regarder</button>
+  </div>
+  <div style="margin-top:16px;display:flex;gap:12px">
+    <button class="btn-start" style="font-size:10px;padding:10px 28px" onclick="alert('Inscription !')">S\'INSCRIRE — 2 500 XAF</button>
+    <button class="back-btn" onclick="alert('Créer un tournoi privé')">Créer tournoi</button>
+  </div>
+</div>
+
+<!-- NAV TABS -->
+<div class="nav-tabs" id="navTabs" style="display:none">
+  <button class="nav-tab" onclick="showPage('home')"><span class="nav-tab-icon">🏠</span><span class="nav-tab-label">Accueil</span></button>
+  <button class="nav-tab" onclick="showPage('difficulty')"><span class="nav-tab-icon">⚡</span><span class="nav-tab-label">Difficulté</span></button>
+  <button class="nav-tab" onclick="showPage('obstacles')"><span class="nav-tab-icon">🧱</span><span class="nav-tab-label">Obstacles</span></button>
+  <button class="nav-tab" onclick="showPage('options')"><span class="nav-tab-icon">⚙️</span><span class="nav-tab-label">Options</span></button>
+  <button class="nav-tab" onclick="showPage('competition')"><span class="nav-tab-icon">🏆</span><span class="nav-tab-label">Compétition</span></button>
+</div>
+
+<script>
+const pages=['splash','home','difficulty','obstacles','options','competition'];
+const navPages=['home','difficulty','obstacles','options','competition'];
+function showPage(id){
+  pages.forEach(p=>{const e=document.getElementById(p);if(e)e.classList.remove('active');});
+  document.getElementById(id).classList.add('active');
+  const nav=document.getElementById('navTabs');
+  nav.style.display=id==='splash'?'none':'flex';
+  document.querySelectorAll('.nav-tab').forEach((t,i)=>t.classList.toggle('active',navPages[i]===id));
+}
+function selectDiff(el){document.querySelectorAll('.diff-card').forEach(c=>c.classList.remove('selected'));el.classList.add('selected');}
+function toggleObs(el){el.classList.toggle('selected');}
+function setQ(el){el.closest('.opt-select').querySelectorAll('.opt-select-item').forEach(i=>i.classList.remove('active'));el.classList.add('active');}
+</script>
+</body>
+</html>

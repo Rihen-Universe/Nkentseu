@@ -3,7 +3,7 @@
  * @File    NKImage.h
  * @Brief   Include unique — bibliothèque NKImage complète.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Formats
  *  Lecture  : PNG, JPEG, BMP, TGA, HDR, PPM/PGM/PBM, QOI, GIF, ICO, WebP, SVG
@@ -43,11 +43,13 @@
 #include "NKImage/Codecs/BMP/NkBMPCodec.h"
 #include "NKImage/Codecs/TGA/NkTGACodec.h"
 #include "NKImage/Codecs/HDR/NkHDRCodec.h"
+#include "NKImage/Codecs/EXR/NkEXRCodec.h"
 #include "NKImage/Codecs/PPM/NkPPMCodec.h"
 #include "NKImage/Codecs/QOI/NkQOICodec.h"
 #include "NKImage/Codecs/GIF/NkGIFCodec.h"
 #include "NKImage/Codecs/ICO/NkICOCodec.h"
 #include "NKImage/Codecs/WEBP/NkWebPCodec.h"
 
-#include "NKImage/Codecs/SVG/NkSVGDOM.h"
-#include "NKImage/Codecs/SVG/NkSVGRenderer.h"
+// SVG : NkSVGDOM/Renderer ont ete remplaces par NkSVGCodec (codec unique).
+// Voir [[nkimage_svg_support]] en memoire.
+#include "NKImage/Codecs/SVG/NkSVGCodec.h"

@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+modules.jenga — Graphe de dependances + linkage du build Nkentseu
+==================================================================
+Source unique de verite pour : qui depend de qui, quel include, quel link,
+static vs shared. Trois entrees DSL pour les .jenga :
+
+  • nkentseudependson([...])  : LE helper general (apps ET libs). A partir des
+        noms de modules, emet AUTOMATIQUEMENT includedirs + links + dependson +
+        defines (_STATIC_LIB), en resolvant le transitif. Modificateurs par dep
+        via dep(name, include=?, link=?, kind=?). Extras inline par app via
+        extra_includes / extra_links / extra_defines (rien a mettre ici).
+
+  • useglobalkind("NKxxx")    : pour une LIB — declare kind + macro d'export +
+        defines des deps. (Compat : cas particulier, conserve.)
+
+  • useappdeps("NKxxx", ...)  : pour une APP — defines des deps seulement.
+        (Compat : cas particulier, conserve.)
+
+Les CLES du registre sont les NOMS DE PROJET EXACTS (NKCore, NKRHI, Noge...),
+donc include = %{<cle>.location}/src et link = <cle> SANS conversion. Les
+anciennes cles courtes ("core", "rhi"...) restent acceptees via _ALIASES.
+
+_GLOBAL_KIND : interrupteur unique static <-> shared pour toute la solution.
+"""
+
+from Jenga import *
+from jengaconfig import *                                    # noqa: F401, F403
+try:
+    from Jenga import ProjectKind, kindexport, defines, includedirs, links, dependson  # noqa: F811
+except ImportError:
+    pass  # Resolu a l'execution par le runtime Jenga
+
+# =============================================================================
+# SECTION 1 : KIND GLOBAL
+# =============================================================================
+#   ProjectKind.STATIC_LIB  -> .lib/.a ; chaque conso recoit NKENTSEU_XXX_STATIC_LIB
+#   ProjectKind.SHARED_LIB  -> .dll/.so ; aucun define _STATIC_LIB emis
+# =============================================================================
+_GLOBAL_KIND = ProjectKind.STATIC_LIB
+
+# =============================================================================
+# SECTION 2 : REGISTRE DES MODULES
+# =============================================================================
+# Cle = NOM DE PROJET EXACT (NKCore, NKRHI, Noge...). Champs d'une entree (_m) :
+#   export   : prefixe macro d'export (NKENTSEU_XXX) ; None = pas de _STATIC_LIB
+#   deps     : dependances DIRECTES (noms de projet) ; transitif resolu en DFS
+#   includes : surcharge des includedirs (defaut [%{<cle>.location}/src])
+#   linkable : False = header-only / pas de lib a linker (include seul)
+# =============================================================================
+
+def _m(export, deps, includes=None, linkable=True) -> dict:
+    return {"export": export, "deps": deps, "includes": includes, "linkable": linkable}
+
+_REGISTRY: dict = {
+    # ---- Foundation ----------------------------------------------------------
+    "NKPlatform"     : _m("NKENTSEU_PLATFORM",     []),
+    "NKCore"         : _m("NKENTSEU_CORE",         ["NKPlatform"]),
+    "NKMemory"       : _m("NKENTSEU_MEMORY",       ["NKPlatform", "NKCore"]),
+    "NKContainers"   : _m("NKENTSEU_CONTAINERS",   ["NKPlatform", "NKCore", "NKMemory"]),
+    "NKMath"         : _m("NKENTSEU_MATH",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),
+
+    # ---- System --------------------------------------------------------------
+    "NKThreading"    : _m("NKENTSEU_THREADING",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),
+    "NKLogger"       : _m("NKENTSEU_LOGGER",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKThreading"]),
+    "NKFileSystem"   : _m("NKENTSEU_FILESYSTEM",   ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKThreading", "NKLogger"]),
+    "NKStream"       : _m("NKENTSEU_STREAM",       ["NKPlatform", "NKCore", "NKLogger", "NKContainers", "NKThreading", "NKFileSystem"]),
+    "NKTime"         : _m("NKENTSEU_TIME",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger"]),
+    "NKReflection"   : _m("NKENTSEU_REFLECTION",   ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKThreading", "NKLogger"]),
+    "NKSerialization": _m("NKENTSEU_SERIALIZATION",["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKReflection", "NKFileSystem", "NKLogger"]),
+    "NKNetwork"      : _m("NKENTSEU_NETWORK",      ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKMath"]),
+
+    # ---- Runtime -------------------------------------------------------------
+    "NKEvent"        : _m("NKENTSEU_EVENT",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
+    "NKWindow"       : _m("NKENTSEU_WINDOW",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent"]),
+    "NKCanvas"       : _m("NKENTSEU_CANVAS",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKWindow", "NKFileSystem"]),
+    # NKSL : langage de shaders (compilateur NkSL + ShaderConvert SPIR-V). Pur CPU.
+    "NKSL"           : _m("NKENTSEU_NKSL",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKFileSystem"]),
+    "NKRHI"          : _m("NKENTSEU_RHI",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKWindow", "NKFileSystem", "NKSL"]),
+    "NKRenderer"     : _m("NKENTSEU_RENDERER",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKThreading", "NKEvent", "NKWindow", "NKRHI", "NKSL", "NKImage", "NKFont", "NKFileSystem", "NKSerialization", "NKReflection"]),
+    "NKImage"        : _m("NKENTSEU_IMAGE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
+    "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKImage"]),
+    "NKECS"          : _m("NKENTSEU_ECS",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
+    "NKCamera"       : _m("NKENTSEU_CAMERA",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
+    "NKUI"           : _m("NKENTSEU_UI",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKFont", "NKImage"]),
+    "NKAudio"        : _m("NKENTSEU_AUDIO",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem", "NKThreading", "NKStream"]),
+
+    # ---- Engine --------------------------------------------------------------
+    "Noge"           : _m("NKENTSEU_NOGE",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
+                                                    "NKMath", "NKThreading", "NKLogger", "NKTime",
+                                                    "NKEvent", "NKWindow", "NKCanvas", "NKRHI", "NKRenderer", "NKSL",
+                                                    "NKFont", "NKImage", "NKUI"]),
+
+    # ---- Externes -----------------------------------------------------------
+    # Pas de macro d'export Nkentseu (export=None -> aucun _STATIC_LIB emis).
+    # Include specifique ; lien par le nom du projet. La logique plateforme
+    # (Vulkan SDK vs notre build, MSVC/MinGW, libdirs) reste dans les FILTRES des
+    # consommateurs (NKSL/NKRHI/apps) — le registre ne gere que include+link+dependson.
+    "NKGlad"         : _m(None, [], includes=["%{NKGlad.location}/include"]),
+    # Chaine de compilation de shaders (compilee depuis Externals/Libs) :
+    "NKGLSlang"      : _m(None, [], includes=["%{NKGLSlang.location}"]),       # glslang : <glslang/Public/ShaderLang.h>
+    "NKSPIRVCross"   : _m(None, [], includes=["%{NKSPIRVCross.location}/src"]),# SPIRV-Cross
+    "NKShaderc"      : _m(None, [], includes=["%{NKShaderc.location}/include"]),
+}
+
+# Retro-compat : anciennes cles courtes ("core", "rhi"...) -> nom de projet exact.
+_ALIASES: dict = {
+    "platform": "NKPlatform", "core": "NKCore", "memory": "NKMemory",
+    "containers": "NKContainers", "math": "NKMath", "threading": "NKThreading",
+    "logger": "NKLogger", "filesystem": "NKFileSystem", "stream": "NKStream",
+    "time": "NKTime", "reflection": "NKReflection", "serialization": "NKSerialization",
+    "network": "NKNetwork", "event": "NKEvent", "window": "NKWindow", "canvas": "NKCanvas",
+    "nksl": "NKSL", "rhi": "NKRHI", "renderer": "NKRenderer", "image": "NKImage",
+    "font": "NKFont", "ecs": "NKECS", "camera": "NKCamera", "ui": "NKUI", "audio": "NKAudio",
+    "noge": "Noge", "engine": "Noge", "nkentseu": "Noge", "glad": "NKGlad",
+}
+
+# =============================================================================
+# SECTION 3 : HELPERS INTERNES
+# =============================================================================
+
+def _resolve_key(name: str):
+    """Nom de projet exact (NKCore) OU ancienne cle courte (core) -> cle canonique."""
+    n = (name or "").strip()
+    if n in _REGISTRY:
+        return n
+    low = n.lower()
+    if low in _ALIASES:
+        return _ALIASES[low]
+    for k in _REGISTRY:
+        if k.lower() == low:
+            return k
+    return None
+
+
+def _require_key(name: str, who: str) -> str:
+    k = _resolve_key(name)
+    if k is None:
+        raise KeyError(
+            f"[modules.jenga] {who} : module inconnu '{name}'.\n"
+            f"  Modules disponibles : {sorted(_REGISTRY.keys())}"
+        )
+    return k
+
+
+def _includes_of(key: str) -> list:
+    """Includedirs d'un module : surcharge si fournie, sinon %{<cle>.location}/src."""
+    e = _REGISTRY.get(key)
+    if e is None:
+        return []
+    if e.get("includes") is not None:
+        return list(e["includes"])
+    return [f"%{{{key}.location}}/src"]
+
+
+def _collect_transitive(key: str, visited: set) -> None:
+    """DFS : remplit `visited` avec key + toutes ses dependances transitives."""
+    if key in visited:
+        return
+    visited.add(key)
+    entry = _REGISTRY.get(key)
+    if entry is None:
+        return
+    for d in entry["deps"]:
+        _collect_transitive(_resolve_key(d) or d, visited)
+
+
+# =============================================================================
+# SECTION 4 : useglobalkind / useappdeps (compat — cas particuliers)
+# =============================================================================
+
+def useglobalkind(modulename: str) -> None:
+    """
+    LIB : declare kind + macro d'export du module courant, et emet les defines
+    _STATIC_LIB de toutes ses dependances transitives (mode STATIC).
+    A appeler dans `with project("NKxxx"):`. Accepte nom complet ou cle courte.
+    """
+    key = _require_key(modulename, "useglobalkind")
+    kindexport(_GLOBAL_KIND, _REGISTRY[key]["export"])
+
+    if _GLOBAL_KIND != ProjectKind.STATIC_LIB:
+        return
+    visited: set = set()
+    _collect_transitive(key, visited)
+    visited.discard(key)
+    dep_defines = [
+        f"{_REGISTRY[d]['export']}_STATIC_LIB"
+        for d in visited
+        if d in _REGISTRY and _REGISTRY[d]["export"]
+    ]
+    if dep_defines:
+        defines(sorted(dep_defines))
+
+
+def useappdeps(*modulekeys: str) -> None:
+    """
+    APP : emet les defines _STATIC_LIB pour les modules listes + leur transitif
+    (mode STATIC). Ne configure PAS le kind. Accepte noms complets ou cles courtes.
+    """
+    if _GLOBAL_KIND != ProjectKind.STATIC_LIB:
+        return
+    visited: set = set()
+    for name in modulekeys:
+        _collect_transitive(_require_key(name, "useappdeps"), visited)
+    dep_defines = [
+        f"{_REGISTRY[d]['export']}_STATIC_LIB"
+        for d in visited
+        if d in _REGISTRY and _REGISTRY[d]["export"]
+    ]
+    if dep_defines:
+        defines(sorted(dep_defines))
+
+
+# =============================================================================
+# SECTION 5 : nkentseudependson — LE helper general
+# =============================================================================
+
+class _DepSpec:
+    """Specification d'une dependance avec modificateurs (cf. dep())."""
+    __slots__ = ("name", "include", "link", "kind")
+    def __init__(self, name, include=True, link=True, kind=None):
+        self.name = name; self.include = include; self.link = link; self.kind = kind
+
+
+def dep(name: str, include: bool = True, link: bool = True, kind=None) -> "_DepSpec":
+    """
+    Modificateur de dependance pour nkentseudependson([...]) :
+      • include=False : pas d'includedir (link + dependson seulement, API privee).
+      • link=False    : pas de link/dependson (includedir seulement, header-only).
+      • kind="static" | "dynamic" : force le linkage de CETTE dep (sinon = global).
+                        "dynamic" -> aucun define _STATIC_LIB pour cette dep.
+    Ex. : dep("NKGlad", link=False), dep("NKAudio", include=False), dep("X", kind="dynamic")
+    """
+    return _DepSpec(name, include=include, link=link, kind=kind)
+
+
+def nkentseudependson(deps=None, selfexport=None, extra_includes=None, extra_links=None, extra_defines=None) -> None:
+    """
+    Gere TOUT le graphe de dependances d'un projet (app OU lib) en un appel :
+    emet includedirs + (links) + dependson + defines(_STATIC_LIB), transitif resolu.
+
+    deps : liste de noms de modules (str) et/ou dep(...) pour les modificateurs.
+           Pour une LIB, peut etre omis (les deps directes viennent du registre).
+    selfexport : nom de CE module (mode LIB). Declare alors son kind + macro
+           d'export (kindexport) et NE LINKE PAS les deps NK (juste dependson +
+           includedirs + defines). Sinon = mode APP (link des deps).
+    extra_includes / extra_links / extra_defines : ajouts SPECIFIQUES a ce projet
+        (SDK Vulkan, libs systeme, son propre "src", externals...) — hors registre.
+
+    Ex. (application) :
+        nkentseudependson(["NKCanvas", "NKAudio", "NKUI", "NKNetwork"],
+                          extra_includes=["src"])
+    Ex. (lib) :
+        nkentseudependson(["NKWindow", "NKFont", "NKImage", "NKGlad"],
+                          selfexport="NKCanvas")
+    """
+    # 0. Mode LIB : selfexport = nom de CE module -> declare son kind/export et
+    #    NE linke PAS ses deps NK (juste dependson). Mode APP sinon (link deps).
+    is_lib  = selfexport is not None
+    selfkey = _require_key(selfexport, "nkentseudependson") if is_lib else None
+    if is_lib:
+        kindexport(_GLOBAL_KIND, _REGISTRY[selfkey]["export"])
+    if deps is None:
+        deps = list(_REGISTRY[selfkey]["deps"]) if is_lib else []
+
+    # 1. Normaliser en specs + indexer les deps explicitement listees (modificateurs).
+    explicit: dict = {}
+    for d in deps:
+        spec = d if isinstance(d, _DepSpec) else _DepSpec(d)
+        key = _require_key(spec.name, "nkentseudependson")
+        explicit[key] = spec
+
+    # 2. Fermeture transitive (les deps transitives prennent le comportement par defaut).
+    visited: set = set()
+    for key in explicit:
+        _collect_transitive(key, visited)
+
+    # 3. Construire les listes a emettre.
+    # LIB : ses propres includes ("src" + "pch") sont toujours au meme endroit par
+    # convention -> ajoutes AUTOMATIQUEMENT (pas besoin de les passer en
+    # extra_includes). "pch" inexistant (lib sans PCH) = -I ignore, sans effet.
+    inc: list = ["src", "pch"] if is_lib else []
+    lnk: list = []
+    dpn: list = []
+    defs: list = []
+    for key in sorted(visited):
+        e = _REGISTRY.get(key)
+        if e is None:
+            continue
+        spec = explicit.get(key)              # None => dependance transitive
+        want_inc  = spec.include if spec else True
+        want_link = spec.link    if spec else True
+
+        if want_inc:
+            inc += _includes_of(key)
+        if want_link and e.get("linkable", True):
+            dpn.append(key)
+            if not is_lib:            # une LIB ne linke pas ses deps NK (juste dependson)
+                lnk.append(key)
+
+        # static define : pour les deps dont on inclut les headers, en mode static.
+        if spec is not None and spec.kind == "dynamic":
+            is_static = False
+        elif spec is not None and spec.kind == "static":
+            is_static = True
+        else:
+            is_static = (_GLOBAL_KIND == ProjectKind.STATIC_LIB)
+        if want_inc and is_static and e.get("export"):
+            defs.append(f"{e['export']}_STATIC_LIB")
+
+    # 4. Extras specifiques au projet (hors registre).
+    if extra_includes:
+        inc += list(extra_includes)
+    if extra_links:
+        lnk += list(extra_links)
+    if extra_defines:
+        defs += list(extra_defines)
+
+    # 5. Emettre (dedup en preservant l'ordre pour les includes/links).
+    def _dedup(seq):
+        seen = set(); out = []
+        for x in seq:
+            if x not in seen:
+                seen.add(x); out.append(x)
+        return out
+
+    if inc:
+        includedirs(_dedup(inc))
+    if lnk:
+        links(_dedup(lnk))
+    if dpn:
+        dependson(_dedup(dpn))
+    if defs:
+        defines(sorted(set(defs)))

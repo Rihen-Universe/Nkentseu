@@ -1,0 +1,17 @@
+// ssr.frag.metal.msl — SSR (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct SSRUBO{float4x4 proj,invProj,view;float maxDistance,resolution,thickness,_p;};
+struct PSIn{float4 pos[[position]];float2 uv;};
+fragment float4 ssrFrag(PSIn i[[stage_in]],texture2d<float> tH[[texture(0)]],texture2d<float> tD[[texture(1)]],texture2d<float> tN[[texture(2)]],texture2d<float> tO[[texture(3)]],sampler sL[[sampler(0)]],constant SSRUBO& u[[buffer(4)]]){
+    float d=tD.sample(sL,i.uv).r;if(d>=.9999f)return tH.sample(sL,i.uv);
+    float4 ndc4=float4(i.uv*2.f-1.f,d*2.f-1.f,1.f);float4 vp4=u.invProj*ndc4;float3 vp=vp4.xyz/vp4.w;
+    float3 wn=tN.sample(sL,i.uv).xyz*2.f-1.f;float3 vn=normalize(float3x3(u.view[0].xyz,u.view[1].xyz,u.view[2].xyz)*wn);float3 vr=reflect(normalize(vp),vn);
+    float rog=tO.sample(sL,i.uv).g;if(rog>.5f)return tH.sample(sL,i.uv);
+    float3 rs=vp+vn*.01f,re=rs+vr*u.maxDistance;float hit=-1.f;int steps=int(u.resolution*64.f);
+    for(int li=0;li<steps;li++){float t=(float)(li+1)/(float)steps;float3 sp=mix(rs,re,t);float4 pp=u.proj*float4(sp,1.f);float3 ndc=pp.xyz/pp.w;if(all(abs(ndc.xy)<float2(1.f))){float2 su=ndc.xy*.5f+.5f;float sd=tD.sample(sL,su).r;float4 sv4=u.invProj*float4(su*2.f-1.f,sd*2.f-1.f,1.f);float3 sv=sv4.xyz/sv4.w;if(sv.z<=sp.z&&sp.z-sv.z<u.thickness){hit=t;break;}}}
+    if(hit<0.f)return tH.sample(sL,i.uv);
+    float3 hp=mix(rs,re,hit);float4 hpp=u.proj*float4(hp,1.f);float2 hu=hpp.xy/hpp.w*.5f+.5f;
+    float fade=1.f-max(abs(hu.x-.5f)*2.f,abs(hu.y-.5f)*2.f);fade*=fade*(1.f-hit)*(1.f-rog*2.f);
+    return float4(mix(tH.sample(sL,i.uv).rgb,tH.sample(sL,hu).rgb,fade*.5f),1.f);
+}

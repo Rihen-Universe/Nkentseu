@@ -1,0 +1,8 @@
+// unlit.vert.metal.msl — Unlit Vertex (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct CamUBO{float4x4 view,proj,viewProj,invViewProj;float4 camPos,camDir;float2 vp;float time,dt;};
+struct ObjUBO{float4x4 model,normalMatrix;float4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;float4 sssColor;};
+struct VSIn{float3 pos[[attribute(0)]];float2 uv[[attribute(3)]];float4 color[[attribute(5)]];};
+struct VSOut{float4 pos[[position]];float2 uv;float4 color;};
+vertex VSOut unlitVert(VSIn v[[stage_in]],constant CamUBO& cam[[buffer(0)]],constant ObjUBO& obj[[buffer(1)]]){VSOut o;o.pos=cam.viewProj*(obj.model*float4(v.pos,1.));o.uv=v.uv;o.color=v.color*obj.tint;return o;}

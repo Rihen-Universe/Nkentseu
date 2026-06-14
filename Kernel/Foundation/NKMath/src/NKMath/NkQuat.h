@@ -352,6 +352,10 @@
                 // Génère la matrice de rotation équivalente au quaternion
                 explicit operator NkMat4T<T>() const noexcept;
 
+                // Alias nommé : équivalent à static_cast<NkMat4T<T>>(*this) mais plus
+                // lisible côté caller (transform.rotation.ToMat4() vs static_cast).
+                NkMat4T<T> ToMat4() const noexcept { return static_cast<NkMat4T<T>>(*this); }
+
                 // Conversion explicite vers angles d'Euler avec gestion du gimbal lock
                 // Détecte les singularités à ±90° de Yaw et applique la résolution adaptée
                 explicit operator NkEulerAngle() const noexcept;

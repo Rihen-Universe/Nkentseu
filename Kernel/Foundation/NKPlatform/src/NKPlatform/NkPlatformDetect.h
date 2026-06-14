@@ -350,7 +350,12 @@
     // Applique la priorité : macros FORCE_* > fallback par défaut (Xlib)
     // Gère l'exclusivité mutuelle entre les différentes options.
 
-    #ifdef NKENTSEU_PLATFORM_LINUX
+    // HarmonyOS (OHOS) est basé sur Linux (__linux__ défini) mais possède son
+    // propre backend fenêtrage (XComponent/OHNativeWindow) : il ne doit PAS
+    // entrer dans la sélection X11/Wayland (sinon NKENTSEU_WINDOWING_XLIB est
+    // défini par défaut → inclusion erronée de <X11/Xlib.h>). On garde toutefois
+    // NKENTSEU_PLATFORM_LINUX actif ailleurs pour les chemins POSIX (threads, IO).
+    #if defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(__OHOS__)
         // Gestion des sélections exclusives – désactiver les conflits potentiels
         #if defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)
             #undef NKENTSEU_FORCE_WINDOWING_XCB_ONLY
@@ -411,8 +416,9 @@
     // -------------------------------------------------------------------------
     // Sous-section : HarmonyOS (Huawei)
     // -------------------------------------------------------------------------
-    #if defined(__HARMONY__) || defined(__OHOS__)
+    #if (defined(__OHOS__) || defined(__HARMONY__))  && !defined(NKENTSEU_PLATFORM_HARMONYOS)
         #define NKENTSEU_PLATFORM_HARMONYOS
+#   define NKENTSEU_PLATFORM_MOBILE      1
         #undef NKENTSEU_PLATFORM_NAME
         #undef NKENTSEU_PLATFORM_VERSION
         #define NKENTSEU_PLATFORM_NAME "HarmonyOS"
@@ -798,9 +804,13 @@
     #endif
 
     // Catégorie Unix-like : regroupe les systèmes POSIX compatibles
+    // Android est POSIX-compatible (bionic libc, sys/socket.h, etc.) — on
+    // l'inclut pour que les modules comme NKNetwork compilent leur branche
+    // POSIX sur NDK.
     #if defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_MACOS) || \
         defined(NKENTSEU_PLATFORM_FREEBSD) || defined(NKENTSEU_PLATFORM_OPENBSD) || \
-        defined(NKENTSEU_PLATFORM_NETBSD) || defined(NKENTSEU_PLATFORM_UNIX)
+        defined(NKENTSEU_PLATFORM_NETBSD) || defined(NKENTSEU_PLATFORM_UNIX) || \
+        defined(NKENTSEU_PLATFORM_ANDROID)
         #define NKENTSEU_PLATFORM_POSIX
         #define NKENTSEU_PLATFORM_UNIX_LIKE
     #endif

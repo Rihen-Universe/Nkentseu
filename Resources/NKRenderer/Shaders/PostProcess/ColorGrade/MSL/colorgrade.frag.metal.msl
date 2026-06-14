@@ -1,0 +1,13 @@
+// colorgrade.frag.metal.msl — Color Grading (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct CGUBO{float contrast,saturation,brightness,hueShift,shadows,midtones,highlights,lutStrength;float4 colorFilter,splitShadow,splitHighlight;};
+struct PSIn{float4 pos[[position]];float2 uv;};
+fragment float4 cgFrag(PSIn i[[stage_in]],texture2d<float> tLDR[[texture(0)]],texture3d<float> tLUT[[texture(1)]],sampler sL[[sampler(0)]],constant CGUBO& u[[buffer(2)]]){
+    float3 c=tLDR.sample(sL,i.uv).rgb*u.colorFilter.rgb;
+    c=mix(float3(.5f),c,u.contrast)*u.brightness;
+    float lum=dot(c,float3(.2126f,.7152f,.0722f));c=mix(float3(lum),c,u.saturation);
+    float3 sh=mix(c,u.splitShadow.rgb*u.splitShadow.a,1.f-lum),hl=mix(c,u.splitHighlight.rgb*u.splitHighlight.a,lum);c=mix(c,sh+hl-c,.5f);
+    if(u.lutStrength>0.f){float3 lu=clamp(c,0.f,1.f)*(31.f/32.f)+.5f/32.f;c=mix(c,tLUT.sample(sL,lu).rgb,u.lutStrength);}
+    return float4(clamp(c,0.f,1.f),1.f);
+}

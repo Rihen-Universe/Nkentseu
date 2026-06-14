@@ -19,6 +19,7 @@
 #include "NKMath/NkFunctions.h"
 
 #include <cstdint>
+#include <cstring>
 
 @interface NkUIKitTouchView : UIView {
 @public
@@ -349,6 +350,38 @@ namespace nkentseu {
             } else if (view) {
                 view.hidden = !config.visible;
             }
+
+            // Observers hot-plug écrans externes -> NkSystemDisplayEvent.
+            {
+                NkWindow* self = this;
+                mData.mScreenConnectObserver = [[NSNotificationCenter defaultCenter]
+                    addObserverForName:UIScreenDidConnectNotification
+                                object:nil
+                                 queue:nil
+                            usingBlock:^(NSNotification* note) {
+                    if (!self->mIsOpen) {
+                        return;
+                    }
+                    UIScreen* connected = [note object];
+                    NkDisplayInfo info = UIKitFillDisplayInfo(connected, 0);
+                    NkSystemDisplayEvent evt(NkDisplayChange::NK_DISPLAY_ADDED, info, self->GetId());
+                    NkWESystem::Events().Enqueue_Public(evt, self->GetId());
+                }];
+
+                mData.mScreenDisconnectObserver = [[NSNotificationCenter defaultCenter]
+                    addObserverForName:UIScreenDidDisconnectNotification
+                                object:nil
+                                 queue:nil
+                            usingBlock:^(NSNotification* note) {
+                    if (!self->mIsOpen) {
+                        return;
+                    }
+                    UIScreen* removed = [note object];
+                    NkDisplayInfo info = UIKitFillDisplayInfo(removed, 0);
+                    NkSystemDisplayEvent evt(NkDisplayChange::NK_DISPLAY_REMOVED, info, self->GetId());
+                    NkWESystem::Events().Enqueue_Public(evt, self->GetId());
+                }];
+            }
         }
 
         mIsOpen = true;
@@ -375,6 +408,14 @@ namespace nkentseu {
         NkWESystem::Events().Enqueue_Public(closeEvent, closingId);
 
         @autoreleasepool {
+            if (mData.mScreenConnectObserver) {
+                [[NSNotificationCenter defaultCenter] removeObserver:mData.mScreenConnectObserver];
+                mData.mScreenConnectObserver = nil;
+            }
+            if (mData.mScreenDisconnectObserver) {
+                [[NSNotificationCenter defaultCenter] removeObserver:mData.mScreenDisconnectObserver];
+                mData.mScreenDisconnectObserver = nil;
+            }
             if (mData.mUIView) {
                 if ([mData.mUIView isKindOfClass:[NkUIKitTouchView class]]) {
                     static_cast<NkUIKitTouchView*>(mData.mUIView)->mOwner = nullptr;
@@ -468,6 +509,99 @@ namespace nkentseu {
 
     NkVec2u NkWindow::GetDisplayPosition() const {
         return {0u, 0u};
+    }
+
+    // =========================================================================
+    // Moniteurs / Display (DPI runtime, écrans externes)
+    // =========================================================================
+
+    // Remplit un NkDisplayInfo depuis un UIScreen : géométrie (bounds en points),
+    // facteur d'échelle (.scale), résolution physique (.nativeBounds en pixels),
+    // fréquence de rafraîchissement (.maximumFramesPerSecond) et drapeau primaire.
+    // dpiX/dpiY = scale * 96 pour cohérence cross-platform.
+    static NkDisplayInfo UIKitFillDisplayInfo(UIScreen* screen, uint32 index) {
+        NkDisplayInfo info;
+        info.index = index;
+        if (!screen) {
+            return info;
+        }
+
+        const CGRect bounds = screen.bounds;
+        const float32 scale = static_cast<float32>(screen.scale);
+
+        info.posX   = 0;
+        info.posY   = 0;
+        info.width  = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(bounds.size.width)));
+        info.height = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(bounds.size.height)));
+
+        // Résolution physique réelle en pixels (nativeBounds, iOS 8.0+).
+        if (@available(iOS 8.0, tvOS 9.0, *)) {
+            const CGRect native = screen.nativeBounds;
+            info.physWidth  = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(native.size.width)));
+            info.physHeight = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(native.size.height)));
+        } else {
+            info.physWidth  = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(bounds.size.width)  * scale));
+            info.physHeight = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(bounds.size.height) * scale));
+        }
+
+        // Facteur d'échelle DPI + densité alignée sur la baseline 96 dpi du framework.
+        info.dpiScale = scale;
+        info.dpiX     = scale * 96.0f;
+        info.dpiY     = scale * 96.0f;
+
+        // Moniteur principal = écran intégré ([UIScreen mainScreen]).
+        info.isPrimary = (screen == [UIScreen mainScreen]);
+
+        // Fréquence de rafraîchissement (iOS 10.3+, ProMotion 120 Hz...).
+        if (@available(iOS 10.3, tvOS 10.3, *)) {
+            const NSInteger fps = screen.maximumFramesPerSecond;
+            if (fps > 0) {
+                info.refreshRate = static_cast<uint32>(fps);
+            }
+        }
+
+        // Nom lisible : écran intégré vs externe.
+        const char* name = (screen == [UIScreen mainScreen]) ? "Built-in Screen" : "External Screen";
+        ::strncpy(info.name, name, sizeof(info.name) - 1);
+        info.name[sizeof(info.name) - 1] = '\0';
+        return info;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        NSArray<UIScreen*>* screens = [UIScreen screens];
+        const uint32 count = static_cast<uint32>(screens.count);
+        for (uint32 i = 0; i < count; ++i) {
+            out.PushBack(UIKitFillDisplayInfo(screens[i], i));
+        }
+        // Garantir au moins une entrée (mainScreen).
+        if (out.Size() == 0) {
+            out.PushBack(UIKitFillDisplayInfo([UIScreen mainScreen], 0));
+        }
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        // Écran de la fenêtre courante, sinon écran principal.
+        UIScreen* screen = (mData.mUIWindow && mData.mUIWindow.screen)
+            ? mData.mUIWindow.screen
+            : [UIScreen mainScreen];
+
+        // Retrouver l'index réel de cet écran dans [UIScreen screens].
+        NSArray<UIScreen*>* screens = [UIScreen screens];
+        uint32 index = 0;
+        for (uint32 i = 0; i < static_cast<uint32>(screens.count); ++i) {
+            if (screens[i] == screen) {
+                index = i;
+                break;
+            }
+        }
+        return UIKitFillDisplayInfo(screen, index);
+    }
+
+    uint32 NkWindow::GetMonitorCount() const {
+        const NSUInteger count = [[UIScreen screens] count];
+        return count > 0 ? static_cast<uint32>(count) : 1u;
     }
 
     void NkWindow::SetSize(uint32 width, uint32 height) {
@@ -571,6 +705,9 @@ namespace nkentseu {
     void NkWindow::ShowMouse(bool) {}
 
     void NkWindow::CaptureMouse(bool) {}
+
+    // iOS : pas de curseur natif (touch only), no-op.
+    void NkWindow::ClipMouseToClient(bool) {}
 
     void NkWindow::SetWebInputOptions(const NkWebInputOptions&) {}
 

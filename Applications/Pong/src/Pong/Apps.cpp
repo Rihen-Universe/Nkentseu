@@ -1,366 +1,223 @@
 // =============================================================================
-// Apps.cpp  –  Point d'entrée nkmain avec gestion complète des inputs
+// Apps.cpp — Point d'entree Pong Ultra Arena
+// Etape 1 (PoC) : init NkContext OpenGL + boucle minimale + lifecycle Android.
+// Conforme au GDD v1.1 (docs/GDD_PONG_ULTRA_ARENA_v1.1.docx).
+//
+// Gestion lifecycle Android :
+//   - FocusLost  : on auto-pause si Playing
+//   - Hidden     : surface detruite (APP_CMD_TERM_WINDOW), on cesse de rendre
+//   - Shown      : surface recreee (APP_CMD_INIT_WINDOW), on reinit le contexte
+//   - FocusGain  : retour foreground, force re-render
 // =============================================================================
+
+#include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/NKMain.h"
 #include "NKWindow/NKWindow.h"
+#include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWindowConfig.h"
+#include "NKWindow/Core/NkEvent.h"
+#include "NKEvent/NkWindowEvent.h"
 #include "NKLogger/NkLog.h"
-#include "NKEvent/NkTouchEvent.h"
-#include "NKEvent/NkMouseEvent.h"
-#include "PongGame.h"
 #include "NKTime/NkTime.h"
 
-using namespace nkentseu;
+#include "Pong/Game/PongApp.h"
 
-int nkmain(const NkEntryState& state)
-{
+using namespace nkentseu;
+using nkentseu::pong::PongApp;
+
+int nkmain(const NkEntryState& state) {
     (void)state;
 
-    // ── Fenêtre ───────────────────────────────────────────────────────────────
+    // ── Fenetre paysage 1280x720 selon GDD §5.2 ──────────────────────────────
     NkWindowConfig cfg;
-    cfg.title       = "Pong – Software Renderer";
+    cfg.title       = "Pong Ultra Arena";
     cfg.width       = 1280;
     cfg.height      = 720;
     cfg.centered    = true;
     cfg.resizable   = true;
     cfg.dropEnabled = false;
 
-    NkWindow window;
-    if (!window.Create(cfg)) {
-        logger.Error("[PONG] Window creation failed");
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+    cfg.fullscreen        = true;
+    cfg.hideSystemUI      = true;
+    cfg.screenOrientation = NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE;
+    cfg.lockOrientation   = true;
+#endif
+
+    NkWindow window(cfg);
+    if (!window.IsOpen()) {
+        logger.Error("[Pong] Window creation failed");
         return -1;
     }
 
-    // ── Renderer (double-buffered) ────────────────────────────────────────────
-    NkRenderer* renderer = new NkRenderer();
-    if (!renderer->Init(window)) {
-        logger.Error("[PONG] Renderer init failed");
+#if defined(NKENTSEU_PLATFORM_ANDROID)
+    window.SetScreenOrientation(NkScreenOrientation::NK_SCREEN_ORIENTATION_LANDSCAPE);
+    window.SetLockOrientation(true);
+    window.SetFullscreen(true);
+    window.SetHideSystemUI(true);
+#endif
+
+    // ── Application Pong (init OpenGL via NkContext) ─────────────────────────
+    PongApp app(window);
+    if (!app.Init()) {
+        logger.Error("[Pong] PongApp::Init failed");
         window.Close();
         return -2;
     }
 
-    // ── Jeu ──────────────────────────────────────────────────────────────────
-    PongGame* game = new PongGame(*renderer);
-    game->Init();
-
-#if defined(__ANDROID__)
-    game->SetShowTouchButtons(true);
-#endif
-
-    // ── Boucle ───────────────────────────────────────────────────────────────
-    auto& eventSystem = NkEvents();
-    NkChrono     chrono;
+    // ── Boucle principale ────────────────────────────────────────────────────
+    auto& events = NkEvents();
+    NkChrono chrono;
     NkElapsedTime elapsed;
 
-    bool running        = true;
-    bool upHeld         = false;
-    bool downHeld       = false;
-    bool needResize     = false;
-    // Touch button states (Android) — count of fingers in each button area
-    int  touchUpCount   = 0;
-    int  touchDownCount = 0;
-    int  touchEnterCount= 0;
-    int  touchEscapeCount = 0;
-    int  touchPauseCount = 0;
-    // Touches à détecter sur un seul frame (flanc montant)
-    bool enterPressed  = false;
-    bool escapePressed = false;
-    bool leftPressed   = false;
-    bool rightPressed  = false;
-    // État précédent (pour flanc montant)
-    bool prevEnter     = false;
-    bool prevEscape    = false;
-    bool prevLeft      = false;
-    bool prevRight     = false;
-    // État courant des touches bool-style
-    bool enterHeld     = false;
-    bool escapeHeld    = false;
-    bool leftHeld      = false;
-    bool rightHeld     = false;
-    // Mouse state
-    int  mouseX        = -1;
-    int  mouseY        = -1;
-    bool mouseBtnHeld  = false;
-    bool prevMouseBtn  = false;
-    bool mouseClicked  = false;
+    bool surfaceReady = true;
+    bool appResumed   = true;
+    // Signale (depuis l'event Shown) qu'il faut recreer la surface GPU. Le travail
+    // reel est fait dans la boucle, HORS du polling d'evenements (cf. plus bas).
+    bool surfaceRecreatePending = false;
+    // Lifecycle differe : les events Hidden/FocusLost / Shown SIGNALENT, la boucle
+    // appelle app.OnPause()/OnResume() dans le bon ordre (pause, puis recreate
+    // surface, puis resume une fois la surface prete). On ne fait JAMAIS de
+    // OnPause/OnResume directement dans le polling d'evenements.
+    bool pausePending  = false;
+    bool resumePending = false;
+    math::NkVec2u pendingSize = window.GetSize();
+    // Taille reellement appliquee. Sert de garde-fou contre l'OnResize redondant :
+    // Windows emet WM_SIZE a la CREATION de la fenetre (meme taille) -> declencher
+    // OnResize la-dessus recree la swapchain avant que la 1ere frame ne soit
+    // consommee -> sur DX12 reset cmdList fail -> contexte invalide (ecran blanc).
+    math::NkVec2u currentSize = window.GetSize();
 
-    math::NkVec2u pendingSize = renderer->Size();
-    
-    // ── Gestion du pause/resume (Android) ──────────────────────────────────
-    // Quand l'app revient au premier plan, forcer un refresh complet de l'ecran
-    bool appResumed = true;  // Premier frame = init
-    bool wasInBackground = false;
+    while (window.IsOpen()) {
+        elapsed = chrono.Reset();
+        float dt = static_cast<float>(elapsed.seconds);
+        if (dt <= 0.f || dt > 0.25f) dt = 1.0f / 60.0f;
 
-    while (running)
-    {
-        NkElapsedTime e = chrono.Reset();
-        float dt = math::NkMin(static_cast<float>(e.milliseconds) / 1000.f, 0.033f);
-
-        // Flancs montants (one-shot ce frame)
-        enterPressed  = false;
-        escapePressed = false;
-        leftPressed   = false;
-        rightPressed  = false;
-        mouseClicked  = false;
-
-        // ── Événements ───────────────────────────────────────────────────────
-        while (NkEvent* event = eventSystem.PollEvent())
-        {
-            if (auto* wc = event->As<NkWindowCloseEvent>())
-            {
-                if (wc->GetWindowId() == window.GetId())
-                {
-                    running = false;
-                    break;
-                }
+        // ── Pump events ─────────────────────────────────────────────────────
+        while (NkEvent* ev = events.PollEvent()) {
+            if (ev->Is<NkWindowCloseEvent>()) {
+                window.Close();
+                break;
             }
-
-            if (auto* wr = event->As<NkWindowResizeEvent>()) {
-                needResize = true;
+            if (auto* wr = ev->As<NkWindowResizeEvent>()) {
+                // On capture seulement la derniere taille demandee. La comparaison
+                // avec la taille courante + l'OnResize se font dans la boucle, HORS
+                // de l'event (cf. plus bas).
                 pendingSize.width  = wr->GetWidth();
                 pendingSize.height = wr->GetHeight();
             }
-            if (auto* wm = event->As<NkWindowMaximizeEvent>()) {
-                needResize = true;
+            // Android : surface recreee (APP_CMD_INIT_WINDOW) — il faut
+            // recreer l'eglSurface car l'ancien ANativeWindow a ete detruit
+            // par APP_CMD_TERM_WINDOW. Sans ce RecreateSurface, le rendu
+            // est noir au retour de foreground.
+            if (ev->Is<NkWindowShownEvent>()) {
+                // On ne fait RIEN de lourd dans l'event : on SIGNALE juste qu'il
+                // faut recreer la surface (fait hors boucle d'event, cf. plus bas)
+                // et on capture la taille demandee (le resize sera applique par la
+                // boucle uniquement s'il differe vraiment -> evite l'OnResize
+                // redondant au demarrage qui casse DX12).
+                surfaceRecreatePending = true;
                 pendingSize = window.GetSize();
+                resumePending = true;   // app.OnResume() appele dans la boucle, APRES recreate surface
+                logger.Info("[Pong] Surface shown");
             }
-            if (auto* wn = event->As<NkWindowMinimizeEvent>())
+            if (ev->Is<NkWindowHiddenEvent>()) {
+                surfaceReady = false;
+                logger.Info("[Pong] Surface hidden");
+                // Auto-pause immediate quand on quitte l'app (back/home).
+                // Le gameplay s'arretera proprement, evitant que la balle
+                // bouge "dans le vide" et que la partie continue en bg.
+                // (OnPause reel appele dans la boucle, hors event.)
+                pausePending = true;
+            }
+            if (ev->Is<NkWindowFocusGainedEvent>()) {
+                appResumed = true;
+            }
+            if (ev->Is<NkWindowFocusLostEvent>())
             {
-                pendingSize = {0, 0};
+                // Auto-pause aussi au simple focus lost (notification overlay,
+                // splitscreen, etc.). La scene gameplay met mPaused=true.
+                // (OnPause reel appele dans la boucle, hors event.)
+                pausePending = true;
             }
-
-            if (auto* kp = event->As<NkKeyPressEvent>()) {
-                NkKey k = kp->GetKey();
-                if (k == NkKey::NK_UP    || k == NkKey::NK_W)
-                {
-                    upHeld = true;
-                }
-                if (k == NkKey::NK_DOWN  || k == NkKey::NK_S)
-                {
-                    downHeld = true;
-                }
-                if (k == NkKey::NK_LEFT  || k == NkKey::NK_A)
-                {
-                    leftHeld = true;
-                }
-                if (k == NkKey::NK_RIGHT || k == NkKey::NK_D)
-                {
-                    rightHeld = true;
-                }
-                if (k == NkKey::NK_ENTER || k == NkKey::NK_SPACE)
-                {
-                    enterHeld = true;
-                }
-                if (k == NkKey::NK_ESCAPE)
-                {
-                    escapeHeld = true;
-                }
-                // Pause avec P pendant la partie
-                if (k == NkKey::NK_P && game->GetState() == GameState::Playing) {
-                    // On simule escapePressed pour déclencher la pause
-                    escapeHeld = true;
-                }
-            }
-            if (auto* kr = event->As<NkKeyReleaseEvent>()) {
-                NkKey k = kr->GetKey();
-                if (k == NkKey::NK_UP    || k == NkKey::NK_W)
-                {
-                    upHeld = false;
-                }
-                if (k == NkKey::NK_DOWN  || k == NkKey::NK_S)
-                {
-                    downHeld = false;
-                }
-                if (k == NkKey::NK_LEFT  || k == NkKey::NK_A)
-                {
-                    leftHeld = false;
-                }
-                if (k == NkKey::NK_RIGHT || k == NkKey::NK_D)
-                {
-                    rightHeld = false;
-                }
-                if (k == NkKey::NK_ENTER || k == NkKey::NK_SPACE)
-                {
-                    enterHeld = false;
-                }
-                if (k == NkKey::NK_ESCAPE)
-                {
-                    escapeHeld = false;
-                }
-                if (k == NkKey::NK_P && escapeHeld) {
-                    // On simule escapePressed pour déclencher la pause
-                    escapeHeld = false;
-                }
-            }
-
-            // ── Souris ────────────────────────────────────────────────────────
-            if (auto* mm = event->As<NkMouseMoveEvent>()) {
-                mouseX = mm->GetX();
-                mouseY = mm->GetY();
-            }
-            if (auto* mb = event->As<NkMouseButtonPressEvent>()) {
-                if (mb->IsLeft()) {
-                    mouseBtnHeld = true;
-                    mouseX = mb->GetX();
-                    mouseY = mb->GetY();
-                }
-            }
-            if (auto* mb = event->As<NkMouseButtonReleaseEvent>()) {
-                if (mb->IsLeft()) mouseBtnHeld = false;
-            }
-
-            // ── Touch (Android) : boutons UP / DOWN / ENTER / ESCAPE / PAUSE ───────────
-            auto hitTest = [&](float tx, float ty,
-                               const PongGame::TouchButtonRects& rects) {
-                bool inUp = tx >= rects.upX && tx < rects.upX + rects.upW
-                         && ty >= rects.upY && ty < rects.upY + rects.upH;
-                bool inDn = tx >= rects.dnX && tx < rects.dnX + rects.dnW
-                         && ty >= rects.dnY && ty < rects.dnY + rects.dnH;
-                bool inEnter = tx >= rects.enterX && tx < rects.enterX + rects.enterW
-                            && ty >= rects.enterY && ty < rects.enterY + rects.enterH;
-                bool inEscape = tx >= rects.escapeX && tx < rects.escapeX + rects.escapeW
-                             && ty >= rects.escapeY && ty < rects.escapeY + rects.escapeH;
-                bool inPause = tx >= rects.pauseX && tx < rects.pauseX + rects.pauseW
-                            && ty >= rects.pauseY && ty < rects.pauseY + rects.pauseH;
-                return std::make_tuple(inUp, inDn, inEnter, inEscape, inPause);
-            };
-
-            if (auto* te = event->As<NkTouchBeginEvent>()) {
-                auto rects = game->GetTouchButtonRects();
-                for (uint32 i = 0; i < te->GetNumTouches(); ++i) {
-                    const auto& pt = te->GetTouch(i);
-                    auto [inUp, inDn, inEnter, inEscape, inPause] = hitTest(pt.clientX, pt.clientY, rects);
-                    if (inUp) ++touchUpCount;
-                    if (inDn) ++touchDownCount;
-                    if (inEnter) ++touchEnterCount;
-                    if (inEscape) ++touchEscapeCount;
-                    if (inPause) ++touchPauseCount;
-                }
-                // Premier toucher = clic souris pour navigation dans les menus
-                if (te->GetNumTouches() > 0) {
-                    const auto& pt = te->GetTouch(0);
-                    mouseX      = static_cast<int>(pt.clientX);
-                    mouseY      = static_cast<int>(pt.clientY);
-                    mouseClicked = true;
-                }
-            }
-            if (auto* te = event->As<NkTouchMoveEvent>()) {
-                // On move, re-evaluate: clear then recount for moved touches
-                (void)te;
-            }
-            if (auto* te = event->As<NkTouchEndEvent>()) {
-                auto rects = game->GetTouchButtonRects();
-                for (uint32 i = 0; i < te->GetNumTouches(); ++i) {
-                    const auto& pt = te->GetTouch(i);
-                    auto [inUp, inDn, inEnter, inEscape, inPause] = hitTest(pt.clientX, pt.clientY, rects);
-                    if (inUp && touchUpCount   > 0) --touchUpCount;
-                    if (inDn && touchDownCount > 0) --touchDownCount;
-                    if (inEnter && touchEnterCount > 0) --touchEnterCount;
-                    if (inEscape && touchEscapeCount > 0) --touchEscapeCount;
-                    if (inPause && touchPauseCount > 0) --touchPauseCount;
-                }
-            }
-            if (event->As<NkTouchCancelEvent>()) {
-                touchUpCount   = 0;
-                touchDownCount = 0;
-                touchEnterCount = 0;
-                touchEscapeCount = 0;
-                touchPauseCount = 0;
-            }
+            // Forward de tous les events restants a la scene active (clavier,
+            // souris, touch, gamepad). Les events systeme ci-dessus ont deja
+            // ete consommes pour leur effet de bord mais peuvent etre re-passes
+            // sans danger.
+            app.OnEvent(*ev);
         }
-        if (!running)
-        {
-            break;
+        if (!window.IsOpen()) break;
+
+        // Pause demandee (event Hidden / FocusLost) : OnPause appele ICI, hors du
+        // polling d'evenements. Traite meme si la surface n'est pas prete (on peut
+        // pauser une app cachee).
+        if (pausePending) {
+            app.OnPause();
+            pausePending = false;
         }
-        if (pendingSize.width == 0 || pendingSize.height == 0)
-        {
+
+        // Recreation de surface (signalee par l'event Shown), faite ICI, hors de
+        // la boucle d'evenements ET AVANT la garde surfaceReady : c'est ELLE qui
+        // determine si la surface est de nouveau prete. No-op desktop ; sur Android
+        // recree la surface GPU apres retour foreground (APP_CMD_INIT_WINDOW).
+        if (surfaceRecreatePending) {
+            surfaceReady = app.RecreateSurface();
+            if (!surfaceReady) {
+                logger.Warn("[Pong] RecreateSurface failed (no native window yet?)");
+            }
+            surfaceRecreatePending = false;
+        }
+
+        // Resume demande (event Shown) : OnResume appele ICI, APRES que la surface
+        // soit de nouveau prete. Si la recreation a echoue, on reste en attente.
+        if (resumePending && surfaceReady) {
+            app.OnResume();
+            appResumed = true;   // double-render au retour -> evite une frame stale
+            resumePending = false;
+        }
+
+        if (!surfaceReady) {
+            NkChrono::Sleep(16.0f);
+            continue;
+        }
+        if (pendingSize.width == 0 || pendingSize.height == 0) {
             continue;
         }
 
-        if (needResize) {
-            renderer->Resize(window, pendingSize.width, pendingSize.height);
-            // Utiliser OnResize() au lieu de Init() pour conserver l'etat du jeu
-            // Cela preserve le menu courant, les selections, les scores, etc.
-            game->OnResize();
-            needResize = false;
+        // Hors de l'event resize : on teste si la taille demandee differe de la
+        // taille deja appliquee (= taille courante de la swapchain). Si oui, on
+        // applique le resize et on met a jour currentSize. Ca evite l'OnResize
+        // redondant au demarrage (WM_SIZE meme taille) qui, sur DX12, reset une
+        // cmdList non-consommee -> contexte invalide -> ecran blanc.
+        if (pendingSize.width != currentSize.width ||
+            pendingSize.height != currentSize.height) {
+            app.OnResize(pendingSize.width, pendingSize.height);
+            currentSize = pendingSize;
         }
 
-        // Flancs montants
-        enterPressed  = enterHeld  && !prevEnter;
-        escapePressed = escapeHeld && !prevEscape;
-        leftPressed   = leftHeld   && !prevLeft;
-        rightPressed  = rightHeld  && !prevRight;
-        prevEnter  = enterHeld;
-        prevEscape = escapeHeld;
-        prevLeft   = leftHeld;
-        prevRight  = rightHeld;
-        // Flanc montant souris (si pas déjà mis par le touch)
-        if (!mouseClicked)
-            mouseClicked = mouseBtnHeld && !prevMouseBtn;
-        prevMouseBtn = mouseBtnHeld;
+        app.Update(dt);
 
-        // Quitter si le joueur sélectionne "QUITTER" dans le menu
-        if (game->GetState() == GameState::MainMenu && enterPressed)
-        {
-            // Géré en interne – si mMainMenuSel==3 -> rien ne se passe côté jeu
-            // On vérifie juste Escape au menu = fermer
-        }
-
-        // ── Update / Render / Present ─────────────────────────────────────
-        // Merge keyboard + touch button inputs (pour Up/Down/Enter/Escape/Pause)
-        bool finalUp      = upHeld   || (touchUpCount   > 0);
-        bool finalDown    = downHeld || (touchDownCount > 0);
-        bool finalEnter   = enterHeld || (touchEnterCount > 0);
-        bool finalEscape  = escapeHeld || (touchEscapeCount > 0);
-        bool finalPause   = touchPauseCount > 0;
-        
-        // Détecter les flancs montants pour les entrées tactiles
-        static bool prevEnterTouch = false;
-        static bool prevEscapeTouch = false;
-        static bool prevPauseTouch = false;
-        
-        if (finalEnter && !prevEnterTouch)
-            enterPressed = true;
-        if (finalEscape && !prevEscapeTouch)
-            escapePressed = true;
-        // Pause est traitée comme Escape (pause du jeu)
-        if (finalPause && !prevPauseTouch)
-            escapePressed = true;
-            
-        prevEnterTouch = finalEnter;
-        prevEscapeTouch = finalEscape;
-        prevPauseTouch = finalPause;
-        
-        game->Update(dt, finalUp, finalDown,
-                     enterPressed, escapePressed,
-                     leftPressed, rightPressed,
-                     mouseX, mouseY, mouseClicked);
-        
-        // ── Restaurer l'ecran apres un pause/resume (Android) ────────────────
-        // Au retour de l'app, forcer un rendu complet et clear du buffer
-        if (appResumed)
-        {
-            // Effacer completement le backbuffer pour eviter un ecran noir au retour
-            renderer->Clear({ 0, 0, 0, 255 });
+        // Double-render apres reprise foreground (Android : evite frame stale)
+        if (appResumed) {
+            app.Render();
+            app.Render();
             appResumed = false;
+        } else {
+            app.Render();
         }
-        
-        game->Render();
-        renderer->Present();
 
-        // ── Cap 60 FPS ─────────────────────────────────────────────────────
+        if (app.WantsQuit()) {
+            // window.Close();
+            break;
+        }
+
+        // Cap 60 fps
         elapsed = chrono.Elapsed();
-        if (elapsed.milliseconds < 16)
-        {
-            NkChrono::Sleep(16 - elapsed.milliseconds);
-        }
-        else
-        {
-            NkChrono::YieldThread();
-        }
+        if (elapsed.milliseconds < 16) NkChrono::Sleep(16 - elapsed.milliseconds);
+        else                            NkChrono::YieldThread();
     }
 
-    delete game;
-    delete renderer;
+    app.Shutdown();
     window.Close();
     return 0;
 }

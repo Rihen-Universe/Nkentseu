@@ -518,7 +518,7 @@ public:
                 break;
 
             case NkGraphicsApi::NK_GFX_API_VULKAN:
-                // Sans NKContext, l'instance/surface Vulkan n'est pas fournie ici.
+                // Sans NKCanvas, l'instance/surface Vulkan n'est pas fournie ici.
                 mNativeData = nullptr;
                 mValid = false;
                 break;
@@ -647,7 +647,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
         return 1;
     }
 
-    // ── Contexte graphique (local démo, sans dépendance NKContext) ──────────
+    // ── Contexte graphique (local démo, sans dépendance NKCanvas) ──────────
     NkDemoGraphicsContext ctx;
     if (!ctx.Initialize(targetApi, window)) {
         logger.Info("[RHIFullDemo] Backend {0} indisponible via contexte local, fallback OpenGL\n", apiName);

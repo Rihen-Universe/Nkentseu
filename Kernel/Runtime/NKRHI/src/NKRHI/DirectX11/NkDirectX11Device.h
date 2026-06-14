@@ -27,12 +27,18 @@ namespace nkentseu {
     struct NkDX11Buffer  { ID3D11Buffer*  buf=nullptr; NkBufferDesc  desc; };
     struct NkDX11Texture {
         ID3D11Texture2D*          tex=nullptr;
+        ID3D11Texture3D*          tex3d=nullptr;   // textures volumétriques (VoxelAO, LUT 3D…)
         ID3D11ShaderResourceView* srv=nullptr;
         ID3D11RenderTargetView*   rtv=nullptr;
         ID3D11DepthStencilView*   dsv=nullptr;
         ID3D11UnorderedAccessView*uav=nullptr;
         NkTextureDesc             desc;
         bool                      isSwapchain=false;
+        // Ressource de base (2D ou 3D) pour les vues / UpdateSubresource.
+        ID3D11Resource* Resource() const {
+            return tex3d ? static_cast<ID3D11Resource*>(tex3d)
+                         : static_cast<ID3D11Resource*>(tex);
+        }
     };
     struct NkDX11Sampler { ID3D11SamplerState* ss=nullptr; };
     struct NkDX11Shader  {
@@ -158,6 +164,14 @@ namespace nkentseu {
             ID3D11Buffer*  GetDXBuffer (uint64 id) const;
             ID3D11ShaderResourceView*  GetSRV(uint64 id) const;
             ID3D11UnorderedAccessView* GetUAV(uint64 id) const;
+            // Pool de samplers partagés (s12..s15 : wrap/clamp/point/comparison) pour
+            // les shaders NkSL→HLSL. Retourne le tableau de 4 (peut contenir des null).
+            ID3D11SamplerState* const* PoolSamplers() const { return mPoolSamplers; }
+            // Cbuffer dynamique d'émulation des push constants (registre b13).
+            ID3D11Buffer* PushConstantCB() const { return mPushConstantCB; }
+            void DrainInfoQueue(); // DIAG : vide les messages de la couche de validation vers NkLog
+            static constexpr uint32 kPushConstantReg   = 13;   // b13 (doit matcher le générateur HLSL)
+            static constexpr uint32 kPushConstantBytes = 256;  // multiple de 16, couvre maxPushConstantBytes=128
             const NkDX11Pipeline*  GetPipeline(uint64 id) const;
             const NkDX11DescSet*   GetDescSet (uint64 id) const;
             const NkDX11Framebuffer* GetFBO   (uint64 id) const;
@@ -187,6 +201,9 @@ namespace nkentseu {
             ID3D11DeviceContext1*    mContext   = nullptr;
             IDXGISwapChain1*         mSwapchain = nullptr;
             IDXGIFactory2*           mFactory   = nullptr;
+            struct ID3D11InfoQueue*  mInfoQueue = nullptr;   // debug device only
+            ID3D11SamplerState*      mPoolSamplers[4] = {};  // s12..s15 (NkSL pool partagé)
+            ID3D11Buffer*            mPushConstantCB = nullptr; // émulation push constants (b13)
 
             NkFramebufferHandle mSwapchainFB;
             NkRenderPassHandle  mSwapchainRP;

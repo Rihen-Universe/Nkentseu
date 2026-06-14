@@ -15,6 +15,7 @@
 
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeycodeMap.h"
+#include "NKEvent/NkSystemEvent.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKWindow/Platform/XCB/NkXCBWindow.h"
@@ -22,6 +23,7 @@
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_aux.h>
+#include <xcb/randr.h>
 #include <xkbcommon/xkbcommon-x11.h>
 #include <xkbcommon/xkbcommon.h>
 #include <cstring>
@@ -125,12 +127,53 @@ namespace nkentseu {
         const xcb_atom_t wmProtocols = NkXCBGetWmProtocolsAtom();
         const xcb_atom_t wmDeleteWindow = NkXCBGetWmDeleteWindowAtom();
 
+        // ------------------------------------------------------------
+        // XRandR : detection hot-plug / changement de resolution.
+        // Selection unique de RRScreenChangeNotify sur la racine.
+        // ------------------------------------------------------------
+        static int  sRandrFirstEvent = -1;
+        static bool sRandrAvailable  = false;
+        static bool sRandrSelected   = false;
+        static xcb_connection_t* sRandrConn = nullptr;
+        if (!sRandrSelected || sRandrConn != conn) {
+            const xcb_query_extension_reply_t* ext =
+                xcb_get_extension_data(conn, &xcb_randr_id);
+            sRandrAvailable = (ext && ext->present);
+            if (sRandrAvailable) {
+                sRandrFirstEvent = ext->first_event;
+                xcb_screen_t* screen = NkXCBGetScreen();
+                if (screen) {
+                    xcb_randr_select_input(
+                        conn, screen->root,
+                        XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+                    xcb_flush(conn);
+                }
+            }
+            sRandrSelected = true;
+            sRandrConn     = conn;
+        }
+
         // Ãƒâ€°tat souris prÃƒÂ©cÃƒÂ©dent pour calcul delta
         static int32 sPrevX = 0, sPrevY = 0;
 
         xcb_generic_event_t* ev;
         while ((ev = xcb_poll_for_event(conn)) != nullptr) {
             uint8_t evType = ev->response_type & ~0x80;
+
+            // XRandR screen change : type dynamique (first_event + offset).
+            if (sRandrAvailable && sRandrFirstEvent >= 0 &&
+                evType == sRandrFirstEvent + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
+                NkWindow* anyWin = NkXCBGetAnyWindow();
+                NkDisplayInfo info;
+                if (anyWin) {
+                    info = anyWin->GetCurrentMonitor();
+                }
+                NkSystemDisplayEvent e(
+                    NkDisplayChange::NK_DISPLAY_RESOLUTION_CHANGED, info, 0);
+                Enqueue(e, NK_INVALID_WINDOW_ID);
+                free(ev);
+                continue;
+            }
 
             xcb_window_t srcXid  = 0;
             NkWindow*    window  = nullptr;

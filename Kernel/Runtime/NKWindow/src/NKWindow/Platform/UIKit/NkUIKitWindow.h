@@ -23,6 +23,13 @@ namespace nkentseu {
             UIView*        mUIView     = nullptr;
             CAMetalLayer*  mMetalLayer = nullptr;
             UIView*        mParentView = nullptr;
+#ifdef __OBJC__
+            id             mScreenConnectObserver    = nil; // token UIScreenDidConnect
+            id             mScreenDisconnectObserver = nil; // token UIScreenDidDisconnect
+#else
+            void*          mScreenConnectObserver    = nullptr;
+            void*          mScreenDisconnectObserver = nullptr;
+#endif
             NkSurfaceHints mAppliedHints{};
             uint32 mWidth      = 0;
             uint32 mHeight     = 0;

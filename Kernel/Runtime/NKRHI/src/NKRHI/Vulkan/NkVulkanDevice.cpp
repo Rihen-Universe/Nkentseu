@@ -5,7 +5,7 @@
 #include "NkVulkanDevice.h"
 #include "NkVulkanCommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
-#include "NKRHI/SL/NkGLSLCompiler.h"
+#include "NKSL/NKSL.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Associative/NkSet.h"
 #include <cstring>
@@ -19,6 +19,10 @@
         #include <vulkan/vulkan_android.h>
         #include <android/native_window.h>
     #endif
+#endif
+
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+    #include <vulkan/vulkan_ohos.h>
 #endif
 
 #define NK_VK_LOG(...)  logger_src.Infof("[NkRHI_VK] " __VA_ARGS__)
@@ -58,6 +62,55 @@ namespace nkentseu {
                 if (std::strcmp(arr[i], value) == 0) return true;
             }
             return false;
+        }
+
+        // ── Debug messenger ──────────────────────────────────────────────────
+        // Callback invoque par les validation layers Vulkan. On route vers
+        // NkLog avec un mapping severite -> NkLogLevel. Le source (file/line)
+        // pointe sur ce callback : pas grave, le message contient deja l'ID
+        // VUID + le contexte (object, handle).
+        VKAPI_ATTR VkBool32 VKAPI_CALL VkDebugCallback(
+            VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+            VkDebugUtilsMessageTypeFlagsEXT /*types*/,
+            const VkDebugUtilsMessengerCallbackDataEXT* data,
+            void* /*userData*/) {
+            if (!data || !data->pMessage) return VK_FALSE;
+            const char* msg = data->pMessage;
+            const char* tag = "[NkRHI_VK][validation]";
+            if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+                logger.Error("{0} {1}", tag, msg);
+            } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+                logger.Warn("{0} {1}", tag, msg);
+            } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+                logger.Debug("{0} {1}", tag, msg);
+            } else {
+                logger.Trace("{0} {1}", tag, msg);
+            }
+            return VK_FALSE; // ne pas abort le call Vulkan qui a declenche le message
+        }
+
+        bool CreateVkDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT* outMessenger) {
+            auto pfn = (PFN_vkCreateDebugUtilsMessengerEXT)
+                vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+            if (!pfn) return false;
+            VkDebugUtilsMessengerCreateInfoEXT ci{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+            ci.messageSeverity =
+                  VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
+            ci.messageType =
+                  VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+                | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+            ci.pfnUserCallback = VkDebugCallback;
+            return pfn(instance, &ci, nullptr, outMessenger) == VK_SUCCESS;
+        }
+
+        void DestroyVkDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT messenger) {
+            if (messenger == VK_NULL_HANDLE) return;
+            auto pfn = (PFN_vkDestroyDebugUtilsMessengerEXT)
+                vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+            if (pfn) pfn(instance, messenger, nullptr);
         }
 
     } // namespace
@@ -105,6 +158,8 @@ namespace nkentseu {
         instanceExts.PushBack(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
     #elif defined(NKENTSEU_PLATFORM_ANDROID)
         instanceExts.PushBack(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        instanceExts.PushBack("VK_OHOS_surface");
     #elif defined(NKENTSEU_PLATFORM_MACOS)
         instanceExts.PushBack(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
         instanceExts.PushBack(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
@@ -135,7 +190,19 @@ namespace nkentseu {
 
         NkVector<const char*> layers;
         if (vkdesc.validationLayers) {
-            layers.PushBack("VK_LAYER_KHRONOS_validation");
+            // Ne demander la couche que si elle est réellement disponible : sinon
+            // vkCreateInstance échoue avec VK_ERROR_LAYER_NOT_PRESENT.
+            bool hasValidation = false;
+            for (const auto& layer : availableLayers) {
+                if (strcmp(layer.layerName, "VK_LAYER_KHRONOS_validation") == 0) {
+                    hasValidation = true; break;
+                }
+            }
+            if (hasValidation) {
+                layers.PushBack("VK_LAYER_KHRONOS_validation");
+            } else {
+                NK_VK_LOG("Validation layer demandée mais absente -> ignorée\n");
+            }
         }
 
         VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
@@ -145,6 +212,16 @@ namespace nkentseu {
         ici.enabledLayerCount = (uint32)layers.Size();
         ici.ppEnabledLayerNames = layers.Empty() ? nullptr : layers.Data();
         NK_VK_CHECKRET(vkCreateInstance(&ici, nullptr, &mInstance), "vkCreateInstance");
+
+        // Debug messenger : route les validation layers vers NkLog (severity -> level).
+        // Necessite VK_EXT_debug_utils dans instanceExts (ajoute plus haut si debugMessenger=true).
+        if (vkdesc.debugMessenger && HasCStr(instanceExts, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+            if (!CreateVkDebugMessenger(mInstance, &mDebugMessenger)) {
+                NK_VK_LOG("Debug messenger non cree (procAddr manquant)\n");
+            } else {
+                NK_VK_LOG("Debug messenger actif (validation -> NkLog)\n");
+            }
+        }
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
         VkWin32SurfaceCreateInfoKHR sci{};
@@ -179,6 +256,26 @@ namespace nkentseu {
         sci.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
         sci.window = static_cast<ANativeWindow*>(init.surface.nativeWindow);
         NK_VK_CHECK(vkCreateAndroidSurfaceKHR(mInstance, &sci, nullptr, &mSurface));
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        {
+            OHNativeWindow* ohWin = static_cast<OHNativeWindow*>(init.surface.ohNativeWindow);
+            if (!ohWin) {
+                NK_VK_ERR("OHNativeWindow manquant (fourni par NkHarmonyOnSurfaceCreated)\n");
+                return false;
+            }
+    
+        #if defined(VK_OHOS_surface)
+            // Chemin standard NDK OHOS
+            VkSurfaceCreateInfoOHOS sci{};
+            sci.sType  = VK_STRUCTURE_TYPE_SURFACE_CREATE_INFO_OHOS;
+            sci.window = ohWin;
+            NK_VK_CHECK(vkCreateSurfaceOHOS(mInstance, &sci, nullptr, &mSurface));
+        #else
+            // VK_OHOS_surface non disponible → erreur explicite
+            NK_VK_ERR("VK_OHOS_surface non disponible. Mettre à jour le NDK OHOS ou utiliser OpenGL ES.\n");
+            return false;
+        #endif
+        }
     #elif defined(NKENTSEU_PLATFORM_MACOS)
         VkMetalSurfaceCreateInfoEXT sci{};
         sci.sType  = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
@@ -277,20 +374,30 @@ namespace nkentseu {
         }
 
         // ── Descriptor pool global ────────────────────────────────────────────────
+        // NkVSM v0 (2026-05-23) : pool agrandi pour supporter
+        // kMaxObjectsPerFrame * mFramesInFlight = 1024 * 3 = 3072 ObjectSets
+        // (un par draw call pour ring multi-frame), plus les autres rings
+        // (mGlobalSetRing, mGlobalSetMirrorRing, etc).
         VkDescriptorPoolSize poolSizes[] = {
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          1000},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          4096},
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,  256},
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,          1000},
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,  256},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  1000},
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,  4096},
             {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,           1000},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,           256},
             {VK_DESCRIPTOR_TYPE_SAMPLER,                 256},
             {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,        64},
         };
         VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        dpci.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        dpci.maxSets       = 4096;
+        // UPDATE_AFTER_BIND_BIT : permet de updater un descriptor set tant qu'il
+        // est bindé à un cmd buffer (sans ce flag, vkUpdateDescriptorSets sur
+        // un set bindé invalide le cmd buffer entier — VUID-...commandBuffer-
+        // recording). Pattern Vulkan 1.2+ standard pour les renderers qui
+        // re-bindent textures/samplers entre draws (cas Render2D atlas, etc).
+        dpci.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
+                           | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+        dpci.maxSets       = 8192;
         dpci.poolSizeCount = (uint32)std::size(poolSizes);
         dpci.pPoolSizes    = poolSizes;
         NK_VK_CHECKRET(vkCreateDescriptorPool(mDevice, &dpci, nullptr, &mDescPool),
@@ -353,15 +460,58 @@ namespace nkentseu {
 
         NkVector<const char*> deviceExts;
         deviceExts.PushBack(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        // descriptor_indexing : requis pour UPDATE_AFTER_BIND_BIT sur les
+        // descriptor pools/layouts. Promu core en Vulkan 1.2 mais le validator
+        // exige toujours l'extension explicitement listee (VUID-VkDescriptor*-flags-parameter).
+        deviceExts.PushBack(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
         for (uint32 i = 0; i < vkdesc.extraDeviceExtCount; ++i) {
             const char* ext = vkdesc.extraDeviceExt[i];
             if (ext && !HasCStr(deviceExts, ext)) {
                 deviceExts.PushBack(ext);
             }
         }
+        // Activer les features couramment utilisees par le renderer si dispo sur
+        // la carte. samplerAnisotropy : utilise par NkSamplerDesc::Anisotropic()
+        // dans NkResources (sinon validation error VUID-...anisotropyEnable-01070).
+        VkPhysicalDeviceFeatures supported{};
+        vkGetPhysicalDeviceFeatures(mPhysicalDevice, &supported);
         VkPhysicalDeviceFeatures features{};
+        if (supported.samplerAnisotropy) features.samplerAnisotropy = VK_TRUE;
+        if (supported.fillModeNonSolid)  features.fillModeNonSolid  = VK_TRUE;
+        if (supported.depthClamp)        features.depthClamp        = VK_TRUE;
+        if (supported.depthBiasClamp)    features.depthBiasClamp    = VK_TRUE;
+        if (supported.shaderClipDistance)features.shaderClipDistance= VK_TRUE;
+        if (supported.shaderCullDistance)features.shaderCullDistance= VK_TRUE;
+        if (supported.geometryShader)    features.geometryShader    = VK_TRUE;
+        if (supported.tessellationShader)features.tessellationShader= VK_TRUE;
+        if (supported.multiDrawIndirect) features.multiDrawIndirect = VK_TRUE;
+        if (supported.wideLines)         features.wideLines         = VK_TRUE;
+
+        // Vulkan 1.2 features : descriptor indexing UPDATE_AFTER_BIND. Permet
+        // a vkUpdateDescriptorSets d'etre appele sur un set deja bindé a un
+        // cmd buffer (sans cette feature, l'update invalide tout le cmd buffer
+        // et fait planter les frames suivantes — VUID-...commandBuffer-recording).
+        // On query d'abord pour ne pas activer si non supporté.
+        VkPhysicalDeviceVulkan12Features feats12{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        VkPhysicalDeviceFeatures2 feats2{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        feats2.pNext = &feats12;
+        vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &feats2);
+
+        VkPhysicalDeviceVulkan12Features enabled12{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        // descriptorIndexing parent flag : requis par VUID-VkDeviceCreateInfo-ppEnabledExtensionNames-02833
+        // quand VK_EXT_descriptor_indexing est dans la liste d'extensions.
+        if (feats12.descriptorIndexing)                            enabled12.descriptorIndexing = VK_TRUE;
+        if (feats12.descriptorBindingPartiallyBound)               enabled12.descriptorBindingPartiallyBound = VK_TRUE;
+        if (feats12.descriptorBindingSampledImageUpdateAfterBind)  enabled12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        if (feats12.descriptorBindingStorageImageUpdateAfterBind)  enabled12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+        if (feats12.descriptorBindingUniformBufferUpdateAfterBind) enabled12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+        if (feats12.descriptorBindingStorageBufferUpdateAfterBind) enabled12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
 
         VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+        dci.pNext = &enabled12;   // chain Vulkan 1.2 features
         dci.queueCreateInfoCount = (uint32)queueInfos.Size();
         dci.pQueueCreateInfos = queueInfos.Data();
         dci.enabledExtensionCount = (uint32)deviceExts.Size();
@@ -423,6 +573,10 @@ namespace nkentseu {
         vkDestroyDescriptorPool(mDevice,mDescPool,nullptr);
         vkDestroyCommandPool(mDevice,mOneShotPool,nullptr);
         vkDestroyDevice(mDevice, nullptr);
+        if (mDebugMessenger != VK_NULL_HANDLE) {
+            DestroyVkDebugMessenger(mInstance, mDebugMessenger);
+            mDebugMessenger = VK_NULL_HANDLE;
+        }
         mDevice = VK_NULL_HANDLE;
         mGraphicsQueue = VK_NULL_HANDLE;
         mPresentQueue = VK_NULL_HANDLE;
@@ -452,10 +606,22 @@ namespace nkentseu {
         vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice,mSurface,&fmtCnt,fmts.Data());
         mSwapFormat = fmts[0].format;
         VkColorSpaceKHR colorSpace = fmts[0].colorSpace;
+        // Réglage GLOBAL cross-API : on mappe NkSwapchainFormat → VkFormat. Si le format
+        // préféré n'est pas supporté par la surface, on garde fmts[0] (fallback driver).
+        VkFormat preferredFmt = VK_FORMAT_B8G8R8A8_UNORM;
+        switch (mInit.context.swapchainFormat) {
+            case NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_UNORM:  preferredFmt = VK_FORMAT_B8G8R8A8_UNORM; break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_SRGB:   preferredFmt = VK_FORMAT_B8G8R8A8_SRGB;  break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGBA8_UNORM:  preferredFmt = VK_FORMAT_R8G8B8A8_UNORM; break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGBA8_SRGB:   preferredFmt = VK_FORMAT_R8G8B8A8_SRGB;  break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGB10A2_UNORM:preferredFmt = VK_FORMAT_A2B10G10R10_UNORM_PACK32; break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGBA16F:      preferredFmt = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+            default:                                           preferredFmt = VK_FORMAT_B8G8R8A8_UNORM; break;
+        }
         for (auto& f:fmts) {
-            if (f.format==VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                mSwapFormat = f.format; 
-                colorSpace = f.colorSpace; 
+            if (f.format==preferredFmt) {
+                mSwapFormat = f.format;
+                colorSpace = f.colorSpace;
                 break;
             }
         }
@@ -675,24 +841,21 @@ namespace nkentseu {
     // =============================================================================
     // Buffers
     // =============================================================================
-    NkBufferHandle NkVulkanDevice::CreateBuffer(const NkBufferDesc& desc) {
-        bool uploadAfterCreate = false;
-        const void* uploadData = desc.initialData;
-        NkBufferHandle h;
+    // Helper : assume mMutex deja pris. Cree le VkBuffer + alloc, l'enregistre
+    // dans mBuffers, et signale via outNeedsAsyncUpload si l'appelant doit faire
+    // un WriteBuffer hors-lock pour finaliser l'upload (cas memoire device-local).
+    NkBufferHandle NkVulkanDevice::CreateBufferUnlocked(const NkBufferDesc& desc,
+                                                       bool* outNeedsAsyncUpload) {
+        if (outNeedsAsyncUpload) *outNeedsAsyncUpload = false;
 
-        {
-        threading::NkScopedLockMutex lock(mMutex);
         VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bci.size = desc.sizeBytes;
-
-        // Usage flags
         bci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_VERTEX_BUFFER))   bci.usage|=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_INDEX_BUFFER))    bci.usage|=VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_UNIFORM_BUFFER))  bci.usage|=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_STORAGE_BUFFER))  bci.usage|=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_INDIRECT_ARGS))   bci.usage|=VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-        // Default flags selon le type
         switch(desc.type) {
             case NkBufferType::NK_VERTEX:  bci.usage|=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT; break;
             case NkBufferType::NK_INDEX:   bci.usage|=VK_BUFFER_USAGE_INDEX_BUFFER_BIT;  break;
@@ -722,33 +885,46 @@ namespace nkentseu {
             // vkSetDebugUtilsObjectNameEXT(mDevice,&ni); // Si extension disponible
         }
 
-        // Upload initial
-        if (uploadData) {
+        // Upload initial : si memoire mappee on copie direct, sinon on signale a
+        // l'appelant (qui doit relacher le lock avant WriteBuffer pour eviter le
+        // deadlock — WriteBuffer alloue un staging via la version publique avec lock).
+        if (desc.initialData) {
             if (alloc.mapped) {
-                memcpy(alloc.mapped, uploadData, (size_t)desc.sizeBytes);
-            } else {
-                // Important: ne pas allouer de staging via CreateBuffer sous ce lock.
-                uploadAfterCreate = true;
+                memcpy(alloc.mapped, desc.initialData, (size_t)desc.sizeBytes);
+            } else if (outNeedsAsyncUpload) {
+                *outNeedsAsyncUpload = true;
             }
         }
 
         uint64 hid=NextId();
         mBuffers[hid]={buf,alloc,desc};
-        h.id=hid;
-        }
+        NkBufferHandle h; h.id=hid;
+        return h;
+    }
 
-        if (uploadAfterCreate) {
-            WriteBuffer(h, uploadData, desc.sizeBytes, 0);
+    void NkVulkanDevice::DestroyBufferUnlocked(NkBufferHandle& h) {
+        auto it=mBuffers.Find(h.id); if (!it) return;
+        vkDestroyBuffer(mDevice,it->buffer,nullptr);
+        FreeMemory(it->alloc);
+        mBuffers.Erase(h.id); h.id=0;
+    }
+
+    NkBufferHandle NkVulkanDevice::CreateBuffer(const NkBufferDesc& desc) {
+        bool needsAsyncUpload = false;
+        NkBufferHandle h;
+        {
+            threading::NkScopedLockMutex lock(mMutex);
+            h = CreateBufferUnlocked(desc, &needsAsyncUpload);
+        }
+        if (needsAsyncUpload) {
+            WriteBuffer(h, desc.initialData, desc.sizeBytes, 0);
         }
         return h;
     }
 
     void NkVulkanDevice::DestroyBuffer(NkBufferHandle& h) {
         threading::NkScopedLockMutex lock(mMutex);
-        auto it=mBuffers.Find(h.id); if (!it) return;
-        vkDestroyBuffer(mDevice,it->buffer,nullptr);
-        FreeMemory(it->alloc);
-        mBuffers.Erase(h.id); h.id=0;
+        DestroyBufferUnlocked(h);
     }
 
     bool NkVulkanDevice::WriteBuffer(NkBufferHandle buf,const void* data,uint64 sz,uint64 off) {
@@ -850,16 +1026,26 @@ namespace nkentseu {
         VkImageView view=VK_NULL_HANDLE;
         NK_VK_CHECK(vkCreateImageView(mDevice,&ivci,nullptr,&view));
 
-        // Upload données initiales
+        // Upload données initiales — utilise les helpers Unlocked car mMutex est
+        // deja pris (NkMutex non recursif : appeler CreateBuffer/DestroyBuffer
+        // publics ici causerait un deadlock).
         if (desc.initialData) {
             uint32 rowPitch=desc.rowPitch>0?desc.rowPitch:desc.width*NkFormatBytesPerPixel(desc.format);
             uint64 imgSz=rowPitch*desc.height;
             NkBufferDesc sd=NkBufferDesc::Staging(imgSz);
-            auto stageH=CreateBuffer(sd);
+            bool stagingNeedsAsyncUpload = false;
+            auto stageH=CreateBufferUnlocked(sd, &stagingNeedsAsyncUpload);
             auto& stage=mBuffers[stageH.id];
             memcpy(stage.alloc.mapped,desc.initialData,(size_t)imgSz);
             auto cmd=BeginOneShot();
-            TransitionImage(cmd,img,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,aspect);
+            // Transitionner TOUS les mips/layers en TRANSFER_DST avant l'upload :
+            // sinon les mips 1..N restent en UNDEFINED, puis le blit chain les
+            // utilise comme dst (= violation VUID-vkCmdBlitImage-dstImageLayout)
+            // et la transition finale ligne 949 bug parce que mip N-1 n'a jamais
+            // ete en TRANSFER_DST. Resultat : les mips 1..N finissent en UNDEFINED
+            // et generent VUID-vkCmdDraw-None-09600 quand le shader sample.
+            TransitionImage(cmd,img,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            aspect,0,ici.mipLevels,0,desc.arrayLayers);
             VkBufferImageCopy cp{};
             cp.imageSubresource={aspect,0,0,1};
             cp.imageExtent={desc.width,desc.height,1};
@@ -889,9 +1075,12 @@ namespace nkentseu {
                 TransitionImage(cmd,img,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,aspect);
             }
             EndOneShot(cmd);
-            DestroyBuffer(stageH);
+            DestroyBufferUnlocked(stageH);
         } else {
-            // Transition vers le layout attendu
+            // Transition vers le layout attendu pour TOUTES les mips et layers
+            // (les cubemaps ont arrayLayers=6 ; sinon les faces 1..5 restent
+            // en UNDEFINED -> validation error VUID-vkCmdDraw-None-09600 quand
+            // le shader sample la cubemap).
             VkImageLayout targetLayout = NkFormatIsDepth(desc.format)
                 ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
                 : (NkHasFlag(desc.bindFlags,NkBindFlags::NK_RENDER_TARGET)
@@ -899,14 +1088,33 @@ namespace nkentseu {
                 : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             if (targetLayout!=VK_IMAGE_LAYOUT_UNDEFINED) {
                 auto cmd=BeginOneShot();
-                TransitionImage(cmd,img,VK_IMAGE_LAYOUT_UNDEFINED,targetLayout,aspect);
+                TransitionImage(cmd,img,VK_IMAGE_LAYOUT_UNDEFINED,targetLayout,aspect,
+                                0, ici.mipLevels, 0, desc.arrayLayers);
                 EndOneShot(cmd);
             }
         }
 
+        // Cache du layout final apres transitions ci-dessus. Pour les textures
+        // sans initialData mais avec un bindFlag exploitable, on a deja transit
+        // toutes les sous-ressources vers le layout cible — il faut que
+        // it->layout reflete la realite, sinon le 1er WriteTextureRegion sur la
+        // face 0 va emettre une transition src=UNDEFINED -> TRANSFER_DST
+        // (correct), mais le layout cache reste UNDEFINED meme apres l'init,
+        // et Vulkan validation peut diverger quand on track les transitions.
+        VkImageLayout cachedLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (desc.initialData) {
+            cachedLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        } else {
+            VkImageLayout target = NkFormatIsDepth(desc.format)
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                : (NkHasFlag(desc.bindFlags,NkBindFlags::NK_RENDER_TARGET)
+                ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (target != VK_IMAGE_LAYOUT_UNDEFINED) cachedLayout = target;
+        }
         uint64 hid=NextId();
         NkVkTexture t; t.image=img; t.view=view; t.alloc=alloc; t.desc=desc;
-        t.layout=desc.initialData?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED;
+        t.layout=cachedLayout;
         mTextures[hid]=t;
         NkTextureHandle h; h.id=hid; return h;
     }
@@ -925,7 +1133,11 @@ namespace nkentseu {
     bool NkVulkanDevice::WriteTexture(NkTextureHandle t,const void* p,uint32 rp) {
         auto it=mTextures.Find(t.id); if (!it) return false;
         auto& desc=it->desc;
-        return WriteTextureRegion(t,p,0,0,0,desc.width,desc.height,1,0,0,rp);
+        // Phase H.6 : pour les textures 3D, on doit ecrire les `desc.depth`
+        // slices, pas juste 1. Sinon les voxels Z > 0 restent uninitialized
+        // et le sample retourne 0 (Vulkan layout UNDEFINED).
+        uint32 d = (desc.type == NkTextureType::NK_TEX3D) ? desc.depth : 1;
+        return WriteTextureRegion(t,p,0,0,0,desc.width,desc.height,d,0,0,rp);
     }
 
     bool NkVulkanDevice::WriteTextureRegion(NkTextureHandle t,const void* pixels,
@@ -1084,8 +1296,33 @@ namespace nkentseu {
     // =============================================================================
     NkPipelineHandle NkVulkanDevice::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
         threading::NkScopedLockMutex lock(mMutex);
-        auto sit=mShaders.Find(d.shader.id); if (!sit) return {};
-        auto rpit=mRenderPasses.Find(d.renderPass.id); if (!rpit) return {};
+        auto sit=mShaders.Find(d.shader.id);
+        if (!sit) {
+            NK_VK_ERR("CreateGraphicsPipeline '%s': shader handle id=%llu introuvable\n",
+                      d.debugName ? d.debugName : "?",
+                      (unsigned long long)d.shader.id);
+            return {};
+        }
+        auto rpit=mRenderPasses.Find(d.renderPass.id);
+        // Fallback : si l'appelant n'a pas specifie de renderPass (cas typique des
+        // sous-systemes ecrits "OpenGL-style"), on utilise le renderPass swapchain.
+        // VK garantit la compatibilite tant que les attachments ont memes formats
+        // / samples, et le swapchain RP (1 color + 1 depth) couvre la majorite des
+        // cas. Pour des passes specifiques (depth-only, MRT, etc), l'appelant doit
+        // explicitement passer pd.renderPass = <son RP>.
+        if (!rpit && mSwapchainRP.IsValid() && d.renderPass.id == 0) {
+            NK_VK_LOG("CreateGraphicsPipeline '%s': pas de renderPass specifie, "
+                      "fallback sur swapchain RP (compatible color+depth standard)\n",
+                      d.debugName ? d.debugName : "?");
+            rpit = mRenderPasses.Find(mSwapchainRP.id);
+        }
+        if (!rpit) {
+            NK_VK_ERR("CreateGraphicsPipeline '%s': renderPass handle id=%llu introuvable "
+                      "(VK exige un renderPass par pipeline)\n",
+                      d.debugName ? d.debugName : "?",
+                      (unsigned long long)d.renderPass.id);
+            return {};
+        }
         auto toVkStageFlags = [](NkShaderStage stages) -> VkShaderStageFlags {
             const uint32 bits = (uint32)stages;
             VkShaderStageFlags out = 0;
@@ -1263,8 +1500,9 @@ namespace nkentseu {
     // =============================================================================
     // Render Passes
     // =============================================================================
-    NkRenderPassHandle NkVulkanDevice::CreateRenderPass(const NkRenderPassDesc& d) {
-        threading::NkScopedLockMutex lock(mMutex);
+    // Helper : assume mMutex deja pris. Permet a CreateFramebuffer d'auto-creer
+    // un RP "implicite" (compatible attachments du fb) sans deadlocker.
+    NkRenderPassHandle NkVulkanDevice::CreateRenderPassUnlocked(const NkRenderPassDesc& d) {
         NkVector<VkAttachmentDescription> attachments;
         NkVector<VkAttachmentReference>   colorRefs;
         VkAttachmentReference depthRef{};
@@ -1276,7 +1514,7 @@ namespace nkentseu {
             ad.loadOp=ToVkLoadOp(a.loadOp); ad.storeOp=ToVkStoreOp(a.storeOp);
             ad.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE; ad.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
             ad.initialLayout=a.loadOp==NkLoadOp::NK_LOAD?VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED;
-            ad.finalLayout=mCreatingSwapchainRenderPass
+            ad.finalLayout=(mCreatingSwapchainRenderPass || d.finalForPresent)
                 ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
                 : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             colorRefs.PushBack({(uint32)attachments.Size(),VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
@@ -1289,6 +1527,13 @@ namespace nkentseu {
             ad.loadOp=ToVkLoadOp(a.loadOp); ad.storeOp=ToVkStoreOp(a.storeOp);
             ad.stencilLoadOp=ToVkLoadOp(a.stencilLoad); ad.stencilStoreOp=ToVkStoreOp(a.stencilStore);
             ad.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+            // finalLayout = DEPTH_STENCIL_ATTACHMENT toujours. Le NkRenderGraph
+            // fait sa propre track des layouts et insere des TextureBarrier
+            // explicites avant les pass consommatrices (cf NkRenderGraph::
+            // InsertBarriers). Si on finalisait en SHADER_READ ici, le graph
+            // aurait un old=DEPTH_WRITE qui ne matche pas le actual=SHADER_READ
+            // -> VUID-VkImageMemoryBarrier-oldLayout-01197. Source de verite
+            // pour les transitions = NkRenderGraph, pas les RPs.
             ad.finalLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             depthRef={( uint32)attachments.Size(),VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
             attachments.PushBack(ad);
@@ -1315,6 +1560,11 @@ namespace nkentseu {
         uint64 hid=NextId(); mRenderPasses[hid]={rp,d};
         NkRenderPassHandle h; h.id=hid; return h;
     }
+
+    NkRenderPassHandle NkVulkanDevice::CreateRenderPass(const NkRenderPassDesc& d) {
+        threading::NkScopedLockMutex lock(mMutex);
+        return CreateRenderPassUnlocked(d);
+    }
     void NkVulkanDevice::DestroyRenderPass(NkRenderPassHandle& h) {
         threading::NkScopedLockMutex lock(mMutex);
         auto it=mRenderPasses.Find(h.id); if (!it) return;
@@ -1327,7 +1577,44 @@ namespace nkentseu {
     // =============================================================================
     NkFramebufferHandle NkVulkanDevice::CreateFramebuffer(const NkFramebufferDesc& d) {
         threading::NkScopedLockMutex lock(mMutex);
-        auto rpit=mRenderPasses.Find(d.renderPass.id); if (!rpit) return {};
+        auto rpit=mRenderPasses.Find(d.renderPass.id);
+
+        // Fallback : si l'appelant n'a pas fourni de renderPass (convention
+        // OpenGL "le fb porte tout"), on en cree un automatiquement a partir
+        // des formats des attachments. Garantit un fb VK toujours utilisable
+        // par BeginRenderPass(rp=null, fb).
+        NkRenderPassHandle implicitRP{};
+        if (!rpit && d.renderPass.id == 0) {
+            NkRenderPassDesc rpd;
+            rpd.colorAttachments.Reserve((uint32)d.colorAttachments.Size());
+            for (uint32 i = 0; i < d.colorAttachments.Size(); ++i) {
+                auto* tx = mTextures.Find(d.colorAttachments[i].id);
+                if (!tx) return {};
+                NkAttachmentDesc ad;
+                ad.format  = tx->desc.format;
+                ad.samples = tx->desc.samples;
+                ad.loadOp  = NkLoadOp::NK_CLEAR;
+                ad.storeOp = NkStoreOp::NK_STORE;
+                rpd.colorAttachments.PushBack(ad);
+            }
+            if (d.depthAttachment.IsValid()) {
+                auto* tx = mTextures.Find(d.depthAttachment.id);
+                if (!tx) return {};
+                rpd.depthAttachment.format  = tx->desc.format;
+                rpd.depthAttachment.samples = tx->desc.samples;
+                rpd.depthAttachment.loadOp  = NkLoadOp::NK_CLEAR;
+                rpd.depthAttachment.storeOp = NkStoreOp::NK_STORE;
+                rpd.hasDepth = true;
+            }
+            implicitRP = CreateRenderPassUnlocked(rpd);
+            rpit = mRenderPasses.Find(implicitRP.id);
+        }
+
+        if (!rpit) return {};
+
+        // Track le NkRenderPassHandle public (soit fourni, soit l'auto-cree).
+        const NkRenderPassHandle rpHandle = (d.renderPass.id != 0) ? d.renderPass : implicitRP;
+
         NkVector<VkImageView> views;
         for (uint32 i=0;i<d.colorAttachments.Size();i++) {
             auto it=mTextures.Find(d.colorAttachments[i].id);
@@ -1343,7 +1630,16 @@ namespace nkentseu {
         fci.width=d.width; fci.height=d.height; fci.layers=d.layers;
         VkFramebuffer fb=VK_NULL_HANDLE;
         NK_VK_CHECK(vkCreateFramebuffer(mDevice,&fci,nullptr,&fb));
-        uint64 hid=NextId(); mFramebuffers[hid]={fb,d.width,d.height};
+        uint64 hid=NextId();
+        NkVkFramebuffer fbRec{};
+        fbRec.framebuffer = fb;
+        fbRec.w = d.width;
+        fbRec.h = d.height;
+        fbRec.renderPass = rpit->renderPass;
+        fbRec.renderPassHandle = rpHandle;
+        fbRec.colorCount = (uint32)rpit->desc.colorAttachments.Size();
+        fbRec.hasDepth   = rpit->desc.hasDepth;
+        mFramebuffers[hid] = fbRec;
         NkFramebufferHandle h; h.id=hid; return h;
     }
     void NkVulkanDevice::DestroyFramebuffer(NkFramebufferHandle& h) {
@@ -1382,7 +1678,24 @@ namespace nkentseu {
             bindings[i].descriptorCount=d.bindings[i].count;
             bindings[i].stageFlags=toVkStageFlags(d.bindings[i].stages);
         }
+        // Pour chaque binding : flag UPDATE_AFTER_BIND_BIT pour permettre les
+        // BindTextureSampler (= vkUpdateDescriptorSets) tant que le set est
+        // bindé à un cmd buffer en cours d'execution (cf. pool flag plus haut).
+        // Pattern courant pour les renderers : re-bind tex entre draws sans
+        // invalider le cmd buffer.
+        NkVector<VkDescriptorBindingFlags> bindingFlags(d.bindings.Size());
+        for (uint32 i = 0; i < d.bindings.Size(); ++i) {
+            bindingFlags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
+                            | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+        }
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bfci{
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bfci.bindingCount  = (uint32)bindingFlags.Size();
+        bfci.pBindingFlags = bindingFlags.Data();
+
         VkDescriptorSetLayoutCreateInfo dlci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        dlci.pNext = &bfci;
+        dlci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
         dlci.bindingCount=(uint32)bindings.Size(); dlci.pBindings=bindings.Data();
         VkDescriptorSetLayout layout=VK_NULL_HANDLE;
         NK_VK_CHECK(vkCreateDescriptorSetLayout(mDevice,&dlci,nullptr,&layout));
@@ -1435,7 +1748,27 @@ namespace nkentseu {
                 VkSampler samp=VK_NULL_HANDLE;
                 if (w.sampler.IsValid()) { auto sit2=mSamplers.Find(w.sampler.id); if (sit2) samp=sit2->sampler; }
                 if (!tit) continue;
-                imgInfos.PushBack({samp,tit->view,ToVkImageLayout(w.textureLayout)});
+                // Convention : la layout dans le descriptor doit etre celle attendue par
+                // le shader au moment du sample/load. Pour les sampled images on force
+                // SHADER_READ_ONLY_OPTIMAL (toutes les mips/layers seront mises dans cet
+                // etat par CreateTexture/Blit chain), pour les storage images GENERAL.
+                // Cela evite les erreurs VUID-vkCmdDraw-None-09600 quand un caller laisse
+                // textureLayout = NK_UNDEFINED ou NK_TRANSFER_DST par accident.
+                VkImageLayout descLayout;
+                switch (w.type) {
+                    case NkDescriptorType::NK_SAMPLED_TEXTURE:
+                    case NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER:
+                    case NkDescriptorType::NK_INPUT_ATTACHMENT:
+                        descLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        break;
+                    case NkDescriptorType::NK_STORAGE_TEXTURE:
+                        descLayout = VK_IMAGE_LAYOUT_GENERAL;
+                        break;
+                    default:
+                        descLayout = ToVkImageLayout(w.textureLayout);
+                        break;
+                }
+                imgInfos.PushBack({samp,tit->view,descLayout});
                 ws.pImageInfo=&imgInfos[imgInfos.Size() - 1];
             }
             vkWrites.PushBack(ws);
@@ -1663,6 +1996,14 @@ namespace nkentseu {
     uint32           NkVulkanDevice::GetVkRenderPassColorCount(uint64 id) const { const auto* it=mRenderPasses.Find(id); return it ? (uint32)it->desc.colorAttachments.Size() : 0u; }
     bool             NkVulkanDevice::GetVkRenderPassHasDepth(uint64 id) const { const auto* it=mRenderPasses.Find(id); return it ? it->desc.hasDepth : false; }
     VkFramebuffer    NkVulkanDevice::GetVkFB(uint64 id) const { const auto* it=mFramebuffers.Find(id); return it ? it->framebuffer : VK_NULL_HANDLE; }
+    VkRenderPass     NkVulkanDevice::GetVkFramebufferRenderPass(uint64 id) const { const auto* it=mFramebuffers.Find(id); return it ? it->renderPass : VK_NULL_HANDLE; }
+    uint32           NkVulkanDevice::GetVkFramebufferColorCount(uint64 id) const { const auto* it=mFramebuffers.Find(id); return it ? it->colorCount : 0u; }
+    bool             NkVulkanDevice::GetVkFramebufferHasDepth(uint64 id) const { const auto* it=mFramebuffers.Find(id); return it ? it->hasDepth : false; }
+
+    NkRenderPassHandle NkVulkanDevice::GetFramebufferRenderPass(NkFramebufferHandle fb) const {
+        const auto* it = mFramebuffers.Find(fb.id);
+        return it ? it->renderPassHandle : NkRenderPassHandle{};
+    }
     VkBuffer         NkVulkanDevice::GetVkBuffer(uint64 id) const { const auto* it=mBuffers.Find(id); return it ? it->buffer : VK_NULL_HANDLE; }
     VkImage          NkVulkanDevice::GetVkImage(uint64 id)  const { const auto* it=mTextures.Find(id); return it ? it->image : VK_NULL_HANDLE; }
     VkImageView      NkVulkanDevice::GetVkImageView(uint64 id) const { const auto* it=mTextures.Find(id); return it ? it->view : VK_NULL_HANDLE; }
@@ -1820,6 +2161,7 @@ namespace nkentseu {
     VkAttachmentStoreOp NkVulkanDevice::ToVkStoreOp(NkStoreOp op){switch(op){case NkStoreOp::NK_STORE:return VK_ATTACHMENT_STORE_OP_STORE;default:return VK_ATTACHMENT_STORE_OP_DONT_CARE;}}
     VkImageLayout NkVulkanDevice::ToVkImageLayout(NkResourceState s) {
         switch(s){
+            case NkResourceState::NK_UNDEFINED:        return VK_IMAGE_LAYOUT_UNDEFINED;
             case NkResourceState::NK_RENDER_TARGET:    return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             case NkResourceState::NK_DEPTH_READ:       return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
             case NkResourceState::NK_DEPTH_WRITE:      return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;

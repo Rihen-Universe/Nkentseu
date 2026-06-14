@@ -24,36 +24,18 @@ Fonctionnalités :
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKECS"):
-    useglobalkind("ecs")
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKLogger.location}/src",
-    ])
-
-    dependson([
-        "NKPlatform",
-        "NKCore",
-        "NKMemory",
-        "NKMath",
-        "NKContainers",
-        "NKThreading",
-        "NKLogger",
-    ])
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKThreading", "NKLogger"],
+        selfexport="NKECS",
+        extra_includes=["src"],
+    )
 
     files([
         # Fondations
@@ -69,7 +51,7 @@ with project("NKECS"):
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE",
@@ -106,6 +88,14 @@ with project("NKECS"):
         androidtargetsdk(34)
         androidcompilesdk(34)
         androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android).
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
 
     # ===== iOS ====================================================================
     with filter("system:iOS"):

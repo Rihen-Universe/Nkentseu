@@ -305,37 +305,20 @@ namespace nkentseu {
             void AddEventCallback(Callback&& callback,
                                   NkWindowId windowId = NK_INVALID_WINDOW_ID)
             {
-                static_assert(NkIsInvocable_v<Callback&, T*>,
-                              "AddEventCallback<T>: callback must be invocable as (T*)");
-
-                NK_EVENTSYS_ANDROID_TRACE(
-                    "[AddEventCallback<T>] enter this=%p windowId=%llu",
-                    static_cast<void*>(this),
-                    static_cast<unsigned long long>(windowId));
+                static_assert(NkIsInvocable_v<Callback&, T*>, "AddEventCallback<T>: callback must be invocable as (T*)");
 
                 using CallbackT = traits::NkDecay_t<Callback>;
                 CallbackT typedCallback(traits::NkForward<Callback>(callback));
                 if constexpr (detail::NkIsBoolTestable_v<CallbackT>) {
                     if (!static_cast<bool>(typedCallback)) {
-                        NK_EVENTSYS_ANDROID_TRACE("[AddEventCallback<T>] empty callback -> skip");
                         return;
                     }
                 }
 
                 NkWindowId filterId = windowId;
-                NK_EVENTSYS_ANDROID_TRACE(
-                    "[AddEventCallback<T>] step filterId=%llu",
-                    static_cast<unsigned long long>(filterId));
                 const NkEventType::Value type = T::GetStaticType();
-                NK_EVENTSYS_ANDROID_TRACE(
-                    "[AddEventCallback<T>] step type=%u",
-                    static_cast<unsigned>(type));
 
                 if (type >= NkEventType::NK_EVENT_COUNT) {
-                    NK_EVENTSYS_ANDROID_TRACE(
-                        "[AddEventCallback<T>] invalid type=%u count=%u -> skip",
-                        static_cast<unsigned>(type),
-                        static_cast<unsigned>(NkEventType::NK_EVENT_COUNT));
                     return;
                 }
 
@@ -346,13 +329,7 @@ namespace nkentseu {
                         ev->GetWindowId() != filterId) return;
                     if (auto* typed = ev->As<T>()) callback(typed);
                 };
-                NK_EVENTSYS_ANDROID_TRACE(
-                    "[AddEventCallback<T>] step wrapper-ready type=%u",
-                    static_cast<unsigned>(type));
                 AddEventCallbackRaw(type, traits::NkMove(wrapper));
-                NK_EVENTSYS_ANDROID_TRACE(
-                    "[AddEventCallback<T>] done type=%u",
-                    static_cast<unsigned>(type));
             }
 
             // CORRECTION 4 : version RAII â€” le callback est automatiquement
@@ -362,8 +339,7 @@ namespace nkentseu {
                 Callback&& callback,
                 NkWindowId windowId = NK_INVALID_WINDOW_ID)
             {
-                static_assert(NkIsInvocable_v<Callback&, T*>,
-                              "AddEventCallbackGuard<T>: callback must be invocable as (T*)");
+                static_assert(NkIsInvocable_v<Callback&, T*>, "AddEventCallbackGuard<T>: callback must be invocable as (T*)");
 
                 using CallbackT = traits::NkDecay_t<Callback>;
                 CallbackT typedCallback(traits::NkForward<Callback>(callback));

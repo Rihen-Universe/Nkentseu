@@ -42,6 +42,7 @@ public:
     void BindComputePipeline (NkPipelineHandle p) override;
     void BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32* off, uint32 cnt) override;
     void PushConstants(NkShaderStage stages, uint32 offset, uint32 size, const void* data) override;
+    void UpdateBuffer(NkBufferHandle, uint64, uint64, const void*) override {} // TODO: staging + CopyBufferRegion
 
     void BindVertexBuffer (uint32 binding, NkBufferHandle buf, uint64 offset) override;
     void BindVertexBuffers(uint32 first, const NkBufferHandle* bufs, const uint64* offs, uint32 n) override;
@@ -75,6 +76,10 @@ private:
     NkCommandBufferType                 mType;
     bool                               mIsCompute = false;
     bool                               mRecording = false;
+    // Vrai uniquement quand un pipeline VALIDE (avec root signature) est bindé. Si la
+    // création du pipeline a échoué, on saute PushConstants/BindDescriptorSet/Draw pour
+    // éviter SetRoot*/Draw sur une command list sans root sig (SIGSEGV driver).
+    bool                               mRootSigBound = false;
     uint64                              mActiveColorTexIds[8]{};
     uint32                              mActiveColorCount = 0;
     uint64                              mActiveDepthTexId = 0;

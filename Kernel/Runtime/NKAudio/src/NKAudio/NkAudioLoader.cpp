@@ -11,10 +11,14 @@
 // INCLUDES
 // ============================================================
 
-#include "NkAudio.h"
+#include "NKAudio.h"
+#include "NKAudio/Codecs/FLAC/NkFLACCodec.h"
+#include "NKAudio/Codecs/MP3/NkMP3Codec.h"
+#include "NKAudio/Codecs/OGG/NkOGGVorbisCodec.h"
 #include "NKCore/Assert/NkAssert.h"
 #include "NKCore/NkMacros.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <cmath>
 #include <cstring>
@@ -83,35 +87,26 @@ namespace {
 
         bool Load(const char* path, nkentseu::memory::NkAllocator* a) {
             alloc = a;
-            FILE* f = fopen(path, "rb");
-            if (!f) return false;
+            // NkFile gere automatiquement le fallback AAssetManager Android :
+            // un .wav dans assets/ de l'APK est ouvert via AAsset si fopen echoue.
+            nkentseu::NkFile f;
+            if (!f.Open(path, nkentseu::NkFileMode::NK_READ_BINARY)) return false;
 
-            fseek(f, 0, SEEK_END);
-            long len = ftell(f);
-            fseek(f, 0, SEEK_SET);
-
-            if (len <= 0) { fclose(f); return false; }
+            nkentseu::nk_int64 len = f.GetSize();
+            if (len <= 0) { f.Close(); return false; }
 
             size = (nkentseu::usize)len;
-            if (alloc) {
-                data = (nkentseu::uint8*)alloc->Allocate(size, 1);
-            } else {
-                data = (nkentseu::uint8*)::operator new(size);
-            }
-            if (!data) { fclose(f); return false; }
+            data = (nkentseu::uint8*)nkentseu::memory::NkAlloc(size, alloc);
+            if (!data) { f.Close(); return false; }
 
-            fread(data, 1, size, f);
-            fclose(f);
+            f.Read(data, size);
+            f.Close();
             return true;
         }
 
         ~FileBuffer() {
             if (data) {
-                if (alloc) {
-                    alloc->Free(data);
-                } else {
-                    ::operator delete(data);
-                }
+                nkentseu::memory::NkFree(data, alloc);
                 data = nullptr;
             }
         }
@@ -302,14 +297,10 @@ namespace nkentseu {
 
             usize frameCount = pcmSize / (numChannels * bytesPerSample);
 
-            // Allouer le buffer Float32 de sortie
+            // Allouer le buffer Float32 de sortie via NKMemory (unifie).
             usize sampleCount = frameCount * numChannels;
-            float32* outData = nullptr;
-            if (allocator) {
-                outData = (float32*)allocator->Allocate(sampleCount * sizeof(float32), sizeof(float32));
-            } else {
-                outData = (float32*)::operator new(sampleCount * sizeof(float32));
-            }
+            float32* outData = (float32*)memory::NkAlloc(
+                sampleCount * sizeof(float32), allocator, sizeof(float32));
             if (!outData) return result;
 
             // Conversion vers Float32
@@ -347,8 +338,7 @@ namespace nkentseu {
                     }
                 } else {
                     // Format non géré
-                    if (allocator) allocator->Free(outData);
-                    else ::operator delete(outData);
+                    memory::NkFree(outData, allocator);
                     return result;
                 }
             }
@@ -369,29 +359,23 @@ namespace nkentseu {
 
         AudioSample AudioLoader::LoadMP3(const uint8* data, usize size,
                                           memory::NkAllocator* allocator) {
-            // TODO: Intégrer minimp3.h (header-only, ~60Ko, MIT license, zéro STL)
-            // #define MINIMP3_IMPLEMENTATION
-            // #include "minimp3.h"
-            (void)data; (void)size; (void)allocator;
-            return {};
+            // Decodeur MP3 from scratch (NkMP3Codec). v0 : header+stats OK,
+            // decode complet (Huffman/IMDCT/synthesis) en cours en v1.
+            return NkMP3Codec::Decode(data, size, allocator);
         }
 
         AudioSample AudioLoader::LoadOGG(const uint8* data, usize size,
                                           memory::NkAllocator* allocator) {
-            // TODO: Intégrer stb_vorbis.c (header-only, ~200Ko, public domain)
-            // #define STB_VORBIS_NO_STDIO
-            // #include "stb_vorbis.c"
-            (void)data; (void)size; (void)allocator;
-            return {};
+            // Decodeur OGG Vorbis from-scratch (NkOGGVorbisCodec).
+            // v0 : skeleton + parse identification header. Decode complet en
+            // sessions futures (codebooks + floors + residues + MDCT).
+            return NkOGGVorbisCodec::Decode(data, size, allocator);
         }
 
         AudioSample AudioLoader::LoadFLAC(const uint8* data, usize size,
                                            memory::NkAllocator* allocator) {
-            // TODO: Intégrer dr_flac.h (header-only, ~130Ko, MIT license)
-            // #define DR_FLAC_IMPLEMENTATION
-            // #include "dr_flac.h"
-            (void)data; (void)size; (void)allocator;
-            return {};
+            // Decodeur FLAC from scratch (NkFLACCodec). Aucun dependance externe.
+            return NkFLACCodec::Decode(data, size, allocator);
         }
 
         // ──────────────────────────────────────────────────────────────────────
@@ -401,8 +385,10 @@ namespace nkentseu {
         bool AudioLoader::SaveWAV(const char* path, const AudioSample& sample) {
             if (!path || !sample.IsValid()) return false;
 
-            FILE* f = fopen(path, "wb");
-            if (!f) return false;
+            // NkFile gere cross-platform + Android (l'ecriture sur Android
+            // utilise le filesystem normal, pas AAsset qui est lecture seule).
+            NkFile f;
+            if (!f.Open(path, NkFileMode::NK_WRITE_BINARY)) return false;
 
             usize sampleCount = sample.GetSampleCount();
             uint32 dataSize   = (uint32)(sampleCount * sizeof(int16)); // export en 16-bit
@@ -439,20 +425,19 @@ namespace nkentseu {
             header[40]=(uint8)(dataSize); header[41]=(uint8)(dataSize>>8);
             header[42]=(uint8)(dataSize>>16); header[43]=(uint8)(dataSize>>24);
 
-            fwrite(header, 1, 44, f);
+            f.Write(header, 44);
 
             // Écrire samples en Int16
             for (usize i = 0; i < sampleCount; ++i) {
                 float32 s = sample.data[i];
-                // Clamp
                 if (s >  1.0f) s =  1.0f;
                 if (s < -1.0f) s = -1.0f;
                 int16 pcm = (int16)(s * 32767.0f);
                 uint8 bytes[2] = { (uint8)(pcm), (uint8)((uint16)pcm >> 8) };
-                fwrite(bytes, 1, 2, f);
+                f.Write(bytes, 2);
             }
 
-            fclose(f);
+            f.Close();
             return true;
         }
 
@@ -464,9 +449,9 @@ namespace nkentseu {
             if (!sample.data) return;
 
             if (sample.mAllocator) {
-                sample.mAllocator->Free(sample.data);
+                sample.mAllocator->Deallocate(sample.data);
             } else {
-                ::operator delete(sample.data);
+                memory::NkFree(sample.data);
             }
             sample.data       = nullptr;
             sample.frameCount = 0;
@@ -494,12 +479,9 @@ namespace nkentseu {
             usize  newFrames  = (usize)((double)sample.frameCount * ratio);
             int32  ch         = sample.channels;
 
-            float32* newData = nullptr;
-            if (sample.mAllocator) {
-                newData = (float32*)sample.mAllocator->Allocate(newFrames * (usize)ch * sizeof(float32), sizeof(float32));
-            } else {
-                newData = (float32*)::operator new(newFrames * (usize)ch * sizeof(float32));
-            }
+            float32* newData = (float32*)memory::NkAlloc(
+                newFrames * (usize)ch * sizeof(float32),
+                sample.mAllocator, sizeof(float32));
             if (!newData) return;
 
             for (usize outFrame = 0; outFrame < newFrames; ++outFrame) {
@@ -517,8 +499,7 @@ namespace nkentseu {
             }
 
             // Remplacer le buffer
-            if (sample.mAllocator) sample.mAllocator->Free(sample.data);
-            else ::operator delete(sample.data);
+            memory::NkFree(sample.data, sample.mAllocator);
 
             sample.data        = newData;
             sample.frameCount  = newFrames;
@@ -539,13 +520,9 @@ namespace nkentseu {
             if (!sample.IsValid() || sample.channels == targetChannels) return;
 
             usize   newCount = sample.frameCount * (usize)targetChannels;
-            float32* newData = nullptr;
-
-            if (sample.mAllocator) {
-                newData = (float32*)sample.mAllocator->Allocate(newCount * sizeof(float32), sizeof(float32));
-            } else {
-                newData = (float32*)::operator new(newCount * sizeof(float32));
-            }
+            float32* newData = (float32*)memory::NkAlloc(
+                newCount * sizeof(float32),
+                sample.mAllocator, sizeof(float32));
             if (!newData) return;
 
             int32 srcCh = sample.channels;
@@ -572,8 +549,7 @@ namespace nkentseu {
                 }
             }
 
-            if (sample.mAllocator) sample.mAllocator->Free(sample.data);
-            else ::operator delete(sample.data);
+            memory::NkFree(sample.data, sample.mAllocator);
 
             sample.data     = newData;
             sample.channels = dstCh;
