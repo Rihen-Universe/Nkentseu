@@ -3,7 +3,7 @@
 // Noge/NogeApp.h  —  v2
 // =============================================================================
 
-#include "Nkentseu/Core/Application.h"
+#include "Noge/Core/Application.h"
 #include "UkConfig.h"
 #include "Layers/EditorLayer.h"
 #include "Layers/ViewportLayer.h"

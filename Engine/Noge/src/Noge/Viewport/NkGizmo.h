@@ -8,7 +8,7 @@
 // Rendu via NkRender3D::DrawLine/DrawAxis — pas de mesh dédié.
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NkViewportCamera.h"
 
 namespace nkentseu {

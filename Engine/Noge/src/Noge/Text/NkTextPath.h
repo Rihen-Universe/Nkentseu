@@ -4,7 +4,7 @@
 // Nkentseu/Design/Text/NkTextPath.h — Texte sur chemin + typographie avancée
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "Nkentseu/Design/Vector/NkVectorPath.h"

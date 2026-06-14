@@ -1,0 +1,33 @@
+// glow2d.vert.nksl — NKRenderer — Glow sprite VS (VRAI dialecte NkSL)
+// Traduit de Glow2D/VK/glow2d.vert.vk.glsl. purePC (push_constant, pas d'UBO) → pas de Y-flip.
+
+@location(0) in vec2 aPos;
+@location(1) in vec2 aUV;
+@location(2) in uint aColor;
+@location(3) in uint aFlags;
+
+@location(0) out vec2 vUV;
+@location(1) out vec4 vColor;
+
+layout(push_constant) uniform PC {
+    mat4 ortho;
+    vec4 glowColor;     // RGB + intensity
+    vec4 glowParams;    // x=power, y=radius scale, zw=pad
+} pc;
+
+vec4 UnpackRGBA(uint c) {
+    return vec4(
+        float((c >>  0) & 0xFFu) / 255.0,
+        float((c >>  8) & 0xFFu) / 255.0,
+        float((c >> 16) & 0xFFu) / 255.0,
+        float((c >> 24) & 0xFFu) / 255.0
+    );
+}
+
+@stage(vertex)
+@entry
+void main() {
+    vUV    = aUV;
+    vColor = UnpackRGBA(aColor);
+    gl_Position = pc.ortho * vec4(aPos, 0.0, 1.0);
+}

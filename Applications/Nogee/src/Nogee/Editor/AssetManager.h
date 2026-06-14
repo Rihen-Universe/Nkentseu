@@ -24,7 +24,7 @@
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKRHI/Core/NkIDevice.h"
-#include "NKRHI/Core/NkHandles.h"
+#include "NKRHI/Core/NkTypes.h"
 
 namespace nkentseu {
     namespace Noge {

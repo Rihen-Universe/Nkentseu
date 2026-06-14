@@ -39,7 +39,7 @@
 // =============================================================================
 
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "Nkentseu/ECS/Components/Animation/NkAnimation.h"
 

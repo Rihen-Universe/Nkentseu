@@ -11,7 +11,7 @@
 //    a implementer.
 // =============================================================================
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKRenderer/Tools/PixolSculpt/NkSculptBrush.h"
 #include "NKRenderer/Tools/PixolSculpt/NkSculptTypes.h"
 

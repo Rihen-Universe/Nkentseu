@@ -1,4 +1,4 @@
-#include "Nkentseu/Core/Application.h"
+#include "Noge/Core/Application.h"
 #include "Noge/UkConfig.h"
 #include "Noge/NogeApp.h"
 

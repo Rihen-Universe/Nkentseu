@@ -8,10 +8,10 @@
 // Resize automatique quand la fenêtre NKUI du viewport change de taille.
 // =============================================================================
 
-#include "Nkentseu/Core/Layer.h"
+#include "Noge/Core/Layer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "NKRHI/Core/NkHandles.h"
+#include "NKRHI/Core/NkTypes.h"
 #include "NKMath/NKMath.h"
 #include "NKECS/World/NkWorld.h"
 #include "NKRenderer/src/NKRenderer/Scene/NkRenderScene.h"

@@ -11,12 +11,14 @@ layout(location=5) in vec4 aColor;
 
 layout(std140, set=0, binding=0) uniform CameraUBO {
     mat4  view, proj, viewProj, invViewProj;
-    vec4  camPos, camDir; vec2 viewport; float time, deltaTime;
+    vec4  camPos, camDir; 
+    vec2 viewport; float time, deltaTime;
     float iblStrength;
 } uCam;
 
 layout(std140, set=1, binding=1) uniform ObjectUBO {
-    mat4  model, normalMatrix; vec4 tint;
+    mat4  model, normalMatrix; 
+    vec4 tint;
     float metallic, roughness, aoStrength, emissiveStrength;
     float normalStrength, clearcoat, clearcoatRoughness, subsurface;
     vec4  subsurfaceColor;

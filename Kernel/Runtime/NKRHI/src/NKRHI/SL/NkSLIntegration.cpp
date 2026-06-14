@@ -6,7 +6,7 @@
 //   - CreateShaderWithReflection : dispatch via ApiToTarget() étendu
 //   - BuildShaderDesc : compatible NK_GLSL_VULKAN, NK_HLSL_DX11, NK_HLSL_DX12
 // =============================================================================
-#include "NkSLIntegration.h"
+#include "NKRHI/SL/NkSLIntegration.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"   // lecture via NKFileSystem (pas de fopen CRT)
 #include <cstdio>

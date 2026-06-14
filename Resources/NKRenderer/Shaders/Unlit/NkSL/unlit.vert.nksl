@@ -1,0 +1,51 @@
+// unlit.vert.nksl — NKRenderer — Unlit Vertex (VRAI dialecte NkSL)
+// Traduit de Unlit/VK/unlit.vert.vk.glsl. Pas de lighting : pass-through couleur.
+// UBOs en std140 (offsets identiques au .vk.glsl pour matcher le remplissage CPU).
+
+@location(0) in vec3 aPos;
+@location(1) in vec3 aNormal;
+@location(2) in vec3 aTangent;
+@location(3) in vec2 aUV;
+@location(4) in vec2 aUV2;
+@location(5) in vec4 aColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+} uCam;
+
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+} uObj;
+
+@location(0) out vec2 vUV;
+@location(1) out vec4 vColor;
+
+@stage(vertex)
+@entry
+void main() {
+    vUV         = aUV;
+    vColor      = aColor * uObj.tint;
+    gl_Position = uCam.viewProj * uObj.model * vec4(aPos, 1.0);
+}

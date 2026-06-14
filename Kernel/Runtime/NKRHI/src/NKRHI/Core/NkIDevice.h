@@ -130,6 +130,11 @@ namespace nkentseu {
             virtual void         Shutdown()                             = 0;
             virtual bool         IsValid()                       const  = 0;
             virtual NkGraphicsApi GetApi()                       const  = 0;
+            // Le swapchain applique-t-il l'encodage gamma sRGB à la présentation ?
+            // (dépend de NkContextDesc::swapchainFormat, cf. NkSwapchainFormat). Sert au
+            // tonemap : si true → gamma=1.0 (le swapchain encode), sinon gamma manuel.
+            // Défaut false (UNORM, comportement par défaut Nkentseu).
+            virtual bool          IsSwapchainSrgb()              const  { return false; }
             virtual const NkDeviceCaps& GetCaps()                const  = 0;
             virtual NkContextInfo GetContextInfo() const {
                 NkContextInfo info{};

@@ -45,7 +45,7 @@
 // #include "NKRHI/SL/NkSLIntegration.h"
 #include "NKRHI/SL/NkSWShaderBridge.h"
 #include "NKRHI/Commands/NkCommandPool.h"// Pool de command buffers (réutilisation)
-#include "NKRHI/ShaderConvert/NkShaderConvert.h" // Chargement / compilation shaders
+#include "NKSL/NKSL.h" // API NkSL complète (compilateur + ShaderConvert)
 
 #include "NKMath/NKMath.h"               // NkVec2f, NkVec3f, NkMat4f…
 #include "NKLogger/NkLog.h"              // logger.Info / logger.Error

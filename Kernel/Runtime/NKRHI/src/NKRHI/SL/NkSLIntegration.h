@@ -10,7 +10,7 @@
 //   - ApiToGLSLVulkanTarget() : retourne NK_GLSL_VULKAN pour Vulkan
 //   - ApiToHLSLTarget()       : retourne NK_HLSL_DX11 ou NK_HLSL_DX12 selon l'API
 // =============================================================================
-#include "NkSLCompiler.h"
+#include "NKSL/NKSL.h"
 #include "NKRHI/Core/NkIDevice.h"
 
 namespace nkentseu {

@@ -7,7 +7,7 @@
 // lit le pixel sous le curseur pour identifier l'objet cliqué.
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKRenderer/src/NkRenderer.h"
 

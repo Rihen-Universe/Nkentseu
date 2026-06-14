@@ -20,7 +20,7 @@
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTextEvent.h"
 #include "NKUI/NKUI.h"
-#include "Nkentseu/Core/EventBus.h"
+#include "Noge/Core/EventBus.h"
 
 namespace nkentseu {
     namespace noge {

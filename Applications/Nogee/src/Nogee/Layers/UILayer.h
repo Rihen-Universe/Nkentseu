@@ -23,7 +23,7 @@
 //   └─────────────────────────────────────────────┘
 // =============================================================================
 
-#include "Nkentseu/Core/Layer.h"
+#include "Noge/Core/Layer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKRHI/Core/NkGraphicsApi.h"

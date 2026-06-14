@@ -10,7 +10,7 @@
 //   - NkFaceControllerV2 remplace NkFaceController (micro-expressions + asymétrie)
 // =============================================================================
 
-#include "Nkentseu/Core/Layer.h"
+#include "Noge/Core/Layer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "PV3DE/Core/NkClinicalState.h"

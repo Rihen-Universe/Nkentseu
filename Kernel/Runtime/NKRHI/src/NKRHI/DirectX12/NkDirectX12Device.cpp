@@ -134,6 +134,17 @@ bool NkDirectX12Device::Initialize(const NkDeviceInitInfo& init) {
             }
         }
     }
+    // DRED (Device Removed Extended Data) : capture les auto-breadcrumbs GPU + page faults.
+    // Sur un device removed (hang), on saura QUELLE opération GPU a hangé (diag resize DX12).
+    {
+        ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dred;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred)))) {
+            dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            NK_DX12_LOG("DRED activé (auto-breadcrumbs + page-fault)\n");
+        }
+    }
+
     NK_DX12_CHECK(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&mFactory)),
                   "CreateDXGIFactory2");
 
@@ -283,8 +294,146 @@ void NkDirectX12Device::InitDescriptorHeaps() {
     };
     makeHeap(mRtvHeap,       D3D12_DESCRIPTOR_HEAP_TYPE_RTV,         mRtvHeapCapacity,  false);
     makeHeap(mDsvHeap,       D3D12_DESCRIPTOR_HEAP_TYPE_DSV,         mDsvHeapCapacity,  false);
-    makeHeap(mCbvSrvUavHeap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, mSrvHeapCapacity,  true);
-    makeHeap(mSamplerHeap,   D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,     mSamplerHeapCapacity, true);
+    // STAGING (CPU, non shader-visible) : descripteurs persistants, source des copies.
+    makeHeap(mCbvSrvUavHeap, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, mSrvHeapCapacity,     false);
+    makeHeap(mSamplerHeap,   D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,     mSamplerHeapCapacity, false);
+    // RINGS shader-visible : destination par draw (ring linéaire, reset/frame). Le heap
+    // sampler shader-visible est plafonné à 2048 par D3D12.
+    makeHeap(mCbvSrvUavRing, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 32768, true);
+    makeHeap(mSamplerRing,   D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,     2048,  true);
+    mCbvSrvUavRingHead = 0;
+    mSamplerRingHead   = 0;
+    InitNullDescriptors(); // descripteurs défaut pour remplir les slots non bindés
+}
+
+// =============================================================================
+// Ring de descripteurs shader-visible (alloc contiguë par draw)
+// =============================================================================
+void NkDirectX12Device::ResetDescriptorRingForFrame(uint32 /*frameIdx*/) {
+    // Présent sérialisé (cf. SubmitAndPresent) → GPU idle entre frames → reset à 0 sûr.
+    mCbvSrvUavRingHead = 0;
+    mSamplerRingHead   = 0;
+}
+UINT NkDirectX12Device::AllocCbvSrvUavRing(UINT count) {
+    if (mCbvSrvUavRing.capacity == 0) return UINT_MAX;
+    if (mCbvSrvUavRingHead + count > mCbvSrvUavRing.capacity) return UINT_MAX; // débordement → skip
+    UINT base = mCbvSrvUavRingHead;
+    mCbvSrvUavRingHead += count;
+    return base;
+}
+UINT NkDirectX12Device::AllocSamplerRing(UINT count) {
+    if (mSamplerRing.capacity == 0) return UINT_MAX;
+    if (mSamplerRingHead + count > mSamplerRing.capacity) return UINT_MAX;
+    UINT base = mSamplerRingHead;
+    mSamplerRingHead += count;
+    return base;
+}
+void NkDirectX12Device::CopyCbvSrvUavToRing(UINT destRingIdx, UINT srcStagingIdx) {
+    if (srcStagingIdx == UINT_MAX || destRingIdx == UINT_MAX) return;
+    if (!mDevice || mCbvSrvUavRing.capacity == 0) return;
+    mDevice->CopyDescriptorsSimple(1, mCbvSrvUavRing.CPUFrom(destRingIdx),
+                                   mCbvSrvUavHeap.CPUFrom(srcStagingIdx),
+                                   D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+}
+void NkDirectX12Device::CopySamplerToRing(UINT destRingIdx, UINT srcStagingIdx) {
+    if (srcStagingIdx == UINT_MAX || destRingIdx == UINT_MAX) return;
+    if (!mDevice || mSamplerRing.capacity == 0) return;
+    mDevice->CopyDescriptorsSimple(1, mSamplerRing.CPUFrom(destRingIdx),
+                                   mSamplerHeap.CPUFrom(srcStagingIdx),
+                                   D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+}
+void NkDirectX12Device::InitNullDescriptors() {
+    if (!mDevice) return;
+    // SRV NULL (lecture = 0, jamais de hang). Format/dimension obligatoires.
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC d{};
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        d.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        d.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        d.Texture2D.MipLevels = 1;
+        mNullSrvIdx = mCbvSrvUavHeap.allocated;
+        mDevice->CreateShaderResourceView(nullptr, &d, mCbvSrvUavHeap.AllocCPU());
+    }
+    // UAV NULL.
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC d{};
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        d.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        mNullUavIdx = mCbvSrvUavHeap.allocated;
+        mDevice->CreateUnorderedAccessView(nullptr, nullptr, &d, mCbvSrvUavHeap.AllocCPU());
+    }
+    // CBV défaut : petit buffer dummy 256 o.
+    {
+        D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_UPLOAD;
+        D3D12_RESOURCE_DESC rd{};
+        rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        rd.Width = 256; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+        rd.Format = DXGI_FORMAT_UNKNOWN; rd.SampleDesc = {1, 0};
+        rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        if (SUCCEEDED(mDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&mDummyCbvBuffer)))) {
+            D3D12_CONSTANT_BUFFER_VIEW_DESC cd{};
+            cd.BufferLocation = mDummyCbvBuffer->GetGPUVirtualAddress();
+            cd.SizeInBytes = 256;
+            mDefaultCbvIdx = mCbvSrvUavHeap.allocated;
+            mDevice->CreateConstantBufferView(&cd, mCbvSrvUavHeap.AllocCPU());
+        }
+    }
+    // Sampler défaut (linéaire, wrap).
+    {
+        D3D12_SAMPLER_DESC d{};
+        d.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        d.AddressU = d.AddressV = d.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        d.MaxLOD = D3D12_FLOAT32_MAX;
+        mDefaultSamplerIdx = mSamplerHeap.allocated;
+        mDevice->CreateSampler(&d, mSamplerHeap.AllocCPU());
+    }
+}
+void NkDirectX12Device::FillRingBlockDefaults(UINT csuBase, UINT sampBase) {
+    using namespace NkDX12RootLayout;
+    if (csuBase != UINT_MAX) {
+        for (UINT i = 0; i < NUM_CBV; ++i) CopyCbvSrvUavToRing(csuBase + OFF_CBV + i, mDefaultCbvIdx);
+        for (UINT i = 0; i < NUM_SRV; ++i) CopyCbvSrvUavToRing(csuBase + OFF_SRV + i, mNullSrvIdx);
+        for (UINT i = 0; i < NUM_UAV; ++i) CopyCbvSrvUavToRing(csuBase + OFF_UAV + i, mNullUavIdx);
+    }
+    if (sampBase != UINT_MAX)
+        for (UINT i = 0; i < NUM_SAMP; ++i) CopySamplerToRing(sampBase + i, mDefaultSamplerIdx);
+}
+void NkDirectX12Device::LogDREDOutput() {
+    if (!mDevice || mDredLogged) return;
+    mDredLogged = true;
+    ComPtr<ID3D12DeviceRemovedExtendedData> dred;
+    if (FAILED(mDevice->QueryInterface(IID_PPV_ARGS(&dred)))) {
+        NK_DX12_ERR("DRED: interface indisponible (pas de breadcrumbs)\n");
+        return;
+    }
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT bc{};
+    if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput(&bc))) {
+        const D3D12_AUTO_BREADCRUMB_NODE* node = bc.pHeadAutoBreadcrumbNode;
+        int n = 0;
+        while (node && n < 8) {
+            UINT last = node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0;
+            const char* cl = node->pCommandListDebugNameA ? node->pCommandListDebugNameA : "?";
+            NK_DX12_ERR("DRED node[%d] cmdlist='%s' completed=%u/%u\n",
+                        n, cl, last, node->BreadcrumbCount);
+            if (node->pCommandHistory && last < node->BreadcrumbCount)
+                NK_DX12_ERR("DRED   -> op HUNG enum=%u (cf D3D12_AUTO_BREADCRUMB_OP)\n",
+                            (unsigned)node->pCommandHistory[last]);
+            node = node->pNext; n++;
+        }
+        if (n == 0) NK_DX12_ERR("DRED: aucun breadcrumb node\n");
+    }
+    D3D12_DRED_PAGE_FAULT_OUTPUT pf{};
+    if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&pf))) {
+        NK_DX12_ERR("DRED page-fault VA=0x%llX\n", (unsigned long long)pf.PageFaultVA);
+        const D3D12_DRED_ALLOCATION_NODE* a = pf.pHeadRecentFreedAllocationNode;
+        int n = 0;
+        while (a && n < 8) {
+            NK_DX12_ERR("DRED   freed-recent[%d] '%s' type=%u\n", n,
+                        a->ObjectNameA ? a->ObjectNameA : "?", (unsigned)a->AllocationType);
+            a = a->pNext; n++;
+        }
+    }
 }
 
 // =============================================================================
@@ -302,6 +451,9 @@ void NkDirectX12Device::CreateSwapchain(uint32 w, uint32 h) {
     NK_DX12_CHECK(mFactory->CreateSwapChainForHwnd(
         mGraphicsQueue.Get(), mHwnd, &scd, nullptr, nullptr, &sc1),
         "CreateSwapChainForHwnd");
+    // Si la création échoue (ex. device removed pendant un resize), sc1 est null :
+    // NE PAS déréférencer (sc1.As planterait en SIGSEGV). On abandonne proprement.
+    if (!sc1) { mSwapchain.Reset(); return; }
     sc1.As(&mSwapchain);
 
     NkRenderPassDesc rpd;
@@ -372,6 +524,19 @@ void NkDirectX12Device::DestroySwapchain() {
 }
 
 void NkDirectX12Device::ResizeSwapchain(uint32 w, uint32 h) {
+    HRESULT rr0 = mDevice ? mDevice->GetDeviceRemovedReason() : 0;
+    NK_DX12_LOG("ResizeSwapchain ENTRY %u×%u (cur %u×%u) deviceRemovedReason=0x%X\n",
+                w, h, mWidth, mHeight, (unsigned)rr0);
+    if (w == 0 || h == 0) return;
+    if (w == mWidth && h == mHeight && mSwapchain) return; // taille inchangée → no-op
+    // Device déjà perdu ? abandon propre (évite la cascade de CreateXxx en échec).
+    if (mDevice && FAILED(mDevice->GetDeviceRemovedReason())) {
+        NK_DX12_ERR("ResizeSwapchain: device removed, skip\n");
+        return;
+    }
+    // Destroy+recreate complet. C'est SÛR pour UN resize (validé au démarrage). Le crash
+    // venait des appels EN RAFALE pendant un drag (un WM_SIZE par message) → désormais
+    // débouncé côté boucle de jeu (un seul resize après PollEvents). Cf. main.cpp.
     WaitIdle();
     DestroySwapchain();
     mWidth = w; mHeight = h;
@@ -446,60 +611,67 @@ void NkDirectX12Device::TransitionResource(ID3D12GraphicsCommandList* cmd,
 // Root Signature par défaut
 // =============================================================================
 ComPtr<ID3D12RootSignature> NkDirectX12Device::CreateDefaultRootSignature(bool compute) {
-    // Root signature:
-    //   0 -> Root constants (b15) pour PushConstants
-    //   1 -> Root CBV (b0)
-    //   2 -> SRV table (t0..t15)
-    //   3 -> UAV table (u0..u15)
-    //   4 -> Sampler table (s0..s15)
+    // Root signature 1.1 (TABLES LARGES) :
+    //   param 0 -> Root constants (b0, space1) — PushConstants (16 DWORD = 64 o)
+    //   param 1 -> table CBV b0-15 + SRV t0-31 + UAV u0-7 (space0)
+    //   param 2 -> table SAMPLER s0-31 (space0)
+    // Flag DESCRIPTORS_VOLATILE : seuls les descripteurs accédés par le shader doivent
+    // être valides au draw → on ne copie que les ressources réellement bindées.
     (void)compute;
     using namespace NkDX12RootLayout;
 
-    D3D12_ROOT_PARAMETER params[NUM_PARAMS]{};
-    // Ranges persistants jusqu'a D3D12SerializeRootSignature (refs par pointeur).
-    D3D12_DESCRIPTOR_RANGE srvRanges[NUM_SRV]{};
-    D3D12_DESCRIPTOR_RANGE sampRanges[NUM_SAMP]{};
-    D3D12_DESCRIPTOR_RANGE uavRanges[NUM_UAV]{};
+    D3D12_DESCRIPTOR_RANGE1 csuRanges[3]{};
+    auto fillRange = [](D3D12_DESCRIPTOR_RANGE1& r, D3D12_DESCRIPTOR_RANGE_TYPE type,
+                        UINT num, UINT offset) {
+        r.RangeType                         = type;
+        r.NumDescriptors                    = num;
+        r.BaseShaderRegister                = 0;
+        r.RegisterSpace                     = 0;
+        r.Flags                             = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
+                                            | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
+        r.OffsetInDescriptorsFromTableStart = offset;
+    };
+    fillRange(csuRanges[0], D3D12_DESCRIPTOR_RANGE_TYPE_CBV, NUM_CBV, OFF_CBV);
+    fillRange(csuRanges[1], D3D12_DESCRIPTOR_RANGE_TYPE_SRV, NUM_SRV, OFF_SRV);
+    fillRange(csuRanges[2], D3D12_DESCRIPTOR_RANGE_TYPE_UAV, NUM_UAV, OFF_UAV);
 
+    D3D12_DESCRIPTOR_RANGE1 sampRange{};
+    sampRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    sampRange.NumDescriptors                    = NUM_SAMP;
+    sampRange.BaseShaderRegister                = 0;
+    sampRange.RegisterSpace                     = 0;
+    sampRange.Flags                             = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+    sampRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_ROOT_PARAMETER1 params[NUM_PARAMS]{};
     params[ROOT_CONSTANTS].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     params[ROOT_CONSTANTS].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
-    params[ROOT_CONSTANTS].Constants.ShaderRegister = 15;
-    params[ROOT_CONSTANTS].Constants.RegisterSpace  = 0;
-    params[ROOT_CONSTANTS].Constants.Num32BitValues = 32;
+    params[ROOT_CONSTANTS].Constants.ShaderRegister = 0;
+    params[ROOT_CONSTANTS].Constants.RegisterSpace  = 1; // space1 dédié → pas de collision cbuffer
+    params[ROOT_CONSTANTS].Constants.Num32BitValues = 16;
 
-    params[ROOT_CBV].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    params[ROOT_CBV].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
-    params[ROOT_CBV].Descriptor.ShaderRegister = 0;
-    params[ROOT_CBV].Descriptor.RegisterSpace  = 0;
+    params[TABLE_CBV_SRV_UAV].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[TABLE_CBV_SRV_UAV].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_ALL;
+    params[TABLE_CBV_SRV_UAV].DescriptorTable.NumDescriptorRanges = 3;
+    params[TABLE_CBV_SRV_UAV].DescriptorTable.pDescriptorRanges   = csuRanges;
 
-    // UNE table d'1 descripteur par registre t0..t7 / s0..s7 / u0..u3.
-    auto fillTable = [](D3D12_ROOT_PARAMETER& p, D3D12_DESCRIPTOR_RANGE& r,
-                        D3D12_DESCRIPTOR_RANGE_TYPE type, uint32 reg) {
-        r.RangeType                         = type;
-        r.NumDescriptors                    = 1;
-        r.BaseShaderRegister                = reg;
-        r.RegisterSpace                     = 0;
-        r.OffsetInDescriptorsFromTableStart = 0;
-        p.ParameterType                     = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        p.ShaderVisibility                  = D3D12_SHADER_VISIBILITY_ALL;
-        p.DescriptorTable.NumDescriptorRanges = 1;
-        p.DescriptorTable.pDescriptorRanges   = &r;
-    };
-    for (uint32 k = 0; k < NUM_SRV;  ++k) fillTable(params[SRV_BASE + k],  srvRanges[k],  D3D12_DESCRIPTOR_RANGE_TYPE_SRV,     k);
-    for (uint32 k = 0; k < NUM_SAMP; ++k) fillTable(params[SAMP_BASE + k], sampRanges[k], D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, k);
-    for (uint32 k = 0; k < NUM_UAV;  ++k) fillTable(params[UAV_BASE + k],  uavRanges[k],  D3D12_DESCRIPTOR_RANGE_TYPE_UAV,     k);
+    params[TABLE_SAMPLER].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[TABLE_SAMPLER].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_ALL;
+    params[TABLE_SAMPLER].DescriptorTable.NumDescriptorRanges = 1;
+    params[TABLE_SAMPLER].DescriptorTable.pDescriptorRanges   = &sampRange;
 
-    D3D12_ROOT_SIGNATURE_DESC rsd{};
-    rsd.NumParameters     = NUM_PARAMS;
-    rsd.pParameters       = params;
-    rsd.NumStaticSamplers = 0;
-    rsd.pStaticSamplers   = nullptr;
-    rsd.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC vrsd{};
+    vrsd.Version                    = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    vrsd.Desc_1_1.NumParameters     = NUM_PARAMS;
+    vrsd.Desc_1_1.pParameters       = params;
+    vrsd.Desc_1_1.NumStaticSamplers = 0;
+    vrsd.Desc_1_1.pStaticSamplers   = nullptr;
+    vrsd.Desc_1_1.Flags             = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     ComPtr<ID3DBlob> blob, err;
-    HRESULT hr = D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, &err);
+    HRESULT hr = D3D12SerializeVersionedRootSignature(&vrsd, &blob, &err);
     if (FAILED(hr)) {
-        NK_DX12_ERR("D3D12SerializeRootSignature failed (hr=0x%X)\n", (unsigned)hr);
+        NK_DX12_ERR("D3D12SerializeVersionedRootSignature failed (hr=0x%X)\n", (unsigned)hr);
         if (err && err->GetBufferPointer()) {
             NK_DX12_ERR("%s\n", (const char*)err->GetBufferPointer());
         }
@@ -1456,7 +1628,12 @@ void NkDirectX12Device::SubmitAndPresent(NkICommandBuffer* cb) {
     fd.Signal(mGraphicsQueue.Get(), ++mFenceValue);
     const UINT syncInterval = mVsync ? 1u : 0u;
     const UINT flags = (!mVsync && mAllowTearing && mTearingSupported) ? DXGI_PRESENT_ALLOW_TEARING : 0u;
-    mSwapchain->Present(syncInterval, flags);
+    HRESULT phr = mSwapchain->Present(syncInterval, flags);
+    if (FAILED(phr)) {
+        HRESULT rr = mDevice ? mDevice->GetDeviceRemovedReason() : 0;
+        NK_DX12_ERR("Present FAILED hr=0x%X deviceRemovedReason=0x%X\n", (unsigned)phr, (unsigned)rr);
+        LogDREDOutput(); // dump la dernière opération GPU avant le hang (1 seule fois)
+    }
     mBackBufferIdx = mSwapchain->GetCurrentBackBufferIndex();
 
     // Keep command-buffer allocator reuse safe in the current architecture.
@@ -1525,6 +1702,7 @@ void NkDirectX12Device::WaitIdle() {
 bool NkDirectX12Device::BeginFrame(NkFrameContext& frame) {
     if (!mSwapchain) return false;
     mFrameData[mFrameIndex].WaitAndReset(mGraphicsQueue.Get());
+    ResetDescriptorRingForFrame(mFrameIndex); // ring de descripteurs : nouvelle frame
     frame.frameIndex  = mFrameIndex;
     frame.frameNumber = mFrameNumber;
     mBackBufferIdx    = mSwapchain->GetCurrentBackBufferIndex();
@@ -1541,7 +1719,10 @@ void NkDirectX12Device::EndFrame(NkFrameContext&) {
 }
 void NkDirectX12Device::OnResize(uint32 w, uint32 h) {
     if (w == 0 || h == 0) return;
-    mWidth = w; mHeight = h;
+    // NE PAS poser mWidth/mHeight ici : ResizeSwapchain les compare à w/h pour son no-op
+    // (même taille). Si on les posait avant, la garde verrait w==mWidth et SKIPPERAIT
+    // toujours le resize → swapchain figé à l'ancienne taille dans une fenêtre redimensionnée
+    // → mismatch → DXGI retire le device (faux DEVICE_HUNG). ResizeSwapchain pose mWidth après.
     ResizeSwapchain(w, h);
 }
 

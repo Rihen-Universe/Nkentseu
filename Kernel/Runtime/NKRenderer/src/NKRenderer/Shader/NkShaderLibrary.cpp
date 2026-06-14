@@ -5,8 +5,7 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKLogger/NkLog.h"
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
-#include "NKRHI/ShaderConvert/NkShaderAnnotations.h"
+#include "NKSL/NKSL.h"
 #include "NkShaderIncludeResolver.h"
 #include <cstdio>
 #include <sys/stat.h>
@@ -121,6 +120,9 @@ namespace nkentseu {
             mDevice  = device;
             mApi     = api;
             mBackend = NkCreateShaderBackend(api, useNkSL);
+            // Backend NkSL secondaire (vrai NkSLCompiler) pour l'opt-in par-shader :
+            // LoadOrCompileVF l'utilise quand un .nksl (vrai dialecte) existe.
+            mNkSLBackend = NkCreateShaderBackend(api, /*useNkSL=*/true);
 
             // Cache shader sur disque : cache/shaders/<hash16>.nksc
             // Cle = FNV-1a(source + stage + format). Invalide automatiquement
@@ -140,6 +142,7 @@ namespace nkentseu {
         void NkShaderLibrary::Shutdown() {
             ReleaseAll();
             delete mBackend; mBackend = nullptr;
+            delete mNkSLBackend; mNkSLBackend = nullptr;
         }
 
         // ── Lecture fichier ───────────────────────────────────────────────────────
@@ -182,12 +185,50 @@ namespace nkentseu {
         // Sauvegarde le resultat d'une compilation dans NkShaderCache.
         // Pour OpenGL : stocke la source GL GLSL convertie (preprocessed) en bytes.
         // Pour Vulkan : stocke le binaire SPIR-V.
+        // Tag de cache PAR API : la clé de cache doit distinguer chaque backend, sinon
+        // le résultat compilé pour une API (ex. SPIR-V Vulkan, ou HLSL DX11) est rechargé
+        // pour une autre (DX12, Software…) → pollution. Avant : tout sauf OpenGL = "spirv"
+        // → VK/DX11/DX12/SW collisionnaient (il fallait purger le cache à chaque switch).
+        static const char* ApiCacheTag(NkGraphicsApi api) {
+            switch (api) {
+                case NkGraphicsApi::NK_GFX_API_OPENGL:   return "glsl";
+                case NkGraphicsApi::NK_GFX_API_OPENGLES: return "glsles";
+                case NkGraphicsApi::NK_GFX_API_WEBGL:    return "webgl";
+                case NkGraphicsApi::NK_GFX_API_VULKAN:   return "spirv";
+                case NkGraphicsApi::NK_GFX_API_DX11:     return "hlsl11";
+                case NkGraphicsApi::NK_GFX_API_DX12:     return "hlsl12";
+                case NkGraphicsApi::NK_GFX_API_METAL:    return "msl";
+                case NkGraphicsApi::NK_GFX_API_SOFTWARE: return "swvm";
+                default:                                 return "raw";
+            }
+        }
+
+        // Cible TEXTE (le résultat compilé est une SOURCE texte, pas du binaire) :
+        // OpenGL/GLES/WebGL → GLSL, DX11/DX12 → HLSL, Metal → MSL. Ces cibles stockent
+        // et restaurent le cache via la STRING (outGlsl/preprocessed → glslSource/hlslSource).
+        // Vulkan (SPIR-V) et Software (VM bytecode) stockent du binaire (outBytecode).
+        // CRUCIAL : sans ça, au 2e run (cache hit) DX rechargeait outBytecode mais
+        // fsGlslStr restait = NkSL BRUT → D3DCompile reçoit `@...` → X3000 → blanc + crash.
+        static bool IsTextTarget(NkGraphicsApi api) {
+            return api == NkGraphicsApi::NK_GFX_API_OPENGL ||
+                   api == NkGraphicsApi::NK_GFX_API_OPENGLES ||
+                   api == NkGraphicsApi::NK_GFX_API_WEBGL ||
+                   api == NkGraphicsApi::NK_GFX_API_DX11 ||
+                   api == NkGraphicsApi::NK_GFX_API_DX12 ||
+                   api == NkGraphicsApi::NK_GFX_API_METAL;
+        }
+
         static void SaveToShaderCache(uint64 key, NkGraphicsApi api,
                                        const NkShaderCompileResult& res,
                                        const NkString& fallbackSrc) {
             NkShaderConvertResult toCache;
             toCache.success = true;
-            if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
+            // Cible texte avec source disponible → stocker le TEXTE (GLSL/HLSL/MSL).
+            if (IsTextTarget(api) && !res.preprocessed.Empty()) {
+                const NkString& src = res.preprocessed;
+                toCache.binary.Resize((uint32)src.Size());
+                memcpy(toCache.binary.Data(), src.CStr(), src.Size());
+            } else if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
                 const NkString& src = res.preprocessed.Empty() ? fallbackSrc : res.preprocessed;
                 toCache.binary.Resize((uint32)src.Size());
                 memcpy(toCache.binary.Data(), src.CStr(), src.Size());
@@ -198,13 +239,13 @@ namespace nkentseu {
         }
 
         // Restaure depuis le cache. Retourne false si absent.
-        // Remplit outBytecode (SPIR-V) et/ou outGlsl (GL GLSL converti).
+        // Remplit outBytecode (SPIR-V/VM) et/ou outGlsl (source texte GLSL/HLSL/MSL).
         static bool LoadFromShaderCache(uint64 key, NkGraphicsApi api,
                                          NkVector<uint8>& outBytecode,
                                          NkString& outGlsl) {
             auto cached = NkShaderCache::Global().Load(key);
             if (!cached.success || cached.binary.IsEmpty()) return false;
-            if (api == NkGraphicsApi::NK_GFX_API_OPENGL) {
+            if (IsTextTarget(api)) {
                 outGlsl.Resize((uint32)cached.binary.Size());
                 memcpy(outGlsl.Data(), cached.binary.Data(), cached.binary.Size());
             } else {
@@ -229,7 +270,7 @@ namespace nkentseu {
             NkString fragGlsl = fragSrc;
 
             // Format cible pour la cle de cache : "glsl" pour OpenGL, "spirv" pour Vulkan.
-            const NkString fmtKey = (mApi == NkGraphicsApi::NK_GFX_API_OPENGL) ? "glsl" : "spirv";
+            const NkString fmtKey = ApiCacheTag(mApi); // clé distincte par backend (anti-pollution)
 
             bool ok = true;
             if (!vertSrc.Empty()) {
@@ -374,7 +415,7 @@ namespace nkentseu {
             NkString src  = ReadFile(cPath);
             if (src.Empty()) return NkShaderHandle::Null();
 
-            const NkString fmtKey = (mApi == NkGraphicsApi::NK_GFX_API_OPENGL) ? "glsl" : "spirv";
+            const NkString fmtKey = ApiCacheTag(mApi); // clé distincte par backend (anti-pollution)
             auto key = NkShaderCache::Global().ComputeKey(src, NkSLStage::NK_COMPUTE, fmtKey);
 
             NkString glslStr = src;
@@ -393,12 +434,14 @@ namespace nkentseu {
             return Alloc(prog);
         }
 
-        NkShaderHandle NkShaderLibrary::CompileVF(const NkString& vSrc, const NkString& fSrc, const NkString& name) {
+        NkShaderHandle NkShaderLibrary::CompileVF(const NkString& vSrc, const NkString& fSrc, const NkString& name,
+                                                  NkShaderBackend* backendOverride) {
             NkShaderProgram prog;
             prog.name = name.Empty() ? "inline_shader" : name;
             NkShaderCompileOptions opts; opts.optimize = false;
+            NkShaderBackend* be = backendOverride ? backendOverride : mBackend;
 
-            const NkString fmtKey = (mApi == NkGraphicsApi::NK_GFX_API_OPENGL) ? "glsl" : "spirv";
+            const NkString fmtKey = ApiCacheTag(mApi); // clé distincte par backend (anti-pollution)
 
             // Vertex : cache ou compilation
             NkString vsGlslStr = vSrc;
@@ -406,7 +449,7 @@ namespace nkentseu {
             {
                 auto key = NkShaderCache::Global().ComputeKey(vSrc, NkSLStage::NK_VERTEX, fmtKey);
                 if (!LoadFromShaderCache(key, mApi, prog.vertBytecode, vsGlslStr)) {
-                    auto vr = mBackend->Compile(vSrc, NkShaderStage::NK_VERTEX, opts);
+                    auto vr = be->Compile(vSrc, NkShaderStage::NK_VERTEX, opts);
                     vsOk = vr.success;
                     if (vr.success) {
                         prog.vertBytecode = vr.bytecode;
@@ -422,7 +465,7 @@ namespace nkentseu {
             {
                 auto key = NkShaderCache::Global().ComputeKey(fSrc, NkSLStage::NK_FRAGMENT, fmtKey);
                 if (!LoadFromShaderCache(key, mApi, prog.fragBytecode, fsGlslStr)) {
-                    auto fr = mBackend->Compile(fSrc, NkShaderStage::NK_FRAGMENT, opts);
+                    auto fr = be->Compile(fSrc, NkShaderStage::NK_FRAGMENT, opts);
                     fsOk = fr.success;
                     if (fr.success) {
                         prog.fragBytecode = fr.bytecode;
@@ -443,8 +486,15 @@ namespace nkentseu {
             // DXBC. L'entry point reste "main" (SPIRV-Cross conserve le nom du SPIR-V).
             const bool isDX = (mApi == NkGraphicsApi::NK_GFX_API_DX11 ||
                                mApi == NkGraphicsApi::NK_GFX_API_DX12);
+            // Chemin NkSL : le backend a DÉJÀ généré du HLSL natif (NkSL→HLSL direct),
+            // stocké dans res.preprocessed -> vsGlslStr/fsGlslStr. Donc PAS de
+            // SPIRV-Cross (qui échouerait : bytecode = texte HLSL, pas du SPIR-V).
+            const bool usingNkSL = (be == mNkSLBackend);
             NkString vsHlslStr, fsHlslStr;
-            if (isDX) {
+            if (isDX && usingNkSL) {
+                vsHlslStr = vsGlslStr;   // HLSL généré par NkSL (NK_HLSL_DX11/DX12)
+                fsHlslStr = fsGlslStr;
+            } else if (isDX) {
                 if (!NkShaderConverter::CanSpirvToHlsl()) {
                     logger.Info("[CompileVF] '{0}' : SPIRV-Cross desactive -> HLSL impossible (DX KO)\n", prog.name);
                 } else {
@@ -556,6 +606,39 @@ namespace nkentseu {
             NkString basePath = "Resources/NKRenderer/Shaders/";
             basePath += materialName;
             basePath += "/";
+
+            // ── Opt-in NkSL par-shader ────────────────────────────────────────
+            // Si <Mat>/NkSL/<mat>.{vert,frag}.nksl existent (VRAI dialecte NkSL),
+            // compiler via le backend NkSL natif (générateurs maison) au lieu du
+            // chemin .vk.glsl. Sans flipper le backend global → migration douce,
+            // shader par shader. Lecture BRUTE (ReadFile strippe les @xxx, or
+            // @binding/@location/@stage/@entry SONT la syntaxe NkSL).
+            if (mNkSLBackend) {
+                NkString nkVS = basePath + "NkSL/" + matLower + ".vert.nksl";
+                NkString nkFS = basePath + "NkSL/" + matLower + ".frag.nksl";
+                if (NkFile::Exists(nkVS.CStr()) && NkFile::Exists(nkFS.CStr())) {
+                    auto readRaw = [](const NkString& p) -> NkString {
+                        FILE* f = fopen(p.CStr(), "rb"); if (!f) return NkString("");
+                        fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+                        NkString s; s.Resize((uint32)sz);
+                        fread(s.Data(), 1, (size_t)sz, f); fclose(f);
+                        // Résout les #include "Include/*.glsli" (BRDF/shadow/voxel partagés)
+                        // SANS stripper les annotations @ : le compilateur NkSL en a besoin.
+                        return NkShaderIncludeResolver::Resolve(s, p);
+                    };
+                    NkString vNksl = readRaw(nkVS), fNksl = readRaw(nkFS);
+                    logger.Info("[NkShaderLibrary] '{0}' -> chemin NkSL (vrai dialecte) : {1}\n",
+                                materialName, nkVS);
+                    NkShaderHandle h = CompileVF(vNksl, fNksl, materialName, mNkSLBackend);
+                    if (h.IsValid()) {
+                        NkShaderProgram* prog = mPrograms.Find(h.id);
+                        if (prog) { prog->vertPath = nkVS; prog->vertMtime = GetFileMtime(nkVS);
+                                    prog->fragPath = nkFS; prog->fragMtime = GetFileMtime(nkFS); }
+                        return h;
+                    }
+                    logger.Errorf("[NkShaderLibrary] '{0}' NkSL echec -> fallback .vk.glsl\n", materialName);
+                }
+            }
 
             // ── Source VK canonique + conversion automatique ──────────────────
             // Tous les backends chargent le .vk.glsl :

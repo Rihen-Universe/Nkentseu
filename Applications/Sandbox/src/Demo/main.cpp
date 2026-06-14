@@ -247,6 +247,10 @@ int nkmain(const NkEntryState& state) {
     devInfo.height  = (uint32)window.GetSize().height;
     devInfo.context.vulkan.appName    = "NkRenderer_Demo";
     devInfo.context.vulkan.engineName = "Nkentseu";
+    // Format GLOBAL du swapchain (cross-API : GL/VK/DX). UNORM = couleur affichée telle
+    // quelle (comme OpenGL/DX) → rendu identique cross-backend. SRGB = encode gamma auto.
+    // Une seule ligne pour tous les backends.
+    devInfo.context.swapchainFormat = NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_UNORM;
 
     NkIDevice* device = NkDeviceFactory::Create(devInfo);
     if (!device || !device->IsValid()) {
@@ -300,11 +304,17 @@ int nkmain(const NkEntryState& state) {
     events.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent* e) {
         if (e->GetKey() == NkKey::NK_ESCAPE) running = false;
     });
+    // Resize appliqué IMMÉDIATEMENT dans le handler (et pas différé en boucle de jeu) :
+    // sous DX12 flip-model, présenter un swapchain à l'ANCIENNE taille dans une fenêtre déjà
+    // redimensionnée (le délai qu'introduisait un debounce) provoque un device removed. En
+    // resizant tout de suite, aucun present mismatché ne passe. Le no-op même-taille est géré
+    // côté device (ResizeSwapchain) → pas de travail redondant si la taille n'a pas changé.
     events.AddEventCallback<NkWindowResizeEvent>([&](NkWindowResizeEvent* e) {
-        ctx.width  = (uint32)e->GetWidth();
-        ctx.height = (uint32)e->GetHeight();
-        if (ctx.width > 0 && ctx.height > 0)
-            renderer->OnResize(ctx.width, ctx.height);
+        uint32 w = (uint32)e->GetWidth(), h = (uint32)e->GetHeight();
+        if (w > 0 && h > 0 && (w != ctx.width || h != ctx.height)) {
+            ctx.width = w; ctx.height = h;
+            renderer->OnResize(w, h);
+        }
     });
 
     while (running) {

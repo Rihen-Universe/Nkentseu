@@ -6,7 +6,7 @@
 // Si on entend le son, le pipeline complet fonctionne.
 // =============================================================================
 
-#include "NKAudio/NkAudio.h"
+#include "NKAudio/NKAudio.h"
 #include "NKAudio/NkAudioBackends.h"
 #include "NKAudio/Streaming/NkAudioStream.h"
 #include "NKAudio/Streaming/NkAudioStreamPlayer.h"

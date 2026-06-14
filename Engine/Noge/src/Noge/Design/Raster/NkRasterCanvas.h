@@ -35,7 +35,7 @@
 // =============================================================================
 
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKRenderer/src/Tools/Render2D/NkRender2D.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"

@@ -118,9 +118,10 @@ namespace nkentseu {
             if (mContext) {
                 // On ne detruit le contexte que si on le POSSEDE (ctor a contexte
                 // fourni => mOwnsContext=false, l'appelant en reste responsable).
-                // NkContextFactory ne fournit pas de Destroy explicite : delete sur
-                // la base virtuelle (NkIGraphicsContext) suffit (destructeur virtuel).
-                if (mOwnsContext) delete mContext;
+                // Liberation via NkContextFactory::Destroy (symetrique de Create) : le
+                // contexte est alloue par NKMemory (alloc.New) -> JAMAIS `delete` global
+                // (mismatch alloc/free -> heap corruption c0000374 au shutdown).
+                if (mOwnsContext) NkContextFactory::Destroy(mContext);
                 mContext = nullptr;
             }
         }
@@ -319,7 +320,14 @@ namespace nkentseu {
                 mRenderer->End();
                 mFrameOpen = false;
             }
-            return mContext->OnResize(width, height);
+            const bool ok = mContext->OnResize(width, height);
+            // Le renderer suit la nouvelle taille (sinon rendu CLIPPE a l'ancienne zone) :
+            // sa vue PAR DEFAUT -> ecran, une vue CUSTOM reste intacte, viewport plein-cadre.
+            // Toute la logique multi-vues est dans NkBatchRenderer2D::OnResize.
+            if (mRenderer && width > 0 && height > 0) {
+                mRenderer->OnResize(width, height);
+            }
+            return ok;
         }
 
         bool NkRenderWindow::OnDpiChange() noexcept {

@@ -10,14 +10,11 @@
 # =============================================================================
 
 from Jenga import *
-from config import *
+from jengaconfig import *
+
 import os
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
-
 with project("NkAudioDemo"):
-    useappdeps("platform", "core", "memory", "containers", "math", "threading",
-               "logger")
     consoleapp()
     language("C++")
     cppdialect("C++17")
@@ -25,35 +22,11 @@ with project("NkAudioDemo"):
 
     files(["src/**.cpp"])
 
-    includedirs([
-        "src",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKFileSystem.location}/src",
-        "%{NKAudio.location}/src",
-    ])
-
-    links([
-        "NKLogger", "NKAudio", "NKFileSystem", "NKContainers", "NKMemory", "NKCore",
-        "NKPlatform", "NKThreading", "NKMath",
-    ])
-    dependson([
-        "NKLogger", "NKAudio", "NKFileSystem", "NKContainers", "NKMemory", "NKCore",
-        "NKPlatform", "NKThreading", "NKMath",
-    ])
-
-    # Tous les modules sont link en static -> on neutralise les decorations
-    # d'import/export pour eviter les undefined refs `__imp_*` cote consumer.
-    defines([
-        "NKENTSEU_AUDIO_STATIC_LIB",
-        "NKENTSEU_LOGGER_STATIC_LIB",
-        "NKENTSEU_CORE_STATIC_LIB",
-    ])
+    nkentseudependson(
+        ["NKLogger", "NKAudio", "NKFileSystem", "NKContainers", "NKMemory",
+         "NKCore", "NKPlatform", "NKThreading", "NKMath"],
+        extra_includes=["src"],
+    )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -66,7 +39,7 @@ with project("NkAudioDemo"):
 
     # ===== Windows ============================================================
     with filter("system:Windows && !options:windows-runtime=uwp"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
         # WASAPI deps : ole32 + mmdevapi + avrt
         links(["ole32", "winmm", "avrt", "uuid"])

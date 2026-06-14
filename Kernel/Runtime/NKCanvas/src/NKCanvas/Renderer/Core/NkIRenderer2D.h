@@ -75,6 +75,13 @@ namespace nkentseu {
                 virtual void SetViewport(const NkRect2i& viewport) = 0;
                 virtual NkRect2i GetViewport() const = 0;
 
+                // ── Resize (cible) ────────────────────────────────────────────────────
+                // Notifie le renderer de la nouvelle taille de framebuffer. La VUE PAR
+                // DEFAUT suit l'ecran (auto) ; une vue CUSTOM posee par SetView reste
+                // intacte (resize uniquement si l'utilisateur le veut). Met aussi a jour
+                // le viewport plein-cadre. Defaut vide pour les implementeurs sans vue.
+                virtual void OnResize(uint32 width, uint32 height) noexcept { (void)width; (void)height; }
+
                 // ── Clip / Scissor ────────────────────────────────────────────────────
                 // Restreint le rendu a un rectangle (scissor test GPU), en pixels,
                 // origine haut-gauche de la surface. Tout ce qui sort du rect est

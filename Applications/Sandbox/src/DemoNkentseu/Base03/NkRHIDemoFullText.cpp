@@ -54,7 +54,7 @@
 #include "NkRHIDemoFullVkSpv.inl"
 #include "NkRHIDemoFullImageVkSpv.inl"
 #include "NkRHIDemoFullTextVkSpv.inl"
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
 
 namespace nkentseu {
     struct NkEntryState;

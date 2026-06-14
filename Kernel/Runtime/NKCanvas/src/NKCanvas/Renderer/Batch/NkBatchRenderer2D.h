@@ -49,6 +49,9 @@ namespace nkentseu {
                 void SetViewport(const NkRect2i& vp) override { mViewport = vp; }
                 NkRect2i GetViewport()               const override { return mViewport; }
 
+                // Resize : vue par defaut suit l'ecran, vue custom intacte (cf. interface).
+                void OnResize(uint32 width, uint32 height) noexcept override;
+
                 // ── Clip / Scissor (pile, en pixels, origine haut-gauche) ──────────────
                 // SetClip empile et intersecte avec le clip courant ; PopClip depile ;
                 // ResetClip vide la pile. Chaque changement Flush() le batch en cours

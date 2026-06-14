@@ -14,6 +14,7 @@ Le point d'entrÃ©e natif est abstrait par NkEntry.h / NkMain.h.
 """
 
 from Jenga import *
+from jengaconfig import *
 from Jenga.Core.Api import androidallowrotation
 import os
 import shutil
@@ -61,7 +62,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         cppdialect("C++17")
         location(".")
 
-        _TC_WINDOWS = "nk-windows-clang-mingw"
+        _
 
         files([source_file])
 
@@ -111,7 +112,7 @@ def configure_sandbox_app(project_name: str, source_file: str, app_id_suffix: st
         # ===== Windows ================================================================
         with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
             windowedapp()
-            usetoolchain(_TC_WINDOWS)
+            usetoolchain(TC_WINDOWS)
             defines([
                 "WIN32_LEAN_AND_MEAN",
                 "_UNICODE", "UNICODE",

@@ -26,6 +26,7 @@
 #include "NKTime/NkChrono.h"
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkColor.h"
+#include "NKImage/NKImage.h"
 
 #include "NKCanvas/Factory/NkContextFactory.h"
 #include "NKCanvas/Core/NkIGraphicsContext.h"
@@ -35,7 +36,6 @@
 #include "NKCanvas/Renderer/Core/NkIRenderer2D.h"
 #include "NKCanvas/Renderer/Core/NkRenderer2DFactory.h"
 #include "NKCanvas/Renderer/Core/NkRenderer2DTypes.h"
-#include "NKCanvas/Renderer/Resources/NkImage.h"
 #include "NKCanvas/Renderer/Resources/NkTexture.h"
 #include "NKCanvas/Renderer/Resources/NkFont.h"
 #include "NKCanvas/Renderer/Resources/NkSprite.h"
@@ -156,8 +156,7 @@ int nkmain(const NkEntryState& state) {
     NkIRenderer2D* r2dRaw = NkRenderer2DFactory::Create(gfx);
     if (!r2dRaw) {
         logger.Errorf("2D renderer creation failed for %s", NkGraphicsApiName(gfx->GetApi()));
-        gfx->Shutdown();
-        delete gfx;
+        NkContextFactory::Destroy(gfx);
         window.Close();
         return -3;
     }
@@ -165,7 +164,7 @@ int nkmain(const NkEntryState& state) {
     // r2d doit être détruit AVANT gfx
     struct R2DGuard {
         NkIRenderer2D* ptr;
-        ~R2DGuard() { if (ptr) { ptr->Shutdown(); delete ptr; } }
+        ~R2DGuard() { if (ptr) { NkRenderer2DFactory::Destroy(ptr); } }
     } r2dGuard{ r2dRaw };
     NkIRenderer2D& r2d = *r2dRaw;
 
@@ -197,8 +196,9 @@ int nkmain(const NkEntryState& state) {
         }
     }
 
-    // Police — optionnelle
-    NkFont font;
+    // Police — optionnelle (qualifie : leve l'ambiguite struct nkentseu::NkFont
+    // (module NKFont) vs classe renderer::NkFont (NKCanvas) sous les 2 using).
+    renderer::NkFont font;
     const bool hasFont = font.LoadFromFile(r2d, "assets/Roboto-Regular.ttf");
     if (!hasFont) logger.Warn("Font not found — text will be skipped");
 
@@ -216,7 +216,7 @@ int nkmain(const NkEntryState& state) {
         titleText.SetFont(font);
         titleText.SetString("NkEngine - 2D Renderer Demo");
         titleText.SetCharacterSize(24);
-        titleText.SetFillColor(NkColor2D::White());
+        titleText.SetFillColor(NkColor2D::White);
         titleText.SetPosition({20.f, 16.f});
     }
 
@@ -426,14 +426,11 @@ int nkmain(const NkEntryState& state) {
     font.Destroy();
 
     // 2. Renderer 2D (RAII via r2dGuard — destructeur appelé ici)
-    r2dGuard.ptr->Shutdown();
-    delete r2dGuard.ptr;
+    NkRenderer2DFactory::Destroy(r2dGuard.ptr);
     r2dGuard.ptr = nullptr;
 
     // 3. Contexte graphique
-    gfx->Shutdown();
-    delete gfx;
-    gfx = nullptr;
+    NkContextFactory::Destroy(gfx);
 
     // 4. Fenêtre
     window.Close();

@@ -16,37 +16,22 @@ Contenu (src/NKSerialization/) :
 """
 
 from Jenga import *
-from config import *
+from jengaconfig import *
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
 
 with project("NKSerialization"):
-    useglobalkind("serialization")
-    
+    nkentseudependson(
+        ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKReflection", "NKFileSystem", "NKLogger"],
+        selfexport="NKSerialization",
+        extra_includes=["src", "pch"],
+    )
+
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKCore.location}/src",
-        "%{NKPlatform.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKReflection.location}/src",
-        "%{NKFileSystem.location}/src",
-        "%{NKLogger.location}/src",
-    ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
-
-    dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKReflection", "NKFileSystem", "NKLogger"])
-
-    # Static lib : la macro NKENTSEU_SERIALIZATION_STATIC_LIB doit etre definie
-    # cote lib ET cote consumer pour eviter __declspec(dllimport) qui produirait
-    # des "undefined reference to __imp_*" au link.
-    defines(["NKENTSEU_SERIALIZATION_STATIC_LIB"])
 
     files([
         "src/NKSerialization/**.cpp",
@@ -61,7 +46,7 @@ with project("NKSerialization"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
     with filter("system:Linux"):

@@ -18,7 +18,7 @@
 //    NkVoxelAOSystem (Tools/VoxelAO) plutot que d'en allouer un second.
 // =============================================================================
 #include "NKMemory/NkUniquePtr.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKRHI/Core/NkTypes.h"
 #include "NKRHI/Core/NkComputeContext.h"
 #include "NKRenderer/Tools/Voxel/NkVoxelVolume.h"

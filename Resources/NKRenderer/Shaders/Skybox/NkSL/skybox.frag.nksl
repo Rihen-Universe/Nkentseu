@@ -1,0 +1,53 @@
+// skybox.frag.nksl — NKRenderer — Background HDR skybox FS (VRAI dialecte NkSL)
+// Traduit de Skybox/VK/skybox.frag.vk.glsl. Reconstruit le ray view-space depuis
+// NDC + FOV, le passe en world via transpose(mat3(view)), sample le cubemap HDR brut.
+
+@location(0) in vec2 vNDC;
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0)
+uniform CameraUBO {
+    mat4  view;
+    mat4  proj;
+    mat4  viewProj;
+    mat4  invViewProj;
+    vec4  camPos;
+    vec4  camDir;
+    vec2  viewport;
+    float time;
+    float deltaTime;
+    float iblStrength;
+    float yFlipNDC;          // +1 Vulkan (viewport Y flip), -1 OpenGL (no flip)
+    float _p1;
+    float _p2;
+    mat4  mirrorViewProj;    // offset 320
+    vec4  reflectionFlags;   // offset 384, .x = isMirrorPass
+} uCam;
+
+// Cubemap HDR brut (binding=26), RGBA32F, préserve les valeurs > 1.0.
+@binding(set=0, binding=26)
+uniform samplerCube tSkyEnvCube;
+
+@stage(fragment)
+@entry
+void main() {
+    // proj[1][1] = 1/tan(fovY/2) (le flip Y de Vulkan est au niveau viewport, pas proj).
+    float tanHalfY = 1.0 / uCam.proj[1][1];
+    float tanHalfX = 1.0 / uCam.proj[0][0];
+    // View-space ray : yFlipNDC absorbe la convention NDC (VK Y-bas / GL Y-haut).
+    vec3 viewRay = normalize(vec3(vNDC.x * tanHalfX,
+                                  vNDC.y * tanHalfY * uCam.yFlipNDC,
+                                  -1.0));
+    // World space : rotation inverse de view = transpose(mat3(view)) (view rigide).
+    mat3 worldFromView = transpose(mat3(uCam.view));
+    vec3 dir = worldFromView * viewRay;
+
+    // Mirror pass : dir_mirror = Y-flip pour un plan horizontal Y=0.
+    if (uCam.reflectionFlags.x > 0.5) {
+        dir.y = -dir.y;
+    }
+
+    // Sample mip 0 du cubemap skybox (HDR brut).
+    vec3 hdr = textureLod(tSkyEnvCube, dir, 0.0).rgb * uCam.iblStrength;
+    fragColor = vec4(hdr, 1.0);
+}

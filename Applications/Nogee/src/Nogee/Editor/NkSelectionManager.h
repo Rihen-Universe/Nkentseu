@@ -10,7 +10,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKECS/NkECSDefines.h"
-#include "Nkentseu/Core/EventBus.h"
+#include "Noge/Core/EventBus.h"
 
 namespace nkentseu {
     namespace Noge {

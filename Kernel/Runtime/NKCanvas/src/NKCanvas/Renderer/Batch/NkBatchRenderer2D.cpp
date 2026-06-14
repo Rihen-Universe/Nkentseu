@@ -137,6 +137,43 @@ namespace nkentseu {
         }
 
         // =============================================================================
+        // OnResize — modele multi-vues facon SFML :
+        //   - la VUE PAR DEFAUT (mDefaultView) suit toujours la taille de l'ecran ;
+        //   - une VUE CUSTOM posee par SetView reste INTACTE (on ne recale mCurrentView
+        //     que si l'utilisateur etait justement sur la vue par defaut) ;
+        //   - le viewport passe plein-cadre.
+        // =============================================================================
+        void NkBatchRenderer2D::OnResize(uint32 width, uint32 height) noexcept {
+            if (width == 0 || height == 0) return;
+
+            // L'utilisateur etait-il sur la vue par defaut ? (comparaison exacte : a
+            // l'init mCurrentView = mDefaultView ; ne different que si SetView custom.)
+            const bool wasDefault =
+                mCurrentView.center.x == mDefaultView.center.x &&
+                mCurrentView.center.y == mDefaultView.center.y &&
+                mCurrentView.size.x   == mDefaultView.size.x   &&
+                mCurrentView.size.y   == mDefaultView.size.y   &&
+                mCurrentView.rotation == mDefaultView.rotation;
+
+            const float32 fw = static_cast<float32>(width);
+            const float32 fh = static_cast<float32>(height);
+
+            // Vue par defaut = ecran plein-cadre (origine haut-gauche, Y-down).
+            mDefaultView.center   = { fw * 0.5f, fh * 0.5f };
+            mDefaultView.size     = { fw, fh };
+            mDefaultView.rotation = 0.f;
+
+            // Viewport physique = toute la fenetre (sinon rendu clippe a l'ancienne zone).
+            mViewport = { 0, 0, static_cast<int32>(width), static_cast<int32>(height) };
+
+            // On ne touche la vue active QUE si elle etait la vue par defaut (sinon la
+            // vue custom de l'utilisateur reste telle quelle). SetView reupload la projection.
+            if (wasDefault) {
+                SetView(mDefaultView);
+            }
+        }
+
+        // =============================================================================
         void NkBatchRenderer2D::SetBlendMode(NkBlendMode mode) {
             if (mBlendMode == mode) return;
             Flush();

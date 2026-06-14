@@ -833,11 +833,23 @@ namespace nkentseu {
             // clip-space à mirrorViewProj (sinon le sampling du RT serait clippé
             // ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
             cb.mirrorViewProj = mCtx.mirrorViewProj;
-            if (mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN) {
+            const auto reflApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+            if (reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN) {
                 NkMat4f vkClip = NkMat4f::Identity();
                 vkClip[2][2] = 0.5f;
                 vkClip[3][2] = 0.5f;
                 cb.mirrorViewProj = vkClip * cb.mirrorViewProj;
+            } else if (reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
+                       reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) {
+                // DX : Z-remap [-1,1]→[0,1] (comme VK) + FLIP Y du mirrorViewProj de sampling.
+                // Le RT a son origine top-left (vs bottom-left GL) ET est rendu avec le flip-Y
+                // du VS (généré côté HLSL pour la 3D). Le flip Y ici annule le `1.0 - reflUV.y`
+                // du shader → reflet à l'endroit (sinon décalé/déformé/inversé).
+                NkMat4f dxClip = NkMat4f::Identity();
+                dxClip[2][2] = 0.5f;
+                dxClip[3][2] = 0.5f;
+                dxClip[1][1] = -1.f;
+                cb.mirrorViewProj = dxClip * cb.mirrorViewProj;
             }
             // Flag isMirrorPass : lu par les shaders (Layered) pour skip le
             // shadow sampling pendant les passes miroir (les positions world

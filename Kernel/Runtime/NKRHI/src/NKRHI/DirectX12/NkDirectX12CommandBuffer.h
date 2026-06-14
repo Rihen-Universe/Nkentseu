@@ -76,6 +76,10 @@ private:
     NkCommandBufferType                 mType;
     bool                               mIsCompute = false;
     bool                               mRecording = false;
+    // Vrai uniquement quand un pipeline VALIDE (avec root signature) est bindé. Si la
+    // création du pipeline a échoué, on saute PushConstants/BindDescriptorSet/Draw pour
+    // éviter SetRoot*/Draw sur une command list sans root sig (SIGSEGV driver).
+    bool                               mRootSigBound = false;
     uint64                              mActiveColorTexIds[8]{};
     uint32                              mActiveColorCount = 0;
     uint64                              mActiveDepthTexId = 0;

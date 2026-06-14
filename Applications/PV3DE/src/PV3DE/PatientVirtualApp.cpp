@@ -1,5 +1,5 @@
 #include "PatientVirtualApp.h"
-#include "Nkentseu/Core/Application.h"
+#include "Noge/Core/Application.h"
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {

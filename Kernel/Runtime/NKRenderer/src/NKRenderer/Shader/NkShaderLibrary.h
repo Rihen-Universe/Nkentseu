@@ -42,7 +42,10 @@ namespace nkentseu {
                 ::nkentseu::NkShaderHandle LoadCompute(const NkString& compPath, const NkString& name = "");
 
                 // ── Chargement depuis source ─────────────────────────────────────────
-                ::nkentseu::NkShaderHandle CompileVF(const NkString& vertSrc, const NkString& fragSrc, const NkString& name = "");
+                // backendOverride : si non-null, compile via ce backend au lieu de
+                // mBackend (utilisé pour le chemin NkSL par-shader, opt-in).
+                ::nkentseu::NkShaderHandle CompileVF(const NkString& vertSrc, const NkString& fragSrc, const NkString& name = "",
+                                                     NkShaderBackend* backendOverride = nullptr);
 
                 // ── User-override / fallback ─────────────────────────────────────────
                 // Cherche d'abord un fichier shader user-fourni dans
@@ -75,6 +78,10 @@ namespace nkentseu {
                 NkIDevice*                          mDevice    = nullptr;
                 NkGraphicsApi                       mApi       = NkGraphicsApi::NK_GFX_API_OPENGL;
                 NkShaderBackend*                    mBackend   = nullptr;
+                // Backend NkSL secondaire (toujours créé) : utilisé par LoadOrCompileVF
+                // pour les matériaux ayant un .nksl en VRAI dialecte (opt-in par-shader,
+                // sans flipper le backend global). Les autres restent en .vk.glsl.
+                NkShaderBackend*                    mNkSLBackend = nullptr;
                 NkHashMap<uint64, NkShaderProgram>              mPrograms;
                 NkHashMap<NkString, ::nkentseu::NkShaderHandle> mByName;
                 NkHashMap<NkString, uint64>                     mFileMtime;
