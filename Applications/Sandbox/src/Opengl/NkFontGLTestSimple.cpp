@@ -18,7 +18,7 @@
 #include "NKWindow/NkNativeContext.h"
 #include "NKFont/Core/NkFontLibrary.h"
 #include "NKFont/Core/NkUnicode.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "glad/gl.h"
 #include "NkFontSimpleAdapter.h"
 

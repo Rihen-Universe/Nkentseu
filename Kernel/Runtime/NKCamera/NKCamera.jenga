@@ -19,7 +19,8 @@ Ce module expose notamment :
 """
 
 from Jenga import *
-from config import *
+from jengaconfig import *
+
 import shutil
 import subprocess
 
@@ -43,44 +44,16 @@ if _pkg_exists("libdecor-0"):
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
-
 with project("NKCamera"):
-    useglobalkind("camera")
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "%{wks.location}/Externals",
-        "%{NKCore.location}/src",
-        "%{NKPlatform.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKWindow.location}/src",
-        "%{NKCanvas.location}/src",
-        "%{NKImage.location}/src",
-        "%{NKStream.location}/src",   # NKIResource.h via NkImage.h
-    ])
-
-    dependson([
-        "NKCore",
-        "NKPlatform",
-        "NKMath",
-        "NKMemory",
-        "NKContainers",
-        "NKLogger",
-        "NKThreading",
-        "NKTime",
-        "NKWindow",
-        "NKCanvas",
-        "NKImage",
-    ])
+    nkentseudependson(
+        ["NKCore", "NKPlatform", "NKMath", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKTime", "NKWindow", "NKCanvas", "NKImage", "NKStream"],
+        selfexport="NKCamera",
+        extra_includes=["%{wks.location}/Externals"],
+    )
 
     files([
         "src/NKCamera/NkCameraSystem.cpp",
@@ -96,7 +69,7 @@ with project("NKCamera"):
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE",

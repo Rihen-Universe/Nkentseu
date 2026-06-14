@@ -40,7 +40,7 @@
 //   - Logique de codegen / transformation de code : c'est le job de
 //     NkShaderConverter (glslang + SPIRV-Cross), pas du preprocesseur.
 // =============================================================================
-#include "NKSL/NkSLTypes.h"
+#include "NKSL/Core/NkSLTypes.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 

@@ -6,6 +6,7 @@
 #include "NkDirectX11CommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKLogger/NkLog.h"
+#include "NKSL/ShaderConvert/NkShaderConvert.h" // NkShaderCache : cache du DXBC compilé
 #include <cstring>
 #include <cwchar>
 #include <algorithm>
@@ -233,6 +234,15 @@ namespace nkentseu {
             &createdLevel,
             &baseContext);
 
+        // Retry sans la couche DEBUG si elle n'est pas installée (Graphics Tools absent).
+        if (FAILED(hr) && (flags & D3D11_CREATE_DEVICE_DEBUG)) {
+            flags &= ~D3D11_CREATE_DEVICE_DEBUG;
+            hr = D3D11CreateDevice(
+                selectedAdapter,
+                selectedAdapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+                nullptr, flags, requestedLevels, requestedLevelCount,
+                D3D11_SDK_VERSION, &baseDevice, &createdLevel, &baseContext);
+        }
         if (FAILED(hr) && !selectedAdapter) {
             hr = D3D11CreateDevice(
                 nullptr,
@@ -271,12 +281,13 @@ namespace nkentseu {
             return false;
         }
 
-        // InfoQueue : route les validation messages vers NkLog (debug device seulement).
-        // QI silencieux : echoue proprement si device cree sans D3D11_CREATE_DEVICE_DEBUG.
-        if (dxCfg.debugDevice) {
+        // InfoQueue. DIAG TEMP : couche debug forcée → ne PAS muter (les messages partent
+        // sur OutputDebugString, visibles sous gdb) + BREAK sur CORRUPTION/ERROR pour
+        // s'arrêter EXACTEMENT à la commande fautive avant le crash FinishCommandList.
+        const bool debugOn = (flags & D3D11_CREATE_DEVICE_DEBUG) != 0;
+        if (debugOn) {
             if (SUCCEEDED(mDevice->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&mInfoQueue)) && mInfoQueue) {
-                mInfoQueue->SetMuteDebugOutput(TRUE); // on a notre propre sink NkLog, evite la duplication OutputDebugString
-                NK_DX11_LOG("InfoQueue actif (validation -> NkLog)\n");
+                NK_DX11_LOG("InfoQueue actif (validation drainee vers NkLog)\n");
             }
         }
 
@@ -284,6 +295,46 @@ namespace nkentseu {
         CreateDXGIFactory1(__uuidof(IDXGIFactory2), (void**)&mFactory);
         CreateSwapchain(mWidth, mHeight);
         QueryCaps();
+
+        // Pool de samplers partagés (s12..s15) — modèle static samplers pour les
+        // shaders NkSL→HLSL (cf. NkSLCodeGenHLSL kNkSLSamplerPoolBase). DX11 plafonne
+        // à 16 samplers : on mutualise un petit pool fixe au lieu d'un sampler par
+        // texture (PBR a ~24 textures). Les 4 significations correspondent aux slots
+        // que le générateur cible : wrap / clamp / point / comparison.
+        {
+            D3D11_SAMPLER_DESC sd{};
+            sd.MinLOD = 0; sd.MaxLOD = D3D11_FLOAT32_MAX; sd.MaxAnisotropy = 1;
+            // s12 wrap (linear/repeat)
+            sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+            sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+            sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
+            mDevice->CreateSamplerState(&sd, &mPoolSamplers[0]);
+            // s13 clamp (linear/clamp)
+            sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+            mDevice->CreateSamplerState(&sd, &mPoolSamplers[1]);
+            // s14 point (point/clamp)
+            sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+            mDevice->CreateSamplerState(&sd, &mPoolSamplers[2]);
+            // s15 comparison (linear/clamp, LESS_EQUAL)
+            sd.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
+            sd.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+            mDevice->CreateSamplerState(&sd, &mPoolSamplers[3]);
+        }
+
+        // Cbuffer d'émulation des push constants (b13) : DX11 n'a pas de push
+        // constants, on les écrit dans ce cbuffer dynamique (cf. PushConstants).
+        {
+            // USAGE_DEFAULT + UpdateSubresource (PAS dynamic/Map) : sur un contexte
+            // DIFFÉRÉ, Map(WRITE_DISCARD) d'un cbuffer déjà bindé est instable (crash
+            // FinishCommandList). UpdateSubresource est la voie recommandée pour des
+            // constantes par-draw enregistrées dans un command list différé.
+            D3D11_BUFFER_DESC bd{};
+            bd.ByteWidth      = kPushConstantBytes;
+            bd.Usage          = D3D11_USAGE_DEFAULT;
+            bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+            bd.CPUAccessFlags = 0;
+            mDevice->CreateBuffer(&bd, nullptr, &mPushConstantCB);
+        }
 
         mIsValid = true;
         NK_DX11_LOG("Initialisé (%u×%u)\n", mWidth, mHeight);
@@ -359,6 +410,8 @@ namespace nkentseu {
         CreateSwapchain(w,h);
     }
 
+    void NkDirectX11Device::DrainInfoQueue() { DrainDX11InfoQueue(mInfoQueue); }
+
     void NkDirectX11Device::Shutdown() {
         WaitIdle();
         DrainDX11InfoQueue(mInfoQueue);
@@ -366,10 +419,12 @@ namespace nkentseu {
         DestroySwapchain();
         for (auto& [id,b] : mBuffers)   NK_DX11_SAFE(b.buf);
         for (auto& [id,t] : mTextures)  if (!t.isSwapchain) {
-            NK_DX11_SAFE(t.tex); NK_DX11_SAFE(t.srv); NK_DX11_SAFE(t.rtv);
+            NK_DX11_SAFE(t.tex); NK_DX11_SAFE(t.tex3d); NK_DX11_SAFE(t.srv); NK_DX11_SAFE(t.rtv);
             NK_DX11_SAFE(t.dsv); NK_DX11_SAFE(t.uav);
         }
         for (auto& [id,s] : mSamplers)  NK_DX11_SAFE(s.ss);
+        for (int i = 0; i < 4; i++) NK_DX11_SAFE(mPoolSamplers[i]);
+        NK_DX11_SAFE(mPushConstantCB);
         for (auto& [id,sh]:mShaders) {
             NK_DX11_SAFE(sh.vs); NK_DX11_SAFE(sh.ps); NK_DX11_SAFE(sh.cs);
             NK_DX11_SAFE(sh.gs); NK_DX11_SAFE(sh.vsBlob);
@@ -494,6 +549,58 @@ namespace nkentseu {
             resourceFormat = ToDx11DepthTextureFormat(desc, wantsSrv);
         }
 
+        // ── Textures 3D volumétriques (VoxelAO, LUT couleur 3D…) ─────────────────
+        // DX11 EXIGE ID3D11Texture3D : créer une Texture2D avec depth>1 puis faire un
+        // UpdateSubresource du volume -> box profondeur invalide -> DEVICE REMOVED
+        // (cause du « blanc » DX11). On crée ici la vraie ressource 3D + SRV/UAV 3D.
+        if (desc.type == NkTextureType::NK_TEX3D || desc.depth > 1) {
+            uint32 mip3 = desc.mipLevels;
+            if (mip3 == 0) {
+                mip3 = 1;
+                uint32 dmax = math::NkMax(desc.width, math::NkMax(desc.height, desc.depth));
+                while (dmax > 1) { dmax >>= 1; ++mip3; }
+            }
+            D3D11_TEXTURE3D_DESC t3{};
+            t3.Width=desc.width; t3.Height=desc.height; t3.Depth=math::NkMax(1u, desc.depth);
+            t3.MipLevels=mip3; t3.Format=resourceFormat; t3.Usage=D3D11_USAGE_DEFAULT;
+            if (wantsSrv) t3.BindFlags|=D3D11_BIND_SHADER_RESOURCE;
+            if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_RENDER_TARGET))    t3.BindFlags|=D3D11_BIND_RENDER_TARGET;
+            if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_UNORDERED_ACCESS)) t3.BindFlags|=D3D11_BIND_UNORDERED_ACCESS;
+            if (mip3!=1 && (t3.BindFlags&D3D11_BIND_RENDER_TARGET)) t3.MiscFlags|=D3D11_RESOURCE_MISC_GENERATE_MIPS;
+
+            D3D11_SUBRESOURCE_DATA i3{}; D3D11_SUBRESOURCE_DATA* pI3=nullptr;
+            if (desc.initialData) {
+                uint32 bpp=NkFormatBytesPerPixel(desc.format);
+                i3.pSysMem=desc.initialData;
+                i3.SysMemPitch=desc.rowPitch>0?desc.rowPitch:desc.width*bpp;
+                i3.SysMemSlicePitch=i3.SysMemPitch*desc.height; // pas entre 2 tranches Z
+                pI3=&i3;
+            }
+            ID3D11Texture3D* vtex=nullptr;
+            HRESULT hr3=mDevice->CreateTexture3D(&t3,pI3,&vtex);
+            NK_DX11_CHECK(hr3,"CreateTexture3D");
+            if (FAILED(hr3)||!vtex) return {};
+            NkDX11Texture t3o; t3o.tex3d=vtex; t3o.desc=desc;
+            if (t3.BindFlags&D3D11_BIND_SHADER_RESOURCE) {
+                D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+                sd.Format=ToDXGIFormat(desc.format);
+                sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE3D;
+                sd.Texture3D.MipLevels=t3.MipLevels;
+                hr3=mDevice->CreateShaderResourceView(vtex,&sd,&t3o.srv);
+                NK_DX11_CHECK(hr3,"CreateShaderResourceView(3D)");
+            }
+            if (t3.BindFlags&D3D11_BIND_UNORDERED_ACCESS) {
+                D3D11_UNORDERED_ACCESS_VIEW_DESC ud{};
+                ud.Format=ToDXGIFormat(desc.format,true);
+                ud.ViewDimension=D3D11_UAV_DIMENSION_TEXTURE3D;
+                ud.Texture3D.WSize=t3.Depth;
+                hr3=mDevice->CreateUnorderedAccessView(vtex,&ud,&t3o.uav);
+                NK_DX11_CHECK(hr3,"CreateUnorderedAccessView(3D)");
+            }
+            uint64 hid=NextId(); mTextures[hid]=t3o;
+            NkTextureHandle h; h.id=hid; return h;
+        }
+
         D3D11_TEXTURE2D_DESC td{};
         td.Width=desc.width;
         td.Height=desc.height;
@@ -506,12 +613,19 @@ namespace nkentseu {
             while (d > 1) { d >>= 1; ++mipCount; }
         }
         td.MipLevels=mipCount;
+        // Texture avec données initiales ET plusieurs mips : on ne fournit QUE le mip de
+        // base (1 subresource). DX11 exige sinon une SUBRESOURCE_DATA par mip → erreur
+        // "pInitialData[k].SysMemPitch cannot be 0" → CreateTexture2D échoue (ex. awesomeface
+        // → face de cube sans texture). Solution : créer avec GENERATE_MIPS (→ RENDER_TARGET),
+        // sans données au create, puis uploader le mip 0 et générer les mips sur le GPU.
+        const bool genMips = (desc.initialData != nullptr) && mipCount > 1 && !isDepth;
         td.ArraySize=math::NkMax(1u, desc.arrayLayers);
         td.Format=resourceFormat;
         td.SampleDesc.Count=(UINT)math::NkMax(1u, (uint32)desc.samples);
         td.SampleDesc.Quality=0;
         td.Usage=D3D11_USAGE_DEFAULT;
         if (wantsSrv) td.BindFlags|=D3D11_BIND_SHADER_RESOURCE;
+        if (genMips)  td.BindFlags|=D3D11_BIND_RENDER_TARGET; // requis pour GenerateMips
         if (!isDepth && NkHasFlag(desc.bindFlags,NkBindFlags::NK_RENDER_TARGET)) td.BindFlags|=D3D11_BIND_RENDER_TARGET;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_DEPTH_STENCIL)) td.BindFlags|=D3D11_BIND_DEPTH_STENCIL;
         if (!isDepth && NkHasFlag(desc.bindFlags,NkBindFlags::NK_UNORDERED_ACCESS)) td.BindFlags|=D3D11_BIND_UNORDERED_ACCESS;
@@ -534,7 +648,8 @@ namespace nkentseu {
 
         D3D11_SUBRESOURCE_DATA initData{};
         D3D11_SUBRESOURCE_DATA* pInit=nullptr;
-        if (desc.initialData) {
+        // En mode genMips, NE PAS passer de données au create (upload + GenerateMips après).
+        if (desc.initialData && !genMips) {
             uint32 bpp=NkFormatBytesPerPixel(desc.format);
             initData.pSysMem=desc.initialData;
             initData.SysMemPitch=desc.rowPitch>0?desc.rowPitch:desc.width*bpp;
@@ -586,6 +701,14 @@ namespace nkentseu {
             NK_DX11_CHECK(hr, "CreateUnorderedAccessView");
         }
 
+        // genMips : uploader le mip 0 puis générer la chaîne de mips sur le GPU.
+        if (genMips && t.srv) {
+            uint32 bpp=NkFormatBytesPerPixel(desc.format);
+            uint32 pitch=desc.rowPitch>0?desc.rowPitch:desc.width*bpp;
+            mContext->UpdateSubresource(tex,0,nullptr,desc.initialData,pitch,pitch*desc.height);
+            mContext->GenerateMips(t.srv);
+        }
+
         uint64 hid=NextId(); mTextures[hid]=t;
         NkTextureHandle h; h.id=hid; return h;
     }
@@ -594,7 +717,7 @@ namespace nkentseu {
         threading::NkScopedLockMutex lock(mMutex);
         auto it=mTextures.Find(h.id); if(!it) return;
         if (!it->isSwapchain) {
-            NK_DX11_SAFE(it->tex); NK_DX11_SAFE(it->srv);
+            NK_DX11_SAFE(it->tex); NK_DX11_SAFE(it->tex3d); NK_DX11_SAFE(it->srv);
             NK_DX11_SAFE(it->rtv); NK_DX11_SAFE(it->dsv);
             NK_DX11_SAFE(it->uav);
         }
@@ -605,7 +728,8 @@ namespace nkentseu {
         auto it=mTextures.Find(t.id); if(!it) return false;
         auto& desc=it->desc;
         uint32 pitch=rp>0?rp:desc.width*NkFormatBytesPerPixel(desc.format);
-        mContext->UpdateSubresource(it->tex,0,nullptr,p,pitch,pitch*desc.height);
+        // Resource() = tex 2D OU tex3d (volume). SlicePitch = pitch*height (plan/tranche Z).
+        mContext->UpdateSubresource(it->Resource(),0,nullptr,p,pitch,pitch*desc.height);
         return true;
     }
     bool NkDirectX11Device::WriteTextureRegion(NkTextureHandle t,const void* p,
@@ -616,7 +740,7 @@ namespace nkentseu {
         uint32 pitch=rp>0?rp:w*NkFormatBytesPerPixel(desc.format);
         D3D11_BOX box{x,y,z,x+w,y+h,z+d2};
         uint32 sub=D3D11CalcSubresource(mip,layer,desc.mipLevels?desc.mipLevels:1);
-        mContext->UpdateSubresource(it->tex,sub,&box,p,pitch,pitch*h);
+        mContext->UpdateSubresource(it->Resource(),sub,&box,p,pitch,pitch*h); // Resource() = 2D ou 3D
         return true;
     }
     bool NkDirectX11Device::GenerateMipmaps(NkTextureHandle t, NkFilter) {
@@ -677,19 +801,38 @@ namespace nkentseu {
             }
 
             ID3DBlob* code=nullptr; ID3DBlob* err=nullptr;
-            // PREFER_FLOW_CONTROL : garder les boucles au lieu de les dérouler. Le HLSL
-            // issu de SPIRV-Cross contient des `.Sample` (gradient) dans des boucles à
-            // grand compte (PCF ombre, prefilter IBL) ; sans ce flag fxc tente de
-            // dérouler -> flood de warnings X3570 + compilation très lente ("hang").
-            UINT flags=D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_PREFER_FLOW_CONTROL;
-            #ifdef _DEBUG
-            flags|=D3DCOMPILE_DEBUG|D3DCOMPILE_SKIP_OPTIMIZATION;
-            #endif
-            HRESULT hr=D3DCompile(src,(SIZE_T)strlen(src),nullptr,nullptr,
-                D3D_COMPILE_STANDARD_FILE_INCLUDE,entry,target,flags,0,&code,&err);
-            if (FAILED(hr)) {
-                if (err) { NK_DX11_ERR("Shader error: %s\n",(char*)err->GetBufferPointer()); err->Release(); }
-                continue;
+            // ── CACHE DXBC ───────────────────────────────────────────────────────────
+            // D3DCompile des gros shaders (PBR/Toon/Anime ~10-22KB, boucles d'ombre) prend
+            // 20-30s CHACUN. On cache le bytecode DXBC compilé (clé = hash du HLSL) pour ne
+            // compiler qu'UNE seule fois : les runs suivants rechargent le DXBC instantanément.
+            const NkString dxbcFmt = NkString("dxbc_") + target; // ex. dxbc_vs_5_0
+            const uint64 dxbcKey = NkShaderCache::ComputeKey(NkString(src), s.stage, dxbcFmt);
+            {
+                auto cachedDxbc = NkShaderCache::Global().Load(dxbcKey);
+                if (cachedDxbc.success && !cachedDxbc.binary.IsEmpty()) {
+                    if (SUCCEEDED(D3DCreateBlob(cachedDxbc.binary.Size(), &code)) && code)
+                        memcpy(code->GetBufferPointer(), cachedDxbc.binary.Data(), cachedDxbc.binary.Size());
+                }
+            }
+            if (!code) {
+                // SKIP_OPTIMIZATION : clang-mingw ne définit PAS `_DEBUG` (macro MSVC) ; sans
+                // ça fxc optimise/déroule les gros shaders → compile 30-40s. PAS de
+                // PREFER_FLOW_CONTROL (inutile avec NkSL→HLSL : pas de gradient en boucle).
+                UINT flags=D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_SKIP_OPTIMIZATION;
+                #ifdef _DEBUG
+                flags|=D3DCOMPILE_DEBUG;
+                #endif
+                HRESULT hr=D3DCompile(src,(SIZE_T)strlen(src),nullptr,nullptr,
+                    D3D_COMPILE_STANDARD_FILE_INCLUDE,entry,target,flags,0,&code,&err);
+                if (FAILED(hr)) {
+                    if (err) { NK_DX11_ERR("Shader error: %s\n",(char*)err->GetBufferPointer()); err->Release(); }
+                    continue;
+                }
+                // Sauver le DXBC compilé (réutilisé aux prochains runs).
+                NkShaderConvertResult toCache; toCache.success=true;
+                toCache.binary.Resize((uint32)code->GetBufferSize());
+                memcpy(toCache.binary.Data(), code->GetBufferPointer(), code->GetBufferSize());
+                NkShaderCache::Global().Save(dxbcKey, toCache);
             }
 
             switch(s.stage) {
@@ -732,7 +875,11 @@ namespace nkentseu {
         auto& sh=*sit;
 
         NkDX11Pipeline p;
+        // AddRef : le pipeline PARTAGE les pointeurs VS/PS du shader. Sans AddRef, le
+        // shutdown release p.vs PUIS sh.vs (même objet) → double-release → crash.
         p.vs=sh.vs; p.ps=sh.ps;
+        if (p.vs) p.vs->AddRef();
+        if (p.ps) p.ps->AddRef();
         p.topology=ToDX11Topology(d.topology);
         p.isCompute=false;
         for (uint32 i = 0; i < d.vertexLayout.bindings.Size(); ++i) {
@@ -818,6 +965,7 @@ namespace nkentseu {
         threading::NkScopedLockMutex lock(mMutex);
         auto sit=mShaders.Find(d.shader.id); if(!sit) return {};
         NkDX11Pipeline p; p.cs=sit->cs; p.isCompute=true;
+        if (p.cs) p.cs->AddRef(); // partagé avec le shader → AddRef (cf. CreateGraphicsPipeline)
         uint64 hid=NextId(); mPipelines[hid]=p;
         NkPipelineHandle h; h.id=hid; return h;
     }
@@ -825,6 +973,7 @@ namespace nkentseu {
     void NkDirectX11Device::DestroyPipeline(NkPipelineHandle& h) {
         threading::NkScopedLockMutex lock(mMutex);
         auto it=mPipelines.Find(h.id); if(!it) return;
+        NK_DX11_SAFE(it->vs); NK_DX11_SAFE(it->ps); NK_DX11_SAFE(it->cs); // refs AddRef'd à la création
         NK_DX11_SAFE(it->il); NK_DX11_SAFE(it->rs);
         NK_DX11_SAFE(it->dss); NK_DX11_SAFE(it->bs);
         mPipelines.Erase(h.id); h.id=0;

@@ -100,7 +100,7 @@ int nkmain(const NkEntryState& state) {
     rendCfg.width  = devInfo.width;
     rendCfg.height = devInfo.height;
 
-    NkRenderer* renderer = NkRenderer::Create(device, devInfo.surface, rendCfg);
+    NkRenderer* renderer = NkRenderer::Create(device, rendCfg);
     if (!renderer) {
         logger.Error("[2DDemo] Echec creation NkRenderer");
         NkDeviceFactory::Destroy(device);
@@ -146,113 +146,94 @@ int nkmain(const NkEntryState& state) {
 
     // ── Boucle principale ─────────────────────────────────────────────────────
     while (running) {
-        logger.Info();
         events.PollEvents();
-        logger.Info();
         if (!running) break;
 
         float dt = clock.Tick().delta;
         if (dt > 0.1f) dt = 1.f / 60.f;
         time += dt;
-        logger.Info();
         if (renderer->GetWidth() == 0 || renderer->GetWidth() == 0) continue;
-        logger.Info();
 
         if (renderer->GetWidth() != rendCfg.width || renderer->GetWidth() != rendCfg.height) {
-        logger.Info();
             renderer->OnResize(rendCfg.width, rendCfg.height);
-        logger.Info();
         }
 
-        logger.Info();
         uint32 W = renderer->GetWidth();
-        logger.Info();
         uint32 H = renderer->GetHeight();
-        logger.Info();
 
         if (!renderer->BeginFrame()) continue;
-        logger.Info();
 
         // ── Rendu 2D ─────────────────────────────────────────────────────────
         if (r2d) {
-        logger.Info();
             r2d->Begin(renderer->GetCmd(), W, H);
-        logger.Info();
 
             // Fond dégradé
-        logger.Info();
             r2d->FillRectGradV({0, 0, (float)W, (float)H}, {0.05f, 0.05f, 0.12f, 1}, {0.02f, 0.06f, 0.18f, 1});
 
             // Titre en haut
-            // r2d->FillRect({10, 10, 400, 40}, {0,0,0,0.6f});
-            // r2d->DrawRect({10, 10, 400, 40}, {0.4f,0.8f,1.f,1}, 2.f);
+            r2d->FillRect({10, 10, 400, 40}, {0,0,0,0.6f});
+            r2d->DrawRect({10, 10, 400, 40}, {0.4f,0.8f,1.f,1}, 2.f);
 
-            // // Animations basées sur le temps
-            // float pulse = 0.5f + 0.5f * sinf(time * 2.f);
-            // float spin  = time * 90.f; // degrés
+            // Animations basées sur le temps
+            float pulse = 0.5f + 0.5f * sinf(time * 2.f);
+            float spin  = time * 90.f; // degrés
 
-            // // Cercle animé
-            // NkVec2f cc = {(float)rendCfg.width*0.5f, (float)rendCfg.height*0.4f};
-            // float   cr = 80.f + 20.f * pulse;
-            // r2d->FillCircle(cc, cr, {pulse, 0.3f, 1.f-pulse, 0.8f});
-            // r2d->DrawCircle(cc, cr + 5.f, {1,1,1,0.5f}, 2.f);
+            // Cercle animé
+            NkVec2f cc = {(float)rendCfg.width*0.5f, (float)rendCfg.height*0.4f};
+            float   cr = 80.f + 20.f * pulse;
+            r2d->FillCircle(cc, cr, {pulse, 0.3f, 1.f-pulse, 0.8f});
+            r2d->DrawCircle(cc, cr + 5.f, {1,1,1,0.5f}, 2.f);
 
-            // // Orbite de petits cercles autour du grand
-            // for (int i = 0; i < 6; i++) {
-            //     float angle = (float)i * (360.f / 6.f) + spin;
-            //     float rad   = angle * 3.14159f / 180.f;
-            //     NkVec2f pos = {
-            //         cc.x + cosf(rad) * 150.f,
-            //         cc.y + sinf(rad) * 150.f
-            //     };
-            //     NkVec4f col = {
-            //         0.5f + 0.5f*cosf(rad),
-            //         0.5f + 0.5f*sinf(rad),
-            //         0.8f, 0.9f
-            //     };
-            //     r2d->FillCircle(pos, 14.f, col);
-            // }
+            // Orbite de petits cercles autour du grand
+            for (int i = 0; i < 6; i++) {
+                float angle = (float)i * (360.f / 6.f) + spin;
+                float rad   = angle * 3.14159f / 180.f;
+                NkVec2f pos = {
+                    cc.x + cosf(rad) * 150.f,
+                    cc.y + sinf(rad) * 150.f
+                };
+                NkVec4f col = {
+                    0.5f + 0.5f*cosf(rad),
+                    0.5f + 0.5f*sinf(rad),
+                    0.8f, 0.9f
+                };
+                r2d->FillCircle(pos, 14.f, col);
+            }
 
-            // // Ligne suivant la souris
-            // r2d->DrawLine(cc, {mouseX, mouseY}, {1,1,0,0.7f}, 2.f);
+            // Ligne suivant la souris
+            r2d->DrawLine(cc, {mouseX, mouseY}, {1,1,0,0.7f}, 2.f);
 
-            // // Formes géométriques statiques en bas
-            // float by = (float)H - 120.f;
-            // r2d->FillRect({30, by, 80, 80}, {0.9f,0.2f,0.2f,0.9f});
-            // r2d->FillRoundRect({130, by, 80, 80}, {0.2f,0.9f,0.2f,0.9f}, 12.f);
-            // r2d->DrawCircle({275, by+40}, 40.f, {0.2f,0.4f,1.f,0.9f}, 3.f);
-            // r2d->DrawRect({320, by, 80, 80}, {1,0.7f,0.1f,1}, 3.f);
+            // Formes géométriques statiques en bas
+            float by = (float)H - 120.f;
+            r2d->FillRect({30, by, 80, 80}, {0.9f,0.2f,0.2f,0.9f});
+            r2d->FillRoundRect({130, by, 80, 80}, {0.2f,0.9f,0.2f,0.9f}, 12.f);
+            r2d->DrawCircle({275, by+40}, 40.f, {0.2f,0.4f,1.f,0.9f}, 3.f);
+            r2d->DrawRect({320, by, 80, 80}, {1,0.7f,0.1f,1}, 3.f);
 
-            // // Bezier
-            // r2d->DrawBezier({500,by+80},{550,by},{650,by},{700,by+80},
-            //                  {1,0.5f,0,1}, 2.f);
+            // Bezier
+            r2d->DrawBezier({500,by+80},{550,by},{650,by},{700,by+80},
+                             {1,0.5f,0,1}, 2.f);
 
-            // // Indicateur FPS (cadre)
-            // NkString fpsStr = NkFormat("FPS: {0:.0f}  |  Backend: {1}", dt > 0 ? 1.f/dt : 0.f, NkGraphicsApiName(device->GetApi()));
-            // r2d->FillRect({(float)W-260.f, 10, 250, 32}, {0,0,0,0.6f});
-            // r2d->DrawRect({(float)W-260.f, 10, 250, 32}, {0.6f,0.6f,0.6f,1}, 1.f);
+            // Indicateur FPS (cadre)
+            NkString fpsStr = NkFormat("FPS: {0:.0f}  |  Backend: {1}", dt > 0 ? 1.f/dt : 0.f, NkGraphicsApiName(device->GetApi()));
+            r2d->FillRect({(float)W-260.f, 10, 250, 32}, {0,0,0,0.6f});
+            r2d->DrawRect({(float)W-260.f, 10, 250, 32}, {0.6f,0.6f,0.6f,1}, 1.f);
 
-            // // Texte (si disponible)
-            // if (text) {
-            //     NkFontHandle font = text->GetDefaultFont();
-            //     if (font.IsValid()) {
-            //         text->DrawString({18, 22}, "NKRenderer 2D Demo", font, 18.f, 0xFFFFFFFF);
-            //         text->DrawString({(float)W-252.f, 20}, fpsStr.CStr(), font, 14.f, 0xFFFFFFFF);
-            //     }
-            // }
+            // Texte (si disponible)
+            if (text) {
+                NkFontHandle font = text->GetDefaultFont();
+                if (font.IsValid()) {
+                    text->DrawText({18, 22}, "NKRenderer 2D Demo", font, 18.f, 0xFFFFFFFF);
+                    text->DrawText({(float)W-252.f, 20}, fpsStr.CStr(), font, 14.f, 0xFFFFFFFF);
+                }
+            }
 
-        logger.Info();
             r2d->End();
-        logger.Info();
         }
 
-        logger.Info();
         renderer->EndFrame();
-        logger.Info();
         renderer->Present();
-        logger.Info();
     }
-        logger.Info();
 
     // ── Nettoyage ─────────────────────────────────────────────────────────────
     device->WaitIdle();

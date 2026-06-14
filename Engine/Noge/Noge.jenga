@@ -8,6 +8,7 @@ keeps the current production context system.
 """
 
 from Jenga import *
+from jengaconfig import *
 import os
 import shutil
 import subprocess
@@ -36,7 +37,6 @@ if _HAS_LIBDECOR:
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NOGE_WAYLAND_LIBDECOR")
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
 _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
@@ -110,7 +110,7 @@ with project("Noge"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "NK_RHI_DX11_ENABLED", "NK_RHI_DX12_ENABLED"])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])

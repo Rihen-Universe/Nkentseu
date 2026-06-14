@@ -14,7 +14,7 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 
 namespace nkentseu {
     namespace ecs {

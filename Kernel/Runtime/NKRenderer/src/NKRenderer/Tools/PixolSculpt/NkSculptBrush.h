@@ -9,7 +9,7 @@
 //
 // ⚠️ SQUELETTE — structures de donnees uniquement, pas de logique ici.
 // =============================================================================
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKRenderer/Tools/PixolSculpt/NkSculptTypes.h"
 
 namespace nkentseu {

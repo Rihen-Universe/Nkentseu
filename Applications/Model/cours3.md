@@ -38,7 +38,7 @@ Avant toute chose, il faut comprendre le point d'entrée du framework. Il ne s'a
 #include "NKWindow/Core/NkSystem.h" // Inclut le système d'événements
 #include "NKRHI/Core/NkDeviceFactory.h" // Pour créer le device graphique
 #include "NKRHI/Core/NkDescs.h" // Pour les descripteurs (Desc)
-#include "NKMath/NkMath.h" // Pour les maths (vecteurs, matrices)
+#include "NKMath/NKMath.h" // Pour les maths (vecteurs, matrices)
 #include "NKLogger/NkLog.h" // Pour les logs
 
 using namespace nkentseu;

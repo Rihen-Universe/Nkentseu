@@ -4,7 +4,7 @@
 // Nkentseu/Modeling/NkUVEditor.h — Editeur UV interactif
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "Nkentseu/Modeling/NkEditableMesh.h"
 #include "Nkentseu/Modeling/NkUndoStack.h"

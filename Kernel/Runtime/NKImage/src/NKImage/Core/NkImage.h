@@ -551,6 +551,145 @@ namespace nkentseu {
                 return mPixels + usize(y) * mStride;
             }
 
+            // ── Dessin CPU (rasterisation logicielle dans le buffer pixel) ────────────
+            //    Formats LDR 8-bit (RGBA/RGB/RG/R). No-op si image invalide, hors
+            //    bornes, ou HDR. Couleur = math::NkColor (= NkColor2D). SetPixel ECRASE
+            //    (pas de blending) ; BlendPixel fait un src-over alpha.
+
+            /** Ecrit un pixel (ecrase). Clamp aux bornes (no-op si hors image). */
+            NKIMG_INLINE void SetPixel(int32 x, int32 y, const math::NkColor& c) noexcept {
+                if (!mPixels || x < 0 || y < 0 || x >= mWidth || y >= mHeight || IsHDR()) return;
+                uint8* p = RowPtr(y) + usize(x) * BytesPP();
+                const int32 ch = Channels();
+                if (ch >= 1) p[0] = c.r;
+                if (ch >= 2) p[1] = c.g;
+                if (ch >= 3) p[2] = c.b;
+                if (ch >= 4) p[3] = c.a;
+            }
+
+            /** Lit un pixel. Retourne (0,0,0,0) si hors bornes / invalide / HDR. */
+            NKIMG_INLINE math::NkColor GetPixel(int32 x, int32 y) const noexcept {
+                if (!mPixels || x < 0 || y < 0 || x >= mWidth || y >= mHeight || IsHDR())
+                    return math::NkColor(0, 0, 0, 0);
+                const uint8* p = RowPtr(y) + usize(x) * BytesPP();
+                const int32 ch = Channels();
+                const uint8 r = ch >= 1 ? p[0] : uint8(0);
+                const uint8 g = ch >= 2 ? p[1] : r;
+                const uint8 b = ch >= 3 ? p[2] : r;
+                const uint8 a = ch >= 4 ? p[3] : uint8(255);
+                return math::NkColor(r, g, b, a);
+            }
+
+            /** Composite src-over (respecte l'alpha de `c`) sur le pixel existant. */
+            NKIMG_INLINE void BlendPixel(int32 x, int32 y, const math::NkColor& c) noexcept {
+                if (c.a == 255) { SetPixel(x, y, c); return; }
+                if (c.a == 0) return;
+                const math::NkColor d = GetPixel(x, y);
+                const uint32 a = c.a, ia = 255u - a;
+                SetPixel(x, y, math::NkColor(
+                    uint8((c.r * a + d.r * ia) / 255u),
+                    uint8((c.g * a + d.g * ia) / 255u),
+                    uint8((c.b * a + d.b * ia) / 255u),
+                    uint8(a + d.a * ia / 255u)));
+            }
+
+            /** Remplit toute l'image avec `c`. */
+            NKIMG_INLINE void Fill(const math::NkColor& c) noexcept {
+                for (int32 y = 0; y < mHeight; ++y)
+                    for (int32 x = 0; x < mWidth; ++x) SetPixel(x, y, c);
+            }
+
+            /** Ligne horizontale [x0..x1] a la hauteur y. */
+            NKIMG_INLINE void DrawHLine(int32 x0, int32 x1, int32 y, const math::NkColor& c) noexcept {
+                if (x0 > x1) { const int32 t = x0; x0 = x1; x1 = t; }
+                for (int32 x = x0; x <= x1; ++x) SetPixel(x, y, c);
+            }
+
+            /** Ligne verticale [y0..y1] a l'abscisse x. */
+            NKIMG_INLINE void DrawVLine(int32 x, int32 y0, int32 y1, const math::NkColor& c) noexcept {
+                if (y0 > y1) { const int32 t = y0; y0 = y1; y1 = t; }
+                for (int32 y = y0; y <= y1; ++y) SetPixel(x, y, c);
+            }
+
+            /** Ligne quelconque (algorithme de Bresenham). */
+            NKIMG_INLINE void DrawLine(int32 x0, int32 y0, int32 x1, int32 y1, const math::NkColor& c) noexcept {
+                const int32 dx = x1 > x0 ? x1 - x0 : x0 - x1;
+                const int32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
+                const int32 sx = x0 < x1 ? 1 : -1;
+                const int32 sy = y0 < y1 ? 1 : -1;
+                int32 err = dx - dy;
+                for (;;) {
+                    SetPixel(x0, y0, c);
+                    if (x0 == x1 && y0 == y1) break;
+                    const int32 e2 = err << 1;
+                    if (e2 > -dy) { err -= dy; x0 += sx; }
+                    if (e2 <  dx) { err += dx; y0 += sy; }
+                }
+            }
+
+            /** Contour de rectangle (x,y,w,h). */
+            NKIMG_INLINE void DrawRect(int32 x, int32 y, int32 w, int32 h, const math::NkColor& c) noexcept {
+                if (w <= 0 || h <= 0) return;
+                DrawHLine(x, x + w - 1, y,         c);
+                DrawHLine(x, x + w - 1, y + h - 1, c);
+                DrawVLine(x,         y, y + h - 1, c);
+                DrawVLine(x + w - 1, y, y + h - 1, c);
+            }
+
+            /** Rectangle plein (x,y,w,h). */
+            NKIMG_INLINE void FillRect(int32 x, int32 y, int32 w, int32 h, const math::NkColor& c) noexcept {
+                for (int32 j = 0; j < h; ++j) DrawHLine(x, x + w - 1, y + j, c);
+            }
+
+            /** Contour de cercle (centre cx,cy, rayon r) — midpoint. */
+            NKIMG_INLINE void DrawCircle(int32 cx, int32 cy, int32 r, const math::NkColor& c) noexcept {
+                if (r < 0) return;
+                int32 x = r, y = 0, err = 1 - r;
+                while (x >= y) {
+                    SetPixel(cx + x, cy + y, c); SetPixel(cx + y, cy + x, c);
+                    SetPixel(cx - y, cy + x, c); SetPixel(cx - x, cy + y, c);
+                    SetPixel(cx - x, cy - y, c); SetPixel(cx - y, cy - x, c);
+                    SetPixel(cx + y, cy - x, c); SetPixel(cx + x, cy - y, c);
+                    ++y;
+                    if (err < 0) { err += 2 * y + 1; }
+                    else         { --x; err += 2 * (y - x) + 1; }
+                }
+            }
+
+            /** Disque plein (centre cx,cy, rayon r) — scanlines. */
+            NKIMG_INLINE void FillCircle(int32 cx, int32 cy, int32 r, const math::NkColor& c) noexcept {
+                if (r < 0) return;
+                for (int32 dy = -r; dy <= r; ++dy) {
+                    const int32 dx = int32(math::NkSqrt(float32(r * r - dy * dy)));
+                    DrawHLine(cx - dx, cx + dx, cy + dy, c);
+                }
+            }
+
+            /** Contour d'ellipse (centre cx,cy, demi-axes rx,ry) — parametrique. */
+            NKIMG_INLINE void DrawEllipse(int32 cx, int32 cy, int32 rx, int32 ry, const math::NkColor& c) noexcept {
+                if (rx <= 0 || ry <= 0) return;
+                const int32 steps = (rx + ry) < 8 ? 16 : (rx + ry) * 2;
+                int32 px = cx + rx, py = cy;
+                for (int32 i = 1; i <= steps; ++i) {
+                    const float32 a = (float32(i) / float32(steps)) * 6.28318530718f;
+                    const int32 nx = cx + int32(float32(rx) * math::NkCos(a));
+                    const int32 ny = cy + int32(float32(ry) * math::NkSin(a));
+                    DrawLine(px, py, nx, ny, c);
+                    px = nx; py = ny;
+                }
+            }
+
+            /** Ellipse pleine (centre cx,cy, demi-axes rx,ry) — scanlines. */
+            NKIMG_INLINE void FillEllipse(int32 cx, int32 cy, int32 rx, int32 ry, const math::NkColor& c) noexcept {
+                if (rx <= 0 || ry <= 0) return;
+                for (int32 dy = -ry; dy <= ry; ++dy) {
+                    const float32 t = 1.0f - (float32(dy * dy) / float32(ry * ry));
+                    if (t < 0.0f) continue;
+                    const int32 dx = int32(float32(rx) * math::NkSqrt(t));
+                    DrawHLine(cx - dx, cx + dx, cy + dy, c);
+                }
+            }
+
             // ── Gestion mémoire ───────────────────────────────────────────────────────
 
             /**

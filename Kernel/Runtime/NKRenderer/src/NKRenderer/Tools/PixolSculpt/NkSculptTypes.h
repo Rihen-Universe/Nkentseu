@@ -14,7 +14,7 @@
 //    complete, le flux par frame et le diff d'integration dans NkRendererImpl.
 // =============================================================================
 #include "NKContainers/String/NkString.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKRHI/Core/NkTypes.h"
 
 namespace nkentseu {

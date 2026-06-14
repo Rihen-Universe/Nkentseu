@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Nkentseu/Core/NkApplicationConfig.h"
+#include "Noge/Core/NkApplicationConfig.h"
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {

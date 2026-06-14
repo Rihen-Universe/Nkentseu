@@ -52,7 +52,7 @@
 // â”€â”€ SPIR-V prÃ©compilÃ© pour Vulkan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #include "NkRHIDemoFullVkSpv.inl"
 #include "NkRHIDemoFullImageVkSpv.inl"
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
 
 namespace nkentseu {
     struct NkEntryState;

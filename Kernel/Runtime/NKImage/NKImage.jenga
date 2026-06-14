@@ -15,41 +15,18 @@ Pipeline SVG complet :
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKImage"):
-    useglobalkind("image")
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKFileSystem.location}/src",
-        "%{NKStream.location}/src",   # NKIResource.h (interface ressource CPU)
-    ])
-
-    dependson([
-        "NKPlatform",
-        "NKCore",
-        "NKMemory",
-        "NKMath",
-        "NKContainers",
-        "NKLogger",
-        "NKThreading",
-        "NKFileSystem",
-        "NKStream",
-    ])
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger", "NKThreading", "NKFileSystem", "NKStream"],
+        selfexport="NKImage",
+        extra_includes=["src"],
+    )
 
     files([
         # Core
@@ -87,7 +64,7 @@ with project("NKImage"):
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE",

@@ -8,7 +8,7 @@
 //
 // ⚠️ SQUELETTE — structures de donnees uniquement.
 // =============================================================================
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKRenderer/Tools/Voxel/NkVoxelTypes.h"
 
 namespace nkentseu {

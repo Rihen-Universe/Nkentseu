@@ -1,6 +1,6 @@
 #include "PatientLayer_v3.h"
 #include "NKLogger/NkLog.h"
-#include "Nkentseu/Components/Rendering/NkRenderComponents.h"
+#include "Noge/Components/Rendering/NkRenderComponents.h"
 
 namespace nkentseu {
     namespace pv3de {
