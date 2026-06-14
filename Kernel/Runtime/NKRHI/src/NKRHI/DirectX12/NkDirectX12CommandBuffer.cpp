@@ -40,12 +40,13 @@ bool NkDirectX12CommandBuffer::Begin() {
     if (FAILED(mAllocator->Reset())) return false;
     if (FAILED(mCmdList->Reset(mAllocator.Get(), nullptr))) return false;
 
-    // Binder les descriptor heaps shader-visible
+    // Binder les RINGS shader-visible (destinations des copies par draw). CbvSrvUavHeap()/
+    // SamplerHeap() sont désormais du STAGING CPU (sources, non bindables).
     ID3D12DescriptorHeap* heaps[] = {
-        mDev->CbvSrvUavHeap().heap.Get(),
-        mDev->SamplerHeap().heap.Get()
+        mDev->CbvSrvUavRing().heap.Get(),
+        mDev->SamplerRing().heap.Get()
     };
-    mCmdList->SetDescriptorHeaps(2, heaps);
+    if (heaps[0] && heaps[1]) mCmdList->SetDescriptorHeaps(2, heaps);
     mRecording = true;
     return true;
 }
@@ -170,6 +171,7 @@ void NkDirectX12CommandBuffer::SetScissors(const NkRect2D* rects, uint32 n) {
 // =============================================================================
 void NkDirectX12CommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
     if (!mCmdList) return;
+    mRootSigBound = false; // nouveau pipeline : invalide tant que la root sig n'est pas posée
     auto* pipe = mDev->GetPipeline(p.id);
     if (!pipe || !pipe->pso || !pipe->rootSig) return;
     mIsCompute = false;
@@ -178,15 +180,18 @@ void NkDirectX12CommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
     mCmdList->IASetPrimitiveTopology(pipe->topology);
     for (uint32 i = 0; i < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT; ++i)
         mVertexStrides[i] = pipe->vertexStrides[i];
+    mRootSigBound = true;
 }
 
 void NkDirectX12CommandBuffer::BindComputePipeline(NkPipelineHandle p) {
     if (!mCmdList) return;
+    mRootSigBound = false;
     auto* pipe = mDev->GetPipeline(p.id);
     if (!pipe || !pipe->pso || !pipe->rootSig) return;
     mIsCompute = true;
     mCmdList->SetPipelineState(pipe->pso.Get());
     mCmdList->SetComputeRootSignature(pipe->rootSig.Get());
+    mRootSigBound = true;
 }
 
 // =============================================================================
@@ -196,71 +201,70 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
                                               uint32 /*rootParamIdx*/,
                                               uint32* /*dynamicOffsets*/,
                                               uint32 /*dynOffsetCount*/) {
-    if (!mCmdList) return;
+    if (!mCmdList || !mRootSigBound) return; // pas de root sig posée → SetRoot* invalide
     auto* ds = mDev->GetDescSet(set.id);
     if (!ds) return;
 
     using namespace NkDX12RootLayout;
-    // Une table d'1 descripteur par registre : on pointe la table du registre
-    // b.slot directement sur le slot heap (potentiellement non contigu) de la
-    // ressource. Plus de probleme d'offset par numero de registre.
-    auto bindSrv = [&](uint32 slot, UINT idx) {
-        if (idx == UINT_MAX || slot >= NUM_SRV) return;
-        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(idx);
-        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(SRV_BASE + slot, h);
-        else            mCmdList->SetGraphicsRootDescriptorTable(SRV_BASE + slot, h);
-    };
-    auto bindSamp = [&](uint32 slot, UINT idx) {
-        if (idx == UINT_MAX || slot >= NUM_SAMP) return;
-        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->SamplerHeap().GPUFrom(idx);
-        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(SAMP_BASE + slot, h);
-        else            mCmdList->SetGraphicsRootDescriptorTable(SAMP_BASE + slot, h);
-    };
-    auto bindUav = [&](uint32 slot, UINT idx) {
-        if (idx == UINT_MAX || slot >= NUM_UAV) return;
-        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavHeap().GPUFrom(idx);
-        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(UAV_BASE + slot, h);
-        else            mCmdList->SetGraphicsRootDescriptorTable(UAV_BASE + slot, h);
-    };
+    // TABLES LARGES : réserve un bloc CONTIGU dans chaque ring shader-visible pour CE draw,
+    // copie les descripteurs des ressources bindées depuis le STAGING vers le bloc (au bon
+    // offset selon le registre b.slot), puis binde les 2 tables sur la base du bloc. Les
+    // descripteurs non remplis restent invalides mais sont VOLATILE (jamais accédés).
+    const UINT csuBase  = mDev->AllocCbvSrvUavRing(BLOCK_CBV_SRV_UAV);
+    const UINT sampBase = mDev->AllocSamplerRing(BLOCK_SAMPLER);
+
+    // NB : FillRingBlockDefaults(csuBase, sampBase) DÉSACTIVÉ — provoquait une régression
+    // (device removed en rendu normal, hazard de copie descripteurs dans un heap shader-
+    // visible). Le hang resize n'en venait pas (DRED : pas de page-fault). À réévaluer.
 
     for (auto& b : ds->bindings) {
         switch (b.type) {
             case NkDescriptorType::NK_UNIFORM_BUFFER:
             case NkDescriptorType::NK_UNIFORM_BUFFER_DYNAMIC:
-                if (b.bufId != 0) {
-                    D3D12_GPU_VIRTUAL_ADDRESS gpuAddr = mDev->GetBufferGPUAddr(b.bufId);
-                    if (gpuAddr != 0) {
-                        // Seul b0 est un root CBV ; les cbuffers additionnels ne
-                        // sont pas encore supportes par ce modele de root sig.
-                        if (mIsCompute) mCmdList->SetComputeRootConstantBufferView(ROOT_CBV, gpuAddr);
-                        else            mCmdList->SetGraphicsRootConstantBufferView(ROOT_CBV, gpuAddr);
-                    }
-                }
+                if (b.bufId != 0 && b.slot < NUM_CBV && csuBase != UINT_MAX)
+                    mDev->CopyCbvSrvUavToRing(csuBase + OFF_CBV + b.slot, mDev->GetBufferCbvIndex(b.bufId));
                 break;
 
             case NkDescriptorType::NK_SAMPLED_TEXTURE:
             case NkDescriptorType::NK_INPUT_ATTACHMENT:
-                if (b.texId != 0) bindSrv(b.slot, mDev->GetTextureSrvIndex(b.texId));
+                if (b.texId != 0 && b.slot < NUM_SRV && csuBase != UINT_MAX)
+                    mDev->CopyCbvSrvUavToRing(csuBase + OFF_SRV + b.slot, mDev->GetTextureSrvIndex(b.texId));
                 break;
 
             case NkDescriptorType::NK_STORAGE_BUFFER:
             case NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC:
-                if (b.bufId != 0) bindUav(b.slot, mDev->GetBufferUavIndex(b.bufId));
+                if (b.bufId != 0 && b.slot < NUM_UAV && csuBase != UINT_MAX)
+                    mDev->CopyCbvSrvUavToRing(csuBase + OFF_UAV + b.slot, mDev->GetBufferUavIndex(b.bufId));
                 break;
 
             case NkDescriptorType::NK_STORAGE_TEXTURE:
-                if (b.texId != 0) bindUav(b.slot, mDev->GetTextureUavIndex(b.texId));
+                if (b.texId != 0 && b.slot < NUM_UAV && csuBase != UINT_MAX)
+                    mDev->CopyCbvSrvUavToRing(csuBase + OFF_UAV + b.slot, mDev->GetTextureUavIndex(b.texId));
                 break;
 
             case NkDescriptorType::NK_SAMPLER:
-                if (b.sampId != 0) bindSamp(b.slot, mDev->GetSamplerHeapIndex(b.sampId));
+                if (b.sampId != 0 && b.slot < NUM_SAMP && sampBase != UINT_MAX)
+                    mDev->CopySamplerToRing(sampBase + b.slot, mDev->GetSamplerHeapIndex(b.sampId));
                 break;
 
             case NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER:
-                if (b.texId  != 0) bindSrv (b.slot, mDev->GetTextureSrvIndex(b.texId));
-                if (b.sampId != 0) bindSamp(b.slot, mDev->GetSamplerHeapIndex(b.sampId));
+                if (b.texId != 0 && b.slot < NUM_SRV && csuBase != UINT_MAX)
+                    mDev->CopyCbvSrvUavToRing(csuBase + OFF_SRV + b.slot, mDev->GetTextureSrvIndex(b.texId));
+                if (b.sampId != 0 && b.slot < NUM_SAMP && sampBase != UINT_MAX)
+                    mDev->CopySamplerToRing(sampBase + b.slot, mDev->GetSamplerHeapIndex(b.sampId));
                 break;
         }
+    }
+
+    if (csuBase != UINT_MAX) {
+        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->CbvSrvUavRing().GPUFrom(csuBase);
+        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(TABLE_CBV_SRV_UAV, h);
+        else            mCmdList->SetGraphicsRootDescriptorTable(TABLE_CBV_SRV_UAV, h);
+    }
+    if (sampBase != UINT_MAX) {
+        D3D12_GPU_DESCRIPTOR_HANDLE h = mDev->SamplerRing().GPUFrom(sampBase);
+        if (mIsCompute) mCmdList->SetComputeRootDescriptorTable(TABLE_SAMPLER, h);
+        else            mCmdList->SetGraphicsRootDescriptorTable(TABLE_SAMPLER, h);
     }
 }
 
@@ -270,7 +274,7 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
 void NkDirectX12CommandBuffer::PushConstants(NkShaderStage /*stages*/,
                                           uint32 offset, uint32 size,
                                           const void* data) {
-    if (!mCmdList) return;
+    if (!mCmdList || !mRootSigBound) return; // sans root sig, SetRoot32BitConstants plante
     uint32 numConstants = size / 4;
     uint32 destOffset   = offset / 4;
     if (mIsCompute)

@@ -6,7 +6,7 @@
 // Ce fichier contient les utilitaires de navigation spatiale.
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "Nkentseu/Anim3D/NkLocomotion.h"
 

@@ -1,0 +1,34 @@
+// pp_ssaoblur.frag.nksl — NKRenderer — Gaussian blur SSAO 5x5 (VRAI dialecte NkSL).
+@location(0) in  vec2 vUV;
+@location(0) out vec4 oColor;
+
+@binding(set=0, binding=0) uniform sampler2D uAO;
+
+layout(push_constant) uniform PC {
+    vec2  invResolution;
+    float yFlipUV;
+    float _pad;
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    float aoSum = 0.0;
+    float wSum  = 0.0;
+
+    const int kRadius = 2;
+    const float sigma = 1.5;
+    const float twoSigSq = 2.0 * sigma * sigma;
+
+    for (int y = -kRadius; y <= kRadius; y++) {
+        for (int x = -kRadius; x <= kRadius; x++) {
+            vec2 offset = vec2(float(x), float(y)) * pc.invResolution;
+            float w = exp(-(float(x*x + y*y)) / twoSigSq);
+            float sampleAO = texture(uAO, vUV + offset).r;
+            aoSum += sampleAO * w;
+            wSum  += w;
+        }
+    }
+
+    oColor = vec4(aoSum / wSum, 0.0, 0.0, 1.0);
+}

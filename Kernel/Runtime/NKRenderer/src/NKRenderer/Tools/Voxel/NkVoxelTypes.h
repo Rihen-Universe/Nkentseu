@@ -13,7 +13,7 @@
 // et de NkTextureDesc::Tex3D (storage 3D, NK_UNORDERED_ACCESS) cote RHI.
 // =============================================================================
 #include "NKContainers/String/NkString.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKRHI/Core/NkTypes.h"
 
 namespace nkentseu {

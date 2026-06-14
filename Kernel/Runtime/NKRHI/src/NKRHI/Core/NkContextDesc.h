@@ -10,6 +10,31 @@ namespace nkentseu {
         NK_HIGH_PERFORMANCE = 2,
     };
 
+    // Format/espace colorimétrique du swapchain (présentation). Réglage GLOBAL
+    // cross-API dans NkContextDesc::swapchainFormat. Seuls les formats communs à TOUS
+    // les backends sont exposés. Marqueur [U] = universel (Software inclus),
+    // [G] = GPU uniquement (pas le rasterizer Software).
+    enum class NkSwapchainFormat : uint8 {
+        // ── 8-bit, universels [U] ────────────────────────────────────────────────
+        NK_SWAPCHAIN_BGRA8_UNORM = 0, // [U] défaut : couleur affichée telle quelle (pas de
+                                      //     ré-encodage gamma). Comportement GL/DX historique.
+        NK_SWAPCHAIN_BGRA8_SRGB,      // [U] encode gamma auto à la présentation (shader linéaire).
+        NK_SWAPCHAIN_RGBA8_UNORM,     // [U] idem UNORM, ordre canaux RGBA.
+        NK_SWAPCHAIN_RGBA8_SRGB,      // [U] idem sRGB, ordre canaux RGBA.
+        // ── HDR / wide-gamut, GPU uniquement [G] (pas Software) ───────────────────
+        NK_SWAPCHAIN_RGB10A2_UNORM,   // [G] HDR10 / wide-gamut 10-bit.
+        NK_SWAPCHAIN_RGBA16F,         // [G] scRGB HDR float16.
+        // État de câblage actuel : BGRA8_UNORM/SRGB pleinement câblés (VK+GL ; DX=UNORM).
+        // Les autres tombent en fallback BGRA8_UNORM tant que les RTV/format hardcodés
+        // (ex. DX12 RTVFormats=B8G8R8A8) + le setup HDR du swapchain ne sont pas alignés.
+    };
+
+    // sRGB ? (encode gamma à la présentation) — centralise le test pour les devices.
+    inline bool NkSwapchainFormatIsSrgb(NkSwapchainFormat f) {
+        return f == NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_SRGB ||
+               f == NkSwapchainFormat::NK_SWAPCHAIN_RGBA8_SRGB;
+    }
+
     enum class NkGpuVendor : uint8 {
         NK_ANY       = 0,
         NK_NVIDIA    = 1,
@@ -302,6 +327,13 @@ namespace nkentseu {
         NkSoftwareDesc  software;
         NkComputeActivationDesc compute;
         NkGpuSelectionDesc gpu;
+
+        // ── Format/espace colorimétrique GLOBAL du swapchain (cross-API) ─────────
+        // Une seule source de vérité, honorée par TOUS les backends (GL/VK/DX11/DX12)
+        // pour un rendu identique cross-backend. Enum (extensible HDR/10-bit) plutôt
+        // que bool. Remplace les anciens champs par-API (vulkan.srgbSwapchain /
+        // opengl.srgbFramebuffer / metal.srgb) qui ne sont plus lus par les devices.
+        NkSwapchainFormat swapchainFormat = NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_UNORM;
 
         bool IsComputeEnabledForApi(NkGraphicsApi backendApi) const {
             if (!compute.enable) return false;

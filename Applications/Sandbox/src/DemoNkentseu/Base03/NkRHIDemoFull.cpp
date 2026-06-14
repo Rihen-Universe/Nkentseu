@@ -47,7 +47,7 @@
 #include "NkRHIDemoFullVkSpv.inl"
 
 // ── ShaderConvert : compilation GLSL→SPIRV runtime + cache .nksc ─────────────
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
 
 namespace nkentseu {
     struct NkEntryState;

@@ -11,7 +11,7 @@
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
 
 #include "NKLogger/NkLog.h"
 #include "NKUI/NKUI.h"

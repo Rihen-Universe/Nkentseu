@@ -13,10 +13,10 @@
 //   NkGizmoSystem      — gizmos 3D dans le viewport
 // =============================================================================
 
-#include "Nkentseu/Core/Layer.h"
+#include "Noge/Core/Layer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "Nkentseu/Core/EventBus.h"
+#include "Noge/Core/EventBus.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "Nogee/Editor/NkSelectionManager.h"
 #include "Nogee/Editor/NkEditorCamera.h"

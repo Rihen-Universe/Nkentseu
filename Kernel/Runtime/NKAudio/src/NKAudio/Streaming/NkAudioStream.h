@@ -26,7 +26,7 @@
  *   if (s) {
  *       AudioStreamPlayer player;
  *       player.Init();
- *       player.Play(s, /*loop=* /true);
+ *       player.Play(s, /\*loop=*\/true);
  *       // ... player.ReadFrames(...) appele depuis le thread audio
  *       player.Shutdown();
  *   }

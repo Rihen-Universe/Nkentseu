@@ -15,7 +15,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
-#include "Nkentseu/Core/EventBus.h"
+#include "Noge/Core/EventBus.h"
 
 using namespace nkentseu::math;
 

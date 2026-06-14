@@ -196,7 +196,7 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
         NkMaterialType::NK_PBR_METALLIC,
         NkMaterialType::NK_TOON,
         NkMaterialType::NK_ANIME,
-        NkMaterialType::NK_LAYERED,        // remplace NK_UNLIT pour M.1 demo
+        NkMaterialType::NK_UNLIT,          // 5e sphere Unlit (Layered pas encore migre en NkSL -> DX KO)
     };
 
     for (int i = 0; i < 5; i++) {

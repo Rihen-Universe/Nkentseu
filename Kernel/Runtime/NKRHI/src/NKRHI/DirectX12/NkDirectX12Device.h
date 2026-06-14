@@ -62,6 +62,11 @@ struct NkDX12DescHeap {
         h.ptr += (UINT64)idx * incrementSize;
         return h;
     }
+    D3D12_CPU_DESCRIPTOR_HANDLE CPUFrom(UINT idx) const {
+        D3D12_CPU_DESCRIPTOR_HANDLE h = cpuBase;
+        h.ptr += (SIZE_T)idx * incrementSize;
+        return h;
+    }
     UINT IndexOf(D3D12_CPU_DESCRIPTOR_HANDLE h) const {
         return (UINT)((h.ptr - cpuBase.ptr) / incrementSize);
     }
@@ -73,15 +78,31 @@ struct NkDX12DescHeap {
 // (meme non contigu) -> resout le bug ou un shader lisant t1/t2 ne tombait pas
 // sur les bons SRV (la table t0..t15 offsetait par numero de registre depuis
 // une base individuelle ecrasee par la derniere texture liee).
-// Budget DWORD (max 64) : 32 (constants) + 2 (CBV) + 8+8+4 tables = 54.
+// Budget DWORD (max 64) : 16 (constants) + 8*2 (CBV root descriptors) +
+//                         16+8+4 tables = 16+16+28 = 60. OK.
+// Les shaders NKRenderer utilisent PLUSIEURS cbuffers (b0,b1,…) → b0..b7 en root CBV
+// indexés par le numéro de registre (b.slot). SRV/Sampler/UAV = une table d'1 descripteur
+// par registre (slot heap potentiellement non contigu), comme avant mais étendu.
 // =============================================================================
+// REFONTE TABLES LARGES (2026-06-11) : le générateur NkSL assigne via un COMPTEUR PARTAGÉ
+// → registres hauts/épars (jusqu'à ~50 pour le PBR), impossible « 1 param par registre »
+// dans 64 DWORDs. → 2 tables de descripteurs à PLAGE LARGE + root constants. Par draw, on
+// COPIE les descripteurs des ressources bindées depuis les heaps STAGING (CPU) vers une
+// région contiguë d'un RING shader-visible, puis on binde la table. Root sig 1.1 + flag
+// DESCRIPTORS_VOLATILE : seuls les descripteurs réellement accédés doivent être valides.
 namespace NkDX12RootLayout {
-    constexpr uint32 ROOT_CONSTANTS = 0;          // b15, 32 valeurs (PushConstants)
-    constexpr uint32 ROOT_CBV       = 1;          // b0 (UBO principal)
-    constexpr uint32 SRV_BASE       = 2;  constexpr uint32 NUM_SRV  = 8;  // t0..t7
-    constexpr uint32 SAMP_BASE      = 10; constexpr uint32 NUM_SAMP = 8;  // s0..s7
-    constexpr uint32 UAV_BASE       = 18; constexpr uint32 NUM_UAV  = 4;  // u0..u3
-    constexpr uint32 NUM_PARAMS     = 22;
+    constexpr uint32 ROOT_CONSTANTS    = 0;  // b0 space1, 16 valeurs (PushConstants, 64 o)
+    constexpr uint32 TABLE_CBV_SRV_UAV = 1;  // table : CBV b0-15, SRV t0-31, UAV u0-7 (space0)
+    constexpr uint32 TABLE_SAMPLER     = 2;  // table : SAMPLER s0-15 (space0)
+    constexpr uint32 NUM_PARAMS        = 3;
+
+    // Plages couvertes + disposition dans le bloc contigu du ring CBV/SRV/UAV.
+    constexpr uint32 NUM_CBV  = 16;  constexpr uint32 OFF_CBV = 0;               // b0..b15 → bloc[0..15]
+    constexpr uint32 NUM_SRV  = 32;  constexpr uint32 OFF_SRV = OFF_CBV + NUM_CBV; // t0..t31 → bloc[16..47]
+    constexpr uint32 NUM_UAV  = 8;   constexpr uint32 OFF_UAV = OFF_SRV + NUM_SRV;  // u0..u7  → bloc[48..55]
+    constexpr uint32 BLOCK_CBV_SRV_UAV = OFF_UAV + NUM_UAV;  // 56 descripteurs / draw
+    // Les samplers combinés suivent le numéro de leur texture (tN/sN) → couvrir s0..s31.
+    constexpr uint32 NUM_SAMP = 32;  constexpr uint32 BLOCK_SAMPLER = NUM_SAMP;    // 32 samplers / draw
 }
 
 // =============================================================================
@@ -278,8 +299,21 @@ public:
 
     NkDX12DescHeap& RtvHeap()     { return mRtvHeap; }
     NkDX12DescHeap& DsvHeap()     { return mDsvHeap; }
-    NkDX12DescHeap& CbvSrvUavHeap() { return mCbvSrvUavHeap; }
-    NkDX12DescHeap& SamplerHeap() { return mSamplerHeap; }
+    NkDX12DescHeap& CbvSrvUavHeap() { return mCbvSrvUavHeap; } // STAGING (CPU) — source des copies
+    NkDX12DescHeap& SamplerHeap() { return mSamplerHeap; }     // STAGING (CPU)
+    NkDX12DescHeap& CbvSrvUavRing() { return mCbvSrvUavRing; } // shader-visible — destination/draw
+    NkDX12DescHeap& SamplerRing()   { return mSamplerRing; }   // shader-visible
+
+    // Ring de descripteurs shader-visible (1 région par frame, reset à BeginFrame).
+    // AllocCbvSrvUavRing/AllocSamplerRing : réservent un bloc CONTIGU dans la région
+    // courante et renvoient l'index de base (UINT_MAX si plus de place).
+    void ResetDescriptorRingForFrame(uint32 frameIdx);
+    UINT AllocCbvSrvUavRing(UINT count);
+    UINT AllocSamplerRing(UINT count);
+    // Copie 1 descripteur du STAGING (CPU) vers le RING shader-visible (no-op si idx invalide).
+    void CopyCbvSrvUavToRing(UINT destRingIdx, UINT srcStagingIdx);
+    void CopySamplerToRing(UINT destRingIdx, UINT srcStagingIdx);
+    void FillRingBlockDefaults(UINT csuBase, UINT sampBase); // remplit un bloc avec les défauts valides
 
     D3D12_CPU_DESCRIPTOR_HANDLE GetRTV(UINT idx) const;
     D3D12_CPU_DESCRIPTOR_HANDLE GetDSV(UINT idx) const;
@@ -329,11 +363,30 @@ private:
     ComPtr<struct ID3D12InfoQueue1> mInfoQueue1;
     DWORD                            mInfoQueueCookie = 0;
 
-    // Descriptor heaps
+    // Descriptor heaps. mCbvSrvUavHeap/mSamplerHeap = STAGING (CPU, non shader-visible) :
+    // les descripteurs persistants (SRV/CBV/UAV/sampler) y sont créés. mCbvSrvUavRing/
+    // mSamplerRing = shader-visible, divisés en MAX_FRAMES régions ; par draw on copie les
+    // descripteurs bindés depuis le staging vers une région contiguë du ring.
     NkDX12DescHeap mRtvHeap;
     NkDX12DescHeap mDsvHeap;
-    NkDX12DescHeap mCbvSrvUavHeap;
-    NkDX12DescHeap mSamplerHeap;
+    NkDX12DescHeap mCbvSrvUavHeap;   // staging
+    NkDX12DescHeap mSamplerHeap;     // staging
+    NkDX12DescHeap mCbvSrvUavRing;   // shader-visible (ring linéaire, reset/frame)
+    NkDX12DescHeap mSamplerRing;     // shader-visible (ring linéaire, reset/frame)
+    // Tête linéaire remise à 0 à chaque frame. Sûr car le présent est SÉRIALISÉ
+    // (SubmitAndPresent attend la fence → GPU idle entre frames). Si on pipeline les
+    // frames plus tard, repasser à des régions par frame.
+    UINT mCbvSrvUavRingHead = 0;
+    UINT mSamplerRingHead   = 0;
+    // Descripteurs DÉFAUT (staging) pour remplir les slots NON bindés d'un bloc de ring :
+    // sans ça, un shader accédant à un registre déclaré-mais-non-bindé lit un descripteur
+    // GARBAGE → le GPU déréférence de la mémoire invalide → HANG (DXGI_ERROR_DEVICE_HUNG).
+    // SRV/UAV = descripteurs NULL (lecture = 0), CBV = petit buffer dummy, sampler = défaut.
+    UINT mNullSrvIdx = UINT_MAX, mNullUavIdx = UINT_MAX, mDefaultCbvIdx = UINT_MAX, mDefaultSamplerIdx = UINT_MAX;
+    ComPtr<ID3D12Resource> mDummyCbvBuffer;
+    void InitNullDescriptors();
+    void LogDREDOutput();        // dump les auto-breadcrumbs + page fault sur device removed
+    bool mDredLogged = false;
 
     // Swapchain
     NkVector<NkFramebufferHandle> mSwapchainFBs;

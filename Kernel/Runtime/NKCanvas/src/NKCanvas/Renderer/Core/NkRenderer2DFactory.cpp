@@ -98,6 +98,15 @@ namespace nkentseu {
         }
 
         // =============================================================================
+        void NkRenderer2DFactory::Destroy(NkIRenderer2D* renderer) {
+            if (!renderer) return;
+            renderer->Shutdown();
+            // MEME allocateur que Create() (NkGetDefaultAllocator) — JAMAIS `delete`
+            // (mismatch alloc/free -> heap corruption c0000374 au shutdown).
+            ::nkentseu::memory::NkGetDefaultAllocator().Delete(renderer);
+        }
+
+        // =============================================================================
         NkRenderer2DPtr NkRenderer2DFactory::CreateUnique(NkIGraphicsContext* ctx) {
             return NkRenderer2DPtr(Create(ctx));
         }

@@ -7,7 +7,7 @@
 // NkRenderer.h est SUPPRIME - son contenu est dans ce fichier.
 // =============================================================================
 #include "NKECS/NkECSDefines.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 

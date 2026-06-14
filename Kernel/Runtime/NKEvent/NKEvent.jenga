@@ -16,40 +16,19 @@ Système d'événements universel pour le framework Nkentseu.
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKEvent"):
-    useglobalkind("event")
     staticlib()
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKThreading.location}/src",
-    ])
-
-    dependson([
-        "NKPlatform",
-        "NKCore",
-        "NKMemory",
-        "NKMath",
-        "NKContainers", 
-        "NKLogger",
-        "NKTime",
-        "NKThreading",
-    ])
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKLogger", "NKTime", "NKThreading"],
+        selfexport="NKEvent",
+        extra_includes=["src"],
+    )
 
     files([
         # Core
@@ -62,24 +41,13 @@ with project("NKEvent"):
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    defines([
-        "NKENTSEU_PLATFORM_STATIC_LIB",
-        "NKENTSEU_CORE_STATIC_LIB",
-        "NKENTSEU_MEMORY_STATIC_LIB",
-        "NKENTSEU_CONTAINERS_STATIC_LIB",
-        "NKENTSEU_MATH_STATIC_LIB",
-        "NKENTSEU_THREADING_STATIC_LIB",
-        "NKENTSEU_LOGGER_STATIC_LIB",
-        "NKENTSEU_TIME_STATIC_LIB",
-    ])
-
     with filter("system:Windows && options:windows-runtime=uwp"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE",

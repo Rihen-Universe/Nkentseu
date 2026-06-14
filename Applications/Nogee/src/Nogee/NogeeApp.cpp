@@ -1,6 +1,6 @@
 #include "NogeApp.h"
 #include "NKLogger/NkLog.h"
-#include "Nkentseu/ECS/Scene/NkSceneManager.h"
+#include "Noge/ECS/Scene/NkSceneManager.h"
 
 namespace nkentseu {
     namespace noge {

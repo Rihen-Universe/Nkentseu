@@ -35,6 +35,11 @@ namespace nkentseu {
         static NkIGraphicsContext* Create(const NkWindow& window,
                                           const NkContextDesc& desc);
 
+        // Detruit un contexte cree par Create()/CreateWithFallback : Shutdown() +
+        // liberation via NKMemory (symetrique de Create). No-op si nullptr.
+        // REGLE : ne JAMAIS faire `delete` (objet alloue par NKMemory).
+        static void Destroy(NkIGraphicsContext* ctx);
+
         // Vérifie si une API est disponible sur la plateforme courante
         static bool IsApiSupported(NkGraphicsApi api);
 
@@ -57,6 +62,10 @@ namespace nkentseu {
         // Partage le device/queue — pas de création de device supplémentaire.
         // Nécessite `gfx->GetDesc().compute.enable == true`.
         static NkIComputeContext* ComputeFromGraphics(NkIGraphicsContext* gfx);
+
+        // Detruit un contexte compute cree par CreateCompute()/ComputeFromGraphics :
+        // liberation via NKMemory. No-op si nullptr.
+        static void DestroyCompute(NkIComputeContext* ctx);
     };
 
 } // namespace nkentseu
