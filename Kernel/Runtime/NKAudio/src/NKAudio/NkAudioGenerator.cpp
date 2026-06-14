@@ -12,7 +12,7 @@
 // INCLUDES
 // ============================================================
 
-#include "NkAudio.h"
+#include "NKAudio.h"
 #include "NKCore/NkMacros.h"
 #include "NKMemory/NkAllocator.h"
 
@@ -33,10 +33,9 @@ namespace {
     // ──────────────────────────────────────────────────────────────────────────
 
     inline nkentseu::float32* AllocFloat(nkentseu::usize count, nkentseu::memory::NkAllocator* alloc) {
-        if (alloc) {
-            return (nkentseu::float32*)alloc->Allocate(count * sizeof(nkentseu::float32), sizeof(nkentseu::float32));
-        }
-        return (nkentseu::float32*)::operator new(count * sizeof(nkentseu::float32));
+        // Allocateur unifie via NKMemory : nullptr -> defaut global.
+        return (nkentseu::float32*)nkentseu::memory::NkAlloc(
+            count * sizeof(nkentseu::float32), alloc, sizeof(nkentseu::float32));
     }
 
     // ──────────────────────────────────────────────────────────────────────────

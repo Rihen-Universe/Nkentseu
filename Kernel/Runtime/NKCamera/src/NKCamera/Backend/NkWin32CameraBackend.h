@@ -19,7 +19,7 @@
 #pragma comment(lib,"mfuuid.lib")
 #pragma comment(lib,"ole32.lib")
 
-#include "NKCamera/INkCameraBackend.h"
+#include "NKCamera/NKICameraBackend.h"
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKCore/NkAtomic.h"
 #include "NKTime/NkChrono.h"
@@ -33,7 +33,7 @@ using Microsoft::WRL::ComPtr;
 namespace nkentseu
 {
 
-class NkWin32CameraBackend : public INkCameraBackend
+class NkWin32CameraBackend : public NKICameraBackend
 {
 public:
     NkWin32CameraBackend()  = default;

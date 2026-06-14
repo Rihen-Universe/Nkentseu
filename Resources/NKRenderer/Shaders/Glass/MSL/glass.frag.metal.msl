@@ -1,0 +1,16 @@
+// glass.frag.metal.msl — Glass Fragment (Metal)
+// See glass.frag.gl.glsl for full algorithm documentation
+#include <metal_stdlib>
+using namespace metal;
+struct CamUBO{float4x4 view,proj,viewProj,invViewProj;float4 camPos,camDir;float2 vp;float time,dt;};
+struct ObjUBO{float4x4 model,normalMatrix;float4 tint;float metallic,roughness,aoStr,emissStr,normStr,clearcoat,ccRough,sss;float4 sssColor;};
+struct LightEntry{float4 pos,col,dir,ang;};struct LightsUBO{LightEntry lights[32];int count;int pad[3];};
+struct VSOut{float4 pos[[position]];float3 worldPos;float3 normal;float3 tangent;float3 bitangent;float2 uv,uv2;float4 color;};
+fragment float4 glassFrag(VSOut i[[stage_in]],constant CamUBO& cam[[buffer(0)]],constant ObjUBO& obj[[buffer(1)]],constant LightsUBO& lts[[buffer(2)]],texture2d<float> tAlbedo[[texture(4)]],texture2d<float> tNormal[[texture(5)]],texture2d<float> tORM[[texture(6)]],texture2d<float> tEmissive[[texture(7)]],sampler sL[[sampler(0)]]){
+    float4 albSamp=tAlbedo.sample(sL,i.uv)*i.color;float3 albedo=pow(albSamp.rgb,(float3)2.2f);float alpha=albSamp.a;if(alpha<.01f)discard_fragment();
+    float3 nTs=tNormal.sample(sL,i.uv).xyz*2.f-1.f;float3x3 TBN=float3x3(normalize(i.tangent),normalize(i.bitangent),normalize(i.normal));float3 N=normalize(TBN*nTs);float3 V=normalize(cam.camPos.xyz-i.worldPos);
+    // Fresnel + refraction
+    float3 Lo=float3(0.f);
+    for(int li=0;li<lts.count&&li<32;li++){float3 L=(int(lts.lights[li].pos.w)==0)?normalize(-lts.lights[li].dir.xyz):normalize(lts.lights[li].pos.xyz-i.worldPos);float NdL=max(dot(N,L),0.f);Lo+=albedo/3.14159f*NdL*lts.lights[li].col.rgb*lts.lights[li].col.w;}
+    return float4(albedo*0.05f+Lo+tEmissive.sample(sL,i.uv).rgb*obj.emissStr,alpha);
+}

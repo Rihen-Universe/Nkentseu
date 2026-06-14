@@ -15,7 +15,7 @@
 //
 // Auteur : TEUGUIA TADJUIDJE Rodolf Séderis
 // Date : 2024-2026
-// License : Apache-2.0
+// License : Proprietary - Free to use and modify
 // =============================================================================
 
 // -------------------------------------------------------------------------
@@ -673,5 +673,5 @@ namespace nkentseu {
 
 // ============================================================
 // Copyright © 2024-2026 TEUGUIA TADJUIDJE Rodolf Séderis.
-// Apache-2.0 License - Free to use and modify
+// Proprietary License - Free to use and modify
 // ============================================================

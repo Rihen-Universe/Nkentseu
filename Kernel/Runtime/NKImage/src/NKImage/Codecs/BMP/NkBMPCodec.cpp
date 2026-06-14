@@ -2,7 +2,7 @@
  * @File    NkBMPCodec.cpp
  * @Brief   Codec BMP production-ready — DIB complet.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Fixes vs version précédente
  *  1. RLE4 absolute run : lecture corrigée — chaque octet source contient 2 index

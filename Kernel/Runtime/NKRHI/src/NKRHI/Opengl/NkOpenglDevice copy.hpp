@@ -20,19 +20,17 @@ namespace {
 
 static PIXELFORMATDESCRIPTOR BuildFallbackPfd(const NkWGLFallbackPixelFormat& fb) {
     PIXELFORMATDESCRIPTOR pfd{};
-    pfd.nSize      = sizeof(pfd);
-    pfd.nVersion   = fb.version;
-    pfd.dwFlags    = static_cast<DWORD>(fb.flags);
-    pfd.iPixelType = (fb.pixelType == NkPFDPixelType::NK_PFD_PIXEL_RGBA)
-        ? PFD_TYPE_RGBA
-        : PFD_TYPE_COLORINDEX;
-    pfd.cColorBits   = fb.colorBits;
-    pfd.cAlphaBits   = fb.alphaBits;
-    pfd.cDepthBits   = fb.depthBits;
-    pfd.cStencilBits = fb.stencilBits;
-    pfd.cAccumBits   = fb.accumBits;
-    pfd.cAuxBuffers  = fb.auxBuffers;
-    pfd.iLayerType   = PFD_MAIN_PLANE;
+    pfd.nSize           = sizeof(pfd);
+    pfd.nVersion        = fb.version;
+    pfd.dwFlags         = static_cast<DWORD>(fb.flags);
+    pfd.iPixelType      = (fb.pixelType == NkPFDPixelType::NK_PFD_PIXEL_RGBA) ? PFD_TYPE_RGBA : PFD_TYPE_COLORINDEX;
+    pfd.cColorBits      = fb.colorBits;
+    pfd.cAlphaBits      = fb.alphaBits;
+    pfd.cDepthBits      = fb.depthBits;
+    pfd.cStencilBits    = fb.stencilBits;
+    pfd.cAccumBits      = fb.accumBits;
+    pfd.cAuxBuffers     = fb.auxBuffers;
+    pfd.iLayerType      = PFD_MAIN_PLANE;
     return pfd;
 }
 

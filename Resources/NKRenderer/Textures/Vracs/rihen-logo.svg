@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:serif="http://www.serif.com/" version="1.1" viewBox="0 0 2000 1000">
+  <!-- Generator: Adobe Illustrator 29.8.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 2)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: #f79a28;
+      }
+
+      .st1, .st2, .st3 {
+        fill: #0a555f;
+      }
+
+      .st4, .st2, .st3 {
+        isolation: isolate;
+      }
+
+      .st2 {
+        font-family: Poppins-Regular, Poppins;
+        font-size: 46.53px;
+      }
+
+      .st3 {
+        font-family: ArtographieBlack, 'Artographie Black';
+        font-size: 364.59px;
+      }
+    </style>
+  </defs>
+  <g>
+    <g class="st4">
+      <text class="st3" transform="translate(767.24 602.68) scale(1.02 1)"><tspan x="0" y="0">Rihen</tspan></text>
+    </g>
+    <g>
+      <path class="st0" d="M737.45,457.79c2.78,12.71,4.24,25.92,4.24,39.48,0,100.5-80.43,181.97-179.64,181.97s-179.65-81.47-179.65-181.97c0-13.6,1.47-26.86,4.26-39.61l350.78.13h.01Z"/>
+      <path class="st1" d="M395.87,435.93c14.12-58.15,91.99-114.9,166.64-115.44,71.45-.52,153.06,56.41,166.67,115.55l-333.31-.1h0Z"/>
+    </g>
+  </g>
+  <g class="st4">
+    <text class="st2" transform="translate(782.48 676.9) scale(.84 1)"><tspan x="0" y="0">RÊVONS ENSEMBLE ET RÉINVENTONS LE FUTUR</tspan></text>
+  </g>
+</svg>

@@ -131,155 +131,155 @@
              * @note Les templates New/Delete sont inline dans ce header pour performance.
              */
             class NKENTSEU_MEMORY_CLASS_EXPORT NkAllocator : public NkAllocatorBase {
-            public:
-                // Types pour compatibilité et clarté
-                using Pointer    = void*;
-                using SizeType   = nk_size;
-                using AlignType  = nk_size;
+                public:
+                    // Types pour compatibilité et clarté
+                    using Pointer    = void*;
+                    using SizeType   = nk_size;
+                    using AlignType  = nk_size;
 
-                /** @brief Constructeur avec nom */
-                explicit NkAllocator(const nk_char* name = "NkAllocator") noexcept : NkAllocatorBase(name) {}
-                
-                /** @brief Destructeur virtuel */
-                ~NkAllocator() override = default;
+                    /** @brief Constructeur avec nom */
+                    explicit NkAllocator(const nk_char* name = "NkAllocator") noexcept : NkAllocatorBase(name) {}
+                    
+                    /** @brief Destructeur virtuel */
+                    ~NkAllocator() override = default;
 
-                // Non-copyable pour sécurité
-                NkAllocator(const NkAllocator&) = delete;
-                NkAllocator& operator=(const NkAllocator&) = delete;
+                    // Non-copyable pour sécurité
+                    NkAllocator(const NkAllocator&) = delete;
+                    NkAllocator& operator=(const NkAllocator&) = delete;
 
-                // =================================================================
-                // @name Interface d'Allocation Pure Virtuelle
-                // =================================================================
-                /**
-                 * @brief Alloue un bloc mémoire de taille donnée avec alignement
-                 * @param size Nombre d'octets à allouer
-                 * @param alignment Alignement requis (puissance de 2, défaut: pointeur)
-                 * @return Pointeur vers le bloc alloué, ou nullptr en cas d'échec
-                 * 
-                 * @note L'alignement DOIT être une puissance de 2
-                 * @note Le comportement est undefined si size == 0 (dépend de l'implémentation)
-                 */
-                [[nodiscard]] virtual Pointer Allocate(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) = 0;
+                    // =================================================================
+                    // @name Interface d'Allocation Pure Virtuelle
+                    // =================================================================
+                    /**
+                     * @brief Alloue un bloc mémoire de taille donnée avec alignement
+                     * @param size Nombre d'octets à allouer
+                     * @param alignment Alignement requis (puissance de 2, défaut: pointeur)
+                     * @return Pointeur vers le bloc alloué, ou nullptr en cas d'échec
+                     * 
+                     * @note L'alignement DOIT être une puissance de 2
+                     * @note Le comportement est undefined si size == 0 (dépend de l'implémentation)
+                     */
+                    [[nodiscard]] virtual Pointer Allocate(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) = 0;
 
-                /**
-                 * @brief Libère un bloc mémoire précédemment alloué
-                 * @param ptr Pointeur à libérer (peut être nullptr, opération no-op)
-                 * 
-                 * @note Comportement undefined si ptr n'a pas été alloué par cet allocateur
-                 * @note Double-free est undefined behavior
-                 */
-                virtual void Deallocate(Pointer ptr) = 0;
+                    /**
+                     * @brief Libère un bloc mémoire précédemment alloué
+                     * @param ptr Pointeur à libérer (peut être nullptr, opération no-op)
+                     * 
+                     * @note Comportement undefined si ptr n'a pas été alloué par cet allocateur
+                     * @note Double-free est undefined behavior
+                     */
+                    virtual void Deallocate(Pointer ptr) = 0;
 
-                // =================================================================
-                // @name Méthodes Virtuelles avec Implémentation Par Défaut
-                // =================================================================
-                /**
-                 * @brief Libère un bloc avec taille connue (pour sized delete)
-                 * @param ptr Pointeur à libérer
-                 * @param size Taille du bloc (informationnelle, peut être ignorée)
-                 * 
-                 * @note Par défaut, délègue à Deallocate(ptr) sans utiliser size
-                 * @note Les sous-classes peuvent surcharger pour optimiser avec sized free
-                 */
-                virtual void Deallocate(Pointer ptr, SizeType size);
+                    // =================================================================
+                    // @name Méthodes Virtuelles avec Implémentation Par Défaut
+                    // =================================================================
+                    /**
+                     * @brief Libère un bloc avec taille connue (pour sized delete)
+                     * @param ptr Pointeur à libérer
+                     * @param size Taille du bloc (informationnelle, peut être ignorée)
+                     * 
+                     * @note Par défaut, délègue à Deallocate(ptr) sans utiliser size
+                     * @note Les sous-classes peuvent surcharger pour optimiser avec sized free
+                     */
+                    virtual void Deallocate(Pointer ptr, SizeType size);
 
-                /**
-                 * @brief Redimensionne un bloc mémoire existant
-                 * @param ptr Bloc à redimensionner (peut être nullptr pour allocation)
-                 * @param oldSize Taille actuelle du bloc (pour copie optimisée)
-                 * @param newSize Nouvelle taille souhaitée
-                 * @param alignment Alignement requis pour le nouveau bloc
-                 * @return Nouveau pointeur, ou nullptr en cas d'échec (ptr reste valide)
-                 * 
-                 * @note Implémentation par défaut : allocate + copy + deallocate
-                 * @note Les sous-classes peuvent optimiser pour les cas in-place
-                 */
-                [[nodiscard]] virtual Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
-                                                        AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
+                    /**
+                     * @brief Redimensionne un bloc mémoire existant
+                     * @param ptr Bloc à redimensionner (peut être nullptr pour allocation)
+                     * @param oldSize Taille actuelle du bloc (pour copie optimisée)
+                     * @param newSize Nouvelle taille souhaitée
+                     * @param alignment Alignement requis pour le nouveau bloc
+                     * @return Nouveau pointeur, ou nullptr en cas d'échec (ptr reste valide)
+                     * 
+                     * @note Implémentation par défaut : allocate + copy + deallocate
+                     * @note Les sous-classes peuvent optimiser pour les cas in-place
+                     */
+                    [[nodiscard]] virtual Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
+                                                            AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
 
-                /**
-                 * @brief Alloue et zero-initialise un bloc mémoire
-                 * @param size Nombre d'octets à allouer et initialiser à zéro
-                 * @param alignment Alignement requis
-                 * @return Pointeur vers bloc zero-initialisé, ou nullptr en cas d'échec
-                 * 
-                 * @note Implémentation par défaut : Allocate + NkMemZero
-                 */
-                [[nodiscard]] virtual Pointer Calloc(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
+                    /**
+                     * @brief Alloue et zero-initialise un bloc mémoire
+                     * @param size Nombre d'octets à allouer et initialiser à zéro
+                     * @param alignment Alignement requis
+                     * @return Pointeur vers bloc zero-initialisé, ou nullptr en cas d'échec
+                     * 
+                     * @note Implémentation par défaut : Allocate + NkMemZero
+                     */
+                    [[nodiscard]] virtual Pointer Calloc(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT);
 
-                /**
-                 * @brief Réinitialise l'état de l'allocateur (libère tout sans deallocate individuel)
-                 * @note No-op par défaut, override pour les allocateurs à reset bulk (Arena, Linear)
-                 */
-                virtual void Reset() noexcept;
+                    /**
+                     * @brief Réinitialise l'état de l'allocateur (libère tout sans deallocate individuel)
+                     * @note No-op par défaut, override pour les allocateurs à reset bulk (Arena, Linear)
+                     */
+                    virtual void Reset() noexcept;
 
-                /** @brief Alias vers GetName() pour cohérence d'API */
-                [[nodiscard]] virtual const nk_char* Name() const noexcept;
+                    /** @brief Alias vers GetName() pour cohérence d'API */
+                    [[nodiscard]] virtual const nk_char* Name() const noexcept;
 
-                // =================================================================
-                // @name Helpers Type-Safe (Templates Inline)
-                // =================================================================
-                /**
-                 * @brief Constructeur placement-new avec allocation automatique
-                 * @tparam T Type de l'objet à construire
-                 * @tparam Args Types des arguments du constructeur
-                 * @param args Arguments forwardés au constructeur de T
-                 * @return Pointeur vers l'objet construit, ou nullptr si allocation échoue
-                 * 
-                 * @note Utilise alignof(T) automatiquement pour l'alignement
-                 * @note L'objet DOIT être détruit via Delete<T>() pour libération correcte
-                 */
-                template <typename T, typename... Args>
-                [[nodiscard]] T* New(Args&&... args);
+                    // =================================================================
+                    // @name Helpers Type-Safe (Templates Inline)
+                    // =================================================================
+                    /**
+                     * @brief Constructeur placement-new avec allocation automatique
+                     * @tparam T Type de l'objet à construire
+                     * @tparam Args Types des arguments du constructeur
+                     * @param args Arguments forwardés au constructeur de T
+                     * @return Pointeur vers l'objet construit, ou nullptr si allocation échoue
+                     * 
+                     * @note Utilise alignof(T) automatiquement pour l'alignement
+                     * @note L'objet DOIT être détruit via Delete<T>() pour libération correcte
+                     */
+                    template <typename T, typename... Args>
+                    [[nodiscard]] T* New(Args&&... args);
 
-                /**
-                 * @brief Destructeur + deallocation pour objet créé via New<T>
-                 * @tparam T Type de l'objet à détruire
-                 * @param ptr Pointeur vers l'objet (nullptr accepté, no-op)
-                 * 
-                 * @note Appelle explicitement le destructeur ~T() avant deallocation
-                 * @note Safe : vérifie nullptr avant toute opération
-                 */
-                template <typename T>
-                void Delete(T* ptr) noexcept;
+                    /**
+                     * @brief Destructeur + deallocation pour objet créé via New<T>
+                     * @tparam T Type de l'objet à détruire
+                     * @param ptr Pointeur vers l'objet (nullptr accepté, no-op)
+                     * 
+                     * @note Appelle explicitement le destructeur ~T() avant deallocation
+                     * @note Safe : vérifie nullptr avant toute opération
+                     */
+                    template <typename T>
+                    void Delete(T* ptr) noexcept;
 
-                /**
-                 * @brief Allocation + construction d'un tableau d'objets
-                 * @tparam T Type des éléments du tableau
-                 * @tparam Args Types des arguments pour chaque constructeur d'élément
-                 * @param count Nombre d'éléments à allouer
-                 * @param args Arguments forwardés à chaque constructeur
-                 * @return Pointeur vers le tableau, ou nullptr en cas d'échec
-                 * 
-                 * @note Stocke un header interne pour tracker count et offset
-                 * @note Utiliser DeleteArray<T>() pour libération correcte
-                 * @note L'alignement utilise alignof(T) automatiquement
-                 */
-                template <typename T, typename... Args>
-                [[nodiscard]] T* NewArray(SizeType count, Args&&... args);
+                    /**
+                     * @brief Allocation + construction d'un tableau d'objets
+                     * @tparam T Type des éléments du tableau
+                     * @tparam Args Types des arguments pour chaque constructeur d'élément
+                     * @param count Nombre d'éléments à allouer
+                     * @param args Arguments forwardés à chaque constructeur
+                     * @return Pointeur vers le tableau, ou nullptr en cas d'échec
+                     * 
+                     * @note Stocke un header interne pour tracker count et offset
+                     * @note Utiliser DeleteArray<T>() pour libération correcte
+                     * @note L'alignement utilise alignof(T) automatiquement
+                     */
+                    template <typename T, typename... Args>
+                    [[nodiscard]] T* NewArray(SizeType count, Args&&... args);
 
-                /**
-                 * @brief Destruction + deallocation d'un tableau créé via NewArray<T>
-                 * @tparam T Type des éléments du tableau
-                 * @param ptr Pointeur vers le tableau (nullptr accepté, no-op)
-                 * 
-                 * @note Détruit chaque élément dans l'ordre inverse de construction
-                 * @note Libère le bloc complet incluant l'header interne
-                 */
-                template <typename T>
-                void DeleteArray(T* ptr) noexcept;
+                    /**
+                     * @brief Destruction + deallocation d'un tableau créé via NewArray<T>
+                     * @tparam T Type des éléments du tableau
+                     * @param ptr Pointeur vers le tableau (nullptr accepté, no-op)
+                     * 
+                     * @note Détruit chaque élément dans l'ordre inverse de construction
+                     * @note Libère le bloc complet incluant l'header interne
+                     */
+                    template <typename T>
+                    void DeleteArray(T* ptr) noexcept;
 
-                /**
-                 * @brief Cast type-safe d'un Pointer vers un type spécifique
-                 * @tparam T Type cible du cast
-                 * @param ptr Pointeur brut à caster
-                 * @return Pointeur casté vers T*, ou nullptr si ptr était nullptr
-                 * 
-                 * @note Utility pour éviter les reinterpret_cast explicites dans le code client
-                 * @note N'effectue aucun runtime check - responsabilité de l'appelant
-                 */
-                template <typename T>
-                [[nodiscard]] T* As(Pointer ptr) const noexcept;
+                    /**
+                     * @brief Cast type-safe d'un Pointer vers un type spécifique
+                     * @tparam T Type cible du cast
+                     * @param ptr Pointeur brut à caster
+                     * @return Pointeur casté vers T*, ou nullptr si ptr était nullptr
+                     * 
+                     * @note Utility pour éviter les reinterpret_cast explicites dans le code client
+                     * @note N'effectue aucun runtime check - responsabilité de l'appelant
+                     */
+                    template <typename T>
+                    [[nodiscard]] T* As(Pointer ptr) const noexcept;
             };
 
             /** @brief Alias de compatibilité pour code legacy */
@@ -298,15 +298,15 @@
              * ou fallback manuel avec header d'alignement sur C++14.
              */
             class NKENTSEU_MEMORY_CLASS_EXPORT NkNewAllocator final : public NkAllocator {
-            public:
-                NkNewAllocator() noexcept;
-                ~NkNewAllocator() override = default;
+                public:
+                    NkNewAllocator() noexcept;
+                    ~NkNewAllocator() override = default;
 
-                Pointer Allocate(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
-                void Deallocate(Pointer ptr) override;
-                Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
-                                AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
-                Pointer Calloc(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
+                    Pointer Allocate(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
+                    void Deallocate(Pointer ptr) override;
+                    Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
+                                    AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
+                    Pointer Calloc(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
             };
 
             /**
@@ -319,16 +319,16 @@
              * Supporte sized deallocation si C23 disponible.
              */
             class NKENTSEU_MEMORY_CLASS_EXPORT NkMallocAllocator final : public NkAllocator {
-            public:
-                NkMallocAllocator() noexcept;
-                ~NkMallocAllocator() override = default;
+                public:
+                    NkMallocAllocator() noexcept;
+                    ~NkMallocAllocator() override = default;
 
-                Pointer Allocate(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
-                void Deallocate(Pointer ptr) override;
-                void Deallocate(Pointer ptr, SizeType size) override;
-                Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
-                                AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
-                Pointer Calloc(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
+                    Pointer Allocate(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
+                    void Deallocate(Pointer ptr) override;
+                    void Deallocate(Pointer ptr, SizeType size) override;
+                    Pointer Reallocate(Pointer ptr, SizeType oldSize, SizeType newSize,
+                                    AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
+                    Pointer Calloc(SizeType size, AlignType alignment = NK_MEMORY_DEFAULT_ALIGNMENT) override;
             };
 
             /**

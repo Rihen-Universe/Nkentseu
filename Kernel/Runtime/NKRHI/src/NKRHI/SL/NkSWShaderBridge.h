@@ -46,12 +46,12 @@
 //   auto res = swbridge::NkCompileFiles("vert.sw.sksl", "frag.sw.sksl", &map);
 // =============================================================================
 
-#include "NKRHI/SL/NkSLTypes.h"
-#include "NKRHI/SL/NkSLCompiler.h"
+#include "NKSL/NKSL.h"
 #include "NKRHI/SL/NkSLIntegration.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKFileSystem/NkFile.h"   // chargement via NKFileSystem (pas de fopen CRT)
 #include <cstring>
 #include <cmath>
 
@@ -447,14 +447,10 @@ namespace nkentseu {
         // Charger le texte d'un fichier
         // =============================================================================
         static bool LoadFile(const char* path, NkString& out) {
-            FILE* f = fopen(path, "rb");
-            if (!f) return false;
-            fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-            if (sz <= 0) { fclose(f); return false; }
-            NkVector<char> buf; buf.Resize((usize)sz + 1, '\0');
-            fread(buf.Data(), 1, (usize)sz, f); fclose(f);
-            out = NkString(buf.Data());
-            return true;
+            // Chargement via NKFileSystem (couche System) — pas de fopen CRT dans NKRHI.
+            if (!NkFile::Exists(path)) return false;
+            out = NkFile::ReadAllText(path);
+            return !out.Empty();
         }
 
         // =============================================================================

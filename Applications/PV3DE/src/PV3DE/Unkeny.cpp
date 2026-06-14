@@ -1,5 +1,5 @@
-#include "Nkentseu/NkCore.h"
-#include "Nkentseu/Nkentseu.h"
+#include "Noge/NkCore.h"
+#include "Noge/Nkentseu.h"
 
 
 
@@ -7,11 +7,11 @@ nkentseu::Application* nkentseu::CreateApplication(const NkApplicationConfig& co
     nkentseu::Log::Init(config.logLevel);
     nkentseu::Log::Info("Application Starting: {}", config.appName);
 
-    nkentseu::UnkenyAppConfig unkenyConfig;
-    unkenyConfig.appConfig = config;
-    unkenyConfig.cmdArgs = args;
+    nkentseu::NogeAppConfig NogeConfig;
+    NogeConfig.appConfig = config;
+    NogeConfig.cmdArgs = args;
 
-    unkenyConfig.Initialize();
+    NogeConfig.Initialize();
 
-    return new Unkeny::UnkenyApp(unkenyConfig);
+    return new Noge::NogeApp(NogeConfig);
 }

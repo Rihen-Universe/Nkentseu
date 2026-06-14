@@ -14,7 +14,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkContext.h"
 #include "NKWindow/Core/NkEvent.h"
-#include "NKContext/Deprecate/NkRenderer.h"
+#include "NKCanvas/Deprecate/NkRenderer.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKWindow/NKMain.h"
 #include "NKTime/NkChrono.h"   // Chemin correct pour NkChrono et NkElapsedTime

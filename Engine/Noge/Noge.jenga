@@ -8,6 +8,7 @@ keeps the current production context system.
 """
 
 from Jenga import *
+from jengaconfig import *
 import os
 import shutil
 import subprocess
@@ -36,7 +37,6 @@ if _HAS_LIBDECOR:
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NOGE_WAYLAND_LIBDECOR")
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
 _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
@@ -70,10 +70,11 @@ with project("Noge"):
         "%{NKEvent.location}/src",
         "%{NKWindow.location}/src",
         "%{NKThreading.location}/src",
-        "%{NKContext.location}/src",
+        "%{NKCanvas.location}/src",
         "%{NKRHI.location}/src",
         "%{NKFont.location}/src",
         "%{NKImage.location}/src",
+        "%{NKStream.location}/src",   # NKIResource.h via NkImage.h
         "%{NKECS.location}/src",
         "%{NKUI.location}/src",
         "%{NKGlad.location}/include"
@@ -109,7 +110,7 @@ with project("Noge"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines(["WIN32_LEAN_AND_MEAN", "NK_RHI_DX11_ENABLED", "NK_RHI_DX12_ENABLED"])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
@@ -166,6 +167,14 @@ with project("Noge"):
             _ANDROID_LINKS.append("vulkan")
         links(_ANDROID_LINKS)
 
+    # HarmonyOS : toolchain ohos-ndk. android/log retires, log -> hilog_ndk.z.
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+        _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
+        if _WANT_VULKAN:
+            _HARMONY_LINKS.append("vulkan")
+        links(_HARMONY_LINKS)
+
     with filter("system:iOS"):
         frameworks(["UIKit", "QuartzCore", "OpenGLES", "Metal"])
 
@@ -189,7 +198,7 @@ with project("Noge"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
-            _TEST_LINKS = ["Nkentseu", "NKContext", "NKWindow", "NKTime"]
+            _TEST_LINKS = ["Nkentseu", "NKCanvas", "NKWindow", "NKTime"]
             if _USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
             links(_TEST_LINKS)

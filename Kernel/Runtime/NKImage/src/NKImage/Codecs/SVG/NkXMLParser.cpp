@@ -2,7 +2,7 @@
  * @File    NkXMLParser.cpp
  * @Brief   Parser XML complet — tokenizer récursif + DOM.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  */
 #include "NKImage/Codecs/SVG/NkXMLParser.h"
 #include <cstring>

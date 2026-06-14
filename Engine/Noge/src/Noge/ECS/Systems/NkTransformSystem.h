@@ -29,7 +29,7 @@
 #include "NKECS/World/NkWorld.h"
 #include "Nkentseu/ECS/Components/Core/NkTransform.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 
 namespace nkentseu {
 

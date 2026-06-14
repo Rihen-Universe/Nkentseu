@@ -63,9 +63,9 @@
 #   undef Bool
 #endif
 
-#include "NKContext/Factory/NkContextFactory.h"
-#include "NKContext/Core/NkNativeContextAccess.h"
-#include "NKContext/Compute/NkIComputeContext.h"
+#include "NKCanvas/Factory/NkContextFactory.h"
+#include "NKCanvas/Core/NkNativeContextAccess.h"
+#include "NKCanvas/Compute/NkIComputeContext.h"
 #include "NKLogger/NkLog.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowConfig.h"
@@ -75,7 +75,7 @@
 #include "NKMath/NkFunctions.h"
 #include "NKTime/NkChrono.h"
 #include "NKTime/NkDuration.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 
 #include <cstddef>
 #include <cmath>

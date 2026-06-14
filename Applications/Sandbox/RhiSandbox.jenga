@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""RhiSandbox — projets Sandbox de la categorie RHI (NKRHI). Inclus par Sandbox.jenga.
+Variables graphiques/Wayland partagees via useconfig (graphics.jenga/wayland.jenga)."""
+from Jenga import *
+from jengaconfig import *
+from Jenga.Core.Api import androidallowrotation
+
+
+def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, needs_camera: bool = False, use_nkimage: bool = False, use_nkfont: bool = False, use_nkui: bool = False):
+    with project(project_name):
+        windowedapp()
+        language("C++")
+        cppdialect("C++17")
+        location(".")
+
+        files(source_files)  # Now accepts a list of strings
+
+        _DEPS = [
+            "NKEvent", "NKWindow", "NKGlad", "NKLogger",
+            "NKMath", "NKTime", "NKStream", "NKFileSystem",  # NKFileSystem requis : NkAndroidWindow appelle NkFile::SetAndroidAssetManager
+            "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL"
+        ]
+        if use_nkimage:
+            _DEPS.append("NKImage")
+        if use_nkfont:
+            _DEPS.append("NKFont")
+        if use_nkui:
+            _DEPS.append("NKUI")
+        _DEPS.append("NKGLSlang")
+        _DEPS.append("NKSPIRVCross")
+
+        nkentseudependson(
+            _DEPS,
+            extra_includes=["src", "%{wks.location}/Externals",
+                            "%{NKGlad.location}/include"]
+                           + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+            extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+        )
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+        with filter("system:Windows && options:windows-runtime=uwp"):
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+
+        # ===== Windows ================================================================
+        with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+            windowedapp()
+            usetoolchain(TC_WINDOWS)
+            defines([
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE", "UNICODE",
+            ])
+            if VULKAN_LIB:
+                libdirs([VULKAN_LIB])
+            if use_nkfont:
+                libdirs(["%{NKFont.location}/lib"])
+            _WIN_LINKS = [
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32", "dinput8", "dxguid",
+                "d3d11", "d3d12", "dxgi", "d3dcompiler"
+            ]
+            _IS_MINGW_R = "mingw" in TC_WINDOWS.lower()
+            if WANT_VULKAN:
+                _WIN_LINKS.append("vulkan-1")
+                if not _IS_MINGW_R:
+                    # glslang.lib (Vulkan SDK) compilé MSVC — incompatible avec MinGW
+                    _WIN_LINKS.extend(GLSLANG_LIBS_WINDOWS)
+            # NKGLSlang / NKSPIRVCross compilés source → compatibles MinGW, requis par NKRHI
+            if USE_NKGLSLANG:    _WIN_LINKS.append("NKGLSlang")
+            if USE_NKSPIRVCROSS: _WIN_LINKS.append("NKSPIRVCross")
+            links(_WIN_LINKS)
+
+        # ===== UWP ====================================================================
+        with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            defines(["NKENTSEU_PLATFORM_UWP"])
+            links(["d3d12", "dxgi", "dxguid", "windowsapp"])
+
+        # ===== Linux headless =========================================================
+        with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+            defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+            links(["pthread"])
+
+        # ===== Linux XLib =============================================================
+        with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+            windowedapp()
+            usetoolchain("clang-native")
+            defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+            links(["pthread", "X11", "Xext", "GL"])
+
+        # ===== Linux XCB ==============================================================
+        with filter("system:Linux && options:linux-backend=xcb"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+            defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+            links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+            ldflags(["-fuse-ld=lld"])
+
+        # ===== Linux Wayland ==========================================================
+        with filter("system:Linux && options:linux-backend=wayland"):
+            windowedapp()
+            usetoolchain("clang-native")
+            objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+            defines(WAYLAND_DEFINES)
+            links(WAYLAND_LINKS)
+
+        # ===== macOS ==================================================================
+        with filter("system:macOS"):
+            windowedapp()
+            usetoolchain("clang-native")
+            frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+        # ===== Android ================================================================
+        with filter("system:Android"):
+            windowedapp()
+            usetoolchain("android-ndk")
+            _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3", "NKGlad"]   # ← AJOUTER NKGlad
+            if WANT_VULKAN:
+                _ANDROID_LINKS.append("vulkan")
+            links(_ANDROID_LINKS)
+            androidapplicationid(f"com.nkentseu.{app_id_suffix}")
+            androidminsdk(24)
+            androidtargetsdk(34)
+            androidcompilesdk(34)
+            androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+            androidnativeactivity(True)
+            androidallowrotation(True)
+            androidstl("c++_shared")
+            if needs_camera:
+                androidpermissions([
+                    "android.permission.CAMERA",
+                ])
+
+        # ===== iOS ====================================================================
+        with filter("system:iOS"):
+            windowedapp()
+            frameworks(["UIKit", "QuartzCore", "OpenGLES"])
+            iosbundleid(f"com.nkentseu.{app_id_suffix}")
+            iosversion("1.0")
+            iosminsdk("14.0")
+            iosbuildnumber(1)
+
+        # ===== Web ====================================================================
+        with filter("system:Web"):
+            consoleapp()
+            usetoolchain("emscripten")
+            emscriptenshellfile("web/emscripten_fullscreen_nofavicon.html")
+            emscriptencanvasid("canvas")
+            emscripteninitialmemory(32)
+            emscriptenextraflags([
+                "-s", "ASYNCIFY",
+                "-s", "DYNAMIC_EXECUTION",
+                "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']",
+                "-s", "INITIAL_MEMORY=67108864",
+                "-s", "ALLOW_MEMORY_GROWTH=1",
+                "-s", "FULL_ES3=1",
+                "-s", "USE_WEBGL2=1",
+                "-s", "ASSERTIONS=1",
+                "-s", "NO_EXIT_RUNTIME=1",
+                "-s", "SAFE_HEAP=1",
+            ])
+
+        # ===== HarmonyOS ==============================================================
+        with filter("system:HarmonyOS"):
+            windowedapp()
+            links(["log", "EGL", "GLESv3"])
+
+        # ===== Xbox ===================================================================
+        with filter("system:XboxSeries || system:XboxOne"):
+            windowedapp()
+            usetoolchain("xbox-clang")
+            links(["d3d12", "dxgi", "dxguid", "xgameruntime"])
+
+        with filter("config:Debug"):
+            defines(["_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+        # Tests unitaires/benchmarks (desktop uniquement)
+        with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+            with test():
+                testfiles(["tests/**.cpp"])
+                with filter("system:Linux && options:linux-backend=wayland"):
+                    defines(WAYLAND_DEFINES)
+                    links(WAYLAND_TEST_LINKS)
+                with filter("system:Linux && options:linux-backend=xcb"):
+                    defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+                    links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+                with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+                    defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+                    links(["pthread", "X11", "Xext", "GL"])
+                with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+                    if VULKAN_LIB:
+                        libdirs([VULKAN_LIB])
+                    _WIN_TEST_LINKS = [
+                        "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                        "mf", "mfplat", "mfreadwrite", "mfuuid",
+                        "uuid", "ole32", "dinput8", "dxguid",
+                        "d3d11", "d3d12", "dxgi", "d3dcompiler"
+                    ]
+                    if WANT_VULKAN:
+                        _WIN_TEST_LINKS.append("vulkan-1")
+                    links(_WIN_TEST_LINKS)
+
+
+# ── Demos de cette categorie ──
+# =================================== Renderer RHI =======================================================
+sandboxusenkrhi("NkRHIDemoFull", ["src/DemoNkentseu/Base03/NkRHIDemoFull.cpp"], "sandbox.rhidemo.full")
+sandboxusenkrhi("NkSWRasterPrimitives", ["src/DemoNkentseu/Base03/NkSWRasterPrimitives.cpp"], "sandbox.sw.raster.primitives")
+sandboxusenkrhi("NkRHIDemoFullImage", ["src/DemoNkentseu/Base03/NkRHIDemoFullImage.cpp"], "sandbox.rhidemo.fullimage", use_nkimage=True)
+sandboxusenkrhi("NkFontDemo", ["src/DemoNkentseu/Base03/NkFontDemoFromScratch.cpp"], "sandbox.nkfont.demo", use_nkfont=True)
+sandboxusenkrhi("NkFDV2", ["src/DemoNkentseu/Base03/NkFontDemoVI.cpp"], "sandbox.nkfont.demov2", use_nkfont=True)
+# sandboxusenkrhi("NkRHIDemoFullText", ["src/DemoNkentseu/Base03/NkRHIDemoFullText.cpp"], "sandbox.rhidemo.fulltext", use_nkimage=True, use_nkfont=True)
+sandboxusenkrhi("NkRHIDemoText", ["src/DemoNkentseu/Base03/NkRHIDemoText.cpp"], "sandbox.rhidemo.text", use_nkimage=True, use_nkfont=True)
+sandboxusenkrhi("NkRHIDemoFullSL", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl", use_nkimage=True, use_nkfont=True)
+# sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/NkRHIDemoFullSL.cpp"], "sandbox.rhidemo.fullsl")
+# sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
+sandboxusenkrhi("RendererRHI", ["src/DemoNkentseu/Base03/RendererRHI.cpp"], "sandbox.nkentseu.base03")
+
+
+# =================================== Renderer UI =======================================================
+sandboxusenkrhi("NKUIDemo", [
+    "src/DemoNkentseu/Base04/NkUIDemoNKEngine.cpp",
+    # "src/DemoNkentseu/Base04/NkUIFontIntegration.cpp",
+    "src/DemoNkentseu/Base04/NkUINKRHIBackend.cpp"
+], "sandbox.nkentseu.nkuidemo", use_nkimage=True, use_nkfont=True, use_nkui=True)
+
+sandboxusenkrhi("NKUID", [
+    "src/DemoNkentseu/Base04/NkUIDemo.cpp"
+], "sandbox.nkentseu.nkuid", use_nkimage=True, use_nkfont=True, use_nkui=True)

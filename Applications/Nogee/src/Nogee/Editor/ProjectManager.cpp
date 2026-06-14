@@ -6,7 +6,7 @@
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         void ProjectManager::NewProject(const char* name, const char* rootDir) noexcept {
             mConfig              = NkProjectConfig{};
@@ -123,5 +123,5 @@ namespace nkentseu {
             }
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

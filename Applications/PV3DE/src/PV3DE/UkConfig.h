@@ -6,17 +6,17 @@
 // =============================================================================
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
         // ============================================================================
-        // UkConfig — Configuration spécifique à Unkeny (ex: pour l'éditeur)
+        // UkConfig — Configuration spécifique à Noge (ex: pour l'éditeur)
         // ============================================================================
-        struct UnkenyAppConfig {
+        struct NogeAppConfig {
             NkApplicationConfig appConfig;
 
             // Titre de la fenêtre (peut être modifié dynamiquement)
             NkString windowTitle;
 
-            // Initialisation spécifique à Unkeny (ex: chargement de plugins, etc.)
+            // Initialisation spécifique à Noge (ex: chargement de plugins, etc.)
             void Initialize() noexcept {
                 // Exemple : parse args pour activer le mode debug
                 for (const char* arg : args.args) {

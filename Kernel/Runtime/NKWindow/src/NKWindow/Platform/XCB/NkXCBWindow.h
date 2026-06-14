@@ -48,6 +48,7 @@ namespace nkentseu {
     NkWindow* NkXCBFindWindow(xcb_window_t xid);
     void      NkXCBRegisterWindow(xcb_window_t xid, NkWindow* win);
     void      NkXCBUnregisterWindow(xcb_window_t xid);
+    NkWindow* NkXCBGetAnyWindow();   // une fenetre quelconque (events globaux : display, etc.)
     xcb_connection_t* NkXCBGetConnection();
     xcb_screen_t*     NkXCBGetScreen();
     xcb_atom_t        NkXCBGetWmDeleteWindowAtom();

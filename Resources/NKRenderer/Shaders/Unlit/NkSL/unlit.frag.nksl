@@ -1,0 +1,40 @@
+// unlit.frag.nksl — NKRenderer — Unlit Fragment (VRAI dialecte NkSL)
+// Traduit de Unlit/VK/unlit.frag.vk.glsl : albedo * vColor + emissive.
+
+@location(0) in vec2 vUV;
+@location(1) in vec4 vColor;
+
+@location(0) out vec4 fragColor;
+
+// Per-instance (set=2, binding=8) — layout NkPBRParams, binding=8 évite la
+// collision avec texNormal (binding=4) dans le namespace GL aplati.
+@binding(set=2, binding=8)
+uniform UnlitUBO {
+    vec4  albedo;
+    vec4  emissive;
+    float metallic;
+    float roughness;
+    float ao;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRough;
+    float subsurface;
+    vec4  subsurfaceColor;
+    float anisotropy;
+    float sheen;
+    float _pad0;
+    float _pad1;
+} uMat;
+
+@binding(set=2, binding=3)
+uniform sampler2D tAlbedo;
+
+@stage(fragment)
+@entry
+void main() {
+    vec4 tex = texture(tAlbedo, vUV);
+    vec4 col = tex * uMat.albedo * vColor;
+    col.rgb  = col.rgb + uMat.emissive.rgb * uMat.emissiveStrength;
+    fragColor = col;
+}

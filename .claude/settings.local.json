@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk '{print $1}')",
+      "Bash(awk 'NR>=17184' logs/app.log)",
+      "Bash(python \"e:\\\\Projets\\\\2026\\\\Nkentseu\\\\Nkentseu\\\\Resources\\\\Pong\\\\Textures\\\\animrihen\\\\_preprocess_black_to_alpha.py\")"
+    ]
+  }
+}

@@ -4,8 +4,13 @@
 #include "NkTextRenderer.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
+#include "NKFont/Embedded/NkFontEmbedded.h"
 #include <cstring>
 #include <cstdio>
+// Suppress Win32 GDI macro after all headers
+#ifdef DrawText
+#  undef DrawText
+#endif
 
 namespace nkentseu {
     namespace renderer {
@@ -112,10 +117,7 @@ namespace nkentseu {
             NkFontConfig cfg; cfg.sizePixels = 13.f;
             // Use default ranges
             cfg.glyphRanges = NkFontAtlas::GetGlyphRangesDefault();
-            entry->nkfFont = entry->nkfAtlas->AddFontFromMemory(
-                NkFontEmbedded::GetData(),
-                (nkft_size)NkFontEmbedded::GetSize(),
-                13.f, &cfg);
+            entry->nkfFont = NkFontEmbedded::AddDefaultFont(*entry->nkfAtlas, &cfg);
             if (!entry->nkfFont || !entry->nkfAtlas->Build()) {
                 delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
             }
@@ -135,7 +137,7 @@ namespace nkentseu {
             e->nkfAtlas->GetTexDataAsRGBA32(&pixels, &w, &h);
             if (!pixels || w <= 0 || h <= 0) return false;
 
-            NkTextureDesc2 tdesc;
+            NkTextureCreateDesc tdesc;
             tdesc.pixels   = pixels;
             tdesc.width    = (uint32)w;
             tdesc.height   = (uint32)h;
@@ -179,7 +181,7 @@ namespace nkentseu {
                 if (gh > rowH) rowH = gh;
             }
 
-            NkTextureDesc2 tdesc;
+            NkTextureCreateDesc tdesc;
             tdesc.pixels   = atlasPx.Data();
             tdesc.width    = (uint32)atlasW;
             tdesc.height   = (uint32)atlasH;

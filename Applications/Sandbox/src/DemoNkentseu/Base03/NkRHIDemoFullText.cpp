@@ -54,7 +54,7 @@
 #include "NkRHIDemoFullVkSpv.inl"
 #include "NkRHIDemoFullImageVkSpv.inl"
 #include "NkRHIDemoFullTextVkSpv.inl"
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
 
 namespace nkentseu {
     struct NkEntryState;
@@ -1203,7 +1203,7 @@ int nkmain(const nkentseu::NkEntryState& state) {
     deviceInitInfo.width = window.GetSize().width;
 
     deviceInitInfo.context.vulkan.appName = "NkRHIDemoFull";
-    deviceInitInfo.context.vulkan.engineName = "Unkeny";
+    deviceInitInfo.context.vulkan.engineName = "Noge";
 
     // â”€â”€ Device RHI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NkIDevice* device = NkDeviceFactory::Create(deviceInitInfo);

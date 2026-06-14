@@ -589,6 +589,12 @@
                 /// @param size Taille du paquet en bytes.
                 void ProcessSYNACK(const uint8* data, uint32 size) noexcept;
 
+                /// Traite un paquet ACK final reçu côté serveur : finalise le handshake.
+                /// @param data Buffer contenant le paquet ACK brut.
+                /// @param size Taille du paquet en bytes.
+                /// @note Termine la transition NK_CONNECTION_SYN_RECEIVED → NK_CONNECTION_ESTABLISHED.
+                void ProcessACK(const uint8* data, uint32 size) noexcept;
+
                 // -------------------------------------------------------------
                 // Méthodes privées — gestion des heartbeats et keep-alive
                 // -------------------------------------------------------------

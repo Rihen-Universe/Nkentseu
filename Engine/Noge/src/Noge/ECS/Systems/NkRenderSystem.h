@@ -26,7 +26,7 @@
 #include "NKRenderer/src/NkRenderer.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 
 namespace nkentseu {
 

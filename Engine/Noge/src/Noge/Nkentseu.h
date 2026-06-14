@@ -67,8 +67,11 @@
 #include "ECS/VisualScript/NkBlueprint.h"
 
 // ── Assets ────────────────────────────────────────────────
-#include "Asset/NkAssetImporter.h"
-#include "Asset/NkAssetMetadata.h"
+// Promus depuis Engine/Noge/Asset/ vers Kernel/System/NKSerialization/Asset/
+// pour que NKRenderer (et tout module bas niveau) puisse les utiliser
+// sans coupling vers Engine/Noge.
+#include "NKSerialization/Asset/NkAssetImporter.h"
+#include "NKSerialization/Asset/NkAssetMetadata.h"
 
 // ── Maths ─────────────────────────────────────────────────
 #include "Maths/NkTransform.h"

@@ -55,14 +55,30 @@ namespace nkentseu {
     bool NkVulkanCommandBuffer::BeginRenderPass(NkRenderPassHandle rp,
                                             NkFramebufferHandle fb,
                                             const NkRect2D& area) {
-        if (!mRecording || !rp.IsValid() || !fb.IsValid()) return false;
-        const VkRenderPass vkRp = mDev->GetVkRP(rp.id);
+        if (!mRecording || !fb.IsValid()) return false;
         const VkFramebuffer vkFb = mDev->GetVkFB(fb.id);
-        if (vkRp == VK_NULL_HANDLE || vkFb == VK_NULL_HANDLE) return false;
+        if (vkFb == VK_NULL_HANDLE) return false;
+
+        // Fallback : si l'appelant passe un renderPass null, on utilise celui
+        // associe au framebuffer (stocke a sa creation). C'est la convention
+        // OpenGL "le fb porte son rp implicite", qu'on duplique en Vulkan pour
+        // que les sous-systemes ecrits "GL-style" (NkShadowSystem, NkRender2D)
+        // n'aient pas a propager le rp explicitement.
+        VkRenderPass vkRp = rp.IsValid() ? mDev->GetVkRP(rp.id) : VK_NULL_HANDLE;
+        if (vkRp == VK_NULL_HANDLE) {
+            vkRp = mDev->GetVkFramebufferRenderPass(fb.id);
+        }
+        if (vkRp == VK_NULL_HANDLE) return false;
 
         VkClearValue clears[9];
-        const uint32 colorCount = mDev->GetVkRenderPassColorCount(rp.id);
-        const bool hasDepth = mDev->GetVkRenderPassHasDepth(rp.id);
+        // Si rp explicite : on utilise ses metadata. Sinon on prend celles du fb
+        // (qui matchent le RP utilise pour creer le fb -> coherent avec vkRp ci-dessus).
+        const uint32 colorCount = rp.IsValid()
+            ? mDev->GetVkRenderPassColorCount(rp.id)
+            : mDev->GetVkFramebufferColorCount(fb.id);
+        const bool hasDepth = rp.IsValid()
+            ? mDev->GetVkRenderPassHasDepth(rp.id)
+            : mDev->GetVkFramebufferHasDepth(fb.id);
         uint32 clearCount = colorCount + (hasDepth ? 1u : 0u);
         if (clearCount > 9u) clearCount = 9u;
         for (uint32 i = 0; i < clearCount; ++i) {
@@ -141,12 +157,32 @@ namespace nkentseu {
     }
     void NkVulkanCommandBuffer::PushConstants(NkShaderStage stages, uint32 offset,
                                             uint32 size, const void* data) {
+        // Conversion exhaustive : sinon NK_ALL_GRAPHICS (qui inclut GEOMETRY +
+        // TESS_*) ne se traduisait qu'en VERTEX|FRAGMENT, ne matchant pas un
+        // range pipeline declare avec NK_ALL_GRAPHICS -> validation error
+        // VUID-vkCmdPushConstants-offset-01796.
         VkShaderStageFlags vkStages = 0;
-        if ((uint32)stages & (uint32)NkShaderStage::NK_VERTEX)   vkStages |= VK_SHADER_STAGE_VERTEX_BIT;
-        if ((uint32)stages & (uint32)NkShaderStage::NK_FRAGMENT) vkStages |= VK_SHADER_STAGE_FRAGMENT_BIT;
-        if ((uint32)stages & (uint32)NkShaderStage::NK_COMPUTE)  vkStages |= VK_SHADER_STAGE_COMPUTE_BIT;
+        const uint32 s = (uint32)stages;
+        if (s & (uint32)NkShaderStage::NK_VERTEX)    vkStages |= VK_SHADER_STAGE_VERTEX_BIT;
+        if (s & (uint32)NkShaderStage::NK_FRAGMENT)  vkStages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+        if (s & (uint32)NkShaderStage::NK_GEOMETRY)  vkStages |= VK_SHADER_STAGE_GEOMETRY_BIT;
+        if (s & (uint32)NkShaderStage::NK_TESS_CTRL) vkStages |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+        if (s & (uint32)NkShaderStage::NK_TESS_EVAL) vkStages |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+        if (s & (uint32)NkShaderStage::NK_COMPUTE)   vkStages |= VK_SHADER_STAGE_COMPUTE_BIT;
         if (vkStages == 0) vkStages = VK_SHADER_STAGE_ALL;
         vkCmdPushConstants(mCmdBuf, mBoundLayout, vkStages, offset, size, data);
+    }
+
+    void NkVulkanCommandBuffer::UpdateBuffer(NkBufferHandle buf, uint64 dstOffset,
+                                              uint64 size, const void* data) {
+        // vkCmdUpdateBuffer : limite a 64 KiB, alignement 4. Ideal pour les UBOs
+        // per-draw (tailles typiques < 256B). Au-dela, il faudra passer par un
+        // staging buffer + vkCmdCopyBuffer.
+        VkBuffer b = mDev->GetVkBuffer(buf.id);
+        if (b != VK_NULL_HANDLE) {
+            vkCmdUpdateBuffer(mCmdBuf, b, (VkDeviceSize)dstOffset,
+                              (VkDeviceSize)size, data);
+        }
     }
 
     // ── Vertex / Index ────────────────────────────────────────────────────────────
@@ -284,6 +320,12 @@ namespace nkentseu {
 
         auto toLayout=[](NkResourceState s) -> VkImageLayout {
             switch(s){
+                // CRITIQUE : NK_UNDEFINED doit mapper UNDEFINED, sinon le default
+                // GENERAL casse les transitions initiales. Une barrier oldLayout=
+                // GENERAL alors que l'image est en COLOR_ATTACHMENT_OPTIMAL (apres
+                // CreateTexture) corrompt le tracking interne du driver et invalide
+                // silencieusement les writes du Geometry pass dans le HDR.
+                case NkResourceState::NK_UNDEFINED:        return VK_IMAGE_LAYOUT_UNDEFINED;
                 case NkResourceState::NK_RENDER_TARGET:    return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 case NkResourceState::NK_DEPTH_WRITE:      return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 case NkResourceState::NK_DEPTH_READ:       return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
@@ -304,9 +346,17 @@ namespace nkentseu {
             b.dstAccessMask=toAccess(tb[i].stateAfter,false);
             b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
             b.image=mDev->GetVkImage(tb[i].texture.id);
-            VkImageAspectFlags aspect=VK_IMAGE_ASPECT_COLOR_BIT;
-            if (tb[i].stateAfter==NkResourceState::NK_DEPTH_WRITE||tb[i].stateAfter==NkResourceState::NK_DEPTH_READ)
-                aspect=VK_IMAGE_ASPECT_DEPTH_BIT;
+            // L'aspect mask doit refleter le format reel de l'image, pas le
+            // state cible. Une shadow atlas (D32_SFLOAT) en transition
+            // SHADER_READ -> SHADER_READ utilise toujours DEPTH_BIT, jamais
+            // COLOR_BIT (sinon VUID-VkImageMemoryBarrier-subresourceRange-09601).
+            const NkTextureDesc imgDesc = mDev->GetTextureDesc(tb[i].texture.id);
+            VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+            if (NkFormatIsDepth(imgDesc.format)) {
+                aspect = NkFormatHasStencil(imgDesc.format)
+                    ? (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+                    : VK_IMAGE_ASPECT_DEPTH_BIT;
+            }
             b.subresourceRange={aspect,tb[i].baseMip,tb[i].mipCount==UINT32_MAX?VK_REMAINING_MIP_LEVELS:tb[i].mipCount,
                                 tb[i].baseLayer,tb[i].layerCount==UINT32_MAX?VK_REMAINING_ARRAY_LAYERS:tb[i].layerCount};
             imgBarriers.PushBack(b);

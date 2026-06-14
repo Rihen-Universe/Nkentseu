@@ -1,7 +1,9 @@
 // =============================================================================
-// NkRender2D.cpp  — NKRenderer v4.0
+// NkRender2D.cpp  — NKRenderer v5.0
 // =============================================================================
 #include "NkRender2D.h"
+#include "NKRenderer/Shader/NkShaderLibrary.h"
+#include "NKLogger/NkLog.h"
 #include <cmath>
 #ifndef NK_PI
 #define NK_PI 3.14159265358979f
@@ -10,10 +12,313 @@
 namespace nkentseu {
 namespace renderer {
 
+    // =========================================================================
+    // Shaders 2D embarques en GLSL OpenGL-natif (pas de syntaxe Vulkan-GLSL).
+    // Conventions :
+    //  - Push constants : uniform vec4 _PushConstants[4] (matriceortho stockee
+    //    comme 4 vec4) — c'est la convention que le backend GL reconnait
+    //    (cf. NkOpenglCommandBuffer::PushConstants).
+    //  - Texture sampler : layout(binding=0) — pas de "set" Vulkan.
+    // =========================================================================
+    static const char* kRender2D_VS = R"GLSL(
+#version 460 core
+layout(location=0) in vec2  aPos;
+layout(location=1) in vec2  aUV;
+layout(location=2) in uint  aColor;
+layout(location=3) in uint  aFlags;
+
+layout(location=0) out vec2  vUV;
+layout(location=1) out vec4  vColor;
+layout(location=2) out flat uint vFlags;
+layout(location=3) out vec2  vWorldPos;   // pour le lit fragment shader
+
+uniform vec4 _PushConstants[4];   // mat4 stockee en 4 vec4 column-major
+
+void main() {
+    mat4 ortho = mat4(_PushConstants[0], _PushConstants[1],
+                      _PushConstants[2], _PushConstants[3]);
+    gl_Position = ortho * vec4(aPos, 0.0, 1.0);
+    vUV       = aUV;
+    vWorldPos = aPos;   // espace pre-ortho = espace 'world 2D' (pixels logiques)
+    vColor = vec4(float((aColor      ) & 0xFFu) / 255.0,
+                  float((aColor >>  8u) & 0xFFu) / 255.0,
+                  float((aColor >> 16u) & 0xFFu) / 255.0,
+                  float((aColor >> 24u) & 0xFFu) / 255.0);
+    vFlags = aFlags;
+}
+)GLSL";
+
+    static const char* kRender2D_FS = R"GLSL(
+#version 460 core
+layout(location=0) in vec2  vUV;
+layout(location=1) in vec4  vColor;
+layout(location=2) in flat uint vFlags;
+layout(location=3) in vec2  vWorldPos;
+layout(location=0) out vec4 fragColor;
+
+layout(binding=0) uniform sampler2D tAtlas;
+
+// Phase E : Lights 2D UBO. Layout std140.
+//   Light : position xy + intensity z + radius w (vec4)
+//           color rgb + cookieIdx w (vec4, -1 = pas de cookie)
+//           angleRad x + coneInnerRad y + coneOuterRad z + _pad w (vec4)
+struct Light2D {
+    vec4 posIntRad;     // xy=position, z=intensity, w=radius
+    vec4 colorCookie;   // xyz=color, w=cookieIdx (-1 = none)
+    vec4 dirCone;       // x=angleRad, y=coneInnerRad, z=coneOuterRad, w=pad
+};
+layout(std140, binding=1) uniform Lights2DUBO {
+    Light2D lights[16];
+    vec4    ambient;       // xyz=ambient color, w=light count (cast a int)
+} uL2D;
+
+// E.5 : shadow casters (cercles). 32 max.
+//   xy = position, z = radius, w = unused
+// E.7d : isoMat = transform 2x2 applique aux positions avant raycast (default
+//   identity = pas de transform). Permet d'avoir des ombres iso-correctes.
+layout(std140, binding=10) uniform Shadows2DUBO {
+    vec4 occluders[32];
+    vec4 meta;            // x = count actif, yzw unused
+    vec4 isoMat;          // x=m00, y=m01, z=m10, w=m11 (default 1,0,0,1)
+} uSh2D;
+
+// E.7a : AABB shadow casters (walls / plateformes). 32 max.
+//   xy = min, zw = max
+layout(std140, binding=11) uniform ShadowsAABB2DUBO {
+    vec4 boxes[32];       // 32 AABBs
+    vec4 metaAABB;        // x = count actif, yzw unused
+} uShAABB2D;
+
+// Test segment-vs-cercle : retourne true si le segment [a..b] intersecte
+// le disque (c, r). Utilise pour le shadow raycaste de fragment a light.
+// Ignore self-occlusion : on saute les cercles dont le centre est tres pres
+// du fragment (caster qui se recouvre lui-meme).
+bool SegmentIntersectsCircle(vec2 a, vec2 b, vec2 c, float r) {
+    vec2 ab = b - a;
+    vec2 ac = c - a;
+    float lab2 = dot(ab, ab);
+    if (lab2 < 1e-6) return false;
+    // Projete c sur la droite ab, clamp [0,1] pour rester sur le segment
+    float t = clamp(dot(ac, ab) / lab2, 0.0, 1.0);
+    vec2 closest = a + ab * t;
+    vec2 d = c - closest;
+    return dot(d, d) <= r * r;
+}
+
+// Test segment-vs-AABB (slab method). Retourne true si le segment [a..b]
+// traverse l'AABB (mn, mx). Standard ray-AABB adapte aux segments finis.
+bool SegmentIntersectsAABB(vec2 a, vec2 b, vec2 mn, vec2 mx) {
+    vec2 dir = b - a;
+    float tmin = 0.0;
+    float tmax = 1.0;
+    for (int i = 0; i < 2; i++) {
+        if (abs(dir[i]) < 1e-6) {
+            if (a[i] < mn[i] || a[i] > mx[i]) return false;
+        } else {
+            float inv = 1.0 / dir[i];
+            float t1 = (mn[i] - a[i]) * inv;
+            float t2 = (mx[i] - a[i]) * inv;
+            if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; }
+            tmin = max(tmin, t1);
+            tmax = min(tmax, t2);
+            if (tmin > tmax) return false;
+        }
+    }
+    return true;
+}
+
+float ShadowVisibility2D(vec2 fragPos, vec2 lightPos) {
+    // E.7d : iso transform applique aux positions avant raycast. Default
+    // identity -> aucun changement. Pour iso 2:1 ou sol incline : remappe
+    // les coords screen vers un espace ou les directions sont "rectifiees".
+    mat2 isoMat = mat2(uSh2D.isoMat.x, uSh2D.isoMat.y,
+                       uSh2D.isoMat.z, uSh2D.isoMat.w);
+    vec2 fragI  = isoMat * fragPos;
+    vec2 lightI = isoMat * lightPos;
+
+    // Reduit le segment de 1px cote light pour eviter qu'un caster bloque
+    // sa propre lumiere quand light est posee dessus.
+    vec2 dir   = lightI - fragI;
+    float L    = length(dir);
+    if (L < 1.0) return 1.0;
+    vec2 ndir  = dir / L;
+    vec2 b     = lightI - ndir * 1.0;
+
+    // 1) Test cercles (occluder.xy transforme aussi par isoMat)
+    int n = int(uSh2D.meta.x);
+    for (int i = 0; i < n && i < 32; i++) {
+        vec4 occ = uSh2D.occluders[i];
+        vec2 occI = isoMat * occ.xy;
+        // Skip caster qui contient le fragment (iso-corrige)
+        vec2 oc = occI - fragI;
+        if (dot(oc, oc) <= occ.z * occ.z) continue;
+        if (SegmentIntersectsCircle(fragI, b, occI, occ.z))
+            return 0.0;
+    }
+
+    // 2) Test AABBs (box.xy/zw transformes aussi)
+    int m = int(uShAABB2D.metaAABB.x);
+    for (int j = 0; j < m && j < 32; j++) {
+        vec4 box = uShAABB2D.boxes[j];
+        vec2 mn = isoMat * box.xy;
+        vec2 mx = isoMat * box.zw;
+        // Apres iso transform, mn peut etre > mx sur un axe : reorder.
+        vec2 mnR = vec2(min(mn.x, mx.x), min(mn.y, mx.y));
+        vec2 mxR = vec2(max(mn.x, mx.x), max(mn.y, mx.y));
+        if (fragI.x >= mnR.x && fragI.x <= mxR.x &&
+            fragI.y >= mnR.y && fragI.y <= mxR.y) continue;
+        if (SegmentIntersectsAABB(fragI, b, mnR, mxR))
+            return 0.0;
+    }
+    return 1.0;
+}
+
+// Cookies textures (slots 2..9 = jusqu'a 8 cookies). -1 = pas de cookie.
+layout(binding=2) uniform sampler2D tCookie0;
+layout(binding=3) uniform sampler2D tCookie1;
+layout(binding=4) uniform sampler2D tCookie2;
+layout(binding=5) uniform sampler2D tCookie3;
+layout(binding=6) uniform sampler2D tCookie4;
+layout(binding=7) uniform sampler2D tCookie5;
+layout(binding=8) uniform sampler2D tCookie6;
+layout(binding=9) uniform sampler2D tCookie7;
+
+// E.7c : normal map atlas pour fake-3D shading sur sprites 2D. Le bit 8 du
+// flags active le sampling. Format : RGB tangent space normal en [0,1] →
+// remappe a [-1,1] dans le shader. Z > 0 (vers le viewer).
+layout(binding=12) uniform sampler2D tNormal;
+
+float SampleCookie(int idx, vec2 uv) {
+    // uv attendu en [0,1] x [0,1] (centre = (0.5, 0.5)).
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+    if (idx == 0) return texture(tCookie0, uv).r;
+    if (idx == 1) return texture(tCookie1, uv).r;
+    if (idx == 2) return texture(tCookie2, uv).r;
+    if (idx == 3) return texture(tCookie3, uv).r;
+    if (idx == 4) return texture(tCookie4, uv).r;
+    if (idx == 5) return texture(tCookie5, uv).r;
+    if (idx == 6) return texture(tCookie6, uv).r;
+    if (idx == 7) return texture(tCookie7, uv).r;
+    return 1.0;
+}
+
+// E.7c : profondeur "ressentie" des lights au-dessus du plan 2D. Plus eleve
+// = lights paraissent plus eloignees = NdotL plus uniforme. 80 = compromis
+// pour un platformer typique (sprites de hauteur ~64-128 px).
+const float LIGHT_Z = 80.0;
+
+vec3 ComputeLighting2D(vec2 worldPos, uint shapeLayerMask, vec3 normal) {
+    int n = int(uL2D.ambient.w);
+    vec3 lit = uL2D.ambient.xyz;
+    for (int i = 0; i < n && i < 16; i++) {
+        // E.7b : test layer mask. Light n'affecte la shape que si AND non-zero.
+        uint lightLayer = uint(uL2D.lights[i].dirCone.w);
+        if ((lightLayer & shapeLayerMask) == 0u) continue;
+        vec2 lp         = uL2D.lights[i].posIntRad.xy;
+        float intensity = uL2D.lights[i].posIntRad.z;
+        float radius    = max(uL2D.lights[i].posIntRad.w, 1.0);
+        vec3  lcol      = uL2D.lights[i].colorCookie.xyz;
+        // colorCookie.w encode (cookieIdx) + (-1000 si castShadow=false).
+        float ckEnc     = uL2D.lights[i].colorCookie.w;
+        bool  castSh    = ckEnc > -500.0;
+        int   cookieIdx = castSh ? int(ckEnc) : int(ckEnc + 1000.0);
+        float angleRad  = uL2D.lights[i].dirCone.x;
+        float innerRad  = uL2D.lights[i].dirCone.y;
+        float outerRad  = uL2D.lights[i].dirCone.z;
+
+        vec2 toFrag = worldPos - lp;
+        float dist  = length(toFrag);
+
+        // Falloff radial smooth (1 au centre, 0 a radius)
+        float t = clamp(1.0 - dist / radius, 0.0, 1.0);
+        float att = t * t;
+        if (att < 1e-4) continue;
+
+        // Cone : si outerRad < 2*PI, on cull les fragments hors du cone
+        if (outerRad < 6.28) {
+            float fragAngle = atan(toFrag.y, toFrag.x);
+            float delta     = fragAngle - angleRad;
+            // wrap [-PI, PI]
+            delta = mod(delta + 3.14159, 6.28318) - 3.14159;
+            float adelta = abs(delta);
+            // smooth coupure inner -> outer
+            float coneFalloff = clamp((outerRad * 0.5 - adelta) /
+                                       max(outerRad * 0.5 - innerRad * 0.5, 1e-3),
+                                       0.0, 1.0);
+            att *= coneFalloff;
+            if (att < 1e-4) continue;
+        }
+
+        // Cookie : echantillonne une texture dans le repere local de la light.
+        // UV = (toFrag rotated by -angleRad) / (2*radius) + 0.5
+        if (cookieIdx >= 0) {
+            float ca = cos(-angleRad), sa = sin(-angleRad);
+            vec2 local = vec2(ca * toFrag.x - sa * toFrag.y,
+                              sa * toFrag.x + ca * toFrag.y);
+            vec2 uv = local / (2.0 * radius) + 0.5;
+            att *= SampleCookie(cookieIdx, uv);
+        }
+
+        // E.5 : shadow visibility — raycaste seulement si la light castShadow
+        if (castSh) att *= ShadowVisibility2D(worldPos, lp);
+
+        // E.7c : si une normal map est fournie (normal != 0), modulate par
+        // N.L (Lambertian). Le vector light.dir 3D est (toFrag.xy, -LIGHT_Z)
+        // qui pointe DEPUIS le plan VERS la light (par convention OpenGL +Z
+        // vers le viewer pour une normal map en tangent-space classique).
+        if (dot(normal, normal) > 0.0) {
+            vec3 L3 = normalize(vec3(-toFrag, LIGHT_Z));
+            float ndl = max(dot(normalize(normal), L3), 0.0);
+            att *= ndl;
+        }
+
+        lit += lcol * intensity * att;
+    }
+    return lit;
+}
+
+void main() {
+    vec4 baseColor;
+    if ((vFlags & 2u) != 0u) {
+        vec4 t = texture(tAtlas, vUV);
+        if ((vFlags & 1u) != 0u) {
+            // SDF text
+            float d  = t.a;
+            float aa = fwidth(d) * 0.7;
+            float a  = smoothstep(0.5 - aa, 0.5 + aa, d);
+            if (a < 0.01) discard;
+            baseColor = vec4(vColor.rgb, vColor.a * a);
+        } else {
+            baseColor = t * vColor;
+            if (baseColor.a < 0.01) discard;
+        }
+    } else {
+        baseColor = vColor;
+        if (baseColor.a < 0.01) discard;
+    }
+
+    // Phase E : LIT bit (4) -> applique le lighting 2D sur la couleur de base.
+    // E.7b : layer mask de la shape extrait des bits 8..15 du flags packe.
+    // E.7c : NORMAL bit (8) -> sample la normal map au binding 12.
+    if ((vFlags & 4u) != 0u) {
+        uint shapeLayer = (vFlags >> 8) & 0xFFu;
+        vec3 normal = vec3(0.0);   // 0 = pas de N.L modulation
+        if ((vFlags & 8u) != 0u) {
+            vec3 nTs = texture(tNormal, vUV).xyz * 2.0 - 1.0;
+            normal = nTs;
+        }
+        vec3 lit = ComputeLighting2D(vWorldPos, shapeLayer, normal);
+        baseColor.rgb *= lit;
+    }
+    fragColor = baseColor;
+}
+)GLSL";
+
     NkRender2D::~NkRender2D() { Shutdown(); }
 
-    bool NkRender2D::Init(NkIDevice* device, NkTextureLibrary* texLib, uint32 maxVerts) {
-        mDevice = device; 
+    bool NkRender2D::Init(NkIDevice* device, NkTextureLibrary* texLib,
+                          NkShaderLibrary* shaderLib, uint32 maxVerts) {
+        mDevice = device;
         mTexLib = texLib;
         mVerts.Reserve(maxVerts);
 
@@ -27,41 +332,357 @@ namespace renderer {
 
         // IBO (quads → triangles)
         uint32 maxIdx = maxVerts / 4 * 6;
-        NkVector<uint32> idata(maxIdx);
-        for(uint32 i=0,v=0;i<maxIdx;i+=6,v+=4){
-            idata[i+0]=v;idata[i+1]=v+1;idata[i+2]=v+2;
-            idata[i+3]=v;idata[i+4]=v+2;idata[i+5]=v+3;
+        NkVector<uint32> idata;
+        idata.Reserve(maxIdx);
+        for(uint32 v=0; v < maxVerts; v+=4){
+            idata.PushBack(v);   idata.PushBack(v+1); idata.PushBack(v+2);
+            idata.PushBack(v);   idata.PushBack(v+2); idata.PushBack(v+3);
         }
-        NkBufferDesc ibd; ibd.size=maxIdx*sizeof(uint32);
-        ibd.usage=NkBufferUsage::NK_STATIC; ibd.type=NkBufferType::NK_INDEX;
-        ibd.data=idata.Data();
-        mIBO = mDevice->CreateBuffer(ibd);
+        {
+            NkBufferDesc ibd;
+            ibd.sizeBytes   = maxIdx * sizeof(uint32);
+            ibd.type        = NkBufferType::NK_INDEX;
+            ibd.usage       = NkResourceUsage::NK_IMMUTABLE;
+            ibd.initialData = idata.Data();
+            mIBO = mDevice->CreateBuffer(ibd);
+        }
 
-        // Pipelines 2D
-        NkPipelineDesc pd2D;
-        pd2D.name="2D_Alpha"; pd2D.type=NkPipelineType::NK_2D;
-        pd2D.blendMode=(uint8)NkBlendMode::NK_ALPHA;
-        mPipeAlpha = mDevice->CreatePipeline(pd2D);
-        pd2D.name="2D_Add"; pd2D.blendMode=(uint8)NkBlendMode::NK_ADDITIVE;
-        mPipeAdd   = mDevice->CreatePipeline(pd2D);
-        pd2D.name="2D_Opaque"; pd2D.blendMode=(uint8)NkBlendMode::NK_OPAQUE;
-        mPipeOpaque= mDevice->CreatePipeline(pd2D);
+        // Descriptor set : binding 0 = atlas texture, binding 1 = Lights2D UBO,
+        // bindings 2..9 = cookies textures (8 slots max). Tous au stage ALL.
+        NkDescriptorSetLayoutDesc texLayout;
+        texLayout.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                      ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                 .Add(1, NkDescriptorType::NK_UNIFORM_BUFFER,
+                      ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        for (uint32 i = 0; i < kMaxCookies2D; i++) {
+            texLayout.Add(2 + i, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                           ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        }
+        // E.5 : binding 10 = Shadows2D UBO (occluders cercles)
+        // E.7a : binding 11 = ShadowsAABB2D UBO (occluders AABB)
+        // E.7c : binding 12 = normal map (sampler2D)
+        texLayout.Add(10, NkDescriptorType::NK_UNIFORM_BUFFER,
+                       ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                 .Add(11, NkDescriptorType::NK_UNIFORM_BUFFER,
+                       ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+                 .Add(12, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER,
+                       ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+        mTexLayout    = mDevice->CreateDescriptorSetLayout(texLayout);
+        mTexSet       = mDevice->AllocateDescriptorSet(mTexLayout);
+        mLinearSampler= mDevice->CreateSampler(NkSamplerDesc::Linear());
+
+        // Pre-bind les 8 slots cookies sur la texture White1x1 (no-op = cookie
+        // toujours 1.0, donc light non affectee). User remplace via SetLightCookie.
+        if (mTexLib) {
+            NkTexHandle white = mTexLib->GetWhite1x1();
+            NkTextureHandle whiteRhi = mTexLib->GetRHIHandle(white);
+            for (uint32 i = 0; i < kMaxCookies2D; i++) {
+                mDevice->BindTextureSampler(mTexSet, 2 + i, whiteRhi, mLinearSampler);
+            }
+        }
+
+        // Phase E : UBO Lights2D — std140 layout
+        // 16 lights * 3 vec4 (48 bytes) + 1 vec4 ambient = 768 + 16 = 784 bytes
+        struct Lights2DBlock {
+            float lights[16 * 12];   // 16 lights * 12 floats (3 vec4 each)
+            float ambient[4];
+        };
+        static_assert(sizeof(Lights2DBlock) == 784, "Lights2DBlock std140");
+        {
+            NkBufferDesc ubd;
+            ubd.sizeBytes = sizeof(Lights2DBlock);
+            ubd.usage     = NkResourceUsage::NK_UPLOAD;
+            ubd.type      = NkBufferType::NK_UNIFORM;
+            mUBOLights2D = mDevice->CreateBuffer(ubd);
+            // Init avec ambient gris faible et 0 lights pour eviter du black
+            // si le user n'appelle jamais SetLights2D().
+            Lights2DBlock zero{};
+            zero.ambient[0] = 0.2f; zero.ambient[1] = 0.2f; zero.ambient[2] = 0.2f;
+            zero.ambient[3] = 0.f;   // count = 0
+            mDevice->WriteBuffer(mUBOLights2D, &zero, sizeof(zero));
+            mDevice->BindUniformBuffer(mTexSet, 1, mUBOLights2D);
+        }
+
+        // E.5 + E.7d : Shadows2D UBO std140 — 32 vec4 occluders + meta + isoMat
+        // = 32*16 + 16 + 16 = 544 bytes.
+        struct Shadows2DBlock {
+            float occluders[32 * 4];
+            float meta[4];
+            float isoMat[4];   // m00, m01, m10, m11 (default identity)
+        };
+        static_assert(sizeof(Shadows2DBlock) == 544, "Shadows2DBlock std140");
+        {
+            NkBufferDesc ubd;
+            ubd.sizeBytes = sizeof(Shadows2DBlock);
+            ubd.usage     = NkResourceUsage::NK_UPLOAD;
+            ubd.type      = NkBufferType::NK_UNIFORM;
+            mUBOShadows2D = mDevice->CreateBuffer(ubd);
+            // Init = 0 occluders + identity iso transform -> shader skip la
+            // loop d'ombre et n'applique aucune deformation iso.
+            Shadows2DBlock init{};
+            init.isoMat[0] = 1.f; init.isoMat[1] = 0.f;
+            init.isoMat[2] = 0.f; init.isoMat[3] = 1.f;
+            mDevice->WriteBuffer(mUBOShadows2D, &init, sizeof(init));
+            mDevice->BindUniformBuffer(mTexSet, 10, mUBOShadows2D);
+        }
+
+        // E.7a : ShadowsAABB2D UBO — std140 : 32 vec4 boxes + 1 vec4 meta = 528 bytes
+        struct ShadowsAABB2DBlock {
+            float boxes[32 * 4];
+            float meta[4];
+        };
+        static_assert(sizeof(ShadowsAABB2DBlock) == 528, "ShadowsAABB2DBlock std140");
+        {
+            NkBufferDesc ubd;
+            ubd.sizeBytes = sizeof(ShadowsAABB2DBlock);
+            ubd.usage     = NkResourceUsage::NK_UPLOAD;
+            ubd.type      = NkBufferType::NK_UNIFORM;
+            mUBOShadowsAABB2D = mDevice->CreateBuffer(ubd);
+            ShadowsAABB2DBlock zero{};
+            mDevice->WriteBuffer(mUBOShadowsAABB2D, &zero, sizeof(zero));
+            mDevice->BindUniformBuffer(mTexSet, 11, mUBOShadowsAABB2D);
+        }
+
+        // E.7c : pre-bind binding 12 (normal map) sur White1x1 = pas d'effet
+        // (vec3(1,1,1)*2-1 = (1,1,1) → ndl ≈ z component, mais user normal=0
+        // par defaut avec NORMAL_MAP bit off donc pas de souci).
+        if (mTexLib) {
+            NkTexHandle white = mTexLib->GetWhite1x1();
+            mDevice->BindTextureSampler(mTexSet, 12,
+                mTexLib->GetRHIHandle(white), mLinearSampler);
+        }
+
+        // Compile et lie le shader 2D si une ShaderLibrary est fournie.
+        ::nkentseu::NkShaderHandle shader2D{};
+        if (shaderLib) {
+            auto progHandle = shaderLib->LoadOrCompileVF("Render2D", kRender2D_VS, kRender2D_FS);
+            if (progHandle.IsValid()) {
+                shader2D = shaderLib->GetRHIHandle(progHandle);
+            }
+        }
+
+        // Pipelines 2D : meme shader, blend state different
+        {
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = shader2D;
+            pd.depthStencil = NkDepthStencilDesc::NoDepth();
+            // 2D : pas de cull (l'ortho inverse Y, donc le winding peut paraitre
+            // back-face vs CCW; et de toute facon les sprites/formes 2D sont visibles
+            // des deux cotes par convention).
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            // Range push_constant ALL_GRAPHICS : matche le PushConstants(ALL_GRAPHICS)
+            // appele plus loin dans le rendu 2D (sinon validation error VK).
+            pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f));
+            if (mTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mTexLayout);
+
+            // Vertex layout — NkVertex2D : pos(vec2), uv(vec2), color(uint32), texIdx(uint32)
+            //   binding=0, stride=24
+            //   loc 0 : aPos    @ 0  (RG32_FLOAT)
+            //   loc 1 : aUV     @ 8  (RG32_FLOAT)
+            //   loc 2 : aColor  @ 16 (R32_UINT)
+            //   loc 3 : aFlags  @ 20 (R32_UINT)
+            pd.vertexLayout
+              .AddBinding(0, sizeof(Vert2D), false)
+              .AddAttribute(0, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 0,  "POSITION", 0)
+              .AddAttribute(1, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 8,  "TEXCOORD", 0)
+              .AddAttribute(2, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   16, "COLOR",    0)
+              .AddAttribute(3, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   20, "TEXCOORD", 1);
+
+            pd.blend     = NkBlendDesc::Alpha();
+            pd.debugName = "2D_Alpha";
+            mPipeAlpha   = mDevice->CreateGraphicsPipeline(pd);
+
+            pd.blend     = NkBlendDesc::Additive();
+            pd.debugName = "2D_Add";
+            mPipeAdd     = mDevice->CreateGraphicsPipeline(pd);
+
+            pd.blend     = NkBlendDesc::Opaque();
+            pd.debugName = "2D_Opaque";
+            mPipeOpaque  = mDevice->CreateGraphicsPipeline(pd);
+        }
+
+        // ── Phase E Materials 2D : pipeline Glow2D + buffers dedies ─────────
+        // Pipeline charge le shader Glow2D (depuis Resources/.../Glow2D/VK/)
+        // et expose un push constant 96 bytes (mat4 ortho + vec4 color + vec4 params).
+        // VBO/IBO dedies pour 1 quad (4 verts + 6 indices) — pas de batching.
+        if (shaderLib) {
+            ::nkentseu::NkShaderHandle shaderGlow{};
+            auto progGlow = shaderLib->LoadOrCompileVF("Glow2D", "", "");
+            if (progGlow.IsValid()) shaderGlow = shaderLib->GetRHIHandle(progGlow);
+
+            if (shaderGlow.IsValid()) {
+                NkGraphicsPipelineDesc pd;
+                pd.shader       = shaderGlow;
+                pd.depthStencil = NkDepthStencilDesc::NoDepth();
+                pd.rasterizer   = NkRasterizerDesc::NoCull();
+                // Push constant etendu : 0..64 = ortho mat4, 64..96 = glow params
+                pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 96);
+                if (mTexLayout.IsValid()) pd.descriptorSetLayouts.PushBack(mTexLayout);
+                pd.vertexLayout
+                  .AddBinding(0, sizeof(Vert2D), false)
+                  .AddAttribute(0, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 0,  "POSITION", 0)
+                  .AddAttribute(1, 0, ::nkentseu::NkVertexFormat::NK_RG32_FLOAT, 8,  "TEXCOORD", 0)
+                  .AddAttribute(2, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   16, "COLOR",    0)
+                  .AddAttribute(3, 0, ::nkentseu::NkVertexFormat::NK_R32_UINT,   20, "TEXCOORD", 1);
+                pd.blend     = NkBlendDesc::Alpha();
+                pd.debugName = "2D_Glow";
+                mPipeGlow    = mDevice->CreateGraphicsPipeline(pd);
+            }
+            // Buffers dedies : 4 verts + 6 indices fixes.
+            mVBOGlow = mDevice->CreateBuffer(
+                NkBufferDesc::Vertex(sizeof(Vert2D) * 4));
+            const uint16 quadIdx[6] = {0, 1, 2, 0, 2, 3};
+            NkBufferDesc iboDesc = NkBufferDesc::Index(sizeof(quadIdx));
+            iboDesc.initialData  = quadIdx;
+            mIBOGlow = mDevice->CreateBuffer(iboDesc);
+        }
         return mVBO.IsValid();
     }
 
     void NkRender2D::Shutdown() {
+        if(mTexSet.IsValid())    { mDevice->FreeDescriptorSet(mTexSet); }
+        if(mTexLayout.IsValid()) { mDevice->DestroyDescriptorSetLayout(mTexLayout); }
+        if(mLinearSampler.IsValid()){ mDevice->DestroySampler(mLinearSampler); }
+        if(mPipeAlpha.IsValid()) { mDevice->DestroyPipeline(mPipeAlpha); }
+        if(mPipeAdd.IsValid())   { mDevice->DestroyPipeline(mPipeAdd); }
+        if(mPipeOpaque.IsValid()){ mDevice->DestroyPipeline(mPipeOpaque); }
+        if(mPipeGlow.IsValid())  { mDevice->DestroyPipeline(mPipeGlow);   mPipeGlow={}; }
         if(mVBO.IsValid()){mDevice->DestroyBuffer(mVBO);mVBO={};}
         if(mIBO.IsValid()){mDevice->DestroyBuffer(mIBO);mIBO={};}
+        if(mVBOGlow.IsValid()){mDevice->DestroyBuffer(mVBOGlow);mVBOGlow={};}
+        if(mIBOGlow.IsValid()){mDevice->DestroyBuffer(mIBOGlow);mIBOGlow={};}
+        if(mUBOLights2D.IsValid()){mDevice->DestroyBuffer(mUBOLights2D);mUBOLights2D={};}
+        if(mUBOShadows2D.IsValid()){mDevice->DestroyBuffer(mUBOShadows2D);mUBOShadows2D={};}
+        if(mUBOShadowsAABB2D.IsValid()){mDevice->DestroyBuffer(mUBOShadowsAABB2D);mUBOShadowsAABB2D={};}
+    }
+
+    // ── Phase E : Lights 2D ────────────────────────────────────────────────────
+    void NkRender2D::SetLights2D(const NkLight2DDesc* lights, uint32 count, NkVec3f ambient) {
+        if (!mUBOLights2D.IsValid() || !mDevice) return;
+        struct Lights2DBlock {
+            float lights[16 * 12];
+            float ambient[4];
+        } b{};
+        const uint32 cap = count > kMaxLights2D ? kMaxLights2D : count;
+        const float kDeg2Rad = 3.14159265f / 180.f;
+        // Pack uniquement les lights enabled : si user en a 4 mais light[1] est
+        // disabled, on en envoie 3 au shader (count effectif) et on conserve
+        // l'ordre des autres. Plus efficace que sous-skipper dans le shader.
+        uint32 N = 0;
+        for (uint32 i = 0; i < cap; i++) {
+            const auto& L = lights[i];
+            if (!L.enabled) continue;
+            uint32 base = N * 12;
+            // vec4 0 : posIntRad
+            b.lights[base + 0] = L.position.x;
+            b.lights[base + 1] = L.position.y;
+            b.lights[base + 2] = L.intensity;
+            b.lights[base + 3] = L.radius;
+            // vec4 1 : colorCookie (w=cookieIdx, ou -2 si castShadow=false)
+            b.lights[base + 4] = L.color.x;
+            b.lights[base + 5] = L.color.y;
+            b.lights[base + 6] = L.color.z;
+            // Encode cookieIdx normalement, mais si castShadow=false on ajoute
+            // un decalage de -100 pour que le shader saute le raycaste.
+            float ckEnc = (float)L.cookieIdx;
+            if (!L.castShadow) ckEnc += -1000.f;   // sentinel "no shadow"
+            b.lights[base + 7] = ckEnc;
+            // vec4 2 : dirCone + layerMask en .w (8 layers max)
+            b.lights[base + 8]  = L.angleDeg  * kDeg2Rad;
+            b.lights[base + 9]  = L.coneInner * kDeg2Rad;
+            b.lights[base + 10] = L.coneOuter * kDeg2Rad;
+            b.lights[base + 11] = (float)((uint32)L.layerMask & 0xFFu);
+            N++;
+        }
+        b.ambient[0] = ambient.x;
+        b.ambient[1] = ambient.y;
+        b.ambient[2] = ambient.z;
+        b.ambient[3] = (float)N;
+        mDevice->WriteBuffer(mUBOLights2D, &b, sizeof(b));
+    }
+
+    void NkRender2D::SetLightCookie(uint32 slot, NkTexHandle tex) {
+        if (slot >= kMaxCookies2D || !mTexSet.IsValid() || !mTexLib) return;
+        NkTextureHandle rhi = tex.IsValid() ? mTexLib->GetRHIHandle(tex)
+                                            : mTexLib->GetRHIHandle(mTexLib->GetWhite1x1());
+        mDevice->BindTextureSampler(mTexSet, 2 + slot, rhi, mLinearSampler);
+    }
+
+    void NkRender2D::SetNormalMap(NkTexHandle tex) {
+        if (!mTexSet.IsValid() || !mTexLib) return;
+        NkTextureHandle rhi = tex.IsValid() ? mTexLib->GetRHIHandle(tex)
+                                            : mTexLib->GetRHIHandle(mTexLib->GetWhite1x1());
+        mDevice->BindTextureSampler(mTexSet, 12, rhi, mLinearSampler);
+    }
+
+    // ── Phase E.7a : AABB Shadow Casters ──────────────────────────────────────
+    void NkRender2D::SetShadowCastersAABB2D(const NkShadowCasterAABB2D* aabbs, uint32 count) {
+        if (!mUBOShadowsAABB2D.IsValid() || !mDevice) return;
+        struct ShadowsAABB2DBlock {
+            float boxes[32 * 4];
+            float meta[4];
+        } b{};
+        const uint32 N = count > kMaxAABBs2D ? kMaxAABBs2D : count;
+        for (uint32 i = 0; i < N; i++) {
+            const auto& a = aabbs[i];
+            uint32 base = i * 4;
+            b.boxes[base + 0] = a.min.x;
+            b.boxes[base + 1] = a.min.y;
+            b.boxes[base + 2] = a.max.x;
+            b.boxes[base + 3] = a.max.y;
+        }
+        b.meta[0] = (float)N;
+        mDevice->WriteBuffer(mUBOShadowsAABB2D, &b, sizeof(b));
+    }
+
+    // ── Phase E.5 : Shadow Casters 2D (raycast GPU) ────────────────────────────
+    // Ecrit uniquement les occluders + meta (offsets 0..527), preserve isoMat
+    // qui vit a l'offset 528.
+    void NkRender2D::SetShadowCasters2D(const NkShadowCaster2D* casters, uint32 count) {
+        if (!mUBOShadows2D.IsValid() || !mDevice) return;
+        struct OccludersAndMeta {
+            float occluders[32 * 4];
+            float meta[4];
+        } b{};
+        const uint32 N = count > kMaxOccluders2D ? kMaxOccluders2D : count;
+        for (uint32 i = 0; i < N; i++) {
+            const auto& c = casters[i];
+            uint32 base = i * 4;
+            b.occluders[base + 0] = c.position.x;
+            b.occluders[base + 1] = c.position.y;
+            b.occluders[base + 2] = c.radius;
+            b.occluders[base + 3] = 0.f;
+        }
+        b.meta[0] = (float)N;
+        // Ecrit 528 bytes a partir de offset 0 -> ne touche pas l'isoMat (528..544).
+        mDevice->WriteBuffer(mUBOShadows2D, &b, sizeof(b));
+    }
+
+    // ── Phase E.7d : Iso transform ─────────────────────────────────────────────
+    // Ecrit uniquement les 16 bytes isoMat a l'offset 528 dans Shadows2DUBO,
+    // sans toucher aux occluders ni au meta -> peut etre appele independamment
+    // de SetShadowCasters2D, dans n'importe quel ordre.
+    void NkRender2D::SetIsoTransform(float32 m00, float32 m01, float32 m10, float32 m11) {
+        mIso[0] = m00; mIso[1] = m01; mIso[2] = m10; mIso[3] = m11;
+        if (!mUBOShadows2D.IsValid() || !mDevice) return;
+        const uint64 isoOffset = 32 * 16 + 16;   // apres occluders[32] + meta
+        float iso[4] = {m00, m01, m10, m11};
+        mDevice->WriteBuffer(mUBOShadows2D, iso, sizeof(iso), isoOffset);
     }
 
     // ── Frame ──────────────────────────────────────────────────────────────────
     void NkRender2D::Begin(NkICommandBuffer* cmd, uint32 w, uint32 h,
                              float32 cX, float32 cY, float32 zoom, float32 rotDeg) {
         mCmd=cmd; mW=w; mH=h; mInFrame=true;
-        mVerts.Clear(); mBatches.Clear();
-        // Build ortho
-        float32 l=cX-w*0.5f/zoom, r=cX+w*0.5f/zoom;
-        float32 t=cY-h*0.5f/zoom, b=cY+h*0.5f/zoom;
+        // NB : on NE clear PAS mVerts/mBatches ici. Plusieurs systemes (Render2D
+        // depuis Demo, puis Overlay) appellent Begin successivement dans la meme
+        // frame ; ils doivent accumuler leurs draws ensemble. Le clear est fait
+        // par Flush() apres le dessin.
+        // Ortho ecran : (cX,cY) = coin haut-gauche, (cX+w/zoom,cY+h/zoom) = bas-droite.
+        // Avec defauts (cX=0, cY=0, zoom=1) → coords pixel directes (0..w, 0..h)
+        // qui mappent vers clip space (-1..1, 1..-1) (Y inverse, top-left origin).
+        float32 l=cX,                r=cX+(float32)w/zoom;
+        float32 t=cY,                b=cY+(float32)h/zoom;
         mOrtho=NkMat4f::Zero();
         mOrtho[0][0]=2.f/(r-l); mOrtho[1][1]=2.f/(t-b);
         mOrtho[2][2]=-1.f;
@@ -70,8 +691,11 @@ namespace renderer {
     }
 
     void NkRender2D::End() {
-        Flush();
-        mInFrame=false; mCmd=nullptr;
+        // Ne flushe PAS ici : les draw calls doivent etre soumis APRES
+        // BeginRenderPass (sinon glClear ecrase tout). Le RenderGraph
+        // appelle FlushPending(cmd) dans la passe Overlay2D, au bon moment.
+        mInFrame = false;
+        mCmd     = nullptr;
     }
 
     void NkRender2D::FlushPending(NkICommandBuffer* cmd) {
@@ -80,21 +704,41 @@ namespace renderer {
 
     void NkRender2D::Flush() {
         if (mVerts.Empty() || !mCmd) return;
-        mDevice->UpdateBuffer(mVBO, mVerts.Data(), (uint32)mVerts.Size()*sizeof(Vert2D));
-        mCmd->BindVertexBuffer(mVBO, sizeof(Vert2D));
-        mCmd->BindIndexBuffer(mIBO, NkIndexType::NK_UINT32);
-        mCmd->UpdateUniformBuffer(0, &mOrtho, sizeof(NkMat4f));
 
+        mDevice->WriteBuffer(mVBO, mVerts.Data(),
+                             (uint64)mVerts.Size() * sizeof(Vert2D));
+
+        // NB sur OpenGL : le VAO est attache au pipeline. BindGraphicsPipeline
+        // change le VAO actif. Donc BindVertexBuffer / BindIndexBuffer doivent
+        // etre appeles APRES BindGraphicsPipeline (sinon les binds sont attaches
+        // a un autre VAO et perdus).
         for (auto& b : mBatches) {
             NkPipelineHandle pipe = mPipeAlpha;
-            if (b.blend==NkBlendMode::NK_ADDITIVE) pipe=mPipeAdd;
+            if (b.blend==NkBlendMode::NK_ADDITIVE)    pipe=mPipeAdd;
             else if (b.blend==NkBlendMode::NK_OPAQUE) pipe=mPipeOpaque;
-            mCmd->BindPipeline(pipe);
-            auto rhi = mTexLib->GetRHIHandle(b.tex.IsValid() ? b.tex : mTexLib->GetWhite1x1());
-            auto samp= mTexLib->GetRHISampler(b.tex.IsValid() ? b.tex : mTexLib->GetWhite1x1());
-            mCmd->BindTexture(0, rhi); mCmd->BindSampler(0, samp);
-            uint32 triIdx = b.vStart/4*6;
-            uint32 triCount = b.vCount/4*6;
+            if (pipe.IsValid()) mCmd->BindGraphicsPipeline(pipe);
+
+            // Apres BindPipeline : bind buffers et push constants au VAO actif
+            mCmd->BindVertexBuffer(0, mVBO, 0);
+            mCmd->BindIndexBuffer(mIBO, NkIndexFormat::NK_UINT32, 0);
+            mCmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0,
+                                sizeof(NkMat4f), &mOrtho);
+
+            NkTexHandle src = b.tex.IsValid() ? b.tex : mTexLib->GetWhite1x1();
+            NkTextureHandle rhi  = mTexLib->GetRHIHandle(src);
+            NkSamplerHandle samp = mTexLib->GetRHISampler(src);
+            if (mTexSet.IsValid()) {
+                mDevice->BindTextureSampler(mTexSet, 0, rhi, samp);
+                // Le pipeline 2D n'a qu'un seul descriptor set layout (mTexLayout)
+                // a l'index 0 (cf. CreateGraphicsPipeline ci-dessus). Le shader
+                // render2d.frag.vk.glsl utilise set=0 pour tous ses bindings (atlas,
+                // lights, shadows, cookies, normal). Bind donc en firstSet=0 — sinon
+                // validation Vulkan : firstSet+count > setLayoutCount.
+                mCmd->BindDescriptorSet(mTexSet, 0);
+            }
+
+            uint32 triIdx   = b.vStart / 4 * 6;
+            uint32 triCount = b.vCount / 4 * 6;
             mCmd->DrawIndexed(triCount, 1, triIdx, 0, 0);
         }
         mBatchCount += (uint32)mBatches.Size();
@@ -107,8 +751,18 @@ namespace renderer {
                                 NkVec4f color, NkTexHandle tex) {
         uint32 c = PackColor(color);
         uint32 vStart = (uint32)mVerts.Size();
-        mVerts.PushBack({tl,uvTL,c,0}); mVerts.PushBack({tr,uvTR,c,0});
-        mVerts.PushBack({br,uvBR,c,0}); mVerts.PushBack({bl,uvBL,c,0});
+        // aFlags : bit 1 (=2) → echantillonner la texture dans le fragment shader.
+        // Pour les formes pleines on passe White1x1 (ou tex invalide) → flags=0
+        // → le shader prend la branche "couleur unie".
+        // bit 2 (=4) → mode LIT (Phase E) : applique le lighting 2D via UBO.
+        // bits 8..15 = E.7b layer mask (8 layers max, default 0xFF).
+        NkTexHandle white = mTexLib ? mTexLib->GetWhite1x1() : NkTexHandle{};
+        uint32 flags = (tex.IsValid() && tex.id != white.id) ? 2u : 0u;
+        if (mLitMode) flags |= 4u;
+        if (mNormalMode) flags |= 8u;
+        flags |= (mLayerMask & 0xFFu) << 8;
+        mVerts.PushBack({tl,uvTL,c,flags}); mVerts.PushBack({tr,uvTR,c,flags});
+        mVerts.PushBack({br,uvBR,c,flags}); mVerts.PushBack({bl,uvBL,c,flags});
 
         // Fusionner batch si même texture/blend/layer
         if (!mBatches.Empty()) {
@@ -123,17 +777,13 @@ namespace renderer {
     }
 
     // ── Sprites ────────────────────────────────────────────────────────────────
-    void NkRender2D::DrawSprite(NkRectF dst, NkTexHandle tex,
-                                  NkVec4f tint, NkRectF uv) {
+    void NkRender2D::DrawSprite(NkRectF dst, NkTexHandle tex, NkVec4f tint, NkRectF uv) {
         float32 x0=dst.x,y0=dst.y,x1=dst.x+dst.w,y1=dst.y+dst.h;
         float32 u0=uv.x,v0=uv.y,u1=uv.x+uv.w,v1=uv.y+uv.h;
-        PushQuad({x0,y0},{x1,y0},{x1,y1},{x0,y1},
-                  {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
+        PushQuad({x0,y0},{x1,y0},{x1,y1},{x0,y1}, {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
     }
 
-    void NkRender2D::DrawSpriteRotated(NkRectF dst, NkTexHandle tex,
-                                         float32 angleDeg, NkVec2f pivot,
-                                         NkVec4f tint, NkRectF uv) {
+    void NkRender2D::DrawSpriteRotated(NkRectF dst, NkTexHandle tex, float32 angleDeg, NkVec2f pivot, NkVec4f tint, NkRectF uv) {
         float32 cx=dst.x+dst.w*pivot.x, cy=dst.y+dst.h*pivot.y;
         float32 rad=angleDeg*NK_PI/180.f;
         float32 co=cosf(rad), si=sinf(rad);
@@ -143,8 +793,24 @@ namespace renderer {
         };
         float32 x0=dst.x,y0=dst.y,x1=dst.x+dst.w,y1=dst.y+dst.h;
         float32 u0=uv.x,v0=uv.y,u1=uv.x+uv.w,v1=uv.y+uv.h;
-        PushQuad(rot(x0,y0),rot(x1,y0),rot(x1,y1),rot(x0,y1),
-                  {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
+        PushQuad(rot(x0,y0),rot(x1,y0),rot(x1,y1),rot(x0,y1), {u0,v0},{u1,v0},{u1,v1},{u0,v1}, tint, tex);
+    }
+
+    // ── Phase E Materials 2D : Glow sprite ────────────────────────────────
+    void NkRender2D::SetGlowParams(NkVec3f color, float32 intensity, float32 power) {
+        mGlowColor  = {color.x, color.y, color.z, intensity};
+        mGlowParams = {power, 1.f, 0.f, 0.f};
+    }
+
+    void NkRender2D::DrawSpriteGlow(NkRectF dst, NkTexHandle tex,
+                                     NkVec4f tint, NkRectF uv) {
+        // [v0 fallback] L'implementation directe (draw hors render pass) causait
+        // des validation errors VK. Le vrai support necessite un refactor de
+        // FlushPending pour supporter pipeline override par batch. Pour la v0
+        // pragmatique, on fait juste un DrawSprite standard (sans effet glow)
+        // — l'API reste stable pour le code utilisateur, mais l'effet glow
+        // n'est pas applique tant que la v1 unifiee n'est pas faite.
+        DrawSprite(dst, tex, tint, uv);
     }
 
     void NkRender2D::DrawNineSlice(NkRectF dst, NkTexHandle tex,
@@ -165,6 +831,10 @@ namespace renderer {
     // ── Formes ────────────────────────────────────────────────────────────────
     void NkRender2D::DrawImage(NkTexHandle tex, NkRectF dst, NkVec4f tint) {
         DrawSprite(dst,tex,tint);
+    }
+
+    void NkRender2D::DrawImage(NkTexHandle tex, NkRectF dst, NkRectF src, NkVec4f tint) {
+        DrawSprite(dst,tex,tint,src);
     }
 
     void NkRender2D::FillRect(NkRectF r, NkVec4f color) {
@@ -302,8 +972,8 @@ namespace renderer {
 
     // ── Clip / Blend ──────────────────────────────────────────────────────────
     void NkRender2D::PushClip(NkRectF rect) {
-        Flush(); // flush avant scissor
-        if(mCmd) mCmd->SetScissor((int32)rect.x,(int32)rect.y,(uint32)rect.w,(uint32)rect.h);
+        Flush();
+        if(mCmd) mCmd->SetScissor(NkRect2D((int32)rect.x,(int32)rect.y,(int32)rect.w,(int32)rect.h));
         mClipStack.PushBack(rect);
     }
 
@@ -313,9 +983,9 @@ namespace renderer {
         if(mCmd){
             if(!mClipStack.Empty()){
                 auto& r=mClipStack[mClipStack.Size()-1];
-                mCmd->SetScissor((int32)r.x,(int32)r.y,(uint32)r.w,(uint32)r.h);
+                mCmd->SetScissor(NkRect2D((int32)r.x,(int32)r.y,(int32)r.w,(int32)r.h));
             } else {
-                mCmd->SetScissor(0,0,mW,mH);
+                mCmd->SetScissor(NkRect2D(0,0,(int32)mW,(int32)mH));
             }
         }
     }

@@ -1,0 +1,11 @@
+// tonemap_aces.frag.metal.msl — ACES Filmic Tonemap (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct TonemapUBO{float exposure,gamma,contrast,saturation;float _p[4];};
+struct PSIn{float4 pos[[position]];float2 uv;};
+fragment float4 tonemapFrag(PSIn i[[stage_in]],texture2d<float> tHDR[[texture(0)]],sampler sL[[sampler(0)]],constant TonemapUBO& u[[buffer(1)]]){
+    float3 x=tHDR.sample(sL,i.uv).rgb*u.exposure;
+    float a=2.51f,b=0.03f,c=2.43f,d=0.59f,e=0.14f;
+    float3 ldr=clamp((x*(a*x+b))/(x*(c*x+d)+e),0.f,1.f);
+    return float4(pow(ldr,float3(1.f/u.gamma)),1.f);
+}

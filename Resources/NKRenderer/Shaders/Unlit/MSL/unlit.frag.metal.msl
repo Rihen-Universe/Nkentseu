@@ -1,0 +1,5 @@
+// unlit.frag.metal.msl — Unlit Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct VSOut{float4 pos[[position]];float2 uv;float4 color;};
+fragment float4 unlitFrag(VSOut i[[stage_in]],texture2d<float> tAlbedo[[texture(4)]],sampler sLinear[[sampler(0)]]){return tAlbedo.sample(sLinear,i.uv)*i.color;}

@@ -1,0 +1,11 @@
+// debug3d.frag.metal.msl — Debug 3D Fragment (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct DbgUBO{int mode;float nearPlane,farPlane,_pad;};
+struct VSOut{float4 pos[[position]];float3 normal;float2 uv;float4 color;float depth;};
+fragment float4 debug3dFrag(VSOut i[[stage_in]],constant DbgUBO& dbg[[buffer(4)]]){
+    if(dbg.mode==0) return float4(i.normal*0.5f+0.5f,1.f);
+    if(dbg.mode==1){float2 c=floor(i.uv*8.f);float ch=fmod(c.x+c.y,2.f);return float4(float3(mix(0.2f,0.8f,ch)),1.f);}
+    if(dbg.mode==2){float nd=(-i.depth-dbg.nearPlane)/(dbg.farPlane-dbg.nearPlane);return float4(float3(nd),1.f);}
+    return i.color;
+}

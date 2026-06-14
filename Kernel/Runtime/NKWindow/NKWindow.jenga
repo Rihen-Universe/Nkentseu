@@ -16,7 +16,8 @@ Architecture :
 """
 
 from Jenga import *
-from config import *
+from jengaconfig import *
+
 import os
 import shutil
 import subprocess
@@ -47,32 +48,18 @@ if _HAS_LIBDECOR:
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
-
 with project("NKWindow"):
-    useglobalkind("window")
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{wks.location}/Externals",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKEvent.location}/src",
-    ])
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKLogger", "NKMath", "NKTime", "NKContainers", "NKMemory", "NKThreading", "NKEvent", "NKFileSystem"],
+        selfexport="NKWindow",
+        extra_includes=["src", "%{wks.location}/Externals"],
+    )
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
-
-    dependson(["NKPlatform", "NKCore", "NKLogger", "NKMath", "NKTime", "NKContainers", "NKMemory", "NKThreading", "NKEvent"])
 
     # Fichiers communs (Core + Events Ã¢â‚¬â€ partagÃƒÂ©s par toutes les plateformes)
     files([
@@ -89,7 +76,7 @@ with project("NKWindow"):
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE",
@@ -101,7 +88,7 @@ with project("NKWindow"):
         ])
         links([
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid"
         ])
 
@@ -127,7 +114,7 @@ with project("NKWindow"):
             "src/NKWindow/Platform/XLib/**.cpp",
             "src/NKWindow/Platform/XLib/**.h",
         ])
-        links(["pthread", "X11", "GL"])
+        links(["pthread", "X11", "Xrandr", "GL"])
         defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
 
     # ===== Linux XCB ==============================================================
@@ -219,15 +206,26 @@ with project("NKWindow"):
 
     # ===== HarmonyOS ==============================================================
     with filter("system:HarmonyOS"):
-        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android).
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
         files([
-            "src/NKWindow/Platform/Noop/NkNoopWindow.cpp",
-            "src/NKWindow/Platform/Noop/NkNoopEventSystem.cpp",
-            "src/NKWindow/Platform/Noop/NkNoopWindow.h",
-            "src/NKWindow/Platform/Noop/NkNoopEventSystem.h",
-            "src/NKWindow/Platform/Noop/NkNoopGamepad.h",
+            "src/NKWindow/Platform/HarmonyOS/NkHarmonyWindow.cpp",
+            "src/NKWindow/Platform/HarmonyOS/NkHarmonyEventSystem.cpp",
+            "src/NKWindow/Platform/HarmonyOS/NkHarmonyGamepad.cpp",
+            "src/NKWindow/Platform/HarmonyOS/NkHarmonyWindow.h",
+            "src/NKWindow/Platform/HarmonyOS/NkHarmonyEventSystem.h",
+            "src/NKWindow/Platform/HarmonyOS/NkHarmonyGamepad.h",
         ])
-        links(["log", "EGL", "GLESv3"])
+        # Libs OHOS NDK : XComponent (ace_ndk), hilog, native window + EGL/GLES.
+        links(["ace_ndk.z", "hilog_ndk.z", "native_window", "EGL", "GLESv3"])
+        # Metadonnees HAP (coherence avec le bloc Android ci-dessus).
+        harmonybundlename("com.nkentseu.nkwindow")
+        harmonyminsdk(12)
+        harmonytargetapi(12)
+        # Pont ArkTS XComponent -> natif (NkHarmonyBridge.ts).
+        harmonyets(["src/NKWindow/Platform/HarmonyOS"])
 
     # ===== UWP ====================================================================
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
@@ -282,4 +280,4 @@ with project("NKWindow"):
                 links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes", "X11-xcb", "xkbcommon", "xkbcommon-x11"])
             with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
                 defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
-                links(["pthread", "X11"])
+                links(["pthread", "X11", "Xrandr"])

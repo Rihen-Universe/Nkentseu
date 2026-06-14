@@ -30,6 +30,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
+#include "NKEvent/NkSystemEvent.h"
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkFunctions.h"
 #include "NKMemory/NkUtils.h"
@@ -79,33 +80,138 @@ namespace nkentseu {
     using namespace math;
 
     // =========================================================================
-    // wl_output info (DPI, résolution display)
+    // wl_output info (DPI, résolution display) — suivi multi-écrans
+    //
+    // Wayland expose un wl_output par moniteur physique. Le registry les annonce
+    // via global/global_remove. Chaque wl_output fournit via son listener :
+    //   - geometry : x/y (position dans l'espace global), physWidth/physHeight
+    //                (millimètres), make/model (→ nom lisible)
+    //   - mode     : width/height (pixels) + refresh (mHz → /1000 pour Hz)
+    //   - scale    : facteur entier (→ dpiScale ; dpiX/Y = scale * 96)
+    //
+    // Wayland n'a pas de notion stricte de moniteur « primaire » : on considère
+    // primaire le premier output énuméré ou celui positionné à (0,0).
     // =========================================================================
 
     struct NkWaylandOutputInfo {
-        ::wl_output* output     = nullptr;
-        int32_t           width      = 1920;
-        int32_t           height     = 1080;
-        int32_t           physWidth  = 0;   // millimètres
-        int32_t           physHeight = 0;   // millimètres
-        int32_t           scale      = 1;
+        ::wl_output*  output      = nullptr;
+        uint32_t      registryName = 0;     // identifiant global wl_registry (pour remove)
+        int32_t       posX        = 0;
+        int32_t       posY        = 0;
+        int32_t       width       = 1920;   // pixels (mode courant)
+        int32_t       height      = 1080;   // pixels (mode courant)
+        int32_t       physWidth   = 0;      // millimètres
+        int32_t       physHeight  = 0;      // millimètres
+        int32_t       scale       = 1;      // facteur d'échelle entier
+        int32_t       refreshMHz  = 60000;  // mHz (millihertz) — /1000 pour Hz
+        char          name[64]    = {};     // "make model"
+        bool          announced   = false;  // ADDED déjà émis (après 1er done)
     };
 
-    static NkWaylandOutputInfo gOutputInfo;
+    // Vrai une fois la 1re fenêtre créée : distingue les outputs présents au
+    // démarrage (énumération initiale, pas d'event) des hot-plugs ultérieurs.
+    static bool gOutputsBootstrapped = false;
+
+    // Déclarations anticipées (définies plus bas).
+    static int32 IndexOfOutput(const NkWaylandOutputInfo* o);
+
+    // Liste des outputs connus. Pointeurs stables (alloués via new) car le
+    // listener wl_output capture l'adresse via le pointeur `data`.
+    static NkVector<NkWaylandOutputInfo*>& WaylandOutputs() {
+        static NkVector<NkWaylandOutputInfo*> sOutputs;
+        return sOutputs;
+    }
+
+    // Output « courant » suivi via wl_surface.enter / leave (la surface peut
+    // chevaucher plusieurs écrans ; on retient le dernier entré).
+    static NkWaylandOutputInfo* gCurrentOutput = nullptr;
+
+    // Accès au premier output (compat GetDpiScale / GetDisplaySize historiques).
+    static const NkWaylandOutputInfo* PrimaryOutput() {
+        auto& outs = WaylandOutputs();
+        if (outs.Empty()) return nullptr;
+        // Priorité à l'output positionné à (0,0) s'il existe.
+        for (usize i = 0; i < outs.Size(); ++i) {
+            if (outs[i]->posX == 0 && outs[i]->posY == 0) return outs[i];
+        }
+        return outs[0];
+    }
+
+    // Remplit un NkDisplayInfo depuis un output suivi.
+    static NkDisplayInfo WaylandFillDisplayInfo(const NkWaylandOutputInfo* o,
+                                                uint32 index) {
+        NkDisplayInfo info;
+        info.index  = index;
+        if (!o) return info;
+
+        const int32 scale = o->scale > 0 ? o->scale : 1;
+        // Le mode wl_output donne la résolution en pixels physiques réels.
+        const uint32 px = static_cast<uint32>(o->width  > 0 ? o->width  : 1920);
+        const uint32 py = static_cast<uint32>(o->height > 0 ? o->height : 1080);
+
+        info.posX        = o->posX;
+        info.posY        = o->posY;
+        info.physWidth   = px;                        // pixels physiques (mode)
+        info.physHeight  = py;
+        info.width       = px / static_cast<uint32>(scale);  // pixels logiques
+        info.height      = py / static_cast<uint32>(scale);
+        info.refreshRate = static_cast<uint32>(
+            o->refreshMHz > 0 ? (o->refreshMHz + 500) / 1000 : 60);
+        info.dpiScale    = static_cast<float32>(scale);
+        info.dpiX        = info.dpiScale * 96.0f;
+        info.dpiY        = info.dpiScale * 96.0f;
+        // Primaire : output à l'origine (0,0). Heuristique Wayland.
+        info.isPrimary   = (o->posX == 0 && o->posY == 0);
+
+        usize n = 0;
+        while (n < sizeof(info.name) - 1 && o->name[n] != '\0') {
+            info.name[n] = o->name[n];
+            ++n;
+        }
+        info.name[n] = '\0';
+        return info;
+    }
+
+    // Émet un NkSystemDisplayEvent (hot-plug). Sans-effet si l'event system
+    // n'est pas initialisé (ex. énumération initiale pendant Create()).
+    static void EmitDisplayEvent(NkDisplayChange change,
+                                 const NkWaylandOutputInfo* o,
+                                 uint32 index) {
+        if (!NkWESystem::Instance().IsInitialised()) return;
+        NkDisplayInfo info = WaylandFillDisplayInfo(o, index);
+        NkSystemDisplayEvent evt(change, info, 0);
+        NkWESystem::Events().Enqueue_Public(evt, 0);
+    }
 
     static void OnOutputGeometry(void*             data,
                                  ::wl_output* /*output*/,
-                                 int32_t           /*x*/,
-                                 int32_t           /*y*/,
+                                 int32_t           x,
+                                 int32_t           y,
                                  int32_t           physWidth,
                                  int32_t           physHeight,
                                  int32_t           /*subpixel*/,
-                                 const char*       /*make*/,
-                                 const char*       /*model*/,
+                                 const char*       make,
+                                 const char*       model,
                                  int32_t           /*transform*/) {
         auto* info        = static_cast<NkWaylandOutputInfo*>(data);
+        info->posX        = x;
+        info->posY        = y;
         info->physWidth   = physWidth;
         info->physHeight  = physHeight;
+
+        // Nom lisible : "make model" (tronqué au buffer).
+        memory::NkMemSet(info->name, 0, sizeof(info->name));
+        usize w = 0;
+        const auto append = [&](const char* s) {
+            if (!s) return;
+            while (*s && w < sizeof(info->name) - 1) info->name[w++] = *s++;
+        };
+        append(make);
+        if (w > 0 && w < sizeof(info->name) - 1 && model && *model) {
+            info->name[w++] = ' ';
+        }
+        append(model);
+        info->name[w] = '\0';
     }
 
     static void OnOutputMode(void*             data,
@@ -113,18 +219,32 @@ namespace nkentseu {
                              uint32_t          flags,
                              int32_t           width,
                              int32_t           height,
-                             int32_t           /*refresh*/) {
+                             int32_t           refresh) {
         auto* info = static_cast<NkWaylandOutputInfo*>(data);
         if (flags & WL_OUTPUT_MODE_CURRENT) {
-            info->width  = width;
-            info->height = height;
+            info->width      = width;
+            info->height     = height;
+            info->refreshMHz = refresh;  // déjà en mHz
         }
     }
 
-    static void OnOutputDone(void*, ::wl_output*) {}
+    static void OnOutputDone(void* data, ::wl_output*) {
+        auto* info = static_cast<NkWaylandOutputInfo*>(data);
+        // done = toutes les propriétés (geometry/mode/scale) sont à jour.
+        // On émet ADDED ici (info complète) uniquement pour les hot-plugs
+        // survenus après le bootstrap initial.
+        if (!info->announced) {
+            info->announced = true;
+            if (gOutputsBootstrapped) {
+                const int32 idx = IndexOfOutput(info);
+                EmitDisplayEvent(NkDisplayChange::NK_DISPLAY_ADDED, info,
+                                 idx >= 0 ? static_cast<uint32>(idx) : 0u);
+            }
+        }
+    }
 
     static void OnOutputScale(void* data, ::wl_output* /*output*/, int32_t scale) {
-        static_cast<NkWaylandOutputInfo*>(data)->scale = scale;
+        static_cast<NkWaylandOutputInfo*>(data)->scale = scale > 0 ? scale : 1;
     }
 
     static const ::wl_output_listener kOutputListener = {
@@ -132,6 +252,51 @@ namespace nkentseu {
         OnOutputMode,
         OnOutputDone,
         OnOutputScale,
+    };
+
+    // Recherche d'un output suivi par son pointeur wl_output natif.
+    static NkWaylandOutputInfo* FindOutput(::wl_output* output) {
+        auto& outs = WaylandOutputs();
+        for (usize i = 0; i < outs.Size(); ++i) {
+            if (outs[i]->output == output) return outs[i];
+        }
+        return nullptr;
+    }
+
+    // Index d'un output suivi (dans WaylandOutputs), -1 si introuvable.
+    static int32 IndexOfOutput(const NkWaylandOutputInfo* o) {
+        auto& outs = WaylandOutputs();
+        for (usize i = 0; i < outs.Size(); ++i) {
+            if (outs[i] == o) return static_cast<int32>(i);
+        }
+        return -1;
+    }
+
+    // =========================================================================
+    // wl_surface listener (enter / leave) — suivi de l'output courant
+    //
+    // Le compositeur signale via surface.enter/leave sur quel(s) wl_output la
+    // surface est affichée. On retient le dernier output entré pour
+    // GetCurrentMonitor.
+    // =========================================================================
+
+    static void OnSurfaceEnter(void* /*data*/, ::wl_surface* /*surface*/,
+                               ::wl_output* output) {
+        if (auto* info = FindOutput(output)) {
+            gCurrentOutput = info;
+        }
+    }
+
+    static void OnSurfaceLeave(void* /*data*/, ::wl_surface* /*surface*/,
+                               ::wl_output* output) {
+        if (gCurrentOutput && gCurrentOutput->output == output) {
+            gCurrentOutput = nullptr;
+        }
+    }
+
+    static const ::wl_surface_listener kSurfaceListener = {
+        OnSurfaceEnter,
+        OnSurfaceLeave,
     };
 
     // =========================================================================
@@ -228,13 +393,31 @@ namespace nkentseu {
             }
 
         } else if (::strcmp(iface, wl_output_interface.name) == 0) {
-            // On ne bind que le premier output (écran principal)
-            if (!gOutputInfo.output) {
-                const uint32_t bindVersion = version < 3u ? version : 3u;
-                if (bindVersion > 0u) {
-                    gOutputInfo.output = static_cast<::wl_output*>(
-                        wl_registry_bind(registry, name, &wl_output_interface, bindVersion));
-                    wl_output_add_listener(gOutputInfo.output, &kOutputListener, &gOutputInfo);
+            // Wayland expose un wl_output par moniteur : on les bind tous afin
+            // de pouvoir énumérer l'ensemble des écrans.
+            // Dédoublonnage par registryName : si une 2e fenêtre (donc une 2e
+            // connexion display) ré-énumère les mêmes globals, on ne crée pas
+            // de doublon dans WaylandOutputs().
+            bool alreadyTracked = false;
+            {
+                auto& outs = WaylandOutputs();
+                for (usize i = 0; i < outs.Size(); ++i) {
+                    if (outs[i]->registryName == name) { alreadyTracked = true; break; }
+                }
+            }
+            const uint32_t bindVersion = version < 3u ? version : 3u;
+            if (!alreadyTracked && bindVersion > 0u) {
+                auto* info          = new NkWaylandOutputInfo();
+                info->registryName  = name;
+                info->output        = static_cast<::wl_output*>(
+                    wl_registry_bind(registry, name, &wl_output_interface, bindVersion));
+                if (info->output) {
+                    wl_output_add_listener(info->output, &kOutputListener, info);
+                    WaylandOutputs().PushBack(info);
+                    // L'event ADDED (hot-plug) est émis dans OnOutputDone, une
+                    // fois geometry/mode/scale renseignés (info complète).
+                } else {
+                    delete info;
                 }
             }
 
@@ -249,7 +432,26 @@ namespace nkentseu {
         }
     }
 
-    static void OnRegistryGlobalRemove(void*, ::wl_registry*, uint32_t) {}
+    static void OnRegistryGlobalRemove(void*, ::wl_registry*, uint32_t name) {
+        // Hot-unplug : un global disparaît. Si c'est un wl_output suivi, on
+        // l'enlève de la liste et on émet NK_DISPLAY_REMOVED.
+        auto& outs = WaylandOutputs();
+        for (usize i = 0; i < outs.Size(); ++i) {
+            NkWaylandOutputInfo* info = outs[i];
+            if (info->registryName != name) continue;
+
+            EmitDisplayEvent(NkDisplayChange::NK_DISPLAY_REMOVED, info,
+                             static_cast<uint32>(i));
+
+            if (gCurrentOutput == info) gCurrentOutput = nullptr;
+            if (info->output) {
+                wl_output_destroy(info->output);
+            }
+            delete info;
+            outs.Erase(outs.Begin() + i);
+            break;
+        }
+    }
 
     static const ::wl_registry_listener kRegistryListener = {
         OnRegistryGlobal,
@@ -557,6 +759,21 @@ namespace nkentseu {
         }
         if (d.mShm)        { wl_shm_destroy(d.mShm);                d.mShm        = nullptr; }
         if (d.mCompositor) { wl_compositor_destroy(d.mCompositor);  d.mCompositor = nullptr; }
+
+        // Outputs : les wl_output sont liés à cette connexion display.
+        // On les libère avant de fermer le registry/display pour éviter des
+        // proxies pendants dans WaylandOutputs().
+        if (d.mDisplay) {
+            auto& outs = WaylandOutputs();
+            for (usize i = 0; i < outs.Size(); ++i) {
+                if (outs[i]->output) wl_output_destroy(outs[i]->output);
+                delete outs[i];
+            }
+            outs.Clear();
+            gCurrentOutput = nullptr;
+            gOutputsBootstrapped = false;
+        }
+
         if (d.mRegistry)   { wl_registry_destroy(d.mRegistry);      d.mRegistry   = nullptr; }
         if (d.mDisplay)    { wl_display_disconnect(d.mDisplay);      d.mDisplay    = nullptr; }
     }
@@ -670,6 +887,10 @@ namespace nkentseu {
         }
         wl_display_roundtrip(mData.mDisplay);
 
+        // Les outputs présents au démarrage sont désormais énumérés : on passe
+        // en mode « hot-plug » (les wl_output suivants émettront NK_DISPLAY_ADDED).
+        gOutputsBootstrapped = true;
+
         if (!mData.mCompositor || !mData.mWmBase) {
             DestroyWaylandResources(mData);
             mLastError = NkError(2, "Wayland: missing wl_compositor or xdg_wm_base");
@@ -694,6 +915,11 @@ namespace nkentseu {
         mData.mSurface = wl_compositor_create_surface(mData.mCompositor);
         mData.mWidth   = config.width;
         mData.mHeight  = config.height;
+
+        // Suivi de l'output courant (surface.enter / leave) pour GetCurrentMonitor.
+        if (mData.mSurface) {
+            wl_surface_add_listener(mData.mSurface, &kSurfaceListener, this);
+        }
 
         bool usedLibdecor = false;
 
@@ -970,24 +1196,80 @@ namespace nkentseu {
     NkVec2u NkWindow::GetPosition() const { return {0, 0}; }
 
     float NkWindow::GetDpiScale() const {
+        // Output de référence : celui sur lequel la fenêtre est affichée
+        // (surface.enter), sinon l'output primaire.
+        const NkWaylandOutputInfo* o = gCurrentOutput ? gCurrentOutput
+                                                       : PrimaryOutput();
+        if (!o) return 1.0f;
+
         // Priorité 1 : échelle entière fournie par wl_output::scale
-        if (gOutputInfo.scale > 1) {
-            return static_cast<float>(gOutputInfo.scale);
+        if (o->scale > 1) {
+            return static_cast<float>(o->scale);
         }
         // Priorité 2 : calcul depuis les dimensions physiques de l'écran
-        if (gOutputInfo.physWidth > 0 && gOutputInfo.width > 0) {
-            const float dpi = static_cast<float>(gOutputInfo.width)
-                            / (static_cast<float>(gOutputInfo.physWidth) / 25.4f);
+        if (o->physWidth > 0 && o->width > 0) {
+            const float dpi = static_cast<float>(o->width)
+                            / (static_cast<float>(o->physWidth) / 25.4f);
             return math::NkMax(1.0f, dpi / 96.0f); // 96 DPI = 1.0 (référence)
         }
         return 1.0f;
     }
 
     NkVec2u NkWindow::GetDisplaySize() const {
+        const NkWaylandOutputInfo* o = gCurrentOutput ? gCurrentOutput
+                                                       : PrimaryOutput();
+        if (!o) return { 1920u, 1080u };
         return {
-            static_cast<uint32>(gOutputInfo.width  > 0 ? gOutputInfo.width  : 1920),
-            static_cast<uint32>(gOutputInfo.height > 0 ? gOutputInfo.height : 1080),
+            static_cast<uint32>(o->width  > 0 ? o->width  : 1920),
+            static_cast<uint32>(o->height > 0 ? o->height : 1080),
         };
+    }
+
+    // =========================================================================
+    // Énumération moniteurs / DPI (wl_output)
+    // =========================================================================
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        auto& outs = WaylandOutputs();
+        for (usize i = 0; i < outs.Size(); ++i) {
+            out.PushBack(WaylandFillDisplayInfo(outs[i], static_cast<uint32>(i)));
+        }
+        // Fallback mono-écran si aucun wl_output n'a été annoncé (compositeur
+        // exotique) : on construit un descripteur depuis les getters existants.
+        if (out.Empty()) {
+            NkDisplayInfo info;
+            info.index       = 0;
+            const NkVec2u sz = GetDisplaySize();
+            info.width       = sz.x;
+            info.height      = sz.y;
+            info.physWidth   = sz.x;
+            info.physHeight  = sz.y;
+            info.dpiScale    = GetDpiScale();
+            info.dpiX        = info.dpiScale * 96.0f;
+            info.dpiY        = info.dpiScale * 96.0f;
+            info.isPrimary   = true;
+            out.PushBack(info);
+        }
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        // Output suivi via surface.enter, sinon primaire, sinon fallback.
+        const NkWaylandOutputInfo* o = gCurrentOutput ? gCurrentOutput
+                                                       : PrimaryOutput();
+        if (o) {
+            const int32 idx = IndexOfOutput(o);
+            return WaylandFillDisplayInfo(o, idx >= 0 ? static_cast<uint32>(idx) : 0u);
+        }
+        // Aucun output : réutilise le fallback mono-écran d'EnumerateMonitors.
+        NkVector<NkDisplayInfo> all = EnumerateMonitors();
+        return all.Empty() ? NkDisplayInfo{} : all[0];
+    }
+
+    uint32 NkWindow::GetMonitorCount() const {
+        const usize n = WaylandOutputs().Size();
+        return n > 0 ? static_cast<uint32>(n) : 1u;
     }
 
     NkVec2u NkWindow::GetDisplayPosition() const { return {0, 0}; }
@@ -1158,6 +1440,10 @@ namespace nkentseu {
 
     void NkWindow::SetAutoRotateEnabled(bool) {}
     bool NkWindow::IsAutoRotateEnabled() const { return false; }
+    void NkWindow::SetHideSystemUI(bool) {}
+    bool NkWindow::GetHideSystemUI() const { return false; }
+    void NkWindow::SetLockOrientation(bool) {}
+    bool NkWindow::GetLockOrientation() const { return false; }
 
     // =========================================================================
     // Souris
@@ -1181,6 +1467,13 @@ namespace nkentseu {
         // Mémorisé pour PumpOS / EventSystem.
         // Le confinement réel nécessite zwp_pointer_constraints_v1 (non standard).
         mData.mMouseCaptured = capture;
+    }
+
+    void NkWindow::ClipMouseToClient(bool clip) {
+        // Wayland : confinement strict via zwp_pointer_constraints_v1 (lock /
+        // confined region). Non implem actuellement — on memorise juste l'etat
+        // dans mMouseCaptured pour usage futur.
+        mData.mMouseCaptured = clip;
     }
 
     // =========================================================================

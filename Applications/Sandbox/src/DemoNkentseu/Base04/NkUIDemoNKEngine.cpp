@@ -11,7 +11,7 @@
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
 
 #include "NKLogger/NkLog.h"
 #include "NKUI/NKUI.h"
@@ -236,7 +236,7 @@ int nkmain(const NkEntryState& state) {
     deviceInfo.width                     = window.GetSize().width;
     deviceInfo.height                    = window.GetSize().height;
     deviceInfo.context.vulkan.appName    = "NkUIDemoEngine";
-    deviceInfo.context.vulkan.engineName = "Unkeny";
+    deviceInfo.context.vulkan.engineName = "Noge";
 
     NkIDevice* device = NkDeviceFactory::Create(deviceInfo);
     if (!device || !device->IsValid()) {

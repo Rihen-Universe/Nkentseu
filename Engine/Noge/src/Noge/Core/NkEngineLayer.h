@@ -7,7 +7,7 @@
 //   - NkSceneManager   : gestion des scènes
 //   - NkScheduler      : ordonnancement des systèmes
 //   - NkTransformSystem: propagation des transforms
-//   - NkUIInputBridge  : pont NkEvent → NKUI (réutilisé de Unkeny)
+//   - NkUIInputBridge  : pont NkEvent → NKUI (réutilisé de Noge)
 //
 // Usage :
 //   class MyApp : public Application {

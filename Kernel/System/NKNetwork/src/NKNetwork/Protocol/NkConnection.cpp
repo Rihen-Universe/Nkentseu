@@ -495,73 +495,108 @@ namespace nkentseu {
             mStats.packetsReceived++;
 
             // -------------------------------------------------------------------------
-            // Traitement des paquets système (handshake/heartbeat)
+            // BUG FIX : les paquets handshake sont envoyes via mRUDP.Send (canal
+            // RELIABLE_ORDERED), donc encapsules : [NkRUDPHeader 20o][NkSystemHeader+data].
+            // Pour decoder cote receiver, il faut sauter le NkRUDPHeader (offset 20).
+            //
+            // BUG FIX 2 (handshake en boucle infinie) : avant, on parsait le header
+            // systeme et on RETURN sans jamais appeler mRUDP.OnReceived(). Donc la
+            // couche RUDP ne notait pas le seqNum recu, et n'envoyait jamais d'ACK
+            // RUDP pour le SYN-ACK -> le serveur retransmettait a l'infini.
+            // Solution : TOUJOURS router le paquet brut via mRUDP.OnReceived d'abord
+            // (pour que RUDP enregistre le seqNum et envoie son ACK periodique), puis
+            // traiter le header systeme. On filtre les paquets systeme au drain pour
+            // ne pas les remonter en file applicative.
             // -------------------------------------------------------------------------
-            if (size >= NkSystemHeader::kSize)
+            auto isSystemHeader = [&](const uint8* payload, uint32 payloadSize) -> bool
             {
+                if (payload == nullptr || payloadSize < NkSystemHeader::kSize) return false;
+                if (payload[0] != kProtocolMagic || payload[1] != kProtocolVersion) return false;
+                const uint8 t = payload[2];
+                return t <= static_cast<uint8>(NkSystemPacketType::NK_SYS_FIN);
+            };
+
+            auto tryProcessSystemHeader = [&](const uint8* payload, uint32 payloadSize) -> bool
+            {
+                if (!isSystemHeader(payload, payloadSize)) return false;
                 NkSystemHeader header;
-                if (header.Deserialize(data, size))
+                if (!header.Deserialize(payload, payloadSize)) return false;
+                switch (static_cast<NkSystemPacketType>(header.type))
                 {
-                    // Validation du magic et version
-                    if (header.magic == kProtocolMagic && header.version == kProtocolVersion)
-                    {
-                        switch (static_cast<NkSystemPacketType>(header.type))
-                        {
-                            case NkSystemPacketType::NK_SYS_SYN:
-                                ProcessSYN(data, size);
-                                return;  // Paquet système traité — ne pas passer à RUDP
-                            case NkSystemPacketType::NK_SYS_SYN_ACK:
-                                ProcessSYNACK(data, size);
-                                return;
-                            case NkSystemPacketType::NK_SYS_PING:
-                                ProcessPing(data, size);
-                                return;
-                            case NkSystemPacketType::NK_SYS_PONG:
-                                ProcessPong(data, size);
-                                return;
-                            case NkSystemPacketType::NK_SYS_FIN:
-                                // Réception de FIN : déconnexion gracieuse
-                                NK_NET_LOG_INFO("FIN reçu de {} — déconnexion",
-                                    mRemoteAddr.ToString().CStr());
-                                ForceDisconnect();
-                                return;
-                            default:
-                                // Type inconnu — ignorer
-                                break;
-                        }
-                    }
+                    case NkSystemPacketType::NK_SYS_SYN:
+                        ProcessSYN(payload, payloadSize);
+                        return true;
+                    case NkSystemPacketType::NK_SYS_SYN_ACK:
+                        ProcessSYNACK(payload, payloadSize);
+                        return true;
+                    case NkSystemPacketType::NK_SYS_ACK:
+                        ProcessACK(payload, payloadSize);
+                        return true;
+                    case NkSystemPacketType::NK_SYS_PING:
+                        ProcessPing(payload, payloadSize);
+                        return true;
+                    case NkSystemPacketType::NK_SYS_PONG:
+                        ProcessPong(payload, payloadSize);
+                        return true;
+                    case NkSystemPacketType::NK_SYS_FIN:
+                        NK_NET_LOG_INFO("FIN recu de {} — deconnexion",
+                            mRemoteAddr.ToString().CStr());
+                        ForceDisconnect();
+                        return true;
+                    default:
+                        return false;
                 }
+            };
+
+            // Etape 1 : laisser la couche RUDP traiter le paquet brut. Ca met a jour
+            //   - mLastRecvAt (timestamp de derniere reception)
+            //   - les ACK distants recus (mRelOrd.ProcessACK / mRelUnord.ProcessACK)
+            //   - le seqNum entrant via mRelOrd.InsertReceived (pour que le prochain
+            //     SendACK() RUDP couvre ce paquet, sans quoi le sender retransmet).
+            mRUDP.OnReceived(data, size);
+
+            // Etape 2 : extraire les payloads livres par RUDP. Les paquets handshake
+            // (SYN/SYN-ACK/ACK/PING/PONG/FIN) sont traites ici en interne ; seuls
+            // les payloads applicatifs sont pousses dans mIncomingQueue.
+            NkVector<NkRecvEntry> delivered;
+            mRUDP.Drain(delivered);
+
+            for (const auto& entry : delivered)
+            {
+                if (!entry.valid || entry.size == 0) continue;
+
+                // Si c'est un paquet systeme, le traiter en interne et NE PAS
+                // le pousser en file applicative.
+                if (tryProcessSystemHeader(entry.data, entry.size))
+                {
+                    continue;
+                }
+
+                // Sinon, paquet applicatif : on enqueue (seulement si la connexion
+                // est etablie, sinon on jette : un client ne doit pas recevoir de
+                // data applicative avant d'avoir complete le handshake).
+                if (mState != NkConnectionState::NK_CONNECTION_ESTABLISHED)
+                {
+                    continue;
+                }
+                threading::NkScopedLockMutex lock(mQueueMutex);
+                NkReceiveMsg msg;
+                std::memcpy(msg.data, entry.data, entry.size);
+                msg.size = entry.size;
+                msg.from = mRemotePeerId;
+                msg.channel = NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED;
+                msg.receivedAt = NkNetNowMs();
+                mIncomingQueue.PushBack(msg);
             }
 
-            // -------------------------------------------------------------------------
-            // Traitement des paquets de données applicatives via RUDP
-            // -------------------------------------------------------------------------
-            if (mState == NkConnectionState::NK_CONNECTION_ESTABLISHED)
+            // Etape 3 : fallback pour les paquets systeme bruts (pas wrappes RUDP).
+            // En theorie, plus utilise depuis que SYN passe par RUDP, mais on garde
+            // au cas ou un paquet legacy / pre-handshake arrive sans header RUDP.
+            // On ne tente ce parse que si RUDP n'a pas reconnu un header valide
+            // (rawSize >= kSize verifie deja par RUDP).
+            if (delivered.IsEmpty() && size >= NkSystemHeader::kSize)
             {
-                // Forward vers la couche RUDP pour traitement
-                mRUDP.OnReceived(data, size);
-
-                // Extraction des messages livrés
-                NkVector<NkRecvEntry> delivered;
-                mRUDP.Drain(delivered);
-
-                // Enqueue dans la file de réception avec protection mutex
-                {
-                    threading::NkScopedLockMutex lock(mQueueMutex);
-                    for (const auto& entry : delivered)
-                    {
-                        if (entry.valid && entry.size > 0)
-                        {
-                            NkReceiveMsg msg;
-                            std::memcpy(msg.data, entry.data, entry.size);
-                            msg.size = entry.size;
-                            msg.from = mRemotePeerId;
-                            msg.channel = NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED;  // Simplifié
-                            msg.receivedAt = NkNetNowMs();
-                            mIncomingQueue.PushBack(msg);
-                        }
-                    }
-                }
+                tryProcessSystemHeader(data, size);
             }
         }
 
@@ -784,6 +819,74 @@ namespace nkentseu {
         }
 
         // =====================================================================
+        // IMPLÉMENTATION : NkConnection::ProcessACK — Finalisation handshake serveur
+        // =====================================================================
+        // Recoit l'ACK final du client. Sans ce handler, le serveur restait bloque
+        // en NK_CONNECTION_SYN_RECEIVED et retransmettait SYN-ACK en boucle, ce qui
+        // declenchait cote client une cascade de "SYN-ACK recu en etat Established
+        // - ignore" jusqu'au timeout d'inactivite. Bug critique du handshake 3-way.
+        // =====================================================================
+        void NkConnection::ProcessACK(const uint8* data, uint32 size) noexcept
+        {
+            // ACK final = etape 3 du handshake, exclusivement cote serveur.
+            if (!mIsServer)
+            {
+                NK_NET_LOG_WARN("ACK reçu côté client — ignoré");
+                return;
+            }
+
+            // L'ACK n'a de sens qu'en etat SYN_RECEIVED (on a deja envoye le SYN-ACK).
+            // Si on est deja ESTABLISHED, c'est probablement un ACK retransmis par
+            // le RUDP qu'on peut ignorer silencieusement (handshake deja complete).
+            if (mState == NkConnectionState::NK_CONNECTION_ESTABLISHED)
+            {
+                NK_NET_LOG_DEBUG("ACK reçu en état Established — retransmission ignorée");
+                return;
+            }
+            if (mState != NkConnectionState::NK_CONNECTION_SYN_RECEIVED)
+            {
+                NK_NET_LOG_WARN("ACK reçu en état {} — ignoré", NkConnStateStr(mState));
+                return;
+            }
+
+            // Desserialisation de l'en-tete et verification du type.
+            NkSystemHeader header;
+            if (!header.Deserialize(data, size)
+             || header.type != static_cast<uint8>(NkSystemPacketType::NK_SYS_ACK))
+            {
+                NK_NET_LOG_WARN("ACK invalide reçu");
+                return;
+            }
+
+            // Validation de la reponse au challenge envoye dans le SYN-ACK :
+            // le client doit avoir calcule ComputeChallengeResponse(mLocalChallenge, mRemotePeerId)
+            // — meme formule que celle qu'on appliquerait localement.
+            const uint32 expectedResponse =
+                ComputeChallengeResponse(mLocalChallenge, mRemotePeerId.value);
+            if (header.response != expectedResponse)
+            {
+                NK_NET_LOG_ERROR(
+                    "Validation challenge ACK echouee : attendu={}, recu={}",
+                    expectedResponse, header.response);
+                ForceDisconnect();
+                return;
+            }
+
+            // Transition finale : la connexion est maintenant operationnelle.
+            mState = NkConnectionState::NK_CONNECTION_ESTABLISHED;
+            mStats.connectedSince = NkNetNowMs();
+            mLastActivityAt = NkNetNowMs();
+            NK_NET_LOG_INFO("ACK reçu — connexion établie avec client {}",
+                            mRemotePeerId.value);
+
+            // Notification via callback (declenche onPeerConnected cote ConnectionManager).
+            if (onConnected)
+            {
+                onConnected(mRemotePeerId);
+            }
+        }
+
+        // =====================================================================
         // IMPLÉMENTATION : NkConnection — Heartbeat (privé)
         // =====================================================================
 
@@ -966,6 +1069,27 @@ namespace nkentseu {
             // Création de la connexion unique
             NkConnection* conn = new NkConnection();
             conn->InitAsClient(&mSocket, serverAddr, mLocalPeerId);
+
+            // BUG FIX : wirer les callbacks de la connexion vers ceux du manager
+            // AVANT le handshake. Sans ce wiring, ProcessSYNACK declenche
+            // conn->onConnected mais c'est un slot vide -> NetworkSession ne sait
+            // jamais que le client est connecte et reste en JOINING jusqu'au timeout.
+            conn->onConnected = [this](NkPeerId peer)
+            {
+                // Mise a jour de l'id du pair distant dans la table de routage.
+                {
+                    threading::NkScopedLockMutex lock(mConnMutex);
+                    if (mConnections[0] != nullptr)
+                    {
+                        mConnPeerIds[0] = peer;
+                    }
+                }
+                if (onPeerConnected) onPeerConnected(peer);
+            };
+            conn->onDisconnected = [this](NkPeerId peer, const char* reason)
+            {
+                if (onPeerDisconnected) onPeerDisconnected(peer, reason);
+            };
 
             // Stockage dans la table
             {
@@ -1246,17 +1370,23 @@ namespace nkentseu {
         {
             // Buffer de réception
             uint8 buffer[kNkMaxPacketSize];
-            uint32 receivedSize = 0;
-            NkAddress from;
 
-            // Lecture de tous les paquets disponibles (mode non-bloquant)
-            while (mSocket.RecvFrom(buffer, sizeof(buffer), receivedSize, from) == NkNetResult::NK_NET_OK)
+            // BUG FIX : en mode non-bloquant, RecvFrom retourne NK_NET_OK avec
+            // outSize=0 quand il n'y a rien a lire (cas WOULDBLOCK). L'ancien
+            // code `while (RecvFrom == OK)` bouclait INFINIMENT car la condition
+            // ne devenait jamais fausse — le thread reseau ne sortait jamais de
+            // PollSocket et UpdateConnections n'etait JAMAIS appele, donc le
+            // SYN reste dans la queue RUDP et le handshake ne complete jamais.
+            // Solution : casser la boucle quand outSize == 0 (= rien recu).
+            while (true)
             {
-                if (receivedSize > 0)
-                {
-                    // Dispatch vers la connexion appropriée
-                    DispatchPacket(buffer, receivedSize, from);
-                }
+                uint32 receivedSize = 0;
+                NkAddress from;
+                const NkNetResult r = mSocket.RecvFrom(buffer, sizeof(buffer),
+                                                       receivedSize, from);
+                if (r != NkNetResult::NK_NET_OK) break;
+                if (receivedSize == 0)            break;  // ← le fix critique
+                DispatchPacket(buffer, receivedSize, from);
             }
         }
 
@@ -1356,12 +1486,13 @@ namespace nkentseu {
                 return;
             }
 
-            // Déclenchement du callback de connexion HORS du lock pour éviter deadlock.
-            // FindOrCreateConnection ne déclenche pas le callback lui-même — c'est intentionnel.
-            if (isNewConnection && onPeerConnected)
-            {
-                onPeerConnected(conn->GetRemotePeerId());
-            }
+            // Note : onPeerConnected n'est PLUS declenche ici. Une nouvelle
+            // connexion creee a la reception du SYN n'est PAS encore Established
+            // (le 3-way handshake n'est pas termine). Le callback est wire dans
+            // FindOrCreateConnection sur conn->onConnected et sera declenche
+            // par NkConnection::ProcessACK quand l'ACK final arrive.
+            // Le isNewConnection reste utile pour logging eventuel.
+            (void)isNewConnection;
 
             // Traitement du paquet reçu (handshake, données, heartbeat)
             conn->OnRawReceived(data, size);
@@ -1424,6 +1555,23 @@ namespace nkentseu {
                 NkConnection* newConn = new NkConnection();
                 newConn->InitAsServer(&mSocket, from, mLocalPeerId, NkPeerId::Generate());
 
+                // BUG FIX : wirer les callbacks de la connexion vers ceux du
+                // manager. Sans ca, ProcessACK declenche conn->onConnected mais
+                // c'est un slot vide -> NetworkSession ne voit jamais le passage
+                // a CONNECTED. Avant le fix, onPeerConnected etait declenche
+                // dans DispatchPacket des la CREATION de la connexion (au SYN
+                // initial) — c'etait premature : la connexion n'etait pas encore
+                // ESTABLISHED. Le callback est maintenant declenche par la
+                // NkConnection au moment exact ou elle passe en ESTABLISHED.
+                newConn->onConnected = [this](NkPeerId peer)
+                {
+                    if (onPeerConnected) onPeerConnected(peer);
+                };
+                newConn->onDisconnected = [this](NkPeerId peer, const char* reason)
+                {
+                    if (onPeerDisconnected) onPeerDisconnected(peer, reason);
+                };
+
                 // Insertion dans la table de connexions
                 const uint32 slot = mConnCount++;
                 mConnections[slot] = newConn;
@@ -1433,8 +1581,11 @@ namespace nkentseu {
                     from.ToString().CStr(), slot, maxConnections);
 
                 // Signaler au appelant qu'il s'agit d'une nouvelle connexion.
-                // Le callback onPeerConnected est déclenché par DispatchPacket() HORS du lock
-                // pour éviter le deadlock si le callback rappelle SendTo()/Broadcast().
+                // Note : on ne declenche PLUS onPeerConnected ici (c'etait fait
+                // dans DispatchPacket avant le fix). Le callback sera declenche
+                // par la NkConnection elle-meme quand elle passera en ESTABLISHED
+                // apres reception de l'ACK final (cote serveur) ou du SYN-ACK
+                // (cote client).
                 outIsNew = true;
                 return newConn;
             }

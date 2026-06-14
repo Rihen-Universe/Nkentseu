@@ -6,7 +6,7 @@
 using namespace nkentseu::math;
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         void NkEditorCamera::Update(float32 dt, bool hovered) noexcept {
             if (mode == NkEditorCameraMode::Orbit) UpdateOrbit(dt, hovered);
@@ -135,5 +135,5 @@ namespace nkentseu {
             return r;
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

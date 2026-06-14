@@ -1,0 +1,22 @@
+# Normalisation des fins de ligne — depot Nkentseu.
+* text=auto
+
+# Scripts shell : toujours LF (sinon git-bash casse).
+*.sh text eol=lf
+
+# Scripts batch Windows : toujours CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binaires courants (jamais de conversion).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.bin binary
+*.spv binary
+*.apk binary
+*.exe binary
+*.pdf binary

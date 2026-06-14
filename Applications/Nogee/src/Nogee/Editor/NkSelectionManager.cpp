@@ -1,7 +1,7 @@
 #include "NkSelectionManager.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         void NkSelectionManager::Select(ecs::NkEntityId id) noexcept {
             mSelected.Clear();
@@ -44,5 +44,5 @@ namespace nkentseu {
             return false;
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

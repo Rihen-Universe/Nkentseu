@@ -1,0 +1,47 @@
+// =============================================================================
+// NkNoise.glsli  — M.5 Material Functions : random + procedural noise
+//
+// Pas la version GPU "vraie" de Perlin (couteuse) ; juste des hash rapides
+// utilisables pour effets visuels (grain, randomization de parametres, etc.).
+// =============================================================================
+
+// Hash 1D rapide (pas crypto, suffit pour shaders).
+float NkHash1(float n) {
+    return fract(sin(n) * 43758.5453);
+}
+
+// Hash 2D : prend un vec2 et retourne un float dans [0,1].
+float NkHash2(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// Hash vec2 -> vec2 (pour deriver 2 randoms decorrelles).
+vec2 NkHash22(vec2 p) {
+    vec2 q = vec2(dot(p, vec2(127.1, 311.7)),
+                  dot(p, vec2(269.5, 183.3)));
+    return fract(sin(q) * 43758.5453);
+}
+
+// Value-noise 2D (interpole lineairement les hashes des 4 coins).
+float NkValueNoise2D(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);  // smoothstep
+    float a = NkHash2(i);
+    float b = NkHash2(i + vec2(1.0, 0.0));
+    float c = NkHash2(i + vec2(0.0, 1.0));
+    float d = NkHash2(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// FBM (fractal brownian motion) : N octaves de value-noise.
+float NkFBM2D(vec2 p, int octaves) {
+    float value = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < octaves; ++i) {
+        value += NkValueNoise2D(p) * amp;
+        p *= 2.0;
+        amp *= 0.5;
+    }
+    return value;
+}

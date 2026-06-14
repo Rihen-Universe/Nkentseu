@@ -2,7 +2,7 @@
 // @File    NkUIContext.cpp
 // @Brief   Implémentation NkUIContext — état, IDs, animations, styles.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis
-// @License Apache-2.0
+// @License Proprietary - Free to use and modify
 // -----------------------------------------------------------------------------
 
 /*

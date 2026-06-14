@@ -376,7 +376,7 @@ namespace nkentseu {
                 const DWORD_PTR mask = (static_cast<DWORD_PTR>(1) << cpuCore);
                 (void)SetThreadAffinityMask(mHandle, mask);
 
-            #elif defined(NKENTSEU_PLATFORM_LINUX)
+            #elif defined(NKENTSEU_PLATFORM_LINUX) && !defined(NKENTSEU_PLATFORM_HARMONYOS)
                 if (!mJoinable || cpuCore >= static_cast<nk_uint32>(CPU_SETSIZE)) {
                     return;
                 }
@@ -385,6 +385,8 @@ namespace nkentseu {
                 CPU_SET(static_cast<int>(cpuCore), &set);
                 (void)pthread_setaffinity_np(mThread, sizeof(set), &set);
             #else
+                // HarmonyOS (libc OHOS) et autres plateformes sans
+                // pthread_setaffinity_np : no-op silencieux (design documenté).
                 (void)cpuCore;
             #endif
         }

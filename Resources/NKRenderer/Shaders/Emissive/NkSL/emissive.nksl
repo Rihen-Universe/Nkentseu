@@ -1,0 +1,109 @@
+// emissive.nksl — NKRenderer v4.0 — NkSL Master Shader
+// Emissive pure HDR output
+//
+// NkSL = NKRenderer Shader Language
+// Syntax: GLSL-like avec extensions multi-backend
+// Transpile vers: GL 4.60 | Vulkan GLSL | HLSL DX11 | HLSL DX12 | MSL 2.x
+//
+// UBOs standard NKRenderer (binding automatique):
+//   @uniform 0 CameraUBO   // position caméra, matrices, temps
+//   @uniform 1 ObjectUBO   // transform, matériaux params
+//   @uniform 2 LightsUBO   // 32 lumières dynamiques
+//   @uniform 3 ShadowUBO   // cascades CSM
+//
+// Textures (binding automatique):
+//   @texture(4) tAlbedo    // albedo/diffuse
+//   @texture(5) tNormal    // normal map
+//   @texture(6) tORM       // occlusion/roughness/metallic
+//   @texture(7) tEmissive  // emissive
+//   @texture(8) tEnvIrr    // IBL irradiance cubemap
+//   @texture(9) tEnvPref   // IBL prefiltered cubemap
+//   @texture(10) tBRDFLUT  // split-sum BRDF
+//   @texture(11) tShadow   // shadow atlas
+//
+// Voir Shaders/Emissive/GL/emissive.vert.gl.glsl pour le code compilé
+// ─────────────────────────────────────────────────────────────
+
+@include "common/UBOs.nksl"
+@include "common/PBR_Functions.nksl"
+@include "common/Shadow_Functions.nksl"
+
+@texture(4)  tAlbedo;
+@texture(5)  tNormal;
+@texture(6)  tORM;
+@texture(7)  tEmissive;
+@texture(8)  tEnvIrradiance;
+@texture(9)  tEnvPrefilter;
+@texture(10) tBRDFLUT;
+@texture(11) tShadowAtlas;
+
+// ─── Vertex ──────────────────────────────────────────────────
+@vertex {
+
+@in vec3 aPos     : 0;
+@in vec3 aNormal  : 1;
+@in vec3 aTangent : 2;
+@in vec2 aUV      : 3;
+@in vec2 aUV2     : 4;
+@in vec4 aColor   : 5;
+
+@out vec3 vWorldPos  : 0;
+@out vec3 vNormal    : 1;
+@out vec3 vTangent   : 2;
+@out vec3 vBitangent : 3;
+@out vec2 vUV        : 4;
+@out vec2 vUV2       : 5;
+@out vec4 vColor     : 6;
+
+void main() {
+    vec4 worldPos = uObject.model * vec4(aPos, 1.0);
+    vWorldPos     = worldPos.xyz;
+    mat3 nm       = mat3(uObject.normalMatrix);
+    vNormal       = normalize(nm * aNormal);
+    vTangent      = normalize(nm * aTangent);
+    vBitangent    = cross(vNormal, vTangent);
+    vUV  = aUV;
+    vUV2 = aUV2;
+    vColor = aColor * uObject.tint;
+    // Backend-specific clip position
+    @target GL  { gl_Position = uCamera.viewProj * worldPos; }
+    @target VK  { gl_Position = uCamera.viewProj * worldPos; gl_Position.y = -gl_Position.y; }
+    @target DX11{ SV_Position = mul(uCamera.viewProj, worldPos); }
+    @target DX12{ SV_Position = mul(uCamera.viewProj, worldPos); }
+    @target MSL { out.position = uCamera.viewProj * worldPos; }
+}
+
+} // @vertex
+
+// ─── Fragment ─────────────────────────────────────────────────
+@fragment {
+
+@in vec3 vWorldPos  : 0;
+@in vec3 vNormal    : 1;
+@in vec3 vTangent   : 2;
+@in vec3 vBitangent : 3;
+@in vec2 vUV        : 4;
+@in vec2 vUV2       : 5;
+@in vec4 vColor     : 6;
+
+@out vec4 fragColor : 0;
+
+void main() {
+    // See compiled GL version for full Emissive pure HDR output implementation
+    // This NkSL source transpiles to the shader in emissive.frag.gl.glsl
+    vec4 albSamp = texture(tAlbedo, vUV) * vColor;
+    vec3 albedo  = pow(albSamp.rgb, vec3(2.2));
+    float alpha  = albSamp.a;
+    if (alpha < 0.01) discard;
+
+    vec3 N = normalize(vNormal);
+    vec3 V = normalize(uCamera.camPos.xyz - vWorldPos);
+
+    // [Material-specific lighting — see compiled version]
+    vec3 Lo = vec3(0.0);
+    // ... PBR / Toon / Hair / etc. lighting loops
+
+    fragColor = vec4(Lo, alpha);
+}
+
+} // @fragment

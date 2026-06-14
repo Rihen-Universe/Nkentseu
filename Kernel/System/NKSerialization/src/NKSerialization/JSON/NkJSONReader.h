@@ -342,7 +342,7 @@
 
     // Usage :
     // auto* player = LoadSerializableFromJSON(jsonData, "PlayerData");
-    // if (player) { /* utiliser... *\/ delete player; }
+    // if (player) { utiliser... delete player; }
 */
 
 

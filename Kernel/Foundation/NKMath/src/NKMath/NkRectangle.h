@@ -365,6 +365,13 @@
             // =================================================================
             using NkIntRect = NkRectT<int32>;        // Rectangle entier pour UI/grid
             using NkFloatRect = NkRectT<float32>;    // Rectangle float pour géométrie
+            // Noms canoniques 2D (utilises par NKCanvas/NKUI/NKRenderer). Domicilies
+            // ici car ce sont des types purement math ; NKCanvas ne fait que les
+            // re-exporter dans le namespace renderer pour la commodite.
+            using NkRect2i = NkRectT<int32>;         // alias 2D entier (clip, viewport, UI)
+            using NkRect2f = NkRectT<float32>;       // alias 2D float (geometrie 2D)
+            using NkRect2d = NkRectT<float64>;
+            using NkRect2u = NkRectT<uint32>;
             using NkRectF = NkRectT<float32>;
             using NkRectD = NkRectT<float64>;
             using NkRectI = NkRectT<int32>;

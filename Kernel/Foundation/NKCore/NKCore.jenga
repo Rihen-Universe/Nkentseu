@@ -8,25 +8,21 @@ réutilisés par toutes les couches supérieures.
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKCore"):
-    useglobalkind("core")
     language("C++")
     cppdialect("C++20")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKPlatform.location}/src",
-    ])
+    nkentseudependson(
+        ["NKPlatform"],
+        selfexport="NKCore",
+        extra_includes=["src", "pch"],
+    )
+
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
-
-    dependson(["NKPlatform"])
 
     files([
         "src/NKCore/**.cpp",
@@ -41,7 +37,7 @@ with project("NKCore"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
     with filter("system:macOS"):
@@ -51,6 +47,11 @@ with project("NKCore"):
         pchheader("")
         pchsource("")
         usetoolchain("android-ndk")
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android)
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):

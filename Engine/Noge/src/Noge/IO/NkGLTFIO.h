@@ -47,7 +47,7 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/World/NkWorld.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKRenderer/src/Resources/NkResourceDescs.h"

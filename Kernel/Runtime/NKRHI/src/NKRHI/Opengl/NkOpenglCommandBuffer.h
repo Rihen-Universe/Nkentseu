@@ -8,6 +8,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkTraits.h"
+#include "NKLogger/NkLog.h"
 #include <cstring>
 
 #ifndef NK_NO_GLAD2
@@ -38,7 +39,10 @@ public:
     // Render Pass
     // =========================================================================
     bool BeginRenderPass(NkRenderPassHandle rp, NkFramebufferHandle fb, const NkRect2D& area) override {
-        if (!mRecording || !fb.IsValid() || !rp.IsValid() || area.width <= 0 || area.height <= 0) return false;
+        // NB : fb.IsValid()==false (id=0) est ACCEPTE — sur OpenGL ca correspond
+        // au default framebuffer (FBO 0 = swapchain). De meme pour rp.id=0 :
+        // pas de NkRenderPassHandle explicite => clear via mClearR/G/B/A.
+        if (!mRecording || area.width <= 0 || area.height <= 0) return false;
         Push([=]{ GL_BeginRenderPass(rp, fb, area); });
         return true;
     }
@@ -91,12 +95,22 @@ public:
         });
     }
 
-    // Clear dynamique — stocké comme état du CB, lu dans GL_BeginRenderPass
+    // Clear dynamique — stocké comme état du CB, lu dans GL_BeginRenderPass.
+    // Ces appels marquent aussi qu'un clear est demande pour le prochain
+    // BeginRenderPass (mClearColorPending / mClearDepthPending). RenderGraph
+    // les appelle uniquement si loadOp==CLEAR, donc l'absence d'appel signifie
+    // "preserver l'attachment" (LOAD) et BeginRenderPass ne clear pas.
     void SetClearColor(float r, float g, float b, float a = 1.f) override {
-        Push([this, r, g, b, a]{ mClearR=r; mClearG=g; mClearB=b; mClearA=a; });
+        Push([this, r, g, b, a]{
+            mClearR=r; mClearG=g; mClearB=b; mClearA=a;
+            mClearColorPending = true;
+        });
     }
     void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
-        Push([this, depth, stencil]{ mClearDepth=depth; mClearStencil=stencil; });
+        Push([this, depth, stencil]{
+            mClearDepth=depth; mClearStencil=stencil;
+            mClearDepthPending = true;
+        });
     }
 
     // =========================================================================
@@ -121,12 +135,13 @@ public:
                         uint32 size, const void* data) override {
         NkVector<uint8> buf = CopyBytes(data, size);
         Push([this,stages,offset,size,buf=traits::NkMove(buf)]{
-            // GL : pas de push constants natives → on passe via uniform location
-            // Le shader doit déclarer un uniform block nommé "PushConstants"
-            // Implémentation avec glProgramUniform1iv / glUniformBlockBinding
             (void)stages; (void)offset; (void)size;
-            GLint loc=glGetUniformLocation(mCurrentProgram,"_PushConstants");
-            if (loc>=0) glUniform4fv(loc,(GLsizei)(buf.size()/16),(const GLfloat*)buf.Data());
+            if (mCurrentProgram == 0) return;
+            GLint loc = glGetUniformLocation(mCurrentProgram, "_PushConstants");
+            // Certains drivers preferent l'array-suffix
+            if (loc < 0) loc = glGetUniformLocation(mCurrentProgram, "_PushConstants[0]");
+            if (loc >= 0) glUniform4fv(loc, (GLsizei)(buf.size()/16),
+                                        (const GLfloat*)buf.Data());
         });
     }
 
@@ -136,6 +151,8 @@ public:
     void BindVertexBuffer(uint32 binding, NkBufferHandle buf, uint64 offset) override {
         Push([this,binding,buf,offset]{ GL_BindVertexBuffer(binding,buf,offset); });
     }
+
+    void UpdateBuffer(NkBufferHandle buf, uint64 dstOffset, uint64 size, const void* data) override;
     void BindVertexBuffers(uint32 first, const NkBufferHandle* bufs,
                             const uint64* offs, uint32 count) override {
         NkVector<NkBufferHandle> bv = CopyArray(bufs, count);
@@ -390,6 +407,8 @@ private:
     float   mClearR = 0.f, mClearG = 0.f, mClearB = 0.f, mClearA = 1.f;
     float   mClearDepth   = 1.f;
     uint32  mClearStencil = 0;
+    bool    mClearColorPending = false;  // arme par SetClearColor, consomme par BeginRenderPass
+    bool    mClearDepthPending = false;
 
     // État courant (mis à jour par les commandes Bind*)
     NkPipelineHandle   mBoundPipeline;

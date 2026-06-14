@@ -15,31 +15,21 @@ Contenu (src/NKFileSystem/) :
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKFileSystem"):
-    useglobalkind("filesystem")
+    nkentseudependson(
+        ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKThreading", "NKLogger"],
+        selfexport="NKFileSystem",
+        extra_includes=["src", "pch"],
+    )
 
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKCore.location}/src",
-        "%{NKPlatform.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKLogger.location}/src",
-    ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
-
-    dependson(["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKThreading", "NKLogger"])
 
     files([
         "src/NKFileSystem/**.cpp",
@@ -54,7 +44,7 @@ with project("NKFileSystem"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
     with filter("system:Linux"):
@@ -65,6 +55,10 @@ with project("NKFileSystem"):
     with filter("system:Android"):
         usetoolchain("android-ndk")
         links(["log"])
+    with filter("system:HarmonyOS"):
+        # NDK OHOS clang (meme contrainte qu'Android)
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):

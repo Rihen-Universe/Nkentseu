@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Layers/ViewportLayer.h  —  v2
+// Noge/Layers/ViewportLayer.h  —  v2
 // =============================================================================
 // Rend la scène ECS dans un FBO offscreen.
 // Se connecte à NkWorld via NkRenderSystem pour produire les draw calls.
@@ -8,10 +8,10 @@
 // Resize automatique quand la fenêtre NKUI du viewport change de taille.
 // =============================================================================
 
-#include "Nkentseu/Core/Layer.h"
+#include "Noge/Core/Layer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
-#include "NKRHI/Core/NkHandles.h"
+#include "NKRHI/Core/NkTypes.h"
 #include "NKMath/NKMath.h"
 #include "NKECS/World/NkWorld.h"
 #include "NKRenderer/src/NKRenderer/Scene/NkRenderScene.h"
@@ -34,7 +34,7 @@ namespace nkentseu {
                 void OnUpdate(float dt) override;
                 void OnRender()         override;
 
-                // ── Connexions (injectées par UnkenyApp::OnInit) ──────────────────
+                // ── Connexions (injectées par NogeApp::OnInit) ──────────────────
                 void SetEditorCamera   (NkEditorCamera*    cam)  noexcept { mCamera = cam; }
                 void SetGizmoSystem    (NkGizmoSystem*     gizmo)noexcept { mGizmos = gizmo; }
                 void SetSelectionManager(NkSelectionManager* sel) noexcept { mSel = sel; }

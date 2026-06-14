@@ -71,9 +71,15 @@ namespace nkentseu {
                                             bool clearColor, NkVec4f cc, bool clearDepth) {
             if (!mValid || mCapturing) return;
 
-            // Transition color → RENDER_TARGET
+            // Transition UNDEFINED → RENDER_TARGET (oldLayout invariant) : a la 1re
+            // frame l'image vient d'etre creee en UNDEFINED, et a partir de la 2e
+            // frame elle est en SHADER_READ — utiliser UNDEFINED ici fait que le
+            // driver discard le contenu (recreer via clearColor du BeginRenderPass
+            // qui suit, OK). Si on utilisait SHADER_READ comme oldLayout, la
+            // 1re frame echouait silencieusement et le tracker validation gardait
+            // l'image en COLOR_ATTACHMENT au Submit (-> "expects SHADER_READ_ONLY").
             cmd->TextureBarrier(mTexLib->GetRHIHandle(mColor),
-                                NkResourceState::NK_SHADER_READ,
+                                NkResourceState::NK_UNDEFINED,
                                 NkResourceState::NK_RENDER_TARGET);
 
             if (clearColor) cmd->SetClearColor(cc.x, cc.y, cc.z, cc.w);

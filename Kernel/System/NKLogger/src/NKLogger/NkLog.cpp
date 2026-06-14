@@ -49,8 +49,17 @@ namespace nkentseu {
 	NkLog::NkLog(const NkString& name)
 		: NkLogger(name) {
 
-		// Configuration par défaut : console + fichier pour usage immédiat
-        
+		// Configuration par defaut :
+		//   - DEBUG : console + fichier (verbose, dev quotidien)
+		//   - RELEASE : fichier UNIQUEMENT (pas de pollution console pour
+		//     les builds distribues aux testeurs / utilisateurs finaux).
+		//
+		// L'utilisateur peut reactiver le sink console en Release via :
+		//   logger.AddSink(memory::MakeShared<NkConsoleSink>());
+		// ou tout autre sink custom (NkNetworkSink, NkFileSink supplementaire,
+		// etc.). Voir NkLogger::AddSink() pour l'API.
+
+#ifndef NDEBUG
 		// Sink console : sortie vers stdout/stderr avec support couleurs
 		// Sur Android : NkConsoleSink route automatiquement vers logcat
 		NkConsoleSink* consoleSinkRaw = new NkConsoleSink();
@@ -58,8 +67,12 @@ namespace nkentseu {
 		consoleSinkRaw->SetLevel(NkLogLevel::NK_DEBUG);  // Verbose par défaut en console
         memory::NkSharedPtr<NkISink> consoleSink(consoleSinkRaw);
 		AddSink(consoleSink);
+#endif
 
-		// Sink fichier : persistance des logs dans logs/app.log
+		// Sink fichier : persistance des logs dans logs/app.log. TOUJOURS
+		// actif (debug + release) pour permettre le post-mortem en prod
+		// quand un user testeur rencontre un bug. Le fichier reste
+		// disponible apres crash, contrairement a la console.
 		memory::NkSharedPtr<NkISink> fileSink(new NkFileSink("logs/app.log"));
 		fileSink->SetLevel(NkLogLevel::NK_INFO);  // Moins verbose en fichier pour production
 		fileSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN);  // Pattern lisible

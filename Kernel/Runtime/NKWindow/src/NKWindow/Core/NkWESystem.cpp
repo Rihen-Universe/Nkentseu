@@ -41,6 +41,10 @@
 #   include "NKWindow/Platform/Android/NkAndroidGamepad.h"
     using PlatformGamepad = nkentseu::NkAndroidGamepad;
 
+#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+#   include "NKWindow/Platform/HarmonyOS/NkHarmonyGamepad.h"
+    using PlatformGamepad = nkentseu::NkHarmonyGamepad;
+
 #elif defined(NKENTSEU_WINDOWING_XCB) || defined(NKENTSEU_WINDOWING_XLIB) \
    || defined(NKENTSEU_WINDOWING_WAYLAND)
 #   include "NKWindow/Platform/Linux/NkLinuxGamepadBackend.h"

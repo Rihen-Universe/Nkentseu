@@ -1,0 +1,31 @@
+// =============================================================================
+// NkFresnel.glsli  — M.5 Material Functions : Fresnel approximations
+//
+// Equations Fresnel-Schlick utilisees par tous les shaders PBR/NPR.
+// Inclure via : #include "Include/NkFresnel.glsli"
+// =============================================================================
+
+// Fresnel-Schlick standard (incidence) : F(cosTheta) = F0 + (1-F0) * (1-cosTheta)^5
+// cosTheta = dot(N, V) clampe a [0,1].
+// F0       = reflectance a incidence normale (vec3 pour metaux teintes).
+vec3 NkFresnelSchlick(float cosTheta, vec3 F0) {
+    float k = 1.0 - cosTheta;
+    float k2 = k * k;
+    return F0 + (1.0 - F0) * (k2 * k2 * k);   // pow(1-cos, 5)
+}
+
+// Variante scalaire (dielectriques homogenes).
+float NkFresnelSchlickScalar(float cosTheta, float F0) {
+    float k = 1.0 - cosTheta;
+    float k2 = k * k;
+    return F0 + (1.0 - F0) * (k2 * k2 * k);
+}
+
+// Fresnel-Schlick avec rugosite (IBL specular) : evite que les surfaces
+// rugueuses paraissent trop reflechissantes a incidence rasante.
+//   F = F0 + (max(1-roughness, F0) - F0) * (1-cosTheta)^5
+vec3 NkFresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
+    float k = 1.0 - cosTheta;
+    float k2 = k * k;
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * (k2 * k2 * k);
+}

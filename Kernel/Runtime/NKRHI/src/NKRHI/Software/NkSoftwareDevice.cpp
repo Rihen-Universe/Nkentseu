@@ -1052,6 +1052,48 @@ namespace nkentseu {
             ANativeWindow_unlockAndPost(win);
         }
 
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // Le framebuffer est en RGBA8888 (NK_SW_PIXEL_BGRA = 0 sur HarmonyOS).
+        // OHNativeWindow attend du RGBA_8888 — pas de swap de canaux.
+        //
+        // Méthode 1 : OHNativeWindow direct (NDK API 9+)
+        if (mData.ohNativeWindow) {
+            OHNativeWindow* win = static_cast<OHNativeWindow*>(mData.ohNativeWindow);
+    
+            // Configurer le format RGBA_8888 (à faire une fois lors de l'init)
+            // OH_NativeWindow_NativeWindowHandleOpt(win, SET_FORMAT, PIXEL_FMT_RGBA_8888);
+            // OH_NativeWindow_NativeWindowHandleOpt(win, SET_BUFFER_GEOMETRY, (int)mWidth, (int)mHeight);
+    
+            OHNativeWindowBuffer* buffer = nullptr;
+            int fenceFd = -1;
+    
+            int32_t ret = OH_NativeWindow_NativeWindowRequestBuffer(win, &buffer, &fenceFd);
+            if (ret == 0 && buffer) {
+                void* addr = nullptr;
+                OH_NativeWindow_GetBufferHandleFromNative(buffer, &addr);
+                // addr pointe vers les pixels de la surface (RGBA_8888)
+                if (addr) {
+                    // Direct memcpy — pas de swap de canaux (RGBA = RGBA)
+                    memcpy(addr, pixels, (usize)mWidth * mHeight * 4u);
+                }
+                // Soumettre le buffer
+                OH_NativeWindow_NativeWindowFlushBuffer(win, buffer, fenceFd, {});
+            }
+            return;
+        }
+    
+        // Méthode 2 : callback bridge ArkTS (presentCallback fourni par NkHarmonyBridge)
+        // Le callback reçoit les pixels RGBA et les présente via PixelMap + ImageBitmap.
+        if (mData.presentCallback) {
+            using PresentFn = void(*)(const uint8* pixels, uint32 w, uint32 h);
+            auto fn = reinterpret_cast<PresentFn>(mData.presentCallback);
+            fn(pixels, mWidth, mHeight);
+            return;
+        }
+    
+        // Pas de handle — frame silencieusement ignorée
+        // (normal pendant la phase d'initialisation avant OnSurfaceCreated)
+
     #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
         EM_ASM({
             var id = UTF8ToString($0);
@@ -1335,6 +1377,32 @@ namespace nkentseu {
             WINDOW_FORMAT_RGBA_8888);
         return surf.nativeWindow != nullptr;
 
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // HarmonyOS Software Backend — Stratégie de présentation
+        //
+        // HarmonyOS tourne sur ARM64 (Kirin) → NEON disponible, OpenGL ES 3.2+,
+        // Vulkan 1.0+. Le backend Software est donc un fallback de dernier recours.
+        //
+        // Méthode 1 (recommandée) : OHNativeWindow direct
+        //   OH_NativeWindow_NativeWindowRequestBuffer() → lock pixels → memcpy → post
+        //   Disponible si surf.ohNativeWindow est fourni par NkHarmonyOnSurfaceCreated.
+        //
+        // Méthode 2 (fallback) : callback bridge ArkTS
+        //   NkHarmonyBridge.presentFrame(pixelData) → canvas.putImageData
+        //   Utilisé si OHNativeWindow n'est pas accessible directement.
+    
+        mData.ohNativeWindow = surf.ohNativeWindow;  // fourni par NkHarmonyOnSurfaceCreated
+        mData.presentCallback = surf.presentCallback;
+    
+        if (!mData.ohNativeWindow && !mData.presentCallback) {
+            NK_SW_LOG("[HarmonyOS] Aucun handle natif fourni. "
+                    "Appeler SetHarmonyNativeWindow() après OnSurfaceCreated.\n");
+            // Pas une erreur fatale — le handle peut arriver plus tard
+            return true;
+        }
+    
+        NK_SW_LOG("[HarmonyOS] Software presenter OK (%ux%u)\n", w, h);
+        return true;
     // â”€â”€ macOS â€” CGContext â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     #elif defined(NKENTSEU_PLATFORM_MACOS)
         mData.nsView = surf.view;
@@ -1362,6 +1430,19 @@ namespace nkentseu {
             ReleaseDC(static_cast<HWND>(mData.hwnd), static_cast<HDC>(mData.hdc));
             mData.hdc = nullptr;
         }
+
+    #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // Libérer EGL si utilisé (méthode 3 — rare pour le backend software)
+        if (mData.eglSurface || mData.eglContext) {
+            // eglMakeCurrent(EGL_NO_DISPLAY, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            // eglDestroySurface(mData.eglDisplay, mData.eglSurface);
+            // eglDestroyContext(mData.eglDisplay, mData.eglContext);
+            mData.eglSurface = nullptr;
+            mData.eglContext = nullptr;
+            mData.eglDisplay = nullptr;
+        }
+        mData.ohNativeWindow  = nullptr;
+        mData.presentCallback = nullptr;
 
     #elif defined(NKENTSEU_WINDOWING_XLIB)
         if (mData.ximage) {
@@ -1415,5 +1496,32 @@ namespace nkentseu {
         mData.shmStride = 0;
         mData.shmSize = 0;
     #endif
+    }
+ 
+    void NkSoftwareDevice::SetHarmonyNativeWindow(void* ohNativeWindow) {
+#if defined(NKENTSEU_PLATFORM_HARMONYOS)
+        // Appelé depuis NkHarmonyOnSurfaceCreated() côté C++ :
+        //
+        //   void NkHarmonyOnSurfaceCreated(OH_NativeXComponent* component,
+        //                                  OHNativeWindow* window) {
+        //       g_device->SetHarmonyNativeWindow(window);
+        //       // Émettre NkWindowSurfaceCreatedEvent vers NkWESystem
+        //   }
+        //
+        // Le handle peut arriver APRÈS Initialize() car la surface XComponent
+        // est créée de façon asynchrone par ArkTS.
+        mData.ohNativeWindow = ohNativeWindow;
+ 
+        if (ohNativeWindow) {
+            // Configurer le format et la taille du buffer natif
+            // OHNativeWindow* win = static_cast<OHNativeWindow*>(ohNativeWindow);
+            // OH_NativeWindow_NativeWindowHandleOpt(win, SET_FORMAT, PIXEL_FMT_RGBA_8888);
+            // OH_NativeWindow_NativeWindowHandleOpt(win, SET_BUFFER_GEOMETRY,
+            //                                       (int)mWidth, (int)mHeight);
+            NK_SW_LOG("[HarmonyOS] OHNativeWindow set: %p\n", ohNativeWindow);
+        }
+#else
+        (void)ohNativeWindow;
+#endif
     }
 } // namespace nkentseu

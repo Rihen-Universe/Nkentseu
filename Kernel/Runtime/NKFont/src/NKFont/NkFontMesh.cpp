@@ -5,6 +5,7 @@
 
 #include "NKFont/NkFont.h"
 #include "NKFont/Core/NkFontParser.h"
+#include "NKFont/NkEarcut.h"
 #include <math.h>
 
 #include "NKLogger/NkLog.h"
@@ -43,64 +44,6 @@ namespace nkentseu {
             }
         }
         return inside;
-    }
-
-    // ============================================================
-    // HELPERS — TRIANGULATION SIMPLE
-    // ============================================================
-
-    static bool IsEar(const NkVector<NkVec2f>& poly, size_t i0, size_t i1, size_t i2) {
-        const NkVec2f& A = poly[i0];
-        const NkVec2f& B = poly[i1];
-        const NkVec2f& C = poly[i2];
-        
-        float cross = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x);
-        if (cross <= 0.0001f) return false;
-        
-        for (size_t k = 0; k < poly.Size(); ++k) {
-            if (k == i0 || k == i1 || k == i2) continue;
-            const NkVec2f& P = poly[k];
-            float w0 = (A.x - P.x) * (B.y - P.y) - (A.y - P.y) * (B.x - P.x);
-            float w1 = (B.x - P.x) * (C.y - P.y) - (B.y - P.y) * (C.x - P.x);
-            float w2 = (C.x - P.x) * (A.y - P.y) - (C.y - P.y) * (A.x - P.x);
-            bool allPos = (w0 > 0.0001f && w1 > 0.0001f && w2 > 0.0001f);
-            bool allNeg = (w0 < -0.0001f && w1 < -0.0001f && w2 < -0.0001f);
-            if (allPos || allNeg) return false;
-        }
-        return true;
-    }
-
-    static void TriangulateContour(const NkVector<NkVec2f>& contour,
-                                    NkVector<uint32_t>& outIndices) {
-        if (contour.Size() < 3) return;
-        
-        NkVector<size_t> indices;
-        for (size_t i = 0; i < contour.Size(); ++i) indices.PushBack(i);
-        
-        while (indices.Size() > 3) {
-            bool found = false;
-            for (size_t i = 0; i < indices.Size(); ++i) {
-                size_t i0 = indices[(i + indices.Size() - 1) % indices.Size()];
-                size_t i1 = indices[i];
-                size_t i2 = indices[(i + 1) % indices.Size()];
-                
-                if (IsEar(contour, i0, i1, i2)) {
-                    outIndices.PushBack((uint32_t)i0);
-                    outIndices.PushBack((uint32_t)i1);
-                    outIndices.PushBack((uint32_t)i2);
-                    indices.Erase(indices.Begin() + i);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) break;
-        }
-        
-        if (indices.Size() == 3) {
-            outIndices.PushBack((uint32_t)indices[0]);
-            outIndices.PushBack((uint32_t)indices[1]);
-            outIndices.PushBack((uint32_t)indices[2]);
-        }
     }
 
     // ============================================================
@@ -216,70 +159,107 @@ namespace nkentseu {
         NkVec3f normFront = NkVec3f(0.f, 0.f, -1.f);
         NkVec3f normBack  = NkVec3f(0.f, 0.f,  1.f);
 
-        // Classifier les contours : extérieur (CCW, area > 0) ou trou (CW, area < 0)
+        // Classifier les contours par profondeur d'imbrication.
+        // profondeur paire (0, 2, …) = extérieur ; profondeur impaire (1, 3, …) = trou.
+        // Cette approche est robuste : elle ne dépend pas du signe du winding TrueType.
         struct ContourInfo {
             NkVector<NkVec2f> contour;
             bool isOuter;
             float area;
         };
         NkVector<ContourInfo> contourInfos;
-        for (const auto& c : contours) {
-            float area = ComputeContourArea(c);
-            contourInfos.PushBack({c, area > 0.f, area});
+        for (size_t i = 0; i < contours.Size(); ++i) {
+            int depth = 0;
+            for (size_t j = 0; j < contours.Size(); ++j) {
+                if (i != j && contours[j].Size() > 0 &&
+                    IsPointInPolygon(contours[j], contours[i][0]))
+                    ++depth;
+            }
+            float area = ComputeContourArea(contours[i]);
+            contourInfos.PushBack({contours[i], (depth % 2 == 0), area});
         }
 
-        // Associer les trous à leur contour extérieur parent
+        // Normaliser le winding pour NkEarcut :
+        //   extérieur → CCW (area > 0)   trou → CW (area < 0)
+        for (size_t i = 0; i < contourInfos.Size(); ++i) {
+            ContourInfo& ci = contourInfos[i];
+            bool wantCCW = ci.isOuter;
+            bool isCCW   = (ci.area > 0.f);
+            if (isCCW != wantCCW) {
+                NkVector<NkVec2f>& c = ci.contour;
+                size_t n = c.Size();
+                for (size_t l = 0, r = n - 1; l < r; ++l, --r) {
+                    NkVec2f tmp = c[l]; c[l] = c[r]; c[r] = tmp;
+                }
+                ci.area = -ci.area;
+            }
+        }
+
+        // Associer chaque trou à son contour extérieur parent
         struct ContourGroup {
             ContourInfo outer;
             NkVector<ContourInfo> holes;
         };
         NkVector<ContourGroup> groups;
-        
         for (size_t i = 0; i < contourInfos.Size(); ++i) {
-            if (!contourInfos[i].isOuter) continue;  // On traite seulement les extérieurs
-            
+            if (!contourInfos[i].isOuter) continue;
             ContourGroup group;
             group.outer = contourInfos[i];
-            
-            // Trouver les trous à l'intérieur de ce contour extérieur
             for (size_t j = 0; j < contourInfos.Size(); ++j) {
-                if (i == j) continue;
-                if (!contourInfos[j].isOuter) {  // C'est un trou potentiel
-                    // Vérifier si le premier point du trou est à l'intérieur de l'extérieur
-                    if (IsPointInPolygon(group.outer.contour, contourInfos[j].contour[0])) {
-                        group.holes.PushBack(contourInfos[j]);
-                    }
-                }
+                if (i == j || contourInfos[j].isOuter) continue;
+                if (IsPointInPolygon(group.outer.contour, contourInfos[j].contour[0]))
+                    group.holes.PushBack(contourInfos[j]);
             }
             groups.PushBack(group);
         }
 
-        // Traitement de chaque groupe (extérieur + ses trous)
-        for (const auto& group : groups) {
-            // Points 3D avant/arrière pour le contour extérieur
+        // Pour chaque groupe : tableau plat outer+trous → NkEarcut → faces avant/arrière/latérales
+        for (size_t g = 0; g < groups.Size(); ++g) {
+            const ContourGroup& group = groups[g];
+            size_t outerN = group.outer.contour.Size();
+
+            // Tableau plat : outer d'abord, puis chaque trou dans l'ordre
             NkVector<NkVec3f> frontPts, backPts;
             NkVector<NkVec2f> uvs;
-            
-            for (const auto& pt : group.outer.contour) {
-                float lx = pt.x * scale;
-                float ly = pt.y * scale;
+
+            for (size_t i = 0; i < outerN; ++i) {
+                const NkVec2f& pt = group.outer.contour[i];
+                float lx = pt.x * scale, ly = pt.y * scale;
                 frontPts.PushBack(WorldTransform(worldMatrix, lx, ly, 0.f));
                 backPts.PushBack(WorldTransform(worldMatrix, lx, ly, extrusionDepth));
-
-                // Calcul des UV : mapper la position 2D dans la bbox du glyphe
                 float u = (pt.x - gl->x0) / (gl->x1 - gl->x0 + 1e-6f);
                 float v = (pt.y - gl->y0) / (gl->y1 - gl->y0 + 1e-6f);
                 uvs.PushBack({math::NkClamp(u, 0.f, 1.f), math::NkClamp(v, 0.f, 1.f)});
             }
 
-            // Triangulation du contour extérieur seulement pour les faces avant/arrière
-            // Les trous ne sont PAS triangulés → ils apparaissent comme des vides
-            NkVector<uint32_t> triIndices;
-            TriangulateContour(group.outer.contour, triIndices);
+            NkVector<size_t> holeOffsets;
+            size_t flatOffset = outerN;
+            for (size_t h = 0; h < group.holes.Size(); ++h) {
+                holeOffsets.PushBack(flatOffset);
+                size_t hn = group.holes[h].contour.Size();
+                for (size_t i = 0; i < hn; ++i) {
+                    const NkVec2f& pt = group.holes[h].contour[i];
+                    float lx = pt.x * scale, ly = pt.y * scale;
+                    frontPts.PushBack(WorldTransform(worldMatrix, lx, ly, 0.f));
+                    backPts.PushBack(WorldTransform(worldMatrix, lx, ly, extrusionDepth));
+                    float u = (pt.x - gl->x0) / (gl->x1 - gl->x0 + 1e-6f);
+                    float v = (pt.y - gl->y0) / (gl->y1 - gl->y0 + 1e-6f);
+                    uvs.PushBack({math::NkClamp(u, 0.f, 1.f), math::NkClamp(v, 0.f, 1.f)});
+                }
+                flatOffset += hn;
+            }
+
+            // Triangulation avec trous via NkEarcut (indices globaux dans le tableau plat)
+            NkVector<NkVector<NkVec2f>> polygon;
+            polygon.PushBack(group.outer.contour);
+            for (size_t h = 0; h < group.holes.Size(); ++h)
+                polygon.PushBack(group.holes[h].contour);
+
+            NkVector<std::size_t> triIdx = NkEarcut<float>(polygon);
 
             // Faces avant (winding CCW → normale -Z)
-            for (size_t t = 0; t + 2 < triIndices.Size(); t += 3) {
-                uint32_t i0 = triIndices[t], i1 = triIndices[t+1], i2 = triIndices[t+2];
+            for (size_t t = 0; t + 2 < triIdx.Size(); t += 3) {
+                size_t i0 = triIdx[t], i1 = triIdx[t+1], i2 = triIdx[t+2];
                 NkFontGlyph3DVertex tri[3] = {
                     {frontPts[i0], normFront, uvs[i0], color, (nkft_uint32)cp, 0},
                     {frontPts[i1], normFront, uvs[i1], color, (nkft_uint32)cp, 0},
@@ -289,8 +269,8 @@ namespace nkentseu {
             }
 
             // Faces arrière (winding inversé → normale +Z)
-            for (size_t t = 0; t + 2 < triIndices.Size(); t += 3) {
-                uint32_t i0 = triIndices[t], i1 = triIndices[t+1], i2 = triIndices[t+2];
+            for (size_t t = 0; t + 2 < triIdx.Size(); t += 3) {
+                size_t i0 = triIdx[t], i1 = triIdx[t+1], i2 = triIdx[t+2];
                 NkFontGlyph3DVertex tri[3] = {
                     {backPts[i0], normBack, uvs[i0], color, (nkft_uint32)cp, 1},
                     {backPts[i2], normBack, uvs[i2], color, (nkft_uint32)cp, 1},
@@ -299,90 +279,56 @@ namespace nkentseu {
                 callback(tri, 3, userData);
             }
 
-            // Faces latérales pour le contour extérieur — normales toujours sortantes
-            for (size_t i = 0; i < group.outer.contour.Size(); ++i) {
-                size_t j = (i + 1) % group.outer.contour.Size();
-                
-                const NkVec3f& a0 = frontPts[i];
-                const NkVec3f& a1 = frontPts[j];
-                const NkVec3f& b0 = backPts[i];
-                const NkVec3f& b1 = backPts[j];
-
-                // Calcul de la normale latérale sortante en utilisant l'information trou/extérieur
-                NkVec3f sideNorm = ComputeOutwardSideNormal(group.outer.contour[i], group.outer.contour[j], true);
-                // La normale calculée est en 2D, on la transforme avec la matrice monde (rotation uniquement)
-                // mais ici on l'utilise telle quelle car les faces latérales sont parallèles à Z.
-                // Il faut s'assurer qu'elle est bien orientée dans l'espace 3D.
-                // On applique la rotation de la matrice monde à la normale (sans translation)
-                NkVec3f worldNormal{
-                    worldMatrix.data[0]*sideNorm.x + worldMatrix.data[4]*sideNorm.y + worldMatrix.data[8]*sideNorm.z,
-                    worldMatrix.data[1]*sideNorm.x + worldMatrix.data[5]*sideNorm.y + worldMatrix.data[9]*sideNorm.z,
-                    worldMatrix.data[2]*sideNorm.x + worldMatrix.data[6]*sideNorm.y + worldMatrix.data[10]*sideNorm.z
+            // Faces latérales du contour extérieur (CCW → normale droite = sortante)
+            for (size_t i = 0; i < outerN; ++i) {
+                size_t j = (i + 1) % outerN;
+                NkVec3f sn = ComputeOutwardSideNormal(
+                    group.outer.contour[i], group.outer.contour[j], true);
+                NkVec3f wn{
+                    worldMatrix.data[0]*sn.x + worldMatrix.data[4]*sn.y + worldMatrix.data[8]*sn.z,
+                    worldMatrix.data[1]*sn.x + worldMatrix.data[5]*sn.y + worldMatrix.data[9]*sn.z,
+                    worldMatrix.data[2]*sn.x + worldMatrix.data[6]*sn.y + worldMatrix.data[10]*sn.z
                 };
-                worldNormal = worldNormal.Normalized();
-
-                // Quad latéral : deux triangles
+                wn = wn.Normalized();
                 NkFontGlyph3DVertex quad[6] = {
-                    {a0, worldNormal, uvs[i], color, (nkft_uint32)cp, 2},
-                    {b0, worldNormal, uvs[i], color, (nkft_uint32)cp, 2},
-                    {b1, worldNormal, uvs[j], color, (nkft_uint32)cp, 2},
-                    {a0, worldNormal, uvs[i], color, (nkft_uint32)cp, 2},
-                    {b1, worldNormal, uvs[j], color, (nkft_uint32)cp, 2},
-                    {a1, worldNormal, uvs[j], color, (nkft_uint32)cp, 2}
+                    {frontPts[i], wn, uvs[i], color, (nkft_uint32)cp, 2},
+                    {backPts[i],  wn, uvs[i], color, (nkft_uint32)cp, 2},
+                    {backPts[j],  wn, uvs[j], color, (nkft_uint32)cp, 2},
+                    {frontPts[i], wn, uvs[i], color, (nkft_uint32)cp, 2},
+                    {backPts[j],  wn, uvs[j], color, (nkft_uint32)cp, 2},
+                    {frontPts[j], wn, uvs[j], color, (nkft_uint32)cp, 2}
                 };
                 callback(quad, 6, userData);
             }
 
-            // Traitement des trous : uniquement les faces latérales (pas de triangulation front/back)
-            for (const auto& hole : group.holes) {
-                NkVector<NkVec3f> holeFrontPts, holeBackPts;
-                NkVector<NkVec2f> holeUvs;
-                
-                for (const auto& pt : hole.contour) {
-                    float lx = pt.x * scale;
-                    float ly = pt.y * scale;
-                    holeFrontPts.PushBack(WorldTransform(worldMatrix, lx, ly, 0.f));
-                    holeBackPts.PushBack(WorldTransform(worldMatrix, lx, ly, extrusionDepth));
-
-                    float u = (pt.x - gl->x0) / (gl->x1 - gl->x0 + 1e-6f);
-                    float v = (pt.y - gl->y0) / (gl->y1 - gl->y0 + 1e-6f);
-                    holeUvs.PushBack({math::NkClamp(u, 0.f, 1.f), math::NkClamp(v, 0.f, 1.f)});
-                }
-
-                // Faces latérales pour le trou — normales sortantes (isOuter = false)
-                for (size_t i = 0; i < hole.contour.Size(); ++i) {
-                    size_t j = (i + 1) % hole.contour.Size();
-                    
-                    const NkVec3f& a0 = holeFrontPts[i];
-                    const NkVec3f& a1 = holeFrontPts[j];
-                    const NkVec3f& b0 = holeBackPts[i];
-                    const NkVec3f& b1 = holeBackPts[j];
-
-                    NkVec3f sideNorm = ComputeOutwardSideNormal(hole.contour[i], hole.contour[j], false);
-                    NkVec3f worldNormal{
-                        worldMatrix.data[0]*sideNorm.x + worldMatrix.data[4]*sideNorm.y + worldMatrix.data[8]*sideNorm.z,
-                        worldMatrix.data[1]*sideNorm.x + worldMatrix.data[5]*sideNorm.y + worldMatrix.data[9]*sideNorm.z,
-                        worldMatrix.data[2]*sideNorm.x + worldMatrix.data[6]*sideNorm.y + worldMatrix.data[10]*sideNorm.z
+            // Faces latérales des trous (CW → normale droite pointe vers centre du trou)
+            for (size_t h = 0; h < group.holes.Size(); ++h) {
+                size_t ho = holeOffsets[h];
+                size_t hn = group.holes[h].contour.Size();
+                for (size_t i = 0; i < hn; ++i) {
+                    size_t j  = (i + 1) % hn;
+                    size_t gi = ho + i;
+                    size_t gj = ho + j;
+                    NkVec3f sn = ComputeOutwardSideNormal(
+                        group.holes[h].contour[i], group.holes[h].contour[j], true);
+                    NkVec3f wn{
+                        worldMatrix.data[0]*sn.x + worldMatrix.data[4]*sn.y + worldMatrix.data[8]*sn.z,
+                        worldMatrix.data[1]*sn.x + worldMatrix.data[5]*sn.y + worldMatrix.data[9]*sn.z,
+                        worldMatrix.data[2]*sn.x + worldMatrix.data[6]*sn.y + worldMatrix.data[10]*sn.z
                     };
-                    worldNormal = worldNormal.Normalized();
-
+                    wn = wn.Normalized();
                     NkFontGlyph3DVertex quad[6] = {
-                        {a0, worldNormal, holeUvs[i], color, (nkft_uint32)cp, 2},
-                        {b0, worldNormal, holeUvs[i], color, (nkft_uint32)cp, 2},
-                        {b1, worldNormal, holeUvs[j], color, (nkft_uint32)cp, 2},
-                        {a0, worldNormal, holeUvs[i], color, (nkft_uint32)cp, 2},
-                        {b1, worldNormal, holeUvs[j], color, (nkft_uint32)cp, 2},
-                        {a1, worldNormal, holeUvs[j], color, (nkft_uint32)cp, 2}
+                        {frontPts[gi], wn, uvs[gi], color, (nkft_uint32)cp, 2},
+                        {backPts[gi],  wn, uvs[gi], color, (nkft_uint32)cp, 2},
+                        {backPts[gj],  wn, uvs[gj], color, (nkft_uint32)cp, 2},
+                        {frontPts[gi], wn, uvs[gi], color, (nkft_uint32)cp, 2},
+                        {backPts[gj],  wn, uvs[gj], color, (nkft_uint32)cp, 2},
+                        {frontPts[gj], wn, uvs[gj], color, (nkft_uint32)cp, 2}
                     };
                     callback(quad, 6, userData);
                 }
             }
         }
-
-        // Traitement des contours qui n'ont pas été groupés (contours extérieurs isolés sans trous)
-        // Cette boucle gère les cas où un contour extérieur n'a pas de trous associés
-        // ou les contours qui étaient déjà traités dans la boucle principale
-        // (Cette section est redondante mais conservée pour sécurité)
     }
 
     // ============================================================

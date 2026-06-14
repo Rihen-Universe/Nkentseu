@@ -5,8 +5,8 @@
 // Utilise un framework de test minimaliste sans dépendance externe.
 // Exécuter avec : NkSLTests [--verbose] [filter]
 // =============================================================================
-#include "NkSLCompiler.h"
-#include "NkSLSemantic.h"
+#include "NKSL/Compiler/NkSLCompiler.h"
+#include "NKSL/Frontend/NkSLSemantic.h"
 #include "NkSLIntegration.h"
 #include <cstdio>
 #include <cstring>

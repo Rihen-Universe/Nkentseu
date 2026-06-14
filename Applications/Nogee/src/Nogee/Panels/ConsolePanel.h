@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Panels/ConsolePanel.h
+// Noge/Panels/ConsolePanel.h
 // =============================================================================
 // Panel console qui affiche les messages NkLogger en temps réel.
 // Supporte filtres par niveau, recherche texte, copie, effacement.

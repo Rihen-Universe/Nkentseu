@@ -60,10 +60,10 @@
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
-#include "NKContext/Factory/NkContextFactory.h"
-#include "NKContext/Core/NkContextDesc.h"
-#include "NKContext/Core/NkNativeContextAccess.h"
-#include "NKContext/Core/NkOpenGLDesc.h"
+#include "NKCanvas/Factory/NkContextFactory.h"
+#include "NKCanvas/Core/NkContextDesc.h"
+#include "NKCanvas/Core/NkNativeContextAccess.h"
+#include "NKCanvas/Core/NkOpenGLDesc.h"
 #include "NKTime/NkChrono.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -345,7 +345,13 @@ struct ShadowMap {
         glGenFramebuffers(1, &fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex, 0);
+        // glDrawBuffer n'existe pas en OpenGL ES (Android/Web) : utiliser glDrawBuffers (GLES 3.0+).
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
+        { GLenum noneBuf = GL_NONE; glDrawBuffers(1, &noneBuf); }
+        glReadBuffer(GL_NONE);
+#else
         glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE);
+#endif
         bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return ok;

@@ -1,0 +1,22 @@
+{
+    "include": [
+        "**/*.py",
+        "**/*.jenga"
+    ],
+    "exclude": [
+        "Build/**",
+        "Externals/**",
+        ".vscode/**",
+        "**/__pycache__",
+        "**/node_modules"
+    ],
+    "pythonVersion": "3.8",
+    "reportMissingImports": "warning",
+    "reportUndefinedVariable": "warning",
+    "reportWildcardImportFromLibrary": "none",
+    "extraPaths": [
+        "D:/Projets/MacShared/Projets/Jenga",
+        ".jenga-typings"
+    ],
+    "_jengaIdeConfigVersion": "a950fb367dc6dc79"
+}

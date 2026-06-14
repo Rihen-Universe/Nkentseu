@@ -1,0 +1,61 @@
+// =============================================================================
+// NkLayerBlend.glsli  — M.1 v1 : Material Layering helpers
+//
+// Struct simplifiee + helper de blend pour empiler N couches PBR.
+// Utilise par layeredv1.frag.vk.glsl (M.1 v1) — extensible a tout shader
+// custom qui veut faire du layering style UE5 Material Layers.
+// =============================================================================
+
+// Une "couche" PBR simplifiee (32 bytes std140-aligned).
+// On garde uniquement albedo + metallic + roughness — assez pour les effets
+// classiques (or sur cuivre, peinture sur rouille, etc.).
+struct NkPBRLayer {
+    vec4  albedo;       // RGBA — A est utilise comme masque interne optionnel
+    float metallic;
+    float roughness;
+    float _pad0;
+    float _pad1;
+};
+
+// Sources de masque possibles (doit matcher l'enum CPU NkLayerMaskSource) :
+//   0 = vColor.r       4 = vUV.x
+//   1 = vColor.g       5 = vUV.y
+//   2 = vColor.b       6 = constant (utilise maskConstants[i])
+//   3 = vColor.a       7 = layer.albedo.a (=> auto-mask sur l'alpha de la couche)
+float NkPickMask(int source, vec4 vColor, vec2 vUV, float k, float layerAlbedoA) {
+    if (source == 0) return vColor.r;
+    if (source == 1) return vColor.g;
+    if (source == 2) return vColor.b;
+    if (source == 3) return vColor.a;
+    if (source == 4) return clamp(vUV.x, 0.0, 1.0);
+    if (source == 5) return clamp(vUV.y, 0.0, 1.0);
+    if (source == 6) return clamp(k, 0.0, 1.0);
+    if (source == 7) return clamp(layerAlbedoA, 0.0, 1.0);
+    return 0.0;
+}
+
+// Blend simple "alpha over" : accum = mix(accum, layer, mask).
+// Applique sur les 3 composantes principales (albedo, metallic, roughness)
+// via 3 appels successifs ou via cette macro composite.
+struct NkLayerAccum {
+    vec3  albedo;
+    float metallic;
+    float roughness;
+};
+
+// Initialise l'accumulateur depuis le layer 0 (sans masque — c'est la base).
+NkLayerAccum NkLayerInit(NkPBRLayer L0) {
+    NkLayerAccum a;
+    a.albedo    = L0.albedo.rgb;
+    a.metallic  = L0.metallic;
+    a.roughness = L0.roughness;
+    return a;
+}
+
+// Ajoute le layer L sur l'accumulateur avec un mask scalaire [0,1].
+NkLayerAccum NkLayerBlend(NkLayerAccum a, NkPBRLayer L, float mask) {
+    a.albedo    = mix(a.albedo,    L.albedo.rgb, mask);
+    a.metallic  = mix(a.metallic,  L.metallic,   mask);
+    a.roughness = mix(a.roughness, L.roughness,  mask);
+    return a;
+}

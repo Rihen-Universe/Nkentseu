@@ -1,0 +1,15 @@
+// dof.frag.metal.msl — DOF Bokeh (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct DOFUBO{float focusDistance,aperture,focalLength,maxBlur,nearP,farP;float _p[2];};
+struct PSIn{float4 pos[[position]];float2 uv;};
+constant float2 disk[16]={float2(0.f,.5f),float2(.707f,.707f),float2(.5f,0.f),float2(.707f,-.707f),float2(0.f,-.5f),float2(-.707f,-.707f),float2(-.5f,0.f),float2(-.707f,.707f),float2(0.f,1.f),float2(1.f,0.f),float2(0.f,-1.f),float2(-1.f,0.f),float2(.5f,.866f),float2(.866f,.5f),float2(.866f,-.5f),float2(.5f,-.866f)};
+fragment float4 dofFrag(PSIn i[[stage_in]],texture2d<float> tHDR[[texture(0)]],texture2d<float> tD[[texture(1)]],sampler sL[[sampler(0)]],constant DOFUBO& u[[buffer(3)]]){
+    float d=(2.f*u.nearP*u.farP)/(u.farP+u.nearP-tD.sample(sL,i.uv).r*(u.farP-u.nearP));
+    float coc=clamp((d-u.focusDistance)*u.aperture/max(d,.001f),-u.maxBlur,u.maxBlur);
+    float br=abs(coc);if(br<.5f)return tHDR.sample(sL,i.uv);
+    float2 ts=1.f/float2(tHDR.get_width(),tHDR.get_height());
+    float3 acc=float3(0.f);float w=0.f;
+    for(int li=0;li<16;li++){float2 off=disk[li]*br*ts;float sd=(2.f*u.nearP*u.farP)/(u.farP+u.nearP-tD.sample(sL,i.uv+off).r*(u.farP-u.nearP));float sc=clamp((sd-u.focusDistance)*u.aperture/max(sd,.001f),-u.maxBlur,u.maxBlur);float ww=(abs(sc)>=length(disk[li])*br)?1.f:0.f;acc+=tHDR.sample(sL,i.uv+off).rgb*ww;w+=ww;}
+    return float4(acc/max(w,1.f),1.f);
+}

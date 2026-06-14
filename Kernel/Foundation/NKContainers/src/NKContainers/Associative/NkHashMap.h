@@ -24,6 +24,7 @@
     #include "NKContainers/Heterogeneous/NkPair.h" // Conteneur de paire pour stocker clé-valeur
     #include "NKContainers/Iterators/NkIterator.h" // Infrastructure commune pour les itérateurs
     #include "NKContainers/Iterators/NkInitializerList.h" // Support des listes d'initialisation
+    #include "NKContainers/Functional/NkFunctional.h" // NkHash<T> specialisations (FNV-1a pour NkString, types POD)
 
     // ========================================================================
     // ESPACE DE NOMS PRINCIPAL
@@ -61,20 +62,24 @@
         struct NkHashMapDefaultHasher {
 
             /**
-             * @brief Calcule le hash d'une clé selon l'algorithme FNV-1a
-             * @param key Référence const vers la clé à hacher
-             * @return Valeur de type usize représentant le hash calculé
-             * @note Méthode const : ne modifie pas l'état du foncteur
-             * @note Complexité O(sizeof(Key)) : parcours linéaire des octets de la clé
+             * @brief Calcule le hash d'une clé en deleguant a `NkHash<Key>`
+             *        (NKContainers/Functional/NkFunctional.h).
+             *
+             * Implementation precedente : hash des OCTETS BRUTS du struct Key
+             *   (`reinterpret_cast<uint8*>(&key)`, sizeof(Key) bytes).
+             * Bug majeur pour tout type non-POD avec pointeurs internes :
+             * 2 instances avec meme contenu logique = pointers differents =
+             * hashes differents = `Find` echoue silencieusement.
+             *
+             * Solution : on delegue a `NkHash<Key>` qui doit etre specialise
+             * pour le type Key. Specialisations existantes : int32, uint32,
+             * int64, uint64, float32, float64, NkString. Pour un type custom,
+             * l'utilisateur doit definir `template<> struct NkHash<MyType>`,
+             * sinon le static_assert du fallback NkHash<T> generique se
+             * declenchera (erreur de compilation claire).
              */
             usize operator()(const Key& key) const {
-                const nk_uint8* data = reinterpret_cast<const nk_uint8*>(&key);
-                usize hash = static_cast<usize>(1469598103934665603ull);
-                for (usize i = 0; i < sizeof(Key); ++i) {
-                    hash ^= static_cast<usize>(data[i]);
-                    hash *= static_cast<usize>(1099511628211ull);
-                }
-                return hash;
+                return NkHash<Key>{}(key);
             }
         };
 

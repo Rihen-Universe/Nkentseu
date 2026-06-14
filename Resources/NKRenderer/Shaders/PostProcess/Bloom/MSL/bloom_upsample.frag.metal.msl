@@ -1,0 +1,13 @@
+// bloom_upsample.frag.metal.msl — Bloom Upsample (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct BloomUBO{float threshold,bloomStrength,upsampleRadius,_p;};struct PSIn{float4 pos[[position]];float2 uv;};
+fragment float4 bloomUpFrag(PSIn i[[stage_in]],texture2d<float> tS[[texture(0)]],texture2d<float> tD[[texture(1)]],sampler sL[[sampler(0)]],constant BloomUBO& u[[buffer(2)]]){
+    float2 ts=1.f/float2(tS.get_width(),tS.get_height())*u.upsampleRadius;
+    float3 s=tS.sample(sL,i.uv+ts*float2(-1,1)).rgb+tS.sample(sL,i.uv+ts*float2(0,2)).rgb*2.f
+            +tS.sample(sL,i.uv+ts*float2(1,1)).rgb+tS.sample(sL,i.uv+ts*float2(-2,0)).rgb*2.f
+            +tS.sample(sL,i.uv).rgb*4.f+tS.sample(sL,i.uv+ts*float2(2,0)).rgb*2.f
+            +tS.sample(sL,i.uv+ts*float2(-1,-1)).rgb+tS.sample(sL,i.uv+ts*float2(0,-2)).rgb*2.f
+            +tS.sample(sL,i.uv+ts*float2(1,-1)).rgb;
+    return float4(s/16.f*u.bloomStrength+tD.sample(sL,i.uv).rgb,1.f);
+}

@@ -5,7 +5,7 @@
 #include <cstring>
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         // =====================================================================
         NkAssetType AssetManager::DetectType(const char* path) noexcept {
@@ -199,5 +199,5 @@ namespace nkentseu {
             return it != mIndex.End() ? &mEntries[it->second] : nullptr;
         }
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

@@ -1,0 +1,744 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Pong" Manufacturer="Rihen Universe" Version="1.0.0" UpgradeCode="40F44F89-D896-4C6A-B5F2-CB51F9F1D18D">
+    <MediaTemplate EmbedCab="yes" />
+    <WixVariable Id="WixUILicenseRtf" Value="E:\Projets\2026\Nkentseu\Nkentseu\dist\Pong-windows\Pong_license.rtf" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Icon Id="AppIcon.ico" SourceFile="E:\Projets\2026\Nkentseu\Nkentseu\dist\Pong-windows\Pong_app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="Pong">
+        <Directory Id="Dir_Resources" Name="Resources">
+          <Directory Id="Dir_Resources_Pong" Name="Pong">
+            <Directory Id="Dir_Resources_Pong_Audio" Name="Audio">
+              <Component Id="Comp_Resources_Pong_Audio_bleep_wav_0" Guid="A6EC993E-76C4-4C9E-8490-999429D56785">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Audio\bleep.wav" Name="bleep.wav" KeyPath="yes" />
+              </Component>
+              <Component Id="Comp_Resources_Pong_Audio_powerup_wav_1" Guid="F7D75967-272B-4661-B510-5C494DC575A4">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Audio\powerup.wav" Name="powerup.wav" KeyPath="yes" />
+              </Component>
+              <Component Id="Comp_Resources_Pong_Audio_solid_wav_2" Guid="5013B917-39DE-4CC9-A582-7186FC297DD3">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Audio\solid.wav" Name="solid.wav" KeyPath="yes" />
+              </Component>
+            </Directory>
+            <Directory Id="Dir_Resources_Pong_Gif" Name="Gif">
+              <Component Id="Comp_Resources_Pong_Gif_01_gif_3" Guid="C2403EE8-8C2B-441F-80A8-F5069CF2C84F">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Gif\01.gif" Name="01.gif" KeyPath="yes" />
+              </Component>
+              <Component Id="Comp_Resources_Pong_Gif_02_gif_4" Guid="B07EA7D6-F900-483E-9EC0-2A8A9009A1CE">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Gif\02.gif" Name="02.gif" KeyPath="yes" />
+              </Component>
+              <Component Id="Comp_Resources_Pong_Gif_gifanime_gif_5" Guid="19A461D8-D33B-4A64-8A3A-43CE01250F92">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Gif\gifanime.gif" Name="gifanime.gif" KeyPath="yes" />
+              </Component>
+              <Component Id="Comp_Resources_Pong_Gif_gif_01_gif_6" Guid="974E8B3D-FD5C-4D2D-8D99-9B20686E2C3A">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Gif\gif_01.gif" Name="gif_01.gif" KeyPath="yes" />
+              </Component>
+            </Directory>
+            <Directory Id="Dir_Resources_Pong_Textures" Name="Textures">
+              <Directory Id="Dir_Resources_Pong_Textures_animrihen" Name="animrihen">
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00000_png_9" Guid="09F9D4D6-FF38-452A-9287-96167D73FED5">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00000.png" Name="rihen_00000.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00001_png_10" Guid="9EC26217-04FE-499C-8FBF-E2AAC94ACEDC">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00001.png" Name="rihen_00001.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00002_png_11" Guid="0CAC68E2-A160-4EF3-89DF-48A7F72798D7">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00002.png" Name="rihen_00002.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00003_png_12" Guid="B54974F2-B9B6-40A8-AD74-98D8F0AA387E">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00003.png" Name="rihen_00003.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00004_png_13" Guid="231BB5E6-6096-41D8-A1DC-ECFA1FCDBB86">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00004.png" Name="rihen_00004.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00005_png_14" Guid="6FB0D6B8-D8FD-4F5F-87E5-35D5610E4A7E">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00005.png" Name="rihen_00005.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00006_png_15" Guid="87640F49-C2A9-4059-B200-E330557610A5">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00006.png" Name="rihen_00006.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00007_png_16" Guid="28193F89-3520-44E9-AE69-42003869ABDA">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00007.png" Name="rihen_00007.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00008_png_17" Guid="83661FE3-664B-46B0-9E99-FCD3116DDADB">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00008.png" Name="rihen_00008.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00009_png_18" Guid="0B2BD8B8-2E8C-4654-BF73-6FCD7AEF4659">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00009.png" Name="rihen_00009.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00010_png_19" Guid="55AA6D65-A477-4339-8C3C-D2EF3828BE5C">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00010.png" Name="rihen_00010.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00011_png_20" Guid="4A55D703-9814-4521-B4DD-6ACC7D21334E">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00011.png" Name="rihen_00011.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00012_png_21" Guid="FB959E8D-E738-4A88-9649-B3DF8E671927">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00012.png" Name="rihen_00012.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00013_png_22" Guid="57998E09-2952-4EE5-8474-D188566707F7">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00013.png" Name="rihen_00013.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00014_png_23" Guid="04806B2E-783F-4CF5-AECD-1C602E41CBEF">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00014.png" Name="rihen_00014.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00015_png_24" Guid="9CDE7B1C-3F79-460D-8F0F-7F4B1D263948">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00015.png" Name="rihen_00015.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00016_png_25" Guid="B52D0F16-3BF7-40FD-AD3B-FEB93224EFC4">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00016.png" Name="rihen_00016.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00017_png_26" Guid="BC25FB61-9647-4DF0-9786-5B546A6B1D86">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00017.png" Name="rihen_00017.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00018_png_27" Guid="73E6C0D0-BA66-4C7A-975E-B8BE2A912A40">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00018.png" Name="rihen_00018.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00019_png_28" Guid="DFBD46CA-A1F3-43AB-8883-3B1835F9E960">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00019.png" Name="rihen_00019.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00020_png_29" Guid="4DBF1701-2D57-4739-B0A3-3B34DE1E936D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00020.png" Name="rihen_00020.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00021_png_30" Guid="224A1D42-9E06-48B5-9B92-94D42530961F">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00021.png" Name="rihen_00021.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00022_png_31" Guid="7C131DC8-30DC-4681-A778-DE29B51FC2A0">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00022.png" Name="rihen_00022.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00023_png_32" Guid="6C050ED8-0DE6-49AB-A79D-CE44D87EFABC">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00023.png" Name="rihen_00023.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00024_png_33" Guid="ADD23E19-3E84-4194-8545-4D835EB696B3">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00024.png" Name="rihen_00024.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00025_png_34" Guid="B30AE252-A6F3-4FF2-93B3-24D8153D5A2A">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00025.png" Name="rihen_00025.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00026_png_35" Guid="2CB555EF-ABE6-47AE-B420-BC76E9C23EEC">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00026.png" Name="rihen_00026.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00027_png_36" Guid="752C9BF9-DA63-4A77-AF4E-FCF614581541">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00027.png" Name="rihen_00027.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00028_png_37" Guid="81E8F8F2-900E-4071-A9EE-FB14EAFF64EC">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00028.png" Name="rihen_00028.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00029_png_38" Guid="D99E47DA-24E1-4D49-85BE-425488D6A7E8">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00029.png" Name="rihen_00029.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00030_png_39" Guid="DA884F6F-80EC-4472-9506-2394A9B6EE90">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00030.png" Name="rihen_00030.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00031_png_40" Guid="F81D815C-0A00-44BE-9498-2D22D1C349FF">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00031.png" Name="rihen_00031.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00032_png_41" Guid="AEE9F94D-AE90-4BC2-9190-A7AB7E7D9881">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00032.png" Name="rihen_00032.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00033_png_42" Guid="F5EC83C1-499F-4EBB-BDC5-1A7EB4738F5D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00033.png" Name="rihen_00033.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00034_png_43" Guid="5F1FDEC3-55F6-44BF-96BE-639E4090742A">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00034.png" Name="rihen_00034.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00035_png_44" Guid="9CADB325-DEEF-4CEF-9921-5718474B5B00">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00035.png" Name="rihen_00035.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00036_png_45" Guid="E1C86A4C-3C88-4857-B1D8-6E3D33123F25">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00036.png" Name="rihen_00036.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00037_png_46" Guid="2E6960C8-A850-4681-90BA-F7EF734FAE1F">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00037.png" Name="rihen_00037.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00038_png_47" Guid="563C70CA-ABC8-45BA-85E1-7CCBAE6BC263">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00038.png" Name="rihen_00038.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00039_png_48" Guid="5C4390B0-8C23-4A65-BDDB-C8AFC77FD289">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00039.png" Name="rihen_00039.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00040_png_49" Guid="D75C7D1B-74CF-44B8-9A52-DE03C6386253">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00040.png" Name="rihen_00040.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00041_png_50" Guid="B96FF83D-4C41-4E84-AE86-D92CACA14FBA">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00041.png" Name="rihen_00041.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00042_png_51" Guid="23C6A474-A30F-40BC-B96A-320B59D78B14">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00042.png" Name="rihen_00042.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00043_png_52" Guid="D739A975-BD9E-4A98-B3D2-CB97DF8E0E64">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00043.png" Name="rihen_00043.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00044_png_53" Guid="11BF9328-7F74-42FD-960A-E95AF008987B">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00044.png" Name="rihen_00044.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00045_png_54" Guid="E16EAC90-CEC1-46FA-AFE5-07B975DF3165">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00045.png" Name="rihen_00045.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00046_png_55" Guid="75FF03B9-2B8C-4FBA-A07E-BCB07B0889B4">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00046.png" Name="rihen_00046.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00047_png_56" Guid="A5C70BC5-85EB-4D9E-A5D5-08DC1639ACB9">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00047.png" Name="rihen_00047.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00048_png_57" Guid="0D66806C-15A3-4886-8813-5B9F569D4ECD">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00048.png" Name="rihen_00048.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00049_png_58" Guid="156B13D2-689C-4F5E-8F70-F17B19D9DF38">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00049.png" Name="rihen_00049.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00050_png_59" Guid="AF3107D3-1111-49D7-895E-5C285AD2B67C">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00050.png" Name="rihen_00050.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00051_png_60" Guid="BF3CEDEA-6CBD-46B5-83B8-F8A2154531C2">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00051.png" Name="rihen_00051.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00052_png_61" Guid="20ACA25F-E4A9-4AAF-BB3E-898E54E1517F">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00052.png" Name="rihen_00052.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00053_png_62" Guid="818B2464-0976-4E9E-8A6C-D0F9C3A084C8">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00053.png" Name="rihen_00053.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00054_png_63" Guid="DB5034D2-1F34-4CD1-814D-61F0050D36BB">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00054.png" Name="rihen_00054.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00055_png_64" Guid="27D3A460-1719-49FE-9E8A-31AD8E4E0419">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00055.png" Name="rihen_00055.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00056_png_65" Guid="CCD05917-3997-4A49-93F1-C099B5237172">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00056.png" Name="rihen_00056.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00057_png_66" Guid="91BD7C9B-4AEF-41C4-B369-F0B7557AA8D6">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00057.png" Name="rihen_00057.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00058_png_67" Guid="90891F60-04DF-4C58-9DE6-92FD83E821F9">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00058.png" Name="rihen_00058.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00059_png_68" Guid="0C046C08-70FE-4F3A-BAFD-4B49BB9E9CAA">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00059.png" Name="rihen_00059.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00060_png_69" Guid="E0241A84-49D3-40D2-9E87-E54EAEDDAEE5">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00060.png" Name="rihen_00060.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00061_png_70" Guid="667A310A-3927-483D-B6B6-999B201CCAC3">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00061.png" Name="rihen_00061.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00062_png_71" Guid="F365F2AB-6C92-4A6F-988A-FE04A4E4A37C">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00062.png" Name="rihen_00062.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00063_png_72" Guid="BC4EC3DE-AC59-49CD-A0C4-0DE1F7B7FE63">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00063.png" Name="rihen_00063.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00064_png_73" Guid="9123F690-4920-4F37-8664-FA0E4AB7B004">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00064.png" Name="rihen_00064.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00065_png_74" Guid="5E24DD7B-E15A-4B88-B406-62A67E87F77D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00065.png" Name="rihen_00065.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00066_png_75" Guid="0D6871AA-5A2E-4C38-A573-BFECBA34BAF7">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00066.png" Name="rihen_00066.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00067_png_76" Guid="90545F15-0AFE-4E73-A06A-A144EEB8B054">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00067.png" Name="rihen_00067.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00068_png_77" Guid="90B1E2A4-92BA-4305-AA87-4EBFCD5A7649">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00068.png" Name="rihen_00068.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00069_png_78" Guid="19939DCF-B71F-4D73-B83D-953521F676E6">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00069.png" Name="rihen_00069.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00070_png_79" Guid="26F5DE2A-9A29-4B28-9E70-D279010802EA">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00070.png" Name="rihen_00070.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00071_png_80" Guid="2DE5058A-2671-4F4A-BCD9-71ABE866F8CD">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00071.png" Name="rihen_00071.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00072_png_81" Guid="70579677-86BE-4DC2-A254-A6945D79ED21">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00072.png" Name="rihen_00072.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00073_png_82" Guid="7D5C3532-CC2D-422D-AC85-8BC08A0F81DD">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00073.png" Name="rihen_00073.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00074_png_83" Guid="7F0AAF92-CF60-46FE-8AE5-E6EAF9538A76">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00074.png" Name="rihen_00074.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00075_png_84" Guid="5EFB1738-8B2C-4915-8574-ED31F24079A0">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00075.png" Name="rihen_00075.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00076_png_85" Guid="205B47E8-8E23-47B2-88DA-D4F658EB5B92">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00076.png" Name="rihen_00076.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00077_png_86" Guid="336B324F-2A66-497E-A095-6F8630211BB1">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00077.png" Name="rihen_00077.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00078_png_87" Guid="BD26D6A4-D07F-44FA-935E-11F03560FC4D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00078.png" Name="rihen_00078.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00079_png_88" Guid="74CBA841-3FCE-453F-8D13-444FB2DD4248">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00079.png" Name="rihen_00079.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00080_png_89" Guid="F5B9FC93-7A9F-4B4D-AC1A-C9D323EA9DF3">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00080.png" Name="rihen_00080.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00081_png_90" Guid="93695BBB-7502-4A81-903E-FC12845FAF74">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00081.png" Name="rihen_00081.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00082_png_91" Guid="E83A1ADE-BE96-4A56-B789-19CFD0F52B7E">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00082.png" Name="rihen_00082.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00083_png_92" Guid="190298E9-F16A-4412-84C6-6E5FC7C49C38">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00083.png" Name="rihen_00083.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00084_png_93" Guid="310CBD36-C671-4619-8165-3E168A79F0B0">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00084.png" Name="rihen_00084.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00085_png_94" Guid="ADC6DCFD-E90C-4030-BA53-4E9D2C59BBD4">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00085.png" Name="rihen_00085.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00086_png_95" Guid="9D141385-A308-44D0-BD85-B087489680B8">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00086.png" Name="rihen_00086.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00087_png_96" Guid="90F31D29-1DA7-4A02-8683-CC597224ECFB">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00087.png" Name="rihen_00087.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00088_png_97" Guid="9669E240-4D4C-4625-8B90-D0056192E2FF">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00088.png" Name="rihen_00088.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00089_png_98" Guid="84976FAD-AF3E-4DD1-A2E4-3469DAE66BC6">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00089.png" Name="rihen_00089.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00090_png_99" Guid="7A703506-AF0F-48AC-A7A6-F3A12C4D62C3">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00090.png" Name="rihen_00090.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00091_png_100" Guid="B972CED6-0859-4B2E-A8AE-4AC10EA39FF6">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00091.png" Name="rihen_00091.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00092_png_101" Guid="3B5B4CAD-B892-4CE8-8229-28F88C6B058B">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00092.png" Name="rihen_00092.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00093_png_102" Guid="02CD6147-F259-495E-AE76-D24D51354122">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00093.png" Name="rihen_00093.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00094_png_103" Guid="FC88F9D2-7F2F-4EB2-A9AF-5C741755356A">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00094.png" Name="rihen_00094.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00095_png_104" Guid="42E75641-360D-4B26-876D-50D41BC5C684">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00095.png" Name="rihen_00095.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00096_png_105" Guid="2DD02986-E91E-4B4A-A8E0-F619D0376390">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00096.png" Name="rihen_00096.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00097_png_106" Guid="11C1B107-DFEF-4EDE-9CBE-E3DF1A4AEACE">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00097.png" Name="rihen_00097.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00098_png_107" Guid="A7F7487F-B8B3-4E9E-9C1F-9FF5F15107E9">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00098.png" Name="rihen_00098.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00099_png_108" Guid="4B3E3CAB-3143-4C11-86C4-B6043197E357">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00099.png" Name="rihen_00099.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00100_png_109" Guid="4B0C3325-B3D3-4EF1-9A38-C561B3AFC497">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00100.png" Name="rihen_00100.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00101_png_110" Guid="E02534B0-BC4B-4297-8CFE-640A6F696777">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00101.png" Name="rihen_00101.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00102_png_111" Guid="83FAB0D9-6C5D-4475-BC89-D7ECF5456B5B">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00102.png" Name="rihen_00102.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00103_png_112" Guid="82004404-36CD-4B94-8EE2-F9E09247E8E9">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00103.png" Name="rihen_00103.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00104_png_113" Guid="B4DEC984-33C7-4636-BC57-99FEC4C35BDD">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00104.png" Name="rihen_00104.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00105_png_114" Guid="97200CD7-B87A-46CE-ABDC-B7F221A21299">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00105.png" Name="rihen_00105.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00106_png_115" Guid="576D0160-B357-449E-BD80-1CBD425A82FB">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00106.png" Name="rihen_00106.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00107_png_116" Guid="8BEC949F-B797-49B7-BCBE-8900ED996C33">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00107.png" Name="rihen_00107.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00108_png_117" Guid="76B69C24-0FC2-4769-9A11-82968232E2DE">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00108.png" Name="rihen_00108.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00109_png_118" Guid="2DA85BF1-6E47-47A8-951C-F18A9B653388">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00109.png" Name="rihen_00109.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00110_png_119" Guid="B242DB52-A131-4260-B8E9-7ADBC2A70220">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00110.png" Name="rihen_00110.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00111_png_120" Guid="C42970AE-CA02-42DB-B2B6-7F772BC135D1">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00111.png" Name="rihen_00111.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00112_png_121" Guid="6065D42A-0409-45A0-A0AF-25AC33C5E78C">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00112.png" Name="rihen_00112.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00113_png_122" Guid="494E87F6-DEA8-45B8-836E-73FCB14ADB6A">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00113.png" Name="rihen_00113.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00114_png_123" Guid="376167A0-4F98-4C59-B5AD-620360B12553">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00114.png" Name="rihen_00114.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00115_png_124" Guid="5088708D-4059-4646-9CD9-E32843303CC8">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00115.png" Name="rihen_00115.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00116_png_125" Guid="37E88CD2-180E-48DB-B968-756E1B3DC690">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00116.png" Name="rihen_00116.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00117_png_126" Guid="BD82224E-DFF0-455A-900A-0A8CB50EEECF">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00117.png" Name="rihen_00117.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00118_png_127" Guid="4D19D0CF-AAC1-4161-B15F-F678E9D89889">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00118.png" Name="rihen_00118.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00119_png_128" Guid="BB0AAD7F-2798-4431-AAA1-49D350D478D6">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00119.png" Name="rihen_00119.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00120_png_129" Guid="6AFC6776-BE7F-446C-A3D7-D65E88D39C81">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00120.png" Name="rihen_00120.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00121_png_130" Guid="2A4B92C7-F795-4B41-BB8E-3288BF37EFE3">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00121.png" Name="rihen_00121.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00122_png_131" Guid="C1D0B80F-18FC-46F1-B772-ADD3BD103A1E">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00122.png" Name="rihen_00122.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00123_png_132" Guid="92389F34-5062-4AAB-A73B-2723A10A9221">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00123.png" Name="rihen_00123.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00124_png_133" Guid="BF439F08-9963-4184-8C04-1455EDFC3D08">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00124.png" Name="rihen_00124.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00125_png_134" Guid="AF8FB97A-2F05-4D7E-A3C1-2826A58BE34B">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00125.png" Name="rihen_00125.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00126_png_135" Guid="CFCBE4D5-2ABA-4DBC-BE15-CAD06CBA0741">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00126.png" Name="rihen_00126.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00127_png_136" Guid="F972F8A5-BED4-4A83-82F7-21A370B6EB5C">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00127.png" Name="rihen_00127.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00128_png_137" Guid="64E2A47F-8EC6-4063-BC69-D441107DEB06">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00128.png" Name="rihen_00128.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00129_png_138" Guid="EEFFB6C5-C395-4FE2-A5B7-BEC0992B1BB3">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00129.png" Name="rihen_00129.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00130_png_139" Guid="35779FC5-794F-41C1-983B-C9C97AA7F7F3">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00130.png" Name="rihen_00130.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00131_png_140" Guid="71A481B0-604C-4E39-96A8-88B840587D2C">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00131.png" Name="rihen_00131.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00132_png_141" Guid="8D7F39DA-8159-4A16-B001-08A00DAF858E">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00132.png" Name="rihen_00132.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00133_png_142" Guid="97CBFF6D-8D24-40DD-AB65-78949A1D918D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00133.png" Name="rihen_00133.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00134_png_143" Guid="950906AA-1F86-4AD0-A3A6-B752053740C8">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00134.png" Name="rihen_00134.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00135_png_144" Guid="D9FC1604-6554-4051-B5A1-8FB03C84289D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00135.png" Name="rihen_00135.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00136_png_145" Guid="DC5F31E4-6200-408D-B34D-65CFF8526F15">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00136.png" Name="rihen_00136.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00137_png_146" Guid="CCE5A4FF-9E26-496E-90ED-7666836A1EF9">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00137.png" Name="rihen_00137.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00138_png_147" Guid="43455F42-DBC4-4578-AEDD-82D4ED5AB6DF">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00138.png" Name="rihen_00138.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00139_png_148" Guid="3A680E12-6E86-4081-A3E0-DC5E6B8CBF8F">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00139.png" Name="rihen_00139.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00140_png_149" Guid="3076118A-9AF4-43F7-9D36-78246569A043">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00140.png" Name="rihen_00140.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00141_png_150" Guid="6D5F96B0-B5DD-4F5F-A050-F9806E62266D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00141.png" Name="rihen_00141.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00142_png_151" Guid="D4AA88FB-7F2C-47EF-91FE-C4A970389563">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00142.png" Name="rihen_00142.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00143_png_152" Guid="15432162-CDAF-4E99-BAA7-14438C1BABB5">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00143.png" Name="rihen_00143.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00144_png_153" Guid="757E136E-3DD6-4057-B3E4-14B6F994228B">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00144.png" Name="rihen_00144.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00145_png_154" Guid="E9C898D2-080E-45FF-AB2E-179E09E9747D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00145.png" Name="rihen_00145.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00146_png_155" Guid="2D2665BC-C399-4C61-9432-0260183F596A">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00146.png" Name="rihen_00146.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00147_png_156" Guid="F0FDC94A-1A8C-4CAB-9A6A-D142527F58F4">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00147.png" Name="rihen_00147.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00148_png_157" Guid="08EFDD78-D9B7-45D4-B7B8-DAF781775969">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00148.png" Name="rihen_00148.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00149_png_158" Guid="CEC6778A-5265-4719-B9D2-E711A0505ED9">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00149.png" Name="rihen_00149.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00150_png_159" Guid="33F90927-351D-4DEB-B34D-0783562B67E7">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00150.png" Name="rihen_00150.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00151_png_160" Guid="F5F0CDDA-CD6B-442F-AD0D-04A4BD53BE90">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00151.png" Name="rihen_00151.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00152_png_161" Guid="64E58DA0-75C8-43D6-B7FE-AC8FC07D7898">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00152.png" Name="rihen_00152.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00153_png_162" Guid="291678D2-EBAB-4201-9C96-08B2393109E9">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00153.png" Name="rihen_00153.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00154_png_163" Guid="7366EB0F-D436-4D8E-9F97-D903EC45F8BE">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00154.png" Name="rihen_00154.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen_rihen_00155_png_164" Guid="6F9630B0-C9E7-4E7A-8807-A1BADBBFF464">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\rihen_00155.png" Name="rihen_00155.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_animrihen__preprocess_black_to_alph_165" Guid="006FF8DB-9FAE-48E4-B0C8-D7E78C4ECA63">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\animrihen\_preprocess_black_to_alpha.py" Name="_preprocess_black_to_alpha.py" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Directory Id="Dir_Resources_Pong_Textures_iconexe" Name="iconexe">
+                <Component Id="Comp_Resources_Pong_Textures_iconexe_loadingicon_png_166" Guid="B4396381-870B-4BBA-94B5-5E892FC8230F">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\iconexe\loadingicon.png" Name="loadingicon.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_iconexe_ponicon_png_167" Guid="0CEEF490-1000-48F4-8503-6574A0FFC980">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\iconexe\ponicon.png" Name="ponicon.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_iconexe_ponicon2_png_168" Guid="7B7F3A73-C7F1-41BC-B1D7-F1A2F8C33A59">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\iconexe\ponicon2.png" Name="ponicon2.png" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Directory Id="Dir_Resources_Pong_Textures_socials" Name="socials">
+                <Component Id="Comp_Resources_Pong_Textures_socials_facebook_png_169" Guid="D7E004F0-88F7-412C-B8CF-3BCB7D4A2FC7">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\socials\facebook.png" Name="facebook.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_socials_github_svg_170" Guid="784872ED-C565-4B1F-8508-ABE2C463C207">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\socials\github.svg" Name="github.svg" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_socials_instagram_png_171" Guid="2125AABF-BFEF-4809-B3F2-6738D6AC9C12">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\socials\instagram.png" Name="instagram.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_socials_linkdin_png_172" Guid="6E3C20B8-0A36-42A5-9AE2-CC1CDB92F05F">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\socials\linkdin.png" Name="linkdin.png" KeyPath="yes" />
+                </Component>
+                <Component Id="Comp_Resources_Pong_Textures_socials_x_png_173" Guid="D6B11C32-B127-4710-A21E-DC698C08B07D">
+                  <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\socials\x.png" Name="x.png" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Component Id="Comp_Resources_Pong_Textures_logo_png_7" Guid="F27DC78F-63FC-46C3-81C6-7FA5D303F306">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\logo.png" Name="logo.png" KeyPath="yes" />
+              </Component>
+              <Component Id="Comp_Resources_Pong_Textures_logo_svg_8" Guid="F4CA6F99-10CA-418C-BC5B-F177E68FB157">
+                <File Source="E:\Projets\2026\Nkentseu\Nkentseu\Resources\Pong\Textures\logo.svg" Name="logo.svg" KeyPath="yes" />
+              </Component>
+            </Directory>
+          </Directory>
+        </Directory>
+        <Component Id="Comp_Exe" Guid="1BDF86C9-597C-48E6-B60C-836339FB4722">
+          <File Id="ExeFile" Source="E:\Projets\2026\Nkentseu\Nkentseu\Build\Bin\Release-Windows\Pong\Pong.exe" Name="Pong.exe" KeyPath="yes">
+            <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Pong" Description="Lancer Pong" WorkingDirectory="INSTALLDIR" Advertise="yes" Icon="AppIcon.ico" IconIndex="0" />
+            <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="Pong" Description="Lancer Pong" WorkingDirectory="INSTALLDIR" Advertise="yes" Icon="AppIcon.ico" IconIndex="0" />
+          </File>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="ProductFeature" Title="Pong" Level="1">
+      <ComponentRef Id="Comp_Exe" />
+      <ComponentRef Id="Comp_Resources_Pong_Audio_bleep_wav_0" />
+      <ComponentRef Id="Comp_Resources_Pong_Audio_powerup_wav_1" />
+      <ComponentRef Id="Comp_Resources_Pong_Audio_solid_wav_2" />
+      <ComponentRef Id="Comp_Resources_Pong_Gif_01_gif_3" />
+      <ComponentRef Id="Comp_Resources_Pong_Gif_02_gif_4" />
+      <ComponentRef Id="Comp_Resources_Pong_Gif_gifanime_gif_5" />
+      <ComponentRef Id="Comp_Resources_Pong_Gif_gif_01_gif_6" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_logo_png_7" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_logo_svg_8" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00000_png_9" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00001_png_10" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00002_png_11" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00003_png_12" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00004_png_13" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00005_png_14" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00006_png_15" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00007_png_16" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00008_png_17" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00009_png_18" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00010_png_19" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00011_png_20" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00012_png_21" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00013_png_22" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00014_png_23" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00015_png_24" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00016_png_25" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00017_png_26" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00018_png_27" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00019_png_28" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00020_png_29" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00021_png_30" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00022_png_31" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00023_png_32" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00024_png_33" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00025_png_34" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00026_png_35" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00027_png_36" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00028_png_37" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00029_png_38" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00030_png_39" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00031_png_40" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00032_png_41" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00033_png_42" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00034_png_43" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00035_png_44" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00036_png_45" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00037_png_46" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00038_png_47" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00039_png_48" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00040_png_49" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00041_png_50" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00042_png_51" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00043_png_52" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00044_png_53" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00045_png_54" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00046_png_55" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00047_png_56" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00048_png_57" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00049_png_58" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00050_png_59" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00051_png_60" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00052_png_61" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00053_png_62" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00054_png_63" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00055_png_64" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00056_png_65" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00057_png_66" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00058_png_67" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00059_png_68" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00060_png_69" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00061_png_70" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00062_png_71" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00063_png_72" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00064_png_73" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00065_png_74" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00066_png_75" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00067_png_76" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00068_png_77" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00069_png_78" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00070_png_79" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00071_png_80" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00072_png_81" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00073_png_82" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00074_png_83" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00075_png_84" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00076_png_85" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00077_png_86" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00078_png_87" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00079_png_88" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00080_png_89" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00081_png_90" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00082_png_91" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00083_png_92" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00084_png_93" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00085_png_94" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00086_png_95" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00087_png_96" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00088_png_97" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00089_png_98" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00090_png_99" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00091_png_100" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00092_png_101" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00093_png_102" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00094_png_103" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00095_png_104" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00096_png_105" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00097_png_106" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00098_png_107" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00099_png_108" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00100_png_109" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00101_png_110" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00102_png_111" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00103_png_112" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00104_png_113" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00105_png_114" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00106_png_115" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00107_png_116" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00108_png_117" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00109_png_118" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00110_png_119" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00111_png_120" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00112_png_121" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00113_png_122" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00114_png_123" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00115_png_124" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00116_png_125" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00117_png_126" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00118_png_127" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00119_png_128" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00120_png_129" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00121_png_130" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00122_png_131" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00123_png_132" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00124_png_133" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00125_png_134" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00126_png_135" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00127_png_136" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00128_png_137" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00129_png_138" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00130_png_139" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00131_png_140" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00132_png_141" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00133_png_142" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00134_png_143" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00135_png_144" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00136_png_145" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00137_png_146" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00138_png_147" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00139_png_148" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00140_png_149" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00141_png_150" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00142_png_151" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00143_png_152" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00144_png_153" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00145_png_154" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00146_png_155" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00147_png_156" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00148_png_157" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00149_png_158" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00150_png_159" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00151_png_160" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00152_png_161" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00153_png_162" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00154_png_163" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen_rihen_00155_png_164" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_animrihen__preprocess_black_to_alph_165" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_iconexe_loadingicon_png_166" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_iconexe_ponicon_png_167" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_iconexe_ponicon2_png_168" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_socials_facebook_png_169" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_socials_github_svg_170" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_socials_instagram_png_171" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_socials_linkdin_png_172" />
+      <ComponentRef Id="Comp_Resources_Pong_Textures_socials_x_png_173" />
+    </Feature>
+    <CustomAction Id="Nk_FirewallAdd" Directory="INSTALLDIR" ExeCommand="netsh advfirewall firewall add rule name=&quot;Pong (Network)&quot; dir=in action=allow program=&quot;[#ExeFile]&quot; enable=yes profile=any" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="Nk_FirewallDel" Directory="INSTALLDIR" ExeCommand="netsh advfirewall firewall delete rule name=&quot;Pong (Network)&quot;" Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="Nk_FirewallAdd" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="Nk_FirewallDel" Before="RemoveFiles" Condition="Installed AND REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
