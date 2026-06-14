@@ -1,0 +1,36 @@
+// shadow.vert.nksl — NKRenderer — Shadow depth-only VS (VRAI dialecte NkSL)
+// Traduit de Shadow/VK/shadow.vert.vk.glsl. Depth-only (aucun varying out) →
+// le générateur GL ne flippe PAS Y (cohérence avec le sampling shadow map PBR).
+
+@location(0) in vec3 aPos;
+
+// set=1 (Object) pour matcher la convention NkRender3D (set=0=global, set=1=object).
+@binding(set=1, binding=1)
+uniform ObjectUBO {
+    mat4  model;
+    mat4  normalMatrix;
+    vec4  tint;
+    float metallic;
+    float roughness;
+    float aoStrength;
+    float emissiveStrength;
+    float normalStrength;
+    float clearcoat;
+    float clearcoatRoughness;
+    float subsurface;
+    vec4  subsurfaceColor;
+} uObj;
+
+layout(push_constant) uniform PC {
+    mat4 lightVP;
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    vec4 clip = pc.lightVP * uObj.model * vec4(aPos, 1.0);
+    // Correction Vulkan clip-space Z : NDC [-1,1] (lightVP convention GL/ortho) →
+    // [0,1] attendu. Sinon la moitié near de chaque cascade est clippée.
+    clip.z = 0.5 * clip.z + 0.5 * clip.w;
+    gl_Position = clip;
+}

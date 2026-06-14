@@ -7,7 +7,8 @@ Contient le système complet de contextes graphiques/compute.
 """
 
 from Jenga import *
-from config import *
+from jengaconfig import *
+
 import os
 import shutil
 import subprocess
@@ -36,7 +37,6 @@ if _HAS_LIBDECOR:
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
 _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
@@ -49,38 +49,30 @@ else:
     _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
 
 with project("NKCanvas"):
-    useglobalkind("canvas")
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    _CONTEXT_INCLUDE_DIRS = [
-        "src",
-        "%{NKCore.location}/src",
-        "%{NKPlatform.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKWindow.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKEvent.location}/src",
-        "%{NKGlad.location}/include",
-        "%{NKFont.location}/src",
-        "%{NKImage.location}/src",
-        "%{NKStream.location}/src",   # NKIResource.h tiré transitivement par NkImage.h
-        "%{NKFileSystem.location}/src",
-    ]
-    if _VULKAN_INCLUDE:
-        _CONTEXT_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
-    includedirs(_CONTEXT_INCLUDE_DIRS)
-
-    dependson(["NKGlad", "NKMath", "NKFont", "NKImage", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKFileSystem"])
-    defines([
+    # ── Dependances (mode LIB) : kindexport(NKENTSEU_CANVAS) + includedirs +
+    # dependson + defines(_STATIC_LIB) resolus depuis le registre. On ne linke PAS
+    # les deps NK (juste dependson). Les externals/SDK propres passent inline.
+    _canvasDeps = ["NKWindow", "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad", "NKThreading"]
+    _canvasDefines = [
         "NK_NO_GLAD2",
         f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
-    ])
+    ]
+    # NKUI integre (backend NkUICanvasBackend) — optionnel (flag NK_CANVAS_NKUI via
+    # config/graphics.jenga -> USE_CANVAS_NKUI). Off => NKCanvas ne lie pas NKUI et
+    # NkUICanvasBackend.cpp compile a vide.
+    if USE_CANVAS_NKUI:
+        _canvasDeps.append("NKUI")
+        _canvasDefines.append("NK_CANVAS_WITH_NKUI=1")
+    nkentseudependson(
+        _canvasDeps,
+        selfexport="NKCanvas",
+        extra_includes=["src"] + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        extra_defines=_canvasDefines,
+    )
 
     files([
         "src/NKCanvas/**.cpp",
@@ -96,7 +88,7 @@ with project("NKCanvas"):
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
         ])

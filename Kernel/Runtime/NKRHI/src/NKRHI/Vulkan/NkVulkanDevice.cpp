@@ -5,7 +5,7 @@
 #include "NkVulkanDevice.h"
 #include "NkVulkanCommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
-#include "NKSL/NkGLSLCompiler.h"
+#include "NKSL/NKSL.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Associative/NkSet.h"
 #include <cstring>
@@ -606,13 +606,20 @@ namespace nkentseu {
         vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice,mSurface,&fmtCnt,fmts.Data());
         mSwapFormat = fmts[0].format;
         VkColorSpaceKHR colorSpace = fmts[0].colorSpace;
-        // srgbSwapchain=true  → préférer un format sRGB (encode gamma auto à la présentation).
-        // srgbSwapchain=false → préférer un format UNORM (couleur écrite affichée telle quelle,
-        //                       cohérent avec OpenGL/DX pour les démos sans gestion gamma).
-        const bool wantSrgb = mInit.context.vulkan.srgbSwapchain;
-        const VkFormat preferredFmt = wantSrgb ? VK_FORMAT_B8G8R8A8_SRGB : VK_FORMAT_B8G8R8A8_UNORM;
+        // Réglage GLOBAL cross-API : on mappe NkSwapchainFormat → VkFormat. Si le format
+        // préféré n'est pas supporté par la surface, on garde fmts[0] (fallback driver).
+        VkFormat preferredFmt = VK_FORMAT_B8G8R8A8_UNORM;
+        switch (mInit.context.swapchainFormat) {
+            case NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_UNORM:  preferredFmt = VK_FORMAT_B8G8R8A8_UNORM; break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_SRGB:   preferredFmt = VK_FORMAT_B8G8R8A8_SRGB;  break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGBA8_UNORM:  preferredFmt = VK_FORMAT_R8G8B8A8_UNORM; break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGBA8_SRGB:   preferredFmt = VK_FORMAT_R8G8B8A8_SRGB;  break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGB10A2_UNORM:preferredFmt = VK_FORMAT_A2B10G10R10_UNORM_PACK32; break;
+            case NkSwapchainFormat::NK_SWAPCHAIN_RGBA16F:      preferredFmt = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+            default:                                           preferredFmt = VK_FORMAT_B8G8R8A8_UNORM; break;
+        }
         for (auto& f:fmts) {
-            if (f.format==preferredFmt && f.colorSpace==VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            if (f.format==preferredFmt) {
                 mSwapFormat = f.format;
                 colorSpace = f.colorSpace;
                 break;

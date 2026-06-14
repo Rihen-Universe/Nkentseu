@@ -74,7 +74,10 @@ namespace nkentseu {
                             const NkColor2D& fillColor) {
             if (width == 0 || height == 0) return false;
             NkImage img;
-            if (!img.Create(width, height, 4, fillColor.ToU32())) return false;
+            // NkImage::Create(w, h, NkColor color, int32 channels=4) : la COULEUR
+            // d'abord, les canaux ensuite. (Avant : args inverses -> channels=0
+            // pour un fill transparent -> Create echouait -> texture jamais creee.)
+            if (!img.Create(width, height, fillColor, 4)) return false;
             return LoadFromImage(renderer, img);
         }
 

@@ -11,6 +11,7 @@
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NKMemory.h"   // RÈGLE : allocation/liberation via NKMemory, jamais new/delete
 
 #if !defined(NKENTSEU_ENABLE_VULKAN_BACKEND)
 #   define NKENTSEU_ENABLE_VULKAN_BACKEND 1
@@ -43,17 +44,18 @@ NkIGraphicsContext* NkContextFactory::Create(const NkWindow& window,
     logger.Warnf("[NkContextFactory][DBG] Create begin api=%s", NkGraphicsApiName(desc.api));
     NkGpuPolicy::ApplyPreContext(desc);
     NkIGraphicsContext* ctx = nullptr;
+    auto& alloc = ::nkentseu::memory::NkGetDefaultAllocator();
 
     switch (desc.api) {
         case NkGraphicsApi::NK_GFX_API_OPENGL:
         case NkGraphicsApi::NK_GFX_API_OPENGLES:
         case NkGraphicsApi::NK_GFX_API_WEBGL:
-            ctx = new NkOpenGLContext();
+            ctx = alloc.New<NkOpenGLContext>();
             break;
 
         case NkGraphicsApi::NK_GFX_API_VULKAN:
 #if NKENTSEU_ENABLE_VULKAN_BACKEND
-            ctx = new NkVulkanContext();
+            ctx = alloc.New<NkVulkanContext>();
 #else
             NK_FACTORY_ERR("Vulkan backend disabled at build time\n");
             return nullptr;
@@ -62,21 +64,21 @@ NkIGraphicsContext* NkContextFactory::Create(const NkWindow& window,
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
         case NkGraphicsApi::NK_GFX_API_DX11:
-            ctx = new NkDX11Context();
+            ctx = alloc.New<NkDX11Context>();
             break;
         case NkGraphicsApi::NK_GFX_API_DX12:
-            ctx = new NkDX12Context();
+            ctx = alloc.New<NkDX12Context>();
             break;
 #endif
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
         case NkGraphicsApi::NK_GFX_API_METAL:
-            ctx = new NkMetalContext();
+            ctx = alloc.New<NkMetalContext>();
             break;
 #endif
 
         case NkGraphicsApi::NK_GFX_API_SOFTWARE:
-            ctx = new NkSoftwareContext();
+            ctx = alloc.New<NkSoftwareContext>();
             break;
 
         default:
@@ -91,7 +93,7 @@ NkIGraphicsContext* NkContextFactory::Create(const NkWindow& window,
     if (!ctx->Initialize(window, desc)) {
         NK_FACTORY_ERR("Initialize failed for API: %s\n",
                        NkGraphicsApiName(desc.api));
-        delete ctx;
+        alloc.Delete(ctx);
         return nullptr;
     }
     logger.Warn("[NkContextFactory][DBG] Initialize success");
@@ -158,13 +160,14 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
         return nullptr;
     }
 
+    auto& alloc = ::nkentseu::memory::NkGetDefaultAllocator();
     switch (api) {
         case NkGraphicsApi::NK_GFX_API_OPENGL:
         case NkGraphicsApi::NK_GFX_API_OPENGLES: {
-            auto* ctx = new NkOpenGLComputeContext();
+            auto* ctx = alloc.New<NkOpenGLComputeContext>();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("OpenGL standalone compute init failed\n");
-                delete ctx;
+                alloc.Delete(ctx);
                 return nullptr;
             }
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
@@ -174,10 +177,10 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
         case NkGraphicsApi::NK_GFX_API_VULKAN:
 #if NKENTSEU_ENABLE_VULKAN_BACKEND
         {
-            auto* ctx = new NkVulkanComputeContext();
+            auto* ctx = alloc.New<NkVulkanComputeContext>();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("Vulkan standalone compute init failed\n");
-                delete ctx;
+                alloc.Delete(ctx);
                 return nullptr;
             }
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
@@ -191,10 +194,10 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
         case NkGraphicsApi::NK_GFX_API_DX11:
         {
-            auto* ctx = new NkDX11ComputeContext();
+            auto* ctx = alloc.New<NkDX11ComputeContext>();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("DX11 standalone compute init failed\n");
-                delete ctx;
+                alloc.Delete(ctx);
                 return nullptr;
             }
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
@@ -202,10 +205,10 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
         }
         case NkGraphicsApi::NK_GFX_API_DX12:
         {
-            auto* ctx = new NkDX12ComputeContext();
+            auto* ctx = alloc.New<NkDX12ComputeContext>();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("DX12 standalone compute init failed\n");
-                delete ctx;
+                alloc.Delete(ctx);
                 return nullptr;
             }
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
@@ -216,10 +219,10 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
         case NkGraphicsApi::NK_GFX_API_METAL:
         {
-            auto* ctx = new NkMetalComputeContext();
+            auto* ctx = alloc.New<NkMetalComputeContext>();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("Metal standalone compute init failed\n");
-                delete ctx;
+                alloc.Delete(ctx);
                 return nullptr;
             }
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
@@ -227,10 +230,10 @@ NkIComputeContext* NkContextFactory::CreateCompute(NkGraphicsApi api,
         }
 #endif
         case NkGraphicsApi::NK_GFX_API_SOFTWARE: {
-            auto* ctx = new NkSoftwareComputeContext();
+            auto* ctx = alloc.New<NkSoftwareComputeContext>();
             if (!ctx->Init(desc)) {
                 NK_FACTORY_ERR("Software standalone compute init failed\n");
-                delete ctx;
+                alloc.Delete(ctx);
                 return nullptr;
             }
             NK_FACTORY_LOG("Compute context created: %s\n", NkGraphicsApiName(api));
@@ -264,19 +267,20 @@ NkIComputeContext* NkContextFactory::ComputeFromGraphics(NkIGraphicsContext* gfx
         return nullptr;
     }
 
+    auto& alloc = ::nkentseu::memory::NkGetDefaultAllocator();
     switch (gfx->GetApi()) {
         case NkGraphicsApi::NK_GFX_API_OPENGL:
         case NkGraphicsApi::NK_GFX_API_OPENGLES: {
-            auto* c = new NkOpenGLComputeContext();
+            auto* c = alloc.New<NkOpenGLComputeContext>();
             c->InitFromGraphicsContext(gfx);
-            if (!c->IsValid()) { delete c; return nullptr; }
+            if (!c->IsValid()) { alloc.Delete(c); return nullptr; }
             return c;
         }
         case NkGraphicsApi::NK_GFX_API_VULKAN: {
 #if NKENTSEU_ENABLE_VULKAN_BACKEND
-            auto* c = new NkVulkanComputeContext();
+            auto* c = alloc.New<NkVulkanComputeContext>();
             c->InitFromGraphicsContext(gfx);
-            if (!c->IsValid()) { delete c; return nullptr; }
+            if (!c->IsValid()) { alloc.Delete(c); return nullptr; }
             return c;
 #else
             NK_FACTORY_ERR("Vulkan compute backend disabled at build time\n");
@@ -285,36 +289,52 @@ NkIComputeContext* NkContextFactory::ComputeFromGraphics(NkIGraphicsContext* gfx
         }
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
         case NkGraphicsApi::NK_GFX_API_DX11: {
-            auto* c = new NkDX11ComputeContext();
+            auto* c = alloc.New<NkDX11ComputeContext>();
             c->InitFromGraphicsContext(gfx);
-            if (!c->IsValid()) { delete c; return nullptr; }
+            if (!c->IsValid()) { alloc.Delete(c); return nullptr; }
             return c;
         }
         case NkGraphicsApi::NK_GFX_API_DX12: {
-            auto* c = new NkDX12ComputeContext();
+            auto* c = alloc.New<NkDX12ComputeContext>();
             c->InitFromGraphicsContext(gfx);
-            if (!c->IsValid()) { delete c; return nullptr; }
+            if (!c->IsValid()) { alloc.Delete(c); return nullptr; }
             return c;
         }
 #endif
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
         case NkGraphicsApi::NK_GFX_API_METAL: {
-            auto* c = new NkMetalComputeContext();
+            auto* c = alloc.New<NkMetalComputeContext>();
             c->InitFromGraphicsContext(gfx);
-            if (!c->IsValid()) { delete c; return nullptr; }
+            if (!c->IsValid()) { alloc.Delete(c); return nullptr; }
             return c;
         }
 #endif
         case NkGraphicsApi::NK_GFX_API_SOFTWARE: {
-            auto* c = new NkSoftwareComputeContext();
+            auto* c = alloc.New<NkSoftwareComputeContext>();
             c->InitFromGraphicsContext(gfx);
-            if (!c->IsValid()) { delete c; return nullptr; }
+            if (!c->IsValid()) { alloc.Delete(c); return nullptr; }
             return c;
         }
         default:
             NK_FACTORY_ERR("ComputeFromGraphics: unsupported API\n");
             return nullptr;
     }
+}
+
+// =============================================================================
+// Destruction — symetrique de Create / CreateCompute.
+// RÈGLE : liberation via l'allocateur NKMemory (jamais `delete` : l'objet a ete
+// alloue par alloc.New -> sinon mismatch alloc/free -> heap corruption c0000374).
+// =============================================================================
+void NkContextFactory::Destroy(NkIGraphicsContext* ctx) {
+    if (!ctx) return;
+    ctx->Shutdown();
+    ::nkentseu::memory::NkGetDefaultAllocator().Delete(ctx);
+}
+
+void NkContextFactory::DestroyCompute(NkIComputeContext* ctx) {
+    if (!ctx) return;
+    ::nkentseu::memory::NkGetDefaultAllocator().Delete(ctx);
 }
 
 } // namespace nkentseu

@@ -14,12 +14,9 @@ Dépendances  : NKPlatform, NKCore, NKMemory, NKContainers
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKAudio"):
-    useglobalkind("audio")
     language("C++")
     # C++17 (au lieu de C++20) : Android NDK r27 jni.h utilise va_list&
     # non-const qui ne compile pas en C++20 strict. C++17 suffit pour NKAudio
@@ -27,32 +24,14 @@ with project("NKAudio"):
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKFileSystem.location}/src",
-        "%{NKStream.location}/src",
-    ])
-
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
 
-    dependson([
-        "NKPlatform",
-        "NKCore",
-        "NKMemory",
-        "NKContainers",
-        "NKLogger",
-        "NKThreading",
-        "NKFileSystem",
-        "NKStream",
-    ])
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKThreading", "NKFileSystem", "NKStream"],
+        selfexport="NKAudio",
+        extra_includes=["src"],
+    )
 
     files([
         "src/NKAudio/**.cpp",
@@ -63,16 +42,6 @@ with project("NKAudio"):
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
-
-    # Mode build : statique par défaut (cohérent avec les autres modules
-    # Nkentseu). NkAudioApi.h reconnait NKENTSEU_AUDIO_STATIC_LIB pour
-    # neutraliser les decorations d'export. Idem pour NKLogger qu'on inclut
-    # depuis NkAudioBackends.cpp pour les logs WASAPI.
-    defines([
-        "NKENTSEU_AUDIO_STATIC_LIB",
-        "NKENTSEU_LOGGER_STATIC_LIB",
-        "NKENTSEU_CORE_STATIC_LIB",
-    ])
 
     # ── Configurations ────────────────────────────────────────────────────────
 
@@ -94,7 +63,7 @@ with project("NKAudio"):
     # ── Toolchains par plateforme ─────────────────────────────────────────────
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         # WASAPI requiert ole32 + mmdevapi
         links(["ole32", "winmm", "avrt"])
 

@@ -15,7 +15,7 @@
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
-#include "NKAudio/NkAudio.h"
+#include "NKAudio/NKAudio.h"
 
 namespace nkentseu
 {

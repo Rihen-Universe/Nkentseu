@@ -127,6 +127,7 @@ public:
     void          Shutdown() override;
     bool          IsValid() const override { return mIsValid; }
     NkGraphicsApi GetApi() const override { return NkGraphicsApi::NK_GFX_API_VULKAN; }
+    bool IsSwapchainSrgb() const override { return NkSwapchainFormatIsSrgb(mInit.context.swapchainFormat); }
     const NkDeviceCaps& GetCaps() const override { return mCaps; }
 
     NkBufferHandle  CreateBuffer(const NkBufferDesc& d) override;

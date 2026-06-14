@@ -7,11 +7,12 @@
 # =============================================================================
 
 from Jenga import *
+from jengaconfig import *
 from Jenga.Core.Api import androidallowrotation
 import os
 import shutil
 import subprocess
-from config import *
+
 
 def _pkg_exists(pkg_name: str) -> bool:
     if not shutil.which("pkg-config"):
@@ -28,7 +29,6 @@ def _pkg_exists(pkg_name: str) -> bool:
 def _norm(path: str) -> str:
     return path.replace("\\", "/") if path else path
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
 
 _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
@@ -139,7 +139,7 @@ with project("Pong"):
 
     # ===== Windows ============================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE", "UNICODE",

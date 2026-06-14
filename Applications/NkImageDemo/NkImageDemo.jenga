@@ -10,10 +10,10 @@
 # =============================================================================
 
 from Jenga import *
-from config import *
+from jengaconfig import *
+
 import os
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
 
 # Vulkan : NKCanvas lib peut contenir des refs vk* selon comment elle a ete
 # buildee (Pong active Vulkan, NKCanvas.lib partage). Si VULKAN_SDK existe
@@ -25,9 +25,6 @@ _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
 _WANT_VULKAN = bool(_VULKAN_LIB)
 
 with project("NkImageDemo"):
-    useappdeps("platform", "core", "memory", "containers", "math", "threading",
-               "stream", "logger", "time", "event", "window", "image", "font",
-               "ui", "canvas", "network")
     windowedapp()
     language("C++")
     cppdialect("C++17")
@@ -35,41 +32,15 @@ with project("NkImageDemo"):
 
     files(["src/**.cpp"])
 
-    _INCS = [
-        "src",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKEvent.location}/src",
-        "%{NKWindow.location}/src",
-        "%{NKImage.location}/src",
-        "%{NKFont.location}/src",
-        "%{NKUI.location}/src",
-        "%{NKCanvas.location}/src",
-        "%{NKStream.location}/src",
-        "%{NKGlad.location}/include",
-        "%{NKFileSystem.location}/src",
-        "%{NKNetwork.location}/src",
-        "%{wks.location}/Externals",
-    ]
-    includedirs(_INCS)
-
-    _DEPS = [
-        "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
-        "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
-        "NKFileSystem", "NKNetwork",
-        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
-    ]
-    links(_DEPS)
-    dependson(_DEPS)
-
-    defines(["NKENTSEU_ENABLE_VULKAN_BACKEND=0",
-             "NKENTSEU_SERIALIZATION_STATIC_LIB"])
+    nkentseudependson(
+        ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
+         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+         "NKFileSystem", "NKNetwork",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{NKGlad.location}/include",
+                        "%{wks.location}/Externals"],
+        extra_defines=["NKENTSEU_ENABLE_VULKAN_BACKEND=0"],
+    )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -85,7 +56,7 @@ with project("NkImageDemo"):
 
     # ===== Windows ============================================================
     with filter("system:Windows && !options:windows-runtime=uwp"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE", "UNICODE",

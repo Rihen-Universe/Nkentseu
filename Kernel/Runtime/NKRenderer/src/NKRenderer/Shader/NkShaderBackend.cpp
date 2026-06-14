@@ -13,9 +13,12 @@
 // (NKRHI/SL/NkGLSLCompiler) qui s'appuie sur NKGLSlang in-tree (meme toolchain
 // que NKRenderer => ABI consistant). Si NK_RHI_GLSLANG_ENABLED n'est pas defini,
 // la fonction renvoie un stub d'erreur et le device Vulkan failera proprement.
-#include "NKRHI/SL/NkGLSLCompiler.h"
-#include "NKRHI/ShaderConvert/NkShaderAnnotations.h"
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
+// Alias RHI `using NkShaderStage = NkSLStage;` (NkTypes.h). Avant l'extraction du
+// module NKSL, il arrivait transitivement via NKRHI/ShaderConvert ; maintenant
+// explicite (NKSL ne dépend pas de NKRHI).
+#include "NKRHI/Core/NkTypes.h"
+#include "NKRHI/SL/NkSLIntegration.h"   // nksl::GetCompiler() (singleton + cache)
 #if defined(NK_BACKEND_DX11)
 #  include <d3dcompiler.h>
 #endif
@@ -523,18 +526,46 @@ namespace nkentseu {
         NkShaderCompileResult NkShaderBackendNkSL::Compile(const NkString&              src,
                                                             NkShaderStage                stage,
                                                             const NkShaderCompileOptions& opts) {
-            // 1. Transpiler NkSL vers le langage cible
-            NkString transpiled = Transpile(src, mTarget);
+            // NkSL → cible NATIVE directe via le VRAI NkSLCompiler (générateurs
+            // maison), PAS le détour SPIRV-Cross : GL→GLSL, VK→SPIR-V, DX11/DX12→HLSL,
+            // Metal→MSL, SW→C++/bytecode. (Ancien transpileur texte ad-hoc retiré.)
+            // CACHE : nksl::GetCompiler() porte SON cache interne (clé=source) ; le
+            // cache disque .nksc de NkShaderLibrary enveloppe cet appel en amont —
+            // les deux restent intacts.
+            NkSLCompileOptions slOpts;
+            slOpts.optimize  = opts.optimize;
+            slOpts.debugInfo = opts.debug;
+            if (!opts.entryPoint.Empty()) slOpts.entryPoint = opts.entryPoint;
 
-            // 2. Compiler via le backend délégué
-            if (mDelegate)
-                return mDelegate->Compile(transpiled, stage, opts);
+            const NkSLTarget target = nksl::ApiToTarget(mTarget);
+            // GL : la source NkSL est en convention Vulkan (NDC Y-bas, comme les
+            // .vk.glsl), donc on inverse Y en sortie du vertex (équiv. SPIRV-Cross).
+            slOpts.glFlipYPosition = (target == NkSLTarget::NK_GLSL);
+            NkSLCompileResult r = nksl::GetCompiler().Compile(
+                src, ToRHIStage(stage), target, slOpts, "nksl_renderer");
 
             NkShaderCompileResult res;
-            res.success        = true;
-            res.preprocessed   = transpiled;
-            res.bytecode.Resize(transpiled.Size()+1);
-            memcpy(res.bytecode.Data(), transpiled.CStr(), transpiled.Size()+1);
+            if (!r.success) {
+                for (const auto& e : r.errors)
+                    res.errors += NkFormat("line {0}: {1}\n", e.line, e.message);
+                logger.Errorf("[NkShaderBackendNkSL] NkSL->%s FAIL:\n%s\n",
+                              NkSLTargetName(target), res.errors.CStr());
+                return res;
+            }
+            res.success      = true;
+            res.preprocessed = r.source;   // GLSL-GL / HLSL / MSL (texte) ; vide si SPIR-V pur
+            // DIAG : log du source généré par NkSL (comparer bindings vs attendu renderer).
+            if (getenv("NK_NKSL_DUMP") && !r.source.Empty()) {
+                logger.Infof("[NkSL-DUMP %s/%s]\n%s\n",
+                             (stage==NkShaderStage::NK_VERTEX?"VS":"FS"),
+                             NkSLTargetName(target), r.source.CStr());
+            }
+            if (!r.bytecode.Empty()) {
+                res.bytecode = r.bytecode; // SPIR-V (VK) ou bytecode VM (SW)
+            } else {
+                res.bytecode.Resize(r.source.Size() + 1);
+                memcpy(res.bytecode.Data(), r.source.CStr(), r.source.Size() + 1);
+            }
             return res;
         }
 

@@ -13,10 +13,10 @@
 # =============================================================================
 
 from Jenga import *
-from config import *
+from jengaconfig import *
+
 import os
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
 
 def _norm(path: str) -> str:
     return path.replace("\\", "/") if path else path
@@ -27,9 +27,6 @@ _WANT_VULKAN = bool(_VULKAN_LIB)
 
 with project("NkCameraDemos"):
     # camera = NKCamera ; les autres = pipeline graphique standard (cf Pong.jenga).
-    useappdeps("platform", "core", "memory", "containers", "math", "threading",
-               "stream", "logger", "time", "event", "window", "image", "font",
-               "ui", "canvas", "camera")
     windowedapp()
     language("C++")
     cppdialect("C++17")
@@ -37,45 +34,15 @@ with project("NkCameraDemos"):
 
     files(["src/**.cpp"])
 
-    _INCS = [
-        "src",
-        "%{NKPlatform.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKEvent.location}/src",
-        "%{NKWindow.location}/src",
-        "%{NKImage.location}/src",
-        "%{NKFont.location}/src",
-        "%{NKUI.location}/src",
-        "%{NKCanvas.location}/src",
-        "%{NKStream.location}/src",
-        "%{NKGlad.location}/include",
-        "%{NKFileSystem.location}/src",
-        "%{NKCamera.location}/src",
-        "%{wks.location}/Externals",
-    ]
-    includedirs(_INCS)
-
-    _DEPS = [
-        "NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
-        "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
-        "NKFileSystem", "NKCamera",
-        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"
-    ]
-    links(_DEPS)
-    dependson(_DEPS)
-
-    defines([
-        "NKENTSEU_ENABLE_VULKAN_BACKEND=0",
-        "NKENTSEU_SERIALIZATION_STATIC_LIB",
-        "NKENTSEU_LOGGER_STATIC_LIB",
-        "NKENTSEU_CORE_STATIC_LIB",
-    ])
+    nkentseudependson(
+        ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
+         "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
+         "NKFileSystem", "NKCamera",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{NKGlad.location}/include",
+                        "%{wks.location}/Externals"],
+        extra_defines=["NKENTSEU_ENABLE_VULKAN_BACKEND=0"],
+    )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -85,7 +52,7 @@ with project("NkCameraDemos"):
 
     # ===== Windows ============================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE", "UNICODE",

@@ -1,0 +1,50 @@
+// pp_bloomdown.frag.nksl — NKRenderer — Bloom Downsample 13-tap (VRAI dialecte NkSL).
+@location(0) in  vec2 vUV;
+@location(0) out vec4 oColor;
+
+@binding(set=0, binding=0) uniform sampler2D uSrc;
+
+layout(push_constant) uniform PC {
+    vec2  srcInvSize;
+    float threshold;
+    float yFlipUV;
+} pc;
+
+vec3 SoftThreshold(vec3 c, float thr) {
+    if (thr <= 0.001) return c;
+    float br   = max(c.r, max(c.g, c.b));
+    float soft = max(br - thr, 0.0);
+    soft       = soft * soft / (4.0 * thr + 1e-4);
+    float contrib = max(soft, br - thr) / max(br, 1e-4);
+    return c * contrib;
+}
+
+@stage(fragment)
+@entry
+void main() {
+    vec2 t = pc.srcInvSize;
+
+    vec3 a = texture(uSrc, vUV + t * vec2(-1.0,  1.0)).rgb;
+    vec3 b = texture(uSrc, vUV + t * vec2( 0.0,  1.0)).rgb;
+    vec3 c = texture(uSrc, vUV + t * vec2( 1.0,  1.0)).rgb;
+    vec3 d = texture(uSrc, vUV + t * vec2(-0.5,  0.5)).rgb;
+    vec3 e = texture(uSrc, vUV + t * vec2( 0.5,  0.5)).rgb;
+    vec3 f = texture(uSrc, vUV + t * vec2(-1.0,  0.0)).rgb;
+    vec3 g = texture(uSrc, vUV).rgb;
+    vec3 h = texture(uSrc, vUV + t * vec2( 1.0,  0.0)).rgb;
+    vec3 i = texture(uSrc, vUV + t * vec2(-0.5, -0.5)).rgb;
+    vec3 j = texture(uSrc, vUV + t * vec2( 0.5, -0.5)).rgb;
+    vec3 k = texture(uSrc, vUV + t * vec2(-1.0, -1.0)).rgb;
+    vec3 l = texture(uSrc, vUV + t * vec2( 0.0, -1.0)).rgb;
+    vec3 m = texture(uSrc, vUV + t * vec2( 1.0, -1.0)).rgb;
+
+    vec3 col = (d + e + i + j) * 0.5
+             + (a + b + g + f) * 0.125
+             + (b + c + h + g) * 0.125
+             + (f + g + l + k) * 0.125
+             + (g + h + m + l) * 0.125;
+    col *= 1.0 / 4.0;
+
+    col = SoftThreshold(col, pc.threshold);
+    oColor = vec4(col, 1.0);
+}

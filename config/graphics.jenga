@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+graphics.jenga — Config partagee : pile graphique externe
+==========================================================
+Detection/parametrage du **Vulkan SDK**, de **glslang** (GLSL -> SPIR-V) et de
+**SPIRV-Cross**. Chargee une fois via useconfig("config/graphics.jenga") dans le
+workspace -> ses variables se PROPAGENT a tous les .jenga (NKSL, NKRHI,
+NKRenderer, Sandbox...). Plus besoin de redefinir ces detections dans chaque
+fichier.
+
+Convention : fonctions en PascalCase, constantes en UPPER_SNAKE.
+
+Variables exposees :
+  VULKAN_SDK / VULKAN_INCLUDE / VULKAN_LIB : chemins du SDK (vide si absent)
+  WANT_VULKAN            : bool — backend Vulkan voulu (env NK_ENABLE_VULKAN)
+  GLSLANG_LIBS_WINDOWS / GLSLANG_LIBS_UNIX : libs glslang du SDK Vulkan
+  USE_NKGLSLANG / USE_NKSPIRVCROSS : utiliser nos libs compilees source
+  PkgExists(name) / NormPath(path) : utilitaires
+"""
+
+from Jenga import *
+from jengaconfig import *                                    # noqa: F401,F403
+import os
+import shutil
+import subprocess
+
+
+# ── Utilitaires (PascalCase) ─────────────────────────────────────────────────
+def PkgExists(pkgName: str) -> bool:
+    """True si `pkg-config --exists <pkg>` reussit (Linux/macOS)."""
+    if not shutil.which("pkg-config"):
+        return False
+    try:
+        return subprocess.call(
+            ["pkg-config", "--exists", pkgName],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+
+def NormPath(path: str) -> str:
+    """Normalise les backslashes Windows en slashes."""
+    return path.replace("\\", "/") if path else path
+
+
+# ── Vulkan SDK (constantes UPPER_SNAKE) ──────────────────────────────────────
+VULKAN_SDK     = NormPath(os.getenv("VULKAN_SDK", ""))
+VULKAN_INCLUDE = NormPath(os.path.join(VULKAN_SDK, "Include")) if VULKAN_SDK else ""
+VULKAN_LIB     = NormPath(os.path.join(VULKAN_SDK, "Lib"))     if VULKAN_SDK else ""
+_VULKAN_OPT    = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if _VULKAN_OPT in ("0", "false", "off", "no"):
+    WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true", "on", "yes"):
+    WANT_VULKAN = True
+else:
+    WANT_VULKAN = bool(VULKAN_INCLUDE) or PkgExists("vulkan")
+
+# ── glslang (GLSL -> SPIR-V) du SDK Vulkan ───────────────────────────────────
+# Necessaires quand NKRHI est lie avec Vulkan (NkShaderConvert.obj).
+GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+GLSLANG_LIBS_UNIX = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+
+# ── NKGLSlang / NKSPIRVCross — compiles depuis Externals/Libs (MinGW + MSVC) ──
+USE_NKGLSLANG    = os.getenv("NK_ENABLE_GLSLANG",    "auto").strip().lower() not in ("0", "false", "off", "no")
+USE_NKSPIRVCROSS = os.getenv("NK_ENABLE_SPIRVCROSS", "auto").strip().lower() not in ("0", "false", "off", "no")
+
+# NKGlad : loader GL/Vulkan (NKRHI/NKRenderer). Active par defaut.
+USE_NKGLAD = os.getenv("NK_RENDERER_USE_NKGLAD", "on").strip().lower() not in ("0", "false", "off", "no")
+
+# NKUI integre a NKCanvas (backend immediate-mode NkUICanvasBackend). Optionnel :
+# NK_CANVAS_NKUI=off -> NKCanvas ne lie pas NKUI (utilisateurs libres de l'utiliser).
+USE_CANVAS_NKUI = os.getenv("NK_CANVAS_NKUI", "on").strip().lower() not in ("0", "false", "off", "no")

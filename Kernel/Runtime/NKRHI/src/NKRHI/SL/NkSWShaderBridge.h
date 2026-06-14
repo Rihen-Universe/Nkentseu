@@ -46,9 +46,8 @@
 //   auto res = swbridge::NkCompileFiles("vert.sw.sksl", "frag.sw.sksl", &map);
 // =============================================================================
 
-#include "NKSL/NkSLTypes.h"
-#include "NKSL/NkSLCompiler.h"
-#include "NKSL/NkSLIntegration.h"
+#include "NKSL/NKSL.h"
+#include "NKRHI/SL/NkSLIntegration.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Sequential/NkVector.h"

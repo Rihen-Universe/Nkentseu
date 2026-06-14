@@ -19,7 +19,7 @@
 // Aucune de ces classes n'est utilisee par le MVP. A reprendre plus tard.
 // =============================================================================
 #include "NKContainers/Sequential/NkVector.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 #include "NKRHI/Core/NkTypes.h"
 #include "NKRenderer/Tools/Voxel/NkVoxelTypes.h"
 

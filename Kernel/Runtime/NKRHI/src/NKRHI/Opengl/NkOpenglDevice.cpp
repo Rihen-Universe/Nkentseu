@@ -1173,6 +1173,14 @@ void NkOpenGLDevice::WaitIdle() { glFinish(); }
 bool NkOpenGLDevice::BeginFrame(NkFrameContext& frame) {
     frame.frameIndex  = mFrameIndex;
     frame.frameNumber = mFrameNumber;
+    // Réglage GLOBAL d'espace colorimétrique (cf. NkContextDesc::srgbSwapchain) :
+    // GL_FRAMEBUFFER_SRGB encode gamma à l'écriture du framebuffer par défaut. On le
+    // pose chaque frame (idempotent, contexte courant garanti) pour rester cohérent
+    // avec VK/DX : false = UNORM (affichage direct), true = sRGB (encode auto).
+    if (NkSwapchainFormatIsSrgb(mInit.context.swapchainFormat))
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    else
+        glDisable(GL_FRAMEBUFFER_SRGB);
     return true;
 }
 void NkOpenGLDevice::EndFrame(NkFrameContext&) {

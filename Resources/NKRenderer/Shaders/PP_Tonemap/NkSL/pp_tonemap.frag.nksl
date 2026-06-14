@@ -1,0 +1,81 @@
+// pp_tonemap.frag.nksl — NKRenderer — PostProcess Tonemap FS (VRAI dialecte NkSL)
+// Traduit de PP_Tonemap/VK/pp_tonemap.frag.vk.glsl. HDR + SSAO + Bloom + ACES + gamma
+// + saturation + LUT 3D + vignette. push_constant 48 octets (3×vec4) partagé avec le VS.
+
+@location(0) in  vec2 vUV;
+@location(0) out vec4 oColor;
+
+@binding(set=0, binding=0) uniform sampler2D uHDR;
+@binding(set=0, binding=1) uniform sampler2D uBloom;
+@binding(set=0, binding=2) uniform sampler2D uSSAO;
+@binding(set=0, binding=3) uniform sampler3D uColorLUT;
+
+layout(push_constant) uniform PC {
+    vec4 p0;   // (exposure, gamma, vignetteIntens, saturation)
+    vec4 p1;   // (bloomStrength, lutStrength, yFlipUV, lutSize)
+    vec4 p2;   // auto-exposure : (autoExpStrength, autoExpKey, _, _)
+} pc;
+
+vec3 ACESFilm(vec3 x) {
+    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return clamp((x*(a*x+b)) / (x*(c*x+d)+e), 0.0, 1.0);
+}
+
+@stage(fragment)
+@entry
+void main() {
+    float exposure       = pc.p0.x;
+    float gamma          = pc.p0.y;
+    float vignetteIntens = pc.p0.z;
+    float saturation     = pc.p0.w;
+    float bloomStr       = pc.p1.x;
+    float autoExpStr     = pc.p2.x;
+    float autoExpKey     = pc.p2.y;
+
+    // Auto-exposure V0 : sample le centre du bloom RT (≈ luma moyen scène).
+    if (autoExpStr > 0.001) {
+        vec3  centerBloom = texture(uBloom, vec2(0.5)).rgb;
+        float centerLuma  = dot(centerBloom, vec3(0.2126, 0.7152, 0.0722));
+        float autoExp     = autoExpKey / max(centerLuma, 0.001);
+        autoExp = clamp(autoExp, 0.1, 10.0);
+        exposure = mix(exposure, autoExp, clamp(autoExpStr, 0.0, 1.0));
+    }
+
+    // HDR * exposure, * SSAO (assombrit les zones occluses), + Bloom.
+    vec3  hdr   = texture(uHDR, vUV).rgb * exposure;
+    float ao    = texture(uSSAO, vUV).r;
+    hdr *= ao;
+    vec3  bloom = texture(uBloom, vUV).rgb;
+    hdr += bloom * bloomStr;
+
+    // Tonemap ACES filmic.
+    vec3 mapped = ACESFilm(hdr);
+
+    // Gamma manuel (VK swapchain sRGB gère le gamma → pc.gamma=1.0 côté VK).
+    if (gamma > 1.01) mapped = pow(mapped, vec3(1.0 / gamma));
+
+    // Saturation.
+    if (abs(saturation - 1.0) > 0.01) {
+        float lum = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
+        mapped = clamp(mix(vec3(lum), mapped, saturation), 0.0, 1.0);
+    }
+
+    // Color Grading LUT 3D (bias texel pour éviter le bleed aux bords).
+    float lutStrength = pc.p1.y;
+    float lutSize     = pc.p1.w;
+    if (lutStrength > 0.001 && lutSize > 0.5) {
+        vec3 lutCoord = clamp(mapped, 0.0, 1.0)
+                      * ((lutSize - 1.0) / lutSize)
+                      + (0.5 / lutSize);
+        vec3 graded   = texture(uColorLUT, lutCoord).rgb;
+        mapped = mix(mapped, graded, clamp(lutStrength, 0.0, 1.0));
+    }
+
+    // Vignette.
+    if (vignetteIntens > 0.001) {
+        vec2 uv = vUV * 2.0 - 1.0;
+        mapped *= clamp(1.0 - dot(uv, uv) * vignetteIntens, 0.0, 1.0);
+    }
+
+    oColor = vec4(mapped, 1.0);
+}

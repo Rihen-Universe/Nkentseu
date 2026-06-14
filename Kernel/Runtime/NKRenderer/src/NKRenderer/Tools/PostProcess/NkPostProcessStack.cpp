@@ -604,14 +604,14 @@ void main() {
     }
 
     NkTexHandle NkPostProcessStack::RunTonemap(NkICommandBuffer* cmd, NkTexHandle hdr) {
-        bool isVulkan = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
         // PC[0]=(exposure,gamma,vignette,sat) PC[1]=(bloomStr,bloomThr,invW,invH)
         struct PC {
             float exposure, gamma, vignetteIntens, saturation;
             float bloomStr, bloomThr, invW, invH;
         } pc;
         pc.exposure      = mCfg.exposure;
-        pc.gamma         = isVulkan ? 1.0f : mCfg.gamma;
+        // Gamma basé sur le format swapchain (sRGB→1.0, UNORM→manuel), cf. ExecuteRHI.
+        pc.gamma         = (mDevice && mDevice->IsSwapchainSrgb()) ? 1.0f : mCfg.gamma;
         pc.vignetteIntens= mCfg.vignette    ? mCfg.vignetteIntens : 0.0f;
         pc.saturation    = mCfg.colorGrading? mCfg.saturation     : 1.0f;
         pc.bloomStr      = mCfg.bloom       ? mCfg.bloomStrength   : 0.0f;
@@ -661,11 +661,15 @@ void main() {
         //   PC[1] = (bloomStrength, lutStrength, yFlipUV, lutSize)
         // Phase L : lutStrength remplace bloomThreshold (inutilise apres le 1er
         // downsample). lutSize en p1.w pour le bias texel correct cote shader.
-        bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+        // Gamma : si le swapchain encode déjà le sRGB (gamma auto à la présentation),
+        // pc.gamma=1.0 ; sinon (UNORM) on applique le gamma manuel. Basé sur le FORMAT
+        // swapchain (réglage global NkSwapchainFormat), PAS sur le backend — sinon VK en
+        // UNORM resterait trop sombre (pas de gamma) vs GL.
+        const bool swapchainSrgb = mDevice && mDevice->IsSwapchainSrgb();
         float32 pc[12] = {
             // p0 = (exposure, gamma, vignetteIntens, saturation)
             mCfg.exposure,
-            isVK ? 1.0f : mCfg.gamma,
+            swapchainSrgb ? 1.0f : mCfg.gamma,
             mCfg.vignette    ? mCfg.vignetteIntens : 0.f,
             mCfg.colorGrading? mCfg.saturation     : 1.f,
             // p1 = (bloomStrength, lutStrength, yFlipUV, lutSize)
