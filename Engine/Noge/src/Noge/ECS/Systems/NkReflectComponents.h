@@ -3,7 +3,7 @@
 // NKECS/Serialization/NkReflectComponents.h
 // =============================================================================
 // Métadonnées de réflexion pour les composants ECS standard.
-// Utilisées par InspectorPanel dans Unkeny pour afficher et éditer
+// Utilisées par InspectorPanel dans Noge pour afficher et éditer
 // les champs de chaque composant sélectionné.
 //
 // Architecture :

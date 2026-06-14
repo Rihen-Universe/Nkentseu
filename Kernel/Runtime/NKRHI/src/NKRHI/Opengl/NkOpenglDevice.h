@@ -47,6 +47,7 @@ public:
     void          Shutdown()                          override;
     bool          IsValid()                     const override { return mIsValid; }
     NkGraphicsApi GetApi()                      const override { return NkGraphicsApi::NK_GFX_API_OPENGL; }
+    bool IsSwapchainSrgb()                       const override { return NkSwapchainFormatIsSrgb(mInit.context.swapchainFormat); }
     const NkDeviceCaps& GetCaps()               const override { return mCaps; }
 
     // ── Buffers ───────────────────────────────────────────────────────────────
@@ -183,6 +184,7 @@ private:
             uint64   bufferOffset=0;
             uint64   bufferRange=0;
             GLuint   textureId=0;
+            GLenum   textureTarget=0;  // GL_TEXTURE_2D / GL_TEXTURE_CUBE_MAP etc.
             GLuint   samplerId=0;
         } bindings[32];
     };

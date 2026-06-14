@@ -7,7 +7,7 @@
 // NOTES: FFT Cooley-Tukey itérative, détection pitch YIN, tempo autocorrélation
 // -----------------------------------------------------------------------------
 
-#include "NkAudio.h"
+#include "NKAudio.h"
 #include "NKMemory/NkAllocator.h"
 
 #include <cmath>
@@ -25,8 +25,13 @@ namespace {
     inline nkentseu::float32 NkAtan2f(nkentseu::float32 y, nkentseu::float32 x) { return ::atan2f(y,x); }
 
     inline nkentseu::float32* AllocFloat(nkentseu::usize n, nkentseu::memory::NkAllocator* a) {
-        if (a) return (nkentseu::float32*)a->Allocate(n * sizeof(nkentseu::float32), sizeof(nkentseu::float32));
-        return (nkentseu::float32*)::operator new(n * sizeof(nkentseu::float32));
+        // Allocateur unifie via NKMemory : nullptr -> defaut global.
+        return (nkentseu::float32*)nkentseu::memory::NkAlloc(
+            n * sizeof(nkentseu::float32), a, sizeof(nkentseu::float32));
+    }
+    inline void FreeFloat(nkentseu::float32* p, nkentseu::memory::NkAllocator* a) {
+        if (!p) return;
+        nkentseu::memory::NkFree(p, a);
     }
 } // anonymous namespace
 
@@ -162,13 +167,8 @@ namespace nkentseu {
             float32* real = AllocFloat((usize)fftSize, allocator);
             float32* imag = AllocFloat((usize)fftSize, allocator);
             if (!real || !imag) {
-                if (allocator) {
-                    if (real) allocator->Free(real);
-                    if (imag) allocator->Free(imag);
-                } else {
-                    ::operator delete(real);
-                    ::operator delete(imag);
-                }
+                FreeFloat(real, allocator);
+                FreeFloat(imag, allocator);
                 return result;
             }
 
@@ -203,8 +203,8 @@ namespace nkentseu {
             result.sampleRate = sample.sampleRate;
 
             // Libérer temporaires
-            if (allocator) { allocator->Free(real); allocator->Free(imag); }
-            else { ::operator delete(real); ::operator delete(imag); }
+            if (allocator) { allocator->Deallocate(real); allocator->Deallocate(imag); }
+            else { nkentseu::memory::NkFree(real); nkentseu::memory::NkFree(imag); }
 
             return result;
         }
@@ -231,8 +231,8 @@ namespace nkentseu {
             float32* heapI = nullptr;
 
             if (!usedStack) {
-                heapR = (float32*)::operator new((usize)fftSize * sizeof(float32));
-                heapI = (float32*)::operator new((usize)fftSize * sizeof(float32));
+                heapR = (float32*)memory::NkAlloc((usize)fftSize * sizeof(float32));
+                heapI = (float32*)memory::NkAlloc((usize)fftSize * sizeof(float32));
                 real = heapR;
                 imag = heapI;
             }
@@ -251,8 +251,8 @@ namespace nkentseu {
             }
 
             if (!usedStack) {
-                ::operator delete(heapR);
-                ::operator delete(heapI);
+                memory::NkFree(heapR);
+                memory::NkFree(heapI);
             }
         }
 
@@ -392,7 +392,7 @@ namespace nkentseu {
                 mono = sample.data;
             } else {
                 // Downmix temporaire
-                mono    = (float32*)::operator new(frames * sizeof(float32));
+                mono    = (float32*)memory::NkAlloc(frames * sizeof(float32));
                 ownMono = true;
                 for (usize i = 0; i < frames; ++i) {
                     float32 sum = 0.0f;
@@ -409,7 +409,7 @@ namespace nkentseu {
 
             float32 pitch = YinPitchDetect(mono, analysisSize, sample.sampleRate, minFreq, maxFreq);
 
-            if (ownMono) ::operator delete(mono);
+            if (ownMono) memory::NkFree(mono);
             return pitch;
         }
 
@@ -430,7 +430,7 @@ namespace nkentseu {
             usize  numBlocks   = sample.frameCount / (usize)blockSize;
             if (numBlocks < 4) return 0.0f;
 
-            float32* energy = (float32*)::operator new(numBlocks * sizeof(float32));
+            float32* energy = (float32*)memory::NkAlloc(numBlocks * sizeof(float32));
             if (!energy) return 0.0f;
 
             for (usize b = 0; b < numBlocks; ++b) {
@@ -447,7 +447,7 @@ namespace nkentseu {
             }
 
             // Onset detection : dérivée positive de l'énergie
-            float32* onsets = (float32*)::operator new(numBlocks * sizeof(float32));
+            float32* onsets = (float32*)memory::NkAlloc(numBlocks * sizeof(float32));
             onsets[0] = 0.0f;
             for (usize b = 1; b < numBlocks; ++b) {
                 float32 diff = energy[b] - energy[b-1];
@@ -476,8 +476,8 @@ namespace nkentseu {
                 }
             }
 
-            ::operator delete(energy);
-            ::operator delete(onsets);
+            memory::NkFree(energy);
+            memory::NkFree(onsets);
 
             if (bestCorr <= 0.0f) return 0.0f;
 

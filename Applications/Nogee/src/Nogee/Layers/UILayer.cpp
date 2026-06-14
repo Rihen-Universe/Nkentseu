@@ -308,7 +308,7 @@ namespace nkentseu {
 
             // ── Menu Aide ─────────────────────────────────────────────────────
             if (NkUIMenu::BeginMenu(mCtx, mDL, font, "Aide")) {
-                if (NkUIMenu::MenuItem(mCtx, mDL, font, "À propos d'Unkeny")) {
+                if (NkUIMenu::MenuItem(mCtx, mDL, font, "À propos d'Noge")) {
                     // TODO : AboutDialog
                 }
                 NkUIMenu::EndMenu(mCtx);

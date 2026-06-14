@@ -2,7 +2,7 @@
  * @File    NkGIFCodec.cpp
  * @Brief   Codec GIF production-ready — GIF87a/GIF89a complet.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Correctness
  *  Décodage  : LZW variable (2-12 bits), GCT + LCT, interlacement,
@@ -378,6 +378,273 @@ using namespace nkentseu::memory;
 
         if(!foundFirstFrame) { canvas->Free(); return nullptr; }
         return canvas;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    //  NkGIFCodec::DecodeAnimation — decode multi-frame avec delays + disposal
+    // ─────────────────────────────────────────────────────────────────────────────
+    //  Strategie : on parse le GIF en streaming, on maintient un canvas RGBA32
+    //  qu'on met a jour selon les disposal methods, et a chaque frame complete
+    //  on cree une NkImage* COMPOSITE (snapshot du canvas) qu'on ajoute a la
+    //  liste de sortie. Le caller recoit donc des frames pretes a etre rendues
+    //  directement (pas de composition cote consommateur).
+    //
+    //  Disposal methods supportes :
+    //    0/1 : keep (frame suivante composee par-dessus) -> rien a faire
+    //    2   : restore to background -> clear la zone de la frame courante
+    //    3   : restore to previous   -> remet le canvas a l'etat avant cette frame
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    static NkImage* CloneCanvas(const NkImage* src)
+    {
+        if (!src) return nullptr;
+        NkImage* dst = NkImage::Alloc(src->Width(), src->Height(),
+                                      NkImagePixelFormat::NK_RGBA32);
+        if (!dst) return nullptr;
+        // Copie ligne par ligne (NkImage peut avoir un stride > w*4 si padding).
+        for (int32 y = 0; y < src->Height(); ++y) {
+            const uint8* sRow = const_cast<NkImage*>(src)->RowPtr(y);
+            uint8*       dRow = dst->RowPtr(y);
+            for (int32 i = 0; i < src->Width() * 4; ++i) dRow[i] = sRow[i];
+        }
+        return dst;
+    }
+
+    NkGIFAnimation* NkGIFCodec::DecodeAnimation(const uint8* data, usize size) noexcept
+    {
+        if (size < 13) return nullptr;
+        NkImageStream s(data, size);
+
+        // Header GIF87a/GIF89a
+        uint8 hdr[6]; s.ReadBytes(hdr, 6);
+        if (NkCompare(hdr,"GIF87a",6)!=0 && NkCompare(hdr,"GIF89a",6)!=0) return nullptr;
+
+        // Logical Screen Descriptor
+        const uint16 lsWidth  = s.ReadU16LE();
+        const uint16 lsHeight = s.ReadU16LE();
+        const uint8  packed   = s.ReadU8();
+        const uint8  bgColor  = s.ReadU8();
+        (void)s.ReadU8(); // pixel aspect ratio
+        if (lsWidth == 0 || lsHeight == 0) return nullptr;
+
+        const bool   hasGCT  = (packed & 0x80) != 0;
+        const int32  gctSize = hasGCT ? (2 << (packed & 7)) : 0;
+        uint8 gct[256*3] = {};
+        if (hasGCT) s.ReadBytes(gct, gctSize*3);
+
+        // Canvas global RGBA32 + canvas de backup pour disposal=3 (restore previous)
+        NkImage* canvas = NkImage::Alloc(lsWidth, lsHeight, NkImagePixelFormat::NK_RGBA32);
+        if (!canvas) return nullptr;
+        // Init fond : couleur de fond GCT ou transparent
+        if (hasGCT && bgColor < gctSize) {
+            for (int32 y = 0; y < lsHeight; ++y) {
+                uint8* row = canvas->RowPtr(y);
+                for (int32 x = 0; x < lsWidth; ++x) {
+                    row[x*4+0] = gct[bgColor*3];
+                    row[x*4+1] = gct[bgColor*3+1];
+                    row[x*4+2] = gct[bgColor*3+2];
+                    row[x*4+3] = 255;
+                }
+            }
+        } else {
+            NkSet(canvas->Pixels(), 0, canvas->TotalBytes());
+        }
+
+        // Allocation des frames (taille initiale 16, double si depasse).
+        // On limite a 4096 frames pour eviter abus / OOM sur GIF corrompu.
+        constexpr uint32 kMaxFrames = 4096;
+        uint32 capacity = 16;
+        NkGIFFrame* frames = (NkGIFFrame*)NkAlloc(sizeof(NkGIFFrame) * capacity);
+        if (!frames) { canvas->Free(); return nullptr; }
+        for (uint32 i = 0; i < capacity; ++i) frames[i] = NkGIFFrame{};
+        uint32 frameCount = 0;
+        uint16 loopCount  = 0;   // 0 = infini (defaut NETSCAPE)
+
+        // Etat courant du Graphic Control Extension (s'applique a la prochaine frame).
+        GIFFrame currentFrame = {};
+        currentFrame.hasGCE = false;
+
+        // Backup pour disposal=3 (restore previous). On l'alloue paresseusement
+        // quand on rencontre un disposal=3 pour la 1ere fois.
+        NkImage* canvasBackup = nullptr;
+
+        while (!s.IsEOF() && !s.HasError() && frameCount < kMaxFrames) {
+            const uint8 intro = s.ReadU8();
+
+            if (intro == 0x3B) break; // Trailer (fin du GIF)
+
+            if (intro == 0x21) { // Extension
+                const uint8 label = s.ReadU8();
+                if (label == 0xF9) { // Graphic Control Extension
+                    (void)s.ReadU8(); // block size (4)
+                    const uint8 gce_packed = s.ReadU8();
+                    currentFrame.hasGCE    = true;
+                    currentFrame.disposal  = (gce_packed >> 2) & 7;
+                    currentFrame.hasTransp = (gce_packed & 1) != 0;
+                    currentFrame.delayCS   = s.ReadU16LE();
+                    currentFrame.transpIdx = s.ReadU8();
+                    (void)s.ReadU8(); // block terminator
+                }
+                else if (label == 0xFF) { // Application Extension (NETSCAPE2.0 loop)
+                    const uint8 appBlockSize = s.ReadU8(); // doit etre 11
+                    if (appBlockSize == 11) {
+                        uint8 appId[11];
+                        s.ReadBytes(appId, 11);
+                        if (NkCompare(appId, "NETSCAPE2.0", 11) == 0) {
+                            // Sub-block : 1 byte size (3), 1 byte (0x01), 2 bytes loopCount LE, 0 terminator
+                            const uint8 sub = s.ReadU8();
+                            if (sub == 3) {
+                                (void)s.ReadU8();
+                                loopCount = s.ReadU16LE();
+                                (void)s.ReadU8(); // terminator
+                            } else {
+                                s.Skip(sub);
+                                uint8 bsize;
+                                do { bsize = s.ReadU8(); s.Skip(bsize); } while (bsize && !s.IsEOF());
+                            }
+                        } else {
+                            // App identifier inconnu : skip data blocks
+                            uint8 bsize;
+                            do { bsize = s.ReadU8(); s.Skip(bsize); } while (bsize && !s.IsEOF());
+                        }
+                    } else {
+                        // Application extension mal formee : skip
+                        s.Skip(appBlockSize);
+                        uint8 bsize;
+                        do { bsize = s.ReadU8(); s.Skip(bsize); } while (bsize && !s.IsEOF());
+                    }
+                }
+                else {
+                    // Plain Text, Comment, etc. : skip data blocks
+                    uint8 bsize;
+                    do { bsize = s.ReadU8(); s.Skip(bsize); } while (bsize && !s.IsEOF());
+                }
+                continue;
+            }
+
+            if (intro == 0x2C) { // Image Descriptor (debut d'une frame)
+                currentFrame.left   = s.ReadU16LE();
+                currentFrame.top    = s.ReadU16LE();
+                currentFrame.width  = s.ReadU16LE();
+                currentFrame.height = s.ReadU16LE();
+                const uint8 img_packed = s.ReadU8();
+                currentFrame.hasLCT     = (img_packed & 0x80) != 0;
+                currentFrame.interlaced = (img_packed & 0x40) != 0;
+                currentFrame.lctSize    = currentFrame.hasLCT ? (2 << (img_packed & 7)) : 0;
+                if (currentFrame.hasLCT) s.ReadBytes(currentFrame.lct, currentFrame.lctSize*3);
+
+                // Pour disposal=3, on sauvegarde l'etat AVANT de composer cette
+                // frame (pour pouvoir restaurer).
+                if (currentFrame.disposal == 3) {
+                    if (canvasBackup) canvasBackup->Free();
+                    canvasBackup = CloneCanvas(canvas);
+                }
+
+                // Compose la frame sur le canvas global.
+                DecodeFrame(s, currentFrame, gct, gctSize, canvas, nullptr);
+
+                // Snapshot du canvas pour le caller.
+                if (frameCount >= capacity) {
+                    const uint32 newCap = capacity * 2;
+                    NkGIFFrame* newFrames = (NkGIFFrame*)NkAlloc(sizeof(NkGIFFrame) * newCap);
+                    if (!newFrames) break;  // OOM : on arrete proprement
+                    for (uint32 i = 0; i < frameCount; ++i) newFrames[i] = frames[i];
+                    for (uint32 i = frameCount; i < newCap; ++i) newFrames[i] = NkGIFFrame{};
+                    NkFree(frames);
+                    frames = newFrames;
+                    capacity = newCap;
+                }
+                NkGIFFrame& out = frames[frameCount];
+                out.image    = CloneCanvas(canvas);
+                // GIF delay = centi-secondes, on convertit en ms.
+                // Convention : 0 ou tres bas = 100ms minimum (eviter spam GPU).
+                uint32 ms = (uint32)currentFrame.delayCS * 10u;
+                if (ms == 0) ms = 100;
+                out.delayMs  = ms;
+                out.left     = (uint16)currentFrame.left;
+                out.top      = (uint16)currentFrame.top;
+                out.disposal = currentFrame.disposal;
+                if (!out.image) break;  // OOM
+                ++frameCount;
+
+                // Applique la disposal method APRES avoir snapshotte cette frame :
+                //   0/1 : keep (rien a faire, le canvas reste tel quel)
+                //   2   : restore to background : efface la zone de la frame
+                //   3   : restore to previous : restore le canvas a l'etat backup
+                if (currentFrame.disposal == 2) {
+                    const int32 fx = currentFrame.left;
+                    const int32 fy = currentFrame.top;
+                    const int32 fw = currentFrame.width;
+                    const int32 fh = currentFrame.height;
+                    for (int32 y = fy; y < fy + fh && y < lsHeight; ++y) {
+                        uint8* row = canvas->RowPtr(y);
+                        for (int32 x = fx; x < fx + fw && x < lsWidth; ++x) {
+                            if (hasGCT && bgColor < gctSize) {
+                                row[x*4+0] = gct[bgColor*3];
+                                row[x*4+1] = gct[bgColor*3+1];
+                                row[x*4+2] = gct[bgColor*3+2];
+                                row[x*4+3] = 255;
+                            } else {
+                                row[x*4+0] = row[x*4+1] = row[x*4+2] = row[x*4+3] = 0;
+                            }
+                        }
+                    }
+                }
+                else if (currentFrame.disposal == 3 && canvasBackup) {
+                    for (int32 y = 0; y < lsHeight; ++y) {
+                        uint8* sRow = canvasBackup->RowPtr(y);
+                        uint8* dRow = canvas->RowPtr(y);
+                        for (int32 i = 0; i < lsWidth * 4; ++i) dRow[i] = sRow[i];
+                    }
+                }
+
+                // Reset GCE courant (la prochaine frame doit avoir son propre GCE).
+                currentFrame.hasGCE   = false;
+                currentFrame.delayCS  = 0;
+                currentFrame.disposal = 0;
+                currentFrame.hasTransp= false;
+            }
+        }
+
+        // Cleanup
+        canvas->Free();
+        if (canvasBackup) canvasBackup->Free();
+
+        if (frameCount == 0) {
+            NkFree(frames);
+            return nullptr;
+        }
+
+        // Allocation du resultat
+        NkGIFAnimation* anim = (NkGIFAnimation*)NkAlloc(sizeof(NkGIFAnimation));
+        if (!anim) {
+            for (uint32 i = 0; i < frameCount; ++i) {
+                if (frames[i].image) frames[i].image->Free();
+            }
+            NkFree(frames);
+            return nullptr;
+        }
+        anim->width      = lsWidth;
+        anim->height     = lsHeight;
+        anim->frameCount = frameCount;
+        anim->frames     = frames;
+        anim->loopCount  = loopCount;
+        return anim;
+    }
+
+    void NkGIFCodec::FreeAnimation(NkGIFAnimation* anim) noexcept
+    {
+        if (!anim) return;
+        if (anim->frames) {
+            for (uint32 i = 0; i < anim->frameCount; ++i) {
+                if (anim->frames[i].image) {
+                    anim->frames[i].image->Free();
+                    anim->frames[i].image = nullptr;
+                }
+            }
+            NkFree(anim->frames);
+        }
+        NkFree(anim);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

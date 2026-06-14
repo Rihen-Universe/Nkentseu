@@ -4,7 +4,7 @@
  *          Encodeur JFIF complet (SOF0, DQT, DHT, SOS, scan entropique).
  *          (public domain original : Sean Barrett). Aucun header stb inclus.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * ─── CORRECTIONS CRITIQUES APPLIQUEES ────────────────────────────────────────
  *
@@ -905,13 +905,31 @@ namespace nkentseu {
     // Entrée  : bloc uint8 8×8 (stride = str) — valeurs [0,255]
     // Sortie  : out[64] en ordre ZIGZAG, quantifiés et arrondis
     // qt[]    : table de quantification en ordre NATUREL
+    //
+    // BUG K CORRIGE : LEVEL SHIFT -128 manquait avant DCT (spec ITU-T.81 §5.4).
+    // Les samples doivent etre centres en [-128, +127] AVANT le calcul DCT.
+    // Le decodeur (jIDCT) applique deja le +128 inverse. Sans le -128 cote
+    // encodeur, le DC etait biaise de +1024 -> couleurs corrompues (rouge
+    // devenait magenta, bleu devenait magenta) visibles dans tout viewer
+    // JPEG externe (Windows Photos, etc.).
     static void FDCT8x8(const uint8* blk, int32 str, int32* out, const uint8* qt) noexcept {
         // Passe 1 : FDCT sur les lignes → tmp[64] (virgule flottante)
         float32 tmp[64];
         for (int32 i = 0; i < 8; ++i) {
             const uint8* r = blk + i * str;
-            float32 s0=r[0]+r[7], s1=r[1]+r[6], s2=r[2]+r[5], s3=r[3]+r[4];
-            float32 s4=r[3]-r[4], s5=r[2]-r[5], s6=r[1]-r[6], s7=r[0]-r[7];
+            // Level shift JPEG §5.4 : [0..255] -> [-128..+127]
+            // Variables v0..v7 (PAS r0..r7) car r0..r3 sont reutilises plus
+            // bas dans la passe 1 (ligne ~937, meme scope que ce for body).
+            const float32 v0 = float32(int32(r[0]) - 128);
+            const float32 v1 = float32(int32(r[1]) - 128);
+            const float32 v2 = float32(int32(r[2]) - 128);
+            const float32 v3 = float32(int32(r[3]) - 128);
+            const float32 v4 = float32(int32(r[4]) - 128);
+            const float32 v5 = float32(int32(r[5]) - 128);
+            const float32 v6 = float32(int32(r[6]) - 128);
+            const float32 v7 = float32(int32(r[7]) - 128);
+            float32 s0=v0+v7, s1=v1+v6, s2=v2+v5, s3=v3+v4;
+            float32 s4=v3-v4, s5=v2-v5, s6=v1-v6, s7=v0-v7;
             float32 p0=s0+s3, p1=s1+s2, p2=s1-s2, p3=s0-s3;
             tmp[i*8+0] = (p0+p1) * 0.353553391f;
             tmp[i*8+4] = (p0-p1) * 0.353553391f;

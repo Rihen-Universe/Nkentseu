@@ -93,6 +93,7 @@ Contient le système complet de contextes graphiques/compute.
 """
 
 from Jenga import *
+from jengaconfig import *
 import os
 import shutil
 import subprocess
@@ -121,7 +122,7 @@ if _HAS_LIBDECOR:
     _WAYLAND_TEST_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
-_TC_WINDOWS = "nk-windows-clang-mingw"
+_
 _VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
@@ -174,7 +175,7 @@ with project("NKContext"):
 
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
         ])
@@ -320,7 +321,7 @@ with project("NKContext"):
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 #include "NkDX11ComputeContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include <d3dcompiler.h>
 #include <cstdio>
 
@@ -644,7 +645,7 @@ namespace nkentseu {
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 #include "NkDX12ComputeContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include <d3dcompiler.h>
 #include <cstdio>
 
@@ -1312,7 +1313,7 @@ void NkMetalComputeContext::Dispatch(uint32 gx, uint32 gy, uint32 gz) {
 
 #include "NkMetalComputeContext.h"
 #include "NKContext/Graphics/Metal/NkMetalContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #import <Metal/Metal.h>
 #include <cstdio>
 #include <cstring>
@@ -1641,7 +1642,7 @@ bool NkMetalComputeContext::SupportsFloat64() const { return false; } // Metal n
 #include "NKContext/Core/NkNativeContextAccess.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 
 #include <cstdio>
 #include <cstring>
@@ -2278,7 +2279,7 @@ namespace nkentseu {
 [FICHIER: src\NKContext\Compute\NkSoftwareComputeContext.cpp]
 ==================================================
 #include "NkSoftwareComputeContext.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKLogger/NkLog.h"
 
 #include <cstdio>
@@ -2629,7 +2630,7 @@ private:
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKContainers/CacheFriendly/NkArray.h"
 
 #include <cstdio>
@@ -7637,7 +7638,7 @@ namespace nkentseu {
 
 #include "NkOpenGLContext.h"
 #include "NKContext/Core/NkSurfaceDesc.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #import <AppKit/AppKit.h>
 #import <OpenGL/OpenGL.h>
 
@@ -8260,7 +8261,7 @@ void NkSoftwareContext::PresentNative() {
 // =============================================================================
 #include "NKContext/Core/NkIGraphicsContext.h"
 #include "NKContext/Core/NkSurfaceDesc.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKMath/NkFunctions.h"
 #include "NKMath/NKMath.h"
 
@@ -8759,7 +8760,7 @@ namespace nkentseu {
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
-#include "NKContainers/NkContainers.h"
+#include "NKContainers/NKContainers.h"
 #include "NKMath/NkFunctions.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKContext/Core/NkGpuPolicy.h"

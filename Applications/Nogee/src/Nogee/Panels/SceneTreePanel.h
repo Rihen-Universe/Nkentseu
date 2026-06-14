@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Panels/SceneTreePanel.h
+// Noge/Panels/SceneTreePanel.h
 // =============================================================================
 // Panel qui affiche la hiérarchie ECS de la scène active.
 // Utilise NkUI::TreeNode pour afficher les entités parent/enfant.

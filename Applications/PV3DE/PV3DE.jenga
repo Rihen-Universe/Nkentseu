@@ -6,7 +6,7 @@ PV3DE — Application de démonstration multi-plateformes
 Illustre l'utilisation complète du framework Nkentseu :
   • Création de fenêtre et boucle principale cross-platform
   • Gestion des événements : clavier, souris, touch, drag & drop
-  • Rendu pixel software via NKContext (NkSoftwareRenderer)
+  • Rendu pixel software via NKCanvas (NkSoftwareRenderer)
   • Gamepad, safe area, transforms 2D
 
 Un seul fichier src/main.cpp compile pour TOUTES les plateformes.
@@ -14,61 +14,11 @@ Le point d'entrée natif est abstrait par NkEntry.h / NkMain.h.
 """
 
 from Jenga import *
+from jengaconfig import *
 from Jenga.Core.Api import androidallowrotation
-import os
-import shutil
-import subprocess
 
-def _pkg_exists(pkg_name: str) -> bool:
-    if not shutil.which("pkg-config"):
-        return False
-    try:
-        return subprocess.call(
-            ["pkg-config", "--exists", pkg_name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ) == 0
-    except Exception:
-        return False
-
-def _norm(path: str) -> str:
-    return path.replace("\\", "/") if path else path
-
-_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
-_WAYLAND_TEST_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "EGL", "GLESv2"]
-_WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
-if _pkg_exists("libdecor-0"):
-    _WAYLAND_LINKS.append("decor-0")
-    _WAYLAND_TEST_LINKS.append("decor-0")
-    _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
-
-_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
-_VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
-_VULKAN_LIB = _norm(os.path.join(_VULKAN_SDK, "Lib")) if _VULKAN_SDK else ""
-_VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
-if _VULKAN_OPT in ("0", "false", "off", "no"):
-    _WANT_VULKAN = False
-elif _VULKAN_OPT in ("1", "true", "on", "yes"):
-    _WANT_VULKAN = True
-else:
-    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
-
-# Libs glslang du SDK Vulkan (GLSL→SPIR-V) — nécessaires quand NKRHI est lié avec Vulkan
-_GLSLANG_LIBS_WINDOWS = [
-    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
-    "glslang-default-resource-limits",
-]
-_GLSLANG_LIBS_UNIX = [
-    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
-    "glslang-default-resource-limits",
-]
-
-# NKGLSlang / NKSPIRVCross — compilés depuis les sources, compatibles MinGW et MSVC.
-# Requis par NKRHI.lib qui contient NkShaderConvert.obj (symboles glslang/spirv_cross).
-_NKGLSLANG_OPT   = os.getenv("NK_ENABLE_GLSLANG",    "auto").strip().lower()
-_NKSPIRVXROSS_OPT= os.getenv("NK_ENABLE_SPIRVCROSS",  "auto").strip().lower()
-_USE_NKGLSLANG    = _NKGLSLANG_OPT    not in ("0", "false", "off", "no")
-_USE_NKSPIRVXROSS = _NKSPIRVXROSS_OPT not in ("0", "false", "off", "no")
+# Vars graphiques/Wayland partagees : config/graphics.jenga + config/wayland.jenga
+# (VULKAN_INCLUDE/LIB, WANT_VULKAN, GLSLANG_LIBS_*, WAYLAND_*).
 
 with project("PV3DE"):
     windowedapp()
@@ -76,47 +26,19 @@ with project("PV3DE"):
     cppdialect("C++17")
     location(".")
 
-    _TC_WINDOWS = "nk-windows-clang-mingw"
-
     files(["src/PV3DE/**.cpp", "src/PV3DE/**.m", "src/PV3DE/**.mm"])  # Now accepts a list of strings
 
-    _PV3DE_INCLUDE_DIRS = [
-        "src",
-        "%{NKGlad.location}/include",
-        "%{NKEvent.location}/src",
-        "%{NKWindow.location}/src",
-        "%{NKLogger.location}/src",
-        "%{NKCore.location}/src",
-        "%{NKPlatform.location}/src",
-        "%{NKMath.location}/src",
-        "%{NKTime.location}/src",
-        "%{NKStream.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKThreading.location}/src",
-        "%{NKRHI.location}/src",
-        "%{Nkentseu.location}/src",
-        "%{NKImage.location}/src",
-        "%{NKFont.location}/src",
-        "%{NKUI.location}/src",
-    ]
-
-    if _VULKAN_INCLUDE:
-        _PV3DE_INCLUDE_DIRS.append(_VULKAN_INCLUDE)
-    includedirs(_PV3DE_INCLUDE_DIRS)
-
-    _BASE_LINKS = [
-        "NKEvent", "NKWindow", "NKGlad", "NKLogger",
-        "NKMath", "NKTime", "NKStream",
-        "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI",
-        "NKImage", "NKFont", "NKUI", "NKGLSlang", "NKSPIRVCross"
-    ]
-
-    links(_BASE_LINKS)
-    dependson(_BASE_LINKS)
-    defines([
-        f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
-    ])
+    # Mode app : nkentseudependson emet includedirs + links + dependson + defines
+    # _STATIC_LIB (transitifs) automatiquement. Includes propres a l'app + moteur
+    # Noge + Vulkan SDK en extra ; le link des libs SDK + systeme reste en filtres.
+    nkentseudependson(
+        ["NKEvent", "NKWindow", "NKGlad", "NKLogger", "NKMath", "NKTime", "NKStream",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI",
+         "NKImage", "NKFont", "NKUI", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{Noge.location}/src"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
@@ -128,25 +50,25 @@ with project("PV3DE"):
     # ===== Windows ================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         windowedapp()
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
             "_UNICODE", "UNICODE",
         ])
-        if _VULKAN_LIB:
-            libdirs([_VULKAN_LIB])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
         _WIN_LINKS = [
             "user32", "gdi32", "opengl32", "dwmapi", "shell32",
-            "xinput", "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler"
         ]
-        _IS_MINGW_R = "mingw" in _TC_WINDOWS.lower()
-        if _WANT_VULKAN:
+        _IS_MINGW_R = "mingw" in TC_WINDOWS.lower()
+        if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
             if not _IS_MINGW_R:
                 # glslang.lib (Vulkan SDK) compilé MSVC — incompatible avec MinGW
-                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+                _WIN_LINKS.extend(GLSLANG_LIBS_WINDOWS)
         # NKGLSlang / NKSPIRVCross compilés source → compatibles MinGW, requis par NKRHI
         links(_WIN_LINKS)
 
@@ -189,8 +111,8 @@ with project("PV3DE"):
         usetoolchain("clang-native")
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
         targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
-        defines(_WAYLAND_DEFINES)
-        links(_WAYLAND_LINKS)
+        defines(WAYLAND_DEFINES)
+        links(WAYLAND_LINKS)
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):
@@ -203,7 +125,7 @@ with project("PV3DE"):
         windowedapp()
         usetoolchain("android-ndk")
         _ANDROID_LINKS = ["android", "log", "EGL", "GLESv3", "NKGlad"]   # ← AJOUTER NKGlad
-        if _WANT_VULKAN:
+        if WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
         links(_ANDROID_LINKS)
         androidapplicationid(f"com.nkentseu.PV3DE")

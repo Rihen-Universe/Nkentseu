@@ -1,0 +1,30 @@
+// render2d.vert.nksl — NKRenderer — Render2D VS (VRAI dialecte NkSL)
+// Traduit de Render2D/VK/render2d.vert.vk.glsl. purePC (push_constant ortho, pas
+// d'UBO) → le générateur GL ne flippe PAS Y (matrice ortho déjà en convention GL).
+
+@location(0) in vec2 aPos;
+@location(1) in vec2 aUV;
+@location(2) in uint aColor;
+@location(3) in uint aFlags;
+
+@location(0) out vec2 vUV;
+@location(1) out vec4 vColor;
+@location(2) out flat uint vFlags;
+@location(3) out vec2 vWorldPos;
+
+layout(push_constant) uniform PC {
+    mat4 ortho;
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    gl_Position = pc.ortho * vec4(aPos, 0.0, 1.0);
+    vUV       = aUV;
+    vWorldPos = aPos;
+    vColor = vec4(float((aColor      ) & 0xFFu) / 255.0,
+                  float((aColor >>  8u) & 0xFFu) / 255.0,
+                  float((aColor >> 16u) & 0xFFu) / 255.0,
+                  float((aColor >> 24u) & 0xFFu) / 255.0);
+    vFlags = aFlags;
+}

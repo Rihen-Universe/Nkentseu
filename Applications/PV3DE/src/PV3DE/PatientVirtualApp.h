@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Nkentseu/Core/Application.h"
-#include "Nkentseu/Core/NkApplicationConfig.h"
+#include "Noge/Core/Application.h"
+#include "Noge/Core/NkApplicationConfig.h"
 #include "Layers/PatientLayer.h"
 
 namespace nkentseu {

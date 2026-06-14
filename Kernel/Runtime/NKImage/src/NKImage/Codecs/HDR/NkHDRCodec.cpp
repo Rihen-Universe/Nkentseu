@@ -2,7 +2,7 @@
  * @File    NkHDRCodec.cpp
  * @Brief   Codec Radiance HDR (.hdr/.rgbe) production-ready.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Fixes vs version précédente
  *  1. BUG A — Fallback décodeur ancien-format RLE complètement absent.
@@ -228,6 +228,11 @@ namespace nkentseu {
             if (::strncmp(line, "EXPOSURE=", 9) == 0)
                 exposure = ::strtof(line + 9, nullptr);
         }
+        // Certains writers (FreeImage notamment, cf newport_loft.hdr) ecrivent
+        // "EXPOSURE=0" dans le header. Le multiplier reste cumulatif selon la
+        // spec Radiance ; une valeur <=0 ferait des pixels noirs. On force
+        // 1.0 comme valeur neutre dans ce cas (header invalide).
+        if (exposure <= 0.f) exposure = 1.f;
 
         // Ligne dimensions
         if (!ReadHdrLine(s, line, sizeof(line))) return nullptr;

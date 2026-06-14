@@ -15,7 +15,7 @@
  */
 #include "NkUINKRHIBackend.h"
 
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
 #include <cmath>

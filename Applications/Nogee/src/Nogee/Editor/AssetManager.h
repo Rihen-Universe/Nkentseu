@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Editor/AssetManager.h
+// Noge/Editor/AssetManager.h
 // =============================================================================
 // Cache centralisé des assets chargés en mémoire GPU/CPU.
 // Identifie chaque asset par son chemin relatif (clé).
@@ -24,10 +24,10 @@
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKRHI/Core/NkIDevice.h"
-#include "NKRHI/Core/NkHandles.h"
+#include "NKRHI/Core/NkTypes.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         // =====================================================================
         // NkAssetType
@@ -118,5 +118,5 @@ namespace nkentseu {
             void GenerateThumbnail(const char* path) noexcept;
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

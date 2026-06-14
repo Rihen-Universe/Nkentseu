@@ -34,7 +34,7 @@
 #include "NKECS/Components/Core/NkTag.h"
 #include "NKECS/Components/Core/NkName.h"
 #include "NKECS/Prefabs/NkPrefab.h"
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 
 namespace nkentseu {
     namespace ecs {

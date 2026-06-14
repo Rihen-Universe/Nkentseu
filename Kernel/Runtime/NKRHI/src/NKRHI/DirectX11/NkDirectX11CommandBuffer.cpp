@@ -27,7 +27,9 @@ namespace nkentseu {
     }
 
     void NkDirectX11CommandBuffer::End() {
+        if (mDev) mDev->DrainInfoQueue(); // DIAG : log validation AVANT FinishCommandList (qui crashe)
         if (mDeferred) mDeferred->FinishCommandList(FALSE, &mCmdList);
+        if (mDev) mDev->DrainInfoQueue(); // DIAG : log validation générée par FinishCommandList
     }
 
     void NkDirectX11CommandBuffer::Reset() {
@@ -51,12 +53,16 @@ namespace nkentseu {
 
         mDeferred->OMSetRenderTargets(fbo->rtvCount, fbo->rtvs, fbo->dsv);
 
-        // Clear avec les valeurs dynamiques (SetClearColor / SetClearDepth)
-        for (uint32 i = 0; i < fbo->rtvCount; i++)
-            if (fbo->rtvs[i]) mDeferred->ClearRenderTargetView(fbo->rtvs[i], mClearColor);
-        if (fbo->dsv)
+        // Clear UNIQUEMENT si demandé (loadOp CLEAR → SetClearColor/Depth appelé). Une
+        // passe LOAD (Overlay2D sur swapchain) ne doit PAS effacer l'image déjà composée.
+        if (mPendingClearColor)
+            for (uint32 i = 0; i < fbo->rtvCount; i++)
+                if (fbo->rtvs[i]) mDeferred->ClearRenderTargetView(fbo->rtvs[i], mClearColor);
+        if (mPendingClearDepth && fbo->dsv)
             mDeferred->ClearDepthStencilView(fbo->dsv,
                 D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, mClearDepth, (UINT8)mClearStencil);
+        mPendingClearColor = false;
+        mPendingClearDepth = false;
 
         D3D11_VIEWPORT vp{ (float)area.x, (float)area.y,
                             (float)area.width, (float)area.height, 0.f, 1.f };
@@ -132,42 +138,107 @@ namespace nkentseu {
                                                 uint32* /*off*/, uint32 /*cnt*/) {
         auto* ds = mDev->GetDescSet(set.id);
         if (!ds) return;
+        // Pool de samplers partagés NkSL→HLSL : binder une fois les 4 samplers
+        // statiques à s12..s15 (wrap/clamp/point/comparison). Les shaders NkSL
+        // référencent ce pool ; les samplers par-descripteur à binding élevé sont
+        // ignorés (cf. NkSLCodeGenHLSL kNkSLSamplerPoolBase=12). Inoffensif pour les
+        // shaders legacy (ils bindent s0..s11).
+        {
+            ID3D11SamplerState* const* pool = mDev->PoolSamplers();
+            if (pool && pool[0]) {
+                mDeferred->VSSetSamplers(12, 4, pool);
+                mDeferred->PSSetSamplers(12, 4, pool);
+            }
+        }
+        // D3D11 : 128 slots SRV (t0..t127) mais seulement 16 slots sampler (s0..s15,
+        // D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT). NKRenderer utilise des bindings
+        // élevés (16, 25, 26, 27…) dans un seul set : un sampler à slot>=16 passé à
+        // *SetSamplers est hors-limites -> crash dans d3d11.dll. On garde le SRV (slot
+        // valide en t#) et on saute le sampler hors-limites.
+        // TODO #4 : remapping propre des registres sampler en SPIRV-Cross (s0..s15)
+        // pour que les textures à binding>=16 disposent quand même d'un sampler.
+        // s12..s15 sont réservés au pool partagé NkSL : les samplers par-descripteur
+        // ne bindent qu'en dessous (s0..s11) pour ne pas l'écraser.
+        constexpr UINT kMaxSamplerSlot = 12; // < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT (16), réserve s12..s15
+        constexpr UINT kMaxSrvSlot     = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; // 128
+        constexpr UINT kMaxCBufSlot    = D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; // 14 (b0..b13)
         for (uint32 i = 0; i < ds->count; i++) {
             auto& s = ds->slots[i];
             UINT slot = s.slot;
+            // Garde anti-crash : range de slot ET pointeur non-null. Un shader qui a
+            // échoué à compiler (ex. PostProcess .vk.glsl→SPIRV-Cross KO) laisse des
+            // SRV/sampler/CB null ou pendants -> *Set*(slot, 1, &ptr) crashe dans
+            // d3d11.dll. On saute proprement (la scène rend sans ce binding).
+            const bool srvOk     = slot < kMaxSrvSlot     && s.srv != nullptr;
+            const bool samplerOk = slot < kMaxSamplerSlot && s.ss  != nullptr;
+            // DX11 = 14 cbuffers max (b0..b13). NKRenderer binde des UBO à binding élevé
+            // (MaterialCollection=25, VoxelAO=27…) -> VSSetConstantBuffers(25) = CORRUPTION
+            // out-of-range -> crash. Les shaders NkSL ne déclarent PAS ces b>=14 (sinon
+            // X4567), donc cet UBO leur est inutile : on saute proprement (pas de remap).
+            const bool cbufOk    = slot < kMaxCBufSlot    && s.buf != nullptr;
             switch (s.kind) {
                 case NkDX11DescSet::Slot::Buffer:
                     if (s.type == NkDescriptorType::NK_UNIFORM_BUFFER) {
-                        mDeferred->VSSetConstantBuffers(slot, 1, &s.buf);
-                        mDeferred->PSSetConstantBuffers(slot, 1, &s.buf);
-                        mDeferred->CSSetConstantBuffers(slot, 1, &s.buf);
+                        if (cbufOk) {
+                            mDeferred->VSSetConstantBuffers(slot, 1, &s.buf);
+                            mDeferred->PSSetConstantBuffers(slot, 1, &s.buf);
+                            mDeferred->CSSetConstantBuffers(slot, 1, &s.buf);
+                        }
                     } else {
                         // UAV (compute)
                         mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
                     }
                     break;
                 case NkDX11DescSet::Slot::Texture:
-                    mDeferred->VSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->PSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->CSSetShaderResources(slot, 1, &s.srv);
-                    if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
+                    if (srvOk) {
+                        mDeferred->VSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->PSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->CSSetShaderResources(slot, 1, &s.srv);
+                        if (s.uav) mDeferred->CSSetUnorderedAccessViews(slot, 1, &s.uav, nullptr);
+                    }
                     break;
                 case NkDX11DescSet::Slot::Sampler:
-                    mDeferred->VSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->PSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->CSSetSamplers(slot, 1, &s.ss);
+                    // Samplers par-descripteur NON bindés : les shaders NkSL→HLSL
+                    // échantillonnent via le POOL partagé (s12..s15, bindé en tête).
+                    // Évite aussi un crash sur sampler pendant (PostProcess).
+                    (void)samplerOk;
                     break;
                 case NkDX11DescSet::Slot::TextureAndSampler:
-                    mDeferred->VSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->PSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->CSSetShaderResources(slot, 1, &s.srv);
-                    mDeferred->VSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->PSSetSamplers(slot, 1, &s.ss);
-                    mDeferred->CSSetSamplers(slot, 1, &s.ss);
+                    if (srvOk) {
+                        mDeferred->VSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->PSSetShaderResources(slot, 1, &s.srv);
+                        mDeferred->CSSetShaderResources(slot, 1, &s.srv);
+                    }
+                    // Sampler par-descripteur ignoré (pool partagé, cf. ci-dessus).
                     break;
                 default: break;
             }
         }
+    }
+
+    // =============================================================================
+    // Push Constants — émulés par un cbuffer dynamique à b13 (DX11 n'en a pas).
+    // Le générateur HLSL émet les blocs push_constant en `register(b13)`. On
+    // accumule dans un shadow CPU (gère les writes partiels par offset) puis on
+    // uploade tout le cbuffer et on le binde à b13 (VS+PS+CS).
+    // =============================================================================
+    void NkDirectX11CommandBuffer::PushConstants(NkShaderStage /*stages*/, uint32 offset,
+                                                 uint32 size, const void* data) {
+        if (!data || size == 0) return;
+        const uint32 cap = NkDirectX11Device::kPushConstantBytes;
+        if (offset >= cap) return;
+        if (offset + size > cap) size = cap - offset;
+        memcpy(mPushCpu + offset, data, size);
+
+        ID3D11Buffer* cb = mDev->PushConstantCB();
+        if (!cb) return;
+        // UpdateSubresource enregistre la copie dans le command list différé (le buffer
+        // est DEFAULT, pas DYNAMIC → pas de Map sur contexte différé).
+        mDeferred->UpdateSubresource(cb, 0, nullptr, mPushCpu, 0, 0);
+        const UINT reg = NkDirectX11Device::kPushConstantReg; // b13
+        mDeferred->VSSetConstantBuffers(reg, 1, &cb);
+        mDeferred->PSSetConstantBuffers(reg, 1, &cb);
+        mDeferred->CSSetConstantBuffers(reg, 1, &cb);
     }
 
     // =============================================================================

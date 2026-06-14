@@ -7,14 +7,14 @@
 // =============================================================================
 #include "Core/NkRendererTypes.h"
 #include "Core/NkRendererConfig.h"
-#include "NKWindow/Core/NkSurface.h"    // NkSurfaceDesc — seul lien plateforme
 #include "NKRHI/Core/NkIDevice.h"
 
 // Forward declarations — évite de tout inclure
-namespace nkentseu { 
+namespace nkentseu {
     namespace renderer {
         class NkRenderGraph;
         class NkTextureLibrary;
+        class NkShaderLibrary;
         class NkMeshSystem;
         class NkMaterialSystem;
         class NkRender2D;
@@ -24,6 +24,7 @@ namespace nkentseu {
         class NkOverlayRenderer;
         class NkOffscreenTarget;
         class NkShadowSystem;
+        class NkVirtualShadowMaps;
         class NkVFXSystem;
         class NkAnimationSystem;
         class NkSimulationRenderer;
@@ -42,10 +43,10 @@ namespace nkentseu {
             virtual ~NkRenderer() = default;
 
             // ── Fabrique ─────────────────────────────────────────────────────────
-            static NkRenderer* Create(NkIDevice*             device,
-                                    const NkSurfaceDesc&   surface,
-                                    const NkRendererConfig& cfg);
-            static void Destroy(NkRenderer*& renderer);
+            // La swapchain est entierement geree par NkIDevice (cf. NkDeviceFactory::Create
+            // qui prend la surface). Le renderer recupere les dimensions via le device.
+            static NkRenderer* Create(NkIDevice* device, const NkRendererConfig& cfg);
+            static void        Destroy(NkRenderer*& renderer);
 
             // ── Cycle de vie ──────────────────────────────────────────────────────
             virtual bool Initialize() = 0;
@@ -63,14 +64,16 @@ namespace nkentseu {
             // ── Sous-systèmes ─────────────────────────────────────────────────────
             virtual NkRenderGraph*        GetRenderGraph()  = 0;
             virtual NkTextureLibrary*     GetTextures()     = 0;
+            virtual NkShaderLibrary*      GetShaders()      = 0;
             virtual NkMeshSystem*         GetMeshSystem()   = 0;
             virtual NkMaterialSystem*     GetMaterials()    = 0;
             virtual NkRender2D*           GetRender2D()     = 0;
             virtual NkRender3D*           GetRender3D()     = 0;
+            virtual class NkMaterialCollection* GetMaterialCollection() = 0;
             virtual NkTextRenderer*       GetTextRenderer() = 0;
             virtual NkPostProcessStack*   GetPostProcess()  = 0;
             virtual NkOverlayRenderer*    GetOverlay()      = 0;
-            virtual NkShadowSystem*       GetShadow()       = 0;
+            virtual NkVirtualShadowMaps*  GetShadow()       = 0;
             virtual NkVFXSystem*          GetVFX()          = 0;
             virtual NkAnimationSystem*    GetAnimation()    = 0;
             virtual NkSimulationRenderer* GetSimulation()   = 0;
@@ -79,10 +82,42 @@ namespace nkentseu {
             virtual NkOffscreenTarget* CreateOffscreen(const NkOffscreenDesc& desc) = 0;
             virtual void               DestroyOffscreen(NkOffscreenTarget*& t)      = 0;
 
+            // ── Planar reflections (auto) ─────────────────────────────────────────
+            // L'utilisateur enregistre un plan reflechissant ; le renderer fait
+            // automatiquement la passe miroir avant la passe Geometry principale,
+            // et met a jour le material cible avec le RT du reflet.
+            // L'utilisateur n'a PLUS BESOIN de soumettre les drawcalls deux fois.
+            virtual class NkPlanarReflectionSystem* GetPlanarReflection() = 0;
+
+            // Phase H.6 : voxel AO system. L'app enregistre les occluders
+            // (sol, gros meshes static) via GetVoxelAO()->RegisterOccluder()
+            // puis appelle Build() une fois pour bake le voxel grid. Le PBR
+            // shader sample automatiquement le grid pour atténuer l'IBL des
+            // zones occluses (ex: objets sous le sol qui sont cachés du sky).
+            virtual class NkVoxelAOSystem* GetVoxelAO() = 0;
+
             // ── Configuration dynamique ───────────────────────────────────────────
             virtual void SetVSync     (bool enabled)          = 0;
             virtual void SetPostConfig(const NkPostConfig& pp)= 0;
             virtual void SetWireframe (bool enabled)          = 0;
+
+            // ── Sous-systemes runtime (enable/disable a chaud) ────────────────────
+            // Active un (ou plusieurs) sous-systeme(s) : alloue et initialise s'il
+            // n'existe pas encore. Reconstruit le render graph ensuite.
+            // Renvoie true si au moins un sous-systeme a ete (re)cree avec succes,
+            // false si tous etaient deja actifs ou si un init a echoue.
+            virtual bool EnableSubsystem (NkSubsystemFlags flags) = 0;
+
+            // Desactive un (ou plusieurs) sous-systeme(s) : shutdown et libere.
+            // Reconstruit le render graph ensuite. Les dependances inverses sont
+            // verifiees : desactiver RENDER2D ferme aussi TEXT/UI/OVERLAY si actifs.
+            virtual void DisableSubsystem(NkSubsystemFlags flags) = 0;
+
+            // Vrai si TOUS les flags fournis sont actuellement actifs.
+            virtual bool IsSubsystemActive(NkSubsystemFlags flags) const = 0;
+
+            // Etat global des sous-systemes (bitfield).
+            virtual NkSubsystemFlags GetActiveSubsystems() const = 0;
 
             // ── Stats ─────────────────────────────────────────────────────────────
             virtual const NkRendererStats& GetStats()  const = 0;

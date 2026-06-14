@@ -1,8 +1,8 @@
 #pragma once
 // =============================================================================
-// Unkeny/Editor/ProjectManager.h
+// Noge/Editor/ProjectManager.h
 // =============================================================================
-// Gestion du projet Unkeny : .nkproj (JSON), chemins des assets,
+// Gestion du projet Noge : .nkproj (JSON), chemins des assets,
 // scène d'entrée, paramètres build.
 // =============================================================================
 
@@ -11,7 +11,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
-    namespace Unkeny {
+    namespace Noge {
 
         struct NkProjectConfig {
             NkString name            = "NewProject";
@@ -70,5 +70,5 @@ namespace nkentseu {
             bool            mModified = false;
         };
 
-    } // namespace Unkeny
+    } // namespace Noge
 } // namespace nkentseu

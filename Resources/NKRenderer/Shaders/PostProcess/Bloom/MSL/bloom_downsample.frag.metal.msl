@@ -1,0 +1,19 @@
+// bloom_downsample.frag.metal.msl — Bloom Downsample (Metal)
+#include <metal_stdlib>
+using namespace metal;
+struct BloomUBO{float threshold,bloomStrength,upsampleRadius,_p;};
+struct PSIn{float4 pos[[position]];float2 uv;};
+fragment float4 bloomDownFrag(PSIn i[[stage_in]],texture2d<float> tSrc[[texture(0)]],sampler sL[[sampler(0)]],constant BloomUBO& u[[buffer(1)]]){
+    float2 ts=1.f/float2(tSrc.get_width(),tSrc.get_height());
+    float3 a=tSrc.sample(sL,i.uv+ts*float2(-2,2)).rgb; float3 b=tSrc.sample(sL,i.uv+ts*float2(0,2)).rgb;
+    float3 c=tSrc.sample(sL,i.uv+ts*float2(2,2)).rgb;  float3 d=tSrc.sample(sL,i.uv+ts*float2(-2,0)).rgb;
+    float3 e=tSrc.sample(sL,i.uv).rgb; float3 f=tSrc.sample(sL,i.uv+ts*float2(2,0)).rgb;
+    float3 g=tSrc.sample(sL,i.uv+ts*float2(-2,-2)).rgb; float3 h=tSrc.sample(sL,i.uv+ts*float2(0,-2)).rgb;
+    float3 k=tSrc.sample(sL,i.uv+ts*float2(2,-2)).rgb; float3 l=tSrc.sample(sL,i.uv+ts*float2(-1,1)).rgb;
+    float3 m=tSrc.sample(sL,i.uv+ts*float2(1,1)).rgb; float3 n=tSrc.sample(sL,i.uv+ts*float2(-1,-1)).rgb;
+    float3 o=tSrc.sample(sL,i.uv+ts*float2(1,-1)).rgb;
+    float3 r=e*.125f+(a+c+g+k)*.03125f+(b+d+f+h)*.0625f+(l+m+n+o)*.125f;
+    float lum=dot(r,float3(0.2126f,0.7152f,0.0722f));
+    r*=clamp((lum-(u.threshold-.1f))/(0.2f),0.f,1.f);
+    return float4(r,1.f);
+}

@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// Unkeny/Panels/AssetBrowser.h
+// Noge/Panels/AssetBrowser.h
 // =============================================================================
 // Navigateur d'assets du projet : dossiers, fichiers, thumbnails.
 // Double-clic sur une texture → importe dans la scène.

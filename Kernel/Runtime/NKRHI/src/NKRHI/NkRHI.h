@@ -15,4 +15,4 @@
 #include "NKRHI/Commands/NkCommandPool.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 
-#include "NKRHI/ShaderConvert/NkShaderConvert.h"
+#include "NKSL/NKSL.h"

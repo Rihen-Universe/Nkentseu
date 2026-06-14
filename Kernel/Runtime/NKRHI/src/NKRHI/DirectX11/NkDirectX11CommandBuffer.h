@@ -32,16 +32,23 @@ namespace nkentseu {
             void SetViewports(const NkViewport* vps, uint32 n) override;
             void SetScissor  (const NkRect2D& r) override;
             void SetScissors (const NkRect2D* r, uint32 n) override;
+            // SetClearColor/Depth = un clear est DEMANDÉ pour la prochaine passe (loadOp
+            // CLEAR). BeginRenderPass ne clear QUE si demandé, puis remet le flag à false.
+            // Avant : BeginRenderPass clearait INCONDITIONNELLEMENT → une passe LOAD
+            // (ex. Overlay2D sur le swapchain) effaçait l'image déjà composée → écran noir.
             void SetClearColor(float r, float g, float b, float a = 1.f) override {
                 mClearColor[0]=r; mClearColor[1]=g; mClearColor[2]=b; mClearColor[3]=a;
+                mPendingClearColor=true;
             }
             void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
                 mClearDepth=depth; mClearStencil=stencil;
+                mPendingClearDepth=true;
             }
             void BindGraphicsPipeline(NkPipelineHandle p) override;
             void BindComputePipeline (NkPipelineHandle p) override;
             void BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32* off, uint32 cnt) override;
-            void PushConstants(NkShaderStage, uint32, uint32, const void*) override {} // émulé via CB
+            void PushConstants(NkShaderStage stages, uint32 offset, uint32 size, const void* data) override;
+            void UpdateBuffer(NkBufferHandle, uint64, uint64, const void*) override {} // TODO: ID3D11DeviceContext::UpdateSubresource
             void BindVertexBuffer (uint32 b, NkBufferHandle buf, uint64 off) override;
             void BindVertexBuffers(uint32 first, const NkBufferHandle* bufs, const uint64* offs, uint32 n) override;
             void BindIndexBuffer  (NkBufferHandle buf, NkIndexFormat fmt, uint64 off) override;
@@ -71,6 +78,9 @@ namespace nkentseu {
             float  mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
             float  mClearDepth    = 1.f;
             uint32 mClearStencil  = 0;
+            bool   mPendingClearColor = false; // un clear couleur a été demandé (loadOp CLEAR)
+            bool   mPendingClearDepth = false;
+            uint8  mPushCpu[256]  = {}; // shadow CPU des push constants (uploadé en b13)
     };
 
 } // namespace nkentseu

@@ -8,30 +8,21 @@ configurable et plusieurs destinations (console, fichier, etc.)
 """
 
 from Jenga import *
-from config import *
-
-_TC_WINDOWS = "nk-windows-clang-mingw"
+from jengaconfig import *
 
 with project("NKLogger"):
-    useglobalkind("logger")
+    nkentseudependson(
+        ["NKCore", "NKPlatform", "NKContainers", "NKMemory", "NKThreading"],
+        selfexport="NKLogger",
+        extra_includes=["src", "pch"],
+    )
 
     language("C++")
     cppdialect("C++17")
     location(".")
 
-    includedirs([
-        "src",
-        "pch",
-        "%{NKCore.location}/src",
-        "%{NKPlatform.location}/src",
-        "%{NKContainers.location}/src",
-        "%{NKMemory.location}/src",
-        "%{NKThreading.location}/src",
-    ])
     pchheader("pch/pch.h")
     pchsource("pch/pch.cpp")
-
-    dependson(["NKCore", "NKPlatform", "NKContainers", "NKMemory", "NKThreading"])
 
     files([
         "src/NKLogger/**.cpp",
@@ -46,7 +37,7 @@ with project("NKLogger"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
-        usetoolchain(_TC_WINDOWS)
+        usetoolchain(TC_WINDOWS)
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
     with filter("system:Linux"):
@@ -59,6 +50,12 @@ with project("NKLogger"):
         pchsource("")
         usetoolchain("android-ndk")
         links(["log"])
+    with filter("system:HarmonyOS"):
+        # PCH desactive (NDK OHOS clang, meme contrainte qu'Android)
+        pchheader("")
+        pchsource("")
+        usetoolchain("ohos-ndk")
+        links(["hilog_ndk.z"])
     with filter("system:Web"):
         usetoolchain("emscripten")
     with filter("system:XboxSeries || system:XboxOne"):

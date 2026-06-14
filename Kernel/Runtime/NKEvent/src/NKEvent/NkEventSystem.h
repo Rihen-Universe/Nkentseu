@@ -40,7 +40,16 @@
 
 #include "NKTime/NkChrono.h"
 
-#define NK_EVENTSYS_ANDROID_TRACE(...) logger.Infof(__VA_ARGS__)
+// NK_EVENTSYS_TRACE_VERBOSE = 1 pour logger chaque step de AddEventCallback / dispatch.
+// Off par defaut (spammait le terminal a chaque init de demo / scene).
+#ifndef NK_EVENTSYS_TRACE_VERBOSE
+    #define NK_EVENTSYS_TRACE_VERBOSE 0
+#endif
+#if NK_EVENTSYS_TRACE_VERBOSE
+    #define NK_EVENTSYS_ANDROID_TRACE(...) logger.Infof(__VA_ARGS__)
+#else
+    #define NK_EVENTSYS_ANDROID_TRACE(...) ((void)0)
+#endif
 
 namespace nkentseu {
 
@@ -406,6 +415,17 @@ namespace nkentseu {
             uint64       GetTotalEventCount()   const noexcept { return mTotalEventCount; }
             const char* GetPlatformName()      const noexcept;
 
+            // Callback "rendre une frame", appele pendant la boucle modale Win32 (drag
+            // move/resize) via un timer -> le rendu ne gele plus pendant le glissement.
+            // No-op si non enregistre. Cf. WM_ENTERSIZEMOVE / WM_TIMER / WM_EXITSIZEMOVE.
+            using NkSizeMoveFrameFn = void(*)(void* user);
+            void SetSizeMoveFrameCallback(NkSizeMoveFrameFn fn, void* user) noexcept {
+                mSizeMoveFrameFn = fn; mSizeMoveFrameUser = user;
+            }
+            void InvokeSizeMoveFrame() noexcept {
+                if (mSizeMoveFrameFn) mSizeMoveFrameFn(mSizeMoveFrameUser);
+            }
+
         protected:
             // Platform data -- defini dans le .cpp platform-specifique.
             // Accessible aux classes derivees platform (ex. NkWin32EventSystem).
@@ -463,6 +483,9 @@ namespace nkentseu {
             uint64 mPumpThreadId = 0;
 
             bool mPumping = false;
+
+            NkSizeMoveFrameFn mSizeMoveFrameFn   = nullptr;
+            void*             mSizeMoveFrameUser = nullptr;
 
         friend class NkGamepadSystem; // pour accÃ©der Ã  UpdateInputState() et mInputState lors du polling gamepad auto
     };

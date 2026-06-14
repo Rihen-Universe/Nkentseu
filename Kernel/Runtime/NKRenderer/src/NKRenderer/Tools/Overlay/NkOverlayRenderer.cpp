@@ -4,6 +4,10 @@
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include <cstdio>
 #include <cstdarg>
+// Suppress Win32 GDI macro after all headers
+#ifdef DrawText
+#  undef DrawText
+#endif
 
 namespace nkentseu {
     namespace renderer {

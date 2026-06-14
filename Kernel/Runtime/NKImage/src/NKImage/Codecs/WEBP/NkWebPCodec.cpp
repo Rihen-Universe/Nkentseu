@@ -2,7 +2,7 @@
  * @File    NkWebPCodec.cpp
  * @Brief   Codec WebP production-ready — VP8L (lossless) complet.
  * @Author  TEUGUIA TADJUIDJE Rodolf Séderis
- * @License Apache-2.0
+ * @License Proprietary - Free to use and modify
  *
  * @Fixes vs version précédente
  *

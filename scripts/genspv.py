@@ -13,7 +13,7 @@
 #   • shaderc standalone: https://github.com/google/shaderc
 #
 # After running this script, copy the generated NkRenderer2DVkSpv.inl into:
-#   src/NKContext/Renderer/Backends/Vulkan/NkRenderer2DVkSpv.inl
+#   src/NKCanvas/Renderer/Backends/Vulkan/NkRenderer2DVkSpv.inl
 # =============================================================================
 
 import argparse
@@ -153,7 +153,7 @@ def main():
 
     print(f"\nGenerated: {inl_path}")
     print("\nCopy this file to:")
-    print("  src/NKContext/Renderer/Backends/Vulkan/NkRenderer2DVkSpv.inl")
+    print("  src/NKCanvas/Renderer/Backends/Vulkan/NkRenderer2DVkSpv.inl")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@
 #include "NKMath/NkFunctions.h"
 
 #include <algorithm>
+#include <cstring>
 
 // =============================================================================
 // NkCocoaWindowDelegate — captures live-resize lifecycle events
@@ -363,6 +364,27 @@ namespace nkentseu {
                 mData.mDelegate = delegate;
             }
 
+            // Observer hot-plug / changement de config écrans -> NkSystemDisplayEvent.
+            {
+                NkWindow* self = this;
+                mData.mScreenObserver = [[NSNotificationCenter defaultCenter]
+                    addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                                object:nil
+                                 queue:nil
+                            usingBlock:^(NSNotification* note) {
+                    (void)note;
+                    if (!self->mIsOpen) {
+                        return;
+                    }
+                    // On ne peut pas distinguer trivialement add/remove/resolution
+                    // ici : on rapporte un changement de résolution sur le moniteur
+                    // courant (l'app peut ré-énumérer via EnumerateMonitors()).
+                    NkDisplayInfo info = self->GetCurrentMonitor();
+                    NkSystemDisplayEvent evt(NkDisplayChange::NK_DISPLAY_RESOLUTION_CHANGED, info, self->GetId());
+                    NkWESystem::Events().Enqueue_Public(evt, self->GetId());
+                }];
+            }
+
             if (config.fullscreen) {
                 const BOOL isFullscreen = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
                 if (!isFullscreen) {
@@ -395,6 +417,10 @@ namespace nkentseu {
         NkWESystem::Events().Enqueue_Public(closeEvent, closingId);
 
         @autoreleasepool {
+            if (mData.mScreenObserver) {
+                [[NSNotificationCenter defaultCenter] removeObserver:mData.mScreenObserver];
+                mData.mScreenObserver = nil;
+            }
             if (mData.mNSWindow && mData.mDelegate) {
                 [mData.mNSWindow setDelegate:nil];
                 mData.mDelegate = nil;
@@ -525,6 +551,114 @@ namespace nkentseu {
         return {0u, 0u};
     }
 
+    // =========================================================================
+    // Moniteurs / Display (DPI runtime, multi-écran)
+    // =========================================================================
+
+    // Remplit un NkDisplayInfo depuis un NSScreen : géométrie (frame en points),
+    // facteur d'échelle (backingScaleFactor), résolution physique (frame * scale),
+    // fréquence de rafraîchissement (CGDisplayMode), nom lisible et drapeau primaire.
+    // dpiX/dpiY = scale * 96 pour cohérence cross-platform (baseline macOS = 72 pt
+    // mais on aligne sur la convention 96 dpi du reste du framework).
+    static NkDisplayInfo CocoaFillDisplayInfo(NSScreen* screen, uint32 index) {
+        NkDisplayInfo info;
+        info.index = index;
+        if (!screen) {
+            return info;
+        }
+
+        const NSRect frame = [screen frame];
+        const float32 scale = static_cast<float32>([screen backingScaleFactor]);
+
+        info.posX   = static_cast<int32>(frame.origin.x);
+        info.posY   = static_cast<int32>(frame.origin.y);
+        info.width  = static_cast<uint32>(math::NkMax(0.0, frame.size.width));
+        info.height = static_cast<uint32>(math::NkMax(0.0, frame.size.height));
+
+        // Résolution physique = taille logique en points * facteur d'échelle.
+        info.physWidth  = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(frame.size.width)  * scale));
+        info.physHeight = static_cast<uint32>(math::NkMax(0.0f, static_cast<float32>(frame.size.height) * scale));
+
+        // Facteur d'échelle DPI + densité alignée sur la baseline 96 dpi du framework.
+        info.dpiScale = scale;
+        info.dpiX     = scale * 96.0f;
+        info.dpiY     = scale * 96.0f;
+
+        // Moniteur principal = celui qui contient le menu bar ([NSScreen mainScreen]).
+        info.isPrimary = (screen == [NSScreen mainScreen]);
+
+        // Fréquence de rafraîchissement via CGDisplayCopyDisplayMode.
+        NSDictionary* deviceDesc = [screen deviceDescription];
+        NSNumber* screenNumber = [deviceDesc objectForKey:@"NSScreenNumber"];
+        if (screenNumber) {
+            const CGDirectDisplayID displayId =
+                static_cast<CGDirectDisplayID>([screenNumber unsignedIntValue]);
+            CGDisplayModeRef mode = CGDisplayCopyDisplayMode(displayId);
+            if (mode) {
+                const double hz = CGDisplayModeGetRefreshRate(mode);
+                if (hz > 0.0) {
+                    info.refreshRate = static_cast<uint32>(hz + 0.5);
+                }
+                CGDisplayModeRelease(mode);
+            }
+        }
+
+        // Nom lisible : localizedName (macOS 10.15+), sinon "Display N".
+        const char* utf8Name = nullptr;
+        if (@available(macOS 10.15, *)) {
+            NSString* localized = [screen localizedName];
+            if (localized) {
+                utf8Name = localized.UTF8String;
+            }
+        }
+        if (utf8Name && utf8Name[0] != '\0') {
+            ::strncpy(info.name, utf8Name, sizeof(info.name) - 1);
+            info.name[sizeof(info.name) - 1] = '\0';
+        } else {
+            NkString fallback = NkString::Fmt("Display {0}", index + 1);
+            ::strncpy(info.name, fallback.c_str(), sizeof(info.name) - 1);
+            info.name[sizeof(info.name) - 1] = '\0';
+        }
+        return info;
+    }
+
+    NkVector<NkDisplayInfo> NkWindow::EnumerateMonitors() const {
+        NkVector<NkDisplayInfo> out;
+        NSArray<NSScreen*>* screens = [NSScreen screens];
+        const uint32 count = static_cast<uint32>(screens.count);
+        for (uint32 i = 0; i < count; ++i) {
+            out.PushBack(CocoaFillDisplayInfo(screens[i], i));
+        }
+        // Garantir au moins une entrée (mainScreen) si l'API renvoie une liste vide.
+        if (out.Size() == 0) {
+            out.PushBack(CocoaFillDisplayInfo([NSScreen mainScreen], 0));
+        }
+        return out;
+    }
+
+    NkDisplayInfo NkWindow::GetCurrentMonitor() const {
+        // Écran qui contient (majoritairement) la fenêtre, sinon mainScreen.
+        NSScreen* screen = (mData.mNSWindow && mData.mNSWindow.screen)
+            ? mData.mNSWindow.screen
+            : [NSScreen mainScreen];
+
+        // Retrouver l'index réel de cet écran dans [NSScreen screens].
+        NSArray<NSScreen*>* screens = [NSScreen screens];
+        uint32 index = 0;
+        for (uint32 i = 0; i < static_cast<uint32>(screens.count); ++i) {
+            if (screens[i] == screen) {
+                index = i;
+                break;
+            }
+        }
+        return CocoaFillDisplayInfo(screen, index);
+    }
+
+    uint32 NkWindow::GetMonitorCount() const {
+        const NSUInteger count = [[NSScreen screens] count];
+        return count > 0 ? static_cast<uint32>(count) : 1u;
+    }
+
     void NkWindow::SetSize(uint32 width, uint32 height) {
         if (!mData.mNSWindow) {
             return;
@@ -644,6 +778,14 @@ namespace nkentseu {
 
     void NkWindow::CaptureMouse(bool capture) {
         CGAssociateMouseAndMouseCursorPosition(capture ? false : true);
+    }
+
+    // macOS n'expose pas de ClipCursor natif. On simule via le decouplage
+    // souris/cursor + un re-snap a la position fenetre dans le main loop si
+    // necessaire (TODO si l'user veut un confinement strict). En l'etat,
+    // alias vers CaptureMouse pour fournir une API symetrique cross-platform.
+    void NkWindow::ClipMouseToClient(bool clip) {
+        CGAssociateMouseAndMouseCursorPosition(clip ? false : true);
     }
 
     void NkWindow::SetWebInputOptions(const NkWebInputOptions&) {}

@@ -179,7 +179,7 @@ graph TD
 
 ```cpp
 // Dans votre fichier source principal
-#include "NKMath/NkMath.h"  // ✅ Master header — tout ce dont vous avez besoin
+#include "NKMath/NKMath.h"  // ✅ Master header — tout ce dont vous avez besoin
 
 using namespace nkentseu::math;  // Optionnel : pour raccourcir les noms
 
@@ -736,7 +736,7 @@ static inline NkRandom& NkRand = NkRandom::Instance();
 ### 🎮 Scénario 1 : Transformation d'Objet 3D
 
 ```cpp
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 using namespace nkentseu::math;
 
 void UpdatePlayerTransform(
@@ -1094,7 +1094,7 @@ tests/
 ```cpp
 // tests/NkVecTests.cpp
 #include <catch2/catch.hpp>
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 
 using namespace nkentseu::math;
 
@@ -1236,7 +1236,7 @@ Utiliser le template GitHub Issues :
 
 ## Code Minimal Reproduisant le Problème
 ```cpp
-#include "NKMath/NkMath.h"
+#include "NKMath/NKMath.h"
 using namespace nkentseu::math;
 
 int main() {

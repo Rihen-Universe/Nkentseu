@@ -4,7 +4,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
-#include "NKWindow/Core/NkSafeArea.h"
+#include "NKEvent/NkSafeArea.h"
 #include "NKWindow/Core/NkWindowConfig.h"
 #include "NKEvent/NkWindowId.h"
 
@@ -46,6 +46,7 @@ namespace nkentseu {
     NkWindow*              NkAndroidGetLastWindow();
     void                   NkAndroidRegisterWindow(NkWindow* window);
     void                   NkAndroidUnregisterWindow(NkWindow* window);
+    bool                   NkAndroidHideSystemUI(struct android_app* app);  // Masquer status bar + navigation bar
 
 } // namespace nkentseu
 

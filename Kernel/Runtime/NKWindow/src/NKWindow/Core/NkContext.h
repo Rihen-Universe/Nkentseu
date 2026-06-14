@@ -2,11 +2,25 @@
 
 // =============================================================================
 // NkContext.h
-// API alternative style GLFW/SDL pour gérer le contexte graphique depuis NKWindow.
+// API style GLFW/SDL pour gérer le contexte graphique depuis NKWindow.
+//
+// Plateformes supportées :
+//   Windows          → WGL (OpenGL natif)
+//   Linux XLib/XCB   → GLX (OpenGL natif)
+//   Wayland          → EGL (OpenGL ES ou OpenGL)
+//   Android          → EGL (OpenGL ES uniquement)
+//   HarmonyOS        → EGL (OpenGL ES uniquement, via OHNativeWindow)
+//   macOS            → NSOpenGLContext / CGL (OpenGL legacy) ou Metal (surface-only)
+//   iOS/tvOS/watchOS → EAGLContext (OpenGL ES 2/3) ou Metal (surface-only)
+//   WebAssembly      → WebGL via Emscripten (OpenGL ES 2/3 émulé)
+//
+// APIs "surface-only" (Vulkan, DX11/12, Metal, Software) :
+//   → NkContextCreate réussit toujours, mode NK_CONTEXT_MODE_SURFACE_ONLY
+//   → Aucun contexte natif n'est créé — le backend RHI gère tout lui-même
 //
 // Flux recommandé :
 //   NkContextInit();
-//   NkContextWindowHint(...);
+//   NkContextWindowHint(NK_CONTEXT_HINT_API, NK_GFX_API_OPENGL);
 //   NkContextApplyWindowHints(windowCfg);   // avant window.Create
 //   window.Create(windowCfg);
 //   NkContext ctx;
@@ -23,13 +37,15 @@ namespace nkentseu {
 
     class NkWindow;
 
+    // ── Profil de contexte OpenGL ─────────────────────────────────────────────
     enum class NkContextProfile : uint32 {
         NK_CONTEXT_PROFILE_ANY = 0,
         NK_CONTEXT_PROFILE_CORE,
         NK_CONTEXT_PROFILE_COMPATIBILITY,
-        NK_CONTEXT_PROFILE_ES,
+        NK_CONTEXT_PROFILE_ES,          // OpenGL ES (Android, HarmonyOS, iOS, Web)
     };
 
+    // ── Hints de configuration ────────────────────────────────────────────────
     enum class NkContextHint : uint32 {
         NK_CONTEXT_HINT_API = 0,
         NK_CONTEXT_HINT_VERSION_MAJOR,
@@ -48,6 +64,7 @@ namespace nkentseu {
         NK_CONTEXT_HINT_STEREO,
     };
 
+    // ── Mode de contexte ──────────────────────────────────────────────────────
     enum class NkContextMode : uint32 {
         NK_CONTEXT_MODE_SURFACE_ONLY = 0,      // Vulkan / DX / Metal / Software
         NK_CONTEXT_MODE_GRAPHICS_CONTEXT = 1,  // OpenGL style context
@@ -55,13 +72,9 @@ namespace nkentseu {
 
     using NkContextProc = void* (*)(const char*);
 
-    // Win32-only pixel format control (WGL path).
-    // Ignored on non-Windows platforms.
+    // ── Pixel format Win32 (WGL uniquement) ───────────────────────────────────
     struct NkWin32PixelFormatConfig {
-        // If true, descriptor fields below are used directly.
-        // If false, descriptor is derived from generic NkContextConfig fields.
         bool   useCustomDescriptor = false;
-
         bool   drawToWindow       = true;
         bool   supportOpenGL      = true;
         bool   doubleBuffer       = true;
@@ -69,94 +82,88 @@ namespace nkentseu {
         bool   supportGDI         = false;
         bool   genericFormat      = false;
         bool   genericAccelerated = false;
+        uint32 pixelType          = 0;        // 0 = RGBA, 1 = color-index
+        uint32 colorBits          = 32;
+        uint32 redBits            = 8;
+        uint32 redShift           = 0;
+        uint32 greenBits          = 8;
+        uint32 greenShift         = 0;
+        uint32 blueBits           = 8;
+        uint32 blueShift          = 0;
+        uint32 alphaBits          = 8;
+        uint32 alphaShift         = 0;
+        uint32 accumBits          = 0;
+        uint32 accumRedBits       = 0;
+        uint32 accumGreenBits     = 0;
+        uint32 accumBlueBits      = 0;
+        uint32 accumAlphaBits     = 0;
+        uint32 depthBits          = 24;
+        uint32 stencilBits        = 8;
+        uint32 auxBuffers         = 0;
+        int32  layerType          = 0;        // 0 = main, 1 = overlay, -1 = underlay
+        uint32 layerMask          = 0;
+        uint32 visibleMask        = 0;
+        uint32 damageMask         = 0;
+        int32  forcedPixelFormatIndex = 0;    // 0 = auto
+    };
 
-        // 0 = RGBA, 1 = color-index.
-        uint32 pixelType = 0;
+    // ── Configuration complète du contexte ───────────────────────────────────
+    struct NkContextConfig {
+        graphics::NkGraphicsApi  api          = graphics::NkGraphicsApi::NK_GFX_API_OPENGL;
+        uint32                   versionMajor = 3;
+        uint32                   versionMinor = 3;
+        NkContextProfile         profile      = NkContextProfile::NK_CONTEXT_PROFILE_CORE;
 
-        uint32 colorBits      = 32;
-        uint32 redBits        = 8;
-        uint32 redShift       = 0;
-        uint32 greenBits      = 8;
-        uint32 greenShift     = 0;
-        uint32 blueBits       = 8;
-        uint32 blueShift      = 0;
-        uint32 alphaBits      = 8;
-        uint32 alphaShift     = 0;
-        uint32 accumBits      = 0;
+        bool   debug        = false;
+        bool   doubleBuffer = true;
+        uint32 msaaSamples  = 1;
+        bool   vsync        = true;
+        bool   stereo       = false;
+
+        // Canaux couleur / profondeur / stencil
+        uint32 redBits      = 8;
+        uint32 greenBits    = 8;
+        uint32 blueBits     = 8;
+        uint32 alphaBits    = 8;
+        uint32 depthBits    = 24;
+        uint32 stencilBits  = 8;
         uint32 accumRedBits   = 0;
         uint32 accumGreenBits = 0;
         uint32 accumBlueBits  = 0;
         uint32 accumAlphaBits = 0;
-        uint32 depthBits      = 24;
-        uint32 stencilBits    = 8;
         uint32 auxBuffers     = 0;
 
-        // 0 = main plane, 1 = overlay, -1 = underlay.
-        int32  layerType   = 0;
-        uint32 layerMask   = 0;
-        uint32 visibleMask = 0;
-        uint32 damageMask  = 0;
-
-        // If > 0, bypass ChoosePixelFormat and enforce this index.
-        int32  forcedPixelFormatIndex = 0;
-    };
-
-    struct NkContextConfig {
-        graphics::NkGraphicsApi  api  = graphics::NkGraphicsApi::NK_GFX_API_OPENGL;
-        uint32           versionMajor = 3;
-        uint32           versionMinor = 3;
-        NkContextProfile profile      = NkContextProfile::NK_CONTEXT_PROFILE_CORE;
-
-        bool             debug        = false;
-        bool             doubleBuffer = true;
-        uint32           msaaSamples  = 1;
-        bool             vsync        = true;
-        bool             stereo       = false;
-
-        uint32           redBits      = 8;
-        uint32           greenBits    = 8;
-        uint32           blueBits     = 8;
-        uint32           alphaBits    = 8;
-        uint32           depthBits    = 24;
-        uint32           stencilBits  = 8;
-        uint32           accumRedBits   = 0;
-        uint32           accumGreenBits = 0;
-        uint32           accumBlueBits  = 0;
-        uint32           accumAlphaBits = 0;
-        uint32           auxBuffers   = 0;
-
-        // Win32-only override for PIXELFORMATDESCRIPTOR.
+        // Win32 uniquement
         NkWin32PixelFormatConfig win32PixelFormat{};
     };
 
+    // ── Contexte graphique ───────────────────────────────────────────────────
     struct NkContext {
         NkContextConfig config{};
-        NkContextMode   mode  = NkContextMode::NK_CONTEXT_MODE_SURFACE_ONLY;
+        NkContextMode   mode    = NkContextMode::NK_CONTEXT_MODE_SURFACE_ONLY;
         NkSurfaceDesc   surface{};
         NkError         lastError{};
-        bool            valid = false;
+        bool            valid   = false;
 
-        // Opaque natives for advanced usage
-        void*           nativeDisplay = nullptr;
-        void*           nativeContext = nullptr;
-        void*           nativeWindow = nullptr;
-        uintptr         nativeDrawable = 0;
-        bool            ownsNativeDisplay = false;
+        // Handles natifs opaques (usage avancé)
+        void*           nativeDisplay         = nullptr;   // HDC (Win), Display* (X11), EGLDisplay (EGL)
+        void*           nativeContext         = nullptr;   // HGLRC, GLXContext, EGLContext, NSOpenGLContext*
+        void*           nativeWindow          = nullptr;   // wl_egl_window* (Wayland), EAGLContext* (iOS)
+        uintptr         nativeDrawable        = 0;         // GLXDrawable, EGLSurface, HWND
+        bool            ownsNativeDisplay     = false;
 
-        NkContextProc   getProcAddress = nullptr;
+        NkContextProc   getProcAddress        = nullptr;
 
     #if defined(NKENTSEU_PLATFORM_WINDOWS)
-        void*           nativeDeviceContext = nullptr; // HDC
+        void*           nativeDeviceContext   = nullptr;   // HDC
     #endif
     };
 
-    // ---- GLFW/SDL-like lifecycle ------------------------------------------------
-
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
     bool NkContextInit();
     void NkContextShutdown();
 
-    // ---- Global hints (window-context style) -----------------------------------
-
+    // ── Hints globaux ─────────────────────────────────────────────────────────
     void            NkContextResetHints();
     void            NkContextSetHints(const NkContextConfig& config);
     void            NkContextSetApi(graphics::NkGraphicsApi api);
@@ -164,12 +171,11 @@ namespace nkentseu {
     void            NkContextWindowHint(NkContextHint hint, int32 value);
     NkContextConfig NkContextGetHints();
 
-    // Apply hints into NkWindowConfig before NkWindow::Create()
-    void NkContextApplyWindowHints(NkWindowConfig& config);
+    // Applique les hints dans NkWindowConfig avant NkWindow::Create()
+    void            NkContextApplyWindowHints(NkWindowConfig& config);
 
-    // ---- Per-window context -----------------------------------------------------
-
-    NkContextMode NkContextGetModeForApi(graphics::NkGraphicsApi api);
+    // ── Contexte par fenêtre ──────────────────────────────────────────────────
+    NkContextMode   NkContextGetModeForApi(graphics::NkGraphicsApi api);
 
     bool NkContextCreate(NkWindow& window, NkContext& outContext,
                          const NkContextConfig* overrideConfig = nullptr);
@@ -178,10 +184,7 @@ namespace nkentseu {
     bool NkContextMakeCurrent(NkContext& context);
     void NkContextSwapBuffers(NkContext& context);
 
-    // Returns the active context proc loader callback if available.
     NkContextProc NkContextGetProcAddressLoader(const NkContext& context);
+    void*         NkContextGetProcAddress(NkContext& context, const char* procName);
 
-    // Convenience helper: directly load one symbol.
-    void* NkContextGetProcAddress(NkContext& context, const char* procName);
-
-} // namespace nkentseu
+} // namespace nkentseu 

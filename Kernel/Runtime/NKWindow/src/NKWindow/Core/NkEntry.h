@@ -104,6 +104,12 @@ namespace nkentseu {
 		explicit NkEntryState(android_app *app, NkVector<NkString> a) : androidApp(app), args(traits::NkMove(a)) {
 		}
 
+	#elif defined(NKENTSEU_PLATFORM_HARMONYOS)
+		// HarmonyOS : pas de handle global nécessaire.
+		// La surface arrive via OH_NativeXComponent_Callback.
+		NkEntryState() = default;
+		explicit NkEntryState(const NkVector<NkString>& a) : args(traits::NkMove(a)) {}
+
 	#else
 		NkEntryState() = default;
 		explicit NkEntryState(const NkVector<NkString> &a) : args(traits::NkMove(a)) {

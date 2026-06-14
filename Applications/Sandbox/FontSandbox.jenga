@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""FontSandbox — projets Sandbox de la categorie Font (NKFont). Inclus par Sandbox.jenga.
+Variables graphiques/Wayland partagees via useconfig (graphics.jenga/wayland.jenga)."""
+from Jenga import *
+from jengaconfig import *
+
+
+def sandboxnkfont(project_name: str, source_files: list):
+    with project(project_name):
+        windowedapp()
+        language("C++")
+        cppdialect("C++17")
+        location(".")
+
+        files(source_files)  # Now accepts a list of strings
+
+        nkentseudependson(
+            ["NKLogger", "NKMath", "NKTime", "NKStream",
+             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+            extra_includes=["src", "%{wks.location}/Externals"],
+            extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+        )
+
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+        # ===== Windows ================================================================
+        with filter("system:Windows"):
+            windowedapp()
+            usetoolchain(TC_WINDOWS)
+            defines([
+                "WIN32_LEAN_AND_MEAN",
+                "_UNICODE", "UNICODE",
+            ])
+            _WIN_LINKS = [
+                "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+                "mf", "mfplat", "mfreadwrite", "mfuuid",
+                "uuid", "ole32", "dinput8", "dxguid",
+                "d3d11", "d3d12", "dxgi", "d3dcompiler"
+            ]
+            links(_WIN_LINKS)
+
+        with filter("config:Debug"):
+            defines(["_DEBUG"])
+            optimize("Off")
+            symbols(True)
+        with filter("config:Release"):
+            defines(["NDEBUG"])
+            optimize("Speed")
+            symbols(False)
+
+
+# ── Demos de cette categorie ──
+sandboxnkfont("FontLoad", ["src/Font/LoadTTF/**.cpp"])
