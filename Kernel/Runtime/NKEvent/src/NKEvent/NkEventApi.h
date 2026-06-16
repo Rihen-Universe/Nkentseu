@@ -89,8 +89,11 @@
         #define NKENTSEU_EVENT_API NKENTSEU_PLATFORM_API_EXPORT
     #elif defined(NKENTSEU_EVENT_STATIC_LIB) || defined(NKENTSEU_EVENT_HEADER_ONLY)
         #define NKENTSEU_EVENT_API
-    #else
+    #elif defined(NKENTSEU_EVENT_USE_SHARED_LIB)
         #define NKENTSEU_EVENT_API NKENTSEU_PLATFORM_API_IMPORT
+    #else
+        // Defaut : build statique / monolithique -> aucune decoration
+        #define NKENTSEU_EVENT_API
     #endif
 
     // -------------------------------------------------------------------------
@@ -128,7 +131,7 @@
     #if defined(NKENTSEU_EVENT_HEADER_ONLY)
         #define NKENTSEU_EVENT_API_INLINE NKENTSEU_FORCE_INLINE
     #else
-        #define NKENTSEU_EVENT_API_INLINE NKENTSEU_EVENT_API NKENTSEU_INLINE
+        #define NKENTSEU_EVENT_API_INLINE NKENTSEU_INLINE
     #endif
 
     /**

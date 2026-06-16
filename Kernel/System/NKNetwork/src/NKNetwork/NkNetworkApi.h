@@ -84,9 +84,12 @@
     #elif defined(NKENTSEU_NETWORK_STATIC_LIB) || defined(NKENTSEU_NETWORK_HEADER_ONLY)
         // Build statique ou header-only : aucune décoration de symbole nécessaire
         #define NKENTSEU_NETWORK_API
-    #else
+    #elif defined(NKENTSEU_NETWORK_USE_SHARED_LIB)
         // Utilisation de NKNetwork en mode DLL : importer les symboles
         #define NKENTSEU_NETWORK_API NKENTSEU_PLATFORM_API_IMPORT
+    #else
+        // Defaut : build statique / monolithique -> aucune decoration
+        #define NKENTSEU_NETWORK_API
     #endif
 
     // -------------------------------------------------------------------------
@@ -125,7 +128,7 @@
         #define NKENTSEU_NETWORK_API_INLINE NKENTSEU_FORCE_INLINE
     #else
         // Mode bibliothèque : combiner export et inline hint
-        #define NKENTSEU_NETWORK_API_INLINE NKENTSEU_NETWORK_API NKENTSEU_INLINE
+        #define NKENTSEU_NETWORK_API_INLINE NKENTSEU_INLINE
     #endif
 
     /**

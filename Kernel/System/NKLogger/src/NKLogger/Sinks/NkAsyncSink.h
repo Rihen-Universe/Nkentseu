@@ -83,7 +83,7 @@
 		 * asyncLogger.SetOverflowPolicy(nkentseu::NkAsyncOverflowPolicy::NK_BLOCK);
 		 * @endcode
 		 */
-		enum class NKENTSEU_LOGGER_CLASS_EXPORT NkAsyncOverflowPolicy : uint8 {
+		enum class NkAsyncOverflowPolicy : uint8 {
 			/// @brief Supprimer le message le plus ancien de la file pour faire de la place
 			NK_DROP_OLDEST = 0,
 
