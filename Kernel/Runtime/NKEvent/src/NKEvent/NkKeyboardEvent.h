@@ -84,7 +84,7 @@
          * @warning Ne pas utiliser NkKey pour la saisie de texte — utiliser
          *          NkTextInputEvent qui gère correctement l'Unicode et les IME.
          */
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkKey : uint32 {
+        enum class NkKey : uint32 {
             NK_UNKNOWN = 0,    ///< Touche non reconnue ou code invalide
 
             // -----------------------------------------------------------------
@@ -356,7 +356,7 @@
          * @note Les touches multimédia utilisent des Usage IDs de la page Consumer
          *       (ex: 0xE0CD pour Play/Pause), distincts de la page Keyboard.
          */
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkScancode : uint32 {
+        enum class NkScancode : uint32 {
             NK_SC_UNKNOWN = 0,    ///< Scancode inconnu ou non mappé
 
             // -----------------------------------------------------------------

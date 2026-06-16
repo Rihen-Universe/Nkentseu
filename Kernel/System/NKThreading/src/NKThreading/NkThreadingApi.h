@@ -88,8 +88,11 @@
         #define NKENTSEU_THREADING_API NKENTSEU_PLATFORM_API_EXPORT
     #elif defined(NKENTSEU_THREADING_STATIC_LIB) || defined(NKENTSEU_THREADING_HEADER_ONLY)
         #define NKENTSEU_THREADING_API
-    #else
+    #elif defined(NKENTSEU_THREADING_USE_SHARED_LIB)
         #define NKENTSEU_THREADING_API NKENTSEU_PLATFORM_API_IMPORT
+    #else
+        // Defaut : build statique / monolithique -> aucune decoration
+        #define NKENTSEU_THREADING_API
     #endif
 
     // -------------------------------------------------------------------------
@@ -127,7 +130,7 @@
     #if defined(NKENTSEU_THREADING_HEADER_ONLY)
         #define NKENTSEU_THREADING_API_INLINE NKENTSEU_FORCE_INLINE
     #else
-        #define NKENTSEU_THREADING_API_INLINE NKENTSEU_THREADING_API NKENTSEU_INLINE
+        #define NKENTSEU_THREADING_API_INLINE NKENTSEU_INLINE
     #endif
 
     /**

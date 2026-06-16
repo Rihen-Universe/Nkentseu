@@ -354,7 +354,7 @@
      * Combinaison de NKENTSEU_PLATFORM_API et NKENTSEU_INLINE.
      * Pour les fonctions inline qui doivent être visibles depuis une DLL.
      */
-    #define NKENTSEU_API_INLINE NKENTSEU_PLATFORM_API NKENTSEU_INLINE
+    #define NKENTSEU_API_INLINE NKENTSEU_INLINE
 
     /**
      * @brief Exporte une fonction force_inline

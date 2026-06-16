@@ -76,7 +76,7 @@
 		 * nkentseu::NkConsoleSink errorSink(nkentseu::NkConsoleStream::NK_STD_ERR);
 		 * @endcode
 		 */
-		enum class NKENTSEU_LOGGER_CLASS_EXPORT NkConsoleStream : uint8 {
+		enum class NkConsoleStream : uint8 {
 			/// @brief Sortie standard (stdout) : pour logs informatifs normaux
 			NK_STD_OUT = 0,
 

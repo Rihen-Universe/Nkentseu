@@ -91,9 +91,12 @@
     #elif defined(NKENTSEU_MEMORY_STATIC_LIB) || defined(NKENTSEU_MEMORY_HEADER_ONLY)
         // Build statique ou header-only : pas de décoration
         #define NKENTSEU_MEMORY_API
-    #else
+    #elif defined(NKENTSEU_MEMORY_USE_SHARED_LIB)
         // Utilisation de NKMemory en mode DLL : importer
         #define NKENTSEU_MEMORY_API NKENTSEU_PLATFORM_API_IMPORT
+    #else
+        // Defaut : build statique / monolithique -> aucune decoration
+        #define NKENTSEU_MEMORY_API
     #endif
 
     // -------------------------------------------------------------------------
@@ -131,7 +134,7 @@
     #if defined(NKENTSEU_MEMORY_HEADER_ONLY)
         #define NKENTSEU_MEMORY_API_INLINE NKENTSEU_FORCE_INLINE
     #else
-        #define NKENTSEU_MEMORY_API_INLINE NKENTSEU_MEMORY_API NKENTSEU_INLINE
+        #define NKENTSEU_MEMORY_API_INLINE NKENTSEU_INLINE
     #endif
 
     /**

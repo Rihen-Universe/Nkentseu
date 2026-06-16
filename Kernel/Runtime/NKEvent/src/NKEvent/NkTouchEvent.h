@@ -65,7 +65,7 @@
 
         /// @brief Représente la phase actuelle d'un contact tactile individuel
         /// @note Utilisé par NkTouchPoint pour décrire l'état de chaque doigt
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkTouchPhase : uint32 {
+        enum class NkTouchPhase : uint32 {
             NK_TOUCH_PHASE_BEGAN       = 0,   ///< Contact initial : doigt posé sur l'écran
             NK_TOUCH_PHASE_MOVED,             ///< Contact en mouvement : doigt glisse sur l'écran
             NK_TOUCH_PHASE_STATIONARY,        ///< Contact stable : doigt posé mais immobile
@@ -80,7 +80,7 @@
 
         /// @brief Représente la direction détectée pour un geste de balayage (swipe)
         /// @note Utilisé par NkGestureSwipeEvent pour indiquer le sens du geste
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkSwipeDirection : uint32 {
+        enum class NkSwipeDirection : uint32 {
             NK_SWIPE_NONE  = 0,   ///< Aucune direction détectée (valeur par défaut)
             NK_SWIPE_LEFT,        ///< Balayage vers la gauche (→ à ←)
             NK_SWIPE_RIGHT,       ///< Balayage vers la droite (← à →)

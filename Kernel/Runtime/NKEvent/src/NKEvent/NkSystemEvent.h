@@ -54,7 +54,7 @@
 
         /// @brief Représente les différents états possibles du système d'alimentation
         /// @note Utilisé par NkSystemPowerEvent pour notifier les transitions d'énergie
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkPowerState : uint32 {
+        enum class NkPowerState : uint32 {
             NK_POWER_NORMAL             = 0,    ///< Fonctionnement normal sur secteur ou batterie suffisante
             NK_POWER_LOW_BATTERY,               ///< Batterie faible : avertissement utilisateur recommandé
             NK_POWER_CRITICAL_BATTERY,          ///< Batterie critique (< 5%) : sauvegarde urgente requise
@@ -102,7 +102,7 @@
 
         /// @brief Représente les différents types de modifications de configuration d'affichage
         /// @note Utilisé par NkSystemDisplayEvent pour identifier la nature du changement
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkDisplayChange : uint32 {
+        enum class NkDisplayChange : uint32 {
             NK_DISPLAY_ADDED            = 0,    ///< Nouveau moniteur connecté (hotplug)
             NK_DISPLAY_REMOVED,                 ///< Moniteur déconnecté (hot-unplug)
             NK_DISPLAY_RESOLUTION_CHANGED,      ///< Résolution ou fréquence de rafraîchissement modifiée
@@ -118,7 +118,7 @@
 
         /// @brief Représente les niveaux de pression sur la mémoire système
         /// @note Critique pour les applications mobiles et embarquées (iOS, Android)
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkMemoryPressure : uint32 {
+        enum class NkMemoryPressure : uint32 {
             NK_MEM_NORMAL   = 0,    ///< RAM suffisante : aucun ajustement requis
             NK_MEM_MODERATE,        ///< Pression modérée : libérer les caches non critiques
             NK_MEM_CRITICAL,        ///< Pression critique : libérer tout le non-essentiel immédiatement

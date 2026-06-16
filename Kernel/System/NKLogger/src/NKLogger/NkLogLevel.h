@@ -64,7 +64,7 @@
          * }
          * @endcode
          */
-        enum class NKENTSEU_LOGGER_CLASS_EXPORT NkLogLevel : uint8 {
+        enum class NkLogLevel : uint8 {
             /// @brief Niveau trace - messages de trace très détaillés (développement)
             NK_TRACE = 0,
 

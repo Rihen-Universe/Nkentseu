@@ -62,7 +62,7 @@
 
         /// @brief Représente les boutons physiques d'une souris ou d'un périphérique de pointage
         /// @note Utilisé par les événements de bouton pour identifier quelle action déclencher
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkMouseButton : uint32 {
+        enum class NkMouseButton : uint32 {
             NK_MB_UNKNOWN = 0,    ///< Bouton non identifié ou événement générique
             NK_MB_LEFT,           ///< Bouton gauche : action principale (clic, sélection)
             NK_MB_RIGHT,          ///< Bouton droit : action contextuelle (menu, options)
@@ -109,7 +109,7 @@
 
         /// @brief Représente l'état actuel d'un bouton souris (pressé ou relâché)
         /// @note Utilisé en interne par NkMouseButtonEvent pour distinguer press/release
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkButtonState : uint32 {
+        enum class NkButtonState : uint32 {
             NK_RELEASED = 0,    ///< Bouton relâché : aucune pression détectée
             NK_PRESSED  = 1     ///< Bouton pressé : pression active détectée
         };

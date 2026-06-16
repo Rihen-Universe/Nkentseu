@@ -66,7 +66,7 @@
 
         /// @brief Représente la direction d'un transfert de données
         /// @note Utilisé pour distinguer upload (envoi) et download (réception)
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkTransferDirection : uint32 {
+        enum class NkTransferDirection : uint32 {
             NK_TRANSFER_SEND    = 0,    ///< Envoi de données (upload, write, export)
             NK_TRANSFER_RECEIVE = 1     ///< Réception de données (download, read, import)
         };
@@ -77,7 +77,7 @@
 
         /// @brief Représente le protocole ou canal utilisé pour un transfert
         /// @note Permet d'adapter le comportement selon le type de connexion
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkTransferProtocol : uint32 {
+        enum class NkTransferProtocol : uint32 {
             NK_TRANSFER_PROTO_UNKNOWN  = 0,   ///< Protocole non identifié ou non supporté
             NK_TRANSFER_PROTO_FILE,           ///< Fichier local (copie, déplacement, I/O direct)
             NK_TRANSFER_PROTO_HTTP,           ///< HTTP/HTTPS (web, API REST, téléchargement)
@@ -121,7 +121,7 @@
 
         /// @brief Représente le résultat final d'un transfert de données
         /// @note Utilisé par NkTransferErrorEvent pour catégoriser les échecs
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkTransferStatus : uint32 {
+        enum class NkTransferStatus : uint32 {
             NK_TRANSFER_STATUS_SUCCESS   = 0,   ///< Transfert terminé avec succès
             NK_TRANSFER_STATUS_ERROR,           ///< Erreur générique (réseau, I/O, système)
             NK_TRANSFER_STATUS_TIMEOUT,         ///< Délai d'attente dépassé (timeout)

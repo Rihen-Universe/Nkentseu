@@ -93,8 +93,11 @@
         #define NKENTSEU_LOGGER_API NKENTSEU_PLATFORM_API_EXPORT
     #elif defined(NKENTSEU_LOGGER_STATIC_LIB) || defined(NKENTSEU_LOGGER_HEADER_ONLY)
         #define NKENTSEU_LOGGER_API
-    #else
+    #elif defined(NKENTSEU_LOGGER_USE_SHARED_LIB)
         #define NKENTSEU_LOGGER_API NKENTSEU_PLATFORM_API_IMPORT
+    #else
+        // Defaut : build statique / monolithique -> aucune decoration
+        #define NKENTSEU_LOGGER_API
     #endif
 
 
@@ -134,7 +137,7 @@
     #if defined(NKENTSEU_LOGGER_HEADER_ONLY)
         #define NKENTSEU_LOGGER_API_INLINE NKENTSEU_FORCE_INLINE
     #else
-        #define NKENTSEU_LOGGER_API_INLINE NKENTSEU_LOGGER_API NKENTSEU_INLINE
+        #define NKENTSEU_LOGGER_API_INLINE NKENTSEU_INLINE
     #endif
 
     /**
@@ -579,7 +582,7 @@
     NKENTSEU_LOGGER_API void Legacy_SimpleLog(const char* message);
 
     // Nouvelle API recommandée avec typage fort des niveaux
-    enum class NKENTSEU_LOGGER_CLASS_EXPORT LogLevel : int {
+    enum class LogLevel : int {
         Debug = 0,
         Info = 1,
         Warning = 2,
