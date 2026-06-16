@@ -81,7 +81,7 @@
              * Représente l'ordre des octets utilisé par la plateforme cible.
              * Utilisé pour les conversions conditionnelles à la compilation.
              */
-            enum class NKENTSEU_CLASS_EXPORT NkEndianness : uint8_t {
+            enum class NkEndianness : uint8_t {
                 /** @brief Little-endian : octet de poids faible en premier (x86, ARM moderne) */
                 NK_LITTLE = 0,
 

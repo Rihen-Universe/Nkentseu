@@ -61,7 +61,7 @@
 
         /// @brief Représente les thèmes d'interface disponibles au niveau du système d'exploitation
         /// @note Utilisé par NkWindowThemeEvent pour notifier les changements de préférence utilisateur
-        enum class NKENTSEU_EVENT_CLASS_EXPORT NkWindowTheme : uint32 {
+        enum class NkWindowTheme : uint32 {
             NK_THEME_UNKNOWN       = 0,    ///< Thème non détecté ou non supporté par la plateforme
             NK_THEME_LIGHT,                ///< Thème clair : fond blanc/gris, texte sombre (par défaut)
             NK_THEME_DARK,                 ///< Thème sombre : fond noir/gris foncé, texte clair (Dark Mode)

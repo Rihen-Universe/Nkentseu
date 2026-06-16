@@ -165,9 +165,12 @@
     #elif defined(NKENTSEU_PLATFORM_STATIC_LIB)
         // Build statique : pas de décoration nécessaire
         #define NKENTSEU_PLATFORM_API
-    #else
+    #elif defined(NKENTSEU_PLATFORM_USE_SHARED_LIB)
         // Utilisation en mode DLL : importer (ou vide si pas de support)
         #define NKENTSEU_PLATFORM_API NKENTSEU_PLATFORM_API_IMPORT
+    #else
+        // Defaut : build statique / monolithique -> aucune decoration
+        #define NKENTSEU_PLATFORM_API
     #endif
 
     // -------------------------------------------------------------------------

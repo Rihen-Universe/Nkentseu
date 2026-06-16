@@ -84,9 +84,12 @@
     #elif defined(NKENTSEU_SERIALIZATION_STATIC_LIB) || defined(NKENTSEU_SERIALIZATION_HEADER_ONLY)
         // Build statique ou header-only : aucune décoration de symbole nécessaire
         #define NKENTSEU_SERIALIZATION_API
-    #else
+    #elif defined(NKENTSEU_SERIALIZATION_USE_SHARED_LIB)
         // Utilisation de NKSerialization en mode DLL : importer les symboles
         #define NKENTSEU_SERIALIZATION_API NKENTSEU_PLATFORM_API_IMPORT
+    #else
+        // Defaut : build statique / monolithique -> aucune decoration
+        #define NKENTSEU_SERIALIZATION_API
     #endif
 
     // -------------------------------------------------------------------------
@@ -125,7 +128,7 @@
         #define NKENTSEU_SERIALIZATION_API_INLINE NKENTSEU_FORCE_INLINE
     #else
         // Mode bibliothèque : combiner export et inline hint
-        #define NKENTSEU_SERIALIZATION_API_INLINE NKENTSEU_SERIALIZATION_API NKENTSEU_INLINE
+        #define NKENTSEU_SERIALIZATION_API_INLINE NKENTSEU_INLINE
     #endif
 
     /**

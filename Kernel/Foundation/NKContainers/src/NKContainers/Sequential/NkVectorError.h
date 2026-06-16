@@ -57,7 +57,7 @@
              *
              * @see NkVectorErrorToString()
              */
-            enum class NKENTSEU_CONTAINERS_CLASS_EXPORT NkVectorError : nk_uint32 {
+            enum class NkVectorError : nk_uint32 {
                 NK_SUCCESS = 0,           ///< Opération terminée avec succès
                 NK_OUT_OF_RANGE,          ///< Index spécifié hors des bornes valides du conteneur
                 NK_OUT_OF_MEMORY,         ///< Échec d'allocation mémoire (heap exhaustion)
