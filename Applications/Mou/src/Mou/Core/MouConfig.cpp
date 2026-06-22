@@ -66,7 +66,10 @@ namespace mou {
         }
     }  // namespace memory
 
-    static nkentseu::NkLogger* gLogger = &logger;
+    // Init paresseuse : GetLogger() cree un NkLogger("Mu") par defaut au 1er appel.
+    // (Ne PAS initialiser via la macro `logger` ici : elle contient __func__, invalide
+    // hors d'une fonction -> -Wpredefined-identifier-outside-function.)
+    static nkentseu::NkLogger* gLogger = nullptr;
 
     nkentseu::NkLogger& GetLogger() noexcept {
         if (!gLogger) {

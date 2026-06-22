@@ -678,29 +678,41 @@ namespace nkentseu {
             glUseProgram((GLuint)id);
         }
 
+        // Sur les plateformes a fonctions GL liees directement (GLES : Android/iOS/
+        // Web/HarmonyOS), les symboles gl* sont des FONCTIONS (adresse toujours non
+        // nulle) -> un garde "if (glXxx)" declenche -Wpointer-bool-conversion. Sur
+        // desktop (glad), ce sont des POINTEURS resolus dynamiquement qu'il faut
+        // verifier. NK_GL_AVAIL encapsule cette difference proprement.
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_IOS) \
+ || defined(NKENTSEU_PLATFORM_EMSCRIPTEN) || defined(NKENTSEU_PLATFORM_HARMONYOS)
+#   define NK_GL_AVAIL(fn) (true)
+#else
+#   define NK_GL_AVAIL(fn) ((fn) != nullptr)
+#endif
+
         void NkOpenGLRenderer2D::SetGLShaderFloat(uint32 id, const char* name, float v) {
             if (!id) return;
             glUseProgram((GLuint)id);
             GLint loc = glGetUniformLocation((GLuint)id, name);
-            if (loc >= 0 && glUniform1f) glUniform1f(loc, v);
+            if (loc >= 0 && NK_GL_AVAIL(glUniform1f)) glUniform1f(loc, v);
         }
         void NkOpenGLRenderer2D::SetGLShaderVec2(uint32 id, const char* name, float x, float y) {
             if (!id) return;
             glUseProgram((GLuint)id);
             GLint loc = glGetUniformLocation((GLuint)id, name);
-            if (loc >= 0 && glUniform2f) glUniform2f(loc, x, y);
+            if (loc >= 0 && NK_GL_AVAIL(glUniform2f)) glUniform2f(loc, x, y);
         }
         void NkOpenGLRenderer2D::SetGLShaderVec3(uint32 id, const char* name, float x, float y, float z) {
             if (!id) return;
             glUseProgram((GLuint)id);
             GLint loc = glGetUniformLocation((GLuint)id, name);
-            if (loc >= 0 && glUniform3f) glUniform3f(loc, x, y, z);
+            if (loc >= 0 && NK_GL_AVAIL(glUniform3f)) glUniform3f(loc, x, y, z);
         }
         void NkOpenGLRenderer2D::SetGLShaderVec4(uint32 id, const char* name, float x, float y, float z, float w) {
             if (!id) return;
             glUseProgram((GLuint)id);
             GLint loc = glGetUniformLocation((GLuint)id, name);
-            if (loc >= 0 && glUniform4f) glUniform4f(loc, x, y, z, w);
+            if (loc >= 0 && NK_GL_AVAIL(glUniform4f)) glUniform4f(loc, x, y, z, w);
         }
         void NkOpenGLRenderer2D::SetGLShaderMat4(uint32 id, const char* name, const float* mat16) {
             if (!id || !mat16) return;
@@ -750,8 +762,8 @@ namespace nkentseu {
 
         uint32 NkOpenGLRenderer2D::CreateGLRenderTexture(uint32 w, uint32 h) {
             NK_GL2D_LOG("CreateGLRenderTexture w=%u h=%u", w, h);
-            if (!glGenFramebuffers || !glBindFramebuffer || !glFramebufferTexture2D
-                || !glCheckFramebufferStatus) {
+            if (!NK_GL_AVAIL(glGenFramebuffers) || !NK_GL_AVAIL(glBindFramebuffer)
+                || !NK_GL_AVAIL(glFramebufferTexture2D) || !NK_GL_AVAIL(glCheckFramebufferStatus)) {
                 NK_GL2D_ERR("CreateGLRenderTexture : procs FBO non charges");
                 return 0;
             }
@@ -803,7 +815,7 @@ namespace nkentseu {
         }
 
         void NkOpenGLRenderer2D::BindGLRenderTexture(uint32 handle) {
-            if (handle == 0 || handle > 32 || !glBindFramebuffer) return;
+            if (handle == 0 || handle > 32 || !NK_GL_AVAIL(glBindFramebuffer)) return;
             const int slot = (int)handle - 1;
             if (!sFBOs[slot].inUse) return;
             // Sauvegarde le FBO courant pour pouvoir le restorer.
@@ -814,7 +826,7 @@ namespace nkentseu {
         }
 
         void NkOpenGLRenderer2D::UnbindGLRenderTexture() {
-            if (!glBindFramebuffer) return;
+            if (!NK_GL_AVAIL(glBindFramebuffer)) return;
             glBindFramebuffer(GL_FRAMEBUFFER, sSavedFBO);
             sSavedFBO = 0;
         }

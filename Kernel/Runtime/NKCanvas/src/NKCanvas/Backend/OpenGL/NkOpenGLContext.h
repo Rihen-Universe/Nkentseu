@@ -43,7 +43,7 @@ namespace nkentseu {
         /// Le contexte/display/config EGL sont conserves, seul l'eglSurface
         /// est detruit puis re-cree avec le nouveau ANativeWindow.
         /// @return true si la surface a ete recreee avec succes.
-        bool RecreateSurface(const NkWindow& window);
+        bool RecreateSurface(const NkWindow& window) override;
 
         // Crée un contexte fils partageant les textures/buffers (asset loader thread)
         // Caller prend ownership — nullptr si partage non supporté
