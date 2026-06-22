@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkMaterial.h"
 #include "NkMaterialSystem.h"
+#include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {
     namespace renderer {
@@ -27,7 +28,11 @@ namespace nkentseu {
                 default:                               tmpl = sys->DefaultPBR();       break;
             }
             if (!tmpl.IsValid()) return nullptr;
-            auto* mat      = new NkMaterial();
+            // NkMaterial a un constructeur prive : on alloue via NKMemory puis
+            // placement-new ici (acces autorise depuis un membre de la classe).
+            auto* mat      = static_cast<NkMaterial*>(memory::NkAlloc((nk_size)sizeof(NkMaterial)));
+            if (!mat) return nullptr;
+            new (mat) NkMaterial();
             mat->mSystem   = sys;
             mat->mInstance = sys->CreateInstance(tmpl);
             return mat;
@@ -37,7 +42,9 @@ namespace nkentseu {
             if (!sys || !templateName) return nullptr;
             NkMatHandle tmpl = sys->FindTemplate(NkString(templateName));
             if (!tmpl.IsValid()) return nullptr;
-            auto* mat      = new NkMaterial();
+            auto* mat      = static_cast<NkMaterial*>(memory::NkAlloc((nk_size)sizeof(NkMaterial)));
+            if (!mat) return nullptr;
+            new (mat) NkMaterial();
             mat->mSystem   = sys;
             mat->mInstance = sys->CreateInstance(tmpl);
             return mat;
@@ -49,10 +56,12 @@ namespace nkentseu {
         // dont le champ touche n'est PAS override.
         NkMaterial* NkMaterial::CreateChild(NkMaterial* parent) {
             if (!parent || !parent->mSystem || !parent->mInstance) return nullptr;
-            auto* mat = new NkMaterial();
+            auto* mat = static_cast<NkMaterial*>(memory::NkAlloc((nk_size)sizeof(NkMaterial)));
+            if (!mat) return nullptr;
+            new (mat) NkMaterial();
             mat->mSystem   = parent->mSystem;
             mat->mInstance = parent->mSystem->CreateChildInstance(parent->mInstance);
-            if (!mat->mInstance) { delete mat; return nullptr; }
+            if (!mat->mInstance) { mat->~NkMaterial(); memory::NkFree(mat); return nullptr; }
             return mat;
         }
 
@@ -60,7 +69,8 @@ namespace nkentseu {
             if (!mat) return;
             if (mat->mSystem && mat->mInstance)
                 mat->mSystem->DestroyInstance(mat->mInstance);
-            delete mat;
+            mat->~NkMaterial();
+            memory::NkFree(mat);
             mat = nullptr;
         }
 

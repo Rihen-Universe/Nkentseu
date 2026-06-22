@@ -897,6 +897,14 @@
             /// @note Seuls les éléments scalaires sont copiés dans `out`
             [[nodiscard]] nk_bool GetArray(NkStringView key, NkVector<NkArchiveValue>& out) const noexcept;
 
+            /// @brief Récupère un tableau d'OBJETS (chaque élément objet -> NkArchive)
+            /// @param key Clé à rechercher
+            /// @param out Référence de sortie : un NkArchive (copie profonde) par objet
+            /// @return true si la clé existe et contient un tableau, false sinon
+            /// @note Complément de GetArray (scalaires) : ici on extrait les éléments
+            ///       objets. Indispensable pour "[ {..}, {..} ]" (niveaux, prefabs…).
+            [[nodiscard]] nk_bool GetObjectArray(NkStringView key, NkVector<NkArchive>& out) const noexcept;
+
             /// @brief Définit un tableau de nœuds polymorphes
             /// @param key Clé d'identification
             /// @param arr Vector de nœuds à copier (scalaires/objets/arrays)

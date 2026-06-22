@@ -7,6 +7,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKSL/NKSL.h"
 #include "NkShaderIncludeResolver.h"
+#include "NKMemory/NkAllocator.h"
 #include <cstdio>
 #include <sys/stat.h>
 #include <cstring>
@@ -141,8 +142,8 @@ namespace nkentseu {
 
         void NkShaderLibrary::Shutdown() {
             ReleaseAll();
-            delete mBackend; mBackend = nullptr;
-            delete mNkSLBackend; mNkSLBackend = nullptr;
+            memory::NkGetDefaultAllocator().Delete(mBackend); mBackend = nullptr;
+            memory::NkGetDefaultAllocator().Delete(mNkSLBackend); mNkSLBackend = nullptr;
         }
 
         // ── Lecture fichier ───────────────────────────────────────────────────────

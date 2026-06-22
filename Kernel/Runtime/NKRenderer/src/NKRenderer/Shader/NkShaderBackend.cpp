@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NkShaderBackend.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 
 // Inclure les headers des compilateurs si disponibles
 #if defined(NK_BACKEND_GL)
@@ -752,15 +753,16 @@ namespace nkentseu {
         // Fabrique
         // =========================================================================
         NkShaderBackend* NkCreateShaderBackend(NkGraphicsApi api, bool useNkSL) {
-            if (useNkSL) return new NkShaderBackendNkSL(api);
+            auto& alloc = memory::NkGetDefaultAllocator();
+            if (useNkSL) return alloc.New<NkShaderBackendNkSL>(api);
             switch (api) {
                 case NkGraphicsApi::NK_GFX_API_OPENGL:
-                case NkGraphicsApi::NK_GFX_API_OPENGLES:  return new NkShaderBackendGL();
-                case NkGraphicsApi::NK_GFX_API_VULKAN:    return new NkShaderBackendVK();
-                case NkGraphicsApi::NK_GFX_API_DX11:      return new NkShaderBackendDX11();
-                case NkGraphicsApi::NK_GFX_API_DX12:      return new NkShaderBackendDX12();
-                case NkGraphicsApi::NK_GFX_API_METAL:     return new NkShaderBackendMSL();
-                default:                           return new NkShaderBackendGL();
+                case NkGraphicsApi::NK_GFX_API_OPENGLES:  return alloc.New<NkShaderBackendGL>();
+                case NkGraphicsApi::NK_GFX_API_VULKAN:    return alloc.New<NkShaderBackendVK>();
+                case NkGraphicsApi::NK_GFX_API_DX11:      return alloc.New<NkShaderBackendDX11>();
+                case NkGraphicsApi::NK_GFX_API_DX12:      return alloc.New<NkShaderBackendDX12>();
+                case NkGraphicsApi::NK_GFX_API_METAL:     return alloc.New<NkShaderBackendMSL>();
+                default:                           return alloc.New<NkShaderBackendGL>();
             }
         }
 

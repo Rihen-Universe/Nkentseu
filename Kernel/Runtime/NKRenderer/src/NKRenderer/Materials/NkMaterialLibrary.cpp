@@ -7,6 +7,7 @@
 #include "NKFileSystem/NkFileWatcher.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {
     namespace renderer {
@@ -219,10 +220,10 @@ namespace nkentseu {
 
         void NkMaterialLibrary::EnableHotReload(bool enable) {
             if (enable && !mWatcher && !mScanRoot.Empty()) {
-                auto* cb = new MaterialLibraryWatcherCb();
+                auto* cb = memory::NkGetDefaultAllocator().New<MaterialLibraryWatcherCb>();
                 cb->library = this;
                 mWatcherCb = cb;
-                mWatcher = new NkFileWatcher();
+                mWatcher = memory::NkGetDefaultAllocator().New<NkFileWatcher>();
                 mWatcher->SetPath(mScanRoot.CStr());
                 mWatcher->SetRecursive(true);
                 mWatcher->SetCallback(mWatcherCb);
@@ -230,9 +231,9 @@ namespace nkentseu {
                 logger.Info("[NkMaterialLibrary] Hot-reload enabled on '{0}'\n", mScanRoot);
             } else if (!enable && mWatcher) {
                 mWatcher->Stop();
-                delete mWatcher;
+                memory::NkGetDefaultAllocator().Delete(mWatcher);
                 mWatcher = nullptr;
-                delete mWatcherCb;
+                memory::NkGetDefaultAllocator().Delete(static_cast<MaterialLibraryWatcherCb*>(mWatcherCb));
                 mWatcherCb = nullptr;
                 logger.Info("[NkMaterialLibrary] Hot-reload disabled\n");
             }

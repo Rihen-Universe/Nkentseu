@@ -8,6 +8,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKContainers/NKContainers.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cstdio>
 #include <cstring>
@@ -185,7 +186,7 @@ NkOpenGLComputeContext::~NkOpenGLComputeContext() {
     if (mIsValid) {
         Shutdown();
     } else if (mFns) {
-        delete mFns;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(mFns);
         mFns = nullptr;
     }
 }
@@ -196,7 +197,7 @@ bool NkOpenGLComputeContext::SetProcAddressLoader(ProcAddressLoader loader) {
         return false;
     }
     if (!mFns) {
-        mFns = new Functions();
+        mFns = nkentseu::memory::NkGetDefaultAllocator().New<Functions>();
     }
     if (!mFns->Load(loader)) {
         NK_CGL_ERR("Failed to load required OpenGL compute entry points");
@@ -237,7 +238,7 @@ void NkOpenGLComputeContext::Shutdown() {
     mIsValid = false;
     mCurrentProgram = 0;
     if (mFns) {
-        delete mFns;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(mFns);
         mFns = nullptr;
     }
     NK_CGL_LOG("Shutdown\n");
@@ -353,14 +354,14 @@ NkComputeShader NkOpenGLComputeContext::CreateShaderFromSource(const char* sourc
 #else
         glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &len);
 #endif
-        char* log = new char[len + 1];
+        char* log = (char*)nkentseu::memory::NkAlloc((nk_size)(len + 1));
 #ifdef NK_NO_GLAD2
         mFns->GetShaderInfoLog(shader, len, nullptr, log);
 #else
         glGetShaderInfoLog(shader, len, nullptr, log);
 #endif
         NK_CGL_ERR("Compile error:\n%s\n", log);
-        delete[] log;
+        nkentseu::memory::NkFree(log);
 #ifdef NK_NO_GLAD2
         mFns->DeleteShader(shader);
 #else
@@ -420,14 +421,14 @@ NkComputePipeline NkOpenGLComputeContext::CreatePipeline(const NkComputeShader& 
 #else
         glGetProgramiv(prog, GL_INFO_LOG_LENGTH, &len);
 #endif
-        char* log = new char[len + 1];
+        char* log = (char*)nkentseu::memory::NkAlloc((nk_size)(len + 1));
 #ifdef NK_NO_GLAD2
         mFns->GetProgramInfoLog(prog, len, nullptr, log);
 #else
         glGetProgramInfoLog(prog, len, nullptr, log);
 #endif
         NK_CGL_ERR("Link error:\n%s\n", log);
-        delete[] log;
+        nkentseu::memory::NkFree(log);
 #ifdef NK_NO_GLAD2
         mFns->DeleteProgram(prog);
 #else

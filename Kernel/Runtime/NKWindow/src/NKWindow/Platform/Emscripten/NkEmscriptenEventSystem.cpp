@@ -8,6 +8,7 @@
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 
 #include "NKEvent/NkEventSystem.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
@@ -608,7 +609,7 @@ namespace nkentseu {
             return true;
         }
 
-        mData = new NkEventSystemData;
+        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
         if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
@@ -674,7 +675,7 @@ namespace nkentseu {
         mPumpThreadId = 0;
         mReady = false;
 
-        delete mData;
+        memory::NkGetDefaultAllocator().Delete(mData);
         mData = nullptr;
     }
 

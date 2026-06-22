@@ -197,7 +197,7 @@ namespace nkentseu {
 
             /**
              * @brief Calcule les données compressées d'un buffer TTF.
-             * Les données retournées doivent être libérées avec free().
+             * Les données retournées doivent être libérées avec nkentseu::memory::NkFree().
              */
             static nkft_uint8* Compress(const nkft_uint8* data,
                                         nkft_size size,

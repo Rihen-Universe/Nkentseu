@@ -222,8 +222,8 @@ namespace nkentseu {
             // WAV : streaming reel
             if ((ext[0]=='w'||ext[0]=='W') && (ext[1]=='a'||ext[1]=='A')
              && (ext[2]=='v'||ext[2]=='V') && ext[3] == 0) {
-                auto* s = new WavStream();
-                if (!s->Open(path)) { delete s; return nullptr; }
+                auto* s = memory::NkGetDefaultAllocator().New<WavStream>();
+                if (!s->Open(path)) { memory::NkGetDefaultAllocator().Delete(s); return nullptr; }
                 return s;
             }
 
@@ -262,7 +262,7 @@ namespace nkentseu {
                 logger.Error("[OpenAudioStream] Decode echec pour : {0}", path);
                 return nullptr;
             }
-            return new MemoryStream(sample);
+            return memory::NkGetDefaultAllocator().New<MemoryStream>(sample);
         }
 
     } // namespace audio

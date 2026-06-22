@@ -17,6 +17,7 @@
 #if defined(NKENTSEU_PLATFORM_MACOS)
 
 #include "NKEvent/NkEventSystem.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKWindow/Platform/Cocoa/NkCocoaEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
@@ -60,7 +61,7 @@ namespace nkentseu {
     bool NkEventSystem::Init() {
         if (mReady) return true;
 
-        mData = new NkEventSystemData;
+        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
         if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
@@ -84,7 +85,7 @@ namespace nkentseu {
     }
 
     void NkEventSystem::Shutdown() {
-        delete mData;
+        memory::NkGetDefaultAllocator().Delete(mData);
         mData = nullptr;
     }
 

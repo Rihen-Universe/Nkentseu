@@ -10,6 +10,7 @@
 #import <MetalKit/MetalKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <simd/simd.h>
+#include "NKMemory/NkAllocator.h"
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -654,9 +655,9 @@ void NkMetalDevice::UpdateDescriptorSets(const NkDescriptorWrite* writes, uint32
 // Command Buffers
 // =============================================================================
 NkICommandBuffer* NkMetalDevice::CreateCommandBuffer(NkCommandBufferType t) {
-    return new NkMetalCommandBuffer(this, t);
+    return nkentseu::memory::NkGetDefaultAllocator().New<NkMetalCommandBuffer>(this, t);
 }
-void NkMetalDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) { delete cb; cb = nullptr; }
+void NkMetalDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) { nkentseu::memory::NkGetDefaultAllocator().Delete(cb); cb = nullptr; }
 
 // =============================================================================
 // Submit

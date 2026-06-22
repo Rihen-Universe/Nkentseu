@@ -113,9 +113,9 @@ namespace nkentseu {
          * avec n'importe quel système de font (FreeType, NKFont, etc.)
          */
         struct NKUI_API NkUIFontAtlas {
-            static constexpr int32 ATLAS_W = 512;      ///< Largeur de l'atlas
-            static constexpr int32 ATLAS_H = 512;      ///< Hauteur de l'atlas
-            static constexpr int32 MAX_GLYPHS = 1024;  ///< Nombre max de glyphes
+            static constexpr int32 ATLAS_W = 1024;     ///< Largeur de l'atlas (512->1024 : marge pour grandes tailles + accents ; atlas par police)
+            static constexpr int32 ATLAS_H = 1024;     ///< Hauteur de l'atlas
+            static constexpr int32 MAX_GLYPHS = 1024;  ///< Nombre max de glyphes par atlas
 
             uint8        pixels[ATLAS_W * ATLAS_H] = {}; ///< Données de texture (Gray8)
             NkUIGlyph    glyphs[MAX_GLYPHS]        = {}; ///< Tableau des glyphes

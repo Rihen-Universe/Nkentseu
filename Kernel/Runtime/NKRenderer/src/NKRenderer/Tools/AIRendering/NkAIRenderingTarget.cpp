@@ -2,6 +2,7 @@
 // NkAIRenderingTarget.cpp  — NKRenderer v4.0
 // =============================================================================
 #include "NkAIRenderingTarget.h"
+#include "NKMemory/NkAllocator.h"
 #include <cstring>
 
 namespace nkentseu {
@@ -143,13 +144,13 @@ namespace nkentseu {
 
         void NkAIRenderingSystem::Shutdown() {
             if (!mReady) return;
-            for (auto* t : mTargets) delete t;
+            for (auto* t : mTargets) memory::NkGetDefaultAllocator().Delete(t);
             mTargets.Clear();
             mReady = false;
         }
 
         NkAIRenderingTarget* NkAIRenderingSystem::Create(const NkAITargetDesc& desc) {
-            NkAIRenderingTarget* t = new NkAIRenderingTarget(desc);
+            NkAIRenderingTarget* t = memory::NkGetDefaultAllocator().New<NkAIRenderingTarget>(desc);
             mTargets.PushBack(t);
             return t;
         }
@@ -162,7 +163,7 @@ namespace nkentseu {
                     break;
                 }
             }
-            delete target;
+            memory::NkGetDefaultAllocator().Delete(target);
             target = nullptr;
         }
 

@@ -24,6 +24,7 @@
 #include "NKEvent/NkDropEvent.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKCore/NkTraits.h"
+#include "NKWindow/Platform/Common/NkSystemMemory.h"   // NkX11Free (wrappe XFree)
 
 namespace nkentseu {
 
@@ -195,7 +196,7 @@ namespace nkentseu {
             if (data) {
                 // Xdnd uses 8-bit strings for text/uri-list and text/plain
                 result = NkString(reinterpret_cast<const char*>(data), static_cast<NkString::SizeType>(nItems));
-                XFree(data);
+                platform::NkX11Free(data);
             }
             return result;
         }

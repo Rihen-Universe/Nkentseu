@@ -11,6 +11,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKCore/NkAtomic.h"
 #include "NKFileSystem/NkFile.h"
 
@@ -594,7 +595,7 @@ namespace nkentseu {
         mId = NkWESystem::Instance().RegisterWindow(this);
         NkAndroidRegisterWindow(this);
 
-        mData.mDropTarget = new NkAndroidDropTarget(mId);
+        mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkAndroidDropTarget>(mId);
         if (mData.mDropTarget) {
             mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& event) {
                 NkDropEnterEvent copy(event);
@@ -636,7 +637,7 @@ namespace nkentseu {
         mId = NK_INVALID_WINDOW_ID;
 
         if (mData.mDropTarget) {
-            delete mData.mDropTarget;
+            memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
             mData.mDropTarget = nullptr;
         }
 

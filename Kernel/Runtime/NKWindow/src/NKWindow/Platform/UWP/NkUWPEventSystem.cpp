@@ -8,6 +8,7 @@
 #if defined(NKENTSEU_PLATFORM_UWP)
 
 #include "NKEvent/NkEventSystem.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #define NKENTSEU_UWP_RUNTIME_ONLY 1
 #include "NKWindow/EntryPoints/NkUWP.h"
 
@@ -19,7 +20,7 @@ namespace nkentseu {
             return true;
         }
 
-        mData = new NkEventSystemData;
+        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
         if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
@@ -40,7 +41,7 @@ namespace nkentseu {
     }
 
     void NkEventSystem::Shutdown() {
-        delete mData;
+        memory::NkGetDefaultAllocator().Delete(mData);
         mData = nullptr;
     }
 

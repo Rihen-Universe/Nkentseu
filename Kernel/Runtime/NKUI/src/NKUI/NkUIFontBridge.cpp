@@ -13,6 +13,7 @@
 #include "NkUIFontBridge.h"
 #include "NKFont/Core/NkFontParser.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,7 +40,7 @@ namespace nkentseu {
         void NkUIFontBridge::Destroy() {
             if (useNKFont) {
                 nkfont::NkFreeFontFace(&nkfontFace);
-                if (nkfontData) { free(nkfontData); nkfontData = nullptr; }
+                if (nkfontData) { memory::NkFree(nkfontData); nkfontData = nullptr; }
                 nkfontSize = 0;
             } else {
                 if (customDesc.Destroy && fontHandle) {
@@ -75,10 +76,10 @@ namespace nkentseu {
             fseek(f, 0, SEEK_SET);
             if (sz <= 0) { fclose(f); return false; }
 
-            nkft_uint8* data = (nkft_uint8*)malloc((nkft_size)sz);
+            nkft_uint8* data = (nkft_uint8*)memory::NkAlloc((nk_size)sz);
             if (!data) { fclose(f); return false; }
             if ((long)fread(data, 1, (nkft_size)sz, f) != sz) {
-                fclose(f); free(data); return false;
+                fclose(f); memory::NkFree(data); return false;
             }
             fclose(f);
 
@@ -105,7 +106,7 @@ namespace nkentseu {
             useNKFont = true;
 
             // Copie les données (NkFontParser garde le pointeur)
-            nkfontData = (nkft_uint8*)malloc(dataSize);
+            nkfontData = (nkft_uint8*)memory::NkAlloc((nk_size)dataSize);
             if (!nkfontData) return false;
             memcpy(nkfontData, data, dataSize);
             nkfontSize = dataSize;
@@ -114,7 +115,7 @@ namespace nkentseu {
             memset(&nkfontFace, 0, sizeof(nkfontFace));
             if (!nkfont::NkInitFontFace(&nkfontFace, nkfontData, nkfontSize, 0)) {
                 logger.Error("[NkUIFontBridge] InitFontFace échoué\n");
-                free(nkfontData); nkfontData = nullptr;
+                memory::NkFree(nkfontData); nkfontData = nullptr;
                 return false;
             }
 

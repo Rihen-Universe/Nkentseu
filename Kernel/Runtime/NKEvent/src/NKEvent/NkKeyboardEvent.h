@@ -930,7 +930,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkKeyPressEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkKeyPressEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1002,7 +1002,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkKeyRepeatEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkKeyRepeatEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1083,7 +1083,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkKeyReleaseEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkKeyReleaseEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1156,7 +1156,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTextInputEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTextInputEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs

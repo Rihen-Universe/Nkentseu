@@ -12,6 +12,8 @@
     !(defined(NKENTSEU_PLATFORM_LINUX) && (defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB) || defined(NKENTSEU_WINDOWING_WAYLAND))))
 
 #include "NKEvent/NkEventSystem.h"
+#include "NKWindow/Platform/Noop/NkNoopEventSystem.h"   // struct NkEventSystemData (complet)
+#include "NKMemory/NkAllocator.h"                        // NkGetDefaultAllocator().New/Delete
 
 namespace nkentseu {
     using namespace math;
@@ -21,7 +23,7 @@ namespace nkentseu {
             return true;
         }
 
-        mData = new NkEventSystemData;
+        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
         if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
@@ -36,7 +38,7 @@ namespace nkentseu {
     }
 
     bool NkEventSystem::Shutdown() {
-        delete mData;
+        memory::NkGetDefaultAllocator().Delete(mData);
         mData = nullptr;
     }
 

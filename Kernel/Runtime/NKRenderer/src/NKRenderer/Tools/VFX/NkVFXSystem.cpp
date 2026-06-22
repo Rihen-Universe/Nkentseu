@@ -4,6 +4,7 @@
 #include "NkVFXSystem.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKMath/NKMath.h"
+#include "NKMemory/NkAllocator.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -69,19 +70,19 @@ namespace nkentseu {
         void NkVFXSystem::Shutdown() {
             for (auto* e : mEmitters) {
                 if (e->vbo.IsValid()) mDevice->DestroyBuffer(e->vbo);
-                delete e;
+                memory::NkGetDefaultAllocator().Delete(e);
             }
             for (auto* t : mTrails) {
                 if (t->vbo.IsValid()) mDevice->DestroyBuffer(t->vbo);
-                delete t;
+                memory::NkGetDefaultAllocator().Delete(t);
             }
-            for (auto* d : mDecals) delete d;
+            for (auto* d : mDecals) memory::NkGetDefaultAllocator().Delete(d);
             mEmitters.Clear(); mTrails.Clear(); mDecals.Clear();
         }
 
         // ── Émetteurs ─────────────────────────────────────────────────────────────
         NkEmitterId NkVFXSystem::CreateEmitter(const NkEmitterDesc& desc) {
-            Emitter* e   = new Emitter();
+            Emitter* e   = memory::NkGetDefaultAllocator().New<Emitter>();
             e->id        = {mNextId++};
             e->desc      = desc;
             e->particles.Resize(desc.maxParticles);
@@ -101,7 +102,7 @@ namespace nkentseu {
                 if (mEmitters[i]->id.id == id.id) {
                     if (mEmitters[i]->vbo.IsValid())
                         mDevice->DestroyBuffer(mEmitters[i]->vbo);
-                    delete mEmitters[i];
+                    memory::NkGetDefaultAllocator().Delete(mEmitters[i]);
                     mEmitters.RemoveAt(i); break;
                 }
             }
@@ -188,7 +189,7 @@ namespace nkentseu {
             for (uint32 i=0;i<(uint32)mDecals.Size();) {
                 mDecals[i]->age += dt;
                 if (mDecals[i]->desc.lifetime>0 && mDecals[i]->age>mDecals[i]->desc.lifetime) {
-                    delete mDecals[i]; mDecals.RemoveAt(i);
+                    memory::NkGetDefaultAllocator().Delete(mDecals[i]); mDecals.RemoveAt(i);
                 } else i++;
             }
         }
@@ -250,7 +251,7 @@ namespace nkentseu {
 
         // ── Trails ────────────────────────────────────────────────────────────────
         NkTrailId NkVFXSystem::CreateTrail(const NkTrailDesc& desc) {
-            Trail* t  = new Trail();
+            Trail* t  = memory::NkGetDefaultAllocator().New<Trail>();
             t->id     = {mNextId++};
             t->desc   = desc;
             t->vbo = mDevice->CreateBuffer(
@@ -263,7 +264,7 @@ namespace nkentseu {
             for (uint32 i=0;i<(uint32)mTrails.Size();i++) {
                 if (mTrails[i]->id.id==id.id) {
                     if (mTrails[i]->vbo.IsValid()) mDevice->DestroyBuffer(mTrails[i]->vbo);
-                    delete mTrails[i]; mTrails.RemoveAt(i); break;
+                    memory::NkGetDefaultAllocator().Delete(mTrails[i]); mTrails.RemoveAt(i); break;
                 }
             }
             id.id=0;
@@ -327,13 +328,13 @@ namespace nkentseu {
 
         // ── Decals ────────────────────────────────────────────────────────────────
         NkDecalId NkVFXSystem::SpawnDecal(const NkDecalDesc& desc) {
-            Decal* d = new Decal(); d->id={mNextId++}; d->desc=desc;
+            Decal* d = memory::NkGetDefaultAllocator().New<Decal>(); d->id={mNextId++}; d->desc=desc;
             mDecals.PushBack(d); return d->id;
         }
 
         void NkVFXSystem::DestroyDecal(NkDecalId& id) {
             for (uint32 i=0;i<(uint32)mDecals.Size();i++) {
-                if (mDecals[i]->id.id==id.id) { delete mDecals[i]; mDecals.RemoveAt(i); break; }
+                if (mDecals[i]->id.id==id.id) { memory::NkGetDefaultAllocator().Delete(mDecals[i]); mDecals.RemoveAt(i); break; }
             }
             id.id=0;
         }

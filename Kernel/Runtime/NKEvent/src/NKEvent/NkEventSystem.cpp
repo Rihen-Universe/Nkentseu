@@ -61,6 +61,7 @@ namespace nkentseu {
 #if !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && !defined(__EMSCRIPTEN__) && \
     !(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XCB) && !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) && \
     !(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_WAYLAND) && !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) && \
+    !(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XLIB) && !defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)) && \
     !defined(NKENTSEU_PLATFORM_ANDROID)
     void NkEventSystem::Shutdown() {
         ClearAllCallbacks();

@@ -50,6 +50,11 @@ namespace nkentseu {
 
             // Surface
             virtual bool OnResize(uint32 width, uint32 height) = 0;
+            // Recrée la surface de présentation à partir du native window courant.
+            // Indispensable sur Android : au retour d'arrière-plan, l'ANativeWindow
+            // est détruite puis recréée -> l'ancienne surface EGL devient invalide
+            // (écran noir). Défaut : no-op (backends desktop sans ce besoin).
+            virtual bool RecreateSurface(const NkWindow& /*window*/) { return true; }
             virtual void SetVSync(bool enabled) = 0;
             virtual bool GetVSync() const = 0;
 

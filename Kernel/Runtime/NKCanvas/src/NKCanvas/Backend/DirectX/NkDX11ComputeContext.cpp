@@ -10,6 +10,7 @@
 #include "NkDX11ComputeContext.h"
 #include "NKContainers/NKContainers.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKMemory/NkAllocator.h"
 #include <d3dcompiler.h>
 #include <cstdio>
 #include <cstring>
@@ -78,7 +79,7 @@ NkComputeBuffer NkDX11ComputeContext::CreateBuffer(const NkComputeBufferDesc& de
     NkComputeBuffer out;
     if (!mIsValid || desc.sizeBytes == 0) return out;
 
-    auto* bs = new DX11BufSet();
+    auto* bs = nkentseu::memory::NkGetDefaultAllocator().New<DX11BufSet>();
     bs->sizeBytes = desc.sizeBytes;
     bs->cpuRead   = desc.cpuReadable;
 
@@ -93,7 +94,7 @@ NkComputeBuffer NkDX11ComputeContext::CreateBuffer(const NkComputeBufferDesc& de
     D3D11_SUBRESOURCE_DATA initData{desc.initialData, 0, 0};
     HRESULT hr = mDevice->CreateBuffer(&bd,
         desc.initialData ? &initData : nullptr, &bs->buf);
-    if (FAILED(hr)) { NK_DX11C_ERR("CreateBuffer failed 0x%08X\n",(unsigned)hr); delete bs; return out; }
+    if (FAILED(hr)) { NK_DX11C_ERR("CreateBuffer failed 0x%08X\n",(unsigned)hr); nkentseu::memory::NkGetDefaultAllocator().Delete(bs); return out; }
 
     // UAV
     D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
@@ -101,7 +102,7 @@ NkComputeBuffer NkDX11ComputeContext::CreateBuffer(const NkComputeBufferDesc& de
     uavDesc.ViewDimension      = D3D11_UAV_DIMENSION_BUFFER;
     uavDesc.Buffer.NumElements = (UINT)(desc.sizeBytes / 4);
     hr = mDevice->CreateUnorderedAccessView(bs->buf.Get(), &uavDesc, &bs->uav);
-    if (FAILED(hr)) { NK_DX11C_ERR("CreateUAV failed\n"); delete bs; return out; }
+    if (FAILED(hr)) { NK_DX11C_ERR("CreateUAV failed\n"); nkentseu::memory::NkGetDefaultAllocator().Delete(bs); return out; }
 
     // Staging pour readback
     if (desc.cpuReadable) {
@@ -120,7 +121,7 @@ NkComputeBuffer NkDX11ComputeContext::CreateBuffer(const NkComputeBufferDesc& de
 
 void NkDX11ComputeContext::DestroyBuffer(NkComputeBuffer& buf) {
     if (!buf.valid) return;
-    delete static_cast<DX11BufSet*>(buf.handle);
+    nkentseu::memory::NkGetDefaultAllocator().Delete(static_cast<DX11BufSet*>(buf.handle));
     buf = NkComputeBuffer{};
 }
 

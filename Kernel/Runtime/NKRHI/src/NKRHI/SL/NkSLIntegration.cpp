@@ -9,6 +9,7 @@
 #include "NKRHI/SL/NkSLIntegration.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"   // lecture via NKFileSystem (pas de fopen CRT)
+#include "NKMemory/NkAllocator.h"
 #include <cstdio>
 #include <mutex>   // std::call_once, std::once_flag
 
@@ -29,7 +30,7 @@ static std::once_flag gInitFlag;
 
 NkSLCompiler& GetCompiler() {
     std::call_once(gInitFlag, []() {
-        gCompiler = new NkSLCompiler();
+        gCompiler = nkentseu::memory::NkGetDefaultAllocator().New<NkSLCompiler>();
     });
     return *gCompiler;
 }
@@ -40,9 +41,9 @@ void InitCompiler(const NkString& cacheDir) {
     // mais InitCompiler() est censé être appelé une seule fois au démarrage.
     if (gCompiler) {
         gCompiler->GetCache().Flush();
-        delete gCompiler;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(gCompiler);
     }
-    gCompiler = new NkSLCompiler(cacheDir);
+    gCompiler = nkentseu::memory::NkGetDefaultAllocator().New<NkSLCompiler>(cacheDir);
     // Marquer le flag comme exécuté pour que GetCompiler() ne reconstruise pas
     std::call_once(gInitFlag, []() {}); // no-op si déjà appelé
     NKSL_LOG("NkSL compiler initialized (cache: %s)\n",
@@ -52,7 +53,7 @@ void InitCompiler(const NkString& cacheDir) {
 void ShutdownCompiler() {
     if (gCompiler) {
         gCompiler->GetCache().Flush();
-        delete gCompiler;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(gCompiler);
         gCompiler = nullptr;
     }
 }

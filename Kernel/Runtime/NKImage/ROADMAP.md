@@ -26,8 +26,9 @@
 | Codec WebP VP8L lossless | Livré | — | — |
 | Codec WebP VP8 lossy decode | Partiel | M | P2 |
 | Codec WebP VP8 lossy encode | TODO | L | P3 |
-| Codec SVG (decode rasterizer scanline AA) | Partiel | M | P2 |
-| Codec SVG (text/use/defs/gradients/clipPath) | TODO | L | P3 |
+| Codec SVG (decode rasterizer scanline AA) | Livré | M | P2 |
+| Codec SVG (stroke caps/joins + gradients linear/radial) | Livré | M | P2 |
+| Codec SVG (text/use/defs-style/clipPath/patterns/filters) | TODO | L | P3 |
 | Codec SVG (encode wrapper) | Livré | — | — |
 | Manipulation (Flip, Premultiply, Convert, Resize, Blit, Crop) | Livré | — | — |
 | Filtres resize (Nearest/Bilinear/Bicubic/Lanczos3) | Livré | — | — |

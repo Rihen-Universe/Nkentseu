@@ -18,6 +18,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NkFontParser.h"
+#include "NKMemory/NkAllocator.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -307,7 +308,7 @@ namespace nkentseu {
             nkft_uint32 totalSfnt = NkReadU32(woff + 16);
             nkft_uint16 numTables = NkReadU16(woff + 12);
 
-            nkft_uint8* ttf = (nkft_uint8*)malloc(totalSfnt + 64);
+            nkft_uint8* ttf = (nkft_uint8*)nkentseu::memory::NkAlloc((nk_size)(totalSfnt + 64));
             if (!ttf) return nullptr;
             memset(ttf, 0, totalSfnt + 64);
 
@@ -1003,7 +1004,7 @@ namespace nkentseu {
 
         void NkFreeFontFace(NkFontFaceInfo* info) {
             if (info && info->woffBuffer) {
-                free(info->woffBuffer);
+                nkentseu::memory::NkFree(info->woffBuffer);
                 info->woffBuffer = nullptr;
                 info->woffBufferSize = 0;
             }

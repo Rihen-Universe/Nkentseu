@@ -17,6 +17,8 @@
 #include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
 #include "NKWindow/Platform/XLib/NkXLibDropTarget.h"
+#include "NKWindow/Platform/Common/NkSystemMemory.h"   // NkX11Free (wrappe XFree)
+#include "NKMemory/NkAllocator.h"                        // NkGetDefaultAllocator().New/Delete
 #include "NKCore/NkAtomic.h"
 
 #include <X11/Xlib.h>
@@ -107,7 +109,7 @@ namespace nkentseu {
         char* title = nullptr;
         if (XFetchName(display, xid, &title) && title) {
             config.title = title;
-            XFree(title);
+            platform::NkX11Free(title);
         }
 
         // Visibilité (approximative)
@@ -138,7 +140,7 @@ namespace nkentseu {
                         }
                     }
                 }
-                XFree(data);
+                platform::NkX11Free(data);
             }
         }
     }
@@ -304,7 +306,7 @@ namespace nkentseu {
                 vmask |= CWColormap;
                 // background_pixel doit être 0 avec une visual RGBA
                 attrs.background_pixel = 0;
-                XFree(vi);
+                platform::NkX11Free(vi);
             }
             // Si XGetVisualInfo échoue : on reste sur la visual par défaut.
             // Le contexte OpenGL échouera plus tard avec un message clair.
@@ -376,7 +378,7 @@ namespace nkentseu {
         mId = NkWESystem::Instance().RegisterWindow(this);
 
         // XDND drop target integration (events are forwarded to NkEventSystem queue).
-        mData.mDropTarget = new NkXLibDropTarget(mData.mDisplay, mData.mXid);
+        mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkXLibDropTarget>(mData.mDisplay, mData.mXid);
         if (mData.mDropTarget) {
             mData.mDropTarget->SetDropEnterCallback(NkXLibDropTarget::DropEnterCallback([this](const NkDropEnterEvent& ev) {
                 NkDropEnterEvent copy(ev);
@@ -418,7 +420,7 @@ namespace nkentseu {
         mId = NK_INVALID_WINDOW_ID;
 
         if (mData.mDropTarget) {
-            delete mData.mDropTarget;
+            memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
             mData.mDropTarget = nullptr;
         }
 
@@ -469,7 +471,7 @@ namespace nkentseu {
         char* title = nullptr;
         if (XFetchName(mData.mDisplay, mData.mXid, &title) && title) {
             NkString result = title;
-            XFree(title);
+            platform::NkX11Free(title);
             
             // Synchroniser mConfig
             const_cast<NkWindow*>(this)->mConfig.title = result;

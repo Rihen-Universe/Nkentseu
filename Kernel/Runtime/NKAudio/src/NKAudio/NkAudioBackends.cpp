@@ -11,6 +11,7 @@
 
 #include "NkAudioBackends.h"
 #include "NKCore/NkPlatform.h"
+#include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
 
 #include <cstring>
@@ -78,14 +79,14 @@ namespace nkentseu {
                 (usize)bufferSize * (usize)channels * sizeof(float32));
             if (!mBuffer) return false;
 
-            mThread = new ThreadHandle{};
+            mThread = memory::NkGetDefaultAllocator().New<ThreadHandle>();
             return true;
         }
 
         void NullAudioBackend::Shutdown() {
             Stop();
             if (mBuffer) { memory::NkFree(mBuffer); mBuffer = nullptr; }
-            delete mThread; mThread = nullptr;
+            memory::NkGetDefaultAllocator().Delete(mThread); mThread = nullptr;
         }
 
         void NullAudioBackend::SetCallback(AudioCallback callback) { mCallback = callback; }
@@ -161,10 +162,10 @@ namespace nkentseu {
             bool                 coInitialized = false;
         };
 
-        WasapiAudioBackend::WasapiAudioBackend() : mImpl(new WasapiImpl{}) { }
+        WasapiAudioBackend::WasapiAudioBackend() : mImpl(memory::NkGetDefaultAllocator().New<WasapiImpl>()) { }
         WasapiAudioBackend::~WasapiAudioBackend() {
             if (mRunning) Shutdown();
-            delete mImpl;
+            memory::NkGetDefaultAllocator().Delete(mImpl);
         }
 
         // Thread audio : appelle mCallback chaque fois que le driver signale
@@ -341,11 +342,11 @@ namespace nkentseu {
 
         bool DirectSoundAudioBackend::Initialize(int32 sr, int32 ch, int32 buf) {
             mSampleRate = sr; mChannels = ch; mBufferSize = buf;
-            mImpl = new DsImpl{};
+            mImpl = memory::NkGetDefaultAllocator().New<DsImpl>();
             // DirectSoundCreate8, CreateSoundBuffer, etc.
             return true;
         }
-        void DirectSoundAudioBackend::Shutdown()  { delete mImpl; mImpl = nullptr; mRunning = false; }
+        void DirectSoundAudioBackend::Shutdown()  { memory::NkGetDefaultAllocator().Delete(mImpl); mImpl = nullptr; mRunning = false; }
         void DirectSoundAudioBackend::SetCallback(AudioCallback cb) { mCallback = cb; }
         void DirectSoundAudioBackend::Start()  { mRunning = true;  }
         void DirectSoundAudioBackend::Stop()   { mRunning = false; }
@@ -366,8 +367,8 @@ namespace nkentseu {
             AudioUnit outputUnit = nullptr;
         };
 
-        CoreAudioBackend::CoreAudioBackend() : mImpl(new CoreAudioImpl{}) { }
-        CoreAudioBackend::~CoreAudioBackend() { if (mRunning) Shutdown(); delete mImpl; }
+        CoreAudioBackend::CoreAudioBackend() : mImpl(memory::NkGetDefaultAllocator().New<CoreAudioImpl>()) { }
+        CoreAudioBackend::~CoreAudioBackend() { if (mRunning) Shutdown(); memory::NkGetDefaultAllocator().Delete(mImpl); }
 
         // Render callback CoreAudio : appele par AudioUnit pour remplir le
         // buffer. Le format ASBD impose Float32 interleaved => on ecrit
@@ -538,7 +539,7 @@ namespace nkentseu {
             mBuffer = (float32*)memory::NkAlloc(
                 (usize)bufferSize * (usize)channels * sizeof(float32));
             if (!mBuffer) { snd_pcm_close(pcm); mPcm = nullptr; return false; }
-            mThread = new ThreadHandle{};
+            mThread = memory::NkGetDefaultAllocator().New<ThreadHandle>();
             return true;
         }
 
@@ -550,7 +551,7 @@ namespace nkentseu {
                 mPcm = nullptr;
             }
             if (mBuffer) { memory::NkFree(mBuffer); mBuffer = nullptr; }
-            delete mThread; mThread = nullptr;
+            memory::NkGetDefaultAllocator().Delete(mThread); mThread = nullptr;
         }
 
         void AlsaAudioBackend::SetCallback(AudioCallback cb) { mCallback = cb; }
@@ -712,11 +713,11 @@ namespace {
         bool AAudioBackend::Initialize(int32 sr, int32 ch, int32 buf) {
             mSampleRate = sr; mChannels = ch; mBufferSize = buf;
             if (!LoadAAudio()) return false;
-            mImpl = new AAudioImpl{};
+            mImpl = memory::NkGetDefaultAllocator().New<AAudioImpl>();
 
             AAudioStreamBuilder* builder = nullptr;
             if (gAAudio.createBuilder(&builder) != AAUDIO_OK_) {
-                delete mImpl; mImpl = nullptr;
+                memory::NkGetDefaultAllocator().Delete(mImpl); mImpl = nullptr;
                 return false;
             }
             gAAudio.setSampleRate  (builder, sr);
@@ -731,7 +732,7 @@ namespace {
             aaudio_result_t r = gAAudio.openStream(builder, &mImpl->stream);
             gAAudio.builderDelete(builder);
             if (r != AAUDIO_OK_ || !mImpl->stream) {
-                delete mImpl; mImpl = nullptr;
+                memory::NkGetDefaultAllocator().Delete(mImpl); mImpl = nullptr;
                 return false;
             }
             mSampleRate = gAAudio.getSampleRate(mImpl->stream);
@@ -745,7 +746,7 @@ namespace {
                 gAAudio.streamClose(mImpl->stream);
                 mImpl->stream = nullptr;
             }
-            delete mImpl; mImpl = nullptr;
+            memory::NkGetDefaultAllocator().Delete(mImpl); mImpl = nullptr;
         }
 
         void AAudioBackend::SetCallback(AudioCallback cb) { mCallback = cb; }
@@ -838,7 +839,7 @@ namespace {
 
         bool OpenSLESAudioBackend::Initialize(int32 sr, int32 ch, int32 buf) {
             mSampleRate = sr; mChannels = ch; mBufferSize = buf;
-            mImpl = new SLImpl{};
+            mImpl = memory::NkGetDefaultAllocator().New<SLImpl>();
             mImpl->framesPerBuffer = buf;
             mImpl->channels        = ch;
 
@@ -908,7 +909,7 @@ namespace {
                 if (mImpl->buffers[0]) { memory::NkFree(mImpl->buffers[0]); mImpl->buffers[0] = nullptr; }
                 if (mImpl->buffers[1]) { memory::NkFree(mImpl->buffers[1]); mImpl->buffers[1] = nullptr; }
                 if (mImpl->floatBuf)   { memory::NkFree(mImpl->floatBuf);   mImpl->floatBuf   = nullptr; }
-                delete mImpl; mImpl = nullptr;
+                memory::NkGetDefaultAllocator().Delete(mImpl); mImpl = nullptr;
             }
         }
 
@@ -1097,36 +1098,36 @@ namespace {
 
             // Null — toujours disponible (fallback).
             AudioBackendFactory::Register("Null",
-                []() -> IAudioBackend* { return new NullAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<NullAudioBackend>(); });
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
             AudioBackendFactory::Register("WASAPI",
-                []() -> IAudioBackend* { return new WasapiAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<WasapiAudioBackend>(); });
             AudioBackendFactory::Register("DirectSound",
-                []() -> IAudioBackend* { return new DirectSoundAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<DirectSoundAudioBackend>(); });
 #endif
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
             AudioBackendFactory::Register("CoreAudio",
-                []() -> IAudioBackend* { return new CoreAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<CoreAudioBackend>(); });
 #endif
 
 #if defined(NKENTSEU_PLATFORM_LINUX)
             AudioBackendFactory::Register("ALSA",
-                []() -> IAudioBackend* { return new AlsaAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<AlsaAudioBackend>(); });
 #endif
 
 #if defined(NKENTSEU_PLATFORM_ANDROID)
             AudioBackendFactory::Register("AAudio",
-                []() -> IAudioBackend* { return new AAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<AAudioBackend>(); });
             // OpenSL ES : fallback Android 24-25 (AAudio requiert 26+).
             AudioBackendFactory::Register("OpenSLES",
-                []() -> IAudioBackend* { return new OpenSLESAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<OpenSLESAudioBackend>(); });
 #endif
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
             AudioBackendFactory::Register("WebAudio",
-                []() -> IAudioBackend* { return new WebAudioBackend(); });
+                []() -> IAudioBackend* { return memory::NkGetDefaultAllocator().New<WebAudioBackend>(); });
 #endif
         }
 

@@ -48,6 +48,7 @@
     #include "NKContainers/String/NkFormat.h"  // Formatage de chaînes type-safe
     #include "NKContainers/Associative/NkUnorderedMap.h"  // Hash map optimisée
     #include "NKContainers/Functional/NkFunction.h"       // Callbacks type-erased
+    #include "NKMemory/NkAllocator.h"                      // NkGetDefaultAllocator().New/Delete (Clone via NKMemory)
 
     // -------------------------------------------------------------------------
     // SECTION 2 : MACROS GLOBALES ET UTILITAIRES

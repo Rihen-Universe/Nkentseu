@@ -130,6 +130,11 @@ namespace nkentseu {
                 /// stade : sa GetSize() retourne la nouvelle taille pixel.)
                 bool OnDpiChange() noexcept;
 
+                /// À appeler au retour d'arrière-plan (Android : NkWindowShownEvent).
+                /// Recrée la surface de présentation depuis le native window courant
+                /// (sinon écran noir après un passage en arrière-plan).
+                bool RecreateSurface() noexcept;
+
             private:
                 NkWindow*                          mWindow{nullptr};
                 NkIGraphicsContext*                mContext{nullptr};

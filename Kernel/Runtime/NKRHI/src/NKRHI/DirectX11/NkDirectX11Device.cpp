@@ -6,6 +6,7 @@
 #include "NkDirectX11CommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h" // NkShaderCache : cache du DXBC compilé
 #include <cstring>
 #include <cwchar>
@@ -1125,9 +1126,9 @@ namespace nkentseu {
     // Command Buffer
     // =============================================================================
     NkICommandBuffer* NkDirectX11Device::CreateCommandBuffer(NkCommandBufferType t) {
-        return new NkDirectX11CommandBuffer(this, t);
+        return nkentseu::memory::NkGetDefaultAllocator().New<NkDirectX11CommandBuffer>(this, t);
     }
-    void NkDirectX11Device::DestroyCommandBuffer(NkICommandBuffer*& cb) { delete cb; cb=nullptr; }
+    void NkDirectX11Device::DestroyCommandBuffer(NkICommandBuffer*& cb) { nkentseu::memory::NkGetDefaultAllocator().Delete(cb); cb=nullptr; }
 
     // =============================================================================
     // Submit

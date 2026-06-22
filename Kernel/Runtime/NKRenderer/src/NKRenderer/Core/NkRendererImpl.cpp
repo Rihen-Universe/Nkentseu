@@ -22,9 +22,9 @@ namespace nkentseu {
 
         // ── Fabrique statique ─────────────────────────────────────────────────────
         NkRenderer* NkRenderer::Create(NkIDevice* device, const NkRendererConfig& cfg) {
-            auto* renderer = new NkRendererImpl(device, cfg);
+            auto* renderer = memory::NkGetDefaultAllocator().New<NkRendererImpl>(device, cfg);
             if (!renderer->Initialize()) {
-                delete renderer;
+                memory::NkGetDefaultAllocator().Delete(renderer);
                 return nullptr;
             }
             return renderer;
@@ -33,7 +33,7 @@ namespace nkentseu {
         void NkRenderer::Destroy(NkRenderer*& renderer) {
             if (renderer) {
                 renderer->Shutdown();
-                delete renderer;
+                memory::NkGetDefaultAllocator().Delete(static_cast<NkRendererImpl*>(renderer));
                 renderer = nullptr;
             }
         }
@@ -418,7 +418,7 @@ namespace nkentseu {
 
             for (auto* t : mOffscreenTargets) {
                 t->Shutdown();
-                delete t;
+                memory::NkGetDefaultAllocator().Delete(t);
             }
             mOffscreenTargets.Clear();
 
@@ -828,9 +828,9 @@ namespace nkentseu {
 
         // ── Offscreen ─────────────────────────────────────────────────────────────
         NkOffscreenTarget* NkRendererImpl::CreateOffscreen(const NkOffscreenDesc& desc) {
-            auto* t = new NkOffscreenTarget();
+            auto* t = memory::NkGetDefaultAllocator().New<NkOffscreenTarget>();
             if (!t->Init(mDevice, mTextures.Get(), desc)) {
-                delete t; return nullptr;
+                memory::NkGetDefaultAllocator().Delete(t); return nullptr;
             }
             mOffscreenTargets.PushBack(t);
             return t;
@@ -841,7 +841,7 @@ namespace nkentseu {
             for (uint32 i = 0; i < mOffscreenTargets.Size(); i++) {
                 if (mOffscreenTargets[i] == t) {
                     t->Shutdown();
-                    delete t;
+                    memory::NkGetDefaultAllocator().Delete(t);
                     mOffscreenTargets.RemoveAt(i);
                     break;
                 }

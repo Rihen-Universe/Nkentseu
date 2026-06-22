@@ -23,7 +23,7 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
-#include <cstdlib>   // pour std::free, std::aligned_alloc, _aligned_free, _aligned_malloc
+#include "NKMemory/NkAllocator.h"   // pour nkentseu::memory::NkAlloc / NkFree
 #include <cstring>   // pour std::memcpy
 
 namespace nkentseu {
@@ -55,11 +55,7 @@ namespace nkentseu {
             ~NkComponentPool() noexcept {
                 Clear();
                 if (mData != nullptr) {
-#if defined(_MSC_VER)
-                    _aligned_free(mData);
-#else
-                    std::free(mData);
-#endif
+                    nkentseu::memory::NkFree(mData);
                     mData = nullptr;
                 }
                 mCapacity = 0;
@@ -245,21 +241,14 @@ namespace nkentseu {
             void Shrink() noexcept {
                 if (!mMeta || mMeta->isZeroSize || mSize == mCapacity || mData == nullptr) return;
                 if (mSize == 0) {
-#if defined(_MSC_VER)
-                    _aligned_free(mData);
-#else
-                    std::free(mData);
-#endif
+                    nkentseu::memory::NkFree(mData);
                     mData     = nullptr;
                     mCapacity = 0;
                     return;
                 }
                 const usize bytes = static_cast<usize>(mSize) * mMeta->size;
-#if defined(_MSC_VER)
-                void* newData = _aligned_malloc(bytes, mMeta->align);
-#else
-                void* newData = std::aligned_alloc(mMeta->align, bytes);
-#endif
+                void* newData = nkentseu::memory::NkAlloc(
+                    static_cast<nk_size>(bytes), nullptr, static_cast<nk_size>(mMeta->align));
                 NKECS_ASSERT(newData != nullptr);
                 if (mMeta->moveConstruct != nullptr) {
                     mMeta->moveConstruct(newData, mData, mSize);
@@ -269,11 +258,7 @@ namespace nkentseu {
                 if (mMeta->destruct != nullptr) {
                     mMeta->destruct(mData, mSize);
                 }
-#if defined(_MSC_VER)
-                _aligned_free(mData);
-#else
-                std::free(mData);
-#endif
+                nkentseu::memory::NkFree(mData);
                 mData     = newData;
                 mCapacity = mSize;
             }
@@ -292,11 +277,8 @@ namespace nkentseu {
                 const usize  bytes  = static_cast<usize>(newCap) * mMeta->size;
 
                 // Allocation alignée selon les besoins du type.
-#if defined(_MSC_VER)
-                void* newData = _aligned_malloc(bytes, mMeta->align);
-#else
-                void* newData = std::aligned_alloc(mMeta->align, bytes);
-#endif
+                void* newData = nkentseu::memory::NkAlloc(
+                    static_cast<nk_size>(bytes), nullptr, static_cast<nk_size>(mMeta->align));
                 NKECS_ASSERT(newData != nullptr);
 
                 if (mData != nullptr && mSize > 0) {
@@ -317,15 +299,9 @@ namespace nkentseu {
                 }
 
                 // Libération de l'ancien buffer.
-#if defined(_MSC_VER)
                 if (mData != nullptr) {
-                    _aligned_free(mData);
+                    nkentseu::memory::NkFree(mData);
                 }
-#else
-                if (mData != nullptr) {
-                    std::free(mData);
-                }
-#endif
 
                 mData     = newData;
                 mCapacity = newCap;

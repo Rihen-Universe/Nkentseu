@@ -21,6 +21,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cmath>
 #include <cstddef>
@@ -48,7 +49,7 @@ namespace nkentseu {
         template <typename T>
         inline NkEarcutNode<T>* NkEarcutInsertNode(std::size_t i, T x, T y,
                                                     NkEarcutNode<T>* last) {
-            NkEarcutNode<T>* p = new NkEarcutNode<T>(x, y, i);
+            NkEarcutNode<T>* p = nkentseu::memory::NkGetDefaultAllocator().New<NkEarcutNode<T>>(x, y, i);
             if (!last) {
                 p->prev = p;
                 p->next = p;
@@ -73,7 +74,7 @@ namespace nkentseu {
             NkEarcutNode<T>* p = start;
             do {
                 NkEarcutNode<T>* nxt = p->next;
-                delete p;
+                nkentseu::memory::NkGetDefaultAllocator().Delete(p);
                 p = nxt;
             } while (p != start);
         }
@@ -142,7 +143,7 @@ namespace nkentseu {
 
                     NkEarcutNode<T>* nxt = ear->next;
                     NkEarcutRemoveNode(ear);
-                    delete ear;
+                    nkentseu::memory::NkGetDefaultAllocator().Delete(ear);
                     ear  = nxt;
                     stop = nxt;
                 } else {

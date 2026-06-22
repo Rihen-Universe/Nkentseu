@@ -41,6 +41,7 @@
 #include "NKWindow/Platform/HarmonyOS/NkHarmonyWindow.h"
 #include "NKLogger/NkLog.h"
 #include "NKCore/NkTraits.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <napi/native_api.h>
@@ -87,8 +88,8 @@ namespace {
         NK_HARMONY_BOOTLOG("NkHarmonyMainThread: nkmain returned");
         nkentseu::gState = nullptr;
         nkentseu::NkEntryRuntimeShutdown(true);
-        delete args->state;
-        delete args;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(args->state);
+        nkentseu::memory::NkGetDefaultAllocator().Delete(args);
 
         NK_HARMONY_BOOTLOG("NkHarmonyMainThread: shutdown done");
         return nullptr;
@@ -112,18 +113,18 @@ static napi_value NkHarmonyNapiInit(napi_env env, napi_value exports) {
     nkentseu::NkVector<nkentseu::NkString> args;
     args.PushBack(NK_APP_NAME);
 
-    auto* state = new nkentseu::NkEntryState(
+    auto* state = nkentseu::memory::NkGetDefaultAllocator().New<nkentseu::NkEntryState>(
         nkentseu::traits::NkMove(args));
     nkentseu::NkApplyEntryAppName(*state, NK_APP_NAME);
     nkentseu::gState = state;
 
     // Lancer nkmain dans un thread séparé pour ne pas bloquer le thread UI
-    auto* threadArgs  = new NkHarmonyMainArgs{ state };
+    auto* threadArgs  = nkentseu::memory::NkGetDefaultAllocator().New<NkHarmonyMainArgs>(NkHarmonyMainArgs{ state });
     pthread_t thread;
     if (pthread_create(&thread, nullptr, NkHarmonyMainThread, threadArgs) != 0) {
         NK_HARMONY_BOOTLOG("NkHarmonyNapiInit: pthread_create failed");
-        delete threadArgs;
-        delete state;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(threadArgs);
+        nkentseu::memory::NkGetDefaultAllocator().Delete(state);
         nkentseu::gState = nullptr;
         nkentseu::NkEntryRuntimeShutdown(false);
         return exports;
