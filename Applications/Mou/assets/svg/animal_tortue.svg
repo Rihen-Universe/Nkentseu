@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke="#3f6b2f" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- pattes -->
+    <ellipse cx="48"  cy="142" rx="18" ry="13" fill="#7cc35a"/>
+    <ellipse cx="150" cy="142" rx="18" ry="13" fill="#7cc35a"/>
+    <ellipse cx="70"  cy="158" rx="15" ry="11" fill="#6bb24a"/>
+    <ellipse cx="128" cy="158" rx="15" ry="11" fill="#6bb24a"/>
+    <!-- queue -->
+    <path d="M168 120 C182 122 186 132 178 138 C170 136 166 130 164 124 Z" fill="#6bb24a"/>
+    <!-- tete -->
+    <circle cx="40" cy="98" r="22" fill="#7cc35a"/>
+    <!-- carapace bas (ventre) -->
+    <path d="M52 124 C52 150 148 150 148 124 Z" fill="#c98a3e"/>
+    <!-- carapace dome -->
+    <path d="M44 124 C44 70 156 70 156 124 Z" fill="#4e8a39"/>
+  </g>
+  <!-- ecailles de la carapace -->
+  <g fill="#6bb24a" stroke="#3f6b2f" stroke-width="3.5" stroke-linejoin="round">
+    <path d="M100 80 L124 96 L116 118 L84 118 L76 96 Z"/>
+    <path d="M76 96 L84 118 L58 118 L52 104 C58 98 68 96 76 96 Z"/>
+    <path d="M124 96 L116 118 L142 118 L148 104 C142 98 132 96 124 96 Z"/>
+  </g>
+  <!-- oeil + sourire -->
+  <circle cx="34" cy="94" r="6" fill="#3a2f28"/>
+  <circle cx="36" cy="91" r="2" fill="#ffffff"/>
+  <path d="M24 106 C30 112 38 112 44 106" stroke="#3f6b2f" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>

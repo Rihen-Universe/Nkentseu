@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Panier tresse VERT — symbole feuille -->
+  <path d="M42 80 L158 80 L142 168 Q140 178 128 178 L72 178 Q60 178 58 168 Z"
+        fill="#5BB85B" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <g stroke="#3E8E3E" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.8">
+    <path d="M52 104 L148 104"/><path d="M55 130 L145 130"/><path d="M59 156 L141 156"/>
+    <path d="M74 86 L70 172"/><path d="M100 86 L100 172"/><path d="M126 86 L130 172"/>
+  </g>
+  <ellipse cx="100" cy="80" rx="60" ry="15" fill="#7BD07B" stroke="#4A3728" stroke-width="7"/>
+  <path d="M100 104 Q140 120 100 158 Q60 120 100 104 Z" fill="#FFFFFF"/>
+  <path d="M100 112 L100 150" stroke="#5BB85B" stroke-width="4" stroke-linecap="round"/>
+</svg>

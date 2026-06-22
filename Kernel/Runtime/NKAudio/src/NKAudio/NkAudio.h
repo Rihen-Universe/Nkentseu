@@ -1381,7 +1381,7 @@ namespace nkentseu {
          * @example Enregistrer un backend custom
          * @code
          * AudioBackendFactory::Register("MyHardware", []() -> IAudioBackend* {
-         *     return new MyHardwareBackend();
+         *     return nkentseu::memory::NkGetDefaultAllocator().New<MyHardwareBackend>();
          * });
          * @endcode
          */
@@ -1422,7 +1422,8 @@ namespace nkentseu {
                 nkentseu::audio::AudioBackendFactory::Register(           \
                     Name,                                                  \
                     []() -> nkentseu::audio::IAudioBackend* {             \
-                        return new BackendClass();                         \
+                        return nkentseu::memory::NkGetDefaultAllocator()   \
+                            .New<BackendClass>();                          \
                     }                                                      \
                 );                                                         \
             }                                                              \

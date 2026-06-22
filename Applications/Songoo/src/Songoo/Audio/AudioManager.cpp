@@ -1,214 +1,183 @@
 // =============================================================================
-// AudioManager.cpp
-// -----------------------------------------------------------------------------
-// Init NKAudio + GENERATION PROCEDURALE des SFX via AudioGenerator. Pas de
-// WAV externes : les sons sont synthetises en RAM au demarrage (oscillateurs
-// + ADSR + chirps + bruit). Avantages :
-//  - Aucun asset audio a embarquer (gain de taille APK/EXE)
-//  - SFX uniques au jeu Pong (impossible a copier ailleurs)
-//  - Variation aleatoire de pitch a chaque Play (anti-repetition)
-//  - Modulable a l'execution (volume, pitch selon vitesse balle, etc.)
+// AudioManager.cpp — Audio Songo'o via NKAudio
+// Les sons sont d'abord tentés depuis les fichiers MP3 (audio/),
+// avec fallback sur génération procédurale si le fichier est absent.
 // =============================================================================
 
 #include "AudioManager.h"
 #include "NKAudio/NKAudio.h"
 #include "NKLogger/NkLog.h"
-#include "NKMath/NkRandom.h"
-#include <cstdio>
+#include <cmath>
 
-namespace nkentseu
-{
-    namespace songoo
-    {
+namespace nkentseu { namespace songoo {
 
-        using namespace audio;
+    using namespace audio;
 
-        // ─────────────────────────────────────────────────────────────────────
-        // Generateurs procedural par SoundId. Chaque fonction synthetise un
-        // AudioSample en memoire et l'envoie dans mSamples[].
-        // ─────────────────────────────────────────────────────────────────────
+    // ── Sons procéduraux ─────────────────────────────────────────────────────
 
-        // PaddleHit : court "ping" sinus 880 Hz (LA5) + ADSR snappy.
-        // Duree 60ms : sec et reactif, pas envahissant aux echanges rapides.
-        static AudioSample MakePaddleHit()
-        {
-            AudioSample s = AudioGenerator::GenerateTone(
-                /*frequency*/ 880.0f,
-                /*duration */ 0.06f,
-                /*waveform */ WaveformType::SINE,
-                /*sampleRate*/ 48000,
-                /*amplitude*/ 0.85f);
-            AdsrEnvelope env;
-            env.attackTime   = 0.002f;   // attack immediate
-            env.decayTime    = 0.02f;
-            env.sustainLevel = 0.5f;
-            env.releaseTime  = 0.03f;
-            AudioGenerator::ApplyEnvelope(s, env);
-            return s;
+    AudioSample AudioManager::MakePickup() const {
+        // Court "clic" grave : semis de graines
+        AudioSample s = AudioGenerator::GenerateTone(
+            440.0f, 0.08f, WaveformType::SINE, 44100, 0.7f);
+        AdsrEnvelope env;
+        env.attackTime   = 0.003f;
+        env.decayTime    = 0.03f;
+        env.sustainLevel = 0.4f;
+        env.releaseTime  = 0.04f;
+        AudioGenerator::ApplyEnvelope(s, env);
+        return s;
+    }
+
+    AudioSample AudioManager::MakeDeposit() const {
+        // "Toc" bois : graine déposée dans le trou
+        AudioSample s = AudioGenerator::GenerateTone(
+            660.0f, 0.05f, WaveformType::SQUARE, 44100, 0.5f);
+        AdsrEnvelope env;
+        env.attackTime   = 0.001f;
+        env.decayTime    = 0.015f;
+        env.sustainLevel = 0.2f;
+        env.releaseTime  = 0.025f;
+        AudioGenerator::ApplyEnvelope(s, env);
+        return s;
+    }
+
+    AudioSample AudioManager::MakeDrum() const {
+        // Tambour africain : sweep descendant 200→80 Hz
+        AudioSample s = AudioGenerator::GenerateChirp(
+            200.0f, 80.0f, 0.30f, 44100);
+        AdsrEnvelope env;
+        env.attackTime   = 0.005f;
+        env.decayTime    = 0.05f;
+        env.sustainLevel = 0.6f;
+        env.releaseTime  = 0.15f;
+        AudioGenerator::ApplyEnvelope(s, env);
+        return s;
+    }
+
+    AudioSample AudioManager::MakeScore() const {
+        // Montée joyeuse 220→880 Hz (capture réussie)
+        AudioSample s = AudioGenerator::GenerateChirp(
+            220.0f, 880.0f, 0.40f, 44100);
+        AdsrEnvelope env;
+        env.attackTime   = 0.010f;
+        env.decayTime    = 0.05f;
+        env.sustainLevel = 0.8f;
+        env.releaseTime  = 0.18f;
+        AudioGenerator::ApplyEnvelope(s, env);
+        return s;
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    bool AudioManager::Initialize() {
+        if (!AudioEngine::Init()) {
+            logger.Warn("[AudioManager] AudioEngine::Init failed — audio disabled");
+            return false;
         }
+        mInitialized = true;
 
-        // WallHit : square 220 Hz court (sec, dur, comme un caillou).
-        static AudioSample MakeWallHit()
-        {
-            AudioSample s = AudioGenerator::GenerateTone(
-                220.0f, 0.05f, WaveformType::SQUARE, 48000, 0.6f);
-            AdsrEnvelope env;
-            env.attackTime   = 0.001f;
-            env.decayTime    = 0.015f;
-            env.sustainLevel = 0.3f;
-            env.releaseTime  = 0.025f;
-            AudioGenerator::ApplyEnvelope(s, env);
-            return s;
-        }
+        // Tenter de charger les fichiers MP3 originaux ; sinon génération
+        struct SndFile { SoundId id; const char* path; } files[] = {
+            { SoundId::Pickup,  "audio/pickup.mp3"  },
+            { SoundId::Deposit, "audio/deposit.mp3" },
+            { SoundId::Drum,    "audio/tambour.mp3" },
+            { SoundId::Score,   "audio/songo2.mp3"  },
+        };
 
-        // Score : chirp sweep up 220 -> 880 Hz (do montant) = sensation
-        // de victoire + ADSR doux pour eviter le clic.
-        static AudioSample MakeScore()
-        {
-            AudioSample s = AudioGenerator::GenerateChirp(
-                /*startFreq*/ 220.0f,
-                /*endFreq  */ 880.0f,
-                /*duration */ 0.45f,
-                /*sampleRate*/ 48000);
-            AdsrEnvelope env;
-            env.attackTime   = 0.01f;
-            env.decayTime    = 0.05f;
-            env.sustainLevel = 0.8f;
-            env.releaseTime  = 0.20f;
-            AudioGenerator::ApplyEnvelope(s, env);
-            return s;
-        }
-
-        // Bonus : arpege magique 3 notes (do/mi/sol = accord majeur) joue
-        // simultanement -> son cristallin.
-        static AudioSample MakeBonus()
-        {
-            const float32 freqs[]      = { 523.25f, 659.25f, 783.99f }; // C5/E5/G5
-            const float32 amplitudes[] = { 0.40f,   0.30f,   0.30f   };
-            AudioSample s = AudioGenerator::GenerateChord(
-                freqs, 3, /*duration*/ 0.40f, amplitudes, 48000);
-            AdsrEnvelope env;
-            env.attackTime   = 0.005f;
-            env.decayTime    = 0.08f;
-            env.sustainLevel = 0.6f;
-            env.releaseTime  = 0.25f;
-            AudioGenerator::ApplyEnvelope(s, env);
-            return s;
-        }
-
-        // MenuSelect : bleep sine 1200 Hz tres court (40ms).
-        static AudioSample MakeMenuSelect()
-        {
-            AudioSample s = AudioGenerator::GenerateTone(
-                1200.0f, 0.04f, WaveformType::SINE, 48000, 0.5f);
-            AdsrEnvelope env;
-            env.attackTime   = 0.002f;
-            env.decayTime    = 0.01f;
-            env.sustainLevel = 0.4f;
-            env.releaseTime  = 0.02f;
-            AudioGenerator::ApplyEnvelope(s, env);
-            return s;
-        }
-
-        // MatchStart : kick drum (FM synthese, descente 180 -> 40 Hz).
-        // Donne une sensation de "GO!" puissant au coup d'envoi.
-        static AudioSample MakeMatchStart()
-        {
-            return AudioGenerator::GenerateKick(
-                /*duration   */ 0.30f,
-                /*startFreq  */ 180.0f,
-                /*endFreq    */ 40.0f,
-                /*clickAttack*/ 0.003f,
-                /*sampleRate */ 48000);
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        // Lifecycle
-        // ─────────────────────────────────────────────────────────────────────
-
-        bool AudioManager::Initialize()
-        {
-            if (mInitialized) return true;
-
-            // 1. Init AudioEngine. Backend AUTO = WASAPI Windows, CoreAudio
-            //    macOS, ALSA Linux, AAudio Android.
-            AudioEngineConfig cfg;
-            cfg.sampleRate   = 48000;
-            cfg.channels     = 2;
-            cfg.bufferSize   = 512;
-            cfg.backend      = AudioBackendType::AUTO;
-            cfg.masterVolume = mMasterVolume;
-
-            if (!AudioEngine::Instance().Initialize(cfg))
-            {
-                logger.Warn("[AudioManager] AudioEngine init FAILED -> sons desactives");
-                return false;
-            }
-            logger.Info("[AudioManager] AudioEngine OK : backend={0}, {1} Hz, {2} ch, latency={3:.1}ms",
-                        AudioEngine::Instance().GetBackendName(),
-                        AudioEngine::Instance().GetSampleRate(),
-                        AudioEngine::Instance().GetChannels(),
-                        AudioEngine::Instance().GetLatencyMs());
-
-            // 2. Generation procedural de tous les SFX. Aucun WAV charge !
-            mSamples[(int)SoundId::PaddleHit]  = MakePaddleHit();
-            mSamples[(int)SoundId::WallHit]    = MakeWallHit();
-            mSamples[(int)SoundId::Score]      = MakeScore();
-            mSamples[(int)SoundId::Bonus]      = MakeBonus();
-            mSamples[(int)SoundId::MenuSelect] = MakeMenuSelect();
-            mSamples[(int)SoundId::MatchStart] = MakeMatchStart();
-            logger.Info("[AudioManager] {0} SFX generes procedural en RAM",
-                        (int)SoundId::COUNT);
-
-            mInitialized = true;
-            return true;
-        }
-
-        void AudioManager::Shutdown()
-        {
-            if (!mInitialized) return;
-            // Free tous les samples (memoire allouee par AudioGenerator).
-            for (int i = 0; i < (int)SoundId::COUNT; ++i)
-            {
-                if (mSamples[i].IsValid())
-                {
-                    AudioLoader::Free(mSamples[i]);
+        for (auto& sf : files) {
+            if (!LoadSample(sf.id, sf.path)) {
+                // Génération procédurale si fichier absent
+                switch (sf.id) {
+                    case SoundId::Pickup:  mSamples[(int)sf.id] = MakePickup();  break;
+                    case SoundId::Deposit: mSamples[(int)sf.id] = MakeDeposit(); break;
+                    case SoundId::Drum:    mSamples[(int)sf.id] = MakeDrum();    break;
+                    case SoundId::Score:   mSamples[(int)sf.id] = MakeScore();   break;
+                    default: break;
                 }
             }
-            AudioEngine::Instance().Shutdown();
-            mInitialized = false;
-            logger.Info("[AudioManager] Shutdown");
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        // Play : variation pitch aleatoire ±8% pour anti-robotique.
-        // ─────────────────────────────────────────────────────────────────────
-        void AudioManager::Play(SoundId id, float32 volume) noexcept
-        {
-            if (!mInitialized) return;
-            const int idx = (int)id;
-            if (idx < 0 || idx >= (int)SoundId::COUNT) return;
-            if (!mSamples[idx].IsValid()) return;
+        logger.Info("[AudioManager] Initialized OK");
+        return true;
+    }
 
-            // Variation pitch : 0.92..1.08 (uniforme). Donne du naturel aux
-            // sons repetes (paddle hit a chaque echange notamment).
-            const uint32 r = math::NkRandom::Instance().NextUInt32(1000);
-            const float32 pitchVar = 0.92f + (float32)r * 0.00016f; // [0.92..1.08]
+    bool AudioManager::LoadSample(SoundId id, const char* path) noexcept {
+        bool ok = AudioLoader::LoadFile(path, mSamples[(int)id]);
+        if (!ok) logger.Warn("[AudioManager] Cannot load '{}' — using procedural", path);
+        return ok;
+    }
 
-            VoiceParams vp;
-            vp.volume = volume;
-            vp.pitch  = pitchVar;
-            (void)AudioEngine::Instance().Play(mSamples[idx], vp);
+    void AudioManager::Shutdown() {
+        if (!mInitialized) return;
+        StopBgMusic();
+        StopCreditMusic();
+        for (int i = 0; i < (int)SoundId::COUNT; i++)
+            mSamples[i] = {};
+        AudioEngine::Shutdown();
+        mInitialized = false;
+    }
+
+    // ── Lecture sons courts ───────────────────────────────────────────────────
+
+    void AudioManager::Play(SoundId id, float volume) noexcept {
+        if (!mInitialized) return;
+        float v = volume * mSfxVolume * mMasterVolume;
+        AudioEngine::PlaySample(mSamples[(int)id], v);
+    }
+
+    // ── Musique de fond (streaming) ───────────────────────────────────────────
+
+    void AudioManager::PlayBgMusic(const char* path, bool loop, float volume) {
+        if (!mInitialized) return;
+        StopBgMusic();
+        float v = volume * mMusicVolume * mMasterVolume;
+        if (!mBgMusic.Open(path)) {
+            logger.Warn("[AudioManager] Cannot open '{}'", path);
+            return;
         }
+        mBgMusic.SetLooping(loop);
+        mBgMusic.SetVolume(v);
+        mBgMusic.Play();
+    }
 
-        void AudioManager::SetMasterVolume(float32 v) noexcept
-        {
-            mMasterVolume = (v < 0.0f) ? 0.0f : (v > 1.0f ? 1.0f : v);
-            if (mInitialized)
-            {
-                AudioEngine::Instance().SetMasterVolume(mMasterVolume);
-            }
+    void AudioManager::StopBgMusic()    { if (mInitialized) mBgMusic.Stop();   }
+    void AudioManager::PauseBgMusic()   { if (mInitialized) mBgMusic.Pause();  }
+    void AudioManager::ResumeBgMusic()  { if (mInitialized) mBgMusic.Resume(); }
+
+    bool AudioManager::IsBgMusicPlaying() const noexcept {
+        return mInitialized && mBgMusic.IsPlaying();
+    }
+
+    void AudioManager::PlayCreditMusic(float volume) {
+        if (!mInitialized) return;
+        StopCreditMusic();
+        float v = volume * mMusicVolume * mMasterVolume;
+        if (!mCreditMusic.Open("audio/credit.mp3")) {
+            logger.Warn("[AudioManager] Cannot open 'audio/credit.mp3'");
+            return;
         }
+        mCreditMusic.SetLooping(true);
+        mCreditMusic.SetVolume(v);
+        mCreditMusic.Play();
+    }
 
-    } // namespace songoo
-} // namespace nkentseu
+    void AudioManager::StopCreditMusic() { if (mInitialized) mCreditMusic.Stop(); }
+
+    // ── Volume ────────────────────────────────────────────────────────────────
+
+    void AudioManager::SetMasterVolume(float v) noexcept {
+        mMasterVolume = v < 0.f ? 0.f : v > 1.f ? 1.f : v;
+        if (mInitialized) AudioEngine::SetMasterVolume(mMasterVolume);
+    }
+
+    void AudioManager::SetMusicVolume(float v) noexcept {
+        mMusicVolume = v < 0.f ? 0.f : v > 1.f ? 1.f : v;
+        float eff = mMusicVolume * mMasterVolume;
+        if (mInitialized) { mBgMusic.SetVolume(eff); mCreditMusic.SetVolume(eff); }
+    }
+
+    void AudioManager::SetSfxVolume(float v) noexcept {
+        mSfxVolume = v < 0.f ? 0.f : v > 1.f ? 1.f : v;
+    }
+
+}} // namespace nkentseu::songoo

@@ -1,6 +1,7 @@
 #pragma once
 #include "shapes.h"
 #include "broadphase.h"
+#include "NKMemory/NkAllocator.h"
 #include <vector>
 #include <memory>
 #include <functional>
@@ -118,11 +119,11 @@ public:
 
     GPUBuffer createBuffer(size_t bytes, bool) override {
         GPUBuffer b; b.byteSize=bytes; b.backend=GPUBackend::None;
-        b.handle = std::malloc(bytes);
+        b.handle = nkentseu::memory::NkAlloc((nkentseu::nk_size)bytes);
         return b;
     }
     void destroyBuffer(GPUBuffer& b) override {
-        if(b.handle) std::free(b.handle);
+        if(b.handle) nkentseu::memory::NkFree(b.handle);
         b.handle=nullptr;
     }
     void uploadBuffer(GPUBuffer& dst, const void* src, size_t bytes) override {

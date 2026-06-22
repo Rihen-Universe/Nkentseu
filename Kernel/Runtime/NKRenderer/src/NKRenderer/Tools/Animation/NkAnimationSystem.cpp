@@ -4,6 +4,7 @@
 #include "NkAnimationSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
+#include "NKMemory/NkAllocator.h"
 #include <cmath>
 #include <cstring>
 
@@ -83,7 +84,7 @@ namespace nkentseu {
         // ── Clips prédéfinis ──────────────────────────────────────────────────────
         NkAnimationClip* NkAnimationClip::MakeSpinClip(const NkString& name,
                                                         float32 rpm, NkVec3f axis) {
-            auto* c = new NkAnimationClip();
+            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
             c->name = name; c->duration = 60.f/fmaxf(rpm,0.001f);
             // Rotation complète : deux keyframes (0 → 360)
             c->rotation.AddKey(0.f,        {0,0,0,1},   NkInterpMode::NK_LINEAR);
@@ -95,7 +96,7 @@ namespace nkentseu {
         NkAnimationClip* NkAnimationClip::MakeLightPulse(const NkString& name,
                                                         float32 minI, float32 maxI,
                                                         float32 freq) {
-            auto* c = new NkAnimationClip();
+            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
             c->name = name; float32 per=1.f/fmaxf(freq,0.001f);
             c->lightIntensity.AddKey(0.f,       minI, NkInterpMode::NK_EASE_IN_OUT);
             c->lightIntensity.AddKey(per*0.5f,  maxI, NkInterpMode::NK_EASE_IN_OUT);
@@ -107,7 +108,7 @@ namespace nkentseu {
         NkAnimationClip* NkAnimationClip::MakeColorFade(const NkString& name,
                                                         NkVec4f from, NkVec4f to,
                                                         float32 dur, NkInterpMode interp) {
-            auto* c = new NkAnimationClip();
+            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
             c->name = name; c->duration = dur;
             c->albedoColor.AddKey(0.f,   from, interp);
             c->albedoColor.AddKey(dur,   to,   interp);
@@ -117,7 +118,7 @@ namespace nkentseu {
         NkAnimationClip* NkAnimationClip::MakeCameraShake(const NkString& name,
                                                             float32 intensity, float32 dur,
                                                             float32 freq) {
-            auto* c = new NkAnimationClip();
+            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
             c->name = name; c->duration = dur;
             uint32 steps = (uint32)(dur*freq);
             for(uint32 i=0;i<=steps;i++){
@@ -131,7 +132,7 @@ namespace nkentseu {
         }
 
         NkAnimationClip* NkAnimationClip::MakeProceduralWalk(uint32 boneCount, float32 dur) {
-            auto* c = new NkAnimationClip();
+            auto* c = memory::NkGetDefaultAllocator().New<NkAnimationClip>();
             c->name="ProceduralWalk"; c->duration=dur;
             c->ResizeBones(boneCount);
             // Animer chaque bone avec une sinusoïde décalée
@@ -355,8 +356,8 @@ namespace nkentseu {
         }
 
         void NkAnimationSystem::Shutdown() {
-            for(auto* p:mPlayers) delete p; mPlayers.Clear();
-            for(auto* c:mClips)   delete c; mClips.Clear();
+            for(auto* p:mPlayers) memory::NkGetDefaultAllocator().Delete(p); mPlayers.Clear();
+            for(auto* c:mClips)   memory::NkGetDefaultAllocator().Delete(c); mClips.Clear();
         }
 
         void NkAnimationSystem::Update(float32 dt) {
@@ -365,7 +366,7 @@ namespace nkentseu {
 
         // ── Clips ─────────────────────────────────────────────────────────────────
         NkAnimationClip* NkAnimationSystem::CreateClip(const NkString& name) {
-            auto* c=new NkAnimationClip(); c->name=name;
+            auto* c=memory::NkGetDefaultAllocator().New<NkAnimationClip>(); c->name=name;
             mClips.PushBack(c); return c;
         }
         NkAnimationClip* NkAnimationSystem::FindClip(const NkString& name) const {
@@ -374,14 +375,14 @@ namespace nkentseu {
         }
         void NkAnimationSystem::DestroyClip(NkAnimationClip*& c){
             for(uint32 i=0;i<(uint32)mClips.Size();i++){
-                if(mClips[i]==c){delete c;mClips.RemoveAt(i);break;}
+                if(mClips[i]==c){memory::NkGetDefaultAllocator().Delete(c);mClips.RemoveAt(i);break;}
             }
             c=nullptr;
         }
 
         // ── Players ───────────────────────────────────────────────────────────────
         NkAnimationPlayer* NkAnimationSystem::CreatePlayer(const NkString& name) {
-            auto* p=new NkAnimationPlayer(); p->name=name;
+            auto* p=memory::NkGetDefaultAllocator().New<NkAnimationPlayer>(); p->name=name;
             mPlayers.PushBack(p); return p;
         }
         NkAnimationPlayer* NkAnimationSystem::FindPlayer(const NkString& name) const {
@@ -390,7 +391,7 @@ namespace nkentseu {
         }
         void NkAnimationSystem::DestroyPlayer(NkAnimationPlayer*& p){
             for(uint32 i=0;i<(uint32)mPlayers.Size();i++){
-                if(mPlayers[i]==p){delete p;mPlayers.RemoveAt(i);break;}
+                if(mPlayers[i]==p){memory::NkGetDefaultAllocator().Delete(p);mPlayers.RemoveAt(i);break;}
             }
             p=nullptr;
         }

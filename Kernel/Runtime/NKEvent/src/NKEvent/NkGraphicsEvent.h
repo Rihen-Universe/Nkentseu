@@ -171,7 +171,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGraphicsContextReadyEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGraphicsContextReadyEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -227,7 +227,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGraphicsContextLostEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGraphicsContextLostEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -272,7 +272,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGraphicsContextResizeEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGraphicsContextResizeEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -340,7 +340,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGraphicsFrameBeginEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGraphicsFrameBeginEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -393,7 +393,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGraphicsFrameEndEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGraphicsFrameEndEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -452,7 +452,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGraphicsGpuMemoryEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGraphicsGpuMemoryEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -512,7 +512,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGraphicsVSyncEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGraphicsVSyncEvent>(*this);
                 }
 
                 NkString ToString() const override {

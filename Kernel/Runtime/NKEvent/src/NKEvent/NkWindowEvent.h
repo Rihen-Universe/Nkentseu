@@ -194,7 +194,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowCreateEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowCreateEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -276,7 +276,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowCloseEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowCloseEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -332,7 +332,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowDestroyEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowDestroyEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -409,7 +409,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowPaintEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowPaintEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -523,7 +523,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowResizeEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowResizeEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -618,7 +618,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowResizeBeginEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowResizeBeginEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -655,7 +655,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowResizeEndEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowResizeEndEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -716,7 +716,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowMoveEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowMoveEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -786,7 +786,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowMoveBeginEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowMoveBeginEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -804,7 +804,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowMoveEndEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowMoveEndEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -838,7 +838,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowFocusGainedEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowFocusGainedEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -868,7 +868,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowFocusLostEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowFocusLostEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -891,7 +891,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowMinimizeEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowMinimizeEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -909,7 +909,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowMaximizeEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowMaximizeEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -927,7 +927,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowRestoreEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowRestoreEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -961,7 +961,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowFullscreenEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowFullscreenEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -989,7 +989,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowWindowedEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowWindowedEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -1045,7 +1045,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowDpiEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowDpiEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1131,7 +1131,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur the heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkWindowThemeEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowThemeEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1186,7 +1186,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowShownEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowShownEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -1215,7 +1215,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkWindowHiddenEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowHiddenEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -1261,7 +1261,7 @@
                 }
         
                 NkEvent* Clone() const override {
-                    return new NkWindowSurfaceCreatedEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowSurfaceCreatedEvent>(*this);
                 }
         
                 NkString ToString() const override {
@@ -1300,7 +1300,7 @@
                 }
         
                 NkEvent* Clone() const override {
-                    return new NkWindowSurfaceDestroyedEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowSurfaceDestroyedEvent>(*this);
                 }
         
                 NkString ToString() const override {
@@ -1349,7 +1349,7 @@
                 }
         
                 NkEvent* Clone() const override {
-                    return new NkWindowOrientationChangedEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowOrientationChangedEvent>(*this);
                 }
         
                 NkString ToString() const override {
@@ -1428,7 +1428,7 @@
                 }
         
                 NkEvent* Clone() const override {
-                    return new NkWindowSafeAreaChangedEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowSafeAreaChangedEvent>(*this);
                 }
         
                 NkString ToString() const override {
@@ -1517,7 +1517,7 @@
                 }
         
                 NkEvent* Clone() const override {
-                    return new NkWindowVirtualKeyboardChangedEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkWindowVirtualKeyboardChangedEvent>(*this);
                 }
         
                 NkString ToString() const override {

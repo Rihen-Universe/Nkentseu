@@ -9,6 +9,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKContainers/Functional/NkFunctional.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cstring>
 
@@ -429,7 +430,7 @@ namespace nkentseu {
             NkShaderDesc& AddSWVertex(const NkVertexShaderSoftware& fn) {
                 NkShaderStageDesc s;
                 s.stage  = NkShaderStage::NK_VERTEX;
-                s.cpuFn  = new NkVertexShaderSoftware(fn);  // libéré dans CreateShader
+                s.cpuFn  = nkentseu::memory::NkGetDefaultAllocator().New<NkVertexShaderSoftware>(fn);  // libéré dans CreateShader
                 stages.PushBack(s);
                 return AddStage(s);
             }
@@ -437,7 +438,7 @@ namespace nkentseu {
             NkShaderDesc& AddSWFragment(const NkPixelShaderSoftware& fn) {
                 NkShaderStageDesc s;
                 s.stage  = NkShaderStage::NK_FRAGMENT;
-                s.cpuFn  = new NkPixelShaderSoftware(fn);
+                s.cpuFn  = nkentseu::memory::NkGetDefaultAllocator().New<NkPixelShaderSoftware>(fn);
                 stages.PushBack(s);
                 return AddStage(s);
             }
@@ -445,7 +446,7 @@ namespace nkentseu {
             NkShaderDesc& AddSWCompute(const NkComputeShaderSoftware& fn) {
                 NkShaderStageDesc s;
                 s.stage  = NkShaderStage::NK_COMPUTE;
-                s.cpuFn  = new NkComputeShaderSoftware(fn);
+                s.cpuFn  = nkentseu::memory::NkGetDefaultAllocator().New<NkComputeShaderSoftware>(fn);
                 stages.PushBack(s);
                 return AddStage(s);
             }

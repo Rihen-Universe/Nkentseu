@@ -129,7 +129,7 @@
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 /// @note Copie profonde du payload inline via copy-ctor par défaut
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkCustomEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkCustomEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -324,7 +324,7 @@
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 /// @note Copie profonde du vecteur mData via copy-ctor de NkVector
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkCustomPtrEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkCustomPtrEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -501,7 +501,7 @@
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 /// @note Copie profonde des NkString via copy-ctor de NkString
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkCustomStringEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkCustomStringEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- Icone "Calculs" : un grand plus + petit egal -->
+  <path d="M48 22 H72 V46 H96 V70 H72 V94 H48 V70 H24 V46 H48 Z"
+        fill="#FF922B" stroke="#4A3728" stroke-width="6" stroke-linejoin="round"/>
+  <line x1="34" y1="104" x2="86" y2="104" stroke="#4A3728" stroke-width="6" stroke-linecap="round"/>
+</svg>

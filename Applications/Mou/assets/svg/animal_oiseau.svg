@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke="#1f5f86" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- queue -->
+    <path d="M150 108 C176 104 190 96 192 104 C188 116 190 128 186 138 C176 134 162 124 150 108 Z" fill="#2f86c4"/>
+    <!-- corps -->
+    <ellipse cx="96" cy="112" rx="58" ry="50" fill="#46a3e6"/>
+    <!-- pattes -->
+    <path d="M86 160 L86 178 M76 178 L96 178" fill="none"/>
+    <path d="M112 160 L112 178 M102 178 L122 178" fill="none"/>
+  </g>
+  <!-- ventre clair -->
+  <ellipse cx="84" cy="126" rx="34" ry="30" fill="#cdeafb"/>
+  <!-- aile -->
+  <path d="M104 92 C134 96 142 124 124 146 C108 138 98 116 104 92 Z"
+        fill="#2f86c4" stroke="#1f5f86" stroke-width="4" stroke-linejoin="round"/>
+  <!-- joue rose -->
+  <circle cx="58" cy="108" r="8" fill="#f4a6c0" opacity="0.7"/>
+  <!-- bec -->
+  <path d="M40 96 L14 104 L40 114 Z" fill="#f4a93c" stroke="#c47a18" stroke-width="4" stroke-linejoin="round"/>
+  <!-- oeil -->
+  <circle cx="58" cy="92" r="11" fill="#ffffff" stroke="#1f5f86" stroke-width="3"/>
+  <circle cx="56" cy="92" r="5.5" fill="#3a2f28"/>
+  <circle cx="54" cy="89" r="2" fill="#ffffff"/>
+  <!-- houppette -->
+  <path d="M70 50 C74 36 86 34 88 48 C92 38 104 40 102 54" fill="none" stroke="#2f86c4" stroke-width="6" stroke-linecap="round"/>
+</svg>

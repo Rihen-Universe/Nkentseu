@@ -8,6 +8,7 @@
 
 #import <UIKit/UIKit.h>
 #include "NKWindow/Core/NkEntry.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 
 // ---------------------------------------------------------------------------
 // Arguments iOS globaux
@@ -43,7 +44,7 @@ NkEntryState *gState = nullptr;
 	if (!nkentseu::NkEntryRuntimeInit(g_ios_args.bundleId.CStr())) {
 		return NO;
 	}
-	nkentseu::gState = new nkentseu::NkEntryState(g_ios_args.args);
+	nkentseu::gState = nkentseu::memory::NkGetDefaultAllocator().New<nkentseu::NkEntryState>(g_ios_args.args);
 	nkentseu::NkApplyEntryAppName(*nkentseu::gState, g_ios_args.bundleId.CStr());
 	int ret = nkmain(*nkentseu::gState);
 	(void)ret;
@@ -53,7 +54,7 @@ NkEntryState *gState = nullptr;
 - (void)applicationWillTerminate:(UIApplication *)app {
 	(void)app;
 	nkentseu::NkEntryRuntimeShutdown(true);
-	delete nkentseu::gState;
+	nkentseu::memory::NkGetDefaultAllocator().Delete(nkentseu::gState);
 	nkentseu::gState = nullptr;
 }
 

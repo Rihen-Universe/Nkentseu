@@ -620,7 +620,7 @@ namespace nkentseu {
     /// @return Pointeur brut vers un nouveau NkEvent (caller responsable du delete)
     /// @note Pattern Prototype : les dérivés doivent retourner new Derived(*this)
     NkEvent* NkEvent::Clone() const {
-        return new NkEvent(*this);
+        return nkentseu::memory::NkGetDefaultAllocator().New<NkEvent>(*this);
     }
 
     /// @brief Génère une représentation lisible de l'événement pour logs et débogage

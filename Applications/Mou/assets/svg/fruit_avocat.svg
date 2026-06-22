@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Avocat (VERT) -->
+  <path d="M100 40 Q92 64 100 84" fill="none" stroke="#4A3728" stroke-width="6" stroke-linecap="round"/>
+  <path d="M100 78 C 70 78 58 120 70 150 C 80 174 120 174 130 150 C 142 120 130 78 100 78 Z"
+        fill="#6BA84F" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <ellipse cx="100" cy="138" rx="24" ry="26" fill="#9A6A3A" opacity="0.55"/>
+  <ellipse cx="84" cy="108" rx="9" ry="14" fill="#FFFFFF" opacity="0.35"/>
+</svg>

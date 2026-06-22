@@ -330,6 +330,15 @@ namespace nkentseu {
             return ok;
         }
 
+        bool NkRenderWindow::RecreateSurface() noexcept {
+            if (!mContext || !mWindow) return false;
+            if (mFrameOpen && mRenderer) {   // ne pas presenter sur une surface morte
+                mRenderer->End();
+                mFrameOpen = false;
+            }
+            return mContext->RecreateSurface(*mWindow);
+        }
+
         bool NkRenderWindow::OnDpiChange() noexcept {
             if (!mWindow) return false;
             const math::NkVec2u sz = mWindow->GetSize();  // taille physique post-DPI

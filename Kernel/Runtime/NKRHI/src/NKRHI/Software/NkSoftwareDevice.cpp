@@ -6,6 +6,7 @@
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKLogger/NkLog.h"
 #include "NKCore/NkTraits.h"
+#include "NKMemory/NkAllocator.h"
 #include "NkSWFastPath.h"
 
 // #include "NKRHI/Core/NkSkSL.h"
@@ -781,14 +782,17 @@ namespace nkentseu {
             
             if (s.stage == NkShaderStage::NK_VERTEX) {
                 sh.vertFn = *static_cast<const NkVertexShaderSoftware*>(s.cpuFn);
-                delete static_cast<const NkVertexShaderSoftware*>(s.cpuFn);
+                nkentseu::memory::NkGetDefaultAllocator().Delete(
+                    const_cast<NkVertexShaderSoftware*>(static_cast<const NkVertexShaderSoftware*>(s.cpuFn)));
             } else if (s.stage == NkShaderStage::NK_FRAGMENT) {
                 sh.fragFn = *static_cast<const NkPixelShaderSoftware*>(s.cpuFn);
-                delete static_cast<const NkPixelShaderSoftware*>(s.cpuFn);
+                nkentseu::memory::NkGetDefaultAllocator().Delete(
+                    const_cast<NkPixelShaderSoftware*>(static_cast<const NkPixelShaderSoftware*>(s.cpuFn)));
             } else if (s.stage == NkShaderStage::NK_COMPUTE) {
                 sh.isCompute = true;
                 sh.computeFn = *static_cast<const NkComputeShaderSoftware*>(s.cpuFn);
-                delete static_cast<const NkComputeShaderSoftware*>(s.cpuFn);
+                nkentseu::memory::NkGetDefaultAllocator().Delete(
+                    const_cast<NkComputeShaderSoftware*>(static_cast<const NkComputeShaderSoftware*>(s.cpuFn)));
             }
         }
 
@@ -909,10 +913,10 @@ namespace nkentseu {
     // Command Buffers
     // =============================================================================
     NkICommandBuffer* NkSoftwareDevice::CreateCommandBuffer(NkCommandBufferType t) {
-        return new NkSoftwareCommandBuffer(this, t);
+        return nkentseu::memory::NkGetDefaultAllocator().New<NkSoftwareCommandBuffer>(this, t);
     }
 
-    void NkSoftwareDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) { delete cb; cb = nullptr; }
+    void NkSoftwareDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) { nkentseu::memory::NkGetDefaultAllocator().Delete(cb); cb = nullptr; }
 
     // =============================================================================
     // Submit
@@ -1292,22 +1296,22 @@ namespace nkentseu {
         }
 
         if (mData.useSHM) {
-            XShmSegmentInfo* shm = new XShmSegmentInfo();
+            XShmSegmentInfo* shm = nkentseu::memory::NkGetDefaultAllocator().New<XShmSegmentInfo>();
             Visual* vis  = DefaultVisual(display, DefaultScreen(display));
             int     depth= DefaultDepth(display, DefaultScreen(display));
             XImage* img  = XShmCreateImage(display, vis, depth, ZPixmap,
                                             nullptr, shm, w, h);
-            if (!img) { mData.useSHM = false; delete shm; goto fallback_xlib; }
+            if (!img) { mData.useSHM = false; nkentseu::memory::NkGetDefaultAllocator().Delete(shm); goto fallback_xlib; }
             shm->shmid = shmget(IPC_PRIVATE, img->bytes_per_line * img->height,
                                 IPC_CREAT | 0777);
-            if (shm->shmid < 0) { XDestroyImage(img); mData.useSHM=false; delete shm; goto fallback_xlib; }
+            if (shm->shmid < 0) { XDestroyImage(img); mData.useSHM=false; nkentseu::memory::NkGetDefaultAllocator().Delete(shm); goto fallback_xlib; }
             shm->shmaddr = img->data = (char*)shmat(shm->shmid, nullptr, 0);
             if (shm->shmaddr == (char*)-1) {
                 img->data = nullptr;
                 XDestroyImage(img);
                 shmctl(shm->shmid, IPC_RMID, nullptr);
                 mData.useSHM = false;
-                delete shm;
+                nkentseu::memory::NkGetDefaultAllocator().Delete(shm);
                 goto fallback_xlib;
             }
             shm->readOnly = False;
@@ -1317,7 +1321,7 @@ namespace nkentseu {
                 img->data = nullptr;
                 XDestroyImage(img);
                 mData.useSHM = false;
-                delete shm;
+                nkentseu::memory::NkGetDefaultAllocator().Delete(shm);
                 goto fallback_xlib;
             }
             mData.ximage = img;
@@ -1331,7 +1335,7 @@ namespace nkentseu {
             // Fallback : XImage classique
             Visual* vis   = DefaultVisual(display, DefaultScreen(display));
             int     depth = DefaultDepth(display, DefaultScreen(display));
-            char*   data  = new char[w * h * 4];
+            char*   data  = static_cast<char*>(nkentseu::memory::NkAlloc((nk_size)w * (nk_size)h * 4u));
             XImage* img   = XCreateImage(display, vis, depth, ZPixmap, 0,
                                         data, w, h, 32, 0);
             mData.ximage = img;
@@ -1457,19 +1461,19 @@ namespace nkentseu {
                 if (shm->shmid >= 0) {
                     shmctl(shm->shmid, IPC_RMID, nullptr);
                 }
-                delete shm;
+                nkentseu::memory::NkGetDefaultAllocator().Delete(shm);
                 mData.shmInfo = nullptr;
                 mData.shmid = -1;
                 img->data = nullptr;
             } else {
-                delete[] img->data;
+                nkentseu::memory::NkFree(img->data);
                 img->data = nullptr;
             }
             XDestroyImage(img);
             mData.ximage = nullptr;
         }
         if (mData.shmInfo) {
-            delete static_cast<XShmSegmentInfo*>(mData.shmInfo);
+            nkentseu::memory::NkGetDefaultAllocator().Delete(static_cast<XShmSegmentInfo*>(mData.shmInfo));
             mData.shmInfo = nullptr;
         }
         mData.useSHM = false;

@@ -1,77 +1,73 @@
 #pragma once
 // =============================================================================
-// AudioManager.h
-// -----------------------------------------------------------------------------
-// Gestionnaire audio Pong : init NKAudio + cache des samples + helpers
-// PlayPaddle/PlayScore/PlayBonus/etc.
-//
-// Architecture :
-//   - 1 instance vivante pendant toute la duree de l'app (detenue par PongApp).
-//   - PongApp::Init appelle InitAudio() : charge les WAV + start AudioEngine.
-//   - Les scenes appellent PlayPaddle(), PlayScore(), etc. (no-op si pas init).
-//   - PongApp::Shutdown appelle Shutdown() : free samples + stop engine.
-//
-// Cf [[nkaudio_roadmap]] et [[pong_release_2026-05-20]].
+// AudioManager.h — Gestionnaire audio Songo'o via NKAudio
+// Remplace SFML3 (sf::Music, sf::Sound) par NKAudio (AudioSample, AudioStream)
+// Sons générés procéduralement + lecture de fichiers MP3/WAV via NkAudioStream
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
 #include "NKAudio/NKAudio.h"
+#include "Songoo/Game/GameTypes.h"
 
-namespace nkentseu
-{
-    namespace songoo
-    {
+namespace nkentseu { namespace songoo {
 
-        /// Identifiants logiques des sons utilises par Pong.
-        enum class SoundId : uint8
-        {
-            PaddleHit = 0,  ///< Balle vs raquette ("bleep")
-            WallHit,        ///< Balle vs mur/obstacle ("solid")
-            Score,          ///< But marque (long jingle)
-            Bonus,          ///< Bonus ramasse / powerup actif
-            MenuSelect,     ///< Click bouton menu
-            MatchStart,     ///< Coup d'envoi du match
-            COUNT
-        };
+    class AudioManager {
+    public:
+        AudioManager()  = default;
+        ~AudioManager() = default;
 
-        class AudioManager
-        {
-        public:
-            AudioManager()  = default;
-            ~AudioManager() = default;
+        // ── Lifecycle ─────────────────────────────────────────────────────────
+        bool Initialize();
+        void Shutdown();
+        bool IsInitialized() const noexcept { return mInitialized; }
 
-            // ── Lifecycle ────────────────────────────────────────────────────
-            /// Init AudioEngine + charge les samples. Retourne false si echec
-            /// (mais l'app continue : tous les Play deviennent no-op).
-            bool Initialize();
-            /// Liberation : stop engine + free samples. Idempotent.
-            void Shutdown();
-            bool IsInitialized() const noexcept { return mInitialized; }
+        // ── Sons courts (one-shot) ────────────────────────────────────────────
+        void Play(SoundId id, float volume = 1.0f) noexcept;
 
-            // ── Helpers de lecture (no-op si !mInitialized) ──────────────────
-            /// Joue un sound avec volume optionnel [0..1].
-            void Play(SoundId id, float32 volume = 1.0f) noexcept;
+        void PlayPickup (float v = 1.0f) noexcept { Play(SoundId::Pickup,  v); }
+        void PlayDeposit(float v = 1.0f) noexcept { Play(SoundId::Deposit, v); }
+        void PlayDrum   (float v = 1.0f) noexcept { Play(SoundId::Drum,    v); }
+        void PlayScore  (float v = 1.0f) noexcept { Play(SoundId::Score,   v); }
 
-            // Aliases pratiques (lisibilite cote scenes).
-            void PlayPaddle(float32 v = 1.0f)   noexcept { Play(SoundId::PaddleHit,  v); }
-            void PlayWall  (float32 v = 1.0f)   noexcept { Play(SoundId::WallHit,    v); }
-            void PlayScore (float32 v = 1.0f)   noexcept { Play(SoundId::Score,      v); }
-            void PlayBonus (float32 v = 1.0f)   noexcept { Play(SoundId::Bonus,      v); }
-            void PlayMenu  (float32 v = 0.6f)   noexcept { Play(SoundId::MenuSelect, v); }
-            void PlayStart (float32 v = 1.0f)   noexcept { Play(SoundId::MatchStart, v); }
+        // ── Musique de fond (streaming) ───────────────────────────────────────
+        void PlayBgMusic(const char* path, bool loop = true, float volume = 0.1f);
+        void StopBgMusic();
+        void PauseBgMusic();
+        void ResumeBgMusic();
+        bool IsBgMusicPlaying() const noexcept;
 
-            /// Volume master global [0..1] (affecte tous les sons).
-            void  SetMasterVolume(float32 v) noexcept;
-            float32 MasterVolume() const noexcept { return mMasterVolume; }
+        void PlayCreditMusic(float volume = 0.1f);
+        void StopCreditMusic();
 
-        private:
-            bool                    mInitialized  = false;
-            float32                 mMasterVolume = 0.8f;
-            audio::AudioSample      mSamples[(int)SoundId::COUNT] = {};
+        // ── Volume ────────────────────────────────────────────────────────────
+        void SetMasterVolume(float v) noexcept;
+        void SetMusicVolume(float v)  noexcept;
+        void SetSfxVolume(float v)    noexcept;
 
-            /// Charge un WAV en sample. Retourne false si fichier introuvable.
-            bool LoadSample(SoundId id, const char* path) noexcept;
-        };
+        float MasterVolume() const noexcept { return mMasterVolume; }
+        float MusicVolume()  const noexcept { return mMusicVolume;  }
+        float SfxVolume()    const noexcept { return mSfxVolume;    }
 
-    } // namespace songoo
-} // namespace nkentseu
+    private:
+        bool  mInitialized  = false;
+        float mMasterVolume = 1.0f;
+        float mMusicVolume  = 0.10f;
+        float mSfxVolume    = 1.00f;
+
+        // Sons procéduraux courts
+        audio::AudioSample mSamples[(int)SoundId::COUNT] = {};
+
+        // Streams musicaux
+        audio::NkAudioStreamPlayer mBgMusic;
+        audio::NkAudioStreamPlayer mCreditMusic;
+
+        bool LoadSample(SoundId id, const char* path) noexcept;
+
+        // Générer les sons procéduralement (fallback si fichier absent)
+        audio::AudioSample MakePickup()  const;
+        audio::AudioSample MakeDeposit() const;
+        audio::AudioSample MakeDrum()    const;
+        audio::AudioSample MakeScore()   const;
+    };
+
+}} // namespace nkentseu::songoo

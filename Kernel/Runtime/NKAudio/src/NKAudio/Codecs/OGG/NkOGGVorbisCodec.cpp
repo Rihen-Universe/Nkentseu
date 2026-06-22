@@ -1326,7 +1326,18 @@ namespace nkentseu {
 #endif
 				f->eof = 0;
 				if (USE_MEMORY(f)) {
+					// Garde anti-overflow de pointeur heritee de stb_vorbis (vendored) :
+					// `streamStart + loc < streamStart` est toujours faux en arithmetique
+					// de pointeur definie -> on neutralise le warning sans toucher la logique.
+#if defined(__clang__)
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wtautological-pointer-compare"
+#  pragma clang diagnostic ignored "-Wtautological-compare"
+#endif
 					if (f->streamStart + loc >= f->streamEnd || f->streamStart + loc < f->streamStart) {
+#if defined(__clang__)
+#  pragma clang diagnostic pop
+#endif
 						f->stream = f->streamEnd;
 						f->eof = 1;
 						return 0;

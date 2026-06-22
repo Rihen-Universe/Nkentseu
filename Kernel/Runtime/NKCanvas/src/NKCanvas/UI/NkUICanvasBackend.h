@@ -65,6 +65,12 @@ namespace nkentseu {
                 NkVector<uint8>                   mExpand;         // gray -> rgba scratch
 
                 NkTexture* AcquireTexture(uint32 texId, int32 width, int32 height);
+
+                // Upload automatique des atlas de police "dirty" du contexte (sinon
+                // NkUIFont::RenderChar retombe sur le bitmap fallback -> texte crenele).
+                // Trampoline statique car UploadDirtyAtlases attend un void(*)(...).
+                static NkUICanvasBackend* s_uploadSelf;
+                static void UploadGray8Trampoline(uint32 texId, const uint8* data, int32 w, int32 h);
         };
 
     } // namespace renderer

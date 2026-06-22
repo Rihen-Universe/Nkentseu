@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 200" width="140" height="200">
+  <!-- Ballon VERT — feuille -->
+  <line x1="70" y1="146" x2="70" y2="196" stroke="#4A3728" stroke-width="4"/>
+  <ellipse cx="70" cy="80" rx="56" ry="66" fill="#51CF66" stroke="#4A3728" stroke-width="7"/>
+  <path d="M62 142 L78 142 L70 156 Z" fill="#51CF66" stroke="#4A3728" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="50" cy="56" rx="11" ry="17" fill="#FFFFFF" opacity="0.45"/>
+  <path d="M70 62 Q94 74 70 104 Q46 74 70 62 Z" fill="#FFFFFF"/>
+</svg>

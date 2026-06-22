@@ -11,6 +11,7 @@
 #include "NKContainers/NKContainers.h"
 #include "NKContainers/CacheFriendly/NkArray.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cstdio>
 #include <cstring>
@@ -192,9 +193,9 @@ NkComputeBuffer NkVulkanComputeContext::CreateBuffer(const NkComputeBufferDesc& 
         ? (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
         : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-    auto* pair = new VkBufPair();
+    auto* pair = nkentseu::memory::NkGetDefaultAllocator().New<VkBufPair>();
     if (!CreateBuffer_Internal(desc.sizeBytes, usage, memProps, pair->buf, pair->mem)) {
-        delete pair; return out;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(pair); return out;
     }
 
     if (desc.initialData && (desc.cpuWritable || memProps & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
@@ -217,7 +218,7 @@ void NkVulkanComputeContext::DestroyBuffer(NkComputeBuffer& buf) {
     auto* pair = static_cast<VkBufPair*>(buf.handle);
     vkDestroyBuffer(mData.device, pair->buf, nullptr);
     vkFreeMemory(mData.device, pair->mem, nullptr);
-    delete pair;
+    nkentseu::memory::NkGetDefaultAllocator().Delete(pair);
     buf = NkComputeBuffer{};
 }
 
@@ -269,7 +270,7 @@ NkComputeShader NkVulkanComputeContext::CreateShaderFromFile(
     if (vkCreateShaderModule(mData.device, &ci, nullptr, &mod) != VK_SUCCESS) {
         NK_VKC_ERR("vkCreateShaderModule failed\n"); return s;
     }
-    auto* h = new VkShaderHandle();
+    auto* h = nkentseu::memory::NkGetDefaultAllocator().New<VkShaderHandle>();
     h->mod = mod;
     s.handle = h;
     s.valid  = true;
@@ -289,7 +290,7 @@ void NkVulkanComputeContext::DestroyShader(NkComputeShader& s) {
     auto* h = static_cast<VkShaderHandle*>(s.handle);
     if (h) {
         vkDestroyShaderModule(mData.device, h->mod, nullptr);
-        delete h;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(h);
     }
     s = NkComputeShader{};
 }
@@ -317,7 +318,7 @@ NkComputePipeline NkVulkanComputeContext::CreatePipeline(const NkComputeShader& 
                                   &pipeInfo, nullptr, &pipe) != VK_SUCCESS) {
         NK_VKC_ERR("vkCreateComputePipelines failed\n"); return p;
     }
-    auto* ph = new VkPipelineHandle();
+    auto* ph = nkentseu::memory::NkGetDefaultAllocator().New<VkPipelineHandle>();
     ph->pipe = pipe;
     p.handle = ph;
     p.valid  = true;
@@ -329,7 +330,7 @@ void NkVulkanComputeContext::DestroyPipeline(NkComputePipeline& p) {
     auto* ph = static_cast<VkPipelineHandle*>(p.handle);
     if (ph) {
         vkDestroyPipeline(mData.device, ph->pipe, nullptr);
-        delete ph;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(ph);
     }
     p = NkComputePipeline{};
 }

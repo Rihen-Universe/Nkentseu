@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkDeviceFactory.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 #include "NKRHI/Opengl/NkOpenglDevice.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
 
@@ -40,12 +41,12 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 
     switch (api) {
         case NkGraphicsApi::NK_GFX_API_OPENGL:
-            dev = new NkOpenGLDevice();
+            dev = nkentseu::memory::NkGetDefaultAllocator().New<NkOpenGLDevice>();
             break;
 
         case NkGraphicsApi::NK_GFX_API_VULKAN:
 #ifdef NK_RHI_VK_ENABLED
-            dev = new NkVulkanDevice();
+            dev = nkentseu::memory::NkGetDefaultAllocator().New<NkVulkanDevice>();
 #else
             logger_src.Infof("[NkDeviceFactory] Vulkan non disponible (NK_RHI_VK_ENABLED non defini)\n");
 #endif
@@ -53,7 +54,7 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 
         case NkGraphicsApi::NK_GFX_API_DX11:
 #ifdef NK_RHI_DX11_ENABLED
-            dev = new NkDirectX11Device();
+            dev = nkentseu::memory::NkGetDefaultAllocator().New<NkDirectX11Device>();
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
             logger_src.Infof("[NkDeviceFactory] DX11 non active (definir NK_RHI_DX11_ENABLED)\n");
 #endif
@@ -61,7 +62,7 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 
         case NkGraphicsApi::NK_GFX_API_DX12:
 #ifdef NK_RHI_DX12_ENABLED
-            dev = new NkDirectX12Device();
+            dev = nkentseu::memory::NkGetDefaultAllocator().New<NkDirectX12Device>();
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
             logger_src.Infof("[NkDeviceFactory] DX12 non active (definir NK_RHI_DX12_ENABLED)\n");
 #endif
@@ -69,14 +70,14 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
 
         case NkGraphicsApi::NK_GFX_API_METAL:
 #ifdef NK_RHI_METAL_ENABLED
-            dev = new NkMetalDevice();
+            dev = nkentseu::memory::NkGetDefaultAllocator().New<NkMetalDevice>();
 #else
             logger_src.Infof("[NkDeviceFactory] Metal non active (definir NK_RHI_METAL_ENABLED)\n");
 #endif
             break;
 
         case NkGraphicsApi::NK_GFX_API_SOFTWARE:
-            dev = new NkSoftwareDevice();
+            dev = nkentseu::memory::NkGetDefaultAllocator().New<NkSoftwareDevice>();
             break;
 
         default:
@@ -90,7 +91,7 @@ NkIDevice* NkDeviceFactory::CreateForApi(NkGraphicsApi api, const NkDeviceInitIn
     if (!dev->Initialize(init)) {
         logger_src.Infof("[NkDeviceFactory] Initialize() failed pour API: %s\n",
                          NkGraphicsApiName(api));
-        delete dev;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(dev);
         return nullptr;
     }
 
@@ -111,7 +112,7 @@ NkIDevice* NkDeviceFactory::CreateWithFallback(const NkDeviceInitInfo& init,
         }
         NkIDevice* dev = CreateForApi(api, effectiveInit);
         if (dev && dev->IsValid()) return dev;
-        if (dev) { dev->Shutdown(); delete dev; }
+        if (dev) { dev->Shutdown(); nkentseu::memory::NkGetDefaultAllocator().Delete(dev); }
     }
     logger_src.Infof("[NkDeviceFactory] Aucune API disponible dans la liste de fallback\n");
     return nullptr;
@@ -140,7 +141,7 @@ bool NkDeviceFactory::IsApiSupported(NkGraphicsApi api) {
 void NkDeviceFactory::Destroy(NkIDevice*& device) {
     if (!device) return;
     device->Shutdown();
-    delete device;
+    nkentseu::memory::NkGetDefaultAllocator().Delete(device);
     device = nullptr;
 }
 
@@ -222,7 +223,7 @@ NkIDevice* NkDeviceFactory::CreateAutoDetect(NkDeviceInitInfo& init) {
             return dev;
         }
         // Ce device n'a pas fonctionné — on le détruit proprement avant d'essayer le suivant
-        if (dev) { dev->Shutdown(); delete dev; dev = nullptr; }
+        if (dev) { dev->Shutdown(); nkentseu::memory::NkGetDefaultAllocator().Delete(dev); dev = nullptr; }
     }
 
     logger_src.Infof("[NkDeviceFactory] CreateAutoDetect: aucune API fonctionnelle sur ce materiel\n");

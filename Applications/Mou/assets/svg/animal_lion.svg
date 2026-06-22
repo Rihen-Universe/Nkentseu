@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- criniere (deux couches) -->
+  <g stroke="#7a4310" stroke-width="5" stroke-linejoin="round">
+    <path d="M100 24
+             C120 24 128 8 140 20 C150 12 162 24 156 38
+             C176 36 182 56 168 64 C186 74 182 96 166 98
+             C178 112 166 132 150 126 C152 144 132 152 122 140
+             C116 156 96 156 90 140 C78 152 58 144 60 126
+             C44 132 32 112 44 98 C28 96 24 74 42 64
+             C28 56 34 36 54 38 C48 24 60 12 70 20
+             C82 8 90 24 100 24 Z" fill="#cf7a1e"/>
+  </g>
+  <!-- face -->
+  <circle cx="100" cy="92" r="50" fill="#f3ad3f" stroke="#7a4310" stroke-width="5"/>
+  <!-- oreilles -->
+  <circle cx="64" cy="58" r="15" fill="#f3ad3f" stroke="#7a4310" stroke-width="5"/>
+  <circle cx="136" cy="58" r="15" fill="#f3ad3f" stroke="#7a4310" stroke-width="5"/>
+  <!-- museau clair -->
+  <ellipse cx="100" cy="108" rx="34" ry="26" fill="#ffe0a6"/>
+  <!-- yeux -->
+  <ellipse cx="82" cy="88" rx="8" ry="10" fill="#3a2f28"/>
+  <ellipse cx="118" cy="88" rx="8" ry="10" fill="#3a2f28"/>
+  <circle cx="84" cy="84" r="2.6" fill="#ffffff"/>
+  <circle cx="120" cy="84" r="2.6" fill="#ffffff"/>
+  <!-- nez + bouche -->
+  <path d="M90 104 L110 104 L100 116 Z" fill="#7a4310"/>
+  <path d="M100 116 L100 124 M100 124 C92 134 80 130 78 122 M100 124 C108 134 120 130 122 122"
+        stroke="#7a4310" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>

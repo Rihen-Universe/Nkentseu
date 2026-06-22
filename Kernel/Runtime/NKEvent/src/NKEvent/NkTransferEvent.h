@@ -250,7 +250,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTransferBeginEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTransferBeginEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -364,7 +364,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTransferProgressEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTransferProgressEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -470,7 +470,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTransferCompleteEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTransferCompleteEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -568,7 +568,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTransferErrorEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTransferErrorEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -651,7 +651,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTransferCancelledEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTransferCancelledEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -729,7 +729,7 @@
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 /// @note Copie profonde du vecteur mData via copy-ctor de NkVector
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTransferDataEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTransferDataEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs

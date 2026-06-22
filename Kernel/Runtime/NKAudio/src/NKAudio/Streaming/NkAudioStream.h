@@ -62,8 +62,9 @@ namespace nkentseu {
 
         // ── Factory ──────────────────────────────────────────────────────────
         // Detecte le format depuis le path ou la signature et retourne l'IAudioStream
-        // adequat. Le caller doit liberer via `delete stream`. Retourne nullptr en cas
-        // d'echec.
+        // adequat. Le stream est alloue via NKMemory : le caller doit le liberer via
+        // nkentseu::memory::NkGetDefaultAllocator().Delete(stream) (PAS `delete`).
+        // Retourne nullptr en cas d'echec.
         NKENTSEU_AUDIO_API IAudioStream* OpenAudioStream(const char* path) noexcept;
 
         // ── Concrete : WavStream ────────────────────────────────────────────

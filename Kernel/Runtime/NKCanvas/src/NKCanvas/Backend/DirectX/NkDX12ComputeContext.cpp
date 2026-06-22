@@ -8,6 +8,7 @@
 #include "NkDX12ComputeContext.h"
 #include "NKContainers/NKContainers.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKMemory/NkAllocator.h"
 #include <d3dcompiler.h>
 #include <cstdio>
 #include <cstring>
@@ -121,7 +122,7 @@ NkComputeBuffer NkDX12ComputeContext::CreateBuffer(const NkComputeBufferDesc& de
     NkComputeBuffer out;
     if (!mIsValid || desc.sizeBytes == 0) return out;
 
-    auto* bs = new DX12BufSet();
+    auto* bs = nkentseu::memory::NkGetDefaultAllocator().New<DX12BufSet>();
     bs->sizeBytes = desc.sizeBytes;
     bs->cpuRead   = desc.cpuReadable;
 
@@ -145,7 +146,7 @@ NkComputeBuffer NkDX12ComputeContext::CreateBuffer(const NkComputeBufferDesc& de
 
     HRESULT hr = mDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE,
         &rd, initState, nullptr, IID_PPV_ARGS(&bs->gpu));
-    if (FAILED(hr)) { NK_DX12C_ERR("CreateBuffer failed\n"); delete bs; return out; }
+    if (FAILED(hr)) { NK_DX12C_ERR("CreateBuffer failed\n"); nkentseu::memory::NkGetDefaultAllocator().Delete(bs); return out; }
 
     if (desc.cpuReadable) {
         D3D12_HEAP_PROPERTIES rhp{D3D12_HEAP_TYPE_READBACK};
@@ -172,7 +173,7 @@ NkComputeBuffer NkDX12ComputeContext::CreateBuffer(const NkComputeBufferDesc& de
 
 void NkDX12ComputeContext::DestroyBuffer(NkComputeBuffer& buf) {
     if (!buf.valid) return;
-    delete static_cast<DX12BufSet*>(buf.handle);
+    nkentseu::memory::NkGetDefaultAllocator().Delete(static_cast<DX12BufSet*>(buf.handle));
     buf = NkComputeBuffer{};
 }
 
@@ -226,7 +227,7 @@ NkComputeShader NkDX12ComputeContext::CreateShaderFromSource(
             err ? (char*)err->GetBufferPointer() : "unknown");
         return s;
     }
-    auto* b = new DX12ShaderBlob(); b->blob = blob;
+    auto* b = nkentseu::memory::NkGetDefaultAllocator().New<DX12ShaderBlob>(); b->blob = blob;
     s.handle = b; s.valid = true;
     return s;
 }
@@ -243,7 +244,7 @@ NkComputeShader NkDX12ComputeContext::CreateShaderFromFile(
 
 void NkDX12ComputeContext::DestroyShader(NkComputeShader& s) {
     if (!s.valid) return;
-    delete static_cast<DX12ShaderBlob*>(s.handle);
+    nkentseu::memory::NkGetDefaultAllocator().Delete(static_cast<DX12ShaderBlob*>(s.handle));
     s = NkComputeShader{};
 }
 

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke="#5e3a1c" stroke-width="5" stroke-linejoin="round">
+    <!-- oreilles -->
+    <circle cx="44"  cy="92" r="22" fill="#8a5a2e"/>
+    <circle cx="156" cy="92" r="22" fill="#8a5a2e"/>
+    <!-- corps -->
+    <ellipse cx="100" cy="158" rx="40" ry="34" fill="#8a5a2e"/>
+    <!-- tete -->
+    <circle cx="100" cy="86" r="56" fill="#9a6736"/>
+  </g>
+  <!-- interieur oreilles -->
+  <circle cx="44"  cy="92" r="11" fill="#d9ad7d"/>
+  <circle cx="156" cy="92" r="11" fill="#d9ad7d"/>
+  <!-- ventre clair -->
+  <ellipse cx="100" cy="162" rx="24" ry="22" fill="#d9ad7d"/>
+  <!-- face claire (coeur) -->
+  <path d="M100 128 C70 128 58 104 58 86 C58 66 74 58 88 66 C92 56 108 56 112 66
+           C126 58 142 66 142 86 C142 104 130 128 100 128 Z"
+        fill="#e8c79a" stroke="#5e3a1c" stroke-width="4" stroke-linejoin="round"/>
+  <!-- yeux -->
+  <ellipse cx="84" cy="84" rx="9" ry="11" fill="#3a2f28"/>
+  <ellipse cx="116" cy="84" rx="9" ry="11" fill="#3a2f28"/>
+  <circle cx="86" cy="80" r="2.6" fill="#ffffff"/>
+  <circle cx="118" cy="80" r="2.6" fill="#ffffff"/>
+  <!-- narines + sourire -->
+  <ellipse cx="93" cy="104" rx="3" ry="2.4" fill="#5e3a1c"/>
+  <ellipse cx="107" cy="104" rx="3" ry="2.4" fill="#5e3a1c"/>
+  <path d="M84 114 C92 122 108 122 116 114" stroke="#5e3a1c" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>

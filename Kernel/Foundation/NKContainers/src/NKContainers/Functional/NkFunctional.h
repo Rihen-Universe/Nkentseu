@@ -19,7 +19,7 @@ namespace nkentseu {
      * @tparam T Type de la clé.
      * @note Les utilisateurs doivent spécialiser cette classe pour leurs types personnalisés.
      */
-    template<typename T>
+    template<typename T, typename Enable = void>
     struct NkHash {
         constexpr usize operator()([[maybe_unused]] const T& key) const noexcept {
             // sizeof(T) == 0 is always false for any complete type, but is
@@ -30,42 +30,24 @@ namespace nkentseu {
     };
 
     /**
-     * @brief Spécialisation de NkHash pour int32_t.
+     * @brief Spécialisation générique de NkHash pour TOUS les types entiers natifs.
+     * @note Couvre int/uint 8/16/32/64 sur tous les modèles de données sans trou de
+     *       portabilité (LLP64 Windows, LP64 Linux/Android/macOS/HarmonyOS, ILP32 Web).
+     *       Indispensable car `nkentseu::uint64` vaut `unsigned long long` partout, alors
+     *       que `uint64_t` vaut `unsigned long` en LP64 : des spécialisations par type fixe
+     *       (uint64_t) laissaient `NkHash<unsigned long long>` non défini sur Android/Linux/
+     *       Harmony. Le mélange dépend de la largeur via `sizeof`. `bool` est exclu.
      */
-    template<>
-    struct NkHash<int32_t> {
-        constexpr usize operator()(const int32_t& key) const noexcept {
-            return static_cast<usize>(key ^ (key >> 16));
-        }
-    };
-
-    /**
-     * @brief Spécialisation de NkHash pour uint32_t.
-     */
-    template<>
-    struct NkHash<uint32_t> {
-        constexpr usize operator()(const uint32_t& key) const noexcept {
-            return static_cast<usize>(key ^ (key >> 16));
-        }
-    };
-
-    /**
-     * @brief Spécialisation de NkHash pour int64_t.
-     */
-    template<>
-    struct NkHash<int64_t> {
-        constexpr usize operator()(const int64_t& key) const noexcept {
-            return static_cast<usize>(key ^ (key >> 32));
-        }
-    };
-
-    /**
-     * @brief Spécialisation de NkHash pour uint64_t.
-     */
-    template<>
-    struct NkHash<uint64_t> {
-        constexpr usize operator()(const uint64_t& key) const noexcept {
-            return static_cast<usize>(key ^ (key >> 32));
+    template<typename T>
+    struct NkHash<T, traits::NkEnableIf_t<traits::NkIsIntegral_v<T> && !traits::NkIsSame_v<T, bool>>> {
+        constexpr usize operator()(const T& key) const noexcept {
+            if constexpr (sizeof(T) <= 4) {
+                const uint32_t k = static_cast<uint32_t>(key);
+                return static_cast<usize>(k ^ (k >> 16));
+            } else {
+                const uint64_t k = static_cast<uint64_t>(key);
+                return static_cast<usize>(k ^ (k >> 32));
+            }
         }
     };
 

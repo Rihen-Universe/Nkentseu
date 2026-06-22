@@ -1,8 +1,6 @@
 // =============================================================================
-// GameplayScene.cpp
-// =============================================================================
-// Écran de jeu Songoo — plateau Mancala interactif, gestion des coups,
-// sélection des pits, synchronisation avec SongooBoard, feedback visuel.
+// GameplayScene.cpp — CORRIGÉE (bugs 1, 2, 3, 4, 9, 10)
+// Toute la logique de jeu et d'animation reste IDENTIQUE à l'original SDL3.
 // =============================================================================
 
 #include "GameplayScene.h"
@@ -18,609 +16,490 @@
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
+#include "NKMath/NkFunctions.h"
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 
-namespace nkentseu
-{
-    namespace songoo
-    {
+namespace nkentseu { namespace songoo {
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::OnEnter(AppContext& ctx)
-        {
-            mBoard.Init();
-            mCurrentPlayer = 0;
-            mGameOver = false;
-            mWinner = -1;
+    static math::NkColor TC()  { return { 180,  70,  15, 255 }; }
+    static math::NkColor OR_() { return { 210, 160,  30, 255 }; }
+    static math::NkColor CY()  { return {   0, 200, 255, 255 }; }
+    static math::NkColor PAR() { return { 255, 235, 184, 255 }; }
 
-            mTime = 0.0f;
-            mEnterAnim = 0.0f;
-            mTurnChangeAnim = 0.0f;
-            mGrainDistAnim = -1.0f;
-            mLastMovedPitIdx = -1;
+    // ── Retourne le nombre de graines à afficher ──────────────────────────────
+    // Pendant l'animation : utilise mVisualPits (snapshot)
+    // Après animation   : utilise mBoard (source de vérité)
+    int GameplayScene::VisualGrains(int pit) const {
+        if (mAnim.active) return mVisualPits[pit];
+        return mBoard.GetPitGrains(pit);
+    }
 
-            mHoveredPitIdx = -1;
-            mSelectedPitIdx = -1;
-            mShowInvalidFeedback = false;
-            mInvalidFeedbackTimer = 0.0f;
+    // ── OnEnter ───────────────────────────────────────────────────────────────
+    void GameplayScene::OnEnter(AppContext& ctx) {
+        mBoard.Init();
+        mCurrentPlayer = 0;
+        mGameOver      = false;
+        mTime = mGlowTime = mEnterAnim = 0.f;
+        mHoveredPit    = -1;
+        mShowInvalidFb = false;
+        mInvalidFbT    = 0.f;
+        mAnim          = {};
+        mAnim.InitCW();
+        std::strncpy(mStatusMsg, "Au tour du Joueur 1", sizeof(mStatusMsg));
 
-            mTouchId = -1;
-            mMouseDown = false;
-            mLastMouseX = 0.0f;
-            mLastMouseY = 0.0f;
+        // Synchroniser snapshot visuel avec le board initial
+        for (int i = 0; i < 14; i++) mVisualPits[i] = mBoard.GetPitGrains(i);
 
-            ComputeLayout(ctx);
-            logger.Info("[GameplayScene] OnEnter - board initialized");
+        // ── CORRECTION BUG 1 : chargement unique dans OnEnter ─────────────────
+        char path[128];
+        for (int i = 0; i < 16; i++) {
+            std::snprintf(path, sizeof(path),
+                "Resources/Songo/assets/trou%d.png", i);
+            mTrouTex[i].LoadFromFile(path);
+            if (!mTrouTex[i].IsValid())
+                logger.Warn("[Gameplay] trou{}.png manquant", i);
         }
 
+        mBgTex.LoadFromFile("Resources/Songo/assets/Background.png");
+        if (!mBgTex.IsValid())
+            logger.Warn("[Gameplay] Background.png manquant");
+
+        mHandTex.LoadFromFile("Resources/Songo/assets/hand.png");
+        if (!mHandTex.IsValid())
+            logger.Warn("[Gameplay] hand.png manquant");
         // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::OnUpdate(AppContext& ctx, float dt)
-        {
-            mTime += dt;
-            mEnterAnim = mEnterAnim + dt * 2.0f;
-            if (mEnterAnim > 1.0f) mEnterAnim = 1.0f;
 
-            if (mTurnChangeAnim > 0.0f) mTurnChangeAnim -= dt;
+        ComputeLayout(ctx);
+        if (ctx.audio) ctx.audio->PlayDrum(0.8f);
+    }
 
-            // Animation distribution : 0.15s par graine distribué
-            if (mGrainDistAnim >= 0.0f)
-            {
-                mGrainDistAnim += dt;
-                float duration = mDistributionGrains * 0.15f;
-                if (mGrainDistAnim > duration)
-                    mGrainDistAnim = -1.0f;  // Animation terminée
-            }
+    void GameplayScene::OnExit(AppContext& /*ctx*/) {
+        // CORRECTION BUG 1 : libération propre
+        for (int i = 0; i < 16; i++) mTrouTex[i].Shutdown();
+        mBgTex.Shutdown();
+        mHandTex.Shutdown();
+    }
 
-            mInvalidFeedbackTimer += dt;
+    void GameplayScene::OnPause(AppContext& ctx) {
+        if (ctx.audio) ctx.audio->PauseBgMusic();
+    }
+    void GameplayScene::OnResume(AppContext& ctx) {
+        if (ctx.audio) ctx.audio->ResumeBgMusic();
+    }
 
-            mCurrentPlayer = mBoard.GetCurrentPlayer();
+    // ── ComputeLayout ─────────────────────────────────────────────────────────
+    // Reproduit EXACTEMENT TrouPosition() de l'original, avec scale responsive.
+    // Référence 1600×900 : DX=130, DY=262.5, w=168, h=188, gap=98, steep=w+30
+    void GameplayScene::ComputeLayout(AppContext& ctx) {
+        mScale = GetUIScale(ctx.viewportW, ctx.viewportH);
+        const float DX    = 130.f  * mScale;
+        const float DY    = 262.5f * mScale;
+        const float w     = 168.f  * mScale;
+        const float h     = 188.f  * mScale;
+        const float gap   = 98.f   * mScale;
+        const float steep = w + 30.f * mScale;
 
-            if (!mGameOver)
-            {
-                int winner = mBoard.CheckGameOver();
-                if (winner >= 0)
-                {
-                    mGameOver = true;
-                    mWinner = (winner == 0) ? -1 : (winner == 1) ? 1 : 0;
-                    logger.Info("[GameplayScene] Game Over - winner: %d", mWinner);
-
-                    // Afficher GameOverScene après 2 secondes de delay
-                    if (mTurnChangeAnim < 0.0f)
-                    {
-                        mTurnChangeAnim = 0.0f;
-                    }
-                    mTurnChangeAnim += dt;
-                    if (mTurnChangeAnim >= 2.0f)
-                    {
-                        int finalScoreP1 = mBoard.GetMancalaGrains(0);
-                        int finalScoreP2 = mBoard.GetMancalaGrains(1);
-                        ctx.scenes->Push(new GameOverScene(mWinner, finalScoreP1, finalScoreP2));
-                    }
-                }
-            }
-
-            ComputeLayout(ctx);
+        for (int id = 1; id <= 7; id++) {
+            int i = id - 1;
+            float x = (id == 1) ? (DX + (id-1)*w - 10.f*mScale)
+                                 : (DX + (id-1)*steep);
+            mPitGeo[i] = { x + w*0.5f, DY + h*0.5f, w*0.45f };
+        }
+        for (int id = 8; id <= 14; id++) {
+            int i = id - 1;
+            float x = (id == 8) ? (DX + (id-8)*w - 10.f*mScale)
+                                 : (DX + (id-8)*steep);
+            mPitGeo[i] = { x + w*0.5f, DY + h + gap + h*0.5f, w*0.45f };
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::OnRender(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const int W = ctx.viewportW;
-            const int H = ctx.viewportH;
-            const SafeArea& sa = ctx.safe;
+        float bW = 120.f*mScale, bH = 40.f*mScale;
+        mRetourBtnX = ctx.safe.LeftX(10.f*mScale);
+        mRetourBtnY = ctx.safe.TopY(10.f*mScale);
+        mRetourBtnW = bW; mRetourBtnH = bH;
+    }
 
-            // Fond sombre (brun foncé Afro-warm)
-            r.Clear(0.08f, 0.06f, 0.04f, 1.0f);
-            r.Begin(W, H);
+    int GameplayScene::HitTestPit(float px, float py) const {
+        for (int i = 0; i < 14; i++) {
+            float dx = px - mPitGeo[i].cx;
+            float dy = py - mPitGeo[i].cy;
+            if (std::sqrtf(dx*dx + dy*dy) <= mPitGeo[i].radius * 1.15f)
+                return i;
+        }
+        return -1;
+    }
 
-            // Grille subtile
-            const math::NkColor gridC = theme::GridLine();
-            math::NkColor faintGrid = gridC;
-            faintGrid.a = 30;
-            for (int x = 0; x <= W; x += 60)
-                r.DrawQuad((float)x, 0.0f, 1.0f, (float)H, faintGrid);
-            for (int y = 0; y <= H; y += 60)
-                r.DrawQuad(0.0f, (float)y, (float)W, 1.0f, faintGrid);
-
-            DrawHeader(ctx);
-            DrawTurnIndicator(ctx);
-            DrawBoard(ctx);
-            DrawPitFeedback(ctx);
-
-            // Animation de distribution
-            if (mGrainDistAnim >= 0.0f)
-            {
-                DrawDistributionAnimation(ctx);
-            }
-
-            if (mShowInvalidFeedback && mInvalidFeedbackTimer < 0.6f)
-            {
-                DrawInvalidFeedback(ctx);
-            }
-
-            r.End();
+    // ── OnEvent ───────────────────────────────────────────────────────────────
+    // CORRECTION BUG 3 : Nkentseu fournit les coords déjà en espace logique
+    // (pas besoin de SDL_RenderCoordinatesFromWindow).
+    void GameplayScene::OnEvent(AppContext& ctx, NkEvent& ev) {
+        if (auto* k = ev.As<NkKeyPressEvent>()) {
+            if (k->GetKey() == NkKey::NK_ESCAPE) { ctx.scenes->Pop(); return; }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::OnEvent(AppContext& ctx, NkEvent& ev)
-        {
-            // Clavier : Echap = retour au menu
-            if (auto* k = ev.As<NkKeyPressEvent>())
-            {
-                if (k->GetKey() == NkKey::NK_ESCAPE)
-                {
-                    ctx.scenes->Pop();
-                    return;
-                }
-                // Sélection pit par touche 1-6
-                if (k->GetKey() >= NkKey::NK_NUM1 && k->GetKey() <= NkKey::NK_NUM6)
-                {
-                    int pitOffset = (int)k->GetKey() - (int)NkKey::NK_NUM1;
-                    if (mCurrentPlayer == 0)
-                        TryExecuteMove(ctx, pitOffset);
-                    else
-                        TryExecuteMove(ctx, 12 - pitOffset);
-                    return;
-                }
+        auto handleTouch = [&](float px, float py) {
+            // Bouton retour
+            if (px >= mRetourBtnX && px <= mRetourBtnX+mRetourBtnW &&
+                py >= mRetourBtnY && py <= mRetourBtnY+mRetourBtnH) {
+                ctx.scenes->Pop(); return;
+            }
+            int pit = HitTestPit(px, py);
+            if (pit >= 0) TryMove(ctx, pit);
+        };
+
+        if (auto* m = ev.As<NkMouseButtonPressEvent>()) {
+            handleTouch(m->GetX(), m->GetY());
+        }
+        if (auto* m = ev.As<NkMouseMoveEvent>()) {
+            mHoveredPit = HitTestPit(m->GetX(), m->GetY());
+        }
+        if (auto* t = ev.As<NkTouchEndEvent>()) {
+            if (t->GetNumTouches() > 0) {
+                const NkTouchPoint& tp = t->GetTouch(0);
+                handleTouch(tp.clientX, tp.clientY);
+            }
+        }
+    }
+
+    // ── TryMove ───────────────────────────────────────────────────────────────
+    // CORRECTION BUG 10 : on ne touche pas mBoard ici.
+    // On snapshotte mVisualPits et on lance l'animation.
+    // mBoard.ExecuteMove() est appelé dans FinishAnimation().
+    void GameplayScene::TryMove(AppContext& ctx, int pitIdx) {
+        if (mGameOver || mAnim.active) return;
+
+        // IA bloquée au clic si c'est son tour (mode IA)
+        if (ctx.settings &&
+            ctx.settings->mode == GameMode::VsAI &&
+            mCurrentPlayer == 1) return;
+
+        if (!mBoard.CanPlay(mCurrentPlayer, pitIdx)) {
+            bool wrongCamp = (mCurrentPlayer==0 && pitIdx>=7) ||
+                             (mCurrentPlayer==1 && pitIdx<7);
+            std::strncpy(mStatusMsg,
+                wrongCamp ? "Ce n'est pas votre camp !"
+                          : "Ce trou est vide !",
+                sizeof(mStatusMsg));
+            mShowInvalidFb = true;
+            mInvalidFbT    = 0.f;
+            return;
+        }
+
+        // Snapshot visuel AVANT de toucher le board
+        for (int i = 0; i < 14; i++) mVisualPits[i] = mBoard.GetPitGrains(i);
+
+        // Lance l'animation — identique à l'original
+        mAnim.active      = true;
+        mAnim.srcIdx      = pitIdx;
+        mAnim.curIdx      = pitIdx;
+        mAnim.grainesLeft = mBoard.GetPitGrains(pitIdx);
+        mAnim.handX       = mPitGeo[pitIdx].cx;
+        mAnim.handY       = mPitGeo[pitIdx].cy;
+        mAnim.dropping    = true;
+        mAnim.pauseTimer  = 0.3f;
+
+        // Vider visuellement le trou source (pas mBoard)
+        mVisualPits[pitIdx] = 0;
+
+        int nxt = mAnim.NextPit(pitIdx);
+        if (nxt == pitIdx) nxt = mAnim.NextPit(nxt);
+        mAnim.targetX = mPitGeo[nxt].cx;
+        mAnim.targetY = mPitGeo[nxt].cy;
+
+        if (ctx.audio) ctx.audio->PlayPickup();
+        std::strncpy(mStatusMsg, "Semis en cours...", sizeof(mStatusMsg));
+    }
+
+    // ── UpdateAnimation ───────────────────────────────────────────────────────
+    // CORRECTION BUG 10 : l'anim met à jour mVisualPits (snapshot), pas mBoard.
+    void GameplayScene::UpdateAnimation(float dt, AppContext& ctx) {
+        if (!mAnim.active) return;
+
+        if (mAnim.dropping) {
+            mAnim.pauseTimer -= dt;
+            if (mAnim.pauseTimer > 0.f) return;
+            mAnim.dropping = false;
+
+            if (mAnim.grainesLeft == 0) {
+                FinishAnimation(ctx);
                 return;
             }
 
-            // Souris : clique sur pit
-            if (auto* m = ev.As<NkMouseButtonPressEvent>())
-            {
-                const float px = m->GetX();
-                const float py = m->GetY();
+            mAnim.curIdx = mAnim.NextPit(mAnim.curIdx);
+            if (mAnim.curIdx == mAnim.srcIdx)
+                mAnim.curIdx = mAnim.NextPit(mAnim.curIdx);
 
-                // Clique sur RETOUR
-                if (px >= mRetourBtnX && px <= mRetourBtnX + mRetourBtnW &&
-                    py >= mRetourBtnY && py <= mRetourBtnY + mRetourBtnH)
-                {
-                    ctx.scenes->Pop();
-                    return;
-                }
+            mAnim.targetX = mPitGeo[mAnim.curIdx].cx;
+            mAnim.targetY = mPitGeo[mAnim.curIdx].cy;
+            return;
+        }
 
-                // Hit-test sur pit
-                int pitIdx = HitTestPit(px, py);
-                if (pitIdx >= 0)
-                {
-                    TryExecuteMove(ctx, pitIdx);
-                    mMouseDown = true;
-                    mLastMouseX = px;
-                    mLastMouseY = py;
-                }
-                return;
-            }
+        float dx   = mAnim.targetX - mAnim.handX;
+        float dy   = mAnim.targetY - mAnim.handY;
+        float dist = std::sqrtf(dx*dx + dy*dy);
+        float step = mAnim.speed * dt;
 
-            // Souris : survol pour focus
-            if (auto* m = ev.As<NkMouseMoveEvent>())
-            {
-                const int pitIdx = HitTestPit(m->GetX(), m->GetY());
-                mHoveredPitIdx = pitIdx;
-                return;
-            }
+        if (dist <= step || dist < 1.f) {
+            mAnim.handX = mAnim.targetX;
+            mAnim.handY = mAnim.targetY;
 
-            // Touch : tap sur pit
-            if (auto* t = ev.As<NkTouchEndEvent>())
-            {
-                if (t->GetNumTouches() > 0)
-                {
-                    const NkTouchPoint& tp = t->GetTouch(0);
+            // Dépôt visuel (snapshot uniquement)
+            mVisualPits[mAnim.curIdx]++;
+            mAnim.grainesLeft--;
+            mAnim.dropping   = true;
+            mAnim.pauseTimer = 0.12f;
 
-                    // Clique sur RETOUR
-                    if (tp.clientX >= mRetourBtnX && tp.clientX <= mRetourBtnX + mRetourBtnW &&
-                        tp.clientY >= mRetourBtnY && tp.clientY <= mRetourBtnY + mRetourBtnH)
-                    {
-                        ctx.scenes->Pop();
-                        return;
-                    }
+            if (ctx.audio) ctx.audio->PlayDeposit();
+        } else {
+            mAnim.handX += (dx / dist) * step;
+            mAnim.handY += (dy / dist) * step;
+        }
+    }
 
-                    int pitIdx = HitTestPit(tp.clientX, tp.clientY);
-                    if (pitIdx >= 0)
-                    {
-                        TryExecuteMove(ctx, pitIdx);
-                    }
-                }
-                mTouchId = -1;
-                return;
-            }
+    // ── FinishAnimation ───────────────────────────────────────────────────────
+    // CORRECTION BUG 10 : exécution réelle du coup sur le board ICI SEULEMENT.
+    void GameplayScene::FinishAnimation(AppContext& ctx) {
+        mAnim.active = false;
 
-            // Touch : move pour hover
-            if (auto* t = ev.As<NkTouchMoveEvent>())
-            {
-                if (t->GetNumTouches() > 0)
-                {
-                    const NkTouchPoint& tp = t->GetTouch(0);
-                    const int pitIdx = HitTestPit(tp.clientX, tp.clientY);
-                    mHoveredPitIdx = pitIdx;
-                }
+        // Exécution réelle : board → calcul des captures, changement de joueur
+        auto res = mBoard.ExecuteMove(mCurrentPlayer, mAnim.srcIdx);
+
+        // Resynchroniser le snapshot visuel avec le board (après captures)
+        for (int i = 0; i < 14; i++) mVisualPits[i] = mBoard.GetPitGrains(i);
+
+        if (res.gameOver) {
+            mGameOver = true;
+            int s0 = mBoard.GetScore(0), s1 = mBoard.GetScore(1);
+            ctx.scenes->Push(new GameOverScene(res.winner, s0, s1));
+            return;
+        }
+
+        SwitchPlayer(ctx);
+    }
+
+    void GameplayScene::SwitchPlayer(AppContext& ctx) {
+        mCurrentPlayer = mBoard.GetCurrentPlayer();
+        std::snprintf(mStatusMsg, sizeof(mStatusMsg),
+            "Au tour du Joueur %d", mCurrentPlayer + 1);
+        if (ctx.audio) ctx.audio->PlayDrum();
+
+        // IA
+        if (ctx.settings &&
+            ctx.settings->mode == GameMode::VsAI &&
+            mCurrentPlayer == 1) {
+            TriggerIAMove(ctx);
+        }
+    }
+
+    void GameplayScene::TriggerIAMove(AppContext& ctx) {
+        // IA simpliste : premier trou non vide du camp 1
+        for (int i = 7; i <= 13; i++) {
+            if (mBoard.GetPitGrains(i) > 0) {
+                std::snprintf(mStatusMsg, sizeof(mStatusMsg), "L'IA reflechit...");
+                TryMove(ctx, i);
                 return;
             }
         }
+    }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::ComputeLayout(AppContext& ctx)
-        {
-            const int W = ctx.viewportW;
-            const int H = ctx.viewportH;
-            const SafeArea& sa = ctx.safe;
+    // ── OnUpdate ──────────────────────────────────────────────────────────────
+    // CORRECTION BUG 4 : glowTime incrémenté UNE SEULE FOIS ici
+    void GameplayScene::OnUpdate(AppContext& ctx, float dt) {
+        mTime      += dt;
+        mGlowTime  += dt;   // une seule incrémentation
+        mEnterAnim  = math::NkMin(mEnterAnim + dt * 2.f, 1.f);
 
-            mScale = GetUIScale(W, H);
-
-            // Calcul du board : responsive avec aspect ratio 8:2 (horizontal)
-            const float safeW = sa.SafeW();
-            const float safeH = sa.SafeH();
-            const float safeCx = sa.SafeCX();
-            const float safeCy = sa.SafeCY();
-
-            // Réserve 80px pour header en haut + 40px padding bas
-            const float availH = safeH - 80.0f * mScale - 40.0f * mScale;
-            const float availW = safeW - 40.0f * mScale;
-
-            // Aspect ratio 4:1 (8 unités de large, 2 de haut)
-            mBoardW = availW;
-            mBoardH = mBoardW * 0.25f;
-            if (mBoardH > availH)
-            {
-                mBoardH = availH;
-                mBoardW = mBoardH * 4.0f;
-            }
-
-            mBoardX = safeCx - mBoardW * 0.5f;
-            mBoardY = safeCy + 40.0f * mScale - mBoardH * 0.5f;
-
-            ComputePitGeometries();
-
-            // Bouton RETOUR
-            const float retourW = 120.0f * mScale;
-            const float retourH = 50.0f * mScale;
-            mRetourBtnX = safeCx - retourW * 0.5f;
-            mRetourBtnY = 12.0f * mScale;
-            mRetourBtnW = retourW;
-            mRetourBtnH = retourH;
+        if (mShowInvalidFb) {
+            mInvalidFbT += dt;
+            if (mInvalidFbT > 0.6f) mShowInvalidFb = false;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::ComputePitGeometries()
-        {
-            const float pitR = mBoardW / 20.0f;
-            const float mancalaR = pitR * 1.5f;
-            const float spacingH = mBoardW / 8.0f;
-            const float topY = mBoardY + mBoardH * 0.25f;
-            const float botY = mBoardY + mBoardH * 0.75f;
+        UpdateAnimation(dt, ctx);
+        ComputeLayout(ctx);
+    }
 
-            mMancalaR = mancalaR;
+    // ── OnRender ──────────────────────────────────────────────────────────────
+    void GameplayScene::OnRender(AppContext& ctx) {
+        GLRenderer2D& r = *ctx.renderer;
+        const int W = ctx.viewportW, H = ctx.viewportH;
 
-            // Mancala left (Player 1)
-            mMancalaLX = mBoardX + mancalaR + 4.0f;
-            mMancalaLY = botY;
-            mPitGeo[12].cx = mMancalaLX;
-            mPitGeo[12].cy = mMancalaLY;
-            mPitGeo[12].radius = mancalaR;
-            mPitGeo[12].pitIndex = 12;
+        r.Clear(0.04f, 0.02f, 0.01f, 1.f);
+        r.Begin(W, H);
 
-            // Pits bottom (Player 1) : 0-5
-            for (int i = 0; i < 6; ++i)
-            {
-                const float px = mBoardX + mancalaR * 2.0f + 8.0f + (i + 0.5f) * spacingH;
-                mPitGeo[i].cx = px;
-                mPitGeo[i].cy = botY;
-                mPitGeo[i].radius = pitR;
-                mPitGeo[i].pitIndex = i;
-            }
+        DrawBackground(ctx);
+        DrawPlayerGlow(ctx);
+        DrawBoard(ctx);
+        DrawHand(ctx);
+        DrawUI(ctx);
 
-            // Pits top (Player 2) : 6-11 (but rendered right-to-left)
-            for (int i = 0; i < 6; ++i)
-            {
-                const float px = mBoardX + mancalaR * 2.0f + 8.0f + (i + 0.5f) * spacingH;
-                mPitGeo[11 - i].cx = px;
-                mPitGeo[11 - i].cy = topY;
-                mPitGeo[11 - i].radius = pitR;
-                mPitGeo[11 - i].pitIndex = 11 - i;
-            }
-
-            // Mancala right (Player 2)
-            mMancalaRX = mBoardX + mBoardW - mancalaR - 4.0f;
-            mMancalaRY = topY;
-            mPitGeo[13].cx = mMancalaRX;
-            mPitGeo[13].cy = mMancalaRY;
-            mPitGeo[13].radius = mancalaR;
-            mPitGeo[13].pitIndex = 13;
+        // Feedback visuel erreur (teinte rouge brève)
+        if (mShowInvalidFb) {
+            float a = 1.f - mInvalidFbT / 0.6f;
+            float DX = 130.f*mScale, DY = 262.5f*mScale;
+            float w  = 168.f*mScale, h  = 188.f*mScale, gap = 98.f*mScale;
+            r.DrawQuad(DX-10.f, DY-10.f,
+                       7.f*(w+30.f*mScale)+20.f, 2.f*h+gap+20.f,
+                       { 255, 0, 0, (uint8_t)(70 * a) });
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        int GameplayScene::HitTestPit(float px, float py) const
-        {
-            for (int i = 0; i < 14; ++i)
-            {
-                const float dx = px - mPitGeo[i].cx;
-                const float dy = py - mPitGeo[i].cy;
-                const float dist = math::NkSqrt(dx * dx + dy * dy);
-                if (dist <= mPitGeo[i].radius)
-                {
-                    return i;
-                }
-            }
-            return -1;
+        r.End();
+    }
+
+    // ── CORRECTION BUG 1 : fond pré-chargé, pas de reload chaque frame ────────
+    void GameplayScene::DrawBackground(AppContext& ctx) {
+        GLRenderer2D& r = *ctx.renderer;
+        float DX = 130.f*mScale, DY = 262.5f*mScale;
+        float w  = 168.f*mScale, h  = 188.f*mScale, gap = 98.f*mScale;
+        float bW = 7.f*(w+30.f*mScale), bH = 2.f*h + gap;
+
+        if (mBgTex.IsValid()) {
+            r.BindTexture(mBgTex.Id());
+            r.DrawTexturedQuadRGBA(DX-20.f, DY-20.f, bW+40.f, bH+40.f,
+                                   0.f, 0.f, 1.f, 1.f, { 255, 255, 255, 255 });
+        } else {
+            r.DrawQuad(DX-20.f, DY-20.f, bW+40.f, bH+40.f, { 60, 35, 10, 200 });
         }
+    }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::TryExecuteMove(AppContext& ctx, int pitIdx)
-        {
-            if (mGameOver || pitIdx < 0 || pitIdx >= 12) return;
+    void GameplayScene::DrawPlayerGlow(AppContext& ctx) {
+        GLRenderer2D& r = *ctx.renderer;
+        // CORRECTION BUG 4 : utilise mGlowTime incrémenté une seule fois
+        float pulse = 0.55f + 0.45f * math::NkSin(mGlowTime * 3.5f);
+        float DX    = 130.f*mScale - 10.f;
+        float w     = 168.f*mScale, h = 188.f*mScale, gap = 98.f*mScale;
+        float rowW  = 7.f*(w+30.f*mScale) + 20.f;
 
-            // Validation : le pit doit appartenir au joueur courant
-            bool isValidPit = false;
-            if (mCurrentPlayer == 0 && pitIdx < 6)
-                isValidPit = true;
-            else if (mCurrentPlayer == 1 && pitIdx >= 6 && pitIdx < 12)
-                isValidPit = true;
-
-            if (!isValidPit)
-            {
-                mShowInvalidFeedback = true;
-                mInvalidFeedbackTimer = 0.0f;
-                logger.Warnf("[GameplayScene] Invalid pit %d for player %d", pitIdx, mCurrentPlayer);
-                return;
-            }
-
-            // Vérifier que le pit n'est pas vide
-            int grains = mBoard.GetPitGrains(pitIdx);
-            if (grains == 0)
-            {
-                mShowInvalidFeedback = true;
-                mInvalidFeedbackTimer = 0.0f;
-                logger.Warnf("[GameplayScene] Pit %d is empty", pitIdx);
-                return;
-            }
-
-            // Calculer la trace de distribution AVANT d'exécuter le move
-            mDistributionGrains = grains;
-            mDistributionTraceLen = 0;
-            static constexpr int kClockwise[14] = {
-                0, 1, 2, 3, 4, 5, 6, 13, 12, 11, 10, 9, 8, 7
-            };
-            int cwPos[14];
-            for (int i = 0; i < 14; ++i)
-                cwPos[kClockwise[i]] = i;
-
-            int currentPit = pitIdx;
-            for (int i = 0; i < grains; ++i)
-            {
-                int pos = cwPos[currentPit];
-                currentPit = kClockwise[(pos + 1) % 14];
-                if (currentPit == pitIdx)
-                    currentPit = kClockwise[(cwPos[currentPit] + 1) % 14];
-
-                if (mDistributionTraceLen < 14)
-                    mDistributionPitsTrace[mDistributionTraceLen++] = currentPit;
-            }
-
-            // Exécuter le coup
-            mBoard.ExecuteMove(mCurrentPlayer, pitIdx);
-            mCurrentPlayer = mBoard.GetCurrentPlayer();
-            mLastMovedPitIdx = pitIdx;
-            mGrainDistAnim = 0.0f;
-            mTurnChangeAnim = 0.3f;
-
-            logger.Infof("[GameplayScene] Move executed: pit %d, next player: %d", pitIdx, mCurrentPlayer);
+        if (mCurrentPlayer == 0) {
+            uint8_t a  = (uint8_t)(60.f * pulse);
+            uint8_t ab = (uint8_t)(120.f * pulse);
+            r.DrawQuad(DX-10.f, 215.f*mScale, rowW+20.f, 270.f*mScale,
+                       { 255, 185, 30, a });
+            r.DrawQuadOutline(DX-10.f, 215.f*mScale, rowW+20.f, 270.f*mScale,
+                              { 255, 200, 50, ab }, 2.f);
+        } else {
+            float yBot = 215.f*mScale + h + gap;
+            uint8_t a  = (uint8_t)(60.f * pulse);
+            uint8_t ab = (uint8_t)(120.f * pulse);
+            r.DrawQuad(DX-10.f, yBot-10.f, rowW+20.f, 270.f*mScale,
+                       { 60, 160, 255, a });
+            r.DrawQuadOutline(DX-10.f, yBot-10.f, rowW+20.f, 270.f*mScale,
+                              { 100, 180, 255, ab }, 2.f);
         }
+    }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawHeader(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const SafeArea& sa = ctx.safe;
+    void GameplayScene::DrawBoard(AppContext& ctx) {
+        for (int i = 0; i < 14; i++) DrawPit(ctx, i);
+    }
 
-            const float safeCx = sa.SafeCX();
-            const float headerY = 12.0f * mScale;
-            const float headerH = 56.0f * mScale;
+    void GameplayScene::DrawPit(AppContext& ctx, int i) {
+        GLRenderer2D& r = *ctx.renderer;
+        FontAtlas&    f = *ctx.font;
+        const PitGeo& g = mPitGeo[i];
 
-            // Fond semi-transparent foncé
-            r.DrawQuad(sa.LeftX(), sa.TopY(), sa.SafeW(), headerH,
-                      { 20, 16, 10, 200 });
+        // Nombre de graines à afficher (visuel découplé du board logique)
+        int grains = VisualGrains(i);
+        int texIdx = (grains > 15) ? 15 : grains;
 
-            // Bouton RETOUR arrondi (orange)
-            const float radius = 8.0f * mScale;
-            const float x0 = mRetourBtnX, y0 = mRetourBtnY;
-            const float x1 = x0 + mRetourBtnW, y1 = y0 + mRetourBtnH;
-            math::NkColor bgC = { 255, 107, 0, (uint8_t)(30 * mEnterAnim) };
-            math::NkColor borderC = { 255, 107, 0, (uint8_t)(150 * mEnterAnim) };
-
-            r.DrawQuad(x0 + radius, y0, mRetourBtnW - radius * 2.0f, mRetourBtnH, bgC);
-            r.DrawQuad(x0, y0 + radius, radius, mRetourBtnH - radius * 2.0f, bgC);
-            r.DrawQuad(x1 - radius, y0 + radius, radius, mRetourBtnH - radius * 2.0f, bgC);
-
-            r.DrawCircle(x0 + radius, y0 + radius, radius, bgC, 12);
-            r.DrawCircle(x1 - radius, y0 + radius, radius, bgC, 12);
-            r.DrawCircle(x0 + radius, y1 - radius, radius, bgC, 12);
-            r.DrawCircle(x1 - radius, y1 - radius, radius, bgC, 12);
-
-            r.DrawQuadOutline(x0 + radius, y0, mRetourBtnW - radius * 2.0f, mRetourBtnH,
-                             borderC, 2.0f);
-            r.DrawQuadOutline(x0, y0 + radius, mRetourBtnW, mRetourBtnH - radius * 2.0f,
-                             borderC, 2.0f);
-
-            f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, mScale,
-                                     safeCx, y0 + mRetourBtnH * 0.25f,
-                                     "RETOUR",
-                                     { 255, 255, 255, (uint8_t)(255 * mEnterAnim) });
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawTurnIndicator(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const SafeArea& sa = ctx.safe;
-            const float safeCx = sa.SafeCX();
-
-            const float turnY = (mRetourBtnY + mRetourBtnH) + 20.0f * mScale;
-
-            // Titre du joueur (couleur selon le joueur)
-            math::NkColor playerColor = (mCurrentPlayer == 0) ? theme::Orange() : theme::Cyan();
-            char playerStr[32];
-            snprintf(playerStr, sizeof(playerStr), "JOUEUR %d", mCurrentPlayer + 1);
-
-            f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, mScale,
-                                     safeCx, turnY,
-                                     playerStr, playerColor);
-
-            // Statut "A TOI DE JOUER" en doré
+        if (mTrouTex[texIdx].IsValid()) {
+            float hw = g.radius, hh = g.radius;
+            r.BindTexture(mTrouTex[texIdx].Id());
+            r.DrawTexturedQuadRGBA(g.cx-hw, g.cy-hh, hw*2.f, hh*2.f,
+                                   0.f, 0.f, 1.f, 1.f, { 255, 255, 255, 255 });
+        } else {
+            bool isP1 = (i < 7);
+            math::NkColor col = isP1 ? TC() : CY();
+            r.DrawCircle(g.cx, g.cy, g.radius, AlphaF(col, 0.35f), 24);
+            r.DrawCircleOutline(g.cx, g.cy, g.radius+1.5f,
+                AlphaF(col, mHoveredPit==i ? 0.9f : 0.6f), 2.f, 24);
+            char buf[8]; std::snprintf(buf, sizeof(buf), "%d", grains);
             f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, mScale,
-                                     safeCx, turnY + 35.0f * mScale,
-                                     "A TOI DE JOUER",
-                                     { 200, 150, 50, (uint8_t)(200 * mEnterAnim) });
+                g.cx, g.cy-8.f*mScale, buf, PAR());
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawBoard(AppContext& ctx)
-        {
-            for (int i = 0; i < 14; ++i)
-            {
-                if (i == 12 || i == 13)
-                    DrawMancala(ctx, (i == 12) ? 0 : 1);
-                else
-                    DrawPit(ctx, i);
-            }
+        if (mHoveredPit == i) {
+            float p = 0.5f + 0.5f * math::NkSin(mTime * 3.5f);
+            r.DrawCircleOutline(g.cx, g.cy, g.radius+4.f,
+                { 200, 150, 50, (uint8_t)(150*p) }, 3.f, 24);
+        }
+    }
+
+    // ── CORRECTION BUG 2 + BUG 9 ─────────────────────────────────────────────
+    // La police TTF n'est plus rechargée chaque frame.
+    // On utilise FontAtlas natif Nkentseu (cross-platform, pré-chargé).
+    void GameplayScene::DrawHand(AppContext& ctx) {
+        if (!mAnim.active) return;
+        GLRenderer2D& r = *ctx.renderer;
+        FontAtlas&    f = *ctx.font;
+
+        float hw = 84.f*mScale, hh = 94.f*mScale;
+        if (mHandTex.IsValid()) {
+            r.BindTexture(mHandTex.Id());
+            r.DrawTexturedQuadRGBA(mAnim.handX-hw, mAnim.handY-hh,
+                                   hw*2.f, hh*2.f,
+                                   0.f, 0.f, 1.f, 1.f, { 255, 255, 255, 255 });
+        } else {
+            r.DrawCircle(mAnim.handX, mAnim.handY,
+                         20.f*mScale, { 230, 120, 20, 220 }, 16);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawPit(AppContext& ctx, int pitIdx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const PitGeometry& geo = mPitGeo[pitIdx];
-
-            int grains = mBoard.GetPitGrains(pitIdx);
-
-            // Couleur selon le joueur
-            bool isPlayer1 = (pitIdx < 6);
-            math::NkColor pitColor = isPlayer1 ? theme::Orange() : theme::Cyan();
-
-            // Fond pit
-            r.DrawCircle(geo.cx, geo.cy, geo.radius,
-                        AlphaF(pitColor, 0.30f), 24);
-
-            // Bordure
-            math::NkColor borderColor = AlphaF(pitColor, 0.60f);
-            if (mHoveredPitIdx == pitIdx)
-                borderColor = { 200, 150, 50, 200 };  // Gold highlight
-
-            r.DrawCircleOutline(geo.cx, geo.cy, geo.radius + 1.0f,
-                               borderColor, 2.0f, 24);
-
-            // Nombre de grains (texte)
-            char grainStr[8];
-            snprintf(grainStr, sizeof(grainStr), "%d", grains);
-            f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, mScale,
-                                     geo.cx, geo.cy,
-                                     grainStr, { 255, 255, 255, 255 });
+        // CORRECTION BUG 2 : plus de TTF_OpenFont ici — FontAtlas natif
+        if (mAnim.grainesLeft > 0) {
+            char buf[8]; std::snprintf(buf, sizeof(buf), "%d", mAnim.grainesLeft);
+            f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, mScale,
+                mAnim.handX, mAnim.handY - 52.f*mScale, buf,
+                { 255, 255, 200, 255 });
         }
+    }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawMancala(AppContext& ctx, int side)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const PitGeometry& geo = mPitGeo[(side == 0) ? 12 : 13];
+    void GameplayScene::DrawUI(AppContext& ctx) {
+        GLRenderer2D& r = *ctx.renderer;
+        FontAtlas&    f = *ctx.font;
+        const SafeArea& sa = ctx.safe;
+        const float cx = sa.SafeCX();
+        bool p1Active = (mCurrentPlayer == 0);
 
-            int grains = mBoard.GetMancalaGrains(side);
+        // ── En-tête ──────────────────────────────────────────────────────────
+        float headerH = 52.f*mScale;
+        r.DrawQuad(sa.LeftX(), sa.TopY(), sa.SafeW(), headerH,
+                   { 20, 12, 4, 210 });
 
-            // Couleur selon le joueur
-            math::NkColor mancalaColor = (side == 0) ? theme::Orange() : theme::Cyan();
+        // Bouton Retour
+        r.DrawQuad(mRetourBtnX, mRetourBtnY, mRetourBtnW, mRetourBtnH,
+                   { 80, 35, 5, (uint8_t)(200*mEnterAnim) });
+        r.DrawQuadOutline(mRetourBtnX, mRetourBtnY, mRetourBtnW, mRetourBtnH,
+                          OR_(), 1.5f);
+        f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, 0.85f*mScale,
+            mRetourBtnX+mRetourBtnW*0.5f, mRetourBtnY+mRetourBtnH*0.18f,
+            "RETOUR", { 255, 235, 180, (uint8_t)(200*mEnterAnim) });
 
-            // Fond mancala
-            r.DrawCircle(geo.cx, geo.cy, geo.radius,
-                        AlphaF(mancalaColor, 0.40f), 28);
+        // ── Scores ────────────────────────────────────────────────────────────
+        char s1[32], s2[32];
+        std::snprintf(s1, sizeof(s1), "J1 : %d", mBoard.GetScore(0));
+        std::snprintf(s2, sizeof(s2), "J2 : %d", mBoard.GetScore(1));
 
-            // Bordure
-            r.DrawCircleOutline(geo.cx, geo.cy, geo.radius + 1.5f,
-                               AlphaF(mancalaColor, 0.80f), 2.0f, 28);
+        f.DrawStringShadowCenteredScaled(r, FontAtlas::SubtitleSlot, 1.1f*mScale,
+            cx-220.f*mScale, sa.TopY(10.f*mScale), s1,
+            p1Active ? math::NkColor{250,204,38,255} : math::NkColor{160,120,60,180},
+            { 40, 15, 2, 120 }, 2);
+        f.DrawStringShadowCenteredScaled(r, FontAtlas::SubtitleSlot, 1.1f*mScale,
+            cx+220.f*mScale, sa.TopY(10.f*mScale), s2,
+            !p1Active ? math::NkColor{140,214,255,255} : math::NkColor{80,120,160,180},
+            { 5, 20, 40, 120 }, 2);
 
-            // Score doré
-            char scoreStr[8];
-            snprintf(scoreStr, sizeof(scoreStr), "%d", grains);
-            f.DrawStringCenteredScaled(r, FontAtlas::DisplaySlot, mScale,
-                                     geo.cx, geo.cy,
-                                     scoreStr, { 200, 150, 50, 255 });
-        }
+        // ── Statut bas ────────────────────────────────────────────────────────
+        float statY = sa.BottomY(48.f*mScale);
+        r.DrawQuad(sa.LeftX(), statY, sa.SafeW(), 44.f*mScale, { 10, 6, 2, 180 });
+        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, 0.9f*mScale,
+            cx, statY+8.f*mScale, mStatusMsg,
+            p1Active ? math::NkColor{250,214,76,255}
+                     : math::NkColor{153,219,255,255});
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawPitFeedback(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
+        // Kente sur la barre statut
+        float segW = sa.SafeW() / 14.f;
+        math::NkColor kente[3] = { TC(), OR_(), { 30,100,40,200 } };
+        for (int k = 0; k < 14; k++)
+            r.DrawQuad(sa.LeftX()+k*segW, statY, segW+1.f, 5.f*mScale, kente[k%3]);
+    }
 
-            if (mHoveredPitIdx >= 0)
-            {
-                const PitGeometry& geo = mPitGeo[mHoveredPitIdx];
-                const float pulse = 0.5f + 0.5f * math::NkSin(mTime * 3.5f);
-                r.DrawCircleOutline(geo.cx, geo.cy, geo.radius + 4.0f,
-                                   { 200, 150, 50, (uint8_t)(150 * pulse) }, 3.0f, 24);
-            }
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawInvalidFeedback(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            const float alpha = 1.0f - (mInvalidFeedbackTimer / 0.6f);
-            const uint8_t a = (uint8_t)(100 * alpha);
-
-            r.DrawQuad(0.0f, mBoardY - 20.0f * mScale, (float)ctx.viewportW,
-                      mBoardH + 40.0f * mScale,
-                      { 255, 0, 0, a });
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void GameplayScene::DrawDistributionAnimation(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-
-            // Calcul du nombre de pits à illuminer
-            float duration = mDistributionGrains * 0.15f;
-            float progress = mGrainDistAnim / duration;  // 0.0 → 1.0
-            int piitsToShow = (int)(progress * mDistributionGrains + 0.5f);
-            if (piitsToShow > mDistributionTraceLen) piitsToShow = mDistributionTraceLen;
-
-            // Illuminer les pits visités avec gradient
-            for (int i = 0; i < piitsToShow; ++i)
-            {
-                int pitIdx = mDistributionPitsTrace[i];
-                const PitGeometry& geo = mPitGeo[pitIdx];
-
-                // Glow gradient : plus brillant pour les pits récents
-                float intensity = (float)i / (float)mDistributionTraceLen;
-                uint8_t glowAlpha = (uint8_t)(180 * intensity);
-
-                r.DrawCircle(geo.cx, geo.cy, geo.radius + 6.0f,
-                           { 200, 150, 50, glowAlpha }, 24);
-                r.DrawCircleOutline(geo.cx, geo.cy, geo.radius + 8.0f,
-                                   { 200, 150, 50, (uint8_t)(200 * intensity) }, 3.0f, 24);
-            }
-
-            // Dessiner une "main" au pit courant
-            if (piitsToShow > 0 && piitsToShow <= mDistributionTraceLen)
-            {
-                int handPit = mDistributionPitsTrace[piitsToShow - 1];
-                const PitGeometry& geo = mPitGeo[handPit];
-
-                // Cercle pulsant pour la main
-                float pulse = 0.5f + 0.5f * math::NkSin(mTime * 6.0f);
-                r.DrawCircle(geo.cx, geo.cy, geo.radius + 12.0f,
-                           { 255, 200, 0, (uint8_t)(150 * pulse) }, 24);
-
-                // Numéro de grain placé
-                char grainNum[8];
-                snprintf(grainNum, sizeof(grainNum), "+1");
-                f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, mScale * 0.8f,
-                                         geo.cx, geo.cy - geo.radius - 20.0f,
-                                         grainNum, { 255, 200, 0, 255 });
-            }
-        }
-
-    } // namespace songoo
-} // namespace nkentseu
+}} // namespace nkentseu::songoo

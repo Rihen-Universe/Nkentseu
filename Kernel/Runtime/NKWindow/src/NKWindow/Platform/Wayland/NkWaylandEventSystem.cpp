@@ -13,6 +13,7 @@
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_WAYLAND)
 
 #include "NKEvent/NkEventSystem.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h"
@@ -181,7 +182,7 @@ namespace nkentseu {
         char* keymapText = nullptr;
         char* mapped = static_cast<char*>(mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0));
         if (mapped != MAP_FAILED) {
-            keymapText = static_cast<char*>(std::malloc(static_cast<size_t>(size) + 1u));
+            keymapText = static_cast<char*>(memory::NkAlloc(static_cast<nk_size>(size) + 1u));
             if (keymapText) {
                 keymapBytes = static_cast<size_t>(size);
                 std::memcpy(keymapText, mapped, keymapBytes);
@@ -190,7 +191,7 @@ namespace nkentseu {
             munmap(mapped, size);
             close(fd);
         } else {
-            keymapText = static_cast<char*>(std::malloc(static_cast<size_t>(size) + 1u));
+            keymapText = static_cast<char*>(memory::NkAlloc(static_cast<nk_size>(size) + 1u));
             if (keymapText) {
                 while (keymapBytes < static_cast<size_t>(size)) {
                     const ssize_t r = ::read(fd,
@@ -208,7 +209,7 @@ namespace nkentseu {
         if (ctx->xkbState)  { xkb_state_unref(ctx->xkbState);   ctx->xkbState  = nullptr; }
 
         if (!keymapText || keymapBytes == 0u) {
-            if (keymapText) std::free(keymapText);
+            if (keymapText) memory::NkFree(keymapText);
             const xkb_rule_names fallbackNames{};
             ctx->xkbKeymap = xkb_keymap_new_from_names(
                 ctx->xkbCtx, &fallbackNames, XKB_KEYMAP_COMPILE_NO_FLAGS);
@@ -223,7 +224,7 @@ namespace nkentseu {
 
         ctx->xkbKeymap = xkb_keymap_new_from_string(ctx->xkbCtx, keymapText,
             XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-        std::free(keymapText);
+        memory::NkFree(keymapText);
 
         if (!ctx->xkbKeymap) {
             const xkb_rule_names fallbackNames{};
@@ -511,7 +512,7 @@ namespace nkentseu {
         if (!eventSystem || !seat) return;
 
         if (!gSeatCtx) {
-            gSeatCtx = new NkWaylandSeatCtx();
+            gSeatCtx = memory::NkGetDefaultAllocator().New<NkWaylandSeatCtx>();
         }
         gSeatCtx->eventSystem = eventSystem;
         if (!gSeatCtx->xkbCtx) {
@@ -654,7 +655,7 @@ namespace nkentseu {
     bool NkEventSystem::Init() {
         if (mReady) return true;
 
-        mData = new NkEventSystemData;
+        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
         if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
@@ -685,7 +686,7 @@ namespace nkentseu {
             if (gSeatCtx->xkbState)  { xkb_state_unref(gSeatCtx->xkbState);   gSeatCtx->xkbState  = nullptr; }
             if (gSeatCtx->xkbKeymap) { xkb_keymap_unref(gSeatCtx->xkbKeymap); gSeatCtx->xkbKeymap = nullptr; }
             if (gSeatCtx->xkbCtx)    { xkb_context_unref(gSeatCtx->xkbCtx);   gSeatCtx->xkbCtx    = nullptr; }
-            delete gSeatCtx;
+            memory::NkGetDefaultAllocator().Delete(gSeatCtx);
             gSeatCtx = nullptr;
         }
         gSeatObject = nullptr;
@@ -704,7 +705,7 @@ namespace nkentseu {
         mPumpThreadId    = 0;
         mReady           = false;
 
-        delete mData;
+        memory::NkGetDefaultAllocator().Delete(mData);
         mData = nullptr;
     }
 

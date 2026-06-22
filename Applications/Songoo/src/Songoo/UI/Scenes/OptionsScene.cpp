@@ -1,346 +1,197 @@
 // =============================================================================
-// OptionsScene.cpp
+// OptionsScene.cpp — Options audio Songo'o
+// Logique IDENTIQUE à l'original (musicVolume, sfxVolume, toggles)
 // =============================================================================
 
 #include "OptionsScene.h"
-#include "RulesScene.h"
 #include "Songoo/Render/GLRenderer2D.h"
 #include "Songoo/Render/FontAtlas.h"
 #include "Songoo/UI/Theme.h"
-#include "Songoo/UI/SceneManager.h"
 #include "Songoo/UI/UIScale.h"
-#include "Songoo/UI/ResponsiveLayout.h"
-#include "NKLogger/NkLog.h"
+#include "Songoo/UI/SceneManager.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
 #include "NKMath/NkFunctions.h"
+#include <cstdio>
 
-namespace nkentseu
-{
-    namespace songoo
-    {
+namespace nkentseu { namespace songoo {
 
-        // ── Description des 5 categories ─────────────────────────────────────
-        struct CatDesc
-        {
-            OptionsScene::Category cat;
-            const char*            title;
-            const char*            sub;
-            math::NkColor          accent;
-            bool                   enabled;
+    static math::NkColor OR_() { return { 210, 160, 30, 255 }; }
+    static math::NkColor TC()  { return { 180, 70, 15, 255 };  }
+    static math::NkColor VF()  { return {  30, 100, 40, 255 }; }
+    static math::NkColor PAR() { return { 255, 235, 184, 255 }; }
+
+    void OptionsScene::OnEnter(AppContext& /*ctx*/) { mTime = 0.f; }
+
+    void OptionsScene::OnUpdate(AppContext& ctx, float dt) {
+        mTime += dt;
+        const float scale = GetUIScale(ctx.viewportW, ctx.viewportH);
+        const float cx = ctx.safe.SafeCX(), cy = ctx.safe.SafeCY();
+
+        float slW = 280.f * scale, slH = 20.f * scale;
+        mMusicSlider = { cx - slW*0.5f, cy - 50.f*scale, slW, slH };
+        mSfxSlider   = { cx - slW*0.5f, cy + 10.f*scale, slW, slH };
+
+        float tgW = 60.f * scale, tgH = 28.f * scale;
+        float tgX = cx + 160.f * scale;
+        mTgMusic = { tgX, cy - 55.f*scale, tgW, tgH };
+        mTgSfx   = { tgX, cy +  5.f*scale, tgW, tgH };
+        mTgDrum  = { tgX, cy + 65.f*scale, tgW, tgH };
+
+        float bW = 180.f*scale, bH = 46.f*scale;
+        mBtnBackX = cx - bW*0.5f; mBtnBackY = cy + 130.f*scale;
+        mBtnBackW = bW; mBtnBackH = bH;
+    }
+
+    bool OptionsScene::HitSlider(const Slider& s, float px, float py) const {
+        return px >= s.x && px <= s.x + s.w && py >= s.y - 10.f && py <= s.y + s.h + 10.f;
+    }
+    float OptionsScene::ComputeSliderVal(const Slider& s, float px) const {
+        float v = (px - s.x) / s.w;
+        return v < 0.f ? 0.f : v > 1.f ? 1.f : v;
+    }
+
+    bool HitRect(float x, float y, float w, float h, float px, float py) {
+        return px >= x && px <= x+w && py >= y && py <= y+h;
+    }
+
+    void OptionsScene::OnEvent(AppContext& ctx, NkEvent& ev) {
+        GameSettings& gs = *ctx.settings;
+
+        auto handlePos = [&](float px, float py, bool release) {
+            if (!release) {
+                if (HitSlider(mMusicSlider, px, py)) { mDraggingMusic = true; }
+                if (HitSlider(mSfxSlider,   px, py)) { mDraggingSfx   = true; }
+            }
+            if (release) { mDraggingMusic = mDraggingSfx = false; }
+            if (mDraggingMusic) {
+                gs.musicVolume = ComputeSliderVal(mMusicSlider, px);
+                if (ctx.audio) ctx.audio->SetMusicVolume(gs.musicVolume);
+            }
+            if (mDraggingSfx) {
+                gs.sfxVolume = ComputeSliderVal(mSfxSlider, px);
+                if (ctx.audio) ctx.audio->SetSfxVolume(gs.sfxVolume);
+            }
+            if (release) {
+                if (HitRect(mTgMusic.x, mTgMusic.y, mTgMusic.w, mTgMusic.h, px, py))
+                    gs.musicEnabled = !gs.musicEnabled;
+                if (HitRect(mTgSfx.x, mTgSfx.y, mTgSfx.w, mTgSfx.h, px, py))
+                    gs.soundEnabled = !gs.soundEnabled;
+                if (HitRect(mTgDrum.x, mTgDrum.y, mTgDrum.w, mTgDrum.h, px, py))
+                    gs.drumEnabled = !gs.drumEnabled;
+                if (HitRect(mBtnBackX, mBtnBackY, mBtnBackW, mBtnBackH, px, py))
+                    ctx.scenes->Pop();
+            }
         };
 
-        static const CatDesc kCats[OptionsScene::kCatCount] =
-        {
-            { OptionsScene::Cat_Help,
-              "AIDE & TUTORIEL",
-              "REGLES, OBSTACLES, BONUS, MALUS, CONTROLES",
-              { 0, 245, 255, 255 }, true  },
-            { OptionsScene::Cat_Audio,
-              "AUDIO",
-              "VOLUME MUSIQUE, EFFETS, ANNONCE - A VENIR",
-              { 255, 215,  0, 255 }, false },
-            { OptionsScene::Cat_Graphics,
-              "GRAPHIQUES",
-              "QUALITE, GLOW, PARTICULES, DALTONIEN - A VENIR",
-              { 204, 119, 255, 255 }, false },
-            { OptionsScene::Cat_Controls,
-              "CONTROLES",
-              "VIBRATION, INVERSION, REMAP - A VENIR",
-              { 255, 107,   0, 255 }, false },
-            { OptionsScene::Cat_Network,
-              "RESEAU",
-              "REGION, PING - A VENIR (NKNETWORK)",
-              {  80, 255, 100, 255 }, false },
-        };
-
-        static float EaseOutCubic(float t)
-        {
-            if (t <= 0.0f) return 0.0f;
-            if (t >= 1.0f) return 1.0f;
-            const float u = 1.0f - t;
-            return 1.0f - u * u * u;
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void OptionsScene::OnEnter(AppContext& /*ctx*/)
-        {
-            mTime = 0.0f;
-            mEnterAnim = 0.0f;
-            mFocusIndex = 0;
-            // -1 = aucun touch propre a Options. Tout TouchEnd dont l'id ne
-            // matche PAS sera ignore (evite la fuite cross-scene).
-            mActiveTouchId = -1;
-            // Grace period a l'entree : evite qu'un click qui a push Options
-            // depuis MainMenu (release sur la pos de TUTORIEL/SUPPORTER de
-            // MainMenu = pos sur Options) retrigger un Activate immediat.
-            mInputArmDelay = 0.20f;
-            logger.Info("[Options] OnEnter");
-        }
-
-        // Re-arme le grace period au retour d'un Pop de scene enfant (ex:
-        // RulesScene Tutoriel -> RETOUR -> Options reapparait). Sans ca, le
-        // mouse release / touch end qui a triggere RETOUR sur la scene enfant
-        // se propage a Options et appelle aussi RETOUR -> Pop vers Main.
-        void OptionsScene::OnResumedFromChild(AppContext& /*ctx*/)
-        {
-            mInputArmDelay = 0.20f;
-            mActiveTouchId = -1;
-        }
-
-        void OptionsScene::OnUpdate(AppContext& /*ctx*/, float dt)
-        {
-            mTime += dt;
-            mEnterAnim += dt / 0.3f;
-            if (mEnterAnim > 1.0f) mEnterAnim = 1.0f;
-            if (mInputArmDelay > 0.0f) mInputArmDelay -= dt;
-        }
-
-        bool OptionsScene::HitTestBack(float sx, float sy) const
-        {
-            return sx >= mBackX && sx <= mBackX + mBackW
-                && sy >= mBackY && sy <= mBackY + mBackH;
-        }
-        int OptionsScene::HitTestCard(float sx, float sy) const
-        {
-            for (int i = 0; i < (int)kCatCount; ++i)
-            {
-                if (sx >= mCardX[i] && sx <= mCardX[i] + mCardW
-                 && sy >= mCardY[i] && sy <= mCardY[i] + mCardH)
-                    return i;
+        if (auto* m = ev.As<NkMouseButtonPressEvent>())
+            handlePos(m->GetX(), m->GetY(), false);
+        if (auto* m = ev.As<NkMouseButtonReleaseEvent>())
+            handlePos(m->GetX(), m->GetY(), true);
+        if (auto* m = ev.As<NkMouseMoveEvent>())
+            if (mDraggingMusic || mDraggingSfx)
+                handlePos(m->GetX(), m->GetY(), false);
+        if (auto* t = ev.As<NkTouchEndEvent>())
+            if (t->GetNumTouches() > 0) {
+                const NkTouchPoint& tp = t->GetTouch(0);
+                handlePos(tp.clientX, tp.clientY, true);
             }
-            return -1;
-        }
+        if (auto* k = ev.As<NkKeyPressEvent>())
+            if (k->GetKey() == NkKey::NK_ESCAPE) ctx.scenes->Pop();
+    }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void OptionsScene::OnRender(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const int W = ctx.viewportW;
-            const int H = ctx.viewportH;
-            const float scale = GetUIScale(W, H);
-            const float safeX = (float)ctx.safe.LeftX();
-            const float safeW = (float)ctx.safe.SafeW();
-            const float enterA = EaseOutCubic(mEnterAnim);
+    void OptionsScene::DrawSlider(AppContext& ctx, const Slider& s, float val,
+                                  const char* label, math::NkColor col) {
+        GLRenderer2D& r = *ctx.renderer;
+        FontAtlas&    f = *ctx.font;
+        const float scale = GetUIScale(ctx.viewportW, ctx.viewportH);
 
-            // Fond
-            r.Clear(theme::Dark().r / 255.0f,
-                    theme::Dark().g / 255.0f,
-                    theme::Dark().b / 255.0f, 1.0f);
-            r.Begin(W, H);
+        // Track
+        r.DrawQuad(s.x, s.y, s.w, s.h, { 50, 35, 15, 200 });
+        // Fill
+        r.DrawQuad(s.x, s.y, s.w * val, s.h, col);
+        // Knob
+        float kx = s.x + s.w * val;
+        r.DrawCircle(kx, s.y + s.h * 0.5f, s.h * 0.9f, col, 16);
 
-            // ── Header : bouton RETOUR + titre ─────────────────────────────
-            // Dimensions responsive en % viewport (clamps doux). On garde
-            // `scale` UNIQUEMENT pour le rendu des bitmaps (DrawStringScaled)
-            // et les epaisseurs d'outline.
-            {
-                mBackW = Pct::W(W, 0.10f,  70.0f, 140.0f);
-                mBackH = Pct::H(H, 0.055f, 32.0f,  56.0f);
-                mBackX = (float)ctx.safe.LeftX() + Pct::W(W, 0.012f, 8.0f, 24.0f);
-                mBackY = (float)ctx.safe.TopY()  + Pct::H(H, 0.020f, 8.0f, 28.0f);
-                math::NkColor bg = { 0, 245, 255, 30 };
-                math::NkColor bd = { 0, 245, 255, 200 };
-                r.DrawQuad       (mBackX, mBackY, mBackW, mBackH, bg);
-                r.DrawQuadOutline(mBackX, mBackY, mBackW, mBackH, bd, 1.5f);
-                f.DrawStringCenteredScaled(r, FontAtlas::BodySlot, scale,
-                                   mBackX + mBackW * 0.5f,
-                                   mBackY + mBackH * 0.18f,
-                                   "RETOUR", theme::Cyan());
+        // Label + %
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%s  %d%%", label, (int)(val * 100.f));
+        f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, 0.85f * scale,
+            s.x + s.w * 0.5f, s.y - 18.f * scale, buf,
+            { 230, 200, 140, 220 });
+    }
 
-                f.DrawStringCenteredScaled(r, FontAtlas::HeadlineSlot, scale,
-                                   (float)W * 0.5f,
-                                   (float)ctx.safe.TopY() + Pct::H(H, 0.024f, 10.0f, 32.0f),
-                                   "OPTIONS",
-                                   theme::White());
-            }
+    void OptionsScene::DrawToggle(AppContext& ctx, float x, float y,
+                                   float w, float h, bool on,
+                                   const char* label, math::NkColor col) {
+        GLRenderer2D& r = *ctx.renderer;
+        FontAtlas&    f = *ctx.font;
+        const float scale = GetUIScale(ctx.viewportW, ctx.viewportH);
 
-            // ── Liste des categories ───────────────────────────────────────
-            // Layout vertical : 1 card pleine largeur par categorie.
-            // Dimensions responsive (clamps doux).
-            const float sideMargin = Pct::W(W, 0.020f, 12.0f, 36.0f);
-            const float gridLeft = safeX + sideMargin;
-            const float availW   = safeW - sideMargin * 2.0f;
-            const float cardH    = Pct::H(H, 0.105f, 56.0f, 110.0f);
-            const float pad      = Pct::H(H, 0.018f,  8.0f,  20.0f);
-            const float topReserve = Pct::H(H, 0.095f, 56.0f, 110.0f);
-            float y = (float)ctx.safe.TopY() + topReserve;
-            mCardW = availW;
-            mCardH = cardH;
+        math::NkColor bg  = on ? AlphaF(col, 0.8f) : math::NkColor{50, 35, 15, 180};
+        math::NkColor brd = on ? col : math::NkColor{100, 70, 30, 150};
+        r.DrawQuad(x, y, w, h, bg);
+        r.DrawQuadOutline(x, y, w, h, brd, 1.5f);
 
-            // Marges internes de la card (responsive).
-            const float cardPadL = Pct::W(W, 0.018f, 12.0f, 28.0f);
-            const float titleY   = Pct::H(H, 0.018f, 10.0f, 22.0f);
-            const float subY     = Pct::H(H, 0.058f, 32.0f, 64.0f);
-            const float sideBarW = Pct::W(W, 0.005f,  3.0f,  6.0f);
-            const float warnW    = Pct::W(W, 0.110f, 70.0f, 130.0f);
+        // Cercle curseur
+        float kx = on ? (x + w - h*0.5f) : (x + h*0.5f);
+        r.DrawCircle(kx, y + h*0.5f, h*0.38f, on ? col : math::NkColor{120, 90, 40, 200}, 12);
 
-            for (int i = 0; i < (int)kCatCount; ++i)
-            {
-                const CatDesc& d = kCats[i];
-                const float bx = gridLeft;
-                const float by = y;
-                mCardX[i] = bx;
-                mCardY[i] = by;
+        f.DrawStringCenteredScaled(r, FontAtlas::SmallSlot, 0.75f * scale,
+            x - 70.f * scale, y + h*0.15f, label, { 220, 190, 130, 200 });
+    }
 
-                float a = mEnterAnim - 0.04f * (float)i;
-                if (a < 0.0f) a = 0.0f;
-                a = EaseOutCubic(math::NkMin(a, 1.0f)) * enterA;
+    void OptionsScene::OnRender(AppContext& ctx) {
+        GLRenderer2D& r = *ctx.renderer;
+        FontAtlas&    f = *ctx.font;
+        const int W = ctx.viewportW, H = ctx.viewportH;
+        const float cx = ctx.safe.SafeCX(), cy = ctx.safe.SafeCY();
+        const float scale = GetUIScale(W, H);
+        const GameSettings& gs = *ctx.settings;
 
-                const bool focused = (i == mFocusIndex);
-                math::NkColor bg = d.accent;
-                bg.a = static_cast<uint8_t>((focused ? 50 : 14) * a);
-                math::NkColor bd = d.accent;
-                bd.a = static_cast<uint8_t>((focused && d.enabled ? 220 : 70) * a);
+        r.Clear(0.04f, 0.02f, 0.01f, 1.f);
+        r.Begin(W, H);
 
-                r.DrawQuad       (bx, by, availW, cardH, bg);
-                r.DrawQuadOutline(bx, by, availW, cardH, bd,
-                                  focused && d.enabled ? 2.5f * scale : 1.0f);
+        // Panneau
+        float panW = 480.f*scale, panH = 360.f*scale;
+        float panX = cx - panW*0.5f, panY = cy - panH*0.5f;
+        r.DrawQuad(panX, panY, panW, panH, { 18, 11, 4, 230 });
+        r.DrawQuadOutline(panX, panY, panW, panH, OR_(), 2.5f);
 
-                // Bande verticale colore a gauche
-                math::NkColor side = d.accent;
-                side.a = static_cast<uint8_t>((d.enabled ? 220 : 100) * a);
-                r.DrawQuad(bx, by, sideBarW, cardH, side);
+        f.DrawStringShadowCenteredScaled(r, FontAtlas::HeadlineSlot, 1.1f * scale,
+            cx, panY + 20.f * scale, "OPTIONS",
+            { 242, 184, 46, 255 }, { 80, 30, 5, 120 }, 2);
 
-                // Titre
-                math::NkColor titleCol = d.accent;
-                titleCol.a = static_cast<uint8_t>((d.enabled ? 255 : 130) * a);
-                f.DrawStringScaled(r, FontAtlas::SubtitleSlot, scale,
-                             bx + cardPadL,
-                             by + titleY,
-                             d.title, titleCol);
+        r.DrawQuad(panX + 20.f*scale, panY + 78.f*scale,
+                   panW - 40.f*scale, 2.f, AlphaF(OR_(), 0.4f));
 
-                // Sous-titre
-                math::NkColor subCol = { 255, 255, 255, (uint8_t)((d.enabled ? 160 : 80) * a) };
-                f.DrawStringScaled(r, FontAtlas::SmallSlot, scale,
-                             bx + cardPadL,
-                             by + subY,
-                             d.sub, subCol);
+        // Section Audio
+        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, 0.9f*scale,
+            cx, panY + 95.f*scale, "AUDIO",
+            { 242, 184, 46, 200 });
 
-                // Marqueur "BIENTOT" si desactive
-                if (!d.enabled)
-                {
-                    math::NkColor warn = { 255, 200, 60, (uint8_t)(180 * a) };
-                    f.DrawStringScaled(r, FontAtlas::SmallSlot, scale,
-                                 bx + availW - warnW,
-                                 by + titleY,
-                                 "BIENTOT", warn);
-                }
+        DrawSlider(ctx, mMusicSlider, gs.musicVolume, "Musique",    OR_());
+        DrawSlider(ctx, mSfxSlider,   gs.sfxVolume,   "Effets",     TC());
 
-                y += cardH + pad;
-            }
+        DrawToggle(ctx, mTgMusic.x, mTgMusic.y, mTgMusic.w, mTgMusic.h,
+                   gs.musicEnabled,  "Musique",  VF());
+        DrawToggle(ctx, mTgSfx.x, mTgSfx.y, mTgSfx.w, mTgSfx.h,
+                   gs.soundEnabled,  "Effets",   TC());
+        DrawToggle(ctx, mTgDrum.x, mTgDrum.y, mTgDrum.w, mTgDrum.h,
+                   gs.drumEnabled,   "Tambours", OR_());
 
-            r.End();
-        }
+        // Bouton Retour
+        r.DrawQuad(mBtnBackX, mBtnBackY, mBtnBackW, mBtnBackH,
+                   { 70, 30, 6, 200 });
+        r.DrawQuadOutline(mBtnBackX, mBtnBackY, mBtnBackW, mBtnBackH, OR_(), 2.f);
+        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
+            mBtnBackX + mBtnBackW*0.5f, mBtnBackY + mBtnBackH*0.18f,
+            "RETOUR", { 255, 235, 180, 255 });
 
-        // ─────────────────────────────────────────────────────────────────────
-        void OptionsScene::Activate(AppContext& ctx, Category cat)
-        {
-            switch (cat)
-            {
-            case Cat_Help:
-                logger.Info("[Options] Push RulesScene");
-                ctx.scenes->Push(new RulesScene());
-                break;
-            // Categories pas encore implementees — on log juste.
-            case Cat_Audio:
-            case Cat_Graphics:
-            case Cat_Controls:
-            case Cat_Network:
-            default:
-                logger.Info("[Options] Category activated (TODO): {0}",
-                            kCats[(int)cat].title);
-                break;
-            }
-        }
+        r.End();
+    }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void OptionsScene::OnEvent(AppContext& ctx, NkEvent& ev)
-        {
-            // Clavier : Echap = back, fleches haut/bas = focus, Entree = activate
-            if (auto* k = ev.As<NkKeyPressEvent>())
-            {
-                switch (k->GetKey())
-                {
-                case NkKey::NK_ESCAPE:
-                    ctx.scenes->Pop(); return;
-                case NkKey::NK_UP:
-                    mFocusIndex = (mFocusIndex - 1 + (int)kCatCount) % (int)kCatCount; return;
-                case NkKey::NK_DOWN:
-                    mFocusIndex = (mFocusIndex + 1) % (int)kCatCount; return;
-                case NkKey::NK_ENTER:
-                case NkKey::NK_SPACE:
-                    if (kCats[mFocusIndex].enabled)
-                        Activate(ctx, (Category)mFocusIndex);
-                    return;
-                default: break;
-                }
-                return;
-            }
-
-            // Souris : click = activate (si enabled)
-            if (auto* mr = ev.As<NkMouseButtonReleaseEvent>())
-            {
-                // Grace period anti auto-trigger : ignore les releases qui
-                // fuitent depuis une scene enfant qui vient d'etre Pop.
-                if (mInputArmDelay > 0.0f) return;
-                if (mr->GetButton() == NkMouseButton::NK_MB_LEFT)
-                {
-                    const float px = (float)mr->GetX();
-                    const float py = (float)mr->GetY();
-                    if (HitTestBack(px, py)) { ctx.scenes->Pop(); return; }
-                    const int idx = HitTestCard(px, py);
-                    if (idx >= 0)
-                    {
-                        mFocusIndex = idx;
-                        if (kCats[idx].enabled) Activate(ctx, (Category)idx);
-                    }
-                }
-                return;
-            }
-
-            // Touch begin : on enregistre l'id du tap. C'est uniquement le
-            // TouchEnd de CE touch qui declenchera l'action — ca evite qu'un
-            // TouchEnd "fuite" depuis la scene precedente (apres Pop) ne
-            // se fasse passer pour un click ici.
-            if (auto* tb = ev.As<NkTouchBeginEvent>())
-            {
-                if (tb->GetNumTouches() > 0)
-                {
-                    mActiveTouchId = (long long)tb->GetTouch(0).id;
-                }
-                return;
-            }
-
-            // Touch : tap = activate
-            if (auto* te = ev.As<NkTouchEndEvent>())
-            {
-                // Grace period anti auto-trigger : meme logique que mouse.
-                if (mInputArmDelay > 0.0f) return;
-                if (te->GetNumTouches() > 0)
-                {
-                    const NkTouchPoint& tp = te->GetTouch(0);
-                    // Ignore les ends qui ne correspondent pas a notre begin.
-                    if ((long long)tp.id != mActiveTouchId) { mActiveTouchId = -1; return; }
-                    mActiveTouchId = -1;
-
-                    if (HitTestBack(tp.clientX, tp.clientY))
-                    {
-                        ctx.scenes->Pop();
-                        return;
-                    }
-                    const int idx = HitTestCard(tp.clientX, tp.clientY);
-                    if (idx >= 0)
-                    {
-                        mFocusIndex = idx;
-                        if (kCats[idx].enabled) Activate(ctx, (Category)idx);
-                    }
-                }
-                return;
-            }
-        }
-
-    } // namespace songoo
-} // namespace nkentseu
+}} // namespace nkentseu::songoo

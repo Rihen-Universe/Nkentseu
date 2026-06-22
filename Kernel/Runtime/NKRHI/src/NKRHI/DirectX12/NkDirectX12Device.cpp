@@ -7,6 +7,7 @@
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -1590,14 +1591,14 @@ void NkDirectX12Device::UpdateDescriptorSets(const NkDescriptorWrite* writes, ui
 // Command Buffers
 // =============================================================================
 NkICommandBuffer* NkDirectX12Device::CreateCommandBuffer(NkCommandBufferType t) {
-    NkDirectX12CommandBuffer* cb = new NkDirectX12CommandBuffer(this, t);
+    NkDirectX12CommandBuffer* cb = nkentseu::memory::NkGetDefaultAllocator().New<NkDirectX12CommandBuffer>(this, t);
     if (!cb->IsValid()) {
-        delete cb;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(cb);
         return nullptr;
     }
     return cb;
 }
-void NkDirectX12Device::DestroyCommandBuffer(NkICommandBuffer*& cb) { delete cb; cb = nullptr; }
+void NkDirectX12Device::DestroyCommandBuffer(NkICommandBuffer*& cb) { nkentseu::memory::NkGetDefaultAllocator().Delete(cb); cb = nullptr; }
 
 // =============================================================================
 // Submit

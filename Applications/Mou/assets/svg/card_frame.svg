@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 300" width="260" height="300">
+  <!-- Cadre de tuile (menu de selection) : coins tres arrondis + ombre basse -->
+  <rect x="14" y="24" width="232" height="262" rx="34" fill="#E8A317"/>
+  <rect x="14" y="14" width="232" height="262" rx="34" fill="#FFFFFF" stroke="#4A3728" stroke-width="7"/>
+</svg>

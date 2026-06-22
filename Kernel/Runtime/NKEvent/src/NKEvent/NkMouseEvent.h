@@ -270,7 +270,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseMoveEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseMoveEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -398,7 +398,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseRawEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseRawEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -622,7 +622,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseButtonPressEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseButtonPressEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -691,7 +691,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseButtonReleaseEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseButtonReleaseEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -769,7 +769,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseDoubleClickEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseDoubleClickEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -983,7 +983,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseScrollEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseScrollEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1127,7 +1127,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseWheelVerticalEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseWheelVerticalEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1202,7 +1202,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseWheelHorizontalEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseWheelHorizontalEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1257,7 +1257,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseEnterEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseEnterEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1295,7 +1295,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseLeaveEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseLeaveEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1335,7 +1335,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseWindowEnterEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseWindowEnterEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1370,7 +1370,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseWindowLeaveEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseWindowLeaveEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1431,7 +1431,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseCaptureBeginEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseCaptureBeginEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1470,7 +1470,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkMouseCaptureEndEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkMouseCaptureEndEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs

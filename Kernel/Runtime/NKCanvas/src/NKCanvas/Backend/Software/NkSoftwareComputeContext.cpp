@@ -2,6 +2,7 @@
 #include "NKContainers/NKContainers.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cstdio>
 #include <cstring>
@@ -79,7 +80,7 @@ NkComputeBuffer NkSoftwareComputeContext::CreateBuffer(const NkComputeBufferDesc
         return out;
     }
 
-    auto* h = new BufferHandle();
+    auto* h = nkentseu::memory::NkGetDefaultAllocator().New<BufferHandle>();
     h->data.Resize((NkVector<uint8>::SizeType)d.sizeBytes, static_cast<uint8>(0));
     if (d.initialData) {
         memcpy(h->data.Data(), d.initialData, (size_t)d.sizeBytes);
@@ -95,7 +96,7 @@ void NkSoftwareComputeContext::DestroyBuffer(NkComputeBuffer& buf) {
     if (!buf.valid) {
         return;
     }
-    delete static_cast<BufferHandle*>(buf.handle);
+    nkentseu::memory::NkGetDefaultAllocator().Delete(static_cast<BufferHandle*>(buf.handle));
     buf = NkComputeBuffer{};
 }
 
@@ -134,7 +135,7 @@ NkComputeShader NkSoftwareComputeContext::CreateShaderFromSource(const char* src
         return out;
     }
 
-    auto* h = new ShaderHandle();
+    auto* h = nkentseu::memory::NkGetDefaultAllocator().New<ShaderHandle>();
     const size_t len = strlen(src);
     h->source.Resize((NkVector<char>::SizeType)len + 1, '\0');
     memcpy(h->source.Data(), src, len);
@@ -160,7 +161,7 @@ void NkSoftwareComputeContext::DestroyShader(NkComputeShader& s) {
     if (!s.valid) {
         return;
     }
-    delete static_cast<ShaderHandle*>(s.handle);
+    nkentseu::memory::NkGetDefaultAllocator().Delete(static_cast<ShaderHandle*>(s.handle));
     s = NkComputeShader{};
 }
 
@@ -170,7 +171,7 @@ NkComputePipeline NkSoftwareComputeContext::CreatePipeline(const NkComputeShader
         return out;
     }
 
-    auto* p = new PipelineHandle();
+    auto* p = nkentseu::memory::NkGetDefaultAllocator().New<PipelineHandle>();
     p->shader = static_cast<ShaderHandle*>(s.handle);
     out.handle = p;
     out.valid = true;
@@ -181,7 +182,7 @@ void NkSoftwareComputeContext::DestroyPipeline(NkComputePipeline& p) {
     if (!p.valid) {
         return;
     }
-    delete static_cast<PipelineHandle*>(p.handle);
+    nkentseu::memory::NkGetDefaultAllocator().Delete(static_cast<PipelineHandle*>(p.handle));
     p = NkComputePipeline{};
 }
 

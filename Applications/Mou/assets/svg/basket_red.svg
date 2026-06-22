@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Panier tresse ROUGE — symbole coeur -->
+  <path d="M42 80 L158 80 L142 168 Q140 178 128 178 L72 178 Q60 178 58 168 Z"
+        fill="#FF5A5A" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <!-- tressage -->
+  <g stroke="#C73E3E" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.8">
+    <path d="M52 104 L148 104"/><path d="M55 130 L145 130"/><path d="M59 156 L141 156"/>
+    <path d="M74 86 L70 172"/><path d="M100 86 L100 172"/><path d="M126 86 L130 172"/>
+  </g>
+  <ellipse cx="100" cy="80" rx="60" ry="15" fill="#FF8080" stroke="#4A3728" stroke-width="7"/>
+  <path d="M100 150 C 72 126 84 102 100 118 C 116 102 128 126 100 150 Z" fill="#FFFFFF"/>
+</svg>

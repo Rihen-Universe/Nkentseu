@@ -7,6 +7,7 @@
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKSL/NKSL.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 #include "NKContainers/Associative/NkSet.h"
 #include <cstring>
 #include <algorithm>
@@ -1781,9 +1782,9 @@ namespace nkentseu {
     // Command Buffers
     // =============================================================================
     NkICommandBuffer* NkVulkanDevice::CreateCommandBuffer(NkCommandBufferType t) {
-        return new NkVulkanCommandBuffer(this, t);
+        return nkentseu::memory::NkGetDefaultAllocator().New<NkVulkanCommandBuffer>(this, t);
     }
-    void NkVulkanDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) { delete cb; cb=nullptr; }
+    void NkVulkanDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) { nkentseu::memory::NkGetDefaultAllocator().Delete(cb); cb=nullptr; }
 
     // =============================================================================
     // Submit

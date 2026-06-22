@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # =============================================================================
-# Songoo (Mancala Game) — Build config Jenga
+# Songo.jenga — Configuration de build du jeu Songo'o
+# Basé EXACTEMENT sur Applications/Songoo/Songoo.jenga du repo Nkentseu.
 # Stack : NkContext (OpenGL/GLES) + NKFont + NKImage + NKAudio
-# Fully Nkentseu based, Windows + Android multi-platform.
+# Plateformes : Windows, Linux (X11/Wayland), Android, macOS, iOS, Web
+# NB : SFML3 supprimée — audio géré par NKAudio natif Nkentseu
+#
+# Usage :
+#   jenga build --platform windows
+#   jenga build --platform linux --linux-backend x11
+#   jenga build --platform linux --linux-backend wayland
+#   jenga build --platform android
+#   jenga build --platform web
+#   jenga build --config Release --platform android
 # =============================================================================
 
 from Jenga import *
@@ -29,60 +39,81 @@ def _pkg_exists(pkg_name: str) -> bool:
 def _norm(path: str) -> str:
     return path.replace("\\", "/") if path else path
 
-_VULKAN_SDK = _norm(os.getenv("VULKAN_SDK", ""))
+_VULKAN_SDK     = _norm(os.getenv("VULKAN_SDK", ""))
 _VULKAN_INCLUDE = _norm(os.path.join(_VULKAN_SDK, "Include")) if _VULKAN_SDK else ""
 _VULKAN_LIB     = _norm(os.path.join(_VULKAN_SDK, "Lib"))     if _VULKAN_SDK else ""
-_VULKAN_OPT = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
-if _VULKAN_OPT in ("0", "false", "off", "no"):
-    _WANT_VULKAN = False
-elif _VULKAN_OPT in ("1", "true", "on", "yes"):
-    _WANT_VULKAN = True
-else:
-    _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
+_VULKAN_OPT     = os.getenv("NK_ENABLE_VULKAN", "auto").strip().lower()
+if   _VULKAN_OPT in ("0", "false", "off", "no"):  _WANT_VULKAN = False
+elif _VULKAN_OPT in ("1", "true",  "on",  "yes"): _WANT_VULKAN = True
+else: _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
 
-_WAYLAND_LINKS = ["pthread", "wayland-client", "wayland-egl", "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
+_WAYLAND_LINKS   = ["pthread", "wayland-client", "wayland-egl",
+                     "xkbcommon", "wayland-cursor", "EGL", "GLESv2"]
 _WAYLAND_DEFINES = ["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"]
 if _pkg_exists("libdecor-0"):
     _WAYLAND_LINKS.append("decor-0")
     _WAYLAND_DEFINES.append("NKENTSEU_WAYLAND_LIBDECOR")
 
-with project("Songoo"):
+
+with project("Songo"):
+
     windowedapp()
     language("C++")
     cppdialect("C++17")
     location(".")
 
+    # ── Sources ──────────────────────────────────────────────────────────────
     files(["src/**.cpp"])
 
+    # ── Dépendances Nkentseu (IDENTIQUES à Songoo.jenga) ────────────────────
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKFont", "NKImage", "NKUI",
          "NKFileSystem", "NKNetwork",
-         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio"],
-        extra_includes=["src", "%{NKGlad.location}/include",
-                        "%{wks.location}/Externals"]
-                       + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
-        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"],
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKAudio"],
+        extra_includes=[
+            "src",
+            "%{NKGlad.location}/include",
+            "%{wks.location}/Externals",
+        ] + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
+        extra_defines=[
+            f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
+        ],
     )
 
+    # ── Sorties ───────────────────────────────────────────────────────────────
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
 
-    appicon("../../Resources/Songoo/Textures/UI/icon_app.png")
-    dependfiles(["../../Resources/Songoo"])
+    # ── Icône et assets ───────────────────────────────────────────────────────
+    # L'icône et les assets sont référencés depuis Resources/Songo/
+    # (même convention que Resources/Songoo/ dans le projet Songoo)
+    appicon("../../Resources/Songo/assets/Icon.png")
+    dependfiles(["../../Resources/Songo"])
 
     apppublisher("Rihen Universe")
     appversion("1.0.0")
-    licensefile("../../LICENSE")
     createdesktopshortcut(True)
 
-    # ===== Windows ============================================================
+    # ── Configurations ────────────────────────────────────────────────────────
+    with filter("config:Debug"):
+        defines(["NK_DEBUG", "SONGO_DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NK_RELEASE", "NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+        # flags(["LinkTimeOptimization"])  # 'flags' non defini dans le DSL Jenga -> cassait le chargement du workspace
+
+    # =========================================================================
+    # WINDOWS
+    # =========================================================================
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         usetoolchain(TC_WINDOWS)
-        defines([
-            "WIN32_LEAN_AND_MEAN",
-            "_UNICODE", "UNICODE",
-        ])
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
         libdirs(["%{NKFont.location}/lib"])
@@ -93,70 +124,91 @@ with project("Songoo"):
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
             "ws2_32", "iphlpapi",
             "avrt", "winmm",
-            "vulkan-1"
         ]
         if _WANT_VULKAN:
             links(_WIN_LINKS + ["vulkan-1"])
         else:
-            links([l for l in _WIN_LINKS if l != "vulkan-1"])
+            links(_WIN_LINKS)
 
-    # ===== Linux (X11 par défaut) =============================================
+    # =========================================================================
+    # LINUX — X11
+    # =========================================================================
     with filter("system:Linux && options:linux-backend=x11"):
         usetoolchain("clang-native")
-        _LINUX_X11_LINKS = ["pthread", "X11", "Xext", "GL"]
-        links(_LINUX_X11_LINKS)
+        links(["pthread", "X11", "Xext", "GL"])
 
-    # ===== Linux Wayland ======================================================
+    # =========================================================================
+    # LINUX — Wayland
+    # =========================================================================
     with filter("system:Linux && options:linux-backend=wayland"):
         usetoolchain("clang-native")
         defines(_WAYLAND_DEFINES)
         links(_WAYLAND_LINKS)
 
-    # ===== macOS ==============================================================
+    # =========================================================================
+    # macOS
+    # =========================================================================
     with filter("system:macosx"):
         usetoolchain("clang-native")
         frameworks(["Cocoa", "OpenGL", "IOKit", "CoreFoundation", "AppKit"])
 
-    # ===== iOS ================================================================
+    # =========================================================================
+    # iOS
+    # =========================================================================
     with filter("system:iOS"):
         usetoolchain("iOS-clang")
         defines(["_IOSONLY_=1"])
         frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation"])
 
-    # ===== Android ============================================================
+    # =========================================================================
+    # ANDROID — configuration principale
+    # =========================================================================
     with filter("system:Android"):
         usetoolchain("android-ndk")
-        androidapplicationid("com.rihen.songoo")
+
+        # ID de l'application (différent de Songoo)
+        androidapplicationid("com.rihen.songo")
         androidisgame(True)
-        androidassets(["../../Resources/Songoo"])
-        androidminsdk(24)
-        androidtargetsdk(34)
+
+        # Assets : dossier Resources/Songo/ (images PNG + audio MP3)
+        # Nkentseu embarque tout dans l'APK via AAssetManager
+        androidassets(["../../Resources/Songo"])
+
+        # SDK / NDK
+        androidminsdk(24)        # Android 7.0 — OpenGL ES 3.0 garanti
+        androidtargetsdk(34)     # Android 14
         androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+
+        # Mode NativeActivity (pas de Java Activity wrapper)
         androidnativeactivity(True)
+
+        # Orientation paysage forcée (jeu de plateau)
         androidscreenorientation("landscape")
         androidallowrotation(False)
+
+        # C++ STL partagée (requis pour std::thread + NKAudio)
         androidstl("c++_shared")
+
+        # Permissions
         androidpermissions([
             "android.permission.INTERNET",
             "android.permission.ACCESS_NETWORK_STATE",
         ])
+
+        # Liens Android NDK
+        # OpenSLES = audio bas niveau utilisé par NKAudio sur Android
+        # Pas de SFML3 — NKAudio gère tout nativement
         links(["android", "log", "EGL", "GLESv3", "dl", "OpenSLES", "vulkan"])
 
-    # ===== HarmonyOS ==========================================================
-    with filter("system:HarmonyOS"):
-        usetoolchain("ohos-ndk")
-        harmonybundlename("com.rihen.songoo")
-        harmonyassets(["../../Resources/Songoo"])
-        harmonyminsdk(12)
-        harmonytargetapi(12)
-        harmonypermissions([
-            "ohos.permission.INTERNET",
-            "ohos.permission.GET_NETWORK_INFO",
-        ])
-        # android/log/dl/OpenSLES retires (Android-only) ; log -> hilog_ndk.z.
-        links(["hilog_ndk.z", "EGL", "GLESv3", "vulkan"])
+        # Thème plein écran immersif
+        # (géré par NkWindow::SetHideSystemUI via NativeActivity)
 
-    # ===== Web (Emscripten) ===================================================
+        # Large heap pour les 156 frames PNG du logo Rihen
+        androidlargeheap(True)
+
+    # =========================================================================
+    # Web (Emscripten)
+    # =========================================================================
     with filter("system:Web"):
         usetoolchain("emscripten")
         defines(["NKENTSEU_ENABLE_EMSCRIPTEN"])

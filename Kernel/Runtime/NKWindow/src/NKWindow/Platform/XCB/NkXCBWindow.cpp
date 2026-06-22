@@ -19,6 +19,8 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
+#include "NKWindow/Platform/Common/NkSystemMemory.h"   // NkXcbFree (wrappe le free() libc des replies libxcb)
+#include "NKMemory/NkAllocator.h"                        // NkGetDefaultAllocator().New/Delete
 #include "NKCore/NkAtomic.h"
 
 #include <xcb/xcb.h>
@@ -98,7 +100,7 @@ namespace nkentseu {
                                                         static_cast<uint16_t>(strlen(name)), name);
         xcb_intern_atom_reply_t* reply  = xcb_intern_atom_reply(c, cookie, nullptr);
         xcb_atom_t atom = reply ? reply->atom : XCB_ATOM_NONE;
-        free(reply);
+        platform::NkXcbFree(reply);
         return atom;
     }
 
@@ -116,7 +118,7 @@ namespace nkentseu {
         if (geomReply) {
             config.width = geomReply->width;
             config.height = geomReply->height;
-            free(geomReply);
+            platform::NkXcbFree(geomReply);
         }
 
         // Récupérer la position relative à la racine
@@ -127,15 +129,21 @@ namespace nkentseu {
         if (transReply) {
             config.x = transReply->dst_x;
             config.y = transReply->dst_y;
-            free(transReply);
+            platform::NkXcbFree(transReply);
         }
 
-        // Récupérer le titre (WM_NAME)
-        xcb_icccm_get_wm_name_reply_t nameReply;
-        xcb_icccm_get_wm_name_cookie_t nameCookie = xcb_icccm_get_wm_name(conn, window);
-        if (xcb_icccm_get_wm_name_reply(conn, nameCookie, &nameReply, nullptr)) {
-            config.title = NkString((const char*)nameReply.name, nameReply.name_len);
-            xcb_icccm_get_wm_name_reply_wipe(&nameReply);
+        // Récupérer le titre (WM_NAME) via xcb_get_property (xcb core) — l'ancienne API
+        // xcb_icccm_get_wm_name a été retirée des libxcb-icccm récents.
+        {
+            xcb_get_property_cookie_t nameCookie =
+                xcb_get_property(conn, 0, window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, 1024);
+            xcb_get_property_reply_t* nameReply = xcb_get_property_reply(conn, nameCookie, nullptr);
+            if (nameReply) {
+                int nameLen = xcb_get_property_value_length(nameReply);
+                if (nameLen > 0)
+                    config.title = NkString((const char*)xcb_get_property_value(nameReply), (usize)nameLen);
+                platform::NkXcbFree(nameReply);
+            }
         }
 
         // Récupérer l'état de visibilité (mapped)
@@ -144,7 +152,7 @@ namespace nkentseu {
             xcb_get_window_attributes_reply(conn, attrCookie, nullptr);
         if (attrReply) {
             config.visible = (attrReply->map_state == XCB_MAP_STATE_VIEWABLE);
-            free(attrReply);
+            platform::NkXcbFree(attrReply);
         }
 
         // Récupérer l'état plein écran via _NET_WM_STATE
@@ -167,7 +175,7 @@ namespace nkentseu {
                     }
                 }
             }
-            free(propReply);
+            platform::NkXcbFree(propReply);
         }
     }
 
@@ -193,7 +201,7 @@ namespace nkentseu {
                                     XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
                                     values);
             }
-            free(geomReply);
+            platform::NkXcbFree(geomReply);
         }
 
         // Position
@@ -208,7 +216,7 @@ namespace nkentseu {
                                     XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y,
                                     values);
             }
-            free(transReply);
+            platform::NkXcbFree(transReply);
         }
 
         // Visibilité
@@ -224,7 +232,7 @@ namespace nkentseu {
                     xcb_unmap_window(conn, window);
                 }
             }
-            free(attrReply);
+            platform::NkXcbFree(attrReply);
         }
 
         xcb_flush(conn);
@@ -301,8 +309,8 @@ namespace nkentseu {
             xcb_generic_error_t* err = nullptr;
             xcb_get_geometry_reply_t* r = xcb_get_geometry_reply(mData.mConnection, c, &err);
             if (!r || err) {
-                free(r);
-                free(err);
+                platform::NkXcbFree(r);
+                platform::NkXcbFree(err);
                 --sWindowCount;
                 if (sWindowCount <= 0) {
                     if (sConnectionOwned) xcb_disconnect(sConnection);
@@ -314,7 +322,7 @@ namespace nkentseu {
                 mLastError = NkError(2, "Invalid external XCB window.");
                 return false;
             }
-            free(r);
+            platform::NkXcbFree(r);
 
             NkXCBRegisterWindow(mData.mWindow, this);
             mId = NkWESystem::Instance().RegisterWindow(this);
@@ -426,7 +434,7 @@ namespace nkentseu {
         mId = NkWESystem::Instance().RegisterWindow(this);
 
         // XDND drop target integration (events forwarded to NkEventSystem queue).
-        mData.mDropTarget = new NkXCBDropTarget(mData.mConnection, mData.mWindow);
+        mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkXCBDropTarget>(mData.mConnection, mData.mWindow);
         if (mData.mDropTarget) {
             mData.mDropTarget->SetDropEnterCallback(NkXCBDropTarget::DropEnterCallback([this](const NkDropEnterEvent& ev) {
                 NkDropEnterEvent copy(ev);
@@ -471,7 +479,7 @@ namespace nkentseu {
         mId = NK_INVALID_WINDOW_ID;
 
         if (mData.mDropTarget) {
-            delete mData.mDropTarget;
+            memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
             mData.mDropTarget = nullptr;
         }
 
@@ -527,17 +535,20 @@ namespace nkentseu {
             return mConfig.title;
         }
         
-        xcb_icccm_get_wm_name_reply_t nameReply;
-        xcb_icccm_get_wm_name_cookie_t nameCookie = xcb_icccm_get_wm_name(mData.mConnection, mData.mWindow);
-        
-        if (xcb_icccm_get_wm_name_reply(mData.mConnection, nameCookie, &nameReply, nullptr)) {
-            NkString title = NkString((const char*)nameReply.name, nameReply.name_len);
-            xcb_icccm_get_wm_name_reply_wipe(&nameReply);
-            
-            // Synchroniser mConfig
-            const_cast<NkWindow*>(this)->mConfig.title = title;
-            
-            return title;
+        // WM_NAME via xcb_get_property (xcb core) — l'ancienne API xcb_icccm_get_wm_name
+        // n'existe plus dans les libxcb-icccm récents.
+        xcb_get_property_cookie_t nameCookie =
+            xcb_get_property(mData.mConnection, 0, mData.mWindow, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, 1024);
+        xcb_get_property_reply_t* nameReply = xcb_get_property_reply(mData.mConnection, nameCookie, nullptr);
+        if (nameReply) {
+            int nameLen = xcb_get_property_value_length(nameReply);
+            if (nameLen > 0) {
+                NkString title = NkString((const char*)xcb_get_property_value(nameReply), (usize)nameLen);
+                platform::NkXcbFree(nameReply);
+                const_cast<NkWindow*>(this)->mConfig.title = title;
+                return title;
+            }
+            platform::NkXcbFree(nameReply);
         }
         return mConfig.title;
     }
@@ -551,7 +562,7 @@ namespace nkentseu {
         if (!r) return { mConfig.width, mConfig.height };
         
         NkVec2u sz = { (uint32)r->width, (uint32)r->height };
-        free(r);
+        platform::NkXcbFree(r);
         
         // Synchroniser mConfig
         const_cast<NkWindow*>(this)->mConfig.width = sz.x;
@@ -572,7 +583,7 @@ namespace nkentseu {
         if (!r) return { (uint32)mConfig.x, (uint32)mConfig.y };
         
         NkVec2u pos = { (uint32)r->dst_x, (uint32)r->dst_y };
-        free(r);
+        platform::NkXcbFree(r);
         
         // Synchroniser mConfig
         const_cast<NkWindow*>(this)->mConfig.x = pos.x;
@@ -629,7 +640,7 @@ namespace nkentseu {
         // CRTC inactif (pas de mode ou pas d'output) : ignore.
         int noutput = xcb_randr_get_crtc_info_outputs_length(ci);
         if (ci->mode == XCB_NONE || noutput <= 0) {
-            free(ci);
+            platform::NkXcbFree(ci);
             return false;
         }
 
@@ -684,12 +695,12 @@ namespace nkentseu {
             info.dpiScale = dpiX / 96.f;
             if (info.dpiScale < 0.5f) info.dpiScale = 1.f;
 
-            free(oi);
+            platform::NkXcbFree(oi);
         }
 
         info.isPrimary = (primaryOutput != XCB_NONE && out == primaryOutput);
 
-        free(ci);
+        platform::NkXcbFree(ci);
         return true;
     }
 
@@ -727,7 +738,7 @@ namespace nkentseu {
             xcb_randr_get_output_primary_reply(conn, pck, nullptr);
         if (pr) {
             primary = pr->output;
-            free(pr);
+            platform::NkXcbFree(pr);
         }
 
         int ncrtc = xcb_randr_get_screen_resources_current_crtcs_length(res);
@@ -743,7 +754,7 @@ namespace nkentseu {
             }
         }
 
-        free(res);
+        platform::NkXcbFree(res);
 
         if (out.Size() == 0) {
             out.PushBack(XCBFallbackDisplayInfo(screen));
@@ -774,8 +785,8 @@ namespace nkentseu {
                 cy = tr->dst_y + gr->height / 2;
                 haveWin = true;
             }
-            if (tr) free(tr);
-            if (gr) free(gr);
+            if (tr) platform::NkXcbFree(tr);
+            if (gr) platform::NkXcbFree(gr);
         }
 
         if (haveWin) {
@@ -913,7 +924,7 @@ namespace nkentseu {
         if (r) {
             mConfig.width = r->width;
             mConfig.height = r->height;
-            free(r);
+            platform::NkXcbFree(r);
         }
         mConfig.visible = true;
     }
@@ -930,7 +941,7 @@ namespace nkentseu {
         if (r) {
             mConfig.width = r->width;
             mConfig.height = r->height;
-            free(r);
+            platform::NkXcbFree(r);
         }
         mConfig.visible = true;
     }
@@ -966,7 +977,7 @@ namespace nkentseu {
             if (r) {
                 mConfig.width = r->width;
                 mConfig.height = r->height;
-                free(r);
+                platform::NkXcbFree(r);
             }
         }
     }
@@ -1037,7 +1048,7 @@ namespace nkentseu {
                 XCB_NONE,             // cursor
                 XCB_CURRENT_TIME);
             xcb_grab_pointer_reply_t* r = xcb_grab_pointer_reply(mData.mConnection, ck, nullptr);
-            if (r) free(r);
+            if (r) platform::NkXcbFree(r);
         } else {
             xcb_ungrab_pointer(mData.mConnection, XCB_CURRENT_TIME);
         }

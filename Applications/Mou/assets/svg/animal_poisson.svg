@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke="#b8521f" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- queue -->
+    <path d="M150 100 C168 80 184 72 188 78 C182 92 184 108 188 122 C184 128 168 120 150 100 Z" fill="#ef7e3a"/>
+    <!-- nageoire dorsale + ventrale -->
+    <path d="M86 44 C96 26 116 24 124 40 C112 46 98 50 86 64 Z" fill="#ef7e3a"/>
+    <path d="M86 156 C96 174 116 176 124 160 C112 154 98 150 86 136 Z" fill="#ef7e3a"/>
+    <!-- corps -->
+    <ellipse cx="92" cy="100" rx="74" ry="50" fill="#f8974f"/>
+  </g>
+  <!-- nageoire laterale -->
+  <path d="M96 100 C112 100 126 112 124 132 C108 128 98 116 96 100 Z" fill="#ef7e3a" stroke="#b8521f" stroke-width="4" stroke-linejoin="round"/>
+  <!-- ecailles -->
+  <g fill="none" stroke="#ef7e3a" stroke-width="4" stroke-linecap="round">
+    <path d="M96 70 C104 90 104 110 96 130"/>
+    <path d="M118 72 C126 92 126 108 118 128"/>
+    <path d="M140 78 C146 92 146 108 140 122"/>
+  </g>
+  <!-- oeil -->
+  <circle cx="52" cy="90" r="14" fill="#ffffff" stroke="#b8521f" stroke-width="4"/>
+  <circle cx="49" cy="90" r="7" fill="#3a2f28"/>
+  <circle cx="46" cy="87" r="2.4" fill="#ffffff"/>
+  <!-- bouche -->
+  <path d="M22 104 C30 114 40 114 48 106" stroke="#b8521f" stroke-width="5" fill="none" stroke-linecap="round"/>
+</svg>

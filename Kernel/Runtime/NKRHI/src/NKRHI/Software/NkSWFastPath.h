@@ -12,6 +12,7 @@
 // =============================================================================
 
 #include "NkSoftwareDevice.h"
+#include "NKMemory/NkAllocator.h"
 #include <cstring>
 #include <cmath>
 
@@ -35,14 +36,14 @@ namespace nkentseu {
             NkVertexSoftware* verts    = nullptr;
             uint32            capacity = 0;
         
-            ~NkSWVertexPool() { delete[] verts; }
-        
+            ~NkSWVertexPool() { nkentseu::memory::NkGetDefaultAllocator().DeleteArray(verts); }
+
             NkVertexSoftware* Alloc(uint32 n) {
                 if (n > kMaxVerts) n = kMaxVerts;
                 if (n > capacity) {
-                    delete[] verts;
+                    nkentseu::memory::NkGetDefaultAllocator().DeleteArray(verts);
                     capacity = kMaxVerts;
-                    verts    = new NkVertexSoftware[capacity]();
+                    verts    = nkentseu::memory::NkGetDefaultAllocator().NewArray<NkVertexSoftware>(capacity);
                 }
                 return verts;
             }

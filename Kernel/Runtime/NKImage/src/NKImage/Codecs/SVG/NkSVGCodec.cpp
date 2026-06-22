@@ -336,6 +336,33 @@ NkSVGTransform NkSVGTransform::Parse(const char* str) noexcept
 
 namespace {
 
+// ── Gradients (linear / radial) ───────────────────────────────────────────────
+enum class GradKind   : uint8 { Linear = 0, Radial };
+enum class GradSpread : uint8 { Pad = 0, Reflect, Repeat };
+
+struct GradStop {
+    float32    offset = 0.f;   // 0..1
+    NkSVGColor color;          // color.a inclut deja stop-opacity
+};
+
+struct Gradient {
+    char           id[64]   = {0};
+    char           href[64] = {0};   // gradient reference (stops herites)
+    GradKind       kind     = GradKind::Linear;
+    GradSpread     spread   = GradSpread::Pad;
+    bool           userSpace= false; // false = objectBoundingBox (defaut)
+    NkSVGTransform xform     = NkSVGTransform::Identity();  // gradientTransform
+    float32        x1 = 0.f, y1 = 0.f, x2 = 1.f, y2 = 0.f;  // linear (defaut bbox 0..1)
+    float32        cx = 0.5f, cy = 0.5f, r = 0.5f;          // radial
+    NkVector<GradStop> stops;
+
+    Gradient() = default;
+    Gradient(Gradient&&) noexcept = default;
+    Gradient& operator=(Gradient&&) noexcept = default;
+    Gradient(const Gradient&) = delete;
+    Gradient& operator=(const Gradient&) = delete;
+};
+
 /// Shape interne = un path flatten en polyligne(s), + style cumule + CTM applique.
 /// Les xs/ys sont en COORDONNEES DESTINATION (apres ctm + view->out scaling).
 struct Shape {
@@ -344,6 +371,9 @@ struct Shape {
     NkVector<float32> ys;
     NkVector<int32>   contourStart;  // index dans xs/ys
     NkVector<int32>   contourLen;
+    NkSVGTransform    ctm = NkSVGTransform::Identity();  // CTM applique (gradients userSpace)
+    char              fillRef[64]   = {0};  // id de gradient si fill="url(#id)"
+    char              strokeRef[64] = {0};  // id de gradient si stroke="url(#id)"
 
     Shape() = default;
     // Move uniquement (les NkVector peuvent etre couteux a copier).
@@ -357,6 +387,8 @@ struct Shape {
 struct ParseState {
     NkSVGStyle     style = {};
     NkSVGTransform xform = NkSVGTransform::Identity();
+    char           fillRef[64]   = {0};  // herite via cascade <g>
+    char           strokeRef[64] = {0};
 };
 
 /// Paire (nom, valeur) d'attribut XML. value pointe dans le pool partage.
@@ -694,6 +726,20 @@ void ApplyAttrToStyle(NkSVGStyle& s, const char* name, const char* value) noexce
     else if (std::strcmp(name, "fill-rule") == 0)      s.fillEvenOdd = (std::strcmp(value, "evenodd") == 0);
     else if (std::strcmp(name, "display") == 0)        s.visible = std::strcmp(value, "none") != 0;
     else if (std::strcmp(name, "visibility") == 0)     s.visible = std::strcmp(value, "hidden") != 0;
+    else if (std::strcmp(name, "stroke-linecap") == 0) {
+        if      (std::strcmp(value, "round")  == 0) s.strokeLineCap = NkSVGLineCap::Round;
+        else if (std::strcmp(value, "square") == 0) s.strokeLineCap = NkSVGLineCap::Square;
+        else                                        s.strokeLineCap = NkSVGLineCap::Butt;
+    }
+    else if (std::strcmp(name, "stroke-linejoin") == 0) {
+        if      (std::strcmp(value, "round") == 0) s.strokeLineJoin = NkSVGLineJoin::Round;
+        else if (std::strcmp(value, "bevel") == 0) s.strokeLineJoin = NkSVGLineJoin::Bevel;
+        else                                       s.strokeLineJoin = NkSVGLineJoin::Miter;
+    }
+    else if (std::strcmp(name, "stroke-miterlimit") == 0) {
+        const float32 ml = ParseFloat(value);
+        s.strokeMiterLimit = (ml >= 1.f) ? ml : 1.f;
+    }
 }
 
 /// Parse l'attribut "style" CSS inline (key:value;key:value).
@@ -742,6 +788,122 @@ NkSVGStyle MergeStyle(const NkSVGStyle& parent,
         ApplyAttrToStyle(s, attrs[i].name, attrs[i].value);
     }
     return s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers gradients : url(#id), props CSS, refs fill/stroke, lecture de <stop>
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Extrait l'id d'une valeur "url(#id)" -> out. @return true si match.
+bool ParseUrlRef(const char* v, char* out, usize outSz) noexcept
+{
+    if (!v) return false;
+    const char* p = SkipWS(v);
+    if (std::strncmp(p, "url(", 4) != 0) return false;
+    p += 4;
+    p = SkipWS(p);
+    if (*p == '#') ++p;
+    usize i = 0;
+    while (*p && *p != ')' && i + 1 < outSz) {
+        if (!IsSpace(*p)) out[i++] = *p;
+        ++p;
+    }
+    out[i] = 0;
+    return i > 0;
+}
+
+/// Recupere une propriete d'un attribut style="a:b;c:d". @return true si trouvee.
+bool GetCSSProp(const char* css, const char* prop, char* out, usize outSz) noexcept
+{
+    if (!css) return false;
+    const usize plen = std::strlen(prop);
+    const char* p = css;
+    while (*p) {
+        const char* ns = p;
+        while (*p && *p != ':' && *p != ';') ++p;
+        const char* n0 = ns; const char* nend = p;
+        while (n0 < nend && IsSpace(*n0)) ++n0;
+        while (nend > n0 && IsSpace(nend[-1])) --nend;
+        const bool match = ((usize)(nend - n0) == plen) && std::strncmp(n0, prop, plen) == 0;
+        if (*p == ':') {
+            ++p; while (*p && IsSpace(*p)) ++p;
+            const char* vs = p;
+            while (*p && *p != ';') ++p;
+            const char* ve = p;
+            while (ve > vs && IsSpace(ve[-1])) --ve;
+            if (match) {
+                usize i = 0;
+                for (const char* q = vs; q < ve && i + 1 < outSz; ++q) out[i++] = *q;
+                out[i] = 0;
+                return true;
+            }
+        }
+        if (*p == ';') ++p;
+    }
+    return false;
+}
+
+/// Met a jour un ref (fill/stroke) selon une valeur : url() -> set, sinon clear.
+void UpdateRefFromValue(char* ref, const char* value) noexcept
+{
+    char tmp[64];
+    if (value && ParseUrlRef(value, tmp, sizeof(tmp))) {
+        std::strncpy(ref, tmp, 63); ref[63] = 0;
+    } else if (value) {
+        ref[0] = 0;  // couleur solide ou "none" : annule un gradient herite
+    }
+}
+
+/// Met a jour fillRef/strokeRef (deja herites) selon style="" puis attrs individuels.
+void UpdateRefs(char* fillRef, char* strokeRef,
+                const AttrPair* attrs, int32 n) noexcept
+{
+    const char* css = FindAttr(attrs, n, "style");
+    if (css) {
+        char buf[80];
+        if (GetCSSProp(css, "fill", buf, sizeof(buf)))   UpdateRefFromValue(fillRef, buf);
+        if (GetCSSProp(css, "stroke", buf, sizeof(buf))) UpdateRefFromValue(strokeRef, buf);
+    }
+    for (int32 i = 0; i < n; ++i) {
+        if (std::strcmp(attrs[i].name, "fill") == 0)        UpdateRefFromValue(fillRef, attrs[i].value);
+        else if (std::strcmp(attrs[i].name, "stroke") == 0) UpdateRefFromValue(strokeRef, attrs[i].value);
+    }
+}
+
+/// Parse un nombre pouvant finir par '%' (=> /100). @p def si str nul.
+float32 ParsePct(const char* s, float32 def) noexcept
+{
+    if (!s) return def;
+    const char* e = nullptr;
+    float32 v = ParseFloat(s, &e);
+    if (e) { while (*e && IsSpace(*e)) ++e; if (*e == '%') v *= 0.01f; }
+    return v;
+}
+
+/// Lit un <stop> -> GradStop (offset + stop-color * stop-opacity).
+GradStop ReadStop(const AttrPair* a, int32 n) noexcept
+{
+    GradStop st;
+    const char* css = FindAttr(a, n, "style");
+    char cbuf[80], obuf[32];
+
+    const char* sc = FindAttr(a, n, "stop-color");
+    if (!sc && css && GetCSSProp(css, "stop-color", cbuf, sizeof(cbuf))) sc = cbuf;
+    NkSVGColor col = sc ? NkSVGColor::Parse(sc) : NkSVGColor::Black();
+
+    const char* so = FindAttr(a, n, "stop-opacity");
+    if (!so && css && GetCSSProp(css, "stop-opacity", obuf, sizeof(obuf))) so = obuf;
+    if (so) {
+        float32 op = ParseFloat(so);
+        if (op < 0.f) op = 0.f; if (op > 1.f) op = 1.f;
+        col.a = (uint8)((float32)col.a * op);
+    }
+    col.none = false;
+    st.color = col;
+    st.offset = ParsePct(FindAttr(a, n, "offset"), 0.f);
+    if (st.offset < 0.f) st.offset = 0.f;
+    if (st.offset > 1.f) st.offset = 1.f;
+    return st;
 }
 
 /// Applique une matrice a tous les points d'une Shape (in-place).
@@ -992,9 +1154,10 @@ int32 ReadNextTag(const char*& p, const char* end,
     return 0;
 }
 
-/// Parse l'ensemble du document SVG -> liste de shapes + viewBox + dimensions.
+/// Parse l'ensemble du document SVG -> liste de shapes + gradients + viewBox + dim.
 void ParseSVGDocument(const char* xml, usize xmlLen,
                       NkVector<Shape>& shapes,
+                      NkVector<Gradient>& gradients,
                       float32& vbX, float32& vbY, float32& vbW, float32& vbH,
                       float32& svgW, float32& svgH) noexcept
 {
@@ -1022,6 +1185,9 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
 
     int32 numAttrs = 0;
     bool gotSvg = false;
+    int32 defsDepth = 0;       // > 0 = on est dans <defs> : shapes non rendues
+    bool  buildingGrad = false;
+    Gradient curGrad;          // gradient en cours de construction (stops)
     // BUG FIX : end est calcule UNE seule fois. xml est passe par reference et
     // est avance par le parser ; si on recalcule "xml + xmlLen" a chaque tour,
     // end se decale avec xml et finit par sortir du buffer (SEGV sur memoire
@@ -1037,9 +1203,16 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
         if (kind == 0) break;
 
         if (kind == 3) {
-            // Closing tag : depile la stack si c'est </g> ou </svg>.
+            // Closing tag : depile la stack / la profondeur defs / finalise un gradient.
             if (std::strcmp(tagBuf, "g") == 0 && depth > 0) {
                 --depth;
+            } else if (std::strcmp(tagBuf, "defs") == 0 && defsDepth > 0) {
+                --defsDepth;
+            } else if ((std::strcmp(tagBuf, "linearGradient") == 0 ||
+                        std::strcmp(tagBuf, "radialGradient") == 0) && buildingGrad) {
+                gradients.PushBack(std::move(curGrad));
+                curGrad = Gradient();
+                buildingGrad = false;
             }
             continue;
         }
@@ -1061,6 +1234,7 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
             if (h) svgH = ParseFloat(h);
             // <svg> peut aussi porter fill/stroke par defaut + transform.
             cur.style = MergeStyle(cur.style, attrs, numAttrs);
+            UpdateRefs(cur.fillRef, cur.strokeRef, attrs, numAttrs);
             const char* tr = FindAttr(attrs, numAttrs, "transform");
             if (tr) cur.xform = cur.xform * NkSVGTransform::Parse(tr);
             gotSvg = true;
@@ -1074,6 +1248,7 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
             if (kind == 1 && depth + 1 < kMaxDepth) {
                 ParseState next = cur;
                 next.style = MergeStyle(cur.style, attrs, numAttrs);
+                UpdateRefs(next.fillRef, next.strokeRef, attrs, numAttrs);
                 const char* tr = FindAttr(attrs, numAttrs, "transform");
                 if (tr) next.xform = cur.xform * NkSVGTransform::Parse(tr);
                 stack[++depth] = next;
@@ -1082,9 +1257,58 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
             continue;
         }
 
+        // <defs> : on N'ignore PLUS le bloc -> on entre dedans pour capter les
+        // gradients ; un compteur empeche le rendu des shapes qu'il contient.
+        if (std::strcmp(tagBuf, "defs") == 0) {
+            if (kind == 1) ++defsDepth;
+            continue;
+        }
+
+        // Gradients : <linearGradient> / <radialGradient> (+ <stop> enfants).
+        if (std::strcmp(tagBuf, "linearGradient") == 0 ||
+            std::strcmp(tagBuf, "radialGradient") == 0) {
+            curGrad = Gradient();
+            curGrad.kind = (tagBuf[0] == 'l') ? GradKind::Linear : GradKind::Radial;
+            const char* id = FindAttr(attrs, numAttrs, "id");
+            if (id) { std::strncpy(curGrad.id, id, 63); curGrad.id[63] = 0; }
+            const char* href = FindAttr(attrs, numAttrs, "xlink:href");
+            if (!href) href = FindAttr(attrs, numAttrs, "href");
+            if (href) { const char* hp = (*href == '#') ? href + 1 : href;
+                        std::strncpy(curGrad.href, hp, 63); curGrad.href[63] = 0; }
+            const char* gu = FindAttr(attrs, numAttrs, "gradientUnits");
+            curGrad.userSpace = (gu && std::strcmp(gu, "userSpaceOnUse") == 0);
+            const char* gt = FindAttr(attrs, numAttrs, "gradientTransform");
+            if (gt) curGrad.xform = NkSVGTransform::Parse(gt);
+            const char* sp = FindAttr(attrs, numAttrs, "spreadMethod");
+            if (sp) {
+                if      (std::strcmp(sp, "reflect") == 0) curGrad.spread = GradSpread::Reflect;
+                else if (std::strcmp(sp, "repeat")  == 0) curGrad.spread = GradSpread::Repeat;
+            }
+            if (curGrad.kind == GradKind::Linear) {
+                curGrad.x1 = ParsePct(FindAttr(attrs, numAttrs, "x1"), 0.f);
+                curGrad.y1 = ParsePct(FindAttr(attrs, numAttrs, "y1"), 0.f);
+                curGrad.x2 = ParsePct(FindAttr(attrs, numAttrs, "x2"), 1.f);
+                curGrad.y2 = ParsePct(FindAttr(attrs, numAttrs, "y2"), 0.f);
+            } else {
+                curGrad.cx = ParsePct(FindAttr(attrs, numAttrs, "cx"), 0.5f);
+                curGrad.cy = ParsePct(FindAttr(attrs, numAttrs, "cy"), 0.5f);
+                curGrad.r  = ParsePct(FindAttr(attrs, numAttrs, "r"),  0.5f);
+            }
+            buildingGrad = true;
+            if (kind == 2) {  // self-close (ex. gradient referencant un href, sans stops)
+                gradients.PushBack(std::move(curGrad));
+                curGrad = Gradient();
+                buildingGrad = false;
+            }
+            continue;
+        }
+        if (std::strcmp(tagBuf, "stop") == 0) {
+            if (buildingGrad) curGrad.stops.PushBack(ReadStop(attrs, numAttrs));
+            continue;
+        }
+
         // Tags structurels ignores (contenu sans shape direct).
-        if (std::strcmp(tagBuf, "defs")     == 0
-         || std::strcmp(tagBuf, "title")    == 0
+        if (std::strcmp(tagBuf, "title")    == 0
          || std::strcmp(tagBuf, "desc")     == 0
          || std::strcmp(tagBuf, "metadata") == 0
          || std::strcmp(tagBuf, "style")    == 0)
@@ -1107,12 +1331,17 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
             continue;
         }
 
+        // Contenu de <defs> : definitions seulement, pas de rendu de shape.
+        if (defsDepth > 0) continue;
+
         // Element shape : compose le state local = cur + attrs propres.
         ParseState local = cur;
         local.style = MergeStyle(cur.style, attrs, numAttrs);
+        UpdateRefs(local.fillRef, local.strokeRef, attrs, numAttrs);
         const char* tr = FindAttr(attrs, numAttrs, "transform");
         if (tr) local.xform = cur.xform * NkSVGTransform::Parse(tr);
 
+        const uint32 shapeBefore = shapes.Size();
         if      (std::strcmp(tagBuf, "rect") == 0)     ShapeFromRect    (shapes, attrs, numAttrs, local);
         else if (std::strcmp(tagBuf, "circle") == 0)   ShapeFromCircle  (shapes, attrs, numAttrs, local);
         else if (std::strcmp(tagBuf, "ellipse") == 0)  ShapeFromEllipse (shapes, attrs, numAttrs, local);
@@ -1121,6 +1350,13 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
         else if (std::strcmp(tagBuf, "polygon")  == 0) ShapeFromPolygon (shapes, attrs, numAttrs, local, true);
         else if (std::strcmp(tagBuf, "path") == 0)     ShapeFromPath    (shapes, attrs, numAttrs, local);
         // Autres tags ignores.
+
+        // Propage le CTM + les refs de gradient aux shapes nouvellement creees.
+        for (uint32 si = shapeBefore; si < shapes.Size(); ++si) {
+            shapes[si].ctm = local.xform;
+            std::strncpy(shapes[si].fillRef,   local.fillRef,   63); shapes[si].fillRef[63]   = 0;
+            std::strncpy(shapes[si].strokeRef, local.strokeRef, 63); shapes[si].strokeRef[63] = 0;
+        }
     }
 
     NkFree(nameBuf);
@@ -1133,7 +1369,70 @@ void ParseSVGDocument(const char* xml, usize xmlLen,
 
 struct ScanEdge { float32 x; int32 dir; };
 
-void RasterizeShape(NkImage& img, const Shape& sh) noexcept
+// ── Peinture gradient resolue en espace DESTINATION (pixels) ──────────────────
+struct GradPaint {
+    GradKind        kind   = GradKind::Linear;
+    GradSpread      spread = GradSpread::Pad;
+    const GradStop* stops  = nullptr;
+    int32           nStops = 0;
+    float32 ax = 0, ay = 0, bx = 1, by = 0;  // linear : A->B en pixels
+    float32 cx = 0, cy = 0, rr = 1;          // radial : centre + rayon en pixels
+};
+
+/// Lerp deux couleurs (composantes + alpha).
+NkSVGColor LerpStopColor(const NkSVGColor& a, const NkSVGColor& b, float32 f) noexcept
+{
+    if (f < 0.f) f = 0.f; if (f > 1.f) f = 1.f;
+    NkSVGColor c;
+    c.r = (uint8)((float32)a.r + ((float32)b.r - (float32)a.r) * f);
+    c.g = (uint8)((float32)a.g + ((float32)b.g - (float32)a.g) * f);
+    c.b = (uint8)((float32)a.b + ((float32)b.b - (float32)a.b) * f);
+    c.a = (uint8)((float32)a.a + ((float32)b.a - (float32)a.a) * f);
+    c.none = false;
+    return c;
+}
+
+/// Evalue la couleur du gradient au pixel (px,py).
+NkSVGColor EvalGrad(const GradPaint& gp, float32 px, float32 py) noexcept
+{
+    if (gp.nStops <= 0) return NkSVGColor::Transparent();
+    float32 t;
+    if (gp.kind == GradKind::Linear) {
+        const float32 dx = gp.bx - gp.ax, dy = gp.by - gp.ay;
+        const float32 l2 = dx * dx + dy * dy;
+        t = (l2 > 1e-9f) ? ((px - gp.ax) * dx + (py - gp.ay) * dy) / l2 : 0.f;
+    } else {
+        const float32 dx = px - gp.cx, dy = py - gp.cy;
+        const float32 d = std::sqrt(dx * dx + dy * dy);
+        t = (gp.rr > 1e-6f) ? d / gp.rr : 0.f;
+    }
+    // spreadMethod.
+    if (gp.spread == GradSpread::Pad) {
+        if (t < 0.f) t = 0.f; if (t > 1.f) t = 1.f;
+    } else if (gp.spread == GradSpread::Repeat) {
+        t = t - std::floor(t);
+    } else {  // Reflect
+        float32 u = std::fabs(t);
+        u = u - 2.f * std::floor(u * 0.5f);
+        if (u > 1.f) u = 2.f - u;
+        t = u;
+    }
+    // Echantillonne les stops (supposes tries par offset croissant).
+    if (t <= gp.stops[0].offset) return gp.stops[0].color;
+    if (t >= gp.stops[gp.nStops - 1].offset) return gp.stops[gp.nStops - 1].color;
+    for (int32 i = 0; i < gp.nStops - 1; ++i) {
+        const float32 o0 = gp.stops[i].offset;
+        const float32 o1 = gp.stops[i + 1].offset;
+        if (t <= o1) {
+            const float32 seg = o1 - o0;
+            const float32 f = (seg > 1e-6f) ? (t - o0) / seg : 0.f;
+            return LerpStopColor(gp.stops[i].color, gp.stops[i + 1].color, f);
+        }
+    }
+    return gp.stops[gp.nStops - 1].color;
+}
+
+void RasterizeShape(NkImage& img, const Shape& sh, const GradPaint* paint = nullptr) noexcept
 {
     if (sh.contourStart.IsEmpty()) return;
     const NkSVGColor& fill = sh.style.fill;
@@ -1141,10 +1440,10 @@ void RasterizeShape(NkImage& img, const Shape& sh) noexcept
     if (!sh.style.visible) return;
 
     // Alpha effectif = fill.a * opacity * fill-opacity (range 0..1).
-    const float32 alphaF = (float32)fill.a / 255.f
-                         * sh.style.opacity * sh.style.fillOpacity;
-    if (alphaF <= 0.f) return;
-    const uint8 fillAlpha = (uint8)(alphaF * 255.f);
+    // En mode gradient, l'alpha varie par pixel -> on ne pre-calcule que le facteur global.
+    const float32 styleA = sh.style.opacity * sh.style.fillOpacity;
+    const float32 alphaF = (float32)fill.a / 255.f * styleA;
+    if (!paint && alphaF <= 0.f) return;
 
     const int32 W = img.Width();
     const int32 H = img.Height();
@@ -1275,14 +1574,24 @@ void RasterizeShape(NkImage& img, const Shape& sh) noexcept
         for (int32 x = 0; x < W; ++x) {
             const uint8 c = covRow[x];
             if (c == 0) continue;
-            const float32 alpha = (float32)fillAlpha / 255.f
-                                * (float32)c / 255.f;
+            // Couleur source : solide ou echantillonnee dans le gradient.
+            int32 srcR, srcG, srcB; float32 baseA;
+            if (paint) {
+                const NkSVGColor gc = EvalGrad(*paint, (float32)x + 0.5f, (float32)py + 0.5f);
+                srcR = gc.r; srcG = gc.g; srcB = gc.b;
+                baseA = (float32)gc.a / 255.f * styleA;
+            } else {
+                srcR = fill.r; srcG = fill.g; srcB = fill.b;
+                baseA = alphaF;
+            }
+            const float32 alpha = baseA * (float32)c / 255.f;
             const int32 sa = (int32)(alpha * 255.f);
+            if (sa <= 0) continue;
             const int32 invA = 255 - sa;
             uint8* px = dst + (usize)x * 4;
-            px[0] = (uint8)(((int32)fill.r * sa + (int32)px[0] * invA + 127) / 255);
-            px[1] = (uint8)(((int32)fill.g * sa + (int32)px[1] * invA + 127) / 255);
-            px[2] = (uint8)(((int32)fill.b * sa + (int32)px[2] * invA + 127) / 255);
+            px[0] = (uint8)((srcR * sa + (int32)px[0] * invA + 127) / 255);
+            px[1] = (uint8)((srcG * sa + (int32)px[1] * invA + 127) / 255);
+            px[2] = (uint8)((srcB * sa + (int32)px[2] * invA + 127) / 255);
             const int32 a2 = (int32)px[3] + sa - ((int32)px[3] * sa + 127) / 255;
             px[3] = (uint8)(a2 > 255 ? 255 : (a2 < 0 ? 0 : a2));
         }
@@ -1292,127 +1601,173 @@ void RasterizeShape(NkImage& img, const Shape& sh) noexcept
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Construit une "shape ruban" autour du chemin source pour rasteriser le
-// stroke. Approche : pour chaque vertex on calcule la bisectrice des
-// tangentes adjacentes -> miter joint (limite a 4*hw pour eviter les
-// pointes infinies). Cap butt aux extremites des contours ouverts.
-//
-// Le polygone resultant est rempli par RasterizeShape comme une shape
-// ordinaire avec la couleur stroke en "fill". Suffisant pour Phase 2
-// (icones, logos, paths simples). Phase 3+ : cap round/square, join round.
+// Pousse un polygone dans la Shape destination en FORCANT l'orientation CCW puis
+// en fermant le contour. Indispensable : le stroke est rasterise en union de
+// multiples sous-polygones (quads de segment + disques/triangles de jointure) ;
+// si certains etaient CW et d'autres CCW, la regle nonzero les annulerait
+// (winding +1/-1 = 0 -> trous). Tout CCW -> winding >= 1 partout -> union pleine.
 // ─────────────────────────────────────────────────────────────────────────────
-void BuildStrokeShape(const Shape& src, float32 hwPx, Shape& dst) noexcept
+void PushPolyCCW(Shape& dst, const float32* px, const float32* py, int32 n) noexcept
+{
+    if (n < 3) return;
+    float32 area = 0.f;
+    for (int32 i = 0; i < n; ++i) {
+        const int32 j = (i + 1) % n;
+        area += px[i] * py[j] - px[j] * py[i];
+    }
+    const bool ccw = area > 0.f;
+    const int32 cStart = (int32)dst.xs.Size();
+    if (ccw) {
+        for (int32 i = 0; i < n; ++i) { dst.xs.PushBack(px[i]); dst.ys.PushBack(py[i]); }
+    } else {
+        for (int32 i = n - 1; i >= 0; --i) { dst.xs.PushBack(px[i]); dst.ys.PushBack(py[i]); }
+    }
+    // Ferme (re-pousse le premier point pousse).
+    dst.xs.PushBack(dst.xs[(uint32)cStart]);
+    dst.ys.PushBack(dst.ys[(uint32)cStart]);
+    dst.contourStart.PushBack(cStart);
+    dst.contourLen.PushBack((int32)dst.xs.Size() - cStart);
+}
+
+/// Pousse un disque approxime (20 cotes) — pour cap/join "round".
+void PushDisc(Shape& dst, float32 cx, float32 cy, float32 r) noexcept
+{
+    if (r <= 0.f) return;
+    constexpr int32 N = 20;
+    float32 px[N], py[N];
+    for (int32 i = 0; i < N; ++i) {
+        const float32 a = (float32)i * (6.283185307179586f / (float32)N);
+        px[i] = cx + r * std::cos(a);
+        py[i] = cy + r * std::sin(a);
+    }
+    PushPolyCCW(dst, px, py, N);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Construit une "shape ruban" autour du chemin source pour rasteriser le stroke.
+// Honore stroke-linecap (butt/round/square) et stroke-linejoin (miter/round/bevel)
+// + stroke-miterlimit. Approche par tampons : un quad par segment, une jointure
+// par vertex interieur, un cap par extremite ouverte. Tout passe par PushPolyCCW
+// (union nonzero correcte). Le resultat est rempli par RasterizeShape avec la
+// couleur stroke en "fill".
+// ─────────────────────────────────────────────────────────────────────────────
+void BuildStrokeShape(const Shape& src, float32 hwPx,
+                      NkSVGLineCap cap, NkSVGLineJoin join, float32 miterLimit,
+                      Shape& dst) noexcept
 {
     if (hwPx <= 0.f) return;
-    constexpr float32 kMiterLimit = 4.f;
-    const float32 maxMiter = kMiterLimit * hwPx;
+    if (miterLimit < 1.f) miterLimit = 1.f;
 
     for (uint32 ci = 0; ci < src.contourStart.Size(); ++ci) {
         const int32 start = src.contourStart[ci];
         const int32 len   = src.contourLen[ci];
         if (len < 2) continue;
 
-        // Contour ferme si premier == dernier point (a 1e-4 pres).
         const bool closed =
             (std::fabs(src.xs[start] - src.xs[start + len - 1]) < 1e-4f &&
              std::fabs(src.ys[start] - src.ys[start + len - 1]) < 1e-4f);
-        // Si ferme, on ignore le doublon final pour le calcul des tangentes.
         const int32 nPts = closed ? (len - 1) : len;
         if (nPts < 2) continue;
 
-        NkVector<float32> outerX, outerY;
-        NkVector<float32> innerX, innerY;
-        outerX.Reserve((uint32)nPts);
-        outerY.Reserve((uint32)nPts);
-        innerX.Reserve((uint32)nPts);
-        innerY.Reserve((uint32)nPts);
+        auto PX = [&](int32 i) { return src.xs[start + i]; };
+        auto PY = [&](int32 i) { return src.ys[start + i]; };
 
-        for (int32 i = 0; i < nPts; ++i) {
-            const float32 px = src.xs[start + i];
-            const float32 py = src.ys[start + i];
+        const int32 segCount = closed ? nPts : (nPts - 1);
 
-            // Tangente entrante (vers vertex precedent).
-            float32 tix = 0.f, tiy = 0.f;
-            bool hasIn = false;
-            if (i > 0 || closed) {
-                const int32 prev = (i > 0) ? (i - 1) : (nPts - 1);
-                tix = px - src.xs[start + prev];
-                tiy = py - src.ys[start + prev];
-                const float32 li = std::sqrt(tix*tix + tiy*tiy);
-                if (li > 1e-6f) { tix /= li; tiy /= li; hasIn = true; }
+        // ── Un quad par segment ───────────────────────────────────────────────
+        for (int32 s = 0; s < segCount; ++s) {
+            const int32 i0 = s;
+            const int32 i1 = (s + 1) % nPts;
+            float32 ax = PX(i0), ay = PY(i0);
+            float32 bx = PX(i1), by = PY(i1);
+            float32 dx = bx - ax, dy = by - ay;
+            const float32 l = std::sqrt(dx*dx + dy*dy);
+            if (l < 1e-6f) continue;
+            dx /= l; dy /= l;
+            const float32 nx = -dy * hwPx, ny = dx * hwPx;  // perpendiculaire * demi-largeur
+
+            // Cap "square" : etend le segment de hwPx aux extremites ouvertes.
+            if (!closed && cap == NkSVGLineCap::Square) {
+                if (s == 0)            { ax -= dx * hwPx; ay -= dy * hwPx; }
+                if (s == segCount - 1) { bx += dx * hwPx; by += dy * hwPx; }
             }
-            // Tangente sortante (vers vertex suivant).
-            float32 tox = 0.f, toy = 0.f;
-            bool hasOut = false;
-            if (i < nPts - 1 || closed) {
-                const int32 next = (i < nPts - 1) ? (i + 1) : 0;
-                tox = src.xs[start + next] - px;
-                toy = src.ys[start + next] - py;
-                const float32 lo = std::sqrt(tox*tox + toy*toy);
-                if (lo > 1e-6f) { tox /= lo; toy /= lo; hasOut = true; }
-            }
+            const float32 qx[4] = { ax + nx, bx + nx, bx - nx, ax - nx };
+            const float32 qy[4] = { ay + ny, by + ny, by - ny, ay - ny };
+            PushPolyCCW(dst, qx, qy, 4);
+        }
 
-            // Calcul de l'offset normal a ce vertex.
-            float32 ox = 0.f, oy = 0.f;
-            if (hasIn && hasOut) {
-                // Bisectrice des tangentes = direction du joint miter.
-                float32 bx = tix + tox, by = tiy + toy;
-                const float32 bl = std::sqrt(bx*bx + by*by);
-                if (bl < 1e-4f) {
-                    // U-turn (180 deg) : tangentes opposees, on prend la perp de tin.
-                    ox = -tiy * hwPx;
-                    oy =  tix * hwPx;
-                } else {
-                    bx /= bl; by /= bl;
-                    // Miter direction = perp(bisectrice).
-                    float32 mx = -by, my = bx;
-                    // Longueur miter = hw / cos(angle/2) = hw / dot(miter, perp(tin)).
-                    const float32 perpInX = -tiy, perpInY = tix;
-                    const float32 d = mx * perpInX + my * perpInY;
-                    float32 mlen = hwPx;
-                    if (std::fabs(d) > 1e-4f) mlen = hwPx / d;
-                    // Clamp miter pour eviter les pointes a l'infini sur angles aigus.
-                    if (mlen >  maxMiter) mlen =  maxMiter;
-                    if (mlen < -maxMiter) mlen = -maxMiter;
-                    ox = mx * mlen;
-                    oy = my * mlen;
-                }
-            } else if (hasIn) {
-                // Extremite finale (path ouvert) : cap butt, perp tangente entrante.
-                ox = -tiy * hwPx;
-                oy =  tix * hwPx;
-            } else if (hasOut) {
-                // Extremite initiale (path ouvert) : perp tangente sortante.
-                ox = -toy * hwPx;
-                oy =  tox * hwPx;
-            } else {
+        // ── Jointures aux vertices interieurs (et tous pour un contour ferme) ──
+        const int32 jStart = closed ? 0 : 1;
+        const int32 jEnd   = closed ? nPts : (nPts - 1);
+        for (int32 v = jStart; v < jEnd; ++v) {
+            const int32 prev = (v - 1 + nPts) % nPts;
+            const int32 next = (v + 1) % nPts;
+            float32 idx = PX(v) - PX(prev), idy = PY(v) - PY(prev);
+            float32 odx = PX(next) - PX(v), ody = PY(next) - PY(v);
+            const float32 li = std::sqrt(idx*idx + idy*idy);
+            const float32 lo = std::sqrt(odx*odx + ody*ody);
+            if (li < 1e-6f || lo < 1e-6f) continue;
+            idx /= li; idy /= li; odx /= lo; ody /= lo;
+            const float32 vx = PX(v), vy = PY(v);
+
+            if (join == NkSVGLineJoin::Round) {
+                PushDisc(dst, vx, vy, hwPx);
                 continue;
             }
+            // Perpendiculaires (unitaires) des deux segments.
+            const float32 niX = -idy, niY = idx;   // perp entrant
+            const float32 noX = -ody, noY = odx;   // perp sortant
 
-            outerX.PushBack(px + ox);
-            outerY.PushBack(py + oy);
-            innerX.PushBack(px - ox);
-            innerY.PushBack(py - oy);
+            bool doMiter = (join == NkSVGLineJoin::Miter);
+            float32 apX = 0.f, apY = 0.f, amX = 0.f, amY = 0.f;
+            if (doMiter) {
+                // Bisectrice des perpendiculaires -> direction du miter.
+                float32 bx = niX + noX, by = niY + noY;
+                const float32 bl = std::sqrt(bx*bx + by*by);
+                if (bl < 1e-4f) {
+                    doMiter = false;  // U-turn : pas de miter, bevel.
+                } else {
+                    bx /= bl; by /= bl;
+                    const float32 cosHalf = bx * niX + by * niY;  // dot(bisect, perpIn)
+                    if (cosHalf < 1e-4f) {
+                        doMiter = false;
+                    } else {
+                        const float32 ratio = 1.f / cosHalf;       // miterLength / hw
+                        if (ratio > miterLimit) {
+                            doMiter = false;                       // depasse la limite -> bevel
+                        } else {
+                            const float32 mlen = hwPx * ratio;
+                            apX = vx + bx * mlen; apY = vy + by * mlen;
+                            amX = vx - bx * mlen; amY = vy - by * mlen;
+                        }
+                    }
+                }
+            }
+
+            if (doMiter) {
+                // Triangles de miter des deux cotes (l'interieur est couvert par les quads).
+                const float32 tpX[3] = { vx + niX*hwPx, apX, vx + noX*hwPx };
+                const float32 tpY[3] = { vy + niY*hwPx, apY, vy + noY*hwPx };
+                PushPolyCCW(dst, tpX, tpY, 3);
+                const float32 tmX[3] = { vx - niX*hwPx, amX, vx - noX*hwPx };
+                const float32 tmY[3] = { vy - niY*hwPx, amY, vy - noY*hwPx };
+                PushPolyCCW(dst, tmX, tmY, 3);
+            } else {
+                // Bevel : comble le coin par un triangle de chaque cote vers le vertex.
+                const float32 tpX[3] = { vx + niX*hwPx, vx + noX*hwPx, vx };
+                const float32 tpY[3] = { vy + niY*hwPx, vy + noY*hwPx, vy };
+                PushPolyCCW(dst, tpX, tpY, 3);
+                const float32 tmX[3] = { vx - niX*hwPx, vx - noX*hwPx, vx };
+                const float32 tmY[3] = { vy - niY*hwPx, vy - noY*hwPx, vy };
+                PushPolyCCW(dst, tmX, tmY, 3);
+            }
         }
 
-        if (outerX.Size() < 2) continue;
-
-        // Polygone ferme : outer (sens normal) suivi de inner (sens inverse).
-        const int32 cStart = (int32)dst.xs.Size();
-        for (uint32 k = 0; k < outerX.Size(); ++k) {
-            dst.xs.PushBack(outerX[k]);
-            dst.ys.PushBack(outerY[k]);
+        // ── Caps "round" aux extremites ouvertes ──────────────────────────────
+        if (!closed && cap == NkSVGLineCap::Round) {
+            PushDisc(dst, PX(0), PY(0), hwPx);
+            PushDisc(dst, PX(nPts - 1), PY(nPts - 1), hwPx);
         }
-        for (int32 k = (int32)innerX.Size() - 1; k >= 0; --k) {
-            dst.xs.PushBack(innerX[(uint32)k]);
-            dst.ys.PushBack(innerY[(uint32)k]);
-        }
-        // Ferme le polygone (retour au premier vertex outer).
-        dst.xs.PushBack(outerX[0]);
-        dst.ys.PushBack(outerY[0]);
-        const int32 cEnd = (int32)dst.xs.Size();
-        dst.contourStart.PushBack(cStart);
-        dst.contourLen.PushBack(cEnd - cStart);
     }
 }
 
@@ -1420,10 +1775,77 @@ void BuildStrokeShape(const Shape& src, float32 hwPx, Shape& dst) noexcept
 /// Pointe par NkSVGImage::mImpl (PIMPL).
 struct SVGImageImpl
 {
-    NkVector<Shape> shapes;
+    NkVector<Shape>    shapes;
+    NkVector<Gradient> gradients;
     float32 vbX = 0, vbY = 0, vbW = 0, vbH = 0;
     float32 svgW = 0, svgH = 0;
 };
+
+/// Trouve un gradient par id (recherche lineaire). nullptr si absent.
+const Gradient* FindGradient(const SVGImageImpl* impl, const char* id) noexcept
+{
+    if (!impl || !id || !id[0]) return nullptr;
+    for (uint32 i = 0; i < impl->gradients.Size(); ++i) {
+        if (std::strcmp(impl->gradients[i].id, id) == 0) return &impl->gradients[i];
+    }
+    return nullptr;
+}
+
+/// Construit une GradPaint (geometrie en pixels destination) pour un ref donne.
+/// @p localPts = shape deja transformee (pour le bbox objectBoundingBox).
+/// @p ctm/@p mView = transforms pour le mode userSpaceOnUse.
+/// @return false si le gradient/les stops sont introuvables.
+bool BuildGradPaint(const SVGImageImpl* impl, const char* ref,
+                    const Shape& localPts,
+                    const NkSVGTransform& ctm, const NkSVGTransform& mView,
+                    GradPaint& gp) noexcept
+{
+    const Gradient* g = FindGradient(impl, ref);
+    if (!g) return false;
+
+    // Stops : ceux du gradient, ou herites via href si vides.
+    const Gradient* sg = g;
+    if (g->stops.IsEmpty() && g->href[0]) {
+        const Gradient* h = FindGradient(impl, g->href);
+        if (h) sg = h;
+    }
+    if (sg->stops.IsEmpty()) return false;
+    gp.stops  = &sg->stops[0];
+    gp.nStops = (int32)sg->stops.Size();
+    gp.kind   = g->kind;
+    gp.spread = g->spread;
+
+    if (!g->userSpace) {
+        // objectBoundingBox : bbox des points (espace destination).
+        float32 minx = 1e30f, miny = 1e30f, maxx = -1e30f, maxy = -1e30f;
+        for (uint32 k = 0; k < localPts.xs.Size(); ++k) {
+            const float32 x = localPts.xs[k], y = localPts.ys[k];
+            if (x < minx) minx = x; if (x > maxx) maxx = x;
+            if (y < miny) miny = y; if (y > maxy) maxy = y;
+        }
+        float32 w = maxx - minx, h = maxy - miny;
+        if (w <= 0.f) w = 1.f; if (h <= 0.f) h = 1.f;
+        if (g->kind == GradKind::Linear) {
+            gp.ax = minx + g->x1 * w; gp.ay = miny + g->y1 * h;
+            gp.bx = minx + g->x2 * w; gp.by = miny + g->y2 * h;
+        } else {
+            gp.cx = minx + g->cx * w; gp.cy = miny + g->cy * h;
+            gp.rr = g->r * std::sqrt((w * w + h * h) * 0.5f);
+        }
+    } else {
+        // userSpaceOnUse : coords user -> dest via mView * ctm * gradientTransform.
+        const NkSVGTransform total = mView * (ctm * g->xform);
+        if (g->kind == GradKind::Linear) {
+            float32 x = g->x1, y = g->y1; total.Apply(x, y); gp.ax = x; gp.ay = y;
+            x = g->x2; y = g->y2;          total.Apply(x, y); gp.bx = x; gp.by = y;
+        } else {
+            float32 x = g->cx, y = g->cy;  total.Apply(x, y); gp.cx = x; gp.cy = y;
+            float32 ex = g->cx + g->r, ey = g->cy; total.Apply(ex, ey);
+            gp.rr = std::sqrt((ex - gp.cx) * (ex - gp.cx) + (ey - gp.cy) * (ey - gp.cy));
+        }
+    }
+    return true;
+}
 
 }  // anonymous namespace
 
@@ -1643,7 +2065,7 @@ NkSVGImage* NkSVGImage::LoadFromMemory(const uint8* data, usize size) noexcept
     SVGImageImpl* impl = (SVGImageImpl*)NkAlloc(sizeof(SVGImageImpl));
     if (!impl) return nullptr;
     new (impl) SVGImageImpl();
-    ParseSVGDocument(xml, size, impl->shapes,
+    ParseSVGDocument(xml, size, impl->shapes, impl->gradients,
                      impl->vbX, impl->vbY, impl->vbW, impl->vbH,
                      impl->svgW, impl->svgH);
 
@@ -1735,15 +2157,23 @@ NkImage* NkSVGImage::Rasterize(int32 outW, int32 outH) const noexcept
             local.contourStart.PushBack(src.contourStart[k]);
             local.contourLen.PushBack(src.contourLen[k]);
         }
-        // ── Rasterise le fill (couleur de remplissage) ─────────────────────
-        RasterizeShape(*img, local);
+        // ── Rasterise le fill (couleur unie OU gradient) ───────────────────
+        GradPaint fillGP;
+        bool hasFillGP = false;
+        if (src.fillRef[0])
+            hasFillGP = BuildGradPaint(impl, src.fillRef, local, src.ctm, mView, fillGP);
+        const bool fillRefUnresolved = (src.fillRef[0] && !hasFillGP);
+        if (!fillRefUnresolved)
+            RasterizeShape(*img, local, hasFillGP ? &fillGP : nullptr);
 
         // ── Rasterise le stroke si present ─────────────────────────────────
         // On construit une nouvelle Shape "ruban" autour des contours et on
         // la rasterise comme un fill avec la couleur stroke. strokeWidth est
         // en unites SVG (avant view->out scale) : on le convertit en pixels
         // via la moyenne des facteurs du mView (mView est diagonal en pratique).
-        if (!src.style.stroke.none && src.style.strokeWidth > 0.f) {
+        const bool hasStroke = (!src.style.stroke.none || src.strokeRef[0])
+                            && src.style.strokeWidth > 0.f;
+        if (hasStroke) {
             const float32 sx = std::sqrt(mView.a * mView.a + mView.b * mView.b);
             const float32 sy = std::sqrt(mView.c * mView.c + mView.d * mView.d);
             const float32 swPx = src.style.strokeWidth * ((sx + sy) * 0.5f);
@@ -1754,9 +2184,19 @@ NkImage* NkSVGImage::Rasterize(int32 outW, int32 outH) const noexcept
                 strokeShape.style.fill         = src.style.stroke;
                 strokeShape.style.fillOpacity  = src.style.strokeOpacity;
                 strokeShape.style.fillEvenOdd  = false;
-                BuildStrokeShape(local, swPx * 0.5f, strokeShape);
-                if (strokeShape.contourStart.Size() > 0) {
-                    RasterizeShape(*img, strokeShape);
+                BuildStrokeShape(local, swPx * 0.5f,
+                                 src.style.strokeLineCap,
+                                 src.style.strokeLineJoin,
+                                 src.style.strokeMiterLimit,
+                                 strokeShape);
+                GradPaint strokeGP;
+                bool hasStrokeGP = false;
+                if (src.strokeRef[0])
+                    hasStrokeGP = BuildGradPaint(impl, src.strokeRef, strokeShape,
+                                                 src.ctm, mView, strokeGP);
+                const bool strokeRefUnresolved = (src.strokeRef[0] && !hasStrokeGP);
+                if (strokeShape.contourStart.Size() > 0 && !strokeRefUnresolved) {
+                    RasterizeShape(*img, strokeShape, hasStrokeGP ? &strokeGP : nullptr);
                 }
             }
         }

@@ -6,6 +6,7 @@
 #include "NkOpenglCommandBuffer.h"
 #include "NKRHI/Core/NkGpuPolicy.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 #include "NKContainers/Associative/NkUnorderedMap.h"
 #include <cmath>
 #include <cstring>
@@ -1092,10 +1093,10 @@ void NkOpenGLDevice::ApplyDescriptors(const GLDescSet& ds) {
 // Command Buffers
 // =============================================================================
 NkICommandBuffer* NkOpenGLDevice::CreateCommandBuffer(NkCommandBufferType t) {
-    return new NkOpenGLCommandBuffer(this, t);
+    return nkentseu::memory::NkGetDefaultAllocator().New<NkOpenGLCommandBuffer>(this, t);
 }
 void NkOpenGLDevice::DestroyCommandBuffer(NkICommandBuffer*& cb) {
-    delete cb; cb=nullptr;
+    nkentseu::memory::NkGetDefaultAllocator().Delete(cb); cb=nullptr;
 }
 
 // =============================================================================

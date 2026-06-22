@@ -1,105 +1,62 @@
 #pragma once
 // =============================================================================
-// SceneManager.h
-// -----------------------------------------------------------------------------
-// Pile (stack) de scenes :
-//   - Push(scene)     empile une scene au-dessus (overlay)
-//   - Replace(scene)  remplace la scene courante (transition lineaire)
-//   - Pop()           depile la scene courante (retour menu precedent)
-//
-// Les transitions sont differees jusqu'au debut du frame suivant pour eviter
-// de detruire la scene en plein OnUpdate/OnRender.
-//
-// La scene au sommet de la pile est consideree comme active : elle recoit
-// OnUpdate puis OnRender. Les scenes sous-jacentes sont en veille (mais
-// conservees en memoire pour Pop futur).
+// SceneManager.h — Pile de scènes Songo'o (Push/Pop/Replace/PopToRoot)
+// Copie de la structure utilisée dans le repo Nkentseu Songoo
 // =============================================================================
 
 #include "AppContext.h"
-#include "NKContainers/Sequential/NkVector.h"
+#include <vector>
 
-namespace nkentseu
-{
-    class NkEvent;
-}
+namespace nkentseu { class NkEvent; }
 
-namespace nkentseu
-{
-    namespace songoo
-    {
+namespace nkentseu { namespace songoo {
 
-        class Scene;
+    class Scene;
 
-        class SceneManager
-        {
-        public:
-            SceneManager() = default;
-            ~SceneManager();
+    class SceneManager {
+    public:
+        SceneManager()  = default;
+        ~SceneManager() = default;
 
-            // ── Lifecycle ────────────────────────────────────────────────────
-            /// Detache et detruit toutes les scenes (appelle OnExit pour
-            /// chacune). A appeler avant Shutdown.
-            void Clear(AppContext& ctx);
+        // ── Navigation ────────────────────────────────────────────────────────
 
-            // ── Operations sur la pile ───────────────────────────────────────
-            /// Empile une nouvelle scene au-dessus. La scene anterieure n'est
-            /// pas detruite (elle restera sous-jacente).
-            void Push(Scene* scene);
+        /// Empile une nouvelle scène (l'actuelle reçoit OnPause implicitement)
+        void Push(Scene* scene);
 
-            /// Remplace la scene courante par @p scene. L'ancienne est detruite
-            /// au prochain frame.
-            void Replace(Scene* scene);
+        /// Dépile la scène courante et retourne à la précédente
+        void Pop();
 
-            /// Depile la scene courante (detruite au prochain frame).
-            void Pop();
+        /// Remplace la scène courante (Pop + Push atomique)
+        void Replace(Scene* scene);
 
-            /// Depile JUSQU'A ne laisser que la scene racine (le bas de la
-            /// pile, typiquement MainMenu). Utile pour "RETOUR MENU" depuis
-            /// un GameOver / Pause overlay quand la pile est profonde.
-            /// Si la pile contient 0 ou 1 scene, ne fait rien.
-            void PopToRoot();
+        /// Revient à la scène racine (vide tout sauf la 1ère)
+        void PopToRoot();
 
-            // ── Cycle de frame ───────────────────────────────────────────────
-            /// Applique les operations en attente (push/replace/pop). A appeler
-            /// au debut de chaque frame, avant Update.
-            void ApplyPending(AppContext& ctx);
+        /// Vide toute la pile (OnExit sur chaque scène)
+        void Clear(AppContext& ctx);
 
-            /// Update la scene active.
-            void Update(AppContext& ctx, float dt);
+        // ── Dispatch ──────────────────────────────────────────────────────────
+        void OnUpdate(AppContext& ctx, float dt);
+        void OnRender(AppContext& ctx);
+        void OnEvent (AppContext& ctx, NkEvent& ev);
+        void OnResize(AppContext& ctx, int w, int h);
+        void OnPause (AppContext& ctx);
+        void OnResume(AppContext& ctx);
 
-            /// Render la scene active.
-            void Render(AppContext& ctx);
+    private:
+        std::vector<Scene*> mStack;
 
-            /// Propage le resize a la scene active.
-            void Resize(AppContext& ctx, int w, int h);
+        // Commandes différées (pour éviter mutation pendant dispatch)
+        enum class CmdType { Push, Pop, Replace, PopToRoot, Clear };
+        struct Cmd { CmdType type; Scene* scene; };
+        std::vector<Cmd> mPending;
 
-            /// Propage un event UI/input a la scene active uniquement (les
-            /// scenes sous-jacentes ne recoivent rien).
-            void Event(AppContext& ctx, NkEvent& ev);
+        void FlushPending(AppContext& ctx);
+        void DoPush   (AppContext& ctx, Scene* s);
+        void DoPop    (AppContext& ctx);
+        void DoReplace(AppContext& ctx, Scene* s);
+        void DoPopToRoot(AppContext& ctx);
+        void DoClear  (AppContext& ctx);
+    };
 
-            /// Pause / Resume forward a la scene active.
-            void Pause (AppContext& ctx);
-            void Resume(AppContext& ctx);
-
-            /// Retourne la scene au sommet (ou nullptr).
-            Scene* Top() const noexcept;
-
-            /// Profondeur de la pile.
-            int Depth() const noexcept;
-
-        private:
-            enum class Op { None, Push, Replace, Pop, PopToRoot };
-
-            // Pile de scenes (vecteur de pointeurs proprietaires).
-            NkVector<Scene*> mStack;
-            // Operation en attente pour le prochain frame.
-            Op               mPendingOp    = Op::None;
-            Scene*           mPendingScene = nullptr;
-            // Scenes a detruire apres la fin du frame courant.
-            NkVector<Scene*> mToDestroy;
-
-            void DestroyAndCallExit(Scene* s, AppContext& ctx);
-        };
-
-    } // namespace songoo
-} // namespace nkentseu
+}} // namespace nkentseu::songoo

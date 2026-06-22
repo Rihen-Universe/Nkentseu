@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 340" width="300" height="340">
+  <!-- Arbre : tronc + houppier (style flat, sur lequel on cueille les fruits) -->
+  <rect x="131" y="196" width="38" height="212" rx="15" fill="#9A6A3A" stroke="#4A3728" stroke-width="7"/>
+  <path d="M150 240 q-26 -6 -40 -24 M150 250 q26 -8 42 -28" fill="none" stroke="#4A3728" stroke-width="6" stroke-linecap="round"/>
+  <!-- masse du houppier (cercles arrière plus foncés, avant plus clairs) -->
+  <circle cx="88"  cy="150" r="64" fill="#4E9E4E"/>
+  <circle cx="212" cy="150" r="64" fill="#4E9E4E"/>
+  <circle cx="150" cy="178" r="80" fill="#4E9E4E"/>
+  <circle cx="150" cy="104" r="96" fill="#5BB85B"/>
+  <circle cx="104" cy="150" r="56" fill="#5BB85B"/>
+  <circle cx="196" cy="150" r="56" fill="#5BB85B"/>
+  <circle cx="150" cy="148" r="74" fill="#5BB85B"/>
+  <!-- reflets -->
+  <ellipse cx="118" cy="92"  rx="24" ry="15" fill="#7BD07B" opacity="0.6"/>
+  <ellipse cx="180" cy="120" rx="18" ry="12" fill="#7BD07B" opacity="0.45"/>
+</svg>

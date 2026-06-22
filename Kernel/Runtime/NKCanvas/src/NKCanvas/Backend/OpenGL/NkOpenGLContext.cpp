@@ -7,6 +7,7 @@
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -195,6 +196,26 @@ bool NkOpenGLContext::Initialize(const NkWindow& window, const NkContextDesc& de
     logger.Warn("[NkOpenGL][DBG] before mDesc copy");
     mDesc = desc;
     logger.Warn("[NkOpenGL][DBG] after mDesc copy");
+
+    // ── ES force sur plateformes mobiles (correctif definitif NKCanvas) ─────
+    // Sur Android/HarmonyOS/iOS/Web, seul OpenGL ES existe. On normalise le desc
+    // ICI pour que TOUT le backend (contexte EGL + version GLSL + shaders) soit
+    // coherent, quel que soit le profil demande par l'appelant (souvent Core/4.6
+    // par defaut, ce qui produirait des shaders desktop -> ecran noir).
+#if defined(__ANDROID__) || defined(NKENTSEU_PLATFORM_ANDROID) \
+ || defined(__OHOS__)    || defined(NKENTSEU_PLATFORM_HARMONYOS) \
+ || defined(__EMSCRIPTEN__) \
+ || defined(NKENTSEU_PLATFORM_IOS)
+    if (mDesc.opengl.profile != NkGLProfile::ES) {
+        mDesc.opengl.profile = NkGLProfile::ES;
+        if (mDesc.opengl.majorVersion > 3 || mDesc.opengl.majorVersion < 2) {
+            mDesc.opengl.majorVersion = 3;
+            mDesc.opengl.minorVersion = 0;
+        }
+        mDesc.opengl.contextFlags = NkGLContextFlags::NoneFlag;  // ForwardCompat n'existe pas en ES
+        logger.Warn("[NkOpenGL] Mobile: profil GL force a ES (normalisation desc)");
+    }
+#endif
     const NkSurfaceDesc surf = window.GetSurfaceDesc();
     logger.Warnf("[NkOpenGL][DBG] surface valid=%d %ux%u",
                  surf.IsValid() ? 1 : 0,
@@ -208,7 +229,7 @@ bool NkOpenGLContext::Initialize(const NkWindow& window, const NkContextDesc& de
 #elif defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
     ok = InitGLX(surf, desc.opengl);
 #elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
-    ok = InitEGL(surf, desc.opengl);
+    ok = InitEGL(surf, mDesc.opengl);
 #elif defined(NKENTSEU_PLATFORM_MACOS)
     ok = InitNSGL(surf, desc.opengl);
 #elif defined(NKENTSEU_PLATFORM_IOS)
@@ -233,9 +254,10 @@ bool NkOpenGLContext::Initialize(const NkWindow& window, const NkContextDesc& de
 #endif
 
 #ifndef NK_NO_GLAD2
-    if (desc.opengl.runtime.autoLoadEntryPoints) {
-        if (!LoadOpenGLEntryPoints(desc.opengl)) { Shutdown(); return false; }
-    } else { FillInfo(); }
+    // Avec glad, les entry points sont des POINTEURS qui DOIVENT etre charges, quel que
+    // soit autoLoadEntryPoints (ce flag ne concerne que le chemin manuel ou les fonctions
+    // GL sont link-ees au systeme). Sinon glGetString/glClear... = NULL -> crash.
+    if (!LoadOpenGLEntryPoints(desc.opengl)) { Shutdown(); return false; }
 #else
     FillInfo();
 #endif
@@ -273,29 +295,37 @@ bool NkOpenGLContext::LoadOpenGLEntryPoints(const NkOpenGLDesc& gl) {
     if (!ver) { NK_GL_ERR("gladLoadGL(GLX) failed\n"); return false; }
 
 #elif defined(NKENTSEU_WINDOWING_WAYLAND) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
-    if (!gladLoadEGL(mData.eglDisplay, (GLADloadfunc)eglGetProcAddress)) {
-        NK_GL_ERR("gladLoadEGL failed\n");
-        return false;
-    }
-    int ver = gladLoadGLES2((GLADloadfunc)eglGetProcAddress);
-    if (!ver) { NK_GL_ERR("gladLoadGLES2 failed\n"); return false; }
+    // Loaders glad (dlopen libEGL/libGLESv2) : indispensables car eglGetProcAddress NE
+    // resout PAS les fonctions GLES2 CORE (glGetString, glClear...) sur Mesa -> NULL.
+    gladLoaderLoadEGL(mData.eglDisplay);
+    int ver = gladLoaderLoadGLES2();
+    if (!ver) { NK_GL_ERR("gladLoaderLoadGLES2 failed\n"); return false; }
 
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
     int ver = gladLoadGLES2((GLADloadfunc)emscripten_webgl_get_proc_address);
     if (!ver) { NK_GL_ERR("gladLoadGLES2(WebGL) failed\n"); return false; }
 #endif
 
+    // La validation de version cible le GL DESKTOP. Sur les chemins EGL/GLES
+    // (Wayland/Android/Harmony/Emscripten/iOS) le contexte est ES (versionne
+    // differemment, ex. ES 3.1) -> ne pas comparer a la version desktop demandee.
+#if !defined(NKENTSEU_WINDOWING_WAYLAND) && !defined(NKENTSEU_PLATFORM_ANDROID) \
+ && !defined(NKENTSEU_PLATFORM_HARMONYOS) && !defined(NKENTSEU_PLATFORM_EMSCRIPTEN) \
+ && !defined(NKENTSEU_PLATFORM_IOS)
     if (gl.runtime.validateVersion) {
         int maj=0, min=0;
         glGetIntegerv(GL_MAJOR_VERSION, &maj);
         glGetIntegerv(GL_MINOR_VERSION, &min);
         if (maj < gl.majorVersion ||
             (maj==gl.majorVersion && min < gl.minorVersion)) {
-            NK_GL_ERR("Requested GL %d.%d, got %d.%d\n",
+            // Non fatal : le rendu 2D NKCanvas ne requiert pas la version demandee
+            // (souvent 4.6 par defaut). Beaucoup de pilotes plafonnent plus bas
+            // (ex. WSLg/llvmpipe = 4.2) -> on avertit et on continue avec ce qu'on a.
+            NK_GL_LOG("GL %d.%d demande, %d.%d obtenu - on continue (suffisant pour la 2D)\n",
                 gl.majorVersion, gl.minorVersion, maj, min);
-            return false;
         }
     }
+#endif
 
     if (gl.runtime.installDebugCallback &&
         HasFlag(gl.contextFlags, NkGLContextFlags::Debug)) {
@@ -438,10 +468,16 @@ bool NkOpenGLContext::RecreateSurface(const NkWindow& window) {
         return false;
     }
     const NkSurfaceDesc surf = window.GetSurfaceDesc();
+#if defined(NKENTSEU_WINDOWING_WAYLAND) && NKENTSEU_OPENGL_HAS_WAYLAND_EGL
+    if (!surf.surface) {   // Wayland : la wl_surface est le handle natif
+        return false;
+    }
+#else
     if (!NK_NATIVE_WIN(surf)) {
         // Pas de native window valide (app encore en background sur Android).
         return false;
     }
+#endif
 
     // 1. Libere le current context (eglDestroySurface ne marche pas si la
     //    surface est encore courante).
@@ -507,11 +543,11 @@ void NkOpenGLContext::ReleaseCurrent() {
 
 NkOpenGLContext* NkOpenGLContext::CreateSharedContext(const NkWindow& window) {
     if (!mIsValid) return nullptr;
-    auto* shared = new NkOpenGLContext();
+    auto* shared = nkentseu::memory::NkGetDefaultAllocator().New<NkOpenGLContext>();
     shared->mSharedParent = this;
     NkContextDesc sharedDesc = mDesc;
     if (!shared->Initialize(window, sharedDesc)) {
-        delete shared; return nullptr;
+        nkentseu::memory::NkGetDefaultAllocator().Delete(shared); return nullptr;
     }
     return shared;
 }
@@ -702,12 +738,14 @@ bool NkOpenGLContext::InitGLX(const NkSurfaceDesc& surf, const NkOpenGLDesc& gl)
     const bool runningInWsl = (wslInterop && *wslInterop) || (wslDistro && *wslDistro);
 
 #ifndef NK_NO_GLAD2
-    if (!runningInWsl) {
-        if (!gladLoaderLoadGLX(mData.display, screen)) {
-            NK_GL_LOG("gladLoaderLoadGLX failed, continuing with GL loader only\n");
-        }
-    } else {
-        NK_GL_LOG("WSL detected: skip GLX pre-load\n");
+    // gladLoaderLoadGLX (dlopen libGL) charge les fonctions GLX (glXQueryVersion,
+    // glXChooseFBConfig, glXCreateContextAttribsARB...). INDISPENSABLE : sans ca ces
+    // fonctions sont des pointeurs glad NULL -> crash des glXQueryVersion. On le fait
+    // AUSSI sous WSL (l'ancien "skip" provoquait justement ce crash).
+    (void)runningInWsl;
+    if (!gladLoaderLoadGLX(mData.display, screen)) {
+        NK_GL_ERR("gladLoaderLoadGLX failed (GLX indisponible ?)\n");
+        return false;
     }
 #endif
 
@@ -853,6 +891,16 @@ void NkOpenGLContext::SetVSyncGLX(bool on) {
 
 bool NkOpenGLContext::InitEGL(const NkSurfaceDesc& surf, const NkOpenGLDesc& gl) {
     logger.Warn("[NkOpenGL][DBG] InitEGL begin");
+#ifndef NK_NO_GLAD2
+    // Bootstrap glad EGL : avec glad, eglGetDisplay/eglInitialize/... sont des pointeurs
+    // de fonction glad NULL tant que rien ne les charge (probleme oeuf/poule, car
+    // eglGetProcAddress est lui-meme un ptr glad). gladLoaderLoadEGL(EGL_NO_DISPLAY)
+    // dlopen libEGL et charge les fonctions sans display -> on peut appeler eglGetDisplay.
+    if (!gladLoaderLoadEGL(EGL_NO_DISPLAY)) {
+        NK_GL_ERR("gladLoaderLoadEGL(EGL_NO_DISPLAY) failed\n");
+        return false;
+    }
+#endif
 #if defined(NKENTSEU_WINDOWING_WAYLAND)
     logger.Warnf("[NkOpenGL][DBG] InitEGL wayland display=%p surface=%p",
                  surf.display, surf.surface);
@@ -868,9 +916,33 @@ bool NkOpenGLContext::InitEGL(const NkSurfaceDesc& surf, const NkOpenGLDesc& gl)
     logger.Warn("[NkOpenGL][DBG] InitEGL before eglInitialize");
     if (!eglInitialize(mData.eglDisplay, &maj, &min)) { NK_GL_ERR("eglInitialize failed\n"); return false; }
     logger.Warnf("[NkOpenGL][DBG] InitEGL eglInitialize OK %d.%d", (int)maj, (int)min);
+#ifndef NK_NO_GLAD2
+    // Recharge glad EGL avec le display : charge les fonctions dependantes du display.
+    gladLoaderLoadEGL(mData.eglDisplay);
+#endif
 
     const NkEGLHints& h = gl.eglHints;
-    int renderType = (gl.profile == NkGLProfile::ES) ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_BIT;
+    // Sur les plateformes purement OpenGL ES (Android/HarmonyOS/iOS/Web), l'EGL ne
+    // connait QUE l'API ES : il faut forcer ES quel que soit gl.profile (sinon
+    // eglBindAPI(EGL_OPENGL_API) -> EGL_BAD_PARAMETER et eglCreateContext sur une
+    // config ES -> EGL_BAD_CONFIG => ecran noir). Sur desktop (Wayland/X), on
+    // respecte gl.profile (EGL peut servir du GL desktop).
+#if defined(__ANDROID__) || defined(NKENTSEU_PLATFORM_ANDROID) \
+ || defined(__OHOS__)    || defined(NKENTSEU_PLATFORM_HARMONYOS) \
+ || defined(__EMSCRIPTEN__) \
+ || defined(NKENTSEU_PLATFORM_IOS) \
+ || (defined(NKENTSEU_WINDOWING_WAYLAND) && !defined(NK_NO_GLAD2))
+    // Wayland+glad : on inclut glad/gles2.h (pas glad/gl.h) -> le contexte DOIT etre
+    // GLES pour rester coherent avec les entry points charges (sinon glGetString NULL).
+    const bool kForceES = true;
+#else
+    const bool kForceES = (gl.profile == NkGLProfile::ES);
+#endif
+    // Version de contexte ES demandee (3 par defaut ; respecte 2/3 si fournis).
+    const EGLint kEsMajor =
+        (kForceES && (gl.majorVersion == 2 || gl.majorVersion == 3)) ? gl.majorVersion : 3;
+
+    int renderType = kForceES ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_BIT;
     int surfTypes  = EGL_WINDOW_BIT | (h.pbufferSurface ? EGL_PBUFFER_BIT : 0);
 
     const EGLint cfgAttribs[] = {
@@ -890,6 +962,56 @@ bool NkOpenGLContext::InitEGL(const NkSurfaceDesc& surf, const NkOpenGLDesc& gl)
     logger.Warn("[NkOpenGL][DBG] InitEGL before eglChooseConfig");
     eglChooseConfig(mData.eglDisplay, cfgAttribs, &mData.eglConfig, 1, &numCfg);
     logger.Warnf("[NkOpenGL][DBG] InitEGL eglChooseConfig numCfg=%d cfg=%p", (int)numCfg, mData.eglConfig);
+    if (numCfg == 0) {
+        // Fallback : beaucoup de GPU/emulateurs mobiles (EGL 1.4) n'exposent
+        // aucune config qui satisfasse les hints stricts (MSAA + stencil + alpha
+        // precis), NI EGL_OPENGL_ES3_BIT en EGL_RENDERABLE_TYPE. On retombe sur
+        // une config fenetre RGB8 + depth 16 demandant EGL_OPENGL_ES2_BIT (toujours
+        // present ; un contexte ES3 tourne sans probleme sur une config ES2).
+        const int fbRender = kForceES ? EGL_OPENGL_ES2_BIT : EGL_OPENGL_BIT;
+        const EGLint fbAttribs[] = {
+            EGL_RENDERABLE_TYPE, fbRender,
+            EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
+            EGL_RED_SIZE,        8,
+            EGL_GREEN_SIZE,      8,
+            EGL_BLUE_SIZE,       8,
+            EGL_DEPTH_SIZE,      16,
+            EGL_NONE
+        };
+        eglChooseConfig(mData.eglDisplay, fbAttribs, &mData.eglConfig, 1, &numCfg);
+        logger.Warnf("[NkOpenGL][DBG] InitEGL fallback eglChooseConfig numCfg=%d", (int)numCfg);
+    }
+    if (numCfg == 0) {
+        // Dernier recours : certains drivers EGL (emulateurs / appareils streames)
+        // ne renvoient rien via eglChooseConfig. On enumere TOUTES les configs et
+        // on prend la premiere compatible fenetre + ES2/ES3.
+        logger.Warnf("[NkOpenGL][DBG] eglChooseConfig err=0x%x; enumerating via eglGetConfigs",
+                     (int)eglGetError());
+        EGLint total = 0;
+        eglGetConfigs(mData.eglDisplay, nullptr, 0, &total);
+        if (total > 0) {
+            if (total > 256) total = 256;
+            EGLConfig all[256];
+            EGLint got = 0;
+            eglGetConfigs(mData.eglDisplay, all, total, &got);
+            for (EGLint i = 0; i < got; ++i) {
+                EGLint st = 0, rt = 0, rs = 0, gs = 0, bs = 0;
+                eglGetConfigAttrib(mData.eglDisplay, all[i], EGL_SURFACE_TYPE,    &st);
+                eglGetConfigAttrib(mData.eglDisplay, all[i], EGL_RENDERABLE_TYPE, &rt);
+                eglGetConfigAttrib(mData.eglDisplay, all[i], EGL_RED_SIZE,        &rs);
+                eglGetConfigAttrib(mData.eglDisplay, all[i], EGL_GREEN_SIZE,      &gs);
+                eglGetConfigAttrib(mData.eglDisplay, all[i], EGL_BLUE_SIZE,       &bs);
+                const bool windowOk = (st & EGL_WINDOW_BIT) != 0;
+                const bool esOk     = (rt & (EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT)) != 0;
+                if (windowOk && esOk && rs >= 8 && gs >= 8 && bs >= 8) {
+                    mData.eglConfig = all[i];
+                    numCfg = 1;
+                    break;
+                }
+            }
+            logger.Warnf("[NkOpenGL][DBG] eglGetConfigs total=%d picked=%d", (int)got, (int)numCfg);
+        }
+    }
     if (numCfg == 0) { NK_GL_ERR("eglChooseConfig failed\n"); return false; }
 
 #if defined(NKENTSEU_WINDOWING_WAYLAND)
@@ -937,12 +1059,23 @@ bool NkOpenGLContext::InitEGL(const NkSurfaceDesc& surf, const NkOpenGLDesc& gl)
     }
 
     logger.Warn("[NkOpenGL][DBG] InitEGL before eglBindAPI");
-    eglBindAPI(gl.profile == NkGLProfile::ES ? EGL_OPENGL_ES_API : EGL_OPENGL_API);
-    const EGLint ctxAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, gl.majorVersion, EGL_NONE };
+    eglBindAPI(kForceES ? EGL_OPENGL_ES_API : EGL_OPENGL_API);
+    const EGLint ctxAttribs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, kForceES ? kEsMajor : gl.majorVersion, EGL_NONE
+    };
     EGLContext shareCtx = mSharedParent ? mSharedParent->mData.eglContext : EGL_NO_CONTEXT;
     logger.Warnf("[NkOpenGL][DBG] InitEGL before eglCreateContext share=%p", shareCtx);
     mData.eglContext = eglCreateContext(mData.eglDisplay, mData.eglConfig, shareCtx, ctxAttribs);
     logger.Warnf("[NkOpenGL][DBG] InitEGL eglContext=%p", mData.eglContext);
+    if (mData.eglContext == EGL_NO_CONTEXT && kForceES && kEsMajor > 2) {
+        // Certains drivers EGL 1.4 (emulateurs / appareils streames) n'exposent
+        // que des configs ES2 et refusent un contexte ES3. On retombe sur ES2.
+        logger.Warnf("[NkOpenGL][DBG] eglCreateContext ES%d failed (0x%x); retry ES2",
+                     (int)gl.majorVersion, (int)eglGetError());
+        const EGLint es2Attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+        mData.eglContext = eglCreateContext(mData.eglDisplay, mData.eglConfig, shareCtx, es2Attribs);
+        logger.Warnf("[NkOpenGL][DBG] InitEGL eglContext(ES2)=%p", mData.eglContext);
+    }
     if (mData.eglContext == EGL_NO_CONTEXT) {
         if (mData.eglSurface != EGL_NO_SURFACE) {
             eglDestroySurface(mData.eglDisplay, mData.eglSurface);

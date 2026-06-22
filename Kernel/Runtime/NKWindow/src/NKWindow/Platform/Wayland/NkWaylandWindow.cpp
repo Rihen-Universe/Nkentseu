@@ -34,6 +34,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkFunctions.h"
 #include "NKMemory/NkUtils.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 
 #include <wayland-client.h>
 #include <wayland-cursor.h>
@@ -115,7 +116,7 @@ namespace nkentseu {
     // Déclarations anticipées (définies plus bas).
     static int32 IndexOfOutput(const NkWaylandOutputInfo* o);
 
-    // Liste des outputs connus. Pointeurs stables (alloués via new) car le
+    // Liste des outputs connus. Pointeurs stables (alloués via NKMemory) car le
     // listener wl_output capture l'adresse via le pointeur `data`.
     static NkVector<NkWaylandOutputInfo*>& WaylandOutputs() {
         static NkVector<NkWaylandOutputInfo*> sOutputs;
@@ -407,7 +408,7 @@ namespace nkentseu {
             }
             const uint32_t bindVersion = version < 3u ? version : 3u;
             if (!alreadyTracked && bindVersion > 0u) {
-                auto* info          = new NkWaylandOutputInfo();
+                auto* info          = memory::NkGetDefaultAllocator().New<NkWaylandOutputInfo>();
                 info->registryName  = name;
                 info->output        = static_cast<::wl_output*>(
                     wl_registry_bind(registry, name, &wl_output_interface, bindVersion));
@@ -417,7 +418,7 @@ namespace nkentseu {
                     // L'event ADDED (hot-plug) est émis dans OnOutputDone, une
                     // fois geometry/mode/scale renseignés (info complète).
                 } else {
-                    delete info;
+                    memory::NkGetDefaultAllocator().Delete(info);
                 }
             }
 
@@ -447,7 +448,7 @@ namespace nkentseu {
             if (info->output) {
                 wl_output_destroy(info->output);
             }
-            delete info;
+            memory::NkGetDefaultAllocator().Delete(info);
             outs.Erase(outs.Begin() + i);
             break;
         }
@@ -558,9 +559,9 @@ namespace nkentseu {
         window->mData.mWidth  = width;
         window->mData.mHeight = height;
         
-        // Synchroniser mConfig
-        window->mConfig.width = width;
-        window->mConfig.height = height;
+        // Synchroniser la config (accesseur backend)
+        window->ConfigData().width = width;
+        window->ConfigData().height = height;
     }
 
     // =========================================================================
@@ -767,7 +768,7 @@ namespace nkentseu {
             auto& outs = WaylandOutputs();
             for (usize i = 0; i < outs.Size(); ++i) {
                 if (outs[i]->output) wl_output_destroy(outs[i]->output);
-                delete outs[i];
+                memory::NkGetDefaultAllocator().Delete(outs[i]);
             }
             outs.Clear();
             gCurrentOutput = nullptr;
@@ -1109,7 +1110,7 @@ namespace nkentseu {
         // ------------------------------------------------------------------
         logger.Warn("[NkWayland][DBG] before drop init");
         if (config.dropEnabled) {
-            mData.mDropTarget = new NkWaylandDropTarget(
+            mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkWaylandDropTarget>(
                 mData.mDisplay, mData.mSeat, mData.mSurface);
             if (mData.mDropTarget) {
                 mData.mDropTarget->SetDataDeviceManager(mData.mDataDeviceManager);
@@ -1152,7 +1153,7 @@ namespace nkentseu {
         mId = NK_INVALID_WINDOW_ID;
 
         if (mData.mDropTarget) {
-            delete mData.mDropTarget;
+            memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
             mData.mDropTarget = nullptr;
         }
 

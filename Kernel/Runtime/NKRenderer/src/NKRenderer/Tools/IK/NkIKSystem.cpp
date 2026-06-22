@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkIKSystem.h"
 #include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKMemory/NkAllocator.h"
 #include <cmath>
 #include <cstring>
 
@@ -93,7 +94,7 @@ namespace nkentseu {
 
         void NkIKSystem::Shutdown() {
             if (!mReady) return;
-            for (auto& kv : mRigs) delete kv.Second;
+            for (auto& kv : mRigs) memory::NkGetDefaultAllocator().Delete(kv.Second);
             mRigs.Clear();
             mReady = false;
         }
@@ -101,7 +102,7 @@ namespace nkentseu {
         NkIKRig* NkIKSystem::CreateRig(uint64 skeletonId) {
             auto* existing = mRigs.Find(skeletonId);
             if (existing) return *existing;
-            NkIKRig* rig = new NkIKRig(skeletonId);
+            NkIKRig* rig = memory::NkGetDefaultAllocator().New<NkIKRig>(skeletonId);
             mRigs.Insert(skeletonId, rig);
             return rig;
         }
@@ -109,7 +110,7 @@ namespace nkentseu {
         void NkIKSystem::DestroyRig(NkIKRig*& rig) {
             if (!rig) return;
             mRigs.Erase(rig->GetSkeletonId());
-            delete rig;
+            memory::NkGetDefaultAllocator().Delete(rig);
             rig = nullptr;
         }
 

@@ -14,6 +14,7 @@
 #include "NkDirectXContextData.h"
 #include "NKLogger/NkLog.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKMemory/NkAllocator.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
@@ -146,7 +147,7 @@ namespace nkentseu {
             hr = gDX11Registry.device->CreateShaderResourceView(tex, &sd, &srv);
             if (FAILED(hr) || !srv) { tex->Release(); return 0; }
 
-            NkDX11TextureEntry* e = new NkDX11TextureEntry();
+            NkDX11TextureEntry* e = nkentseu::memory::NkGetDefaultAllocator().New<NkDX11TextureEntry>();
             e->texture = tex;
             e->srv     = srv;
             e->width   = w;
@@ -183,7 +184,7 @@ namespace nkentseu {
             if (e->sampler) { e->sampler->Release(); e->sampler = nullptr; }
             if (e->srv)     { e->srv->Release();     e->srv     = nullptr; }
             if (e->texture) { e->texture->Release(); e->texture = nullptr; }
-            delete e;
+            nkentseu::memory::NkGetDefaultAllocator().Delete(e);
             gDX11Registry.entries[id - 1] = nullptr;
         }
 
@@ -414,7 +415,7 @@ namespace nkentseu {
                 if (e->sampler) { e->sampler->Release(); e->sampler = nullptr; }
                 if (e->srv)     { e->srv->Release();     e->srv     = nullptr; }
                 if (e->texture) { e->texture->Release(); e->texture = nullptr; }
-                delete e;
+                nkentseu::memory::NkGetDefaultAllocator().Delete(e);
                 gDX11Registry.entries[i] = nullptr;
             }
             gDX11Registry.entries.Clear();

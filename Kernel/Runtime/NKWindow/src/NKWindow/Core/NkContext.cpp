@@ -16,6 +16,7 @@
 #if defined(NKENTSEU_WINDOWING_XLIB) || defined(NKENTSEU_WINDOWING_XCB)
 #   include <X11/Xlib.h>
 #   include <GL/glx.h>
+#   include "NKWindow/Platform/Common/NkSystemMemory.h"   // NkX11Free (wrappe XFree)
 #   if defined(None)
 #       undef None
 #   endif
@@ -387,12 +388,12 @@ namespace nkentseu {
                     XVisualInfo* vi = glXGetVisualFromFBConfig(dpy, fbs[i]);
                     if (!vi) continue;
                     bool match = (vi->visualid == preferredVisual);
-                    XFree(vi);
+                    platform::NkX11Free(vi);
                     if (match) { sel = i; break; }
                 }
             }
             GLXFBConfig chosen = fbs[sel];
-            XFree(fbs);
+            platform::NkX11Free(fbs);
             return chosen;
         }
     #endif // XLIB/XCB
@@ -432,10 +433,10 @@ namespace nkentseu {
                 if (vi) {
                     cfg.surfaceHints.Set(NkSurfaceHintKey::NK_GLX_VISUAL_ID,
                                         static_cast<uintptr>(vi->visualid));
-                    XFree(vi);
+                    platform::NkX11Free(vi);
                 }
                 cfg.surfaceHints.Set(NkSurfaceHintKey::NK_GLX_FB_CONFIG_PTR, 0);
-                XFree(fbs);
+                platform::NkX11Free(fbs);
             }
             XCloseDisplay(dpy);
         #else
@@ -647,7 +648,7 @@ namespace nkentseu {
                     return false;
                 }
                 glx = glXCreateContext(dpy, vi, nullptr, True);
-                XFree(vi);
+                platform::NkX11Free(vi);
                 if (!glx) {
                     if (ownDisplay) XCloseDisplay(dpy);
                     NkSetContextError(context, 1103, "glXCreateContext failed.");

@@ -160,7 +160,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkDropEnterEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkDropEnterEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -227,7 +227,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkDropOverEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkDropOverEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -278,7 +278,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkDropLeaveEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkDropLeaveEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -394,7 +394,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkDropFileEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkDropFileEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -473,7 +473,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkDropTextEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkDropTextEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -558,7 +558,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkDropImageEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkDropImageEvent>(*this);
                 }
 
                 NkString ToString() const override {

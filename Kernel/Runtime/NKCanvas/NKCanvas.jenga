@@ -48,6 +48,12 @@ elif _VULKAN_OPT in ("1", "true", "on", "yes"):
 else:
     _WANT_VULKAN = bool(_VULKAN_INCLUDE) or _pkg_exists("vulkan")
 
+# Le backend Vulkan n'est defini QUE sur les plateformes ou il est cable+linke
+# (Windows / Linux / Android / HarmonyOS). Sur Web/macOS/iOS/UWP/Xbox il reste a 0
+# (pas de NkVulkanContext) -> sinon undefined symbol au link des consommateurs.
+_VK_ON  = f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}"
+_VK_OFF = "NKENTSEU_ENABLE_VULKAN_BACKEND=0"
+
 with project("NKCanvas"):
     language("C++")
     cppdialect("C++17")
@@ -57,10 +63,22 @@ with project("NKCanvas"):
     # dependson + defines(_STATIC_LIB) resolus depuis le registre. On ne linke PAS
     # les deps NK (juste dependson). Les externals/SDK propres passent inline.
     _canvasDeps = ["NKWindow", "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad", "NKThreading"]
-    _canvasDefines = [
-        "NK_NO_GLAD2",
-        f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if _WANT_VULKAN else 0}",
-    ]
+    # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme (filtres ci-dessous),
+    # pas globalement : Web/macOS/iOS/UWP/Xbox n'ont pas de backend Vulkan.
+    #
+    # Glad : choix utilisateur via NK_USE_GLAD (env "auto/on/off"). Le "no glad" n'est plus
+    # force globalement ; il est decide PAR PLATEFORME (filtres ci-dessous) :
+    #   - Linux (xlib/xcb/wayland) -> glad PAR DEFAUT (NKGlad ; evite les conflits d'en-tetes
+    #     GL systeme + macros X11). Le loader glad est cable dans NkOpenGLContext.
+    #   - Autres (Windows/Android/Web/Harmony/...) -> chargement manuel PAR DEFAUT (fonctionnel).
+    #   - NK_USE_GLAD=on/off force le meme mode partout.
+    # NK_NO_GLAD2 defini == "ne PAS utiliser glad" (chargement manuel/systeme).
+    _GLAD_OPT     = os.getenv("NK_USE_GLAD", "auto").strip().lower()
+    _GLAD_ENV_ON  = _GLAD_OPT in ("1", "true", "on", "yes")
+    _GLAD_ENV_OFF = _GLAD_OPT in ("0", "false", "off", "no")
+    _GLAD_DEF_LINUX = [] if not _GLAD_ENV_OFF else ["NK_NO_GLAD2"]   # glad sauf si env=off
+    _GLAD_DEF_OTHER = [] if _GLAD_ENV_ON      else ["NK_NO_GLAD2"]   # manuel sauf si env=on
+    _canvasDefines = []  # NK_NO_GLAD2 ajoute par plateforme via les listes ci-dessus
     # NKUI integre (backend NkUICanvasBackend) — optionnel (flag NK_CANVAS_NKUI via
     # config/graphics.jenga -> USE_CANVAS_NKUI). Off => NKCanvas ne lie pas NKUI et
     # NkUICanvasBackend.cpp compile a vide.
@@ -91,7 +109,8 @@ with project("NKCanvas"):
         usetoolchain(TC_WINDOWS)
         defines([
             "WIN32_LEAN_AND_MEAN",
-        ])
+            _VK_ON,
+        ] + _GLAD_DEF_OTHER)
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
         # Backends graphiques toujours linkes sur Windows desktop :
@@ -110,26 +129,26 @@ with project("NKCanvas"):
     # ===== UWP ====================================================================
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
-        defines(["NKENTSEU_PLATFORM_UWP"])
+        defines(["NKENTSEU_PLATFORM_UWP", _VK_OFF] + _GLAD_DEF_OTHER)
         links(["d3d12", "dxgi", "dxguid", "windowsapp"])
 
     # ===== Linux XLib =============================================================
     with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
         links(["X11", "Xext", "GL"])
-        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY", _VK_ON] + _GLAD_DEF_LINUX)
         if _WANT_VULKAN:
             links(["vulkan"])
 
     # ===== Linux headless =========================================================
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
-        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY", _VK_OFF] + _GLAD_DEF_OTHER)
 
     # ===== Linux XCB ==============================================================
     with filter("system:Linux && options:linux-backend=xcb"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
         links(["xcb", "xcb-image", "X11", "Xext", "GL"])
-        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY", _VK_ON] + _GLAD_DEF_LINUX)
         if _WANT_VULKAN:
             links(["vulkan"])
 
@@ -137,7 +156,7 @@ with project("NKCanvas"):
     with filter("system:Linux && options:linux-backend=wayland"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
-        defines(_WAYLAND_DEFINES)
+        defines(_WAYLAND_DEFINES + [_VK_ON] + _GLAD_DEF_LINUX)
         links(_WAYLAND_LINKS)
         if _WANT_VULKAN:
             links(["vulkan"])
@@ -145,11 +164,13 @@ with project("NKCanvas"):
     # ===== macOS ==================================================================
     with filter("system:macOS"):
         usetoolchain("clang-native")
+        defines([_VK_OFF] + _GLAD_DEF_OTHER)
         frameworks(["Metal", "QuartzCore"])
 
     # ===== Android ================================================================
     with filter("system:Android"):
         usetoolchain("android-ndk")
+        defines([_VK_ON] + _GLAD_DEF_OTHER)
         _ANDROID_LINKS = ["android", "EGL", "GLESv3"]
         if _WANT_VULKAN:
             _ANDROID_LINKS.append("vulkan")
@@ -161,6 +182,7 @@ with project("NKCanvas"):
         pchheader("")
         pchsource("")
         usetoolchain("ohos-ndk")
+        defines([_VK_ON] + _GLAD_DEF_OTHER)
         _HARMONY_LINKS = ["hilog_ndk.z", "EGL", "GLESv3"]
         if _WANT_VULKAN:
             _HARMONY_LINKS.append("vulkan")
@@ -168,15 +190,18 @@ with project("NKCanvas"):
 
     # ===== iOS ====================================================================
     with filter("system:iOS"):
+        defines([_VK_OFF] + _GLAD_DEF_OTHER)
         frameworks(["Metal", "QuartzCore"])
 
     # ===== Web ====================================================================
     with filter("system:Web"):
         usetoolchain("emscripten")
+        defines([_VK_OFF] + _GLAD_DEF_OTHER)
 
     # ===== Xbox ===================================================================
     with filter("system:XboxSeries || system:XboxOne"):
         usetoolchain("xbox-clang")
+        defines([_VK_OFF] + _GLAD_DEF_OTHER)
 
     with filter("config:Debug"):
         defines(["_DEBUG", "DEBUG"])

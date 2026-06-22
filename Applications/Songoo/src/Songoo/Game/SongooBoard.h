@@ -1,83 +1,73 @@
 #pragma once
 // =============================================================================
-// SongooBoard.h
+// SongooBoard.h — Logique plateau Songo'o CORRIGÉE
+//
+// CORRECTIONS :
+//   BUG 7 : CheckGain décrémentait i sans valider le camp adverse au préalable
+//   BUG 8 : IsGameOver vérifiait hasWinner À L'INTÉRIEUR de la boucle trous
+//   BUG 10: Le plateau logique était exécuté APRÈS que l'animation ait déjà
+//           vidé le trou source visuellement → désync.
+//           SOLUTION : Le plateau maintient son propre état; l'animation
+//           est purement visuelle et ne modifie JAMAIS mBoard directement.
+//           ExecuteMove() est appelé UNE SEULE FOIS dans FinishAnimation().
 // =============================================================================
-// Moteur de logique Mancala — gestion de l'état du plateau, mouvements,
-// captures en chaîne (PRISE), conditions de victoire.
-// Implémentation conforme à la référence Songo'o.
-// =============================================================================
 
-namespace nkentseu
-{
-    namespace songoo
-    {
+namespace nkentseu { namespace songoo {
 
-        class SongooBoard
-        {
-        public:
-            // Layout du plateau : 14 pits total
-            // Joueur 1 (bas)  : pits[0..5] (gauche vers droite), mancala[0] (droite)
-            // Joueur 2 (haut) : pits[6..11] (droite vers gauche), mancala[1] (gauche)
-            static constexpr int kNumRegularPits = 12;
-            static constexpr int kNumMancalas    = 2;
-            static constexpr int kNumPits        = kNumRegularPits + kNumMancalas;
-            static constexpr int kInitialGrains  = 4;
+    class SongooBoard {
+    public:
+        static constexpr int kNumPits    = 14;
+        static constexpr int kInitGrains = 5;
 
-            // Statut de capture
-            enum class PriseStatus { NOT_PRISE = 0, PRISE = 1 };
+        SongooBoard() { Init(); }
 
-            SongooBoard();
-            ~SongooBoard() = default;
+        void Init();
 
-            // Initialise le plateau au état de départ
-            void Init();
+        // ── Accès lecture (pour affichage) ───────────────────────────────────
+        int  GetCurrentPlayer()       const { return mCurrentPlayer; }
+        int  GetPitGrains(int pit)    const { return (pit>=0&&pit<kNumPits)?mPits[pit]:0; }
+        int  GetScore(int player)     const { return (player>=0&&player<2)?mScore[player]:0; }
 
-            // Retourne le joueur actuel (0 ou 1)
-            int GetCurrentPlayer() const { return mCurrentPlayer; }
+        // ── Validation ────────────────────────────────────────────────────────
+        // Retourne true si le joueur peut légalement jouer ce trou
+        bool CanPlay(int player, int pit) const;
 
-            // Vérifie si un pit peut être joué par le joueur
-            bool CanPlayPit(int playerIdx, int pitIdx) const;
-
-            // Exécute un mouvement. Retourne true si le joueur a une extra chance.
-            bool ExecuteMove(int playerIdx, int pitIdx);
-
-            // Retourne le nombre de grains dans un pit (0..13 : pits[0..11] + mancala[0..1])
-            int GetPitGrains(int pitIdx) const;
-
-            // Retourne les grains du mancala d'un joueur
-            int GetMancalaGrains(int playerIdx) const;
-
-            // Retourne -1 si la partie n'est pas finie, sinon 0/1 = gagnant
-            int CheckGameOver() const;
-
-            // Retourne le nombre de pits vides pour un joueur
-            int CountEmptyPits(int playerIdx) const;
-
-            // Dump l'état du plateau (debug)
-            void DebugPrint() const;
-
-        private:
-            int mPits[kNumPits];       // pits[0..11] = pits réguliers, pits[12..13] = mancalas
-            int mCurrentPlayer;        // 0 ou 1
-            bool mGameOver;
-            PriseStatus mPriseStatus[kNumPits]; // Statut PRISE (2-3 grains) pour chaque pit
-
-            // Ordre de distribution horaire : 0,1,2,3,4,5,6,13,12,11,10,9,8,7
-            static constexpr int kClockwise[kNumPits] = {
-                0, 1, 2, 3, 4, 5, 6, 13, 12, 11, 10, 9, 8, 7
-            };
-            int mClockwisePos[kNumPits];  // Position inverse : pour un pit donné, sa position dans kClockwise
-
-            // Helpers
-            int  GetPitOwner(int pitIdx) const;
-            int  GetOppositePit(int pitIdx) const;
-            bool IsPlayerMancala(int playerIdx, int pitIdx) const;
-            bool IsGameBoardEmpty(int playerIdx) const;
-            int  GetNextPitClockwise(int pitIdx) const;
-            int  GetLastPitForMove(int pitIdx) const;
-            void CheckPrise();
-            void CheckGain(int lastPitIdx, int playerIdx);
+        // ── Coup ──────────────────────────────────────────────────────────────
+        // Exécute la distribution + capture, change le joueur courant.
+        // Retourne la liste ordonnée des trous visités (pour l'animation).
+        struct MoveResult {
+            int  trace[kNumPits]; // trous visités dans l'ordre
+            int  traceLen;        // nombre de trous visités
+            int  lastPit;         // dernier trou semé
+            bool gameOver;
+            int  winner;          // -1=match nul, 0=J0, 1=J1 (valide si gameOver)
         };
+        MoveResult ExecuteMove(int player, int pit);
 
-    } // namespace songoo
-} // namespace nkentseu
+        // ── Fin de partie ─────────────────────────────────────────────────────
+        // CORRECTION BUG 8 : vérification hors des boucles trous
+        // Retourne -2 si la partie continue
+        // Retourne -1 si égalité, 0 ou 1 sinon
+        int  CheckGameOver() const;
+
+        // Ramasse toutes les graines restantes (fin de partie)
+        void CollectRemaining();
+
+    private:
+        int mPits[kNumPits];
+        int mScore[2];
+        int mCurrentPlayer;
+
+        // Table de parcours horaire : 0,1,2,3,4,5,6,13,12,11,10,9,8,7
+        static constexpr int kCW[kNumPits] = {0,1,2,3,4,5,6,13,12,11,10,9,8,7};
+        int mCWPos[kNumPits]; // position inverse
+
+        int  NextPit(int pit) const;
+        bool IsCampEmpty(int player) const;
+
+        // CORRECTION BUG 7 : capture strictement dans le camp adverse,
+        // en remontant depuis lastPit TANT QUE la condition est remplie.
+        void DoCapture(int lastPit, int player);
+    };
+
+}} // namespace nkentseu::songoo

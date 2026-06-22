@@ -1,4 +1,5 @@
 #include "NkUtils.h"
+#include "NKMemory/NkAllocator.h"
 #include <algorithm>
 
 namespace nkentseu {
@@ -116,7 +117,7 @@ namespace nkentseu {
         int stride,
         int iterations)
     {
-        uint8_t* temp = new uint8_t[width * height];
+        uint8_t* temp = (uint8_t*)nkentseu::memory::NkAlloc((nk_size)(width * height));
 
         for (int it = 0; it < iterations; it++) {
 
@@ -139,7 +140,7 @@ namespace nkentseu {
             }
         }
 
-        delete[] temp;
+        nkentseu::memory::NkFree(temp);
     }
 
     namespace nkfont {

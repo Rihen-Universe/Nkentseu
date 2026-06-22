@@ -11,6 +11,7 @@
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKCore/NkAtomic.h"
 #include "NKMath/NkFunctions.h"
 
@@ -459,7 +460,7 @@ namespace nkentseu {
         NkEmscriptenRegisterWindow(this);
         NkEmscriptenSetActiveWindowId(mId);
 
-        mData.mDropTarget = new NkEmscriptenDropTarget(mId, mData.mCanvasId);
+        mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkEmscriptenDropTarget>(mId, mData.mCanvasId);
         if (mData.mDropTarget) {
             mData.mDropTarget->SetDropEnterCallback([this](const NkDropEnterEvent& event) {
                 NkDropEnterEvent copy(event);
@@ -506,7 +507,7 @@ namespace nkentseu {
         RemoveCanvasKeyboardFocus(NormalizeCanvasSelector(mData.mCanvasId));
 
         if (mData.mDropTarget) {
-            delete mData.mDropTarget;
+            memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
             mData.mDropTarget = nullptr;
         }
 

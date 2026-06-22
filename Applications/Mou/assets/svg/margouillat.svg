@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160">
+  <!-- Margouillat (agame) : tete orange + corps bleu — familier et colore -->
+  <!-- queue -->
+  <path d="M40 96 Q12 96 16 70 Q26 84 44 84 Z" fill="#4DABF7" stroke="#4A3728" stroke-width="6" stroke-linejoin="round"/>
+  <!-- pattes -->
+  <path d="M78 112 L66 138 M104 116 L100 142 M150 112 L160 138" stroke="#4A3728" stroke-width="9" stroke-linecap="round"/>
+  <!-- corps bleu -->
+  <path d="M40 92 Q90 70 150 84 Q176 90 186 96 Q176 112 150 112 Q90 122 44 104 Z"
+        fill="#4DABF7" stroke="#4A3728" stroke-width="6" stroke-linejoin="round"/>
+  <!-- ecailles dos -->
+  <g fill="#2B82C9" opacity="0.7"><circle cx="80" cy="92" r="5"/><circle cx="104" cy="90" r="5"/><circle cx="128" cy="92" r="5"/></g>
+  <!-- tete orange -->
+  <ellipse cx="190" cy="86" rx="34" ry="28" fill="#FF922B" stroke="#4A3728" stroke-width="6"/>
+  <!-- oeil -->
+  <circle cx="198" cy="76" r="9" fill="#FFFFFF" stroke="#4A3728" stroke-width="4"/>
+  <circle cx="200" cy="77" r="4" fill="#4A3728"/>
+  <!-- sourire -->
+  <path d="M196 98 Q208 104 216 96" fill="none" stroke="#4A3728" stroke-width="4" stroke-linecap="round"/>
+</svg>

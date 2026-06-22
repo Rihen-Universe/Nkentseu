@@ -191,7 +191,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkHidConnectEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkHidConnectEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -237,7 +237,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkHidDisconnectEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkHidDisconnectEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -338,7 +338,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkHidButtonPressEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkHidButtonPressEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -386,7 +386,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkHidButtonReleaseEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkHidButtonReleaseEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -442,7 +442,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkHidAxisEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkHidAxisEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -528,7 +528,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkHidRawInputEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkHidRawInputEvent>(*this);
                 }
 
                 NkString ToString() const override {

@@ -249,7 +249,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkSystemPowerEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkSystemPowerEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -341,7 +341,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkSystemLocaleEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkSystemLocaleEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -408,7 +408,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkSystemDisplayEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkSystemDisplayEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -514,7 +514,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkSystemMemoryEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkSystemMemoryEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -614,7 +614,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkSystemTimeZoneEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkSystemTimeZoneEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -716,7 +716,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkSystemThemeEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkSystemThemeEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -845,7 +845,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkSystemAccessibilityEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkSystemAccessibilityEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs

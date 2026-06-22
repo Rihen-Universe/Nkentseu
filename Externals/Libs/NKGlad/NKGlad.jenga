@@ -76,3 +76,9 @@ with project("NKGlad"):
 
     with filter("system:Web"):
         files(["src/gles2.c"])
+
+    with filter("system:HarmonyOS"):
+        files([
+            "src/egl.c",
+            "src/gles2.c",
+        ])

@@ -17,6 +17,8 @@
 #include "NKEvent/NkKeycodeMap.h"
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
 #include "NKWindow/Platform/XLib/NkXLibDropTarget.h"
+#include "NKWindow/Platform/XLib/NkXLibEventSystem.h"   // def complete de NkEventSystemData (mData)
+#include "NKMemory/NkAllocator.h"                        // NkGetDefaultAllocator().New/Delete
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -61,15 +63,37 @@ namespace nkentseu {
         }
 
         mPumping = false;
-        mData.mDisplay = NkXLibGetDisplay();
-        mData.mPrevMouseX = 0;
-        mData.mPrevMouseY = 0;
-        mData.mInitialized = true;
+        // Alloue l'etat plateforme (oubli historique cote XLib : mData restait nullptr
+        // -> segfault des le 1er deref). Allocation via NKMemory (regle maison : pas de new).
+        if (!mData) mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
+        mData->mDisplay = NkXLibGetDisplay();
+        mData->mPrevMouseX = 0;
+        mData->mPrevMouseY = 0;
+        mData->mInitialized = true;
         mReady = true;
         return true;
     }
 
-    // Shutdown() est gere dans NkEventSystem.cpp (cross-platform).
+    // Shutdown propre a XLib : libere mData via NKMemory (exclu de la version cross-plat
+    // dans NkEventSystem.cpp). Le type NkEventSystemData est complet ici.
+    void NkEventSystem::Shutdown() {
+        ClearAllCallbacks();
+        mHidMapper.Clear();
+        {
+            NkScopedSpinLock lock(mQueueMutex);
+            mEventQueue.Clear();
+            mCurrentEvent.Reset();
+        }
+        mWindowCallbacks.Clear();
+        if (mData) {
+            memory::NkGetDefaultAllocator().Delete(mData);
+            mData = nullptr;
+        }
+        mTotalEventCount = 0;
+        mPumping         = false;
+        mPumpThreadId    = 0;
+        mReady           = false;
+    }
 
     void NkEventSystem::PumpOS() {
         if (mPumping) {
@@ -78,8 +102,8 @@ namespace nkentseu {
         mPumping = true;
 
         // Le display peut etre ouvert apres Init(), donc refresh ici.
-        mData.mDisplay = NkXLibGetDisplay();
-        Display* display = mData.mDisplay;
+        mData->mDisplay = NkXLibGetDisplay();
+        Display* display = mData->mDisplay;
         if (!display) {
             mPumping = false;
             return;
@@ -257,10 +281,10 @@ namespace nkentseu {
                     int32 y = xev.xmotion.y;
                     int32 sx = xev.xmotion.x_root;
                     int32 sy = xev.xmotion.y_root;
-                    int32 dx = x - mData.mPrevMouseX;
-                    int32 dy = y - mData.mPrevMouseY;
-                    mData.mPrevMouseX = x;
-                    mData.mPrevMouseY = y;
+                    int32 dx = x - mData->mPrevMouseX;
+                    int32 dy = y - mData->mPrevMouseY;
+                    mData->mPrevMouseX = x;
+                    mData->mPrevMouseY = y;
 
                     NkMouseMoveEvent e(x, y, sx, sy, dx, dy, NkMouseButtons{}, XLibMods(xev.xmotion.state));
                     Enqueue(e, winId);

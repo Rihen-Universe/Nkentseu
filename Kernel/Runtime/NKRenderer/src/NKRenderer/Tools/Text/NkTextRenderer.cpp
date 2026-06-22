@@ -5,6 +5,7 @@
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKFont/Embedded/NkFontEmbedded.h"
+#include "NKMemory/NkAllocator.h"
 #include <cstring>
 #include <cstdio>
 // Suppress Win32 GDI macro after all headers
@@ -30,10 +31,10 @@ namespace nkentseu {
         void NkTextRenderer::Shutdown() {
             for (auto* e : mFonts) {
                 if (e) {
-                    if (e->nkfAtlas) { e->nkfAtlas->Clear(); delete e->nkfAtlas; }
+                    if (e->nkfAtlas) { e->nkfAtlas->Clear(); memory::NkGetDefaultAllocator().Delete(e->nkfAtlas); }
                     if (e->isCustom && e->mCustom.Destroy)
                         e->mCustom.Destroy(e->mHandle, e->mCustom.userData);
-                    delete e;
+                    memory::NkGetDefaultAllocator().Delete(e);
                 }
             }
             mFonts.Clear();
@@ -51,26 +52,26 @@ namespace nkentseu {
 
         // ── Chargement NKFont ─────────────────────────────────────────────────────
         NkFontHandle NkTextRenderer::LoadFont(const char* path, float32 sizePx, bool sdf) {
-            auto* entry  = new NkFontEntry();
+            auto* entry  = memory::NkGetDefaultAllocator().New<NkFontEntry>();
             entry->handle    = AllocHandle();
             entry->sizePixels= sizePx;
             entry->isSDF     = sdf;
             entry->isCustom  = false;
-            entry->nkfAtlas  = new NkFontAtlas();
+            entry->nkfAtlas  = memory::NkGetDefaultAllocator().New<NkFontAtlas>();
             entry->nkfAtlas->sdfMode = sdf;
 
             NkFontConfig cfg;
             cfg.sizePixels = sizePx;
             entry->nkfFont = entry->nkfAtlas->AddFontFromFile(path, sizePx, &cfg);
             if (!entry->nkfFont) {
-                delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry->nkfAtlas); memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
             if (!entry->nkfAtlas->Build()) {
-                delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry->nkfAtlas); memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
 
             if (!BuildAtlasTexture(entry)) {
-                delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry->nkfAtlas); memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
 
             entry->ascent  = entry->nkfFont->ascent;
@@ -82,21 +83,21 @@ namespace nkentseu {
 
         NkFontHandle NkTextRenderer::LoadFontFromMemory(const uint8* data, uint32 size,
                                                         float32 sizePx, bool sdf) {
-            auto* entry      = new NkFontEntry();
+            auto* entry      = memory::NkGetDefaultAllocator().New<NkFontEntry>();
             entry->handle    = AllocHandle();
             entry->sizePixels= sizePx;
             entry->isSDF     = sdf;
             entry->isCustom  = false;
-            entry->nkfAtlas  = new NkFontAtlas();
+            entry->nkfAtlas  = memory::NkGetDefaultAllocator().New<NkFontAtlas>();
             entry->nkfAtlas->sdfMode = sdf;
 
             NkFontConfig cfg; cfg.sizePixels = sizePx;
             entry->nkfFont = entry->nkfAtlas->AddFontFromMemory(data, size, sizePx, &cfg);
             if (!entry->nkfFont || !entry->nkfAtlas->Build()) {
-                delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry->nkfAtlas); memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
             if (!BuildAtlasTexture(entry)) {
-                delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry->nkfAtlas); memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
             entry->ascent = entry->nkfFont->ascent;
             entry->descent= entry->nkfFont->descent;
@@ -108,21 +109,21 @@ namespace nkentseu {
         NkFontHandle NkTextRenderer::GetDefaultFont() {
             if (mDefaultFont.IsValid()) return mDefaultFont;
             // NKFont has embedded font data accessible via NkFontAtlas
-            auto* entry      = new NkFontEntry();
+            auto* entry      = memory::NkGetDefaultAllocator().New<NkFontEntry>();
             entry->handle    = AllocHandle();
             entry->sizePixels= 13.f;
             entry->isCustom  = false;
-            entry->nkfAtlas  = new NkFontAtlas();
+            entry->nkfAtlas  = memory::NkGetDefaultAllocator().New<NkFontAtlas>();
             // Add default font (NKFont provides embedded Proggy font)
             NkFontConfig cfg; cfg.sizePixels = 13.f;
             // Use default ranges
             cfg.glyphRanges = NkFontAtlas::GetGlyphRangesDefault();
             entry->nkfFont = NkFontEmbedded::AddDefaultFont(*entry->nkfAtlas, &cfg);
             if (!entry->nkfFont || !entry->nkfAtlas->Build()) {
-                delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry->nkfAtlas); memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
             if (!BuildAtlasTexture(entry)) {
-                delete entry->nkfAtlas; delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry->nkfAtlas); memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
             entry->ascent = entry->nkfFont->ascent;
             entry->descent= entry->nkfFont->descent;
@@ -153,14 +154,14 @@ namespace nkentseu {
         NkFontHandle NkTextRenderer::LoadFontCustom(const char* path, float32 sizePx,
                                                     const NkTextFontLoaderDesc& desc) {
             if (!desc.IsValid()) return NkFontHandle::Null();
-            auto* entry      = new NkFontEntry();
+            auto* entry      = memory::NkGetDefaultAllocator().New<NkFontEntry>();
             entry->handle    = AllocHandle();
             entry->sizePixels= sizePx;
             entry->isCustom  = true;
             entry->mCustom   = desc;
 
             if (!desc.Load(path, sizePx, desc.userData, &entry->mHandle)) {
-                delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
             desc.Metrics(entry->mHandle, desc.userData, &entry->ascent, &entry->descent, &entry->lineH);
 
@@ -190,7 +191,7 @@ namespace nkentseu {
             entry->atlasTexture = mTexLib->Create(tdesc);
             if (!entry->atlasTexture.IsValid()) {
                 desc.Destroy(entry->mHandle, desc.userData);
-                delete entry; return NkFontHandle::Null();
+                memory::NkGetDefaultAllocator().Delete(entry); return NkFontHandle::Null();
             }
             mFonts.PushBack(entry);
             return entry->handle;
@@ -200,11 +201,11 @@ namespace nkentseu {
             for (uint32 i = 0; i < (uint32)mFonts.Size(); i++) {
                 if (mFonts[i] && mFonts[i]->handle == handle) {
                     auto* e = mFonts[i];
-                    if (e->nkfAtlas) { e->nkfAtlas->Clear(); delete e->nkfAtlas; }
+                    if (e->nkfAtlas) { e->nkfAtlas->Clear(); memory::NkGetDefaultAllocator().Delete(e->nkfAtlas); }
                     if (e->isCustom && e->mCustom.Destroy)
                         e->mCustom.Destroy(e->mHandle, e->mCustom.userData);
                     if (e->atlasTexture.IsValid()) mTexLib->Release(e->atlasTexture);
-                    delete e;
+                    memory::NkGetDefaultAllocator().Delete(e);
                     mFonts.RemoveAt(i);
                     break;
                 }

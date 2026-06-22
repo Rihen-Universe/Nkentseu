@@ -1,8 +1,19 @@
 {
     "files.associations": {
-        "*.jenga": "python",
+        "*.jenga": "python"
     },
     "python.analysis.include": [
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
+        "***.py",
         "**/*.jenga",
         "**/*.py"
     ],
@@ -13,7 +24,9 @@
     },
     "python.analysis.extraPaths": [
         "D:/Projets/MacShared/Projets/Jenga",
-        ".jenga-typings"
+        ".jenga-typings",
+        "/mnt/d/Projets/MacShared/Projets/Jenga"
     ],
-    "_jengaIdeConfigVersion": "5f918a0a1623c8de"
+    "_jengaIdeConfigVersion": "5b5e14e1b4015cfd",
+    "cmake.sourceDirectory": "D:/Projets/2026/Nkentseu/Nkentseu/Externals/Libs/NKAssimp"
 }
