@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Etoile de recompense souriante -->
+  <path d="M100,15 L123,73 L186,78 L137,118 L153,182 L100,145 L47,182 L63,118 L14,78 L77,73 Z"
+        fill="#FFD43B" stroke="#E8A317" stroke-width="7" stroke-linejoin="round"/>
+  <circle cx="83" cy="96" r="7" fill="#4A3728"/>
+  <circle cx="117" cy="96" r="7" fill="#4A3728"/>
+  <circle cx="70" cy="106" r="9" fill="#FF8FA3" opacity="0.7"/>
+  <circle cx="130" cy="106" r="9" fill="#FF8FA3" opacity="0.7"/>
+  <path d="M82 114 Q100 132 118 114" fill="none" stroke="#4A3728" stroke-width="5" stroke-linecap="round"/>
+</svg>

@@ -150,8 +150,15 @@ namespace nkentseu
         // Entrée de la pile de style
         struct NkStyleVarEntry
         {
-            NkStyleVar var;                         // Variable modifiée
-            union { float32 f = 0.f; NkColor col; } prev; // Valeur précédente
+            NkStyleVar var{};                       // Variable modifiée
+            // Union nommée avec ctor explicite : certains clang (NDK OHOS/Harmony)
+            // suppriment le ctor par defaut d'une union a initialiseur de membre
+            // quand un membre (NkColor) a un ctor non trivial -> ctor explicite portable.
+            union NkStyleVarValue {
+                float32 f;
+                NkColor col;
+                NkStyleVarValue() : f(0.f) {}
+            } prev;                                 // Valeur précédente
         };
 
         // Curseur souris suggéré par NKUI (consommé par l'adaptateur plateforme)

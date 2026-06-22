@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke="#4a3728" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- pattes -->
+    <rect x="92"  y="120" width="26" height="58" rx="11" fill="#8d9aa8"/>
+    <rect x="130" y="120" width="26" height="58" rx="11" fill="#9aa7b5"/>
+    <rect x="62"  y="122" width="26" height="56" rx="11" fill="#8d9aa8"/>
+    <rect x="36"  y="120" width="26" height="58" rx="11" fill="#9aa7b5"/>
+    <!-- corps -->
+    <ellipse cx="118" cy="104" rx="62" ry="52" fill="#9aa7b5"/>
+    <!-- tete -->
+    <circle cx="62" cy="92" r="46" fill="#a6b3c0"/>
+    <!-- oreille -->
+    <path d="M70 60 C40 52 30 78 40 102 C52 120 84 112 86 86 C87 72 84 64 70 60 Z" fill="#8d9aa8"/>
+    <!-- trompe -->
+    <path d="M30 92 C8 100 12 140 22 166 C26 178 44 176 44 162 C40 142 36 120 54 110 C44 96 38 90 30 92 Z" fill="#a6b3c0"/>
+    <!-- defense -->
+    <path d="M40 134 C34 150 38 160 48 158 C50 148 48 140 46 134 Z" fill="#fbf3e2"/>
+  </g>
+  <!-- bout de trompe + oeil (sans contour epais) -->
+  <ellipse cx="30" cy="166" rx="9" ry="6" fill="#8d9aa8"/>
+  <circle cx="56" cy="84" r="7" fill="#3a2f28"/>
+  <circle cx="59" cy="81" r="2.4" fill="#ffffff"/>
+  <ellipse cx="92" cy="78" rx="16" ry="10" fill="#b7c3cf" opacity="0.6"/>
+</svg>

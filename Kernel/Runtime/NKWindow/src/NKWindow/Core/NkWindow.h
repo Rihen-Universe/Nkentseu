@@ -159,6 +159,10 @@ namespace nkentseu {
             // Platform data â€” accessed directly by backend .cpp files
             struct NkWindowData mData;
 
+            // Config accessible aux backends (.cpp plateforme), comme mData : permet
+            // aux callbacks libres (ex. Wayland configure) de synchroniser la config.
+            NkWindowConfig& ConfigData() noexcept { return mConfig; }
+
         private:
             NkWindowId     mId      = 0;
             bool           mIsOpen  = false;

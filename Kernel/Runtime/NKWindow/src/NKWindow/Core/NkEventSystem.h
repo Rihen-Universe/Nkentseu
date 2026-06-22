@@ -83,7 +83,12 @@ namespace nkentseu {
     using NkRemoverCallback     = NkFunction<void()>;
 
     struct NkEventDelete {
-        void operator()(NkEvent* event) const noexcept { delete event; }
+        // Les events sont clones via NkGetDefaultAllocator().New<T>() (cf. NkEvent::Clone()).
+        // Ils DOIVENT donc etre liberes via le meme allocateur (Delete appelle ~NkEvent
+        // virtuel + Deallocate). Jamais de delete brut : sinon heap corruption c0000374.
+        void operator()(NkEvent* event) const noexcept {
+            nkentseu::memory::NkGetDefaultAllocator().Delete(event);
+        }
     };
 
     using NkEventPtr = memory::NkUniquePtr<NkEvent, NkEventDelete>;

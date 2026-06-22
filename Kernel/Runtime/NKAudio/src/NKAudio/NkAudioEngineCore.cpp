@@ -649,12 +649,12 @@ namespace nkentseu {
             // explicit constructors par defaut sur les NkFunction nested
             // dans le tableau de Voice. Tous les autres membres ont des
             // initializers in-class qui s'appliquent quand meme.
-            mImpl = new Impl;
+            mImpl = memory::NkGetDefaultAllocator().New<Impl>();
         }
 
         AudioEngine::~AudioEngine() {
             if (mImpl->initialized) Shutdown();
-            delete mImpl;
+            memory::NkGetDefaultAllocator().Delete(mImpl);
         }
 
         bool AudioEngine::Initialize(const AudioEngineConfig& config) {
@@ -694,7 +694,7 @@ namespace nkentseu {
                 config.sampleRate, config.channels, config.bufferSize);
 
             if (!ok) {
-                delete mImpl->backend;
+                memory::NkGetDefaultAllocator().Delete(mImpl->backend);
                 mImpl->backend = nullptr;
                 return false;
             }
@@ -721,7 +721,7 @@ namespace nkentseu {
             if (config.enableMasterLimiter && mImpl->masterEffectCount < AUDIO_MAX_MASTER_EFFECTS) {
                 LimiterEffect::Params lp;
                 lp.thresholdDb = config.masterLimiterThresholdDb;
-                mImpl->autoMasterLimiter = new LimiterEffect(lp, config.sampleRate);
+                mImpl->autoMasterLimiter = memory::NkGetDefaultAllocator().New<LimiterEffect>(lp, config.sampleRate);
                 mImpl->masterEffects[mImpl->masterEffectCount++] = mImpl->autoMasterLimiter;
             }
 
@@ -735,7 +735,7 @@ namespace nkentseu {
             if (mImpl->backend) {
                 mImpl->backend->Stop();
                 mImpl->backend->Shutdown();
-                delete mImpl->backend;
+                memory::NkGetDefaultAllocator().Delete(mImpl->backend);
                 mImpl->backend = nullptr;
             }
 
@@ -751,7 +751,7 @@ namespace nkentseu {
                         break;
                     }
                 }
-                delete mImpl->autoMasterLimiter;
+                memory::NkGetDefaultAllocator().Delete(mImpl->autoMasterLimiter);
                 mImpl->autoMasterLimiter = nullptr;
             }
 

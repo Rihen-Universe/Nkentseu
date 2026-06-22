@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Tomate (ROUGE) -->
+  <circle cx="100" cy="116" r="64" fill="#FF5A5A" stroke="#4A3728" stroke-width="7"/>
+  <ellipse cx="74" cy="92" rx="14" ry="20" fill="#FFFFFF" opacity="0.35"/>
+  <!-- calice + tige -->
+  <path d="M100 56 L88 44 M100 56 L112 44 M100 56 L82 58 M100 56 L118 58 M100 56 L100 40"
+        stroke="#5BB85B" stroke-width="8" stroke-linecap="round"/>
+  <path d="M100 52 Q104 36 96 30" fill="none" stroke="#4A3728" stroke-width="6" stroke-linecap="round"/>
+</svg>

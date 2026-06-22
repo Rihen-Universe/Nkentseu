@@ -26,6 +26,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
 #include "NKECS/Storage/NkComponentPool.h"
+#include "NKMemory/NkAllocator.h"   // pour nkentseu::memory::NkAlloc / NkAllocZero / NkFree
 
 namespace nkentseu {
     namespace ecs {
@@ -312,11 +313,12 @@ namespace nkentseu {
                                             ? 8u
                                             : mEntityCapacity + mEntityCapacity / 2u;
 
-                    NkEntityId* newArr = new NkEntityId[newCap];
+                    NkEntityId* newArr = static_cast<NkEntityId*>(
+                        nkentseu::memory::NkAlloc(static_cast<nk_size>(newCap) * sizeof(NkEntityId)));
 
                     if (mEntityIds != nullptr) {
                         std::memcpy(newArr, mEntityIds, mSize * sizeof(NkEntityId));
-                        delete[] mEntityIds;
+                        nkentseu::memory::NkFree(mEntityIds);
                     }
 
                     mEntityIds      = newArr;
@@ -468,7 +470,7 @@ namespace nkentseu {
                 // Destructeur (libération du tableau dynamique)
                 // -----------------------------------------------------------------
                 ~NkEntityIndex() noexcept {
-                    delete[] mEntries;
+                    nkentseu::memory::NkFree(mEntries);
                 }
 
             private:
@@ -524,11 +526,15 @@ namespace nkentseu {
                                             ? 64u
                                             : mCapacity + mCapacity / 2u;
 
-                    Entry* newArr = new Entry[newCap](); // () assure l'initialisation à zéro
+                    // NkAllocZero assure l'initialisation à zéro (équivalent du `()` ci-dessus).
+                    // Entry est trivialement constructible depuis un buffer zéroté
+                    // (record par défaut, gen=0, alive=false).
+                    Entry* newArr = static_cast<Entry*>(
+                        nkentseu::memory::NkAllocZero(static_cast<nk_size>(newCap), sizeof(Entry)));
 
                     if (mEntries != nullptr) {
                         std::memcpy(newArr, mEntries, mCapacity * sizeof(Entry));
-                        delete[] mEntries;
+                        nkentseu::memory::NkFree(mEntries);
                     }
 
                     mEntries  = newArr;

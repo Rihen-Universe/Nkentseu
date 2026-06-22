@@ -1,0 +1,12 @@
+{
+  "levels": [
+    { "choices": 2, "rounds": 3 },
+    { "choices": 2, "rounds": 3 },
+    { "choices": 3, "rounds": 3 },
+    { "choices": 3, "rounds": 4 },
+    { "choices": 3, "rounds": 4 },
+    { "choices": 4, "rounds": 4 },
+    { "choices": 4, "rounds": 5 },
+    { "choices": 4, "rounds": 5 }
+  ]
+}

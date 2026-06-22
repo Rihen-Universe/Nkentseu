@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <!-- Pomme (objet a compter / calculer) -->
+  <path d="M90 60 Q92 36 106 30" fill="none" stroke="#4A3728" stroke-width="7" stroke-linecap="round"/>
+  <path d="M104 40 Q130 26 134 50 Q110 58 104 40 Z" fill="#51CF66" stroke="#4A3728" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M90 62 C 78 46, 50 44, 42 72 C 34 100, 50 156, 78 156 C 84 156, 88 152, 90 152 C 92 152, 96 156, 102 156 C 130 156, 146 100, 138 72 C 130 44, 102 46, 90 62 Z"
+        fill="#FF6B6B" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <ellipse cx="66" cy="88" rx="10" ry="16" fill="#FFFFFF" opacity="0.4"/>
+</svg>

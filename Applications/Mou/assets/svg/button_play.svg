@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Gros bouton jouer (effet 3D : ombre basse + face haute) -->
+  <circle cx="100" cy="106" r="84" fill="#2B8A3E"/>
+  <circle cx="100" cy="96" r="84" fill="#51CF66" stroke="#2B8A3E" stroke-width="8"/>
+  <path d="M84 62 L142 96 L84 130 Z" fill="#FFFFFF" stroke="#2B8A3E" stroke-width="6" stroke-linejoin="round"/>
+</svg>

@@ -9,6 +9,7 @@
 
 #include "NkUIKitCameraBackend.h"
 #include "NKCamera/NkCameraSystem.h"
+#include "NKMemory/NkAllocator.h"
 
 // ---------------------------------------------------------------------------
 // Delegate vidéo
@@ -66,9 +67,12 @@ struct UIKitPrivate {
 };
 
 NkUIKitCameraBackend::NkUIKitCameraBackend()
-    : mPriv(new UIKitPrivate()) {}
+    : mPriv(nkentseu::memory::NkGetDefaultAllocator().New<UIKitPrivate>()) {}
 
-NkUIKitCameraBackend::~NkUIKitCameraBackend() { Shutdown(); delete (UIKitPrivate*)mPriv; }
+NkUIKitCameraBackend::~NkUIKitCameraBackend() {
+    Shutdown();
+    nkentseu::memory::NkGetDefaultAllocator().Delete((UIKitPrivate*)mPriv);
+}
 
 bool NkUIKitCameraBackend::Init()
 {

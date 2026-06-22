@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Plantain mur (JAUNE) -->
+  <path d="M48 150 Q44 70 120 54 Q156 50 168 64 Q150 64 138 78 Q116 104 118 130 Q120 158 78 168 Q58 172 48 150 Z"
+        fill="#FFC93C" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M60 150 Q58 92 116 70" fill="none" stroke="#D9A521" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <ellipse cx="150" cy="62" rx="10" ry="7" fill="#4A3728"/>
+  <ellipse cx="66" cy="160" rx="9" ry="7" fill="#4A3728"/>
+</svg>

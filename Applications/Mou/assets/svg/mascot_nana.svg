@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" width="220" height="220">
+  <!-- Mascotte Nana : petite boule de soleil souriante -->
+  <!-- pieds -->
+  <ellipse cx="82" cy="197" rx="22" ry="12" fill="#FF922B" stroke="#4A3728" stroke-width="6"/>
+  <ellipse cx="138" cy="197" rx="22" ry="12" fill="#FF922B" stroke="#4A3728" stroke-width="6"/>
+  <!-- petits bras -->
+  <path d="M34 110 q-16 6 -20 22" fill="none" stroke="#4A3728" stroke-width="10" stroke-linecap="round"/>
+  <path d="M186 110 q16 6 20 22" fill="none" stroke="#4A3728" stroke-width="10" stroke-linecap="round"/>
+  <!-- corps -->
+  <circle cx="110" cy="105" r="78" fill="#FFC93C" stroke="#4A3728" stroke-width="8"/>
+  <!-- joues -->
+  <circle cx="66" cy="120" r="15" fill="#FF8FA3"/>
+  <circle cx="154" cy="120" r="15" fill="#FF8FA3"/>
+  <!-- yeux -->
+  <circle cx="86" cy="92" r="18" fill="#FFFFFF" stroke="#4A3728" stroke-width="5"/>
+  <circle cx="134" cy="92" r="18" fill="#FFFFFF" stroke="#4A3728" stroke-width="5"/>
+  <circle cx="90" cy="95" r="8" fill="#4A3728"/>
+  <circle cx="138" cy="95" r="8" fill="#4A3728"/>
+  <circle cx="93" cy="91" r="3" fill="#FFFFFF"/>
+  <circle cx="141" cy="91" r="3" fill="#FFFFFF"/>
+  <!-- sourire -->
+  <path d="M86 130 Q110 154 134 130" fill="none" stroke="#4A3728" stroke-width="6" stroke-linecap="round"/>
+  <!-- houppette -->
+  <path d="M110 27 q-8 -20 12 -23 q-5 15 7 19 z" fill="#FF922B" stroke="#4A3728" stroke-width="5" stroke-linejoin="round"/>
+</svg>

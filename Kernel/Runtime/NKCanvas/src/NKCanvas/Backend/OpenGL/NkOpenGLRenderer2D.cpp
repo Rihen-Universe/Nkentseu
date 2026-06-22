@@ -11,6 +11,7 @@
 #include "NKCanvas/Core/NkIGraphicsContext.h"
 #include "NKCanvas/Core/NkNativeContextAccess.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 
 #include <cstring>
 
@@ -274,10 +275,10 @@ namespace nkentseu {
             if (!ok) {
                 GLint len = 0;
                 glGetShaderiv(s, GL_INFO_LOG_LENGTH, &len);
-                char* buf = new char[len+1]();
+                char* buf = (char*)nkentseu::memory::NkAlloc((nk_size)(len+1));
                 glGetShaderInfoLog(s, len, nullptr, buf);
                 logger.Errorf("[NkGL2D] Shader compile error:\n%s", buf);
-                delete[] buf;
+                nkentseu::memory::NkFree(buf);
                 glDeleteShader(s);
                 return 0;
             }
@@ -424,10 +425,10 @@ namespace nkentseu {
             if (!ok) {
                 GLint len = 0;
                 glGetProgramiv((GLuint)mProgram, GL_INFO_LOG_LENGTH, &len);
-                char* buf = new char[len+1]();
+                char* buf = (char*)nkentseu::memory::NkAlloc((nk_size)(len+1));
                 glGetProgramInfoLog((GLuint)mProgram, len, nullptr, buf);
                 NK_GL2D_ERR("Shader link:\n%s", buf);
-                delete[] buf;
+                nkentseu::memory::NkFree(buf);
                 return false;
             }
             mUniProj = glGetUniformLocation((GLuint)mProgram, "u_Projection");

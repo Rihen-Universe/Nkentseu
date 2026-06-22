@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkCullingSystem.h"
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
+#include "NKMemory/NkAllocator.h"
 #include <cmath>
 #include <cstring>
 
@@ -22,7 +23,7 @@ namespace nkentseu {
 
         bool NkCullingSystem::Init(const NkCullingConfig& cfg) {
             mCfg = cfg;
-            mOctree = new OctreeType(cfg.worldX, cfg.worldY, cfg.worldZ,
+            mOctree = memory::NkGetDefaultAllocator().New<OctreeType>(cfg.worldX, cfg.worldY, cfg.worldZ,
                                     cfg.worldW, cfg.worldH, cfg.worldD);
             mReady  = true;
             return true;
@@ -30,7 +31,7 @@ namespace nkentseu {
 
         void NkCullingSystem::Shutdown() {
             if (!mReady) return;
-            delete mOctree;
+            memory::NkGetDefaultAllocator().Delete(mOctree);
             mOctree = nullptr;
             mRegistry.Clear();
             mResults.Clear();

@@ -20,6 +20,9 @@
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKWindow/Platform/XCB/NkXCBWindow.h"
 #include "NKWindow/Platform/XCB/NkXCBDropTarget.h"
+#include "NKWindow/Platform/XCB/NkXCBEventSystem.h"   // def complete de NkEventSystemData (mData)
+#include "NKWindow/Platform/Common/NkSystemMemory.h"   // NkXcbFree (wrappe le free() libc des events libxcb)
+#include "NKMemory/NkAllocator.h"                      // NkGetDefaultAllocator().New/Delete
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_aux.h>
@@ -58,21 +61,24 @@ namespace nkentseu {
             mEventQueue.Clear();
         }
         mPumping = false;
+        // Alloue l'etat plateforme (oubli historique cote XCB : mData restait nullptr
+        // -> segfault au Shutdown). Allocation via NKMemory (regle maison : pas de new).
+        if (!mData) mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
 
         // Initialiser XKB si la connexion XCB existe dÃƒÂ©jÃƒÂ 
         xcb_connection_t* conn = NkXCBGetConnection();
         if (conn) {
-            if (!mData.mXkbContext)
-                mData.mXkbContext = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-            if (mData.mXkbContext && !mData.mXkbKeymap) {
-                mData.mDefaultScreen = 0;
-                mData.mXkbKeymap = xkb_x11_keymap_new_from_device(
-                    mData.mXkbContext, conn,
+            if (!mData->mXkbContext)
+                mData->mXkbContext = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+            if (mData->mXkbContext && !mData->mXkbKeymap) {
+                mData->mDefaultScreen = 0;
+                mData->mXkbKeymap = xkb_x11_keymap_new_from_device(
+                    mData->mXkbContext, conn,
                     xkb_x11_get_core_keyboard_device_id(conn),
                     XKB_KEYMAP_COMPILE_NO_FLAGS);
-                if (mData.mXkbKeymap)
-                    mData.mXkbState = xkb_x11_state_new_from_device(
-                        mData.mXkbKeymap, conn,
+                if (mData->mXkbKeymap)
+                    mData->mXkbState = xkb_x11_state_new_from_device(
+                        mData->mXkbKeymap, conn,
                         xkb_x11_get_core_keyboard_device_id(conn));
             }
         }
@@ -91,22 +97,26 @@ namespace nkentseu {
         }
         mWindowCallbacks.Clear();
 
-        if (mData.mXkbState) {
-            xkb_state_unref(mData.mXkbState);
-            mData.mXkbState = nullptr;
+        // mData peut etre nullptr si Shutdown est appele sans Init prealable.
+        if (mData) {
+            if (mData->mXkbState) {
+                xkb_state_unref(mData->mXkbState);
+                mData->mXkbState = nullptr;
+            }
+            if (mData->mXkbKeymap) {
+                xkb_keymap_unref(mData->mXkbKeymap);
+                mData->mXkbKeymap = nullptr;
+            }
+            if (mData->mXkbContext) {
+                xkb_context_unref(mData->mXkbContext);
+                mData->mXkbContext = nullptr;
+            }
+            mData->mConnection = nullptr;
+            mData->mDefaultScreen = 0;
+            mData->mInitialized = false;
+            memory::NkGetDefaultAllocator().Delete(mData);
+            mData = nullptr;
         }
-        if (mData.mXkbKeymap) {
-            xkb_keymap_unref(mData.mXkbKeymap);
-            mData.mXkbKeymap = nullptr;
-        }
-        if (mData.mXkbContext) {
-            xkb_context_unref(mData.mXkbContext);
-            mData.mXkbContext = nullptr;
-        }
-
-        mData.mConnection = nullptr;
-        mData.mDefaultScreen = 0;
-        mData.mInitialized = false;
         mTotalEventCount = 0;
         mPumping = false;
         mPumpThreadId = 0;
@@ -171,7 +181,7 @@ namespace nkentseu {
                 NkSystemDisplayEvent e(
                     NkDisplayChange::NK_DISPLAY_RESOLUTION_CHANGED, info, 0);
                 Enqueue(e, NK_INVALID_WINDOW_ID);
-                free(ev);
+                platform::NkXcbFree(ev);
                 continue;
             }
 
@@ -228,9 +238,9 @@ namespace nkentseu {
                 NkKey      key = NkScancodeToKey(sc);
 
                 // Fallback XKB si disponible
-                if (key == NkKey::NK_UNKNOWN && mData.mXkbState) {
+                if (key == NkKey::NK_UNKNOWN && mData->mXkbState) {
                     xkb_keysym_t sym = xkb_state_key_get_one_sym(
-                        mData.mXkbState, static_cast<xkb_keycode_t>(ke->detail));
+                        mData->mXkbState, static_cast<xkb_keycode_t>(ke->detail));
                     key = NkKeycodeMap::NkKeyFromX11KeySym(static_cast<uint32>(sym));
                 }
 
@@ -248,9 +258,9 @@ namespace nkentseu {
                 }
 
                 // Texte produit (KeyPress uniquement)
-                if (evType == XCB_KEY_PRESS && mData.mXkbState) {
+                if (evType == XCB_KEY_PRESS && mData->mXkbState) {
                     char buf[32] = {};
-                    xkb_state_key_get_utf8(mData.mXkbState,
+                    xkb_state_key_get_utf8(mData->mXkbState,
                         static_cast<xkb_keycode_t>(ke->detail), buf, sizeof(buf));
                     if (buf[0] >= 0x20 && (unsigned char)buf[0] != 0x7F) {
                         NkTextInputEvent e(static_cast<uint32>((unsigned char)buf[0]));
@@ -374,7 +384,7 @@ namespace nkentseu {
                         if (nextType == XCB_CONFIGURE_NOTIFY) {
                             auto* nc = (xcb_configure_notify_event_t*)next;
                             if (nc->window == ce->window) {
-                                free(ev);
+                                platform::NkXcbFree(ev);
                                 ev = next;
                                 ce = nc;
                                 continue;
@@ -383,7 +393,7 @@ namespace nkentseu {
                         // Not a matching ConfigureNotify — push it back is not possible in XCB;
                         // process it inline before moving on.
                         // We'll break and leave it unprocessed (minor: one event may be dropped).
-                        free(next);
+                        platform::NkXcbFree(next);
                         break;
                     }
                 }
@@ -465,7 +475,7 @@ namespace nkentseu {
                 break;
             }
 
-            free(ev);
+            platform::NkXcbFree(ev);
         }
 
         mPumping = false;

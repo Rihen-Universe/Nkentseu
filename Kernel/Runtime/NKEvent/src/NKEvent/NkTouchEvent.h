@@ -321,7 +321,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTouchBeginEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTouchBeginEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -374,7 +374,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTouchMoveEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTouchMoveEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -426,7 +426,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTouchEndEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTouchEndEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -477,7 +477,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkTouchCancelEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkTouchCancelEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -538,7 +538,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkGesturePinchEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGesturePinchEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -635,7 +635,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkGestureRotateEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGestureRotateEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -722,7 +722,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkGesturePanEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGesturePanEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -817,7 +817,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkGestureSwipeEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGestureSwipeEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -927,7 +927,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkGestureTapEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGestureTapEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -1025,7 +1025,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NKENTSEU_EVENT_API NkEvent* Clone() const override {
-                    return new NkGestureLongPressEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGestureLongPressEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs

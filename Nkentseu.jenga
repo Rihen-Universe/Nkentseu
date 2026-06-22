@@ -412,5 +412,8 @@ with workspace("Nkentseu", location="."):
     with include("Applications/Nkoung/Nkoung.jenga"):
         pass
 
+    with include("Applications/Mou/Mou.jenga"):
+        pass
+
     with include("Applications/NkImageDemo/NkImageDemo.jenga"):
         pass

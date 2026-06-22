@@ -19,12 +19,19 @@
 //   - Arc elliptique converti en Beziers
 //
 // Elements supportes : <svg> <g> <path> <rect> <circle> <ellipse> <line>
-//                      <polyline> <polygon>
-// Attributs styles  : fill, stroke, stroke-width, opacity, fill-rule, transform
-// Couleurs          : #RGB, #RRGGBB, rgb(), rgba(), nom CSS (148 noms standards)
+//                      <polyline> <polygon> <linearGradient> <radialGradient> <stop>
+// Attributs styles  : fill, stroke, stroke-width, opacity, fill-opacity,
+//                     stroke-opacity, fill-rule, transform,
+//                     stroke-linecap (butt/round/square),
+//                     stroke-linejoin (miter/round/bevel), stroke-miterlimit
+// Gradients         : linear + radial, stops (offset/stop-color/stop-opacity),
+//                     gradientUnits (objectBoundingBox + userSpaceOnUse),
+//                     gradientTransform, spreadMethod (pad/reflect/repeat),
+//                     fill/stroke="url(#id)", href (stops herites)
+// Couleurs          : #RGB, #RRGGBB, #RRGGBBAA, rgb(), rgba(), nom CSS (148 noms)
 //
-// Pas supporte (Phase 2 +) : <text>, <use>, <defs><style>, gradients, patterns,
-// masks, clipPath, filters.
+// Pas supporte (Phase 3 +) : <text>, <use>, <defs><style> (classes CSS),
+// patterns, masks, clipPath, filters.
 //
 // Auteur : Rihen (reecriture 2026-05-19), inspire de NanoSVG par Mikko Mononen.
 // =============================================================================
@@ -33,6 +40,13 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
+
+    // X11/Xlib definit la macro 'None' (=0L) qui peut fuiter (via un header GUI inclus
+    // avant celui-ci) et casse NkSVGColor::None(). NKImage n'utilise jamais X11 -> on
+    // neutralise la macro si presente. (Collision classique X11 <-> identifiants C++.)
+    #ifdef None
+    #  undef None
+    #endif
 
     // ── Couleur RGBA pour parsing SVG ─────────────────────────────────────────
     struct NkSVGColor {
@@ -46,16 +60,23 @@ namespace nkentseu {
         static NkSVGColor None()        noexcept { NkSVGColor c; c.none=true; return c; }
     };
 
+    // ── Terminaisons / jointures de trait (stroke-linecap / stroke-linejoin) ──
+    enum class NkSVGLineCap  : uint8 { Butt = 0, Round, Square };
+    enum class NkSVGLineJoin : uint8 { Miter = 0, Round, Bevel };
+
     // ── Style de dessin (cumulable via cascade <g>) ───────────────────────────
     struct NkSVGStyle {
-        NkSVGColor fill         = NkSVGColor::Black();
-        NkSVGColor stroke       = NkSVGColor::None();
-        float32    strokeWidth  = 1.f;
-        float32    opacity      = 1.f;
-        float32    fillOpacity  = 1.f;
-        float32    strokeOpacity= 1.f;
-        bool       fillEvenOdd  = false;  ///< fill-rule="evenodd"
-        bool       visible      = true;
+        NkSVGColor    fill          = NkSVGColor::Black();
+        NkSVGColor    stroke        = NkSVGColor::None();
+        float32       strokeWidth   = 1.f;
+        float32       opacity       = 1.f;
+        float32       fillOpacity   = 1.f;
+        float32       strokeOpacity = 1.f;
+        bool          fillEvenOdd   = false;  ///< fill-rule="evenodd"
+        bool          visible       = true;
+        NkSVGLineCap  strokeLineCap  = NkSVGLineCap::Butt;   ///< stroke-linecap
+        NkSVGLineJoin strokeLineJoin = NkSVGLineJoin::Miter; ///< stroke-linejoin
+        float32       strokeMiterLimit = 4.f;                ///< stroke-miterlimit
     };
 
     // ── Matrice affine 2D (a,b,c,d,e,f) = [a c e; b d f; 0 0 1] ──────────────

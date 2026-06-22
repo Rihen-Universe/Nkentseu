@@ -8,6 +8,7 @@
 
 #import <WatchKit/WatchKit.h>
 #include "NKWindow/Core/NkEntry.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 
 /**
  * @brief Namespace nkentseu.
@@ -43,14 +44,14 @@ static NkWatchOSArgs g_watchos_args;
 	if (!nkentseu::NkEntryRuntimeInit(g_watchos_args.bundleId.CStr())) {
 		return;
 	}
-	nkentseu::gState = new nkentseu::NkEntryState(g_watchos_args.args);
+	nkentseu::gState = nkentseu::memory::NkGetDefaultAllocator().New<nkentseu::NkEntryState>(g_watchos_args.args);
 	nkentseu::NkApplyEntryAppName(*nkentseu::gState, g_watchos_args.bundleId.CStr());
 	nkmain(*nkentseu::gState);
 }
 
 - (void)applicationWillResignActive {
 	nkentseu::NkEntryRuntimeShutdown(true);
-	delete nkentseu::gState;
+	nkentseu::memory::NkGetDefaultAllocator().Delete(nkentseu::gState);
 	nkentseu::gState = nullptr;
 }
 

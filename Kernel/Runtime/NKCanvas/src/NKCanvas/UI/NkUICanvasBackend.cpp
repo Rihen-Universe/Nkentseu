@@ -78,8 +78,21 @@ namespace nkentseu {
             return UploadTextureRGBA8(texId, mExpand.Data(), width, height);
         }
 
+        NkUICanvasBackend* NkUICanvasBackend::s_uploadSelf = nullptr;
+
+        void NkUICanvasBackend::UploadGray8Trampoline(uint32 texId, const uint8* data, int32 w, int32 h) {
+            if (s_uploadSelf) s_uploadSelf->UploadTextureGray8(texId, data, w, h);
+        }
+
         void NkUICanvasBackend::Submit(const nkui::NkUIContext& ctx, uint32 fbW, uint32 fbH) {
             if (!mRenderer) return;
+
+            // Upload des atlas de police "dirty" AVANT de dessiner : sans cela,
+            // atlas->texId reste 0 et NkUIFont::RenderChar retombe sur la police
+            // bitmap (texte crenele). Cheap : UploadToGPU ne fait rien si !dirty.
+            s_uploadSelf = this;
+            const_cast<nkui::NkUIContext&>(ctx).fontManager.UploadDirtyAtlases(
+                reinterpret_cast<void*>(&NkUICanvasBackend::UploadGray8Trampoline));
 
             for (int32 layer = 0; layer < nkui::NkUIContext::LAYER_COUNT; ++layer) {
                 const nkui::NkUIDrawList& dl = ctx.layers[layer];
