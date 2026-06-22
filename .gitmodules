@@ -1,0 +1,21 @@
+[submodule "Externals/Libs/NKGlad"]
+	path = Externals/Libs/NKGlad
+	url = https://github.com/Rihen-Universe/NKGlad.git
+[submodule "Externals/Libs/NKGLSlang"]
+	path = Externals/Libs/NKGLSlang
+	url = https://github.com/Rihen-Universe/NKGLSlang.git
+[submodule "Externals/Libs/NKShaderc"]
+	path = Externals/Libs/NKShaderc
+	url = https://github.com/Rihen-Universe/NKShaderc.git
+[submodule "Externals/Libs/ImGui"]
+	path = Externals/Libs/ImGui
+	url = https://github.com/Rihen-Universe/ImGui.git
+[submodule "Externals/Libs/NKSPIRVCross"]
+	path = Externals/Libs/NKSPIRVCross
+	url = https://github.com/Rihen-Universe/NKSPIRVCross.git
+[submodule "Externals/Libs/NKAssimp"]
+	path = Externals/Libs/NKAssimp
+	url = https://github.com/Rihen-Universe/NKAssimp.git
+[submodule "Externals/Libs/Vulkan-Headers-1.4.350"]
+	path = Externals/Libs/Vulkan-Headers-1.4.350
+	url = https://github.com/Rihen-Universe/Vulkan-Headers.git
