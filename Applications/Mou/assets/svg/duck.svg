@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 180" width="210" height="180">
+  <!-- Canard (objet a compter) -->
+  <path d="M30 104 q-20 -6 -24 -24 q26 2 32 16 z" fill="#FFC93C" stroke="#4A3728" stroke-width="6" stroke-linejoin="round"/>
+  <ellipse cx="98" cy="118" rx="72" ry="50" fill="#FFC93C" stroke="#4A3728" stroke-width="7"/>
+  <path d="M70 112 q42 -12 66 8 q-32 22 -66 4 z" fill="#FFD43B" stroke="#4A3728" stroke-width="6" stroke-linejoin="round"/>
+  <circle cx="146" cy="70" r="40" fill="#FFC93C" stroke="#4A3728" stroke-width="7"/>
+  <path d="M178 64 q34 4 32 18 q-8 12 -34 8 z" fill="#FF922B" stroke="#4A3728" stroke-width="6" stroke-linejoin="round"/>
+  <circle cx="156" cy="60" r="8" fill="#FFFFFF" stroke="#4A3728" stroke-width="3"/>
+  <circle cx="157" cy="61" r="4" fill="#4A3728"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Mangue (JAUNE-orange) -->
+  <path d="M64 118 C 52 74 104 50 138 78 C 168 104 152 168 104 168 C 78 168 72 146 64 118 Z"
+        fill="#FFC93C" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M120 70 C 150 80 160 120 150 150 C 150 110 135 88 116 78 Z" fill="#FF922B" opacity="0.55"/>
+  <ellipse cx="92" cy="98" rx="11" ry="17" fill="#FFFFFF" opacity="0.4"/>
+  <path d="M128 70 Q132 52 122 46" fill="none" stroke="#4A3728" stroke-width="6" stroke-linecap="round"/>
+</svg>

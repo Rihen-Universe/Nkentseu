@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Panier BLEU — symbole rond -->
+  <path d="M46 74 L154 74 L142 166 Q141 178 129 178 L71 178 Q59 178 58 166 Z"
+        fill="#4DABF7" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <ellipse cx="100" cy="74" rx="56" ry="16" fill="#74C0FC" stroke="#4A3728" stroke-width="7"/>
+  <circle cx="100" cy="126" r="24" fill="#FFFFFF"/>
+</svg>

@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkMaterialSystem.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 
 namespace nkentseu {
     namespace renderer {
@@ -51,7 +52,7 @@ namespace nkentseu {
             for (auto* inst : mInstances) {
                 if (inst->mUBO.IsValid())     mDevice->DestroyBuffer(inst->mUBO);
                 if (inst->mDescSet.IsValid()) mDevice->FreeDescriptorSet(inst->mDescSet);
-                delete inst;
+                memory::NkGetDefaultAllocator().Delete(inst);
             }
             mInstances.Clear();
             for (auto& pair : mTemplates) {
@@ -198,7 +199,7 @@ namespace nkentseu {
 
         // ── Instance ─────────────────────────────────────────────────────────────
         NkMaterialInstance* NkMaterialSystem::CreateInstance(NkMatHandle tmpl) {
-            auto* inst    = new NkMaterialInstance();
+            auto* inst    = memory::NkGetDefaultAllocator().New<NkMaterialInstance>();
             inst->mHandle   = NkMatInstHandle{mNextInstId++};
             inst->mTemplate = tmpl;
             inst->mDirty    = true;
@@ -247,7 +248,7 @@ namespace nkentseu {
                 if (mInstances[i]==inst){
                     if (inst->mUBO.IsValid())     mDevice->DestroyBuffer(inst->mUBO);
                     if (inst->mDescSet.IsValid()) mDevice->FreeDescriptorSet(inst->mDescSet);
-                    delete inst; mInstances.RemoveAt(i); break;
+                    memory::NkGetDefaultAllocator().Delete(inst); mInstances.RemoveAt(i); break;
                 }
             }
             inst=nullptr;

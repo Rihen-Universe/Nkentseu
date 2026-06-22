@@ -118,7 +118,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkAppLaunchEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkAppLaunchEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -197,7 +197,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkAppTickEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkAppTickEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -276,7 +276,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkAppUpdateEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkAppUpdateEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -345,7 +345,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkAppRenderEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkAppRenderEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs
@@ -426,7 +426,7 @@
                 /// @brief Crée une copie polymorphe de cet événement sur le heap
                 /// @return Pointeur brut vers une nouvelle instance (caller responsable du delete)
                 NkEvent* Clone() const override {
-                    return new NkAppCloseEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkAppCloseEvent>(*this);
                 }
 
                 /// @brief Retourne une représentation lisible pour le débogage et les logs

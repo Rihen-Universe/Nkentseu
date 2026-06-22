@@ -9,6 +9,7 @@
 
 #include "NkFontDetect.h"
 #include "NKFont/NkFont.h"
+#include "NKMemory/NkAllocator.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -188,7 +189,7 @@ namespace nkentseu {
             return NkFontProfile{};
         }
 
-        nkft_uint8* data = (nkft_uint8*)malloc((nkft_size)sz);
+        nkft_uint8* data = (nkft_uint8*)nkentseu::memory::NkAlloc((nk_size)sz);
         if (!data) {
             fclose(f);
             return NkFontProfile{};
@@ -197,7 +198,7 @@ namespace nkentseu {
         fclose(f);
 
         NkFontProfile result = AnalyzeBuffer(data, (nkft_size)sz, faceIndex);
-        free(data);
+        nkentseu::memory::NkFree(data);
         return result;
     }
 

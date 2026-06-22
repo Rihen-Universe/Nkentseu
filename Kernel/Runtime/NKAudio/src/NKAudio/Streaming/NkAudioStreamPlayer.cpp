@@ -79,7 +79,7 @@ namespace nkentseu {
             // Cleanup
             {
                 std::lock_guard<std::mutex> lock(mStreamMutex);
-                if (mStream) { delete mStream; mStream = nullptr; }
+                if (mStream) { memory::NkGetDefaultAllocator().Delete(mStream); mStream = nullptr; }
             }
             if (mRingBuf) {
                 memory::NkFree(mRingBuf, nullptr);
@@ -93,7 +93,7 @@ namespace nkentseu {
             std::lock_guard<std::mutex> lock(mStreamMutex);
 
             // Remplace le stream actuel (delete l'ancien)
-            if (mStream) { delete mStream; mStream = nullptr; }
+            if (mStream) { memory::NkGetDefaultAllocator().Delete(mStream); mStream = nullptr; }
             mStream = stream;
             mLoop   = loop;
 
@@ -112,7 +112,7 @@ namespace nkentseu {
         void AudioStreamPlayer::Stop() noexcept {
             std::lock_guard<std::mutex> lock(mStreamMutex);
             mActive = false;
-            if (mStream) { delete mStream; mStream = nullptr; }
+            if (mStream) { memory::NkGetDefaultAllocator().Delete(mStream); mStream = nullptr; }
             mWritePos = 0;
             mReadPos  = 0;
         }

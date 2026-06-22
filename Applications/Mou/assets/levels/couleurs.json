@@ -1,0 +1,12 @@
+{
+  "levels": [
+    { "colors": 2, "fruits": 3 },
+    { "colors": 2, "fruits": 4 },
+    { "colors": 3, "fruits": 4 },
+    { "colors": 3, "fruits": 5 },
+    { "colors": 4, "fruits": 5 },
+    { "colors": 4, "fruits": 6 },
+    { "colors": 5, "fruits": 7 },
+    { "colors": 5, "fruits": 8 }
+  ]
+}

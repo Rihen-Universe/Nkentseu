@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Panier JAUNE — symbole etoile (symbole en brun pour contraste) -->
+  <path d="M46 74 L154 74 L142 166 Q141 178 129 178 L71 178 Q59 178 58 166 Z"
+        fill="#FFC93C" stroke="#4A3728" stroke-width="7" stroke-linejoin="round"/>
+  <ellipse cx="100" cy="74" rx="56" ry="16" fill="#FFE066" stroke="#4A3728" stroke-width="7"/>
+  <g transform="translate(100,128) scale(0.30)">
+    <path d="M0,-90 L21,-29 L86,-28 L34,11 L53,73 L0,36 L-53,73 L-34,11 L-86,-28 L-21,-29 Z" fill="#4A3728"/>
+  </g>
+</svg>

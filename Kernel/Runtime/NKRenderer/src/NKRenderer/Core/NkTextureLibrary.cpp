@@ -5,6 +5,7 @@
 #include "NkResources.h"
 #include "NKImage/NKImage.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 #include <cmath>
 #include <cstring>
 
@@ -171,7 +172,7 @@ namespace nkentseu {
             if (out.isHDR) {
                 // RGB96F (3 floats packed avec align stride) ou RGBA128F.
                 // Sortie : RGBA128F densement packe (4 floats / pixel).
-                out.hdrPixels = new float32[npx * 4];
+                out.hdrPixels = (float32*)memory::NkAlloc((nk_size)(npx * 4 * sizeof(float32)));
                 if (img.Format() == NkImagePixelFormat::NK_RGB96F) {
                     // src stride en bytes, on le convertit en floats (stride/4).
                     const uint32 srcStrideF = (uint32)(img.Stride() / sizeof(float32));
@@ -192,7 +193,7 @@ namespace nkentseu {
                 }
                 NkImage* src = rgba ? rgba : &img;
 
-                out.pixels = new uint8[npx * 4];
+                out.pixels = (uint8*)memory::NkAlloc((nk_size)(npx * 4));
                 const uint32 srcStride = (uint32)src->Stride();
                 if (srcStride == out.width * 4) {
                     memcpy(out.pixels, src->Pixels(), npx * 4);
@@ -216,8 +217,8 @@ namespace nkentseu {
             if (mCustomFree) {
                 mCustomFree(&d, mCustomUser);
             } else {
-                if (d.pixels)    { delete[] d.pixels;    d.pixels=nullptr; }
-                if (d.hdrPixels) { delete[] d.hdrPixels; d.hdrPixels=nullptr; }
+                if (d.pixels)    { memory::NkFree(d.pixels);    d.pixels=nullptr; }
+                if (d.hdrPixels) { memory::NkFree(d.hdrPixels); d.hdrPixels=nullptr; }
             }
         }
 

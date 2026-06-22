@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 200" width="140" height="200">
+  <!-- Ballon JAUNE — etoile (brun pour contraste) -->
+  <line x1="70" y1="146" x2="70" y2="196" stroke="#4A3728" stroke-width="4"/>
+  <ellipse cx="70" cy="80" rx="56" ry="66" fill="#FFC93C" stroke="#4A3728" stroke-width="7"/>
+  <path d="M62 142 L78 142 L70 156 Z" fill="#FFC93C" stroke="#4A3728" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="50" cy="56" rx="11" ry="17" fill="#FFFFFF" opacity="0.45"/>
+  <g transform="translate(70,82) scale(0.21)">
+    <path d="M0,-90 L21,-29 L86,-28 L34,11 L53,73 L0,36 L-53,73 L-34,11 L-86,-28 L-21,-29 Z" fill="#4A3728"/>
+  </g>
+</svg>

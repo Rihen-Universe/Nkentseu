@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- Icone "Compter" : petit boulier -->
+  <rect x="16" y="22" width="88" height="76" rx="12" fill="#FFF6E5" stroke="#4A3728" stroke-width="6"/>
+  <line x1="22" y1="48" x2="98" y2="48" stroke="#4A3728" stroke-width="4"/>
+  <line x1="22" y1="74" x2="98" y2="74" stroke="#4A3728" stroke-width="4"/>
+  <circle cx="38" cy="48" r="9" fill="#FF6B6B" stroke="#4A3728" stroke-width="3"/>
+  <circle cx="60" cy="48" r="9" fill="#51CF66" stroke="#4A3728" stroke-width="3"/>
+  <circle cx="82" cy="48" r="9" fill="#4DABF7" stroke="#4A3728" stroke-width="3"/>
+  <circle cx="48" cy="74" r="9" fill="#FFC93C" stroke="#4A3728" stroke-width="3"/>
+  <circle cx="70" cy="74" r="9" fill="#FF922B" stroke="#4A3728" stroke-width="3"/>
+</svg>

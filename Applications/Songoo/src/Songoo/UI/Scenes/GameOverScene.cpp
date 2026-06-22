@@ -1,8 +1,6 @@
 // =============================================================================
-// GameOverScene.cpp
-// =============================================================================
-// Écran de fin de partie Songoo — affichage gagnant, scores finaux,
-// boutons REJOUER et RETOUR MENU avec design Afro-warm.
+// GameOverScene.cpp — Écran de fin de partie Songo'o
+// Logique IDENTIQUE à l'original (scores, vainqueur, Rejouer / Menu)
 // =============================================================================
 
 #include "GameOverScene.h"
@@ -13,330 +11,138 @@
 #include "Songoo/UI/Theme.h"
 #include "Songoo/UI/UIScale.h"
 #include "Songoo/UI/SceneManager.h"
-#include "NKLogger/NkLog.h"
 #include "NKWindow/Core/NkEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
-#include <cmath>
+#include "NKMath/NkFunctions.h"
+#include <cstdio>
 
-namespace nkentseu
-{
-    namespace songoo
-    {
+namespace nkentseu { namespace songoo {
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::OnEnter(AppContext& ctx)
-        {
-            mTime = 0.0f;
-            mEnterAnim = 0.0f;
-            mHoveredBtn = -1;
-            ComputeLayout(ctx);
-            logger.Infof("[GameOverScene] Winner: %d, P1: %d vs P2: %d", mWinner, mScoreP1, mScoreP2);
-        }
+    static math::NkColor OR_() { return { 210, 160, 30, 255 }; }
+    static math::NkColor TC()  { return { 180, 70,  15, 255 }; }
+    static math::NkColor PAR() { return { 255, 235, 184, 255 }; }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::OnUpdate(AppContext& ctx, float dt)
-        {
-            mTime += dt;
-            mEnterAnim = mEnterAnim + dt * 2.0f;
-            if (mEnterAnim > 1.0f) mEnterAnim = 1.0f;
+    void GameOverScene::OnEnter(AppContext& ctx) {
+        mTime = 0.f;
+        if (ctx.audio) ctx.audio->PlayScore();
+    }
 
-            ComputeLayout(ctx);
-        }
+    void GameOverScene::OnUpdate(AppContext& ctx, float dt) {
+        mTime += dt;
+        const float scale = GetUIScale(ctx.viewportW, ctx.viewportH);
+        const float cx = ctx.safe.SafeCX(), cy = ctx.safe.SafeCY();
+        float bW = 220.f * scale, bH = 50.f * scale;
+        mBtnReplayX = cx - bW - 10.f * scale; mBtnReplayY = cy + 80.f * scale;
+        mBtnReplayW = bW; mBtnReplayH = bH;
+        mBtnMenuX   = cx + 10.f * scale;      mBtnMenuY = cy + 80.f * scale;
+        mBtnMenuW   = bW; mBtnMenuH = bH;
+    }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::OnRender(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            const int W = ctx.viewportW;
-            const int H = ctx.viewportH;
-
-            // Fond brun foncé (Afro-warm)
-            r.Clear(0.08f, 0.06f, 0.04f, 1.0f);
-            r.Begin(W, H);
-
-            // Grille subtile
-            const math::NkColor gridC = theme::GridLine();
-            math::NkColor faintGrid = gridC;
-            faintGrid.a = 30;
-            for (int x = 0; x <= W; x += 60)
-                r.DrawQuad((float)x, 0.0f, 1.0f, (float)H, faintGrid);
-            for (int y = 0; y <= H; y += 60)
-                r.DrawQuad(0.0f, (float)y, (float)W, 1.0f, faintGrid);
-
-            DrawWinnerBanner(ctx);
-            DrawScores(ctx);
-            DrawButtons(ctx);
-
-            r.End();
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::OnEvent(AppContext& ctx, NkEvent& ev)
-        {
-            // Clavier
-            if (auto* k = ev.As<NkKeyPressEvent>())
-            {
-                if (k->GetKey() == NkKey::NK_ESCAPE)
-                {
-                    ctx.scenes->Pop();
-                    ctx.scenes->Pop();  // Pop GameplayScene aussi
-                    return;
-                }
-                if (k->GetKey() == NkKey::NK_ENTER || k->GetKey() == NkKey::NK_SPACE)
-                {
-                    if (mHoveredBtn == 0)
-                    {
-                        ctx.scenes->Pop();
-                        ctx.scenes->Replace(new GameplayScene());
-                    }
-                    return;
-                }
-                return;
+    void GameOverScene::OnEvent(AppContext& ctx, NkEvent& ev) {
+        auto doHit = [&](float px, float py) {
+            if (px>=mBtnReplayX && px<=mBtnReplayX+mBtnReplayW &&
+                py>=mBtnReplayY && py<=mBtnReplayY+mBtnReplayH) {
+                ctx.scenes->Replace(new GameplayScene()); return;
             }
-
-            // Souris : clique sur bouton
-            if (auto* m = ev.As<NkMouseButtonPressEvent>())
-            {
-                int btnIdx = HitTestButton(m->GetX(), m->GetY());
-                if (btnIdx == 0)
-                {
-                    ctx.scenes->Pop();
-                    ctx.scenes->Replace(new GameplayScene());
-                }
-                else if (btnIdx == 1)
-                {
-                    ctx.scenes->Pop();
-                    ctx.scenes->Pop();  // Pop GameplayScene aussi
-                }
-                return;
+            if (px>=mBtnMenuX && px<=mBtnMenuX+mBtnMenuW &&
+                py>=mBtnMenuY && py<=mBtnMenuY+mBtnMenuH) {
+                ctx.scenes->PopToRoot(); return;
             }
-
-            // Souris : survol pour focus
-            if (auto* m = ev.As<NkMouseMoveEvent>())
-            {
-                mHoveredBtn = HitTestButton(m->GetX(), m->GetY());
-                return;
+        };
+        if (auto* m = ev.As<NkMouseButtonPressEvent>()) doHit(m->GetX(), m->GetY());
+        if (auto* t = ev.As<NkTouchEndEvent>())
+            if (t->GetNumTouches() > 0) {
+                const NkTouchPoint& tp = t->GetTouch(0);
+                doHit(tp.clientX, tp.clientY);
             }
+        if (auto* k = ev.As<NkKeyPressEvent>()) {
+            if (k->GetKey() == NkKey::NK_ESCAPE) ctx.scenes->PopToRoot();
+        }
+    }
 
-            // Touch : tap sur bouton
-            if (auto* t = ev.As<NkTouchEndEvent>())
-            {
-                if (t->GetNumTouches() > 0)
-                {
-                    const NkTouchPoint& tp = t->GetTouch(0);
-                    int btnIdx = HitTestButton(tp.clientX, tp.clientY);
-                    if (btnIdx == 0)
-                    {
-                        ctx.scenes->Pop();
-                        ctx.scenes->Replace(new GameplayScene());
-                    }
-                    else if (btnIdx == 1)
-                    {
-                        ctx.scenes->Pop();
-                        ctx.scenes->Pop();
-                    }
-                }
-                return;
-            }
+    void GameOverScene::OnRender(AppContext& ctx) {
+        GLRenderer2D& r = *ctx.renderer;
+        FontAtlas&    f = *ctx.font;
+        const int W = ctx.viewportW, H = ctx.viewportH;
+        const float cx = ctx.safe.SafeCX(), cy = ctx.safe.SafeCY();
+        const float scale = GetUIScale(W, H);
 
-            // Touch : move pour hover
-            if (auto* t = ev.As<NkTouchMoveEvent>())
-            {
-                if (t->GetNumTouches() > 0)
-                {
-                    const NkTouchPoint& tp = t->GetTouch(0);
-                    mHoveredBtn = HitTestButton(tp.clientX, tp.clientY);
-                }
-                return;
-            }
+        r.Clear(0.04f, 0.02f, 0.01f, 1.f);
+        r.Begin(W, H);
+
+        // Fondu d'entrée
+        float alpha = math::NkMin(mTime / 0.4f, 1.f);
+
+        // Panneau central
+        float panW = 560.f * scale, panH = 380.f * scale;
+        float panX = cx - panW*0.5f, panY = cy - panH*0.5f;
+        r.DrawQuad(panX, panY, panW, panH, { 20, 12, 5, (uint8_t)(220 * alpha) });
+        r.DrawQuadOutline(panX, panY, panW, panH, AlphaF(OR_(), alpha), 2.5f);
+
+        // Bandes kente haut/bas du panneau
+        math::NkColor kente[3] = { { 180, 70, 15, (uint8_t)(200*alpha) },
+                                   { 210, 160, 30, (uint8_t)(200*alpha) },
+                                   {  30, 100, 40, (uint8_t)(200*alpha) } };
+        float segW = panW / 21.f;
+        for (int k = 0; k < 21; k++) {
+            r.DrawQuad(panX + k*segW, panY, segW+1.f, 8.f*scale, kente[k%3]);
+            r.DrawQuad(panX + k*segW, panY + panH - 8.f*scale, segW+1.f, 8.f*scale, kente[k%3]);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::ComputeLayout(AppContext& ctx)
-        {
-            const SafeArea& sa = ctx.safe;
-            const int W = ctx.viewportW;
-            const int H = ctx.viewportH;
+        // Titre
+        float pulse = 0.85f + 0.15f * math::NkSin(mTime * 2.f);
+        f.DrawStringShadowCenteredScaled(r, FontAtlas::DisplaySlot, 1.3f * scale * pulse,
+            cx, panY + 30.f * scale, "FIN DE PARTIE",
+            { (uint8_t)(247*pulse), (uint8_t)(184*pulse), 46, (uint8_t)(255*alpha) },
+            { 80, 30, 5, 120 }, 3);
 
-            mScale = GetUIScale(W, H);
+        // Séparateur
+        r.DrawQuad(panX + 30.f*scale, panY + 100.f*scale,
+                   panW - 60.f*scale, 2.f, AlphaF(OR_(), alpha * 0.6f));
 
-            const float safeCx = sa.SafeCX();
-            const float safeCy = sa.SafeCY();
-            const float safeW = sa.SafeW();
+        // Scores
+        char b1[32], b2[32];
+        snprintf(b1, sizeof(b1), "Joueur 1 : %d graines", mS0);
+        snprintf(b2, sizeof(b2), "Joueur 2 : %d graines", mS1);
+        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
+            cx, panY + 120.f * scale, b1,
+            { 235, 204, 133, (uint8_t)(255*alpha) });
+        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
+            cx, panY + 160.f * scale, b2,
+            { 179, 214, 247, (uint8_t)(255*alpha) });
 
-            // Boutons responsive
-            const float btnW = 140.0f * mScale;
-            const float btnH = 60.0f * mScale;
-            const float maxBtnW = safeW * 0.4f;
-            float actualBtnW = (btnW > maxBtnW) ? maxBtnW : btnW;
+        // Résultat
+        const char* result;
+        math::NkColor rcol;
+        if      (mWinner == 0) { result = "VICTOIRE JOUEUR 1 !"; rcol = { 247, 204, 51, (uint8_t)(255*alpha) }; }
+        else if (mWinner == 1) { result = "VICTOIRE JOUEUR 2 !"; rcol = { 140, 214, 255, (uint8_t)(255*alpha) }; }
+        else                   { result = "EGALITE !";            rcol = { 247, 224, 92, (uint8_t)(255*alpha) }; }
 
-            const float btnGap = 30.0f * mScale;
-            const float btnY = safeCy + 120.0f * mScale;
+        f.DrawStringShadowCenteredScaled(r, FontAtlas::HeadlineSlot, 1.1f * scale,
+            cx, panY + 200.f * scale, result,
+            rcol, { 30, 15, 3, 100 }, 2);
 
-            // Bouton REJOUER (gauche)
-            mReplayBtnX = safeCx - actualBtnW - btnGap * 0.5f;
-            mReplayBtnY = btnY;
-            mReplayBtnW = actualBtnW;
-            mReplayBtnH = btnH;
+        // Bouton Rejouer
+        r.DrawQuad(mBtnReplayX, mBtnReplayY, mBtnReplayW, mBtnReplayH,
+                   { (uint8_t)(100*alpha), (uint8_t)(40*alpha), (uint8_t)(5*alpha), (uint8_t)(200*alpha) });
+        r.DrawQuadOutline(mBtnReplayX, mBtnReplayY, mBtnReplayW, mBtnReplayH,
+                          AlphaF(OR_(), alpha), 2.f);
+        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
+            mBtnReplayX + mBtnReplayW*0.5f, mBtnReplayY + mBtnReplayH*0.18f,
+            "REJOUER", AlphaF(PAR(), alpha));
 
-            // Bouton RETOUR MENU (droite)
-            mMenuBtnX = safeCx + btnGap * 0.5f;
-            mMenuBtnY = btnY;
-            mMenuBtnW = actualBtnW;
-            mMenuBtnH = btnH;
-        }
+        // Bouton Menu
+        r.DrawQuad(mBtnMenuX, mBtnMenuY, mBtnMenuW, mBtnMenuH,
+                   { (uint8_t)(30*alpha), (uint8_t)(20*alpha), (uint8_t)(10*alpha), (uint8_t)(200*alpha) });
+        r.DrawQuadOutline(mBtnMenuX, mBtnMenuY, mBtnMenuW, mBtnMenuH,
+                          AlphaF(TC(), alpha), 2.f);
+        f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, scale,
+            mBtnMenuX + mBtnMenuW*0.5f, mBtnMenuY + mBtnMenuH*0.18f,
+            "MENU PRINCIPAL", AlphaF(PAR(), alpha));
 
-        // ─────────────────────────────────────────────────────────────────────
-        int GameOverScene::HitTestButton(float px, float py) const
-        {
-            // REJOUER
-            if (px >= mReplayBtnX && px <= mReplayBtnX + mReplayBtnW &&
-                py >= mReplayBtnY && py <= mReplayBtnY + mReplayBtnH)
-                return 0;
+        r.End();
+    }
 
-            // RETOUR MENU
-            if (px >= mMenuBtnX && px <= mMenuBtnX + mMenuBtnW &&
-                py >= mMenuBtnY && py <= mMenuBtnY + mMenuBtnH)
-                return 1;
-
-            return -1;
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::DrawWinnerBanner(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const SafeArea& sa = ctx.safe;
-
-            const float safeCx = sa.SafeCX();
-            const float winnerY = sa.SafeCY() - 120.0f * mScale;
-
-            char winnerText[64];
-            math::NkColor winnerColor;
-
-            if (mWinner == -1)
-            {
-                snprintf(winnerText, sizeof(winnerText), "JOUEUR 1 A GAGNE!");
-                winnerColor = theme::Orange();
-            }
-            else if (mWinner == 1)
-            {
-                snprintf(winnerText, sizeof(winnerText), "JOUEUR 2 A GAGNE!");
-                winnerColor = theme::Cyan();
-            }
-            else
-            {
-                snprintf(winnerText, sizeof(winnerText), "EGALITE!");
-                winnerColor = { 200, 150, 50, 255 };  // Doré
-            }
-
-            // Ombre
-            math::NkColor shadowC = winnerColor;
-            shadowC.a = (uint8_t)(150 * mEnterAnim);
-
-            f.DrawStringShadowCentered(r, FontAtlas::DisplaySlot,
-                                     safeCx, winnerY,
-                                     winnerText, winnerColor, shadowC, 3);
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::DrawScores(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const SafeArea& sa = ctx.safe;
-
-            const float safeCx = sa.SafeCX();
-            const float safeW = sa.SafeW();
-            const float scoresY = sa.SafeCY() + 20.0f * mScale;
-
-            // Barre de scores
-            const float scoreBoxW = safeW * 0.8f;
-            const float scoreBoxH = 80.0f * mScale;
-            const float scoreBoxX = safeCx - scoreBoxW * 0.5f;
-            const float scoreBoxY = scoresY - scoreBoxH * 0.5f;
-
-            r.DrawQuad(scoreBoxX, scoreBoxY, scoreBoxW, scoreBoxH,
-                      { 20, 16, 10, 150 });
-            r.DrawQuadOutline(scoreBoxX, scoreBoxY, scoreBoxW, scoreBoxH,
-                             { 200, 150, 50, 200 }, 2.0f);
-
-            // Score P1 (gauche, orange)
-            const float p1ScoreX = safeCx - scoreBoxW * 0.25f;
-            f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, mScale,
-                                     p1ScoreX, scoresY - 20.0f * mScale,
-                                     "JOUEUR 1", theme::Orange());
-            char p1Text[16];
-            snprintf(p1Text, sizeof(p1Text), "%d", mScoreP1);
-            f.DrawStringCenteredScaled(r, FontAtlas::DisplaySlot, mScale,
-                                     p1ScoreX, scoresY + 15.0f * mScale,
-                                     p1Text, theme::Orange());
-
-            // Score P2 (droite, cyan)
-            const float p2ScoreX = safeCx + scoreBoxW * 0.25f;
-            f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, mScale,
-                                     p2ScoreX, scoresY - 20.0f * mScale,
-                                     "JOUEUR 2", theme::Cyan());
-            char p2Text[16];
-            snprintf(p2Text, sizeof(p2Text), "%d", mScoreP2);
-            f.DrawStringCenteredScaled(r, FontAtlas::DisplaySlot, mScale,
-                                     p2ScoreX, scoresY + 15.0f * mScale,
-                                     p2Text, theme::Cyan());
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        void GameOverScene::DrawButtons(AppContext& ctx)
-        {
-            GLRenderer2D& r = *ctx.renderer;
-            FontAtlas&    f = *ctx.font;
-            const SafeArea& sa = ctx.safe;
-            const float safeCx = sa.SafeCX();
-
-            const float radius = 8.0f * mScale;
-
-            // Fonction lambda pour dessiner un bouton
-            auto DrawButton = [&](float x, float y, float w, float h, bool hovered, const char* label)
-            {
-                math::NkColor bgC = hovered
-                    ? math::NkColor{ 0, 245, 255, (uint8_t)(50 * mEnterAnim) }   // Cyan si survolé
-                    : math::NkColor{ 255, 107, 0, (uint8_t)(30 * mEnterAnim) };  // Orange sinon
-                math::NkColor borderC = hovered
-                    ? math::NkColor{ 0, 245, 255, (uint8_t)(220 * mEnterAnim) }
-                    : math::NkColor{ 255, 107, 0, (uint8_t)(150 * mEnterAnim) };
-
-                const float x0 = x, y0 = y, x1 = x + w, y1 = y + h;
-
-                // Fond
-                r.DrawQuad(x0 + radius, y0, w - radius * 2.0f, h, bgC);
-                r.DrawQuad(x0, y0 + radius, radius, h - radius * 2.0f, bgC);
-                r.DrawQuad(x1 - radius, y0 + radius, radius, h - radius * 2.0f, bgC);
-
-                // Coins
-                r.DrawCircle(x0 + radius, y0 + radius, radius, bgC, 12);
-                r.DrawCircle(x1 - radius, y0 + radius, radius, bgC, 12);
-                r.DrawCircle(x0 + radius, y1 - radius, radius, bgC, 12);
-                r.DrawCircle(x1 - radius, y1 - radius, radius, bgC, 12);
-
-                // Bordure
-                r.DrawQuadOutline(x0 + radius, y0, w - radius * 2.0f, h,
-                                 borderC, 2.0f);
-                r.DrawQuadOutline(x0, y0 + radius, w, h - radius * 2.0f,
-                                 borderC, 2.0f);
-
-                // Texte
-                f.DrawStringCenteredScaled(r, FontAtlas::SubtitleSlot, mScale,
-                                         x + w * 0.5f, y + h * 0.25f,
-                                         label, { 255, 255, 255, (uint8_t)(255 * mEnterAnim) });
-            };
-
-            DrawButton(mReplayBtnX, mReplayBtnY, mReplayBtnW, mReplayBtnH,
-                      mHoveredBtn == 0, "REJOUER");
-            DrawButton(mMenuBtnX, mMenuBtnY, mMenuBtnW, mMenuBtnH,
-                      mHoveredBtn == 1, "MENU");
-        }
-
-    } // namespace songoo
-} // namespace nkentseu
+}} // namespace nkentseu::songoo

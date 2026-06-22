@@ -409,7 +409,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGamepadConnectEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGamepadConnectEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -455,7 +455,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGamepadDisconnectEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGamepadDisconnectEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -551,7 +551,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGamepadButtonPressEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGamepadButtonPressEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -598,7 +598,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGamepadButtonReleaseEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGamepadButtonReleaseEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -654,7 +654,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGamepadAxisEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGamepadAxisEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -744,7 +744,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGamepadRumbleEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGamepadRumbleEvent>(*this);
                 }
 
                 NkString ToString() const override {
@@ -828,7 +828,7 @@
                 }
 
                 NkEvent* Clone() const override {
-                    return new NkGamepadBatteryEvent(*this);
+                    return nkentseu::memory::NkGetDefaultAllocator().New<NkGamepadBatteryEvent>(*this);
                 }
 
                 NkString ToString() const override {

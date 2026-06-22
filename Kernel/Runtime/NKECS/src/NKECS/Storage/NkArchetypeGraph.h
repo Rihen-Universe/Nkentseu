@@ -21,6 +21,7 @@
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
 #include "NKECS/Storage/NkArchetype.h"
+#include "NKMemory/NkAllocator.h"   // pour nkentseu::memory::NkGetDefaultAllocator().New/Delete
 
 namespace nkentseu {
     namespace ecs {
@@ -51,7 +52,7 @@ namespace nkentseu {
             ~NkArchetypeGraph() noexcept {
                 for (uint32 i = 0; i < mNumArchetypes; ++i) {
                     if (mArchetypes[i] != nullptr) {
-                        delete mArchetypes[i];
+                        nkentseu::memory::NkGetDefaultAllocator().Delete(mArchetypes[i]);
                         mArchetypes[i] = nullptr;
                     }
                 }
@@ -211,7 +212,7 @@ namespace nkentseu {
                 const NkArchetypeId id = mNumArchetypes;
                 ++mNumArchetypes;
 
-                mArchetypes[id] = new NkArchetype(id, mask);
+                mArchetypes[id] = nkentseu::memory::NkGetDefaultAllocator().New<NkArchetype>(id, mask);
 
                 // Ajout au cache Mask → Id.
                 MaskInsert(mask.Hash(), mask, id);

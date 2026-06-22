@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Safou / prune africaine (BLEU-VIOLET) -->
+  <ellipse cx="100" cy="110" rx="42" ry="64" fill="#6A4C93" stroke="#4A3728" stroke-width="7"/>
+  <path d="M100 48 Q104 36 114 34" fill="none" stroke="#4A3728" stroke-width="6" stroke-linecap="round"/>
+  <ellipse cx="86" cy="92" rx="10" ry="20" fill="#B89AE0" opacity="0.5"/>
+</svg>

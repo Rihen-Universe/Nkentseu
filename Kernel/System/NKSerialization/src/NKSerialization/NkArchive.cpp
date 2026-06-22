@@ -684,6 +684,28 @@ namespace nkentseu {
     }
 
     // -------------------------------------------------------------------------
+    // MÉTHODE : GetObjectArray
+    // DESCRIPTION : Extraction des éléments OBJET d'un tableau, chacun en NkArchive
+    //               (copie profonde). Complément de GetArray (scalaires). Permet de
+    //               lire "[ {..}, {..} ]" (niveaux, prefabs, scènes…).
+    // -------------------------------------------------------------------------
+    nk_bool NkArchive::GetObjectArray(NkStringView key, NkVector<NkArchive>& out) const noexcept {
+        const NkArchiveNode* n = FindNode(key);
+        if (!n || !n->IsArray()) {
+            return false;
+        }
+
+        out.Clear();
+        for (nk_size i = 0; i < n->array.Size(); ++i) {
+            if (n->array[i].IsObject()) {
+                out.PushBack(*n->array[i].object);   // copie profonde via copy-ctor NkArchive
+            }
+            // Les éléments non-objets sont ignorés.
+        }
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
     // MÉTHODE : SetNodeArray
     // DESCRIPTION : Création d'un tableau de nœuds polymorphes
     // -------------------------------------------------------------------------

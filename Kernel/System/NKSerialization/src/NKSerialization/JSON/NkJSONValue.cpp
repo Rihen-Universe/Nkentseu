@@ -15,6 +15,8 @@
 
 #include "NKSerialization/JSON/NkJSONValue.h"
 
+#include <cstdio>   // snprintf (toolchain HarmonyOS : pas d'inclusion transitive)
+
 
 namespace nkentseu {
 

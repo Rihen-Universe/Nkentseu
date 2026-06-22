@@ -18,6 +18,7 @@
 #if defined(NKENTSEU_PLATFORM_IOS)
 
 #include "NKEvent/NkEventSystem.h"
+#include "NKMemory/NkAllocator.h"   // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
 #include "NKWindow/Platform/UIKit/NkUIKitEventSystem.h"
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkTouchEvent.h"
@@ -34,7 +35,7 @@ namespace nkentseu {
     bool NkEventSystem::Init() {
         if (mReady) return true;
 
-        mData = new NkEventSystemData;
+        mData = memory::NkGetDefaultAllocator().New<NkEventSystemData>();
         if (mData == nullptr) return false;
 
         mTotalEventCount = 0;
@@ -49,7 +50,7 @@ namespace nkentseu {
     }
 
     void NkEventSystem::Shutdown() {
-        delete mData;
+        memory::NkGetDefaultAllocator().Delete(mData);
         mData = nullptr;
     }
 

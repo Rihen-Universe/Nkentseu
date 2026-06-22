@@ -23,6 +23,7 @@
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKContainers/String/Encoding/NkASCII.h"
 #include "NKCore/NkTraits.h"
+#include "NKWindow/Platform/Common/NkSystemMemory.h"   // NkXcbFree (wrappe le free() libc des replies libxcb)
 
 namespace nkentseu {
 
@@ -106,7 +107,7 @@ namespace nkentseu {
                     xcb_intern_atom(mConnection, 0, static_cast<uint16_t>(::strlen(name)), name);
                 xcb_intern_atom_reply_t* reply = xcb_intern_atom_reply(mConnection, cookie, nullptr);
                 xcb_atom_t atom = reply ? reply->atom : XCB_ATOM_NONE;
-                ::free(reply);
+                platform::NkXcbFree(reply);
                 return atom;
             }
 
@@ -220,7 +221,7 @@ namespace nkentseu {
                     out = NkString(bytes, static_cast<NkString::SizeType>(len));
                 }
 
-                ::free(reply);
+                platform::NkXcbFree(reply);
                 return out;
             }
 

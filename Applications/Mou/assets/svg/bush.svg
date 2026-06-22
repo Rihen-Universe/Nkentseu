@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 230" width="300" height="230">
+  <!-- Buisson (plante basse : tomate, etc. - pousse "sur racine", pas sur arbre) -->
+  <rect x="142" y="150" width="16" height="80" rx="7" fill="#9A6A3A" stroke="#4A3728" stroke-width="5"/>
+  <path d="M150 196 q-22 -4 -34 -20 M150 204 q22 -6 34 -22" fill="none" stroke="#4A3728" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="78"  cy="158" r="54" fill="#4E9E4E"/>
+  <circle cx="222" cy="158" r="54" fill="#4E9E4E"/>
+  <circle cx="150" cy="170" r="66" fill="#4E9E4E"/>
+  <circle cx="150" cy="120" r="72" fill="#5BB85B"/>
+  <circle cx="104" cy="150" r="50" fill="#5BB85B"/>
+  <circle cx="196" cy="150" r="50" fill="#5BB85B"/>
+  <ellipse cx="120" cy="104" rx="20" ry="12" fill="#7BD07B" opacity="0.55"/>
+</svg>

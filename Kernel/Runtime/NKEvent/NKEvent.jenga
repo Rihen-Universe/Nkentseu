@@ -62,10 +62,14 @@ with project("NKEvent"):
     with filter("system:Linux && options:linux-backend=xcb"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+        # Necessaire pour que NkEventSystem.cpp voie NKENTSEU_WINDOWING_XCB et exclue
+        # sa Shutdown() cross-plat (sinon duplicate avec NkXCBEventSystem.cpp).
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
 
     with filter("system:Linux && options:linux-backend=wayland"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+        defines(["NKENTSEU_FORCE_WINDOWING_WAYLAND_ONLY"])
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):

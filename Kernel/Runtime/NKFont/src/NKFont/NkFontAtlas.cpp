@@ -13,6 +13,7 @@
 #include "NKFont/Core/NkFontParser.h"
 #include "NKFont/Core/NkUtils.h"
 #include "NKLogger/NkLog.h"
+#include "NKMemory/NkAllocator.h"
 #include "Core/NkUtils.h"
 
 #include <stdio.h>
@@ -171,14 +172,14 @@ namespace nkentseu {
         ClearTexData();
         for (nkft_uint32 i = 0; i < fontCount; ++i) {
             if (fonts[i]) {
-                delete fonts[i];
+                nkentseu::memory::NkGetDefaultAllocator().Delete(fonts[i]);
                 fonts[i] = nullptr;
             }
         }
         fontCount = 0;
         for (nkft_uint32 i = 0; i < NK_FONT_ATLAS_MAX_FONTS; ++i) {
             if (fontDataBufs[i]) {
-                free(fontDataBufs[i]);
+                nkentseu::memory::NkFree(fontDataBufs[i]);
                 fontDataBufs[i] = nullptr;
             }
         }
@@ -188,11 +189,11 @@ namespace nkentseu {
 
     void NkFontAtlas::ClearTexData() {
         if (texPixels) {
-            free(texPixels);
+            nkentseu::memory::NkFree(texPixels);
             texPixels = nullptr;
         }
         if (mTexPixelsRGBA) {
-            free(mTexPixelsRGBA);
+            nkentseu::memory::NkFree(mTexPixelsRGBA);
             mTexPixelsRGBA = nullptr;
         }
         texWidth = 0;
@@ -219,14 +220,14 @@ namespace nkentseu {
             fclose(f);
             return nullptr;
         }
-        nkft_uint8* d = (nkft_uint8*)malloc((nkft_size)sz);
+        nkft_uint8* d = (nkft_uint8*)nkentseu::memory::NkAlloc((nk_size)sz);
         if (!d) {
             fclose(f);
             return nullptr;
         }
         if ((long)fread(d, 1, (nkft_size)sz, f) != sz) {
             fclose(f);
-            free(d);
+            nkentseu::memory::NkFree(d);
             return nullptr;
         }
         fclose(f);
@@ -238,7 +239,7 @@ namespace nkentseu {
                                            nkft_size ds,
                                            nkft_float32 sp,
                                            const NkFontConfig* cfg) {
-        nkft_uint8* c = (nkft_uint8*)malloc(ds);
+        nkft_uint8* c = (nkft_uint8*)nkentseu::memory::NkAlloc((nk_size)ds);
         if (!c) return nullptr;
         memcpy(c, d, ds);
         return AddFontFromMemoryOwned(c, ds, sp, cfg);
@@ -273,7 +274,7 @@ namespace nkentseu {
             }
             if (!font) font = fonts[fontCount - 1];
         } else {
-            font = new NkFont();
+            font = nkentseu::memory::NkGetDefaultAllocator().New<NkFont>();
             font->containerAtlas = this;
             font->config = cfg;
         }
@@ -465,12 +466,12 @@ namespace nkentseu {
 
         texWidth = atlasW;
         texHeight = atlasH;
-        texPixels = (nkft_uint8*)malloc((nkft_size)(atlasW * atlasH));
+        texPixels = (nkft_uint8*)nkentseu::memory::NkAlloc((nk_size)(atlasW * atlasH));
         if (!texPixels) return false;
         memset(texPixels, 0, (nkft_size)(atlasW * atlasH));
 
         nkft_uint8* sdfTemp = sdfMode
-            ? (nkft_uint8*)malloc((nkft_size)(atlasW * atlasH))
+            ? (nkft_uint8*)nkentseu::memory::NkAlloc((nk_size)(atlasW * atlasH))
             : nullptr;
         if (sdfMode && sdfTemp) memset(sdfTemp, 0, (nkft_size)(atlasW * atlasH));
 
@@ -562,7 +563,7 @@ namespace nkentseu {
         }
         logger.Info("[NkFontAtlas] Build():{0} glyphes rasterises\n", glyphsRast);
 
-        if (sdfTemp) free(sdfTemp);
+        if (sdfTemp) nkentseu::memory::NkFree(sdfTemp);
 
         for (nkft_uint32 i = 0; i < customRectCount; ++i) {
             nkft_uint32 ri = crs + i;
@@ -629,7 +630,7 @@ namespace nkentseu {
             return;
         }
         if (!mTexPixelsRGBA) {
-            mTexPixelsRGBA = (nkft_uint8*)malloc((nkft_size)(texWidth * texHeight * 4));
+            mTexPixelsRGBA = (nkft_uint8*)nkentseu::memory::NkAlloc((nk_size)(texWidth * texHeight * 4));
             if (!mTexPixelsRGBA) {
                 if (op) *op = nullptr;
                 return;
