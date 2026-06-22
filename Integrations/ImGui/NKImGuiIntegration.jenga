@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKImGuiIntegration - Backends de rendu Dear ImGui reutilisables (staticlib, C++17)
+==================================================================================
+Fournit DEUX backends de rendu Dear ImGui pour Nkentseu, dans un dossier NEUTRE
+et DECOUPLE : ImGui n'est PAS lie dans le coeur de NKCanvas/NKRHI, c'est cette
+bibliotheque (compilee par l'app consommatrice) qui marie ImGui et le moteur.
+Les utilisateurs qui ne veulent pas NKUI peuvent ainsi utiliser ImGui a la place.
+
+Symboles exposes :
+  - nkentseu::renderer::NkImGuiCanvasBackend  (ImDrawData* -> NkIRenderer2D / NKCanvas)
+  - nkentseu::imguiintegration::NkImGuiRHIBackend  (ImDrawData* -> NKRHI bas niveau)
+
+Calque sur Integrations/NKUI/NKUIIntegration.jenga. Les sources Dear ImGui
+(Externals/Libs/ImGui) sont compilees DANS cette lib (ImGui n'est pas un projet
+Jenga separe), de sorte que la lib soit autonome.
+
+Ce fichier ne s'auto-inclut pas dans le workspace : l'orchestrateur le branche
+dans Nkentseu.jenga via
+`with include("Integrations/ImGui/NKImGuiIntegration.jenga"): pass`.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKImGuiIntegration"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    # files() est resolu relativement au dossier du .jenga (Integrations/ImGui/),
+    # cf. Integrations/NKUI/NKUIIntegration.jenga. On globbe nos backends + on
+    # ajoute explicitement les .cpp de Dear ImGui (hors de ce dossier).
+    files([
+        "**.cpp",
+        "**.h",
+        "%{wks.location}/Externals/Libs/ImGui/imgui.cpp",
+        "%{wks.location}/Externals/Libs/ImGui/imgui_draw.cpp",
+        "%{wks.location}/Externals/Libs/ImGui/imgui_tables.cpp",
+        "%{wks.location}/Externals/Libs/ImGui/imgui_widgets.cpp",
+        "%{wks.location}/Externals/Libs/ImGui/imgui_demo.cpp",
+    ])
+
+    # NKCanvas : backend Canvas (NkIRenderer2D/NkTexture). NKImage : tire par
+    # NkTexture.h. NKRHI/NKSL : backend RHI bas niveau. Le reste = Foundation.
+    _DEPS = [
+        "NKCanvas", "NKImage", "NKFont",
+        "NKRHI", "NKSL", "NKEvent", "NKWindow",
+        "NKMemory", "NKCore", "NKMath", "NKContainers",
+        "NKLogger", "NKPlatform", "NKThreading", "NKStream",
+        "NKTime", "NKFileSystem", "NKReflection", "NKSerialization",
+    ]
+    dependson(_DEPS)
+
+    # Includedirs : le dossier Integrations (#include "ImGui/NkImGui...Backend.h"
+    # depuis les consommateurs), les sources Dear ImGui, et les src des modules
+    # moteur inclus directement par l'implementation. Les includes transitifs
+    # (NKStream via NKImage, etc.) sont propages par dependson, mais on liste ce
+    # que ce module inclut pour rester autonome.
+    _INCLUDE_DIRS = [
+        "%{wks.location}/Integrations",
+        "%{wks.location}/Externals/Libs/ImGui",
+        "%{NKCanvas.location}/src",
+        "%{NKImage.location}/src",
+        "%{NKFont.location}/src",
+        "%{NKRHI.location}/src",
+        "%{NKSL.location}/src",
+        "%{NKEvent.location}/src",
+        "%{NKWindow.location}/src",
+        "%{NKMemory.location}/src",
+        "%{NKCore.location}/src",
+        "%{NKMath.location}/src",
+        "%{NKContainers.location}/src",
+        "%{NKLogger.location}/src",
+        "%{NKPlatform.location}/src",
+        "%{NKThreading.location}/src",
+        "%{NKStream.location}/src",
+        "%{NKTime.location}/src",
+        "%{NKFileSystem.location}/src",
+        "%{NKReflection.location}/src",
+        "%{NKSerialization.location}/src",
+    ]
+    if VULKAN_INCLUDE:
+        _INCLUDE_DIRS.append(VULKAN_INCLUDE)
+    includedirs(_INCLUDE_DIRS)
+
+    defines([
+        f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "NK_RHI_DX11_ENABLED", "NK_RHI_DX12_ENABLED"])
+
+    # ===== UWP ====================================================================
+    with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
+        usetoolchain("xbox-clang")
+        defines(["NKENTSEU_PLATFORM_UWP"])
+
+    # ===== Linux (xlib par defaut) ===============================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+        defines(["NKENTSEU_FORCE_WINDOWING_NOOP_ONLY"])
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+        defines(WAYLAND_DEFINES)
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+
+    # ===== iOS ====================================================================
+    with filter("system:iOS"):
+        pass
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    # ===== Xbox ===================================================================
+    with filter("system:XboxSeries || system:XboxOne"):
+        usetoolchain("xbox-clang")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

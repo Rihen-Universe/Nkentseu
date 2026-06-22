@@ -364,6 +364,15 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKUI/NKUI.jenga"):
         pass
 
+    # Integrations decouplees (ImGui / NKUI -> NKCanvas/NKRHI). Optionnelles :
+    # une app les lie seulement si elle en a besoin (ImGui n'est PAS tire dans
+    # le coeur de NKCanvas/NKRHI).
+    with include("Integrations/ImGui/NKImGuiIntegration.jenga"):
+        pass
+
+    with include("Integrations/NKUI/NKUIIntegration.jenga"):
+        pass
+
     with include("Kernel/Runtime/NKCamera/NKCamera.jenga"):
         pass
 

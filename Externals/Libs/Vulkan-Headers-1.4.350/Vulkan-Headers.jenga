@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Vulkan-Headers (KhronosGroup) — HEADER-ONLY. Rien a compiler : il suffit d'ajouter
+le repertoire include/ aux includedirs du consommateur.
+
+Usage dans un autre .jenga (PAS de links) :
+    includedirs(["%{Vulkan-Headers.location}/include"])   # <vulkan/vulkan.h>
+
+Note : projet header-only. Si ton Jenga exige une cible compilable, reference plutot
+directement l'include path ci-dessus sans 'dependson'.
+"""
+from Jenga import *
+
+with project("Vulkan-Headers"):
+    staticlib()
+    language("C++")
+    location(".")
+    includedirs(["include"])
+    # Header-only : aucun fichier source. Les consommateurs ajoutent l'include path.
+    files([])
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
