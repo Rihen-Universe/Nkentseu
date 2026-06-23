@@ -92,15 +92,19 @@ struct NkDX12DescHeap {
 // DESCRIPTORS_VOLATILE : seuls les descripteurs réellement accédés doivent être valides.
 namespace NkDX12RootLayout {
     constexpr uint32 ROOT_CONSTANTS    = 0;  // b0 space1, 16 valeurs (PushConstants, 64 o)
-    constexpr uint32 TABLE_CBV_SRV_UAV = 1;  // table : CBV b0-15, SRV t0-31, UAV u0-7 (space0)
-    constexpr uint32 TABLE_SAMPLER     = 2;  // table : SAMPLER s0-15 (space0)
+    constexpr uint32 TABLE_CBV_SRV_UAV = 1;  // table : CBV b0-31, SRV t0-31, UAV u0-7 (space0)
+    constexpr uint32 TABLE_SAMPLER     = 2;  // table : SAMPLER s0-31 (space0)
     constexpr uint32 NUM_PARAMS        = 3;
 
     // Plages couvertes + disposition dans le bloc contigu du ring CBV/SRV/UAV.
-    constexpr uint32 NUM_CBV  = 16;  constexpr uint32 OFF_CBV = 0;               // b0..b15 → bloc[0..15]
-    constexpr uint32 NUM_SRV  = 32;  constexpr uint32 OFF_SRV = OFF_CBV + NUM_CBV; // t0..t31 → bloc[16..47]
-    constexpr uint32 NUM_UAV  = 8;   constexpr uint32 OFF_UAV = OFF_SRV + NUM_SRV;  // u0..u7  → bloc[48..55]
-    constexpr uint32 BLOCK_CBV_SRV_UAV = OFF_UAV + NUM_UAV;  // 56 descripteurs / draw
+    // NUM_CBV élargi 16→32 (2026-06-23) : le générateur NkSL émet le Material Parameter
+    // Collection (MPC_UBO) en register(b25) — au-delà de b15. Mapping DIRECT par numéro de
+    // binding (cohérent avec SRV t16..t27 qui marche déjà). Tables de descripteurs → la
+    // limite Tier 1 des 14 CBV en root descriptor NE s'applique PAS (OK tout GPU Tier 2+).
+    constexpr uint32 NUM_CBV  = 32;  constexpr uint32 OFF_CBV = 0;               // b0..b31 → bloc[0..31]
+    constexpr uint32 NUM_SRV  = 32;  constexpr uint32 OFF_SRV = OFF_CBV + NUM_CBV; // t0..t31 → bloc[32..63]
+    constexpr uint32 NUM_UAV  = 8;   constexpr uint32 OFF_UAV = OFF_SRV + NUM_SRV;  // u0..u7  → bloc[64..71]
+    constexpr uint32 BLOCK_CBV_SRV_UAV = OFF_UAV + NUM_UAV;  // 72 descripteurs / draw
     // Les samplers combinés suivent le numéro de leur texture (tN/sN) → couvrir s0..s31.
     constexpr uint32 NUM_SAMP = 32;  constexpr uint32 BLOCK_SAMPLER = NUM_SAMP;    // 32 samplers / draw
 }
@@ -153,6 +157,18 @@ struct NkDX12Pipeline {
     bool isCompute = false;
     D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     uint32 vertexStrides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {};
+
+    // ── Fix #613 (RENDER_TARGET_FORMAT_MISMATCH) : variantes PSO par formats de RP ──
+    // En D3D12 le format RTV/DSV est figé dans le PSO. Un même pipeline NKRenderer
+    // (ex. 2D_Alpha, PP_Tonemap, Skybox…) est dessiné dans des passes de formats
+    // DIFFÉRENTS selon la config (HDR R16F vs swapchain BGRA vs LDR RGBA8). On garde
+    // donc le desc d'origine + une table {signature formats → PSO} pour reconstruire/
+    // cacher la bonne variante au 1er bind dans une passe (cf. ResolvePipelineForRenderPass).
+    NkGraphicsPipelineDesc desc;                 // desc d'origine (graphics only)
+    uint64                 baseFmtSig = 0;        // signature du PSO de base (.pso)
+    // Variantes additionnelles : signature formats -> PSO. Le PSO de base (baseFmtSig)
+    // reste dans .pso ; on ne stocke ici que les formats DIFFÉRENTS rencontrés au bind.
+    NkUnorderedMap<uint64, ComPtr<ID3D12PipelineState>> variants;
 };
 
 struct NkDX12RenderPass  { NkRenderPassDesc desc; };
@@ -163,6 +179,11 @@ struct NkDX12Framebuffer {
     UINT dsvIdx      = UINT_MAX;
     uint64 depthTexId = 0;
     uint32 w = 0, h  = 0;
+    // RP synthetise depuis les formats des attachments (cause A ecran noir DX12) :
+    // permet a GetFramebufferRenderPass() de renvoyer un RP dont les formats RTV/DSV
+    // correspondent au FB. Sinon le renderer cree ses PSO sans format => fallback
+    // swapchain B8G8R8A8 => RENDER_TARGET_FORMAT_MISMATCH_PIPELINE_STATE (#613).
+    NkRenderPassHandle renderPassHandle{};
 };
 
 struct NkDX12DescSetLayout { NkDescriptorSetLayoutDesc desc; };
@@ -244,7 +265,13 @@ public:
     void                DestroyFramebuffer(NkFramebufferHandle& h)             override;
     NkFramebufferHandle GetSwapchainFramebuffer() const override { return mSwapchainFBs[mBackBufferIdx]; }
     NkRenderPassHandle  GetSwapchainRenderPass()  const override { return mSwapchainRP; }
-    NkGPUFormat GetSwapchainFormat()      const override { return NkGPUFormat::NK_BGRA8_SRGB; }
+    // Cause A : renvoie le RP synthetise au CreateFramebuffer (formats RTV/DSV reels
+    // du FB) pour que les PSO offscreen ne tombent pas sur le fallback swapchain.
+    NkRenderPassHandle  GetFramebufferRenderPass(NkFramebufferHandle fb) const override;
+    // Format REEL du backbuffer (cf. CreateSwapchain : B8G8R8A8_UNORM + RTV sans desc).
+    // Doit matcher, sinon les PSO des passes qui ecrivent le swapchain sont bakes en
+    // SRGB et D3D12 rejette le draw (#613 format mismatch).
+    NkGPUFormat GetSwapchainFormat()      const override { return NkGPUFormat::NK_BGRA8_UNORM; }
     NkGPUFormat GetSwapchainDepthFormat() const override { return NkGPUFormat::NK_D32_FLOAT; }
     uint32   GetSwapchainWidth()       const override { return mWidth; }
     uint32   GetSwapchainHeight()      const override { return mHeight; }
@@ -297,6 +324,16 @@ public:
     const NkDX12DescSet*    GetDescSet (uint64 id) const;
     const NkDX12Framebuffer* GetFBO    (uint64 id) const;
 
+    // ── Fix #613 : résolution PSO ↔ render pass actif (par formats RTV/DSV) ──────
+    // Appelé par NkDirectX12CommandBuffer::BindGraphicsPipeline avec le RP de la passe
+    // courante (le renderPassHandle du framebuffer lié). Retourne le PSO de CE pipeline
+    // dont les formats RTV/DSV matchent ce RP — en réutilisant le PSO de base s'il
+    // correspond déjà, sinon en construisant/cachant une variante. Ne touche PAS la
+    // root sig / topology / strides (identiques pour toutes les variantes).
+    // Retourne nullptr si le pipeline est invalide ou compute.
+    ID3D12PipelineState* ResolvePipelineForRenderPass(uint64 pipelineId,
+                                                      NkRenderPassHandle rp);
+
     NkDX12DescHeap& RtvHeap()     { return mRtvHeap; }
     NkDX12DescHeap& DsvHeap()     { return mDsvHeap; }
     NkDX12DescHeap& CbvSrvUavHeap() { return mCbvSrvUavHeap; } // STAGING (CPU) — source des copies
@@ -328,7 +365,38 @@ public:
     // Execute one-shot (pour uploads)
     void ExecuteOneShot(NkFunction<void(ID3D12GraphicsCommandList*)> fn);
 
+    // DIAGNOSTIC (gate env NK_DX12_READBACK) : copie le pixel central du backbuffer
+    // courant dans un staging READBACK et logue sa valeur BGRA. No-op si la variable
+    // d'environnement NK_DX12_READBACK n'est pas définie. Appelé juste avant Present.
+    void ReadbackBackbufferCenterDiag();
+    // DIAGNOSTIC (NK_DX12_READBACK>=2) : grille 16x16 sur le HDR RT plein écran.
+    void ReadbackHDRGridDiag(ID3D12Resource* res, D3D12_RESOURCE_STATES prev,
+                             uint32 tw, uint32 th);
+    // DIAGNOSTIC (NK_DX12_READBACK>=2) : grille de profondeur sur l'atlas d'ombre.
+    void ReadbackDepthGridDiag(ID3D12Resource* res, D3D12_RESOURCE_STATES prev,
+                               uint32 tw, uint32 th, uint64 tid);
+    // DIAGNOSTIC : lit n floats depuis la donnée mappée d'un buffer UPLOAD (UBO). false si
+    // buffer introuvable / non mappé. Utilisé pour vérifier que la matrice caméra est non-nulle.
+    bool PeekBufferFloats(uint64 bufId, float* out, uint32 n, uint32 floatOffset = 0) const;
+
 private:
+    // ── Fix #613 : helpers PSO graphics paramétrés par formats RTV/DSV ──────────
+    // BuildGraphicsPSO construit un ID3D12PipelineState à partir du desc + d'un set
+    // explicite de formats (numRT, RTVFormats[8], dsvFormat). Utilisé à la fois par
+    // CreateGraphicsPipeline (PSO de base) et ResolvePipelineForRenderPass (variantes).
+    ComPtr<ID3D12PipelineState> BuildGraphicsPSO(const NkGraphicsPipelineDesc& d,
+                                                 ID3D12RootSignature* rootSig,
+                                                 UINT numRT,
+                                                 const DXGI_FORMAT* rtvFormats,
+                                                 DXGI_FORMAT dsvFormat);
+    // RenderPassFormats : extrait (numRT, RTVFormats[8], dsvFormat) d'un RP enregistré.
+    // rp invalide -> formats swapchain par défaut (1×B8G8R8A8_UNORM + D32_FLOAT).
+    void RenderPassFormats(NkRenderPassHandle rp, UINT& numRT,
+                           DXGI_FORMAT rtvFormats[8], DXGI_FORMAT& dsvFormat) const;
+    // FmtSignature : hash compact des formats (pour clé de cache des variantes).
+    static uint64 FmtSignature(UINT numRT, const DXGI_FORMAT* rtvFormats,
+                               DXGI_FORMAT dsvFormat);
+
     void CreateSwapchain(uint32 w, uint32 h);
     void DestroySwapchain();
     void ResizeSwapchain(uint32 w, uint32 h);
