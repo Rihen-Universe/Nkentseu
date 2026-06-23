@@ -1094,7 +1094,7 @@ bool NkDirectX12Device::WriteTexture(NkTextureHandle t, const void* p, uint32 rp
 
 bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void* pixels,
     uint32 x, uint32 y, uint32 /*z*/, uint32 w, uint32 h, uint32 /*d2*/,
-    uint32 mip, uint32 /*layer*/, uint32 rowPitch) {
+    uint32 mip, uint32 layer, uint32 rowPitch) {
     auto it = mTextures.Find(t.id); if(!it) return false;
     uint32 bpp = NkFormatBytesPerPixel(it->desc.format);
     uint32 rp  = rowPitch > 0 ? rowPitch : w * bpp;
@@ -1118,7 +1118,17 @@ bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void* pixels
         D3D12_TEXTURE_COPY_LOCATION dst{};
         dst.pResource = it->resource.Get();
         dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        dst.SubresourceIndex = mip;
+        // Subresource = mip + arrayLayer * mipLevels (identique a D3D11CalcSubresource).
+        // Bug IBL/cubemap DX12 : on ignorait `layer` -> les 6 faces d'un cubemap (et les
+        // tranches d'un array) ecrivaient toutes dans la sous-ressource du mip 0 face 0,
+        // laissant les faces 1..5 noires -> skybox/IBL noir, metal PBR reflechit du noir.
+        {
+            // Nombre de mips REEL de la ressource (gere le cas desc.mipLevels==0 = chaine
+            // complete, resolu en MipLevels concret a la creation).
+            uint32 mips = (uint32)it->resource->GetDesc().MipLevels;
+            if (mips == 0) mips = 1;
+            dst.SubresourceIndex = mip + layer * mips;
+        }
         D3D12_TEXTURE_COPY_LOCATION src{};
         src.pResource = stage.resource.Get();
         src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
