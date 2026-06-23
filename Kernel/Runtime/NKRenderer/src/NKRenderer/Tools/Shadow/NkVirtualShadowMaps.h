@@ -193,6 +193,17 @@ namespace nkentseu {
             // Upload du UBO ShadowSlots (apres BeginFrame).
             void   UploadSlotsUBO();
 
+            // Bug ombres DX12 : NkMat4f::Orthogonal/Perspective produisent un Z NDC en
+            // [-1,1] (convention OpenGL). Sur VK/DX11/DX12 le rasterizer attend [0,1] :
+            // sans correction, la moitie proche des casters est clippee (Z<0) -> atlas
+            // d'ombre vide -> SampleCmp retourne « tout en ombre » -> scene noire. On
+            // compose donc clipZ01 (z->0.5z+0.5) dans renderMatrix pour VK/DX11/DX12,
+            // EXACTEMENT comme la projection camera principale (cf. NkRender3D.cpp:811).
+            // Quand cette correction est appliquee, le shader ne doit PAS refaire le
+            // remap *0.5+0.5 sur p.z -> on signale via globalCfg.z (0=deja [0,1], 1=GL).
+            void   ApplyDepthClipCorrection(NkMat4f& m) const;
+            bool   DepthIsZeroToOne() const; // true sur VK/DX11/DX12
+
             // ----- members -----
             NkIDevice*               mDevice    = nullptr;
             NkMeshSystem*            mMesh      = nullptr;

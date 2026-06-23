@@ -53,10 +53,14 @@ float NkSampleShadowTile(int slotIdx, vec3 worldPos, float bias) {
     vec4 coord = uShadows.slots[slotIdx].shadowMatrix * vec4(worldPos, 1.0);
     if (coord.w <= 0.0) return 1.0;
     vec3 p = coord.xyz / coord.w;
-    // NDC [-1,1] -> UV [0,1] dans le tile NDC
+    // NDC [-1,1] -> UV [0,1] dans le tile NDC. X/Y toujours remappes.
     p.x = p.x * 0.5 + 0.5;
     p.y = p.y * 0.5 + 0.5;
-    p.z = p.z * 0.5 + 0.5 - bias;
+    // Z : sur OpenGL (globalCfg.z=1) le Z NDC est [-1,1] -> remap *0.5+0.5. Sur VK/DX
+    // (globalCfg.z=0) clipZ01 est deja baked dans shadowMatrix -> Z deja en [0,1], NE
+    // PAS refaire le remap (sinon p.z trop grand -> tout en ombre -> scene noire DX12).
+    float zRemap = uShadows.globalCfg.z;
+    p.z = mix(p.z, p.z * 0.5 + 0.5, zRemap) - bias;
     if (p.x < 0.0 || p.x > 1.0) return 1.0;
     if (p.y < 0.0 || p.y > 1.0) return 1.0;
     if (p.z < 0.0 || p.z > 1.0) return 1.0;

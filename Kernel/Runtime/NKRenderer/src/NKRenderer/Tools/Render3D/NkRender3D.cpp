@@ -800,18 +800,23 @@ namespace nkentseu {
             cb.proj        = mCtx.camera.GetProj();
             cb.viewProj    = mCtx.camera.GetViewProj();
 
-            // Correction Vulkan clip-space : la projection NkCamera produit
-            // un NDC Z dans [-1, 1] (convention OpenGL). Vulkan attend [0, 1] —
-            // sans correction, la moitie pres de la camera est silencieusement
-            // clippee (Z<0) -> ecran noir. On compose vkClip * proj pour passer
-            // de [-1,1] a [0,1] : z_new = 0.5*z + 0.5*w. NkMat4f est column-major,
-            // donc m[2][2]=0.5 (m22) et m[3][2]=0.5 (m23, translation Z).
-            if (mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN) {
-                NkMat4f vkClip = NkMat4f::Identity();
-                vkClip[2][2] = 0.5f;
-                vkClip[3][2] = 0.5f;
-                cb.proj     = vkClip * cb.proj;
-                cb.viewProj = vkClip * cb.viewProj;
+            // Correction clip-space Z : la projection NkCamera produit un NDC Z dans
+            // [-1, 1] (convention OpenGL). Vulkan ET DirectX 11/12 attendent [0, 1] —
+            // sans correction, la moitie pres de la camera est silencieusement clippee
+            // (Z<0) -> ecran noir (DX12) ou geometrie partiellement clippee + reflets
+            // fantomes (DX11, car la proj de REFLEXION corrige deja DX, pas la principale).
+            // On compose clipZ01 * proj : z_new = 0.5*z + 0.5*w. NkMat4f column-major,
+            // donc m[2][2]=0.5 (m22) et m[3][2]=0.5 (m23, translation Z). Le Y-flip DX est
+            // gere par le shader (output._Position.y = -y), donc on ne touche QUE Z ici.
+            const auto _depthApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+            if (_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
+                _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11   ||
+                _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) {
+                NkMat4f clipZ01 = NkMat4f::Identity();
+                clipZ01[2][2] = 0.5f;
+                clipZ01[3][2] = 0.5f;
+                cb.proj     = clipZ01 * cb.proj;
+                cb.viewProj = clipZ01 * cb.viewProj;
             }
             cb.invViewProj = cb.viewProj.Inverse();
             NkVec3f pos = mCtx.camera.GetPosition();
