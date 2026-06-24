@@ -311,6 +311,7 @@ public:
 
     ID3D12Resource*     GetDX12Buffer (uint64 id) const;
     ID3D12Resource*     GetDX12Texture(uint64 id) const;
+    DXGI_FORMAT         GetTextureDXGIFormat(uint64 id) const;
     D3D12_GPU_VIRTUAL_ADDRESS GetBufferGPUAddr(uint64 id) const;
     UINT GetBufferCbvIndex(uint64 id) const;
     UINT GetBufferSrvIndex(uint64 id) const;

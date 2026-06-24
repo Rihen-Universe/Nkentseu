@@ -288,6 +288,27 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
     const UINT csuBase  = mDev->AllocCbvSrvUavRing(BLOCK_CBV_SRV_UAV);
     const UINT sampBase = mDev->AllocSamplerRing(BLOCK_SAMPLER);
 
+    // DIAGNOSTIC (gated) : compteur de draws/frame + détection d'OVERFLOW du ring (csuBase=
+    // UINT_MAX → bloc non alloué → SRV/CBV non bindés → draw « vide »). Le composite + texte
+    // 2D sont en FIN de frame : si le ring déborde avant, ils échouent → gris + texte absent.
+    {
+        static int odbg = -1;
+        static uint32 sDrawInFrame = 0; static uint32 sOverflowCount = 0;
+        static uint64 sLastFrame = (uint64)-1;
+        if (odbg == -1) { const char* v = getenv("NK_DX12_READBACK"); odbg = (v && v[0] && v[0] != '0') ? 1 : 0; }
+        if (odbg) {
+            uint64 fn = mDev->GetFrameNumber();
+            if (fn != sLastFrame) {
+                if (sLastFrame != (uint64)-1 && sLastFrame % 60 == 0)
+                    NK_DX12_CB_LOG("DBG RINGFRAME frame=%llu draws=%u overflowDraws=%u",
+                                   (unsigned long long)sLastFrame, sDrawInFrame, sOverflowCount);
+                sLastFrame = fn; sDrawInFrame = 0; sOverflowCount = 0;
+            }
+            sDrawInFrame++;
+            if (csuBase == UINT_MAX) sOverflowCount++;
+        }
+    }
+
     if (csuBase != UINT_MAX) {
         for (uint32 i = 0; i < kMergedCbv; ++i)
             if (mMergedCbv[i] != UINT_MAX) mDev->CopyCbvSrvUavToRing(csuBase + OFF_CBV + i, mMergedCbv[i]);
@@ -321,6 +342,41 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
                 }
             }
             cnt++;
+        }
+    }
+
+    // DIAGNOSTIC SRV (gated NK_DX12_READBACK) : trace les draws qui ÉCHANTILLONNENT une texture
+    // (texte 2D atlas, composite scène RT). Pour chaque SRV bindé : slot, texId, srvIdx staging,
+    // index ring destination, mMergedSrv[slot], et l'état du ring (csuBase, head) → détecte
+    // (a) srvIdx UINT_MAX/stale, (b) mismatch slot, (c) overflow ring (csuBase=UINT_MAX),
+    // (d) slot non rempli. Logge ~200 draws (couvre toute la frame demo2 : géom+PP+2D).
+    {
+        static int sdbg = -1;
+        static int scnt = 0;
+        if (sdbg == -1) { const char* v = getenv("NK_DX12_READBACK"); sdbg = (v && v[0] && v[0] != '0') ? 1 : 0; }
+        if (sdbg && !mIsCompute && scnt < 400) {
+            bool hasSrv = false;
+            for (auto& b : ds->bindings)
+                if (b.type == NkDescriptorType::NK_SAMPLED_TEXTURE ||
+                    b.type == NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER ||
+                    b.type == NkDescriptorType::NK_INPUT_ATTACHMENT) { hasSrv = true; break; }
+            if (hasSrv) {
+                for (auto& b : ds->bindings) {
+                    if (b.type == NkDescriptorType::NK_SAMPLED_TEXTURE ||
+                        b.type == NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER ||
+                        b.type == NkDescriptorType::NK_INPUT_ATTACHMENT) {
+                        UINT srvIdx = (b.texId ? mDev->GetTextureSrvIndex(b.texId) : UINT_MAX);
+                        UINT mergedV = (b.slot < kMergedSrv) ? mMergedSrv[b.slot] : 0xDEAD;
+                        UINT ringIdx = (csuBase != UINT_MAX && b.slot < kMergedSrv)
+                                     ? (csuBase + OFF_SRV + b.slot) : UINT_MAX;
+                        NK_DX12_CB_LOG("DBG SRV draw#%d slot=%u texId=%llu srvIdxStaging=%u mergedSrv=%u ringIdx=%u csuBase=%u ringCap=%u",
+                                       scnt, b.slot, (unsigned long long)b.texId,
+                                       (unsigned)srvIdx, (unsigned)mergedV, (unsigned)ringIdx,
+                                       (unsigned)csuBase, (unsigned)mDev->CbvSrvUavRing().capacity);
+                    }
+                }
+            }
+            scnt++;
         }
     }
 
@@ -489,8 +545,11 @@ void NkDirectX12CommandBuffer::CopyTextureToBuffer(NkTextureHandle src,
     dstLoc.pResource = mDev->GetDX12Buffer(dst.id);
     dstLoc.Type      = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     dstLoc.PlacedFootprint.Offset = r.bufferOffset;
+    // Le footprint DOIT utiliser le format RÉEL de la texture source : un
+    // hardcode R8G8B8A8_UNORM corrompait toute copie d'un RT non-RGBA8
+    // (ex. HDR RGBA16F → octets mal interprétés / copie invalide).
     dstLoc.PlacedFootprint.Footprint = {
-        DXGI_FORMAT_R8G8B8A8_UNORM, r.width, r.height,
+        mDev->GetTextureDXGIFormat(src.id), r.width, r.height,
         r.depth > 0 ? r.depth : 1,
         r.bufferRowPitch
     };
