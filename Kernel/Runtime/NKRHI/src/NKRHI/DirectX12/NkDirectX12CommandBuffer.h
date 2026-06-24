@@ -115,6 +115,13 @@ private:
     uint32 mMergedSrv [kMergedSrv]  {};
     uint32 mMergedUav [kMergedUav]  {};
     uint32 mMergedSamp[kMergedSamp] {};
+    // Déduplication du bloc sampler (le heap sampler shader-visible est plafonné à
+    // 2048 par D3D12 ; réallouer 32 slots/draw débordait après 64 draws). On réutilise
+    // le dernier bloc ring si l'état sampler est inchangé. Réinit par ResetMergedBindings.
+    uint32 mLastSampBase       = 0xFFFFFFFFu;
+    uint32 mLastSampCount      = 0;
+    uint32 mLastSampCopiedBase = 0xFFFFFFFFu;
+    uint32 mLastSampVals[kMergedSamp] {};
     void ResetMergedBindings();
     // Clear conditionnel (parité DX11) : armé par SetClearColor/SetClearDepth, consommé
     // et désarmé par BeginRenderPass. Une passe sans clear (loadOp LOAD) préserve la cible.

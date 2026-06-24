@@ -231,6 +231,9 @@ void NkDirectX12CommandBuffer::ResetMergedBindings() {
     for (uint32 i = 0; i < kMergedSrv;  ++i) mMergedSrv[i]  = UINT_MAX;
     for (uint32 i = 0; i < kMergedUav;  ++i) mMergedUav[i]  = UINT_MAX;
     for (uint32 i = 0; i < kMergedSamp; ++i) mMergedSamp[i] = UINT_MAX;
+    // Cache de déduplication du bloc sampler (cf. BindDescriptorSet) : invalidé à
+    // chaque nouvelle passe pour ne jamais réutiliser un bloc ring d'une autre passe.
+    mLastSampBase = UINT_MAX; mLastSampCount = 0; mLastSampCopiedBase = UINT_MAX;
 }
 
 void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
@@ -286,7 +289,40 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
 
     // 2) Allouer un bloc de ring frais et y recopier TOUT l'état fusionné.
     const UINT csuBase  = mDev->AllocCbvSrvUavRing(BLOCK_CBV_SRV_UAV);
-    const UINT sampBase = mDev->AllocSamplerRing(BLOCK_SAMPLER);
+    // SAMPLER : le heap sampler shader-visible est plafonné à 2048 par D3D12. Allouer
+    // BLOCK_SAMPLER (=32) par draw épuisait le ring après 64 draws (2048/32) → en LIVE
+    // (demo2 = ~327 draws/frame) le ring débordait AVANT le tonemap → sampBase=UINT_MAX
+    // → la sampler table n'était PAS bindée → texture() échantillonnait sans sampler →
+    // sortie CONSTANTE (scène plate grise, le bug live).
+    // FIX en 2 temps :
+    //  (a) n'allouer que le nombre de slots sampler réellement utilisés (plus haut
+    //      slot + 1) au lieu de 32 ;
+    //  (b) DÉDUPLIQUER : si l'état sampler fusionné est IDENTIQUE au dernier bloc
+    //      alloué cette frame (cas ultra-fréquent : tous les draws partagent les mêmes
+    //      samplers), réutiliser le bloc ring précédent au lieu d'en allouer un neuf.
+    //      Cela borne la conso sampler au nombre de COMBINAISONS distinctes (~poignée)
+    //      au lieu du nombre de draws → plus de débordement.
+    UINT sampCount = 0;
+    for (uint32 i = 0; i < kMergedSamp; ++i)
+        if (mMergedSamp[i] != UINT_MAX) sampCount = i + 1;
+    UINT sampBase = UINT_MAX;
+    if (sampCount > 0) {
+        // Signature du bloc sampler courant (slots utilisés + indices heap).
+        bool same = (mLastSampBase != UINT_MAX && mLastSampCount == sampCount);
+        if (same)
+            for (uint32 i = 0; i < sampCount; ++i)
+                if (mMergedSamp[i] != mLastSampVals[i]) { same = false; break; }
+        if (same) {
+            sampBase = mLastSampBase;     // réutilise le bloc identique (pas de réalloc)
+        } else {
+            sampBase = mDev->AllocSamplerRing(sampCount);
+            if (sampBase != UINT_MAX) {
+                mLastSampBase = sampBase; mLastSampCount = sampCount;
+                for (uint32 i = 0; i < sampCount; ++i) mLastSampVals[i] = mMergedSamp[i];
+            }
+        }
+    }
+    const bool sampNeedsCopy = (sampBase != UINT_MAX && sampBase != mLastSampCopiedBase);
 
     // DIAGNOSTIC (gated) : compteur de draws/frame + détection d'OVERFLOW du ring (csuBase=
     // UINT_MAX → bloc non alloué → SRV/CBV non bindés → draw « vide »). Le composite + texte
@@ -317,9 +353,12 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
         for (uint32 i = 0; i < kMergedUav; ++i)
             if (mMergedUav[i] != UINT_MAX) mDev->CopyCbvSrvUavToRing(csuBase + OFF_UAV + i, mMergedUav[i]);
     }
-    if (sampBase != UINT_MAX) {
-        for (uint32 i = 0; i < kMergedSamp; ++i)
+    // Ne recopier les descripteurs sampler dans le ring QUE si un bloc NEUF a été
+    // alloué (un bloc réutilisé contient déjà les bons descripteurs).
+    if (sampBase != UINT_MAX && sampNeedsCopy) {
+        for (uint32 i = 0; i < sampCount; ++i)
             if (mMergedSamp[i] != UINT_MAX) mDev->CopySamplerToRing(sampBase + i, mMergedSamp[i]);
+        mLastSampCopiedBase = sampBase;
     }
 
     // DIAGNOSTIC (gated NK_DX12_READBACK) : sur les premiers draws graphics, logge les CBV
@@ -369,9 +408,10 @@ void NkDirectX12CommandBuffer::BindDescriptorSet(NkDescSetHandle set,
                         UINT mergedV = (b.slot < kMergedSrv) ? mMergedSrv[b.slot] : 0xDEAD;
                         UINT ringIdx = (csuBase != UINT_MAX && b.slot < kMergedSrv)
                                      ? (csuBase + OFF_SRV + b.slot) : UINT_MAX;
-                        NK_DX12_CB_LOG("DBG SRV draw#%d slot=%u texId=%llu srvIdxStaging=%u mergedSrv=%u ringIdx=%u csuBase=%u ringCap=%u",
+                        NK_DX12_CB_LOG("DBG SRV draw#%d slot=%u texId=%llu srvIdxStaging=%u mergedSrv=%u ringIdx=%u sampBase=%u csuBase=%u ringCap=%u",
                                        scnt, b.slot, (unsigned long long)b.texId,
                                        (unsigned)srvIdx, (unsigned)mergedV, (unsigned)ringIdx,
+                                       (unsigned)sampBase,
                                        (unsigned)csuBase, (unsigned)mDev->CbvSrvUavRing().capacity);
                     }
                 }
