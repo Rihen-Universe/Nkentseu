@@ -31,6 +31,14 @@ void main() {
     float bloomStr       = pc.p1.x;
     float autoExpStr     = pc.p2.x;
     float autoExpKey     = pc.p2.y;
+    // bloomYFlip (pc.p2.z) : sur DX, le HDR (rendu par le VS 3D Y-négaté) est stocké
+    // Y-DOWN, mais le bloom et le SSAO (rendus par des VS plein écran NON Y-négatés)
+    // sont stockés Y-UP → convention V opposée. Le tonemap échantillonne uHDR avec vUV
+    // (réglé pour le HDR Y-down) ; il faut donc échantillonner uBloom/uSSAO avec V
+    // INVERSÉ relativement au HDR sur DX, sinon le glow apparaît en MIROIR vertical
+    // ("ghost" / croissant sous la source). VK/GL : bloomYFlip=0 → inchangé.
+    float bloomYFlip     = pc.p2.z;
+    vec2  bloomUV        = vec2(vUV.x, mix(vUV.y, 1.0 - vUV.y, bloomYFlip));
 
     // Auto-exposure V0 : sample le centre du bloom RT (≈ luma moyen scène).
     if (autoExpStr > 0.001) {
@@ -43,9 +51,9 @@ void main() {
 
     // HDR * exposure, * SSAO (assombrit les zones occluses), + Bloom.
     vec3  hdr   = texture(uHDR, vUV).rgb * exposure;
-    float ao    = texture(uSSAO, vUV).r;
+    float ao    = texture(uSSAO, bloomUV).r;
     hdr *= ao;
-    vec3  bloom = texture(uBloom, vUV).rgb;
+    vec3  bloom = texture(uBloom, bloomUV).rgb;
     hdr += bloom * bloomStr;
 
     // Tonemap ACES filmic.
