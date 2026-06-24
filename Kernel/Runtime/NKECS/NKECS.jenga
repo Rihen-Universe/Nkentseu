@@ -32,7 +32,10 @@ with project("NKECS"):
     location(".")
 
     nkentseudependson(
-        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKThreading", "NKLogger"],
+        # NKReflection + NKSerialization (couche System) : pont reflexion P4.
+        # NKECS (Runtime) -> NKReflection/NKSerialization (System) = OK, pas de cycle.
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKThreading", "NKLogger",
+         "NKReflection", "NKSerialization"],
         selfexport="NKECS",
         extra_includes=["src"],
     )
