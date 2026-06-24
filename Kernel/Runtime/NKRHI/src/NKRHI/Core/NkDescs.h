@@ -76,6 +76,11 @@ namespace nkentseu {
         const void*    initialData = nullptr; // données du mip 0, layer 0
         uint32         rowPitch    = 0;       // 0 = auto calculé
         const char*    debugName   = nullptr;
+        // Valeur de clear OPTIMISÉE (D3D12 #820) : la couleur/depth réellement utilisée
+        // pour clear ce RT. Si elle matche, le clear est rapide et SANS warning. Pour les
+        // render targets : color ; pour depth : depthStencil. Défaut (0,0,0,1)/(1,0).
+        NkClearColor   optClearColor = {0.f, 0.f, 0.f, 1.f};
+        float          optClearDepth = 1.f;
 
         // ── Helpers ──
         static NkTextureDesc Tex2D(uint32 w, uint32 h, NkGPUFormat fmt=NkGPUFormat::NK_RGBA8_SRGB, uint32 mips=1) {

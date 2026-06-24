@@ -40,6 +40,12 @@ namespace {
                                 D3D12_MESSAGE_ID id,
                                 const char* msg) {
         if (!msg) return;
+        // Ceinture (le vrai fix = valeurs de clear optimisées matchées dans CreateTexture) :
+        // on supprime le warning #820 "clear values do not match" pour ne JAMAIS flooder le
+        // log (17k+ lignes/16s tuaient les FPS via le sink fichier) s'il subsiste un cas résiduel.
+        if (id == D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE ||
+            id == D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE)
+            return;
         switch (sev) {
             case D3D12_MESSAGE_SEVERITY_CORRUPTION:
             case D3D12_MESSAGE_SEVERITY_ERROR:
@@ -951,14 +957,22 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
         if (NkHasFlag(desc.bindFlags, NkBindFlags::NK_UNORDERED_ACCESS)) rd.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     }
 
+    // Valeur de clear OPTIMISÉE : DOIT matcher la couleur/depth réellement utilisée au
+    // clear (sinon D3D12 warning #820 "clear values do not match" → clear lent + flood
+    // de logs qui tue les FPS). On prend la valeur fournie par le desc (le render graph
+    // la renseigne avec la couleur de clear de la passe qui écrit ce RT).
     D3D12_CLEAR_VALUE clearVal{};
     D3D12_CLEAR_VALUE* pClear = nullptr;
     if (NkHasFlag(desc.bindFlags, NkBindFlags::NK_RENDER_TARGET) && !isDepth) {
         clearVal.Format = rd.Format;
+        clearVal.Color[0] = desc.optClearColor.r;
+        clearVal.Color[1] = desc.optClearColor.g;
+        clearVal.Color[2] = desc.optClearColor.b;
+        clearVal.Color[3] = desc.optClearColor.a;
         pClear = &clearVal;
     } else if (isDepth) {
         clearVal.Format = dsvFormat;
-        clearVal.DepthStencil = { 1.f, 0 };
+        clearVal.DepthStencil = { desc.optClearDepth, 0 };
         pClear = &clearVal;
     }
 
