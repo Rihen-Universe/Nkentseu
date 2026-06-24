@@ -828,12 +828,19 @@ namespace nkentseu {
             cb.time        = mCtx.time;
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
-            // yFlipNDC : Vulkan flip viewport Y (VkViewport.height<0), donc
-            // top screen = vNDC.y = -1. OpenGL ne flip pas, top screen = +1.
-            // Pour qu'un meme shader produise le meme viewRay.y dans les deux
-            // cas, on multiplie vNDC.y par yFlipNDC : +1 en VK, -1 en GL.
-            const bool isVK = mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN;
-            cb.yFlipNDC = isVK ? +1.f : -1.f;
+            // yFlipNDC : convention de Y écran (origine du top de l'écran en NDC).
+            //   - Vulkan : viewport Y-flippé (VkViewport.height<0) → top = vNDC.y = -1.
+            //   - DX11/DX12 : le VERTEX SHADER négatif `output._Position.y = -y` (cf.
+            //     NkSLCodeGenHLSL(DX12) Y-flip 3D) → MÊME convention écran que Vulkan.
+            //   - OpenGL : pas de flip viewport ni shader → top = vNDC.y = +1.
+            // Donc yFlipNDC = +1 pour VK/DX11/DX12 (Y déjà flippé), -1 pour GL UNIQUEMENT.
+            // BUG corrigé : DX11/DX12 étaient groupés avec GL (-1) → viewRay.y inversé →
+            // skybox/reflets planaires "dans l'espace" au lieu d'être au sol sur DX.
+            const auto _yApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+            const bool yFlipped = (_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
+                                   _yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11   ||
+                                   _yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12);
+            cb.yFlipNDC = yFlipped ? +1.f : -1.f;
             // Phase Planar Reflection : applique aussi la correction Vulkan
             // clip-space à mirrorViewProj (sinon le sampling du RT serait clippé
             // ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
