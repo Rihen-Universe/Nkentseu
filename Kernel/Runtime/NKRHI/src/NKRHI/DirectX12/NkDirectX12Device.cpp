@@ -8,6 +8,7 @@
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKSL/ShaderConvert/NkShaderConvert.h" // NkShaderCache : cache du DXIL/DXBC compilé
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
@@ -1319,6 +1320,26 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
             // (utile pour comparer NkSL vs SPIRV-Cross sur un PSO qui echoue).
             if (getenv("NK_DX12_DUMPHLSL"))
                 NK_DX12_LOG("[DUMPHLSL stage %u]\n%s\n", (unsigned)s.stage, s.hlslSource);
+
+            // ── CACHE DXIL/DXBC (perf démarrage) ──────────────────────────────────
+            // dxc (HLSL SM6 -> DXIL) recompilait ~50 shaders À CHAQUE run (lent), alors
+            // que VK recharge son SPIR-V caché et DX11 son DXBC caché. On cache ici le
+            // bytecode DXIL/DXBC compilé (clé = hash HLSL + entry + profil) pour ne
+            // compiler qu'une fois ; les runs suivants rechargent instantanément.
+            // Clé incluant l'entry point (un même HLSL peut avoir des entries différents).
+            const NkString dxCacheFmt = NkString("dxil_") + entry; // ex. dxil_VSMain
+            const uint64 dxCacheKey = NkShaderCache::ComputeKey(NkString(s.hlslSource), s.stage, dxCacheFmt);
+            {
+                auto cached = NkShaderCache::Global().Load(dxCacheKey);
+                if (cached.success && !cached.binary.IsEmpty()) {
+                    target->Assign(cached.binary.Data(), (usize)cached.binary.Size());
+                    stageCompiled = true;
+                }
+            }
+            if (stageCompiled) {
+                // Hit cache : pas de recompilation. (vsBlob non nécessaire : il ne sert
+                // qu'au fallback fxc pour l'input layout DX11-style, non utilisé en DX12.)
+            } else {
 #ifdef NK_HAS_DXC
             // 1) Vrai compilateur DX12 : dxc -> DXIL (Shader Model 6.0).
             const wchar_t* dxcProfile =
@@ -1358,6 +1379,13 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
 #ifdef NK_HAS_DXC
             }
 #endif
+                // Sauver le DXIL/DXBC compilé (réutilisé aux prochains runs).
+                if (stageCompiled && !target->empty()) {
+                    NkShaderConvertResult toCache; toCache.success = true;
+                    toCache.binary.Assign(target->Data(), (uint32)target->Size());
+                    NkShaderCache::Global().Save(dxCacheKey, toCache);
+                }
+            } // fin else (cache miss -> compile + save)
         }
 
         if (!stageCompiled || target->empty()) {
