@@ -183,10 +183,16 @@ static int NkSL_SamplerPoolSlot(NkSLVarDeclNode* v) {
     if (!wantClamp) {
         NkString n = v->name.ToLower();
         // Heuristique par nom : ressources qui doivent clamper (pas de répétition).
+        // Inclut les RT plein écran des passes post-process (HDR/bloom/SSAO/LDR/tonemap) :
+        // échantillonnés en UV [0,1], un sampler WRAP fait BAVER le bord opposé (ex. le
+        // bloom flippé sur DX11 → lueur fantôme en haut). DX12 masquait ça via le sampler
+        // clamp lié au runtime ; DX11 utilise directement ce pool → il faut clamp ici.
         wantClamp = n.Contains("shadow")    || n.Contains("irradiance") ||
                     n.Contains("prefilter") || n.Contains("brdf")  || n.Contains("lut") ||
                     n.Contains("sky")       || n.Contains("env")   || n.Contains("ibl") ||
-                    n.Contains("refl")      || n.Contains("reflection");
+                    n.Contains("refl")      || n.Contains("reflection") ||
+                    n.Contains("hdr")       || n.Contains("bloom") || n.Contains("ssao") ||
+                    n.Contains("ldr")       || n.Contains("tone")  || n.Contains("depth");
     }
     return wantClamp ? 1 : 0;
 }
