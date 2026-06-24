@@ -35,6 +35,9 @@
     #include "NKReflection/NkClass.h"
     #include "NKReflection/NkProperty.h"
     #include "NKReflection/NkMethod.h"
+    #include "NKReflection/NkReflectMeta.h"
+    #include "NKReflection/NkContainerTrait.h"
+    #include "NKReflection/NkEnumDescriptor.h"
     #include "NKCore/NkTraits.h"
     #include "NKCore/NkBuiltin.h"
     #include "NKContainers/Functional/NkFunction.h"
@@ -233,6 +236,25 @@
                     }
 
                     // ---------------------------------------------------------
+                    // ENUMS (delegation au registre d'enums)
+                    // ---------------------------------------------------------
+
+                    /**
+                     * @brief Recherche le descripteur d'enum pour le type C++ E.
+                     * @return Pointeur vers NkEnumDescriptor ou nullptr si E n'a
+                     *         pas ete reflechi via NKENTSEU_REFLECT_ENUM.
+                     */
+                    template<typename E>
+                    const NkEnumDescriptor* GetEnum() const {
+                        return NkEnumRegistry::Get().FindFor<E>();
+                    }
+
+                    /** @brief Recherche un descripteur d'enum par nom de type (typeid). */
+                    const NkEnumDescriptor* FindEnum(const nk_char* typeName) const {
+                        return NkEnumRegistry::Get().Find(typeName);
+                    }
+
+                    // ---------------------------------------------------------
                     // UTILITAIRES D'INSPECTION
                     // ---------------------------------------------------------
 
@@ -372,6 +394,31 @@
                     OnRegisterCallback mOnRegisterCallback;
             };
 
+            // =================================================================
+            // AUTO-LINK NkType -> NkClass (Phase 3)
+            // =================================================================
+            // Lie NkTypeOf<T>().SetClass(&T::GetStaticClass()) SSI T expose
+            // GetStaticClass() (classe reflechie). Detection SFINAE : la
+            // surcharge (int) est preferee quand decltype(&T::GetStaticClass())
+            // est valide, sinon repli sur la surcharge variadique (no-op).
+
+            template<typename T>
+            auto NkReflectAutoLinkClassImpl(int)
+                -> decltype(&T::GetStaticClass(), void()) {
+                const NkClass& cls = T::GetStaticClass();
+                const_cast<NkType&>(NkTypeOf<T>()).SetClass(&cls);
+            }
+
+            template<typename T>
+            void NkReflectAutoLinkClassImpl(...) {
+                // T n'est pas une classe reflechie : rien a lier.
+            }
+
+            template<typename T>
+            void NkReflectAutoLinkClass() {
+                NkReflectAutoLinkClassImpl<T>(0);
+            }
+
         } // namespace reflection
 
     } // namespace nkentseu
@@ -429,6 +476,14 @@
                 sizeof(ClassName), \
                 ::nkentseu::reflection::NkTypeOf<ClassName>() \
             ); \
+            /* Auto-link NkType(ClassName) -> NkClass : evite le SetClass manuel */ \
+            /* pour que les objets imbriques se (de)serialisent automatiquement. */ \
+            static bool s_linked = []() -> bool { \
+                const_cast<::nkentseu::reflection::NkType&>( \
+                    ::nkentseu::reflection::NkTypeOf<ClassName>()).SetClass(&classInfo); \
+                return true; \
+            }(); \
+            (void)s_linked; \
             return classInfo; \
         } \
         virtual const ::nkentseu::reflection::NkClass& GetClass() const { \
@@ -453,8 +508,25 @@
      * @warning Le membre doit etre public ou la macro doit etre placee dans la section appropriee
      */
     #define NKENTSEU_REFLECT_PROPERTY(PropertyName) \
+        NKENTSEU_REFLECT_PROPERTY_FLAGS(PropertyName, 0ULL)
+
+    /**
+     * @brief Variante de NKENTSEU_REFLECT_PROPERTY portant des drapeaux meta.
+     * @def NKENTSEU_REFLECT_PROPERTY_FLAGS(PropertyName, MetaFlags)
+     * @ingroup ReflectionMacros
+     *
+     * Comme NKENTSEU_REFLECT_PROPERTY, mais :
+     *  - pose les drapeaux d'edition 64 bits (NkReflectMeta) MetaFlags ;
+     *  - auto-detecte les conteneurs (NkVector<T>) et attache leur descripteur ;
+     *  - auto-lie le NkType de l'element de classe a son NkClass (objets
+     *    imbriques) si l'element expose GetStaticClass().
+     *
+     * @param PropertyName Nom du membre a reflechir.
+     * @param MetaFlags    Combinaison de NkReflectMeta (0ULL pour aucun).
+     */
+    #define NKENTSEU_REFLECT_PROPERTY_FLAGS(PropertyName, MetaFlags) \
     public: \
-        static const ::nkentseu::reflection::NkProperty& Get##PropertyName##Property() { \
+        static ::nkentseu::reflection::NkProperty& Get##PropertyName##Property() { \
             static ::nkentseu::reflection::NkProperty property( \
                 #PropertyName, \
                 ::nkentseu::reflection::NkTypeOf<decltype(((SelfType*)0)->PropertyName)>(), \
@@ -467,8 +539,17 @@
         /* assuree par NkClass::AddProperty (sur pour inclusion multi-TU).     */ \
         struct PropertyName##_NkPropReg { \
             PropertyName##_NkPropReg() { \
+                using PropT = decltype(((SelfType*)0)->PropertyName); \
+                ::nkentseu::reflection::NkProperty& prop = SelfType::Get##PropertyName##Property(); \
+                prop.AddMetaFlags(static_cast<::nkentseu::nk_uint64>(MetaFlags)); \
+                /* Conteneur (NkVector<T>) : attache le descripteur type-erased. */ \
+                if (::nkentseu::reflection::NkContainerTrait<PropT>::IsContainer) { \
+                    prop.SetContainer(::nkentseu::reflection::NkContainerTrait<PropT>::Descriptor()); \
+                } \
+                /* Auto-link NkType(element) -> NkClass si reflechi. */ \
+                ::nkentseu::reflection::NkReflectAutoLinkClass<PropT>(); \
                 const_cast<::nkentseu::reflection::NkClass&>(SelfType::GetStaticClass()) \
-                    .AddProperty(&SelfType::Get##PropertyName##Property()); \
+                    .AddProperty(&prop); \
             } \
         }; \
         inline static PropertyName##_NkPropReg s_##PropertyName##_nkPropReg{}; \
@@ -503,6 +584,31 @@
     #define NKENTSEU_PROPERTY(Type, Name) \
         Type Name; \
         NKENTSEU_REFLECT_PROPERTY(Name)
+
+    /**
+     * @brief Declare une propriete reflechie avec drapeaux d'edition (meta).
+     * @def NKENTSEU_PROPERTY_FLAGS(Type, Name, Flags)
+     * @ingroup ReflectionMacros
+     *
+     * Equivalent a NKENTSEU_PROPERTY mais la propriete porte des NkReflectMeta
+     * (ex. NK_REFLECT_TRANSIENT, NK_REFLECT_READONLY, NK_REFLECT_HIDE_EDITOR).
+     * Pour ajuster range/tooltip/categorie, recuperer la propriete via
+     * Get<Name>Property() et appeler SetRange/SetTooltip/SetCategory (typiquement
+     * dans une routine d'initialisation de reflexion).
+     *
+     * @example
+     * @code
+     * class Config {
+     *     NKENTSEU_REFLECT_CLASS(Config)
+     * public:
+     *     NKENTSEU_PROPERTY_FLAGS(nk_int32, cacheToken, NK_REFLECT_TRANSIENT)
+     *     NKENTSEU_PROPERTY_FLAGS(nk_float32, volume, NK_REFLECT_RANGE)
+     * };
+     * @endcode
+     */
+    #define NKENTSEU_PROPERTY_FLAGS(Type, Name, Flags) \
+        Type Name; \
+        NKENTSEU_REFLECT_PROPERTY_FLAGS(Name, (Flags))
 
     /**
      * @brief Attribut de annotation pour marquage de code reflechi

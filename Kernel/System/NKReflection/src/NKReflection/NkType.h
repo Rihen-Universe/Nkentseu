@@ -504,6 +504,9 @@
                     return NkTypeCategory::NK_FLOAT64;
                 }
 
+                if (traits::NkIsEnum<T>::value) {
+                    return NkTypeCategory::NK_ENUM;
+                }
                 if (traits::NkIsPointer<T>::value) {
                     return NkTypeCategory::NK_POINTER;
                 }

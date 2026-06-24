@@ -32,6 +32,7 @@
     // Inclusion de NkFunction pour le stockage type-safe des accesseurs.
 
     #include "NKReflection/NkType.h"
+    #include "NKReflection/NkReflectMeta.h"
     #include "NKCore/Assert/NkAssert.h"
     #include "NKContainers/Functional/NkFunction.h"
 
@@ -49,6 +50,10 @@
             // L'en-tete complet (NkReflectVariant.h, qui tire NkString) n'est
             // inclus que dans NkProperty.cpp pour garder ce header leger.
             class NkReflectVariant;
+
+            // Forward-declaration : descripteur de conteneur (Phase 3). Defini
+            // dans NkContainerTrait.h ; seul un pointeur est stocke ici.
+            struct NkContainerDescriptor;
 
             // =================================================================
             // ENUMERATION : NkPropertyFlags
@@ -165,6 +170,9 @@
                         , mType(&type)
                         , mOffset(offset)
                         , mFlags(flags)
+                        , mMetaFlags(NK_REFLECT_META_NONE)
+                        , mEditMeta()
+                        , mContainer(nullptr)
                         , mGetter()
                         , mSetter() {
                     }
@@ -216,7 +224,8 @@
                      * @note SetValue() provoquera une assertion si appele sur une propriete read-only
                      */
                     nk_bool IsReadOnly() const {
-                        return (mFlags & static_cast<nk_uint32>(NkPropertyFlags::NK_READ_ONLY)) != 0;
+                        return (mFlags & static_cast<nk_uint32>(NkPropertyFlags::NK_READ_ONLY)) != 0
+                            || (mMetaFlags & NK_REFLECT_READONLY) != 0;
                     }
 
                     /**
@@ -251,7 +260,8 @@
                      * @return nk_bool vrai si le drapeau NK_TRANSIENT est positionne
                      */
                     nk_bool IsTransient() const {
-                        return (mFlags & static_cast<nk_uint32>(NkPropertyFlags::NK_TRANSIENT)) != 0;
+                        return (mFlags & static_cast<nk_uint32>(NkPropertyFlags::NK_TRANSIENT)) != 0
+                            || (mMetaFlags & NK_REFLECT_TRANSIENT) != 0;
                     }
 
                     /**
@@ -260,6 +270,137 @@
                      */
                     nk_bool IsDeprecated() const {
                         return (mFlags & static_cast<nk_uint32>(NkPropertyFlags::NK_PDEPRECATED)) != 0;
+                    }
+
+                    // ---------------------------------------------------------
+                    // METADONNEES D'EDITION (Phase 3 — inspecteur editeur)
+                    // ---------------------------------------------------------
+
+                    /**
+                     * @brief Retourne les drapeaux d'edition 64 bits (NkReflectMeta).
+                     * @return Combinaison de NkReflectMeta (0 = aucun).
+                     */
+                    nk_uint64 GetMetaFlags() const {
+                        return mMetaFlags;
+                    }
+
+                    /**
+                     * @brief Definit les drapeaux d'edition 64 bits (remplace).
+                     * @param flags Combinaison de NkReflectMeta.
+                     */
+                    void SetMetaFlags(nk_uint64 flags) {
+                        mMetaFlags = flags;
+                    }
+
+                    /**
+                     * @brief Ajoute (OR) des drapeaux d'edition aux existants.
+                     */
+                    void AddMetaFlags(nk_uint64 flags) {
+                        mMetaFlags |= flags;
+                    }
+
+                    /**
+                     * @brief Teste la presence d'un (ou plusieurs) drapeau meta.
+                     * @param flag Drapeau(x) NkReflectMeta a tester.
+                     * @return true si tous les bits de flag sont positionnes.
+                     */
+                    nk_bool HasFlag(NkReflectMeta flag) const {
+                        return (mMetaFlags & static_cast<nk_uint64>(flag)) == static_cast<nk_uint64>(flag);
+                    }
+
+                    /**
+                     * @brief Variante prenant un masque brut (nk_uint64).
+                     */
+                    nk_bool HasMetaFlag(nk_uint64 flag) const {
+                        return (mMetaFlags & flag) == flag && flag != 0;
+                    }
+
+                    /**
+                     * @brief Definit la plage d'edition (slider) + arme NK_REFLECT_RANGE.
+                     */
+                    void SetRange(nk_float32 minValue, nk_float32 maxValue) {
+                        mEditMeta.rangeMin = minValue;
+                        mEditMeta.rangeMax = maxValue;
+                        mMetaFlags |= NK_REFLECT_RANGE;
+                    }
+
+                    /**
+                     * @brief Recupere la plage d'edition.
+                     * @param outMin Recoit la borne min.
+                     * @param outMax Recoit la borne max.
+                     * @return true si NK_REFLECT_RANGE est arme (plage valide).
+                     */
+                    nk_bool GetRange(nk_float32& outMin, nk_float32& outMax) const {
+                        outMin = mEditMeta.rangeMin;
+                        outMax = mEditMeta.rangeMax;
+                        return (mMetaFlags & NK_REFLECT_RANGE) != 0;
+                    }
+
+                    /** @brief Definit le texte d'aide (tooltip). */
+                    void SetTooltip(const nk_char* tooltip) {
+                        mEditMeta.tooltip = tooltip;
+                    }
+
+                    /** @brief Retourne le tooltip (nullptr si absent). */
+                    const nk_char* GetTooltip() const {
+                        return mEditMeta.tooltip;
+                    }
+
+                    /** @brief Definit la categorie d'inspecteur. */
+                    void SetCategory(const nk_char* category) {
+                        mEditMeta.category = category;
+                    }
+
+                    /** @brief Retourne la categorie (nullptr si absente). */
+                    const nk_char* GetCategory() const {
+                        return mEditMeta.category;
+                    }
+
+                    /** @brief Definit le nom d'affichage lisible. */
+                    void SetDisplayName(const nk_char* display) {
+                        mEditMeta.display = display;
+                    }
+
+                    /** @brief Retourne le nom d'affichage (nullptr si absent). */
+                    const nk_char* GetDisplayName() const {
+                        return mEditMeta.display;
+                    }
+
+                    /** @brief Acces direct au bloc de metadonnees d'edition. */
+                    const NkEditMeta& GetEditMeta() const {
+                        return mEditMeta;
+                    }
+
+                    // ---------------------------------------------------------
+                    // CONTENEUR (Phase 3 — NkVector<T> reflechi)
+                    // ---------------------------------------------------------
+
+                    /**
+                     * @brief Associe un descripteur de conteneur a la propriete.
+                     * @param desc Descripteur (duree de vie statique) ou nullptr.
+                     * @note Pose la propriete comme conteneur sequentiel ; le
+                     *       serializer ecrit/lit alors un tableau d'elements.
+                     */
+                    void SetContainer(const NkContainerDescriptor* desc) {
+                        mContainer = desc;
+                    }
+
+                    /** @brief Descripteur de conteneur (nullptr si scalaire/objet). */
+                    const NkContainerDescriptor* GetContainer() const {
+                        return mContainer;
+                    }
+
+                    /** @brief Vrai si la propriete est un conteneur sequentiel reflechi. */
+                    nk_bool IsContainer() const {
+                        return mContainer != nullptr;
+                    }
+
+                    /**
+                     * @brief Vrai si la propriete est cachee dans l'editeur.
+                     * @note Combinaison NK_REFLECT_HIDE_EDITOR / NK_REFLECT_NO_EDIT.
+                     */
+                    nk_bool IsHiddenInEditor() const {
+                        return (mMetaFlags & (NK_REFLECT_HIDE_EDITOR | NK_REFLECT_NO_EDIT)) != 0;
                     }
 
                     // ---------------------------------------------------------
@@ -564,7 +705,10 @@
                     const nk_char* mName;
                     const NkType* mType;
                     nk_usize mOffset;
-                    nk_uint32 mFlags;
+                    nk_uint32 mFlags;       ///< Flags legacy (NkPropertyFlags, nk_uint32)
+                    nk_uint64 mMetaFlags;   ///< Flags d'edition 64 bits (NkReflectMeta)
+                    NkEditMeta mEditMeta;   ///< Metadonnees d'edition (range/tooltip/categorie)
+                    const NkContainerDescriptor* mContainer; ///< Descripteur conteneur (ou nullptr)
                     GetterFn mGetter;
                     SetterFn mSetter;
             };

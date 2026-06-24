@@ -296,6 +296,10 @@
                             case NkTypeCategory::NK_UINT64:  return static_cast<nk_int64>(ReadAs<nk_uint64>());
                             case NkTypeCategory::NK_FLOAT32: return static_cast<nk_int64>(ReadAs<nk_float32>());
                             case NkTypeCategory::NK_FLOAT64: return static_cast<nk_int64>(ReadAs<nk_float64>());
+                            // Enum : lecture de la valeur sous-jacente selon la
+                            // taille du type (1/2/4/8 octets). On suppose un type
+                            // sous-jacent signe (cas usuel des enum class).
+                            case NkTypeCategory::NK_ENUM:    return ReadEnumUnderlying();
                             default: return 0;
                         }
                     }
@@ -317,6 +321,7 @@
                             case NkTypeCategory::NK_UINT64:  return static_cast<nk_float64>(ReadAs<nk_uint64>());
                             case NkTypeCategory::NK_FLOAT32: return static_cast<nk_float64>(ReadAs<nk_float32>());
                             case NkTypeCategory::NK_FLOAT64: return ReadAs<nk_float64>();
+                            case NkTypeCategory::NK_ENUM:    return static_cast<nk_float64>(ReadEnumUnderlying());
                             default: return 0.0;
                         }
                     }
@@ -462,6 +467,18 @@
                         T out;
                         CopyBytes(&out, p, sizeof(T));
                         return out;
+                    }
+
+                    // Lit la valeur sous-jacente d'un enum (taille 1/2/4/8 octets)
+                    // en supposant un type sous-jacent signe. Retourne 0 si vide.
+                    nk_int64 ReadEnumUnderlying() const {
+                        switch (mSize) {
+                            case 1: return static_cast<nk_int64>(ReadAs<nk_int8>());
+                            case 2: return static_cast<nk_int64>(ReadAs<nk_int16>());
+                            case 4: return static_cast<nk_int64>(ReadAs<nk_int32>());
+                            case 8: return ReadAs<nk_int64>();
+                            default: return 0;
+                        }
                     }
 
                     // ---------------------------------------------------------

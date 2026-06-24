@@ -217,6 +217,22 @@ namespace nkentseu {
                 return WritePrimitiveCoerced(ptr, dstCat, value);
             }
 
+            // Destination enum : ecriture de la valeur sous-jacente (taille du
+            // type) depuis une source numerique (primitif ou enum). Permet de
+            // (de)serialiser un enum depuis un int64 ou une valeur enum.
+            if (dstCat == NkTypeCategory::NK_ENUM && value.GetType() != nullptr &&
+                (value.GetType()->IsPrimitive() || srcCat == NkTypeCategory::NK_ENUM)) {
+                const nk_int64 raw = value.ToInt64();
+                const nk_usize n = type.GetSize();
+                switch (n) {
+                    case 1: { nk_int8  v = static_cast<nk_int8>(raw);  CopyRawBytes(ptr, &v, 1); return true; }
+                    case 2: { nk_int16 v = static_cast<nk_int16>(raw); CopyRawBytes(ptr, &v, 2); return true; }
+                    case 4: { nk_int32 v = static_cast<nk_int32>(raw); CopyRawBytes(ptr, &v, 4); return true; }
+                    case 8: { nk_int64 v = raw;                        CopyRawBytes(ptr, &v, 8); return true; }
+                    default: return false;
+                }
+            }
+
             return false;
         }
 
