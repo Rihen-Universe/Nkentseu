@@ -36,6 +36,7 @@
     #include "NKReflection/NkProperty.h"
     #include "NKReflection/NkMethod.h"
     #include "NKCore/NkTraits.h"
+    #include "NKCore/NkBuiltin.h"
     #include "NKContainers/Functional/NkFunction.h"
 
     // -------------------------------------------------------------------------
@@ -461,6 +462,16 @@
             ); \
             return property; \
         } \
+        /* Registrar inline-static : enregistre automatiquement la propriete */ \
+        /* dans le NkClass de la classe avant main(). Deduplication par nom   */ \
+        /* assuree par NkClass::AddProperty (sur pour inclusion multi-TU).     */ \
+        struct PropertyName##_NkPropReg { \
+            PropertyName##_NkPropReg() { \
+                const_cast<::nkentseu::reflection::NkClass&>(SelfType::GetStaticClass()) \
+                    .AddProperty(&SelfType::Get##PropertyName##Property()); \
+            } \
+        }; \
+        inline static PropertyName##_NkPropReg s_##PropertyName##_nkPropReg{}; \
     private:
 
     /**
@@ -543,14 +554,14 @@
      */
     #define NKENTSEU_REGISTER_CLASS(ClassName) \
     namespace { \
-        struct NK_CONCAT(ClassName, _Registrar) { \
-            NK_CONCAT(ClassName, _Registrar)() { \
+        struct NKENTSEU_CONCAT(ClassName, _Registrar) { \
+            NKENTSEU_CONCAT(ClassName, _Registrar)() { \
                 ::nkentseu::reflection::NkRegistry::Get().RegisterClass( \
                     &ClassName::GetStaticClass() \
                 ); \
             } \
         }; \
-        static NK_CONCAT(ClassName, _Registrar) NK_CONCAT(g_, NK_CONCAT(ClassName, _registrar)); \
+        static NKENTSEU_CONCAT(ClassName, _Registrar) NKENTSEU_CONCAT(g_, NKENTSEU_CONCAT(ClassName, _registrar)); \
     }
 
 #endif // NK_REFLECTION_NKREGISTRY_H

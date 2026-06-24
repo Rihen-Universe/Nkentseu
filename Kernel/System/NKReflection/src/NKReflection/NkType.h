@@ -52,6 +52,11 @@
 
     namespace nkentseu {
 
+        // Forward-declaration de NkString (defini dans NKContainers) pour
+        // permettre la specialisation de categorie NK_STRING sans tirer
+        // l'en-tete complet de la chaine dans NkType.h.
+        class NkString;
+
         namespace reflection {
 
             // -----------------------------------------------------------------
@@ -510,6 +515,20 @@
                 }
 
                 return NkTypeCategory::NK_CLASS;
+            }
+
+            // =================================================================
+            // SPECIALISATION : DetermineCategory<NkString>
+            // =================================================================
+            /**
+             * @brief Specialisation pour NkString : categorie NK_STRING.
+             * @note Permet a NkTypeOf<NkString>() de renseigner la bonne categorie
+             *       afin que NkReflectVariant/NkProperty traitent les chaines via
+             *       le chemin texte (copie profonde, ToString, serialisation).
+             */
+            template<>
+            constexpr NkTypeCategory DetermineCategory<::nkentseu::NkString>() {
+                return NkTypeCategory::NK_STRING;
             }
 
         } // namespace reflection

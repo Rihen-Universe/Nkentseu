@@ -45,6 +45,11 @@
 
         namespace reflection {
 
+            // Forward-declaration : NkReflectVariant (valeur type-erased).
+            // L'en-tete complet (NkReflectVariant.h, qui tire NkString) n'est
+            // inclus que dans NkProperty.cpp pour garder ce header leger.
+            class NkReflectVariant;
+
             // =================================================================
             // ENUMERATION : NkPropertyFlags
             // =================================================================
@@ -346,6 +351,42 @@
                         return static_cast<nk_char*>(instance) + mOffset;
                     }
 
+                    /**
+                     * @brief Variante const de GetValuePtr (lecture seule).
+                     */
+                    const void* GetValuePtr(const void* instance) const {
+                        return static_cast<const nk_char*>(instance) + mOffset;
+                    }
+
+                    // ---------------------------------------------------------
+                    // ACCES GENERIQUE TYPE-ERASED (non-templated)
+                    // ---------------------------------------------------------
+
+                    /**
+                     * @brief Lit la valeur de la propriete sans connaitre son type a la compilation.
+                     * @param instance Pointeur const vers l'instance.
+                     * @return NkReflectVariant portant une copie de la valeur (invalide si echec).
+                     *
+                     * @note Mode offset direct uniquement. Si un getter indirect est defini,
+                     *       celui-ci n'est PAS utilise (limite Phase 1) : on lit par offset.
+                     * @note Pour NK_STRING, copie profonde de la NkString. Pour les primitifs
+                     *       et types triviaux, copie binaire de taille connue.
+                     */
+                    NkReflectVariant GetValueGeneric(const void* instance) const;
+
+                    /**
+                     * @brief Ecrit une valeur depuis un NkReflectVariant (acces type-erased).
+                     * @param instance Pointeur vers l'instance a modifier.
+                     * @param value Variant source (doit etre du type/taille de la propriete).
+                     * @return true si l'ecriture a eu lieu, false sinon (read-only, type incompatible).
+                     *
+                     * @note Respecte NK_READ_ONLY (no-op + retour false).
+                     * @note Mode offset direct uniquement (le setter indirect n'est pas utilise
+                     *       en Phase 1). Coercion numerique best-effort si la categorie differe
+                     *       mais reste primitive.
+                     */
+                    nk_bool SetValueGeneric(void* instance, const NkReflectVariant& value) const;
+
                     // ---------------------------------------------------------
                     // METHODES STATIQUES D'AIDE A LA CREATION
                     // ---------------------------------------------------------
@@ -503,6 +544,16 @@
                     }
 
                 private:
+                    // ---------------------------------------------------------
+                    // UTILITAIRES INTERNES POUR L'ACCES GENERIQUE
+                    // ---------------------------------------------------------
+
+                    /** @brief Ecrit une valeur coercee vers un primitif destination. */
+                    static nk_bool WritePrimitiveCoerced(void* dst, NkTypeCategory dstCat, const NkReflectVariant& value);
+
+                    /** @brief Copie binaire brute de n octets (zero-STL). */
+                    static void CopyRawBytes(void* dst, const void* src, nk_usize n);
+
                     // ---------------------------------------------------------
                     // MEMBRES PRIVES
                     // ---------------------------------------------------------
