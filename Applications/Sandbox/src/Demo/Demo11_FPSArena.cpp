@@ -383,6 +383,15 @@ namespace nkentseu {
             // pas de shimmering quand la camera bouge.
             if (auto* shadowSys = ctx.renderer->GetShadow()) {
                 auto& sc = shadowSys->GetConfig();
+                // UNE seule cascade couvre toute l'arene close. Le defaut est 4
+                // cascades (radius 8/16/32/64) : on ne fixait que [0]=25, donc
+                // les cascades 1-3 gardaient des radius (16/32/64) qui ne
+                // couvrent PAS l'arene de facon coherente avec un centre monde
+                // fixe -> les transitions de cascade selon la distance creaient
+                // des decalages et des sauts de qualite/resolution d'ombre.
+                // 1 cascade = une grille de texels unique, stable, ancree au sol
+                // sur toute l'arene -> ombres coherentes et bien positionnees.
+                sc.numCascades = 1;
                 sc.useFixedCascadeRadius = true;
                 sc.cascadeFixedRadius[0] = 25.f;   // cascade 0 = toute l'arene
                 // Center ancre au monde (origine) : l'arene 30x30 est close et
