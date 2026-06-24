@@ -380,6 +380,13 @@ namespace nkentseu {
                 auto& sc = shadowSys->GetConfig();
                 sc.useFixedCascadeRadius = true;
                 sc.cascadeFixedRadius[0] = 25.f;   // cascade 0 = toute l'arene
+                // Center ancre au monde (origine) : l'arene 30x30 est close et
+                // entierement couverte par cette unique cascade de radius 25.
+                // Ancrer le centre au monde (au lieu de suivre la camera) ancre
+                // les texels d'ombre au sol -> plus de glissement d'ombre quand
+                // le joueur se deplace (shadow swimming elimine).
+                sc.useFixedCascadeCenter = true;
+                sc.cascadeWorldCenter    = {0.f, 0.f, 0.f};
             }
 
             logger.Info("[Demo11] === FPS Arena ===\n");
@@ -392,6 +399,24 @@ namespace nkentseu {
         void Demo11_FPSArena_Frame(DemoCtx& ctx, float32 dt) {
             auto* st = (Demo11State*)ctx.userData;
             st->cam.Update(dt);
+
+            // DIAG (gated NK_DEMO11_AUTOPAN) : translation laterale automatique
+            // de la camera (oscillation X) pour reproduire/observer le swimming
+            // d'ombre quand la camera se deplace, sans input clavier. 0 effet
+            // sans la variable d'env.
+            static int autopan = -1;
+            if (autopan == -1) {
+                const char* v = getenv("NK_DEMO11_AUTOPAN");
+                autopan = (v && v[0] && v[0] != '0') ? 1 : 0;
+            }
+            if (autopan) {
+                // Oscille X entre -8 et +8 metres, regard fixe vers -Z.
+                st->cam.pos.x   = 8.f * sinf(ctx.totalTime * 0.6f);
+                st->cam.pos.y   = 1.7f;
+                st->cam.pos.z   = 6.f;
+                st->cam.yaw     = -1.5707963f;
+                st->cam.pitch   = 0.f;
+            }
 
             if (!ctx.renderer->BeginFrame()) return;
             auto* r3d = ctx.renderer->GetRender3D();

@@ -187,7 +187,13 @@ namespace nkentseu {
             NkVec3f center;
             float32 radius;
             if (mCfg.useFixedCascadeRadius && cascadeIdx < kMaxCascades) {
-                center = mainCam.GetPosition();
+                // Center : soit ancre au monde (anti-swimming total pour une scene
+                // close couverte par une seule grande cascade), soit suivant la
+                // camera (mondes ouverts). Le snap-to-texel ci-dessous quantifie
+                // ensuite le centre ; avec un center fixe il reste donc constant
+                // -> l'ombre d'un caster fixe ne glisse plus.
+                center = mCfg.useFixedCascadeCenter ? mCfg.cascadeWorldCenter
+                                                    : mainCam.GetPosition();
                 radius = mCfg.cascadeFixedRadius[cascadeIdx];
                 if (radius < 1.f) radius = 1.f;
             } else {
@@ -307,6 +313,26 @@ namespace nkentseu {
                 // Stocke splitFar pour cascade selection dans le shader.
                 s.lightPosOrDir = NkVec4f{light.direction.x, light.direction.y,
                                            light.direction.z, subFar};
+
+                // DIAG (gated NK_VSM_DIAG) : pour un worldPos de reference FIXE,
+                // logge l'UV atlas que la shadowMatrix lui assigne. Si la camera
+                // bouge mais que ce point monde fixe change d'UV -> swimming.
+                static int vsmDiag = -1;
+                if (vsmDiag == -1) {
+                    const char* v = getenv("NK_VSM_DIAG");
+                    vsmDiag = (v && v[0] && v[0] != '0') ? 1 : 0;
+                }
+                if (vsmDiag && c == 0) {
+                    const NkVec3f wpRef{2.f, 0.5f, 2.f}; // sphere posee fixe
+                    NkVec4f cc = s.shadowMatrix * NkVec4f{wpRef.x, wpRef.y, wpRef.z, 1.f};
+                    if (cc.w != 0.f) {
+                        float32 px = (cc.x / cc.w) * 0.5f + 0.5f;
+                        float32 py = (cc.y / cc.w) * 0.5f + 0.5f;
+                        float32 pz = (cc.z / cc.w);
+                        logger.Info("[VSMDiag] camX={0} cas0 ref(2,0.5,2) ndcUV=({1},{2}) z={3}\n",
+                                    mainCam.GetPosition().x, px, py, pz);
+                    }
+                }
 
                 mActiveSlotCount++;
                 successCount++;

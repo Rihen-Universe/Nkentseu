@@ -93,6 +93,18 @@ namespace nkentseu {
             // distance pour couvrir near a far autour de la cam). Ignores si
             // useFixedCascadeRadius=false.
             float32  cascadeFixedRadius[kMaxCascades] = {8.f, 16.f, 32.f, 64.f};
+            // Center monde FIXE pour les cascades (anti shadow swimming total).
+            // Par defaut false : le centre de chaque cascade suit la position de
+            // la camera (les texels suivent le joueur -> bon pour de grands mondes
+            // ouverts, mais l'ombre d'un caster fixe glisse par marches de texel
+            // quand la camera translate). Si true : le centre est ancre a
+            // cascadeWorldCenter (monde), peu importe la camera. A utiliser quand
+            // UNE cascade de grand radius couvre toute une scene close (ex : arene
+            // FPS) : l'ombre reste alors parfaitement ancree au sol. N'a de sens
+            // qu'avec useFixedCascadeRadius=true (radius constant requis pour que
+            // le centre fixe couvre toujours la meme region).
+            bool     useFixedCascadeCenter = false;
+            NkVec3f  cascadeWorldCenter     = {0.f, 0.f, 0.f};
         };
 
         // Slot CPU (info de quoi rendre et ou).
