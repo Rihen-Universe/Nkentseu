@@ -192,7 +192,11 @@ static int NkSL_SamplerPoolSlot(NkSLVarDeclNode* v) {
                     n.Contains("sky")       || n.Contains("env")   || n.Contains("ibl") ||
                     n.Contains("refl")      || n.Contains("reflection") ||
                     n.Contains("hdr")       || n.Contains("bloom") || n.Contains("ssao") ||
-                    n.Contains("ldr")       || n.Contains("tone")  || n.Contains("depth");
+                    n.Contains("ldr")       || n.Contains("tone")  || n.Contains("depth") ||
+                    // RT source des passes plein écran (bloom down/up, FXAA, blur…) : nom
+                    // générique `uSrc`. Doit clamper (offsets de tap débordent [0,1] aux bords →
+                    // WRAP fait baver le bord opposé → lueur fantôme bloom en haut sur DX11).
+                    n.Contains("src");
     }
     return wantClamp ? 1 : 0;
 }
