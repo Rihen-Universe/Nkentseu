@@ -828,19 +828,19 @@ namespace nkentseu {
             cb.time        = mCtx.time;
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
-            // yFlipNDC : convention de Y écran (origine du top de l'écran en NDC).
-            //   - Vulkan : viewport Y-flippé (VkViewport.height<0) → top = vNDC.y = -1.
-            //   - DX11/DX12 : le VERTEX SHADER négatif `output._Position.y = -y` (cf.
-            //     NkSLCodeGenHLSL(DX12) Y-flip 3D) → MÊME convention écran que Vulkan.
-            //   - OpenGL : pas de flip viewport ni shader → top = vNDC.y = +1.
-            // Donc yFlipNDC = +1 pour VK/DX11/DX12 (Y déjà flippé), -1 pour GL UNIQUEMENT.
-            // BUG corrigé : DX11/DX12 étaient groupés avec GL (-1) → viewRay.y inversé →
-            // skybox/reflets planaires "dans l'espace" au lieu d'être au sol sur DX.
+            // yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
+            // partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
+            // n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
+            // négate que les VS 3D avec inputs+varyings). Donc le skybox se comporte
+            // comme en OpenGL sur DX (NDC.y=+1 en haut, pas de flip) → yFlipNDC = -1.
+            //   - Vulkan : viewport Y-flippé → top = vNDC.y = -1 → yFlipNDC = +1.
+            //   - OpenGL ET DX11/DX12 : pas de flip du VS skybox → yFlipNDC = -1.
+            // (Le précédent +1 pour DX supposait à tort que le skybox était Y-négaté
+            // comme la 3D → HDR/skybox à l'envers sur DX. yFlipNDC ne touche QUE le
+            // skybox ; les ombres au sol ne dépendent PAS de yFlipNDC.)
             const auto _yApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
-            const bool yFlipped = (_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
-                                   _yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11   ||
-                                   _yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12);
-            cb.yFlipNDC = yFlipped ? +1.f : -1.f;
+            const bool vkViewportFlip = (_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN);
+            cb.yFlipNDC = vkViewportFlip ? +1.f : -1.f;
             // Phase Planar Reflection : applique aussi la correction Vulkan
             // clip-space à mirrorViewProj (sinon le sampling du RT serait clippé
             // ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
