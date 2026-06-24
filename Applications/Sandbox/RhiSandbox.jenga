@@ -222,6 +222,7 @@ def sandboxusenkrhi(project_name: str, source_files: list, app_id_suffix: str, n
 # ── Demos de cette categorie ──
 # =================================== Renderer RHI =======================================================
 sandboxusenkrhi("NkRHIDemoFull", ["src/DemoNkentseu/Base03/NkRHIDemoFull.cpp"], "sandbox.rhidemo.full")
+sandboxusenkrhi("NkRHIInterpTest", ["src/DemoNkentseu/Base03/NkRHIInterpTest.cpp"], "sandbox.rhidemo.interptest")
 sandboxusenkrhi("NkSWRasterPrimitives", ["src/DemoNkentseu/Base03/NkSWRasterPrimitives.cpp"], "sandbox.sw.raster.primitives")
 sandboxusenkrhi("NkRHIDemoFullImage", ["src/DemoNkentseu/Base03/NkRHIDemoFullImage.cpp"], "sandbox.rhidemo.fullimage", use_nkimage=True)
 sandboxusenkrhi("NkFontDemo", ["src/DemoNkentseu/Base03/NkFontDemoFromScratch.cpp"], "sandbox.nkfont.demo", use_nkfont=True)
