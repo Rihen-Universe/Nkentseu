@@ -1095,6 +1095,72 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
         });
         t.state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         DestroyBuffer(stageH);
+
+        // ── Génération des MIPS (CPU box-filter) ──────────────────────────────
+        // BUG corrigé : DX12 n'a PAS de GenerateMips natif (la fonction device est un
+        // no-op), contrairement à DX11 (ID3D11DeviceContext::GenerateMips) et VK
+        // (vkCmdBlitImage). Sans ça, seul le mip 0 était uploadé et les mips 1..N
+        // restaient NON-INITIALISÉS → les textures de matériau (albedo/normal/ORM,
+        // chargées avec mip chain complète) échantillonnaient du garbage à LOD>0 →
+        // cube/sol BLANC ou bruité sur DX12 alors que DX11/VK/GL affichaient la texture.
+        // On génère donc les mips sur CPU (downsample box 2x2) pour les formats 4 o/texel
+        // (RGBA8 UNORM/SRGB — le cas des textures de matériau) et on upload chaque mip.
+        const uint32 realMips = (uint32)rd.MipLevels;
+        if (realMips > 1 && bpp == 4 && desc.arrayLayers <= 1 && !is3D) {
+            // Copie du mip 0 source (sans padding) pour démarrer la chaîne.
+            NkVector<uint8> cur; cur.Resize(desc.width * desc.height * 4);
+            for (uint32 y = 0; y < desc.height; ++y)
+                memcpy(cur.Data() + (uint64)y * desc.width * 4,
+                       (const uint8*)desc.initialData + (uint64)y * rowPitch,
+                       (size_t)(desc.width * 4));
+            uint32 mw = desc.width, mh = desc.height;
+            for (uint32 mip = 1; mip < realMips; ++mip) {
+                uint32 pw = mw, ph = mh;
+                mw = mw > 1 ? mw >> 1 : 1; mh = mh > 1 ? mh >> 1 : 1;
+                NkVector<uint8> dwn; dwn.Resize(mw * mh * 4);
+                for (uint32 y = 0; y < mh; ++y) {
+                    for (uint32 x = 0; x < mw; ++x) {
+                        // Box 2x2 (clamp aux dims du mip parent).
+                        uint32 x0 = (x*2 < pw) ? x*2 : pw-1, x1 = (x*2+1 < pw) ? x*2+1 : pw-1;
+                        uint32 y0 = (y*2 < ph) ? y*2 : ph-1, y1 = (y*2+1 < ph) ? y*2+1 : ph-1;
+                        const uint8* a = cur.Data() + ((uint64)y0*pw + x0)*4;
+                        const uint8* b = cur.Data() + ((uint64)y0*pw + x1)*4;
+                        const uint8* c = cur.Data() + ((uint64)y1*pw + x0)*4;
+                        const uint8* d = cur.Data() + ((uint64)y1*pw + x1)*4;
+                        uint8* o = dwn.Data() + ((uint64)y*mw + x)*4;
+                        for (int ch = 0; ch < 4; ++ch)
+                            o[ch] = (uint8)(((uint32)a[ch] + b[ch] + c[ch] + d[ch] + 2) >> 2);
+                    }
+                }
+                // Upload de ce mip (pitch 256-aligné + barrières COPY_DEST).
+                {
+                    uint32 mrp = mw * 4;
+                    uint32 mAligned = (mrp + 255u) & ~255u;
+                    uint64 msz = (uint64)mAligned * mh;
+                    NkBufferDesc msd = NkBufferDesc::Staging(msz);
+                    auto mStageH = CreateBuffer(msd);
+                    auto& mStage = mBuffers[mStageH.id];
+                    for (uint32 y = 0; y < mh; ++y)
+                        memcpy((uint8*)mStage.mapped + (uint64)y * mAligned,
+                               dwn.Data() + (uint64)y * mrp, (size_t)mrp);
+                    ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+                        TransitionResource(cmd, res.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                           D3D12_RESOURCE_STATE_COPY_DEST);
+                        D3D12_TEXTURE_COPY_LOCATION dst{}; dst.pResource = res.Get();
+                        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; dst.SubresourceIndex = mip;
+                        D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = mStage.resource.Get();
+                        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                        src.PlacedFootprint.Offset = 0;
+                        src.PlacedFootprint.Footprint = { rd.Format, mw, mh, 1, mAligned };
+                        cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+                        TransitionResource(cmd, res.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                                           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    });
+                    DestroyBuffer(mStageH);
+                }
+                cur = dwn; // le mip courant devient la source du suivant
+            }
+        }
     }
 
     uint64 hid = NextId(); mTextures[hid] = t;
