@@ -853,15 +853,20 @@ namespace nkentseu {
                 cb.mirrorViewProj = vkClip * cb.mirrorViewProj;
             } else if (reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
                        reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) {
-                // DX : Z-remap [-1,1]→[0,1] UNIQUEMENT (comme VK). PAS de flip Y ici.
-                // Le RT de réflexion est rendu par le MÊME pipeline 3D (le VS HLSL négatif
-                // déjà le clip Y), donc il a la même orientation visuelle que sur VK. La coord
-                // d'échantillonnage `reflUV.y = 1.0 - reflUV.y` (shader reflfloor) suffit, comme
-                // sur VK. L'ancien `dxClip[1][1]=-1` ajoutait un 2e flip Y → net 0 flip sur DX
-                // (vs 1 flip sur VK) → reflet "dans l'espace"/inversé. On l'a retiré.
+                // DX : Z-remap [-1,1]→[0,1] (comme VK) ET FLIP Y du mirrorViewProj de
+                // sampling. Vérifié PAR COMPARAISON VISUELLE demo4 DX12 vs VK (caméra
+                // figée NK_FIX_CAM) : SANS ce flip Y, le reflet planaire du sol échantillonne
+                // la MAUVAISE région (sol au lieu du bâtiment miroir, diff lower-third ~155
+                // vs VK) ; AVEC, le reflet correspond EXACTEMENT à VK (diff ~0.1). Le RT de
+                // réflexion est rendu par le pipeline 3D (VS HLSL Y-négaté → RT Y-down) ; la
+                // coord projetée du sol doit donc être re-flippée en Y pour adresser la bonne
+                // ligne. (Le retrait précédent — commit b0d81291 — était une mauvaise
+                // correction du symptôme "reflet dans l'espace", en réalité dû au HDR/skybox
+                // inversé, depuis corrigé par yFlipNDC ; on rétablit donc ce flip Y.)
                 NkMat4f dxClip = NkMat4f::Identity();
                 dxClip[2][2] = 0.5f;
                 dxClip[3][2] = 0.5f;
+                dxClip[1][1] = -1.f;
                 cb.mirrorViewProj = dxClip * cb.mirrorViewProj;
             }
             // Flag isMirrorPass : lu par les shaders (Layered) pour skip le
