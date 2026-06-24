@@ -64,8 +64,13 @@ namespace nkentseu {
                 return { cp * cosf(yaw), sinf(pitch), cp * sinf(yaw) };
             }
             NkVec3f Right() const {
+                // Right = cross(forward, up) horizontalise. La matrice de vue
+                // (NkCamera3D::RebuildImpl) calcule right = cross(fwd, up) :
+                // pour fwd=-Z, up=+Y -> right=+X. On DOIT matcher ce signe sinon
+                // le strafe est inverse (gauche<->droite). Avec fwd={0,0,-1} :
+                // r = {-f.z, 0, f.x} = {1,0,0} = +X (droite de l'ecran). OK.
                 NkVec3f f = Forward();
-                NkVec3f r = { f.z, 0.f, -f.x };
+                NkVec3f r = { -f.z, 0.f, f.x };
                 const float32 l = sqrtf(r.x*r.x + r.z*r.z);
                 if (l > 1e-6f) { r.x /= l; r.z /= l; }
                 return r;

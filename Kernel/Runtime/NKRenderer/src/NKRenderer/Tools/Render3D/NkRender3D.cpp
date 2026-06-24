@@ -534,6 +534,7 @@ namespace nkentseu {
             mCtx = ctx;
             mInScene = true;
             mOpaque.Clear(); mTransparent.Clear();
+            mShadowCasters.Clear();
             mInstanced.Clear(); mSkinned.Clear();
             // mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
         }
@@ -541,12 +542,22 @@ namespace nkentseu {
         // ── Submit ────────────────────────────────────────────────────────────────
         void NkRender3D::Submit(const NkDrawCall3D& dc) {
             if (!dc.visible) return;
-            if (!mCtx.camera.IsAABBVisible(dc.aabb)) return;
 
             NkVec3f camPos = mCtx.camera.GetPosition();
             NkVec3f center = dc.aabb.Center();
             float32 dx=center.x-camPos.x, dy=center.y-camPos.y, dz=center.z-camPos.z;
             float32 depth = dx*dx + dy*dy + dz*dz;
+
+            // Caster d'ombre : collecte AVANT le culling camera. Un objet hors
+            // champ camera peut projeter une ombre dans la zone visible ; il
+            // doit donc entrer dans la passe shadow meme s'il est cull du rendu
+            // principal. (Cause racine "objets sans ombre" : avant, le culling
+            // camera retirait le caster de mOpaque, et la passe shadow iterait
+            // sur mOpaque.)
+            if (dc.castShadow) mShadowCasters.PushBack({dc, depth});
+
+            // Culling camera : uniquement pour le rendu visible (mOpaque).
+            if (!mCtx.camera.IsAABBVisible(dc.aabb)) return;
             mOpaque.PushBack({dc, depth});
         }
 
@@ -948,9 +959,11 @@ namespace nkentseu {
                                      && (mFrameSlot < mObjectSetPool.Size());
             if (!poolFrameValid) return;
 
-            for (auto& sdc : mOpaque) {
+            // Itere sur mShadowCasters (collecte SANS culling camera) et non
+            // mOpaque : sinon les casters hors champ camera n'auraient pas
+            // d'ombre (cf. Submit). Tous les elements ici ont castShadow=true.
+            for (auto& sdc : mShadowCasters) {
                 auto& dc = sdc.dc;
-                if (!dc.castShadow) continue;
                 if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
                     logger.Errorf("[NkRender3D] ObjectUBO pool overflow (shadow): "
                                   "drawIdx=%u >= max=%u, skipping draw\n",
