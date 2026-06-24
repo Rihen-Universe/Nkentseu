@@ -530,7 +530,16 @@ namespace nkentseu {
             // (OpenGL, le shader doit faire p.z*0.5+0.5) ; 0.0 si deja en [0,1] (VK/DX, on a
             // baked clipZ01 dans renderMatrix -> le shader NE doit PAS refaire le remap).
             float32 depthRemap = DepthIsZeroToOne() ? 0.f : 1.f;
-            b.globalCfg  = NkVec4f{float32(mActiveSlotCount), float32(softMode), depthRemap, 0.f};
+            // globalCfg.w = shadowYFlip : 1.0 sur DX (DX11/DX12), 0.0 sinon. L'atlas est
+            // rendu SANS flip viewport sur tous les backends, mais la convention NDC.y→ligne
+            // texture diffère : VK (NDC.y=-1=haut) et DX (NDC.y=+1=haut) avec origine texture
+            // V=0 en haut. Le sample atlasUV.y = p.y*0.5+0.5 est correct en VK/GL mais
+            // INVERSE en V sur DX → ombre décalée/mobile. Sur DX on échantillonne donc en
+            // V = 1 - (p.y*0.5+0.5) = -p.y*0.5+0.5.
+            const auto _api = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+            float32 shadowYFlip = (_api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
+                                   _api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) ? 1.f : 0.f;
+            b.globalCfg  = NkVec4f{float32(mActiveSlotCount), float32(softMode), depthRemap, shadowYFlip};
             b.biasParams = NkVec4f{mCfg.shadowBias, mCfg.normalBias, mCfg.softness, 0.f};
 
             if (mCurFrameSlot < mUBOSlotsRing.Size()

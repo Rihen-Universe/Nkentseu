@@ -853,14 +853,15 @@ namespace nkentseu {
                 cb.mirrorViewProj = vkClip * cb.mirrorViewProj;
             } else if (reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
                        reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) {
-                // DX : Z-remap [-1,1]→[0,1] (comme VK) + FLIP Y du mirrorViewProj de sampling.
-                // Le RT a son origine top-left (vs bottom-left GL) ET est rendu avec le flip-Y
-                // du VS (généré côté HLSL pour la 3D). Le flip Y ici annule le `1.0 - reflUV.y`
-                // du shader → reflet à l'endroit (sinon décalé/déformé/inversé).
+                // DX : Z-remap [-1,1]→[0,1] UNIQUEMENT (comme VK). PAS de flip Y ici.
+                // Le RT de réflexion est rendu par le MÊME pipeline 3D (le VS HLSL négatif
+                // déjà le clip Y), donc il a la même orientation visuelle que sur VK. La coord
+                // d'échantillonnage `reflUV.y = 1.0 - reflUV.y` (shader reflfloor) suffit, comme
+                // sur VK. L'ancien `dxClip[1][1]=-1` ajoutait un 2e flip Y → net 0 flip sur DX
+                // (vs 1 flip sur VK) → reflet "dans l'espace"/inversé. On l'a retiré.
                 NkMat4f dxClip = NkMat4f::Identity();
                 dxClip[2][2] = 0.5f;
                 dxClip[3][2] = 0.5f;
-                dxClip[1][1] = -1.f;
                 cb.mirrorViewProj = dxClip * cb.mirrorViewProj;
             }
             // Flag isMirrorPass : lu par les shaders (Layered) pour skip le
