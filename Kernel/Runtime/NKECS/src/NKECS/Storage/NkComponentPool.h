@@ -126,6 +126,18 @@ namespace nkentseu {
                 return static_cast<T*>(At(index));
             }
 
+            // Adresse brute du slot `index` SANS borne sur mSize (contrairement à
+            // At qui asserte index < mSize). Réservé aux chemins d'écriture qui
+            // construisent à la position mSize (PushDefault/PushCopy/PushMove)
+            // AVANT d'incrémenter la taille logique. La capacité doit être
+            // garantie au préalable (Reserve).
+            [[nodiscard]] void* Slot(uint32 index) const noexcept {
+                if (!mMeta || mMeta->isZeroSize) {
+                    return nullptr;
+                }
+                return static_cast<uint8*>(mData) + static_cast<usize>(index) * mMeta->size;
+            }
+
             // Retourne un pointeur vers le tableau brut des éléments.
             // Utilisé pour des itérations ultra-rapides ou des traitements SIMD.
             template<typename T>
@@ -144,7 +156,7 @@ namespace nkentseu {
                 // Garantit la capacité avant d'écrire.
                 Reserve(mSize + 1);
                 if (!mMeta->isZeroSize && mMeta->defaultConstruct != nullptr) {
-                    mMeta->defaultConstruct(At(mSize), 1);
+                    mMeta->defaultConstruct(Slot(mSize), 1);
                 }
                 // Incrémente la taille logique.
                 return mSize++;
@@ -155,10 +167,10 @@ namespace nkentseu {
                 if (!mMeta) return mSize;
                 Reserve(mSize + 1);
                 if (!mMeta->isZeroSize && src != nullptr && mMeta->copyConstruct != nullptr) {
-                    mMeta->copyConstruct(At(mSize), src, 1);
+                    mMeta->copyConstruct(Slot(mSize), src, 1);
                 } else if (!mMeta->isZeroSize && mMeta->defaultConstruct != nullptr) {
                     // Fallback si src est null ou copyConstruct absent.
-                    mMeta->defaultConstruct(At(mSize), 1);
+                    mMeta->defaultConstruct(Slot(mSize), 1);
                 }
                 return mSize++;
             }
@@ -168,9 +180,9 @@ namespace nkentseu {
                 if (!mMeta) return mSize;
                 Reserve(mSize + 1);
                 if (!mMeta->isZeroSize && src != nullptr && mMeta->moveConstruct != nullptr) {
-                    mMeta->moveConstruct(At(mSize), src, 1);
+                    mMeta->moveConstruct(Slot(mSize), src, 1);
                 } else if (!mMeta->isZeroSize && mMeta->defaultConstruct != nullptr) {
-                    mMeta->defaultConstruct(At(mSize), 1);
+                    mMeta->defaultConstruct(Slot(mSize), 1);
                 }
                 return mSize++;
             }
@@ -221,7 +233,7 @@ namespace nkentseu {
                 }
                 Reserve(mSize + 1);
                 if (mMeta->moveConstruct != nullptr) {
-                    mMeta->moveConstruct(At(mSize), srcPool.At(srcIdx), 1);
+                    mMeta->moveConstruct(Slot(mSize), srcPool.At(srcIdx), 1);
                 }
                 ++mSize;
             }
