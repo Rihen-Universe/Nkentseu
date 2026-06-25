@@ -79,10 +79,6 @@ namespace nkentseu
     using NkGameplayEventBus = ecs::NkGameplayEventBus; // Bus d'événements gameplay
     using NkTypeRegistry  = ecs::NkTypeRegistry;    // Registre de métadonnées des composants
 
-    // --- Événements UI prédéfinis ---
-    using NkOnButtonClicked = ecs::NkOnButtonClicked; // Déclenché lorsqu'un bouton est cliqué
-    using NkOnSliderChanged = ecs::NkOnSliderChanged; // Déclenché lorsqu'un slider change de valeur
-
     // --- Fonction utilitaire pour obtenir l'ID d'un type de composant ---
     template<typename T>
     NkComponentId NkIdOf() noexcept
