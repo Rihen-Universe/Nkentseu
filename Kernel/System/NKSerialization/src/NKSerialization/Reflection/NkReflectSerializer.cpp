@@ -300,8 +300,43 @@ namespace nkentseu {
             }
         }
 
+        // Declarations anticipees (recursion conteneur<objet> <-> SerializeReflected).
+        // SerializeReflected/DeserializeReflected sont membres de NkReflectSerializer.
+
+        // Serialise un conteneur d'OBJETS reflechis (NkVector<SousObjet NK_CLASS>)
+        // en tableau d'objets (object-array). Chaque element est serialise
+        // recursivement via SerializeReflected sur le NkClass de l'element.
+        // Retourne true si pris en charge (conteneur d'objets reflechis).
+        nk_bool WriteObjectContainerProperty(const NkProperty* prop,
+                                             const void* instance,
+                                             const NkType& elemType,
+                                             NkArchive& ar) {
+            const NkClass* elemCls = elemType.GetClass();
+            if (!elemCls) {
+                return false;  // element NK_CLASS non reflechi (pas de NkClass lie)
+            }
+            const NkContainerDescriptor* desc = prop->GetContainer();
+            const void* container = prop->GetValuePtr(instance);
+            const nk_usize count = desc->GetCount(container);
+
+            NkVector<NkArchive> objects;
+            for (nk_usize i = 0; i < count; ++i) {
+                const void* elemPtr = desc->GetElementPtr(container, i);
+                if (!elemPtr) {
+                    continue;
+                }
+                NkArchive sub;
+                NkReflectSerializer::SerializeReflected(elemCls, elemPtr, sub);
+                objects.PushBack(sub);
+            }
+            ar.SetObjectArray(prop->GetName(), objects);
+            return true;
+        }
+
         // Serialise une propriete conteneur (NkVector<primitif/string>) en
-        // tableau de scalaires. Retourne true si pris en charge.
+        // tableau de scalaires. Pour un conteneur d'objets reflechis, delegue a
+        // WriteObjectContainerProperty (object-array). Retourne true si pris en
+        // charge.
         nk_bool WriteContainerProperty(const NkProperty* prop,
                                        const void* instance,
                                        NkArchive& ar) {
@@ -310,10 +345,9 @@ namespace nkentseu {
                 return false;
             }
             const NkType& elemType = *desc->elementType;
-            // Conteneur d'objets reflechis : repousse (Phase 4). On ne gere ici
-            // que les elements scalaires/string/enum via SetArray.
+            // Conteneur d'objets reflechis : object-array recursif.
             if (elemType.GetCategory() == NkTypeCategory::NK_CLASS) {
-                return false;
+                return WriteObjectContainerProperty(prop, instance, elemType, ar);
             }
 
             const void* container = prop->GetValuePtr(instance);
@@ -331,7 +365,36 @@ namespace nkentseu {
             return true;
         }
 
-        // Deserialise une propriete conteneur depuis un tableau de scalaires.
+        // Deserialise un conteneur d'OBJETS reflechis depuis un object-array.
+        // Vide le conteneur, puis pour chaque sous-objet de l'archive : ajoute un
+        // element par defaut (PushBackDefault) et le remplit recursivement via
+        // DeserializeReflected sur le NkClass de l'element.
+        nk_bool ReadObjectContainerProperty(const NkProperty* prop,
+                                            void* instance,
+                                            const NkType& elemType,
+                                            const NkArchive& ar) {
+            const NkClass* elemCls = elemType.GetClass();
+            if (!elemCls) {
+                return false;
+            }
+            NkVector<NkArchive> objects;
+            if (!ar.GetObjectArray(prop->GetName(), objects)) {
+                return false;
+            }
+            const NkContainerDescriptor* desc = prop->GetContainer();
+            void* container = prop->GetValuePtr(instance);
+            desc->Clear(container);
+            for (nk_usize i = 0; i < objects.Size(); ++i) {
+                void* elemPtr = desc->PushBackDefault(container);
+                if (elemPtr) {
+                    NkReflectSerializer::DeserializeReflected(elemCls, elemPtr, objects[i]);
+                }
+            }
+            return true;
+        }
+
+        // Deserialise une propriete conteneur depuis un tableau de scalaires (ou
+        // object-array pour un conteneur d'objets reflechis).
         nk_bool ReadContainerProperty(const NkProperty* prop,
                                       void* instance,
                                       const NkArchive& ar) {
@@ -341,7 +404,7 @@ namespace nkentseu {
             }
             const NkType& elemType = *desc->elementType;
             if (elemType.GetCategory() == NkTypeCategory::NK_CLASS) {
-                return false;
+                return ReadObjectContainerProperty(prop, instance, elemType, ar);
             }
 
             NkVector<NkArchiveValue> arr;

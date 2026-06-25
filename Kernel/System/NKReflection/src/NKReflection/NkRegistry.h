@@ -41,6 +41,9 @@
     #include "NKCore/NkTraits.h"
     #include "NKCore/NkBuiltin.h"
     #include "NKContainers/Functional/NkFunction.h"
+    // Verrou d'ecriture du registre (thread-safety des Register*). NKReflection
+    // depend deja de NKThreading (cf. NKReflection.jenga).
+    #include "NKThreading/NkMutex.h"
 
     // -------------------------------------------------------------------------
     // SECTION 2 : EN-TETES STANDARD MINIMAUX
@@ -75,12 +78,22 @@
              * au moment de l'execution. Elle implemente un pattern Meyer's Singleton
              * pour une initialisation thread-safe en C++11+.
              *
-             * @note Thread-safety :
+             * @note Thread-safety (mise a jour 2026-06-25) :
              *       - L'initialisation du singleton est thread-safe (C++11+)
-             *       - Les operations d'enregistrement (RegisterType/RegisterClass)
-             *         NE SONT PAS thread-safe : synchronisation externe requise
-             *       - Les operations de lecture (FindType/FindClass) sont thread-safe
-             *         si aucun enregistrement concurrent n'a lieu
+             *       - Les operations d'ECRITURE (RegisterType / RegisterClass) sont
+             *         desormais protegees par un NkMutex interne (mWriteMutex) :
+             *         deux unites de compilation peuvent s'enregistrer en parallele
+             *         sans corrompre les tableaux. La verification de doublon +
+             *         l'insertion sont atomiques sous ce verrou.
+             *       - Les operations de LECTURE (FindType / FindClass / GetClass /
+             *         GetTypeAt / Count...) restent LOCK-FREE. Elles sont sures SI
+             *         aucune ecriture concurrente n'a lieu pendant la lecture.
+             *         Garantie d'usage : enregistrer toute la reflexion au DEMARRAGE
+             *         (avant de lancer les threads applicatifs). Apres cette phase,
+             *         le registre est en lecture seule -> lectures concurrentes sures.
+             *         Une lecture VRAIMENT concurrente a une ecriture n'est pas
+             *         garantie sans verrou cote lecteur (compromis perf : la lecture
+             *         est sur le chemin chaud, l'ecriture non).
              *
              * @note Capacite :
              *       - NK_MAX_TYPES = 512 types maximum enregistres
@@ -120,6 +133,8 @@
                         if (!type || !type->GetName()) {
                             return;
                         }
+                        // Section critique : check-doublon + insertion atomiques.
+                        ::nkentseu::threading::NkScopedLockMutex lock(mWriteMutex);
                         for (nk_usize i = 0; i < mTypeCount; ++i) {
                             if (mTypes[i] == type) {
                                 return;
@@ -190,6 +205,8 @@
                         if (!classInfo || !classInfo->GetName()) {
                             return;
                         }
+                        // Section critique : check-doublon + insertion atomiques.
+                        ::nkentseu::threading::NkScopedLockMutex lock(mWriteMutex);
                         for (nk_usize i = 0; i < mClassCount; ++i) {
                             if (mClasses[i] == classInfo) {
                                 return;
@@ -392,6 +409,20 @@
                     // Encapsule dans NkFunction pour gestion memoire automatique.
 
                     OnRegisterCallback mOnRegisterCallback;
+
+                    // ---------------------------------------------------------
+                    // MEMBRE PRIVE : VERROU D'ECRITURE
+                    // ---------------------------------------------------------
+                    // Protege RegisterType / RegisterClass contre les ecritures
+                    // concurrentes (deux TU s'enregistrant en parallele). Les
+                    // lectures restent lock-free (cf. note thread-safety en tete
+                    // de classe). NkMutex est non-copiable/non-deplacable, comme
+                    // le singleton lui-meme.
+                    //
+                    // NOTE ENUMS : l'enregistrement d'enums passe par
+                    // NkEnumRegistry (registre distinct, delegue ici via GetEnum/
+                    // FindEnum). Sa propre thread-safety releve de NkEnumRegistry.
+                    mutable ::nkentseu::threading::NkMutex mWriteMutex;
             };
 
             // =================================================================
