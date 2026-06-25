@@ -441,6 +441,24 @@
             }
 
             /**
+             * @brief Specialisation de NkTypeOf pour 'void'.
+             * @return Reference vers un NkType categorie NK_VOID (taille/alignement 0).
+             * @note 'void' est un type incomplet : sizeof(void)/alignof(void) sont
+             *       illegaux. Cette surcharge permet d'utiliser NkTypeOf<void>()
+             *       comme type de retour des methodes reflechies sans retour.
+             */
+            template<>
+            inline const NkType& NkTypeOf<void>() {
+                static NkType type(
+                    typeid(void).name(),
+                    0,
+                    0,
+                    NkTypeCategory::NK_VOID
+                );
+                return type;
+            }
+
+            /**
              * @brief Surcharge de NkTypeOf pour une instance de type
              * @tparam T Type C++ de l'instance passee en parametre
              * @param instance Reference constante vers l'instance (non utilisee)
