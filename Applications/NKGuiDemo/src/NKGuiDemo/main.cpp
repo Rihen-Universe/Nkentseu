@@ -17,6 +17,10 @@
 #include "NKLogger/NkLog.h"
 #include "NKGui/NKGui.h"
 #include "NKImage/Core/NkImage.h"   // chargement de vraies images (PNG/JPG/...)
+#include "NKReflection/NkRegistry.h"      // reflexion : macros + registre + NkClass
+#include "NKReflection/NkInspector.h"     // EnumerateEditableProperties / SetPropertyByName
+#include "NKReflection/NkReflectVariant.h"
+#include "NKContainers/String/NkString.h"
 #include "NkGuiCanvasBackend.h"
 
 #include <cstdio>
@@ -24,6 +28,87 @@
 using namespace nkentseu;
 using namespace nkentseu::nkgui;
 using namespace nkentseu::renderer;
+
+// ── DOGFOODING NKEditorKit (tranche 1) : un INSPECTEUR generique pilote par la
+//    REFLEXION (NKReflection). On reflechit une struct de demo, puis DrawInspector
+//    genere le bon widget NKGui par propriete et reecrit la valeur si editee.
+//    1re brique a extraire ensuite dans NKEditorKit-sur-NKGui. ──
+struct DemoEntity {
+    NKENTSEU_REFLECT_CLASS(DemoEntity)
+public:
+    float32 posX = 1.5f;
+    NKENTSEU_REFLECT_PROPERTY(posX)
+public:
+    float32 posY = -0.5f;
+    NKENTSEU_REFLECT_PROPERTY(posY)
+public:
+    float32 scale = 1.0f;
+    NKENTSEU_REFLECT_PROPERTY(scale)
+public:
+    bool visible = true;
+    NKENTSEU_REFLECT_PROPERTY(visible)
+public:
+    int32 health = 80;
+    NKENTSEU_REFLECT_PROPERTY(health)
+public:
+    NkString name = NkString("Joueur");
+    NKENTSEU_REFLECT_PROPERTY(name)
+};
+NKENTSEU_REGISTER_CLASS(DemoEntity)
+
+// Inspecteur GENERIQUE : pour chaque propriete editable de `cls`, dessine le widget
+// NKGui adapte a sa categorie et reecrit la valeur en live si elle change.
+static void DrawInspector(NkGuiContext& ctx, void* obj, const reflection::NkClass* cls) {
+    using namespace nkentseu::reflection;
+    if (!cls || !obj) return;
+    NkVector<NkEditableProperty> props = EnumerateEditableProperties(cls, obj);
+    for (usize i = 0; i < props.Size(); ++i) {
+        const NkEditableProperty& p = props[i];
+        if (p.hidden) continue;
+        const char* lbl = p.displayName ? p.displayName : p.name;
+        switch (p.category) {
+            case NkTypeCategory::NK_BOOL: {
+                bool v = p.value.ToBool();
+                if (Checkbox(ctx, lbl, v)) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<bool>(v));
+                break;
+            }
+            case NkTypeCategory::NK_FLOAT32:
+            case NkTypeCategory::NK_FLOAT64: {
+                float32 v = static_cast<float32>(p.value.ToFloat64());
+                const bool ch = p.hasRange ? SliderFloat(ctx, lbl, v, p.rangeMin, p.rangeMax)
+                                           : DragFloat(ctx, lbl, v, 0.05f);
+                if (ch) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<float32>(v));
+                break;
+            }
+            case NkTypeCategory::NK_INT8:  case NkTypeCategory::NK_INT16:
+            case NkTypeCategory::NK_INT32: case NkTypeCategory::NK_INT64:
+            case NkTypeCategory::NK_UINT8: case NkTypeCategory::NK_UINT16:
+            case NkTypeCategory::NK_UINT32: case NkTypeCategory::NK_UINT64: {
+                int32 v = static_cast<int32>(p.value.ToInt64());
+                const bool ch = p.hasRange ? DragInt(ctx, lbl, v, 0.25f, static_cast<int32>(p.rangeMin), static_cast<int32>(p.rangeMax))
+                                           : DragInt(ctx, lbl, v);
+                if (ch) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<int32>(v));
+                break;
+            }
+            case NkTypeCategory::NK_STRING: {
+                char buf[256] = {};
+                NkString s; p.value.Get<NkString>(s);
+                const char* cs = s.CStr();
+                int32 n = 0; while (cs && cs[n] && n < 255) { buf[n] = cs[n]; ++n; }
+                buf[n] = '\0';
+                if (InputText(ctx, lbl, buf, 256)) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<NkString>(NkString(buf)));
+                break;
+            }
+            default: {
+                char line[160];
+                std::snprintf(line, sizeof(line), "%s : (%s)", lbl,
+                              p.isContainer ? "liste" : p.isObject ? "objet" : "type non gere");
+                Text(ctx, line);
+                break;
+            }
+        }
+    }
+}
 
 NKENTSEU_DEFINE_APP_DATA(([]() {
     NkAppData d{};
@@ -727,6 +812,15 @@ int nkmain(const NkEntryState& state) {
             BeginGrid(ctx, 3);
                 for (int32 i = 0; i < 6; ++i) { char b[8]; std::snprintf(b, 8, "G%d", i + 1); Button(ctx, b); }
             EndGrid(ctx);
+            EndWindow(ctx);
+        }
+
+        // ── INSPECTEUR generique pilote par la REFLEXION (dogfood NKEditorKit) ──
+        static DemoEntity demoEntity;
+        if (Begin(ctx, "Inspecteur (reflexion)")) {
+            Text(ctx, "DemoEntity (proprietes auto via NKReflection) :");
+            Separator(ctx);
+            DrawInspector(ctx, &demoEntity, &DemoEntity::GetStaticClass());
             EndWindow(ctx);
         }
 
