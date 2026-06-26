@@ -49,12 +49,15 @@ int nkmain(const NkEntryState& state) {
         return -1;
     }
 
-    // Panneaux (statiques : duree de vie >= shell).
+    // Scene partagee + panneaux (statiques : duree de vie >= shell).
+    static nkedemo::EditorScene    scene;
     static nkedemo::ExplorerPanel  explorer;
+    static nkedemo::HierarchyPanel hierarchy(&scene);
     static nkedemo::ViewportPanel  viewport;
-    static nkedemo::InspectorPanel inspector;
+    static nkedemo::InspectorPanel inspector(&scene);
     static nkedemo::ConsolePanel   console;
     shell->AddPanel(&explorer);
+    shell->AddPanel(&hierarchy);
     shell->AddPanel(&viewport);
     shell->AddPanel(&inspector);
     shell->AddPanel(&console);
