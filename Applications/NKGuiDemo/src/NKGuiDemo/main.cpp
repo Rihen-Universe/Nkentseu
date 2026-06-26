@@ -37,6 +37,18 @@ using namespace nkentseu::renderer;
 enum class EntityKind : int32 { Player = 0, Enemy = 1, Npc = 2, Boss = 3 };
 NKENTSEU_REFLECT_ENUM(EntityKind, Player, Enemy, Npc, Boss)
 
+// Sous-objet reflechi (NK_CLASS imbrique) -> l'inspecteur le rend en section repliable recursive.
+struct DemoStats {
+    NKENTSEU_REFLECT_CLASS(DemoStats)
+public:
+    int32 attack = 12;
+    NKENTSEU_REFLECT_PROPERTY(attack)
+public:
+    int32 defense = 8;
+    NKENTSEU_REFLECT_PROPERTY(defense)
+};
+NKENTSEU_REGISTER_CLASS(DemoStats)
+
 struct DemoEntity {
     NKENTSEU_REFLECT_CLASS(DemoEntity)
 public:
@@ -60,6 +72,9 @@ public:
 public:
     NkString name = NkString("Joueur");
     NKENTSEU_REFLECT_PROPERTY(name)
+public:
+    DemoStats stats;
+    NKENTSEU_REFLECT_PROPERTY(stats)
 };
 NKENTSEU_REGISTER_CLASS(DemoEntity)
 
@@ -74,6 +89,13 @@ static void DrawInspector(NkGuiContext& ctx, void* obj, const reflection::NkClas
         const NkEditableProperty& p = props[i];
         if (p.hidden) continue;
         const char* lbl = p.displayName ? p.displayName : p.name;
+        if (p.category == NkTypeCategory::NK_CLASS) {           // sous-objet -> section repliable RECURSIVE
+            const NkProperty* prop = cls->GetProperty(p.name);
+            void*           sub    = prop ? prop->GetValuePtr(obj) : nullptr;
+            const NkClass*  subCls = p.type->GetClass();
+            if (sub && subCls && CollapsingHeader(ctx, lbl)) DrawInspector(ctx, sub, subCls);
+            continue;
+        }
         if (p.readOnly) ctx.BeginDisabled(true);     // grise + non-editable
         ctx.PushId(p.name);                          // id unique -> widgets avec label "" (id-only)
         BeginRow(ctx, 0.f, cols, 2);
@@ -845,6 +867,7 @@ int nkmain(const NkEntryState& state) {
 
         // ── INSPECTEUR generique pilote par la REFLEXION (dogfood NKEditorKit) ──
         static DemoEntity demoEntity;
+        SetNextWindowSize(ctx, 320.f, 420.f);   // taille initiale du panneau (FirstUseEver)
         if (Begin(ctx, "Inspecteur (reflexion)")) {
             Text(ctx, "DemoEntity (proprietes auto via NKReflection) :");
             Separator(ctx);

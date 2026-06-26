@@ -149,6 +149,11 @@ namespace nkentseu {
             int32         windowZTop       = 0;    ///< compteur de z-order (passage devant)
             NkVec2        winDragOff       = { 0.f, 0.f };   ///< offset souris→origine pendant le déplacement
             bool          curWindowDocked  = false;          ///< la fenêtre courante est-elle ancrée ?
+            // SetNextWindowPos/Size : appliqués à la CRÉATION de la prochaine fenêtre (FirstUseEver).
+            bool          hasNextPos       = false;
+            bool          hasNextSize      = false;
+            NkVec2        nextPos          = { 0.f, 0.f };
+            NkVec2        nextSize         = { 0.f, 0.f };
 
             // ── Docking (arbre de nœuds) ───────────────────────────────────────
             NkVector<NkGuiDockNode> dockNodes;
