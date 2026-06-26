@@ -44,6 +44,8 @@ namespace nkentseu {
             curWindow   = -1;
             curWindowId = NKGUI_ID_NONE;
             curWindowDocked = false;
+            containerDepth = 0;          // pile de conteneurs ré-attribuée
+            overlayDepth   = 0;
             for (uint32 i = 0; i < windowMeta.Size(); ++i) { windowMeta[i].hostRendered = false; windowMeta[i].frameDL = -1; windowMeta[i].dockDL = -2; }  // #3 (dockDL=-2 : sentinelle « feuille non rendue »)
             dl.Reset();
             dlOverlay.Reset();
@@ -125,6 +127,9 @@ namespace nkentseu {
             layout.curLineH   = 0.f;
             layout.prevItem   = { layout.cursor.x, layout.cursor.y, 0.f, 0.f };
             layout.maxX       = layout.cursor.x;
+            layout.maxY       = layout.cursor.y;
+            layout.flow       = 0;      // vertical par défaut
+            layout.gridIdx    = 0;
         }
 
         float32 NkGuiContext::ContentWidth() const noexcept {
@@ -138,14 +143,77 @@ namespace nkentseu {
         }
 
         NkRect NkGuiContext::NextItemRect(float32 w, float32 h) noexcept {
+            // ── HBox : flux horizontal (le curseur avance en X, pas de retour ligne) ──
+            if (layout.flow == 1) {
+                if (w <= 0.f) w = 120.f;                       // pas de « remplir » en HBox
+                const NkRect rect = { layout.cursor.x, layout.cursor.y, w, h };
+                layout.prevItem = rect;
+                layout.cursor.x += w + layout.itemSpacingX;
+                if (h > layout.curLineH) layout.curLineH = h;
+                if (layout.cursor.x - layout.itemSpacingX > layout.maxX) layout.maxX = layout.cursor.x - layout.itemSpacingX;
+                if (rect.y + h > layout.maxY) layout.maxY = rect.y + h;
+                return rect;
+            }
+            // ── Grid : colonnes régulières, retour ligne automatique tous les gridCols ──
+            if (layout.flow == 2) {
+                const float32 cw = layout.gridColW > 0.f ? layout.gridColW : ContentWidth();
+                if (w <= 0.f || w > cw) w = cw;
+                const NkRect rect = { layout.cursor.x, layout.cursor.y, w, h };
+                layout.prevItem = rect;
+                if (h > layout.curLineH) layout.curLineH = h;
+                if (rect.x + w > layout.maxX) layout.maxX = rect.x + w;
+                ++layout.gridIdx;
+                if (layout.gridCols > 0 && layout.gridIdx >= layout.gridCols) {  // fin de ligne
+                    layout.gridIdx = 0;
+                    layout.cursor.x = layout.lineStartX;
+                    layout.cursor.y += layout.curLineH + layout.itemSpacingY;
+                    layout.curLineH = 0.f;
+                } else {
+                    layout.cursor.x += layout.gridColW + layout.itemSpacingX;
+                }
+                if (rect.y + h > layout.maxY) layout.maxY = rect.y + h;
+                return rect;
+            }
+            // ── Flow : comme HBox mais passe à la ligne quand ça déborde la région ──
+            if (layout.flow == 4) {
+                if (w <= 0.f) w = 120.f;
+                const float32 rightEdge = layout.region.x + layout.region.w - layout.padding;
+                if (layout.cursor.x > layout.lineStartX && layout.cursor.x + w > rightEdge) {
+                    layout.cursor.x = layout.lineStartX;                 // retour ligne
+                    layout.cursor.y += layout.curLineH + layout.itemSpacingY;
+                    layout.curLineH = 0.f;
+                }
+                const NkRect rect = { layout.cursor.x, layout.cursor.y, w, h };
+                layout.prevItem = rect;
+                layout.cursor.x += w + layout.itemSpacingX;
+                if (h > layout.curLineH) layout.curLineH = h;
+                if (rect.x + w > layout.maxX) layout.maxX = rect.x + w;
+                if (rect.y + h > layout.maxY) layout.maxY = rect.y + h;
+                return rect;
+            }
+            // ── Stack : tous les enfants superposés, ancrés dans la boîte stackW×stackH ──
+            if (layout.flow == 3) {
+                if (w <= 0.f) w = layout.stackW > 0.f ? layout.stackW : ContentWidth();
+                if (h <= 0.f) h = layout.stackH;
+                const float32 ax = static_cast<float32>(layout.stackAnchor % 3) * 0.5f;   // 0, .5, 1
+                const float32 ay = static_cast<float32>(layout.stackAnchor / 3) * 0.5f;
+                const NkRect rect = { layout.lineStartX + ax * (layout.stackW - w),
+                                      layout.cursor.y   + ay * (layout.stackH - h), w, h };
+                layout.prevItem = rect;
+                const float32 r = layout.lineStartX + layout.stackW, b = layout.cursor.y + layout.stackH;
+                if (r > layout.maxX) layout.maxX = r;
+                if (b > layout.maxY) layout.maxY = b;
+                return rect;                                   // curseur inchangé → superposition
+            }
+            // ── Vertical (défaut) : un item par ligne, le curseur descend ──
             if (w <= 0.f) w = ContentWidth();
             const NkRect rect = { layout.cursor.x, layout.cursor.y, w, h };
             layout.prevItem = rect;
             if (rect.x + rect.w > layout.maxX) layout.maxX = rect.x + rect.w;  // largeur contenu
             if (h > layout.curLineH) layout.curLineH = h;
-            // Par défaut : passer à la ligne suivante.
             layout.cursor.x = layout.lineStartX;
             layout.cursor.y += layout.curLineH + layout.itemSpacingY;
+            if (layout.cursor.y > layout.maxY) layout.maxY = layout.cursor.y;
             layout.curLineH = 0.f;
             return rect;
         }

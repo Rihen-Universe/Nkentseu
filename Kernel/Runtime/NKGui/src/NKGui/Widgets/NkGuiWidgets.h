@@ -143,6 +143,35 @@ namespace nkentseu {
                                                    int32 maxChars = -1) noexcept;
         NKENTSEU_NKGUI_API void Separator(NkGuiContext& ctx) noexcept;
 
+        // ════════════════ CONTENEURS DE LAYOUT ════════════════
+        // Empilent un sous-flux au curseur courant ; End* restaure le parent et l'avance du
+        // bloc consommé. Composables (HBox dans une cellule de Grid, VBox dans un HBox…).
+        // `gap < 0` (défaut) = garder l'espacement courant ; sinon impose l'espacement.
+        NKENTSEU_NKGUI_API void BeginVBox (NkGuiContext& ctx, float32 gap = -1.f) noexcept;  ///< empilement vertical
+        NKENTSEU_NKGUI_API void EndVBox   (NkGuiContext& ctx) noexcept;
+        NKENTSEU_NKGUI_API void BeginHBox (NkGuiContext& ctx, float32 gap = -1.f) noexcept;  ///< alignement horizontal
+        NKENTSEU_NKGUI_API void EndHBox   (NkGuiContext& ctx) noexcept;
+        NKENTSEU_NKGUI_API void BeginGrid (NkGuiContext& ctx, int32 columns, float32 gap = -1.f) noexcept;  ///< grille N colonnes
+        NKENTSEU_NKGUI_API void EndGrid   (NkGuiContext& ctx) noexcept;
+        NKENTSEU_NKGUI_API void BeginGroup(NkGuiContext& ctx) noexcept;   ///< groupe (traite N widgets comme 1 bloc)
+        NKENTSEU_NKGUI_API void EndGroup  (NkGuiContext& ctx) noexcept;
+        NKENTSEU_NKGUI_API void BeginFlow (NkGuiContext& ctx, float32 gap = -1.f) noexcept;  ///< horizontal avec retour ligne auto (tags, toolbars)
+        NKENTSEU_NKGUI_API void EndFlow   (NkGuiContext& ctx) noexcept;
+        NKENTSEU_NKGUI_API void SpringRight(NkGuiContext& ctx, float32 width) noexcept;  ///< pousse les items suivants à droite (réserve `width`)
+        // Poignée de redimensionnement : glisse *value (px) entre min/max. vertical=true → barre verticale (glisse X).
+        NKENTSEU_NKGUI_API bool Splitter(NkGuiContext& ctx, const char* idStr, const NkRect& handle, bool vertical,
+                                         float32* value, float32 minV, float32 maxV) noexcept;
+        // Stack : enfants superposés dans une boîte width×height ; ancrer le prochain via StackAnchor.
+        NKENTSEU_NKGUI_API void BeginStack (NkGuiContext& ctx, float32 width, float32 height) noexcept;
+        NKENTSEU_NKGUI_API void StackAnchor(NkGuiContext& ctx, int32 anchor) noexcept;  ///< 0=HG 1=HC 2=HD 3=CG 4=C 5=CD 6=BG 7=BC 8=BD
+        NKENTSEU_NKGUI_API void EndStack   (NkGuiContext& ctx) noexcept;
+        NKENTSEU_NKGUI_API void Spacer(NkGuiContext& ctx, float32 w, float32 h) noexcept;  ///< espace invisible
+        // Couche overlay : dessin AU-DESSUS du contenu courant entre Push/Pop (badges, surbrillances).
+        NKENTSEU_NKGUI_API void PushOverlay(NkGuiContext& ctx) noexcept;
+        NKENTSEU_NKGUI_API void PopOverlay (NkGuiContext& ctx) noexcept;
+        // En-tête repliable (accordéon) : true si ouvert → l'app dessine le contenu de la section.
+        NKENTSEU_NKGUI_API bool CollapsingHeader(NkGuiContext& ctx, const char* label) noexcept;
+
         // Arbre repliable : true si ouvert (dessiner les enfants puis TreePop).
         NKENTSEU_NKGUI_API bool TreeNode(NkGuiContext& ctx, const char* label) noexcept;
         NKENTSEU_NKGUI_API void TreePop(NkGuiContext& ctx) noexcept;
