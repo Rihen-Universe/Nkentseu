@@ -5,13 +5,53 @@
 // via les helpers de NkEditorFrameContext (ec.Text, ec.Button, ec.Checkbox...).
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkEditorInspector.h"   // inspecteur reflexion (opt-in)
 
 namespace nkedemo {
 
     using nkentseu::float32;
     using nkentseu::int32;
+    using nkentseu::NkString;
     using namespace nkentseu::editorkit;
     using namespace nkentseu::nkgui;   // NkRect / NkColor / NkVec2 / draw list
+
+    // ── Objet de demo REFLECHI : inspecte par l'Inspecteur generique ─────────
+    enum class EntityKind : int32 { Player = 0, Enemy = 1, Npc = 2, Prop = 3 };
+    NKENTSEU_REFLECT_ENUM(EntityKind, Player, Enemy, Npc, Prop)
+
+    struct EditorTransform {
+        NKENTSEU_REFLECT_CLASS(EditorTransform)
+    public:
+        float32 x = 0.f;
+        NKENTSEU_REFLECT_PROPERTY(x)
+    public:
+        float32 y = 0.f;
+        NKENTSEU_REFLECT_PROPERTY(y)
+    public:
+        float32 scale = 1.f;
+        NKENTSEU_REFLECT_PROPERTY(scale)
+    };
+    NKENTSEU_REGISTER_CLASS(EditorTransform)
+
+    struct EditorEntity {
+        NKENTSEU_REFLECT_CLASS(EditorEntity)
+    public:
+        NkString name = NkString("Heros");
+        NKENTSEU_REFLECT_PROPERTY(name)
+    public:
+        EntityKind kind = EntityKind::Player;
+        NKENTSEU_REFLECT_PROPERTY(kind)
+    public:
+        bool visible = true;
+        NKENTSEU_REFLECT_PROPERTY(visible)
+    public:
+        int32 health = 100;
+        NKENTSEU_REFLECT_PROPERTY(health)
+    public:
+        EditorTransform transform;
+        NKENTSEU_REFLECT_PROPERTY(transform)
+    };
+    NKENTSEU_REGISTER_CLASS(EditorEntity)
 
     // ── Explorateur : arborescence de fichiers fictive ───────────────────────
     class ExplorerPanel : public NkEditorPanel {
@@ -49,19 +89,12 @@ namespace nkedemo {
         // manager reste a affiner ; en attendant on regroupe en onglets au centre.
         InspectorPanel() : NkEditorPanel("Inspecteur", NkEditorDockSide::NK_CENTER) {}
         void OnUI(NkEditorFrameContext& ec) override {
-            ec.Text("Transform");
-            ec.SliderFloat("Position X", mPosX, -100.f, 100.f);
-            ec.SliderFloat("Position Y", mPosY, -100.f, 100.f);
-            ec.SliderFloat("Echelle",    mScale, 0.1f, 5.f);
+            ec.Text("Entite selectionnee (proprietes auto via NKReflection) :");
             ec.Separator();
-            ec.Text("Options");
-            ec.Checkbox("Visible", mVisible);
-            ec.Checkbox("Verrouille", mLocked);
-            ec.Checkbox("Projette une ombre", mShadow);
+            DrawInspector(ec.Ui(), mEntity);   // PropertyGrid generique (using namespace editorkit)
         }
     private:
-        float32 mPosX = 0.f, mPosY = 0.f, mScale = 1.f;
-        bool mVisible = true, mLocked = false, mShadow = true;
+        EditorEntity mEntity;
     };
 
     // ── Console : journal applicatif ─────────────────────────────────────────
