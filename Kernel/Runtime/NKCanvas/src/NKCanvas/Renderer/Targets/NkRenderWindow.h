@@ -103,6 +103,11 @@ namespace nkentseu {
                 NkRenderer2D&        GetRenderer2D()       noexcept override { return mFacade; }
                 const NkRenderer2D&  GetRenderer2D() const noexcept override { return mFacade; }
 
+                /// Capture le backbuffer presente vers `path` (format selon extension
+                /// via NkImage). Readback specifique au backend (DX11 ; autres a venir).
+                /// A appeler apres Display(). Cf. NkRenderWindowCapture.cpp.
+                bool Capture(const char* path) const override;
+
                 // ── Acces avance ───────────────────────────────────────────────
                 NkIGraphicsContext*       GetContext()       noexcept { return mContext; }
                 const NkIGraphicsContext* GetContext() const noexcept { return mContext; }
