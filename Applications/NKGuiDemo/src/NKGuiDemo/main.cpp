@@ -198,11 +198,16 @@ int nkmain(const NkEntryState& state) {
         }
     };
     bool captureRequested = false;   // F12 → capture la frame courante (apres Display)
+    float32 pendingScale  = 0.f;     // F9 → cycle l'echelle DPI (applique dans la boucle)
     events.AddEventCallback<NkKeyPressEvent>([&](NkKeyPressEvent* e) {
         setKey(e->GetKey(), true);
         ctx.input.ctrlDown  = e->GetModifiers().ctrl;
         ctx.input.shiftDown = e->GetModifiers().shift;
         if (e->GetKey() == NkKey::NK_F12) captureRequested = true;
+        if (e->GetKey() == NkKey::NK_F9) {                          // cycle DPI 1.0→1.25→1.5→2.0
+            const float32 s = ctx.scale;
+            pendingScale = s < 1.1f ? 1.25f : s < 1.4f ? 1.5f : s < 1.9f ? 2.0f : 1.0f;
+        }
     });
     events.AddEventCallback<NkKeyReleaseEvent>([&](NkKeyReleaseEvent* e) {
         setKey(e->GetKey(), false);
@@ -240,6 +245,13 @@ int nkmain(const NkEntryState& state) {
         if (sz.x > 0 && sz.y > 0) {
             ctx.viewW = static_cast<int32>(sz.x);
             ctx.viewH = static_cast<int32>(sz.y);
+        }
+
+        if (pendingScale > 0.f) {                       // F9 : appliquer la nouvelle echelle DPI
+            SetUiScale(ctx, pendingScale);
+            if (fontPtr->LoadEmbedded(NkEmbeddedFontId::DroidSans, 18.f * pendingScale))
+                backend.UploadFontGray8(fontPtr->TexId(), fontPtr->pixels, fontPtr->atlasW, fontPtr->atlasH);
+            pendingScale = 0.f;
         }
 
         ctx.BeginFrame(dt);

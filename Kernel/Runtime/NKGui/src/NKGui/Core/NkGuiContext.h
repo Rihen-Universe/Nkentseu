@@ -324,6 +324,7 @@ namespace nkentseu {
             float32 ContentWidth() const noexcept;               ///< largeur restante au curseur
             float32 AvailHeight() const noexcept;                ///< hauteur restante sous le curseur (région)
             float32 ItemHeight() const noexcept;                 ///< hauteur standard d'un widget
+            float32 S(float32 px) const noexcept { return px * scale; }  ///< px logiques → px écran (DPI)
             void    Indent(float32 w) noexcept;                  ///< décale le début de ligne (arbres)
 
             // ── Stockage (arbres / onglets) ───────────────────────────────────

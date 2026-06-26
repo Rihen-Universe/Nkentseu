@@ -140,6 +140,7 @@ namespace nkentseu {
         }
 
         void NkGuiDrawList::AddLine(const NkVec2& a, const NkVec2& b, const NkColor& col, float32 thickness) noexcept {
+            thickness *= thickScale;                           // épaisseur en px écran (DPI)
             float32 dx = b.x - a.x, dy = b.y - a.y;
             const float32 len = std::sqrt(dx * dx + dy * dy);
             if (len < 1.0e-4f) return;
@@ -160,7 +161,7 @@ namespace nkentseu {
             // (AddLine centrerait l'épaisseur sur l'arête → la moitié extérieure sort
             // du rect et est rognée par le clip — scissor exclusif à droite/bas → bord
             // droit invisible/aminci.) Ici chaque bord tient dans [r.x, r.x+r.w] etc.
-            const float32 t = thickness;
+            const float32 t = thickness * thickScale;          // épaisseur en px écran (DPI)
             AddRectFilled({ r.x,           r.y,           r.w, t   }, col); // haut
             AddRectFilled({ r.x,           r.y + r.h - t, r.w, t   }, col); // bas
             AddRectFilled({ r.x,           r.y,           t,   r.h }, col); // gauche
