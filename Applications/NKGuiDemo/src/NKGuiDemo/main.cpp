@@ -22,7 +22,7 @@
 #include "NKReflection/NkReflectVariant.h"
 #include "NKReflection/NkEnumDescriptor.h" // enums reflechis (combo)
 #include "NKContainers/String/NkString.h"
-#include "NkGuiCanvasBackend.h"
+#include "NKCanvas/UI/NkGuiCanvasBackend.h"   // backend NKGui->NKCanvas (lib reutilisable)
 
 #include <cstdio>
 
@@ -236,7 +236,7 @@ int nkmain(const NkEntryState& state) {
     ctx.styleFn = &DemoStyle;   // hook de style (override de dessin par widget)
     SetCurrentContext(&ctx);
 
-    nkgdemo::NkGuiCanvasBackend backend;
+    renderer::NkGuiCanvasBackend backend;
     if (!backend.Init(target->GetRenderer())) return -1;
 
     // Police par défaut (embarquée) + upload de l'atlas dans le backend.
