@@ -49,7 +49,7 @@ with project("NKGuiDemo"):
     files(["src/**.cpp"])
 
     nkentseudependson(
-        ["NKGui", "NKCanvas", "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage",
+        ["NKGui", "NKReflection", "NKCanvas", "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage",
          "NKStream", "NKFileSystem", "NKLogger", "NKMath", "NKTime",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "src/NKGuiDemo", "%{NKGlad.location}/include"]
