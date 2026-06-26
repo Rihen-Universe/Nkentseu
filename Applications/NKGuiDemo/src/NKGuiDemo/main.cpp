@@ -20,6 +20,7 @@
 #include "NKReflection/NkRegistry.h"      // reflexion : macros + registre + NkClass
 #include "NKReflection/NkInspector.h"     // EnumerateEditableProperties / SetPropertyByName
 #include "NKReflection/NkReflectVariant.h"
+#include "NKReflection/NkEnumDescriptor.h" // enums reflechis (combo)
 #include "NKContainers/String/NkString.h"
 #include "NkGuiCanvasBackend.h"
 
@@ -33,8 +34,14 @@ using namespace nkentseu::renderer;
 //    REFLEXION (NKReflection). On reflechit une struct de demo, puis DrawInspector
 //    genere le bon widget NKGui par propriete et reecrit la valeur si editee.
 //    1re brique a extraire ensuite dans NKEditorKit-sur-NKGui. ──
+enum class EntityKind : int32 { Player = 0, Enemy = 1, Npc = 2, Boss = 3 };
+NKENTSEU_REFLECT_ENUM(EntityKind, Player, Enemy, Npc, Boss)
+
 struct DemoEntity {
     NKENTSEU_REFLECT_CLASS(DemoEntity)
+public:
+    EntityKind kind = EntityKind::Enemy;
+    NKENTSEU_REFLECT_PROPERTY(kind)
 public:
     float32 posX = 1.5f;
     NKENTSEU_REFLECT_PROPERTY(posX)
@@ -62,21 +69,26 @@ static void DrawInspector(NkGuiContext& ctx, void* obj, const reflection::NkClas
     using namespace nkentseu::reflection;
     if (!cls || !obj) return;
     NkVector<NkEditableProperty> props = EnumerateEditableProperties(cls, obj);
+    const float32 cols[] = { -2.f, -3.f };   // ligne : colonne LIBELLE (poids 2) | CHAMP (poids 3)
     for (usize i = 0; i < props.Size(); ++i) {
         const NkEditableProperty& p = props[i];
         if (p.hidden) continue;
         const char* lbl = p.displayName ? p.displayName : p.name;
-        switch (p.category) {
+        if (p.readOnly) ctx.BeginDisabled(true);     // grise + non-editable
+        ctx.PushId(p.name);                          // id unique -> widgets avec label "" (id-only)
+        BeginRow(ctx, 0.f, cols, 2);
+        Text(ctx, lbl);                              // colonne 1 : libellé
+        switch (p.category) {                        // colonne 2 : champ ("" = pas de label affiché)
             case NkTypeCategory::NK_BOOL: {
                 bool v = p.value.ToBool();
-                if (Checkbox(ctx, lbl, v)) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<bool>(v));
+                if (Checkbox(ctx, "", v)) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<bool>(v));
                 break;
             }
             case NkTypeCategory::NK_FLOAT32:
             case NkTypeCategory::NK_FLOAT64: {
                 float32 v = static_cast<float32>(p.value.ToFloat64());
-                const bool ch = p.hasRange ? SliderFloat(ctx, lbl, v, p.rangeMin, p.rangeMax)
-                                           : DragFloat(ctx, lbl, v, 0.05f);
+                const bool ch = p.hasRange ? SliderFloat(ctx, "", v, p.rangeMin, p.rangeMax)
+                                           : DragFloat(ctx, "", v, 0.05f);
                 if (ch) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<float32>(v));
                 break;
             }
@@ -85,28 +97,44 @@ static void DrawInspector(NkGuiContext& ctx, void* obj, const reflection::NkClas
             case NkTypeCategory::NK_UINT8: case NkTypeCategory::NK_UINT16:
             case NkTypeCategory::NK_UINT32: case NkTypeCategory::NK_UINT64: {
                 int32 v = static_cast<int32>(p.value.ToInt64());
-                const bool ch = p.hasRange ? DragInt(ctx, lbl, v, 0.25f, static_cast<int32>(p.rangeMin), static_cast<int32>(p.rangeMax))
-                                           : DragInt(ctx, lbl, v);
+                const bool ch = p.hasRange ? DragInt(ctx, "", v, 0.25f, static_cast<int32>(p.rangeMin), static_cast<int32>(p.rangeMax))
+                                           : DragInt(ctx, "", v);
                 if (ch) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<int32>(v));
                 break;
             }
             case NkTypeCategory::NK_STRING: {
                 char buf[256] = {};
                 NkString s; p.value.Get<NkString>(s);
-                const char* cs = s.CStr();
-                int32 n = 0; while (cs && cs[n] && n < 255) { buf[n] = cs[n]; ++n; }
+                const char* csr = s.CStr();
+                int32 n = 0; while (csr && csr[n] && n < 255) { buf[n] = csr[n]; ++n; }
                 buf[n] = '\0';
-                if (InputText(ctx, lbl, buf, 256)) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<NkString>(NkString(buf)));
+                if (InputText(ctx, "", buf, 256)) SetPropertyByName(cls, obj, p.name, NkReflectVariant::From<NkString>(NkString(buf)));
                 break;
             }
-            default: {
-                char line[160];
-                std::snprintf(line, sizeof(line), "%s : (%s)", lbl,
-                              p.isContainer ? "liste" : p.isObject ? "objet" : "type non gere");
-                Text(ctx, line);
+            case NkTypeCategory::NK_ENUM: {
+                const NkEnumDescriptor* ed = NkRegistry::Get().FindEnum(p.type->GetName());
+                const int64 cur = p.value.ToInt64();
+                const char* curName = ed ? ed->ToName(cur) : nullptr;
+                if (BeginCombo(ctx, "", curName ? curName : "?", ed ? static_cast<int32>(ed->GetCount()) : 0)) {
+                    if (ed) for (usize j = 0; j < ed->GetCount(); ++j) {
+                        const NkEnumEntry& e = ed->GetEntryAt(j);
+                        if (Selectable(ctx, e.name, e.value == cur)) {
+                            int32 ev = static_cast<int32>(e.value);
+                            SetPropertyByName(cls, obj, p.name, NkReflectVariant::FromRaw(p.type, &ev));
+                            ctx.ClosePopup();
+                        }
+                    }
+                    EndCombo(ctx);
+                }
                 break;
             }
+            default:
+                Text(ctx, p.isContainer ? "(liste)" : p.isObject ? "(objet)" : "(non gere)");
+                break;
         }
+        EndRow(ctx);
+        ctx.PopId();
+        if (p.readOnly) ctx.EndDisabled();
     }
 }
 
