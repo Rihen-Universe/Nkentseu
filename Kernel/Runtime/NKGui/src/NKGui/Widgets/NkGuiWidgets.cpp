@@ -882,6 +882,52 @@ namespace nkentseu {
         void BeginFlow (NkGuiContext& ctx, float32 gap) noexcept { BeginContainer(ctx, 4, 0, gap); }  // wrap auto
         void EndFlow   (NkGuiContext& ctx) noexcept { EndContainer(ctx); }
 
+        // ── FLEX À POIDS (flex-grow / stretch / fill) ──────────────────────────────
+        // `sizes[i] > 0` = px FIXES ; `sizes[i] < 0` = POIDS (-1 = poids 1) qui se
+        // partagent l'espace RESTANT. Total connu au Begin → calcul exact, single-pass,
+        // sans lag. Les fixes (et height/width/totalHeight) sont mis à l'échelle DPI.
+        namespace {
+            void ComputeFlexSlots(NkGuiContext& ctx, const float32* sizes, int32 count, float32 avail, float32 gapAxis) noexcept {
+                if (count > 12) count = 12;
+                const float32 s = ctx.scale;
+                const float32 usable = avail - static_cast<float32>(count > 0 ? count - 1 : 0) * gapAxis;
+                float32 fixed = 0.f, weight = 0.f;
+                for (int32 i = 0; i < count; ++i) { const float32 v = sizes[i]; if (v > 0.f) fixed += v * s; else weight += -v; }
+                float32 free = usable - fixed; if (free < 0.f) free = 0.f;
+                for (int32 i = 0; i < count; ++i) {
+                    const float32 v = sizes[i];
+                    ctx.layout.flexSlots[i] = v > 0.f ? v * s : (weight > 0.f ? free * (-v / weight) : 0.f);
+                }
+                ctx.layout.flexCount = count; ctx.layout.flexIdx = 0;
+            }
+        }
+        void BeginRow(NkGuiContext& ctx, float32 height, const float32* sizes, int32 count, float32 gap) noexcept {
+            BeginContainer(ctx, 5, 0, gap);
+            ComputeFlexSlots(ctx, sizes, count, ctx.ContentWidth(), ctx.layout.itemSpacingX);
+            ctx.layout.flexCross = height > 0.f ? height * ctx.scale : ctx.ItemHeight();
+        }
+        void EndRow(NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+        void BeginColumn(NkGuiContext& ctx, float32 width, const float32* sizes, int32 count, float32 totalHeight, float32 gap) noexcept {
+            BeginContainer(ctx, 6, 0, gap);
+            const float32 total = totalHeight > 0.f ? totalHeight * ctx.scale : ctx.AvailHeight();
+            ComputeFlexSlots(ctx, sizes, count, total, ctx.layout.itemSpacingY);
+            ctx.layout.flexCross = width > 0.f ? width * ctx.scale : ctx.ContentWidth();
+        }
+        void EndColumn(NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+
+        // ── ÉCHELLE UI (DPI / HiDPI) ───────────────────────────────────────────────
+        float32 Scaled(NkGuiContext& ctx, float32 px) noexcept { return px * ctx.scale; }
+        // Applique un facteur d'échelle global : multiplie padding/rounding/espacement (depuis
+        // l'échelle COURANTE, donc ré-appelable). À combiner avec une police rechargée par
+        // l'app à `tailleBase * scale` (atlas net) — ItemHeight suit alors la police.
+        void SetUiScale(NkGuiContext& ctx, float32 s) noexcept {
+            if (s <= 0.f) return;
+            const float32 f = s / (ctx.scale > 0.f ? ctx.scale : 1.f);
+            ctx.theme.rounding  *= f; ctx.theme.framePadX *= f; ctx.theme.framePadY *= f;
+            ctx.layout.padding  *= f; ctx.layout.itemSpacingX *= f; ctx.layout.itemSpacingY *= f;
+            ctx.scale = s;
+        }
+
         // Ressort horizontal : pousse les items SUIVANTS vers la droite de la région, en
         // réservant `width` px pour eux (toolbar : [gauche] SpringRight(w) [droite]). Mono-passe.
         void SpringRight(NkGuiContext& ctx, float32 width) noexcept {

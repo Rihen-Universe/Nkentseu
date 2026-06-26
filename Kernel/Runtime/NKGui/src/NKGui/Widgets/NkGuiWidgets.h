@@ -157,6 +157,20 @@ namespace nkentseu {
         NKENTSEU_NKGUI_API void EndGroup  (NkGuiContext& ctx) noexcept;
         NKENTSEU_NKGUI_API void BeginFlow (NkGuiContext& ctx, float32 gap = -1.f) noexcept;  ///< horizontal avec retour ligne auto (tags, toolbars)
         NKENTSEU_NKGUI_API void EndFlow   (NkGuiContext& ctx) noexcept;
+        // FLEX À POIDS (flex-grow / stretch / fill). `sizes[i] > 0` = px fixes ; `sizes[i] < 0` =
+        // poids (-1 = poids 1) qui se partagent l'espace RESTANT. Single-pass exact (total connu).
+        // BeginRow : rangée horizontale, hauteur `height` (<=0 = ItemHeight), les widgets remplissent
+        //            chaque cellule (largeur = cellule, hauteur étirée).
+        NKENTSEU_NKGUI_API void BeginRow(NkGuiContext& ctx, float32 height, const float32* sizes, int32 count, float32 gap = -1.f) noexcept;
+        NKENTSEU_NKGUI_API void EndRow  (NkGuiContext& ctx) noexcept;
+        // BeginColumn : colonne verticale sur `totalHeight` (<=0 = hauteur restante de la région →
+        //               « prend tout ce qui reste »), largeur `width` (<=0 = pleine largeur).
+        NKENTSEU_NKGUI_API void BeginColumn(NkGuiContext& ctx, float32 width, const float32* sizes, int32 count, float32 totalHeight = -1.f, float32 gap = -1.f) noexcept;
+        NKENTSEU_NKGUI_API void EndColumn  (NkGuiContext& ctx) noexcept;
+        // ÉCHELLE UI (DPI/HiDPI) : SetUiScale multiplie padding/rounding/espacement ; l'app recharge
+        // la police à tailleBase*scale. Scaled(px) = px * ctx.scale (pour tailles explicites).
+        NKENTSEU_NKGUI_API void    SetUiScale(NkGuiContext& ctx, float32 s) noexcept;
+        NKENTSEU_NKGUI_API float32 Scaled    (NkGuiContext& ctx, float32 px) noexcept;
         NKENTSEU_NKGUI_API void SpringRight(NkGuiContext& ctx, float32 width) noexcept;  ///< pousse les items suivants à droite (réserve `width`)
         // Poignée de redimensionnement : glisse *value (px) entre min/max. vertical=true → barre verticale (glisse X).
         NKENTSEU_NKGUI_API bool Splitter(NkGuiContext& ctx, const char* idStr, const NkRect& handle, bool vertical,

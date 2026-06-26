@@ -105,6 +105,8 @@ int nkmain(const NkEntryState& state) {
     if (!backend.Init(target->GetRenderer())) return -1;
 
     // Police par défaut (embarquée) + upload de l'atlas dans le backend.
+    // DPI/HiDPI : pour un ecran a 150%, faire SetUiScale(ctx, 1.5f) + charger la police a
+    // 18.f * 1.5f (atlas net). Ici echelle 1.0 par defaut.
     auto fontPtr = memory::NkMakeUnique<NkGuiFont>();
     if (!fontPtr->LoadEmbedded(NkEmbeddedFontId::DroidSans, 18.f)) {
         fontPtr->LoadEmbedded(NkEmbeddedFontId::ProggyClean, 16.f);
@@ -682,6 +684,12 @@ int nkmain(const NkEntryState& state) {
 
         // ── CONTENEURS DE LAYOUT (Vague A) : HBox, Grid, accordeon, Stack ──
         if (Begin(ctx, "Conteneurs")) {
+            Text(ctx, "Flex Row [60px | grow | grow x2] :");
+            { const float32 sz[] = { 60.f, -1.f, -2.f };
+              BeginRow(ctx, 0.f, sz, 3);
+                Button(ctx, "60px"); Button(ctx, "grow"); Button(ctx, "grow x2");
+              EndRow(ctx); }
+            Separator(ctx);
             Text(ctx, "Flow (wrap auto) :");
             BeginFlow(ctx);
             for (int32 i = 0; i < 8; ++i) { char b[10]; std::snprintf(b, 10, "tag%d", i + 1); Button(ctx, b); }
