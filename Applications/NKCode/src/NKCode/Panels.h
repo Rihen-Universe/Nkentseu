@@ -68,18 +68,43 @@ namespace nkcode {
         NkCodeState* mS;
     };
 
-    // ── Sortie : resultat de la derniere commande jenga. ──
+    // ── Sortie : resultat du build jenga (ASYNCHRONE : la sortie arrive en flux). ──
     class OutputPanel : public NkEditorPanel {
     public:
         explicit OutputPanel(NkCodeState* s)
             : NkEditorPanel("Sortie", NkEditorDockSide::NK_BOTTOM), mS(s) {}
         void OnUI(NkEditorFrameContext& ec) override {
+            mS->PollBuild();   // recupere la sortie du build de fond, sans geler l'UI
             if (!mS->status.Empty()) { ec.Text(mS->status.CStr()); ec.Separator(); }
             if (mS->output.Empty()) { ec.Text("(Ctrl+B : construire le projet via jenga)"); return; }
             for (usize i = 0; i < mS->output.Size(); ++i) ec.Text(mS->output[i].CStr());
         }
     private:
         NkCodeState* mS;
+    };
+
+    // ── Terminal : tape une commande (Entree) -> execution ASYNC -> sortie en flux. ──
+    class TerminalPanel : public NkEditorPanel {
+    public:
+        TerminalPanel() : NkEditorPanel("Terminal", NkEditorDockSide::NK_BOTTOM) {}
+        void OnUI(NkEditorFrameContext& ec) override {
+            auto& ctx = ec.Ui();
+            mProc.Drain(mLines);                            // recupere la sortie de fond
+            if (InputText(ctx, "##termcmd", mInput, static_cast<int32>(sizeof(mInput)))) {   // Entree
+                if (mInput[0]) {
+                    mLines.PushBack(NkString("$ ") + mInput);
+                    mProc.Start(NkString(mInput));
+                    mInput[0] = '\0';
+                }
+            }
+            ec.Text(mProc.Running() ? "[execution...]" : "[pret]  tapez une commande + Entree");
+            ec.Separator();
+            for (usize i = 0; i < mLines.Size(); ++i) ec.Text(mLines[i].CStr());
+        }
+    private:
+        NkProcess          mProc;
+        NkVector<NkString> mLines;
+        char               mInput[512] = {};
     };
 
 } // namespace nkcode

@@ -24,8 +24,8 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 static nkcode::NkCodeState g_state;
 
 // ── Commandes (NkEditorCommandFn = void(*)(void*)) ──
-static void CmdBuild(void*)        { g_state.RunJenga("build --target NKCode --config Debug"); }
-static void CmdRun(void*)          { g_state.RunJenga("--version"); }
+static void CmdBuild(void*)        { g_state.StartJenga("build --target NKCode --config Debug"); }
+static void CmdRun(void*)          { g_state.StartJenga("--version"); }
 static void CmdSave(void* user)    { if (user) static_cast<nkcode::NkCodeState*>(user)->SaveActive(); }
 static void CmdQuit(void* user)    { if (user) static_cast<NkEditorShell*>(user)->RequestClose(); }
 static void CmdResetLayout(void* u){ if (u) static_cast<NkEditorShell*>(u)->ResetLayout(); }
@@ -46,9 +46,11 @@ int nkmain(const NkEntryState& state) {
     static nkcode::ExplorerPanel explorer(&g_state);
     static nkcode::EditorPanel   editor(&g_state);
     static nkcode::OutputPanel   output(&g_state);
+    static nkcode::TerminalPanel terminal;
     shell->AddPanel(&explorer);
     shell->AddPanel(&editor);
     shell->AddPanel(&output);
+    shell->AddPanel(&terminal);
 
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
     shell->RegisterCommand("Projet: Version de Jenga",         &CmdRun,   nullptr);

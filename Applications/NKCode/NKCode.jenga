@@ -51,8 +51,8 @@ with project("NKCode"):
 
     nkentseudependson(
         ["NKEditorKit", "NKCanvas", "NKGui", "NKWindow", "NKEvent", "NKGlad",
-         "NKFont", "NKImage", "NKFileSystem", "NKLogger", "NKMath", "NKTime",
-         "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+         "NKFont", "NKImage", "NKFileSystem", "NKThreading", "NKLogger", "NKMath", "NKTime",
+         "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
         extra_includes=["src", "src/NKCode", "%{NKGlad.location}/include"]
                        + ([_VULKAN_INCLUDE] if _VULKAN_INCLUDE else []),
     )

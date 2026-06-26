@@ -10,8 +10,8 @@
 #include "NKFileSystem/NkPath.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKCode/NkProcess.h"
 
-#include <cstdio>    // _popen/popen, fgets
 #include <cstring>   // memcpy
 
 namespace nkcode {
@@ -70,25 +70,22 @@ namespace nkcode {
             status = NkString("Echec enregistrement"); return false;
         }
 
-        // Lance `jenga <args>` et capture stdout+stderr dans `output` (synchrone).
-        void RunJenga(const char* args) {
+        NkProcess mBuild;   // build ASYNCHRONE (ne gele pas l'UI)
+
+        // Lance `jenga <args>` en arriere-plan ; la sortie arrive via PollBuild().
+        void StartJenga(const char* args) {
             output.Clear();
-            NkString cmd("jenga "); cmd += args; cmd += " 2>&1";
+            NkString cmd("jenga "); cmd += args;
             output.PushBack(NkString("$ ") + cmd.CStr());
-#if defined(_WIN32)
-            FILE* pipe = _popen(cmd.CStr(), "r");
-#else
-            FILE* pipe = popen(cmd.CStr(), "r");
-#endif
-            if (!pipe) { output.PushBack(NkString("[erreur] impossible de lancer jenga")); status = NkString("Erreur"); return; }
-            char line[1024];
-            while (std::fgets(line, sizeof(line), pipe)) output.PushBack(NkString(line));
-#if defined(_WIN32)
-            const int code = _pclose(pipe);
-#else
-            const int code = pclose(pipe);
-#endif
-            status = (code == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
+            if (!mBuild.Start(cmd)) { status = NkString("Build deja en cours..."); return; }
+            status = NkString("Construction...");
+        }
+
+        // A appeler CHAQUE FRAME : recupere la sortie du build + met a jour le statut.
+        void PollBuild() {
+            mBuild.Drain(output);
+            if (mBuild.Done() && status.Size() > 0 && StrEq(status.CStr(), "Construction..."))
+                status = (mBuild.ExitCode() == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
         }
     };
 
