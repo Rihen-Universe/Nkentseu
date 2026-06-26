@@ -53,6 +53,36 @@ namespace nkedemo {
     };
     NKENTSEU_REGISTER_CLASS(EditorEntity)
 
+    // ── Mini-scene partagee : entites + index selectionne (Hierarchie <-> Inspecteur) ──
+    struct EditorScene {
+        static constexpr int32 COUNT = 3;
+        EditorEntity entities[COUNT];
+        int32        selected = 0;
+        EditorScene() {
+            entities[0].name = NkString("Heros");   entities[0].kind = EntityKind::Player;
+            entities[1].name = NkString("Gobelin"); entities[1].kind = EntityKind::Enemy; entities[1].health = 30;
+            entities[2].name = NkString("Coffre");  entities[2].kind = EntityKind::Prop;  entities[2].health = 0;
+        }
+    };
+
+    // ── Hierarchie : liste les entites ; cliquer en selectionne une (-> Inspecteur) ──
+    class HierarchyPanel : public NkEditorPanel {
+    public:
+        explicit HierarchyPanel(EditorScene* scene)
+            : NkEditorPanel("Hierarchie", NkEditorDockSide::NK_LEFT), mScene(scene) {}
+        void OnUI(NkEditorFrameContext& ec) override {
+            auto& ctx = ec.Ui();
+            ec.Text("Scene :");
+            ec.Separator();
+            for (int32 i = 0; i < EditorScene::COUNT; ++i) {
+                const char* n = mScene->entities[i].name.CStr();
+                if (Selectable(ctx, n && *n ? n : "(sans nom)", i == mScene->selected)) mScene->selected = i;
+            }
+        }
+    private:
+        EditorScene* mScene;
+    };
+
     // ── Explorateur : arborescence de fichiers fictive ───────────────────────
     class ExplorerPanel : public NkEditorPanel {
     public:
@@ -87,14 +117,16 @@ namespace nkedemo {
     public:
         // NB : centre (onglet avec le Viewport). Le split droite « propre » du dock
         // manager reste a affiner ; en attendant on regroupe en onglets au centre.
-        InspectorPanel() : NkEditorPanel("Inspecteur", NkEditorDockSide::NK_CENTER) {}
+        explicit InspectorPanel(EditorScene* scene)
+            : NkEditorPanel("Inspecteur", NkEditorDockSide::NK_CENTER), mScene(scene) {}
         void OnUI(NkEditorFrameContext& ec) override {
-            ec.Text("Entite selectionnee (proprietes auto via NKReflection) :");
+            ec.Text("Inspecteur (proprietes auto via NKReflection) :");
             ec.Separator();
-            DrawInspector(ec.Ui(), mEntity);   // PropertyGrid generique (using namespace editorkit)
+            if (mScene->selected >= 0 && mScene->selected < EditorScene::COUNT)
+                DrawInspector(ec.Ui(), mScene->entities[mScene->selected]);   // suit la selection
         }
     private:
-        EditorEntity mEntity;
+        EditorScene* mScene;
     };
 
     // ── Console : journal applicatif ─────────────────────────────────────────
