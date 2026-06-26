@@ -1034,7 +1034,7 @@ NkString NkSLCodeGenHLSL_DX12::GenExpr(NkSLNode* node) {
                     static const char* kMatPfx[] = {
                         "(float2x2)","(float3x3)","(float4x4)","(float2x3)","(float3x2)",
                         "(float2x4)","(float4x2)","(float3x4)","(float4x3)",
-                        "float2x2(","float3x3(","float4x4(","nksl_inverse(", nullptr };
+                        "float2x2(","float3x3(","float4x4(","nksl_inverse(","transpose(", nullptr };
                     for (int k=0; kMatPfx[k]; k++)
                         if (lhs.StartsWith(kMatPfx[k])) { lhsMat = true; break; }
                 }
@@ -1245,6 +1245,20 @@ NkString NkSLCodeGenHLSL_DX12::GenCall(NkSLCallNode* call) {
     // (GenFunction) mais l'AST garde la casse d'origine aux appels (NkShadowSlopeBiasMul,
     // G_Schlick, D_GGX…). Les intrinsèques/constructeurs HLSL (lerp, float3, mul…) sont
     // déjà minuscules → lowercase inoffensif. Les méthodes texture sont traitées plus haut.
+    // CONVENTION MATRICE constructeur : GLSL `matN(c0,c1,...)` prend les COLONNES,
+    // alors que HLSL `floatNxN(r0,r1,...)` prend les LIGNES. Sans correction, un
+    // `mat3(T,B,N) * v` (GLSL) émis tel quel donne `mul(float3x3(T,B,N), v)` qui
+    // est la TRANSPOSÉE → N de surface faux sur DX12 → éclairage direct ≈ 0 (scène
+    // sombre). On enveloppe donc tout constructeur de matrice multi-arguments dans
+    // transpose() pour rétablir la sémantique colonne de GLSL. (Le cas 1-arg =
+    // cast/extraction matrice→matrice est traité plus haut, sans transpose.)
+    const bool isMatCtor = (mapped == "float2x2" || mapped == "float3x3" ||
+                            mapped == "float4x4" || mapped == "float2x3" ||
+                            mapped == "float3x2" || mapped == "float2x4" ||
+                            mapped == "float4x2" || mapped == "float3x4" ||
+                            mapped == "float4x3");
+    const bool wrapTranspose = isMatCtor && argStrs.Size() > 1;
+
     NkString result = mapped.ToLower() + "(";
     for (uint32 i = 0; i < (uint32)argStrs.Size(); i++) {
         if (i > 0) result += ", ";
@@ -1263,7 +1277,9 @@ NkString NkSLCodeGenHLSL_DX12::GenCall(NkSLCallNode* call) {
         }
         if (!expanded) result += argStrs[i];
     }
-    return result + ")";
+    result += ")";
+    if (wrapTranspose) return "transpose(" + result + ")";
+    return result;
 }
 
 NkString NkSLCodeGenHLSL_DX12::LiteralToStr(NkSLLiteralNode* lit) {

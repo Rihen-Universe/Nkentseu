@@ -8,7 +8,10 @@
 #include "NKContainers/Functional/NkFunction.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKSL/ShaderConvert/NkShaderConvert.h" // NkShaderCache : cache du DXIL/DXBC compilé
 #include <cstring>
+#include <cstdlib>
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <d3d12sdklayers.h>
@@ -38,6 +41,12 @@ namespace {
                                 D3D12_MESSAGE_ID id,
                                 const char* msg) {
         if (!msg) return;
+        // Ceinture (le vrai fix = valeurs de clear optimisées matchées dans CreateTexture) :
+        // on supprime le warning #820 "clear values do not match" pour ne JAMAIS flooder le
+        // log (17k+ lignes/16s tuaient les FPS via le sink fichier) s'il subsiste un cas résiduel.
+        if (id == D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE ||
+            id == D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE)
+            return;
         switch (sev) {
             case D3D12_MESSAGE_SEVERITY_CORRUPTION:
             case D3D12_MESSAGE_SEVERITY_ERROR:
@@ -127,10 +136,15 @@ bool NkDirectX12Device::Initialize(const NkDeviceInitInfo& init) {
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
             debug->EnableDebugLayer();
             factoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-            if (dxCfg.gpuValidation) {
+            // GPU-Based Validation : config OU override par env NK_DX12_GBV (diag hazards de
+            // barrier en LIVE — détecte les lectures de ressource dans un mauvais état que la
+            // sérialisation de RenderDoc masque). Désactivé par défaut (coût GPU important).
+            const bool wantGBV = dxCfg.gpuValidation || (getenv("NK_DX12_GBV") != nullptr);
+            if (wantGBV) {
                 ComPtr<ID3D12Debug1> debug1;
                 if (SUCCEEDED(debug.As(&debug1))) {
                     debug1->SetEnableGPUBasedValidation(TRUE);
+                    NK_DX12_LOG("GPU-Based Validation ACTIVE (NK_DX12_GBV)\n");
                 }
             }
         }
@@ -300,7 +314,10 @@ void NkDirectX12Device::InitDescriptorHeaps() {
     makeHeap(mSamplerHeap,   D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,     mSamplerHeapCapacity, false);
     // RINGS shader-visible : destination par draw (ring linéaire, reset/frame). Le heap
     // sampler shader-visible est plafonné à 2048 par D3D12.
-    makeHeap(mCbvSrvUavRing, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 32768, true);
+    // Capacité CBV/SRV/UAV ring portée 32768→65536 (2026-06-23) : le bloc par-draw passe de
+    // 56 à 72 descripteurs (NUM_CBV 16→32). 65536/72 ≈ 910 draws/frame de marge (avant :
+    // 32768/72 ≈ 455). Bien sous la limite matérielle (1M descripteurs CBV/SRV/UAV Tier 1).
+    makeHeap(mCbvSrvUavRing, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 65536, true);
     makeHeap(mSamplerRing,   D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,     2048,  true);
     mCbvSrvUavRingHead = 0;
     mSamplerRingHead   = 0;
@@ -614,7 +631,7 @@ void NkDirectX12Device::TransitionResource(ID3D12GraphicsCommandList* cmd,
 ComPtr<ID3D12RootSignature> NkDirectX12Device::CreateDefaultRootSignature(bool compute) {
     // Root signature 1.1 (TABLES LARGES) :
     //   param 0 -> Root constants (b0, space1) — PushConstants (16 DWORD = 64 o)
-    //   param 1 -> table CBV b0-15 + SRV t0-31 + UAV u0-7 (space0)
+    //   param 1 -> table CBV b0-31 + SRV t0-31 + UAV u0-7 (space0)
     //   param 2 -> table SAMPLER s0-31 (space0)
     // Flag DESCRIPTORS_VOLATILE : seuls les descripteurs accédés par le shader doivent
     // être valides au draw → on ne copie que les ressources réellement bindées.
@@ -736,6 +753,14 @@ NkBufferHandle NkDirectX12Device::CreateBuffer(const NkBufferDesc& desc) {
     rd.SampleDesc.Quality = 0;
     rd.Layout             = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     rd.Flags              = D3D12_RESOURCE_FLAG_NONE;
+    // Un storage buffer reçoit un UAV plus bas (CreateUnorderedAccessView). DX12
+    // EXIGE que la ressource ait été créée avec ALLOW_UNORDERED_ACCESS, sinon la
+    // création de l'UAV retire le device (DXGI_ERROR_INVALID_CALL). Le flag n'est
+    // valide que sur un heap DEFAULT (interdit sur UPLOAD/READBACK).
+    if ((NkHasFlag(desc.bindFlags, NkBindFlags::NK_STORAGE_BUFFER) ||
+         desc.type == NkBufferType::NK_STORAGE) &&
+        heapType == D3D12_HEAP_TYPE_DEFAULT)
+        rd.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
     D3D12_HEAP_PROPERTIES hp{};
     hp.Type                 = heapType;
@@ -895,14 +920,21 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
     DXGI_FORMAT fmt = ToDXGIFormat(desc.format);
     bool isDepth = NkFormatIsDepth(desc.format);
     const bool depthSrvRequested = isDepth && NkHasFlag(desc.bindFlags, NkBindFlags::NK_SHADER_RESOURCE);
+    // Textures 3D volumétriques (VoxelAO, LUT couleur 3D…). DX12 EXIGE
+    // D3D12_RESOURCE_DIMENSION_TEXTURE3D + des vues SRV/UAV TEXTURE3D ; sans cela
+    // un UAV ne peut pas être créé sur une ressource sans ALLOW_UNORDERED_ACCESS
+    // -> "Removing Device" (cause du crash DX12 demo5 VoxelAO).
+    const bool is3D = (desc.type == NkTextureType::NK_TEX3D) || (desc.depth > 1);
     DXGI_FORMAT dsvFormat = DXGI_FORMAT_UNKNOWN;
     DXGI_FORMAT depthSrvFormat = DXGI_FORMAT_UNKNOWN;
 
     D3D12_RESOURCE_DESC rd{};
-    rd.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rd.Dimension          = is3D ? D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                                 : D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     rd.Width              = desc.width;
     rd.Height             = desc.height;
-    rd.DepthOrArraySize   = (UINT16)math::NkMax(desc.arrayLayers, 1u);
+    rd.DepthOrArraySize   = is3D ? (UINT16)math::NkMax(desc.depth, 1u)
+                                 : (UINT16)math::NkMax(desc.arrayLayers, 1u);
     rd.MipLevels          = (UINT16)(desc.mipLevels == 0 ?
         (uint32)(floor(log2(math::NkMax(desc.width, desc.height))) + 1) : desc.mipLevels);
     rd.SampleDesc         = { (UINT)desc.samples, 0 };
@@ -926,14 +958,22 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
         if (NkHasFlag(desc.bindFlags, NkBindFlags::NK_UNORDERED_ACCESS)) rd.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     }
 
+    // Valeur de clear OPTIMISÉE : DOIT matcher la couleur/depth réellement utilisée au
+    // clear (sinon D3D12 warning #820 "clear values do not match" → clear lent + flood
+    // de logs qui tue les FPS). On prend la valeur fournie par le desc (le render graph
+    // la renseigne avec la couleur de clear de la passe qui écrit ce RT).
     D3D12_CLEAR_VALUE clearVal{};
     D3D12_CLEAR_VALUE* pClear = nullptr;
     if (NkHasFlag(desc.bindFlags, NkBindFlags::NK_RENDER_TARGET) && !isDepth) {
         clearVal.Format = rd.Format;
+        clearVal.Color[0] = desc.optClearColor.r;
+        clearVal.Color[1] = desc.optClearColor.g;
+        clearVal.Color[2] = desc.optClearColor.b;
+        clearVal.Color[3] = desc.optClearColor.a;
         pClear = &clearVal;
     } else if (isDepth) {
         clearVal.Format = dsvFormat;
-        clearVal.DepthStencil = { 1.f, 0 };
+        clearVal.DepthStencil = { desc.optClearDepth, 0 };
         pClear = &clearVal;
     }
 
@@ -990,9 +1030,12 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
             t.srvIdx = mCbvSrvUavHeap.allocated;
             D3D12_SHADER_RESOURCE_VIEW_DESC srvd{};
             srvd.Format                  = fmt;
-            srvd.ViewDimension           = desc.type == NkTextureType::NK_CUBE ? D3D12_SRV_DIMENSION_TEXTURECUBE : D3D12_SRV_DIMENSION_TEXTURE2D;
+            srvd.ViewDimension           = is3D ? D3D12_SRV_DIMENSION_TEXTURE3D
+                                         : (desc.type == NkTextureType::NK_CUBE ? D3D12_SRV_DIMENSION_TEXTURECUBE : D3D12_SRV_DIMENSION_TEXTURE2D);
             srvd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            if (desc.type == NkTextureType::NK_CUBE)
+            if (is3D)
+                srvd.Texture3D.MipLevels   = rd.MipLevels;
+            else if (desc.type == NkTextureType::NK_CUBE)
                 srvd.TextureCube.MipLevels = rd.MipLevels;
             else
                 srvd.Texture2D.MipLevels   = rd.MipLevels;
@@ -1000,7 +1043,17 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
         }
         if (NkHasFlag(desc.bindFlags, NkBindFlags::NK_UNORDERED_ACCESS)) {
             t.uavIdx = mCbvSrvUavHeap.allocated;
-            mDevice->CreateUnorderedAccessView(res.Get(), nullptr, nullptr, mCbvSrvUavHeap.AllocCPU());
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uavd{};
+            D3D12_UNORDERED_ACCESS_VIEW_DESC* pUavd = nullptr;
+            if (is3D) {
+                uavd.Format               = fmt;
+                uavd.ViewDimension        = D3D12_UAV_DIMENSION_TEXTURE3D;
+                uavd.Texture3D.MipSlice   = 0;
+                uavd.Texture3D.FirstWSlice = 0;
+                uavd.Texture3D.WSize      = (UINT)math::NkMax(desc.depth, 1u);
+                pUavd = &uavd;
+            }
+            mDevice->CreateUnorderedAccessView(res.Get(), nullptr, pUavd, mCbvSrvUavHeap.AllocCPU());
         }
     }
 
@@ -1042,6 +1095,72 @@ NkTextureHandle NkDirectX12Device::CreateTexture(const NkTextureDesc& desc) {
         });
         t.state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         DestroyBuffer(stageH);
+
+        // ── Génération des MIPS (CPU box-filter) ──────────────────────────────
+        // BUG corrigé : DX12 n'a PAS de GenerateMips natif (la fonction device est un
+        // no-op), contrairement à DX11 (ID3D11DeviceContext::GenerateMips) et VK
+        // (vkCmdBlitImage). Sans ça, seul le mip 0 était uploadé et les mips 1..N
+        // restaient NON-INITIALISÉS → les textures de matériau (albedo/normal/ORM,
+        // chargées avec mip chain complète) échantillonnaient du garbage à LOD>0 →
+        // cube/sol BLANC ou bruité sur DX12 alors que DX11/VK/GL affichaient la texture.
+        // On génère donc les mips sur CPU (downsample box 2x2) pour les formats 4 o/texel
+        // (RGBA8 UNORM/SRGB — le cas des textures de matériau) et on upload chaque mip.
+        const uint32 realMips = (uint32)rd.MipLevels;
+        if (realMips > 1 && bpp == 4 && desc.arrayLayers <= 1 && !is3D) {
+            // Copie du mip 0 source (sans padding) pour démarrer la chaîne.
+            NkVector<uint8> cur; cur.Resize(desc.width * desc.height * 4);
+            for (uint32 y = 0; y < desc.height; ++y)
+                memcpy(cur.Data() + (uint64)y * desc.width * 4,
+                       (const uint8*)desc.initialData + (uint64)y * rowPitch,
+                       (size_t)(desc.width * 4));
+            uint32 mw = desc.width, mh = desc.height;
+            for (uint32 mip = 1; mip < realMips; ++mip) {
+                uint32 pw = mw, ph = mh;
+                mw = mw > 1 ? mw >> 1 : 1; mh = mh > 1 ? mh >> 1 : 1;
+                NkVector<uint8> dwn; dwn.Resize(mw * mh * 4);
+                for (uint32 y = 0; y < mh; ++y) {
+                    for (uint32 x = 0; x < mw; ++x) {
+                        // Box 2x2 (clamp aux dims du mip parent).
+                        uint32 x0 = (x*2 < pw) ? x*2 : pw-1, x1 = (x*2+1 < pw) ? x*2+1 : pw-1;
+                        uint32 y0 = (y*2 < ph) ? y*2 : ph-1, y1 = (y*2+1 < ph) ? y*2+1 : ph-1;
+                        const uint8* a = cur.Data() + ((uint64)y0*pw + x0)*4;
+                        const uint8* b = cur.Data() + ((uint64)y0*pw + x1)*4;
+                        const uint8* c = cur.Data() + ((uint64)y1*pw + x0)*4;
+                        const uint8* d = cur.Data() + ((uint64)y1*pw + x1)*4;
+                        uint8* o = dwn.Data() + ((uint64)y*mw + x)*4;
+                        for (int ch = 0; ch < 4; ++ch)
+                            o[ch] = (uint8)(((uint32)a[ch] + b[ch] + c[ch] + d[ch] + 2) >> 2);
+                    }
+                }
+                // Upload de ce mip (pitch 256-aligné + barrières COPY_DEST).
+                {
+                    uint32 mrp = mw * 4;
+                    uint32 mAligned = (mrp + 255u) & ~255u;
+                    uint64 msz = (uint64)mAligned * mh;
+                    NkBufferDesc msd = NkBufferDesc::Staging(msz);
+                    auto mStageH = CreateBuffer(msd);
+                    auto& mStage = mBuffers[mStageH.id];
+                    for (uint32 y = 0; y < mh; ++y)
+                        memcpy((uint8*)mStage.mapped + (uint64)y * mAligned,
+                               dwn.Data() + (uint64)y * mrp, (size_t)mrp);
+                    ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+                        TransitionResource(cmd, res.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                           D3D12_RESOURCE_STATE_COPY_DEST);
+                        D3D12_TEXTURE_COPY_LOCATION dst{}; dst.pResource = res.Get();
+                        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; dst.SubresourceIndex = mip;
+                        D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = mStage.resource.Get();
+                        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                        src.PlacedFootprint.Offset = 0;
+                        src.PlacedFootprint.Footprint = { rd.Format, mw, mh, 1, mAligned };
+                        cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+                        TransitionResource(cmd, res.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                                           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    });
+                    DestroyBuffer(mStageH);
+                }
+                cur = dwn; // le mip courant devient la source du suivant
+            }
+        }
     }
 
     uint64 hid = NextId(); mTextures[hid] = t;
@@ -1062,7 +1181,7 @@ bool NkDirectX12Device::WriteTexture(NkTextureHandle t, const void* p, uint32 rp
 
 bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void* pixels,
     uint32 x, uint32 y, uint32 /*z*/, uint32 w, uint32 h, uint32 /*d2*/,
-    uint32 mip, uint32 /*layer*/, uint32 rowPitch) {
+    uint32 mip, uint32 layer, uint32 rowPitch) {
     auto it = mTextures.Find(t.id); if(!it) return false;
     uint32 bpp = NkFormatBytesPerPixel(it->desc.format);
     uint32 rp  = rowPitch > 0 ? rowPitch : w * bpp;
@@ -1086,7 +1205,17 @@ bool NkDirectX12Device::WriteTextureRegion(NkTextureHandle t, const void* pixels
         D3D12_TEXTURE_COPY_LOCATION dst{};
         dst.pResource = it->resource.Get();
         dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        dst.SubresourceIndex = mip;
+        // Subresource = mip + arrayLayer * mipLevels (identique a D3D11CalcSubresource).
+        // Bug IBL/cubemap DX12 : on ignorait `layer` -> les 6 faces d'un cubemap (et les
+        // tranches d'un array) ecrivaient toutes dans la sous-ressource du mip 0 face 0,
+        // laissant les faces 1..5 noires -> skybox/IBL noir, metal PBR reflechit du noir.
+        {
+            // Nombre de mips REEL de la ressource (gere le cas desc.mipLevels==0 = chaine
+            // complete, resolu en MipLevels concret a la creation).
+            uint32 mips = (uint32)it->resource->GetDesc().MipLevels;
+            if (mips == 0) mips = 1;
+            dst.SubresourceIndex = mip + layer * mips;
+        }
         D3D12_TEXTURE_COPY_LOCATION src{};
         src.pResource = stage.resource.Get();
         src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -1257,6 +1386,26 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
             // (utile pour comparer NkSL vs SPIRV-Cross sur un PSO qui echoue).
             if (getenv("NK_DX12_DUMPHLSL"))
                 NK_DX12_LOG("[DUMPHLSL stage %u]\n%s\n", (unsigned)s.stage, s.hlslSource);
+
+            // ── CACHE DXIL/DXBC (perf démarrage) ──────────────────────────────────
+            // dxc (HLSL SM6 -> DXIL) recompilait ~50 shaders À CHAQUE run (lent), alors
+            // que VK recharge son SPIR-V caché et DX11 son DXBC caché. On cache ici le
+            // bytecode DXIL/DXBC compilé (clé = hash HLSL + entry + profil) pour ne
+            // compiler qu'une fois ; les runs suivants rechargent instantanément.
+            // Clé incluant l'entry point (un même HLSL peut avoir des entries différents).
+            const NkString dxCacheFmt = NkString("dxil_") + entry; // ex. dxil_VSMain
+            const uint64 dxCacheKey = NkShaderCache::ComputeKey(NkString(s.hlslSource), s.stage, dxCacheFmt);
+            {
+                auto cached = NkShaderCache::Global().Load(dxCacheKey);
+                if (cached.success && !cached.binary.IsEmpty()) {
+                    target->Assign(cached.binary.Data(), (usize)cached.binary.Size());
+                    stageCompiled = true;
+                }
+            }
+            if (stageCompiled) {
+                // Hit cache : pas de recompilation. (vsBlob non nécessaire : il ne sert
+                // qu'au fallback fxc pour l'input layout DX11-style, non utilisé en DX12.)
+            } else {
 #ifdef NK_HAS_DXC
             // 1) Vrai compilateur DX12 : dxc -> DXIL (Shader Model 6.0).
             const wchar_t* dxcProfile =
@@ -1296,6 +1445,13 @@ NkShaderHandle NkDirectX12Device::CreateShader(const NkShaderDesc& desc) {
 #ifdef NK_HAS_DXC
             }
 #endif
+                // Sauver le DXIL/DXBC compilé (réutilisé aux prochains runs).
+                if (stageCompiled && !target->empty()) {
+                    NkShaderConvertResult toCache; toCache.success = true;
+                    toCache.binary.Assign(target->Data(), (uint32)target->Size());
+                    NkShaderCache::Global().Save(dxCacheKey, toCache);
+                }
+            } // fin else (cache miss -> compile + save)
         }
 
         if (!stageCompiled || target->empty()) {
@@ -1322,16 +1478,56 @@ void NkDirectX12Device::DestroyShader(NkShaderHandle& h) {
 // =============================================================================
 // Pipelines
 // =============================================================================
-NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
-    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
-    auto sit = mShaders.Find(d.shader.id); if(!sit) return {};
-    auto& sh = *sit;
-
-    auto rootSig = CreateDefaultRootSignature(false);
-    if (!rootSig) {
-        NK_DX12_ERR("CreateGraphicsPipeline: root signature invalid\n");
-        return {};
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix #613 : helpers de formats RTV/DSV pour les variantes PSO.
+// ─────────────────────────────────────────────────────────────────────────────
+void NkDirectX12Device::RenderPassFormats(NkRenderPassHandle rp, UINT& numRT,
+                                          DXGI_FORMAT rtvFormats[8],
+                                          DXGI_FORMAT& dsvFormat) const {
+    // (appelant détient déjà mMutex)
+    auto rpit = mRenderPasses.Find(rp.id);
+    if (rpit) {
+        numRT = (UINT)rpit->desc.colorAttachments.Size();
+        if (numRT > 8) numRT = 8;
+        for (UINT i = 0; i < numRT; i++)
+            rtvFormats[i] = ToDXGIFormat(rpit->desc.colorAttachments[i].format);
+        for (UINT i = numRT; i < 8; i++) rtvFormats[i] = DXGI_FORMAT_UNKNOWN;
+        dsvFormat = DXGI_FORMAT_UNKNOWN;
+        if (rpit->desc.hasDepth)
+            dsvFormat = NkFormatIsDepth(rpit->desc.depthAttachment.format)
+                ? DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_D24_UNORM_S8_UINT;
+    } else {
+        // Fallback swapchain (cf. GetSwapchainFormat : B8G8R8A8_UNORM + D32_FLOAT).
+        numRT = 1;
+        rtvFormats[0] = DXGI_FORMAT_B8G8R8A8_UNORM;
+        for (UINT i = 1; i < 8; i++) rtvFormats[i] = DXGI_FORMAT_UNKNOWN;
+        dsvFormat = DXGI_FORMAT_D32_FLOAT;
     }
+}
+
+uint64 NkDirectX12Device::FmtSignature(UINT numRT, const DXGI_FORMAT* rtvFormats,
+                                       DXGI_FORMAT dsvFormat) {
+    // FNV-1a 64 bits sur (numRT, RTVFormats[0..numRT-1], dsvFormat).
+    uint64 h = 1469598103934665603ull;
+    auto mix = [&](uint32 v) {
+        for (int b = 0; b < 4; b++) { h ^= (uint8)(v >> (b*8)); h *= 1099511628211ull; }
+    };
+    mix(numRT);
+    for (UINT i = 0; i < numRT && i < 8; i++) mix((uint32)rtvFormats[i]);
+    mix((uint32)dsvFormat);
+    return h;
+}
+
+// Construit un PSO graphics avec un jeu EXPLICITE de formats RTV/DSV (le reste du
+// state vient de d). rootSig est partagée par toutes les variantes du pipeline.
+ComPtr<ID3D12PipelineState> NkDirectX12Device::BuildGraphicsPSO(
+        const NkGraphicsPipelineDesc& d, ID3D12RootSignature* rootSig,
+        UINT numRT, const DXGI_FORMAT* rtvFormats, DXGI_FORMAT dsvFormat) {
+    // (appelant détient déjà mMutex)
+    auto sit = mShaders.Find(d.shader.id);
+    if (!sit) return nullptr;
+    auto& sh = *sit;
+    if (sh.vs.bytecode.empty()) return nullptr;
 
     // Input Layout
     NkVector<D3D12_INPUT_ELEMENT_DESC> elems;
@@ -1354,11 +1550,7 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
     }
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psd{};
-    psd.pRootSignature = rootSig.Get();
-    if (sh.vs.bytecode.empty()) {
-        NK_DX12_ERR("CreateGraphicsPipeline: missing vertex shader bytecode\n");
-        return {};
-    }
+    psd.pRootSignature = rootSig;
     psd.VS = sh.vs.bc();
     if (!sh.gs.bytecode.empty()) psd.GS = sh.gs.bc();
     if (!sh.hs.bytecode.empty()) psd.HS = sh.hs.bc();
@@ -1408,28 +1600,17 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
     }
 
     psd.SampleMask = UINT_MAX;
-    // SampleDesc.Count doit être >= 1 (NkSampleCount zero-init = 0, pas NK_S1=1)
     psd.SampleDesc = { (UINT)d.samples >= 1 ? (UINT)d.samples : 1u, 0 };
 
-    // Render target formats
-    auto rpit = mRenderPasses.Find(d.renderPass.id);
-    if(rpit) {
-        psd.NumRenderTargets = rpit->desc.colorAttachments.Size();
-        for (uint32 i = 0; i < rpit->desc.colorAttachments.Size(); i++)
-            psd.RTVFormats[i] = ToDXGIFormat(rpit->desc.colorAttachments[i].format);
-        if (rpit->desc.hasDepth)
-            psd.DSVFormat = NkFormatIsDepth(rpit->desc.depthAttachment.format)
-                ? DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_D24_UNORM_S8_UINT;
-    } else {
-        psd.NumRenderTargets = 1;
-        psd.RTVFormats[0]    = DXGI_FORMAT_B8G8R8A8_UNORM;
-        psd.DSVFormat        = DXGI_FORMAT_D32_FLOAT;
-    }
+    // ── Formats RTV/DSV EXPLICITES (fix #613) ──────────────────────────────────
+    psd.NumRenderTargets = numRT;
+    for (UINT i = 0; i < numRT && i < 8; i++) psd.RTVFormats[i] = rtvFormats[i];
+    psd.DSVFormat = dsvFormat;
 
-    if (psd.NumRenderTargets > 0) {
+    if (numRT > 0) {
         if (sh.ps.bytecode.empty()) {
-            NK_DX12_ERR("CreateGraphicsPipeline: missing pixel shader with color outputs\n");
-            return {};
+            NK_DX12_ERR("BuildGraphicsPSO: missing pixel shader with color outputs\n");
+            return nullptr;
         }
         psd.PS = sh.ps.bc();
     }
@@ -1438,7 +1619,6 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
     HRESULT hr = mDevice->CreateGraphicsPipelineState(&psd, IID_PPV_ARGS(&pso));
     if (FAILED(hr) || !pso) {
         NK_DX12_ERR("CreateGraphicsPipelineState failed (hr=0x%X)\n", (unsigned)hr);
-        // Diag (sans debug layer) : dump des champs cles du PSO desc.
         NK_DX12_ERR("  PSO desc: numInputElems=%u NumRenderTargets=%u RTV0=%d DSVFormat=%d "
                     "DepthEnable=%d topoType=%d sampleCount=%u VS=%zu PS=%zu rootSig=%p\n",
                     (unsigned)elems.size(), (unsigned)psd.NumRenderTargets,
@@ -1446,22 +1626,76 @@ NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipel
                     (int)psd.DepthStencilState.DepthEnable,
                     (int)psd.PrimitiveTopologyType, (unsigned)psd.SampleDesc.Count,
                     (size_t)sh.vs.bytecode.size(), (size_t)sh.ps.bytecode.size(),
-                    (void*)rootSig.Get());
+                    (void*)rootSig);
         for (uint32 ie = 0; ie < (uint32)elems.size(); ie++)
             NK_DX12_ERR("    in[%u] sem=%s idx=%u fmt=%d slot=%u off=%u\n", ie,
                         elems[ie].SemanticName ? elems[ie].SemanticName : "(null)",
                         (unsigned)elems[ie].SemanticIndex, (int)elems[ie].Format,
                         (unsigned)elems[ie].InputSlot, (unsigned)elems[ie].AlignedByteOffset);
-        // Vide l'InfoQueue MAINTENANT : les messages de validation (STATE_CREATION)
-        // sont stockes mais normalement draines en EndFrame, jamais atteint si on
-        // abandonne ici. Sans ca, on n'a que le E_INVALIDARG opaque.
         if (mInfoQueue) DrainDX12InfoQueue(mInfoQueue.Get());
+        return nullptr;
+    }
+    return pso;
+}
+
+// Résout le PSO de pipelineId compatible avec le RP actif (formats RTV/DSV). Réutilise
+// le PSO de base si signature identique ; sinon construit/cache une variante.
+ID3D12PipelineState* NkDirectX12Device::ResolvePipelineForRenderPass(uint64 pipelineId,
+                                                                     NkRenderPassHandle rp) {
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
+    auto* pipe = mPipelines.Find(pipelineId);
+    if (!pipe || pipe->isCompute) return nullptr;
+
+    UINT numRT; DXGI_FORMAT rtv[8]; DXGI_FORMAT dsv;
+    RenderPassFormats(rp, numRT, rtv, dsv);
+    uint64 sig = FmtSignature(numRT, rtv, dsv);
+
+    if (sig == pipe->baseFmtSig) return pipe->pso.Get();   // PSO de base déjà compatible
+
+    auto* v = pipe->variants.Find(sig);
+    if (v && *v) return v->Get();
+
+    // Nouvelle variante : reconstruire avec les formats du RP courant.
+    ComPtr<ID3D12PipelineState> pso =
+        BuildGraphicsPSO(pipe->desc, pipe->rootSig.Get(), numRT, rtv, dsv);
+    if (!pso) {
+        // Echec build : retomber sur le PSO de base (au pire #613, mais pas de crash).
+        return pipe->pso.Get();
+    }
+    pipe->variants[sig] = pso;
+    return pso.Get();
+}
+
+NkPipelineHandle NkDirectX12Device::CreateGraphicsPipeline(const NkGraphicsPipelineDesc& d) {
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
+    auto sit = mShaders.Find(d.shader.id); if(!sit) return {};
+    auto& sh = *sit;
+    if (sh.vs.bytecode.empty()) {
+        NK_DX12_ERR("CreateGraphicsPipeline: missing vertex shader bytecode\n");
         return {};
     }
+
+    auto rootSig = CreateDefaultRootSignature(false);
+    if (!rootSig) {
+        NK_DX12_ERR("CreateGraphicsPipeline: root signature invalid\n");
+        return {};
+    }
+
+    // Formats RTV/DSV du PSO de BASE = ceux de d.renderPass (ou fallback swapchain).
+    // Le bon format pour chaque passe est ensuite garanti au 1er bind via
+    // ResolvePipelineForRenderPass (fix #613) qui construit une variante au besoin.
+    UINT numRT; DXGI_FORMAT rtv[8]; DXGI_FORMAT dsv;
+    RenderPassFormats(d.renderPass, numRT, rtv, dsv);
+
+    ComPtr<ID3D12PipelineState> pso =
+        BuildGraphicsPSO(d, rootSig.Get(), numRT, rtv, dsv);
+    if (!pso) return {};   // BuildGraphicsPSO a déjà loggé le détail.
 
     NkDX12Pipeline p; p.pso = pso; p.rootSig = rootSig;
     p.isCompute = false;
     p.topology  = ToDX12Topology(d.topology);
+    p.desc      = d;                                   // pour reconstruire les variantes
+    p.baseFmtSig= FmtSignature(numRT, rtv, dsv);       // signature du PSO de base
     for (uint32 i = 0; i < d.vertexLayout.bindings.Size(); ++i) {
         const NkVertexBinding& b = d.vertexLayout.bindings[i];
         if (b.binding < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT)
@@ -1523,12 +1757,27 @@ void NkDirectX12Device::DestroyRenderPass(NkRenderPassHandle& h) {
 NkFramebufferHandle NkDirectX12Device::CreateFramebuffer(const NkFramebufferDesc& d) {
     threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
     NkDX12Framebuffer fb; fb.w = d.width; fb.h = d.height;
+
+    // Cause A (ecran noir DX12) : on synthetise un NkRenderPass dont les formats
+    // d'attachments = formats REELS des textures du FB. Ce RP est expose via
+    // GetFramebufferRenderPass() ; le renderer s'en sert pour creer ses PSO offscreen
+    // (Geometry R16F, post-process R8/R16...). Sans ca, pd.renderPass reste {} cote
+    // renderer => CreateGraphicsPipeline tombe sur le fallback swapchain B8G8R8A8_UNORM
+    // => RENDER_TARGET_FORMAT_MISMATCH_PIPELINE_STATE (#613) au draw, rien ne s'affiche.
+    // (Le FB peut aussi etre cree avec un d.renderPass explicite : on le respecte alors.)
+    NkRenderPassDesc rpd;
+
     for (uint32 i = 0; i < d.colorAttachments.Size(); i++) {
         auto it = mTextures.Find(d.colorAttachments[i].id);
         if(it) {
             fb.rtvIdxs[fb.rtvCount] = it->rtvIdx;
             fb.colorTexIds[fb.rtvCount] = d.colorAttachments[i].id;
             fb.rtvCount++;
+            NkAttachmentDesc ad;
+            ad.format  = it->desc.format;          // format reel de la texture RT
+            ad.loadOp  = NkLoadOp::NK_LOAD;        // sans incidence sur la compat PSO
+            ad.storeOp = NkStoreOp::NK_STORE;
+            rpd.AddColor(ad);
         }
     }
     if (d.depthAttachment.IsValid()) {
@@ -1536,13 +1785,41 @@ NkFramebufferHandle NkDirectX12Device::CreateFramebuffer(const NkFramebufferDesc
         if(it) {
             fb.dsvIdx = it->dsvIdx;
             fb.depthTexId = d.depthAttachment.id;
+            NkAttachmentDesc dad;
+            dad.format  = it->desc.format;
+            dad.loadOp  = NkLoadOp::NK_LOAD;
+            dad.storeOp = NkStoreOp::NK_STORE;
+            rpd.SetDepth(dad);
         }
     }
+
+    // Respecte un renderPass fourni explicitement ; sinon synthetise depuis les formats.
+    if (d.renderPass.IsValid() && mRenderPasses.Find(d.renderPass.id)) {
+        fb.renderPassHandle = d.renderPass;
+    } else {
+        uint64 rpid = NextId();
+        mRenderPasses[rpid] = { rpd };
+        fb.renderPassHandle.id = rpid;
+    }
+
     uint64 hid = NextId(); mFramebuffers[hid] = fb;
     NkFramebufferHandle h; h.id = hid; return h;
 }
+NkRenderPassHandle NkDirectX12Device::GetFramebufferRenderPass(NkFramebufferHandle fb) const {
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
+    const auto* it = mFramebuffers.Find(fb.id);
+    return it ? it->renderPassHandle : NkRenderPassHandle{};
+}
 void NkDirectX12Device::DestroyFramebuffer(NkFramebufferHandle& h) {
-    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex); mFramebuffers.Erase(h.id); h.id = 0;
+    threading::NkScopedLock<threading::NkRecursiveMutex> lock(mMutex);
+    // Libere le RP synthetise par CreateFramebuffer (sauf si c'est le RP swapchain
+    // partage ou un RP fourni explicitement et detenu ailleurs).
+    if (auto* fbo = mFramebuffers.Find(h.id)) {
+        if (fbo->renderPassHandle.IsValid() &&
+            fbo->renderPassHandle.id != mSwapchainRP.id)
+            mRenderPasses.Erase(fbo->renderPassHandle.id);
+    }
+    mFramebuffers.Erase(h.id); h.id = 0;
 }
 
 // =============================================================================
@@ -1620,11 +1897,520 @@ void NkDirectX12Device::Submit(NkICommandBuffer* const* cbs, uint32 n, NkFenceHa
     }
 }
 
+// Décodeur half-float (IEEE 754 binary16) → float. Utilisé par le diag de grille HDR.
+static float NkHalfToFloat(uint16 h) {
+    uint32 sign = (uint32)(h & 0x8000) << 16;
+    uint32 exp  = (h >> 10) & 0x1F;
+    uint32 mant = h & 0x3FF;
+    uint32 f;
+    if (exp == 0) {
+        if (mant == 0) { f = sign; }
+        else {
+            exp = 127 - 15 + 1;
+            while ((mant & 0x400) == 0) { mant <<= 1; exp--; }
+            mant &= 0x3FF;
+            f = sign | (exp << 23) | (mant << 13);
+        }
+    } else if (exp == 0x1F) {
+        f = sign | 0x7F800000 | (mant << 13);
+    } else {
+        f = sign | ((exp - 15 + 127) << 23) | (mant << 13);
+    }
+    float out; memcpy(&out, &f, 4); return out;
+}
+
+// DIAGNOSTIC (gated NK_DX12_READBACK>=2) : copie tout le HDR RT plein écran dans un staging
+// READBACK, puis échantillonne une grille 16x16 et compte les points qui s'écartent
+// nettement du fond ambiant → prouve si la géométrie 3D se rend (clusters) ou est
+// dégénérée (tout == fond). Staging = ID3D12Resource COM (pas de heap NKMemory).
+void NkDirectX12Device::ReadbackHDRGridDiag(ID3D12Resource* res, D3D12_RESOURCE_STATES prev,
+                                            uint32 tw, uint32 th) {
+    if (!res) return;
+    const uint32 bpp = 8; // RGBA16F
+    const uint32 kAlign = 256u;
+    uint32 rowPitch = (tw * bpp + (kAlign - 1)) & ~(kAlign - 1);
+    uint64 total = (uint64)rowPitch * th;
+
+    D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd{};
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = total; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_UNKNOWN; rd.SampleDesc = {1, 0};
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ComPtr<ID3D12Resource> st;
+    if (FAILED(mDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&st))) || !st) return;
+
+    ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+        TransitionResource(cmd, res, prev, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION s{}; s.pResource = res;
+        s.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; s.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION d{}; d.pResource = st.Get();
+        d.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        d.PlacedFootprint.Offset = 0;
+        d.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        d.PlacedFootprint.Footprint.Width = tw;
+        d.PlacedFootprint.Footprint.Height = th;
+        d.PlacedFootprint.Footprint.Depth = 1;
+        d.PlacedFootprint.Footprint.RowPitch = rowPitch;
+        cmd->CopyTextureRegion(&d, 0, 0, 0, &s, nullptr);
+        TransitionResource(cmd, res, D3D12_RESOURCE_STATE_COPY_SOURCE, prev);
+    });
+
+    void* m = nullptr; D3D12_RANGE rr{0, (SIZE_T)total};
+    if (FAILED(st->Map(0, &rr, &m)) || !m) return;
+    const uint8* base = (const uint8*)m;
+
+    // Fond ambiant approx (luminance) : on échantillonne le coin (0,0) comme référence.
+    const uint16* p00 = (const uint16*)(base);
+    float bg_r = NkHalfToFloat(p00[0]), bg_g = NkHalfToFloat(p00[1]), bg_b = NkHalfToFloat(p00[2]);
+    float bgLum = 0.299f*bg_r + 0.587f*bg_g + 0.114f*bg_b;
+
+    const int G = 16;
+    int nonBg = 0, bright = 0;
+    float maxLum = -1.f, minLum = 1e9f; int maxX = 0, maxY = 0;
+    NkString row;
+    for (int gy = 0; gy < G; ++gy) {
+        for (int gx = 0; gx < G; ++gx) {
+            uint32 x = (uint32)((gx + 0.5f) / G * tw);
+            uint32 y = (uint32)((gy + 0.5f) / G * th);
+            if (x >= tw) x = tw - 1; if (y >= th) y = th - 1;
+            const uint16* px = (const uint16*)(base + (uint64)y * rowPitch + (uint64)x * bpp);
+            float r = NkHalfToFloat(px[0]), g = NkHalfToFloat(px[1]), b = NkHalfToFloat(px[2]);
+            float lum = 0.299f*r + 0.587f*g + 0.114f*b;
+            if (lum > maxLum) { maxLum = lum; maxX = (int)x; maxY = (int)y; }
+            if (lum < minLum) minLum = lum;
+            // « non-fond » = écart relatif > 25% de la luminance du fond + marge absolue.
+            bool nb = (lum > bgLum * 1.25f + 0.02f) || (lum < bgLum * 0.75f - 0.001f);
+            if (nb) nonBg++;
+            if (lum > bgLum * 2.0f + 0.1f) bright++;
+            row += (lum > bgLum * 2.0f + 0.1f) ? '#' : (nb ? '+' : '.');
+        }
+        NK_DX12_LOG("READBACK HDRGRID %s\n", row.CStr());
+        row.Clear();
+    }
+    NK_DX12_LOG("READBACK HDRGRID SUMMARY bgLum=%.4f nonBg=%d/256 bright=%d minLum=%.4f maxLum=%.4f at(%d,%d)\n",
+                bgLum, nonBg, bright, minLum, maxLum, maxX, maxY);
+    st->Unmap(0, nullptr);
+}
+
+// DIAGNOSTIC (gated NK_DX12_READBACK>=2) : grille de profondeurs sur une texture DEPTH
+// (atlas d'ombre D32_FLOAT). Compte les texels avec une profondeur < 1.0 (= géométrie
+// rendue). Staging = ID3D12Resource COM. La depth se copie en R32_FLOAT.
+void NkDirectX12Device::ReadbackDepthGridDiag(ID3D12Resource* res, D3D12_RESOURCE_STATES prev,
+                                              uint32 tw, uint32 th, uint64 tid) {
+    if (!res) return;
+    const uint32 bpp = 4; // R32_FLOAT
+    const uint32 kAlign = 256u;
+    uint32 rowPitch = (tw * bpp + (kAlign - 1)) & ~(kAlign - 1);
+    uint64 total = (uint64)rowPitch * th;
+
+    D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd{};
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = total; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_UNKNOWN; rd.SampleDesc = {1, 0};
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ComPtr<ID3D12Resource> st;
+    if (FAILED(mDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&st))) || !st) return;
+
+    ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+        TransitionResource(cmd, res, prev, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION s{}; s.pResource = res;
+        s.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; s.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION d{}; d.pResource = st.Get();
+        d.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        d.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+        d.PlacedFootprint.Footprint.Width = tw;
+        d.PlacedFootprint.Footprint.Height = th;
+        d.PlacedFootprint.Footprint.Depth = 1;
+        d.PlacedFootprint.Footprint.RowPitch = rowPitch;
+        cmd->CopyTextureRegion(&d, 0, 0, 0, &s, nullptr);
+        TransitionResource(cmd, res, D3D12_RESOURCE_STATE_COPY_SOURCE, prev);
+    });
+
+    void* m = nullptr; D3D12_RANGE rr{0, (SIZE_T)total};
+    if (FAILED(st->Map(0, &rr, &m)) || !m) return;
+    const uint8* base = (const uint8*)m;
+    const int G = 16;
+    int written = 0; float dmin = 1e9f, dmax = -1e9f;
+    for (int gy = 0; gy < G; ++gy) {
+        for (int gx = 0; gx < G; ++gx) {
+            uint32 x = (uint32)((gx + 0.5f) / G * tw);
+            uint32 y = (uint32)((gy + 0.5f) / G * th);
+            if (x >= tw) x = tw - 1; if (y >= th) y = th - 1;
+            float dv; memcpy(&dv, base + (uint64)y * rowPitch + (uint64)x * bpp, 4);
+            if (dv < 0.9999f) written++;
+            if (dv < dmin) dmin = dv;
+            if (dv > dmax) dmax = dv;
+        }
+    }
+    NK_DX12_LOG("READBACK SHADOWATLAS id=%llu %ux%u written(<1.0)=%d/256 dmin=%.4f dmax=%.4f\n",
+                (unsigned long long)tid, tw, th, written, dmin, dmax);
+    st->Unmap(0, nullptr);
+}
+
+// DIAGNOSTIC readback : lire le pixel central du backbuffer courant et le loguer.
+// Gate stricte sur la variable d'env NK_DX12_READBACK. Le staging est un ID3D12Resource
+// COM (Release auto via ComPtr) — PAS du heap NKMemory, donc aucune règle Alloc/Free
+// NKMemory n'est violée ici.
+void NkDirectX12Device::ReadbackBackbufferCenterDiag() {
+    static int sEnabled = -1;
+    static bool sDumpedRTs = false;
+    if (sEnabled == -1) {
+        const char* v = getenv("NK_DX12_READBACK");
+        sEnabled = (v && v[0] && v[0] != '0') ? (v[0] - '0' >= 2 ? 2 : 1) : 0;
+        if (sEnabled) NK_DX12_LOG("READBACK diag ACTIF niveau=%d (NK_DX12_READBACK)\n", sEnabled);
+    }
+    if (!sEnabled || !mDevice) return;
+
+    // Niveau 2 : une seule fois (3e frame, RG stabilisé), dumpe le centre de TOUS les RT
+    // offscreen (non-swapchain) ayant un RTV → révèle quelle passe produit/perd l'image.
+    if (sEnabled >= 2 && !sDumpedRTs && mFrameNumber >= 3) {
+        sDumpedRTs = true;
+
+        // CUBEMAP diag : pour chaque cube (arrayLayers>=6), lit 5 texels (centre + 4 coins)
+        // des faces 0/2/4. Permet de distinguer : faces identiques (upload dupliqué),
+        // faces différentes mais plates (source plate), ou variation interne (contenu OK
+        // → bug = sampling). Lit le format RGBA32F (16 o/texel) ou RGBA8 (4 o).
+        for (auto& [ctid, ct] : mTextures) {
+            if (ct.isSwapchain || !ct.resource) continue;
+            uint32 layers = (ct.desc.type == NkTextureType::NK_CUBE)
+                          ? 6u : (uint32)ct.desc.arrayLayers;
+            if (layers < 6) continue; // pas un cube
+            uint32 cw = (uint32)ct.desc.width, chh = (uint32)ct.desc.height;
+            if (cw < 4 || chh < 4) continue;
+            DXGI_FORMAT cf = ct.format;
+            uint32 cbpp = (cf == DXGI_FORMAT_R32G32B32A32_FLOAT) ? 16u
+                        : (cf == DXGI_FORMAT_R16G16B16A16_FLOAT) ? 8u : 4u;
+            uint32 mipsReal = (uint32)ct.resource->GetDesc().MipLevels; if (mipsReal == 0) mipsReal = 1;
+            for (uint32 face : {0u, 2u, 4u}) {
+                // points : centre + 4 positions internes pour mesurer la variation.
+                struct PT { uint32 x, y; };
+                PT pts[3] = { {cw/2, chh/2}, {cw/4, chh/4}, {(3*cw)/4, (3*chh)/4} };
+                float vals[3][4] = {};
+                for (int pi = 0; pi < 3; ++pi) {
+                    D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+                    D3D12_RESOURCE_DESC rd{};
+                    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+                    rd.Width = 256; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+                    rd.Format = DXGI_FORMAT_UNKNOWN; rd.SampleDesc = {1, 0};
+                    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+                    ComPtr<ID3D12Resource> cst;
+                    if (FAILED(mDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&cst))) || !cst) continue;
+                    ID3D12Resource* cres = ct.resource.Get();
+                    D3D12_RESOURCE_STATES cprev = ct.state;
+                    UINT subres = 0 + face * mipsReal; // mip0 de la face
+                    uint32 cpx = pts[pi].x, cpy = pts[pi].y;
+                    ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+                        TransitionResource(cmd, cres, cprev, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                        D3D12_TEXTURE_COPY_LOCATION s{}; s.pResource = cres;
+                        s.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; s.SubresourceIndex = subres;
+                        D3D12_TEXTURE_COPY_LOCATION d{}; d.pResource = cst.Get();
+                        d.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                        d.PlacedFootprint.Footprint.Format = cf;
+                        d.PlacedFootprint.Footprint.Width = 1; d.PlacedFootprint.Footprint.Height = 1;
+                        d.PlacedFootprint.Footprint.Depth = 1; d.PlacedFootprint.Footprint.RowPitch = 256;
+                        D3D12_BOX b{ cpx, cpy, 0, cpx + 1, cpy + 1, 1 };
+                        cmd->CopyTextureRegion(&d, 0, 0, 0, &s, &b);
+                        TransitionResource(cmd, cres, D3D12_RESOURCE_STATE_COPY_SOURCE, cprev);
+                    });
+                    void* mm = nullptr; D3D12_RANGE rrr{0, 16};
+                    if (SUCCEEDED(cst->Map(0, &rrr, &mm)) && mm) {
+                        if (cbpp == 16) { memcpy(vals[pi], mm, 16); }
+                        else { const uint8* bb = (const uint8*)mm; for (int k=0;k<4;k++) vals[pi][k] = bb[k]/255.f; }
+                        cst->Unmap(0, nullptr);
+                    }
+                }
+                NK_DX12_LOG("READBACK CUBE id=%llu %ux%u fmt=%d face=%u center=[%.3f %.3f %.3f] q1=[%.3f %.3f %.3f] q3=[%.3f %.3f %.3f]\n",
+                            (unsigned long long)ctid, cw, chh, (int)cf, face,
+                            vals[0][0],vals[0][1],vals[0][2], vals[1][0],vals[1][1],vals[1][2], vals[2][0],vals[2][1],vals[2][2]);
+            }
+        }
+
+        for (auto& [tid, t] : mTextures) {
+            if (t.isSwapchain || t.rtvIdx == UINT_MAX || !t.resource) continue;
+            if (t.desc.depth > 1) continue; // skip 3D
+            UINT tw = (UINT)t.desc.width, th = (UINT)t.desc.height;
+            if (tw == 0 || th == 0) continue;
+            UINT px = tw / 2, py = th / 2;
+            D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC rd{};
+            rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            rd.Width = 256; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+            rd.Format = DXGI_FORMAT_UNKNOWN; rd.SampleDesc = {1, 0};
+            rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            ComPtr<ID3D12Resource> st;
+            if (FAILED(mDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&st))) || !st) continue;
+            ID3D12Resource* res = t.resource.Get();
+            D3D12_RESOURCE_STATES prev = t.state;
+            DXGI_FORMAT rfmt = t.format;
+            ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+                TransitionResource(cmd, res, prev, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_TEXTURE_COPY_LOCATION s{}; s.pResource = res;
+                s.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; s.SubresourceIndex = 0;
+                D3D12_TEXTURE_COPY_LOCATION d{}; d.pResource = st.Get();
+                d.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                d.PlacedFootprint.Footprint.Format = rfmt;
+                d.PlacedFootprint.Footprint.Width = 1; d.PlacedFootprint.Footprint.Height = 1;
+                d.PlacedFootprint.Footprint.Depth = 1; d.PlacedFootprint.Footprint.RowPitch = 256;
+                D3D12_BOX b{ px, py, 0, px + 1, py + 1, 1 };
+                cmd->CopyTextureRegion(&d, 0, 0, 0, &s, &b);
+                TransitionResource(cmd, res, D3D12_RESOURCE_STATE_COPY_SOURCE, prev);
+            });
+            void* m = nullptr; D3D12_RANGE rr{0, 16};
+            if (SUCCEEDED(st->Map(0, &rr, &m)) && m) {
+                const uint8* b = (const uint8*)m;
+                NK_DX12_LOG("READBACK RT id=%llu %ux%u fmt=%d center bytes=%02X%02X%02X%02X %02X%02X%02X%02X\n",
+                            (unsigned long long)tid, tw, th, (int)rfmt,
+                            b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7]);
+                st->Unmap(0, nullptr);
+            }
+
+            // GRILLE sur le HDR RT plein écran (fmt 10 = R16G16B16A16_FLOAT à pleine résol.)
+            // → distingue « géométrie dégénérée » (tout == fond ambiant) de « objets rendus »
+            // (clusters brillants). Half-float décodé en float ; comptage des points dont la
+            // luminance s'écarte nettement du fond ambiant (~0.10,0.10,0.14).
+            if (rfmt == DXGI_FORMAT_R16G16B16A16_FLOAT && tw >= mWidth && th >= mHeight) {
+                ReadbackHDRGridDiag(res, prev, tw, th);
+            }
+        }
+
+        // Atlas d'ombre = texture DEPTH (dsvIdx, pas de rtvIdx → ignorée par la boucle RT).
+        // On échantillonne une grille de profondeurs : si tout == 1.0 → rien rendu dans
+        // l'atlas (toute la scène « non occluse » → SampleCmp devrait rendre 1=éclairé, pas
+        // 0). Si des valeurs < 1.0 existent → l'atlas contient des profondeurs valides.
+        for (auto& [tid, t] : mTextures) {
+            if (t.isSwapchain || t.dsvIdx == UINT_MAX || !t.resource) continue;
+            UINT tw = (UINT)t.desc.width, th = (UINT)t.desc.height;
+            if (tw < 256 || th < 256) continue; // cible l'atlas d'ombre (grand)
+            ReadbackDepthGridDiag(t.resource.Get(), t.state, tw, th, tid);
+        }
+    }
+
+    // Backbuffer courant : texture color[0] du framebuffer swapchain actif.
+    if (mBackBufferIdx >= mSwapchainFBs.Size()) return;
+    auto fbIt = mFramebuffers.Find(mSwapchainFBs[mBackBufferIdx].id);
+    if (!fbIt || fbIt->rtvCount == 0) return;
+    auto texIt = mTextures.Find(fbIt->colorTexIds[0]);
+    if (!texIt || !texIt->resource) return;
+    ID3D12Resource* bb = texIt->resource.Get();
+
+    // GRILLE BACKBUFFER (1x/s) : copie tout le backbuffer BGRA8 et échantillonne une grille
+    // 16x16 → prouve si la SCÈNE (sphères colorées) est dans le backbuffer présenté LIVE,
+    // ou seulement du gris uniforme. Distingue « fond au centre » d'un « backbuffer plat ».
+    {
+        static uint64 sLastGridFrame = (uint64)-1;
+        if (mFrameNumber != sLastGridFrame && (mFrameNumber % 30 == 0)) {
+            sLastGridFrame = mFrameNumber;
+            const uint32 bbpp = 4; const uint32 kA = 256u;
+            uint32 rp = (mWidth * bbpp + (kA - 1)) & ~(kA - 1);
+            uint64 tot = (uint64)rp * mHeight;
+            D3D12_HEAP_PROPERTIES bhp{}; bhp.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC brd{};
+            brd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            brd.Width = tot; brd.Height = 1; brd.DepthOrArraySize = 1; brd.MipLevels = 1;
+            brd.Format = DXGI_FORMAT_UNKNOWN; brd.SampleDesc = {1, 0};
+            brd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            ComPtr<ID3D12Resource> bst;
+            if (SUCCEEDED(mDevice->CreateCommittedResource(&bhp, D3D12_HEAP_FLAG_NONE, &brd,
+                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&bst))) && bst) {
+                DXGI_FORMAT bfmt = texIt->format;
+                ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+                    TransitionResource(cmd, bb, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    D3D12_TEXTURE_COPY_LOCATION s{}; s.pResource = bb;
+                    s.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; s.SubresourceIndex = 0;
+                    D3D12_TEXTURE_COPY_LOCATION d{}; d.pResource = bst.Get();
+                    d.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                    d.PlacedFootprint.Footprint.Format = bfmt;
+                    d.PlacedFootprint.Footprint.Width = mWidth; d.PlacedFootprint.Footprint.Height = mHeight;
+                    d.PlacedFootprint.Footprint.Depth = 1; d.PlacedFootprint.Footprint.RowPitch = rp;
+                    cmd->CopyTextureRegion(&d, 0, 0, 0, &s, nullptr);
+                    TransitionResource(cmd, bb, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
+                });
+                void* m = nullptr; D3D12_RANGE rr{0, (SIZE_T)tot};
+                if (SUCCEEDED(bst->Map(0, &rr, &m)) && m) {
+                    const uint8* base = (const uint8*)m;
+                    const int G = 16; int colored = 0, distinct = 0;
+                    NkString row;
+                    // ref = coin haut-gauche (souvent fond)
+                    uint8 ref0 = base[0], ref1 = base[1], ref2 = base[2];
+                    for (int gy = 0; gy < G; ++gy) {
+                        for (int gx = 0; gx < G; ++gx) {
+                            uint32 x = (uint32)((gx + 0.5f) / G * mWidth);
+                            uint32 y = (uint32)((gy + 0.5f) / G * mHeight);
+                            if (x >= mWidth) x = mWidth - 1; if (y >= mHeight) y = mHeight - 1;
+                            const uint8* px = base + (uint64)y * rp + (uint64)x * bbpp;
+                            // BGRA : couleur « saturée » si max-min des canaux RGB > 30 (objet coloré).
+                            int B = px[0], Gc = px[1], R = px[2];
+                            int mx = R > Gc ? (R > B ? R : B) : (Gc > B ? Gc : B);
+                            int mn = R < Gc ? (R < B ? R : B) : (Gc < B ? Gc : B);
+                            bool col = (mx - mn) > 30;
+                            int dr = R - ref2, dg = Gc - ref1, db = B - ref0;
+                            bool diff = (dr*dr + dg*dg + db*db) > 900;
+                            if (col) colored++;
+                            if (diff) distinct++;
+                            row += col ? '#' : (diff ? '+' : '.');
+                        }
+                        row.Clear();
+                    }
+                    // Corréler avec la luminance HDR du même frame : trouver le HDR RT plein
+                    // écran (R16F) et lire son max sur une grille → savoir si l'intermittence
+                    // est dans le HDR (lighting) ou seulement au tonemap/composite.
+                    float hdrMax = -1.f;
+                    for (auto& [htid, ht] : mTextures) {
+                        if (ht.isSwapchain || ht.rtvIdx == UINT_MAX || !ht.resource) continue;
+                        if (ht.format != DXGI_FORMAT_R16G16B16A16_FLOAT) continue;
+                        if (ht.desc.width < mWidth || ht.desc.height < mHeight) continue;
+                        // lire 16 texels en diagonale via une copie pleine ligne — simplifié :
+                        // copier 1 ligne centrale et prendre le max.
+                        uint32 hw = (uint32)ht.desc.width, hh = (uint32)ht.desc.height;
+                        uint32 hbpp = 8; uint32 hrp = (hw*hbpp + 255) & ~255u;
+                        D3D12_HEAP_PROPERTIES hhp{}; hhp.Type = D3D12_HEAP_TYPE_READBACK;
+                        D3D12_RESOURCE_DESC hrd{};
+                        hrd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+                        hrd.Width = hrp; hrd.Height = 1; hrd.DepthOrArraySize = 1; hrd.MipLevels = 1;
+                        hrd.Format = DXGI_FORMAT_UNKNOWN; hrd.SampleDesc = {1,0};
+                        hrd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+                        ComPtr<ID3D12Resource> hst;
+                        if (FAILED(mDevice->CreateCommittedResource(&hhp, D3D12_HEAP_FLAG_NONE, &hrd,
+                                D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&hst))) || !hst) break;
+                        ID3D12Resource* hres = ht.resource.Get(); D3D12_RESOURCE_STATES hprev = ht.state;
+                        uint32 midY = hh/2;
+                        ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd){
+                            TransitionResource(cmd, hres, hprev, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                            D3D12_TEXTURE_COPY_LOCATION s{}; s.pResource=hres; s.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; s.SubresourceIndex=0;
+                            D3D12_TEXTURE_COPY_LOCATION d{}; d.pResource=hst.Get(); d.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                            d.PlacedFootprint.Footprint.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+                            d.PlacedFootprint.Footprint.Width=hw; d.PlacedFootprint.Footprint.Height=1; d.PlacedFootprint.Footprint.Depth=1; d.PlacedFootprint.Footprint.RowPitch=hrp;
+                            D3D12_BOX b{0, midY, 0, hw, midY+1, 1};
+                            cmd->CopyTextureRegion(&d,0,0,0,&s,&b);
+                            TransitionResource(cmd, hres, D3D12_RESOURCE_STATE_COPY_SOURCE, hprev);
+                        });
+                        void* hm=nullptr; D3D12_RANGE hrr{0,(SIZE_T)hrp};
+                        if (SUCCEEDED(hst->Map(0,&hrr,&hm)) && hm) {
+                            const uint16* line = (const uint16*)hm;
+                            for (uint32 x=0; x<hw; x+=16) {
+                                float r=NkHalfToFloat(line[x*4+0]), g=NkHalfToFloat(line[x*4+1]), b=NkHalfToFloat(line[x*4+2]);
+                                float l=0.299f*r+0.587f*g+0.114f*b; if (l>hdrMax) hdrMax=l;
+                            }
+                            hst->Unmap(0,nullptr);
+                        }
+                        break; // un seul HDR RT
+                    }
+                    NK_DX12_LOG("BBGRID SUMMARY frame=%llu bbIdx=%u frameIdx=%u colored=%d/256 distinct=%d/256 hdrMaxMidLine=%.4f\n",
+                                (unsigned long long)mFrameNumber, mBackBufferIdx, mFrameIndex, colored, distinct, hdrMax);
+
+                    // DUMP BMP PLEINE RÉSOLUTION du backbuffer présenté LIVE (gated). Dumpe
+                    // UNE frame « plate » (colored<10) ET une fois UNE frame « colorée »
+                    // (colored>100) → comparer si le texte HUD apparaît sur les frames colorées.
+                    static bool sDumpedFlat = false, sDumpedColored = false;
+                    bool doFlat    = (!sDumpedFlat    && colored < 10  && mFrameNumber > 100);
+                    bool doColored = (!sDumpedColored && colored > 100 && mFrameNumber > 100);
+                    if (doFlat || doColored) {
+                        if (doFlat) sDumpedFlat = true; else sDumpedColored = true;
+                        char path[256];
+                        snprintf(path, sizeof(path), "logs/bb_live_%s_f%llu.bmp",
+                                 doColored ? "COLORED" : "flat", (unsigned long long)mFrameNumber);
+                        FILE* f = fopen(path, "wb");
+                        if (f) {
+                            const uint32 W = mWidth, H = mHeight;
+                            const uint32 imgSize = W * H * 4;
+                            const uint32 fileSize = 54 + imgSize;
+                            uint8 hdr[54] = {0};
+                            hdr[0]='B'; hdr[1]='M';
+                            hdr[2]= fileSize&0xFF; hdr[3]=(fileSize>>8)&0xFF; hdr[4]=(fileSize>>16)&0xFF; hdr[5]=(fileSize>>24)&0xFF;
+                            hdr[10]=54;                 // pixel data offset
+                            hdr[14]=40;                 // DIB header size
+                            hdr[18]= W&0xFF; hdr[19]=(W>>8)&0xFF; hdr[20]=(W>>16)&0xFF; hdr[21]=(W>>24)&0xFF;
+                            // hauteur NÉGATIVE → top-down (sinon BMP est bottom-up et l'image serait inversée)
+                            int32 negH = -(int32)H;
+                            hdr[22]= negH&0xFF; hdr[23]=(negH>>8)&0xFF; hdr[24]=(negH>>16)&0xFF; hdr[25]=(negH>>24)&0xFF;
+                            hdr[26]=1;                  // planes
+                            hdr[28]=32;                 // bpp
+                            hdr[34]= imgSize&0xFF; hdr[35]=(imgSize>>8)&0xFF; hdr[36]=(imgSize>>16)&0xFF; hdr[37]=(imgSize>>24)&0xFF;
+                            fwrite(hdr, 1, 54, f);
+                            // Copier ligne par ligne (le staging a un rowPitch aligné 256, le BMP non).
+                            for (uint32 y = 0; y < H; ++y)
+                                fwrite(base + (uint64)y * rp, 1, (size_t)W * 4, f);
+                            fclose(f);
+                            NK_DX12_LOG("DUMP backbuffer -> %s (%ux%u)\n", path, W, H);
+                        }
+                    }
+                    bst->Unmap(0, nullptr);
+                }
+            }
+        }
+    }
+
+    const UINT cx = mWidth  / 2;
+    const UINT cy = mHeight / 2;
+
+    // Staging READBACK : 1 ligne de 256 octets (footprint aligné DX12 minimal).
+    D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd{};
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = 256; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_UNKNOWN; rd.SampleDesc = {1, 0};
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ComPtr<ID3D12Resource> staging;
+    if (FAILED(mDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&staging))) || !staging) {
+        NK_DX12_ERR("READBACK: staging alloc failed\n");
+        return;
+    }
+
+    // Le backbuffer est en PRESENT à cet instant (EndRenderPass l'y remet). On le passe
+    // en COPY_SOURCE, on copie la box 1x1 du centre, puis on le remet en PRESENT.
+    ExecuteOneShot([&](ID3D12GraphicsCommandList* cmd) {
+        TransitionResource(cmd, bb, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        D3D12_TEXTURE_COPY_LOCATION src{};
+        src.pResource = bb;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.SubresourceIndex = 0;
+
+        D3D12_TEXTURE_COPY_LOCATION dst{};
+        dst.pResource = staging.Get();
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dst.PlacedFootprint.Offset = 0;
+        dst.PlacedFootprint.Footprint.Format   = texIt->format;
+        dst.PlacedFootprint.Footprint.Width     = 1;
+        dst.PlacedFootprint.Footprint.Height    = 1;
+        dst.PlacedFootprint.Footprint.Depth     = 1;
+        dst.PlacedFootprint.Footprint.RowPitch  = 256;
+
+        D3D12_BOX box{ cx, cy, 0, cx + 1, cy + 1, 1 };
+        cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+
+        TransitionResource(cmd, bb, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
+    });
+
+    void* mapped = nullptr;
+    D3D12_RANGE rr{0, 4};
+    if (SUCCEEDED(staging->Map(0, &rr, &mapped)) && mapped) {
+        const uint8* px = (const uint8*)mapped;
+        // Backbuffer = B8G8R8A8_UNORM → octets B,G,R,A. On logue en RGBA pour lisibilité.
+        NK_DX12_LOG("READBACK center(%u,%u) RGBA=(%u,%u,%u,%u) [fmt=%d]\n",
+                    cx, cy, (unsigned)px[2], (unsigned)px[1], (unsigned)px[0], (unsigned)px[3],
+                    (int)texIt->format);
+        staging->Unmap(0, nullptr);
+    } else {
+        NK_DX12_ERR("READBACK: map failed\n");
+    }
+}
+
 void NkDirectX12Device::SubmitAndPresent(NkICommandBuffer* cb) {
     auto& fd = mFrameData[mFrameIndex];
 
     NkICommandBuffer* cbs[] = { cb };
     Submit(cbs, 1, {});
+
+    // DIAGNOSTIC (gated NK_DX12_READBACK) : capturer le pixel central avant Present.
+    ReadbackBackbufferCenterDiag();
 
     fd.Signal(mGraphicsQueue.Get(), ++mFenceValue);
     const UINT syncInterval = mVsync ? 1u : 0u;
@@ -1764,11 +2550,23 @@ ID3D12Resource* NkDirectX12Device::GetDX12Buffer(uint64 id) const {
 ID3D12Resource* NkDirectX12Device::GetDX12Texture(uint64 id) const {
     auto it = mTextures.Find(id); return it ? it->resource.Get() : nullptr;
 }
+DXGI_FORMAT NkDirectX12Device::GetTextureDXGIFormat(uint64 id) const {
+    auto it = mTextures.Find(id);
+    return it ? ToDXGIFormat(it->desc.format) : DXGI_FORMAT_R8G8B8A8_UNORM;
+}
 D3D12_GPU_VIRTUAL_ADDRESS NkDirectX12Device::GetBufferGPUAddr(uint64 id) const {
     auto it = mBuffers.Find(id); return it ? it->gpuAddr : 0;
 }
 UINT NkDirectX12Device::GetBufferCbvIndex(uint64 id) const {
     auto it = mBuffers.Find(id); return it ? it->cbvIdx : UINT_MAX;
+}
+bool NkDirectX12Device::PeekBufferFloats(uint64 bufId, float* out, uint32 n, uint32 floatOffset) const {
+    auto it = mBuffers.Find(bufId);
+    if (!it || !it->mapped) return false;
+    uint64 byteOff = (uint64)floatOffset * sizeof(float);
+    if (byteOff + (uint64)n * sizeof(float) > it->desc.sizeBytes) return false;
+    memcpy(out, (const uint8*)it->mapped + byteOff, (size_t)n * sizeof(float));
+    return true;
 }
 UINT NkDirectX12Device::GetBufferSrvIndex(uint64 id) const {
     auto it = mBuffers.Find(id); return it ? it->srvIdx : UINT_MAX;

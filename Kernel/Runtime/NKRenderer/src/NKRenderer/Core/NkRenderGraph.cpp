@@ -278,8 +278,26 @@ namespace nkentseu {
         // Allocation des transients
         // =====================================================================
         bool NkRenderGraph::AllocateTransients() {
-            for (auto& res : mResources) {
+            for (uint32 ri = 0; ri < (uint32)mResources.Size(); ++ri) {
+                auto& res = mResources[ri];
                 if (res.isTransient && !res.isBuffer && !res.texture.IsValid()) {
+                    // Valeur de clear OPTIMISÉE (D3D12 #820) : on cherche la passe qui écrit
+                    // ce transient avec loadOp=CLEAR et on copie sa couleur/depth dans le desc
+                    // → la creation du RT reçoit la BONNE valeur optimisée → 0 warning #820,
+                    // clear rapide, plus de flood de logs (qui tuait les FPS).
+                    NkGraphResId myId = ri + 1;
+                    for (auto& pass : mPasses) {
+                        for (auto& ca : pass.colors) {
+                            if (ca.resId == myId && ca.loadOp == NkLoadOp::NK_CLEAR) {
+                                res.transientDesc.optClearColor =
+                                    { ca.clearRGBA.x, ca.clearRGBA.y, ca.clearRGBA.z, ca.clearRGBA.w };
+                            }
+                        }
+                        if (pass.hasDepth && pass.depth.resId == myId &&
+                            pass.depth.loadOp == NkLoadOp::NK_CLEAR) {
+                            res.transientDesc.optClearDepth = pass.depth.clearDepth;
+                        }
+                    }
                     res.texture = mDevice->CreateTexture(res.transientDesc);
                     if (!res.texture.IsValid()) {
                         NkRSetLastError(NkRResult::NK_ERR_OUT_OF_MEMORY,

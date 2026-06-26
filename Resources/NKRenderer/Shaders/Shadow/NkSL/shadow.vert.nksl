@@ -28,9 +28,10 @@ layout(push_constant) uniform PC {
 @stage(vertex)
 @entry
 void main() {
-    vec4 clip = pc.lightVP * uObj.model * vec4(aPos, 1.0);
-    // Correction Vulkan clip-space Z : NDC [-1,1] (lightVP convention GL/ortho) →
-    // [0,1] attendu. Sinon la moitié near de chaque cascade est clippée.
-    clip.z = 0.5 * clip.z + 0.5 * clip.w;
-    gl_Position = clip;
+    // La correction Z clip-space [-1,1]→[0,1] (VK/DX) est désormais BAKÉE dans la
+    // matrice lightVP côté C++ (NkVirtualShadowMaps::ApplyDepthClipCorrection, fix
+    // aa9f691f), pour les chemins RENDER ET SAMPLE de façon cohérente. La refaire ici
+    // donnait une DOUBLE correction Z → profondeur d'atlas fausse → ombres "flottantes"
+    // (détachées du sol) sur DX12/VK. On laisse donc la matrice gérer le Z.
+    gl_Position = pc.lightVP * uObj.model * vec4(aPos, 1.0);
 }

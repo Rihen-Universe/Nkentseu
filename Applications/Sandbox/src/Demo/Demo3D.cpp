@@ -292,7 +292,12 @@ namespace nkentseu { namespace demo {
 
     void Demo3D_Frame(DemoCtx& ctx, float32 dt) {
         auto* st = (Demo3DState*)ctx.userData;
-        st->angle += dt * 0.45f;
+        // DIAG (gated NK_FIX_CAM) : fige la caméra + le temps pour comparer DX12/VK
+        // au MÊME angle/pose. Pose déterministe identique sur les 2 backends.
+        static int fixcam = -1;
+        if (fixcam == -1) { const char* v = getenv("NK_FIX_CAM"); fixcam = (v && v[0] && v[0] != '0') ? 1 : 0; }
+        if (fixcam) { st->angle = 0.6f; ctx.totalTime = 1.0f; }
+        else        { st->angle += dt * 0.45f; }
 
         if (!ctx.renderer->BeginFrame()) return;
 

@@ -200,7 +200,12 @@ private:
     struct SystemEntry {
         std::unique_ptr<NkSystem> system;
         NkSystemDesc              desc;
-        std::type_index           typeId;
+        // std::type_index n'a pas de constructeur par defaut : sans initialiseur, le
+        // ctor par defaut de SystemEntry est implicitement supprime, ce qui casse la
+        // simple compilation de l'umbrella NKECS.h (`SystemEntry entry;`).
+        // NB: ceci n'est PAS la conversion zero-STL du scheduler (chantier separe) ;
+        // c'est uniquement un fix de compilation. Voir ROADMAP (#3 scheduler STL).
+        std::type_index           typeId{typeid(void)};
         std::vector<uint32>       dependsOn; // indices dans mSystems
         uint32                    index = 0;
     };

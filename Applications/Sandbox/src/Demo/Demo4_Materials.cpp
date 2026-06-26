@@ -433,7 +433,12 @@ bool Demo4_Materials_Init(DemoCtx& ctx) {
 // ── Frame ─────────────────────────────────────────────────────────────────────
 void Demo4_Materials_Frame(DemoCtx& ctx, float32 dt) {
     auto* st = (Demo4MatState*)ctx.userData;
-    st->camera.Update(dt);
+    // DIAG (gated NK_FIX_CAM) : fige le temps pour une pose 100% déterministe et
+    // identique entre backends (compare VK/DX12/DX11 au même angle + même bob sphères).
+    static int sFixCam = -1;
+    if (sFixCam == -1) { const char* v = getenv("NK_FIX_CAM"); sFixCam = (v && v[0] && v[0] != '0') ? 1 : 0; }
+    if (sFixCam) { ctx.totalTime = 1.0f; }
+    st->camera.Update(sFixCam ? 0.f : dt);
 
     // Phase G : animation verticale des spheres (monte/descend recursivement).
     // Differentie Demo4 de Demo3 (statique). Amplitude 0.3u, periode 2s, phase

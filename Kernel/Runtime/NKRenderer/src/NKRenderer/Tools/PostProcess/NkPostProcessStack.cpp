@@ -682,10 +682,15 @@ void main() {
             // du storage -> UV.y = 0 pour sampler -> flip via VS.
             -1.f,
             float32(mLUTSize),
-            // p2 = (autoExposureStrength, autoExposureKey, _, _)
+            // p2 = (autoExposureStrength, autoExposureKey, bloomYFlip, _)
             mCfg.autoExposureStrength,
             mCfg.autoExposureKey,
-            0.f, 0.f
+            // bloomYFlip : 1 sur DX (bloom/SSAO stockés Y-up vs HDR Y-down → V opposé),
+            // 0 sur VK/GL (bloom/SSAO et HDR partagent la même convention V). Corrige le
+            // glow "ghost" miroir vertical sur DX.
+            ((mDevice && (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX11 ||
+                          mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_DX12)) ? 1.f : 0.f),
+            0.f
         };
         // Push avec NK_ALL_GRAPHICS pour matcher la range pipeline (cf. fix
         // VUID-vkCmdPushConstants-offset-01796 — VS lit yFlipUV au slot PC[1].z).

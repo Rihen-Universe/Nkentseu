@@ -194,6 +194,13 @@ namespace nkentseu {
                 NkMatInstHandle                 mFallbackMatInst;
 
                 NkVector<SortedDC>              mOpaque;
+                // Casters d'ombre : liste DISTINCTE de mOpaque. Un objet hors du
+                // frustum CAMERA est cull de mOpaque (pas rendu a l'ecran), mais
+                // son ombre peut malgre tout tomber dans la zone visible. La
+                // passe shadow doit donc voir TOUS les casters, pas seulement
+                // ceux visibles a la camera -> on les collecte ici sans culling
+                // camera (RenderShadowPass itere sur cette liste).
+                NkVector<SortedDC>              mShadowCasters;
                 NkVector<SortedDC>              mTransparent;
                 NkVector<NkDrawCallInstanced>   mInstanced;
                 NkVector<NkDrawCallSkinned>     mSkinned;

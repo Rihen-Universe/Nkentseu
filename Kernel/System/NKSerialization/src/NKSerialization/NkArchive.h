@@ -897,6 +897,16 @@
             /// @note Seuls les éléments scalaires sont copiés dans `out`
             [[nodiscard]] nk_bool GetArray(NkStringView key, NkVector<NkArchiveValue>& out) const noexcept;
 
+            /// @brief Définit un tableau d'OBJETS (un sous-objet par élément)
+            /// @param key Clé d'identification
+            /// @param arr Vector d'archives à copier ; chaque NkArchive devient un
+            ///            élément objet du tableau ("[ {..}, {..} ]").
+            /// @return true si succès, false si clé invalide
+            /// @note Symétrique de GetObjectArray. Indispensable pour sérialiser un
+            ///       conteneur d'objets réfléchis (NkVector<SousObjet>) ou la liste
+            ///       des entités d'une scène. Copie profonde de chaque archive.
+            nk_bool SetObjectArray(NkStringView key, const NkVector<NkArchive>& arr) noexcept;
+
             /// @brief Récupère un tableau d'OBJETS (chaque élément objet -> NkArchive)
             /// @param key Clé à rechercher
             /// @param out Référence de sortie : un NkArchive (copie profonde) par objet

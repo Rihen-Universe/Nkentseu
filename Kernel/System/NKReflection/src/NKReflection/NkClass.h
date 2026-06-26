@@ -34,6 +34,7 @@
     #include "NKReflection/NkProperty.h"
     #include "NKReflection/NkMethod.h"
     #include "NKContainers/Functional/NkFunction.h"
+    #include "NKContainers/Sequential/NkVector.h"
 
     // -------------------------------------------------------------------------
     // SECTION 2 : EN-TETES STANDARD MINIMAUX
@@ -133,10 +134,8 @@
                         , mSize(size)
                         , mType(&type)
                         , mBaseClass(nullptr)
-                        , mProperties(mPropertyStorage)
-                        , mPropertyCount(0)
-                        , mMethods(mMethodStorage)
-                        , mMethodCount(0)
+                        , mProperties()
+                        , mMethods()
                         , mConstructor()
                         , mDestructor() {
                     }
@@ -246,9 +245,18 @@
                         if (!property) {
                             return;
                         }
-                        if (mPropertyCount < 64) {
-                            mProperties[mPropertyCount++] = property;
+                        // Deduplication par nom : evite les doublons lorsqu'un header
+                        // reflechi est inclus dans plusieurs unites de compilation
+                        // (les registrars inline-static s'executent une fois par TU).
+                        if (property->GetName()) {
+                            for (nk_usize i = 0; i < mProperties.Size(); ++i) {
+                                if (mProperties[i] && mProperties[i]->GetName() &&
+                                    std::strcmp(mProperties[i]->GetName(), property->GetName()) == 0) {
+                                    return;
+                                }
+                            }
                         }
+                        mProperties.PushBack(property);
                     }
 
                     /**
@@ -272,7 +280,7 @@
                         if (!name) {
                             return nullptr;
                         }
-                        for (nk_usize i = 0; i < mPropertyCount; ++i) {
+                        for (nk_usize i = 0; i < mProperties.Size(); ++i) {
                             if (std::strcmp(mProperties[i]->GetName(), name) == 0) {
                                 return mProperties[i];
                             }
@@ -291,7 +299,7 @@
                      *       uniquement aux proprietes declarees directement dans cette classe
                      */
                     const NkProperty* GetPropertyAt(nk_usize index) const {
-                        return index < mPropertyCount ? mProperties[index] : nullptr;
+                        return index < mProperties.Size() ? mProperties[index] : nullptr;
                     }
 
                     /**
@@ -300,7 +308,7 @@
                      * @note Ne compte pas les proprietes heritees des classes de base
                      */
                     nk_usize GetPropertyCount() const {
-                        return mPropertyCount;
+                        return mProperties.Size();
                     }
 
                     /**
@@ -309,7 +317,7 @@
                      * @note Parcours recursif de la chaine d'heritage pour le comptage
                      */
                     nk_usize GetTotalPropertyCount() const {
-                        nk_usize total = mPropertyCount;
+                        nk_usize total = mProperties.Size();
                         if (mBaseClass) {
                             total += mBaseClass->GetTotalPropertyCount();
                         }
@@ -332,9 +340,15 @@
                         if (!method) {
                             return;
                         }
-                        if (mMethodCount < 64) {
-                            mMethods[mMethodCount++] = method;
+                        if (method->GetName()) {
+                            for (nk_usize i = 0; i < mMethods.Size(); ++i) {
+                                if (mMethods[i] && mMethods[i]->GetName() &&
+                                    std::strcmp(mMethods[i]->GetName(), method->GetName()) == 0) {
+                                    return;
+                                }
+                            }
                         }
+                        mMethods.PushBack(method);
                     }
 
                     /**
@@ -359,7 +373,7 @@
                         if (!name) {
                             return nullptr;
                         }
-                        for (nk_usize i = 0; i < mMethodCount; ++i) {
+                        for (nk_usize i = 0; i < mMethods.Size(); ++i) {
                             if (std::strcmp(mMethods[i]->GetName(), name) == 0) {
                                 return mMethods[i];
                             }
@@ -378,7 +392,7 @@
                      *       uniquement aux methodes declarees directement dans cette classe
                      */
                     const NkMethod* GetMethodAt(nk_usize index) const {
-                        return index < mMethodCount ? mMethods[index] : nullptr;
+                        return index < mMethods.Size() ? mMethods[index] : nullptr;
                     }
 
                     /**
@@ -387,7 +401,7 @@
                      * @note Ne compte pas les methodes heritees des classes de base
                      */
                     nk_usize GetMethodCount() const {
-                        return mMethodCount;
+                        return mMethods.Size();
                     }
 
                     /**
@@ -396,7 +410,7 @@
                      * @note Parcours recursif de la chaine d'heritage pour le comptage
                      */
                     nk_usize GetTotalMethodCount() const {
-                        nk_usize total = mMethodCount;
+                        nk_usize total = mMethods.Size();
                         if (mBaseClass) {
                             total += mBaseClass->GetTotalMethodCount();
                         }
@@ -594,26 +608,18 @@
                     // ---------------------------------------------------------
                     // MEMBRES PRIVES : COLLECTION DE PROPRIETES
                     // ---------------------------------------------------------
-                    // Tableau statique pour le stockage des pointeurs de proprietes.
-                    // mProperties pointe vers mPropertyStorage pour permettre une
-                    // eventuelle reallocation future sans changer l'API.
-                    // Capacite maximale : 64 proprietes par classe.
+                    // Stockage dynamique (NKContainers) des pointeurs de proprietes.
+                    // Remplace l'ancien tableau fixe-64 qui debordait silencieusement.
+                    // Capacite illimitee (croissance geometrique via NKMemory).
 
-                    const NkProperty* mPropertyStorage[64];
-                    const NkProperty** mProperties;
-                    nk_usize mPropertyCount;
+                    NkVector<const NkProperty*> mProperties;
 
                     // ---------------------------------------------------------
                     // MEMBRES PRIVES : COLLECTION DE METHODES
                     // ---------------------------------------------------------
-                    // Tableau statique pour le stockage des pointeurs de methodes.
-                    // mMethods pointe vers mMethodStorage pour permettre une
-                    // eventuelle reallocation future sans changer l'API.
-                    // Capacite maximale : 64 methodes par classe.
+                    // Stockage dynamique (NKContainers) des pointeurs de methodes.
 
-                    const NkMethod* mMethodStorage[64];
-                    const NkMethod** mMethods;
-                    nk_usize mMethodCount;
+                    NkVector<const NkMethod*> mMethods;
 
                     // ---------------------------------------------------------
                     // MEMBRES PRIVES : CYCLE DE VIE

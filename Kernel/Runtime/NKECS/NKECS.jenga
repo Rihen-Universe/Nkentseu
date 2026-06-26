@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-NKFont — Bibliothèque de rendu de polices (C++17)
-=================================================
-Bibliothèque self-contained sans dépendance externe.
-Formats supportés :
-  TTF/OTF  — TrueType + OpenType (tables head/hhea/maxp/hmtx/loca/cmap/glyf/kern/OS2)
-  CFF/OTF  — PostScript/CFF avec charstrings Type 2 (OTF moderne)
-  Type 1   — PFB + PFA, eexec déchiffrement, seac (accents composés)
-  BDF      — Bitmap Distribution Format (X11)
-  WOFF1    — Web Open Font Format v1 (zlib compressé)
-  WOFF2    — Web Open Font Format v2 (Brotli from scratch, RFC 7932)
-  TTC      — TrueType Collection (multiples faces dans un seul fichier)
+NKECS — Entity-Component-System bas niveau à archétypes (C++17)
+==============================================================
+Moteur ECS zero-STL, stockage dense par archétypes (combinaisons de
+composants), graphe de transition mis en cache et requêtes typées.
 
-Fonctionnalités :
-  Hinting  — VM TrueType complète
-  AA       — Scanline 4×4 super-sampling (16 sous-pixels)
-  GSUB     — Ligatures ff/fi/fl, substitutions contextuelles
-  GPOS     — Kerning OpenType PairPos format 1 et 2
-  Bidi     — UAX#9 complet (arabe, hébreu, bidirectionnel)
-  Unicode  — UTF-8/UTF-16, cmap formats 4 et 12
-  Cache    — Atlas texture LRU, packing shelf algorithm
+Contenu (src/NKECS/) :
+  NkECSDefines.h               => Types/constantes de base (NkEntityId, masques)
+  Core/NkTypeRegistry.h/cpp    => Registre global des types de composants
+  Storage/NkComponentPool.h    => Stockage dense des données de composants
+  Storage/NkArchetype.h        => Archétypes (combinaisons de composants)
+  Storage/NkArchetypeGraph.h   => Graphe de transition entre archétypes
+  System/NkSystem.h            => Interface de base des systèmes
+  System/NkScheduler.*         => Ordonnanceur (DAG de dépendances)
+  World/NkWorld.h/cpp          => Conteneur principal des entités/systèmes
+  Query/NkQuery.h              => Interrogation des entités par composants
+  Events/NkGameplayEventBus.h  => Bus d'événements gameplay
+  Reflect/NkReflect*.h/cpp     => Pont réflexion (NkReflectBridge) + sérialisation
 """
 
 from Jenga import *
@@ -32,7 +29,10 @@ with project("NKECS"):
     location(".")
 
     nkentseudependson(
-        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKThreading", "NKLogger"],
+        # NKReflection + NKSerialization (couche System) : pont reflexion P4.
+        # NKECS (Runtime) -> NKReflection/NKSerialization (System) = OK, pas de cycle.
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKThreading", "NKLogger",
+         "NKReflection", "NKSerialization"],
         selfexport="NKECS",
         extra_includes=["src"],
     )
@@ -57,11 +57,6 @@ with project("NKECS"):
             "_UNICODE",
             "UNICODE",
         ])
-        includedirs([
-            "src/NKFont",  # ft2build.h + FreeType/ (sous-dossier avec freetype/freetype.h)
-        ])
-        # libdirs(["lib"])
-        # links(["freetype"])
 
     # ===== Linux ==================================================================
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
@@ -75,6 +70,9 @@ with project("NKECS"):
     with filter("system:Linux && options:linux-backend=wayland"):
         objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+
+    with filter("system:Linux"):
+        links(["pthread"])
 
     # ===== macOS ==================================================================
     with filter("system:macOS"):
@@ -130,7 +128,14 @@ with project("NKECS"):
         with test():
             testfiles(["tests/**.cpp"])
             links([
-                "NKFont",
-                "NKMemory",
+                "NKECS",
+                "NKReflection",
+                "NKSerialization",
+                "NKThreading",
+                "NKContainers",
                 "NKCore",
+                "NKMemory",
+                "NKLogger",
+                "NKMath",
+                "NKPlatform",
             ])

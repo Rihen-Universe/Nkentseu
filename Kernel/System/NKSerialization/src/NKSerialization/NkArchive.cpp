@@ -684,6 +684,30 @@ namespace nkentseu {
     }
 
     // -------------------------------------------------------------------------
+    // MÉTHODE : SetObjectArray
+    // DESCRIPTION : Création d'un tableau d'OBJETS : chaque NkArchive de `arr`
+    //               devient un nœud objet du tableau. Symétrique de GetObjectArray.
+    //               Permet d'écrire "[ {..}, {..} ]" (conteneurs d'objets réfléchis,
+    //               entités d'une scène…). Copie profonde de chaque archive.
+    // -------------------------------------------------------------------------
+    nk_bool NkArchive::SetObjectArray(NkStringView key, const NkVector<NkArchive>& arr) noexcept {
+        if (!IsValidKey(key)) {
+            return false;
+        }
+
+        NkArchiveNode node;
+        node.MakeArray();
+
+        for (nk_size i = 0; i < arr.Size(); ++i) {
+            NkArchiveNode elem;
+            elem.SetObject(arr[i]);   // copie profonde de l'archive -> nœud objet
+            node.array.PushBack(traits::NkMove(elem));
+        }
+
+        return SetNode(key, node);
+    }
+
+    // -------------------------------------------------------------------------
     // MÉTHODE : GetObjectArray
     // DESCRIPTION : Extraction des éléments OBJET d'un tableau, chacun en NkArchive
     //               (copie profonde). Complément de GetArray (scalaires). Permet de

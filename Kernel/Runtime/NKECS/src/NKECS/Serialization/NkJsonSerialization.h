@@ -1,302 +1,177 @@
 // =============================================================================
 // FICHIER: NKECS/Serialization/NkJsonSerialization.h
-// DESCRIPTION: Sérialisation JSON robuste pour Prefabs & Blueprints.
+// MODULE : NKECS (Runtime)
 // =============================================================================
+// DESCRIPTION (reparation Phase 4 du chantier NKReflection) :
+//   Sérialisation des COMPOSANTS NKECS via le pont de réflexion générique
+//   (NKReflection -> NKSerialization), sans dépendre de la couche Engine (Noge).
+//
+//   AVANT (cassé) : ce fichier incluait `../Prefab/NkPrefab.h` et
+//   `../VisualScript/NkBlueprint.h` — qui n'existent PAS dans NKECS (Kernel) :
+//   ils appartiennent à Noge (Engine). Cela violait l'ordre des couches
+//   (Kernel -> Engine interdit) et le fichier ne compilait pas en standalone.
+//   Il dépendait en plus de `nlohmann/json` et de `<fstream>` (STL), contraires
+//   à la règle zero-STL du projet.
+//
+//   APRÈS (réparé) :
+//     - Les includes Noge (Prefab/Blueprint) sont RETIRÉS.
+//     - La logique Prefab/Blueprint (to_json/from_json de NkPrefab,
+//       NkBlueprintGraph, NkValue, Save/LoadBlueprintToFile) est de la logique
+//       d'éditeur de jeu : elle DOIT vivre côté Noge (Engine), réécrite sur
+//       l'archive maison (NkArchive) + NkReflectSerializer. Elle a donc été
+//       retirée d'ici (cf. note "DÉPLACÉ VERS NOGE" en bas).
+//     - À la place, on expose la sérialisation de COMPOSANTS via le pont P4 :
+//       chaque composant réfléchi (NkRegisterComponentReflection<T>()) porte
+//       dans son ComponentMeta des hooks serialize/deserialize branchés sur
+//       NkReflectSerializer. On les appelle ici de façon générique (par type
+//       OU par ComponentMeta type-erased).
+//
+//   Zero-STL : NkArchive / NkString / NKMemory uniquement. La conversion
+//   archive <-> JSON texte se fait via NKSerialization/JSON (NkJSONWriter /
+//   NkJSONReader) côté appelant.
+//
+//   Auteur : Rihen — 2026-06-24 — Proprietary, free to use and modify.
+// =============================================================================
+
 #pragma once
-#include "../NkECSDefines.h"
-#include "../Prefab/NkPrefab.h"
-#include "../VisualScript/NkBlueprint.h"
-#include <nlohmann/json.hpp>
-#include <fstream>
 
-namespace nkentseu { namespace ecs { namespace serialization {
+#ifndef NKECS_SERIALIZATION_NKJSONSERIALIZATION_H
+#define NKECS_SERIALIZATION_NKJSONSERIALIZATION_H
 
-    using json = nlohmann::json;
+    // -------------------------------------------------------------------------
+    // SECTION 1 : DEPENDANCES (zero-STL, zero-Noge)
+    // -------------------------------------------------------------------------
 
-    // ============================================================================
-    // Helpers de sérialisation NkValue / NkPinType
-    // ============================================================================
-    inline void to_json(json& j, const blueprint::NkValue& v) noexcept {
-        j = json::object();
-        j["type"] = static_cast<uint32>(v.type);
-        switch (v.type) {
-            case blueprint::NkValueType::Int:    j["value"] = v.data.i; break;
-            case blueprint::NkValueType::Float:  j["value"] = v.data.f; break;
-            case blueprint::NkValueType::Bool:   j["value"] = v.data.b; break;
-            case blueprint::NkValueType::Vec3:
-                j["value"] = json{{"x", v.data.vec3.x}, {"y", v.data.vec3.y}, {"z", v.data.vec3.z}};
-                break;
-            case blueprint::NkValueType::String: j["value"] = v.data.str; break;
-            case blueprint::NkValueType::EntityId: j["value"] = v.data.id; break;
-            default: break;
-        }
-    }
+    #include "NKECS/NkECSDefines.h"
+    #include "NKECS/Core/NkTypeRegistry.h"
+    #include "NKECS/Reflect/NkReflectBridge.h"   // pont P4 (NkClass genere + hooks)
 
-    inline void from_json(const json& j, blueprint::NkValue& v) noexcept {
-        v.type = static_cast<blueprint::NkValueType>(j.value("type", 0));
-        const json& val = j["value"];
-        switch (v.type) {
-            case blueprint::NkValueType::Int:    v.data.i = val.get<int32>(); break;
-            case blueprint::NkValueType::Float:  v.data.f = val.get<float32>(); break;
-            case blueprint::NkValueType::Bool:   v.data.b = val.get<bool>(); break;
-            case blueprint::NkValueType::Vec3:
-                v.data.vec3 = {val["x"].get<float32>(), val["y"].get<float32>(), val["z"].get<float32>()};
-                break;
-            case blueprint::NkValueType::String:
-                std::strncpy(v.data.str, val.get<std::string>().c_str(), sizeof(v.data.str)-1);
-                break;
-            case blueprint::NkValueType::EntityId: v.data.id = val.get<uint64>(); break;
-            default: break;
-        }
-    }
+    #include "NKSerialization/NkArchive.h"
+    #include "NKSerialization/Reflection/NkReflectSerializer.h"
 
-    // ============================================================================
-    // Sérialisation NkPrefab
-    // ============================================================================
-    inline void to_json(json& j, const NkPrefab& p) noexcept {
-        j = json::object();
-        j["name"] = p.name;
-        j["version"] = p.version;
-        j["tagBits"] = p.tagBits;
-        j["layer"] = p.layer;
+    namespace nkentseu { namespace ecs { namespace serialization {
 
-        j["components"] = json::array();
-        for (const auto& [typeName, compData] : p.components) {
-            json c = json::object();
-            c["type"] = typeName;
-            c["data"] = compData.jsonValue; // Stocké en JSON brut
-            c["overridden"] = compData.isOverridden;
-            j["components"].push_back(c);
-        }
-
-        j["children"] = json::array();
-        for (const auto& child : p.children) {
-            json ch = json::object();
-            ch["name"] = child.name;
-            ch["prefabPath"] = child.prefabPath;
-            ch["position"] = {child.localPosition.x, child.localPosition.y, child.localPosition.z};
-            ch["scale"] = {child.localScale.x, child.localScale.y, child.localScale.z};
-            ch["active"] = child.isActive;
-            j["children"].push_back(ch);
-        }
-
-        if (!p.blueprintPath.empty()) {
-            j["blueprintPath"] = p.blueprintPath;
-        }
-    }
-
-    inline void from_json(const json& j, NkPrefab& p) noexcept {
-        p.name = j.value("name", "UnnamedPrefab");
-        p.version = j.value("version", "1.0");
-        p.tagBits = j.value("tagBits", 0);
-        p.layer = j.value("layer", 0);
-        p.blueprintPath = j.value("blueprintPath", "");
-        p.components.clear();
-        p.children.clear();
-
-        if (j.contains("components")) {
-            for (const auto& c : j["components"]) {
-                NkPrefabComponentData data;
-                data.typeName = c.value("type", "");
-                data.jsonValue = c.value("data", "");
-                data.isOverridden = c.value("overridden", false);
-                p.components[data.typeName] = data;
+        // =====================================================================
+        // 1. SERIALISATION D'UN COMPOSANT — API TYPE-SAFE (par type T)
+        // =====================================================================
+        /**
+         * @brief Sérialise une instance de composant T vers une archive.
+         * @tparam T Type de composant réfléchi (déclaré via NK_REFLECT_BEGIN/END
+         *           et enregistré via NkRegisterComponentReflection<T>()).
+         * @param comp Instance source.
+         * @param ar   Archive de destination (clés = noms de propriétés).
+         * @return true si la réflexion du composant est disponible et le parcours
+         *         s'est déroulé, false sinon.
+         *
+         * @note Idempotent : enregistre la réflexion du composant si elle ne l'a
+         *       pas encore été (premier appel).
+         */
+        template<typename T>
+        NKECS_INLINE nk_bool SerializeComponent(const T& comp, ::nkentseu::NkArchive& ar) noexcept {
+            const ::nkentseu::reflection::NkClass* cls =
+                ::nkentseu::ecs::reflect::NkRegisterComponentReflection<T>();
+            if (!cls) {
+                return false;
             }
+            return ::nkentseu::NkReflectSerializer::SerializeReflected(cls, &comp, ar);
         }
 
-        if (j.contains("children")) {
-            for (const auto& c : j["children"]) {
-                NkPrefabChild ch;
-                ch.name = c.value("name", "");
-                ch.prefabPath = c.value("prefabPath", "");
-                ch.isActive = c.value("active", true);
-                if (c.contains("position")) {
-                    ch.localPosition = {c["position"][0].get<float32>(), c["position"][1].get<float32>(), c["position"][2].get<float32>()};
-                }
-                if (c.contains("scale")) {
-                    ch.localScale = {c["scale"][0].get<float32>(), c["scale"][1].get<float32>(), c["scale"][2].get<float32>()};
-                }
-                p.children.push_back(ch);
+        /**
+         * @brief Désérialise une archive vers une instance de composant T.
+         * @tparam T Type de composant réfléchi (voir SerializeComponent).
+         * @param comp Instance à remplir.
+         * @param ar   Archive source.
+         * @return true si la réflexion est disponible, false sinon.
+         */
+        template<typename T>
+        NKECS_INLINE nk_bool DeserializeComponent(T& comp, const ::nkentseu::NkArchive& ar) noexcept {
+            const ::nkentseu::reflection::NkClass* cls =
+                ::nkentseu::ecs::reflect::NkRegisterComponentReflection<T>();
+            if (!cls) {
+                return false;
             }
-        }
-    }
-
-    // ============================================================================
-    // Sérialisation NkBlueprintGraph
-    // ============================================================================
-    inline void to_json(json& j, const blueprint::NkBlueprintGraph& g) noexcept {
-        j = json::object();
-        j["nodes"] = json::array();
-        j["connections"] = json::array();
-
-        for (size_t i = 0; i < g.nodes.size(); ++i) {
-            if (!g.nodes[i]) continue;
-            const auto& node = *g.nodes[i];
-            json n = json::object();
-            n["id"] = static_cast<uint32>(i);
-            n["type"] = node.name;
-            n["enabled"] = node.enabled;
-            n["inputs"] = json::array();
-            n["outputs"] = json::array();
-
-            for (size_t p = 0; p < node.inputs.size(); ++p) {
-                json pin = json::object();
-                pin["index"] = static_cast<uint32>(p);
-                pin["name"] = node.inputs[p].name;
-                pin["default"] = node.inputs[p].defaultValue;
-                n["inputs"].push_back(pin);
-            }
-            for (size_t p = 0; p < node.outputs.size(); ++p) {
-                json pin = json::object();
-                pin["index"] = static_cast<uint32>(p);
-                pin["name"] = node.outputs[p].name;
-                n["outputs"].push_back(pin);
-            }
-            j["nodes"].push_back(n);
+            return ::nkentseu::NkReflectSerializer::DeserializeReflected(cls, &comp, ar);
         }
 
-        for (const auto& conn : g.connections) {
-            j["connections"].push_back({
-                {"srcNode", conn.sourceNode},
-                {"srcPin", conn.sourcePin},
-                {"tgtNode", conn.targetNode},
-                {"tgtPin", conn.targetPin}
-            });
-        }
-    }
+        // =====================================================================
+        // 2. SERIALISATION D'UN COMPOSANT — API TYPE-ERASED (par ComponentMeta)
+        // =====================================================================
+        // Utile pour la sérialisation d'une ENTITÉ : on parcourt le masque de
+        // composants, on récupère le ComponentMeta de chaque ComponentId et on
+        // appelle ses hooks sans connaître T à la compilation. Les hooks sont
+        // remplis par NkRegisterComponentReflection<T>() (pont P4).
 
-    inline void from_json(const json& j, blueprint::NkBlueprintGraph& g) noexcept {
-        g.nodes.clear();
-        g.connections.clear();
-
-        auto& reg = blueprint::NkNodeRegistry::Global();
-        if (j.contains("nodes")) {
-            for (const auto& n : j["nodes"]) {
-                auto nodePtr = reg.Create(n.value("type", "").c_str());
-                if (nodePtr) {
-                    nodePtr->enabled = n.value("enabled", true);
-                    // Restaurer les valeurs par défaut des pins
-                    if (n.contains("inputs")) {
-                        for (const auto& pinJson : n["inputs"]) {
-                            uint32 idx = pinJson.value("index", 0);
-                            if (idx < nodePtr->inputs.size()) {
-                                from_json(pinJson["default"], nodePtr->inputs[idx].defaultValue);
-                            }
-                        }
-                    }
-                    g.nodes.push_back(std::move(nodePtr));
-                }
+        /**
+         * @brief Sérialise un composant via son ComponentMeta (type-erased).
+         * @param meta Métadonnées du composant (doit porter le hook serialize).
+         * @param comp Adresse de l'instance de composant.
+         * @param ar   Archive de destination.
+         * @return true si le hook est branché et a été appelé, false sinon.
+         */
+        NKECS_INLINE nk_bool SerializeComponentMeta(
+            const ComponentMeta* meta, const void* comp, ::nkentseu::NkArchive& ar) noexcept {
+            if (!meta || !meta->serialize || !comp) {
+                return false;
             }
-        }
-
-        if (j.contains("connections")) {
-            for (const auto& c : j["connections"]) {
-                g.connections.push_back({
-                    c.value("srcNode", 0xFFFFFFFFu),
-                    c.value("srcPin", 0),
-                    c.value("tgtNode", 0xFFFFFFFFu),
-                    c.value("tgtPin", 0)
-                });
-            }
-            // Reconnecter les flags IsConnected
-            for (const auto& conn : g.connections) {
-                if (conn.targetNode < g.nodes.size() && conn.targetPin < g.nodes[conn.targetNode]->inputs.size()) {
-                    g.nodes[conn.targetNode]->inputs[conn.targetPin].isConnected = true;
-                }
-            }
-        }
-    }
-
-    // ============================================================================
-    // Fonctions Utilitaires Fichier
-    // ============================================================================
-    inline bool SaveToFile(const std::string& path, const NkPrefab& prefab) noexcept {
-        try {
-            std::ofstream file(path);
-            if (!file.is_open()) return false;
-            file << json(prefab).dump(4);
+            meta->serialize(comp, ar);
             return true;
-        } catch (...) { return false; }
-    }
+        }
 
-    inline bool LoadFromFile(const std::string& path, NkPrefab& prefab) noexcept {
-        try {
-            std::ifstream file(path);
-            if (!file.is_open()) return false;
-            json j;
-            file >> j;
-            from_json(j, prefab);
+        /**
+         * @brief Désérialise un composant via son ComponentMeta (type-erased).
+         * @param meta Métadonnées du composant (doit porter le hook deserialize).
+         * @param comp Adresse de l'instance de composant à remplir.
+         * @param ar   Archive source.
+         * @return true si le hook est branché et a été appelé, false sinon.
+         */
+        NKECS_INLINE nk_bool DeserializeComponentMeta(
+            const ComponentMeta* meta, void* comp, const ::nkentseu::NkArchive& ar) noexcept {
+            if (!meta || !meta->deserialize || !comp) {
+                return false;
+            }
+            meta->deserialize(comp, ar);
             return true;
-        } catch (...) { return false; }
-    }
+        }
 
-    inline bool SaveBlueprintToFile(const std::string& path, const blueprint::NkBlueprintGraph& graph) noexcept {
-        try {
-            std::ofstream file(path);
-            if (!file.is_open()) return false;
-            file << json(graph).dump(4);
-            return true;
-        } catch (...) { return false; }
-    }
+        /**
+         * @brief Vrai si le composant identifié par `id` expose la (de)sérialisation
+         *        réfléchie (hooks branchés via NkRegisterComponentReflection).
+         */
+        NKECS_INLINE nk_bool ComponentHasReflection(NkComponentId id) noexcept {
+            const ComponentMeta* meta = NkTypeRegistry::Global().Get(id);
+            return meta && meta->reflectClass && meta->serialize && meta->deserialize;
+        }
 
-    inline bool LoadBlueprintFromFile(const std::string& path, blueprint::NkBlueprintGraph& graph) noexcept {
-        try {
-            std::ifstream file(path);
-            if (!file.is_open()) return false;
-            json j;
-            file >> j;
-            from_json(j, graph);
-            return true;
-        } catch (...) { return false; }
-    }
+    }}} // namespace nkentseu::ecs::serialization
 
-}}} // namespace nkentseu::ecs::serialization
+#endif // NKECS_SERIALIZATION_NKJSONSERIALIZATION_H
 
 // =============================================================================
-// EXEMPLES D'UTILISATION DE NKJSONSERIALIZATION.H
+// NOTE — CE QUI A ÉTÉ DÉPLACÉ / RETIRÉ (réparation Phase 4)
 // =============================================================================
-/*
-// -----------------------------------------------------------------------------
-// Exemple 1 : Sauvegarde/Chargement d'un Prefab
-// -----------------------------------------------------------------------------
-void Exemple_PrefabJson() {
-    using namespace nkentseu::ecs;
-    using namespace nkentseu::ecs::serialization;
-
-    NkPrefab player;
-    player.name = "Hero";
-    player.WithComponent<NkTransform>()
-          .WithTag(NkTagBit::Player)
-          .WithChild(NkPrefabChild{"Weapon", "Assets/Prefabs/Sword.prefab"});
-
-    SaveToFile("Assets/Prefabs/Hero.json", player);
-
-    NkPrefab loaded;
-    if (LoadFromFile("Assets/Prefabs/Hero.json", loaded)) {
-        printf("Prefab chargé : %s (%zu composants, %zu enfants)\n",
-               loaded.name.c_str(), loaded.components.size(), loaded.children.size());
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Exemple 2 : Sauvegarde d'un Blueprint
-// -----------------------------------------------------------------------------
-void Exemple_BlueprintJson() {
-    using namespace nkentseu::ecs;
-    using namespace nkentseu::ecs::blueprint;
-    using namespace nkentseu::ecs::serialization;
-
-    NkBlueprintGraph graph;
-    graph.AddNode(std::make_unique<NkNodeEventBeginPlay>());
-    graph.AddNode(std::make_unique<NkNodePrintString>());
-    graph.Link(0, 0, 1, 0);
-
-    SaveBlueprintToFile("Assets/Blueprints/PlayerLogic.json", graph);
-
-    NkBlueprintGraph loadedGraph;
-    if (LoadBlueprintFromFile("Assets/Blueprints/PlayerLogic.json", loadedGraph)) {
-        printf("Blueprint chargé : %zu nœuds, %zu connexions\n",
-               loadedGraph.nodes.size(), loadedGraph.connections.size());
-    }
-}
-*/
+//
+// RETIRÉ de ce fichier (violait Kernel -> Engine + STL) :
+//   - #include "../Prefab/NkPrefab.h"            (type Noge, Engine)
+//   - #include "../VisualScript/NkBlueprint.h"   (type Noge, Engine)
+//   - #include <nlohmann/json.hpp>               (STL/3rd-party interdit)
+//   - #include <fstream>                          (STL interdit)
+//   - to_json/from_json(NkValue, NkPrefab, NkBlueprintGraph)
+//   - SaveToFile/LoadFromFile(NkPrefab)
+//   - SaveBlueprintToFile/LoadBlueprintFromFile(NkBlueprintGraph)
+//
+// À DÉPLACER VERS NOGE (Engine) — logique Prefab/Blueprint :
+//   La (dé)sérialisation de NkPrefab et NkBlueprintGraph est de la logique
+//   d'éditeur de jeu et doit être réécrite côté Noge sur NkArchive +
+//   NkJSONWriter/NkJSONReader (zero-STL), en réutilisant pour les COMPOSANTS
+//   le pont générique exposé ici (SerializeComponent / SerializeComponentMeta).
+//   Emplacement suggéré : Engine/Noge/src/Noge/ECS/Serialization/.
+//
+// CONSERVÉ / NOUVEAU (component-serialization via réflexion P2/P4) :
+//   - SerializeComponent<T> / DeserializeComponent<T>      (type-safe)
+//   - SerializeComponentMeta / DeserializeComponentMeta    (type-erased)
+//   - ComponentHasReflection(id)
+//   Ce fichier compile désormais en standalone sans dépendre de Noge.
+//
+// ============================================================
+// Copyright (c) 2025-2026 Rihen. Tous droits reserves.
+// ============================================================

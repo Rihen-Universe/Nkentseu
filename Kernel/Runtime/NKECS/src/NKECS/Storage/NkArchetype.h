@@ -66,6 +66,13 @@ namespace nkentseu {
                     NkTypeRegistry& reg = NkTypeRegistry::Global();
                     mNumPools = 0;
 
+                    // Initialise toute la table inverse à la sentinelle "invalide".
+                    // La valeur d'invalide n'est PAS 0 (un index 0 est valide), donc un
+                    // simple `= {}` sur le membre serait incorrect : on remplit ici.
+                    for (uint32 i = 0; i < kMaxComponentTypes; ++i) {
+                        mPoolIndex[i] = kInvalidPoolIndex;
+                    }
+
                     // Parcours de tous les bits actifs du masque.
                     mask.ForEach([&](NkComponentId cid) {
                         // Protection contre un dépassement de capacité (ne devrait pas arriver).
@@ -335,7 +342,10 @@ namespace nkentseu {
                 // Pools de composants – une par type présent dans l'archétype.
                 NkComponentPool  mPools[kMaxComponentTypes]    = {};
                 NkComponentId    mPoolIds[kMaxComponentTypes]  = {}; // Tableau parallèle des IDs
-                uint32           mPoolIndex[kMaxComponentTypes];     // Mapping ComponentId → index local
+                // Mapping ComponentId → index local. Initialisé à kInvalidPoolIndex
+                // dans le constructeur (la sentinelle d'invalide est 0xFFFFFFFF, PAS 0,
+                // donc un `= {}` ne conviendrait pas ici).
+                uint32           mPoolIndex[kMaxComponentTypes];
                 uint32           mNumPools  = 0;                     // Nombre réel de pools
 
                 // Tableau dynamique des identifiants d'entités (alloué séparément).
@@ -467,10 +477,53 @@ namespace nkentseu {
                 }
 
                 // -----------------------------------------------------------------
+                // Constructeur par défaut
+                // -----------------------------------------------------------------
+                NkEntityIndex() noexcept = default;
+
+                // -----------------------------------------------------------------
                 // Destructeur (libération du tableau dynamique)
                 // -----------------------------------------------------------------
                 ~NkEntityIndex() noexcept {
                     nkentseu::memory::NkFree(mEntries);
+                }
+
+                // -----------------------------------------------------------------
+                // Copie interdite (possède un tableau dynamique unique).
+                // -----------------------------------------------------------------
+                NkEntityIndex(const NkEntityIndex&) = delete;
+                NkEntityIndex& operator=(const NkEntityIndex&) = delete;
+
+                // -----------------------------------------------------------------
+                // Déplacement : transfère la propriété de `mEntries` et neutralise
+                // la source pour éviter le double-free dans son destructeur.
+                // -----------------------------------------------------------------
+                NkEntityIndex(NkEntityIndex&& other) noexcept
+                    : mEntries(other.mEntries)
+                    , mNumEntries(other.mNumEntries)
+                    , mCapacity(other.mCapacity)
+                    , mFreeList(other.mFreeList) {
+                    other.mEntries    = nullptr;
+                    other.mNumEntries = 0;
+                    other.mCapacity   = 0;
+                    other.mFreeList   = FreeList{};
+                }
+
+                NkEntityIndex& operator=(NkEntityIndex&& other) noexcept {
+                    if (this != &other) {
+                        nkentseu::memory::NkFree(mEntries);
+
+                        mEntries    = other.mEntries;
+                        mNumEntries = other.mNumEntries;
+                        mCapacity   = other.mCapacity;
+                        mFreeList   = other.mFreeList;
+
+                        other.mEntries    = nullptr;
+                        other.mNumEntries = 0;
+                        other.mCapacity   = 0;
+                        other.mFreeList   = FreeList{};
+                    }
+                    return *this;
                 }
 
             private:
