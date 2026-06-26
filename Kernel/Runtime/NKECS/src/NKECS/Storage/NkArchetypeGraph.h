@@ -65,6 +65,30 @@ namespace nkentseu {
             NkArchetypeGraph& operator=(const NkArchetypeGraph&) = delete;
 
             // -----------------------------------------------------------------
+            // Sémantique de déplacement (transfert de propriété des archétypes)
+            // -----------------------------------------------------------------
+            // Le graphe possède les NkArchetype* alloués dynamiquement : un move
+            // doit transférer ces pointeurs ET neutraliser la source afin que son
+            // destructeur ne libère pas une seconde fois (anti double-free).
+            NkArchetypeGraph(NkArchetypeGraph&& other) noexcept {
+                MoveFrom(other);
+            }
+
+            NkArchetypeGraph& operator=(NkArchetypeGraph&& other) noexcept {
+                if (this != &other) {
+                    // Libère les archétypes actuellement possédés avant d'écraser.
+                    for (uint32 i = 0; i < mNumArchetypes; ++i) {
+                        if (mArchetypes[i] != nullptr) {
+                            nkentseu::memory::NkGetDefaultAllocator().Delete(mArchetypes[i]);
+                            mArchetypes[i] = nullptr;
+                        }
+                    }
+                    MoveFrom(other);
+                }
+                return *this;
+            }
+
+            // -----------------------------------------------------------------
             // Accès aux archétypes par identifiant
             // -----------------------------------------------------------------
             [[nodiscard]] NkArchetype* Get(NkArchetypeId id) noexcept {
@@ -229,6 +253,13 @@ namespace nkentseu {
             // Taille de la table (doit être une puissance de deux).
             static constexpr uint32 kMaskTableSize = kMaxArchetypes * 2u;
 
+            // Le masquage `& (size - 1)` dans MaskLookup/MaskInsert/EdgeLookup/EdgeInsert
+            // n'est un modulo correct QUE si les tailles sont des puissances de deux.
+            // kMaskTableSize = kMaxArchetypes*2 et kEdgeTableSize = kMaxArchetypes*4
+            // le sont ssi kMaxArchetypes l'est.
+            static_assert((kMaxArchetypes & (kMaxArchetypes - 1u)) == 0u,
+                          "kMaxArchetypes doit etre une puissance de deux (hashing & (size-1)).");
+
             // Entrée du cache Mask.
             struct MaskEntry {
                 uint64        hash = 0;                     // Hash du masque (pour comparaison rapide)
@@ -337,6 +368,33 @@ namespace nkentseu {
                 }
 
                 NKECS_ASSERT(false && "Edge table full");
+            }
+
+            // -----------------------------------------------------------------
+            // Transfert d'état depuis `other` puis neutralisation de la source.
+            // Hypothèse : `*this` ne possède plus rien (déjà libéré par l'appelant).
+            // -----------------------------------------------------------------
+            void MoveFrom(NkArchetypeGraph& other) noexcept {
+                // Transfert des pointeurs d'archétypes (propriété).
+                for (uint32 i = 0; i < other.mNumArchetypes; ++i) {
+                    mArchetypes[i]       = other.mArchetypes[i];
+                    other.mArchetypes[i] = nullptr;
+                }
+                mNumArchetypes    = other.mNumArchetypes;
+                mEmptyArchetypeId = other.mEmptyArchetypeId;
+
+                // Transfert des caches (entrées POD).
+                for (uint32 i = 0; i < kMaskTableSize; ++i) {
+                    mMaskTable[i] = other.mMaskTable[i];
+                }
+                for (uint32 i = 0; i < kEdgeTableSize; ++i) {
+                    mEdgeTable[i] = other.mEdgeTable[i];
+                }
+
+                // La source ne possède plus aucun archétype : son destructeur ne
+                // libérera rien (mNumArchetypes = 0).
+                other.mNumArchetypes    = 0;
+                other.mEmptyArchetypeId = kInvalidArchetypeId;
             }
 
             // =================================================================

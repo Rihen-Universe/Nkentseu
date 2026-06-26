@@ -22,6 +22,20 @@
 #include <new>                       // Pour le placement new (construction dans un buffer)
 
 namespace nkentseu {
+
+    // -------------------------------------------------------------------------
+    // Forward declarations du pont reflexion (Phase 4).
+    // ComponentMeta porte un pointeur NkClass (NKReflection, couche System) et
+    // des hooks (de)serialize sur NkArchive (NKSerialization). On les declare
+    // ici en avant pour ne PAS tirer les en-tetes lourds de System dans chaque
+    // unite de compilation ECS : seuls le pont (NkReflectBridge) et l'appelant
+    // de la serialisation incluent les en-tetes complets.
+    // -------------------------------------------------------------------------
+    namespace reflection {
+        class NkClass;
+    }
+    class NkArchive;
+
     namespace ecs {
 
         // =========================================================================
@@ -80,6 +94,24 @@ namespace nkentseu {
 
             // Échange deux instances de T (utile pour le tri, la défragmentation).
             void (*swapAt)          (void* a, void* b)        = nullptr;
+
+            // ---------------------------------------------------------------------
+            // Pont reflexion (Phase 4 — NKReflection comme source de verite).
+            // ---------------------------------------------------------------------
+
+            // Meta-classe NKReflection generee a partir des champs reflechis du
+            // composant (NkFieldInfo -> NkProperty). nullptr si le composant n'a
+            // pas ete enregistre via NkRegisterComponentReflection<T>().
+            const ::nkentseu::reflection::NkClass* reflectClass = nullptr;
+
+            // Serialise l'instance de composant a `comp` dans l'archive via le
+            // pont generique NkReflectSerializer::SerializeReflected(reflectClass,
+            // comp, ar). nullptr si pas de reflexion enregistree.
+            void (*serialize)  (const void* comp, ::nkentseu::NkArchive& ar)       = nullptr;
+
+            // Remplit l'instance de composant a `comp` depuis l'archive via
+            // NkReflectSerializer::DeserializeReflected(reflectClass, comp, ar).
+            void (*deserialize)(void* comp, const ::nkentseu::NkArchive& ar)        = nullptr;
         };
 
         // =========================================================================
@@ -207,7 +239,10 @@ namespace nkentseu {
 
                     // Double‑checked locking : on verrouille et on relit au cas où un autre
                     // thread aurait enregistré le type entre temps.
-                    std::unique_lock lock(mMutex);
+                    // NB : on utilise le UniqueLock interne (RAII sur SpinLock) et non
+                    // std::unique_lock — mMutex est un SpinLock maison, et cela evite une
+                    // dependance a <mutex> en compilation standalone.
+                    UniqueLock lock(mMutex);
                     id = detail::ComponentIdStorage<TRaw>::value.load(std::memory_order_relaxed);
                     if (id != kInvalidComponentId) {
                         return id;
@@ -252,6 +287,22 @@ namespace nkentseu {
                 void SetName(NkComponentId id, const char* name) noexcept {
                     if (id < kMaxComponentTypes) {
                         mMetas[id].name = name;
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // Renseigne les hooks de reflexion/serialisation d'un composant.
+                // Appele par le pont NkRegisterComponentReflection<T>() (Phase 4).
+                // ---------------------------------------------------------------------
+                void SetReflection(
+                    NkComponentId id,
+                    const ::nkentseu::reflection::NkClass* reflectClass,
+                    void (*serialize)(const void*, ::nkentseu::NkArchive&),
+                    void (*deserialize)(void*, const ::nkentseu::NkArchive&)) noexcept {
+                    if (id < kMaxComponentTypes) {
+                        mMetas[id].reflectClass = reflectClass;
+                        mMetas[id].serialize    = serialize;
+                        mMetas[id].deserialize  = deserialize;
                     }
                 }
 

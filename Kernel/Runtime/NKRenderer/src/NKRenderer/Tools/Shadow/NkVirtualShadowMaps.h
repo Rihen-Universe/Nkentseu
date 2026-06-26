@@ -93,6 +93,18 @@ namespace nkentseu {
             // distance pour couvrir near a far autour de la cam). Ignores si
             // useFixedCascadeRadius=false.
             float32  cascadeFixedRadius[kMaxCascades] = {8.f, 16.f, 32.f, 64.f};
+            // Center monde FIXE pour les cascades (anti shadow swimming total).
+            // Par defaut false : le centre de chaque cascade suit la position de
+            // la camera (les texels suivent le joueur -> bon pour de grands mondes
+            // ouverts, mais l'ombre d'un caster fixe glisse par marches de texel
+            // quand la camera translate). Si true : le centre est ancre a
+            // cascadeWorldCenter (monde), peu importe la camera. A utiliser quand
+            // UNE cascade de grand radius couvre toute une scene close (ex : arene
+            // FPS) : l'ombre reste alors parfaitement ancree au sol. N'a de sens
+            // qu'avec useFixedCascadeRadius=true (radius constant requis pour que
+            // le centre fixe couvre toujours la meme region).
+            bool     useFixedCascadeCenter = false;
+            NkVec3f  cascadeWorldCenter     = {0.f, 0.f, 0.f};
         };
 
         // Slot CPU (info de quoi rendre et ou).
@@ -192,6 +204,17 @@ namespace nkentseu {
 
             // Upload du UBO ShadowSlots (apres BeginFrame).
             void   UploadSlotsUBO();
+
+            // Bug ombres DX12 : NkMat4f::Orthogonal/Perspective produisent un Z NDC en
+            // [-1,1] (convention OpenGL). Sur VK/DX11/DX12 le rasterizer attend [0,1] :
+            // sans correction, la moitie proche des casters est clippee (Z<0) -> atlas
+            // d'ombre vide -> SampleCmp retourne « tout en ombre » -> scene noire. On
+            // compose donc clipZ01 (z->0.5z+0.5) dans renderMatrix pour VK/DX11/DX12,
+            // EXACTEMENT comme la projection camera principale (cf. NkRender3D.cpp:811).
+            // Quand cette correction est appliquee, le shader ne doit PAS refaire le
+            // remap *0.5+0.5 sur p.z -> on signale via globalCfg.z (0=deja [0,1], 1=GL).
+            void   ApplyDepthClipCorrection(NkMat4f& m) const;
+            bool   DepthIsZeroToOne() const; // true sur VK/DX11/DX12
 
             // ----- members -----
             NkIDevice*               mDevice    = nullptr;

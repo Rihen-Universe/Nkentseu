@@ -80,8 +80,15 @@ void main() {
     vUV2   = aUV2;
     vColor = aColor * uObj.tint;
 
+    // Normal-offset shadow bias : pousse la position le long de la normale
+    // monde AVANT la projection shadow. C'est la parade principale contre le
+    // shadow acne (auto-ombrage "grainelleux" sur les surfaces inclinees) :
+    // le depth bias seul ne suffit pas sur les faces rasantes. uShadow.normalBias
+    // est en world units (ex: 0.05 = 5cm). Decouple du rendu visible (worldPos
+    // brut sert au lighting/gl_Position, seul shadowWorldPos est offsete).
+    vec3 shadowWorldPos = worldPos.xyz + vNormal * uShadow.normalBias;
     for (int c = 0; c < 4; c++)
-        vShadowCoord[c] = uShadow.cascadeMats[c] * worldPos;
+        vShadowCoord[c] = uShadow.cascadeMats[c] * vec4(shadowWorldPos, 1.0);
 
     gl_Position = uCam.viewProj * worldPos;
 }

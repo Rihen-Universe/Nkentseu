@@ -476,6 +476,10 @@ MigrationBackup/
 
 # Build results
 [Ww][Ii][Nn]32/
+# EXCEPTION : ce dossier de SOURCES de plateforme (NKWindow) porte le meme nom que
+# les dossiers de BUILD Visual Studio ci-dessus. Sans cette negation il n'etait jamais
+# suivi/pousse -> build Windows casse au clone. (Ne PAS retirer.)
+!Kernel/Runtime/NKWindow/src/NKWindow/Platform/Win32/
 
 # Visual Studio 2015/2017 cache/options directory
 # Uncomment if you have tasks that create the project's static files in wwwroot

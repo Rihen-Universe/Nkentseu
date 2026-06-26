@@ -35,8 +35,15 @@
     #include "NKReflection/NkClass.h"
     #include "NKReflection/NkProperty.h"
     #include "NKReflection/NkMethod.h"
+    #include "NKReflection/NkReflectMeta.h"
+    #include "NKReflection/NkContainerTrait.h"
+    #include "NKReflection/NkEnumDescriptor.h"
     #include "NKCore/NkTraits.h"
+    #include "NKCore/NkBuiltin.h"
     #include "NKContainers/Functional/NkFunction.h"
+    // Verrou d'ecriture du registre (thread-safety des Register*). NKReflection
+    // depend deja de NKThreading (cf. NKReflection.jenga).
+    #include "NKThreading/NkMutex.h"
 
     // -------------------------------------------------------------------------
     // SECTION 2 : EN-TETES STANDARD MINIMAUX
@@ -71,12 +78,22 @@
              * au moment de l'execution. Elle implemente un pattern Meyer's Singleton
              * pour une initialisation thread-safe en C++11+.
              *
-             * @note Thread-safety :
+             * @note Thread-safety (mise a jour 2026-06-25) :
              *       - L'initialisation du singleton est thread-safe (C++11+)
-             *       - Les operations d'enregistrement (RegisterType/RegisterClass)
-             *         NE SONT PAS thread-safe : synchronisation externe requise
-             *       - Les operations de lecture (FindType/FindClass) sont thread-safe
-             *         si aucun enregistrement concurrent n'a lieu
+             *       - Les operations d'ECRITURE (RegisterType / RegisterClass) sont
+             *         desormais protegees par un NkMutex interne (mWriteMutex) :
+             *         deux unites de compilation peuvent s'enregistrer en parallele
+             *         sans corrompre les tableaux. La verification de doublon +
+             *         l'insertion sont atomiques sous ce verrou.
+             *       - Les operations de LECTURE (FindType / FindClass / GetClass /
+             *         GetTypeAt / Count...) restent LOCK-FREE. Elles sont sures SI
+             *         aucune ecriture concurrente n'a lieu pendant la lecture.
+             *         Garantie d'usage : enregistrer toute la reflexion au DEMARRAGE
+             *         (avant de lancer les threads applicatifs). Apres cette phase,
+             *         le registre est en lecture seule -> lectures concurrentes sures.
+             *         Une lecture VRAIMENT concurrente a une ecriture n'est pas
+             *         garantie sans verrou cote lecteur (compromis perf : la lecture
+             *         est sur le chemin chaud, l'ecriture non).
              *
              * @note Capacite :
              *       - NK_MAX_TYPES = 512 types maximum enregistres
@@ -116,6 +133,8 @@
                         if (!type || !type->GetName()) {
                             return;
                         }
+                        // Section critique : check-doublon + insertion atomiques.
+                        ::nkentseu::threading::NkScopedLockMutex lock(mWriteMutex);
                         for (nk_usize i = 0; i < mTypeCount; ++i) {
                             if (mTypes[i] == type) {
                                 return;
@@ -186,6 +205,8 @@
                         if (!classInfo || !classInfo->GetName()) {
                             return;
                         }
+                        // Section critique : check-doublon + insertion atomiques.
+                        ::nkentseu::threading::NkScopedLockMutex lock(mWriteMutex);
                         for (nk_usize i = 0; i < mClassCount; ++i) {
                             if (mClasses[i] == classInfo) {
                                 return;
@@ -229,6 +250,25 @@
                     template<typename T>
                     const NkClass* GetClass() const {
                         return FindClass(typeid(T).name());
+                    }
+
+                    // ---------------------------------------------------------
+                    // ENUMS (delegation au registre d'enums)
+                    // ---------------------------------------------------------
+
+                    /**
+                     * @brief Recherche le descripteur d'enum pour le type C++ E.
+                     * @return Pointeur vers NkEnumDescriptor ou nullptr si E n'a
+                     *         pas ete reflechi via NKENTSEU_REFLECT_ENUM.
+                     */
+                    template<typename E>
+                    const NkEnumDescriptor* GetEnum() const {
+                        return NkEnumRegistry::Get().FindFor<E>();
+                    }
+
+                    /** @brief Recherche un descripteur d'enum par nom de type (typeid). */
+                    const NkEnumDescriptor* FindEnum(const nk_char* typeName) const {
+                        return NkEnumRegistry::Get().Find(typeName);
                     }
 
                     // ---------------------------------------------------------
@@ -369,7 +409,46 @@
                     // Encapsule dans NkFunction pour gestion memoire automatique.
 
                     OnRegisterCallback mOnRegisterCallback;
+
+                    // ---------------------------------------------------------
+                    // MEMBRE PRIVE : VERROU D'ECRITURE
+                    // ---------------------------------------------------------
+                    // Protege RegisterType / RegisterClass contre les ecritures
+                    // concurrentes (deux TU s'enregistrant en parallele). Les
+                    // lectures restent lock-free (cf. note thread-safety en tete
+                    // de classe). NkMutex est non-copiable/non-deplacable, comme
+                    // le singleton lui-meme.
+                    //
+                    // NOTE ENUMS : l'enregistrement d'enums passe par
+                    // NkEnumRegistry (registre distinct, delegue ici via GetEnum/
+                    // FindEnum). Sa propre thread-safety releve de NkEnumRegistry.
+                    mutable ::nkentseu::threading::NkMutex mWriteMutex;
             };
+
+            // =================================================================
+            // AUTO-LINK NkType -> NkClass (Phase 3)
+            // =================================================================
+            // Lie NkTypeOf<T>().SetClass(&T::GetStaticClass()) SSI T expose
+            // GetStaticClass() (classe reflechie). Detection SFINAE : la
+            // surcharge (int) est preferee quand decltype(&T::GetStaticClass())
+            // est valide, sinon repli sur la surcharge variadique (no-op).
+
+            template<typename T>
+            auto NkReflectAutoLinkClassImpl(int)
+                -> decltype(&T::GetStaticClass(), void()) {
+                const NkClass& cls = T::GetStaticClass();
+                const_cast<NkType&>(NkTypeOf<T>()).SetClass(&cls);
+            }
+
+            template<typename T>
+            void NkReflectAutoLinkClassImpl(...) {
+                // T n'est pas une classe reflechie : rien a lier.
+            }
+
+            template<typename T>
+            void NkReflectAutoLinkClass() {
+                NkReflectAutoLinkClassImpl<T>(0);
+            }
 
         } // namespace reflection
 
@@ -428,6 +507,14 @@
                 sizeof(ClassName), \
                 ::nkentseu::reflection::NkTypeOf<ClassName>() \
             ); \
+            /* Auto-link NkType(ClassName) -> NkClass : evite le SetClass manuel */ \
+            /* pour que les objets imbriques se (de)serialisent automatiquement. */ \
+            static bool s_linked = []() -> bool { \
+                const_cast<::nkentseu::reflection::NkType&>( \
+                    ::nkentseu::reflection::NkTypeOf<ClassName>()).SetClass(&classInfo); \
+                return true; \
+            }(); \
+            (void)s_linked; \
             return classInfo; \
         } \
         virtual const ::nkentseu::reflection::NkClass& GetClass() const { \
@@ -452,8 +539,25 @@
      * @warning Le membre doit etre public ou la macro doit etre placee dans la section appropriee
      */
     #define NKENTSEU_REFLECT_PROPERTY(PropertyName) \
+        NKENTSEU_REFLECT_PROPERTY_FLAGS(PropertyName, 0ULL)
+
+    /**
+     * @brief Variante de NKENTSEU_REFLECT_PROPERTY portant des drapeaux meta.
+     * @def NKENTSEU_REFLECT_PROPERTY_FLAGS(PropertyName, MetaFlags)
+     * @ingroup ReflectionMacros
+     *
+     * Comme NKENTSEU_REFLECT_PROPERTY, mais :
+     *  - pose les drapeaux d'edition 64 bits (NkReflectMeta) MetaFlags ;
+     *  - auto-detecte les conteneurs (NkVector<T>) et attache leur descripteur ;
+     *  - auto-lie le NkType de l'element de classe a son NkClass (objets
+     *    imbriques) si l'element expose GetStaticClass().
+     *
+     * @param PropertyName Nom du membre a reflechir.
+     * @param MetaFlags    Combinaison de NkReflectMeta (0ULL pour aucun).
+     */
+    #define NKENTSEU_REFLECT_PROPERTY_FLAGS(PropertyName, MetaFlags) \
     public: \
-        static const ::nkentseu::reflection::NkProperty& Get##PropertyName##Property() { \
+        static ::nkentseu::reflection::NkProperty& Get##PropertyName##Property() { \
             static ::nkentseu::reflection::NkProperty property( \
                 #PropertyName, \
                 ::nkentseu::reflection::NkTypeOf<decltype(((SelfType*)0)->PropertyName)>(), \
@@ -461,6 +565,25 @@
             ); \
             return property; \
         } \
+        /* Registrar inline-static : enregistre automatiquement la propriete */ \
+        /* dans le NkClass de la classe avant main(). Deduplication par nom   */ \
+        /* assuree par NkClass::AddProperty (sur pour inclusion multi-TU).     */ \
+        struct PropertyName##_NkPropReg { \
+            PropertyName##_NkPropReg() { \
+                using PropT = decltype(((SelfType*)0)->PropertyName); \
+                ::nkentseu::reflection::NkProperty& prop = SelfType::Get##PropertyName##Property(); \
+                prop.AddMetaFlags(static_cast<::nkentseu::nk_uint64>(MetaFlags)); \
+                /* Conteneur (NkVector<T>) : attache le descripteur type-erased. */ \
+                if (::nkentseu::reflection::NkContainerTrait<PropT>::IsContainer) { \
+                    prop.SetContainer(::nkentseu::reflection::NkContainerTrait<PropT>::Descriptor()); \
+                } \
+                /* Auto-link NkType(element) -> NkClass si reflechi. */ \
+                ::nkentseu::reflection::NkReflectAutoLinkClass<PropT>(); \
+                const_cast<::nkentseu::reflection::NkClass&>(SelfType::GetStaticClass()) \
+                    .AddProperty(&prop); \
+            } \
+        }; \
+        inline static PropertyName##_NkPropReg s_##PropertyName##_nkPropReg{}; \
     private:
 
     /**
@@ -492,6 +615,31 @@
     #define NKENTSEU_PROPERTY(Type, Name) \
         Type Name; \
         NKENTSEU_REFLECT_PROPERTY(Name)
+
+    /**
+     * @brief Declare une propriete reflechie avec drapeaux d'edition (meta).
+     * @def NKENTSEU_PROPERTY_FLAGS(Type, Name, Flags)
+     * @ingroup ReflectionMacros
+     *
+     * Equivalent a NKENTSEU_PROPERTY mais la propriete porte des NkReflectMeta
+     * (ex. NK_REFLECT_TRANSIENT, NK_REFLECT_READONLY, NK_REFLECT_HIDE_EDITOR).
+     * Pour ajuster range/tooltip/categorie, recuperer la propriete via
+     * Get<Name>Property() et appeler SetRange/SetTooltip/SetCategory (typiquement
+     * dans une routine d'initialisation de reflexion).
+     *
+     * @example
+     * @code
+     * class Config {
+     *     NKENTSEU_REFLECT_CLASS(Config)
+     * public:
+     *     NKENTSEU_PROPERTY_FLAGS(nk_int32, cacheToken, NK_REFLECT_TRANSIENT)
+     *     NKENTSEU_PROPERTY_FLAGS(nk_float32, volume, NK_REFLECT_RANGE)
+     * };
+     * @endcode
+     */
+    #define NKENTSEU_PROPERTY_FLAGS(Type, Name, Flags) \
+        Type Name; \
+        NKENTSEU_REFLECT_PROPERTY_FLAGS(Name, (Flags))
 
     /**
      * @brief Attribut de annotation pour marquage de code reflechi
@@ -543,14 +691,14 @@
      */
     #define NKENTSEU_REGISTER_CLASS(ClassName) \
     namespace { \
-        struct NK_CONCAT(ClassName, _Registrar) { \
-            NK_CONCAT(ClassName, _Registrar)() { \
+        struct NKENTSEU_CONCAT(ClassName, _Registrar) { \
+            NKENTSEU_CONCAT(ClassName, _Registrar)() { \
                 ::nkentseu::reflection::NkRegistry::Get().RegisterClass( \
                     &ClassName::GetStaticClass() \
                 ); \
             } \
         }; \
-        static NK_CONCAT(ClassName, _Registrar) NK_CONCAT(g_, NK_CONCAT(ClassName, _registrar)); \
+        static NKENTSEU_CONCAT(ClassName, _Registrar) NKENTSEU_CONCAT(g_, NKENTSEU_CONCAT(ClassName, _registrar)); \
     }
 
 #endif // NK_REFLECTION_NKREGISTRY_H

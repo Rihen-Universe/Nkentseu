@@ -73,8 +73,10 @@ namespace nkentseu {
          *          correcte des objets dérivés via pointeur de base.
          */
         struct IEventQueue {
-            /// Destructeur virtuel pour suppression polymorphique sûre
-            virtual ~IEventQueue() noexcept = default;
+            /// Destructeur virtuel pour suppression polymorphique sûre.
+            /// Defini out-of-line dans le .cpp (key function : emet la vtable
+            /// dans une seule unite de compilation).
+            virtual ~IEventQueue() noexcept;
 
             /**
              * @brief Exécute tous les événements en attente dans la file.
@@ -286,7 +288,7 @@ namespace nkentseu {
                 };
 
                 /// Mutex pour thread-safety sur toutes les opérations publiques
-                mutable NkMutex mMutex;
+                mutable threading::NkMutex mMutex;
 
                 /// Liste des handlers souscrits (actifs et inactifs avant purge)
                 NkVector<HandlerEntry> mHandlers;
@@ -603,7 +605,7 @@ namespace nkentseu {
         template<typename T>
         typename NkEventChannel<T>::HandleId
         NkEventChannel<T>::Subscribe(Handler handler) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             const HandleId id = mNextId++;
             mHandlers.PushBack({id, static_cast<Handler&&>(handler), true});
             return id;
@@ -611,7 +613,7 @@ namespace nkentseu {
 
         template<typename T>
         void NkEventChannel<T>::Unsubscribe(HandleId id) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             for (nk_usize i = 0; i < mHandlers.Size(); ++i) {
                 if (mHandlers[i].id == id) {
                     mHandlers[i].active = false;
@@ -623,7 +625,7 @@ namespace nkentseu {
         // ── NkEventChannel<T> : Émission immédiate ────────────────────────
         template<typename T>
         void NkEventChannel<T>::Emit(const T& event) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             for (nk_usize i = 0; i < mHandlers.Size(); ++i) {
                 auto& e = mHandlers[i];
                 if (e.active && e.fn) {
@@ -635,20 +637,20 @@ namespace nkentseu {
         // ── NkEventChannel<T> : File différée ─────────────────────────────
         template<typename T>
         void NkEventChannel<T>::Queue(const T& event) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             mQueue.PushBack(event);
         }
 
         template<typename T>
         void NkEventChannel<T>::Queue(T&& event) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             mQueue.PushBack(static_cast<T&&>(event));
         }
 
         // ── NkEventChannel<T> : Drain (exécution différée + purge) ────────
         template<typename T>
         void NkEventChannel<T>::Drain() noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
 
             // ── Étape 1 : Swap local pour éviter la réentrance ──
             NkVector<T> toDispatch;
@@ -680,19 +682,19 @@ namespace nkentseu {
         // ── NkEventChannel<T> : Clear / Empty / HandlerCount ─────────────
         template<typename T>
         void NkEventChannel<T>::Clear() noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             mQueue.Clear();
         }
 
         template<typename T>
         bool NkEventChannel<T>::Empty() const noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             return mQueue.IsEmpty();
         }
 
         template<typename T>
         uint32 NkEventChannel<T>::HandlerCount() const noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             return static_cast<uint32>(mHandlers.Size());
         }
 
@@ -700,19 +702,19 @@ namespace nkentseu {
         template<typename T, typename Fn>
         typename NkGameplayEventBus::SubscriptionId
         NkGameplayEventBus::Subscribe(Fn&& fn) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             NkEventChannel<T>& ch = GetOrCreate<T>();
             typename NkEventChannel<T>::HandleId hid =
                 ch.Subscribe(NkFunction<void(const T&)>(traits::NkForward<Fn>(fn)));
             const uint64 tid = static_cast<uint64>(
-                NkTypeRegistry::Global().TypeId<T>()
+                NkTypeRegistry::Global().IdOf<T>()
             );
             return (tid << 32u) | static_cast<uint64>(hid);
         }
 
         template<typename T>
         void NkGameplayEventBus::Unsubscribe(SubscriptionId id) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             NkEventChannel<T>* ch = Find<T>();
             if (ch) {
                 ch->Unsubscribe(static_cast<uint32>(id & 0xFFFFFFFFu));
@@ -722,7 +724,7 @@ namespace nkentseu {
         // ── NkGameplayEventBus : Emit (immédiat) ─────────────────────────
         template<typename T>
         void NkGameplayEventBus::Emit(const T& event) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             if (NkEventChannel<T>* ch = Find<T>()) {
                 ch->Emit(event);
             }
@@ -730,7 +732,7 @@ namespace nkentseu {
 
         template<typename T>
         void NkGameplayEventBus::Emit(T&& event) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             if (NkEventChannel<T>* ch = Find<T>()) {
                 ch->Emit(traits::NkForward<T>(event));
             }
@@ -739,20 +741,20 @@ namespace nkentseu {
         // ── NkGameplayEventBus : Queue (différé) ─────────────────────────
         template<typename T>
         void NkGameplayEventBus::Queue(const T& event) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             GetOrCreate<T>().Queue(event);
         }
 
         template<typename T>
         void NkGameplayEventBus::Queue(T&& event) noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             GetOrCreate<T>().Queue(traits::NkForward<T>(event));
         }
 
         // ── NkGameplayEventBus : GetOrCreate / Find (privé) ──────────────
         template<typename T>
         NkEventChannel<T>& NkGameplayEventBus::GetOrCreate() noexcept {
-            const NkComponentId tid = NkTypeRegistry::Global().TypeId<T>();
+            const NkComponentId tid = NkTypeRegistry::Global().IdOf<T>();
             for (uint32 i = 0; i < mCount; ++i) {
                 if (mEntries[i].typeId == tid) {
                     return *static_cast<NkEventChannel<T>*>(mEntries[i].queue);
@@ -773,7 +775,7 @@ namespace nkentseu {
 
         template<typename T>
         NkEventChannel<T>* NkGameplayEventBus::Find() noexcept {
-            const NkComponentId tid = NkTypeRegistry::Global().TypeId<T>();
+            const NkComponentId tid = NkTypeRegistry::Global().IdOf<T>();
             for (uint32 i = 0; i < mCount; ++i) {
                 if (mEntries[i].typeId == tid) {
                     return static_cast<NkEventChannel<T>*>(mEntries[i].queue);

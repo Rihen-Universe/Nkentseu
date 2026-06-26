@@ -31,11 +31,18 @@ public:
     void SetViewports(const NkViewport* vps, uint32 n) override;
     void SetScissor  (const NkRect2D& r) override;
     void SetScissors (const NkRect2D* r, uint32 n) override;
+    // SetClearColor/SetClearDepth = SIGNAL « cette passe doit clear » (loadOp CLEAR).
+    // Le render graph ne les appelle QUE pour les passes loadOp=NK_CLEAR (cf.
+    // NkRenderGraph.cpp). BeginRenderPass clear UNIQUEMENT si le flag pending est armé,
+    // puis le désarme — exactement comme le backend DX11. Sinon une passe LOAD
+    // (Overlay2D sur le swapchain) efface l'image déjà composée → écran noir 3D.
     void SetClearColor(float r, float g, float b, float a = 1.f) override {
         mClearColor[0]=r; mClearColor[1]=g; mClearColor[2]=b; mClearColor[3]=a;
+        mPendingClearColor = true;
     }
     void SetClearDepth(float depth = 1.f, uint32 stencil = 0) override {
         mClearDepth=depth; mClearStencil=stencil;
+        mPendingClearDepth = true;
     }
 
     void BindGraphicsPipeline(NkPipelineHandle p) override;
@@ -83,10 +90,43 @@ private:
     uint64                              mActiveColorTexIds[8]{};
     uint32                              mActiveColorCount = 0;
     uint64                              mActiveDepthTexId = 0;
+    // Fix #613 : RP de la passe courante (formats RTV/DSV réels du framebuffer lié).
+    // Utilisé par BindGraphicsPipeline pour résoudre le PSO format-compatible.
+    NkRenderPassHandle                  mActiveRP{};
     uint32                              mVertexStrides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT]{};
     float                              mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
     float                              mClearDepth    = 1.f;
     uint32                             mClearStencil  = 0;
+    // ── État de binding FUSIONNÉ (fix multi-set DX12) ───────────────────────────
+    // Le renderer lie SET 0 (caméra b0, lights, shadow…) UNE FOIS par passe, puis SET 1
+    // (transform/matériau par objet) à chaque objet, en s'appuyant sur la persistance
+    // multi-set (DX11/GL/VK gardent le set 0 lié pendant que le set 1 change). Le modèle
+    // « table large » DX12 alloue un bloc de ring par BindDescriptorSet et n'y copie QUE
+    // les descripteurs de CE set → le set 0 (caméra) était perdu pour les draws d'objets
+    // → matrice caméra = garbage → géométrie dégénérée → écran noir 3D. FIX : on conserve
+    // un état de binding fusionné (slot → index staging) cumulé sur tous les BindDescriptorSet
+    // depuis le dernier BeginRenderPass ; à chaque bind on ré-émet l'INTÉGRALITÉ de l'état
+    // fusionné dans un bloc de ring frais → le set 0 survit aux re-binds du set 1.
+    static constexpr uint32 kMergedCbv  = 32;  // NUM_CBV (b0..b31, inclut MPC_UBO @ b25)
+    static constexpr uint32 kMergedSrv  = 32;  // NUM_SRV
+    static constexpr uint32 kMergedUav  = 8;   // NUM_UAV
+    static constexpr uint32 kMergedSamp = 32;  // NUM_SAMP
+    uint32 mMergedCbv [kMergedCbv]  {};
+    uint32 mMergedSrv [kMergedSrv]  {};
+    uint32 mMergedUav [kMergedUav]  {};
+    uint32 mMergedSamp[kMergedSamp] {};
+    // Déduplication du bloc sampler (le heap sampler shader-visible est plafonné à
+    // 2048 par D3D12 ; réallouer 32 slots/draw débordait après 64 draws). On réutilise
+    // le dernier bloc ring si l'état sampler est inchangé. Réinit par ResetMergedBindings.
+    uint32 mLastSampBase       = 0xFFFFFFFFu;
+    uint32 mLastSampCount      = 0;
+    uint32 mLastSampCopiedBase = 0xFFFFFFFFu;
+    uint32 mLastSampVals[kMergedSamp] {};
+    void ResetMergedBindings();
+    // Clear conditionnel (parité DX11) : armé par SetClearColor/SetClearDepth, consommé
+    // et désarmé par BeginRenderPass. Une passe sans clear (loadOp LOAD) préserve la cible.
+    bool                               mPendingClearColor = false;
+    bool                               mPendingClearDepth = false;
 };
 
 } // namespace nkentseu

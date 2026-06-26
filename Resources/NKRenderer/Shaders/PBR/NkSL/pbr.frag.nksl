@@ -101,7 +101,6 @@ uniform ShadowSlotsUBO {
 @binding(set=0, binding=21) uniform samplerCube tLight3DCubeCookie0;
 @binding(set=0, binding=22) uniform samplerCube tLight3DCubeCookie1;
 @binding(set=0, binding=23) uniform samplerCube tLight3DCubeCookie2;
-..
 @binding(set=0, binding=24) uniform samplerCube tLight3DCubeCookie3;
 
 float SampleLight3DCubeCookie(int idx, vec3 dir) {

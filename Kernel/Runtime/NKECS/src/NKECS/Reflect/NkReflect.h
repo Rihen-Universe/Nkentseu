@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <utility>     // std::declval (utilise par les macros NK_FIELD*)
 
 namespace nkentseu {
 namespace ecs {
@@ -300,8 +301,10 @@ namespace reflect {
           Count, NkMeta_Visible | NkMeta_EditFixedSize | NkMeta_Serialize,    \
           nullptr, nullptr, nullptr, 0.f, 1.f, nullptr, nullptr, nullptr, 0, nullptr },
     
-    // Fin de la déclaration et enregistrement
-    #define NK_REFLECT_END()                                                   \
+    // Fin de la déclaration et enregistrement.
+    // NB : prend le nom du Type (corrige le bug ou #Type/##Type n'avaient pas
+    // de parametre dans l'ancienne signature NK_REFLECT_END() sans argument).
+    #define NK_REFLECT_END(Type)                                               \
             };                                                                 \
             ::nkentseu::ecs::reflect::NkTypeInfo info{};                       \
             info.componentId = ::nkentseu::ecs::NkIdOf<_T>();                 \

@@ -102,6 +102,27 @@ namespace nkentseu {
         }
 
         // ---------------------------------------------------------------------
+        // Correction de profondeur NDC [-1,1] (GL) -> [0,1] (VK/DX) sur la matrice
+        // d'ombre, identique a NkRender3D pour la camera principale. Sans elle,
+        // l'atlas d'ombre se rend tronque sur DX12 -> scene entierement en ombre.
+        // ---------------------------------------------------------------------
+        bool NkVirtualShadowMaps::DepthIsZeroToOne() const {
+            if (!mDevice) return false;
+            auto api = mDevice->GetApi();
+            return api == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN
+                || api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11
+                || api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12;
+        }
+        void NkVirtualShadowMaps::ApplyDepthClipCorrection(NkMat4f& m) const {
+            if (!DepthIsZeroToOne()) return;
+            // clipZ01 : z_new = 0.5*z + 0.5*w. NkMat4f column-major -> [2][2]=0.5, [3][2]=0.5.
+            NkMat4f clipZ01 = NkMat4f::Identity();
+            clipZ01[2][2] = 0.5f;
+            clipZ01[3][2] = 0.5f;
+            m = clipZ01 * m;
+        }
+
+        // ---------------------------------------------------------------------
         // ComputeCascadeSplits : Practical CSM (log+uniform blend).
         // ---------------------------------------------------------------------
         void NkVirtualShadowMaps::ComputeCascadeSplits(float32 nearP, float32 farP,
@@ -166,7 +187,13 @@ namespace nkentseu {
             NkVec3f center;
             float32 radius;
             if (mCfg.useFixedCascadeRadius && cascadeIdx < kMaxCascades) {
-                center = mainCam.GetPosition();
+                // Center : soit ancre au monde (anti-swimming total pour une scene
+                // close couverte par une seule grande cascade), soit suivant la
+                // camera (mondes ouverts). Le snap-to-texel ci-dessous quantifie
+                // ensuite le centre ; avec un center fixe il reste donc constant
+                // -> l'ombre d'un caster fixe ne glisse plus.
+                center = mCfg.useFixedCascadeCenter ? mCfg.cascadeWorldCenter
+                                                    : mainCam.GetPosition();
                 radius = mCfg.cascadeFixedRadius[cascadeIdx];
                 if (radius < 1.f) radius = 1.f;
             } else {
@@ -267,6 +294,7 @@ namespace nkentseu {
                 ComputeDirectionalCascade(mainCam, light, c, subNear, subFar, tilePx,
                                           lightView, lightProj);
                 s.renderMatrix = lightProj * lightView;
+                ApplyDepthClipCorrection(s.renderMatrix); // [-1,1]->[0,1] sur VK/DX
 
                 // Bake la transform T pour mapper le NDC cascade -> uv du tile.
                 // T = scale(uvSize) * translate(uvCenter) en post-mult.
@@ -285,6 +313,26 @@ namespace nkentseu {
                 // Stocke splitFar pour cascade selection dans le shader.
                 s.lightPosOrDir = NkVec4f{light.direction.x, light.direction.y,
                                            light.direction.z, subFar};
+
+                // DIAG (gated NK_VSM_DIAG) : pour un worldPos de reference FIXE,
+                // logge l'UV atlas que la shadowMatrix lui assigne. Si la camera
+                // bouge mais que ce point monde fixe change d'UV -> swimming.
+                static int vsmDiag = -1;
+                if (vsmDiag == -1) {
+                    const char* v = getenv("NK_VSM_DIAG");
+                    vsmDiag = (v && v[0] && v[0] != '0') ? 1 : 0;
+                }
+                if (vsmDiag && c == 0) {
+                    const NkVec3f wpRef{2.f, 0.5f, 2.f}; // sphere posee fixe
+                    NkVec4f cc = s.shadowMatrix * NkVec4f{wpRef.x, wpRef.y, wpRef.z, 1.f};
+                    if (cc.w != 0.f) {
+                        float32 px = (cc.x / cc.w) * 0.5f + 0.5f;
+                        float32 py = (cc.y / cc.w) * 0.5f + 0.5f;
+                        float32 pz = (cc.z / cc.w);
+                        logger.Info("[VSMDiag] camX={0} cas0 ref(2,0.5,2) ndcUV=({1},{2}) z={3}\n",
+                                    mainCam.GetPosition().x, px, py, pz);
+                    }
+                }
 
                 mActiveSlotCount++;
                 successCount++;
@@ -331,6 +379,7 @@ namespace nkentseu {
             NkMat4f lightProj = NkMat4f::Perspective(NkAngle(fovDeg), 1.f, 0.1f, farP);
 
             s.renderMatrix  = lightProj * lightView;
+            ApplyDepthClipCorrection(s.renderMatrix); // [-1,1]->[0,1] sur VK/DX
             s.shadowMatrix  = s.renderMatrix;
             s.lightPosOrDir = NkVec4f{pos.x, pos.y, pos.z, farP};
 
@@ -383,6 +432,7 @@ namespace nkentseu {
                 NkVec3f target = pos + faceDirs[f];
                 NkMat4f lightView = NkMat4f::LookAt(pos, target, faceUps[f]);
                 s.renderMatrix  = lightProj * lightView;
+                ApplyDepthClipCorrection(s.renderMatrix); // [-1,1]->[0,1] sur VK/DX
                 s.shadowMatrix  = s.renderMatrix;
                 s.lightPosOrDir = NkVec4f{pos.x, pos.y, pos.z, farP};
 
@@ -502,7 +552,20 @@ namespace nkentseu {
             int32 softMode = 0;
             if (mCfg.quality == NkVSMShadowQuality::PCSS)        softMode = 2;
             else if (mCfg.quality != NkVSMShadowQuality::NONE)   softMode = 1;
-            b.globalCfg  = NkVec4f{float32(mActiveSlotCount), float32(softMode), 0.f, 0.f};
+            // globalCfg.z = depthRemap : 1.0 si la matrice d'ombre produit un Z en [-1,1]
+            // (OpenGL, le shader doit faire p.z*0.5+0.5) ; 0.0 si deja en [0,1] (VK/DX, on a
+            // baked clipZ01 dans renderMatrix -> le shader NE doit PAS refaire le remap).
+            float32 depthRemap = DepthIsZeroToOne() ? 0.f : 1.f;
+            // globalCfg.w = shadowYFlip : 1.0 sur DX (DX11/DX12), 0.0 sinon. L'atlas est
+            // rendu SANS flip viewport sur tous les backends, mais la convention NDC.y→ligne
+            // texture diffère : VK (NDC.y=-1=haut) et DX (NDC.y=+1=haut) avec origine texture
+            // V=0 en haut. Le sample atlasUV.y = p.y*0.5+0.5 est correct en VK/GL mais
+            // INVERSE en V sur DX → ombre décalée/mobile. Sur DX on échantillonne donc en
+            // V = 1 - (p.y*0.5+0.5) = -p.y*0.5+0.5.
+            const auto _api = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+            float32 shadowYFlip = (_api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
+                                   _api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) ? 1.f : 0.f;
+            b.globalCfg  = NkVec4f{float32(mActiveSlotCount), float32(softMode), depthRemap, shadowYFlip};
             b.biasParams = NkVec4f{mCfg.shadowBias, mCfg.normalBias, mCfg.softness, 0.f};
 
             if (mCurFrameSlot < mUBOSlotsRing.Size()
