@@ -64,8 +64,13 @@ namespace nkentseu {
                 return { cp * cosf(yaw), sinf(pitch), cp * sinf(yaw) };
             }
             NkVec3f Right() const {
+                // Right = cross(forward, up) horizontalise. La matrice de vue
+                // (NkCamera3D::RebuildImpl) calcule right = cross(fwd, up) :
+                // pour fwd=-Z, up=+Y -> right=+X. On DOIT matcher ce signe sinon
+                // le strafe est inverse (gauche<->droite). Avec fwd={0,0,-1} :
+                // r = {-f.z, 0, f.x} = {1,0,0} = +X (droite de l'ecran). OK.
                 NkVec3f f = Forward();
-                NkVec3f r = { f.z, 0.f, -f.x };
+                NkVec3f r = { -f.z, 0.f, f.x };
                 const float32 l = sqrtf(r.x*r.x + r.z*r.z);
                 if (l > 1e-6f) { r.x /= l; r.z /= l; }
                 return r;
@@ -378,8 +383,24 @@ namespace nkentseu {
             // pas de shimmering quand la camera bouge.
             if (auto* shadowSys = ctx.renderer->GetShadow()) {
                 auto& sc = shadowSys->GetConfig();
+                // UNE seule cascade couvre toute l'arene close. Le defaut est 4
+                // cascades (radius 8/16/32/64) : on ne fixait que [0]=25, donc
+                // les cascades 1-3 gardaient des radius (16/32/64) qui ne
+                // couvrent PAS l'arene de facon coherente avec un centre monde
+                // fixe -> les transitions de cascade selon la distance creaient
+                // des decalages et des sauts de qualite/resolution d'ombre.
+                // 1 cascade = une grille de texels unique, stable, ancree au sol
+                // sur toute l'arene -> ombres coherentes et bien positionnees.
+                sc.numCascades = 1;
                 sc.useFixedCascadeRadius = true;
                 sc.cascadeFixedRadius[0] = 25.f;   // cascade 0 = toute l'arene
+                // Center ancre au monde (origine) : l'arene 30x30 est close et
+                // entierement couverte par cette unique cascade de radius 25.
+                // Ancrer le centre au monde (au lieu de suivre la camera) ancre
+                // les texels d'ombre au sol -> plus de glissement d'ombre quand
+                // le joueur se deplace (shadow swimming elimine).
+                sc.useFixedCascadeCenter = true;
+                sc.cascadeWorldCenter    = {0.f, 0.f, 0.f};
             }
 
             logger.Info("[Demo11] === FPS Arena ===\n");
@@ -392,6 +413,24 @@ namespace nkentseu {
         void Demo11_FPSArena_Frame(DemoCtx& ctx, float32 dt) {
             auto* st = (Demo11State*)ctx.userData;
             st->cam.Update(dt);
+
+            // DIAG (gated NK_DEMO11_AUTOPAN) : translation laterale automatique
+            // de la camera (oscillation X) pour reproduire/observer le swimming
+            // d'ombre quand la camera se deplace, sans input clavier. 0 effet
+            // sans la variable d'env.
+            static int autopan = -1;
+            if (autopan == -1) {
+                const char* v = getenv("NK_DEMO11_AUTOPAN");
+                autopan = (v && v[0] && v[0] != '0') ? 1 : 0;
+            }
+            if (autopan) {
+                // Oscille X entre -8 et +8 metres, regard fixe vers -Z.
+                st->cam.pos.x   = 8.f * sinf(ctx.totalTime * 0.6f);
+                st->cam.pos.y   = 1.7f;
+                st->cam.pos.z   = 6.f;
+                st->cam.yaw     = -1.5707963f;
+                st->cam.pitch   = 0.f;
+            }
 
             if (!ctx.renderer->BeginFrame()) return;
             auto* r3d = ctx.renderer->GetRender3D();

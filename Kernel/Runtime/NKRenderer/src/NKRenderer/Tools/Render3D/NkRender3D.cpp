@@ -534,6 +534,7 @@ namespace nkentseu {
             mCtx = ctx;
             mInScene = true;
             mOpaque.Clear(); mTransparent.Clear();
+            mShadowCasters.Clear();
             mInstanced.Clear(); mSkinned.Clear();
             // mObjectDrawIdx N'EST PAS reset ici — voir ResetFrame() ci-dessus.
         }
@@ -541,12 +542,22 @@ namespace nkentseu {
         // ── Submit ────────────────────────────────────────────────────────────────
         void NkRender3D::Submit(const NkDrawCall3D& dc) {
             if (!dc.visible) return;
-            if (!mCtx.camera.IsAABBVisible(dc.aabb)) return;
 
             NkVec3f camPos = mCtx.camera.GetPosition();
             NkVec3f center = dc.aabb.Center();
             float32 dx=center.x-camPos.x, dy=center.y-camPos.y, dz=center.z-camPos.z;
             float32 depth = dx*dx + dy*dy + dz*dz;
+
+            // Caster d'ombre : collecte AVANT le culling camera. Un objet hors
+            // champ camera peut projeter une ombre dans la zone visible ; il
+            // doit donc entrer dans la passe shadow meme s'il est cull du rendu
+            // principal. (Cause racine "objets sans ombre" : avant, le culling
+            // camera retirait le caster de mOpaque, et la passe shadow iterait
+            // sur mOpaque.)
+            if (dc.castShadow) mShadowCasters.PushBack({dc, depth});
+
+            // Culling camera : uniquement pour le rendu visible (mOpaque).
+            if (!mCtx.camera.IsAABBVisible(dc.aabb)) return;
             mOpaque.PushBack({dc, depth});
         }
 
@@ -800,18 +811,23 @@ namespace nkentseu {
             cb.proj        = mCtx.camera.GetProj();
             cb.viewProj    = mCtx.camera.GetViewProj();
 
-            // Correction Vulkan clip-space : la projection NkCamera produit
-            // un NDC Z dans [-1, 1] (convention OpenGL). Vulkan attend [0, 1] —
-            // sans correction, la moitie pres de la camera est silencieusement
-            // clippee (Z<0) -> ecran noir. On compose vkClip * proj pour passer
-            // de [-1,1] a [0,1] : z_new = 0.5*z + 0.5*w. NkMat4f est column-major,
-            // donc m[2][2]=0.5 (m22) et m[3][2]=0.5 (m23, translation Z).
-            if (mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN) {
-                NkMat4f vkClip = NkMat4f::Identity();
-                vkClip[2][2] = 0.5f;
-                vkClip[3][2] = 0.5f;
-                cb.proj     = vkClip * cb.proj;
-                cb.viewProj = vkClip * cb.viewProj;
+            // Correction clip-space Z : la projection NkCamera produit un NDC Z dans
+            // [-1, 1] (convention OpenGL). Vulkan ET DirectX 11/12 attendent [0, 1] —
+            // sans correction, la moitie pres de la camera est silencieusement clippee
+            // (Z<0) -> ecran noir (DX12) ou geometrie partiellement clippee + reflets
+            // fantomes (DX11, car la proj de REFLEXION corrige deja DX, pas la principale).
+            // On compose clipZ01 * proj : z_new = 0.5*z + 0.5*w. NkMat4f column-major,
+            // donc m[2][2]=0.5 (m22) et m[3][2]=0.5 (m23, translation Z). Le Y-flip DX est
+            // gere par le shader (output._Position.y = -y), donc on ne touche QUE Z ici.
+            const auto _depthApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+            if (_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
+                _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11   ||
+                _depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) {
+                NkMat4f clipZ01 = NkMat4f::Identity();
+                clipZ01[2][2] = 0.5f;
+                clipZ01[3][2] = 0.5f;
+                cb.proj     = clipZ01 * cb.proj;
+                cb.viewProj = clipZ01 * cb.viewProj;
             }
             cb.invViewProj = cb.viewProj.Inverse();
             NkVec3f pos = mCtx.camera.GetPosition();
@@ -823,12 +839,19 @@ namespace nkentseu {
             cb.time        = mCtx.time;
             cb.deltaTime   = mCtx.deltaTime;
             cb.iblStrength = mIBLStrength;
-            // yFlipNDC : Vulkan flip viewport Y (VkViewport.height<0), donc
-            // top screen = vNDC.y = -1. OpenGL ne flip pas, top screen = +1.
-            // Pour qu'un meme shader produise le meme viewRay.y dans les deux
-            // cas, on multiplie vNDC.y par yFlipNDC : +1 en VK, -1 en GL.
-            const bool isVK = mDevice && mDevice->GetApi() == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN;
-            cb.yFlipNDC = isVK ? +1.f : -1.f;
+            // yFlipNDC : UNIQUEMENT consommé par le SKYBOX (reconstruction du view-ray à
+            // partir de vNDC). C'est l'orientation Y du VS PLEIN ÉCRAN du skybox, qui
+            // n'a PAS d'inputs → le générateur HLSL ne le Y-négate PAS sur DX (il ne
+            // négate que les VS 3D avec inputs+varyings). Donc le skybox se comporte
+            // comme en OpenGL sur DX (NDC.y=+1 en haut, pas de flip) → yFlipNDC = -1.
+            //   - Vulkan : viewport Y-flippé → top = vNDC.y = -1 → yFlipNDC = +1.
+            //   - OpenGL ET DX11/DX12 : pas de flip du VS skybox → yFlipNDC = -1.
+            // (Le précédent +1 pour DX supposait à tort que le skybox était Y-négaté
+            // comme la 3D → HDR/skybox à l'envers sur DX. yFlipNDC ne touche QUE le
+            // skybox ; les ombres au sol ne dépendent PAS de yFlipNDC.)
+            const auto _yApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+            const bool vkViewportFlip = (_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN);
+            cb.yFlipNDC = vkViewportFlip ? +1.f : -1.f;
             // Phase Planar Reflection : applique aussi la correction Vulkan
             // clip-space à mirrorViewProj (sinon le sampling du RT serait clippé
             // ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
@@ -841,10 +864,16 @@ namespace nkentseu {
                 cb.mirrorViewProj = vkClip * cb.mirrorViewProj;
             } else if (reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
                        reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12) {
-                // DX : Z-remap [-1,1]→[0,1] (comme VK) + FLIP Y du mirrorViewProj de sampling.
-                // Le RT a son origine top-left (vs bottom-left GL) ET est rendu avec le flip-Y
-                // du VS (généré côté HLSL pour la 3D). Le flip Y ici annule le `1.0 - reflUV.y`
-                // du shader → reflet à l'endroit (sinon décalé/déformé/inversé).
+                // DX : Z-remap [-1,1]→[0,1] (comme VK) ET FLIP Y du mirrorViewProj de
+                // sampling. Vérifié PAR COMPARAISON VISUELLE demo4 DX12 vs VK (caméra
+                // figée NK_FIX_CAM) : SANS ce flip Y, le reflet planaire du sol échantillonne
+                // la MAUVAISE région (sol au lieu du bâtiment miroir, diff lower-third ~155
+                // vs VK) ; AVEC, le reflet correspond EXACTEMENT à VK (diff ~0.1). Le RT de
+                // réflexion est rendu par le pipeline 3D (VS HLSL Y-négaté → RT Y-down) ; la
+                // coord projetée du sol doit donc être re-flippée en Y pour adresser la bonne
+                // ligne. (Le retrait précédent — commit b0d81291 — était une mauvaise
+                // correction du symptôme "reflet dans l'espace", en réalité dû au HDR/skybox
+                // inversé, depuis corrigé par yFlipNDC ; on rétablit donc ce flip Y.)
                 NkMat4f dxClip = NkMat4f::Identity();
                 dxClip[2][2] = 0.5f;
                 dxClip[3][2] = 0.5f;
@@ -930,9 +959,11 @@ namespace nkentseu {
                                      && (mFrameSlot < mObjectSetPool.Size());
             if (!poolFrameValid) return;
 
-            for (auto& sdc : mOpaque) {
+            // Itere sur mShadowCasters (collecte SANS culling camera) et non
+            // mOpaque : sinon les casters hors champ camera n'auraient pas
+            // d'ombre (cf. Submit). Tous les elements ici ont castShadow=true.
+            for (auto& sdc : mShadowCasters) {
                 auto& dc = sdc.dc;
-                if (!dc.castShadow) continue;
                 if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
                     logger.Errorf("[NkRender3D] ObjectUBO pool overflow (shadow): "
                                   "drawIdx=%u >= max=%u, skipping draw\n",

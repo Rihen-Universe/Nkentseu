@@ -174,8 +174,16 @@ namespace nkentseu {
                 NkWorld(const NkWorld&) = delete;
                 NkWorld& operator=(const NkWorld&) = delete;
 
-                NkWorld(NkWorld&&) noexcept = default;
-                NkWorld& operator=(NkWorld&&) noexcept = default;
+                // NON déplaçable : le membre mEventBus (NkGameplayEventBus) contient un
+                // threading::NkMutex dont le move est explicitement supprimé. Un
+                // `= default` ici serait MENSONGER (le compilateur le supprimerait
+                // silencieusement). On le marque donc `= delete` explicitement pour
+                // refléter l'API réelle. Note : NkArchetypeGraph et NkEntityIndex sont
+                // eux movables proprement (vrai move déclaré, anti double-free), mais
+                // ne suffisent pas à rendre NkWorld déplaçable tant que l'EventBus ne
+                // l'est pas.
+                NkWorld(NkWorld&&) noexcept = delete;
+                NkWorld& operator=(NkWorld&&) noexcept = delete;
 
                 // ── Création d'entités ───────────────────────────────────────
                 /**

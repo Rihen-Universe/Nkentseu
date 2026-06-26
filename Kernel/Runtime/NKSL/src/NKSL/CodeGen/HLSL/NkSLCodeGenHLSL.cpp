@@ -183,10 +183,20 @@ static int NkSL_SamplerPoolSlot(NkSLVarDeclNode* v) {
     if (!wantClamp) {
         NkString n = v->name.ToLower();
         // Heuristique par nom : ressources qui doivent clamper (pas de répétition).
+        // Inclut les RT plein écran des passes post-process (HDR/bloom/SSAO/LDR/tonemap) :
+        // échantillonnés en UV [0,1], un sampler WRAP fait BAVER le bord opposé (ex. le
+        // bloom flippé sur DX11 → lueur fantôme en haut). DX12 masquait ça via le sampler
+        // clamp lié au runtime ; DX11 utilise directement ce pool → il faut clamp ici.
         wantClamp = n.Contains("shadow")    || n.Contains("irradiance") ||
                     n.Contains("prefilter") || n.Contains("brdf")  || n.Contains("lut") ||
                     n.Contains("sky")       || n.Contains("env")   || n.Contains("ibl") ||
-                    n.Contains("refl")      || n.Contains("reflection");
+                    n.Contains("refl")      || n.Contains("reflection") ||
+                    n.Contains("hdr")       || n.Contains("bloom") || n.Contains("ssao") ||
+                    n.Contains("ldr")       || n.Contains("tone")  || n.Contains("depth") ||
+                    // RT source des passes plein écran (bloom down/up, FXAA, blur…) : nom
+                    // générique `uSrc`. Doit clamper (offsets de tap débordent [0,1] aux bords →
+                    // WRAP fait baver le bord opposé → lueur fantôme bloom en haut sur DX11).
+                    n.Contains("src");
     }
     return wantClamp ? 1 : 0;
 }
@@ -676,7 +686,7 @@ NkString NkSLCodeGenHLSL::GenExpr(NkSLNode* node) {
                         "(float2x4)","(float4x2)","(float3x4)","(float4x3)",
                         "float2x2(","float3x3(","float4x4(","float2x3(","float3x2(",
                         "float2x4(","float4x2(","float3x4(","float4x3(",
-                        "nksl_inverse(", nullptr };
+                        "nksl_inverse(","transpose(", nullptr };
                     for (int k = 0; kMatPfx[k]; k++)
                         if (lhs.StartsWith(kMatPfx[k])) { lhsIsMat = true; break; }
                 }
@@ -884,6 +894,22 @@ NkString NkSLCodeGenHLSL::GenCall(NkSLCallNode* call) {
     if (name == "imageAtomicAdd" && call->args.Size() >= 3)
         return "InterlockedAdd(" + GenExpr(call->args[0]) + "[" + GenExpr(call->args[1]) +
                "], " + GenExpr(call->args[2]) + ")";
+
+    // CONVENTION MATRICE constructeur (cf. NkSLCodeGenHLSLDX12) : GLSL `matN(c0,c1,…)`
+    // prend les COLONNES, HLSL `floatNxN(r0,r1,…)` prend les LIGNES. Un constructeur
+    // multi-arguments doit être enveloppé dans transpose() pour que `M * v` (→ mul(M,v))
+    // garde la sémantique colonne de GLSL. Sinon TBN transposé → normale fausse →
+    // éclairage direct ≈ 0 (scène sombre DX11). Le cas 1-arg (mat3(mat4) cast) est
+    // traité plus haut, sans transpose.
+    {
+        const bool isMatCtor = (name == "float2x2" || name == "float3x3" ||
+                                name == "float4x4" || name == "float2x3" ||
+                                name == "float3x2" || name == "float2x4" ||
+                                name == "float4x2" || name == "float3x4" ||
+                                name == "float4x3");
+        if (isMatCtor && call->args.Size() > 1)
+            return "transpose(" + name + "(" + args + "))";
+    }
 
     return name + "(" + args + ")";
 }

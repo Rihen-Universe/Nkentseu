@@ -72,7 +72,7 @@ namespace nkentseu {
          * @see NkEventChannel<T>::Drain() pour les détails d'exécution par canal.
          */
         void NkGameplayEventBus::Drain() noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             for (uint32 i = 0; i < mCount; ++i) {
                 if (mEntries[i].queue) {
                     mEntries[i].queue->Drain();
@@ -97,7 +97,7 @@ namespace nkentseu {
          *          qu'un autre thread ajoute des événements critiques).
          */
         void NkGameplayEventBus::Clear() noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             for (uint32 i = 0; i < mCount; ++i) {
                 if (mEntries[i].queue) {
                     mEntries[i].queue->Clear();
@@ -125,7 +125,7 @@ namespace nkentseu {
          *          stricte, appeler HasPending() et agir dans la même section critique.
          */
         bool NkGameplayEventBus::HasPending() const noexcept {
-            NkLockGuard lock(mMutex);
+            threading::NkScopedLockMutex lock(mMutex);
             for (uint32 i = 0; i < mCount; ++i) {
                 if (mEntries[i].queue && !mEntries[i].queue->Empty()) {
                     return true;

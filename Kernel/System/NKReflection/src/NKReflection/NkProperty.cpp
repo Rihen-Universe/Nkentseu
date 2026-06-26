@@ -27,8 +27,13 @@
 // DEPENDANCES COMPLEMENTAIRES
 // -------------------------------------------------------------------------
 // Inclusion optionnelle pour les extensions de logging et validation.
+// NkReflectVariant.h fournit la valeur type-erased pour Get/SetValueGeneric.
+// NkString.h est tire par NkReflectVariant.h (categorie NK_STRING).
 
+#include "NKReflection/NkReflectVariant.h"
+#include "NKContainers/String/NkString.h"
 #include "NKLogger/NkLog.h"
+#include "NKPlatform/NkFoundationLog.h"
 
 // -------------------------------------------------------------------------
 // ESPACE DE NOMS PRINCIPAL
@@ -144,6 +149,124 @@ namespace nkentseu {
          * }
          * @endcode
          */
+        // =================================================================
+        // IMPLEMENTATION : NkProperty::GetValueGeneric
+        // =================================================================
+        NkReflectVariant NkProperty::GetValueGeneric(const void* instance) const {
+            if (instance == nullptr) {
+                return NkReflectVariant();
+            }
+            // Mode offset direct (Phase 1) : pas d'invocation du getter indirect.
+            const void* ptr = GetValuePtr(instance);
+            const NkType& type = GetType();
+
+            // Cas chaine : copie profonde via Set<NkString> (categorie NK_STRING).
+            if (type.GetCategory() == NkTypeCategory::NK_STRING) {
+                const NkString* s = static_cast<const NkString*>(ptr);
+                return NkReflectVariant::From<NkString>(*s);
+            }
+
+            // Tous les autres cas (primitifs, vecteurs/matrices, structs triviaux) :
+            // copie binaire de taille connue, en conservant le NkType d'origine.
+            return NkReflectVariant::FromRaw(&type, ptr);
+        }
+
+        // =================================================================
+        // IMPLEMENTATION : NkProperty::SetValueGeneric
+        // =================================================================
+        nk_bool NkProperty::SetValueGeneric(void* instance, const NkReflectVariant& value) const {
+            if (instance == nullptr || !value.IsValid()) {
+                return false;
+            }
+            if (IsReadOnly()) {
+                NK_FOUNDATION_LOG_WARN(
+                    "NkProperty::SetValueGeneric : propriete '%s' en lecture seule, ecriture ignoree",
+                    GetName());
+                return false;
+            }
+
+            void* ptr = GetValuePtr(instance);
+            const NkType& type = GetType();
+            const NkTypeCategory dstCat = type.GetCategory();
+
+            // Cas chaine : affectation via operator= de NkString.
+            if (dstCat == NkTypeCategory::NK_STRING) {
+                if (value.GetCategory() != NkTypeCategory::NK_STRING) {
+                    return false;
+                }
+                NkString* dst = static_cast<NkString*>(ptr);
+                *dst = value.ToString();
+                return true;
+            }
+
+            const NkTypeCategory srcCat = value.GetCategory();
+
+            // Chemin rapide : meme categorie et meme taille -> copie binaire directe.
+            if (srcCat == dstCat && value.GetType() != nullptr &&
+                value.GetType()->GetSize() == type.GetSize()) {
+                const void* src = value.DataPtr();
+                if (!src) {
+                    return false;
+                }
+                CopyRawBytes(ptr, src, type.GetSize());
+                return true;
+            }
+
+            // Coercion numerique best-effort entre categories primitives.
+            if (type.IsPrimitive() && value.GetType() != nullptr && value.GetType()->IsPrimitive()) {
+                return WritePrimitiveCoerced(ptr, dstCat, value);
+            }
+
+            // Destination enum : ecriture de la valeur sous-jacente (taille du
+            // type) depuis une source numerique (primitif ou enum). Permet de
+            // (de)serialiser un enum depuis un int64 ou une valeur enum.
+            if (dstCat == NkTypeCategory::NK_ENUM && value.GetType() != nullptr &&
+                (value.GetType()->IsPrimitive() || srcCat == NkTypeCategory::NK_ENUM)) {
+                const nk_int64 raw = value.ToInt64();
+                const nk_usize n = type.GetSize();
+                switch (n) {
+                    case 1: { nk_int8  v = static_cast<nk_int8>(raw);  CopyRawBytes(ptr, &v, 1); return true; }
+                    case 2: { nk_int16 v = static_cast<nk_int16>(raw); CopyRawBytes(ptr, &v, 2); return true; }
+                    case 4: { nk_int32 v = static_cast<nk_int32>(raw); CopyRawBytes(ptr, &v, 4); return true; }
+                    case 8: { nk_int64 v = raw;                        CopyRawBytes(ptr, &v, 8); return true; }
+                    default: return false;
+                }
+            }
+
+            return false;
+        }
+
+        // -----------------------------------------------------------------
+        // UTILITAIRE INTERNE : ecriture coercive vers un primitif destination
+        // -----------------------------------------------------------------
+        nk_bool NkProperty::WritePrimitiveCoerced(void* dst, NkTypeCategory dstCat, const NkReflectVariant& value) {
+            switch (dstCat) {
+                case NkTypeCategory::NK_BOOL:    { nk_bool v = value.ToBool();                          CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_INT8:    { nk_int8 v = static_cast<nk_int8>(value.ToInt64());   CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_INT16:   { nk_int16 v = static_cast<nk_int16>(value.ToInt64()); CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_INT32:   { nk_int32 v = static_cast<nk_int32>(value.ToInt64()); CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_INT64:   { nk_int64 v = value.ToInt64();                        CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_UINT8:   { nk_uint8 v = static_cast<nk_uint8>(value.ToInt64());   CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_UINT16:  { nk_uint16 v = static_cast<nk_uint16>(value.ToInt64()); CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_UINT32:  { nk_uint32 v = static_cast<nk_uint32>(value.ToInt64()); CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_UINT64:  { nk_uint64 v = static_cast<nk_uint64>(value.ToInt64()); CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_FLOAT32: { nk_float32 v = static_cast<nk_float32>(value.ToFloat64()); CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                case NkTypeCategory::NK_FLOAT64: { nk_float64 v = value.ToFloat64();                    CopyRawBytes(dst, &v, sizeof(v)); return true; }
+                default: return false;
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // UTILITAIRE INTERNE : copie binaire brute (zero-STL)
+        // -----------------------------------------------------------------
+        void NkProperty::CopyRawBytes(void* dst, const void* src, nk_usize n) {
+            nk_uint8* d = static_cast<nk_uint8*>(dst);
+            const nk_uint8* s = static_cast<const nk_uint8*>(src);
+            for (nk_usize i = 0; i < n; ++i) {
+                d[i] = s[i];
+            }
+        }
+
         nk_bool IsPropertySerializable(const NkProperty& prop) {
             // Exclure les proprietes transientes par definition
             if (prop.IsTransient()) {

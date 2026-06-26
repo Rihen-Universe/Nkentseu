@@ -8,7 +8,44 @@ Reflection bugs RÉSOLUS** (2026-05-23). **NkVirtualShadowMaps v0 livré**
 (2026-05-23) : multi-lights DIR + SPOT + POINT avec atlas dynamique skyline.
 10 démos couvrant tous les matériaux et features.
 
-Cross-API testé sur Vulkan + OpenGL (DX11/DX12/Metal restent à valider).
+Cross-API validé sur **Vulkan + OpenGL + DX11 + DX12** (parité atteinte 2026-06-24,
+voir « Multi-backend » plus bas). Metal + Software restent à valider.
+
+---
+
+## 🔎 Audit d'implémentation (2026-06-24) — état réel code vs roadmap
+
+**Cœur forward RÉELLEMENT implémenté et fonctionnel** : Render3D, RenderGraph, Shadow
+(NkVirtualShadowMaps cascades), Environment/IBL CPU, Planar Reflection, VoxelAO,
+Materials/Shader, Render2D, Text, Overlay, Offscreen, VFX (CPU), Animation (+skinning GPU
+câblé). C'est ce qui tourne sur les 11 démos et les 4 backends GPU.
+
+**Partiels (cœur, trou identifié)** :
+- PostProcess : tonemap ACES + bloom OK ; **FXAA non câblé au RenderGraph** ; LUT 3D dégradé
+  en dummy 1×1 sur OpenGL.
+- Animation : tracks/blend/skinning réels ; **morph targets = stub** (`ApplyMorphTargets`
+  return base) ; pas de state machine / blend tree / retargeting.
+- Render2D : **`DrawSpriteGlow` = stub** (fallback DrawSprite). Mesh : **loader GLTF = stub**
+  (cube placeholder, NkMeshSystem.cpp:120).
+
+**⚠️ Couche « v4.0 » ORPHELINE — compile mais JAMAIS instanciée ni exposée par `NkRenderer`/
+`NkRendererImpl`** (le renderer ne les utilise pas ; code à finir/brancher, pas à réécrire) :
+- **Deferred** (`Passes/Deferred/NkDeferredPass`) : G-buffer 5 RT réel + barrières, **mais
+  passe de lighting absente** (« tiled dispatch would be done here ») + non branché → renderer
+  reste 100 % forward.
+- **Streaming** : files/LRU/budget codés, **aucune E/S réelle** (`FinalizeLoad` ne charge rien,
+  `ComputePriority` return 1.0) → simulateur de comptabilité mémoire.
+- **IK** : rigs/chaînes OK, FABRIK a sa boucle mais sur positions placeholder {0,0,0}, ne
+  lit/écrit jamais les bones → non fonctionnel ; TwoBone/CCD/Spline = squelettes.
+- **Culling** : octree + frustum **réels** mais orphelins (jamais branchés au pipeline).
+- **Denoiser** (OIDN/NRD `return false`), **AIRendering** (IssueCopy vide), **Voxel-sculpt**,
+  **PixolSculpt** : partiels/stubs, orphelins.
+
+**Reste à faire priorisé** : 1) Deferred lighting pass + branchement (gros). 2) Streaming réel
+(connecter à TextureLibrary/MeshSystem). 3) IK fonctionnel (lire/écrire bones depuis Animation).
+4) Morph targets (pipeline déjà créé). 5) FXAA wiring + LUT 3D GL (petit). 6) DrawSpriteGlow.
+7) GLTF loader réel. 8) Brancher les orphelins utiles (Culling frustum-cull). 9) Animation
+avancée (state machines/blend trees). 10) Metal + Software.
 
 ## ✅ Livré
 
@@ -142,11 +179,15 @@ NkPlanarReflectionSystem + reflets planaires complets sur sol mirror.
 - ❌ Compute shader prefilter GPU (remplace CPU 0.5-2s → <50ms)
 - ❌ Env light probes / reflection probes par zone
 
-### Phase F — Multi-backend (partielle)
+### Phase F — Multi-backend (DX au niveau VK)
 - ✅ Vulkan + OpenGL testés sur toutes les démos
-- ✅ NkShaderConverter VK→GL/HLSL/MSL via SPIRV-Cross
-- ⏳ DX11/DX12 partiellement testés (NkRHI implémenté, démos pas validées)
-- ⏳ Metal partiellement implémenté (NkRHI compile, runtime macOS pas testé)
+- ✅ NkShaderConverter VK→GL/HLSL/MSL via SPIRV-Cross + générateurs NkSL→HLSL DX11/DX12 directs
+- ✅ **DX11 + DX12 validés à parité avec Vulkan** (2026-06-24, session marathon ~24 fixes RHI/
+  shader/renderer). Bugs majeurs résolus : ring sampler overflow DX12 (>64 draws), matrice TBN
+  transposée GLSL→HLSL (éclairage mort), mips matériau non générés DX12 (textures blanches),
+  conventions Y DX (HDR/bloom/ombres/reflets), #820 clear-value (perf), cache DXIL (démarrage 6×).
+  Détail dans mémoire `project_session_20260623_dx12_render_fixes`.
+- ⏳ Metal partiellement implémenté (NkRHI compile, runtime macOS pas testé — besoin Mac)
 - ❌ Software backend stub uniquement
 
 ---

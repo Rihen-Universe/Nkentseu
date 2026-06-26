@@ -31,7 +31,9 @@
     // Inclusion de NkFunction pour le stockage type-safe des invokeurs.
 
     #include "NKReflection/NkType.h"
+    #include "NKReflection/NkReflectVariant.h"
     #include "NKCore/Assert/NkAssert.h"
+    #include "NKCore/NkTraits.h"
     #include "NKContainers/Functional/NkFunction.h"
     #include "NKContainers/Functional/NkBind.h"
 
@@ -381,24 +383,155 @@
                         const NkType& returnTypeMeta,
                         nk_uint32 flags = 0
                     ) {
-                        // Wrapper adaptant la signature membre vers void*(void*, void**)
-                        auto wrapper = [instance, methodPtr](void* obj, void** args) -> void* {
-                            NKENTSEU_UNUSED(obj);
-                            static ReturnType resultStorage;
-                            // Extraction et invocation des arguments
-                            // Note : implementation simplifiee, a adapter selon le nombre de params
-                            if constexpr (sizeof...(Args) == 0) {
-                                resultStorage = (instance->*methodPtr)();
-                            }
-                            return &resultStorage;
-                        };
-
                         NkMethod method(name, returnTypeMeta, flags);
-                        method.SetInvoke(InvokeFn(traits::NkMove(wrapper)));
+                        method.BindMember<ClassType, ReturnType, Args...>(instance, methodPtr);
+                        method.PopulateParameters<Args...>();
                         return method;
                     }
 
+                    /**
+                     * @brief Surcharge pour methode membre CONST.
+                     */
+                    template<typename ClassType, typename ReturnType, typename... Args>
+                    static NkMethod MakeFromMember(
+                        ClassType* instance,
+                        ReturnType (ClassType::*methodPtr)(Args...) const,
+                        const nk_char* name,
+                        const NkType& returnTypeMeta,
+                        nk_uint32 flags = 0
+                    ) {
+                        NkMethod method(name, returnTypeMeta,
+                            flags | static_cast<nk_uint32>(NkMethodFlags::NK_MCONST));
+                        method.BindMemberConst<ClassType, ReturnType, Args...>(instance, methodPtr);
+                        method.PopulateParameters<Args...>();
+                        return method;
+                    }
+
+                    // ---------------------------------------------------------
+                    // INVOCATION GENERIQUE TYPE-ERASED (base Blueprint)
+                    // ---------------------------------------------------------
+
+                    /**
+                     * @brief Invoque la methode a partir de variants type-erased.
+                     * @param instance Instance cible (capturee dans le wrapper ; ce
+                     *                 parametre est conserve pour symetrie, non utilise).
+                     * @param args     Tableau de NkReflectVariant (un par parametre).
+                     * @param argCount Nombre d'arguments fournis.
+                     * @return Variant portant le retour (invalide pour void / echec).
+                     *
+                     * @note Pont generique pour le scripting/Blueprint : convertit
+                     *       chaque variant en pointeur typé via DataPtr(), construit le
+                     *       tableau void** attendu par Invoke(), puis re-emballe le
+                     *       retour brut dans un variant du type de retour declare.
+                     * @note Les variants d'arguments doivent etre du bon type/taille
+                     *       (DataPtr() pointe directement leurs octets).
+                     */
+                    NkReflectVariant InvokeVariant(
+                        void* instance,
+                        const NkReflectVariant* args,
+                        nk_int32 argCount) const {
+                        NKENTSEU_UNUSED(instance);
+                        if (!mInvoke.IsValid()) {
+                            return NkReflectVariant();
+                        }
+                        // Construit le tableau void** a partir des octets des variants.
+                        // Capacite fixe (16) suffisante pour toute signature reflechie.
+                        void* rawArgs[16] = { nullptr };
+                        const nk_int32 n = argCount < 16 ? argCount : 16;
+                        for (nk_int32 i = 0; i < n; ++i) {
+                            // const_cast : Invoke ne modifie pas les arguments.
+                            rawArgs[i] = const_cast<void*>(args[i].DataPtr());
+                        }
+
+                        void* rawResult = mInvoke(nullptr, rawArgs);
+
+                        // void : retour invalide. Sinon emballe les octets du retour.
+                        if (mReturnType == nullptr ||
+                            mReturnType->GetCategory() == NkTypeCategory::NK_VOID ||
+                            rawResult == nullptr) {
+                            return NkReflectVariant();
+                        }
+                        return NkReflectVariant::FromRaw(mReturnType, rawResult);
+                    }
+
                 private:
+                    // ---------------------------------------------------------
+                    // BINDING N-ARGS (unpack via index_sequence)
+                    // ---------------------------------------------------------
+
+                    // Liaison d'une methode membre NON const avec N arguments.
+                    template<typename ClassType, typename ReturnType, typename... Args>
+                    void BindMember(ClassType* instance,
+                                    ReturnType (ClassType::*methodPtr)(Args...)) {
+                        auto wrapper = [instance, methodPtr](void* obj, void** args) -> void* {
+                            NKENTSEU_UNUSED(obj);
+                            using Seq = nkentseu::NkMakeIndexSequence<sizeof...(Args)>;
+                            return CallMember<ClassType, ReturnType, Args...>(
+                                instance, methodPtr, args, Seq{});
+                        };
+                        SetInvoke(InvokeFn(traits::NkMove(wrapper)));
+                    }
+
+                    // Liaison d'une methode membre CONST avec N arguments.
+                    template<typename ClassType, typename ReturnType, typename... Args>
+                    void BindMemberConst(ClassType* instance,
+                                         ReturnType (ClassType::*methodPtr)(Args...) const) {
+                        auto wrapper = [instance, methodPtr](void* obj, void** args) -> void* {
+                            NKENTSEU_UNUSED(obj);
+                            using Seq = nkentseu::NkMakeIndexSequence<sizeof...(Args)>;
+                            return CallMemberConst<ClassType, ReturnType, Args...>(
+                                instance, methodPtr, args, Seq{});
+                        };
+                        SetInvoke(InvokeFn(traits::NkMove(wrapper)));
+                    }
+
+                    // Caste args[Ix] vers le type du Ix-eme parametre (sans reference)
+                    // puis appelle la methode. Branche void vs valeur via if constexpr.
+                    template<typename ClassType, typename ReturnType, typename... Args, nk_usize... Ix>
+                    static void* CallMember(ClassType* instance,
+                                            ReturnType (ClassType::*methodPtr)(Args...),
+                                            void** args,
+                                            nkentseu::NkIndexSequence<Ix...>) {
+                        if constexpr (traits::NkIsSame<ReturnType, void>::value) {
+                            (instance->*methodPtr)(
+                                (*static_cast<traits::NkRemoveReference_t<Args>*>(args[Ix]))...);
+                            return nullptr;
+                        } else {
+                            static ReturnType resultStorage;
+                            resultStorage = (instance->*methodPtr)(
+                                (*static_cast<traits::NkRemoveReference_t<Args>*>(args[Ix]))...);
+                            return &resultStorage;
+                        }
+                    }
+
+                    template<typename ClassType, typename ReturnType, typename... Args, nk_usize... Ix>
+                    static void* CallMemberConst(ClassType* instance,
+                                                 ReturnType (ClassType::*methodPtr)(Args...) const,
+                                                 void** args,
+                                                 nkentseu::NkIndexSequence<Ix...>) {
+                        if constexpr (traits::NkIsSame<ReturnType, void>::value) {
+                            (instance->*methodPtr)(
+                                (*static_cast<traits::NkRemoveReference_t<Args>*>(args[Ix]))...);
+                            return nullptr;
+                        } else {
+                            static ReturnType resultStorage;
+                            resultStorage = (instance->*methodPtr)(
+                                (*static_cast<traits::NkRemoveReference_t<Args>*>(args[Ix]))...);
+                            return &resultStorage;
+                        }
+                    }
+
+                    // Renseigne mParameterTypes/mParameterCount via un tableau static
+                    // local (duree de vie statique : reste valide tant que le programme
+                    // tourne, conforme au contrat de SetParameters).
+                    template<typename... Args>
+                    void PopulateParameters() {
+                        if constexpr (sizeof...(Args) > 0) {
+                            static const NkType* s_params[] = { &NkTypeOf<traits::NkRemoveReference_t<Args>>()... };
+                            SetParameters(s_params, sizeof...(Args));
+                        }
+                    }
+
                     // ---------------------------------------------------------
                     // MEMBRES PRIVES
                     // ---------------------------------------------------------
