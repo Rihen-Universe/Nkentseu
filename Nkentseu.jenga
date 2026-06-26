@@ -364,6 +364,9 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKUI/NKUI.jenga"):
         pass
 
+    with include("Kernel/Runtime/NKGui/NKGui.jenga"):
+        pass
+
     # Integrations decouplees (ImGui / NKUI -> NKCanvas/NKRHI). Optionnelles :
     # une app les lie seulement si elle en a besoin (ImGui n'est PAS tire dans
     # le coeur de NKCanvas/NKRHI).
@@ -406,7 +409,22 @@ with workspace("Nkentseu", location="."):
     with include("Engine/Noge/Noge.jenga"):
         pass
 
+    with include("Engine/NKEditorKit/NKEditorKit.jenga"):
+        pass
+
     with include("Applications/Nogee/Nogee.jenga"):
+        pass
+
+    with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
+        pass
+
+    with include("Applications/ImGuiRef/ImGuiRef.jenga"):
+        pass
+
+    with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
+        pass
+
+    with include("Applications/NKCode/NKCode.jenga"):
         pass
 
     with include("Applications/PV3DE/PV3DE.jenga"):

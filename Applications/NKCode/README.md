@@ -1,7 +1,10 @@
 # NKCode
 
-> ⚠️ **Squelette documentaire — aucun code pour l'instant.** On construit NKCode **from scratch**,
-> au-dessus de **Nkentseu** (rendu/UI) et de **Jenga** (projets/build).
+> ✅ **v1 fonctionnel** (Phases 1-3 amorcées) : coquille **NKEditorKit** (sur **NKGui**) +
+> **explorateur de fichiers réel** + **éditeur multi-onglets** (ouvre/édite/sauve de vrais fichiers) +
+> **intégration Jenga** (Ctrl+B = `jenga build`, sortie capturée) + palette de commandes (Ctrl+P).
+> Reste à venir : coloration syntaxique, modèle Graph (Blocks/Blueprint), UIBuilder, extensions, agents.
+> Construit **from scratch** au-dessus de **Nkentseu** (rendu/UI) et de **Jenga** (projets/build).
 
 **NKCode** est un **IDE cross-plateforme** bâti sur Nkentseu. Il permet de :
 
