@@ -137,6 +137,11 @@ namespace nkentseu {
             return w > 1.f ? w : 1.f;
         }
 
+        float32 NkGuiContext::AvailHeight() const noexcept {
+            const float32 h = (layout.region.y + layout.region.h - layout.padding) - layout.cursor.y;
+            return h > 1.f ? h : 1.f;
+        }
+
         float32 NkGuiContext::ItemHeight() const noexcept {
             const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
             return lh + 2.f * theme.framePadY;
@@ -172,6 +177,32 @@ namespace nkentseu {
                     layout.cursor.x += layout.gridColW + layout.itemSpacingX;
                 }
                 if (rect.y + h > layout.maxY) layout.maxY = rect.y + h;
+                return rect;
+            }
+            // ── Row : rangée flex horizontale (largeur = cellule pré-calculée, hauteur étirée) ──
+            if (layout.flow == 5) {
+                const float32 cw = (layout.flexIdx < layout.flexCount) ? layout.flexSlots[layout.flexIdx]
+                                                                       : (w > 0.f ? w : 60.f);
+                const float32 ch = layout.flexCross > 0.f ? layout.flexCross : h;
+                const NkRect rect = { layout.cursor.x, layout.cursor.y, cw, ch };
+                layout.prevItem = rect;
+                layout.cursor.x += cw + layout.itemSpacingX;
+                if (layout.cursor.x - layout.itemSpacingX > layout.maxX) layout.maxX = layout.cursor.x - layout.itemSpacingX;
+                if (rect.y + ch > layout.maxY) layout.maxY = rect.y + ch;
+                ++layout.flexIdx;
+                return rect;
+            }
+            // ── Column : colonne flex verticale (hauteur = cellule pré-calculée, largeur étirée) ──
+            if (layout.flow == 6) {
+                const float32 ch = (layout.flexIdx < layout.flexCount) ? layout.flexSlots[layout.flexIdx]
+                                                                       : (h > 0.f ? h : ItemHeight());
+                const float32 cw = layout.flexCross > 0.f ? layout.flexCross : (w > 0.f ? w : ContentWidth());
+                const NkRect rect = { layout.cursor.x, layout.cursor.y, cw, ch };
+                layout.prevItem = rect;
+                layout.cursor.y += ch + layout.itemSpacingY;
+                if (rect.x + cw > layout.maxX) layout.maxX = rect.x + cw;
+                if (layout.cursor.y > layout.maxY) layout.maxY = layout.cursor.y;
+                ++layout.flexIdx;
                 return rect;
             }
             // ── Flow : comme HBox mais passe à la ligne quand ça déborde la région ──

@@ -70,6 +70,11 @@ namespace nkentseu {
             float32 stackW       = 0.f;   ///< Stack : largeur de la boîte
             float32 stackH       = 0.f;   ///< Stack : hauteur de la boîte
             int32   stackAnchor  = 0;     ///< Stack : 0=HG 1=HC 2=HD 3=CG 4=C 5=CD 6=BG 7=BC 8=BD
+            // ── Flex (rangée/colonne à poids) : cellules pré-calculées, distribution single-pass ──
+            float32 flexSlots[12] = {};   ///< tailles px des cellules (axe principal), calculées au Begin
+            int32   flexCount    = 0;     ///< nombre de cellules
+            int32   flexIdx      = 0;     ///< cellule courante
+            float32 flexCross    = 0.f;   ///< taille axe transverse (hauteur de rangée / largeur de colonne)
         };
 
         // État de défilement persistant d'une zone (par id) : offset {x,y} + présence
@@ -108,6 +113,7 @@ namespace nkentseu {
         struct NKENTSEU_NKGUI_CLASS_EXPORT NkGuiContext {
             int32         viewW    = 0;
             int32         viewH    = 0;
+            float32       scale    = 1.f;   ///< facteur d'échelle UI (DPI/HiDPI) — voir SetUiScale/Scaled
             NkGuiTheme    theme;
             NkGuiInput    input;
             NkGuiDrawList dl;               ///< couche principale (rendue en 1er)
@@ -316,6 +322,7 @@ namespace nkentseu {
             void    SameLine(float32 spacingX = -1.f) noexcept;  ///< item suivant à droite du précédent
             void    Spacing(float32 px = -1.f) noexcept;         ///< saut vertical
             float32 ContentWidth() const noexcept;               ///< largeur restante au curseur
+            float32 AvailHeight() const noexcept;                ///< hauteur restante sous le curseur (région)
             float32 ItemHeight() const noexcept;                 ///< hauteur standard d'un widget
             void    Indent(float32 w) noexcept;                  ///< décale le début de ligne (arbres)
 
