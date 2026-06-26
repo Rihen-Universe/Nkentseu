@@ -1541,6 +1541,11 @@ namespace nkentseu {
             }
         }
 
+        // Position/taille appliquées à la CRÉATION de la prochaine fenêtre (FirstUseEver) :
+        // l'utilisateur peut ensuite la déplacer/redimensionner librement.
+        void SetNextWindowPos (NkGuiContext& ctx, float32 x, float32 y) noexcept { ctx.hasNextPos = true;  ctx.nextPos  = { x, y }; }
+        void SetNextWindowSize(NkGuiContext& ctx, float32 w, float32 h) noexcept { ctx.hasNextSize = true; ctx.nextSize = { w, h }; }
+
         bool Begin(NkGuiContext& ctx, const char* title, bool* open, NkGuiWindowFlags flags) noexcept {
             if (open && !*open) return false;                       // fermée → non affichée
             const NkGuiId id = ctx.GetId(title);
@@ -1550,11 +1555,14 @@ namespace nkentseu {
                 NkGuiWindowMeta nm; nm.id = id;
                 const float32 off = static_cast<float32>(ctx.windowMeta.Size() % 8) * 28.f;
                 nm.rect   = { 90.f + off, 80.f + off, 320.f, 210.f };
+                if (ctx.hasNextPos)  { nm.rect.x = ctx.nextPos.x;  nm.rect.y = ctx.nextPos.y; }   // SetNextWindowPos
+                if (ctx.hasNextSize) { nm.rect.w = ctx.nextSize.x; nm.rect.h = ctx.nextSize.y; }  // SetNextWindowSize
                 nm.zOrder = ++ctx.windowZTop;
                 ctx.windowMeta.PushBack(nm);
                 mi = static_cast<int32>(ctx.windowMeta.Size()) - 1;
                 m  = &ctx.windowMeta[mi];
             }
+            ctx.hasNextPos = ctx.hasNextSize = false;   // consommés (s'appliquent à la création)
             // Mémorise le titre (les onglets de dock en ont besoin avant ce Begin).
             { int32 n = 0; while (n < 47 && title[n]) { m->title[n] = title[n]; ++n; } m->title[n] = '\0'; }
 

@@ -254,6 +254,11 @@ namespace nkentseu {
         // UNIQUEMENT si Begin retourne true (convention NKGui, comme BeginPanel).
         //   if (Begin(ctx,"Inspecteur",&open)) { …widgets… EndWindow(ctx); }
         // (sortie en fenêtre OS séparée = multi-viewport, viendra avec les backends.)
+        // Pos/taille de la PROCHAINE fenêtre, appliquées à sa CRÉATION (FirstUseEver) —
+        // l'utilisateur peut ensuite la bouger/redimensionner. Idéal pour le layout par
+        // défaut des panneaux d'un éditeur.
+        NKENTSEU_NKGUI_API void SetNextWindowPos (NkGuiContext& ctx, float32 x, float32 y) noexcept;
+        NKENTSEU_NKGUI_API void SetNextWindowSize(NkGuiContext& ctx, float32 w, float32 h) noexcept;
         NKENTSEU_NKGUI_API bool Begin(NkGuiContext& ctx, const char* title, bool* open = nullptr,
                                       NkGuiWindowFlags flags = NkGuiWindowFlags::None) noexcept;
         NKENTSEU_NKGUI_API void EndWindow(NkGuiContext& ctx) noexcept;
