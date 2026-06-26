@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKEditorKit — Socle d'editeur partage (C++17)
+=============================================
+Coquille d'application d'editeur dockable construite PAR-DESSUS NKUI :
+  • NkEditorShell : fenetre + cible de rendu + contexte NKUI + docking + boucle
+  • NkEditorPanel : panneau dockable (Explorateur, Inspecteur, Console, Viewport)
+  • NkEditorCommand + palette de commandes (Ctrl+P)
+  • barre de menus Fichier / Affichage / Fenetre + menu applicatif optionnel
+
+2D pur (NKCanvas/NKUI) : AUCUNE dependance NKRenderer (3D) ni NKReflection.
+Consomme aujourd'hui par NKCode (IDE) ; destine a accueillir Nogee plus tard.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKEditorKit"):
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    nkentseudependson(
+        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath",
+         "NKLogger", "NKTime", "NKStream", "NKFileSystem", "NKEvent",
+         "NKWindow", "NKCanvas", "NKFont", "NKImage", "NKGui"],
+        selfexport="NKEditorKit",
+        extra_includes=["src"],
+    )
+
+    files([
+        "src/**.cpp",
+    ])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    # ===== Linux headless =========================================================
+    with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-headless/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-headless")
+
+    with filter("system:Linux && options:linux-backend=xcb"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-xcb/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-xcb")
+
+    with filter("system:Linux && options:linux-backend=wayland"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-wayland/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-wayland")
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+
+    # ===== Android ================================================================
+    with filter("system:Android"):
+        usetoolchain("android-ndk")
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+
+    # ===== HarmonyOS ==============================================================
+    with filter("system:HarmonyOS"):
+        usetoolchain("ohos-ndk")
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        usetoolchain("emscripten")
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

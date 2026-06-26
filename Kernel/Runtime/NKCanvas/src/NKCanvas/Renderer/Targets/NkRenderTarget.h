@@ -115,6 +115,14 @@ namespace nkentseu {
                 /// inclut Draw(NkDrawable&) avec dispatch correct vers *this).
                 virtual NkRenderer2D&        GetRenderer2D()       noexcept = 0;
                 virtual const NkRenderer2D&  GetRenderer2D() const noexcept = 0;
+
+                // ── Capture d'ecran (readback GPU -> fichier image) ─────────────
+                /// Lit le contenu rendu de la cible et l'enregistre dans `path`. Le
+                /// format est deduit de l'extension (.png/.jpg/.bmp/.tga/... via
+                /// NkImage). A appeler APRES Display() (la frame doit etre presentee).
+                /// Defaut : non supporte (false) ; surcharge par cible/backend.
+                /// Sert au debug par capture et a l'export d'image cote utilisateur.
+                virtual bool Capture(const char* path) const { return false; }
         };
 
     } // namespace renderer
