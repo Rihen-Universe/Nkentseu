@@ -926,6 +926,9 @@ namespace nkentseu {
             ctx.theme.rounding  *= f; ctx.theme.framePadX *= f; ctx.theme.framePadY *= f;
             ctx.layout.padding  *= f; ctx.layout.itemSpacingX *= f; ctx.layout.itemSpacingY *= f;
             ctx.scale = s;
+            // Épaisseurs de traits/bordures à l'échelle écran sur TOUTES les couches.
+            ctx.dl.thickScale = s; ctx.dlOverlay.thickScale = s;
+            for (int32 i = 0; i < NkGuiContext::WinMax; ++i) ctx.winDL[i].thickScale = s;
         }
 
         // Ressort horizontal : pousse les items SUIVANTS vers la droite de la région, en

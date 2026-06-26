@@ -46,14 +46,18 @@ namespace nkgdemo {
                 d[i * 4u + 3u] = gray[i];
             }
 
-            if (!mFontTex) {
+            // (Re)créer la texture si elle n'existe pas OU si la taille change (rechargement
+            // de police à une autre taille = DPI). Sinon Update() déborderait l'ancienne taille.
+            if (!mFontTex || mFontTexW != w || mFontTexH != h) {
                 auto& alloc = memory::NkGetDefaultAllocator();
+                if (mFontTex) { alloc.Delete(mFontTex); mFontTex = nullptr; }
                 mFontTex = alloc.New<renderer::NkTexture>();
                 if (!mFontTex) return false;
                 if (!mFontTex->Create(*mRenderer, static_cast<uint32>(w), static_cast<uint32>(h))) {
                     alloc.Delete(mFontTex); mFontTex = nullptr; return false;
                 }
                 mFontTex->SetFilter(renderer::NkTextureFilter::NK_LINEAR);
+                mFontTexW = w; mFontTexH = h;
             }
             mFontTexId = texId;
             return mFontTex->Update(mExpand.Data(), static_cast<uint32>(w), static_cast<uint32>(h), 0, 0);
@@ -133,6 +137,8 @@ namespace nkgdemo {
         nkentseu::renderer::NkIRenderer2D*                 mRenderer  = nullptr;
         nkentseu::renderer::NkTexture*                     mFontTex   = nullptr;
         nkentseu::uint32                                   mFontTexId = 0u;
+        nkentseu::int32                                    mFontTexW  = 0;
+        nkentseu::int32                                    mFontTexH  = 0;
         nkentseu::NkVector<ImgTex>                         mImages;
         nkentseu::NkVector<nkentseu::renderer::NkVertex2D> mScratch;
         nkentseu::NkVector<nkentseu::uint8>                mExpand;

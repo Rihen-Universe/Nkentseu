@@ -51,6 +51,7 @@ namespace nkentseu {
                 NkVector<NkGuiDrawCmd> cmds;
                 NkRect                 clipStack[32] = {};
                 int32                  clipDepth     = 0;
+                float32                thickScale    = 1.f;  ///< échelle DPI des épaisseurs de traits/bordures (préservée par Reset)
 
                 // ── Cycle de frame ────────────────────────────────────────────────
                 void   Reset() noexcept;
