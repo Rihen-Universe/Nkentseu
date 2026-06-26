@@ -680,6 +680,36 @@ int nkmain(const NkEntryState& state) {
         }
         if (Begin(ctx, "Calque C")) { Text(ctx, "3e fenetre."); EndWindow(ctx); }
 
+        // ── CONTENEURS DE LAYOUT (Vague A) : HBox, Grid, accordeon, Stack ──
+        if (Begin(ctx, "Conteneurs")) {
+            Text(ctx, "Flow (wrap auto) :");
+            BeginFlow(ctx);
+            for (int32 i = 0; i < 8; ++i) { char b[10]; std::snprintf(b, 10, "tag%d", i + 1); Button(ctx, b); }
+            EndFlow(ctx);
+            Separator(ctx);
+            Text(ctx, "Stack (superpose + ancrage) :");
+            BeginStack(ctx, 150.f, 56.f);
+                StackAnchor(ctx, 4); Button(ctx, "Centre");
+                StackAnchor(ctx, 8); Button(ctx, "BasDroite");
+            EndStack(ctx);
+            Separator(ctx);
+            if (CollapsingHeader(ctx, "Section repliable")) {
+                Text(ctx, "Contenu de la section.");
+                BeginHBox(ctx); Button(ctx, "Oui"); Button(ctx, "Non"); EndHBox(ctx);
+            }
+            Separator(ctx);
+            Text(ctx, "HBox (horizontal) :");
+            BeginHBox(ctx);
+                Button(ctx, "Un"); Button(ctx, "Deux"); Button(ctx, "Trois");
+            EndHBox(ctx);
+            Separator(ctx);
+            Text(ctx, "Grid 3 colonnes :");
+            BeginGrid(ctx, 3);
+                for (int32 i = 0; i < 6; ++i) { char b[8]; std::snprintf(b, 8, "G%d", i + 1); Button(ctx, b); }
+            EndGrid(ctx);
+            EndWindow(ctx);
+        }
+
         // Curseur souhaité par NKGui → curseur OS (OPTIONNEL : l'app choisit d'appliquer).
         // Ex. DragFloat pose ↔ / ↕ pendant le survol/glisser. SetCursor est persistant.
         {

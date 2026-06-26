@@ -58,9 +58,18 @@ namespace nkentseu {
             float32 curLineH     = 0.f;
             NkRect  prevItem     = { 0.f, 0.f, 0.f, 0.f };
             float32 maxX         = 0.f;   ///< extrémité droite du contenu (scroll horizontal)
+            float32 maxY         = 0.f;   ///< extrémité basse du contenu (taille des conteneurs)
             float32 padding      = 10.f;
             float32 itemSpacingX = 8.f;
             float32 itemSpacingY = 6.f;
+            // ── Flux de mise en page (conteneurs) ──
+            int32   flow         = 0;     ///< 0=vertical (défaut) · 1=horizontal (HBox) · 2=grille · 3=pile (Stack)
+            int32   gridCols     = 0;     ///< Grid : nombre de colonnes
+            int32   gridIdx      = 0;     ///< Grid : colonne courante
+            float32 gridColW     = 0.f;   ///< Grid : largeur d'une colonne
+            float32 stackW       = 0.f;   ///< Stack : largeur de la boîte
+            float32 stackH       = 0.f;   ///< Stack : hauteur de la boîte
+            int32   stackAnchor  = 0;     ///< Stack : 0=HG 1=HC 2=HD 3=CG 4=C 5=CD 6=BG 7=BC 8=BD
         };
 
         // État de défilement persistant d'une zone (par id) : offset {x,y} + présence
@@ -151,7 +160,8 @@ namespace nkentseu {
             NkVec2        dockOverflowPos  = { 0.f, 0.f };
 
             NkGuiDrawList& DL() noexcept {
-                return curPopupLevel >= 0 ? dlOverlay : (curWindow >= 0 ? winDL[curWindow] : dl);
+                if (curPopupLevel >= 0 || overlayDepth > 0) return dlOverlay;   // popup / couche overlay forcée
+                return curWindow >= 0 ? winDL[curWindow] : dl;
             }
 
             // Menus : barre horizontale (curseur x) + auto-dimensionnement des popups
@@ -229,6 +239,15 @@ namespace nkentseu {
             static constexpr int32 ChildMax = 8;
             NkGuiChildFrame childStack[ChildMax];
             int32           childDepth = 0;
+
+            // Pile de CONTENEURS de layout (VBox/HBox/Grid/Stack/Group) : sauvegarde du
+            // layout parent + origine, pour restaurer et avancer le parent du bloc consommé.
+            static constexpr int32 ContainerMax = 32;
+            NkGuiLayout     containerSaved[ContainerMax];
+            NkVec2          containerStart[ContainerMax] = {};
+            int32           containerDepth = 0;
+            // Couche overlay forcée (PushOverlay/PopOverlay → dessin AU-DESSUS du contenu).
+            int32           overlayDepth   = 0;
             // Modificateur déclenchant le scroll HORIZONTAL via la molette verticale.
             // CONFIGURABLE par l'app (`ctx.hscrollMod = NkGuiKeyMod::Ctrl;`). Défaut =
             // Maj (convention navigateurs/éditeurs). None = molette = horizontal direct.

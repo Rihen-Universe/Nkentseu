@@ -835,6 +835,123 @@ namespace nkentseu {
             ctx.DL().AddRectFilled({ r.x, r.y, r.w, 1.f }, ctx.theme.border);
         }
 
+        // ════════════════════ CONTENEURS DE LAYOUT ════════════════════
+        // VBox/HBox/Grid/Stack/Group : empilent le layout parent, installent un sous-flux
+        // au curseur courant, puis (End*) restaurent le parent et l'avancent du bloc consommé.
+        // Composables : un HBox dans une cellule de Grid, un VBox dans un HBox, etc.
+        namespace {
+            void BeginContainer(NkGuiContext& ctx, int32 flow, int32 cols, float32 gap) noexcept {
+                if (ctx.containerDepth >= NkGuiContext::ContainerMax) return;
+                ctx.containerSaved[ctx.containerDepth] = ctx.layout;
+                ctx.containerStart[ctx.containerDepth] = ctx.layout.cursor;
+                ++ctx.containerDepth;
+                NkGuiLayout& L = ctx.layout;
+                L.lineStartX = L.cursor.x;
+                L.maxX = L.cursor.x; L.maxY = L.cursor.y;
+                L.curLineH = 0.f; L.gridIdx = 0; L.flow = flow;
+                if (gap >= 0.f) { L.itemSpacingX = gap; L.itemSpacingY = gap; }
+                if (flow == 2) {                                     // Grid : largeur de colonne
+                    const int32 c = cols > 0 ? cols : 1;
+                    L.gridCols = c;
+                    const float32 avail = (L.region.x + L.region.w - L.padding) - L.cursor.x;
+                    L.gridColW = (avail - static_cast<float32>(c - 1) * L.itemSpacingX) / static_cast<float32>(c);
+                    if (L.gridColW < 1.f) L.gridColW = 1.f;
+                }
+            }
+            void EndContainer(NkGuiContext& ctx) noexcept {
+                if (ctx.containerDepth <= 0) return;
+                --ctx.containerDepth;
+                const NkVec2 start = ctx.containerStart[ctx.containerDepth];
+                float32 cw = ctx.layout.maxX - start.x;
+                float32 ch = ctx.layout.maxY - start.y;
+                if (cw < 0.f) cw = 0.f;
+                if (ch < 0.f) ch = 0.f;
+                ctx.layout = ctx.containerSaved[ctx.containerDepth];  // restaure le parent
+                if (cw > 0.f || ch > 0.f) ctx.NextItemRect(cw, ch);   // avance le parent du bloc consommé
+            }
+        }
+
+        void BeginVBox(NkGuiContext& ctx, float32 gap) noexcept { BeginContainer(ctx, 0, 0, gap); }
+        void EndVBox  (NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+        void BeginHBox(NkGuiContext& ctx, float32 gap) noexcept { BeginContainer(ctx, 1, 0, gap); }
+        void EndHBox  (NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+        void BeginGrid(NkGuiContext& ctx, int32 columns, float32 gap) noexcept { BeginContainer(ctx, 2, columns, gap); }
+        void EndGrid  (NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+        void BeginGroup(NkGuiContext& ctx) noexcept { BeginContainer(ctx, 0, 0, -1.f); }   // groupe (VBox, espacement inchangé)
+        void EndGroup  (NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+        void BeginFlow (NkGuiContext& ctx, float32 gap) noexcept { BeginContainer(ctx, 4, 0, gap); }  // wrap auto
+        void EndFlow   (NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+
+        // Ressort horizontal : pousse les items SUIVANTS vers la droite de la région, en
+        // réservant `width` px pour eux (toolbar : [gauche] SpringRight(w) [droite]). Mono-passe.
+        void SpringRight(NkGuiContext& ctx, float32 width) noexcept {
+            const float32 right = ctx.layout.region.x + ctx.layout.region.w - ctx.layout.padding - width;
+            if (right > ctx.layout.cursor.x) ctx.layout.cursor.x = right;
+        }
+
+        // Poignée de redimensionnement (splitter) : glisse `*value` (px) entre min et max
+        // selon l'axe. `vertical`=true → barre verticale, glisse en X. Renvoie true si bougé.
+        bool Splitter(NkGuiContext& ctx, const char* idStr, const NkRect& handle, bool vertical,
+                      float32* value, float32 minV, float32 maxV) noexcept {
+            const NkGuiId id = ctx.GetId(idStr);
+            bool hov = false, held = false;
+            ctx.ButtonBehavior(id, handle, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
+            const bool active = (ctx.activeId == id);
+            bool changed = false;
+            if (active && value) {
+                const float32 d = vertical ? ctx.input.mouseDelta.x : ctx.input.mouseDelta.y;
+                if (d != 0.f) {
+                    float32 v = *value + d;
+                    if (v < minV) v = minV;
+                    if (v > maxV) v = maxV;
+                    if (v != *value) { *value = v; changed = true; }
+                }
+            }
+            if (hov || active) ctx.wantCursor = vertical ? NkGuiCursor::ResizeEW : NkGuiCursor::ResizeNS;
+            ctx.DL().AddRectFilled(handle, (hov || active) ? ctx.theme.buttonHover : ctx.theme.border, 0.f);
+            return changed;
+        }
+
+        // Stack : enfants SUPERPOSÉS dans une boîte width×height, ancrés via StackAnchor
+        // (0=HautGauche … 4=Centre … 8=BasDroite). Badges, overlays, boutons flottants.
+        void BeginStack(NkGuiContext& ctx, float32 width, float32 height) noexcept {
+            BeginContainer(ctx, 3, 0, -1.f);
+            ctx.layout.stackW = width  > 0.f ? width  : ctx.ContentWidth();
+            ctx.layout.stackH = height > 0.f ? height : ctx.ItemHeight();
+            ctx.layout.stackAnchor = 0;
+        }
+        void StackAnchor(NkGuiContext& ctx, int32 anchor) noexcept {
+            ctx.layout.stackAnchor = anchor < 0 ? 0 : (anchor > 8 ? 8 : anchor);
+        }
+        void EndStack(NkGuiContext& ctx) noexcept { EndContainer(ctx); }
+
+        // Espaceur invisible (pousser/aérer dans un VBox/HBox).
+        void Spacer(NkGuiContext& ctx, float32 w, float32 h) noexcept { ctx.NextItemRect(w, h); }
+
+        // Couche overlay : tout ce qui est dessiné entre Push/Pop passe AU-DESSUS du
+        // contenu courant (badges, info-bulles maison, surbrillances).
+        void PushOverlay(NkGuiContext& ctx) noexcept { ++ctx.overlayDepth; }
+        void PopOverlay (NkGuiContext& ctx) noexcept { if (ctx.overlayDepth > 0) --ctx.overlayDepth; }
+
+        // En-tête repliable (accordéon) : barre pleine largeur cliquable, état persistant.
+        // Renvoie true si la section est ouverte (l'app dessine alors son contenu).
+        bool CollapsingHeader(NkGuiContext& ctx, const char* label) noexcept {
+            const float32 h  = ctx.ItemHeight();
+            const NkRect  r  = ctx.NextItemRect(0.f, h);
+            const NkGuiId id = ctx.GetId(label);
+            bool open = ctx.IsNodeOpen(id);
+            bool hov = false, held = false;
+            if (ctx.ButtonBehavior(id, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held)) { open = !open; ctx.SetNodeOpen(id, open); }
+            ctx.DL().AddRectFilled(r, hov ? ctx.theme.buttonHover : ctx.theme.header, ctx.theme.rounding);
+            const float32 a  = h * 0.22f;
+            const NkVec2  cc = { r.x + 12.f, r.y + h * 0.5f };
+            if (open) ctx.DL().AddTriangleFilled({ cc.x - a, cc.y - a * 0.6f }, { cc.x + a, cc.y - a * 0.6f }, { cc.x, cc.y + a * 0.7f }, ctx.theme.text);
+            else      ctx.DL().AddTriangleFilled({ cc.x - a * 0.6f, cc.y - a }, { cc.x - a * 0.6f, cc.y + a }, { cc.x + a, cc.y }, ctx.theme.text);
+            if (ctx.font && ctx.font->Valid())
+                ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), { r.x + 28.f, CenteredBaseline(ctx, r) }, label, ctx.theme.text);
+            return open;
+        }
+
         bool TreeNode(NkGuiContext& ctx, const char* label) noexcept {
             const float32 h  = ctx.ItemHeight();
             const NkRect  r  = ctx.NextItemRect(0.f, h);
