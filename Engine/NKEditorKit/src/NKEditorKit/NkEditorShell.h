@@ -126,6 +126,7 @@ namespace nkentseu {
             bool                mShowPrefs = false;  ///< fenetre Preferences ouverte ?
             bool                mPrefsJustOpened = false;  ///< grace 1 frame (anti auto-fermeture)
             int32               mPrefsTab  = 0;      ///< categorie active (0=Polices, 1=Theme)
+            int32               mThemeSel  = 6;      ///< element de theme selectionne (defaut Accent)
 
             // === Panneaux / commandes ===
             NkEditorPanel*    mPanels[MAX_PANELS]     = {};

@@ -463,12 +463,14 @@ namespace nkentseu {
               dl.AddLine({ gx - s, cy + s }, { gx + s, cy - s }, xc, 1.2f);
               if (h && mUI.input.mouseClicked[0]) { mRunning = false; consumed = true; } }
 
-            // Glissement : barre moins les controles ; EXCLUT les menus (hotId != NONE
-            // quand un menu est survole) pour ne pas deplacer la fenetre en cliquant un menu.
+            // Glissement : barre moins les controles ; EXCLUT la bande des titres de
+            // menu [menuX, menuBarX] -> un clic sur un menu l'OUVRE (au lieu de demarrer
+            // un deplacement de fenetre, ce qui empechait l'ouverture au 1er clic).
             const NkRect drag = { bar.x, bar.y, cMin.x - bar.x, bar.h };
-            const bool inDrag    = m.x >= drag.x && m.x < drag.x + drag.w && m.y >= drag.y && m.y < drag.y + drag.h;
-            const bool overMenu  = (mUI.hotId != NKGUI_ID_NONE);
-            if (!consumed && inDrag && !overMenu) {
+            const bool inDrag      = m.x >= drag.x && m.x < drag.x + drag.w && m.y >= drag.y && m.y < drag.y + drag.h;
+            const bool overMenu    = (mUI.hotId != NKGUI_ID_NONE);
+            const bool inMenuTitles = (m.x >= menuX && m.x < mUI.menuBarX);   // bande des titres
+            if (!consumed && inDrag && !overMenu && !inMenuTitles) {
                 if (mUI.input.mouseDoubleClicked[0]) { mWindow.Maximize(); mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false; }
                 else if (mUI.input.mouseClicked[0])  { mWindow.BeginDragMove(); mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false; }
             }
@@ -689,7 +691,7 @@ namespace nkentseu {
             const bool   click = mUI.input.mouseClicked[0];
             auto hit = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
 
-            const float32 pw = 600.f, ph = 392.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+            const float32 pw = 600.f, ph = 446.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
             dl.AddRectFilled({ 0.f, 0.f, W, H }, kBackdrop);
             // Clic hors fenetre -> ferme (sauf la frame d'ouverture : le clic du menu
             // est lui-meme hors du popup centre, il fermerait aussitot).
@@ -759,19 +761,61 @@ namespace nkentseu {
                 text(cx, y, "(chargees depuis Windows si presentes).", kTextTertiary); y += 28.f;
                 if (btn({ cx, y, 120.f, 30.f }, "Appliquer", true)) { NkSaveFontPrefs(mFontPrefs); LoadFontsFromPrefs(); }
             } else {
-                // ── Categorie Theme (apercu : accent) ──
-                text(cx, y, "Couleur d'accentuation", kTextSecondary); y += 28.f;
-                const NkColor sw[] = { { 31, 111, 235, 255 }, { 163, 113, 247, 255 }, { 63, 185, 80, 255 }, { 219, 109, 40, 255 }, { 248, 81, 73, 255 } };
-                for (int32 i = 0; i < 5; ++i) {
-                    const NkRect r = { cx + i * 46.f, y, 38.f, 30.f };
-                    dl.AddRectFilled(r, sw[i], 6.f);
-                    if (mUI.theme.accent.r == sw[i].r && mUI.theme.accent.g == sw[i].g && mUI.theme.accent.b == sw[i].b)
-                        dl.AddRect({ r.x - 2.f, r.y - 2.f, r.w + 4.f, r.h + 4.f }, kTextPrimary, 2.f);
-                    if (hit(r) && click) mUI.theme.accent = sw[i];
+                // ── Categorie Theme : couleur de l'interface, NOMMEE par element ──
+                struct TE { const char* n; NkColor* c; };
+                TE ents[] = {
+                    { "Fond principal (editeur)",   &mUI.theme.bgPrimary },
+                    { "Panneaux",                   &mUI.theme.panel },
+                    { "En-tete / barre de menus",   &mUI.theme.header },
+                    { "Bordures",                   &mUI.theme.border },
+                    { "Texte",                      &mUI.theme.text },
+                    { "Texte desactive",            &mUI.theme.textDisabled },
+                    { "Accent (focus, barres)",     &mUI.theme.accent },
+                    { "Element selectionne",        &mUI.theme.selection },
+                    { "Bouton",                     &mUI.theme.button },
+                    { "Bouton (survol)",            &mUI.theme.buttonHover },
+                    { "Barre d'onglets",            &mUI.theme.tabBar },
+                    { "Onglet actif",               &mUI.theme.tabActive },
+                    { "Onglet inactif",             &mUI.theme.tab },
+                    { "Onglet (survol)",            &mUI.theme.tabHover },
+                    { "Pistes de defilement",       &mUI.theme.track },
+                    { "Bouton (actif)",             &mUI.theme.buttonActive },
+                };
+                const int32 ne = 16;
+                if (mThemeSel < 0 || mThemeSel >= ne) mThemeSel = 6;
+                text(cx, y, "Theme de l'interface - couleur par element :", kTextSecondary); y += 24.f;
+
+                // Liste 2 colonnes : pastille + nom, cliquable (selection).
+                const float32 colW = 196.f, rowH = 22.f; const float32 gridY = y;
+                for (int32 i = 0; i < ne; ++i) {
+                    const int32 col = i % 2, row = i / 2;
+                    const NkRect rr = { cx + col * colW, gridY + row * rowH, colW - 8.f, rowH - 2.f };
+                    const bool sel = (mThemeSel == i);
+                    if (sel) dl.AddRectFilled(rr, kPaletteSel, 4.f);
+                    else if (hit(rr)) dl.AddRectFilled(rr, NkColor{ 33, 39, 48, 255 }, 4.f);
+                    const NkRect sw = { rr.x + 4.f, rr.y + 3.f, 15.f, 15.f };
+                    dl.AddRectFilled(sw, *ents[i].c, 3.f); dl.AddRect(sw, NkColor{ 60, 66, 74, 255 }, 1.f);
+                    text(sw.x + 22.f, rr.y + (rowH - 2.f - lh) * 0.5f, ents[i].n, sel ? kTextPrimary : kTextSecondary);
+                    if (hit(rr) && click) mThemeSel = i;
                 }
-                y += 50.f;
-                text(cx, y, "La personnalisation complete des themes (couleurs,", kTextTertiary); y += 18.f;
-                text(cx, y, "clair/sombre, presets) arrive prochainement.", kTextTertiary);
+                y = gridY + ((ne + 1) / 2) * rowH + 14.f;
+
+                // Palette : applique une couleur a l'element selectionne.
+                text(cx, y, ents[mThemeSel].n, kTextPrimary); y += 22.f;
+                static const NkColor pal[] = {
+                    { 13, 17, 23, 255 }, { 22, 27, 34, 255 }, { 33, 38, 45, 255 }, { 48, 54, 61, 255 },
+                    { 110, 118, 129, 255 }, { 201, 209, 217, 255 }, { 240, 246, 252, 255 }, { 255, 255, 255, 255 },
+                    { 31, 111, 235, 255 }, { 56, 139, 253, 255 }, { 163, 113, 247, 255 }, { 188, 140, 255, 255 },
+                    { 63, 185, 80, 255 }, { 86, 211, 100, 255 }, { 219, 109, 40, 255 }, { 248, 81, 73, 255 },
+                };
+                for (int32 j = 0; j < 16; ++j) {
+                    const NkRect r = { cx + (j % 8) * 30.f, y + (j / 8) * 30.f, 26.f, 26.f };
+                    dl.AddRectFilled(r, pal[j], 5.f); dl.AddRect(r, NkColor{ 60, 66, 74, 255 }, 1.f);
+                    if (hit(r) && click) { const uint8 a = ents[mThemeSel].c->a; *ents[mThemeSel].c = pal[j]; ents[mThemeSel].c->a = a; }
+                }
+                y += 68.f;
+                text(cx, y, "Les changements sont appliques en direct. La persistance", kTextTertiary); y += 18.f;
+                text(cx, y, "des themes (et presets clair/sombre) arrive prochainement.", kTextTertiary);
             }
 
             // ── Bouton Fermer (bas-droite) ──
