@@ -210,18 +210,29 @@ namespace nkcode {
         // Projet « Tous les projets » = entree virtuelle apres la liste.
         bool AllProjects() const { return projIdx >= static_cast<int32>(projects.Size()); }
 
-        // Un test appartient a un projet si son nom commence par le nom du projet
-        // suivi d'un separateur (ex. "NKPlatform_Tests" -> projet "NKPlatform").
-        static bool TestBelongs(const char* test, const char* proj) {
-            if (!test || !proj || !*proj) return false;
-            const char* t = test; const char* p = proj;
-            for (; *p; ++t, ++p) { char a = *t, b = *p; if (a >= 'A' && a <= 'Z') a += 32; if (b >= 'A' && b <= 'Z') b += 32; if (a != b) return false; }
-            return *t == '\0' || *t == '_' || *t == '-' || *t == ' ';
+        // `s` commence-t-il par le prefixe `pre` (insensible a la casse) ?
+        static bool StartsWithI(const char* s, const char* pre) {
+            if (!s || !pre || !*pre) return false;
+            for (; *pre; ++s, ++pre) { char a = *s, b = *pre; if (a >= 'A' && a <= 'Z') a += 32; if (b >= 'A' && b <= 'Z') b += 32; if (a != b) return false; }
+            return true;
         }
-        // Un test est-il visible pour la selection courante (projet precis, ou tous) ?
+        static usize Len(const char* s) { usize n = 0; if (s) while (s[n]) ++n; return n; }
+
+        // Un test est-il visible pour la selection courante ?
+        //  - « Tous les projets » -> tous les tests.
+        //  - projet precis -> les tests dont le nom commence par CE projet, et pour
+        //    lesquels aucun AUTRE projet n'est un prefixe PLUS LONG (ex. "NKPlatform_Tests"
+        //    appartient a "NKPlatform", pas a "NK").
         bool TestVisible(int32 i) const {
             if (i < 0 || i >= static_cast<int32>(tests.Size())) return false;
-            return AllProjects() || TestBelongs(tests[i].CStr(), SelectedProject());
+            if (AllProjects()) return true;
+            const char* t = tests[i].CStr();
+            const char* sel = SelectedProject();
+            if (!StartsWithI(t, sel)) return false;
+            const usize selLen = Len(sel);
+            for (usize p = 0; p < projects.Size(); ++p)
+                if (Len(projects[p].CStr()) > selLen && StartsWithI(t, projects[p].CStr())) return false;
+            return true;
         }
         const char* ConfigNameOf(int32 i) const { return i == 1 ? "Release" : "Debug"; }
 
