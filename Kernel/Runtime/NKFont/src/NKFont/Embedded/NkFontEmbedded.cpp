@@ -20261,6 +20261,7 @@ namespace nkentseu {
 
 #include "NKFont/Embedded/DejaVuSansMono_data.h"   // donnees DejaVu Sans Mono (monospace + Unicode large)
 #include "NKFont/Embedded/Inter_data.h"             // donnees Inter (interface proportionnelle, OFL)
+#include "NKFont/Embedded/NotoSans_data.h"          // donnees Noto Sans (police de repli, OFL)
 
     static const NkEmbeddedFontData sRegistry[(nkft_uint32)NkEmbeddedFontId::Count] = {
         // ProggyClean — bitmap 13px
@@ -20371,12 +20372,13 @@ namespace nkentseu {
             0.f,
             "SIL Open Font License 1.1"
         },
-        // NotoSans — police de REPLI large couverture (donnees a integrer via
-        // EmbedFont.py). Tant que compressedData == nullptr, IsAvailable() = false
-        // et le fallback est simplement ignore (no-op).
+        // NotoSans — police de REPLI large couverture (latin etendu, grec, cyrillique,
+        // hebreu, arabe, symboles...), licence OFL. Comble les glyphes manquants.
         {
             "NotoSans",
-            nullptr, 0, 0,
+            sNotoSansCompressedData,
+            sNotoSansCompressedSize,
+            sNotoSansOriginalSize,
             NkFontKind::Vector,
             0.f,
             "SIL Open Font License 1.1"
