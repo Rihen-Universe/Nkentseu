@@ -117,6 +117,9 @@ namespace nkentseu {
             t.tabActive     = {  13,  17,  23, 255 };   // onglet actif = fond editeur #0D1117
             t.rounding      = 0.f;                       // coins droits
 
+            mDefaultTheme = mUI.theme;   // theme par defaut (vit dans l'app) -> 'Reinitialiser'
+            NkLoadTheme(mUI.theme);      // applique le theme utilisateur sauvegarde s'il existe
+
             // Un nœud de dock à 1 seul panneau n'affiche PAS de barre d'onglets
             // (l'éditeur ne montre que ses onglets de fichiers ; pas de tab "Editeur").
             mUI.dockHideSingleTab = true;
@@ -148,6 +151,10 @@ namespace nkentseu {
 
             mLastWidth  = config.width;
             mLastHeight = config.height;
+
+            // Acces aux Preferences via la palette (Ctrl+P) — fiable quel que soit le menu.
+            RegisterCommand("Preferences : Polices", +[](void* u) { static_cast<NkEditorShell*>(u)->OpenPreferences(0); }, this);
+            RegisterCommand("Preferences : Theme",   +[](void* u) { static_cast<NkEditorShell*>(u)->OpenPreferences(1); }, this);
 
             HookEvents();
             return true;
@@ -691,7 +698,7 @@ namespace nkentseu {
             const bool   click = mUI.input.mouseClicked[0];
             auto hit = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
 
-            const float32 pw = 600.f, ph = 446.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+            const float32 pw = 720.f, ph = 452.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
             dl.AddRectFilled({ 0.f, 0.f, W, H }, kBackdrop);
             // Clic hors fenetre -> ferme (sauf la frame d'ouverture : le clic du menu
             // est lui-meme hors du popup centre, il fermerait aussitot).
@@ -760,6 +767,10 @@ namespace nkentseu {
                 text(cx, y, "Astuce : Consolas / Segoe UI / Courier New = polices systeme", kTextTertiary); y += 18.f;
                 text(cx, y, "(chargees depuis Windows si presentes).", kTextTertiary); y += 28.f;
                 if (btn({ cx, y, 120.f, 30.f }, "Appliquer", true)) { NkSaveFontPrefs(mFontPrefs); LoadFontsFromPrefs(); }
+                if (btn({ cx + 132.f, y, 150.f, 30.f }, "Reinitialiser", true)) {
+                    mFontPrefs = NkFontPrefs{};                 // defaut Inter + DejaVu
+                    NkSaveFontPrefs(mFontPrefs); LoadFontsFromPrefs();
+                }
             } else {
                 // ── Categorie Theme : couleur de l'interface, NOMMEE par element ──
                 struct TE { const char* n; NkColor* c; };
@@ -813,9 +824,13 @@ namespace nkentseu {
                     dl.AddRectFilled(r, pal[j], 5.f); dl.AddRect(r, NkColor{ 60, 66, 74, 255 }, 1.f);
                     if (hit(r) && click) { const uint8 a = ents[mThemeSel].c->a; *ents[mThemeSel].c = pal[j]; ents[mThemeSel].c->a = a; }
                 }
-                y += 68.f;
-                text(cx, y, "Les changements sont appliques en direct. La persistance", kTextTertiary); y += 18.f;
-                text(cx, y, "des themes (et presets clair/sombre) arrive prochainement.", kTextTertiary);
+                y += 70.f;
+                // Enregistrer / Charger (fichier) + Reinitialiser (theme par defaut de l'app).
+                if (btn({ cx, y, 130.f, 30.f }, "Enregistrer", true)) NkSaveTheme(mUI.theme);
+                if (btn({ cx + 142.f, y, 110.f, 30.f }, "Charger", true)) NkLoadTheme(mUI.theme);
+                if (btn({ cx + 264.f, y, 150.f, 30.f }, "Reinitialiser", true)) mUI.theme = mDefaultTheme;
+                y += 38.f;
+                text(cx, y, "Enregistre/charge le theme dans ~/.nkcode_theme.cfg.", kTextTertiary);
             }
 
             // ── Bouton Fermer (bas-droite) ──

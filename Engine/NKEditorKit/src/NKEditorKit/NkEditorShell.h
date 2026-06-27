@@ -123,6 +123,7 @@ namespace nkentseu {
             nkgui::NkGuiFont    mCodeFont;   ///< police monospace code/terminal (DejaVu)
             bool                mFontOk = false;
             NkFontPrefs         mFontPrefs;          ///< reglages de polices (persistes)
+            nkgui::NkGuiTheme   mDefaultTheme;       ///< theme par defaut (vit dans l'app) -> Reinitialiser
             bool                mShowPrefs = false;  ///< fenetre Preferences ouverte ?
             bool                mPrefsJustOpened = false;  ///< grace 1 frame (anti auto-fermeture)
             int32               mPrefsTab  = 0;      ///< categorie active (0=Polices, 1=Theme)

@@ -9,6 +9,7 @@
 //   - Defaut : interface = Inter, code = DejaVu Sans Mono.
 // =============================================================================
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKGui/Core/NkGuiContext.h"          // NkGuiTheme
 #include "NKContainers/String/NkString.h"
 #include "NKFont/Embedded/NkFontEmbedded.h"
 
@@ -110,6 +111,60 @@ namespace nkentseu {
             std::fprintf(f, "code.font=%s\n", p.codeFont.CStr());
             std::fprintf(f, "code.size=%d\n", static_cast<int>(p.codeSize + 0.5f));
             std::fclose(f);
+        }
+
+        // ── Theme de l'interface : persistance (fichier clef=r,g,b,a) ──────────
+        // Table des champs serialisables (nom <-> pointeur couleur).
+        struct NkThemeField { const char* name; nkft_uint32 off; };
+        inline void NkThemeFieldList(nkgui::NkGuiTheme& t, NkThemeField* out, int32* n) {
+            nkgui::NkColor* base = &t.bgPrimary;
+            auto OFF = [&](nkgui::NkColor* p) { return static_cast<nkft_uint32>(reinterpret_cast<char*>(p) - reinterpret_cast<char*>(base)); };
+            NkThemeField f[] = {
+                { "bgPrimary", OFF(&t.bgPrimary) }, { "panel", OFF(&t.panel) }, { "header", OFF(&t.header) },
+                { "button", OFF(&t.button) }, { "buttonHover", OFF(&t.buttonHover) }, { "buttonActive", OFF(&t.buttonActive) },
+                { "border", OFF(&t.border) }, { "text", OFF(&t.text) }, { "textDisabled", OFF(&t.textDisabled) },
+                { "selection", OFF(&t.selection) }, { "accent", OFF(&t.accent) }, { "track", OFF(&t.track) },
+                { "tabBar", OFF(&t.tabBar) }, { "tab", OFF(&t.tab) }, { "tabHover", OFF(&t.tabHover) }, { "tabActive", OFF(&t.tabActive) },
+            };
+            *n = 16; for (int32 i = 0; i < 16; ++i) out[i] = f[i];
+        }
+        inline NkString NkThemePath() {
+            const char* home =
+#if defined(_WIN32)
+                std::getenv("USERPROFILE");
+#else
+                std::getenv("HOME");
+#endif
+            if (home && *home) return NkString(home) + "/.nkcode_theme.cfg";
+            return NkString("nkcode_theme.cfg");
+        }
+        inline void NkSaveTheme(nkgui::NkGuiTheme& t, const char* path = nullptr) {
+            FILE* f = std::fopen(path ? path : NkThemePath().CStr(), "w");
+            if (!f) return;
+            NkThemeField fl[16]; int32 n = 0; NkThemeFieldList(t, fl, &n);
+            char* base = reinterpret_cast<char*>(&t.bgPrimary);
+            for (int32 i = 0; i < n; ++i) {
+                nkgui::NkColor* c = reinterpret_cast<nkgui::NkColor*>(base + fl[i].off);
+                std::fprintf(f, "%s=%d,%d,%d,%d\n", fl[i].name, c->r, c->g, c->b, c->a);
+            }
+            std::fclose(f);
+        }
+        inline bool NkLoadTheme(nkgui::NkGuiTheme& t, const char* path = nullptr) {
+            FILE* f = std::fopen(path ? path : NkThemePath().CStr(), "r");
+            if (!f) return false;
+            NkThemeField fl[16]; int32 n = 0; NkThemeFieldList(t, fl, &n);
+            char* base = reinterpret_cast<char*>(&t.bgPrimary);
+            char line[256];
+            while (std::fgets(line, sizeof(line), f)) {
+                char* eq = std::strchr(line, '='); if (!eq) continue; *eq = 0;
+                int r = 0, g = 0, b = 0, a = 255; if (std::sscanf(eq + 1, "%d,%d,%d,%d", &r, &g, &b, &a) < 3) continue;
+                for (int32 i = 0; i < n; ++i) if (std::strcmp(line, fl[i].name) == 0) {
+                    nkgui::NkColor* c = reinterpret_cast<nkgui::NkColor*>(base + fl[i].off);
+                    c->r = (nkft_uint8)r; c->g = (nkft_uint8)g; c->b = (nkft_uint8)b; c->a = (nkft_uint8)a; break;
+                }
+            }
+            std::fclose(f);
+            return true;
         }
 
     } // namespace editorkit
