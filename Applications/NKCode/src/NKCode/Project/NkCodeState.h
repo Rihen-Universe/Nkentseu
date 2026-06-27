@@ -280,30 +280,46 @@ namespace nkcode {
             return true;
         }
 
-        // ── Recents : workspaces deja ouverts avec l'IDE (persistes ~/.nkcode_recent.cfg) ──
-        NkVector<NkString> recents;
+        // ── Recents + epingles : workspaces ouverts avec l'IDE (~/.nkcode_recent.cfg) ──
+        // Fichier : 1 ligne/entree, prefixe "P " = epingle, "R " (ou rien) = recent.
+        NkVector<NkString> recents;   // non epingles (ordre = recence)
+        NkVector<NkString> pinned;    // epingles (restent en tete)
         static NkString RecentsPath() {
             const char* home = std::getenv("USERPROFILE");
             if (!home || !*home) home = std::getenv("HOME");
             if (home && *home) return NkString(home) + "/.nkcode_recent.cfg";
             return NkString("nkcode_recent.cfg");
         }
+        static void RemoveFrom(NkVector<NkString>& v, const char* path) {
+            for (usize i = 0; i < v.Size(); )
+                if (StrEq(v[i].CStr(), path)) v.Erase(v.Begin() + i); else ++i;
+        }
+        bool IsPinned(const char* path) const {
+            for (usize i = 0; i < pinned.Size(); ++i) if (StrEq(pinned[i].CStr(), path)) return true;
+            return false;
+        }
         void LoadRecents() {
-            recents.Clear();
+            recents.Clear(); pinned.Clear();
             NkString txt = NkFile::ReadAllText(NkPath(RecentsPath().CStr()));
             NkString cur;
-            for (const char* p = txt.CStr(); *p; ++p) {
-                if (*p == '\n' || *p == '\r') { if (!cur.Empty()) { recents.PushBack(cur); cur.Clear(); } }
-                else cur += *p;
-            }
-            if (!cur.Empty()) recents.PushBack(cur);
+            auto flush = [&]() {
+                if (cur.Empty()) return;
+                if (cur.CStr()[0] == 'P' && cur.CStr()[1] == ' ') pinned.PushBack(NkString(cur.CStr() + 2));
+                else if (cur.CStr()[0] == 'R' && cur.CStr()[1] == ' ') recents.PushBack(NkString(cur.CStr() + 2));
+                else recents.PushBack(cur);   // ancien format (chemin nu)
+                cur.Clear();
+            };
+            for (const char* p = txt.CStr(); *p; ++p) { if (*p == '\n' || *p == '\r') flush(); else cur += *p; }
+            flush();
         }
         void SaveRecents() {
             NkString out;
-            for (usize i = 0; i < recents.Size(); ++i) { out += recents[i]; out += "\n"; }
+            for (usize i = 0; i < pinned.Size(); ++i)  { out += "P "; out += pinned[i];  out += "\n"; }
+            for (usize i = 0; i < recents.Size(); ++i) { out += "R "; out += recents[i]; out += "\n"; }
             NkFile::WriteAllText(NkPath(RecentsPath().CStr()), out);
         }
         void AddRecent(const NkString& wsPath) {
+            if (IsPinned(wsPath.CStr())) return;          // deja epingle -> reste en tete
             NkVector<NkString> nw;
             nw.PushBack(wsPath);                          // en tete (le plus recent)
             for (usize i = 0; i < recents.Size() && nw.Size() < 12; ++i)
@@ -311,6 +327,9 @@ namespace nkcode {
             recents = nw;
             SaveRecents();
         }
+        void PinRecent(const NkString& path)   { RemoveFrom(recents, path.CStr()); if (!IsPinned(path.CStr())) pinned.PushBack(path); SaveRecents(); }
+        void UnpinRecent(const NkString& path) { RemoveFrom(pinned, path.CStr()); RemoveFrom(recents, path.CStr()); recents.Insert(recents.Begin(), path); SaveRecents(); }
+        void RemoveRecent(const NkString& path){ RemoveFrom(recents, path.CStr()); RemoveFrom(pinned, path.CStr()); SaveRecents(); }
 
         // Argument --jenga-file pour cibler le workspace selectionne.
         NkString JengaFileArg() const {

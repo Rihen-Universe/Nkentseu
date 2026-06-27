@@ -346,18 +346,53 @@ namespace nkcode {
                 if (hov && click) { if (d->shell) d->shell->LoadUiState(d->st->UiConfigPath().CStr()); d->showStart = false; return; }
                 ry += 56.f * S;
             }
-            if (d->st && d->st->recents.Empty() && !canCont) text(mx, ry + 4.f, "(aucun workspace recent)", cFaint);
-            for (usize i = 0; d->st && i < d->st->recents.Size(); ++i) {
-                NkPath pp(d->st->recents[i].CStr());
-                if (canCont && StrEq(pp.GetParent().ToString().CStr(), d->st->root.ToString().CStr())) continue;
+            // Dessine une ligne workspace (icone + nom + chemin) avec, au survol, les
+            // boutons EPINGLER/DESEPINGLER et RETIRER a droite. action: 1=charger,
+            // 2=(des)epingler, 3=retirer.
+            auto wsRow = [&](const NkString& path, int32 colorIdx, bool pinnedRow) -> int32 {
+                NkPath pp(path.CStr());
                 const NkRect r = { mx, ry, mw, 50.f * S };
                 const bool hov = hit(r);
                 if (hov) dl.AddRectFilled(r, cRowHov, 10.f * S);
-                dl.AddRectFilled({ r.x + 10.f * S, r.y + 10.f * S, 30.f * S, 30.f * S }, rowCols[i % 4], 8.f * S);
+                dl.AddRectFilled({ r.x + 10.f * S, r.y + 10.f * S, 30.f * S, 30.f * S }, pinnedRow ? cAccent : rowCols[colorIdx % 4], 8.f * S);
                 text(r.x + 52.f * S, r.y + 7.f * S, pp.GetFileName().CStr(), cText);
-                text(r.x + 52.f * S, r.y + 7.f * S + lh, d->st->recents[i].CStr(), NkColor{ 140,140,150,255 });
-                if (hov && click) { d->DoLoad(pp.GetParent()); return; }
+                text(r.x + 52.f * S, r.y + 7.f * S + lh, path.CStr(), NkColor{ 140,140,150,255 });
+                int32 act = 0;
+                const NkRect bRem = { r.x + r.w - 30.f * S, r.y + 15.f * S, 20.f * S, 20.f * S };
+                const NkRect bPin = { r.x + r.w - 56.f * S, r.y + 15.f * S, 20.f * S, 20.f * S };
+                if (hov || pinnedRow) {
+                    const bool hPin = hit(bPin), hRem = hit(bRem);
+                    dl.AddRectFilled(bPin, hPin ? NkColor{ 44,52,62,255 } : NkColor{ 0,0,0,0 }, 4.f * S);
+                    // glyphe epingle (petit losange) — plein si epingle
+                    dl.AddRectFilled({ bPin.x + 8.f * S, bPin.y + 4.f * S, 4.f * S, 8.f * S }, pinnedRow ? cAccent : cSub);
+                    dl.AddRectFilled({ bPin.x + 5.f * S, bPin.y + 11.f * S, 10.f * S, 3.f * S }, pinnedRow ? cAccent : cSub);
+                    dl.AddRectFilled(bRem, hRem ? NkColor{ 60,34,38,255 } : NkColor{ 0,0,0,0 }, 4.f * S);
+                    text(bRem.x + 6.f * S, bRem.y + (20.f * S - lh) * 0.5f, "x", NkColor{ 226,114,91,255 });
+                    if (click && hPin) act = 2;
+                    else if (click && hRem) act = 3;
+                }
+                if (act == 0 && hov && click) act = 1;
                 ry += 56.f * S;
+                return act;
+            };
+            // Epingles d'abord
+            for (usize i = 0; d->st && i < d->st->pinned.Size(); ++i) {
+                const NkString path = d->st->pinned[i];
+                const int32 a = wsRow(path, (int32)i, true);
+                if (a == 1) { NkPath pp(path.CStr()); d->DoLoad(pp.GetParent()); return; }
+                if (a == 2) { d->st->UnpinRecent(path); return; }
+                if (a == 3) { d->st->RemoveRecent(path); return; }
+                if (ry > cy + chh - 56.f * S) break;
+            }
+            if (d->st && d->st->recents.Empty() && d->st->pinned.Empty() && !canCont) text(mx, ry + 4.f, "(aucun workspace recent)", cFaint);
+            for (usize i = 0; d->st && i < d->st->recents.Size(); ++i) {
+                const NkString path = d->st->recents[i];
+                NkPath pp(path.CStr());
+                if (canCont && StrEq(pp.GetParent().ToString().CStr(), d->st->root.ToString().CStr())) continue;
+                const int32 a = wsRow(path, (int32)i, false);
+                if (a == 1) { d->DoLoad(pp.GetParent()); return; }
+                if (a == 2) { d->st->PinRecent(path); return; }
+                if (a == 3) { d->st->RemoveRecent(path); return; }
                 if (ry > cy + chh - 56.f * S) break;
             }
         }
