@@ -74,7 +74,46 @@
 - [ ] **A2.2 — Auto-exposure** (~1-2 h, adaptation luminance moyenne)
 - [ ] **A2.3 — TAA** (~4-5 h, optionnel, gros impact « next gen »)
 
-## A1.5 · « Lumière persistante » sur modèles chargés (demande Rihen)
+## A1.5 · « Lumière persistante » sol — ROOT CAUSE PINPOINTÉ (2026-06-27, RenderDoc)
+- [~] **CAUSE DÉFINITIVE (via RenderDoc PixelHistory sur GL)** : le halo vert/jaune
+      sur le sol sous les modèles = la **DIFFUSE IRRADIANCE du shader SOL (pbr.frag)**
+      qui retourne du VERT sur **GL/DX** (mais gris/ciel sur **VK**). Preuves :
+      (1) PixelHistory : le draw du SOL (eid=226, quad 6 idx) sort `(0.10,0.12,0.08)`
+      G>R>B aux pixels du halo où SEUL le sol dessine → c'est le sol, pas le modèle ;
+      (2) specular IBL du sol mis à 0 → sol reste vert `(0.07,0.11,0.07)` → ce n'est
+      PAS le specular, c'est `texture(tEnvIrradiance, N)` avec N=haut ;
+      (3) NK_NOMODEL → sol parfaitement propre (le halo requiert le modèle pour
+      l'ombre qui révèle l'ambient : en plein soleil l'ambient vert est noyé).
+      **Mécanisme** : l'env est une **vraie HDR forêt** (arbres verts en bas, ciel
+      en haut — PAS le gradient gris du config, vérifié : la visière reflète des
+      arbres). La **cubemap irradiance est échantillonnée avec une orientation Y
+      divergente sur GL/DX vs VK** → le sol (N=+Y) récupère l'hémisphère BAS
+      (sol/arbres verts) au lieu du HAUT (ciel). VK prend le bon côté → propre.
+      **Outillage** : `scratchpad/rdcap.py` (qrenderdoc --python : capture headless
+      + dump HDR/buffers + DRAWCALLS + PixelHistory, lit les PNG). `renderdoccmd thumb
+      <rdc>` = vignette frame présentée. NB : PixelHistory **hang sur VK** dans RenderDoc
+      (utiliser PickPixel pour VK). Capture : `NK_SKIN_MODEL=Resources/Models/CesiumMan/
+      CesiumMan.glb NK_FREEZE=2.0` + backend.
+      **MESURE RenderDoc PickPixel (sol ISOLÉ via SetFrameEvent sur le draw sol,
+      modèle pas encore dessiné)** : sol dans l'ombre, N=+Y :
+        - VK  = (0.14, 0.14, 0.16) BLEU/ciel + plus brillant  ← correct
+        - GL  = (0.10, 0.12, 0.08) VERT/sol + plus sombre
+        - DX11= (0.10, 0.12, 0.08) VERT (IDENTIQUE à GL)
+      **FLIP Y TESTÉ ET INFIRMÉ** : ajout `reflectionFlags.y=-1` sur GL/DX + flip
+      N.y/R.y des samples cube dans pbr.frag/skin.frag → sol GL/DX RESTE vert
+      (0.087,0.109,0.071, à peine changé). Donc ce n'est PAS un flip de direction Y :
+      les DEUX hémisphères de l'irradiance GL sont verts. → c'est la **DONNÉE de la
+      cubemap irradiance qui diffère** GL/DX (vert+sombre) vs VK (bleu+brillant),
+      pour la MÊME génération CPU. (Changements revertés, arbre propre.)
+      **PROCHAIN DIAGNOSTIC (Step 3 affiné)** : dumper les **6 faces de la cubemap
+      irradiance** (GL TEX 99 / VK TEX, 32×32 arr 6) sur GL vs VK via SaveTexture et
+      COMPARER les données : (a) si faces IDENTIQUES → convention de sampling autre
+      que Y (GL left-handed : tester flip Z ou X, ou swap de faces) ; (b) si faces
+      DIFFÉRENTES → bug upload/format/génération de la cubemap par backend (vérifier
+      WriteTextureRegion cube + format RGBA8 + l'IBL cache disque SaveIBLCache/
+      TryLoadIBLCache éventuellement généré sur un backend et chargé sur l'autre).
+
+## A1.5(old) · « Lumière persistante » — notes antérieures
 - [~] **REPRODUIT de façon fiable** (NK_FREEZE fige l'anim, ajouté à DemoSkin) :
       lueur **irisée multicolore** (vert/bleu/jaune/rose) sur le SOL sous les
       pieds de CesiumMan/BrainStem ; Fox (brun) = sol propre.
