@@ -332,7 +332,13 @@ namespace nkentseu {
                 // MODALE : quand Preferences est ouvert, le corps (panneaux/editeur)
                 // ne doit pas reagir aux clics/molette/frappes destines au popup. On
                 // masque l'input pour le corps puis on le restaure pour DrawPreferences.
-                const bool modal = mShowPrefs || mUI.appModal;
+                // IDEM quand la souris est au-dessus d'un menu DEROULANT ouvert (deja
+                // dessine + gere dans la barre de titre ci-dessus) : sinon l'editeur /
+                // les zones a hit-test « brut » derriere le menu recoivent les clics.
+                bool overPopup = false;
+                for (int32 i = 0; i < mUI.popupDepth; ++i)
+                    if (nkgui::NkGuiRectContains(mUI.popupRects[i], mUI.input.mousePos)) { overPopup = true; break; }
+                const bool modal = mShowPrefs || mUI.appModal || overPopup;
                 nkgui::NkGuiInput savedInput;
                 if (modal) {
                     savedInput = mUI.input;

@@ -147,81 +147,147 @@ namespace nkcode {
     }
 
     // ── Ecran de demarrage PLEIN CADRE (via SetStartScreen) ──
-    // Remplit le corps (sous la barre de titre) ; remplace l'editeur tant qu'aucun
-    // workspace n'est charge. Gauche = actions, droite = liste des recents.
+    // Carte centree facon « page de demarrage » : sidebar (marque + actions) a
+    // gauche, liste des workspaces recents a droite. Remplace l'editeur tant
+    // qu'aucun workspace n'est charge. Palette sombre + accent violet (#7c6cf0).
     inline void DrawStartScreen(NkEditorFrameContext& ec, NkCodeDialogs* d) {
         if (!d || !d->showStart) return;
         auto& ctx = ec.Ui();
         const NkGuiFont* f = ctx.font;
         if (!f || !f->Valid()) return;
-        auto& dl = ctx.DL();                    // corps : draw-list principale
+        auto& dl = ctx.DL();
         const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH;
-        const float32 top = ctx.ItemHeight();   // sous la barre de titre
+        const float32 top = ctx.ItemHeight();
         const float32 asc = f->Ascent(), lh = f->LineHeight();
         const NkVec2 mp = ctx.input.mousePos;
         const bool   click = ctx.input.mouseClicked[0];
+        const float32 S = ctx.S(1.f);
         auto hit  = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
         auto text = [&](float32 x, float32 y, const char* s, const NkColor& c) { dl.AddText(f->Face(), f->TexId(), { x, y + asc }, s, c); };
 
-        dl.AddRectFilled({ 0.f, top, W, H - top }, NkColor{ 18, 21, 26, 255 });
-        // En-tete
-        text(48.f, top + 40.f, "NKCode", NkColor{ 230, 237, 243, 255 });
-        text(48.f, top + 40.f + lh + 6.f, "Demarrer - ouvrir ou creer un workspace", NkColor{ 140, 150, 160, 255 });
+        // Palette (cf. maquette ide_launcher_dark_flat)
+        const NkColor cBack   = { 11, 11, 15, 255 };
+        const NkColor cCard   = { 20, 20, 26, 255 };
+        const NkColor cSide   = { 27, 27, 34, 255 };
+        const NkColor cBorder = { 42, 42, 51, 255 };
+        const NkColor cAccent = { 124, 108, 240, 255 };
+        const NkColor cAccentH= { 111, 95, 230, 255 };
+        const NkColor cText   = { 236, 236, 237, 255 };
+        const NkColor cSub    = { 140, 140, 150, 255 };
+        const NkColor cFaint  = { 115, 115, 126, 255 };
+        const NkColor cRowHov = { 31, 31, 39, 255 };
+        const NkColor cSelBg  = { 36, 33, 58, 255 };
 
-        // ── Colonne gauche : actions ──
-        struct WItem { const char* t; const char* sub; int32 act; };
-        const WItem items[] = {
-            { "Ouvrir un dossier...",            "Charge un dossier et detecte ses workspaces",  1 },
-            { "Ouvrir un workspace (.jenga)...", "Selectionne directement un fichier workspace", 2 },
-            { "Nouveau workspace...",            "Cree un workspace vierge (pour de futurs projets)", 3 },
+        dl.AddRectFilled({ 0.f, top, W, H - top }, cBack);
+
+        // Carte centree
+        const float32 cw = 760.f * S, chh = 480.f * S;
+        const float32 cx = (W - cw) * 0.5f, cy = top + (H - top - chh) * 0.5f;
+        dl.AddRectFilled({ cx, cy, cw, chh }, cCard, 18.f * S);
+        dl.AddRect({ cx, cy, cw, chh }, cBorder, 1.f);
+
+        // ── Sidebar gauche ──
+        const float32 sw = 230.f * S;
+        dl.AddRectFilled({ cx, cy, sw, chh }, cSide, 18.f * S);
+        dl.AddRectFilled({ cx + sw - 18.f * S, cy, 18.f * S, chh }, cSide);   // coin droit carre
+        dl.AddRectFilled({ cx + sw - 1.f, cy + 12.f, 1.f, chh - 24.f }, cBorder);
+        // Marque : logo (3 carres violets) + nom
+        const float32 bx = cx + 20.f * S, by = cy + 22.f * S;
+        dl.AddRectFilled({ bx,            by + 7.f * S, 8.f * S, 8.f * S }, cAccent, 2.f * S);
+        dl.AddRectFilled({ bx + 9.f * S,  by,           8.f * S, 8.f * S }, cAccent, 2.f * S);
+        dl.AddRectFilled({ bx + 12.f * S, by + 12.f * S,8.f * S, 8.f * S }, cAccent, 2.f * S);
+        text(bx + 28.f * S, by, "NKCode", cText);
+
+        // Actions
+        struct Act { const char* t; const char* sub; int32 act; bool primary; };
+        const Act acts[] = {
+            { "Nouveau workspace", "Demarrer un projet vide",        3, true  },
+            { "Charger un dossier","Ouvrir une solution existante",  1, false },
+            { "Ouvrir un workspace",".jenga existant",               2, false },
         };
-        const float32 colW = (W - 96.f) * 0.5f;
-        float32 wy = top + 120.f;
+        float32 ay = cy + 70.f * S;
+        const float32 aw = sw - 32.f * S;
         for (int32 i = 0; i < 3; ++i) {
-            const NkRect r = { 48.f, wy, colW, 58.f };
+            const NkRect r = { cx + 16.f * S, ay, aw, 50.f * S };
             const bool hov = hit(r);
-            dl.AddRectFilled(r, hov ? NkColor{ 38, 60, 92, 255 } : NkColor{ 30, 35, 42, 255 }, 6.f);
-            dl.AddRect(r, hov ? NkColor{ 88, 166, 255, 255 } : NkColor{ 50, 57, 65, 255 }, 1.f);
-            text(r.x + 16.f, r.y + 10.f, items[i].t, NkColor{ 230, 237, 243, 255 });
-            text(r.x + 16.f, r.y + 10.f + lh + 2.f, items[i].sub, NkColor{ 150, 160, 170, 255 });
+            NkColor bg = acts[i].primary ? (hov ? cAccentH : cAccent)
+                                         : (hov ? NkColor{ 34, 34, 43, 255 } : cCard);
+            dl.AddRectFilled(r, bg, 12.f * S);
+            if (!acts[i].primary) dl.AddRect(r, hov ? NkColor{ 56, 56, 70, 255 } : cBorder, 1.f);
+            // pastille d'icone
+            const NkRect ic = { r.x + 11.f * S, r.y + 10.f * S, 30.f * S, 30.f * S };
+            dl.AddRectFilled(ic, acts[i].primary ? NkColor{ 255, 255, 255, 46 } : NkColor{ 124, 108, 240, 36 }, 8.f * S);
+            const NkColor icCol = acts[i].primary ? NkColor{ 255, 255, 255, 255 } : cAccent;
+            if (acts[i].act == 3) {   // "+"
+                dl.AddRectFilled({ ic.x + 14.f * S, ic.y + 8.f * S, 2.f * S, 14.f * S }, icCol);
+                dl.AddRectFilled({ ic.x + 8.f * S, ic.y + 14.f * S, 14.f * S, 2.f * S }, icCol);
+            } else {                  // dossier (trait simple)
+                dl.AddRectFilled({ ic.x + 7.f * S, ic.y + 11.f * S, 16.f * S, 11.f * S }, icCol, 2.f * S);
+                dl.AddRectFilled({ ic.x + 7.f * S, ic.y + 9.f * S, 8.f * S, 4.f * S }, icCol, 1.f * S);
+            }
+            const NkColor tcol = acts[i].primary ? NkColor{ 255, 255, 255, 255 } : cText;
+            const NkColor scol = acts[i].primary ? NkColor{ 255, 255, 255, 200 } : cSub;
+            text(r.x + 52.f * S, r.y + 8.f * S, acts[i].t, tcol);
+            text(r.x + 52.f * S, r.y + 8.f * S + lh, acts[i].sub, scol);
             if (hov && click) {
-                if (items[i].act == 1) d->OpenFolderDialog();
-                else if (items[i].act == 2) d->OpenWorkspaceDialog();
+                if (acts[i].act == 1) d->OpenFolderDialog();
+                else if (acts[i].act == 2) d->OpenWorkspaceDialog();
                 else d->Open(NkCodeDialogs::NewWorkspace);
                 return;
             }
-            wy += 68.f;
+            ay += 58.f * S;
         }
-        // Continuer avec le dossier courant (s'il a deja un workspace)
+        text(cx + 20.f * S, cy + chh - 28.f * S, "NKCode - Nkentseu", cFaint);
+
+        // ── Zone principale : recents ──
+        const float32 mx = cx + sw + 22.f * S;
+        const float32 mw = cw - sw - 44.f * S;
+        text(mx, cy + 22.f * S, "Workspaces recents", cText);
+        // Champ de recherche (visuel)
+        const NkRect sb = { mx + mw - 180.f * S, cy + 18.f * S, 180.f * S, 28.f * S };
+        dl.AddRectFilled(sb, NkColor{ 31, 31, 39, 255 }, 8.f * S);
+        dl.AddRect(sb, cBorder, 1.f);
+        text(sb.x + 12.f * S, sb.y + (28.f * S - lh) * 0.5f, "Rechercher...", cFaint);
+
+        const NkColor rowCols[] = { {124,108,240,255}, {217,86,138,255}, {226,114,91,255}, {51,177,160,255} };
+        float32 ry = cy + 60.f * S;
+        // Ligne « courante » (selectionnee) : continuer avec le dossier courant
         const bool canCont = d->st && d->st->HasWorkspace();
-        {
-            const NkRect r = { 48.f, wy + 6.f, colW, 40.f };
-            const bool hov = canCont && hit(r);
-            dl.AddRectFilled(r, !canCont ? NkColor{ 26, 30, 36, 255 } : hov ? NkColor{ 56, 104, 184, 255 } : NkColor{ 35, 41, 49, 255 }, 6.f);
-            text(r.x + 16.f, r.y + (40.f - lh) * 0.5f, "Continuer avec le dossier courant", canCont ? NkColor{ 230, 237, 243, 255 } : NkColor{ 100, 108, 116, 255 });
+        if (canCont) {
+            const NkRect r = { mx, ry, mw, 50.f * S };
+            const bool hov = hit(r);
+            dl.AddRectFilled(r, cSelBg, 10.f * S);
+            dl.AddRect(r, cAccent, 1.f);
+            dl.AddRectFilled({ r.x + 10.f * S, r.y + 10.f * S, 30.f * S, 30.f * S }, cAccent, 8.f * S);
+            text(r.x + 52.f * S, r.y + 7.f * S, d->st->root.GetFileName().CStr(), NkColor{ 255, 255, 255, 255 });
+            text(r.x + 52.f * S, r.y + 7.f * S + lh, d->st->root.ToString().CStr(), cSub);
+            const char* badge = "courant";
+            const float32 bw = f->MeasureWidth(badge) + 14.f * S;
+            const NkRect pb = { r.x + r.w - bw - 14.f * S, r.y + (50.f * S - 18.f * S) * 0.5f, bw, 18.f * S };
+            dl.AddRect(pb, cAccent, 1.f);
+            text(pb.x + 7.f * S, pb.y + (18.f * S - lh) * 0.5f, badge, cAccent);
             if (hov && click) {
                 if (d->shell) d->shell->LoadUiState(d->st->UiConfigPath().CStr());
                 d->showStart = false; return;
             }
+            ry += 56.f * S;
         }
-
-        // ── Colonne droite : recents ──
-        const float32 rx = 48.f + colW + 24.f;
-        text(rx, top + 120.f - lh - 6.f, "Recents", NkColor{ 140, 150, 160, 255 });
-        float32 ry = top + 120.f;
-        if (d->st && d->st->recents.Empty())
-            text(rx, ry + 4.f, "(aucun workspace recent)", NkColor{ 100, 108, 116, 255 });
+        if (d->st && d->st->recents.Empty() && !canCont)
+            text(mx, ry + 4.f, "(aucun workspace recent)", cFaint);
         for (usize i = 0; d->st && i < d->st->recents.Size(); ++i) {
-            const NkRect r = { rx, ry, colW, 44.f };
-            const bool hov = hit(r);
-            dl.AddRectFilled(r, hov ? NkColor{ 33, 39, 48, 255 } : NkColor{ 24, 28, 34, 255 }, 5.f);
             const NkString& path = d->st->recents[i];
             NkPath pp(path.CStr());
-            text(r.x + 12.f, r.y + 6.f, pp.GetFileName().CStr(), NkColor{ 210, 220, 230, 255 });
-            text(r.x + 12.f, r.y + 6.f + lh, path.CStr(), NkColor{ 120, 130, 140, 255 });
+            // evite de redoubler le dossier courant deja affiche en tete
+            if (canCont && StrEq(pp.GetParent().ToString().CStr(), d->st->root.ToString().CStr())) continue;
+            const NkRect r = { mx, ry, mw, 50.f * S };
+            const bool hov = hit(r);
+            if (hov) dl.AddRectFilled(r, cRowHov, 10.f * S);
+            dl.AddRectFilled({ r.x + 10.f * S, r.y + 10.f * S, 30.f * S, 30.f * S }, rowCols[i % 4], 8.f * S);
+            text(r.x + 52.f * S, r.y + 7.f * S, pp.GetFileName().CStr(), cText);
+            text(r.x + 52.f * S, r.y + 7.f * S + lh, path.CStr(), NkColor{ 140, 140, 150, 255 });
             if (hov && click) { d->DoLoad(pp.GetParent()); return; }
-            ry += 50.f;
-            if (ry > H - 60.f) break;
+            ry += 56.f * S;
+            if (ry > cy + chh - 56.f * S) break;
         }
     }
 
