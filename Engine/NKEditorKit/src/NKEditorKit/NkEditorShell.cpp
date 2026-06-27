@@ -312,12 +312,29 @@ namespace nkentseu {
 
                 const float32 bodyTop = titleH + toolbarH;
                 const float32 bodyH   = H - bodyTop - footerH;
+
+                // MODALE : quand Preferences est ouvert, le corps (panneaux/editeur)
+                // ne doit pas reagir aux clics/molette/frappes destines au popup. On
+                // masque l'input pour le corps puis on le restaure pour DrawPreferences.
+                const bool modal = mShowPrefs;
+                nkgui::NkGuiInput savedInput;
+                if (modal) {
+                    savedInput = mUI.input;
+                    mUI.input.mousePos = { -100000.f, -100000.f };
+                    for (int32 i = 0; i < 3; ++i) { mUI.input.mouseClicked[i] = false; mUI.input.mouseDown[i] = false; mUI.input.mouseDoubleClicked[i] = false; }
+                    mUI.input.wheel = mUI.input.wheelH = 0.f;
+                    mUI.input.charCount = 0;
+                    mUI.input.wantCopy = mUI.input.wantCut = mUI.input.wantPaste = mUI.input.wantSelectAll = false;
+                }
+
                 DrawActivityBar({ 0.f, bodyTop, activityW, bodyH });
                 DockSpace(mUI, "##EditorDock", { activityW, bodyTop, W - activityW, bodyH });
                 BootstrapDocking();
                 DrawPanels(ec);
                 DrawStatusBar(footerH);
                 HandleEdgeResize(W, H);                  // bords de redimensionnement (fenetre sans bordure)
+
+                if (modal) mUI.input = savedInput;       // restaure pour le popup
                 DrawCommandPalette(ec);
                 DrawPreferences(ec);                     // fenetre Preferences (menu dedie)
 
@@ -723,7 +740,7 @@ namespace nkentseu {
             const bool   click = mUI.input.mouseClicked[0];
             auto hit = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
 
-            const float32 pw = 720.f, ph = 452.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+            const float32 pw = 620.f, ph = 505.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
             dl.AddRectFilled({ 0.f, 0.f, W, H }, kBackdrop);
             // Clic hors fenetre -> ferme (sauf la frame d'ouverture : le clic du menu
             // est lui-meme hors du popup centre, il fermerait aussitot).
@@ -771,19 +788,19 @@ namespace nkentseu {
                 auto fontRow = [&](const char* lab, NkString& name, const char* const* list, int32 n, float32& sz) {
                     text(cx, y, lab, kTextSecondary); y += 24.f;
                     if (btn({ cx, y, 28.f, 26.f }, "<", true)) cycle(name, list, n, -1);
-                    const NkRect nameBox = { cx + 32.f, y, 200.f, 26.f };
+                    const NkRect nameBox = { cx + 32.f, y, 160.f, 26.f };
                     dl.AddRectFilled(nameBox, NkColor{ 22, 27, 34, 255 }, 4.f); dl.AddRect(nameBox, NkColor{ 48, 54, 61, 255 }, 1.f);
                     text(nameBox.x + 10.f, nameBox.y + (26.f - lh) * 0.5f, name.CStr(), kTextPrimary);
-                    if (btn({ cx + 236.f, y, 28.f, 26.f }, ">", true)) cycle(name, list, n, 1);
+                    if (btn({ cx + 196.f, y, 28.f, 26.f }, ">", true)) cycle(name, list, n, 1);
                     // Taille
-                    text(cx + 286.f, y + (26.f - lh) * 0.5f, "Taille", kTextSecondary);
-                    if (btn({ cx + 350.f, y, 26.f, 26.f }, "-", true)) { sz -= 1.f; if (sz < 8.f) sz = 8.f; }
+                    text(cx + 246.f, y + (26.f - lh) * 0.5f, "Taille", kTextSecondary);
+                    if (btn({ cx + 310.f, y, 26.f, 26.f }, "-", true)) { sz -= 1.f; if (sz < 8.f) sz = 8.f; }
                     char sb[8]; std::snprintf(sb, sizeof(sb), "%d", static_cast<int>(sz + 0.5f));
-                    const NkRect szBox = { cx + 378.f, y, 36.f, 26.f };
+                    const NkRect szBox = { cx + 338.f, y, 36.f, 26.f };
                     dl.AddRectFilled(szBox, NkColor{ 22, 27, 34, 255 }, 4.f);
                     const float32 sw = mFont.MeasureWidth(sb);
                     text(szBox.x + (szBox.w - sw) * 0.5f, szBox.y + (26.f - lh) * 0.5f, sb, kTextPrimary);
-                    if (btn({ cx + 416.f, y, 26.f, 26.f }, "+", true)) { sz += 1.f; if (sz > 40.f) sz = 40.f; }
+                    if (btn({ cx + 376.f, y, 26.f, 26.f }, "+", true)) { sz += 1.f; if (sz > 40.f) sz = 40.f; }
                     y += 44.f;
                 };
                 fontRow("Police de l'interface", mFontPrefs.uiFont, uiList, nUi, mFontPrefs.uiSize);
