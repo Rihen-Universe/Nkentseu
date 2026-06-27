@@ -709,7 +709,11 @@ namespace nkcode {
             text(area.x + 440.f * S, ly, t.env.CStr(), cSub);
             const NkRect bE = { area.x + area.w - 120.f * S, ly - 2.f * S, 56.f * S, 22.f * S };
             const NkRect bR = { area.x + area.w - 58.f * S,  ly - 2.f * S, 50.f * S, 22.f * S };
-            if (hit(area)) { if (sbtn(bE, "Modifier")) doEdit = (int32)i; if (sbtn(bR, "Suppr.")) doRemove = (int32)i; }
+            // Toujours dessines (clippes a la zone) ; clic valide seulement si la
+            // ligne est dans la partie VISIBLE (evite de cliquer un bouton hors-vue).
+            const bool vis = (bE.y >= area.y && bE.y + bE.h <= area.y + area.h);
+            if (sbtn(bE, "Modifier") && vis) doEdit = (int32)i;
+            if (sbtn(bR, "Suppr.")   && vis) doRemove = (int32)i;
             ly += 28.f * S;
         }
         const float32 contentH = (ly + d->tcScroll) - (area.y + 8.f * S);
