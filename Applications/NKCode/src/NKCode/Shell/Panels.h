@@ -256,6 +256,7 @@ namespace nkcode {
             dl.AddRectFilled(clip, NkColor{ 13, 17, 23, 255 });    // fond terminal #0D1117
 
             // Disposition VSCode : sortie a GAUCHE, LISTE des terminaux a DROITE.
+            const bool popupBefore = (ctx.popupDepth > 0);   // combo ouvert ? (pour ne pas executer sur Entree)
             const float32 listW = (AliveCount() > 1 || true) ? ctx.S(190.f) : 0.f;
             const NkRect  mainR = { clip.x, clip.y, clip.w - listW, clip.h };
             const NkRect  listR = { clip.x + clip.w - listW, clip.y, listW, clip.h };
@@ -282,7 +283,7 @@ namespace nkcode {
             TermText(ctx, prompt, NkColor{ 81, 154, 186, 255 });   // #519ABA
             ctx.SameLine();
             ctx.PushId(reinterpret_cast<const void*>(&t));         // id unique par terminal
-            if (InputText(ctx, "##cmd", t.input, static_cast<int32>(sizeof(t.input)))) {
+            if (InputText(ctx, "##cmd", t.input, static_cast<int32>(sizeof(t.input))) && !popupBefore) {
                 if (t.input[0]) {
                     t.lines.PushBack(NkString(prompt) + " " + t.input);
                     t.proc.Start(WrapCmd(t.shell, t.input));
@@ -306,6 +307,7 @@ namespace nkcode {
             usize              measured = 0;   // nb de lignes deja mesurees
             int32              sAL = 0, sAC = 0, sBL = 0, sBC = 0;  // selection : ancre (A) + curseur (B)
             bool               dragging = false;
+            bool               follow = true;   // suit le bas (desactive quand on scrolle vers le haut)
             bool HasSel() const { return sAL != sBL || sAC != sBC; }
         };
 
@@ -323,12 +325,11 @@ namespace nkcode {
             const float32 maxSX = t.maxW > viewW ? t.maxW - viewW : 0.f;
             const NkVec2 m = ctx.input.mousePos;
             auto in = [&](const NkRect& r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
-            const bool stick = (t.scrollY >= maxSY - lineH * 1.5f);            // colle au bas ?
             if (in(out)) {
-                if (ctx.input.wheel != 0.f) { t.scrollY -= ctx.input.wheel * lineH * 3.f; ctx.input.wheel = 0.f; }
+                if (ctx.input.wheel != 0.f) { t.scrollY -= ctx.input.wheel * lineH * 3.f; ctx.input.wheel = 0.f; t.follow = false; }
                 if (ctx.input.wheelH != 0.f) { t.scrollX -= ctx.input.wheelH * 40.f; ctx.input.wheelH = 0.f; }
             }
-            if (stick) t.scrollY = maxSY;
+            if (t.follow) t.scrollY = maxSY;                                   // suit le bas (sauf scroll manuel)
             if (t.scrollY < 0.f) t.scrollY = 0.f; if (t.scrollY > maxSY) t.scrollY = maxSY;
             if (t.scrollX < 0.f) t.scrollX = 0.f; if (t.scrollX > maxSX) t.scrollX = maxSX;
 
@@ -344,7 +345,7 @@ namespace nkcode {
                 return bc;
             };
             auto rowAtY = [&](float32 y) -> int32 { int32 L = static_cast<int32>((y - out.y + t.scrollY) / lineH); if (L < 0) L = 0; if (L >= nLines) L = nLines - 1; return L; };
-            if (ctx.input.mouseClicked[0] && in(selArea)) {
+            if (ctx.input.mouseClicked[0] && in(selArea) && ctx.popupDepth == 0) {
                 const int32 L = rowAtY(m.y); t.sAL = t.sBL = L; t.sAC = t.sBC = colAtX(L, m.x - (out.x + pad) + t.scrollX); t.dragging = true;
             }
             if (t.dragging && ctx.input.mouseDown[0]) { const int32 L = rowAtY(m.y); t.sBL = L; t.sBC = colAtX(L, m.x - (out.x + pad) + t.scrollX); }
@@ -407,13 +408,13 @@ namespace nkcode {
             dl.AddRectFilled({ vT.x, hT.y, sbW, sbW }, kTrk);
             { const NkRect up = { vT.x, vT.y, sbW, sbW }, dn = { vT.x, vT.y + viewH - sbW, sbW, sbW };
               const NkRect iv = { vT.x, vT.y + sbW, sbW, viewH - 2.f * sbW };
-              if (arrow(up, 0)) t.scrollY -= lineH * 0.8f; if (arrow(dn, 1)) t.scrollY += lineH * 0.8f;
+              if (arrow(up, 0)) { t.scrollY -= lineH * 0.8f; t.follow = false; } if (arrow(dn, 1)) t.scrollY += lineH * 0.8f;
               if (maxSY > 0.f && iv.h > 8.f) {
                   float32 th = iv.h * (viewH / contentH); if (th < 24.f) th = 24.f; if (th > iv.h) th = iv.h;
                   const float32 ty = iv.y + (t.scrollY / maxSY) * (iv.h - th);
                   if (ctx.input.mouseClicked[0] && in(iv)) ctx.activeId = ctx.GetId("##tvbar");
                   const bool act = (ctx.activeId == ctx.GetId("##tvbar"));
-                  if (act && ctx.input.mouseDown[0]) { const float32 u = (m.y - iv.y - th * 0.5f) / (iv.h - th); t.scrollY = (u < 0 ? 0 : u > 1 ? 1 : u) * maxSY; }
+                  if (act && ctx.input.mouseDown[0]) { const float32 u = (m.y - iv.y - th * 0.5f) / (iv.h - th); t.scrollY = (u < 0 ? 0 : u > 1 ? 1 : u) * maxSY; t.follow = false; }
                   dl.AddRectFilled({ iv.x + 3.f, ty, sbW - 6.f, th }, (act || in(iv)) ? kThbH : kThb, 3.f);
               } }
             { const NkRect lf = { hT.x, hT.y, sbW, sbW }, rt = { hT.x + hT.w - sbW, hT.y, sbW, sbW };
@@ -429,6 +430,7 @@ namespace nkcode {
               } }
             if (t.scrollY < 0.f) t.scrollY = 0.f; if (t.scrollY > maxSY) t.scrollY = maxSY;
             if (t.scrollX < 0.f) t.scrollX = 0.f; if (t.scrollX > maxSX) t.scrollX = maxSX;
+            if (t.scrollY >= maxSY - 1.f) t.follow = true;   // revenu au bas -> re-suit le flux
         }
 
         static const char* ShellName(int32 s) {
@@ -544,7 +546,10 @@ namespace nkcode {
             ctx.PushId("newshell");
             if (BeginCombo(ctx, "", ShellName(mNewShell), SH_COUNT)) {
                 for (int32 i = 0; i < SH_COUNT; ++i)
-                    if (Selectable(ctx, ShellName(i), i == mNewShell)) { mNewShell = i; ctx.ClosePopup(); }
+                    if (Selectable(ctx, ShellName(i), i == ctx.comboNav)        // surlignage clavier
+                        || (i == ctx.comboNav && ctx.comboEnter)) {            // Entree = choisir
+                        mNewShell = i; ctx.ClosePopup();
+                    }
                 EndCombo(ctx);
             }
             ctx.PopId();
@@ -570,9 +575,9 @@ namespace nkcode {
                     const float32 cx = cl.x + 7.f, cy = cl.y + 7.f, a = 3.f;
                     dl.AddLine({ cx - a, cy - a }, { cx + a, cy + a }, ctx.theme.text, 1.2f);
                     dl.AddLine({ cx - a, cy + a }, { cx + a, cy - a }, ctx.theme.text, 1.2f);
-                    if (ch && ctx.input.mouseClicked[0]) { toClose = i; closeClicked = true; }
+                    if (ch && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) { toClose = i; closeClicked = true; }
                 }
-                if (hov && !closeClicked && ctx.input.mouseClicked[0]) mActive = i;
+                if (hov && !closeClicked && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) mActive = i;
                 y += h;
             }
             if (toClose >= 0) CloseTerm(toClose);

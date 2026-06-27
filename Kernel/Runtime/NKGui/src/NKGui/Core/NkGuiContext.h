@@ -130,6 +130,8 @@ namespace nkentseu {
             NkGuiLayout   popupSaved[PopupMax];          ///< layout sauvegardé par niveau
             int32         popupDepth     = 0;            ///< nb de popups ouverts
             int32         curPopupLevel  = -1;           ///< niveau dessiné (-1 = principale)
+            int32         comboNav       = 0;            ///< item surligné au clavier dans un combo ouvert
+            bool          comboEnter     = false;        ///< Entrée pressée dans le combo (consommé par l'appelant)
             NkVec2        popupPos        = { 0.f, 0.f }; ///< ancrage (menu contextuel)
             NkRect        popupAnchor     = { 0.f, 0.f, 0.f, 0.f }; ///< zone déclencheur (ne ferme pas)
 

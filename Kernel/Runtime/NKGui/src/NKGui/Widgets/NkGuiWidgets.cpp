@@ -3220,8 +3220,18 @@ namespace nkentseu {
 
             bool hov = false, held = false;
             const bool clicked = ctx.ButtonBehavior(id, field, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
-            if (clicked) { if (ctx.IsPopupOpen(id)) ctx.ClosePopup(); else ctx.OpenPopup(id); }
+            if (clicked) { if (ctx.IsPopupOpen(id)) ctx.ClosePopup(); else { ctx.OpenPopup(id); ctx.comboNav = 0; } }
             const bool open = ctx.IsPopupOpen(id);
+            // Navigation CLAVIER quand le combo est ouvert : ↑/↓ deplacent l'item
+            // surligne, Entree le choisit (l'appelant lit ctx.comboNav/comboEnter),
+            // Echap ferme.
+            if (open) {
+                const int32 cn = itemCount < 1 ? 1 : itemCount;
+                if (ctx.input.KeyPressedRepeat(NkGuiKey::Down)) ctx.comboNav = (ctx.comboNav + 1) % cn;
+                if (ctx.input.KeyPressedRepeat(NkGuiKey::Up))   ctx.comboNav = (ctx.comboNav - 1 + cn) % cn;
+                ctx.comboEnter = ctx.input.KeyPressed(NkGuiKey::Enter);
+                if (ctx.input.KeyPressed(NkGuiKey::Escape)) ctx.ClosePopup();
+            }
 
             // Champ (couche principale).
             ctx.DL().AddRectFilled(field, ctx.theme.track, ctx.theme.rounding);
