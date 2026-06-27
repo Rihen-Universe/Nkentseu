@@ -11,6 +11,7 @@
 #include "NKCode/Shell/Panels.h"
 #include "NKCode/Shell/Toolbar.h"
 #include "NKCode/Shell/Dialogs.h"
+#include "NKCode/Shell/ScaffoldPanels.h"
 #include "NKCode/Project/NkLogSink.h"
 
 #include <cstdio>
@@ -100,6 +101,23 @@ int nkmain(const NkEntryState& state) {
     shell->AddPanel(&editor);
     shell->AddPanel(&output);
     shell->AddPanel(&terminal);
+
+    // Maquettes des interfaces (interface.md) : structure visuelle d'abord, rendu
+    // fonctionnel ensuite (roadmap #2-#20). Fermees par defaut -> menu Affichage.
+    using nkcode::ScaffoldPanel;
+    namespace sc = nkcode::scaffold;
+    static ScaffoldPanel pSearch ("Recherche",   NkEditorDockSide::NK_LEFT,   "Maquette - roadmap #7", sc::kSearch,     1);
+    static ScaffoldPanel pProblem("Problemes",    NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #8", sc::kProblems,   1);
+    static ScaffoldPanel pGit    ("Controle de version", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #9", sc::kGit, 3);
+    static ScaffoldPanel pDebug  ("Debogueur",    NkEditorDockSide::NK_LEFT,   "Maquette - roadmap #10", sc::kDebug,     2);
+    static ScaffoldPanel pBuild  ("Build & Taches", NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #14", sc::kBuild,   1);
+    static ScaffoldPanel pProf   ("Profiler",     NkEditorDockSide::NK_BOTTOM, "Maquette - roadmap #19", sc::kProfiler,  1);
+    static ScaffoldPanel pAi     ("Assistant IA", NkEditorDockSide::NK_RIGHT,  "Maquette - roadmap #16", sc::kAi,        1);
+    static ScaffoldPanel pEngine ("Moteur",       NkEditorDockSide::NK_RIGHT,  "Maquette - roadmap #17", sc::kEngine,    1);
+    static ScaffoldPanel pExt    ("Extensions",   NkEditorDockSide::NK_LEFT,   "Maquette - roadmap #12", sc::kExtensions,1);
+    shell->AddPanel(&pSearch);  shell->AddPanel(&pProblem); shell->AddPanel(&pGit);
+    shell->AddPanel(&pDebug);   shell->AddPanel(&pBuild);   shell->AddPanel(&pProf);
+    shell->AddPanel(&pAi);      shell->AddPanel(&pEngine);  shell->AddPanel(&pExt);
 
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
     g_dialogs.st = &g_state;
