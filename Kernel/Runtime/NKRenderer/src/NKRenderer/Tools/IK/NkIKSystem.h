@@ -133,6 +133,11 @@ namespace nkentseu {
                 uint64               GetSkeletonId() const { return mSkeletonId; }
                 uint32               GetChainCount() const;
 
+                // ENTRÉE : pose MONDE courante du squelette (matrices world-space par
+                // os). À appeler AVANT Solve() : le solveur lit les positions réelles
+                // ici (bones[boneIdx].position) puis réécrit le résultat au même endroit.
+                void SetWorldPose(const NkMat4f* worldMats, uint32 count);
+
                 // Résultats — bone matrices après résolution (world-space)
                 const NkMat4f* GetBoneMatrices()    const;
                 uint32         GetBoneMatrixCount() const;

@@ -1,0 +1,89 @@
+# NkAnima — Roadmap (outil d'animation physiquement correct + IA)
+
+> **Cap actuel de Rihen côté moteur** (depuis 2026-06-27). Fichier de pilotage de
+> la nouvelle direction. À LIRE au démarrage d'une session NkAnima.
+> Nom de travail **NkAnima** (à valider). Lié depuis `CLAUDE.md`.
+
+## Vision
+
+Un outil d'animation **physiquement correct + assisté par IA**, à la **Cascadeur**,
+natif Nkentseu. Il sert directement deux objectifs profonds :
+- **PV3DE** — animation corporelle réaliste du patient virtuel.
+- **NKAI** — amorce concrète de l'IA from-scratch (auto-pose, physics-aware).
+
+Différenciateur : intégré au moteur (NKRenderer pour le rendu, le skinning GPU déjà
+livré, NKCollision orienté anim pour la physique), pas un outil externe.
+
+## Contexte de décision (2026-06-27)
+
+- L'autre IA tient **NKCode + NKReflection**. Rihen est libre sur le reste.
+- Choix entre (Noge/Nogee · app animation · Tier 2/3 moteur) → **app animation via
+  ses fondations**, car ses 1res briques SONT le meilleur Tier 2/3 (IK, anim avancée),
+  c'est non bloqué, aligné PV3DE + NKAI, et visible vite.
+- **Editor Kit** déjà bien avancé et **utilisé dans NKCode** → la couche UI (M5) est
+  moins bloquée que prévu.
+- Acquis utiles déjà en place : **skinning GPU 4 backends** (VK/GL/DX11/DX12, livré
+  cette session), **loaders glTF** (géométrie + matériaux + skinning + anim), système
+  **Animation** (tracks/blend) et système **IK** (API complète mais solveur orphelin).
+
+## Milestones
+
+### M0 — IK FONCTIONNEL *(EN COURS)*
+Brancher `NkIKSystem` ↔ pose squelette réelle. Le solveur FABRIK/CCD/Two-Bone
+existait mais tournait sur des **placeholders {0,0,0}** et **ne lisait/écrivait jamais
+les bones** (cf audit ROADMAP NKRenderer Tier 2 #8).
+
+**✅ FAIT (2026-06-27)** — cœur FABRIK rendu FONCTIONNEL (`NkIKSystem.{h,cpp}`,
+compile NKRenderer OK) :
+- `NkIKRig::SetWorldPose(worldMats, count)` : l'appelant fournit la pose MONDE
+  courante (matrices par os) AVANT `Solve()`.
+- `SolveChain_FABRIK` : lit les positions monde réelles `bones[boneIdx].position`
+  (au lieu de {0,0,0}), `root` = racine réelle, déduit les longueurs de segment de
+  la pose si absentes, **réécrit** les positions résolues dans `bones[boneIdx].position`.
+  (L'algo forward/backward FABRIK était déjà correct.)
+
+**RESTE M0** :
+- (a) **Démo interactive** Sandbox : chaîne N-os procédurale + **effecteur 3D
+  draggable** + FABRIK temps réel + rendu squelette (lignes/joints via
+  `NkAnimationSystem::DrawSkeleton` ou lignes directes). = la 1re preuve visible.
+- (b) **Rotation orientée-enfant** à la réécriture (pour que le **skinning GPU**
+  reflète l'IK, pas juste les positions) — quaternion from-to `restDir`→`(child-self)`.
+- (c) Brancher Two-Bone + CCD pareil (FABRIK est le modèle).
+- (d) Pont avec une vraie pose glTF (CesiumMan : bras/jambe) + re-skin.
+- Câbler `NkIKSystem::Solve` : lire les **positions monde** des bones depuis la pose
+  courante (NkAnimationSystem), résoudre vers la cible, **réécrire** rotations/positions
+  dans la pose → le skinning GPU (déjà fonctionnel) reflète l'IK.
+- **Démo** Sandbox : membre skinné (ou bras de CesiumMan) + **effecteur 3D draggable**,
+  FABRIK temps réel qui suit la souris.
+- **État audit (2026-06-27)** : `Tools/IK/NkIKSystem.{h,cpp}` — API solide :
+  `NkIKRig`/`NkIKChainDesc`/`NkIKBone`(boneIdx+length+constraint+restDir)/`NkIKTarget`
+  (position+rotation+pole), solveurs `NK_TWO_BONE/NK_CCD/NK_FABRIK`, `GetBoneMatrices()`.
+  `NkIKRig` a `mSkeletonId` mais le lien skeleton→positions monde n'est pas fait.
+  Pose/bones : `Tools/Animation/NkAnimationSystem` + `mSkinned[].boneMatrices` (consommé
+  par `NkRender3D` → `mUBOBonesRing`). À cartographier précisément (suite de l'audit).
+
+### M1 — Pose & timeline
+Éditer des poses-clés, timeline, interpolation, save/load `.nkanim`.
+
+### M2 — State machine / blend tree / retargeting
+Transitions, blend de poses, appliquer une anim à un autre rig (retargeting).
+(= NKRenderer Tier 3 #10 « animation avancée ».)
+
+### M3 — Physique d'animation
+Contraintes/ragdoll + **trajectoires physiquement correctes** (centre de masse
+balistique, équilibre — la signature Cascadeur). Amorce **NKCollision** orienté anim.
+
+### M4 — IA auto-pose
+Petit modèle qui **prédit des poses plausibles** (pose→pose / physics-aware) =
+1er vrai morceau de **NKAI**.
+
+### M5 — App standalone
+`Applications/NkAnima` complète + UI timeline/viewport via **Editor Kit** (déjà
+utilisé dans NKCode).
+
+## Dépendances / liens
+- Rendu + skinning GPU : NKRenderer (`Tools/Render3D`, `Tools/Animation`, `Tools/IK`).
+- Physique (M3) : NKCollision (non démarré, à amorcer orienté anim).
+- IA (M4) : NKAI (vision, non démarré — cf mémoire `project_nkentseu_ai_vision`).
+- UI (M5) : Editor Kit (Engine/NKEditorKit, utilisé dans NKCode).
+- Cibles applicatives : PV3DE (animation corps), démos Sandbox.

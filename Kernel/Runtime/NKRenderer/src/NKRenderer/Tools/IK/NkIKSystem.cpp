@@ -72,6 +72,13 @@ namespace nkentseu {
 
         uint32 NkIKRig::GetChainCount() const { return (uint32)mChains.Size(); }
 
+        void NkIKRig::SetWorldPose(const NkMat4f* worldMats, uint32 count) {
+            mBoneMatrices.Clear();
+            if (!worldMats || count == 0) return;
+            mBoneMatrices.Reserve(count);
+            for (uint32 i = 0; i < count; ++i) mBoneMatrices.PushBack(worldMats[i]);
+        }
+
         const NkMat4f* NkIKRig::GetBoneMatrices()    const { return mBoneMatrices.Data(); }
         uint32         NkIKRig::GetBoneMatrixCount()  const { return (uint32)mBoneMatrices.Size(); }
 
@@ -208,17 +215,34 @@ namespace nkentseu {
         }
 
         void NkIKSystem::SolveChain_FABRIK(NkIKRig::ChainEntry& chain,
-                                            NkVector<NkMat4f>& /*bones*/) {
+                                            NkVector<NkMat4f>& bones) {
             if (chain.desc.bones.Empty()) return;
             uint32  n      = (uint32)chain.desc.bones.Size();
             NkVec3f target = chain.target.position;
             uint32  iters  = chain.desc.maxIterations;
 
-            // Temporary positions
+            // M0 : positions MONDE réelles des os depuis bones[boneIdx].position
+            // (avant : placeholder {0,0,0} -> solveur orphelin). bones doit etre
+            // pre-rempli avec la pose monde courante par l'appelant (SetWorldPose).
             NkVector<NkVec3f> pos;
-            for (uint32 i = 0; i < n; ++i) pos.PushBack({0,0,0}); // placeholder
+            for (uint32 i = 0; i < n; ++i) {
+                uint32 bi = chain.desc.bones[i].boneIdx;
+                if (bi < bones.Size()) {
+                    const NkMat4f& m = bones[bi];
+                    pos.PushBack({m.position.x, m.position.y, m.position.z});
+                } else {
+                    pos.PushBack({0,0,0});
+                }
+            }
+            // Longueurs de segment : si non fournies (<=0), les deduire de la pose.
+            for (uint32 i = 1; i < n; ++i) {
+                if (chain.desc.bones[i].length <= 1e-6f) {
+                    NkVec3f d = {pos[i].x-pos[i-1].x, pos[i].y-pos[i-1].y, pos[i].z-pos[i-1].z};
+                    chain.desc.bones[i].length = sqrtf(d.x*d.x+d.y*d.y+d.z*d.z);
+                }
+            }
 
-            NkVec3f root = pos[0];
+            NkVec3f root = pos[0];   // racine MONDE reelle (ancrage fixe)
 
             for (uint32 iter = 0; iter < iters; ++iter) {
                 // Forward pass — from root to effector
@@ -258,7 +282,17 @@ namespace nkentseu {
                 float32 err = sqrtf(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
                 if (err < chain.desc.tolerance) break;
             }
-            // Write positions back to bone matrices (stub)
+            // M0 : reecrire les positions monde resolues dans bones[boneIdx].position.
+            // (La rotation orientee-vers-enfant pour le skinning GPU = M0.5 ; pour la
+            // demo squelette en lignes, la position resolue suffit a voir l'IK suivre.)
+            for (uint32 i = 0; i < n; ++i) {
+                uint32 bi = chain.desc.bones[i].boneIdx;
+                if (bi < bones.Size()) {
+                    bones[bi].position.x = pos[i].x;
+                    bones[bi].position.y = pos[i].y;
+                    bones[bi].position.z = pos[i].z;
+                }
+            }
         }
 
         void NkIKSystem::SolveChain_Spline(NkIKRig::ChainEntry& chain,
