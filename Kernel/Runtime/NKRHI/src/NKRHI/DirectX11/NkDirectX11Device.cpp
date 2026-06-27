@@ -480,8 +480,17 @@ namespace nkentseu {
         D3D11_SUBRESOURCE_DATA* pData=nullptr, data{};
         if (desc.initialData) { data.pSysMem=desc.initialData; pData=&data; }
 
+        // D3D11 interdit un buffer IMMUTABLE sans donnees initiales (E_INVALIDARG).
+        // Repli sur DEFAULT quand l'appelant demande IMMUTABLE sans initialData
+        // (ex. VBO de 96 octets rempli plus tard) -> evite l'echec de creation.
+        if (bd.Usage==D3D11_USAGE_IMMUTABLE && !pData) bd.Usage=D3D11_USAGE_DEFAULT;
+
         ID3D11Buffer* buf=nullptr;
         HRESULT hr=mDevice->CreateBuffer(&bd,pData,&buf);
+        if (FAILED(hr)) {
+            logger.Errorf("[NkRHI_DX11][ERR] CreateBuffer hr=0x%08X | ByteWidth=%u Usage=%d Bind=0x%X Misc=0x%X CPU=0x%X type=%d initData=%d\n",
+                (unsigned)hr, bd.ByteWidth, (int)bd.Usage, bd.BindFlags, bd.MiscFlags, bd.CPUAccessFlags, (int)desc.type, pData?1:0);
+        }
         NK_DX11_CHECK(hr,"CreateBuffer");
 
         NkDX11Buffer rec{}; rec.buf=buf; rec.desc=desc;
