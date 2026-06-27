@@ -54,6 +54,11 @@ namespace nkcode {
         bool    loadScanned   = false;
         NkVector<NkString> foundPaths, foundNames;   // Charger : workspaces trouves
 
+        // ── Gestion des toolchains (interface dediee) ──
+        bool    tcOpen        = false;
+        float32 tcScroll      = 0.f;
+        int32   tcFocus       = -1;            // champ SDK en edition
+
         // ── Selecteur de dossier CUSTOM (NKGui) ──
         enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf };
         bool    pickerOpen    = false;
@@ -241,7 +246,7 @@ namespace nkcode {
     inline void DrawAppFlags(NkEditorFrameContext& ec, NkCodeDialogs* d) {
         if (!d) return;
         auto& ctx = ec.Ui();
-        ctx.appModal      = (d->mode != NkCodeDialogs::None) || d->pickerOpen;
+        ctx.appModal      = (d->mode != NkCodeDialogs::None) || d->pickerOpen || d->tcOpen;
         ctx.appFullScreen = d->showStart;
     }
 
@@ -288,6 +293,8 @@ namespace nkcode {
         auto& ctx = ec.Ui();
         const NkGuiFont* f = ctx.font;
         if (!f || !f->Valid()) return;
+        // Pompe `jenga info` (toolchains detectees + projets) meme sur le launcher.
+        if (d->st) { d->st->ScanWorkspaces(); d->st->LoadProjects(); d->st->PollProjects(); }
         auto& dl = ctx.DL();
         const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH;
         const float32 top = ctx.ItemHeight();
@@ -485,23 +492,21 @@ namespace nkcode {
             { int32 nA = 0; const char* const* aN = NkArchNames(&nA);
               for (int32 i = 0; i < nA; ++i) check({ mx + (i % 2) * (mw * 0.5f), y + (i / 2) * 26.f * S, mw * 0.5f, 18.f * S }, d->wsArch[i], aN[i]);
               y += ((nA + 1) / 2) * 26.f * S + 12.f * S; }
-            // Toolchains detectes selon les plateformes cochees
-            label("Toolchains (detectes selon les plateformes)");
-            { int32 nT = 0; const NkToolchainInfo* tc = NkToolchains(&nT);
-              int32 nSysT = 0; const NkCodeState::SysDef* sysT = NkCodeState::Systems(&nSysT);
-              bool anyOs = false;
-              for (int32 i = 0; i < nSysT && i < nT; ++i) {
-                  if (!d->wsPlat[i]) continue; anyOs = true;
-                  const char* env = tc[i].env;
-                  const bool det = (!env || !*env) ? true : (std::getenv(env) && *std::getenv(env));
-                  char line[160]; std::snprintf(line, sizeof(line), "%s : %s", sysT[i].name, tc[i].toolchain);
-                  text(mx, y, line, cText);
-                  const char* st2 = det ? "detecte" : "non detecte";
-                  text(mx + mw - f->MeasureWidth(st2) - 6.f * S, y, st2, det ? NkColor{ 90,190,120,255 } : NkColor{ 226,114,91,255 });
-                  y += 24.f * S;
-              }
-              if (!anyOs) { text(mx, y, "(cochez des systemes cibles ci-dessus)", cFaint); y += 24.f * S; }
-              y += 8.f * S; }
+            // Toolchains DETECTEES par Jenga (jenga info) — affichage reel.
+            { char hdr[64]; std::snprintf(hdr, sizeof(hdr), "Toolchains detectees par Jenga (%d)", (int)(d->st ? d->st->toolchains.Size() : 0)); label(hdr); }
+            if (d->st && d->st->toolchains.Empty()) { text(mx, y, "(detection en cours...)", cFaint); y += 24.f * S; }
+            for (usize i = 0; d->st && i < d->st->toolchains.Size(); ++i) {
+                const NkCodeState::ToolchainRow& t = d->st->toolchains[i];
+                // surligne si la cible correspond a un OS coche
+                const bool rel = d->OsChecked(t.os.CStr());
+                const NkRect r = { mx, y, mw, 24.f * S };
+                if (rel) { dl.AddRectFilled(r, NkColor{ 22,42,64,255 }, 4.f * S); dl.AddRect(r, cAccent, 1.f); }
+                text(mx + 8.f * S, y + (24.f * S - lh) * 0.5f, t.name.CStr(), rel ? NkColor{ 255,255,255,255 } : cText);
+                char meta[128]; std::snprintf(meta, sizeof(meta), "%s  %s/%s %s", t.family.CStr(), t.os.CStr(), t.arch.CStr(), t.env.CStr());
+                text(mx + mw - f->MeasureWidth(meta) - 8.f * S, y + (24.f * S - lh) * 0.5f, meta, cSub);
+                y += 28.f * S;
+            }
+            if (sbtn({ mx, y, 200.f * S, 30.f * S }, "Gerer les toolchains...")) { d->tcOpen = true; } y += 40.f * S;
             // Projet de demarrage (formulaire de projet complet)
             label("Projet de demarrage");
             check({ mx, y, mw, 18.f * S }, d->wsMakeProj, "Creer un projet de demarrage avec le workspace"); y += 26.f * S;
@@ -580,6 +585,73 @@ namespace nkcode {
                 if (y > cy + chh - 52.f * S) break;
             }
         }
+    }
+
+    // ── Interface de gestion des TOOLCHAINS (detectees par Jenga) ──
+    inline void DrawToolchains(NkEditorFrameContext& ec, NkCodeDialogs* d) {
+        auto& ctx = ec.Ui(); const NkGuiFont* f = ctx.font; if (!f || !f->Valid()) return;
+        auto& dl = ctx.dlOverlay;
+        const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH, S = ctx.S(1.f);
+        const float32 asc = f->Ascent(), lh = f->LineHeight();
+        const NkVec2 mp = ctx.input.mousePos; const bool click = ctx.input.mouseClicked[0];
+        auto hit = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
+        auto text = [&](float32 x, float32 y, const char* s, const NkColor& c) { dl.AddText(f->Face(), f->TexId(), { x, y + asc }, s, c); };
+        const NkColor cCard = { 22,24,29,255 }, cBorder = { 50,55,63,255 }, cAccent = { 15,115,213,255 };
+        const NkColor cText = { 236,237,239,255 }, cSub = { 150,156,164,255 };
+        auto sbtn = [&](const NkRect& r, const char* s) -> bool { const bool hov = hit(r);
+            dl.AddRectFilled(r, hov ? NkColor{ 40,46,54,255 } : NkColor{ 30,34,40,255 }, 6.f * S); dl.AddRect(r, cBorder, 1.f);
+            const float32 tw = f->MeasureWidth(s); text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, cText); return hov && click; };
+
+        const float32 pw = 640.f * S, ph = 520.f * S, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+        dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0,0,0,160 });
+        dl.AddRectFilled({ px, py, pw, ph }, cCard, 10.f * S); dl.AddRect({ px, py, pw, ph }, cBorder, 1.5f);
+        text(px + 20.f * S, py + 16.f * S, "Toolchains detectees par Jenga", cText);
+        text(px + 20.f * S, py + 16.f * S + lh + 2.f, "Modifiez les chemins SDK ci-dessous (override via variables d'environnement).", cSub);
+
+        const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
+        const NkRect area = { cx, py + 64.f * S, cwid, ph - 64.f * S - 130.f * S };
+        dl.AddRectFilled(area, NkColor{ 16,18,22,255 }, 6.f * S); dl.AddRect(area, cBorder, 1.f);
+        if (hit(area) && ctx.input.wheel != 0.f) { d->tcScroll -= ctx.input.wheel * 34.f; ctx.input.wheel = 0.f; }
+        dl.PushClipRect(area, true);
+        float32 ly = area.y + 8.f * S - d->tcScroll;
+        // entete colonnes
+        text(area.x + 12.f * S, ly, "Nom", cSub); text(area.x + 200.f * S, ly, "Famille", cSub);
+        text(area.x + 320.f * S, ly, "Cible", cSub); text(area.x + 500.f * S, ly, "Env", cSub); ly += 26.f * S;
+        for (usize i = 0; d->st && i < d->st->toolchains.Size(); ++i) {
+            const NkCodeState::ToolchainRow& t = d->st->toolchains[i];
+            text(area.x + 12.f * S, ly, t.name.CStr(), cText);
+            text(area.x + 200.f * S, ly, t.family.CStr(), cSub);
+            char tgt[64]; std::snprintf(tgt, sizeof(tgt), "%s/%s", t.os.CStr(), t.arch.CStr());
+            text(area.x + 320.f * S, ly, tgt, cSub);
+            text(area.x + 500.f * S, ly, t.env.CStr(), cSub);
+            ly += 24.f * S;
+        }
+        const float32 contentH = (ly + d->tcScroll) - (area.y + 8.f * S);
+        dl.PopClipRect();
+        const float32 maxS = contentH - area.h > 0.f ? contentH - area.h : 0.f;
+        if (d->tcScroll < 0.f) d->tcScroll = 0.f; if (d->tcScroll > maxS) d->tcScroll = maxS;
+
+        // Chemins SDK editables (Android NDK/SDK, JDK, Harmony, GDK)
+        struct PF { const char* lab; char* buf; int32 id; };
+        const PF pfs[] = {
+            { "Android SDK", d->androidSdk, 0 }, { "Android NDK", d->androidNdk, 1 }, { "Java JDK", d->javaJdk, 2 },
+            { "HarmonyOS SDK", d->harmonySdk, 3 }, { "Xbox GDK", d->gdkPath, 4 },
+        };
+        const float32 yy = area.y + area.h + 10.f * S, colA = cx, colB = cx + cwid * 0.5f + 8.f * S;
+        for (int32 i = 0; i < 5; ++i) {
+            const float32 bx = (i % 2 == 0) ? colA : colB; const float32 bw = cwid * 0.5f - 8.f * S;
+            const float32 ry = yy + (i / 2) * 26.f * S;
+            text(bx, ry, pfs[i].lab, cSub);
+            const NkRect r = { bx + 96.f * S, ry - 4.f * S, bw - 130.f * S, 24.f * S };
+            NkOverlayTextField(ctx, dl, f, r, pfs[i].buf, 512, d->tcFocus == pfs[i].id);
+            if (hit(r) && click) d->tcFocus = pfs[i].id;
+            if (sbtn({ bx + bw - 30.f * S, ry - 4.f * S, 30.f * S, 24.f * S }, "...")) d->BrowseInto(pfs[i].buf, 512, pfs[i].lab);
+        }
+
+        const float32 by = py + ph - 44.f * S;
+        if (sbtn({ px + 20.f * S, by, 200.f * S, 32.f * S }, "Rafraichir la detection")) { if (d->st) d->st->RequestReload(); }
+        if (sbtn({ px + pw - 110.f * S, by, 90.f * S, 32.f * S }, "Fermer")) { d->tcOpen = false; }
+        if (ctx.input.KeyPressed(NkGuiKey::Escape)) d->tcOpen = false;
     }
 
     // ── Selecteur de dossier CUSTOM (NKGui) : modal centre, navigation arborescente ──
@@ -693,6 +765,7 @@ namespace nkcode {
     inline void DrawOverlay(NkEditorFrameContext& ec, NkCodeDialogs* d) {
         if (!d) return;
         if (d->pickerOpen) { DrawFolderPicker(ec, d); return; }
+        if (d->tcOpen)     { DrawToolchains(ec, d); return; }
         if (d->mode == NkCodeDialogs::None) return;
         auto& ctx = ec.Ui();
         const NkGuiFont* f = ctx.font;

@@ -150,6 +150,10 @@ namespace nkcode {
         NkVector<NkString> tests;        // projets de test (Kind = TestSuite)
         int32              testIdx = -1; // -1 = tous les tests visibles ; >=0 = un test precis
 
+        // Toolchains DETECTEES par Jenga (table "Available Toolchains" de `jenga info`).
+        struct ToolchainRow { NkString name, family, os, arch, env; };
+        NkVector<ToolchainRow> toolchains;
+
         const char* SelectedProject() const {
             return (projIdx >= 0 && projIdx < static_cast<int32>(projects.Size()))
                  ? projects[projIdx].CStr() : "";
@@ -497,25 +501,41 @@ namespace nkcode {
         // Les projets de TEST (Kind = TestSuite) vont dans `tests` ; les autres
         // dans `projects`. Exclut les separateurs / entrees parasites (ex. --unitest--).
         void ParseProjects() {
-            projects.Clear(); tests.Clear();
-            bool inTable = false;
+            projects.Clear(); tests.Clear(); toolchains.Clear();
+            enum { NONE, PROJ, TOOL } cur = NONE;
             for (usize i = 0; i < mInfoLines.Size(); ++i) {
                 const char* L = mInfoLines[i].CStr();
-                if (!inTable) {
-                    if (Contains(L, "Name") && Contains(L, "Kind")) inTable = true;
-                    continue;
+                if (Contains(L, "Name") && Contains(L, "Kind"))   { cur = PROJ; continue; }
+                if (Contains(L, "Name") && Contains(L, "Family")) { cur = TOOL; continue; }
+                if (L[0] == '=' || L[0] == '-') continue;          // separateurs
+                if (IsBlank(L)) { cur = NONE; continue; }          // fin de table (d'autres suivent)
+                if (cur == PROJ) {
+                    char name[128], kind[64];
+                    if (!TwoTokens(L, name, sizeof(name), kind, sizeof(kind))) continue;
+                    if (name[0] == '-' || Contains(name, "unitest")) continue;   // parasite / --unitest--
+                    if (Contains(kind, "Test")) tests.PushBack(NkString(name));  // TestSuite -> combo Tests
+                    else                        projects.PushBack(NkString(name));
+                } else if (cur == TOOL) {
+                    char t[5][96]; const int32 n = NTokens(L, t, 5, 96);
+                    if (n < 4) continue;
+                    ToolchainRow r;
+                    r.name = t[0]; r.family = t[1]; r.os = t[2]; r.arch = t[3]; r.env = (n >= 5) ? NkString(t[4]) : NkString();
+                    toolchains.PushBack(r);
                 }
-                if (L[0] == '=' || L[0] == '-') continue;     // separateurs
-                if (IsBlank(L)) break;                          // fin de table
-                char name[128], kind[64];
-                if (!TwoTokens(L, name, sizeof(name), kind, sizeof(kind))) continue;
-                if (name[0] == '-' || Contains(name, "unitest")) continue;   // parasite / --unitest--
-                if (Contains(kind, "Test")) tests.PushBack(NkString(name));  // TestSuite -> combo Tests
-                else                        projects.PushBack(NkString(name));
             }
-            if (projects.Empty()) return;
             for (usize i = 0; i < projects.Size(); ++i)        // defaut = NKCode si present
                 if (StrEq(projects[i].CStr(), "NKCode")) { projIdx = static_cast<int32>(i); break; }
+        }
+        // Decoupe jusqu'a `maxN` jetons separes par des espaces/tabs. Renvoie le nombre lu.
+        static int32 NTokens(const char* s, char t[][96], int32 maxN, int32 cap) {
+            int32 n = 0;
+            while (*s && n < maxN) {
+                while (*s == ' ' || *s == '\t') ++s;
+                if (!*s) break;
+                int32 i = 0; while (*s && *s != ' ' && *s != '\t' && i + 1 < cap) t[n][i++] = *s++;
+                t[n][i] = '\0'; ++n;
+            }
+            return n;
         }
 
         static bool IsBlank(const char* s) { for (; *s; ++s) if (*s != ' ' && *s != '\t') return false; return true; }
