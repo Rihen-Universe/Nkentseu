@@ -184,13 +184,18 @@ l'édition Cascadeur). M1.a (modèle + sampler) était donc DÉJÀ là.
   (`match=1`, 19 os, 61 frames @30fps, .nkanim de 80 Ko) + **visuellement** (le perso
   MARCHE depuis le clip rechargé, mesh propre, 144 FPS).
 
-**✅ INTERP TRS+SLERP FAIT (2026-06-27)** : `NkAnimationTrack<NkMat4f>::Lerp` faisait
-un lerp des 16 éléments (rotation déformée/skew entre clés éloignées). Maintenant :
-décompose A et B en TRS, lerp translation/scale, **SLERP la rotation**, recompose.
-**Améliorations NkMath au passage** (autorisées par Rihen) : `NkMat4::DecomposeTRS`
-(translation+rotation+scale, n'existait pas) + **`NkQuat::SLerp` RÉPARÉ** (dépendait
-d'un `operator^` au linkage friend↔template cassé, jamais exercé avant → réécrit en
-formule de Shoemake directe `sin((1-t)θ)/sinθ·a + sin(tθ)/sinθ·b`).
+**Améliorations NkMath FAITES (2026-06-27, autorisées par Rihen, conservées)** :
+- **`NkQuat::SLerp` RÉPARÉ** : dépendait d'un `operator^` au linkage friend↔template
+  cassé (jamais exercé avant → `undefined reference` dès qu'on l'utilise). Réécrit en
+  formule de Shoemake directe `sin((1-t)θ)/sinθ·a + sin(tθ)/sinθ·b`.
+- **`NkMat4::DecomposeTRS`** ajouté (translation+rotation-matrice+scale, n'existait pas).
+
+**⚠️ Interp TRS-slerp sur les boneTracks = REVERTÉE (mauvaise approche)** : appliquer
+décompose+SLERP sur les **matrices de SKINNING bakées** (`global×inverseBind`, scale
+composite + réflexions possibles) donne des poses FAUSSES (marche cassée, signalé par
+Rihen). Retour au lerp matriciel direct, correct à 30fps (clés rapprochées). Le slerp
+TRS appartient au niveau **bone-LOCAL** → cf RESTE M1 (stocker les tracks en TRS local
++ FK au sample). NkMath SLerp/DecomposeTRS restent prêts pour ça.
 
 **RESTE M1** :
 - **M1.c — timeline/scrubbing + édition de clés** (insertion/déplacement de

@@ -36,16 +36,16 @@ namespace nkentseu {
                     a.z+(b.z-a.z)*t, a.w+(b.w-a.w)*t};
         }
         template<> NkMat4f NkAnimationTrack<NkMat4f>::Lerp(const NkMat4f& a, const NkMat4f& b, float32 t) const {
-            // Interp TRS correcte : décompose -> lerp translation/scale, SLERP rotation,
-            // recompose. (Le lerp matriciel naïf des 16 éléments déforme la rotation.)
-            NkVec3f ta, sa, tb, sb; NkMat4f ra, rb;
-            a.DecomposeTRS(ta, ra, sa);
-            b.DecomposeTRS(tb, rb, sb);
-            NkQuatf qa(ra), qb(rb);
-            NkVec3f tt = { ta.x+(tb.x-ta.x)*t, ta.y+(tb.y-ta.y)*t, ta.z+(tb.z-ta.z)*t };
-            NkVec3f ss = { sa.x+(sb.x-sa.x)*t, sa.y+(sb.y-sa.y)*t, sa.z+(sb.z-sa.z)*t };
-            NkQuatf qq = qa.SLerp(qb, t);
-            return NkMat4f::Translate(tt) * qq.ToMat4() * NkMat4f::Scale(ss);
+            // Lerp matriciel composant-par-composant. NOTE : les boneTracks stockent
+            // des MATRICES DE SKINNING bakées (global×inverseBind), pas des TRS d'os
+            // locaux. Décomposer/SLERP une matrice de skinning (scale composite,
+            // réflexions possibles) donne des poses FAUSSES -> on garde le lerp direct,
+            // correct à haut fps (clés rapprochées). Le slerp TRS appartient au niveau
+            // bone-LOCAL (cf RESTE M1 : stocker les tracks en TRS local + FK au sample).
+            NkMat4f r;
+            for(int i=0;i<4;i++) for(int j=0;j<4;j++)
+                r[i][j]=a[i][j]+(b[i][j]-a[i][j])*t;
+            return r;
         }
         template<> int32 NkAnimationTrack<int32>::Lerp(const int32& a, const int32& b, float32 t) const {
             return (t<0.5f)?a:b;  // step pour int (frame index)
