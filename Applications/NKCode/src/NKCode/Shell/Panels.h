@@ -7,6 +7,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkLogSink.h"
+#include "NKCode/Editor/NkTextDraw.h"
 
 namespace nkcode {
 
@@ -497,11 +498,12 @@ namespace nkcode {
         // Dessine une ligne en interpretant les sequences ANSI couleur (ESC[...m).
         static void DrawAnsi(NkGuiContext& ctx, float32 x, float32 baseline, const char* s, const NkColor& def) {
             if (!ctx.font || !ctx.font->Valid()) return;
-            const NkFont* face = ctx.font->Face(); const uint32 tex = ctx.font->TexId();
-            auto& dl = ctx.DL();
+            auto& dl = ctx.DL(); (void)dl;
+            const float32 cellTop = baseline - ctx.font->Ascent();
+            const float32 cellH   = ctx.font->LineHeight();
             NkColor cur = def; const char* run = s; const char* p = s;
             auto flush = [&](const char* end) {
-                if (end > run) { dl.AddTextRange(face, tex, { x, baseline }, run, end, cur); x += face->CalcTextSizeX(run, end); }
+                if (end > run) x = NkDrawTextU(ctx, x, baseline, cellTop, cellH, run, end, cur);   // box-drawing en primitives
             };
             auto apply = [&](int32 code) {
                 if (code == 0 || code == 39) cur = def;

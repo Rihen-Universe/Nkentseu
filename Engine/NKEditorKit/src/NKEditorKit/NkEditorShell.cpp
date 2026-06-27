@@ -128,6 +128,8 @@ namespace nkentseu {
 
             mBackend.Init(mRenderTarget->GetRenderer());
 
+            // DroidSans = meilleure couverture Unicode des polices embarquees (accents,
+            // latin etendu, grec, cyrillique). Box-drawing dessine en primitives (helper).
             mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::DroidSans, 16.f);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f);
             mUI.font = &mFont;

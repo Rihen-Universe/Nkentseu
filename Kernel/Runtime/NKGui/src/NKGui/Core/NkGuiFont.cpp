@@ -15,6 +15,8 @@ namespace nkentseu {
             static const uint32 kRanges[] = {
                 0x0020, 0x00FF,   // Latin + Latin-1
                 0x0100, 0x024F,   // Latin etendu-A
+                0x0370, 0x03FF,   // grec
+                0x0400, 0x04FF,   // cyrillique
                 0x2010, 0x205F,   // ponctuation generale
                 0x2190, 0x21FF,   // fleches
                 0x2500, 0x257F,   // box-drawing

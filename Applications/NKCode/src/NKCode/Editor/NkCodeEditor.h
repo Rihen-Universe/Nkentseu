@@ -16,6 +16,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKCode/Editor/NkSyntax.h"
+#include "NKCode/Editor/NkTextDraw.h"
 
 #include <cstdio>   // snprintf (numeros de ligne)
 
@@ -438,8 +439,7 @@ namespace nkcode {
             float32 sx = textLeft - d.scrollX;
             inBlock = TokenizeLine(lang, data, n, inBlock, syn,
                 [&](int32 a, int32 b, const NkColor& col) {
-                    dl.AddTextRange(face, tex, { sx, baseline }, data + a, data + b, col);
-                    sx += face->CalcTextSizeX(data + a, data + b);
+                    sx = NkDrawTextU(ctx, sx, baseline, y, lineH, data + a, data + b, col);   // box-drawing en primitives
                 });
         }
         // Caret.
