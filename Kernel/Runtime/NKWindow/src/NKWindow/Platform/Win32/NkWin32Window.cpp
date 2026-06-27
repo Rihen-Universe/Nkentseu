@@ -871,6 +871,42 @@ namespace nkentseu {
         SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
     }
 
+    // ── Presse-papiers OS (CF_UNICODETEXT, conversion UTF-8 <-> UTF-16) ──────────
+    void NkWindow::SetClipboardText(const NkString& text) {
+        if (!OpenClipboard(mData.mHwnd)) return;
+        EmptyClipboard();
+        const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.CStr(), -1, nullptr, 0);
+        if (wlen > 0) {
+            HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wlen) * sizeof(wchar_t));
+            if (hg) {
+                wchar_t* dst = static_cast<wchar_t*>(GlobalLock(hg));
+                if (dst) { MultiByteToWideChar(CP_UTF8, 0, text.CStr(), -1, dst, wlen); GlobalUnlock(hg); SetClipboardData(CF_UNICODETEXT, hg); }
+                else GlobalFree(hg);
+            }
+        }
+        CloseClipboard();
+    }
+
+    NkString NkWindow::GetClipboardText() const {
+        NkString out;
+        if (!OpenClipboard(mData.mHwnd)) return out;
+        HANDLE h = GetClipboardData(CF_UNICODETEXT);
+        if (h) {
+            const wchar_t* w = static_cast<const wchar_t*>(GlobalLock(h));
+            if (w) {
+                const int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+                if (len > 0) {
+                    NkVector<char> buf; buf.Resize(static_cast<usize>(len));
+                    WideCharToMultiByte(CP_UTF8, 0, w, -1, buf.Data(), len, nullptr, nullptr);
+                    out = NkString(buf.Data());
+                }
+                GlobalUnlock(h);
+            }
+        }
+        CloseClipboard();
+        return out;
+    }
+
     void NkWindow::BeginResize(NkResizeEdge edge) {
         if (!mData.mHwnd) return;
         WPARAM ht = HTCAPTION;

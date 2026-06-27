@@ -166,6 +166,14 @@ namespace nkentseu {
             int32         dockTargetZone= -1;                ///< 0 centre, 1 G, 2 D, 3 H, 4 B
             bool          dockTabAddButton = false;          ///< l'app active le bouton « + » sur les barres d'onglets
             bool          dockHideSingleTab = false;         ///< masque la barre d'onglets d'un nœud à 1 seul panneau (façon VSCode/IDE)
+
+            // Presse-papiers : cable par l'app (la fenetre OS). Decouple de NKWindow
+            // via void* + NkString. Les widgets appellent GetClipboard/SetClipboard.
+            void* clipboardUser = nullptr;
+            void (*clipboardGetFn)(void*, NkString&) = nullptr;
+            void (*clipboardSetFn)(void*, const char*) = nullptr;
+            NkString GetClipboard() const { NkString s; if (clipboardGetFn) clipboardGetFn(clipboardUser, s); return s; }
+            void     SetClipboard(const char* t) { if (clipboardSetFn) clipboardSetFn(clipboardUser, t); }
             int32         dockTabAddNode   = -1;             ///< feuille où « + » a été cliqué (lu par l'app après DockSpace)
             NkGuiId       dockOverflowPopup= NKGUI_ID_NONE;  ///< popup « onglets cachés » ouvert (overflow)
             int32         dockOverflowNode = -1;             ///< feuille dont l'overflow est ouvert

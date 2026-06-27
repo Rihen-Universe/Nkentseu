@@ -118,6 +118,10 @@ namespace nkentseu {
             void Restore();
             bool IsMaximized() const;        ///< true si la fenetre est maximisee (pour barre de titre custom)
             void BeginDragMove();            ///< hand-off natif du deplacement (barre de titre custom, fenetre sans bordure)
+            // Presse-papiers texte (UTF-8). Win32 = vrai presse-papiers OS ; autres
+            // plateformes = fallback interne a l'application (copier/coller intra-app).
+            void     SetClipboardText(const NkString& text);
+            NkString GetClipboardText() const;
             /// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
             enum class NkResizeEdge {
                 Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight

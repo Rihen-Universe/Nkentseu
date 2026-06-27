@@ -121,6 +121,11 @@ namespace nkentseu {
             // (l'éditeur ne montre que ses onglets de fichiers ; pas de tab "Editeur").
             mUI.dockHideSingleTab = true;
 
+            // Presse-papiers : relie le contexte NKGui a la fenetre OS (NKWindow).
+            mUI.clipboardUser  = &mWindow;
+            mUI.clipboardGetFn = [](void* u, NkString& out) { out = static_cast<NkWindow*>(u)->GetClipboardText(); };
+            mUI.clipboardSetFn = [](void* u, const char* t) { static_cast<NkWindow*>(u)->SetClipboardText(NkString(t)); };
+
             mBackend.Init(mRenderTarget->GetRenderer());
 
             mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::DroidSans, 16.f);
@@ -181,6 +186,12 @@ namespace nkentseu {
                 mUI.input.ctrlDown  = e->GetModifiers().ctrl;
                 mUI.input.shiftDown = e->GetModifiers().shift;
                 mUI.input.altDown   = e->GetModifiers().alt;
+                if (e->GetModifiers().ctrl) {   // raccourcis copier/couper/coller/tout-selectionner
+                    if      (k == NkKey::NK_C) mUI.input.wantCopy      = true;
+                    else if (k == NkKey::NK_X) mUI.input.wantCut       = true;
+                    else if (k == NkKey::NK_V) mUI.input.wantPaste     = true;
+                    else if (k == NkKey::NK_A) mUI.input.wantSelectAll = true;
+                }
                 if (k == NkKey::NK_P && e->GetModifiers().ctrl) { mPaletteOpen = !mPaletteOpen; mPaletteSel = 0; return; }
                 if (mPaletteOpen) {
                     if      (k == NkKey::NK_ESCAPE) mPaletteOpen = false;

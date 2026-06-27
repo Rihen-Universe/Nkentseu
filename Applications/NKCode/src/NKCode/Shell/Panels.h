@@ -241,6 +241,17 @@ namespace nkcode {
             Term& t = mTerm[mActive];
             t.proc.Drain(t.lines);
 
+            // Coller (Ctrl+V) -> ajoute le presse-papiers a la saisie (sans \n).
+            if (ctx.input.wantPaste) {
+                const NkString clip = ctx.GetClipboard();
+                if (!clip.Empty()) {
+                    int32 len = 0; while (t.input[len]) ++len;
+                    for (const char* p = clip.CStr(); *p && len < 510; ++p)
+                        if (*p != '\n' && *p != '\r') t.input[len++] = *p;
+                    t.input[len] = '\0';
+                }
+            }
+
             const NkRect clip = dl.CurrentClip();
             dl.AddRectFilled(clip, NkColor{ 13, 17, 23, 255 });    // fond terminal #0D1117
 
@@ -293,6 +304,9 @@ namespace nkcode {
             float32            scrollX = 0.f, scrollY = 0.f;
             float32            maxW = 0.f;     // largeur ligne max (cache incremental)
             usize              measured = 0;   // nb de lignes deja mesurees
+            int32              sAL = 0, sAC = 0, sBL = 0, sBC = 0;  // selection : ancre (A) + curseur (B)
+            bool               dragging = false;
+            bool HasSel() const { return sAL != sBL || sAC != sBC; }
         };
 
         // Sortie defilante : rend les lignes visibles (clippees) + scrollbars V/H
@@ -318,6 +332,42 @@ namespace nkcode {
             if (t.scrollY < 0.f) t.scrollY = 0.f; if (t.scrollY > maxSY) t.scrollY = maxSY;
             if (t.scrollX < 0.f) t.scrollX = 0.f; if (t.scrollX > maxSX) t.scrollX = maxSX;
 
+            // ── Selection souris (drag) sur la zone texte ──
+            const NkFont* face = (ctx.font && ctx.font->Valid()) ? ctx.font->Face() : nullptr;
+            const int32   nLines = static_cast<int32>(t.lines.Size());
+            const NkRect  selArea = { out.x, out.y, out.w - sbW, viewH };
+            auto colAtX = [&](int32 L, float32 x) -> int32 {
+                if (!face || L < 0 || L >= nLines) return 0;
+                const char* s = t.lines[L].CStr(); const int32 n = static_cast<int32>(t.lines[L].Size());
+                int32 bc = 0; float32 best = 1.0e9f;
+                for (int32 c = 0; c <= n; ++c) { float32 d = face->CalcTextSizeX(s, s + c) - x; if (d < 0) d = -d; if (d < best) { best = d; bc = c; } }
+                return bc;
+            };
+            auto rowAtY = [&](float32 y) -> int32 { int32 L = static_cast<int32>((y - out.y + t.scrollY) / lineH); if (L < 0) L = 0; if (L >= nLines) L = nLines - 1; return L; };
+            if (ctx.input.mouseClicked[0] && in(selArea)) {
+                const int32 L = rowAtY(m.y); t.sAL = t.sBL = L; t.sAC = t.sBC = colAtX(L, m.x - (out.x + pad) + t.scrollX); t.dragging = true;
+            }
+            if (t.dragging && ctx.input.mouseDown[0]) { const int32 L = rowAtY(m.y); t.sBL = L; t.sBC = colAtX(L, m.x - (out.x + pad) + t.scrollX); }
+            if (!ctx.input.mouseDown[0]) t.dragging = false;
+            // Selection normalisee (aL,aC) <= (bL,bC).
+            int32 nAL = t.sAL, nAC = t.sAC, nBL = t.sBL, nBC = t.sBC;
+            if (nAL > nBL || (nAL == nBL && nAC > nBC)) { int32 tl = nAL, tc = nAC; nAL = nBL; nAC = nBC; nBL = tl; nBC = tc; }
+            // Copier (Ctrl+C) : texte selectionne, codes ANSI retires.
+            if (ctx.input.wantCopy && t.HasSel()) {
+                NkVector<char> buf;
+                for (int32 l = nAL; l <= nBL && l < nLines; ++l) {
+                    const char* s = t.lines[l].CStr(); const int32 n = static_cast<int32>(t.lines[l].Size());
+                    const int32 c0 = (l == nAL) ? nAC : 0, c1 = (l == nBL) ? nBC : n;
+                    for (int32 c = c0; c < c1 && c < n; ) {
+                        if (s[c] == 0x1b && c + 1 < n && s[c + 1] == '[') { c += 2; while (c < n && !(s[c] >= '@' && s[c] <= '~')) ++c; if (c < n) ++c; }
+                        else buf.PushBack(s[c++]);
+                    }
+                    if (l < nBL) buf.PushBack('\n');
+                }
+                buf.PushBack('\0');
+                if (buf.Size() > 1) ctx.SetClipboard(buf.Data());
+            }
+
             // Lignes visibles.
             const NkRect txtClip = { out.x, out.y, out.w - sbW, viewH };
             dl.PushClipRect(txtClip, true);
@@ -326,8 +376,17 @@ namespace nkcode {
             if (ctx.font && ctx.font->Valid())
                 for (int32 i = first; i <= last && i < static_cast<int32>(t.lines.Size()); ++i) {
                     if (i < 0) continue;
-                    const float32 yb = out.y + i * lineH - t.scrollY + ctx.font->Ascent();
-                    DrawAnsi(ctx, out.x + pad - t.scrollX, yb, t.lines[i].CStr(),
+                    const float32 ytop = out.y + i * lineH - t.scrollY;
+                    // Surlignage de selection.
+                    if (t.HasSel() && i >= nAL && i <= nBL) {
+                        const char* s = t.lines[i].CStr(); const int32 n = static_cast<int32>(t.lines[i].Size());
+                        const int32 c0 = (i == nAL) ? nAC : 0, c1 = (i == nBL) ? nBC : n;
+                        const float32 x0 = out.x + pad - t.scrollX + (face ? face->CalcTextSizeX(s, s + c0) : 0.f);
+                        float32 x1 = out.x + pad - t.scrollX + (face ? face->CalcTextSizeX(s, s + c1) : 0.f);
+                        if (i < nBL) x1 += 4.f;
+                        dl.AddRectFilled({ x0, ytop, x1 - x0, lineH }, NkColor{ 31, 111, 235, 90 });
+                    }
+                    DrawAnsi(ctx, out.x + pad - t.scrollX, ytop + ctx.font->Ascent(), t.lines[i].CStr(),
                              IsCmdLine(t.lines[i].CStr()) ? kCmd : kOut);   // couleurs ANSI
                 }
             dl.PopClipRect();

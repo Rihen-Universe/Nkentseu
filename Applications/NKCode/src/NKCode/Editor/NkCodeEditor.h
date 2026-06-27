@@ -150,6 +150,35 @@ namespace nkcode {
             Collapse(); dirty = true; widthDirty = true;
         }
 
+        // Texte selectionne (multi-ligne, lignes jointes par '\n'). Vide si pas de selection.
+        NkString GetSelectedText() const {
+            if (!HasSel()) return NkString();
+            int32 aL, aC, bL, bC; SelRange(aL, aC, bL, bC);
+            NkVector<char> buf;
+            for (int32 l = aL; l <= bL; ++l) {
+                const int32 c0 = (l == aL) ? aC : 0, c1 = (l == bL) ? bC : LineLen(l);
+                for (int32 c = c0; c < c1; ++c) buf.PushBack(lines[l][c]);
+                if (l < bL) buf.PushBack('\n');
+            }
+            buf.PushBack('\0');
+            return NkString(buf.Data());
+        }
+        // Insere `s` au curseur (remplace la selection). Gere '\n' / '\t'.
+        void InsertText(const char* s) {
+            if (HasSel()) EraseSelection();
+            for (const char* p = s; *p; ++p) {
+                if (*p == '\n') InsertNewline();
+                else if (*p == '\r') { /* ignore */ }
+                else if (*p == '\t') { for (int32 k = 0; k < 4; ++k) InsertChar(' '); }
+                else InsertChar(*p);
+            }
+        }
+        void SelectAll() {
+            selLine = 0; selCol = 0;
+            curLine = LineCount() - 1; if (curLine < 0) curLine = 0;
+            curCol = LineLen(curLine);
+        }
+
         // Re-indente le document a partir de la profondeur d'accolades (style VS
         // "Format Document"). 4 espaces / niveau ; les lignes commencant par } ) ]
         // se desindentent. v1 : naif (ignore accolades dans chaines/commentaires).
@@ -320,6 +349,16 @@ namespace nkcode {
             if (K(NkGuiKey::Down)) { if (d.curLine < d.LineCount() - 1) { ++d.curLine; d.ClampCursor(); } if (!shift) d.Collapse(); }
             if (K(NkGuiKey::Home)) { d.curCol = 0;                 if (!shift) d.Collapse(); }
             if (K(NkGuiKey::End))  { d.curCol = d.LineLen(d.curLine); if (!shift) d.Collapse(); }
+            // Copier / couper / coller / tout-selectionner (presse-papiers).
+            if (ctx.input.wantSelectAll) d.SelectAll();
+            if ((ctx.input.wantCopy || ctx.input.wantCut) && d.HasSel()) {
+                ctx.SetClipboard(d.GetSelectedText().CStr());
+                if (ctx.input.wantCut) { d.EraseSelection(); changed = true; }
+            }
+            if (ctx.input.wantPaste) {
+                const NkString clip = ctx.GetClipboard();
+                if (!clip.Empty()) { d.InsertText(clip.CStr()); changed = true; }
+            }
         }
         d.ClampCursor();
 
