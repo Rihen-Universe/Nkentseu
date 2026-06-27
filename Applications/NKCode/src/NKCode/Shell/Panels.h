@@ -322,6 +322,36 @@ namespace nkcode {
             ctx.layout.region.w = savedW;
         }
 
+        // Actions sur la BARRE D'ONGLETS (a droite) quand TERMINAL est l'onglet actif :
+        // bouton "+" + combobox de shell. Apparait sur la meme ligne que OUTPUT/TERMINAL.
+        void OnTabBarActions(NkGuiContext& ctx, const NkRect& bar) noexcept override {
+            auto& dl = ctx.DL();
+            const float32 h = bar.h;
+            const NkVec2 m = ctx.input.mousePos;
+            auto inR = [&](const NkRect& r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
+            // Bouton "+" (a l'extreme droite).
+            const NkRect addR = { bar.x + bar.w - h - 2.f, bar.y + 1.f, h, h - 2.f };
+            { const bool hov = inR(addR); if (hov) dl.AddRectFilled(addR, ctx.theme.buttonHover);
+              const float32 cx = addR.x + h * 0.5f, cy = addR.y + (h - 2.f) * 0.5f, a = 5.f;
+              dl.AddRectFilled({ cx - a, cy - 1.f, 2.f * a, 2.f }, ctx.theme.text);
+              dl.AddRectFilled({ cx - 1.f, cy - a, 2.f, 2.f * a }, ctx.theme.text);
+              if (hov && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) AddTerm(mNewShell); }
+            // Combobox de shell (a gauche du "+").
+            const float32 cw = ctx.S(118.f);
+            const float32 savedW = ctx.layout.region.w;
+            ctx.layout.cursor     = { addR.x - cw - 4.f, bar.y + 1.f };
+            ctx.layout.lineStartX = ctx.layout.cursor.x; ctx.layout.curLineH = 0.f;
+            ctx.layout.region.w   = (ctx.layout.cursor.x - ctx.layout.region.x) + cw;
+            ctx.PushId("shellhdr");
+            if (BeginCombo(ctx, "", ShellName(mNewShell), SH_COUNT)) {
+                for (int32 i = 0; i < SH_COUNT; ++i)
+                    if (Selectable(ctx, ShellName(i), i == ctx.comboNav) || (i == ctx.comboNav && ctx.comboEnter)) { mNewShell = i; ctx.ClosePopup(); }
+                EndCombo(ctx);
+            }
+            ctx.PopId();
+            ctx.layout.region.w = savedW;
+        }
+
     private:
         struct Term {
             NkProcess          proc;
@@ -560,31 +590,9 @@ namespace nkcode {
             const float32 h = ctx.ItemHeight();
             const float32 by = (h - (ctx.font ? ctx.font->LineHeight() : 14.f)) * 0.5f + (ctx.font ? ctx.font->Ascent() : 11.f);
 
-            // Ligne d'actions : bouton "+" (a droite) + combobox de shell (a gauche).
-            const NkRect addR = { R.x + R.w - h - 4.f, R.y + 3.f, h, h };
-            { const bool hov = inR(addR); if (hov) dl.AddRectFilled(addR, ctx.theme.buttonHover);
-              const float32 cx = addR.x + h * 0.5f, cy = addR.y + h * 0.5f, a = 5.f;
-              dl.AddRectFilled({ cx - a, cy - 1.f, 2.f * a, 2.f }, ctx.theme.text);
-              dl.AddRectFilled({ cx - 1.f, cy - a, 2.f, 2.f * a }, ctx.theme.text);
-              if (hov && ctx.input.mouseClicked[0]) AddTerm(mNewShell); }
-            const float32 savedW = ctx.layout.region.w;
-            ctx.layout.cursor     = { R.x + 6.f, R.y + 3.f };
-            ctx.layout.lineStartX = ctx.layout.cursor.x; ctx.layout.curLineH = 0.f;
-            ctx.layout.region.w   = (ctx.layout.cursor.x - ctx.layout.region.x) + (R.w - h - 18.f);
-            ctx.PushId("newshell");
-            if (BeginCombo(ctx, "", ShellName(mNewShell), SH_COUNT)) {
-                for (int32 i = 0; i < SH_COUNT; ++i)
-                    if (Selectable(ctx, ShellName(i), i == ctx.comboNav)        // surlignage clavier
-                        || (i == ctx.comboNav && ctx.comboEnter)) {            // Entree = choisir
-                        mNewShell = i; ctx.ClosePopup();
-                    }
-                EndCombo(ctx);
-            }
-            ctx.PopId();
-            ctx.layout.region.w = savedW;
-
+            // (Le "+" et le combobox de shell sont sur la BARRE D'ONGLETS — OnTabBarActions.)
             // Items : un par terminal vivant.
-            float32 y = R.y + h + 6.f; int32 toClose = -1;
+            float32 y = R.y + 6.f; int32 toClose = -1;
             for (int32 i = 0; i < 8; ++i) {
                 if (!mTerm[i].alive) continue;
                 const NkRect row = { R.x + 1.f, y, R.w - 1.f, h };

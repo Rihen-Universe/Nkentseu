@@ -132,6 +132,11 @@ namespace nkentseu {
             int32         curPopupLevel  = -1;           ///< niveau dessiné (-1 = principale)
             int32         comboNav       = 0;            ///< item surligné au clavier dans un combo ouvert
             bool          comboEnter     = false;        ///< Entrée pressée dans le combo (consommé par l'appelant)
+            // Hook : actions de panneau dessinées sur la BARRE D'ONGLETS du dock (à
+            // droite). Appelé par DockRenderNode après les onglets, avec le rect de
+            // la barre + la fenêtre active. Permet "+ / combo" sur la ligne d'onglets.
+            void* dockHeaderUser = nullptr;
+            void (*dockHeaderFn)(NkGuiContext&, const NkRect&, NkGuiId, void*) = nullptr;
             NkVec2        popupPos        = { 0.f, 0.f }; ///< ancrage (menu contextuel)
             NkRect        popupAnchor     = { 0.f, 0.f, 0.f, 0.f }; ///< zone déclencheur (ne ferme pas)
 

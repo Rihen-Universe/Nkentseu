@@ -2032,6 +2032,8 @@ namespace nkentseu {
                         ctx.DL().AddRectFilled({ cx - a, cy - 1.f, 2.f * a, 2.f }, ctx.theme.text);
                         ctx.DL().AddRectFilled({ cx - 1.f, cy - a, 2.f, 2.f * a }, ctx.theme.text);
                     }
+                    // Hook : actions du panneau actif sur la barre d'onglets (à droite).
+                    if (ctx.dockHeaderFn) ctx.dockHeaderFn(ctx, { r.x, r.y, r.w, th }, node.windows[active], ctx.dockHeaderUser);
                     }   // fin barre d'onglets (masquee si th == 0 -> 1 seul panneau)
                     const NkRect content = { r.x, r.y + th, r.w, r.h - th };
                     ctx.DL().AddRectFilled(content, ctx.theme.panel, 0.f);

@@ -126,6 +126,14 @@ namespace nkentseu {
             mUI.clipboardGetFn = [](void* u, NkString& out) { out = static_cast<NkWindow*>(u)->GetClipboardText(); };
             mUI.clipboardSetFn = [](void* u, const char* t) { static_cast<NkWindow*>(u)->SetClipboardText(NkString(t)); };
 
+            // Hook barre d'onglets : le panneau ACTIF dessine ses actions a droite.
+            mUI.dockHeaderUser = this;
+            mUI.dockHeaderFn = [](NkGuiContext& c, const NkRect& bar, NkGuiId win, void* u) {
+                auto* self = static_cast<NkEditorShell*>(u);
+                for (int32 i = 0; i < self->mNumPanels; ++i)
+                    if (c.GetId(self->mPanels[i]->Title()) == win) { self->mPanels[i]->OnTabBarActions(c, bar); break; }
+            };
+
             mBackend.Init(mRenderTarget->GetRenderer());
 
             // DroidSans = meilleure couverture Unicode des polices embarquees (accents,
