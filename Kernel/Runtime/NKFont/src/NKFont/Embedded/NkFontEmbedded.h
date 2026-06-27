@@ -63,7 +63,10 @@ namespace nkentseu {
         // ── Polices vectorielles avec serif ───────────────────────────────────
         DroidSerif     = 7,  ///< Serif classique.
 
-        Count          = 8,
+        // ── Monospace large couverture Unicode ────────────────────────────────
+        DejaVuSansMono = 8,  ///< Monospace + box-drawing + grec/cyrillique (Bitstream Vera).
+
+        Count          = 9,
         Default        = ProggyClean, ///< Police par défaut du système.
     };
 

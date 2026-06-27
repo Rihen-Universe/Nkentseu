@@ -79,7 +79,9 @@ namespace nkcode {
         while (p < end) {
             const char* q = p;
             const uint32 cp = NkDecodeU8(q, end);
-            if (NkIsDrawable(cp)) {
+            // Primitive UNIQUEMENT si la police n'a pas le glyphe (DejaVu a le
+            // box-drawing -> on le laisse rendre ; DroidSans non -> on dessine).
+            if (NkIsDrawable(cp) && !face->FindGlyphNoFallback(cp)) {
                 flush(p);
                 const float32 w = face->CalcTextSizeX(p, q);     // avance (glyphe de repli)
                 NkDrawGlyphPrim(ctx.DL(), cp, x, cellTop, w, cellH, col);

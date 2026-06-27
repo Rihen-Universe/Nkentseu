@@ -20259,6 +20259,8 @@ namespace nkentseu {
     // Registre des polices intégrées
     // ============================================================
 
+#include "NKFont/Embedded/DejaVuSansMono_data.h"   // donnees DejaVu Sans Mono (monospace + Unicode large)
+
     static const NkEmbeddedFontData sRegistry[(nkft_uint32)NkEmbeddedFontId::Count] = {
         // ProggyClean — bitmap 13px
         {
@@ -20346,6 +20348,17 @@ namespace nkentseu {
             NkFontKind::Vector,
             12.f,
             "Apache 2.0"
+        },
+        // DejaVuSansMono — monospace, large couverture Unicode (box-drawing, grec,
+        // cyrillique...), licence libre (Bitstream Vera + domaine public).
+        {
+            "DejaVuSansMono",
+            sDejaVuSansMonoCompressedData,
+            sDejaVuSansMonoCompressedSize,
+            sDejaVuSansMonoOriginalSize,
+            NkFontKind::Vector,
+            0.f,
+            "Bitstream Vera / Public Domain"
         },
     };
 
