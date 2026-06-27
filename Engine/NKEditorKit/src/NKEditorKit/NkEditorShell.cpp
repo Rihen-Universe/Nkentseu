@@ -635,6 +635,11 @@ namespace nkentseu {
         void NkEditorShell::BuildMenuBar(NkEditorFrameContext& ec, const NkRect& rect) noexcept {
             if (!BeginMenuBar(mUI, rect)) return;
 
+            // Sur l'ecran de demarrage (launcher), PAS de menus (Fichier, etc.) : on
+            // appelle quand meme mAppMenuFn (il pose les flags appFullScreen/appModal
+            // chaque frame -> indispensable au maintien du launcher).
+            if (mUI.appFullScreen) { if (mAppMenuFn) mAppMenuFn(ec, mAppMenuUser); EndMenuBar(mUI); return; }
+
             if (BeginMenu(mUI, "Fichier")) {
                 if (mFileMenuFn) mFileMenuFn(ec, mFileMenuUser);   // Nouveau/Enregistrer/Deploiement (app)
                 if (MenuItem(mUI, "Palette de commandes", "Ctrl+P")) { mPaletteOpen = !mPaletteOpen; mPaletteSel = 0; }

@@ -72,6 +72,46 @@ namespace nkentseu {
             return file.ToString();
         }
 
+        // Genere un workspace COMPLET (proprietes facon Jenga) dans `dir` :
+        //   nom, configurations choisies, plateformes cibles (+ leurs architectures
+        //   documentees). La config par-plateforme detaillee se fait par projet.
+        // Retourne le chemin du .jenga (vide si echec / nom invalide / deja existant).
+        inline NkString GenerateWorkspaceEx(const NkPath& dir, const char* rawName,
+                                            const bool* cfg2, const bool* plat,
+                                            const char* const* platNames, const char* const* const* platArchs,
+                                            const int32* platNArch, int32 nPlat) noexcept {
+            NkString name = NkSanitizeName(rawName);
+            if (name.Empty()) return NkString();
+            if (!NkDirectory::Exists(dir) && !NkDirectory::CreateRecursive(dir)) return NkString();
+            NkPath file = dir / (name + ".jenga").CStr();
+            if (NkFile::Exists(file)) return NkString();   // ne pas ecraser
+
+            NkString cfgs;
+            if (cfg2[0]) cfgs += "\"Debug\"";
+            if (cfg2[1]) { if (!cfgs.Empty()) cfgs += ", "; cfgs += "\"Release\""; }
+            if (cfgs.Empty()) cfgs = "\"Debug\", \"Release\"";
+
+            NkString c;
+            c += "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n";
+            c += "\"\"\""; c += name; c += " - workspace genere par NKCode.\"\"\"\n\n";
+            c += "from Jenga import *\nfrom jengaconfig import *\n\n\n";
+            c += "with workspace(\""; c += name; c += "\", location=\".\"):\n";
+            c += "    configurations(["; c += cfgs; c += "])\n\n";
+            c += "    # Plateformes cibles (architecture passee au build : --platform <OS>-<arch>) :\n";
+            bool any = false;
+            for (int32 i = 0; i < nPlat; ++i) {
+                if (!plat[i]) continue;
+                any = true;
+                c += "    #   - "; c += platNames[i]; c += " : ";
+                for (int32 a = 0; a < platNArch[i]; ++a) { if (a) c += ", "; c += platArchs[i][a]; }
+                c += "\n";
+            }
+            if (!any) c += "    #   (aucune selectionnee)\n";
+            c += "\n    # Les projets sont ajoutes ici via include() (menu Nouveau projet).\n";
+            if (!NkFile::WriteAllText(file, c)) return NkString();
+            return file.ToString();
+        }
+
         // Genere un nouveau projet dans <root>/<name>/ :
         //   - <name>/<name>.jenga (with project(...))
         //   - <name>/src/main.<ext> (stub minimal selon le genre)

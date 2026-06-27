@@ -236,6 +236,24 @@ namespace nkcode {
         }
         bool HasWorkspace() const { return !wsPaths.Empty(); }
 
+        // Scanne un dossier ARBITRAIRE pour ses workspaces (sans toucher a la racine).
+        // Sert au panneau « Charger » du launcher (apercu avant chargement).
+        static void ScanWorkspacesIn(const NkPath& folder, NkVector<NkString>& outPaths,
+                                     NkVector<NkString>& outNames) {
+            outPaths.Clear(); outNames.Clear();
+            NkVector<NkDirectoryEntry> entries = NkDirectory::GetEntries(folder, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            for (usize i = 0; i < entries.Size(); ++i) {
+                const NkDirectoryEntry& e = entries[i];
+                if (e.IsDirectory) continue;
+                const NkString nm = e.Name;
+                if (!EndsWithI(nm.CStr(), ".jenga")) continue;
+                const NkString txt = NkFile::ReadAllText(e.FullPath);
+                if (!Contains(txt.CStr(), "with workspace") && !Contains(txt.CStr(), "workspace(")) continue;
+                outPaths.PushBack(e.FullPath.ToString());
+                outNames.PushBack(WorkspaceName(txt, nm));
+            }
+        }
+
         // Fichier de config d'interface PAR PROJET : <racine>/.nkcode/ui.cfg
         // (etat maximise + panneaux ouverts, lu/ecrit par le shell).
         NkString UiConfigPath() const { return (root / ".nkcode" / "ui.cfg").ToString(); }
