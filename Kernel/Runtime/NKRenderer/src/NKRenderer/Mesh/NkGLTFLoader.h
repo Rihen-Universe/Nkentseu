@@ -142,6 +142,17 @@ namespace nkentseu {
         bool EvaluateGLTFPose(const NkGLTFMeshData& data, int32 animIdx,
                               float32 t, NkVector<NkMat4f>& outBones);
 
+        // ── Transforms MONDE par joint (pour l'IK + rendu squelette) ──────────
+        // Comme EvaluateGLTFPose mais sort les matrices MONDE de chaque joint
+        // (= globalTransform(joint), SANS l'inverseBind) dans `outWorld`, et le
+        // parent de chaque joint EN INDICE DE JOINT (ou -1) dans `outParentJoint`.
+        // La position monde d'un joint = colonne translation de outWorld[j].
+        // Sert a NkIKSystem (chaine sur un membre reel) et au debug-draw squelette.
+        // Retourne false si data non skinnee.
+        bool EvaluateGLTFWorldJoints(const NkGLTFMeshData& data, int32 animIdx,
+                                     float32 t, NkVector<NkMat4f>& outWorld,
+                                     NkVector<int32>& outParentJoint);
+
         // Charge un fichier glTF 2.0 (.gltf ou .glb) dans `out`.
         // path : chemin du fichier (les .bin externes sont resolus relativement
         //        au dossier de `path`).

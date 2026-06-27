@@ -1339,5 +1339,95 @@ namespace nkentseu {
             return true;
         }
 
+        bool EvaluateGLTFWorldJoints(const NkGLTFMeshData& data, int32 animIdx,
+                                     float32 t, NkVector<NkMat4f>& outWorld,
+                                     NkVector<int32>& outParentJoint) {
+            if (!data.isSkinned || data.skinJoints.Empty()) return false;
+            uint32 nodeCount = (uint32)data.nodes.Size();
+            if (nodeCount == 0) return false;
+
+            // 1) Locales = TRS statiques surchargees par l'animation (idem EvaluateGLTFPose).
+            NkVector<NkMat4f> local; local.Resize(nodeCount);
+            for (uint32 i = 0; i < nodeCount; ++i) local[i] = NodeLocal(data.nodes[i]);
+
+            if (animIdx >= 0 && animIdx < (int32)data.animations.Size()) {
+                const NkGLTFAnimation& anim = data.animations[(uint32)animIdx];
+                float32 dur = anim.duration > 1e-4f ? anim.duration : 1.f;
+                float32 tt  = t - floorf(t / dur) * dur;
+                NkVector<NkVec3f> trans; trans.Resize(nodeCount);
+                NkVector<NkVec4f> rot;   rot.Resize(nodeCount);
+                NkVector<NkVec3f> scl;   scl.Resize(nodeCount);
+                NkVector<bool>    hasM;  hasM.Resize(nodeCount);
+                for (uint32 i = 0; i < nodeCount; ++i) {
+                    trans[i] = data.nodes[i].translation; rot[i] = data.nodes[i].rotation;
+                    scl[i]   = data.nodes[i].scale;       hasM[i] = data.nodes[i].hasMatrix;
+                }
+                for (uint32 c = 0; c < (uint32)anim.channels.Size(); ++c) {
+                    const NkGLTFAnimChannel& ch = anim.channels[c];
+                    if (ch.node < 0 || ch.node >= (int32)nodeCount) continue;
+                    NkVec4f v = SampleChannel(ch, tt);
+                    if      (ch.path == NkGLTFPath::TRANSLATION) trans[ch.node] = {v.x,v.y,v.z};
+                    else if (ch.path == NkGLTFPath::ROTATION)    rot[ch.node]   = v;
+                    else if (ch.path == NkGLTFPath::SCALE)       scl[ch.node]   = {v.x,v.y,v.z};
+                }
+                for (uint32 i = 0; i < nodeCount; ++i) {
+                    if (hasM[i]) { local[i] = data.nodes[i].matrix; continue; }
+                    NkQuatf q(rot[i].x, rot[i].y, rot[i].z, rot[i].w);
+                    local[i] = NkMat4f::Translate(trans[i]) * static_cast<NkMat4f>(q)
+                             * NkMat4f::Scale(scl[i]);
+                }
+            }
+
+            // 2) Globales par hierarchie + table parent (en indice de NODE).
+            NkVector<NkMat4f> global; global.Resize(nodeCount);
+            NkVector<int32>   parentNode; parentNode.Resize(nodeCount);
+            for (uint32 i = 0; i < nodeCount; ++i) parentNode[i] = -1;
+            for (uint32 i = 0; i < nodeCount; ++i)
+                for (uint32 c = 0; c < (uint32)data.nodes[i].children.Size(); ++c) {
+                    int32 ci = data.nodes[i].children[c];
+                    if (ci >= 0 && ci < (int32)nodeCount) parentNode[ci] = (int32)i;
+                }
+            NkVector<bool> done; done.Resize(nodeCount);
+            for (uint32 i = 0; i < nodeCount; ++i) done[i] = false;
+            bool progressed = true; uint32 guard = 0;
+            while (progressed && guard++ < nodeCount + 2) {
+                progressed = false;
+                for (uint32 i = 0; i < nodeCount; ++i) {
+                    if (done[i]) continue;
+                    int32 p = parentNode[i];
+                    if (p < 0)        { global[i] = local[i]; done[i] = true; progressed = true; }
+                    else if (done[p]) { global[i] = global[p] * local[i]; done[i] = true; progressed = true; }
+                }
+            }
+            for (uint32 i = 0; i < nodeCount; ++i) if (!done[i]) global[i] = local[i];
+
+            // 3) node -> joint (pour retrouver le parent en indice de joint).
+            uint32 jc = (uint32)data.skinJoints.Size();
+            NkVector<int32> jointOfNode; jointOfNode.Resize(nodeCount);
+            for (uint32 i = 0; i < nodeCount; ++i) jointOfNode[i] = -1;
+            for (uint32 j = 0; j < jc; ++j) {
+                int32 ni = data.skinJoints[j];
+                if (ni >= 0 && ni < (int32)nodeCount) jointOfNode[ni] = (int32)j;
+            }
+
+            // 4) Sorties : monde par joint + parent joint (remonte la hierarchie
+            //    de nodes jusqu'au 1er ancetre qui est lui-meme un joint).
+            outWorld.Clear();       outWorld.Resize(jc);
+            outParentJoint.Clear(); outParentJoint.Resize(jc);
+            for (uint32 j = 0; j < jc; ++j) {
+                int32 nodeIdx = data.skinJoints[j];
+                outWorld[j] = (nodeIdx >= 0 && nodeIdx < (int32)nodeCount)
+                            ? global[nodeIdx] : NkMat4f::Identity();
+                int32 pj = -1;
+                int32 p = (nodeIdx >= 0 && nodeIdx < (int32)nodeCount) ? parentNode[nodeIdx] : -1;
+                while (p >= 0) {
+                    if (jointOfNode[p] >= 0) { pj = jointOfNode[p]; break; }
+                    p = parentNode[p];
+                }
+                outParentJoint[j] = pj;
+            }
+            return true;
+        }
+
     } // namespace renderer
 } // namespace nkentseu

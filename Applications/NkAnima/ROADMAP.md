@@ -49,13 +49,39 @@ visuellement (capture RenderDoc thumb). Rendu en **sphères mesh PBR** (joints c
 racine verte, os orange, cible rouge) — car le debug-draw NkRender3D est un STUB
 (cf ci-dessous). Éclairage : 2 directionnelles + IBL neutre.
 
+**✅ (b) FAIT (2026-06-27) — write-back avec ROTATION orientée-enfant** :
+`SolveChain_FABRIK` écrit désormais la **matrice monde complète** de chaque os =
+`Translate(pos[i]) * q.ToMat4()`, où `q = NkQuatf(restDir, dirSegment)` (rotation
+minimale from-to, ctor `NkQuat.h:168/762`). `dirSegment = normalize(pos[i+1]-pos[i])`,
+dernier os = rotation identité. La colonne translation reste `pos[i]` → DemoIK
+(qui ne lit que `.position`) est inchangé, mais l'IK produit maintenant des
+transforms utilisables par le **skinning GPU**. Compile NKRenderer OK.
+
+**✅ (d) FAIT (2026-06-27) — IK sur un VRAI squelette glTF** :
+- Nouvelle API réutilisable `EvaluateGLTFWorldJoints(data, animIdx, t, outWorld,
+  outParentJoint)` (`NkGLTFLoader.{h,cpp}`) : sort les transforms **MONDE** par
+  joint (= `globalTransform`, SANS l'inverseBind, contrairement à `EvaluateGLTFPose`)
+  + le **parent en indice de joint** (remonte la hiérarchie de nodes jusqu'au 1er
+  ancêtre qui est aussi un joint). Position monde d'un joint = colonne translation.
+- Démo `Applications/Sandbox/src/Demo/DemoIKChar.cpp` (`renderdemo --demo=15`,
+  `NK_SKIN_MODEL` override) : charge **CesiumMan** (19 joints), sélectionne
+  AUTOMATIQUEMENT un membre (plus longue chaîne feuille→racine, ici 5 os, feuille
+  joint=9, reach 0.77m), fait suivre une cible animée à l'effecteur via FABRIK
+  (le reste du squelette reste en bind pose), rend le **squelette complet en
+  debug-lines** (membre IK orange vif, reste gris, joints en sphères debug, cible
+  rouge). Vérifié fonctionnellement (log : load + extract 19 joints + chaîne 5 os
+  + Solve + 150 frames + sortie propre). Capture pixel différée (injection
+  RenderDoc HS sur cette machine — échoue AUSSI sur le démo=14 déjà validé ;
+  le render-path debug-line a déjà été validé visuellement sur DemoIK).
+
 **RESTE M0** :
 - (a') **Effecteur draggable à la souris** (actuellement cible auto-animée) :
   unprojection écran→monde du curseur. Petit.
-- (b) **Rotation orientée-enfant** à la réécriture (pour que le **skinning GPU**
-  reflète l'IK, pas juste les positions) — quaternion from-to `restDir`→`(child-self)`.
 - (c) Brancher Two-Bone + CCD pareil (FABRIK est le modèle).
-- (d) Pont avec une vraie pose glTF (CesiumMan : bras/jambe) + re-skin.
+- (d-bis) **Re-skin GPU** : réinjecter les rotations IK dans la pose de skinning
+  (recomposer `globalTransform×inverseBind` pour les joints du membre) → le MESH
+  CesiumMan se déforme réellement (pas juste le squelette). (b) fournit déjà les
+  rotations ; reste à recomposer la pose joint depuis les matrices IK + inverseBind.
 
 **✅ CHANTIER TRANSVERSE FAIT (2026-06-27) — vrai debug-line renderer** :
 `NkRender3D::FlushDebug` était un STUB ; maintenant il REND vraiment. Toute l'API

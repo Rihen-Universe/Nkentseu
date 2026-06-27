@@ -282,16 +282,27 @@ namespace nkentseu {
                 float32 err = sqrtf(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
                 if (err < chain.desc.tolerance) break;
             }
-            // M0 : reecrire les positions monde resolues dans bones[boneIdx].position.
-            // (La rotation orientee-vers-enfant pour le skinning GPU = M0.5 ; pour la
-            // demo squelette en lignes, la position resolue suffit a voir l'IK suivre.)
+            // M0 (b) : reecrire la MATRICE MONDE complete de chaque os = translation
+            // (position resolue) + rotation orientee-vers-l'enfant (restDir -> direction
+            // du segment courant). Ainsi le skinning GPU reflete l'IK (pas juste les
+            // positions). Le dernier os (effecteur) garde une rotation identite.
             for (uint32 i = 0; i < n; ++i) {
                 uint32 bi = chain.desc.bones[i].boneIdx;
-                if (bi < bones.Size()) {
-                    bones[bi].position.x = pos[i].x;
-                    bones[bi].position.y = pos[i].y;
-                    bones[bi].position.z = pos[i].z;
+                if (bi >= bones.Size()) continue;
+                NkMat4f m = NkMat4f::Translate(pos[i]);
+                if (i + 1 < n) {
+                    NkVec3f dir = { pos[i+1].x-pos[i].x, pos[i+1].y-pos[i].y, pos[i+1].z-pos[i].z };
+                    float32 dl = sqrtf(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
+                    if (dl > 1e-6f) { dir.x/=dl; dir.y/=dl; dir.z/=dl;
+                        NkVec3f rest = chain.desc.bones[i].restDir;
+                        float32 rl = sqrtf(rest.x*rest.x + rest.y*rest.y + rest.z*rest.z);
+                        if (rl > 1e-6f) { rest.x/=rl; rest.y/=rl; rest.z/=rl; }
+                        else { rest = {0.f, 1.f, 0.f}; }
+                        NkQuatf q(rest, dir);          // rotation minimale rest -> dir
+                        m = NkMat4f::Translate(pos[i]) * q.ToMat4();
+                    }
                 }
+                bones[bi] = m;
             }
         }
 
