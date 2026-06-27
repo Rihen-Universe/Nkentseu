@@ -3324,7 +3324,15 @@ namespace nkentseu {
             const bool clicked = ctx.ButtonBehavior(id, titleR, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
             const bool curOpen = (ctx.popupDepth > level && ctx.popupStack[level] == id);
             if (inBar) {
-                if (clicked) { if (curOpen) ctx.ClosePopup(); else ctx.OpenPopupLevel(id, level); }
+                // Ouverture au PRESS via test geometrique direct : ne depend PAS du
+                // survol resolu (hotIdPrev) de la frame precedente. Sinon un clic sur
+                // un titre jamais survole avant n'ouvrait pas le menu au 1er coup.
+                // On N'utilise PAS `clicked` (relachement) ici : sinon press ouvrirait
+                // et release refermerait aussitot (double bascule).
+                (void)clicked;
+                const bool pressInside = ctx.input.mouseClicked[0]
+                                       && NkGuiRectContains(titleR, ctx.input.mousePos);
+                if (pressInside) { if (curOpen) ctx.ClosePopup(); else ctx.OpenPopupLevel(id, level); }
                 else if (hov && ctx.popupDepth > 0 && ctx.popupStack[0] != id) ctx.OpenPopupLevel(id, level);
             } else {
                 if (hov || clicked) ctx.OpenPopupLevel(id, level);  // sous-menu : survol ouvre
