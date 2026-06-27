@@ -74,14 +74,25 @@ transforms utilisables par le **skinning GPU**. Compile NKRenderer OK.
   RenderDoc HS sur cette machine — échoue AUSSI sur le démo=14 déjà validé ;
   le render-path debug-line a déjà été validé visuellement sur DemoIK).
 
+**✅ (d-bis) FAIT (2026-06-27) — RE-SKIN GPU : le MESH se déforme** :
+`DemoIKChar` charge maintenant le mesh GPU skinné de CesiumMan (+ matériaux glTF
+via `BuildGLTFMaterials`, calque DemoSkin) et le **déforme** avec l'IK. Chaque
+frame : on recompose le **global** de chaque joint — joint de la chaîne = global
+IK (res) ; descendant d'un joint résolu = `delta(ancêtre) * bindGlobal(j)` avec
+`delta = resGlobal(a) * bindGlobal(a)^-1` (la main suit le poignet) ; joint non
+affecté = bind — puis `skin[j] = global[j] * inverseBind[j]` → `SubmitSkinned`
+(même chemin éprouvé que DemoSkin). `NK_IKCHAR_NOMESH=1` repasse au squelette
+seul. Vérifié : `mesh=1`, 150 frames, sortie propre. Limite connue : le write-back
+(b) oriente depuis `{0,1,0}` (pas la convention bind exacte) → léger twist près du
+membre ; fidélité d'orientation = raffinement (préserver le frame bind local).
+
 **RESTE M0** :
 - (a') **Effecteur draggable à la souris** (actuellement cible auto-animée) :
   unprojection écran→monde du curseur. Petit.
 - (c) Brancher Two-Bone + CCD pareil (FABRIK est le modèle).
-- (d-bis) **Re-skin GPU** : réinjecter les rotations IK dans la pose de skinning
-  (recomposer `globalTransform×inverseBind` pour les joints du membre) → le MESH
-  CesiumMan se déforme réellement (pas juste le squelette). (b) fournit déjà les
-  rotations ; reste à recomposer la pose joint depuis les matrices IK + inverseBind.
+- (b+) **Orientation bind-fidèle** au write-back : composer la rotation IK comme
+  un DELTA sur la rotation bind locale de l'os (au lieu de `{0,1,0}→segDir`),
+  pour supprimer le twist résiduel du membre re-skinné.
 
 **✅ CHANTIER TRANSVERSE FAIT (2026-06-27) — vrai debug-line renderer** :
 `NkRender3D::FlushDebug` était un STUB ; maintenant il REND vraiment. Toute l'API
