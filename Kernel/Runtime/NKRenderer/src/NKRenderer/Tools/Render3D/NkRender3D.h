@@ -325,7 +325,8 @@ namespace nkentseu {
                 void FlushTransparent(NkICommandBuffer* cmd);
                 void FlushInstanced  (NkICommandBuffer* cmd);
                 void FlushSkinned    (NkICommandBuffer* cmd);
-                void FlushDebug      (NkICommandBuffer* cmd);
+                void FlushDebug      (NkICommandBuffer* cmd, NkRenderPassHandle currentRP,
+                                      NkDescSetHandle gs);
                 void SortDrawCalls();
 
                 // Cree (ou recree) le pipeline PBR pour qu'il soit compatible
@@ -358,6 +359,18 @@ namespace nkentseu {
                 bool EnsureDebugTriangle(NkRenderPassHandle currentRP);
                 void DebugDrawTriangleNoIdx(NkICommandBuffer* cmd);
                 void DebugDrawTriangleIdx  (NkICommandBuffer* cmd);
+
+                // ── Debug LINE renderer (gizmos, squelettes IK, axes…) ──────────
+                // Vrai rendu des lignes accumulées (DrawDebugLine/Sphere/Grid/…),
+                // avant : FlushDebug ne faisait que gérer la durée de vie (stub).
+                // Vertex = pos vec3 + couleur vec4 (stride 28), topologie LINE_LIST,
+                // VBO dynamique réuploadé par frame, transformé par la CameraUBO.
+                ::nkentseu::NkShaderHandle mLineShader;
+                NkPipelineHandle           mLinePipeline;
+                NkRenderPassHandle         mLinePipelineRP{};
+                NkBufferHandle             mLineVBO;          // dynamique
+                uint32                     mLineVBOCapVerts = 0;
+                bool EnsureDebugLinePipeline(NkRenderPassHandle currentRP);
         };
 
     } // namespace renderer

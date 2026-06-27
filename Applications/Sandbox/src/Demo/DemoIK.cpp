@@ -153,19 +153,17 @@ namespace nkentseu { namespace demo {
                 submitSphere(P(i), (i == 0) ? 0.20f : 0.13f,
                              (i == 0) ? NkVec3f{0.2f, 1.f, 0.35f} : NkVec3f{0.25f, 0.75f, 1.f},
                              0.4f, true);
-            // Os : petites sphères réparties le long de chaque segment (trace l'os
-            // sans avoir à orienter un cylindre — suffit pour visualiser la chaîne).
-            for (uint32 i = 0; i + 1 < st->pose.Size(); ++i) {
-                NkVec3f a = P(i), b = P(i + 1);
-                for (uint32 k = 1; k <= 3; ++k) {
-                    float32 u = (float32)k / 4.f;
-                    NkVec3f m = {a.x + (b.x-a.x)*u, a.y + (b.y-a.y)*u, a.z + (b.z-a.z)*u};
-                    submitSphere(m, 0.06f, {1.f, 0.55f, 0.10f}, 0.5f, true);
-                }
-            }
             // Cible (rouge)
             submitSphere(target, 0.18f, {1.f, 0.2f, 0.2f}, 0.3f, false);
         }
+
+        // ── Os + repères via le VRAI debug-line renderer (FlushDebug) ──────────
+        // Os = lignes orange reliant les joints. Grille de sol + ligne racine→cible.
+        for (uint32 i = 0; i + 1 < st->pose.Size(); ++i)
+            r3d->DrawDebugLine(P(i), P(i + 1), {1.f, 0.55f, 0.10f, 1.f});
+        r3d->DrawDebugGrid({0, 0, 0}, 0.5f, 24, {0.32f, 0.32f, 0.40f, 1.f});
+        // ligne d'aide racine → cible (montre la portée demandée)
+        r3d->DrawDebugLine(P(0), target, {1.f, 0.2f, 0.2f, 0.5f});
 
         ctx.renderer->Present();
         ctx.renderer->EndFrame();

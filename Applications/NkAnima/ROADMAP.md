@@ -57,13 +57,18 @@ racine verte, os orange, cible rouge) — car le debug-draw NkRender3D est un ST
 - (c) Brancher Two-Bone + CCD pareil (FABRIK est le modèle).
 - (d) Pont avec une vraie pose glTF (CesiumMan : bras/jambe) + re-skin.
 
-**⚠️ CHANTIER TRANSVERSE — vrai debug-line renderer** : `NkRender3D::FlushDebug`
-est un **STUB** (`(void)cmd;` — gère juste la durée de vie, NE DESSINE RIEN). Toute
-l'API `DrawDebugLine/Sphere/Grid/Axes/...` accumule sans rendre. À IMPLÉMENTER (utile
-à TOUT le moteur + à NkAnima : squelettes, gizmos, cibles) : pipeline topologie LINE
-+ vertex buffer dynamique + shader position/couleur (MVP via camera UBO), flush dans
-la passe Geometry. Une fois fait, DemoIK et tout le reste pourront dessiner en lignes
-propres au lieu de sphères mesh.
+**✅ CHANTIER TRANSVERSE FAIT (2026-06-27) — vrai debug-line renderer** :
+`NkRender3D::FlushDebug` était un STUB ; maintenant il REND vraiment. Toute l'API
+`DrawDebugLine/Sphere/Grid/Axes/AABB/Arrow/Circle` dessine (utile à TOUT le moteur).
+Impl : shader `DebugLine` (`Resources/.../DebugLine/NkSL/debugline.{vert,frag}.nksl`,
+pos+couleur → CameraUBO.viewProj), `EnsureDebugLinePipeline` (topologie `NK_LINE_LIST`,
+vertex stride 28 = pos vec3 + color vec4, descriptor set 0 = CameraUBO), VBO dynamique
+réuploadé/frame (`VertexDynamic` + `WriteBuffer`), flush dans la passe Geometry
+(`FlushDebug(cmd, currentRP, gs)`). **Fix accumulation** : `DrawDebugLine` life<=0 =
+"une frame" → rendue PUIS purgée (avant : floor 0.016 → accumulait à haut FPS).
+DemoIK utilise désormais les vraies lignes (os + grille + ligne d'aide racine→cible).
+Validé visuellement GL (capture RenderDoc). À tester sur VK/DX (le shader NkSL est
+transpilé partout — vérifier comme pour les autres).
 - Câbler `NkIKSystem::Solve` : lire les **positions monde** des bones depuis la pose
   courante (NkAnimationSystem), résoudre vers la cible, **réécrire** rotations/positions
   dans la pose → le skinning GPU (déjà fonctionnel) reflète l'IK.

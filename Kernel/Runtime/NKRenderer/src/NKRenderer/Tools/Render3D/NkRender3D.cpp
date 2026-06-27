@@ -773,7 +773,7 @@ namespace nkentseu {
             FlushInstanced(cmd);
             FlushSkinned(cmd);
             FlushTransparent(cmd);
-            FlushDebug(cmd);
+            FlushDebug(cmd, currentRP, gs);
             mInScene=false;
 
             // NOTE : plus d'auto-avance de mFrameSlot ici. Il est desormais derive
@@ -1549,15 +1549,77 @@ namespace nkentseu {
             }
         }
 
-        void NkRender3D::FlushDebug(NkICommandBuffer* cmd) {
-            (void)cmd;
-            for (uint32 i=0;i<(uint32)mDebugLines.Size();) {
-                if (mDebugLines[i].life > 0.f) {
-                    mDebugLines[i].life -= mCtx.deltaTime;
-                    if (mDebugLines[i].life <= 0.f) { mDebugLines.RemoveAt(i); continue; }
-                } else {
-                    mDebugLines.RemoveAt(i); continue;
+        bool NkRender3D::EnsureDebugLinePipeline(NkRenderPassHandle currentRP) {
+            if (mLinePipeline.IsValid() && mLinePipelineRP == currentRP) return true;
+            if (!mShaderLib) return false;
+            if (!mLineShader.IsValid()) {
+                auto prog = mShaderLib->LoadOrCompileVF("DebugLine", "", "");
+                if (!prog.IsValid()) { logger.Errorf("[NkR3D::DebugLine] shader compile FAIL\n"); return false; }
+                mLineShader = mShaderLib->GetRHIHandle(prog);
+                if (!mLineShader.IsValid()) { logger.Errorf("[NkR3D::DebugLine] RHI handle FAIL\n"); return false; }
+            }
+            if (mLinePipeline.IsValid()) { mDevice->DestroyPipeline(mLinePipeline); mLinePipeline = {}; }
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mLineShader;
+            pd.depthStencil = NkDepthStencilDesc::Default();   // depth test ON (lignes occluses)
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.topology     = NkPrimitiveTopology::NK_LINE_LIST;
+            pd.debugName    = "DebugLine";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);   // set 0 = CameraUBO
+            // vertex : pos vec3 (off 0) + couleur vec4 (off 12), stride 28
+            pd.vertexLayout
+              .AddBinding(0, 28, false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT,  0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RGBA32_FLOAT, 12, "COLOR",    0);
+            mLinePipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mLinePipelineRP = currentRP;
+            logger.Info("[NkRender3D] DebugLine pipeline create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+                        mLineShader.IsValid() ? 1 : 0, mLinePipeline.IsValid() ? 1 : 0, currentRP.id);
+            return mLinePipeline.IsValid();
+        }
+
+        void NkRender3D::FlushDebug(NkICommandBuffer* cmd, NkRenderPassHandle currentRP,
+                                    NkDescSetHandle gs) {
+            if (mDebugLines.Empty()) return;
+
+            // ── 1. RENDU des lignes courantes ────────────────────────────────────
+            if (EnsureDebugLinePipeline(currentRP)) {
+                // Vertices : 2 par ligne (a,b) avec la couleur. Stride 28.
+                struct LV { float x, y, z, r, g, b, a; };
+                NkVector<LV> verts;
+                verts.Reserve(mDebugLines.Size() * 2);
+                for (uint32 i = 0; i < mDebugLines.Size(); ++i) {
+                    const DebugLine& l = mDebugLines[i];
+                    verts.PushBack({ l.a.x, l.a.y, l.a.z, l.color.x, l.color.y, l.color.z, l.color.w });
+                    verts.PushBack({ l.b.x, l.b.y, l.b.z, l.color.x, l.color.y, l.color.z, l.color.w });
                 }
+                const uint32 vcount = (uint32)verts.Size();
+                const uint64 bytes  = (uint64)vcount * sizeof(LV);
+
+                // (Re)créer le VBO dynamique si trop petit, puis uploader.
+                if (!mLineVBO.IsValid() || mLineVBOCapVerts < vcount) {
+                    if (mLineVBO.IsValid()) mDevice->DestroyBuffer(mLineVBO);
+                    const uint32 cap = vcount + 256;
+                    mLineVBO = mDevice->CreateBuffer(NkBufferDesc::VertexDynamic((uint64)cap * sizeof(LV)));
+                    mLineVBOCapVerts = cap;
+                }
+                mDevice->WriteBuffer(mLineVBO, verts.Data(), bytes, 0);
+
+                cmd->BindGraphicsPipeline(mLinePipeline);
+                if (gs.IsValid()) cmd->BindDescriptorSet(gs, 0);
+                cmd->BindVertexBuffer(0, mLineVBO, 0);
+                cmd->Draw(vcount);
+            }
+
+            // ── 2. PURGE (après rendu) : one-frame (life<=0) retirées ; persistantes
+            //        (life>0) décrémentées et retirées si expirées. Évite l'accumulation.
+            for (uint32 i = 0; i < (uint32)mDebugLines.Size();) {
+                if (mDebugLines[i].life <= 0.f) { mDebugLines.RemoveAt(i); continue; }
+                mDebugLines[i].life -= mCtx.deltaTime;
+                if (mDebugLines[i].life <= 0.f) { mDebugLines.RemoveAt(i); continue; }
                 i++;
             }
         }
@@ -1597,7 +1659,9 @@ namespace nkentseu {
 
         // ── Debug gizmos ─────────────────────────────────────────────────────────
         void NkRender3D::DrawDebugLine(NkVec3f a, NkVec3f b, NkVec4f color, float32 life) {
-            mDebugLines.PushBack({a,b,color,life>0?life:0.016f});
+            // life<=0 => ligne "une frame" (rendue puis purgée par FlushDebug, évite
+            // l'accumulation à haut FPS). life>0 => persiste cette durée (secondes).
+            mDebugLines.PushBack({a,b,color,life});
         }
         void NkRender3D::DrawDebugSphere(NkVec3f c, float32 r, NkVec4f color) {
             const int N=16;

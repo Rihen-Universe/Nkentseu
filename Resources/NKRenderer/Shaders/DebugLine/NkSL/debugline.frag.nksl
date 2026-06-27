@@ -1,0 +1,10 @@
+// debugline.frag.nksl — NKRenderer — Debug line renderer
+// Sortie = couleur du vertex (interpolée). Pas d'éclairage (gizmo/ligne pure).
+@location(0) in  vec4 vColor;
+@location(0) out vec4 oColor;
+
+@stage(fragment)
+@entry
+void main() {
+    oColor = vColor;
+}
