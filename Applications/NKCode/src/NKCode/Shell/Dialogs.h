@@ -62,6 +62,37 @@ namespace nkcode {
         bool    tcOpen        = false;
         float32 tcScroll      = 0.f;
         int32   tcFocus       = -1;            // champ SDK en edition
+        // Editeur d'un toolchain (ajout/modif -> jenga config toolchain add)
+        bool    tcEdit        = false;
+        int32   tcEditFocus   = 0;
+        char    teName[64] = {}, teType[24] = {}, teOs[24] = {}, teArch[24] = {}, teEnv[24] = {};
+        char    teCc[512] = {}, teCxx[512] = {}, teAr[512] = {}, teTriple[128] = {}, teSysroot[512] = {};
+        void TcEditNew() {
+            tcEdit = true; tcEditFocus = 0;
+            teName[0]=teType[0]=teOs[0]=teArch[0]=teEnv[0]=teCc[0]=teCxx[0]=teAr[0]=teTriple[0]=teSysroot[0]='\0';
+        }
+        void TcEditFrom(const NkCodeState::ToolchainRow& r) {
+            TcEditNew();
+            CopyTo(teName, r.name.CStr(), 64); CopyTo(teType, r.family.CStr(), 24);
+            CopyTo(teOs, r.os.CStr(), 24); CopyTo(teArch, r.arch.CStr(), 24); CopyTo(teEnv, r.env.CStr(), 24);
+        }
+        void TcEditSave() {
+            if (!st || !teName[0]) return;
+            // JSON au format `jenga config toolchain add`
+            NkString j; j += "{\n";
+            j += "  \"type\": \""; j += teType[0] ? teType : "clang"; j += "\",\n";
+            j += "  \"target\": { \"os\": \""; j += teOs; j += "\", \"arch\": \""; j += teArch; j += "\", \"env\": \""; j += teEnv; j += "\" },\n";
+            if (teCc[0])      { j += "  \"cc\": \"";  j += JsonEsc(teCc);  j += "\",\n"; }
+            if (teCxx[0])     { j += "  \"cxx\": \""; j += JsonEsc(teCxx); j += "\",\n"; }
+            if (teAr[0])      { j += "  \"ar\": \"";  j += JsonEsc(teAr);  j += "\",\n"; }
+            if (teTriple[0])  { j += "  \"target_triple\": \""; j += teTriple; j += "\",\n"; }
+            if (teSysroot[0]) { j += "  \"sysroot\": \""; j += JsonEsc(teSysroot); j += "\",\n"; }
+            j += "  \"cflags\": [], \"cxxflags\": [], \"ldflags\": []\n}\n";
+            if (st->ToolchainAdd(teName, j)) tcEdit = false;
+        }
+        static NkString JsonEsc(const char* s) {   // echappe les backslash pour JSON
+            NkString o; for (; s && *s; ++s) { if (*s == '\\') o += "\\\\"; else o += *s; } return o;
+        }
 
         // ── Selecteur de dossier CUSTOM (NKGui) ──
         enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf };
@@ -306,7 +337,7 @@ namespace nkcode {
         const NkGuiFont* f = ctx.font;
         if (!f || !f->Valid()) return;
         // Pompe `jenga info` (toolchains detectees + projets) meme sur le launcher.
-        if (d->st) { d->st->ScanWorkspaces(); d->st->LoadProjects(); d->st->PollProjects(); }
+        if (d->st) { d->st->ScanWorkspaces(); d->st->LoadProjects(); d->st->PollProjects(); d->st->PollConfig(); }
         auto& dl = ctx.DL();
         const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH;
         const float32 top = ctx.ItemHeight();
@@ -613,54 +644,97 @@ namespace nkcode {
         auto sbtn = [&](const NkRect& r, const char* s) -> bool { const bool hov = hit(r);
             dl.AddRectFilled(r, hov ? NkColor{ 40,46,54,255 } : NkColor{ 30,34,40,255 }, 6.f * S); dl.AddRect(r, cBorder, 1.f);
             const float32 tw = f->MeasureWidth(s); text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, cText); return hov && click; };
+        auto pbtn = [&](const NkRect& r, const char* s, bool en) -> bool { const bool hov = en && hit(r);
+            dl.AddRectFilled(r, !en ? NkColor{ 30,34,40,255 } : hov ? NkColor{ 41,133,224,255 } : cAccent, 6.f * S);
+            const float32 tw = f->MeasureWidth(s); text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, en ? NkColor{ 255,255,255,255 } : cSub); return en && hov && click; };
 
-        const float32 pw = 640.f * S, ph = 520.f * S, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+        const float32 pw = 660.f * S, ph = 540.f * S, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
         dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0,0,0,160 });
         dl.AddRectFilled({ px, py, pw, ph }, cCard, 10.f * S); dl.AddRect({ px, py, pw, ph }, cBorder, 1.5f);
-        text(px + 20.f * S, py + 16.f * S, "Toolchains detectees par Jenga", cText);
-        text(px + 20.f * S, py + 16.f * S + lh + 2.f, "Modifiez les chemins SDK ci-dessous (override via variables d'environnement).", cSub);
-
         const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
-        const NkRect area = { cx, py + 64.f * S, cwid, ph - 64.f * S - 130.f * S };
+
+        // ===== Mode EDITION d'un toolchain (ajout / modif -> jenga config) =====
+        if (d->tcEdit) {
+            text(cx, py + 16.f * S, "Ajouter / modifier un toolchain", cText);
+            text(cx, py + 16.f * S + lh + 2.f, "Enregistre via 'jenga config toolchain add' (registre global ~/.jenga).", cSub);
+            float32 y = py + 60.f * S;
+            auto field = [&](const char* lab, char* buf, int32 cap, int32 id, bool browse) {
+                text(cx, y, lab, cSub);
+                const NkRect r = { cx + 130.f * S, y - 4.f * S, cwid - 130.f * S - (browse ? 40.f * S : 0.f), 26.f * S };
+                NkOverlayTextField(ctx, dl, f, r, buf, cap, d->tcEditFocus == id);
+                if (hit(r) && click) d->tcEditFocus = id;
+                if (browse && sbtn({ cx + cwid - 34.f * S, y - 4.f * S, 34.f * S, 26.f * S }, "...")) d->BrowseInto(buf, cap, lab);
+                y += 32.f * S;
+            };
+            field("Nom",            d->teName, 64, 0, false);
+            field("Type (famille)", d->teType, 24, 1, false);   // clang/gcc/msvc/emscripten/android-ndk/apple-clang
+            field("Target OS",      d->teOs, 24, 2, false);
+            field("Architecture",   d->teArch, 24, 3, false);
+            field("Env",            d->teEnv, 24, 4, false);     // gnu/musl/msvc/mingw/android/ios
+            field("Compilateur C (cc)",   d->teCc, 512, 5, true);
+            field("Compilateur C++ (cxx)",d->teCxx, 512, 6, true);
+            field("Archiveur (ar)",       d->teAr, 512, 7, true);
+            field("Target triple",        d->teTriple, 128, 8, false);
+            field("Sysroot",              d->teSysroot, 512, 9, true);
+            if (!d->st->cfgStatus.Empty()) text(cx, py + ph - 78.f * S, d->st->cfgStatus.CStr(), cSub);
+            const float32 by = py + ph - 44.f * S;
+            if (pbtn({ px + pw - 200.f * S, by, 180.f * S, 32.f * S }, "Enregistrer", d->teName[0] != '\0')) d->TcEditSave();
+            if (sbtn({ px + pw - 290.f * S, by, 80.f * S, 32.f * S }, "Annuler")) d->tcEdit = false;
+            if (ctx.input.KeyPressed(NkGuiKey::Escape)) d->tcEdit = false;
+            return;
+        }
+
+        // ===== Liste des toolchains detectees + actions =====
+        text(cx, py + 16.f * S, "Toolchains detectees par Jenga", cText);
+        if (sbtn({ px + pw - 200.f * S, py + 14.f * S, 180.f * S, 26.f * S }, "+ Ajouter un toolchain")) { d->TcEditNew(); return; }
+        text(cx, py + 16.f * S + lh + 2.f, "Modifier/Supprimer un toolchain (registre Jenga) ou editer les chemins SDK.", cSub);
+
+        const NkRect area = { cx, py + 64.f * S, cwid, ph - 64.f * S - 150.f * S };
         dl.AddRectFilled(area, NkColor{ 16,18,22,255 }, 6.f * S); dl.AddRect(area, cBorder, 1.f);
         if (hit(area) && ctx.input.wheel != 0.f) { d->tcScroll -= ctx.input.wheel * 34.f; ctx.input.wheel = 0.f; }
         dl.PushClipRect(area, true);
         float32 ly = area.y + 8.f * S - d->tcScroll;
-        // entete colonnes
-        text(area.x + 12.f * S, ly, "Nom", cSub); text(area.x + 200.f * S, ly, "Famille", cSub);
-        text(area.x + 320.f * S, ly, "Cible", cSub); text(area.x + 500.f * S, ly, "Env", cSub); ly += 26.f * S;
+        text(area.x + 12.f * S, ly, "Nom", cSub); text(area.x + 180.f * S, ly, "Famille", cSub);
+        text(area.x + 290.f * S, ly, "Cible", cSub); text(area.x + 440.f * S, ly, "Env", cSub); ly += 26.f * S;
+        int32 doRemove = -1, doEdit = -1;
         for (usize i = 0; d->st && i < d->st->toolchains.Size(); ++i) {
             const NkCodeState::ToolchainRow& t = d->st->toolchains[i];
+            const NkRect row = { area.x + 4.f * S, ly - 2.f * S, area.w - 8.f * S, 26.f * S };
+            if (NkGuiRectContains(row, mp) && hit(area)) dl.AddRectFilled(row, NkColor{ 30,34,40,255 }, 4.f * S);
             text(area.x + 12.f * S, ly, t.name.CStr(), cText);
-            text(area.x + 200.f * S, ly, t.family.CStr(), cSub);
+            text(area.x + 180.f * S, ly, t.family.CStr(), cSub);
             char tgt[64]; std::snprintf(tgt, sizeof(tgt), "%s/%s", t.os.CStr(), t.arch.CStr());
-            text(area.x + 320.f * S, ly, tgt, cSub);
-            text(area.x + 500.f * S, ly, t.env.CStr(), cSub);
-            ly += 24.f * S;
+            text(area.x + 290.f * S, ly, tgt, cSub);
+            text(area.x + 440.f * S, ly, t.env.CStr(), cSub);
+            const NkRect bE = { area.x + area.w - 120.f * S, ly - 2.f * S, 56.f * S, 22.f * S };
+            const NkRect bR = { area.x + area.w - 58.f * S,  ly - 2.f * S, 50.f * S, 22.f * S };
+            if (hit(area)) { if (sbtn(bE, "Modifier")) doEdit = (int32)i; if (sbtn(bR, "Suppr.")) doRemove = (int32)i; }
+            ly += 28.f * S;
         }
         const float32 contentH = (ly + d->tcScroll) - (area.y + 8.f * S);
         dl.PopClipRect();
         const float32 maxS = contentH - area.h > 0.f ? contentH - area.h : 0.f;
         if (d->tcScroll < 0.f) d->tcScroll = 0.f; if (d->tcScroll > maxS) d->tcScroll = maxS;
+        if (doEdit >= 0)   { d->TcEditFrom(d->st->toolchains[doEdit]); return; }
+        if (doRemove >= 0) { d->st->ToolchainRemove(d->st->toolchains[doRemove].name.CStr()); return; }
 
-        // Chemins SDK editables (Android NDK/SDK, JDK, Harmony, GDK)
+        // Chemins SDK editables (override via environnement)
+        text(cx, area.y + area.h + 8.f * S, "Chemins SDK (override) :", cSub);
         struct PF { const char* lab; char* buf; int32 id; };
-        const PF pfs[] = {
-            { "Android SDK", d->androidSdk, 0 }, { "Android NDK", d->androidNdk, 1 }, { "Java JDK", d->javaJdk, 2 },
-            { "HarmonyOS SDK", d->harmonySdk, 3 }, { "Xbox GDK", d->gdkPath, 4 },
-        };
-        const float32 yy = area.y + area.h + 10.f * S, colA = cx, colB = cx + cwid * 0.5f + 8.f * S;
-        for (int32 i = 0; i < 5; ++i) {
+        const PF pfs[] = { { "Android NDK", d->androidNdk, 1 }, { "Java JDK", d->javaJdk, 2 }, { "HarmonyOS", d->harmonySdk, 3 }, { "Xbox GDK", d->gdkPath, 4 } };
+        const float32 yy = area.y + area.h + 30.f * S, colA = cx, colB = cx + cwid * 0.5f + 8.f * S;
+        for (int32 i = 0; i < 4; ++i) {
             const float32 bx = (i % 2 == 0) ? colA : colB; const float32 bw = cwid * 0.5f - 8.f * S;
-            const float32 ry = yy + (i / 2) * 26.f * S;
+            const float32 ry = yy + (i / 2) * 28.f * S;
             text(bx, ry, pfs[i].lab, cSub);
-            const NkRect r = { bx + 96.f * S, ry - 4.f * S, bw - 130.f * S, 24.f * S };
+            const NkRect r = { bx + 90.f * S, ry - 4.f * S, bw - 124.f * S, 24.f * S };
             NkOverlayTextField(ctx, dl, f, r, pfs[i].buf, 512, d->tcFocus == pfs[i].id);
             if (hit(r) && click) d->tcFocus = pfs[i].id;
             if (sbtn({ bx + bw - 30.f * S, ry - 4.f * S, 30.f * S, 24.f * S }, "...")) d->BrowseInto(pfs[i].buf, 512, pfs[i].lab);
         }
 
         const float32 by = py + ph - 44.f * S;
+        if (!d->st->cfgStatus.Empty()) text(cx, by - 22.f * S, d->st->cfgStatus.CStr(), cSub);
         if (sbtn({ px + 20.f * S, by, 200.f * S, 32.f * S }, "Rafraichir la detection")) { if (d->st) d->st->RequestReload(); }
         if (sbtn({ px + pw - 110.f * S, by, 90.f * S, 32.f * S }, "Fermer")) { d->tcOpen = false; }
         if (ctx.input.KeyPressed(NkGuiKey::Escape)) d->tcOpen = false;

@@ -124,6 +124,40 @@ namespace nkcode {
         }
 
         NkProcess mBuild;   // build ASYNCHRONE (ne gele pas l'UI)
+        NkProcess mCfg;     // commandes `jenga config ...` (toolchains)
+        bool      mCfgPending = false;
+        NkString  cfgStatus;
+
+        // Lance une commande `jenga config ...` (ex. toolchain add/remove) puis,
+        // a la fin, force la re-detection des toolchains (RequestReload).
+        void RunConfig(const NkString& args) {
+            if (mCfg.Running()) return;
+            cfgStatus = NkString("jenga ") + args.CStr();
+            mCfg.Start(cfgStatus);
+            mCfgPending = true;
+        }
+        void PollConfig() {
+            if (!mCfgPending) return;
+            NkVector<NkString> sink; mCfg.Drain(sink);
+            if (!mCfg.Running()) {
+                mCfgPending = false;
+                cfgStatus = (mCfg.ExitCode() == 0) ? NkString("Toolchain : OK") : NkString("Toolchain : echec");
+                RequestReload();   // re-detecte les toolchains (jenga info)
+            }
+        }
+        // Ecrit un fichier JSON de toolchain (format `jenga config toolchain add`)
+        // dans le home, puis lance l'ajout. Retourne false si nom vide.
+        bool ToolchainAdd(const char* name, const NkString& json) {
+            if (!name || !*name) return false;
+            const char* home = std::getenv("USERPROFILE"); if (!home || !*home) home = std::getenv("HOME");
+            NkString jp = (home && *home) ? (NkString(home) + "/.nkcode_tc_tmp.json") : NkString("nkcode_tc_tmp.json");
+            if (!NkFile::WriteAllText(NkPath(jp.CStr()), json)) return false;
+            RunConfig(NkString("config toolchain add ") + name + " \"" + jp.CStr() + "\"");
+            return true;
+        }
+        void ToolchainRemove(const char* name) {
+            if (name && *name) RunConfig(NkString("config toolchain remove ") + name);
+        }
 
         // Lance `jenga <args>` en arriere-plan ; la sortie arrive via PollBuild().
         void StartJenga(const char* args) {
