@@ -137,12 +137,13 @@ namespace nkentseu {
             mBackend.Init(mRenderTarget->GetRenderer());
 
             // ── DEUX polices distinctes (comme VSCode) ───────────────────────────
-            // INTERFACE (proportionnelle) : Karla (OFL, libre) -> DroidSans -> ProggyClean.
-            //   Sera remplacee par Inter des qu'embarquee (Resources/Fonts/newfonts).
+            // INTERFACE (proportionnelle) : Inter (OFL, proche Segoe UI) -> Karla ->
+            //   DroidSans -> ProggyClean.
             // CODE/TERMINAL (monospace) : DejaVu Sans Mono = couverture Unicode LARGE
             //   (accents, latin etendu, grec, cyrillique, box-drawing, fleches) -> Cousine.
             // Atlas SEPARES => texId distincts (le backend resout chacun par son texId).
-            mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f);
+            mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Inter, 16.f);
+            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::DroidSans, 16.f);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f);
             mUI.font = &mFont;

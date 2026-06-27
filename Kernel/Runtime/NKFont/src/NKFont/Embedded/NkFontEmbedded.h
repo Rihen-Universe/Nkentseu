@@ -66,7 +66,10 @@ namespace nkentseu {
         // ── Monospace large couverture Unicode ────────────────────────────────
         DejaVuSansMono = 8,  ///< Monospace + box-drawing + grec/cyrillique (Bitstream Vera).
 
-        Count          = 9,
+        // ── Interface (proportionnelle, moderne) ──────────────────────────────
+        Inter          = 9,  ///< Sans-serif d'interface (OFL) — proche de Segoe UI.
+
+        Count          = 10,
         Default        = ProggyClean, ///< Police par défaut du système.
     };
 

@@ -20260,6 +20260,7 @@ namespace nkentseu {
     // ============================================================
 
 #include "NKFont/Embedded/DejaVuSansMono_data.h"   // donnees DejaVu Sans Mono (monospace + Unicode large)
+#include "NKFont/Embedded/Inter_data.h"             // donnees Inter (interface proportionnelle, OFL)
 
     static const NkEmbeddedFontData sRegistry[(nkft_uint32)NkEmbeddedFontId::Count] = {
         // ProggyClean — bitmap 13px
@@ -20359,6 +20360,16 @@ namespace nkentseu {
             NkFontKind::Vector,
             0.f,
             "Bitstream Vera / Public Domain"
+        },
+        // Inter — sans-serif d'interface moderne (proche Segoe UI), licence OFL.
+        {
+            "Inter",
+            sInterCompressedData,
+            sInterCompressedSize,
+            sInterOriginalSize,
+            NkFontKind::Vector,
+            0.f,
+            "SIL Open Font License 1.1"
         },
     };
 
