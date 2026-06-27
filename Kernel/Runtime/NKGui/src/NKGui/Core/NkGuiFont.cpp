@@ -38,11 +38,39 @@ namespace nkentseu {
             return kRanges;
         }
 
+        // Plages couvertes par la police de REPLI (Noto Sans) : large, au-dela de ce
+        // que les polices principales contiennent. La de-duplication (1re police =
+        // gagnante) garantit que le repli ne sert QUE pour les glyphes manquants.
+        static const uint32* NkFallbackRanges() noexcept {
+            static const uint32 kFb[] = {
+                0x0020, 0x024F,   // Latin (repli des manquants)
+                0x0250, 0x02FF,   // API + modificateurs
+                0x0300, 0x036F,   // diacritiques
+                0x0370, 0x052F,   // grec + cyrillique (+ supplement)
+                0x0590, 0x05FF,   // hebreu
+                0x0600, 0x06FF,   // arabe
+                0x1E00, 0x1EFF,   // latin etendu additionnel (vietnamien...)
+                0x1F00, 0x1FFF,   // grec etendu
+                0x2000, 0x2BFF,   // ponctuation, symboles, fleches, math, dingbats...
+                0xFB00, 0xFB4F,   // ligatures + presentation hebreu/arabe
+                0
+            };
+            return kFb;
+        }
+
+        // Fusionne la police de repli (si embarquee) pour combler les glyphes manquants.
+        static void NkMergeFallback(NkFontAtlas& atlas, float32 sizePx) noexcept {
+            if (!NkFontEmbedded::IsAvailable(NkEmbeddedFontId::NotoSans)) return;
+            NkFontConfig fb; fb.glyphRanges = NkFallbackRanges(); fb.mergeMode = true;
+            NkFontEmbedded::AddToAtlas(atlas, NkEmbeddedFontId::NotoSans, sizePx, &fb);
+        }
+
         bool NkGuiFont::LoadEmbedded(NkEmbeddedFontId id, float32 sizePx) noexcept {
             atlas.Clear(); face = nullptr; pixels = nullptr;   // rechargeable
             NkFontConfig cfg; cfg.glyphRanges = NkGlyphRanges();
             face = NkFontEmbedded::AddToAtlas(atlas, id, sizePx, &cfg);
             if (!face) return false;
+            NkMergeFallback(atlas, sizePx);            // repli pour les glyphes manquants
             if (!atlas.Build()) return false;
             int32 bpp = 0;
             atlas.GetTexDataAsAlpha8(&pixels, &atlasW, &atlasH, &bpp);
@@ -56,6 +84,7 @@ namespace nkentseu {
             NkFontConfig cfg; cfg.glyphRanges = NkGlyphRanges();
             face = atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &cfg);
             if (!face) return false;
+            NkMergeFallback(atlas, sizePx > 0.f ? sizePx : 16.f);
             if (!atlas.Build()) return false;
             int32 bpp = 0;
             atlas.GetTexDataAsAlpha8(&pixels, &atlasW, &atlasH, &bpp);

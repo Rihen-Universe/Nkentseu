@@ -20371,6 +20371,16 @@ namespace nkentseu {
             0.f,
             "SIL Open Font License 1.1"
         },
+        // NotoSans — police de REPLI large couverture (donnees a integrer via
+        // EmbedFont.py). Tant que compressedData == nullptr, IsAvailable() = false
+        // et le fallback est simplement ignore (no-op).
+        {
+            "NotoSans",
+            nullptr, 0, 0,
+            NkFontKind::Vector,
+            0.f,
+            "SIL Open Font License 1.1"
+        },
     };
 
     // ============================================================
