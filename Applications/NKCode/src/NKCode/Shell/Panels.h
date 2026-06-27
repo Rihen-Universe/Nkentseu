@@ -6,6 +6,7 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKCode/Project/NkCodeState.h"
+#include "NKCode/Project/NkLogSink.h"
 
 namespace nkcode {
 
@@ -206,19 +207,44 @@ namespace nkcode {
         NkEditorShell* mShell;
     };
 
-    // ── Sortie : resultat du build jenga (ASYNCHRONE : la sortie arrive en flux). ──
+    // ── OUTPUT : VRAI affichage NKLogger (logs du moteur) + sortie du build jenga.
+    //    Draine le tampon de logs partage, colore par niveau, suit le bas. ──
     class OutputPanel : public NkEditorPanel {
     public:
         explicit OutputPanel(NkCodeState* s)
             : NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s) {}
         void OnUI(NkEditorFrameContext& ec) override {
-            mS->PollBuild();   // recupere la sortie du build de fond, sans geler l'UI
-            if (!mS->status.Empty()) { ec.Text(mS->status.CStr()); ec.Separator(); }
-            if (mS->output.Empty()) { ec.Text("(Ctrl+B : construire le projet via jenga)"); return; }
-            for (usize i = 0; i < mS->output.Size(); ++i) ec.Text(mS->output[i].CStr());
+            auto& ctx = ec.Ui();
+            mS->PollBuild();                      // tient le statut de build a jour
+            GlobalLogBuffer().Drain(mLogs);       // recupere les nouveaux logs NKLogger
+            for (usize i = 0; i < mS->output.Size(); ++i) mLogs.PushBack(mS->output[i]);  // + sortie build
+            mS->output.Clear();
+            while (mLogs.Size() > 5000) mLogs.Erase(mLogs.Begin());   // borne
+
+            ctx.DL().AddRectFilled(ctx.DL().CurrentClip(), NkColor{ 13, 17, 23, 255 });   // fond #0D1117
+            if (mLogs.Empty()) { ec.Text("(logs NKLogger — le moteur ecrit ici)"); return; }
+
+            // Affiche la QUEUE (dernieres lignes qui tiennent dans la zone visible).
+            const NkRect  clip  = ctx.DL().CurrentClip();
+            const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+            const int32   fit   = (lineH > 1.f) ? static_cast<int32>(clip.h / lineH) : 20;
+            int32 start = static_cast<int32>(mLogs.Size()) - fit; if (start < 0) start = 0;
+            for (int32 i = start; i < static_cast<int32>(mLogs.Size()); ++i)
+                TermText(ctx, mLogs[i].CStr(), LogColor(mLogs[i].CStr()));
         }
     private:
-        NkCodeState* mS;
+        // Couleur par niveau (prefixe "[LEVEL]").
+        static NkColor LogColor(const char* s) {
+            if (s[0] == '[') {
+                const char* l = s + 1;
+                if (l[0] == 'E' || l[0] == 'C' || l[0] == 'F') return { 248,  81,  73, 255 };  // Error/Crit/Fatal
+                if (l[0] == 'W')                                return { 210, 153,  34, 255 };  // Warn
+                if (l[0] == 'D' || l[0] == 'T')                 return { 110, 118, 129, 255 };  // Debug/Trace
+            }
+            return { 204, 204, 204, 255 };   // Info/defaut
+        }
+        NkCodeState*       mS;
+        NkVector<NkString> mLogs;
     };
 
     // ── Terminal MULTI-SHELL facon VSCode : plusieurs terminaux internes

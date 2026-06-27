@@ -10,6 +10,7 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "NKCode/Shell/Panels.h"
 #include "NKCode/Shell/Toolbar.h"
+#include "NKCode/Project/NkLogSink.h"
 
 using namespace nkentseu;
 using namespace nkentseu::editorkit;
@@ -43,6 +44,8 @@ static void ToolbarThunk(NkEditorFrameContext& ec, void* u) {
 
 int nkmain(const NkEntryState& state) {
     (void)state;
+
+    nkcode::InstallLogSink();   // capture les logs NKLogger -> panneau OUTPUT
 
     auto shell = memory::NkMakeUnique<NkEditorShell>();
     NkEditorShellConfig cfg;
