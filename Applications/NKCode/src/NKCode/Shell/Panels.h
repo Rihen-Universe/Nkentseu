@@ -408,16 +408,16 @@ namespace nkcode {
             int16 rows = static_cast<int16>(viewH / lineH); if (rows < 1) rows = 1; if (rows > 300) rows = 300;
             if (t.started && (cols != t.screen.Cols() || rows != t.screen.Rows())) { t.screen.Resize(cols, rows); t.pty.Resize(cols, rows); }
 
-            const float32 topPad = lineH, botPad = lineH;
+            const float32 topPad = lineH;
             const int32   total = static_cast<int32>(t.screen.TotalLines());
-            const float32 contentH = total * lineH + topPad + botPad;
-            const float32 maxSY = contentH > viewH ? contentH - viewH : 0.f;
-            const float32 maxSX = 0.f;   // contenu cale sur cols -> pas de defilement horizontal
-            // « Coller au bas » = afficher l'ECRAN (les rows dernieres lignes) epingle :
-            // la 1re ligne d'ecran (= scrollback) en haut. PAS maxSY (qui scrollerait au
-            // -dela de l'ecran et cacherait le prompt/curseur).
+            const float32 contentH = total * lineH + topPad;
+            // « Coller au bas » = afficher l'ECRAN (les rows dernieres lignes) epingle.
+            // On ne defile QUE dans le scrollback : borne basse = followY. Pas de marge
+            // basse over-scrollable -> evite le va-et-vient (clignotement) au scroll bas.
             float32 followY = static_cast<float32>(total - t.screen.Rows()) * lineH;
-            if (followY < 0.f) followY = 0.f; if (followY > maxSY) followY = maxSY;
+            if (followY < 0.f) followY = 0.f;
+            const float32 maxSY = followY;   // on ne descend pas en dessous de l'ecran
+            const float32 maxSX = 0.f;       // contenu cale sur cols -> pas de defilement H
 
             if (in(out)) {
                 if (ctx.input.wheel != 0.f) { t.scrollY -= ctx.input.wheel * lineH * 3.f; ctx.input.wheel = 0.f; t.follow = false; }

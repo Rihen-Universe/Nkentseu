@@ -208,6 +208,7 @@ namespace nkcode {
 
     // ── Focus clavier global (un seul editeur actif a la fois) ────────────────
     inline NkGuiId& NkCodeFocusId() { static NkGuiId id = NKGUI_ID_NONE; return id; }
+    inline NkCtxMenu& NkCodeCtxMenu() { static NkCtxMenu mn; return mn; }   // menu clic droit (partage)
 
     namespace detail {
         inline bool InRect(const NkRect& r, const NkVec2& p) {
@@ -320,6 +321,10 @@ namespace nkcode {
             int32 l = static_cast<int32>((mouse.y - textTop + d.scrollY) / lineH);
             if (l < 0) l = 0; if (l >= d.LineCount()) l = d.LineCount() - 1;
             d.curLine = l; d.curCol = ColAtX(ctx, d, l, mouse.x - textLeft + d.scrollX);
+        }
+        // Clic DROIT dans la zone texte : focus + menu contextuel Copier/Couper/Coller.
+        if (ctx.input.mouseClicked[2] && overText) {
+            NkCodeFocusId() = id; NkCodeCtxMenu().open = true; NkCodeCtxMenu().pos = mouse;
         }
         // Clic hors zone texte mais hors editeur : perd le focus.
         if (ctx.input.mouseClicked[0] && !hover && focused) NkCodeFocusId() = NKGUI_ID_NONE;
@@ -536,6 +541,16 @@ namespace nkcode {
 
         // Cadre de l'editeur (bordure permanente) + accent si focus.
         dl.AddRect(area, focused ? kBorder : NkColor{ 33, 39, 48, 255 }, 1.f);
+
+        // ── Menu contextuel (clic droit) Copier / Couper / Coller ── (editeur focus)
+        if (focused && NkCodeCtxMenu().open) {
+            const char* items[] = { "Copier", "Couper", "Coller" };
+            const bool  en[]    = { d.HasSel(), d.HasSel(), true };
+            const int32 act = NkCtxMenuDraw(ctx, NkCodeCtxMenu(), items, en, 3);
+            if (act == 0 && d.HasSel()) ctx.SetClipboard(d.GetSelectedText().CStr());
+            else if (act == 1 && d.HasSel()) { ctx.SetClipboard(d.GetSelectedText().CStr()); d.EraseSelection(); changed = true; }
+            else if (act == 2) { const NkString clip = ctx.GetClipboard(); if (!clip.Empty()) { d.InsertText(clip.CStr()); changed = true; } }
+        }
 
         if (changed) d.dirty = true;
         return changed;
