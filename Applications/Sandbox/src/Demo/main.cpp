@@ -49,6 +49,7 @@ namespace nkentseu { namespace demo {
     bool Demo11_FPSArena_Init            (DemoCtx&); void Demo11_FPSArena_Frame            (DemoCtx&, float32); void Demo11_FPSArena_Shutdown            (DemoCtx&);
     bool DemoGLTF_Init                   (DemoCtx&); void DemoGLTF_Frame                   (DemoCtx&, float32); void DemoGLTF_Shutdown                   (DemoCtx&);
     bool DemoSkin_Init                   (DemoCtx&); void DemoSkin_Frame                   (DemoCtx&, float32); void DemoSkin_Shutdown                   (DemoCtx&);
+    bool DemoIK_Init                     (DemoCtx&); void DemoIK_Frame                     (DemoCtx&, float32); void DemoIK_Shutdown                     (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -87,6 +88,9 @@ namespace nkentseu { namespace demo {
         // via EvaluateGLTFPose + SubmitSkinned, vertex shader skin LBS).
         { "Skin",       "DemoSkin : skinning GPU glTF (SimpleSkin se plie, anime)",
             DemoSkin_Init, DemoSkin_Frame, DemoSkin_Shutdown },
+        // DemoIK : NkAnima M0 — IK FABRIK temps reel (chaine d'os suit une cible animee).
+        { "IK",         "DemoIK : NkAnima M0 — IK FABRIK (chaine suit une cible, squelette debug)",
+            DemoIK_Init, DemoIK_Frame, DemoIK_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -248,6 +252,22 @@ namespace nkentseu { namespace demo {
                 c.ibl.iblStrength = 0.40f;
                 return c;
             }
+            case 13: {
+                // DemoIK (NkAnima M0) : squelette IK en sphères PBR. Config Game
+                // minimale + IBL neutre clair (ambient de remplissage = scène bien
+                // éclairée, sinon tout est noir).
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.postProcess.bloom   = false;
+                c.postProcess.ssao    = false;
+                c.postProcess.ssr     = false;
+                c.ibl.drawSkybox      = true;   // fond gradient visible (repère)
+                c.ibl.skyTop      = {0.55f, 0.62f, 0.78f};
+                c.ibl.horizon     = {0.62f, 0.64f, 0.68f};
+                c.ibl.ground      = {0.30f, 0.30f, 0.34f};
+                c.ibl.iblStrength = 0.85f;
+                return c;
+            }
             default: return NkRendererConfig::ForGame(api, w, h);
         }
     }
@@ -274,6 +294,7 @@ int nkmain(const NkEntryState& state) {
     if (demoIx == 11) demoIx = 10;  // Demo11 FPSArena -> kDemos[10]
     if (demoIx == 12) demoIx = 11;  // DemoGLTF       -> kDemos[11]
     if (demoIx == 13) demoIx = 12;  // DemoSkin       -> kDemos[12]
+    if (demoIx == 14) demoIx = 13;  // DemoIK         -> kDemos[13]
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 

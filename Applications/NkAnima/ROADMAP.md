@@ -42,14 +42,28 @@ compile NKRenderer OK) :
   la pose si absentes, **réécrit** les positions résolues dans `bones[boneIdx].position`.
   (L'algo forward/backward FABRIK était déjà correct.)
 
+**✅ DÉMO M0a FAITE (2026-06-27)** — `Applications/Sandbox/src/Demo/DemoIK.cpp`
+(`renderdemo --demo=14`). Chaîne 5 os procédurale, cible **animée** (lemniscate),
+FABRIK temps réel : la chaîne se plie et l'effecteur ATTEINT la cible. Validé
+visuellement (capture RenderDoc thumb). Rendu en **sphères mesh PBR** (joints cyan,
+racine verte, os orange, cible rouge) — car le debug-draw NkRender3D est un STUB
+(cf ci-dessous). Éclairage : 2 directionnelles + IBL neutre.
+
 **RESTE M0** :
-- (a) **Démo interactive** Sandbox : chaîne N-os procédurale + **effecteur 3D
-  draggable** + FABRIK temps réel + rendu squelette (lignes/joints via
-  `NkAnimationSystem::DrawSkeleton` ou lignes directes). = la 1re preuve visible.
+- (a') **Effecteur draggable à la souris** (actuellement cible auto-animée) :
+  unprojection écran→monde du curseur. Petit.
 - (b) **Rotation orientée-enfant** à la réécriture (pour que le **skinning GPU**
   reflète l'IK, pas juste les positions) — quaternion from-to `restDir`→`(child-self)`.
 - (c) Brancher Two-Bone + CCD pareil (FABRIK est le modèle).
 - (d) Pont avec une vraie pose glTF (CesiumMan : bras/jambe) + re-skin.
+
+**⚠️ CHANTIER TRANSVERSE — vrai debug-line renderer** : `NkRender3D::FlushDebug`
+est un **STUB** (`(void)cmd;` — gère juste la durée de vie, NE DESSINE RIEN). Toute
+l'API `DrawDebugLine/Sphere/Grid/Axes/...` accumule sans rendre. À IMPLÉMENTER (utile
+à TOUT le moteur + à NkAnima : squelettes, gizmos, cibles) : pipeline topologie LINE
++ vertex buffer dynamique + shader position/couleur (MVP via camera UBO), flush dans
+la passe Geometry. Une fois fait, DemoIK et tout le reste pourront dessiner en lignes
+propres au lieu de sphères mesh.
 - Câbler `NkIKSystem::Solve` : lire les **positions monde** des bones depuis la pose
   courante (NkAnimationSystem), résoudre vers la cible, **réécrire** rotations/positions
   dans la pose → le skinning GPU (déjà fonctionnel) reflète l'IK.
