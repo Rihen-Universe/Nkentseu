@@ -119,7 +119,8 @@ namespace nkentseu {
             NkGuiDrawList dl;               ///< couche principale (rendue en 1er)
             NkGuiDrawList dlOverlay;        ///< couche popups/overlay (rendue PAR-DESSUS)
             NkGuiLayout   layout;
-            NkGuiFont*    font = nullptr;   ///< police par défaut (posée par l'app)
+            NkGuiFont*    font     = nullptr;   ///< police d'interface par défaut (posée par l'app)
+            NkGuiFont*    codeFont = nullptr;   ///< police monospace pour le code/terminal (optionnelle ; sinon = font)
 
             // PILE de popups ouverts (chaîne menu → sous-menu → sous-sous-menu…).
             // `curPopupLevel` = niveau en cours de DESSIN (-1 = couche principale) ;

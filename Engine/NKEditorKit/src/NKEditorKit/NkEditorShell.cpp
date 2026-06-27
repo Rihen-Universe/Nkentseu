@@ -136,14 +136,27 @@ namespace nkentseu {
 
             mBackend.Init(mRenderTarget->GetRenderer());
 
-            // DejaVu Sans Mono = MONOSPACE + couverture Unicode LARGE (accents, latin
-            // etendu, grec, cyrillique, box-drawing, fleches...) -> ideal editeur/terminal.
-            // Repli DroidSans (+ box-drawing dessine en primitives) puis ProggyClean.
-            mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, 15.f);
+            // ── DEUX polices distinctes (comme VSCode) ───────────────────────────
+            // INTERFACE (proportionnelle) : Karla (OFL, libre) -> DroidSans -> ProggyClean.
+            //   Sera remplacee par Inter des qu'embarquee (Resources/Fonts/newfonts).
+            // CODE/TERMINAL (monospace) : DejaVu Sans Mono = couverture Unicode LARGE
+            //   (accents, latin etendu, grec, cyrillique, box-drawing, fleches) -> Cousine.
+            // Atlas SEPARES => texId distincts (le backend resout chacun par son texId).
+            mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::DroidSans, 16.f);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f);
             mUI.font = &mFont;
             if (mFontOk) mBackend.UploadFontGray8(mFont.TexId(), mFont.pixels, mFont.atlasW, mFont.atlasH);
+
+            mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
+            bool codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, 15.f);
+            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f);
+            if (codeOk) {
+                mBackend.UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH);
+                mUI.codeFont = &mCodeFont;          // editeur/terminal basculent dessus
+            } else {
+                mUI.codeFont = &mFont;              // repli : meme police partout
+            }
 
             mUI.windowDockingEnabled = true;   // fusion de fenetres flottantes (opt-in)
 

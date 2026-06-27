@@ -23,6 +23,17 @@ namespace nkcode {
         ++p; return 0xFFFDu;
     }
 
+    // Bascule ctx.font sur la police de CODE (monospace) le temps d'un scope, puis
+    // restaure la police d'interface. Utilise par l'editeur et le terminal pour que
+    // tout (metriques + rendu via NkDrawTextU) emploie la police monospace.
+    struct NkCodeFontScope {
+        NkGuiContext& c; NkGuiFont* prev;
+        explicit NkCodeFontScope(NkGuiContext& ctx) : c(ctx), prev(ctx.font) {
+            if (ctx.codeFont && ctx.codeFont->Valid()) ctx.font = ctx.codeFont;
+        }
+        ~NkCodeFontScope() { c.font = prev; }
+    };
+
     inline bool NkIsDrawable(uint32 cp) {
         return (cp >= 0x2500u && cp <= 0x25FFu) || (cp >= 0x2190u && cp <= 0x2193u);
     }

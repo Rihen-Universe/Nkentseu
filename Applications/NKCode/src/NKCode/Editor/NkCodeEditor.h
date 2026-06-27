@@ -241,6 +241,7 @@ namespace nkcode {
     inline bool CodeEditor(NkGuiContext& ctx, const char* idStr, NkCodeDoc& d, const NkRect& area,
                            NkLang lang = NkLang::None) {
         using namespace detail;
+        NkCodeFontScope _cfs(ctx);   // tout l'editeur dessine avec la police monospace (code)
         if (!ctx.font || !ctx.font->Face()) return false;
         d.EnsureNonEmpty();
 
@@ -301,7 +302,9 @@ namespace nkcode {
         }
 
         // Clic dans la zone texte : focus + place le curseur (+ selection si Shift) + drag.
-        const bool overText = InRect(textArea, mouse);
+        // Ignore si un popup (ex. combo ouvert vers le haut) recouvre l'editeur -> sinon
+        // le clic sur le popup volerait le focus a l'editeur.
+        const bool overText = InRect(textArea, mouse) && ctx.popupDepth == 0;
         if (ctx.input.mouseClicked[0] && overText) {
             NkCodeFocusId() = id;
             ctx.activeId = dragId;

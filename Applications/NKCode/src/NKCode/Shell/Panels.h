@@ -289,6 +289,10 @@ namespace nkcode {
             const NkRect  listR = { clip.x + clip.w - listW, clip.y, listW, clip.h };
             DrawTermList(ctx, listR);
 
+            // A partir d'ici : police MONOSPACE (sortie + saisie). La liste des
+            // terminaux ci-dessus reste en police d'interface.
+            NkCodeFontScope _cfs(ctx);
+
             // Mesure incrementale de la ligne la plus longue (barre H stable).
             if (ctx.font && ctx.font->Valid())
                 while (t.measured < t.lines.Size()) {

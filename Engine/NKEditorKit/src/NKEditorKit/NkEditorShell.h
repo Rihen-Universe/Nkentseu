@@ -113,7 +113,8 @@ namespace nkentseu {
 
             // === NKGui (contexte + police possedee) ===
             nkgui::NkGuiContext mUI;
-            nkgui::NkGuiFont    mFont;
+            nkgui::NkGuiFont    mFont;       ///< police d'interface (Karla/Inter)
+            nkgui::NkGuiFont    mCodeFont;   ///< police monospace code/terminal (DejaVu)
             bool                mFontOk = false;
 
             // === Panneaux / commandes ===

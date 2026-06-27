@@ -23,7 +23,8 @@ namespace nkentseu {
         public:
             ~NkGuiCanvasBackend() {
                 auto& alloc = nkentseu::memory::NkGetDefaultAllocator();
-                if (mFontTex) { alloc.Delete(mFontTex); mFontTex = nullptr; }
+                for (nkentseu::uint32 i = 0; i < mFonts.Size(); ++i)
+                    if (mFonts[i].tex) alloc.Delete(mFonts[i].tex);
                 for (nkentseu::uint32 i = 0; i < mImages.Size(); ++i)
                     if (mImages[i].tex) alloc.Delete(mImages[i].tex);
             }
@@ -50,21 +51,28 @@ namespace nkentseu {
                     d[i * 4u + 3u] = gray[i];
                 }
 
+                // Cherche l'atlas de police existant pour ce texId (UI, code, ...).
+                FontTex* ft = nullptr;
+                for (uint32 i = 0; i < mFonts.Size(); ++i) if (mFonts[i].id == texId) { ft = &mFonts[i]; break; }
+
                 // (Re)créer la texture si elle n'existe pas OU si la taille change (rechargement
                 // de police à une autre taille = DPI). Sinon Update() déborderait l'ancienne taille.
-                if (!mFontTex || mFontTexW != w || mFontTexH != h) {
-                    auto& alloc = memory::NkGetDefaultAllocator();
-                    if (mFontTex) { alloc.Delete(mFontTex); mFontTex = nullptr; }
-                    mFontTex = alloc.New<renderer::NkTexture>();
-                    if (!mFontTex) return false;
-                    if (!mFontTex->Create(*mRenderer, static_cast<uint32>(w), static_cast<uint32>(h))) {
-                        alloc.Delete(mFontTex); mFontTex = nullptr; return false;
-                    }
-                    mFontTex->SetFilter(renderer::NkTextureFilter::NK_LINEAR);
-                    mFontTexW = w; mFontTexH = h;
+                auto& alloc = memory::NkGetDefaultAllocator();
+                if (!ft) {
+                    mFonts.PushBack(FontTex{ texId, nullptr, 0, 0 });
+                    ft = &mFonts[mFonts.Size() - 1u];
                 }
-                mFontTexId = texId;
-                return mFontTex->Update(mExpand.Data(), static_cast<uint32>(w), static_cast<uint32>(h), 0, 0);
+                if (!ft->tex || ft->w != w || ft->h != h) {
+                    if (ft->tex) { alloc.Delete(ft->tex); ft->tex = nullptr; }
+                    ft->tex = alloc.New<renderer::NkTexture>();
+                    if (!ft->tex) return false;
+                    if (!ft->tex->Create(*mRenderer, static_cast<uint32>(w), static_cast<uint32>(h))) {
+                        alloc.Delete(ft->tex); ft->tex = nullptr; return false;
+                    }
+                    ft->tex->SetFilter(renderer::NkTextureFilter::NK_LINEAR);
+                    ft->w = w; ft->h = h;
+                }
+                return ft->tex->Update(mExpand.Data(), static_cast<uint32>(w), static_cast<uint32>(h), 0, 0);
             }
 
             // Upload (ou ré-upload) d'une VRAIE image RGBA (4 octets/pixel, tight) sous
@@ -124,8 +132,9 @@ namespace nkentseu {
 
                     renderer::NkTexture* tex = nullptr;
                     if (dc.type == nkgui::NkGuiDrawCmdType::TexturedTriangles) {
-                        if (dc.texId == mFontTexId) tex = mFontTex;
-                        else for (uint32 ti = 0; ti < mImages.Size(); ++ti)
+                        for (uint32 fi = 0; fi < mFonts.Size(); ++fi)
+                            if (mFonts[fi].id == dc.texId) { tex = mFonts[fi].tex; break; }
+                        if (!tex) for (uint32 ti = 0; ti < mImages.Size(); ++ti)
                             if (mImages[ti].id == dc.texId) { tex = mImages[ti].tex; break; }
                     }
 
@@ -148,12 +157,12 @@ namespace nkentseu {
             }
 
         private:
-            struct ImgTex { nkentseu::uint32 id; nkentseu::renderer::NkTexture* tex; };
+            struct ImgTex  { nkentseu::uint32 id; nkentseu::renderer::NkTexture* tex; };
+            // Un atlas de police par texId (interface, code, ...). Plusieurs polices
+            // = plusieurs textures resolues par Submit selon le texId de la commande.
+            struct FontTex { nkentseu::uint32 id; nkentseu::renderer::NkTexture* tex; nkentseu::int32 w; nkentseu::int32 h; };
             nkentseu::renderer::NkIRenderer2D*                 mRenderer  = nullptr;
-            nkentseu::renderer::NkTexture*                     mFontTex   = nullptr;
-            nkentseu::uint32                                   mFontTexId = 0u;
-            nkentseu::int32                                    mFontTexW  = 0;
-            nkentseu::int32                                    mFontTexH  = 0;
+            nkentseu::NkVector<FontTex>                        mFonts;
             nkentseu::NkVector<ImgTex>                         mImages;
             nkentseu::NkVector<nkentseu::renderer::NkVertex2D> mScratch;
             nkentseu::NkVector<nkentseu::uint32>               mIdxTmp;   // indices rebases par commande
