@@ -25,12 +25,17 @@ namespace nkanima {
 
             AnimUpdate(ec.dt);   // avance la lecture si en cours
 
-            // Barre d'outils
-            if (ec.Button(AnimIsPlaying() ? "Pause" : "Play")) AnimSetPlaying(!AnimIsPlaying());
-            if (ec.Button("Inserer cle")) AnimInsertKeyAtCursor();
-            if (ec.Button("Supprimer"))   AnimDeleteSelected();
-            if (ec.Button("Annuler"))     AnimUndo();
-            if (ec.Button("Refaire"))     AnimRedo();
+            // Barre d'outils (une seule ligne via SameLine)
+            bool bPlay=ec.Button(AnimIsPlaying()?"Pause":"Play"); ctx.SameLine();
+            bool bIns =ec.Button("Inserer cle");                 ctx.SameLine();
+            bool bDel =ec.Button("Supprimer");                   ctx.SameLine();
+            bool bUn  =ec.Button("Annuler");                     ctx.SameLine();
+            bool bRe  =ec.Button("Refaire");
+            if (bPlay) AnimSetPlaying(!AnimIsPlaying());
+            if (bIns)  AnimInsertKeyAtCursor();
+            if (bDel)  AnimDeleteSelected();
+            if (bUn)   AnimUndo();
+            if (bRe)   AnimRedo();
             char info[112];
             float32 t = AnimCursor(), dur = AnimDuration();
             std::snprintf(info, sizeof(info), "t=%.3fs / %.2fs  frame %d  cles=%u",

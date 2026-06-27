@@ -242,8 +242,10 @@ NKCanvas (Editor Kit) définissent tous deux `nkentseu::renderer::NkBlendMode`/`
 en types foundation, les panneaux n'incluent que l'Editor Kit).
 
 **RESTE M1.c** :
-- Layout : mettre les boutons de la timeline sur UNE ligne (SameLine) pour que la zone
-  des keyframes soit visible ; polir le drag de keyframes.
+- ✅ Layout corrigé (boutons sur une ligne via `SameLine`) → piste keyframes + playhead
+  VISIBLES (61 points bleus + barre rouge + graduations). Éditeur timeline complet OK.
+- Polir le drag de keyframes ; **édition de pose** (modifier la rotation d'un os à une clé)
+  = la vraie valeur d'édition (manipulateurs sur le squelette 2D/3D).
 - (option) finir de débugger la branche trig de `NkQuat::SLerp` (NLerp suffit en pratique).
 - **M1.c — timeline/scrubbing + édition de clés** : UI sur **NKGui** (prêt, on conçoit
   les interfaces ; PAS NKUI — directive Rihen). Widget timeline à créer, branché sur
