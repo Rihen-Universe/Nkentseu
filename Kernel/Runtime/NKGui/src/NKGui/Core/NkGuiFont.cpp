@@ -2,6 +2,8 @@
 // NkGuiFont.cpp — chargement police + atlas (Phase 3).
 // =============================================================================
 #include "NKGui/Core/NkGuiFont.h"
+#include <cstdio>
+#include <cstring>
 
 namespace nkentseu {
     namespace nkgui {
@@ -38,31 +40,51 @@ namespace nkentseu {
             return kRanges;
         }
 
-        // Plages couvertes par la police de REPLI (Noto Sans) : large, au-dela de ce
-        // que les polices principales contiennent. La de-duplication (1re police =
-        // gagnante) garantit que le repli ne sert QUE pour les glyphes manquants.
-        static const uint32* NkFallbackRanges() noexcept {
-            static const uint32 kFb[] = {
-                0x0020, 0x024F,   // Latin (repli des manquants)
-                0x0250, 0x02FF,   // API + modificateurs
-                0x0300, 0x036F,   // diacritiques
-                0x0370, 0x052F,   // grec + cyrillique (+ supplement)
-                0x0590, 0x05FF,   // hebreu
-                0x0600, 0x06FF,   // arabe
-                0x1E00, 0x1EFF,   // latin etendu additionnel (vietnamien...)
-                0x1F00, 0x1FFF,   // grec etendu
-                0x2000, 0x2BFF,   // ponctuation, symboles, fleches, math, dingbats...
-                0xFB00, 0xFB4F,   // ligatures + presentation hebreu/arabe
-                0
+        // Plages couvertes par la police de REPLI « broad » (large couverture).
+        static const uint32* NkBroadRanges() noexcept {
+            static const uint32 r[] = {
+                0x0020, 0x024F, 0x0250, 0x02FF, 0x0300, 0x036F,   // Latin, API, diacritiques
+                0x0370, 0x052F, 0x0590, 0x05FF, 0x0600, 0x06FF,   // grec, cyrillique, hebreu, arabe
+                0x1E00, 0x1EFF, 0x1F00, 0x1FFF,                   // latin etendu add., grec etendu
+                0x2000, 0x2BFF, 0xFB00, 0xFB4F, 0
             };
-            return kFb;
+            return r;
+        }
+        static const uint32* NkCjkRanges() noexcept {
+            static const uint32 r[] = {
+                0x2E80, 0x2EFF, 0x3000, 0x303F, 0x3040, 0x30FF,   // radicaux, ponctuation, kana
+                0x3100, 0x312F, 0x3130, 0x318F, 0x31A0, 0x31FF,   // bopomofo, jamo, ext bopomofo
+                0x3400, 0x4DBF, 0x4E00, 0x9FFF,                   // ext-A + unified (ideogrammes)
+                0xAC00, 0xD7A3, 0xF900, 0xFAFF, 0xFF00, 0xFFEF, 0 // hangul, compat, pleine chasse
+            };
+            return r;
+        }
+        static const uint32* NkEmojiRanges() noexcept {
+            static const uint32 r[] = {
+                0x2600, 0x27BF, 0x2B00, 0x2BFF,                   // symboles divers, dingbats
+                0x1F000, 0x1FAFF, 0                               // emoji (mahjong, pictogrammes, emoticones...)
+            };
+            return r;
         }
 
-        // Fusionne la police de repli (si embarquee) pour combler les glyphes manquants.
+        // Chemins des polices de repli EXTERNES (poses par l'app via NkSetFallbackFontPaths).
+        static char gFbBroad[600] = {}, gFbCjk[600] = {}, gFbEmoji[600] = {};
+        static void NkCopyPath(char* dst, const char* src) { dst[0] = '\0'; if (src) { usize i = 0; for (; src[i] && i + 1 < 600; ++i) dst[i] = src[i]; dst[i] = '\0'; } }
+        void NkSetFallbackFontPaths(const char* broad, const char* cjk, const char* emoji) noexcept {
+            NkCopyPath(gFbBroad, broad); NkCopyPath(gFbCjk, cjk); NkCopyPath(gFbEmoji, emoji);
+        }
+        static bool NkFileExists(const char* p) noexcept { if (!p || !*p) return false; std::FILE* f = std::fopen(p, "rb"); if (f) { std::fclose(f); return true; } return false; }
+
+        // Fusionne les polices de repli externes presentes (merge -> comble les manquants).
         static void NkMergeFallback(NkFontAtlas& atlas, float32 sizePx) noexcept {
-            if (!NkFontEmbedded::IsAvailable(NkEmbeddedFontId::NotoSans)) return;
-            NkFontConfig fb; fb.glyphRanges = NkFallbackRanges(); fb.mergeMode = true;
-            NkFontEmbedded::AddToAtlas(atlas, NkEmbeddedFontId::NotoSans, sizePx, &fb);
+            auto add = [&](const char* path, const uint32* ranges) {
+                if (!NkFileExists(path)) return;
+                NkFontConfig fb; fb.glyphRanges = ranges; fb.mergeMode = true;
+                atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &fb);
+            };
+            add(gFbBroad, NkBroadRanges());
+            add(gFbCjk,   NkCjkRanges());
+            add(gFbEmoji, NkEmojiRanges());
         }
 
         bool NkGuiFont::LoadEmbedded(NkEmbeddedFontId id, float32 sizePx) noexcept {

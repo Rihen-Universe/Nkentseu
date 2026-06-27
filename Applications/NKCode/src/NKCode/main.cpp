@@ -12,6 +12,9 @@
 #include "NKCode/Shell/Toolbar.h"
 #include "NKCode/Project/NkLogSink.h"
 
+#include <cstdio>
+#include <cstddef>
+
 using namespace nkentseu;
 using namespace nkentseu::editorkit;
 
@@ -45,6 +48,26 @@ int nkmain(const NkEntryState& state) {
     (void)state;
 
     nkcode::InstallLogSink();   // capture les logs NKLogger -> panneau OUTPUT
+
+    // Polices de REPLI externes depuis le dossier data/fonts de NKCode (charge au
+    // runtime, pas embarque) : tout glyphe absent d'Inter/DejaVu y est cherche.
+    // Roles : broad (large couverture), cjk (ideogrammes, opt-in), emoji.
+    {
+        auto fileOk = [](const char* p) { std::FILE* f = std::fopen(p, "rb"); if (f) { std::fclose(f); return true; } return false; };
+        static const char* dirs[] = { "Applications/NKCode/data/fonts/", "data/fonts/", "NKCode/data/fonts/", "" };
+        auto find = [&](const char* const* names, char* out, std::size_t cap) {
+            out[0] = '\0';
+            for (const char* const* np = names; *np; ++np)
+                for (const char* const* dp = dirs; ; ++dp) { std::snprintf(out, cap, "%s%s", *dp, *np); if (fileOk(out)) return; if (!**dp) break; }
+            out[0] = '\0';
+        };
+        static char broad[600], cjk[600], emoji[600];
+        const char* broadN[] = { "NotoSans-Regular.ttf", nullptr };
+        const char* cjkN[]   = { "NotoSansSC-Regular.ttf", "NotoSansSC.ttf", "NotoSansCJKsc-Regular.otf", nullptr };
+        const char* emojiN[] = { "NotoEmoji-Regular.ttf", nullptr };
+        find(broadN, broad, sizeof(broad)); find(cjkN, cjk, sizeof(cjk)); find(emojiN, emoji, sizeof(emoji));
+        nkgui::NkSetFallbackFontPaths(broad[0] ? broad : nullptr, cjk[0] ? cjk : nullptr, emoji[0] ? emoji : nullptr);
+    }
 
     auto shell = memory::NkMakeUnique<NkEditorShell>();
     NkEditorShellConfig cfg;

@@ -48,5 +48,14 @@ namespace nkentseu {
             }
         };
 
+        // Polices de REPLI EXTERNES (fichiers .ttf charges au runtime) : tout glyphe
+        // absent des polices principales (Inter/DejaVu) y est cherche. Roles :
+        //   broad : large couverture (latin etendu, grec, cyrillique, hebreu, arabe, symboles)
+        //   cjk   : ideogrammes (中文/日本語/한국어) — volumineux, opt-in
+        //   emoji : emoji monochrome
+        // A poser par l'APPLICATION (ex. NKCode, depuis son dossier data/fonts) AVANT
+        // de charger les polices. Un chemin nullptr/vide = role desactive.
+        NKENTSEU_NKGUI_API void NkSetFallbackFontPaths(const char* broad, const char* cjk, const char* emoji) noexcept;
+
     } // namespace nkgui
 } // namespace nkentseu

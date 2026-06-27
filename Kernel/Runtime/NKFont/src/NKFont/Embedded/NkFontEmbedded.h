@@ -69,10 +69,7 @@ namespace nkentseu {
         // ── Interface (proportionnelle, moderne) ──────────────────────────────
         Inter          = 9,  ///< Sans-serif d'interface (OFL) — proche de Segoe UI.
 
-        // ── Police de REPLI large couverture (fallback) ───────────────────────
-        NotoSans       = 10, ///< Repli OFL : latin etendu, grec, cyrillique, symboles... (glyphes manquants).
-
-        Count          = 11,
+        Count          = 10,
         Default        = ProggyClean, ///< Police par défaut du système.
     };
 
