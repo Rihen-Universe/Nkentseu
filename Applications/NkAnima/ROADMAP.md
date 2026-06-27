@@ -14,6 +14,13 @@ natif Nkentseu. Il sert directement deux objectifs profonds :
 Différenciateur : intégré au moteur (NKRenderer pour le rendu, le skinning GPU déjà
 livré, NKCollision orienté anim pour la physique), pas un outil externe.
 
+> 📐 **SPEC D'INTERFACE (cible long terme)** : `Applications/NkAnimaEditor/important/
+> interface.md` — 23 sections façon Cascadeur+Blender (Viewport 3D + Pose Mode/IK drag/
+> gizmos · Timeline/Dope Sheet/Graph Editor F-Curves · Outliner · Propriétés · AI Director ·
+> Physics · Motion Library · Render · Node Editor · Caméra/ciné · raccourcis). On construit
+> **incrémentalement** vers cette spec. État actuel (NkAnimaEditor) = embryon : Timeline §3
+> (transport+keyframes+scrub) + aperçu squelette 2D (préfigure Viewport §2/§7).
+
 ## Contexte de décision (2026-06-27)
 
 - L'autre IA tient **NKCode + NKReflection**. Rihen est libre sur le reste.
