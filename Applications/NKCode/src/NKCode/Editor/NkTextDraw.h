@@ -34,6 +34,51 @@ namespace nkcode {
         ~NkCodeFontScope() { c.font = prev; }
     };
 
+    // Encode un codepoint en UTF-8 dans dst (>=4 octets). Retourne le nb d'octets.
+    inline int32 NkEncodeU8(uint32 cp, char* dst) {
+        if (cp < 0x80)      { dst[0] = static_cast<char>(cp); return 1; }
+        if (cp < 0x800)     { dst[0] = static_cast<char>(0xC0 | (cp >> 6)); dst[1] = static_cast<char>(0x80 | (cp & 0x3F)); return 2; }
+        if (cp < 0x10000)   { dst[0] = static_cast<char>(0xE0 | (cp >> 12)); dst[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); dst[2] = static_cast<char>(0x80 | (cp & 0x3F)); return 3; }
+        dst[0] = static_cast<char>(0xF0 | (cp >> 18)); dst[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F)); dst[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); dst[3] = static_cast<char>(0x80 | (cp & 0x3F)); return 4;
+    }
+
+    // ── Menu contextuel (clic droit) Copier/Couper/Coller — reutilise par
+    //    l'editeur et le terminal. Dessine sur la couche overlay (au-dessus). ──
+    struct NkCtxMenu { bool open = false; NkVec2 pos{ 0.f, 0.f }; };
+
+    // Retourne l'index de l'item clique (et ferme le menu), -1 sinon. Se ferme au
+    // clic exterieur ou sur Echap. `enabled[i]` grise les items non applicables.
+    inline int32 NkCtxMenuDraw(NkGuiContext& ctx, NkCtxMenu& mn, const char* const* items,
+                               const bool* enabled, int32 count) {
+        if (!mn.open) return -1;
+        NkGuiDrawList& dl = ctx.dlOverlay;
+        const float32 lh   = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
+        const float32 rowH = lh + 8.f, pad = 10.f;
+        NkRect box = { mn.pos.x, mn.pos.y, 168.f, count * rowH + 8.f };
+        if (box.x + box.w > static_cast<float32>(ctx.viewW)) box.x = static_cast<float32>(ctx.viewW) - box.w;
+        if (box.y + box.h > static_cast<float32>(ctx.viewH)) box.y = static_cast<float32>(ctx.viewH) - box.h;
+        dl.AddRectFilled(box, NkColor{ 32, 38, 46, 255 }, 6.f);
+        dl.AddRect(box, NkColor{ 60, 66, 74, 255 }, 1.f);
+        const NkVec2 m = ctx.input.mousePos;
+        int32 clicked = -1; float32 y = box.y + 4.f;
+        for (int32 i = 0; i < count; ++i) {
+            const NkRect r = { box.x + 3.f, y, box.w - 6.f, rowH };
+            const bool hov = m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
+            if (hov && enabled[i]) dl.AddRectFilled(r, NkColor{ 31, 111, 235, 110 }, 4.f);
+            if (ctx.font && ctx.font->Valid())
+                dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+                           { r.x + pad, y + (rowH - lh) * 0.5f + ctx.font->Ascent() }, items[i],
+                           enabled[i] ? NkColor{ 223, 223, 223, 255 } : NkColor{ 110, 118, 129, 255 });
+            if (hov && enabled[i] && ctx.input.mouseClicked[0]) clicked = i;
+            y += rowH;
+        }
+        const bool inBox = m.x >= box.x && m.x < box.x + box.w && m.y >= box.y && m.y < box.y + box.h;
+        if (clicked >= 0) mn.open = false;
+        else if ((ctx.input.mouseClicked[0] || ctx.input.mouseClicked[2]) && !inBox) mn.open = false;
+        if (ctx.input.KeyPressed(NkGuiKey::Escape)) mn.open = false;
+        return clicked;
+    }
+
     inline bool NkIsDrawable(uint32 cp) {
         return (cp >= 0x2500u && cp <= 0x25FFu) || (cp >= 0x2190u && cp <= 0x2193u);
     }
