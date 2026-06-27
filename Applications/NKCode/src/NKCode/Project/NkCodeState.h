@@ -236,6 +236,10 @@ namespace nkcode {
         }
         bool HasWorkspace() const { return !wsPaths.Empty(); }
 
+        // Fichier de config d'interface PAR PROJET : <racine>/.nkcode/ui.cfg
+        // (etat maximise + panneaux ouverts, lu/ecrit par le shell).
+        NkString UiConfigPath() const { return (root / ".nkcode" / "ui.cfg").ToString(); }
+
         // Charge `folder` comme racine de travail : re-scan des workspaces du dossier.
         // REFUSE (renvoie false, racine inchangee) si aucun workspace (.jenga contenant
         // "with workspace") n'y est trouve — qu'il ait ete cree par l'UI ou non.

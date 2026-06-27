@@ -8,6 +8,9 @@
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKCanvas/Core/NkContextDesc.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkPath.h"
 
 using namespace nkentseu;
 using namespace nkentseu::nkgui;
@@ -22,6 +25,15 @@ namespace nkentseu {
                 usize i = 0;
                 if (src) { for (; src[i] && i + 1 < cap; ++i) dst[i] = src[i]; }
                 dst[i] = '\0';
+            }
+
+            bool StartsWith(const char* s, const char* pre) noexcept {
+                for (; *pre; ++s, ++pre) if (*s != *pre) return false;
+                return true;
+            }
+            bool StrEqual(const char* a, const char* b) noexcept {
+                while (*a && *b) { if (*a != *b) return false; ++a; ++b; }
+                return *a == *b;
             }
 
             constexpr NkColor kPaletteBg     = { 30, 33, 42, 250 };
@@ -642,6 +654,45 @@ namespace nkentseu {
             if (mAppMenuFn) mAppMenuFn(ec, mAppMenuUser);
 
             EndMenuBar(mUI);
+        }
+
+        // ── Etat d'interface par projet (maximise + panneaux ouverts) ────────────
+        void NkEditorShell::LoadUiState(const char* path) noexcept {
+            if (!path || !*path) return;
+            const NkString txt = NkFile::ReadAllText(NkPath(path));
+            if (txt.Empty()) return;                 // pas de config -> on garde l'etat courant
+            // Parse ligne par ligne : "maximized=0/1" et "panel=<titre>".
+            bool sawPanel = false;
+            // 1re passe : si des lignes panel= existent, on ferme tout avant d'ouvrir.
+            const char* p = txt.CStr();
+            for (const char* q = p; *q; ++q) if (q[0]=='p'&&q[1]=='a'&&q[2]=='n'&&q[3]=='e'&&q[4]=='l') { sawPanel = true; break; }
+            if (sawPanel) for (int32 i = 0; i < mNumPanels; ++i) mPanels[i]->SetOpen(false);
+
+            NkString line;
+            auto apply = [&](const NkString& ln) {
+                const char* s = ln.CStr();
+                if (StartsWith(s, "maximized=")) { if (s[10] == '1') mWindow.Maximize(); else mWindow.Restore(); }
+                else if (StartsWith(s, "panel=")) {
+                    const char* name = s + 6;
+                    for (int32 i = 0; i < mNumPanels; ++i)
+                        if (StrEqual(mPanels[i]->Title(), name)) { mPanels[i]->SetOpen(true); break; }
+                }
+            };
+            for (const char* c = p; ; ++c) {
+                if (*c == '\n' || *c == '\r' || *c == '\0') { if (!line.Empty()) { apply(line); line.Clear(); } if (*c == '\0') break; }
+                else line += *c;
+            }
+        }
+
+        void NkEditorShell::SaveUiState(const char* path) noexcept {
+            if (!path || !*path) return;
+            NkPath p(path);
+            NkDirectory::CreateRecursive(p.GetParent());   // cree <ws>/.nkcode/ si besoin
+            NkString out;
+            out += "maximized="; out += mWindow.IsMaximized() ? "1" : "0"; out += "\n";
+            for (int32 i = 0; i < mNumPanels; ++i)
+                if (mPanels[i]->IsOpen()) { out += "panel="; out += mPanels[i]->Title(); out += "\n"; }
+            NkFile::WriteAllText(p, out);
         }
 
         // ── Panneaux (le docking est gere DANS Begin) ────────────────────────────

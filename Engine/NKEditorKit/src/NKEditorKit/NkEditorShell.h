@@ -103,6 +103,12 @@ namespace nkentseu {
             void SaveLayout(const char* path) noexcept { (void)path; }
             bool LoadLayout(const char* path) noexcept { (void)path; return false; }
 
+            // Etat d'interface PAR PROJET (lu/ecrit dans un fichier de config du
+            // workspace, ex. <ws>/.nkcode/ui.cfg) : fenetre maximisee + panneaux
+            // ouverts. LoadUiState applique l'etat ; no-op si le fichier est absent.
+            void LoadUiState(const char* path) noexcept;
+            void SaveUiState(const char* path) noexcept;
+
             // ── Barre d'etat (footer VSCode) : texte gauche/droite mis par l'app ─
             void SetFooter(const char* left, const char* right = "") noexcept;
             // ── Infos centrees dans la barre de titre (ex. fichier actif) ────────

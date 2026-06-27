@@ -21,7 +21,8 @@ namespace nkcode {
 
     // Etat des dialogues modaux (un seul a la fois). 0 = aucun.
     struct NkCodeDialogs {
-        NkCodeState* st = nullptr;
+        NkCodeState*  st    = nullptr;
+        NkEditorShell* shell = nullptr;   // pour appliquer l'etat d'UI du projet (ui.cfg)
         enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };
         int32   mode      = None;
         bool    showStart = true;     // ecran de demarrage plein cadre (remplace l'editeur)
@@ -44,7 +45,10 @@ namespace nkcode {
             if (res.confirmed && st) DoLoad(NkPath(res.path.CStr()).GetParent());
         }
         void DoLoad(const NkPath& folder) {
-            if (st->LoadFolder(folder)) { showStart = false; Close(); }   // -> bascule vers l'editeur
+            if (st->LoadFolder(folder)) {
+                if (shell) shell->LoadUiState(st->UiConfigPath().CStr());   // restaure l'etat d'UI du projet
+                showStart = false; Close();                                // -> bascule vers l'editeur
+            }
             else NkDialogs::OpenMessageBox(
                 "Aucun workspace (.jenga avec 'with workspace') dans ce dossier. Chargement refuse.",
                 "NKCode", 2);
@@ -95,8 +99,15 @@ namespace nkcode {
             MenuItem(ctx, "Gerer les emulateurs...", nullptr, false);           // TODO #4
             EndMenu(ctx);
         }
-        // Leve les flags AVANT le masquage d'input du corps (la barre de menus est
-        // dessinee avant cette decision dans la boucle du shell).
+    }
+
+    // ── Reglage des flags d'etat CHAQUE FRAME (via SetAppMenu, appele
+    // inconditionnellement dans la barre de menus, AVANT la decision de corps du
+    // shell). NE PAS mettre dans DrawFileMenu : celui-ci n'est execute que quand le
+    // menu Fichier est OUVERT -> le launcher n'apparaitrait qu'en ouvrant Fichier.
+    inline void DrawAppFlags(NkEditorFrameContext& ec, NkCodeDialogs* d) {
+        if (!d) return;
+        auto& ctx = ec.Ui();
         ctx.appModal      = (d->mode != NkCodeDialogs::None);
         ctx.appFullScreen = d->showStart;
     }
@@ -188,7 +199,10 @@ namespace nkcode {
             const bool hov = canCont && hit(r);
             dl.AddRectFilled(r, !canCont ? NkColor{ 26, 30, 36, 255 } : hov ? NkColor{ 56, 104, 184, 255 } : NkColor{ 35, 41, 49, 255 }, 6.f);
             text(r.x + 16.f, r.y + (40.f - lh) * 0.5f, "Continuer avec le dossier courant", canCont ? NkColor{ 230, 237, 243, 255 } : NkColor{ 100, 108, 116, 255 });
-            if (hov && click) { d->showStart = false; return; }
+            if (hov && click) {
+                if (d->shell) d->shell->LoadUiState(d->st->UiConfigPath().CStr());
+                d->showStart = false; return;
+            }
         }
 
         // ── Colonne droite : recents ──

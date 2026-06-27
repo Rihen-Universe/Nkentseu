@@ -57,6 +57,10 @@ static void OverlayThunk(NkEditorFrameContext& ec, void* u) {
 static void StartScreenThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawStartScreen(ec, static_cast<nkcode::NkCodeDialogs*>(u));
 }
+// Pose appFullScreen/appModal CHAQUE FRAME (barre de menus, inconditionnel).
+static void AppFlagsThunk(NkEditorFrameContext& ec, void* u) {
+    nkcode::DrawAppFlags(ec, static_cast<nkcode::NkCodeDialogs*>(u));
+}
 
 int nkmain(const NkEntryState& state) {
     (void)state;
@@ -120,12 +124,14 @@ int nkmain(const NkEntryState& state) {
     shell->AddPanel(&pAi);      shell->AddPanel(&pEngine);  shell->AddPanel(&pExt);
 
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
-    g_dialogs.st = &g_state;
+    g_dialogs.st    = &g_state;
+    g_dialogs.shell = shell.Get();
     g_state.LoadRecents();                           // workspaces recents (ecran de demarrage)
+    shell->SetAppMenu(&AppFlagsThunk, &g_dialogs);   // pose appFullScreen/appModal chaque frame
     shell->SetFileMenu(&FileMenuThunk, &g_dialogs);  // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
     shell->SetOverlay(&OverlayThunk, &g_dialogs);    // dialogues modaux (creation/enregistrement)
     shell->SetStartScreen(&StartScreenThunk, &g_dialogs);  // ecran de demarrage plein cadre
-    shell->Maximize();                               // launcher plein ecran maximise
+    shell->Maximize();                               // launcher maximise par defaut (l'etat projet le surchargera)
     // g_dialogs.showStart est vrai par defaut -> l'ecran de demarrage s'affiche au lancement.
 
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
@@ -135,5 +141,9 @@ int nkmain(const NkEntryState& state) {
     shell->RegisterCommand("Disposition: Reinitialiser",       &CmdResetLayout, shell.Get());
     shell->RegisterCommand("Application: Quitter",             &CmdQuit,  shell.Get(),  "Ctrl+Q");
 
-    return shell->Run();
+    const int rc = shell->Run();
+    // Sauvegarde l'etat d'interface du projet courant (maximise + panneaux ouverts).
+    if (!g_dialogs.showStart && g_state.HasWorkspace())
+        shell->SaveUiState(g_state.UiConfigPath().CStr());
+    return rc;
 }
