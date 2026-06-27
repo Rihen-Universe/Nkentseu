@@ -30,6 +30,7 @@ namespace nkcode {
         int32   kindIdx   = 0;
         int32   langIdx   = 0;
         int32   projDialect = 0;               // index NkDialects (NewProject)
+        int32   projFocus   = 0;               // champ focus du dialogue NewProject
         char    projDefines[256] = {};         // defines projet (csv)
         char    projVersion[32]  = {};         // appversion (apps)
         char    projPublisher[64]= {};         // apppublisher (apps)
@@ -874,7 +875,7 @@ namespace nkcode {
 
         const bool isProj   = (d->mode == NkCodeDialogs::NewProject);
         const bool isSaveAs = (d->mode == NkCodeDialogs::SaveAs);
-        const float32 pw = 460.f, ph = isProj ? 320.f : 220.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+        const float32 pw = 460.f, ph = isProj ? 488.f : 220.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
         dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0, 0, 0, 150 });
         const NkRect panel = { px, py, pw, ph };
         // Fermeture par clic hors panneau (sauf frame d'ouverture).
@@ -889,34 +890,51 @@ namespace nkcode {
         const float32 cx = px + 20.f;
         float32 y = py + 52.f;
         text(cx, y, isSaveAs ? "Nom ou chemin du fichier" : "Nom", NkColor{ 160, 170, 180, 255 }); y += 22.f;
-        NkOverlayTextField(ctx, dl, f, { cx, y, pw - 40.f, 28.f }, d->nameBuf, (int32)sizeof(d->nameBuf), true);
-        y += 42.f;
+        { const NkRect r = { cx, y, pw - 40.f, 28.f };
+          NkOverlayTextField(ctx, dl, f, r, d->nameBuf, (int32)sizeof(d->nameBuf), isSaveAs || d->projFocus == 0);
+          if (hit(r) && click) d->projFocus = 0; }
+        y += 40.f;
 
         if (isProj) {
-            int32 nk = 0, nl = 0; const NkKindDef* K = NkKinds(&nk); const NkLangDef* L = NkLangs(&nl);
-            // Genre
+            int32 nk = 0, nl = 0, nd = 0; const NkKindDef* K = NkKinds(&nk); const NkLangDef* L = NkLangs(&nl); const char* const* D = NkDialects(&nd);
+            const bool isApp = K[d->kindIdx >= 0 && d->kindIdx < nk ? d->kindIdx : 0].app;
+            const bool isCpp = (d->langIdx == 0);
+            // Genre (2 colonnes compactes)
             text(cx, y, "Genre", NkColor{ 160, 170, 180, 255 }); y += 22.f;
-            // Liste verticale de genres (boutons radio simples)
             for (int32 i = 0; i < nk; ++i) {
-                const NkRect r = { cx, y, pw - 40.f, 26.f };
+                const NkRect r = { cx + (i % 2) * ((pw - 40.f) * 0.5f + 4.f), y + (i / 2) * 28.f, (pw - 40.f) * 0.5f - 4.f, 24.f };
                 const bool sel = (d->kindIdx == i);
                 dl.AddRectFilled(r, sel ? NkColor{ 38, 60, 92, 255 } : (hit(r) ? NkColor{ 33, 39, 48, 255 } : NkColor{ 24, 28, 34, 255 }), 4.f);
                 if (sel) dl.AddRect(r, NkColor{ 88, 166, 255, 255 }, 1.f);
                 text(r.x + 10.f, r.y + (r.h - lh) * 0.5f, K[i].label, sel ? NkColor{ 230, 237, 243, 255 } : NkColor{ 180, 188, 196, 255 });
                 if (hit(r) && click) d->kindIdx = i;
-                y += 30.f;
             }
-            // Langage (combo horizontal de boutons)
-            y += 4.f;
+            y += ((nk + 1) / 2) * 28.f + 8.f;
+            // Langage + (C++) dialecte sur la meme ligne logique
             text(cx, y, "Langage", NkColor{ 160, 170, 180, 255 }); y += 22.f;
             float32 lx = cx;
-            for (int32 i = 0; i < nl; ++i) {
-                const float32 bw = f->MeasureWidth(L[i].label) + 22.f;
+            for (int32 i = 0; i < nl; ++i) { const float32 bw = f->MeasureWidth(L[i].label) + 20.f;
                 if (btn({ lx, y, bw, 26.f }, L[i].label, true)) d->langIdx = i;
-                if (d->langIdx == i) dl.AddRect({ lx, y, bw, 26.f }, NkColor{ 88, 166, 255, 255 }, 1.5f);
-                lx += bw + 8.f;
-            }
+                if (d->langIdx == i) dl.AddRect({ lx, y, bw, 26.f }, NkColor{ 88, 166, 255, 255 }, 1.5f); lx += bw + 6.f; }
             y += 34.f;
+            if (isCpp) {
+                text(cx, y, "Dialecte C++", NkColor{ 160, 170, 180, 255 }); y += 22.f;
+                float32 dx = cx;
+                for (int32 i = 0; i < nd; ++i) { const float32 bw = f->MeasureWidth(D[i]) + 18.f;
+                    if (btn({ dx, y, bw, 24.f }, D[i], true)) d->projDialect = i;
+                    if (d->projDialect == i) dl.AddRect({ dx, y, bw, 24.f }, NkColor{ 88, 166, 255, 255 }, 1.5f); dx += bw + 6.f; }
+                y += 32.f;
+            }
+            // Defines
+            text(cx, y, "Defines (separes par des virgules)", NkColor{ 160, 170, 180, 255 }); y += 22.f;
+            { const NkRect r = { cx, y, pw - 40.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projDefines, (int32)sizeof(d->projDefines), d->projFocus == 1); if (hit(r) && click) d->projFocus = 1; } y += 34.f;
+            // App : version + editeur
+            if (isApp) {
+                text(cx, y, "Version", NkColor{ 160, 170, 180, 255 }); text(cx + (pw - 40.f) * 0.5f + 6.f, y, "Editeur", NkColor{ 160, 170, 180, 255 }); y += 22.f;
+                { const NkRect r = { cx, y, (pw - 40.f) * 0.5f - 6.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projVersion, (int32)sizeof(d->projVersion), d->projFocus == 2); if (hit(r) && click) d->projFocus = 2; }
+                { const NkRect r = { cx + (pw - 40.f) * 0.5f + 6.f, y, (pw - 40.f) * 0.5f - 6.f, 26.f }; NkOverlayTextField(ctx, dl, f, r, d->projPublisher, (int32)sizeof(d->projPublisher), d->projFocus == 3); if (hit(r) && click) d->projFocus = 3; }
+                y += 34.f;
+            }
         }
 
         if (!d->status.Empty())
@@ -933,8 +951,13 @@ namespace nkcode {
                 d->status = "Echec : impossible d'ecrire le fichier.";
             } else {
                 NkString made;
-                if (isProj) made = GenerateProject(d->st->root, NkPath(d->st->wsPaths[d->st->wsIdx].CStr()),
-                                                   d->nameBuf, d->kindIdx, d->langIdx);
+                if (isProj) {
+                    int32 nd = 0; const char* const* D = NkDialects(&nd);
+                    NkProjectOpts po; po.name = d->nameBuf; po.kindIdx = d->kindIdx; po.langIdx = d->langIdx;
+                    po.cppDialect = (d->langIdx == 0 && d->projDialect >= 0 && d->projDialect < nd) ? D[d->projDialect] : "";
+                    po.defines = d->projDefines; po.appVersion = d->projVersion; po.appPublisher = d->projPublisher;
+                    made = GenerateProjectEx(d->st->root, NkPath(d->st->wsPaths[d->st->wsIdx].CStr()), po);
+                }
                 else        made = GenerateWorkspace(d->st->root, d->nameBuf);
                 if (made.Empty()) {
                     d->status = isProj ? "Echec : nom invalide ou dossier deja existant."
