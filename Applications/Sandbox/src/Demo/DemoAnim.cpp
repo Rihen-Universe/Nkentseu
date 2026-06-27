@@ -20,6 +20,7 @@
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Tools/Animation/NkAnimationSystem.h"
+#include "NKRenderer/Tools/Animation/NkAnimationEditor.h"
 #include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstdlib>
@@ -178,6 +179,31 @@ namespace nkentseu { namespace demo {
                 logger.Info("[RTTEST2] scan {0} os : worstScale={1} worstDet={2} worstQuatLen={3} (bone {4})\n",
                             (uint32)st->clip.boneTracks.Size(), worstScale, worstDet, worstQ, worstBone);
             }
+        }
+
+        // Self-test de l'éditeur de timeline (NK_ANIM_EDITTEST), SANS UI : insert/
+        // delete/move + undo/redo sur le clip, puis restaure (doit revenir à l'initial).
+        if (getenv("NK_ANIM_EDITTEST") && st->clip.boneTracks.Size()>0) {
+            NkAnimationEditor ed; ed.SetClip(&st->clip);
+            uint32 n0 = ed.PoseKeyCount();
+            float32 tIns = 0.5123f; ed.SetCursor(tIns);
+            NkVector<NkMat4f> pose; pose.Resize(st->clip.boneTracks.Size());
+            for (uint32 b=0;b<(uint32)st->clip.boneTracks.Size();++b) pose[b]=st->clip.boneTracks[b].Evaluate(tIns);
+            ed.InsertPoseKey(pose);              uint32 n1=ed.PoseKeyCount();
+            ed.DeletePoseKeyAt(ed.GetCursor());  uint32 n2=ed.PoseKeyCount();
+            ed.Undo();                           uint32 n3=ed.PoseKeyCount();  // re-insert
+            ed.Undo();                           uint32 n4=ed.PoseKeyCount();  // annule insert
+            ed.Redo();                           uint32 n5=ed.PoseKeyCount();  // refait insert
+            // test move : déplace la 1re clé puis annule
+            NkVector<float32> tk = ed.GetPoseKeyTimes();
+            float32 t1m = tk.Size()>1 ? tk[1] : 0.f;
+            ed.MovePoseKey(t1m, t1m+0.013f);
+            int32 movedOk = (ed.GetClip()->boneTracks[0].FindKeyAtTime(t1m+0.013f, 1e-4f) >= 0) ? 1 : 0;
+            ed.Undo();
+            while (ed.CanUndo()) ed.Undo();      // restaure le clip
+            uint32 nF = ed.PoseKeyCount();
+            logger.Info("[EDITTEST] keys init={0} +ins={1} +del={2} undoDel={3} undoIns={4} redoIns={5} | move ok={6} | restored={7} (==init:{8})\n",
+                        n0,n1,n2,n3,n4,n5, movedOk, nF, (nF==n0)?1:0);
         }
 
         logger.Info("[DemoAnim] Init '{0}' : skinned={1} mesh={2} roundTrip={3}\n",

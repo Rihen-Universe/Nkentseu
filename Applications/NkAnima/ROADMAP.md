@@ -219,7 +219,20 @@ inutilisé ailleurs donc sûr).
   une formule de Shoemake apparemment standard. **Non bloquant** (on utilise NLerp).
   À reprendre : instrumenter `SLerp` trig vs NLerp sur un cas dot~0.99.
 
+**✅ M1.c LOGIQUE FAITE (2026-06-27) — éditeur de timeline SANS UI** :
+`NkAnimationEditor` (`Tools/Animation/NkAnimationEditor.{h,cpp}`) = couche moteur
+réutilisable/testable sans interface. Modèle « pose-clé » à la Cascadeur (un keyframe =
+un temps où TOUS les os ont une clé). Fournit : curseur/playhead + snap, sélection,
+`InsertPoseKey`/`DeletePoseKeyAt`/`MovePoseKey`/`MoveSelected`/`DeleteSelected`, **undo/redo**
+(pile de commandes inversibles), et lecture pour l'UI (`GetPoseKeyTimes`/`GetCursor`/
+`Duration`/`Fps`). + mutations sur `NkAnimationTrack` (`FindKeyAtTime`/`RemoveKeyAt`/
+`MoveKey`/`SetKeyInterp`). **Self-test headless validé** (`NK_ANIM_EDITTEST`) :
+insert→62, delete→61, undo/redo cohérents, move OK, restauration exacte (==init).
+→ L'UI NKGui n'aura qu'à appeler ces méthodes + dessiner depuis `GetPoseKeyTimes`.
+
 **RESTE M1** :
+- **M1.c UI** : panneau timeline **NKGui** (losanges de keyframes + playhead + drag),
+  branché sur `NkAnimationEditor`. À faire quand l'autre IA a stabilisé NKGui/EditorKit.
 - (option) finir de débugger la branche trig de `NkQuat::SLerp` (NLerp suffit en pratique).
 - **M1.c — timeline/scrubbing + édition de clés** : UI sur **NKGui** (prêt, on conçoit
   les interfaces ; PAS NKUI — directive Rihen). Widget timeline à créer, branché sur

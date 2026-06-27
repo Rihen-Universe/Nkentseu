@@ -114,6 +114,32 @@ namespace nkentseu {
                 uint32  KeyCount()    const { return (uint32)mKeys.Size(); }
                 const NkKeyframe<T>& GetKey(uint32 i) const { return mKeys[i]; }  // serialisation
 
+                // ── Édition (timeline) ────────────────────────────────────────────────
+                // Indice de la clé au temps ~t (tolérance), ou -1.
+                int32 FindKeyAtTime(float32 t, float32 tol = 1e-4f) const {
+                    for (uint32 i=0;i<(uint32)mKeys.Size();++i) {
+                        float32 d = mKeys[i].time - t; if (d < 0.f) d = -d;
+                        if (d <= tol) return (int32)i;
+                    }
+                    return -1;
+                }
+                bool RemoveKeyAt(uint32 i) {
+                    if (i >= (uint32)mKeys.Size()) return false;
+                    mKeys.Erase(mKeys.Begin() + i); return true;
+                }
+                bool SetKeyInterp(uint32 i, NkInterpMode m) {
+                    if (i >= (uint32)mKeys.Size()) return false;
+                    mKeys[i].interp = m; return true;
+                }
+                // Déplace la clé i au temps newTime (re-trie). Retourne le nouvel indice.
+                int32 MoveKey(uint32 i, float32 newTime) {
+                    if (i >= (uint32)mKeys.Size()) return -1;
+                    NkKeyframe<T> kf = mKeys[i]; kf.time = newTime;
+                    mKeys.Erase(mKeys.Begin() + i);
+                    uint32 j=0; while(j<(uint32)mKeys.Size() && mKeys[j].time<newTime) ++j;
+                    mKeys.Insert(mKeys.Begin() + j, kf); return (int32)j;
+                }
+
             private:
                 NkVector<NkKeyframe<T>> mKeys;
 
