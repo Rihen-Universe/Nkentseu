@@ -300,15 +300,19 @@ namespace nkentseu {
 
                 NkEditorFrameContext ec; ec.ui = &mUI; ec.dt = dt;
 
+                // Ecran de demarrage (launcher) : occupe tout le corps, sans barre
+                // d'outils / panneaux / barre d'etat (façon « page de demarrage » VS).
+                const bool fullScreen = mUI.appFullScreen && mStartScreenFn;
+
                 const float32 titleH    = mUI.ItemHeight();
-                const float32 toolbarH  = mToolbarFn ? mUI.ItemHeight() + mUI.S(8.f) : 0.f;
-                const float32 footerH   = mUI.S(22.f);
+                const float32 toolbarH  = (mToolbarFn && !fullScreen) ? mUI.ItemHeight() + mUI.S(8.f) : 0.f;
+                const float32 footerH   = fullScreen ? 0.f : mUI.S(22.f);
                 const float32 activityW = mUI.S(48.f);
 
                 // Barre de titre custom UNE ligne : logo + menus | infos | min/max/close.
                 DrawTitleBar(ec, { 0.f, 0.f, W, titleH });
                 // Barre d'outils Visual Studio (config/plateforme cible + Build/Run + emulateur).
-                if (mToolbarFn) DrawToolbar(ec, { 0.f, titleH, W, toolbarH });
+                if (mToolbarFn && !fullScreen) DrawToolbar(ec, { 0.f, titleH, W, toolbarH });
 
                 const float32 bodyTop = titleH + toolbarH;
                 const float32 bodyH   = H - bodyTop - footerH;
@@ -327,11 +331,16 @@ namespace nkentseu {
                     mUI.input.wantCopy = mUI.input.wantCut = mUI.input.wantPaste = mUI.input.wantSelectAll = false;
                 }
 
-                DrawActivityBar({ 0.f, bodyTop, activityW, bodyH });
-                DockSpace(mUI, "##EditorDock", { activityW, bodyTop, W - activityW, bodyH });
-                BootstrapDocking();
-                DrawPanels(ec);
-                DrawStatusBar(footerH);
+                if (fullScreen) {
+                    // Launcher : remplace barre d'activite + dock + panneaux.
+                    mStartScreenFn(ec, mStartScreenUser);
+                } else {
+                    DrawActivityBar({ 0.f, bodyTop, activityW, bodyH });
+                    DockSpace(mUI, "##EditorDock", { activityW, bodyTop, W - activityW, bodyH });
+                    BootstrapDocking();
+                    DrawPanels(ec);
+                    DrawStatusBar(footerH);
+                }
                 HandleEdgeResize(W, H);                  // bords de redimensionnement (fenetre sans bordure)
 
                 if (modal) mUI.input = savedInput;       // restaure pour le popup

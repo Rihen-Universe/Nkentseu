@@ -196,6 +196,11 @@ namespace nkentseu {
             // (mis a true a l'ouverture, false a la fermeture) — le shell ne le reset pas.
             bool          appModal = false;
 
+            // Ecran plein cadre applicatif : quand leve, le shell remplace le corps
+            // (barre d'outils + panneaux) par l'ecran de demarrage de l'app (launcher).
+            // App-gere (true tant que le launcher remplace l'editeur).
+            bool          appFullScreen = false;
+
             // Presse-papiers : cable par l'app (la fenetre OS). Decouple de NKWindow
             // via void* + NkString. Les widgets appellent GetClipboard/SetClipboard.
             void* clipboardUser = nullptr;

@@ -13,6 +13,7 @@
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Editor/NkCodeEditor.h"
 #include <cstdio>
+#include <cstdlib>
 
 namespace nkentseu {
 namespace nkcode {
@@ -252,8 +253,41 @@ namespace nkcode {
             files.Clear(); active = -1;                  // onglets repartent a zero
             OpenPath(NkPath(wsPaths[wsIdx].CStr()));     // ouvre le .jenga du workspace
             RequestReload();                             // recharge la liste des projets
+            AddRecent(wsPaths[wsIdx]);                   // memorise dans les recents
             status = NkString("Workspace charge : ") + folder.ToString().CStr();
             return true;
+        }
+
+        // ── Recents : workspaces deja ouverts avec l'IDE (persistes ~/.nkcode_recent.cfg) ──
+        NkVector<NkString> recents;
+        static NkString RecentsPath() {
+            const char* home = std::getenv("USERPROFILE");
+            if (!home || !*home) home = std::getenv("HOME");
+            if (home && *home) return NkString(home) + "/.nkcode_recent.cfg";
+            return NkString("nkcode_recent.cfg");
+        }
+        void LoadRecents() {
+            recents.Clear();
+            NkString txt = NkFile::ReadAllText(NkPath(RecentsPath().CStr()));
+            NkString cur;
+            for (const char* p = txt.CStr(); *p; ++p) {
+                if (*p == '\n' || *p == '\r') { if (!cur.Empty()) { recents.PushBack(cur); cur.Clear(); } }
+                else cur += *p;
+            }
+            if (!cur.Empty()) recents.PushBack(cur);
+        }
+        void SaveRecents() {
+            NkString out;
+            for (usize i = 0; i < recents.Size(); ++i) { out += recents[i]; out += "\n"; }
+            NkFile::WriteAllText(NkPath(RecentsPath().CStr()), out);
+        }
+        void AddRecent(const NkString& wsPath) {
+            NkVector<NkString> nw;
+            nw.PushBack(wsPath);                          // en tete (le plus recent)
+            for (usize i = 0; i < recents.Size() && nw.Size() < 12; ++i)
+                if (!StrEq(recents[i].CStr(), wsPath.CStr())) nw.PushBack(recents[i]);
+            recents = nw;
+            SaveRecents();
         }
 
         // Argument --jenga-file pour cibler le workspace selectionne.

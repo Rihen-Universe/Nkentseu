@@ -88,6 +88,13 @@ namespace nkentseu {
             void SetOverlay(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
                 mOverlayFn = fn; mOverlayUser = user;
             }
+            // Ecran de demarrage (launcher) : dessine TOUT le corps quand
+            // ctx.appFullScreen est leve (remplace barre d'outils + panneaux).
+            void SetStartScreen(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
+                mStartScreenFn = fn; mStartScreenUser = user;
+            }
+            // Maximise la fenetre (ex. au lancement, pour l'ecran de demarrage).
+            void Maximize() noexcept { mWindow.Maximize(); }
 
             // ── Layout ──────────────────────────────────────────────────────────
             void ResetLayout() noexcept { mDockBootstrap = true; }
@@ -156,6 +163,8 @@ namespace nkentseu {
             void*             mToolbarUser            = nullptr;
             NkEditorAppMenuFn mOverlayFn              = nullptr;
             void*             mOverlayUser            = nullptr;
+            NkEditorAppMenuFn mStartScreenFn          = nullptr;
+            void*             mStartScreenUser        = nullptr;
 
             // === Palette de commandes ===
             bool  mPaletteOpen = false;

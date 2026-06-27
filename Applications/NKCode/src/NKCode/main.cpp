@@ -53,6 +53,9 @@ static void FileMenuThunk(NkEditorFrameContext& ec, void* u) {
 static void OverlayThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawOverlay(ec, static_cast<nkcode::NkCodeDialogs*>(u));
 }
+static void StartScreenThunk(NkEditorFrameContext& ec, void* u) {
+    nkcode::DrawStartScreen(ec, static_cast<nkcode::NkCodeDialogs*>(u));
+}
 
 int nkmain(const NkEntryState& state) {
     (void)state;
@@ -100,9 +103,12 @@ int nkmain(const NkEntryState& state) {
 
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
     g_dialogs.st = &g_state;
+    g_state.LoadRecents();                           // workspaces recents (ecran de demarrage)
     shell->SetFileMenu(&FileMenuThunk, &g_dialogs);  // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
     shell->SetOverlay(&OverlayThunk, &g_dialogs);    // dialogues modaux (creation/enregistrement)
-    g_dialogs.Open(nkcode::NkCodeDialogs::Welcome);  // ecran de demarrage facon VS Community
+    shell->SetStartScreen(&StartScreenThunk, &g_dialogs);  // ecran de demarrage plein cadre
+    shell->Maximize();                               // launcher plein ecran maximise
+    // g_dialogs.showStart est vrai par defaut -> l'ecran de demarrage s'affiche au lancement.
 
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
     shell->RegisterCommand("Projet: Demarrer (jenga run)",     &CmdRun,   nullptr,      "Ctrl+R");
