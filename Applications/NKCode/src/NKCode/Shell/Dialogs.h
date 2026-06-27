@@ -51,33 +51,59 @@ namespace nkcode {
         bool    loadScanned   = false;
         NkVector<NkString> foundPaths, foundNames;   // Charger : workspaces trouves
 
+        // ── Selecteur de dossier CUSTOM (NKGui) ──
+        enum PickFor { PK_None = 0, PK_Open, PK_NewDir, PK_LoadDir, PK_Buf };
+        bool    pickerOpen    = false;
+        int32   pickerFor     = PK_None;
+        char    pickerPath[512] = {};
+        char*   pickerBuf     = nullptr;
+        int32   pickerBufCap  = 0;
+        float32 pickerScroll  = 0.f;
+        bool    pickerEditing = false;         // edition du champ chemin
+        NkVector<NkString> pickerDirs;         // sous-dossiers du chemin courant
+
         static void CopyTo(char* dst, const char* src, int32 cap) {
             int32 i = 0; if (src) for (; src[i] && i + 1 < cap; ++i) dst[i] = src[i]; dst[i] = '\0';
+        }
+        void OpenPicker(int32 purpose, const char* startDir, char* buf = nullptr, int32 cap = 0) {
+            pickerOpen = true; pickerFor = purpose; pickerBuf = buf; pickerBufCap = cap;
+            pickerScroll = 0.f; pickerEditing = false;
+            const char* start = (startDir && *startDir) ? startDir : (st ? st->root.ToString().CStr() : ".");
+            CopyTo(pickerPath, start, (int32)sizeof(pickerPath));
+            ScanPicker();
+        }
+        void ScanPicker() {
+            pickerDirs.Clear();
+            NkVector<NkDirectoryEntry> e = NkDirectory::GetEntries(NkPath(pickerPath), "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            for (usize i = 0; i < e.Size(); ++i) if (e[i].IsDirectory && e[i].Name.CStr()[0] != '.') pickerDirs.PushBack(e[i].Name);
+        }
+        void PickerGoto(const NkPath& p) { CopyTo(pickerPath, p.ToString().CStr(), (int32)sizeof(pickerPath)); pickerScroll = 0.f; ScanPicker(); }
+        void PickerUp()    { PickerGoto(NkPath(pickerPath).GetParent()); }
+        void PickerEnter(const char* sub) { PickerGoto(NkPath(pickerPath) / sub); }
+        void PickerCancel(){ pickerOpen = false; pickerFor = PK_None; pickerBuf = nullptr; }
+        void PickerConfirm() {
+            NkString chosen(pickerPath); const int32 purpose = pickerFor; char* buf = pickerBuf; const int32 cap = pickerBufCap;
+            PickerCancel();
+            if (purpose == PK_Open)        DoLoad(NkPath(chosen.CStr()));
+            else if (purpose == PK_NewDir) CopyTo(wsDir, chosen.CStr(), (int32)sizeof(wsDir));
+            else if (purpose == PK_LoadDir){ CopyTo(loadDir, chosen.CStr(), (int32)sizeof(loadDir)); ScanLoad(); }
+            else if (purpose == PK_Buf && buf) CopyTo(buf, chosen.CStr(), cap);
         }
 
         void Open(int32 m) { mode = m; justOpened = true; status.Clear(); if (m == NewProject || m == NewWorkspace) nameBuf[0] = '\0'; }
         void ShowStart()  { showStart = true; mode = None; }
 
-        // Onglet Nouveau : parcourir le repertoire cible.
-        void BrowseNewDir() {
-            NkDialogResult r = NkDialogs::OpenFolderDialog("Repertoire du nouveau workspace");
-            if (r.confirmed) CopyTo(wsDir, r.path.CStr(), (int32)sizeof(wsDir));
-        }
-        // Onglet Charger : parcourir un dossier puis scanner ses workspaces.
-        void BrowseLoadDir() {
-            NkDialogResult r = NkDialogs::OpenFolderDialog("Dossier contenant le(s) workspace(s)");
-            if (r.confirmed) { CopyTo(loadDir, r.path.CStr(), (int32)sizeof(loadDir)); ScanLoad(); }
-        }
+        // Onglet Nouveau : parcourir le repertoire cible (picker NKGui).
+        void BrowseNewDir()  { OpenPicker(PK_NewDir, wsDir); }
+        // Onglet Charger : parcourir un dossier (picker NKGui) puis scanner.
+        void BrowseLoadDir() { OpenPicker(PK_LoadDir, loadDir[0] ? loadDir : (st ? st->root.ToString().CStr() : ".")); }
         void ScanLoad() {
             loadScanned = true;
             if (loadDir[0]) NkCodeState::ScanWorkspacesIn(NkPath(loadDir), foundPaths, foundNames);
             else { foundPaths.Clear(); foundNames.Clear(); }
         }
-        // Parcourir pour un chemin SDK (Nouveau).
-        void BrowseInto(char* dst, int32 cap, const char* title) {
-            NkDialogResult r = NkDialogs::OpenFolderDialog(title);
-            if (r.confirmed) CopyTo(dst, r.path.CStr(), cap);
-        }
+        // Parcourir pour un chemin SDK (Nouveau) via le picker NKGui.
+        void BrowseInto(char* dst, int32 cap, const char* /*title*/) { OpenPicker(PK_Buf, dst, dst, cap); }
         // Onglet Nouveau : genere le workspace (toutes proprietes) puis le charge.
         void CreateNew() {
             int32 nSys = 0; const NkCodeState::SysDef* sys = NkCodeState::Systems(&nSys);
@@ -118,11 +144,9 @@ namespace nkcode {
             }
         }
 
-        // Ouvre un dossier/workspace via les dialogues natifs. Refuse si pas de workspace.
-        void OpenFolderDialog() {
-            NkDialogResult res = NkDialogs::OpenFolderDialog("Ouvrir un dossier (workspace)");
-            if (res.confirmed && st) DoLoad(NkPath(res.path.CStr()));
-        }
+        // Selecteur de dossier CUSTOM (NKGui) pour ouvrir un workspace.
+        void OpenFolderDialog() { OpenPicker(PK_Open, st ? st->root.ToString().CStr() : "."); }
+        // Ouvrir un .jenga precis reste via la boite fichier native (pas un dossier).
         void OpenWorkspaceDialog() {
             NkDialogResult res = NkDialogs::OpenFileDialog("*.jenga", "Ouvrir un workspace (.jenga)");
             if (res.confirmed && st) DoLoad(NkPath(res.path.CStr()).GetParent());
@@ -191,7 +215,7 @@ namespace nkcode {
     inline void DrawAppFlags(NkEditorFrameContext& ec, NkCodeDialogs* d) {
         if (!d) return;
         auto& ctx = ec.Ui();
-        ctx.appModal      = (d->mode != NkCodeDialogs::None);
+        ctx.appModal      = (d->mode != NkCodeDialogs::None) || d->pickerOpen;
         ctx.appFullScreen = d->showStart;
     }
 
@@ -496,9 +520,81 @@ namespace nkcode {
         }
     }
 
+    // ── Selecteur de dossier CUSTOM (NKGui) : modal centre, navigation arborescente ──
+    inline void DrawFolderPicker(NkEditorFrameContext& ec, NkCodeDialogs* d) {
+        auto& ctx = ec.Ui();
+        const NkGuiFont* f = ctx.font;
+        if (!f || !f->Valid()) return;
+        auto& dl = ctx.dlOverlay;
+        const float32 W = (float32)ctx.viewW, H = (float32)ctx.viewH, S = ctx.S(1.f);
+        const float32 asc = f->Ascent(), lh = f->LineHeight();
+        const NkVec2 mp = ctx.input.mousePos; const bool click = ctx.input.mouseClicked[0];
+        auto hit  = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
+        auto text = [&](float32 x, float32 y, const char* s, const NkColor& c) { dl.AddText(f->Face(), f->TexId(), { x, y + asc }, s, c); };
+        const NkColor cCard = { 22,24,29,255 }, cBorder = { 50,55,63,255 }, cAccent = { 15,115,213,255 };
+        const NkColor cText = { 236,237,239,255 }, cSub = { 150,156,164,255 }, cRowHov = { 33,38,46,255 };
+        auto sbtn = [&](const NkRect& r, const char* s) -> bool {
+            const bool hov = hit(r);
+            dl.AddRectFilled(r, hov ? NkColor{ 40,46,54,255 } : NkColor{ 30,34,40,255 }, 6.f * S); dl.AddRect(r, cBorder, 1.f);
+            const float32 tw = f->MeasureWidth(s); text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, cText); return hov && click;
+        };
+        auto pbtn = [&](const NkRect& r, const char* s, bool en) -> bool {
+            const bool hov = en && hit(r);
+            dl.AddRectFilled(r, !en ? NkColor{ 30,34,40,255 } : hov ? NkColor{ 41,133,224,255 } : cAccent, 6.f * S);
+            const float32 tw = f->MeasureWidth(s); text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, en ? NkColor{ 255,255,255,255 } : cSub); return en && hov && click;
+        };
+
+        const float32 pw = 560.f * S, ph = 460.f * S, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+        dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0,0,0,160 });
+        dl.AddRectFilled({ px, py, pw, ph }, cCard, 10.f * S); dl.AddRect({ px, py, pw, ph }, cBorder, 1.5f);
+        text(px + 20.f * S, py + 16.f * S, "Choisir un dossier", cText);
+
+        // Champ chemin editable + Aller + Remonter
+        const float32 cx = px + 20.f * S, cwid = pw - 40.f * S;
+        float32 y = py + 50.f * S;
+        { const NkRect r = { cx, y, cwid - 180.f * S, 30.f * S };
+          NkOverlayTextField(ctx, dl, f, r, d->pickerPath, (int32)sizeof(d->pickerPath), d->pickerEditing);
+          if (hit(r) && click) d->pickerEditing = true;
+          if (sbtn({ cx + cwid - 170.f * S, y, 80.f * S, 30.f * S }, "Aller")) { d->PickerGoto(NkPath(d->pickerPath)); d->pickerEditing = false; }
+          if (sbtn({ cx + cwid - 84.f * S, y, 84.f * S, 30.f * S }, ".. Remonter")) d->PickerUp();
+        }
+        y += 42.f * S;
+
+        // Liste des sous-dossiers (defilante)
+        const NkRect area = { cx, y, cwid, ph - (y - py) - 60.f * S };
+        dl.AddRectFilled(area, NkColor{ 16,18,22,255 }, 6.f * S); dl.AddRect(area, cBorder, 1.f);
+        if (hit(area) && ctx.input.wheel != 0.f) { d->pickerScroll -= ctx.input.wheel * 34.f; ctx.input.wheel = 0.f; }
+        dl.PushClipRect(area, true);
+        float32 ly = area.y + 6.f * S - d->pickerScroll;
+        for (usize i = 0; i < d->pickerDirs.Size(); ++i) {
+            const NkRect r = { area.x + 4.f * S, ly, area.w - 8.f * S, 28.f * S };
+            const bool hov = hit(r) && hit(area);
+            if (hov) dl.AddRectFilled(r, cRowHov, 5.f * S);
+            // petite icone dossier
+            dl.AddRectFilled({ r.x + 8.f * S, r.y + 9.f * S, 16.f * S, 11.f * S }, NkColor{ 247,154,40,220 }, 2.f * S);
+            dl.AddRectFilled({ r.x + 8.f * S, r.y + 7.f * S, 8.f * S, 4.f * S }, NkColor{ 247,154,40,220 }, 1.f * S);
+            text(r.x + 32.f * S, r.y + (28.f * S - lh) * 0.5f, d->pickerDirs[i].CStr(), cText);
+            if (hov && click) { d->PickerEnter(d->pickerDirs[i].CStr()); dl.PopClipRect(); return; }
+            ly += 30.f * S;
+        }
+        const float32 contentH = (ly + d->pickerScroll) - (area.y + 6.f * S);
+        dl.PopClipRect();
+        const float32 maxS = contentH - area.h > 0.f ? contentH - area.h : 0.f;
+        if (d->pickerScroll < 0.f) d->pickerScroll = 0.f; if (d->pickerScroll > maxS) d->pickerScroll = maxS;
+        if (d->pickerDirs.Empty()) text(area.x + 12.f * S, area.y + 10.f * S, "(aucun sous-dossier)", cSub);
+
+        // Boutons bas
+        const float32 by = py + ph - 44.f * S;
+        if (pbtn({ px + pw - 200.f * S, by, 180.f * S, 32.f * S }, "Selectionner ce dossier", true)) { d->PickerConfirm(); return; }
+        if (sbtn({ px + pw - 290.f * S, by, 80.f * S, 32.f * S }, "Annuler")) { d->PickerCancel(); return; }
+        if (ctx.input.KeyPressed(NkGuiKey::Escape)) { d->PickerCancel(); return; }
+    }
+
     // ── Overlay modal (appele apres les panneaux via SetOverlay) ──
     inline void DrawOverlay(NkEditorFrameContext& ec, NkCodeDialogs* d) {
-        if (!d || d->mode == NkCodeDialogs::None) return;
+        if (!d) return;
+        if (d->pickerOpen) { DrawFolderPicker(ec, d); return; }
+        if (d->mode == NkCodeDialogs::None) return;
         auto& ctx = ec.Ui();
         const NkGuiFont* f = ctx.font;
         if (!f || !f->Valid()) return;
