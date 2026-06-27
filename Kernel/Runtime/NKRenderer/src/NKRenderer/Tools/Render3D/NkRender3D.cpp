@@ -495,8 +495,17 @@ namespace nkentseu {
               .AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT,   36, "TEXCOORD", 0)
               .AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT,   44, "TEXCOORD", 1)
               .AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM,  52, "COLOR",    0)
-              .AddAttribute(6, 0, NkVertexFormat::NK_RGBA32_FLOAT, 56, "BLENDINDICES", 0)
-              .AddAttribute(7, 0, NkVertexFormat::NK_RGBA32_FLOAT, 72, "BLENDWEIGHT",  0);
+              // boneIdx/boneWeight : semantiques DX = TEXCOORD2 / TEXCOORD3 (PAS
+              // BLENDINDICES/BLENDWEIGHT). Le generateur NkSL->HLSL mappe les inputs
+              // @location(6)/@location(7) en TEXCOORD avec index sequentiel apres
+              // les uv (uv=TEXCOORD0, uv2=TEXCOORD1, boneIdx=TEXCOORD2, boneWeight=
+              // TEXCOORD3). Avec BLENDINDICES/BLENDWEIGHT : DX12 rejette l'input
+              // layout (signature VS attend TEXCOORD2/3 -> CreateInputLayout echoue
+              // -> modele invisible) et DX11 cree le layout mais lie du vide -> poids
+              // de bones = 0 -> wsum~0 -> bind pose (modele NON skinne). VK/GL
+              // utilisent les locations, les chaines de semantique sont ignorees.
+              .AddAttribute(6, 0, NkVertexFormat::NK_RGBA32_FLOAT, 56, "TEXCOORD", 2)
+              .AddAttribute(7, 0, NkVertexFormat::NK_RGBA32_FLOAT, 72, "TEXCOORD", 3);
 
             mSkinPipeline   = mDevice->CreateGraphicsPipeline(pd);
             mSkinPipelineRP = currentRP;
