@@ -38,6 +38,9 @@ namespace nkcode {
         int32              active = -1; // onglet actif
         NkVector<NkString> output;      // sortie de la derniere commande jenga
         NkString           status;      // ligne d'etat (ex. "Build OK")
+        int32              buildTotal = 0, buildDone = 0;   // progression : projets total / faits
+        bool IsBuilding() const { return mBuild.Running() || !mQueue.Empty(); }
+        float32 BuildProgress() const { return buildTotal > 0 ? (float32)buildDone / (float32)buildTotal : 0.f; }
 
         // Barre d'outils Visual Studio : config / plateforme / appareil cibles.
         int32 cfgIdx  = 0;              // 0 Debug, 1 Release
@@ -106,8 +109,10 @@ namespace nkcode {
         }
 
         // ── Projets du workspace (un .jenga en contient plusieurs) ───────────────
-        NkVector<NkString> projects;     // noms des projets selectionnables
+        NkVector<NkString> projects;     // projets (hors tests) selectionnables
         int32              projIdx = 0;  // projet cible courant
+        NkVector<NkString> tests;        // projets de test (Kind = TestSuite)
+        int32              testIdx = 0;  // test selectionne
 
         const char* SelectedProject() const {
             return (projIdx >= 0 && projIdx < static_cast<int32>(projects.Size()))
@@ -213,6 +218,7 @@ namespace nkcode {
             if (mBuild.Running() || mQueue.Empty()) return;
             NkString next = mQueue[0]; mQueue.Erase(mQueue.Begin());
             output.PushBack(NkString("$ ") + next.CStr());
+            buildTotal = 0; buildDone = 0;     // progression de cette commande
             mBuild.Start(next);
             status = NkString("Construction...");
         }
@@ -255,6 +261,16 @@ namespace nkcode {
             cmd += " --config "; cmd += ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
             cmd += " --platform "; cmd += S.name;
             cmd += " --build";
+            cmd += JengaFileArg();
+            EnqueueJenga(cmd); PumpQueue();
+        }
+        // Lance le test selectionne (jenga test <name>) en config courante.
+        void DoTest() {
+            if (!HasWorkspace() || tests.Empty()) { status = NkString("(aucun test)"); return; }
+            if (testIdx < 0 || testIdx >= static_cast<int32>(tests.Size())) testIdx = 0;
+            output.Clear(); mQueue.Clear();
+            NkString cmd("test "); cmd += tests[testIdx].CStr();
+            cmd += " --config "; cmd += ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
             cmd += JengaFileArg();
             EnqueueJenga(cmd); PumpQueue();
         }
@@ -313,10 +329,11 @@ namespace nkcode {
         bool               mInfoParsed  = false;
         int32              mInfoWsIdx   = -1;   // workspace pour lequel les projets sont charges
 
-        // Parse la table "Projects" de `jenga info` -> ne garde que les EXECUTABLES
-        // (Kind contenant "App") = cibles build/run pertinentes.
+        // Parse la table "Projects" de `jenga info` (colonnes Name Kind ...).
+        // Les projets de TEST (Kind = TestSuite) vont dans `tests` ; les autres
+        // dans `projects`. Exclut les separateurs / entrees parasites (ex. --unitest--).
         void ParseProjects() {
-            projects.Clear();
+            projects.Clear(); tests.Clear();
             bool inTable = false;
             for (usize i = 0; i < mInfoLines.Size(); ++i) {
                 const char* L = mInfoLines[i].CStr();
@@ -328,7 +345,9 @@ namespace nkcode {
                 if (IsBlank(L)) break;                          // fin de table
                 char name[128], kind[64];
                 if (!TwoTokens(L, name, sizeof(name), kind, sizeof(kind))) continue;
-                projects.PushBack(NkString(name));             // TOUS les projets du workspace
+                if (name[0] == '-' || Contains(name, "unitest")) continue;   // parasite / --unitest--
+                if (Contains(kind, "Test")) tests.PushBack(NkString(name));  // TestSuite -> combo Tests
+                else                        projects.PushBack(NkString(name));
             }
             if (projects.Empty()) return;
             for (usize i = 0; i < projects.Size(); ++i)        // defaut = NKCode si present

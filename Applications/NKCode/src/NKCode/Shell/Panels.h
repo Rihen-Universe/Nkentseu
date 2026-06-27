@@ -218,22 +218,63 @@ namespace nkcode {
             : NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s) {}
         void OnUI(NkEditorFrameContext& ec) override {
             auto& ctx = ec.Ui();
-            mS->PollBuild();                      // tient le statut de build a jour
-            GlobalLogBuffer().Drain(mLogs);       // recupere les nouveaux logs NKLogger
-            for (usize i = 0; i < mS->output.Size(); ++i) mLogs.PushBack(mS->output[i]);  // + sortie build
+            auto& dl  = ctx.DL();
+            mS->PollBuild();
+            // Draine les nouveaux logs + sortie build, en parsant la progression.
+            NkVector<NkString> fresh;
+            GlobalLogBuffer().Drain(fresh);
+            for (usize i = 0; i < mS->output.Size(); ++i) fresh.PushBack(mS->output[i]);
             mS->output.Clear();
-            while (mLogs.Size() > 5000) mLogs.Erase(mLogs.Begin());   // borne
+            for (usize i = 0; i < fresh.Size(); ++i) { ParseProgress(fresh[i].CStr()); mLogs.PushBack(fresh[i]); }
+            if (!fresh.Empty()) mFollow = true;
+            while (mLogs.Size() > 5000) mLogs.Erase(mLogs.Begin());
 
-            ctx.DL().AddRectFilled(ctx.DL().CurrentClip(), NkColor{ 13, 17, 23, 255 });   // fond #0D1117
-            if (mLogs.Empty()) { ec.Text("(logs NKLogger — le moteur ecrit ici)"); return; }
+            const NkRect clip = dl.CurrentClip();
+            dl.AddRectFilled(clip, NkColor{ 13, 17, 23, 255 });   // fond #0D1117
 
-            // Affiche la QUEUE (dernieres lignes qui tiennent dans la zone visible).
-            const NkRect  clip  = ctx.DL().CurrentClip();
+            NkCodeFontScope _cfs(ctx);   // police monospace (box-drawing + unicode)
             const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-            const int32   fit   = (lineH > 1.f) ? static_cast<int32>(clip.h / lineH) : 20;
-            int32 start = static_cast<int32>(mLogs.Size()) - fit; if (start < 0) start = 0;
-            for (int32 i = start; i < static_cast<int32>(mLogs.Size()); ++i)
-                TermText(ctx, mLogs[i].CStr(), LogColor(mLogs[i].CStr()));
+            const NkVec2  m = ctx.input.mousePos;
+            auto inR = [&](const NkRect& r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
+
+            // ── En-tete : progression (barre + %) a gauche, bouton Effacer a droite ──
+            const float32 hdrH = ctx.S(22.f), pad = 6.f;
+            const NkRect hdr = { clip.x, clip.y, clip.w, hdrH };
+            dl.AddRectFilled(hdr, NkColor{ 22, 26, 32, 255 });
+            const float32 by = clip.y + (hdrH - lineH) * 0.5f + (ctx.font ? ctx.font->Ascent() : 11.f);
+            // Bouton Effacer (a droite).
+            const float32 clrW = ctx.S(74.f);
+            const NkRect clrR = { clip.x + clip.w - clrW - 4.f, clip.y + 2.f, clrW, hdrH - 4.f };
+            { const bool h = inR(clrR); dl.AddRectFilled(clrR, h ? ctx.theme.buttonHover : NkColor{ 40, 46, 54, 255 }, 4.f);
+              if (ctx.font && ctx.font->Valid()) dl.AddText(ctx.font->Face(), ctx.font->TexId(), { clrR.x + 10.f, by }, "Effacer", ctx.theme.text);
+              if (h && ctx.input.mouseClicked[0] && ctx.popupDepth == 0) { mLogs.Clear(); ClearSel(); } }
+            // Progression : barre + pourcentage (pendant/juste apres un build).
+            if (mS->buildTotal > 0 || mS->IsBuilding()) {
+                const char* sp = "|/-\\"; mSpin += ctx.input.dt; const char spc[2] = { sp[((int)(mSpin * 8.f)) & 3], 0 };
+                float32 x = clip.x + pad;
+                if (mS->IsBuilding() && ctx.font && ctx.font->Valid()) { dl.AddText(ctx.font->Face(), ctx.font->TexId(), { x, by }, spc, ctx.theme.accent); x += ctx.S(16.f); }
+                const float32 barW = ctx.S(160.f), barH = ctx.S(8.f);
+                const NkRect bar = { x, clip.y + (hdrH - barH) * 0.5f, barW, barH };
+                dl.AddRectFilled(bar, NkColor{ 40, 46, 54, 255 }, 3.f);
+                const float32 prog = mS->BuildProgress();
+                dl.AddRectFilled({ bar.x, bar.y, barW * (prog < 0.f ? 0.f : prog > 1.f ? 1.f : prog), barH }, ctx.theme.accent, 3.f);
+                char info[64]; std::snprintf(info, sizeof(info), "  %d/%d  (%d%%)", mS->buildDone, mS->buildTotal, (int)(prog * 100.f + 0.5f));
+                if (ctx.font && ctx.font->Valid()) dl.AddText(ctx.font->Face(), ctx.font->TexId(), { bar.x + barW + 4.f, by }, info, ctx.theme.text);
+            } else if (ctx.font && ctx.font->Valid()) {
+                dl.AddText(ctx.font->Face(), ctx.font->TexId(), { clip.x + pad, by }, mS->status.Empty() ? "Sortie" : mS->status.CStr(), NkColor{ 150, 158, 168, 255 });
+            }
+
+            // ── Console (lecture seule) : defilable + selectionnable + unicode ──
+            const NkRect out = { clip.x, clip.y + hdrH, clip.w, clip.h - hdrH };
+            // Clic droit -> menu Copier / Tout selectionner / Effacer.
+            if (ctx.input.mouseClicked[2] && inR(out) && ctx.popupDepth == 0) { mMenu.open = true; mMenu.pos = m; }
+            DrawConsole(ctx, out, lineH, pad);
+            const char* items[] = { "Copier", "Tout selectionner", "Effacer" };
+            const bool  en[] = { HasSel(), !mLogs.Empty(), !mLogs.Empty() };
+            const int32 act = NkCtxMenuDraw(ctx, mMenu, items, en, 3);
+            if (act == 0) CopySel(ctx);
+            else if (act == 1) SelectAll();
+            else if (act == 2) { mLogs.Clear(); ClearSel(); }
         }
     private:
         // Couleur par niveau (prefixe "[LEVEL]").
@@ -246,8 +287,116 @@ namespace nkcode {
             }
             return { 204, 204, 204, 255 };   // Info/defaut
         }
+        static bool Find(const char* h, const char* n) { for (; *h; ++h) { const char* a = h, * b = n; while (*a && *b && *a == *b) { ++a; ++b; } if (!*b) return true; } return false; }
+        void ParseProgress(const char* L) {
+            if (const char* p = FindP(L, "Build Order (")) { int n = 0; for (const char* q = p; *q >= '0' && *q <= '9'; ++q) n = n * 10 + (*q - '0'); if (n > 0) { mS->buildTotal = n; mS->buildDone = 0; } }
+            else if (Find(L, "Built:") && !Find(L, "Projects")) { ++mS->buildDone; }
+        }
+        static const char* FindP(const char* h, const char* n) { for (; *h; ++h) { const char* a = h, * b = n; while (*a && *b && *a == *b) { ++a; ++b; } if (!*b) return a; } return nullptr; }
+
+        bool HasSel() const { return mSAL != mSBL || mSAC != mSBC; }
+        void ClearSel() { mSAL = mSAC = mSBL = mSBC = 0; }
+        void SelectAll() { mSAL = 0; mSAC = 0; mSBL = (int32)mLogs.Size() - 1; mSBC = mLogs.Empty() ? 0 : (int32)mLogs[mLogs.Size() - 1].Size(); }
+        void CopySel(NkGuiContext& ctx) {
+            int32 aL = mSAL, aC = mSAC, bL = mSBL, bC = mSBC;
+            if (aL > bL || (aL == bL && aC > bC)) { int32 tl = aL, tc = aC; aL = bL; aC = bC; bL = tl; bC = tc; }
+            const int32 n = (int32)mLogs.Size(); NkVector<char> buf;
+            for (int32 l = aL; l <= bL && l < n; ++l) { if (l < 0) continue;
+                const char* s = mLogs[l].CStr(); const int32 ln = (int32)mLogs[l].Size();
+                const int32 c0 = (l == aL) ? aC : 0; int32 c1 = (l == bL) ? bC : ln; if (c1 > ln) c1 = ln;
+                for (int32 c = (c0 < 0 ? 0 : c0); c < c1; ++c) buf.PushBack(s[c]);
+                if (l < bL) buf.PushBack('\n');
+            }
+            buf.PushBack('\0'); if (buf.Size() > 1) ctx.SetClipboard(buf.Data());
+        }
+
+        // Rend les lignes (clippees) + selection + scrollbars V/H + suivi du bas.
+        void DrawConsole(NkGuiContext& ctx, const NkRect& out, float32 lineH, float32 pad) {
+            auto& dl = ctx.DL();
+            const NkColor kTrk = { 25, 29, 35, 255 }, kThb = { 72, 79, 87, 200 }, kThbH = { 110, 118, 129, 235 };
+            const float32 sbW = 14.f;
+            const NkFont* face = (ctx.font && ctx.font->Valid()) ? ctx.font->Face() : nullptr;
+            const float32 viewW = out.w - sbW - pad * 2.f, viewH = out.h - sbW;
+            const float32 topPad = lineH, botPad = lineH;
+            const int32   nLines = (int32)mLogs.Size();
+            // Largeur max (cache incremental) pour la barre H.
+            while (mMeasured < mLogs.Size()) { const float32 w = face ? face->CalcTextSizeX(mLogs[mMeasured].CStr()) : 0.f; if (w > mMaxW) mMaxW = w; ++mMeasured; }
+            const float32 contentH = nLines * lineH + topPad + botPad;
+            const float32 maxSY = contentH > viewH ? contentH - viewH : 0.f;
+            const float32 maxSX = mMaxW > viewW ? mMaxW - viewW : 0.f;
+            const NkVec2 m = ctx.input.mousePos;
+            auto in = [&](const NkRect& r) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; };
+            if (in(out)) {
+                if (ctx.input.wheel != 0.f) { mScrollY -= ctx.input.wheel * lineH * 3.f; ctx.input.wheel = 0.f; mFollow = false; }
+                if (ctx.input.wheelH != 0.f) { mScrollX -= ctx.input.wheelH * 40.f; ctx.input.wheelH = 0.f; }
+            }
+            if (mFollow) mScrollY = maxSY;
+            if (mScrollY < 0.f) mScrollY = 0.f; if (mScrollY > maxSY) mScrollY = maxSY;
+            if (mScrollX < 0.f) mScrollX = 0.f; if (mScrollX > maxSX) mScrollX = maxSX;
+
+            // Selection souris.
+            const float32 left = out.x + pad;
+            auto colAtX = [&](int32 L, float32 x) -> int32 { if (!face || L < 0 || L >= nLines) return 0; const char* s = mLogs[L].CStr(); const int32 n = (int32)mLogs[L].Size(); int32 bc = 0; float32 best = 1e9f; for (int32 c = 0; c <= n; ++c) { float32 d = face->CalcTextSizeX(s, s + c) - x; if (d < 0) d = -d; if (d < best) { best = d; bc = c; } } return bc; };
+            auto rowAtY = [&](float32 y) -> int32 { int32 L = (int32)((y - out.y - topPad + mScrollY) / lineH); if (L < 0) L = 0; if (L >= nLines) L = nLines - 1; return L; };
+            const NkRect selArea = { out.x, out.y, out.w - sbW, viewH };
+            if (ctx.input.mouseClicked[0] && in(selArea) && ctx.popupDepth == 0 && !mMenu.open) { int32 L = rowAtY(m.y); mSAL = mSBL = L; mSAC = mSBC = colAtX(L, m.x - left + mScrollX); mDragging = true; }
+            if (mDragging && ctx.input.mouseDown[0]) { int32 L = rowAtY(m.y); mSBL = L; mSBC = colAtX(L, m.x - left + mScrollX); }
+            if (!ctx.input.mouseDown[0]) mDragging = false;
+            if (ctx.input.wantCopy && HasSel()) CopySel(ctx);
+            if (ctx.input.wantSelectAll && in(out)) SelectAll();
+            int32 nAL = mSAL, nAC = mSAC, nBL = mSBL, nBC = mSBC;
+            if (nAL > nBL || (nAL == nBL && nAC > nBC)) { int32 tl = nAL, tc = nAC; nAL = nBL; nAC = nBC; nBL = tl; nBC = tc; }
+
+            // Lignes visibles.
+            dl.PushClipRect({ out.x, out.y, out.w - sbW, viewH }, true);
+            int32 first = (int32)((mScrollY - topPad) / lineH); if (first < 0) first = 0;
+            const int32 last = first + (int32)(viewH / lineH) + 2;
+            const float32 asc = ctx.font ? ctx.font->Ascent() : 12.f;
+            for (int32 i = first; i <= last && i < nLines; ++i) {
+                if (i < 0) continue;
+                const float32 ytop = out.y + topPad + i * lineH - mScrollY;
+                if (HasSel() && i >= nAL && i <= nBL) {
+                    const char* s = mLogs[i].CStr(); const int32 n = (int32)mLogs[i].Size();
+                    const int32 c0 = (i == nAL) ? nAC : 0, c1 = (i == nBL) ? nBC : n;
+                    const float32 x0 = left - mScrollX + (face ? face->CalcTextSizeX(s, s + c0) : 0.f);
+                    float32 x1 = left - mScrollX + (face ? face->CalcTextSizeX(s, s + c1) : 0.f);
+                    if (i < nBL) x1 += 4.f;
+                    dl.AddRectFilled({ x0, ytop, x1 - x0, lineH }, NkColor{ 31, 111, 235, 90 });
+                }
+                const char* L = mLogs[i].CStr();
+                NkDrawTextU(ctx, left - mScrollX, ytop + asc, ytop, lineH, L, L + mLogs[i].Size(), LogColor(L));
+            }
+            dl.PopClipRect();
+
+            // Scrollbars V + H avec fleches.
+            auto arrow = [&](const NkRect& r, int32 dir) -> bool { const bool h = in(r); if (h) dl.AddRectFilled(r, NkColor{ 33, 39, 48, 255 }); const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 3.2f; const NkColor c = h ? kThbH : kThb; if (dir == 0) dl.AddTriangleFilled({ cx, cy - a }, { cx - a, cy + a }, { cx + a, cy + a }, c); else if (dir == 1) dl.AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy - a }, { cx, cy + a }, c); else if (dir == 2) dl.AddTriangleFilled({ cx - a, cy }, { cx + a, cy - a }, { cx + a, cy + a }, c); else dl.AddTriangleFilled({ cx - a, cy - a }, { cx + a, cy }, { cx - a, cy + a }, c); return h && ctx.input.mouseDown[0]; };
+            const NkRect vT = { out.x + out.w - sbW, out.y, sbW, viewH };
+            const NkRect hT = { out.x, out.y + viewH, out.w - sbW, sbW };
+            dl.AddRectFilled(vT, kTrk); dl.AddRectFilled(hT, kTrk); dl.AddRectFilled({ vT.x, hT.y, sbW, sbW }, kTrk);
+            { const NkRect up = { vT.x, vT.y, sbW, sbW }, dn = { vT.x, vT.y + viewH - sbW, sbW, sbW }; const NkRect iv = { vT.x, vT.y + sbW, sbW, viewH - 2.f * sbW };
+              if (arrow(up, 0)) { mScrollY -= lineH * 0.8f; mFollow = false; } if (arrow(dn, 1)) mScrollY += lineH * 0.8f;
+              if (maxSY > 0.f && iv.h > 8.f) { float32 th = iv.h * (viewH / contentH); if (th < 24.f) th = 24.f; if (th > iv.h) th = iv.h; const float32 ty = iv.y + (mScrollY / maxSY) * (iv.h - th);
+                  if (ctx.input.mouseClicked[0] && in(iv)) ctx.activeId = ctx.GetId("##ovbar"); const bool a = (ctx.activeId == ctx.GetId("##ovbar"));
+                  if (a && ctx.input.mouseDown[0]) { const float32 u = (m.y - iv.y - th * 0.5f) / (iv.h - th); mScrollY = (u < 0 ? 0 : u > 1 ? 1 : u) * maxSY; mFollow = false; }
+                  dl.AddRectFilled({ iv.x + 3.f, ty, sbW - 6.f, th }, (a || in(iv)) ? kThbH : kThb, 3.f); } }
+            { const NkRect lf = { hT.x, hT.y, sbW, sbW }, rt = { hT.x + hT.w - sbW, hT.y, sbW, sbW }; const NkRect ih = { hT.x + sbW, hT.y, hT.w - 2.f * sbW, sbW };
+              if (arrow(lf, 2)) mScrollX -= 18.f; if (arrow(rt, 3)) mScrollX += 18.f;
+              if (maxSX > 0.f && ih.w > 8.f) { float32 tw = ih.w * (viewW / mMaxW); if (tw < 24.f) tw = 24.f; if (tw > ih.w) tw = ih.w; const float32 tx = ih.x + (mScrollX / maxSX) * (ih.w - tw);
+                  if (ctx.input.mouseClicked[0] && in(ih)) ctx.activeId = ctx.GetId("##ohbar"); const bool a = (ctx.activeId == ctx.GetId("##ohbar"));
+                  if (a && ctx.input.mouseDown[0]) { const float32 u = (m.x - ih.x - tw * 0.5f) / (ih.w - tw); mScrollX = (u < 0 ? 0 : u > 1 ? 1 : u) * maxSX; }
+                  dl.AddRectFilled({ tx, hT.y + 3.f, tw, sbW - 6.f }, (a || in(ih)) ? kThbH : kThb, 3.f); } }
+            if (mScrollY < 0.f) mScrollY = 0.f; if (mScrollY > maxSY) mScrollY = maxSY;
+            if (mScrollX < 0.f) mScrollX = 0.f; if (mScrollX > maxSX) mScrollX = maxSX;
+            if (mScrollY >= maxSY - 1.f) mFollow = true;
+        }
+
         NkCodeState*       mS;
         NkVector<NkString> mLogs;
+        float32 mScrollX = 0.f, mScrollY = 0.f, mMaxW = 0.f, mSpin = 0.f;
+        usize   mMeasured = 0;
+        bool    mFollow = true, mDragging = false;
+        int32   mSAL = 0, mSAC = 0, mSBL = 0, mSBC = 0;
+        NkCtxMenu mMenu;
     };
 
     // ── Terminal MULTI-SHELL facon VSCode : plusieurs terminaux internes

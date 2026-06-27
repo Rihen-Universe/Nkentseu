@@ -33,13 +33,15 @@ namespace nkcode {
         // CENTRAGE : largeur totale (bouton + 5 combos + 4 actions) -> depart au milieu.
         auto bW = [&](const char* l) { return (ctx.font && ctx.font->Valid() ? ctx.font->MeasureWidth(l) : 40.f) + ctx.theme.framePadX * 2.f + 6.f; };
         const float32 sp = ctx.layout.itemSpacingX;
-        const float32 wWs = ctx.S(150.f), wProj = ctx.S(180.f), wSys = ctx.S(130.f), wCfg = ctx.S(110.f), wArch = ctx.S(130.f);
+        const float32 wWs = ctx.S(150.f), wProj = ctx.S(180.f), wSys = ctx.S(130.f), wCfg = ctx.S(110.f), wArch = ctx.S(130.f), wTest = ctx.S(150.f);
+        const bool hasTests = !s->tests.Empty();
         const float32 left = ctx.layout.region.x + ctx.S(8.f);
         float32 startX = left;
         if (s->HasWorkspace()) {
-            const float32 total = bW(" \xE2\x86\xBB ") + wWs + wProj + wSys + wCfg + wArch
-                                + bW(" Construire ") + bW(" Recompiler ") + bW(" Nettoyer ") + bW(" Demarrer ")
-                                + sp * 9.f;
+            float32 total = bW(" \xE2\x86\xBB ") + wWs + wProj + wSys + wCfg + wArch
+                          + bW(" Construire ") + bW(" Recompiler ") + bW(" Nettoyer ") + bW(" Demarrer ")
+                          + sp * 9.f;
+            if (hasTests) total += wTest + bW(" Tester ") + sp * 2.f;
             const float32 mid = ctx.layout.region.x + (savedRegionW - total) * 0.5f;
             startX = mid > left ? mid : left;
         }
@@ -118,7 +120,21 @@ namespace nkcode {
         }
         ctx.PopId(); ctx.SameLine();
 
-        // ── 6) Actions ──
+        // ── 6) Tests lies au workspace (combo + Tester), si presents ──
+        if (hasTests) {
+            setW(wTest);
+            ctx.PushId("test");
+            if (s->testIdx < 0 || s->testIdx >= (int32)s->tests.Size()) s->testIdx = 0;
+            const char* testPrev = s->tests[s->testIdx].CStr();
+            if (BeginCombo(ctx, "", testPrev, (int32)s->tests.Size())) {
+                for (usize i = 0; i < s->tests.Size(); ++i)
+                    if (Selectable(ctx, s->tests[i].CStr(), (int32)i == s->testIdx)) { s->testIdx = (int32)i; ctx.ClosePopup(); }
+                EndCombo(ctx);
+            }
+            ctx.PopId(); ctx.SameLine();
+        }
+
+        // ── 7) Actions ──
         ctx.layout.region.w = savedRegionW;
         if (Button(ctx, " Construire ")) s->DoBuildAction("build");
         ctx.SameLine();
@@ -127,6 +143,7 @@ namespace nkcode {
         if (Button(ctx, " Nettoyer "))   s->DoClean();
         ctx.SameLine();
         if (Button(ctx, " Demarrer "))   s->DoRun();
+        if (hasTests) { ctx.SameLine(); if (Button(ctx, " Tester ")) s->DoTest(); }
     }
 
 } // namespace nkcode
