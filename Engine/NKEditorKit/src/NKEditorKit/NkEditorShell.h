@@ -159,6 +159,10 @@ namespace nkentseu {
             NkGraphicsApi mGraphicsApi   = NkGraphicsApi::NK_GFX_API_AUTO;
             uint32        mLastWidth     = 0;
             uint32        mLastHeight    = 0;
+            // Deplacement de fenetre par la barre de titre : arme au press, ne demarre
+            // qu'apres un vrai glissement (seuil) -> un simple clic ne deplace jamais.
+            bool          mTitleDragArmed = false;
+            float32       mDragStartX = 0.f, mDragStartY = 0.f;
         };
 
     } // namespace editorkit

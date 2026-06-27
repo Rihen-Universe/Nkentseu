@@ -473,16 +473,31 @@ namespace nkentseu {
               dl.AddLine({ gx - s, cy + s }, { gx + s, cy - s }, xc, 1.2f);
               if (h && mUI.input.mouseClicked[0]) { mRunning = false; consumed = true; } }
 
-            // Glissement : barre moins les controles ; EXCLUT la bande des titres de
-            // menu [menuX, menuBarX] -> un clic sur un menu l'OUVRE (au lieu de demarrer
-            // un deplacement de fenetre, ce qui empechait l'ouverture au 1er clic).
+            // Glissement de fenetre : barre moins les controles, et EXCLUT la bande
+            // des titres de menu [menuX, menuBarX] (exclusion GEOMETRIQUE, fiable).
+            // De plus, le deplacement ne demarre qu'apres un vrai GLISSEMENT (seuil) :
+            // un simple clic (meme sur la barre) ne deplace JAMAIS la fenetre -> clic
+            // sur un menu = ouverture, pas deplacement.
             const NkRect drag = { bar.x, bar.y, cMin.x - bar.x, bar.h };
-            const bool inDrag      = m.x >= drag.x && m.x < drag.x + drag.w && m.y >= drag.y && m.y < drag.y + drag.h;
-            const bool overMenu    = (mUI.hotId != NKGUI_ID_NONE);
-            const bool inMenuTitles = (m.x >= menuX && m.x < mUI.menuBarX);   // bande des titres
-            if (!consumed && inDrag && !overMenu && !inMenuTitles) {
-                if (mUI.input.mouseDoubleClicked[0]) { mWindow.Maximize(); mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false; }
-                else if (mUI.input.mouseClicked[0])  { mWindow.BeginDragMove(); mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false; }
+            const bool inDrag       = m.x >= drag.x && m.x < drag.x + drag.w && m.y >= drag.y && m.y < drag.y + drag.h;
+            const bool inMenuTitles = (m.x >= menuX && m.x < mUI.menuBarX);   // jamais de drag sur un menu
+            const bool dragArea     = inDrag && !inMenuTitles;
+            if (!consumed && dragArea && mUI.input.mouseDoubleClicked[0]) {
+                mWindow.Maximize(); mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false; mTitleDragArmed = false;
+            } else if (!consumed && dragArea && mUI.input.mouseClicked[0]) {
+                mTitleDragArmed = true; mDragStartX = m.x; mDragStartY = m.y;   // arme, sans deplacer encore
+            }
+            if (mTitleDragArmed) {
+                if (!mUI.input.mouseDown[0]) {
+                    mTitleDragArmed = false;                                    // relache sans bouger = simple clic
+                } else {
+                    const float32 dx = m.x - mDragStartX, dy = m.y - mDragStartY;
+                    if (dx * dx + dy * dy > 25.f) {                            // > ~5 px = vrai glissement
+                        mTitleDragArmed = false;
+                        mWindow.BeginDragMove();
+                        mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false;
+                    }
+                }
             }
         }
 
