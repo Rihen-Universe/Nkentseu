@@ -457,18 +457,25 @@ namespace nkentseu {
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_VERTEX_BUFFER))   bd.BindFlags|=D3D11_BIND_VERTEX_BUFFER;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_INDEX_BUFFER))    bd.BindFlags|=D3D11_BIND_INDEX_BUFFER;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_UNIFORM_BUFFER))  bd.BindFlags|=D3D11_BIND_CONSTANT_BUFFER;
-        if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_STORAGE_BUFFER))  bd.BindFlags|=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS;
         if (NkHasFlag(desc.bindFlags,NkBindFlags::NK_SHADER_RESOURCE)) bd.BindFlags|=D3D11_BIND_SHADER_RESOURCE;
+
+        // Storage buffer : ByteAddressBuffer (RAW). SPIRV-Cross transpile un
+        // `readonly buffer { mat4 bones[]; }` GLSL en `ByteAddressBuffer` HLSL
+        // (acces .Load par offset octet), PAS en `StructuredBuffer`. Il faut
+        // donc des vues RAW (R32_TYPELESS + FLAG_RAW), pas STRUCTURED. Une vue
+        // structured (stride 4) etait incompatible -> le VS skin lisait des
+        // bones = 0 -> mesh a l'origine -> INVISIBLE sur DX11.
+        bool isStorage = NkHasFlag(desc.bindFlags,NkBindFlags::NK_STORAGE_BUFFER)
+                      || desc.type==NkBufferType::NK_STORAGE;
+        if (isStorage) {
+            bd.BindFlags|=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS;
+            bd.MiscFlags|=D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+        }
 
         // Type flags selon le type de buffer
         if (desc.type==NkBufferType::NK_VERTEX)  bd.BindFlags|=D3D11_BIND_VERTEX_BUFFER;
         if (desc.type==NkBufferType::NK_INDEX)   bd.BindFlags|=D3D11_BIND_INDEX_BUFFER;
-        if (desc.type==NkBufferType::NK_UNIFORM) { bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER; }
-        if (desc.type==NkBufferType::NK_STORAGE) {
-            bd.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS;
-            bd.MiscFlags=D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-            bd.StructureByteStride=4; // float
-        }
+        if (desc.type==NkBufferType::NK_UNIFORM) { bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER; bd.MiscFlags=0; }
 
         D3D11_SUBRESOURCE_DATA* pData=nullptr, data{};
         if (desc.initialData) { data.pSysMem=desc.initialData; pData=&data; }
@@ -477,13 +484,35 @@ namespace nkentseu {
         HRESULT hr=mDevice->CreateBuffer(&bd,pData,&buf);
         NK_DX11_CHECK(hr,"CreateBuffer");
 
-        uint64 hid=NextId(); mBuffers[hid]={buf,desc};
+        NkDX11Buffer rec{}; rec.buf=buf; rec.desc=desc;
+        // Vues RAW pour les storage buffers (lecture SRV en VS/PS, UAV compute).
+        if (isStorage && buf) {
+            const UINT numWords = (UINT)(desc.sizeBytes / sizeof(uint32));
+            D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+            sd.Format              = DXGI_FORMAT_R32_TYPELESS;
+            sd.ViewDimension       = D3D11_SRV_DIMENSION_BUFFEREX;
+            sd.BufferEx.FirstElement = 0;
+            sd.BufferEx.NumElements  = numWords;
+            sd.BufferEx.Flags        = D3D11_BUFFEREX_SRV_FLAG_RAW;
+            if (FAILED(mDevice->CreateShaderResourceView(buf,&sd,&rec.srv)))
+                rec.srv=nullptr;
+            D3D11_UNORDERED_ACCESS_VIEW_DESC ud{};
+            ud.Format              = DXGI_FORMAT_R32_TYPELESS;
+            ud.ViewDimension       = D3D11_UAV_DIMENSION_BUFFER;
+            ud.Buffer.FirstElement = 0;
+            ud.Buffer.NumElements  = numWords;
+            ud.Buffer.Flags        = D3D11_BUFFER_UAV_FLAG_RAW;
+            if (FAILED(mDevice->CreateUnorderedAccessView(buf,&ud,&rec.uav)))
+                rec.uav=nullptr;
+        }
+        uint64 hid=NextId(); mBuffers[hid]=rec;
         NkBufferHandle h; h.id=hid; return h;
     }
 
     void NkDirectX11Device::DestroyBuffer(NkBufferHandle& h) {
         threading::NkScopedLockMutex lock(mMutex);
         auto it=mBuffers.Find(h.id); if(!it) return;
+        NK_DX11_SAFE(it->srv); NK_DX11_SAFE(it->uav);
         NK_DX11_SAFE(it->buf); mBuffers.Erase(h.id); h.id=0;
     }
 
@@ -1044,7 +1073,12 @@ namespace nkentseu {
             slot->type=w.type;
             if (w.buffer.IsValid()) {
                 auto bit=mBuffers.Find(w.buffer.id);
-                if(bit) { slot->kind=NkDX11DescSet::Slot::Buffer; slot->buf=bit->buf; }
+                if(bit) {
+                    slot->kind=NkDX11DescSet::Slot::Buffer; slot->buf=bit->buf;
+                    // Storage buffer : on stocke aussi ses vues RAW pour pouvoir
+                    // le binder en SRV (VS/PS skinning) ou UAV (compute).
+                    slot->srv=bit->srv; slot->uav=bit->uav;
+                }
             }
             if (w.texture.IsValid()) {
                 auto tit=mTextures.Find(w.texture.id);
@@ -1076,7 +1110,14 @@ namespace nkentseu {
                         mContext->VSSetConstantBuffers(s.slot,1,&s.buf);
                         mContext->PSSetConstantBuffers(s.slot,1,&s.buf);
                         mContext->CSSetConstantBuffers(s.slot,1,&s.buf);
-                    } else {
+                    } else if ((s.type==NkDescriptorType::NK_STORAGE_BUFFER ||
+                                s.type==NkDescriptorType::NK_STORAGE_BUFFER_DYNAMIC) && s.srv) {
+                        // Storage buffer lu en graphics (skinning) -> SRV VS/PS a
+                        // t0 (le ByteAddressBuffer du converter est toujours t0).
+                        ID3D11ShaderResourceView* srvBones = s.srv;
+                        mContext->VSSetShaderResources(0,1,&srvBones);
+                        mContext->PSSetShaderResources(0,1,&srvBones);
+                    } else if (s.uav) {
                         mContext->CSSetUnorderedAccessViews(s.slot,1,&s.uav,nullptr);
                     }
                     break;

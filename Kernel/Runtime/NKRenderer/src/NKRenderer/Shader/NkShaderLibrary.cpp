@@ -496,30 +496,22 @@ namespace nkentseu {
                 vsHlslStr = vsGlslStr;   // HLSL généré par NkSL (NK_HLSL_DX11/DX12)
                 fsHlslStr = fsGlslStr;
             } else if (isDX) {
-                if (!NkShaderConverter::CanSpirvToHlsl()) {
-                    logger.Info("[CompileVF] '{0}' : SPIRV-Cross desactive -> HLSL impossible (DX KO)\n", prog.name);
-                } else {
-                    // HLSL DX11 != HLSL DX12 :
-                    //   DX11 -> SM 5.0 : registres plats register(t0) (pas de spaces), compile vs_5_0.
-                    //   DX12 -> SM 5.1 : register(t0, spaceN) (descriptor set Vulkan N -> space N),
-                    //                    compile vs_5_1 et s'aligne sur la root signature.
-                    const uint32 sm = (mApi == NkGraphicsApi::NK_GFX_API_DX12) ? 51u : 50u;
-                    if (!prog.vertBytecode.Empty()) {
-                        auto r = NkShaderConverter::SpirvToHlsl(
-                            reinterpret_cast<const uint32*>(prog.vertBytecode.Data()),
-                            (uint32)(prog.vertBytecode.Size() / sizeof(uint32)),
-                            NkSLStage::NK_VERTEX, sm);
-                        if (r.success) vsHlslStr = r.source;
-                        else logger.Info("[CompileVF] '{0}' VS SPIRV->HLSL ECHEC: {1}\n", prog.name, r.errors);
-                    }
-                    if (!prog.fragBytecode.Empty()) {
-                        auto r = NkShaderConverter::SpirvToHlsl(
-                            reinterpret_cast<const uint32*>(prog.fragBytecode.Data()),
-                            (uint32)(prog.fragBytecode.Size() / sizeof(uint32)),
-                            NkSLStage::NK_FRAGMENT, sm);
-                        if (r.success) fsHlslStr = r.source;
-                        else logger.Info("[CompileVF] '{0}' FS SPIRV->HLSL ECHEC: {1}\n", prog.name, r.errors);
-                    }
+                // Backend DX standard (NkShaderBackendDX11/DX12) : sa methode Compile a
+                // DEJA produit du HLSL (GlslToHlsl SM5 pour DX11, SM6 pour DX12) et l'a
+                // expose via res.preprocessed -> vsGlslStr/fsGlslStr (cache-miss ET, via
+                // le cache disque IsTextTarget, cache-hit). On le consomme DIRECTEMENT.
+                //
+                // NE PAS re-appeler SpirvToHlsl ici : prog.vert/fragBytecode contient du
+                // HLSL (texte), pas du SPIR-V -> SPIRV-Cross levait "Invalid SPIRV format."
+                // (avale dans le catch), vsHlslStr restait vide et le pipeline DX echouait.
+                // C'etait le bug du shader Skin (SSBO bones) sur DX12 : Compile generait
+                // bien le StructuredBuffer (SM6, 4824 chars) puis cette double conversion
+                // l'effacait. PBR/Shadow/Skybox passent par le chemin NkSL (usingNkSL) et
+                // n'etaient donc pas touches.
+                vsHlslStr = vsGlslStr;
+                fsHlslStr = fsGlslStr;
+                if (vsHlslStr.Empty() && fsHlslStr.Empty()) {
+                    logger.Info("[CompileVF] '{0}' : backend DX n'a pas produit de HLSL (DX KO)\n", prog.name);
                 }
             }
 
@@ -528,6 +520,31 @@ namespace nkentseu {
                         (uint32)(vsGlsl ? strlen(vsGlsl) : 0),
                         (uint32)(fsGlsl ? strlen(fsGlsl) : 0),
                         (uint32)vsHlslStr.Size(), (uint32)fsHlslStr.Size());
+
+            // DIAG temporaire : dump du HLSL genere (opt-in NK_DUMP_HLSL=<name>).
+            if (isDX) {
+                const char* dn = getenv("NK_DUMP_HLSL");
+                if (dn && prog.name == dn) {
+                    system("if not exist \"Build\\hlsl_dump\" mkdir \"Build\\hlsl_dump\"");
+                    if (!vsHlslStr.Empty()) {
+                        FILE* f = fopen("Build/hlsl_dump/skin_vs.hlsl", "wb");
+                        if (f) { fwrite(vsHlslStr.CStr(),1,vsHlslStr.Size(),f); fclose(f); }
+                    }
+                    if (!fsHlslStr.Empty()) {
+                        FILE* f = fopen("Build/hlsl_dump/skin_fs.hlsl", "wb");
+                        if (f) { fwrite(fsHlslStr.CStr(),1,fsHlslStr.Size(),f); fclose(f); }
+                    }
+                }
+            }
+            // DIAG temporaire : dump du GLSL genere (opt-in NK_DUMP_GLSL=<name>).
+            {
+                const char* dn = getenv("NK_DUMP_GLSL");
+                if (dn && prog.name == dn && vsGlsl && vsGlsl[0]) {
+                    system("if not exist \"Build\\hlsl_dump\" mkdir \"Build\\hlsl_dump\"");
+                    FILE* f = fopen("Build/hlsl_dump/dump_vs.glsl", "wb");
+                    if (f) { fwrite(vsGlsl,1,strlen(vsGlsl),f); fclose(f); }
+                }
+            }
 
             // Une SEULE entree NkShaderStageDesc par stage : sinon le backend
             // Vulkan recoit 2 stages NK_VERTEX (un pour GLSL, un pour SPIRV) et

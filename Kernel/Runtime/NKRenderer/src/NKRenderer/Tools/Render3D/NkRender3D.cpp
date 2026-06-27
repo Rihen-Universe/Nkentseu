@@ -96,8 +96,18 @@ namespace nkentseu {
                 }
             }
 
-            // Bones SSBO (utilise pour skinning — pas par le shader PBR de base)
-            mSSBOBones = mDevice->CreateBuffer(NkBufferDesc::Storage(256*sizeof(NkMat4f)));
+            // Bones UBO (skinning GPU). Ring : 1 uniform buffer par
+            // frame-in-flight pour eviter la course CPU(write frame N+1)/
+            // GPU(read frame N) qui faisait clignoter Vulkan. mFramesInFlight=1
+            // retombe sur le comportement legacy.
+            // Migration ex-SSBO -> UBO : un mat4 bones[64] (std140, 4096 octets)
+            // est portable et solide sur GL/VK/DX11/DX12. Le SSBO precedent etait
+            // casse sur DX11/DX12 (StructuredBuffer/SRV ne remontait pas au
+            // shader -> skinMat=0 -> mesh invisible) et en course sur Vulkan.
+            mUBOBonesRing.Resize(mFramesInFlight);
+            for (uint32 i=0; i<mFramesInFlight; i++) {
+                mUBOBonesRing[i] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kMaxBonesUBO*sizeof(NkMat4f)));
+            }
 
             // Phase E.6b : default white cubemap pour les 4 slots de point cookie.
             // 1x1 par face, blanc pur. User override via SetLightCookieCube3D.
@@ -165,9 +175,16 @@ namespace nkentseu {
                 .Add(27, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
-            // Object set layout (set 1) : Object UBO(1)
+            // Object set layout (set 1) : Object UBO(1) + Bones UBO(2).
+            // binding=2 = uniform buffer des joint matrices (mat4 bones[64]) pour
+            // le skinning GPU (lu uniquement par le vertex shader skin). Declare
+            // ici pour TOUS les pipelines qui partagent mObjectLayout (PBR/Shadow/
+            // Skin) afin que le set objet reste compatible quel que soit le
+            // pipeline lie. Les pipelines non-skin ne referencent simplement pas
+            // ce binding. UBO (ex-SSBO) : portable et solide sur les 4 backends.
             NkDescriptorSetLayoutDesc objectLayout;
             objectLayout.Add(1, NkDescriptorType::NK_UNIFORM_BUFFER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+            objectLayout.Add(2, NkDescriptorType::NK_UNIFORM_BUFFER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
             mObjectLayout = mDevice->CreateDescriptorSetLayout(objectLayout);
 
             // ── Allocate descriptor sets ─────────────────────────────────────────
@@ -265,10 +282,20 @@ namespace nkentseu {
                 preBindGlobalSet(mGlobalSetMirrorRing[i], mUBOCameraMirrorRing[i], i);
 
                 // Phase F.B.1 : bind chaque set du pool a son UBO du pool (1:1).
+                // + Skinning : bind l'UBO de bones de la frame au binding=2 de
+                //   chaque set objet (le contenu est reecrit par draw skinne dans
+                //   FlushSkinned ; les draws non-skinnes ne lisent jamais ce slot
+                //   mais le binding doit etre valide pour le layout VK/DX).
                 for (uint32 d=0; d<kMaxObjectsPerFrame; d++) {
                     NkDescSetHandle os = mObjectSetPool[i][d];
                     if (os.IsValid()) {
                         mDevice->BindUniformBuffer(os, 1, mUBOObjectPool[i][d]);
+                        // Ring : chaque frame i bind SON UBO de bones (pas un
+                        // buffer partage) -> la frame N+1 ecrit mUBOBonesRing[N+1]
+                        // pendant que le GPU lit encore mUBOBonesRing[N].
+                        if (i < mUBOBonesRing.Size() && mUBOBonesRing[i].IsValid()) {
+                            mDevice->BindUniformBuffer(os, 2, mUBOBonesRing[i]);
+                        }
                     }
                 }
             }
@@ -332,6 +359,19 @@ namespace nkentseu {
                 mShadowPipeline = mDevice->CreateGraphicsPipeline(pd);
                 logger.Info("[NkRender3D] Shadow pipeline create: shader_valid={0} pipeline_valid={1}\n",
                             mShadowShader.IsValid() ? 1 : 0, mShadowPipeline.IsValid() ? 1 : 0);
+            }
+
+            // ── Skinning GPU : shader Skin ───────────────────────────────────
+            // Source canonique : Resources/NKRenderer/Shaders/Skin/VK/skin.{vert,frag}.vk.glsl
+            // (converti VK->GL/HLSL/MSL au run par SPIRV-Cross). Le vertex shader
+            // fait du linear blend skinning a partir de l'UBO de bones (set=1,
+            // binding=2). Pipeline cree lazy au 1er FlushSkinned (EnsureSkinPipeline).
+            if (mShaderLib) {
+                auto progSkin = mShaderLib->LoadOrCompileVF("Skin", "", "");
+                if (progSkin.IsValid())
+                    mSkinShader = mShaderLib->GetRHIHandle(progSkin);
+                logger.Info("[NkRender3D] Skin shader compile: valid={0}\n",
+                            mSkinShader.IsValid() ? 1 : 0);
             }
 
             // ── Phase N v0.5 : Skybox shader ────────────────────────────────
@@ -422,6 +462,50 @@ namespace nkentseu {
             return mPBRPipeline.IsValid();
         }
 
+        // ── Lazy create du pipeline de skinning GPU ──────────────────────────
+        // Calque sur EnsurePBRPipeline mais avec le vertex layout NkVertexSkinned
+        // (ajout de aBoneIdx/aBoneWeight) et le shader "Skin". L'UBO de bones
+        // est deja lie au set objet (set=1, binding=2) a Init. Memes set layouts
+        // que le PBR (global/object/material) -> compatible avec les binds du
+        // FlushSkinned (set global + set objet + set materiau fallback).
+        bool NkRender3D::EnsureSkinPipeline(NkRenderPassHandle currentRP) {
+            if (!mSkinShader.IsValid()) return false;
+            if (mSkinPipeline.IsValid()) return true;
+
+            NkGraphicsPipelineDesc pd;
+            pd.shader       = mSkinShader;
+            pd.depthStencil = NkDepthStencilDesc::Default();
+            pd.rasterizer   = NkRasterizerDesc::NoCull();
+            pd.blend        = NkBlendDesc::Opaque();
+            pd.debugName    = "Skin_Opaque";
+            pd.renderPass   = currentRP;
+            pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+            pd.descriptorSetLayouts.PushBack(mObjectLayout);
+            if (mMat && mMat->GetInstanceLayout().IsValid())
+                pd.descriptorSetLayouts.PushBack(mMat->GetInstanceLayout());
+
+            // Vertex layout NkVertexSkinned : NkVertex3D (56o) + boneIdx(vec4,16o)
+            //   + boneWeight(vec4,16o). Stride = 88. Les indices sont en float
+            //   (RGBA32_FLOAT) pour rester portables cross-backend (cf. struct).
+            pd.vertexLayout
+              .AddBinding(0, sizeof(NkVertexSkinned), false)
+              .AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT,  0,  "POSITION", 0)
+              .AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT,  12, "NORMAL",   0)
+              .AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT,  24, "TANGENT",  0)
+              .AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT,   36, "TEXCOORD", 0)
+              .AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT,   44, "TEXCOORD", 1)
+              .AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM,  52, "COLOR",    0)
+              .AddAttribute(6, 0, NkVertexFormat::NK_RGBA32_FLOAT, 56, "BLENDINDICES", 0)
+              .AddAttribute(7, 0, NkVertexFormat::NK_RGBA32_FLOAT, 72, "BLENDWEIGHT",  0);
+
+            mSkinPipeline   = mDevice->CreateGraphicsPipeline(pd);
+            mSkinPipelineRP = currentRP;
+            logger.Info("[NkRender3D] Skin pipeline (lazy) create: shader_valid={0} pipeline_valid={1} rp.id={2}\n",
+                        mSkinShader.IsValid() ? 1 : 0, mSkinPipeline.IsValid() ? 1 : 0,
+                        currentRP.id);
+            return mSkinPipeline.IsValid();
+        }
+
         // ── Phase N v0.5 : EnsureSkyboxPipeline (lazy, RP-compatible) ───────
         // Pipeline minimal : pas de VBO (gl_VertexIndex pour 3 verts fullscreen),
         // depth test LEQUAL + depthWrite=false (les objets dessines apres
@@ -484,6 +568,7 @@ namespace nkentseu {
 
         void NkRender3D::Shutdown() {
             if (mSkyboxPipeline.IsValid()) { mDevice->DestroyPipeline(mSkyboxPipeline); mSkyboxPipeline={}; }
+            if (mSkinPipeline.IsValid())   { mDevice->DestroyPipeline(mSkinPipeline);   mSkinPipeline={}; }
             if (mShadowPipeline.IsValid()) { mDevice->DestroyPipeline(mShadowPipeline); mShadowPipeline={}; }
             if (mPBRPipeline.IsValid()) { mDevice->DestroyPipeline(mPBRPipeline); mPBRPipeline={}; }
             // Les shader handles sont detenus par NkShaderLibrary, pas a detruire ici.
@@ -510,7 +595,8 @@ namespace nkentseu {
             mUBOCameraMirrorRing.Clear();
             mUBOObjectPool.Clear();
             mUBOLightsRing.Clear();
-            if(mSSBOBones.IsValid()){mDevice->DestroyBuffer(mSSBOBones);mSSBOBones={};}
+            for (auto& b : mUBOBonesRing) if (b.IsValid()) mDevice->DestroyBuffer(b);
+            mUBOBonesRing.Clear();
             if(mDefaultCubeWhite.IsValid()){mDevice->DestroyTexture(mDefaultCubeWhite);mDefaultCubeWhite={};}
 
             // DEBUG triangle resources
@@ -596,6 +682,14 @@ namespace nkentseu {
         // ── Flush ────────────────────────────────────────────────────────────────
         void NkRender3D::Flush(NkICommandBuffer* cmd) {
             if (!mInScene) return;
+            // CORRECTIF flicker Vulkan : le slot de ring DOIT etre l'index de frame
+            // REEL du device (protege par sa fence inFlightFence), pas un compteur
+            // independant. Sinon le CPU ecrit (memcpy mappe) un slot d'UBO encore lu
+            // par le GPU (frame in-flight) -> uObj.model corrompu -> gl_Position a
+            // l'infini -> gros quad noir intermittent. Le device garantit que la
+            // frame qui a utilise GetFrameIndex() precedemment est terminee.
+            if (mDevice && mFramesInFlight > 0)
+                mFrameSlot = mDevice->GetFrameIndex() % mFramesInFlight;
             SortDrawCalls();
             UploadUBOs(cmd);
 
@@ -626,6 +720,9 @@ namespace nkentseu {
             }
 
             EnsurePBRPipeline(currentRP);
+            // Skinning : cree (lazy) le pipeline skin compatible avec ce RP.
+            // No-op si aucun shader skin (build sans assets) ou deja cree.
+            if (!mSkinned.Empty()) EnsureSkinPipeline(currentRP);
 
             // Phase N v0.5 : Background HDR skybox. Cree paresseusement le
             // pipeline (RP-compatible) puis draw 1 triangle fullscreen. Doit
@@ -670,9 +767,9 @@ namespace nkentseu {
             FlushDebug(cmd);
             mInScene=false;
 
-            // Avance au slot suivant pour la prochaine frame.
-            // Avec mFramesInFlight=1 on reste sur le slot 0 (pas de ring).
-            mFrameSlot = (mFrameSlot + 1) % mFramesInFlight;
+            // NOTE : plus d'auto-avance de mFrameSlot ici. Il est desormais derive
+            // de mDevice->GetFrameIndex() au DEBUT de Flush (sync avec la fence du
+            // device), ce qui corrige le flicker Vulkan (ecriture d'un slot in-flight).
         }
 
         void NkRender3D::Flush(NkICommandBuffer* cmd, NkRenderPassHandle renderPass) {
@@ -1192,16 +1289,18 @@ namespace nkentseu {
         }
 
         void NkRender3D::FlushInstanced(NkICommandBuffer* cmd) {
-            // Instanced ne touche pas a ObjectUBO (les transforms passent via
-            // SSBOBones). On bind quand meme un set du pool pour satisfaire le
-            // pipeline layout (set=1 attendu) ; le contenu de ce slot est ignore
-            // par le shader instanced.
+            // Instanced ne touche pas a ObjectUBO. On bind quand meme un set du
+            // pool pour satisfaire le pipeline layout (set=1 attendu) ; le contenu
+            // de ce slot est ignore par le draw instanced (aucun shader instanced
+            // ne lit le binding=2 actuellement -> pas de buffer de transforms a
+            // ecrire ici). Auparavant FlushInstanced ecrivait dc.transforms dans
+            // le ring de bones (devenu un UBO de 64 mat4) : retire car ces
+            // transforms n'etaient lues par aucun shader et auraient deborde
+            // l'UBO. Le rendu instancie reste identique (DrawAll(count)).
             const bool poolFrameValid = (mFrameSlot < mObjectSetPool.Size());
             for (auto& dc : mInstanced) {
                 if (dc.transforms.Empty()) continue;
                 uint32 count=(uint32)dc.transforms.Size();
-                mDevice->WriteBuffer(mSSBOBones, dc.transforms.Data(),
-                                        count*sizeof(NkMat4f));
                 if (poolFrameValid && mObjectDrawIdx < kMaxObjectsPerFrame) {
                     NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
                     if (os.IsValid()) cmd->BindDescriptorSet(os, 1);
@@ -1216,6 +1315,83 @@ namespace nkentseu {
             const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size())
                                      && (mFrameSlot < mObjectSetPool.Size());
             if (!poolFrameValid) return;
+            if (mSkinned.Empty()) return;
+
+            // Le pipeline skin doit etre lie AVANT tout draw skinne (il a son
+            // propre vertex layout NkVertexSkinned + lit l'UBO de bones).
+            // Sans ce bind, FlushSkinned utilisait le dernier pipeline (PBR) ->
+            // aucun skinning (bug d'origine). No-op si pipeline non cree.
+            if (!mSkinPipeline.IsValid()) {
+                logger.Warnf("[NkRender3D] FlushSkinned: pipeline skin invalide, "
+                             "skip %u draws skinnes\n", (uint32)mSkinned.Size());
+                return;
+            }
+            cmd->BindGraphicsPipeline(mSkinPipeline);
+
+            // ── DIAGNOSTIC gated (NK_SKIN_DIAG) ──────────────────────────────
+            // Preuve indirecte (sans capture pixel) que le skinning atteint le
+            // GPU : pipeline skin valide + bones ring effectivement uploade
+            // (lecture-retour du 1er bone : doit etre != 0). Sur les frames
+            // suivantes les valeurs changent (anim) -> confirme la deformation.
+            {
+                static int sdiag = -1;
+                static uint32 sframe = 0;
+                if (sdiag == -1) { const char* v = getenv("NK_SKIN_DIAG"); sdiag = (v && v[0] && v[0]!='0') ? 1 : 0; }
+                if (sdiag && sframe < 80 && !mSkinned.Empty()) {
+                    NkBufferHandle rb = (mFrameSlot < mUBOBonesRing.Size()) ? mUBOBonesRing[mFrameSlot] : NkBufferHandle{};
+                    // Upload AVANT readback pour lire la donnee de CETTE frame.
+                    if (rb.IsValid() && mSkinned[0].boneMatrices.Size() >= 2) {
+                        uint32 n = (uint32)mSkinned[0].boneMatrices.Size(); if (n>kMaxBonesUBO) n=kMaxBonesUBO;
+                        mDevice->WriteBuffer(rb, mSkinned[0].boneMatrices.Data(), n*sizeof(NkMat4f));
+                        // bone[1] = joint anime (SimpleSkin). On lit sa translation
+                        // (m12,m13,m14) DEPUIS LE BUFFER GPU. Si elle CHANGE entre
+                        // frames -> la matrice animee atteint bien le GPU -> le VS
+                        // skin (qui lit ce meme buffer en SRV t0) deforme le mesh.
+                        NkMat4f m1{}; bool ok = mDevice->ReadBuffer(rb, &m1, sizeof(NkMat4f), sizeof(NkMat4f));
+                        // Log seulement toutes les ~12 frames pour rester lisible.
+                        if ((sframe % 12) == 0)
+                            logger.Info("[SKIN_DIAG] frame={0} slot={1} pipeline_valid={2} draws={3} readbackGPU={4} bone1_translate=({5}, {6}, {7})\n",
+                                        sframe, mFrameSlot, mSkinPipeline.IsValid()?1:0,
+                                        (uint32)mSkinned.Size(), ok?1:0,
+                                        m1.data[12], m1.data[13], m1.data[14]);
+                    }
+                    sframe++;
+                }
+            }
+
+            // Set global (set=0, camera/lights/env/shadow) du frame courant.
+            // Re-bind PAR DRAW apres le re-bind du pipeline skin (cf. plus bas) :
+            // sur DX12, changer de PSO/root signature (BindGraphicsPipeline)
+            // invalide TOUS les root parameters -> les sets bindes AVANT le
+            // dernier BindGraphicsPipeline sont perdus. Sur OpenGL le re-bind
+            // est inoffensif (idempotent).
+            NkDescSetHandle gs = mPendingMirrorActive
+                ? ((mFrameSlot < mGlobalSetMirrorRing.Size()) ? mGlobalSetMirrorRing[mFrameSlot] : NkDescSetHandle{})
+                : ((mFrameSlot < mGlobalSetRing.Size())       ? mGlobalSetRing[mFrameSlot]       : NkDescSetHandle{});
+
+            // Ring UBO bones du frame courant (BUG Vulkan flicker).
+            NkBufferHandle bonesBuf = (mFrameSlot < mUBOBonesRing.Size())
+                                    ? mUBOBonesRing[mFrameSlot] : NkBufferHandle{};
+
+            // Materiau pour set=2 (le frag skin sample tAlbedo/tNormal/tORM/
+            // tEmissive). Fallback Default_PBR (textures white/normal 1x1) si le
+            // drawcall n'a pas de materiau custom.
+            NkMaterialInstance* fallback = nullptr;
+            if (mMat) {
+                if (!mFallbackMatInst.IsValid()) {
+                    auto* inst = mMat->CreateInstance(mMat->DefaultPBR());
+                    if (inst) mFallbackMatInst = inst->GetHandle();
+                }
+                fallback = mMat->GetInstance(mFallbackMatInst);
+            }
+
+            // UBO bones = mat4 bones[64] (std140). On clamp a 64 ; les squelettes
+            // plus grands sont tronques (les indices > 63 sont clampes a 63 cote
+            // shader). On ecrit toujours kMaxBonesUBO mat4 (le buffer fait cette
+            // taille) avec identite au-dela de `count` pour eviter des matrices
+            // stale d'un draw precedent qui collapseraient des vertices.
+            const uint32 kMaxBones = kMaxBonesUBO;   // taille de l'UBO alloue a Init
+            NkMat4f bonesScratch[kMaxBonesUBO];
             for (auto& dc : mSkinned) {
                 if (dc.boneMatrices.Empty()) continue;
                 if (mObjectDrawIdx >= kMaxObjectsPerFrame) {
@@ -1225,17 +1401,139 @@ namespace nkentseu {
                     break;
                 }
                 uint32 count=(uint32)dc.boneMatrices.Size();
-                mDevice->WriteBuffer(mSSBOBones, dc.boneMatrices.Data(),
-                                        count*sizeof(NkMat4f));
+                if (count > kMaxBones) count = kMaxBones;
+                if (bonesBuf.IsValid()) {
+                    // Remplit le scratch : [0,count) = bones du draw, [count,64) =
+                    // identite (pad). Upload des 64 mat4 d'un coup (taille fixe UBO).
+                    for (uint32 b=0; b<count; b++)        bonesScratch[b] = dc.boneMatrices[b];
+                    for (uint32 b=count; b<kMaxBones; b++) bonesScratch[b] = NkMat4f::Identity();
+                    mDevice->WriteBuffer(bonesBuf, bonesScratch,
+                                            kMaxBones*sizeof(NkMat4f));
+                }
 
+                // ObjectUBO du draw (set=1, binding=1) : ecrit AVANT BindInstance
+                // (WriteBuffer = memcpy mapped, legal a tout moment ; aucun bind
+                // d'etat). Le set=1 lui-meme est re-bind plus bas, apres le skin.
                 struct ObjB { NkMat4f m,nm; NkVec4f tint; float32 p[8]; } ob{};
                 ob.m=dc.transform; ob.nm=dc.transform.Inverse().Transpose();
                 ob.tint={dc.tint.x,dc.tint.y,dc.tint.z,dc.alpha};
-
                 NkBufferHandle  ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
                 NkDescSetHandle os  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
                 if (ubo.IsValid()) mDevice->WriteBuffer(ubo,&ob,sizeof(ob));
-                if (os.IsValid()) cmd->BindDescriptorSet(os, 1);
+
+                // Materiau du draw (set=2). Custom si fourni, sinon fallback.
+                NkMaterialInstance* matInst = fallback;
+                if (dc.material.IsValid() && mMat) {
+                    auto* cand = mMat->GetInstance(dc.material);
+                    if (cand) matInst = cand;
+                }
+
+                // Phase M.8 (skinne) : multi-material par sous-mesh. Si
+                // materialSlots non-vide, on dessine CHAQUE sous-mesh avec son
+                // propre materiau glTF (BrainStem = 59 primitives, 59 couleurs).
+                // Sinon comportement mono-draw historique (matInst pour tout).
+                //
+                // Note skinne : le PIPELINE reste TOUJOURS mSkinPipeline (vertex
+                // layout NkVertexSkinned + program skin) ; seul le descriptor
+                // set=2 (materiau : factors + textures) change par sous-mesh. On
+                // ne bind donc pas le pipeline PBR du materiau ici — uniquement
+                // BindInstance (upload UBO/textures si dirty) + re-bind du
+                // skin/sets dans l'ordre DX12 (set0 global, set2 mat, set1 objet).
+                const bool multiMat = !dc.materialSlots.Empty() && mMesh;
+
+                if (multiMat) {
+                    const uint32 nSubs = mMesh->GetSubMeshCount(dc.mesh);
+                    static int sslot = -1;
+                    if (sslot == -1) { const char* v = getenv("NK_SKIN_DIAG"); sslot = (v && v[0] && v[0]!='0') ? 1 : 0; }
+                    const NkMat4f dnm = dc.transform.Inverse().Transpose();
+                    for (uint32 si = 0; si < nSubs; ++si) {
+                        if (mObjectDrawIdx >= kMaxObjectsPerFrame) break;
+                        NkMaterialInstance* sInst = matInst;  // fallback global
+                        if (si < dc.materialSlots.Size()
+                            && dc.materialSlots[si].IsValid()) {
+                            auto* cand = mMat->GetInstance(dc.materialSlots[si]);
+                            if (cand) sInst = cand;
+                        }
+                        // ObjectUBO PROPRE au sous-mesh : le frag skin n'a pas d'UBO
+                        // materiau (set=2 = textures uniquement), il lit l'albedo via
+                        // uObj.tint -> vColor. On met donc tint = baseColorFactor du
+                        // materiau du sous-mesh (x dc.tint) pour que CHAQUE sous-mesh
+                        // prenne sa couleur (BrainStem = 59 materiaux unis distincts).
+                        NkVec4f alb = {1.f,1.f,1.f,1.f};
+                        struct ObjB2 { NkMat4f m,nm; NkVec4f tint; float32 p[8]; } sob{};
+                        sob.m = dc.transform; sob.nm = dnm;
+                        // Params PBR du materiau (le frag skin lit metallic/roughness/
+                        // aoStrength/... depuis uObj). Sans ca p[8]=0 -> ao=0 ->
+                        // aucun ambient -> modele sombre + bords qui bloom (glow).
+                        if (sInst) {
+                            const NkPBRParams& pbr = sInst->GetPBR();
+                            alb = pbr.albedo;
+                            sob.p[0]=pbr.metallic;          sob.p[1]=pbr.roughness;
+                            sob.p[2]=pbr.ao;                sob.p[3]=pbr.emissiveStrength;
+                            sob.p[4]=pbr.normalStrength;    sob.p[5]=pbr.clearcoat;
+                            sob.p[6]=pbr.clearcoatRough;    sob.p[7]=pbr.subsurface;
+                        } else {
+                            sob.p[2]=1.f; sob.p[1]=0.5f;    // ao=1, roughness=0.5 par defaut
+                        }
+                        sob.tint = { alb.x*dc.tint.x, alb.y*dc.tint.y,
+                                     alb.z*dc.tint.z, dc.alpha*alb.w };
+                        NkBufferHandle  subUbo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+                        NkDescSetHandle subOs  = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+                        if (subUbo.IsValid()) mDevice->WriteBuffer(subUbo, &sob, sizeof(sob));
+
+                        // Met a jour le descriptor du materiau du sous-mesh.
+                        if (sInst && mMat) mMat->BindInstance(cmd, sInst);
+
+                        // BindInstance a rebinde le pipeline PBR (mauvais layout)
+                        // -> on re-bind le pipeline skin + TOUS les sets a chaque
+                        // sous-mesh (correctif DX12 root-params).
+                        cmd->BindGraphicsPipeline(mSkinPipeline);
+                        if (gs.IsValid())      cmd->BindDescriptorSet(gs, 0);
+                        if (sInst && sInst->GetDescSet().IsValid())
+                            cmd->BindDescriptorSet(sInst->GetDescSet(), 2);
+                        if (subOs.IsValid())   cmd->BindDescriptorSet(subOs, 1);
+
+                        mMesh->BindMesh(cmd, dc.mesh);
+                        mMesh->DrawSubMesh(cmd, dc.mesh, si);
+                        mObjectDrawIdx++;
+                    }
+                    if (sslot) {
+                        static uint32 mmF = 0;
+                        if (mmF == 0 && nSubs > 0) {
+                            NkMaterialInstance* s0 = (dc.materialSlots.Size()>0 && dc.materialSlots[0].IsValid())
+                                                   ? mMat->GetInstance(dc.materialSlots[0]) : nullptr;
+                            NkVec4f a0 = s0 ? s0->GetPBR().albedo : NkVec4f{1,1,1,1};
+                            logger.Info("[SKIN_MULTIMAT] {0} sous-meshes, sub0 albedo=({1},{2},{3})\n",
+                                        nSubs, a0.x, a0.y, a0.z);
+                        }
+                        mmF++;
+                    }
+                    continue;
+                }
+
+                // BindInstance MET A JOUR le descriptor materiau (upload UBO +
+                // textures si dirty) ET bind le pipeline PBR du materiau + le
+                // set=2. On l'appelle pour l'effet de mise a jour ; le pipeline
+                // PBR et les sets qu'il bind seront ECRASES juste apres.
+                if (matInst && mMat) mMat->BindInstance(cmd, matInst);
+
+                // CORRECTIF SKIN GPU + DX12 root-params : BindInstance rebinde le
+                // pipeline PBR du materiau (layout NkVertex3D stride 56, SANS les
+                // attributs aBoneIdx/aBoneWeight loc 6/7 et SANS le program skin).
+                // On RE-BIND donc le pipeline skin. Sur DX12, ce changement de
+                // PSO/root-signature INVALIDE tous les root parameters -> il faut
+                // re-binder TOUS les sets APRES, dans l'ordre :
+                //   set=0 (global), set=2 (materiau via GetDescSet), set=1 (objet).
+                // Sans ca, set=0 (camera) et set=2 (textures) bindes avant le skin
+                // sont perdus -> draw skin avec descriptors invalides -> rien ne
+                // s'affiche sur DX11/DX12 (skin invisible). Sur OpenGL c'est
+                // idempotent (deja fonctionnel).
+                cmd->BindGraphicsPipeline(mSkinPipeline);
+                if (gs.IsValid())     cmd->BindDescriptorSet(gs, 0);
+                if (matInst && matInst->GetDescSet().IsValid())
+                    cmd->BindDescriptorSet(matInst->GetDescSet(), 2);
+                if (os.IsValid())     cmd->BindDescriptorSet(os, 1);
+
                 mMesh->BindMesh(cmd,dc.mesh);
                 mMesh->DrawAll(cmd,dc.mesh);
                 mObjectDrawIdx++;

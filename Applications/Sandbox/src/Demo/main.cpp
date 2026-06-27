@@ -12,8 +12,10 @@
 //   1 — 2D          : sprites + formes + texte (config For2D)
 //   2 — 3D          : sphere grid + lights + ombres (config ForGame)
 //   3 — Materials   : 5 spheres NkMaterial (PBR/Toon/Anime/Unlit), edition temps reel
+//   12 — GLTF       : charge + affiche un modele glTF (rubber_duck, PBR + baseColor)
 // =============================================================================
 #include "DemoCommon.h"
+#include <cstdlib>   // getenv (diag opt-in NK_VK_VALIDATION)
 
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/NKMain.h"
@@ -45,6 +47,8 @@ namespace nkentseu { namespace demo {
     bool Demo9_Glow2D_Init               (DemoCtx&); void Demo9_Glow2D_Frame               (DemoCtx&, float32); void Demo9_Glow2D_Shutdown               (DemoCtx&);
     bool Demo8_LayeredV1_Init            (DemoCtx&); void Demo8_LayeredV1_Frame            (DemoCtx&, float32); void Demo8_LayeredV1_Shutdown            (DemoCtx&);
     bool Demo11_FPSArena_Init            (DemoCtx&); void Demo11_FPSArena_Frame            (DemoCtx&, float32); void Demo11_FPSArena_Shutdown            (DemoCtx&);
+    bool DemoGLTF_Init                   (DemoCtx&); void DemoGLTF_Frame                   (DemoCtx&, float32); void DemoGLTF_Shutdown                   (DemoCtx&);
+    bool DemoSkin_Init                   (DemoCtx&); void DemoSkin_Frame                   (DemoCtx&, float32); void DemoSkin_Shutdown                   (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -75,6 +79,14 @@ namespace nkentseu { namespace demo {
         // textures procedural REPEAT, camera FPS souris+WASD via NkInputQuery.
         { "FPSArena",   "Demo11 : arene FPS style x.jpg (sol+murs cubes texturees, FPS cam)",
             Demo11_FPSArena_Init, Demo11_FPSArena_Frame, Demo11_FPSArena_Shutdown },
+        // DemoGLTF : chargement glTF 2.0 (geometrie + materiaux PBR + textures)
+        // via NkGLTFLoader + NkGLTFMaterialBridge, affichage camera orbitale.
+        { "GLTF",       "DemoGLTF : charge + affiche un modele glTF (rubber_duck, PBR + baseColor)",
+            DemoGLTF_Init, DemoGLTF_Frame, DemoGLTF_Shutdown },
+        // DemoSkin : skinning GPU (glTF skinne SimpleSkin, pose animee par frame
+        // via EvaluateGLTFPose + SubmitSkinned, vertex shader skin LBS).
+        { "Skin",       "DemoSkin : skinning GPU glTF (SimpleSkin se plie, anime)",
+            DemoSkin_Init, DemoSkin_Frame, DemoSkin_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -107,6 +119,7 @@ namespace nkentseu { namespace demo {
                 auto c = NkRendererConfig::ForGame(api, w, h);
                 c.shadow.cascadeCount = 1;
                 c.shadow.pcss         = true;
+                c.voxelAOEnabled      = true;   // Demo4 enregistre des occluders
                 // Phase N v0 : utilise un vrai HDR equirect pour l'IBL au lieu
                 // du gradient sky procedural. Visuel beaucoup plus realiste.
                 // studio.hdr (256x128) etait trop low-res / peu contraste pour
@@ -122,12 +135,19 @@ namespace nkentseu { namespace demo {
                 return c;
             }
             case 4: {
-                // Demo5 : evolutions M.2+ par dessus Demo4, meme config de base.
-                // PCSS off temporairement : on debug shadow CSM pour les spheres
-                // du dessous (Y<0), PCSS peut introduire un bias different.
+                // Demo5 : demo de MATERIAUX (spheres metalliques rough=0.15).
+                // Un metal n'a pas de diffus : il ne montre QUE des reflets de
+                // l'environnement. Sans environnement visible (drawSkybox=false +
+                // IBL faible), les spheres metalliques reflechissent du noir et
+                // paraissent sombres ("demo5 sombre"). On lui donne donc un vrai
+                // HDR + skybox (comme Demo4) pour que les materiaux soient visibles.
                 auto c = NkRendererConfig::ForGame(api, w, h);
                 c.shadow.cascadeCount = 1;
                 c.shadow.pcss         = false;
+                c.ibl.useHDR      = true;
+                c.ibl.hdrPath     = "Resources/NKRenderer/Textures/Vracs/HDR/piazza_bologni_1k.hdr";
+                c.ibl.iblStrength = 1.0f;
+                c.ibl.drawSkybox  = true;
                 return c;
             }
             case 5: {
@@ -192,6 +212,42 @@ namespace nkentseu { namespace demo {
                 c.ibl.iblStrength     = 0.6f;
                 return c;
             }
+            case 11: {
+                // DemoGLTF : modele glTF unique, scene compacte. Config Game
+                // (PBR + IBL sky procedural + ombres). 1 cascade suffit pour un
+                // seul objet centre ; pas de PCSS (perf + simplicite).
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = false;
+                c.ibl.drawSkybox      = true;
+                return c;
+            }
+            case 12: {
+                // DemoSkin : modele skinne unique. Config Game minimale, sky
+                // procedural visible pour cadrer le mesh, 1 cascade.
+                auto c = NkRendererConfig::ForGame(api, w, h);
+                c.shadow.cascadeCount = 1;
+                c.shadow.pcss         = false;
+                c.ibl.drawSkybox      = true;
+                // Bloom OFF : ces modeles sont MATS (metallic=0). Le bloom faisait
+                // "briller" les textures saturees (glow neon) alors qu'elles ne
+                // refletent pas la lumiere. Sans bloom -> eclairage mat normal.
+                c.postProcess.bloom   = false;
+                c.postProcess.ssr     = false;
+                // SSAO OFF : dans l'ombre dense sous le modele, le SSAO pousse le
+                // sol vers le noir profond ou le tonemap fait apparaitre un voile
+                // magenta ("halo" au sol). Un viewer de modele n'a pas besoin de
+                // SSAO -> off. (Bug SSAO/tonemap a corriger globalement par ailleurs.)
+                c.postProcess.ssao    = false;
+                // Environnement NEUTRE bien eclaire (look "studio" pour viewer) :
+                // gradient gris -> ambient doux INCOLORE qui revele tout le modele
+                // (cote ombre visible) sans teinte parasite ni effet miroir.
+                c.ibl.skyTop      = {0.70f, 0.70f, 0.70f};
+                c.ibl.horizon     = {0.62f, 0.62f, 0.62f};
+                c.ibl.ground      = {0.45f, 0.45f, 0.45f};
+                c.ibl.iblStrength = 0.40f;
+                return c;
+            }
             default: return NkRendererConfig::ForGame(api, w, h);
         }
     }
@@ -216,6 +272,8 @@ int nkmain(const NkEntryState& state) {
     if (demoIx == 9) demoIx = 8;
     if (demoIx == 10) demoIx = 9;   // Demo10 PhaseNv1 -> kDemos[9]
     if (demoIx == 11) demoIx = 10;  // Demo11 FPSArena -> kDemos[10]
+    if (demoIx == 12) demoIx = 11;  // DemoGLTF       -> kDemos[11]
+    if (demoIx == 13) demoIx = 12;  // DemoSkin       -> kDemos[12]
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 
@@ -247,6 +305,20 @@ int nkmain(const NkEntryState& state) {
     devInfo.height  = (uint32)window.GetSize().height;
     devInfo.context.vulkan.appName    = "NkRenderer_Demo";
     devInfo.context.vulkan.engineName = "Nkentseu";
+    // ── Validation Vulkan (DIAG opt-in, OFF par défaut) ──────────────────────
+    // Active VK_LAYER_KHRONOS_validation + debug messenger (route vers NkLogger)
+    // UNIQUEMENT si NK_VK_VALIDATION est défini dans l'environnement. Gardé OFF
+    // par défaut : la couche peut crasher selon l'env (msvcp140 Huawei DevEco
+    // dans le PATH → SIGSEGV vkCreateInstance) et coûte en perf. Sert à diagnostiquer
+    // les hazards de synchro (ex. flicker du pipeline skin sur -bvk).
+    {
+        const char* vkv = getenv("NK_VK_VALIDATION");
+        if (vkv && vkv[0] && vkv[0] != '0') {
+            devInfo.context.vulkan.validationLayers = true;
+            devInfo.context.vulkan.debugMessenger   = true;
+            logger.Info("[main] Validation Vulkan ACTIVEE (NK_VK_VALIDATION)\n");
+        }
+    }
     // Format GLOBAL du swapchain (cross-API : GL/VK/DX). UNORM = couleur affichée telle
     // quelle (comme OpenGL/DX) → rendu identique cross-backend. SRGB = encode gamma auto.
     // Une seule ligne pour tous les backends.
@@ -317,9 +389,15 @@ int nkmain(const NkEntryState& state) {
         }
     });
 
+    // NK_MAXFRAMES=<n> : sortie propre apres n frames (vidange du log async pour
+    // diag headless). 0/absent = boucle infinie normale.
+    const char* mfEnv = getenv("NK_MAXFRAMES");
+    const uint64 maxFrames = mfEnv ? (uint64)atoll(mfEnv) : 0;
+
     while (running) {
         events.PollEvents();
         if (!running) break;
+        if (maxFrames && ctx.frame >= maxFrames) { running = false; break; }
 
         float32 dt = clock.Tick().delta;
         if (dt <= 0.f || dt > 0.25f) dt = 1.f / 60.f;
