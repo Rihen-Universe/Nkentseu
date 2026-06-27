@@ -418,6 +418,9 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
         pass
 
+    with include("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
+        pass
+
     with include("Applications/ImGuiRef/ImGuiRef.jenga"):
         pass
 

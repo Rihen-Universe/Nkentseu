@@ -230,9 +230,20 @@ un temps où TOUS les os ont une clé). Fournit : curseur/playhead + snap, séle
 insert→62, delete→61, undo/redo cohérents, move OK, restauration exacte (==init).
 → L'UI NKGui n'aura qu'à appeler ces méthodes + dessiner depuis `GetPoseKeyTimes`.
 
-**RESTE M1** :
-- **M1.c UI** : panneau timeline **NKGui** (losanges de keyframes + playhead + drag),
-  branché sur `NkAnimationEditor`. À faire quand l'autre IA a stabilisé NKGui/EditorKit.
+**✅ M1.c UI DÉMARRÉE (2026-06-27) — app NkAnimaEditor** :
+`Applications/NkAnimaEditor` = vraie app éditeur sur **NKEditorKit** (shell dockable,
+thème, menus, palette), comme NKCode. Panneaux : **Timeline** (Play/Pause, Insérer clé,
+Supprimer, Annuler/Refaire + zone de keyframes/playhead, scrubbing/sélection/drag souris)
+et **Aperçu squelette 2D** (le squelette de CesiumMan dessiné via le draw list NKGui à la
+pose courante — humanoïde propre). Branché sur `NkAnimationEditor`/`NkAnimationPlayer`.
+**RUN VALIDÉ** (squelette 2D rendu, timeline + boutons). **Piège résolu** : NKRenderer ET
+NKCanvas (Editor Kit) définissent tous deux `nkentseu::renderer::NkBlendMode`/`NkVertex2D`
+→ conflit ; isolé via un **`AnimBridge`** (NKRenderer confiné à `AnimBridge.cpp`, interface
+en types foundation, les panneaux n'incluent que l'Editor Kit).
+
+**RESTE M1.c** :
+- Layout : mettre les boutons de la timeline sur UNE ligne (SameLine) pour que la zone
+  des keyframes soit visible ; polir le drag de keyframes.
 - (option) finir de débugger la branche trig de `NkQuat::SLerp` (NLerp suffit en pratique).
 - **M1.c — timeline/scrubbing + édition de clés** : UI sur **NKGui** (prêt, on conçoit
   les interfaces ; PAS NKUI — directive Rihen). Widget timeline à créer, branché sur
