@@ -39,6 +39,7 @@ namespace nkentseu {
         class NkMaterialInstance;
         class NkMeshSystem;
         struct NkPostConfig;
+        struct NkGLTFMeshData;
 
         // =========================================================================
         // Mode d'interpolation
@@ -111,6 +112,7 @@ namespace nkentseu {
                     return mKeys.Empty()?0.f:mKeys[mKeys.Size()-1].time;
                 }
                 uint32  KeyCount()    const { return (uint32)mKeys.Size(); }
+                const NkKeyframe<T>& GetKey(uint32 i) const { return mKeys[i]; }  // serialisation
 
             private:
                 NkVector<NkKeyframe<T>> mKeys;
@@ -215,6 +217,20 @@ namespace nkentseu {
                 void AddBoneKey(uint32 boneIdx, float32 time, const NkMat4f& mat,
                                 NkInterpMode interp = NkInterpMode::NK_LINEAR);
                 void ResizeBones(uint32 count);
+
+                // ── Sérialisation BINAIRE .nkanim (M1) ────────────────────────────────
+                // Format compact versionné (header NKAN + tracks d'os). Pas de JSON :
+                // l'anim = beaucoup de keyframes (floats) -> binaire = compact + chargement
+                // rapide sans parsing. Sert l'app NkAnima ET le moteur de jeu (rejouer un clip).
+                bool SaveBinary(const NkString& path) const;
+                bool LoadBinary(const NkString& path);
+
+                // ── Import : bake une animation glTF en clip éditable (M1) ─────────────
+                // Échantillonne la pose squelettique (EvaluateGLTFPose) à `fps` sur toute
+                // la durée et stocke chaque frame en keyframes par os (matrices de
+                // skinning) -> l'anim devient éditable + sauvegardable .nkanim, et
+                // rejouable par NkAnimationPlayer. Engine-level (jeu + app NkAnima).
+                bool BakeFromGLTF(const NkGLTFMeshData& data, int32 animIdx, float32 fps = 30.f);
 
                 void BuildSpriteFlipBook(uint32 frameCount, float32 spriteFPS = 12.f);
 

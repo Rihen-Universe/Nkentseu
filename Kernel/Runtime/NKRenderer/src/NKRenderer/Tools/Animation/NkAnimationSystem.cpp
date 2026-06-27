@@ -5,6 +5,9 @@
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Materials/NkMaterialSystem.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKRenderer/Mesh/NkGLTFLoader.h"
+#include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstring>
 
@@ -72,6 +75,124 @@ namespace nkentseu {
             if(boneIdx>=(uint32)boneTracks.Size()) ResizeBones(boneIdx+1);
             boneTracks[boneIdx].AddKey(time, mat, interp);
             duration=fmaxf(duration, time);
+        }
+
+        // =====================================================================
+        // Sérialisation BINAIRE .nkanim (M1) — format compact versionné
+        // ---------------------------------------------------------------------
+        // [magic 'NKAN'(u32)] [version(u32)] [nameLen(u32)+name] [duration(f32)]
+        // [fps(f32)] [loop(u8)] [boneCount(u32)]
+        //   par os : [nameLen(u32)+name] [enabled(u8)] [keyCount(u32)]
+        //            par clé : [time(f32)] [mat(16*f32)] [interp(u8)]
+        // (Section os uniquement en v1 — le header versionné permet d'ajouter
+        //  morph/transform/material plus tard sans casser les fichiers.)
+        // =====================================================================
+        namespace {
+            constexpr uint32 kNkAnimMagic   = 0x4E414B4E; // 'NKAN' (little-endian)
+            constexpr uint32 kNkAnimVersion = 1;
+
+            struct ByteWriter {
+                NkVector<nk_uint8> buf;
+                void raw(const void* p, usize n) { const nk_uint8* b=(const nk_uint8*)p; for(usize i=0;i<n;++i) buf.PushBack(b[i]); }
+                void u8(uint8 v)   { raw(&v,1); }
+                void u32(uint32 v) { raw(&v,4); }
+                void f32(float32 v){ raw(&v,4); }
+                void str(const NkString& s) { uint32 n=(uint32)s.Size(); u32(n); if(n) raw(s.CStr(), n); }
+                void mat(const NkMat4f& m)  { raw(m.data, 16*sizeof(float32)); }
+            };
+            struct ByteReader {
+                const nk_uint8* p; usize n, off=0; bool ok=true;
+                ByteReader(const nk_uint8* d, usize len): p(d), n(len) {}
+                bool need(usize c){ if(off+c>n){ok=false;return false;} return true; }
+                uint8  u8()  { if(!need(1))return 0; return p[off++]; }
+                uint32 u32() { if(!need(4))return 0; uint32 v; memcpy(&v,p+off,4); off+=4; return v; }
+                float32 f32(){ if(!need(4))return 0; float32 v; memcpy(&v,p+off,4); off+=4; return v; }
+                NkString str(){ uint32 c=u32(); NkString s; if(c && need(c)){ s=NkString((const char*)(p+off), c); off+=c; } return s; }
+                NkMat4f mat(){ NkMat4f m; if(need(16*sizeof(float32))){ memcpy(m.data,p+off,16*sizeof(float32)); off+=16*sizeof(float32);} return m; }
+            };
+        }
+
+        bool NkAnimationClip::SaveBinary(const NkString& path) const {
+            ByteWriter w;
+            w.u32(kNkAnimMagic); w.u32(kNkAnimVersion);
+            w.str(name); w.f32(duration); w.f32(fps); w.u8(loop?1:0);
+            w.u32((uint32)boneTracks.Size());
+            for (uint32 b=0; b<(uint32)boneTracks.Size(); ++b) {
+                const NkAnimationTrack<NkMat4f>& tr = boneTracks[b];
+                w.str(tr.name); w.u8(tr.enabled?1:0);
+                w.u32(tr.KeyCount());
+                for (uint32 k=0; k<tr.KeyCount(); ++k) {
+                    const NkKeyframe<NkMat4f>& kf = tr.GetKey(k);
+                    w.f32(kf.time); w.mat(kf.value); w.u8((uint8)kf.interp);
+                }
+            }
+            if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
+                logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
+                return false;
+            }
+            logger.Info("[NkAnimClip] Saved '{0}' : {1} os, {2} octets\n",
+                        path.CStr(), (uint32)boneTracks.Size(), (uint32)w.buf.Size());
+            return true;
+        }
+
+        bool NkAnimationClip::LoadBinary(const NkString& path) {
+            NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(path.CStr());
+            if (bytes.Empty()) { logger.Errorf("[NkAnimClip] LoadBinary vide/absent : %s\n", path.CStr()); return false; }
+            ByteReader r(bytes.Data(), bytes.Size());
+            uint32 magic=r.u32(), ver=r.u32();
+            if (magic!=kNkAnimMagic) { logger.Errorf("[NkAnimClip] magic invalide (0x%08X) : %s\n", magic, path.CStr()); return false; }
+            if (ver!=kNkAnimVersion) { logger.Errorf("[NkAnimClip] version %u non supportee : %s\n", ver, path.CStr()); return false; }
+            name=r.str(); duration=r.f32(); fps=r.f32(); loop=(r.u8()!=0);
+            uint32 nb=r.u32();
+            boneTracks.Clear(); boneTracks.Resize(nb); boneCount=nb;
+            for (uint32 b=0; b<nb; ++b) {
+                NkAnimationTrack<NkMat4f>& tr = boneTracks[b];
+                tr.name=r.str(); tr.enabled=(r.u8()!=0);
+                uint32 nk=r.u32();
+                for (uint32 k=0; k<nk; ++k) {
+                    float32 t=r.f32(); NkMat4f m=r.mat(); uint8 interp=r.u8();
+                    tr.AddKey(t, m, (NkInterpMode)interp);
+                }
+            }
+            if (!r.ok) { logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr()); return false; }
+            logger.Info("[NkAnimClip] Loaded '{0}' : {1} os, dur={2}s fps={3}\n",
+                        path.CStr(), nb, duration, fps);
+            return true;
+        }
+
+        bool NkAnimationClip::BakeFromGLTF(const NkGLTFMeshData& data, int32 animIdx, float32 fps) {
+            if (!data.isSkinned || data.skinJoints.Empty()) {
+                logger.Errorf("[NkAnimClip] BakeFromGLTF : modele non skinne\n");
+                return false;
+            }
+            if (fps < 1.f) fps = 30.f;
+            // Duree de l'animation (sinon 1 frame de bind pose).
+            float32 dur = 0.f;
+            if (animIdx >= 0 && animIdx < (int32)data.animations.Size())
+                dur = data.animations[(uint32)animIdx].duration;
+            const uint32 jc = (uint32)data.skinJoints.Size();
+
+            boneTracks.Clear();
+            ResizeBones(jc);
+            for (uint32 b = 0; b < jc; ++b) boneTracks[b].name = NkFormat("joint_{0}", b);
+
+            // Echantillonne la pose (matrices de skinning) frame par frame.
+            const uint32 frameCount = (dur > 1e-4f) ? (uint32)(dur * fps) + 1u : 1u;
+            NkVector<NkMat4f> pose;
+            for (uint32 f = 0; f < frameCount; ++f) {
+                float32 t = (frameCount > 1) ? (float32)f / fps : 0.f;
+                if (t > dur) t = dur;
+                if (!EvaluateGLTFPose(data, animIdx, t, pose)) break;
+                for (uint32 b = 0; b < jc && b < (uint32)pose.Size(); ++b)
+                    boneTracks[b].AddKey(t, pose[b], NkInterpMode::NK_LINEAR);
+            }
+            this->fps = fps;
+            this->duration = dur;
+            this->loop = true;
+            RecalcDuration();
+            logger.Info("[NkAnimClip] BakeFromGLTF : {0} os, {1} frames @ {2}fps, dur={3}s\n",
+                        jc, frameCount, fps, duration);
+            return true;
         }
 
         void NkAnimationClip::BuildSpriteFlipBook(uint32 frameCount, float32 spriteFPS) {

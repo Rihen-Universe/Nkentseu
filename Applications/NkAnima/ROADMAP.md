@@ -160,8 +160,39 @@ transpilé partout — vérifier comme pour les autres).
   Pose/bones : `Tools/Animation/NkAnimationSystem` + `mSkinned[].boneMatrices` (consommé
   par `NkRender3D` → `mUBOBonesRing`). À cartographier précisément (suite de l'audit).
 
-### M1 — Pose & timeline
+### M1 — Pose & timeline *(EN COURS)*
 Éditer des poses-clés, timeline, interpolation, save/load `.nkanim`.
+
+**Audit (2026-06-27)** : le système d'anim `Tools/Animation/NkAnimationSystem` est
+DÉJÀ riche — `NkAnimationClip` (boneTracks `NkAnimationTrack<NkMat4f>` par os +
+morph/UV/material/transform/caméra/lumière/PP), sampling avec 9 modes d'easing,
+`NkAnimationPlayer` (Play/Update/GetState/**BlendTo** crossfade/markers),
+`NkAnimationSystem::ApplySkinnedMesh`/**ApplyOnionSkin** (pelure d'oignon = clé pour
+l'édition Cascadeur). M1.a (modèle + sampler) était donc DÉJÀ là.
+
+**✅ M1.b FAIT (2026-06-27) — format BINAIRE `.nkanim` + import glTF + démo** :
+- **`NkAnimationClip::SaveBinary/LoadBinary`** : format compact versionné `NKAN`
+  (header magic+version+name+dur+fps+loop, puis tracks d'os : nom+enabled+clés
+  [time+mat4+interp]). PAS de JSON (anim = beaucoup de floats → binaire = compact +
+  chargement rapide sans parsing). Extensible (header versionné → morph/transform
+  plus tard). `GetKey()` ajouté à `NkAnimationTrack` pour la sérialisation.
+- **`NkAnimationClip::BakeFromGLTF(data, animIdx, fps)`** : échantillonne
+  `EvaluateGLTFPose` sur toute la durée → keyframes par os éditables + sauvables.
+  Engine-level (jeu Noge + app NkAnima).
+- **Démo `DemoAnim` (`renderdemo --demo=16`)** : CesiumMan → bake → save `.nkanim`
+  → **RELOAD** → `NkAnimationPlayer` → `SubmitSkinned`. Round-trip VÉRIFIÉ
+  (`match=1`, 19 os, 61 frames @30fps, .nkanim de 80 Ko) + **visuellement** (le perso
+  MARCHE depuis le clip rechargé, mesh propre, 144 FPS).
+
+**RESTE M1** :
+- **M1.c — timeline/scrubbing + édition de clés** (insertion/déplacement de
+  keyframes) : touche l'UI → via **Editor Kit** (déjà utilisé dans NKCode).
+- **Qualité d'interp** : `boneTracks` stocke des `NkMat4f` lerpés composant-par-
+  composant (rotation imparfaite entre clés éloignées). Passer à TRS par os
+  (position/quaternion-slerp/scale) pour une interpolation propre = raffinement.
+- **Superposer l'IK (M0) sur l'anim** : foot-lock / hand-IK par-dessus le clip joué
+  (anim + IK = la vraie fondation Cascadeur). Brancher `NkIKSystem` sur la pose du
+  player.
 
 ### M2 — State machine / blend tree / retargeting
 Transitions, blend de poses, appliquer une anim à un autre rig (retargeting).

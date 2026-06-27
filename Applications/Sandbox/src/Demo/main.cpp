@@ -51,6 +51,7 @@ namespace nkentseu { namespace demo {
     bool DemoSkin_Init                   (DemoCtx&); void DemoSkin_Frame                   (DemoCtx&, float32); void DemoSkin_Shutdown                   (DemoCtx&);
     bool DemoIK_Init                     (DemoCtx&); void DemoIK_Frame                     (DemoCtx&, float32); void DemoIK_Shutdown                     (DemoCtx&);
     bool DemoIKChar_Init                 (DemoCtx&); void DemoIKChar_Frame                 (DemoCtx&, float32); void DemoIKChar_Shutdown                 (DemoCtx&);
+    bool DemoAnim_Init                   (DemoCtx&); void DemoAnim_Frame                   (DemoCtx&, float32); void DemoAnim_Shutdown                   (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -96,6 +97,10 @@ namespace nkentseu { namespace demo {
         // (CesiumMan) : un membre suit une cible, squelette rendu en debug-lines.
         { "IKChar",     "DemoIKChar : NkAnima M0 — IK FABRIK sur squelette glTF reel (CesiumMan)",
             DemoIKChar_Init, DemoIKChar_Frame, DemoIKChar_Shutdown },
+        // DemoAnim : NkAnima M1 — pipeline clip + .nkanim binaire + player.
+        // glTF -> bake clip -> save .nkanim -> reload -> play -> skinning.
+        { "Anim",       "DemoAnim : NkAnima M1 — clip + .nkanim binaire + player (CesiumMan rejoue)",
+            DemoAnim_Init, DemoAnim_Frame, DemoAnim_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -273,6 +278,11 @@ namespace nkentseu { namespace demo {
                 c.ibl.iblStrength = 0.85f;
                 return c;
             }
+            case 15: {
+                // DemoAnim (NkAnima M1) : mesh skinné rejoué depuis .nkanim. Game
+                // standard (IBL HDR + ombres), comme DemoSkin.
+                return NkRendererConfig::ForGame(api, w, h);
+            }
             case 14: {
                 // DemoIKChar (NkAnima M0 d) : squelette glTF en debug-lines. Même
                 // config neutre que DemoIK (Game minimal + IBL clair de remplissage).
@@ -316,6 +326,7 @@ int nkmain(const NkEntryState& state) {
     if (demoIx == 13) demoIx = 12;  // DemoSkin       -> kDemos[12]
     if (demoIx == 14) demoIx = 13;  // DemoIK         -> kDemos[13]
     if (demoIx == 15) demoIx = 14;  // DemoIKChar     -> kDemos[14]
+    if (demoIx == 16) demoIx = 15;  // DemoAnim       -> kDemos[15]
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 
