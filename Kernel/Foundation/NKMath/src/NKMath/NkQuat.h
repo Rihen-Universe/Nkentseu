@@ -1226,12 +1226,21 @@
                     return NLerp(target, interpolationFactor);
                 }
 
-                // Étape 3 : Interpolation sphérique via exponentiation
-                // Formule : result = start ⊗ (start⁻¹ ⊗ target)^t
-                NkQuatT<T> deltaQuaternion = Inverse() * target;
-                NkQuatT<T> interpolated = (deltaQuaternion ^ interpolationFactor) * (*this);
-
-                // Normalisation finale pour corriger la dérive numérique
+                // Étape 3 : SLERP DIRECT (formule de Shoemake, sans operator^ qui
+                // souffrait d'un défaut de linkage friend↔template) :
+                //   result = sin((1-t)θ)/sinθ · start + sin(tθ)/sinθ · target
+                // avec θ = acos(dot). Stable ici car dot < 1-ε (sinθ non nul).
+                const float32 ti    = static_cast<float32>(interpolationFactor);
+                const float32 theta = acosf(dotProduct);
+                const float32 invSin = 1.0f / sinf(theta);
+                const float32 wa = sinf((1.0f - ti) * theta) * invSin;
+                const float32 wb = sinf(ti * theta) * invSin;
+                NkQuatT<T> interpolated = {
+                    static_cast<T>(wa)*x + static_cast<T>(wb)*target.x,
+                    static_cast<T>(wa)*y + static_cast<T>(wb)*target.y,
+                    static_cast<T>(wa)*z + static_cast<T>(wb)*target.z,
+                    static_cast<T>(wa)*w + static_cast<T>(wb)*target.w
+                };
                 return interpolated.Normalized();
             }
 

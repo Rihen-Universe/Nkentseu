@@ -184,12 +184,21 @@ l'édition Cascadeur). M1.a (modèle + sampler) était donc DÉJÀ là.
   (`match=1`, 19 os, 61 frames @30fps, .nkanim de 80 Ko) + **visuellement** (le perso
   MARCHE depuis le clip rechargé, mesh propre, 144 FPS).
 
+**✅ INTERP TRS+SLERP FAIT (2026-06-27)** : `NkAnimationTrack<NkMat4f>::Lerp` faisait
+un lerp des 16 éléments (rotation déformée/skew entre clés éloignées). Maintenant :
+décompose A et B en TRS, lerp translation/scale, **SLERP la rotation**, recompose.
+**Améliorations NkMath au passage** (autorisées par Rihen) : `NkMat4::DecomposeTRS`
+(translation+rotation+scale, n'existait pas) + **`NkQuat::SLerp` RÉPARÉ** (dépendait
+d'un `operator^` au linkage friend↔template cassé, jamais exercé avant → réécrit en
+formule de Shoemake directe `sin((1-t)θ)/sinθ·a + sin(tθ)/sinθ·b`).
+
 **RESTE M1** :
 - **M1.c — timeline/scrubbing + édition de clés** (insertion/déplacement de
-  keyframes) : touche l'UI → via **Editor Kit** (déjà utilisé dans NKCode).
-- **Qualité d'interp** : `boneTracks` stocke des `NkMat4f` lerpés composant-par-
-  composant (rotation imparfaite entre clés éloignées). Passer à TRS par os
-  (position/quaternion-slerp/scale) pour une interpolation propre = raffinement.
+  keyframes) : UI à concevoir sur **NKGui** (prêt, on conçoit les interfaces ;
+  PAS NKUI — directive Rihen). Widget timeline à créer (~1 sem), branché sur
+  `NkAnimationClip`/`NkAnimationPlayer`.
+- (option) Stocker les `boneTracks` en TRS bone-LOCAL + FK au sample plutôt que des
+  matrices de skinning bakées (édition de pose plus naturelle pour la timeline).
 - ~~**Superposer l'IK (M0) sur l'anim**~~ **✅ FAIT (2026-06-27)** : démo `DemoAnimIK`
   (`renderdemo --demo=17`) — le corps MARCHE (clip rejoué) ET un bras atteint une cible
   via IK FABRIK, EN MÊME TEMPS (= signature Cascadeur). Pipeline : `player.Update` →
