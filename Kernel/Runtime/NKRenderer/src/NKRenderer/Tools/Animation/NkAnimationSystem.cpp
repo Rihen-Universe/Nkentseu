@@ -270,18 +270,24 @@ namespace nkentseu {
             const NkKeyframe<NkMat4f>& kb = tr.GetKey(hi);
             float32 dt = kb.time - ka.time;
             float32 a = (dt > 1e-6f) ? (t - ka.time) / dt : 0.f;
-            // DÉFAUT = lerp matriciel sur les LOCAUX (rigides -> propre à 30fps, validé).
-            // Slerp TRS opt-in via NK_ANIM_SLERP (utilise DecomposeTRS + Mat4->Quat + SLerp,
-            // récemment réparés ; à valider visuellement avant de passer par défaut).
-            static int doslerp=-1; if(doslerp<0){ const char* v=getenv("NK_ANIM_SLERP"); doslerp=(v&&v[0]&&v[0]!='0')?1:0; }
-            if (!doslerp) { NkMat4f r; for(int i=0;i<4;i++)for(int j=0;j<4;j++) r[i][j]=ka.value[i][j]+(kb.value[i][j]-ka.value[i][j])*a; return r; }
+            // Interp TRS-NLerp : décompose A/B, lerp translation/scale, NLERP la rotation
+            // (lerp de quaternions + normalize, chemin court via le signe du dot). Correct
+            // sur des transforms LOCAUX rigides + visuellement propre. (NB : NkQuat::SLerp
+            // pur reste buggé sur sa branche trigonométrique pour les grosses rotations ;
+            // NLerp est suffisant et stable à 30fps. Cf NkAnima ROADMAP.) Debug : lerp
+            // matriciel direct via NK_ANIM_LERPMAT.
+            static int lerpmat=-1; if(lerpmat<0){ const char* v=getenv("NK_ANIM_LERPMAT"); lerpmat=(v&&v[0]&&v[0]!='0')?1:0; }
+            if (lerpmat) { NkMat4f r; for(int i=0;i<4;i++)for(int j=0;j<4;j++) r[i][j]=ka.value[i][j]+(kb.value[i][j]-ka.value[i][j])*a; return r; }
             NkVec3f ta, sa, tb, sb; NkMat4f ra, rb;
             ka.value.DecomposeTRS(ta, ra, sa);
             kb.value.DecomposeTRS(tb, rb, sb);
             NkQuatf qa(ra), qb(rb);
             NkVec3f tt = { ta.x+(tb.x-ta.x)*a, ta.y+(tb.y-ta.y)*a, ta.z+(tb.z-ta.z)*a };
             NkVec3f ss = { sa.x+(sb.x-sa.x)*a, sa.y+(sb.y-sa.y)*a, sa.z+(sb.z-sa.z)*a };
-            NkQuatf qq = qa.SLerp(qb, a);
+            float32 d = qa.x*qb.x+qa.y*qb.y+qa.z*qb.z+qa.w*qb.w;
+            NkQuatf qbb = (d<0.f) ? NkQuatf(-qb.x,-qb.y,-qb.z,-qb.w) : qb;
+            NkQuatf qq(qa.x+(qbb.x-qa.x)*a, qa.y+(qbb.y-qa.y)*a, qa.z+(qbb.z-qa.z)*a, qa.w+(qbb.w-qa.w)*a);
+            qq = qq.Normalized();
             return NkMat4f::Translate(tt) * qq.ToMat4() * NkMat4f::Scale(ss);
         }
 

@@ -140,6 +140,46 @@ namespace nkentseu { namespace demo {
         float32 diag = sqrtf(ext.x*ext.x+ext.y*ext.y+ext.z*ext.z);
         st->radius = (diag>1e-4f)?diag*2.2f:4.f; if(st->radius<1.5f) st->radius=1.5f;
 
+        // Test round-trip math (NK_ANIM_RTTEST) : isole le bug slerp.
+        if (getenv("NK_ANIM_RTTEST") && st->clip.boneTracks.Size()>1) {
+            const auto& tr = st->clip.boneTracks[1];
+            if (tr.KeyCount()>0) {
+                NkMat4f M = tr.GetKey(tr.KeyCount()/2).value;
+                NkVec3f tt,ss; NkMat4f rr;
+                M.DecomposeTRS(tt, rr, ss);
+                NkQuatf q(rr);
+                NkMat4f rmat = q.ToMat4();
+                NkMat4f recomp = NkMat4f::Translate(tt)*rmat*NkMat4f::Scale(ss);
+                float32 errQuatMat=0.f, errRecomp=0.f;
+                for(int i=0;i<16;i++){ errQuatMat=NkMax(errQuatMat, fabsf(rmat.data[i]-rr.data[i]));
+                                       errRecomp =NkMax(errRecomp,  fabsf(recomp.data[i]-M.data[i])); }
+                logger.Info("[RTTEST] scale=({0},{1},{2})  quat->mat vs rot err={3}  decompose+recompose err={4}\n",
+                            ss.x, ss.y, ss.z, errQuatMat, errRecomp);
+                // Scan TOUS les os : cherche réflexion (det<0) ou scale anormal qui
+                // ferait échouer DecomposeTRS+quat (suppose rotation propre det=+1).
+                float32 worstScale=1.f, worstDet=1.f; uint32 worstBone=0; float32 worstQ=1.f;
+                for (uint32 bi=0; bi<(uint32)st->clip.boneTracks.Size(); ++bi) {
+                    const auto& trb = st->clip.boneTracks[bi];
+                    if (trb.KeyCount()==0) continue;
+                    NkMat4f Mm = trb.GetKey(trb.KeyCount()/2).value;
+                    NkVec3f tm,sm; NkMat4f rm; Mm.DecomposeTRS(tm,rm,sm);
+                    // det de la rotation 3x3 (col0·(col1×col2))
+                    NkVec3f c0{rm.m00,rm.m01,rm.m02}, c1{rm.m10,rm.m11,rm.m12}, c2{rm.m20,rm.m21,rm.m22};
+                    float32 det = c0.x*(c1.y*c2.z-c1.z*c2.y) - c1.x*(c0.y*c2.z-c0.z*c2.y) + c2.x*(c0.y*c1.z-c0.z*c1.y);
+                    NkQuatf qq2(rm); float32 ql2=sqrtf(qq2.x*qq2.x+qq2.y*qq2.y+qq2.z*qq2.z+qq2.w*qq2.w);
+                    float32 maxs=NkMax(NkMax(fabsf(sm.x),fabsf(sm.y)),fabsf(sm.z));
+                    if (maxs>worstScale || det<worstDet || fabsf(ql2-1.f)>fabsf(worstQ-1.f)) {
+                        if (maxs>worstScale) worstScale=maxs;
+                        if (det<worstDet) worstDet=det;
+                        if (fabsf(ql2-1.f)>fabsf(worstQ-1.f)) worstQ=ql2;
+                        worstBone=bi;
+                    }
+                }
+                logger.Info("[RTTEST2] scan {0} os : worstScale={1} worstDet={2} worstQuatLen={3} (bone {4})\n",
+                            (uint32)st->clip.boneTracks.Size(), worstScale, worstDet, worstQ, worstBone);
+            }
+        }
+
         logger.Info("[DemoAnim] Init '{0}' : skinned={1} mesh={2} roundTrip={3}\n",
                     path.CStr(), st->skinned?1:0, st->loaded?1:0, st->roundTripOK?1:0);
         return true;

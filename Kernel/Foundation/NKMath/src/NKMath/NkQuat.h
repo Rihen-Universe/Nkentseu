@@ -738,22 +738,25 @@
                 const T r00=ax.x, r10=ax.y, r20=ax.z;   // col0
                 const T r01=ay.x, r11=ay.y, r21=ay.z;   // col1
                 const T r02=az.x, r12=az.y, r22=az.z;   // col2
+                // Convention moteur (cf operator NkMat4) : R(2,1)-R(1,2)=+4wx, etc.
+                // -> les termes en DIFFÉRENCE (w·axe) sont r_ba - r_ab (pas r_ab - r_ba).
+                // Les termes symétriques (xy/xz/yz) restent r_ab + r_ba.
                 T qx,qy,qz,qw,t;
                 if (r22 < T(0)) {
                     if (r00 > r11) {
                         t  = T(1) + r00 - r11 - r22;
-                        qx = t; qy = r01 + r10; qz = r20 + r02; qw = r12 - r21;
+                        qx = t; qy = r01 + r10; qz = r20 + r02; qw = r21 - r12;
                     } else {
                         t  = T(1) - r00 + r11 - r22;
-                        qx = r01 + r10; qy = t; qz = r12 + r21; qw = r20 - r02;
+                        qx = r01 + r10; qy = t; qz = r12 + r21; qw = r02 - r20;
                     }
                 } else {
                     if (r00 < -r11) {
                         t  = T(1) - r00 - r11 + r22;
-                        qx = r20 + r02; qy = r12 + r21; qz = t; qw = r01 - r10;
+                        qx = r20 + r02; qy = r12 + r21; qz = t; qw = r10 - r01;
                     } else {
                         t  = T(1) + r00 + r11 + r22;
-                        qx = r12 - r21; qy = r20 - r02; qz = r01 - r10; qw = t;
+                        qx = r21 - r12; qy = r02 - r20; qz = r10 - r01; qw = t;
                     }
                 }
                 const T s = T(0.5) / static_cast<T>(sqrt(static_cast<double>(t)));

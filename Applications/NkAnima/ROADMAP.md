@@ -207,17 +207,20 @@ de pose. **Améliorations NkMath au passage** : `NkMat4::DecomposeTRS` + `NkQuat
 réparé + **ctor `NkQuat(NkMat4)` RÉPARÉ** (utilisait `LookAt(forward,up)` = convention
 CAMÉRA, faux pour une rotation d'os → réécrit en trace-based Mike Day standard ;
 inutilisé ailleurs donc sûr).
-- **Interp DÉFAUT = lerp matriciel sur locaux** (rigides → propre à 30fps, PROUVÉ
-  VISUELLEMENT : marche nette). C'est le mode de production.
-- **Slerp TRS opt-in `NK_ANIM_SLERP` = ENCORE BUGGÉ (mesh ballonné)** : testé après le
-  fix du ctor `NkQuat(NkMat4)` → toujours faux. La conversion matrice→quat trace-based
-  n'est probablement PAS l'inverse exact de `quat→matrix` du moteur (convention/signes)
-  → `DecomposeTRS→Quat→SLerp→ToMat4` ne round-trip pas. À reprendre : vérifier
-  `q = NkQuat(R); R' = q.ToMat4()` doit == R (sinon aligner les signes du trace-based
-  sur la convention de `static_cast<NkMat4>(quat)`). **Non bloquant** (lerp-local suffit).
+- **✅ Interp DÉFAUT = TRS-NLerp** (décompose, lerp T/S, **NLERP la rotation** = lerp de
+  quaternions bone-local + normalize, chemin court). **Marche propre validée**. C'est le
+  mode de production (debug : `NK_ANIM_LERPMAT` = lerp matriciel direct).
+- **ctor `NkQuat(NkMat4)` RÉPARÉ pour de bon** : le trace-based avait les **signes des
+  termes-différence inversés** (la convention moteur `quat→matrix` donne `R(2,1)-R(1,2)=
+  +4wx`) → corrigé. Round-trip `q=NkQuat(R); R'=q.ToMat4()` vérifié **err=2e-9**.
+- **`NkQuat::SLerp` (pur) reste BUGGÉ sur sa branche trigonométrique** (grosses rotations,
+  dot<1-ε) → mesh ballonné. La branche near-identity (NLerp fallback) est OK. Isolé via
+  test : decompose/recompose/quat/NLerp tous corrects, seul le `SLerp` trig échoue malgré
+  une formule de Shoemake apparemment standard. **Non bloquant** (on utilise NLerp).
+  À reprendre : instrumenter `SLerp` trig vs NLerp sur un cas dot~0.99.
 
 **RESTE M1** :
-- **Débugger le slerp** (round-trip matrice↔quat) puis le passer par défaut.
+- (option) finir de débugger la branche trig de `NkQuat::SLerp` (NLerp suffit en pratique).
 - **M1.c — timeline/scrubbing + édition de clés** : UI sur **NKGui** (prêt, on conçoit
   les interfaces ; PAS NKUI — directive Rihen). Widget timeline à créer, branché sur
   `NkAnimationClip`/`NkAnimationPlayer` (le mode TRS-local rend l'édition naturelle).
