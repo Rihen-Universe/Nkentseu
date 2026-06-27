@@ -35,10 +35,10 @@ namespace nkcode {
         const float32 sp = ctx.layout.itemSpacingX;
         const float32 wWs = ctx.S(150.f), wProj = ctx.S(180.f), wSys = ctx.S(130.f), wCfg = ctx.S(110.f), wArch = ctx.S(130.f), wTest = ctx.S(150.f);
         // Tests VISIBLES = ceux du projet selectionne (ou tous si « Tous les projets »).
-        int32 nTestVis = 0, firstTest = -1;
-        for (int32 i = 0; i < (int32)s->tests.Size(); ++i) if (s->TestVisible(i)) { if (firstTest < 0) firstTest = i; ++nTestVis; }
-        const bool hasTests = nTestVis > 0;
-        if (hasTests && !s->TestVisible(s->testIdx)) s->testIdx = firstTest;   // recadre sur un test visible
+        int32 nTestVis = 0;
+        for (int32 i = 0; i < (int32)s->tests.Size(); ++i) if (s->TestVisible(i)) ++nTestVis;
+        const bool hasTests = !s->tests.Empty();   // le combo reste tant qu'il y a des tests
+        if (s->testIdx >= 0 && !s->TestVisible(s->testIdx)) s->testIdx = -1;   // -> « Tous les tests »
         const float32 left = ctx.layout.region.x + ctx.S(8.f);
         float32 startX = left;
         if (s->HasWorkspace()) {
@@ -124,12 +124,13 @@ namespace nkcode {
         }
         ctx.PopId(); ctx.SameLine();
 
-        // ── 6) Tests du projet selectionne (combo + Tester), si presents ──
+        // ── 6) Tests (combo « Tous les tests » + chaque test visible) + bouton Tester ──
         if (hasTests) {
             setW(wTest);
             ctx.PushId("test");
-            const char* testPrev = s->TestVisible(s->testIdx) ? s->tests[s->testIdx].CStr() : "(test)";
-            if (BeginCombo(ctx, "", testPrev, nTestVis)) {
+            const char* testPrev = (s->testIdx >= 0 && s->TestVisible(s->testIdx)) ? s->tests[s->testIdx].CStr() : "Tous les tests";
+            if (BeginCombo(ctx, "", testPrev, nTestVis + 1)) {
+                if (Selectable(ctx, "Tous les tests", s->testIdx < 0)) { s->testIdx = -1; ctx.ClosePopup(); }
                 for (int32 i = 0; i < (int32)s->tests.Size(); ++i)
                     if (s->TestVisible(i) && Selectable(ctx, s->tests[i].CStr(), i == s->testIdx)) { s->testIdx = i; ctx.ClosePopup(); }
                 EndCombo(ctx);

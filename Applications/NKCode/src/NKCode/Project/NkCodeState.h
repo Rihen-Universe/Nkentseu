@@ -112,7 +112,7 @@ namespace nkcode {
         NkVector<NkString> projects;     // projets (hors tests) selectionnables
         int32              projIdx = 0;  // projet cible courant
         NkVector<NkString> tests;        // projets de test (Kind = TestSuite)
-        int32              testIdx = 0;  // test selectionne
+        int32              testIdx = -1; // -1 = tous les tests visibles ; >=0 = un test precis
 
         const char* SelectedProject() const {
             return (projIdx >= 0 && projIdx < static_cast<int32>(projects.Size()))
@@ -278,15 +278,23 @@ namespace nkcode {
             cmd += JengaFileArg();
             EnqueueJenga(cmd); PumpQueue();
         }
-        // Lance le test selectionne (jenga test <name>) en config courante.
+        // Lance les tests : si testIdx == -1 -> TOUS les tests visibles (ceux du
+        // projet selectionne, ou tous si « Tous les projets ») ; sinon un test precis.
+        // Plusieurs tests -> file d'attente (rafale).
         void DoTest() {
             if (!HasWorkspace() || tests.Empty()) { status = NkString("(aucun test)"); return; }
-            if (testIdx < 0 || testIdx >= static_cast<int32>(tests.Size())) testIdx = 0;
             output.Clear(); mQueue.Clear();
-            NkString cmd("test "); cmd += tests[testIdx].CStr();
-            cmd += " --config "; cmd += ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
-            cmd += JengaFileArg();
-            EnqueueJenga(cmd); PumpQueue();
+            int32 ran = 0;
+            for (int32 i = 0; i < static_cast<int32>(tests.Size()); ++i) {
+                if (!TestVisible(i)) continue;
+                if (testIdx >= 0 && i != testIdx) continue;   // un seul test demande
+                NkString cmd("test "); cmd += tests[i].CStr();
+                cmd += " --config "; cmd += ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
+                cmd += JengaFileArg();
+                EnqueueJenga(cmd); ++ran;
+            }
+            if (ran == 0) { status = NkString("(aucun test pour ce projet)"); return; }
+            PumpQueue();
         }
 
         // Force un re-scan des workspaces + rechargement de `jenga info` (relit le

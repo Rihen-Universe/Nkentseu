@@ -277,15 +277,29 @@ namespace nkcode {
             else if (act == 2) { mLogs.Clear(); ClearSel(); }
         }
     private:
-        // Couleur par niveau (prefixe "[LEVEL]").
+        // Couleur d'une ligne de sortie : par niveau de log [E]/[W]/[D] ET par
+        // mots-cles de build (error/warning/✓/✗/success...) -> coloration riche.
         static NkColor LogColor(const char* s) {
+            const NkColor red = { 248, 81, 73, 255 }, yellow = { 210, 153, 34, 255 },
+                          green = { 63, 185, 80, 255 }, gray = { 110, 118, 129, 255 },
+                          blue = { 88, 166, 255, 255 }, white = { 204, 204, 204, 255 };
+            // Niveau NKLogger : "[E.../[C.../[F..." etc.
             if (s[0] == '[') {
-                const char* l = s + 1;
-                if (l[0] == 'E' || l[0] == 'C' || l[0] == 'F') return { 248,  81,  73, 255 };  // Error/Crit/Fatal
-                if (l[0] == 'W')                                return { 210, 153,  34, 255 };  // Warn
-                if (l[0] == 'D' || l[0] == 'T')                 return { 110, 118, 129, 255 };  // Debug/Trace
+                const char c = s[1];
+                if (c == 'E' || c == 'C' || c == 'F') return red;
+                if (c == 'W')                          return yellow;
+                if (c == 'D' || c == 'T')              return gray;
             }
-            return { 204, 204, 204, 255 };   // Info/defaut
+            if (s[0] == '$') return blue;                                  // commande echo "$ jenga ..."
+            if (FindI(s, "error") || FindI(s, "failed") || FindI(s, "echec") || FindI(s, "\xE2\x9C\x97")) return red;     // error/failed/✗
+            if (FindI(s, "warning") || FindI(s, "attention") || FindI(s, "\xE2\x9A\xA0")) return yellow;                  // warning/⚠
+            if (FindI(s, "success") || FindI(s, "built:") || FindI(s, "completed") || FindI(s, "\xE2\x9C\x93")) return green;  // success/built/✓
+            return white;
+        }
+        // Recherche de sous-chaine, insensible a la casse.
+        static bool FindI(const char* h, const char* n) {
+            for (; *h; ++h) { const char* a = h; const char* b = n; while (*a && *b) { char x = *a, y = *b; if (x >= 'A' && x <= 'Z') x += 32; if (y >= 'A' && y <= 'Z') y += 32; if (x != y) break; ++a; ++b; } if (!*b) return true; }
+            return false;
         }
         static bool Find(const char* h, const char* n) { for (; *h; ++h) { const char* a = h, * b = n; while (*a && *b && *a == *b) { ++a; ++b; } if (!*b) return true; } return false; }
         void ParseProgress(const char* L) {
