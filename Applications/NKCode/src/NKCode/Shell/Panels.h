@@ -256,9 +256,14 @@ namespace nkcode {
     public:
         enum Shell { SH_PWSH = 0, SH_WSL, SH_BASH, SH_CMD, SH_JENGA, SH_COUNT };
 
+        // Entree du selecteur de shell : un type (kind) + un libelle + une distro
+        // WSL optionnelle. La liste est construite dynamiquement (distros WSL2 reelles).
+        struct ShellDef { int32 kind; NkString label; NkString distro; };
+
         TerminalPanel() : NkEditorPanel("TERMINAL", NkEditorDockSide::NK_BOTTOM) {
             for (int32 i = 0; i < 8; ++i) mTerm[i].proc.SetKeepAnsi(true);   // couleurs ANSI
             mTerm[0].alive = true;   // un terminal PowerShell par defaut
+            mTerm[0].label = "powershell";
         }
 
         void OnUI(NkEditorFrameContext& ec) override {
@@ -317,7 +322,7 @@ namespace nkcode {
             if (InputText(ctx, "##cmd", t.input, static_cast<int32>(sizeof(t.input))) && !popupBefore) {
                 if (t.input[0]) {
                     t.lines.PushBack(NkString(prompt) + " " + t.input);
-                    t.proc.Start(WrapCmd(t.shell, t.input));
+                    t.proc.Start(WrapCmd(t.shell, t.distro, t.input));
                     t.input[0] = '\0';
                     t.scrollY = 1.0e9f;                            // suit le bas apres une commande
                 }
@@ -346,10 +351,13 @@ namespace nkcode {
             ctx.layout.cursor     = { addR.x - cw - 4.f, bar.y + 1.f };
             ctx.layout.lineStartX = ctx.layout.cursor.x; ctx.layout.curLineH = 0.f;
             ctx.layout.region.w   = (ctx.layout.cursor.x - ctx.layout.region.x) + cw;
+            EnsureBaseShells();
+            if (mNewShell < 0 || mNewShell >= static_cast<int32>(mShells.Size())) mNewShell = 0;
             ctx.PushId("shellhdr");
-            if (BeginCombo(ctx, "", ShellName(mNewShell), SH_COUNT)) {
-                for (int32 i = 0; i < SH_COUNT; ++i)
-                    if (Selectable(ctx, ShellName(i), i == ctx.comboNav) || (i == ctx.comboNav && ctx.comboEnter)) { mNewShell = i; ctx.ClosePopup(); }
+            if (BeginCombo(ctx, "", mShells[mNewShell].label.CStr(), static_cast<int32>(mShells.Size()))) {
+                DetectWslDistros();   // ajoute les distros WSL2 reelles (une seule fois)
+                for (int32 i = 0; i < static_cast<int32>(mShells.Size()); ++i)
+                    if (Selectable(ctx, mShells[i].label.CStr(), i == ctx.comboNav) || (i == ctx.comboNav && ctx.comboEnter)) { mNewShell = i; ctx.ClosePopup(); }
                 EndCombo(ctx);
             }
             ctx.PopId();
@@ -362,6 +370,8 @@ namespace nkcode {
             NkVector<NkString> lines;
             char               input[512] = {};
             int32              shell = SH_PWSH;
+            NkString           distro;            // distro WSL ciblee (si shell == SH_WSL)
+            NkString           label = "powershell";  // libelle affiche (onglet/liste)
             bool               alive = false;
             float32            scrollX = 0.f, scrollY = 0.f;
             float32            maxW = 0.f;     // largeur ligne max (cache incremental)
@@ -381,7 +391,8 @@ namespace nkcode {
             const float32 sbW = 14.f;
             const float32 viewW = out.w - sbW - pad * 2.f;
             const float32 viewH = out.h - sbW;
-            const float32 contentH = t.lines.Size() * lineH;
+            const float32 topPad = lineH, botPad = lineH;   // ligne vierge haut + bas (non editable)
+            const float32 contentH = t.lines.Size() * lineH + topPad + botPad;
             const float32 maxSY = contentH > viewH ? contentH - viewH : 0.f;
             const float32 maxSX = t.maxW > viewW ? t.maxW - viewW : 0.f;
             const NkVec2 m = ctx.input.mousePos;
@@ -405,7 +416,7 @@ namespace nkcode {
                 for (int32 c = 0; c <= n; ++c) { float32 d = face->CalcTextSizeX(s, s + c) - x; if (d < 0) d = -d; if (d < best) { best = d; bc = c; } }
                 return bc;
             };
-            auto rowAtY = [&](float32 y) -> int32 { int32 L = static_cast<int32>((y - out.y + t.scrollY) / lineH); if (L < 0) L = 0; if (L >= nLines) L = nLines - 1; return L; };
+            auto rowAtY = [&](float32 y) -> int32 { int32 L = static_cast<int32>((y - out.y - topPad + t.scrollY) / lineH); if (L < 0) L = 0; if (L >= nLines) L = nLines - 1; return L; };
             if (ctx.input.mouseClicked[0] && in(selArea) && ctx.popupDepth == 0) {
                 const int32 L = rowAtY(m.y); t.sAL = t.sBL = L; t.sAC = t.sBC = colAtX(L, m.x - (out.x + pad) + t.scrollX); t.dragging = true;
             }
@@ -433,12 +444,12 @@ namespace nkcode {
             // Lignes visibles.
             const NkRect txtClip = { out.x, out.y, out.w - sbW, viewH };
             dl.PushClipRect(txtClip, true);
-            const int32 first = t.scrollY > 0.f ? static_cast<int32>(t.scrollY / lineH) : 0;
+            int32 first = static_cast<int32>((t.scrollY - topPad) / lineH); if (first < 0) first = 0;
             const int32 last  = first + static_cast<int32>(viewH / lineH) + 1;
             if (ctx.font && ctx.font->Valid())
                 for (int32 i = first; i <= last && i < static_cast<int32>(t.lines.Size()); ++i) {
                     if (i < 0) continue;
-                    const float32 ytop = out.y + i * lineH - t.scrollY;
+                    const float32 ytop = out.y + topPad + i * lineH - t.scrollY;
                     // Surlignage de selection.
                     if (t.HasSel() && i >= nAL && i <= nBL) {
                         const char* s = t.lines[i].CStr(); const int32 n = static_cast<int32>(t.lines[i].Size());
@@ -503,14 +514,57 @@ namespace nkcode {
                          case SH_BASH: return "bash$"; case SH_JENGA: return "jenga>"; default: return "cmd>"; }
         }
         // Enveloppe la commande tapee dans le shell choisi (execute via NkProcess).
-        static NkString WrapCmd(int32 s, const char* cmd) {
+        // Pour WSL : cible la distro precise si fournie (wsl -d <distro> -- <cmd>).
+        static NkString WrapCmd(int32 s, const NkString& distro, const char* cmd) {
             switch (s) {
                 case SH_PWSH:  return NkString("powershell -NoProfile -Command \"") + cmd + "\"";
-                case SH_WSL:   return NkString("wsl ") + cmd;
+                case SH_WSL:   return distro.Empty() ? (NkString("wsl ") + cmd)
+                                                     : (NkString("wsl -d ") + distro + " -- " + cmd);
                 case SH_BASH:  return NkString("bash -c \"") + cmd + "\"";
                 case SH_JENGA: return NkString("jenga ") + cmd;
                 default:       return NkString(cmd);   // cmd.exe (via _popen)
             }
+        }
+
+        // Construit la liste de base (toujours dispo, sans cout) : PowerShell, cmd,
+        // jenga, bash. Les distros WSL sont ajoutees a la demande (DetectWslDistros).
+        void EnsureBaseShells() {
+            if (mShellsBuilt) return;
+            mShellsBuilt = true;
+            mShells.PushBack(ShellDef{ SH_PWSH,  "powershell", "" });
+            mShells.PushBack(ShellDef{ SH_CMD,   "cmd",        "" });
+            mShells.PushBack(ShellDef{ SH_JENGA, "jenga",      "" });
+            mShells.PushBack(ShellDef{ SH_BASH,  "bash",       "" });
+        }
+
+        // Detecte les distributions WSL2 INSTALLEES (`wsl --list --quiet`) et ajoute
+        // une entree par distro. WSL_UTF8=1 force une sortie UTF-8 (sinon UTF-16LE) ;
+        // on filtre quand meme les octets 0x00 / BOM par robustesse. Appel UNE fois,
+        // a la 1re ouverture du combo (evite de geler le demarrage).
+        void DetectWslDistros() {
+            if (mWslDetected) return;
+            mWslDetected = true;
+#if defined(_WIN32)
+            FILE* pipe = _popen("set \"WSL_UTF8=1\" && wsl --list --quiet 2>nul", "r");
+            if (!pipe) return;
+            char buf[256]; usize j = 0; int ch; int32 found = 0;
+            auto flush = [&]() {
+                while (j > 0 && (buf[j - 1] == ' ' || buf[j - 1] == '\t')) --j;   // trim fin
+                buf[j] = '\0';
+                if (j > 0) { mShells.PushBack(ShellDef{ SH_WSL, NkString("WSL: ") + buf, NkString(buf) }); ++found; }
+                j = 0;
+            };
+            while ((ch = std::fgetc(pipe)) != EOF) {
+                if (ch == 0x00 || ch == '\r' || ch == 0xFF || ch == 0xFE) continue;   // nuls UTF-16 + BOM
+                if (ch == '\n') { flush(); continue; }
+                if (j + 1 < sizeof(buf)) buf[j++] = static_cast<char>(ch);
+            }
+            flush();
+            _pclose(pipe);
+            if (found == 0) mShells.PushBack(ShellDef{ SH_WSL, "wsl", "" });   // repli : wsl generique
+#else
+            mShells.PushBack(ShellDef{ SH_WSL, "wsl", "" });
+#endif
         }
         static bool IsCmdLine(const char* s) {   // ligne = commande tapee (prefixe d'invite)
             return s[0] == 'P' || s[0] == 'w' || s[0] == 'b' || s[0] == 'c' || s[0] == 'j';
@@ -561,9 +615,14 @@ namespace nkcode {
         }
         int32 FirstAlive() const { for (int32 i = 0; i < 8; ++i) if (mTerm[i].alive) return i; return 0; }
         int32 AliveCount() const { int32 n = 0; for (int32 i = 0; i < 8; ++i) if (mTerm[i].alive) ++n; return n; }
-        void AddTerm(int32 shell) {
+        // `idx` = index dans mShells (selecteur). Copie kind + distro + libelle.
+        void AddTerm(int32 idx) {
+            EnsureBaseShells();
+            if (idx < 0 || idx >= static_cast<int32>(mShells.Size())) idx = 0;
+            const ShellDef& sd = mShells[idx];
             for (int32 i = 0; i < 8; ++i) if (!mTerm[i].alive) {
-                mTerm[i].alive = true; mTerm[i].shell = shell;
+                mTerm[i].alive = true; mTerm[i].shell = sd.kind;
+                mTerm[i].distro = sd.distro; mTerm[i].label = sd.label;
                 mTerm[i].lines.Clear(); mTerm[i].input[0] = '\0';
                 mTerm[i].scrollX = mTerm[i].scrollY = 0.f; mTerm[i].maxW = 0.f; mTerm[i].measured = 0;
                 mActive = i; return;
@@ -607,7 +666,7 @@ namespace nkcode {
                 dl.AddRectFilled({ R.x + 10.f, y + (h - 9.f) * 0.5f, 9.f, 9.f }, ShellColor(mTerm[i].shell)); // icone
                 if (ctx.font && ctx.font->Valid())
                     dl.AddText(ctx.font->Face(), ctx.font->TexId(), { R.x + 26.f, y + by },
-                               ShellName(mTerm[i].shell), active ? ctx.theme.text : ctx.theme.textDisabled);
+                               mTerm[i].label.CStr(), active ? ctx.theme.text : ctx.theme.textDisabled);
                 bool closeClicked = false;
                 if (hov && AliveCount() > 1) {
                     const NkRect cl = { row.x + row.w - 20.f, y + (h - 14.f) * 0.5f, 14.f, 14.f };
@@ -625,7 +684,10 @@ namespace nkcode {
 
         Term  mTerm[8];
         int32 mActive   = 0;
-        int32 mNewShell = SH_PWSH;
+        int32 mNewShell = 0;          // index dans mShells (0 = powershell)
+        NkVector<ShellDef> mShells;   // selecteur de shells (base + distros WSL)
+        bool  mShellsBuilt  = false;
+        bool  mWslDetected  = false;
     };
 
 } // namespace nkcode

@@ -278,7 +278,8 @@ namespace nkcode {
         const float32 sbW = 14.f;
         const NkRect  textArea = { area.x + gutterW, area.y, area.w - gutterW - sbW, area.h - sbW };
         const float32 textLeft = textArea.x + pad;
-        const float32 textTop  = textArea.y;
+        const float32 topPad   = lineH, botPad = lineH;     // ligne vierge haut + bas (non editable)
+        const float32 textTop  = textArea.y + topPad;       // 1re ligne decalee d'une ligne vierge
         const float32 viewH    = textArea.h;
         const float32 viewW    = textArea.w - pad * 2.f;
 
@@ -367,7 +368,7 @@ namespace nkcode {
         d.ClampCursor();
 
         // ── Largeur max GLOBALE (cache) -> barre H stable, independante du scroll ──
-        const float32 contentH = d.LineCount() * lineH;
+        const float32 contentH = d.LineCount() * lineH + topPad + botPad;
         if (d.widthDirty) {
             float32 mw = 0.f;
             for (usize i = 0; i < d.lines.Size(); ++i) {
@@ -385,7 +386,7 @@ namespace nkcode {
         const bool ensureCaret = (d.curLine != oldL || d.curCol != oldC || changed);
         if (ensureCaret) {
             const float32 cX = PrefixW(ctx, d, d.curLine, d.curCol);
-            const float32 cY = d.curLine * lineH;
+            const float32 cY = topPad + d.curLine * lineH;
             if (cY < d.scrollY)                 d.scrollY = cY;
             if (cY + lineH > d.scrollY + viewH) d.scrollY = cY + lineH - viewH;
             if (cX < d.scrollX)                 d.scrollX = cX;
@@ -398,8 +399,8 @@ namespace nkcode {
 
         // ── Rendu des lignes visibles ─────────────────────────────────────────
         int32 aL, aC, bL, bC; d.SelRange(aL, aC, bL, bC);
-        const int32 firstVis = d.scrollY > 0.f ? static_cast<int32>(d.scrollY / lineH) : 0;
-        const int32 lastVis  = firstVis + static_cast<int32>(viewH / lineH) + 1;
+        int32 firstVis = static_cast<int32>((d.scrollY - topPad) / lineH); if (firstVis < 0) firstVis = 0;
+        const int32 lastVis  = firstVis + static_cast<int32>(viewH / lineH) + 2;
 
         // Surlignage de la ligne courante (toute la zone texte).
         if (focused) {
