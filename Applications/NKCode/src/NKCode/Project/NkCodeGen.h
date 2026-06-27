@@ -170,16 +170,39 @@ namespace nkentseu {
             return file.ToString();
         }
 
+        // Dialectes C++ proposes (NkDialects[0] = "" -> defaut du langage).
+        inline const char* const* NkDialects(int32* n) noexcept {
+            static const char* d[] = { "C++17", "C++20", "C++23", "C++14" }; if (n) *n = 4; return d;
+        }
+
+        // Proprietes de creation d'un projet (au-dela de nom/genre/langage).
+        struct NkProjectOpts {
+            const char* name        = "";
+            int32       kindIdx     = 0;
+            int32       langIdx     = 0;
+            const char* cppDialect  = "";   // "" => defaut du langage
+            const char* defines     = "";   // liste separee par virgules
+            const char* appVersion  = "";   // apps : appversion()
+            const char* appPublisher= "";   // apps : apppublisher()
+        };
+        // Decoupe une liste "A, B,C" en ["A", "B", "C"] (DSL Python).
+        inline NkString NkPyList(const char* csv) noexcept {
+            NkString s; const char* p = csv; char tok[128]; int32 n = 0;
+            auto flush = [&]() { tok[n] = '\0'; int32 a = 0; while (tok[a] == ' ') ++a; if (tok[a]) { if (!s.Empty()) s += ", "; s += "\""; s += (tok + a); s += "\""; } n = 0; };
+            for (; *p; ++p) { if (*p == ',') flush(); else if (n + 1 < (int32)sizeof(tok)) tok[n++] = *p; }
+            flush(); return s;
+        }
+
         // Genere un nouveau projet dans <root>/<name>/ :
         //   - <name>/<name>.jenga (with project(...))
         //   - <name>/src/main.<ext> (stub minimal selon le genre)
         // puis ajoute `with include("<name>/<name>.jenga"): pass` au workspace.
         // Retourne le chemin du .jenga projet (vide si echec).
-        inline NkString GenerateProject(const NkPath& root, const NkPath& workspaceJenga,
-                                        const char* rawName, int32 kindIdx, int32 langIdx) noexcept {
-            NkString name = NkSanitizeName(rawName);
+        inline NkString GenerateProjectEx(const NkPath& root, const NkPath& workspaceJenga, const NkProjectOpts& opts) noexcept {
+            NkString name = NkSanitizeName(opts.name);
             if (name.Empty()) return NkString();
             int32 nk = 0, nl = 0; const NkKindDef* K = NkKinds(&nk); const NkLangDef* L = NkLangs(&nl);
+            int32 kindIdx = opts.kindIdx, langIdx = opts.langIdx;
             if (kindIdx < 0 || kindIdx >= nk) kindIdx = 0;
             if (langIdx < 0 || langIdx >= nl) langIdx = 0;
             const NkKindDef& kd = K[kindIdx];
@@ -215,13 +238,17 @@ namespace nkentseu {
             c += "\"\"\""; c += name; c += " - projet genere par NKCode.\"\"\"\n\n";
             c += "from Jenga import *\n";
             c += "from jengaconfig import *\n\n\n";
+            const char* dialect = (opts.cppDialect && *opts.cppDialect) ? opts.cppDialect : ld.dialect;
             c += "with project(\""; c += name; c += "\"):\n";
             c += "    "; c += kd.dslFn; c += "()\n";
             c += "    language(\""; c += ld.dsl; c += "\")\n";
-            if (ld.dialect && ld.dialect[0]) { c += "    cppdialect(\""; c += ld.dialect; c += "\")\n"; }
+            if (dialect && dialect[0]) { c += "    cppdialect(\""; c += dialect; c += "\")\n"; }
             c += "    location(\".\")\n\n";
             c += "    files([\"src/**."; c += ld.ext; c += "\", \"src/**.h\"])\n\n";
-            c += "    objdir(\"%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}\")\n";
+            if (opts.defines && *opts.defines) { NkString dl2 = NkPyList(opts.defines); if (!dl2.Empty()) { c += "    defines(["; c += dl2; c += "])\n"; } }
+            if (kd.app && opts.appVersion && *opts.appVersion)     { c += "    appversion(\""; c += opts.appVersion; c += "\")\n"; }
+            if (kd.app && opts.appPublisher && *opts.appPublisher) { c += "    apppublisher(\""; c += opts.appPublisher; c += "\")\n"; }
+            c += "\n    objdir(\"%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}\")\n";
             c += "    targetdir(\"%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}\")\n\n";
             c += "    with filter(\"config:Debug\"):\n";
             c += "        defines([\"_DEBUG\", \"DEBUG\"])\n";
@@ -245,6 +272,13 @@ namespace nkentseu {
                 NkFile::WriteAllText(workspaceJenga, ws);
             }
             return projJenga.ToString();
+        }
+
+        // Compat : creation simple (nom/genre/langage) deleguee a la version complete.
+        inline NkString GenerateProject(const NkPath& root, const NkPath& workspaceJenga,
+                                        const char* rawName, int32 kindIdx, int32 langIdx) noexcept {
+            NkProjectOpts o; o.name = rawName; o.kindIdx = kindIdx; o.langIdx = langIdx;
+            return GenerateProjectEx(root, workspaceJenga, o);
         }
 
     } // namespace nkcode

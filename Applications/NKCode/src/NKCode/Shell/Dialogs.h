@@ -29,6 +29,10 @@ namespace nkcode {
         char    nameBuf[256] = {};
         int32   kindIdx   = 0;
         int32   langIdx   = 0;
+        int32   projDialect = 0;               // index NkDialects (NewProject)
+        char    projDefines[256] = {};         // defines projet (csv)
+        char    projVersion[32]  = {};         // appversion (apps)
+        char    projPublisher[64]= {};         // apppublisher (apps)
         bool    justOpened = false;
         NkString status;          // message d'erreur/succes affiche dans le dialogue
 
@@ -275,12 +279,20 @@ namespace nkcode {
             }
         }
         if (f) {
-            dl.AddText(f->Face(), f->TexId(), { r.x + 8.f, r.y + (r.h - lh) * 0.5f + asc },
+            // Texte clippe a la zone interne ; defilement horizontal pour garder la
+            // FIN visible (caret en bout) quand le texte est plus large que le champ.
+            const float32 pad = 8.f, availW = r.w - pad * 2.f;
+            const float32 tw = buf[0] ? f->MeasureWidth(buf) : 0.f;
+            const float32 offX = (tw > availW) ? (tw - availW) : 0.f;   // montre la fin
+            const NkRect clip = { r.x + pad, r.y, r.w - pad * 2.f, r.h };
+            dl.PushClipRect(clip, true);
+            dl.AddText(f->Face(), f->TexId(), { r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc },
                        buf[0] ? buf : "", NkColor{ 230, 237, 243, 255 });
             if (focused) {
-                const float32 cw = buf[0] ? f->MeasureWidth(buf) : 0.f;
-                dl.AddRectFilled({ r.x + 8.f + cw + 1.f, r.y + 5.f, 1.5f, r.h - 10.f }, NkColor{ 200, 210, 220, 255 });
+                const float32 caretX = r.x + pad + (tw - offX) + 1.f;
+                dl.AddRectFilled({ caretX, r.y + 5.f, 1.5f, r.h - 10.f }, NkColor{ 200, 210, 220, 255 });
             }
+            dl.PopClipRect();
         }
     }
 

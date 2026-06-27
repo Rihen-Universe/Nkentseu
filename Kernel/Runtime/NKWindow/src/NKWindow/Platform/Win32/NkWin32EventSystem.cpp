@@ -614,7 +614,7 @@ namespace nkentseu {
                     int y = GET_Y_LPARAM(lp) - rc.top;
                     int w = rc.right  - rc.left;
                     int h = rc.bottom - rc.top;
-                    int b = IsZoomed(hwnd) ? 0 : 5;
+                    int b = IsZoomed(hwnd) ? 0 : 7;   // bord de redimensionnement (plus large = plus facile a saisir)
                     if (x < b && y < b)             { result = HTTOPLEFT;     break; }
                     if (x > w-b && y < b)           { result = HTTOPRIGHT;    break; }
                     if (x < b && y > h-b)           { result = HTBOTTOMLEFT;  break; }
