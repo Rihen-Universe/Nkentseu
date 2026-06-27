@@ -136,28 +136,13 @@ namespace nkentseu {
 
             mBackend.Init(mRenderTarget->GetRenderer());
 
-            // ── DEUX polices distinctes (comme VSCode) ───────────────────────────
-            // INTERFACE (proportionnelle) : Inter (OFL, proche Segoe UI) -> Karla ->
-            //   DroidSans -> ProggyClean.
-            // CODE/TERMINAL (monospace) : DejaVu Sans Mono = couverture Unicode LARGE
-            //   (accents, latin etendu, grec, cyrillique, box-drawing, fleches) -> Cousine.
-            // Atlas SEPARES => texId distincts (le backend resout chacun par son texId).
-            mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Inter, 16.f);
-            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f);
-            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::DroidSans, 16.f);
-            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f);
-            mUI.font = &mFont;
-            if (mFontOk) mBackend.UploadFontGray8(mFont.TexId(), mFont.pixels, mFont.atlasW, mFont.atlasH);
-
+            // ── DEUX polices distinctes (comme VSCode), pilotees par les reglages ──
+            // INTERFACE (proportionnelle, defaut Inter) + CODE/TERMINAL (monospace,
+            // defaut DejaVu Sans Mono). Atlas SEPARES => texId distincts. Le choix est
+            // lu depuis le fichier de config (modifiable par l'utilisateur a chaud).
             mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
-            bool codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, 15.f);
-            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f);
-            if (codeOk) {
-                mBackend.UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH);
-                mUI.codeFont = &mCodeFont;          // editeur/terminal basculent dessus
-            } else {
-                mUI.codeFont = &mFont;              // repli : meme police partout
-            }
+            NkLoadFontPrefs(mFontPrefs);
+            LoadFontsFromPrefs();
 
             mUI.windowDockingEnabled = true;   // fusion de fenetres flottantes (opt-in)
 
@@ -324,6 +309,7 @@ namespace nkentseu {
                 DrawStatusBar(footerH);
                 HandleEdgeResize(W, H);                  // bords de redimensionnement (fenetre sans bordure)
                 DrawCommandPalette(ec);
+                DrawPreferences(ec);                     // fenetre Preferences (menu dedie)
 
                 // Bordure de NOTRE fenetre (l'OS n'en dessine plus) — sauf si maximisee.
                 if (!mWindow.IsMaximized())
@@ -585,6 +571,12 @@ namespace nkentseu {
                 if (MenuItem(mUI, "Reinitialiser la disposition")) ResetLayout();
                 EndMenu(mUI);
             }
+            // Menu dedie aux reglages (extensible : polices, theme, et plus a venir).
+            if (BeginMenu(mUI, "Preferences")) {
+                if (MenuItem(mUI, "Polices...")) OpenPreferences(0);
+                if (MenuItem(mUI, "Theme..."))   OpenPreferences(1);
+                EndMenu(mUI);
+            }
             if (mAppMenuFn) mAppMenuFn(ec, mAppMenuUser);
 
             EndMenuBar(mUI);
@@ -666,6 +658,124 @@ namespace nkentseu {
                 }
                 if (hov && mUI.input.mouseClicked[0]) { ExecuteCommand(i); mPaletteOpen = false; }
             }
+        }
+
+        // ── Polices : (re)charge mFont (interface) + mCodeFont (code) depuis les
+        //    reglages, avec replis surs, puis re-upload des atlas au backend. ──
+        void NkEditorShell::LoadFontsFromPrefs() noexcept {
+            mFontOk = NkResolveFont(mFont, mFontPrefs.uiFont, mFontPrefs.uiSize);
+            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Inter, mFontPrefs.uiSize);
+            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f);
+            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f);
+            mUI.font = &mFont;
+            if (mFontOk) mBackend.UploadFontGray8(mFont.TexId(), mFont.pixels, mFont.atlasW, mFont.atlasH);
+
+            mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
+            bool codeOk = NkResolveFont(mCodeFont, mFontPrefs.codeFont, mFontPrefs.codeSize);
+            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, mFontPrefs.codeSize);
+            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f);
+            if (codeOk) { mBackend.UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH); mUI.codeFont = &mCodeFont; }
+            else mUI.codeFont = &mFont;
+        }
+
+        // ── Fenetre Preferences (overlay, menu dedie) : categories a gauche
+        //    (Polices, Theme, ... extensible), contenu a droite. ──
+        void NkEditorShell::DrawPreferences(NkEditorFrameContext&) noexcept {
+            if (!mShowPrefs || !mFontOk) return;
+            const float32 W = static_cast<float32>(mUI.viewW), H = static_cast<float32>(mUI.viewH);
+            const float32 asc = mFont.Ascent(), lh = mFont.LineHeight();
+            auto& dl = mUI.dlOverlay;
+            const NkVec2 mp = mUI.input.mousePos;
+            const bool   click = mUI.input.mouseClicked[0];
+            auto hit = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
+
+            const float32 pw = 600.f, ph = 392.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+            dl.AddRectFilled({ 0.f, 0.f, W, H }, kBackdrop);
+            // Clic hors fenetre -> ferme (sauf la frame d'ouverture : le clic du menu
+            // est lui-meme hors du popup centre, il fermerait aussitot).
+            if (mPrefsJustOpened) mPrefsJustOpened = false;
+            else if (click && !NkGuiRectContains({ px, py, pw, ph }, mp)) { mShowPrefs = false; }
+            dl.AddRectFilled({ px, py, pw, ph }, kPaletteBg, 8.f);
+            dl.AddRect({ px, py, pw, ph }, kPaletteBorder, 1.5f);
+            dl.AddText(mFont.Face(), mFont.TexId(), { px + 18.f, py + 14.f + asc }, "Preferences", kTextPrimary);
+
+            auto text = [&](float32 x, float32 y, const char* s, const NkColor& c) { dl.AddText(mFont.Face(), mFont.TexId(), { x, y + asc }, s, c); };
+            auto btn = [&](const NkRect& r, const char* s, bool enabled) -> bool {
+                const bool hov = enabled && hit(r);
+                dl.AddRectFilled(r, hov ? kPaletteSel : NkColor{ 40, 46, 54, 255 }, 5.f);
+                dl.AddRect(r, NkColor{ 60, 66, 74, 255 }, 1.f);
+                const float32 tw = mFont.MeasureWidth(s);
+                dl.AddText(mFont.Face(), mFont.TexId(), { r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f + asc }, s, enabled ? kTextPrimary : kTextTertiary);
+                return hov && click;
+            };
+            auto cycle = [&](NkString& name, const char* const* list, int32 n, int32 dir) {
+                int32 idx = 0; for (int32 i = 0; i < n; ++i) if (name == list[i]) { idx = i; break; }
+                idx = (idx + dir + n) % n; name = list[idx];
+            };
+
+            // ── Sidebar des categories ──
+            const float32 sideW = 150.f, cy0 = py + 54.f, catH = 34.f;
+            dl.AddRectFilled({ px + 1.f, py + 44.f, sideW, ph - 45.f }, NkColor{ 1, 4, 9, 255 });
+            const char* cats[] = { "Polices", "Theme" };
+            for (int32 i = 0; i < 2; ++i) {
+                const NkRect r = { px + 6.f, cy0 + i * catH, sideW - 12.f, catH - 4.f };
+                const bool active = (mPrefsTab == i);
+                if (active) dl.AddRectFilled(r, kPaletteSel, 5.f);
+                else if (hit(r)) dl.AddRectFilled(r, NkColor{ 33, 39, 48, 255 }, 5.f);
+                text(r.x + 12.f, r.y + (r.h - lh) * 0.5f, cats[i], active ? kTextPrimary : kTextSecondary);
+                if (hit(r) && click) mPrefsTab = i;
+            }
+
+            const float32 cx = px + sideW + 24.f;   // colonne contenu
+            float32 y = py + 60.f;
+
+            if (mPrefsTab == 0) {
+                // ── Categorie Polices ──
+                int32 nUi = 0, nCode = 0;
+                const char* const* uiList   = NkUiFontNames(&nUi);
+                const char* const* codeList = NkCodeFontNames(&nCode);
+                auto fontRow = [&](const char* lab, NkString& name, const char* const* list, int32 n, float32& sz) {
+                    text(cx, y, lab, kTextSecondary); y += 24.f;
+                    if (btn({ cx, y, 28.f, 26.f }, "<", true)) cycle(name, list, n, -1);
+                    const NkRect nameBox = { cx + 32.f, y, 200.f, 26.f };
+                    dl.AddRectFilled(nameBox, NkColor{ 22, 27, 34, 255 }, 4.f); dl.AddRect(nameBox, NkColor{ 48, 54, 61, 255 }, 1.f);
+                    text(nameBox.x + 10.f, nameBox.y + (26.f - lh) * 0.5f, name.CStr(), kTextPrimary);
+                    if (btn({ cx + 236.f, y, 28.f, 26.f }, ">", true)) cycle(name, list, n, 1);
+                    // Taille
+                    text(cx + 286.f, y + (26.f - lh) * 0.5f, "Taille", kTextSecondary);
+                    if (btn({ cx + 350.f, y, 26.f, 26.f }, "-", true)) { sz -= 1.f; if (sz < 8.f) sz = 8.f; }
+                    char sb[8]; std::snprintf(sb, sizeof(sb), "%d", static_cast<int>(sz + 0.5f));
+                    const NkRect szBox = { cx + 378.f, y, 36.f, 26.f };
+                    dl.AddRectFilled(szBox, NkColor{ 22, 27, 34, 255 }, 4.f);
+                    const float32 sw = mFont.MeasureWidth(sb);
+                    text(szBox.x + (szBox.w - sw) * 0.5f, szBox.y + (26.f - lh) * 0.5f, sb, kTextPrimary);
+                    if (btn({ cx + 416.f, y, 26.f, 26.f }, "+", true)) { sz += 1.f; if (sz > 40.f) sz = 40.f; }
+                    y += 44.f;
+                };
+                fontRow("Police de l'interface", mFontPrefs.uiFont, uiList, nUi, mFontPrefs.uiSize);
+                fontRow("Police du code et du terminal", mFontPrefs.codeFont, codeList, nCode, mFontPrefs.codeSize);
+                y += 6.f;
+                text(cx, y, "Astuce : Consolas / Segoe UI / Courier New = polices systeme", kTextTertiary); y += 18.f;
+                text(cx, y, "(chargees depuis Windows si presentes).", kTextTertiary); y += 28.f;
+                if (btn({ cx, y, 120.f, 30.f }, "Appliquer", true)) { NkSaveFontPrefs(mFontPrefs); LoadFontsFromPrefs(); }
+            } else {
+                // ── Categorie Theme (apercu : accent) ──
+                text(cx, y, "Couleur d'accentuation", kTextSecondary); y += 28.f;
+                const NkColor sw[] = { { 31, 111, 235, 255 }, { 163, 113, 247, 255 }, { 63, 185, 80, 255 }, { 219, 109, 40, 255 }, { 248, 81, 73, 255 } };
+                for (int32 i = 0; i < 5; ++i) {
+                    const NkRect r = { cx + i * 46.f, y, 38.f, 30.f };
+                    dl.AddRectFilled(r, sw[i], 6.f);
+                    if (mUI.theme.accent.r == sw[i].r && mUI.theme.accent.g == sw[i].g && mUI.theme.accent.b == sw[i].b)
+                        dl.AddRect({ r.x - 2.f, r.y - 2.f, r.w + 4.f, r.h + 4.f }, kTextPrimary, 2.f);
+                    if (hit(r) && click) mUI.theme.accent = sw[i];
+                }
+                y += 50.f;
+                text(cx, y, "La personnalisation complete des themes (couleurs,", kTextTertiary); y += 18.f;
+                text(cx, y, "clair/sombre, presets) arrive prochainement.", kTextTertiary);
+            }
+
+            // ── Bouton Fermer (bas-droite) ──
+            if (btn({ px + pw - 110.f, py + ph - 40.f, 96.f, 30.f }, "Fermer", true)) mShowPrefs = false;
         }
 
     } // namespace editorkit

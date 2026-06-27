@@ -30,6 +30,7 @@
 #include "NKCanvas/UI/NkGuiCanvasBackend.h"
 #include "NKGui/NKGui.h"
 #include "NKMemory/NkUniquePtr.h"
+#include "NKEditorKit/NkFontPrefs.h"
 
 namespace nkentseu {
     namespace editorkit {
@@ -91,7 +92,12 @@ namespace nkentseu {
             // ── Acces (pour besoins avances) ────────────────────────────────────
             nkgui::NkGuiContext& Ui() noexcept { return mUI; }
 
+            // ── Preferences (menu dedie : Polices, Theme, ... extensible) ───────
+            void OpenPreferences(int32 tab = 0) noexcept { mShowPrefs = true; mPrefsTab = tab; mPrefsJustOpened = true; }
+
         private:
+            void LoadFontsFromPrefs() noexcept;                               ///< (re)charge mFont/mCodeFont depuis mFontPrefs
+            void DrawPreferences(NkEditorFrameContext& ec) noexcept;          ///< fenetre Preferences (categories)
             void BuildMenuBar(NkEditorFrameContext& ec, const nkgui::NkRect& rect) noexcept;
             void DrawTitleBar(NkEditorFrameContext& ec, const nkgui::NkRect& bar) noexcept;
             void DrawToolbar(NkEditorFrameContext& ec, const nkgui::NkRect& rect) noexcept;
@@ -113,9 +119,13 @@ namespace nkentseu {
 
             // === NKGui (contexte + police possedee) ===
             nkgui::NkGuiContext mUI;
-            nkgui::NkGuiFont    mFont;       ///< police d'interface (Karla/Inter)
+            nkgui::NkGuiFont    mFont;       ///< police d'interface (Inter/Karla)
             nkgui::NkGuiFont    mCodeFont;   ///< police monospace code/terminal (DejaVu)
             bool                mFontOk = false;
+            NkFontPrefs         mFontPrefs;          ///< reglages de polices (persistes)
+            bool                mShowPrefs = false;  ///< fenetre Preferences ouverte ?
+            bool                mPrefsJustOpened = false;  ///< grace 1 frame (anti auto-fermeture)
+            int32               mPrefsTab  = 0;      ///< categorie active (0=Polices, 1=Theme)
 
             // === Panneaux / commandes ===
             NkEditorPanel*    mPanels[MAX_PANELS]     = {};

@@ -32,6 +32,10 @@ namespace nkentseu {
             // Charge une police embarquée à la taille donnée + construit l'atlas.
             bool LoadEmbedded(NkEmbeddedFontId id, float32 sizePx) noexcept;
 
+            // Charge une police depuis un fichier TTF/OTF (ex. police système Windows).
+            // Rechargeable : réinitialise l'atlas avant. Conserve `texId` (ré-upload).
+            bool LoadFromFile(const char* path, float32 sizePx) noexcept;
+
             const NkFont* Face()  const noexcept { return face; }
             uint32        TexId() const noexcept { return texId; }
             bool          Valid() const noexcept { return face != nullptr; }
