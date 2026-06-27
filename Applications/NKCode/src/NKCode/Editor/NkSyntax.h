@@ -15,17 +15,9 @@ namespace nkcode {
 
     enum class NkLang { None, C, Python, NKSL, Markdown };
 
-    struct NkSynColors {
-        NkColor text    = { 212, 212, 212, 255 };   // #d4d4d4
-        NkColor keyword = {  86, 156, 214, 255 };   // #569cd6
-        NkColor type    = {  78, 201, 176, 255 };   // #4ec9b0
-        NkColor string  = { 206, 145, 120, 255 };   // #ce9178
-        NkColor comment = { 106, 153,  85, 255 };   // #6a9955
-        NkColor number  = { 181, 206, 168, 255 };   // #b5cea8
-        NkColor preproc = { 197, 134, 192, 255 };   // #c586c0
-        NkColor heading = {  78, 201, 176, 255 };   // titres Markdown (#4ec9b0)
-        NkColor mdcode  = { 206, 145, 120, 255 };   // code Markdown (#ce9178)
-    };
+    // Couleurs de coloration = celles du contexte NKGui (editables via Preferences >
+    // Langages). Alias pour conserver l'API existante (NkSynColors).
+    using NkSynColors = nkentseu::nkgui::NkGuiSyntax;
 
     namespace synd {
         inline bool IsAlpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }

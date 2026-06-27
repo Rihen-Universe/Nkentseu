@@ -416,7 +416,7 @@ namespace nkcode {
 
         // Etat bloc-commentaire (/* .. */) AU DEBUT de la 1re ligne visible :
         // scan prefixe [0, firstVis) (C uniquement ; sinon jamais en bloc).
-        const NkSynColors syn;
+        const NkSynColors& syn = ctx.syntax;   // couleurs editables via Preferences > Langages
         const NkFont* face = ctx.font->Face();
         const uint32  tex  = ctx.font->TexId();
         bool inBlock = false;

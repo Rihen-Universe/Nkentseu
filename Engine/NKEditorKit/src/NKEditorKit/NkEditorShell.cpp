@@ -119,6 +119,8 @@ namespace nkentseu {
 
             mDefaultTheme = mUI.theme;   // theme par defaut (vit dans l'app) -> 'Reinitialiser'
             NkLoadTheme(mUI.theme);      // applique le theme utilisateur sauvegarde s'il existe
+            mDefaultSyntax = mUI.syntax; // couleurs langages par defaut
+            NkLoadSyntax(mUI.syntax);    // applique les couleurs langages sauvegardees
 
             // Un nœud de dock à 1 seul panneau n'affiche PAS de barre d'onglets
             // (l'éditeur ne montre que ses onglets de fichiers ; pas de tab "Editeur").
@@ -153,8 +155,9 @@ namespace nkentseu {
             mLastHeight = config.height;
 
             // Acces aux Preferences via la palette (Ctrl+P) — fiable quel que soit le menu.
-            RegisterCommand("Preferences : Polices", +[](void* u) { static_cast<NkEditorShell*>(u)->OpenPreferences(0); }, this);
-            RegisterCommand("Preferences : Theme",   +[](void* u) { static_cast<NkEditorShell*>(u)->OpenPreferences(1); }, this);
+            RegisterCommand("Preferences : Polices",  +[](void* u) { static_cast<NkEditorShell*>(u)->OpenPreferences(0); }, this);
+            RegisterCommand("Preferences : Theme",    +[](void* u) { static_cast<NkEditorShell*>(u)->OpenPreferences(1); }, this);
+            RegisterCommand("Preferences : Langages", +[](void* u) { static_cast<NkEditorShell*>(u)->OpenPreferences(2); }, this);
 
             HookEvents();
             return true;
@@ -582,8 +585,9 @@ namespace nkentseu {
             }
             // Menu dedie aux reglages (extensible : polices, theme, et plus a venir).
             if (BeginMenu(mUI, "Preferences")) {
-                if (MenuItem(mUI, "Polices...")) OpenPreferences(0);
-                if (MenuItem(mUI, "Theme..."))   OpenPreferences(1);
+                if (MenuItem(mUI, "Polices..."))  OpenPreferences(0);
+                if (MenuItem(mUI, "Theme..."))    OpenPreferences(1);
+                if (MenuItem(mUI, "Langages...")) OpenPreferences(2);
                 EndMenu(mUI);
             }
             if (mAppMenuFn) mAppMenuFn(ec, mAppMenuUser);
@@ -725,8 +729,8 @@ namespace nkentseu {
             // ── Sidebar des categories ──
             const float32 sideW = 150.f, cy0 = py + 54.f, catH = 34.f;
             dl.AddRectFilled({ px + 1.f, py + 44.f, sideW, ph - 45.f }, NkColor{ 1, 4, 9, 255 });
-            const char* cats[] = { "Polices", "Theme" };
-            for (int32 i = 0; i < 2; ++i) {
+            const char* cats[] = { "Polices", "Theme", "Langages" };
+            for (int32 i = 0; i < 3; ++i) {
                 const NkRect r = { px + 6.f, cy0 + i * catH, sideW - 12.f, catH - 4.f };
                 const bool active = (mPrefsTab == i);
                 if (active) dl.AddRectFilled(r, kPaletteSel, 5.f);
@@ -771,7 +775,7 @@ namespace nkentseu {
                     mFontPrefs = NkFontPrefs{};                 // defaut Inter + DejaVu
                     NkSaveFontPrefs(mFontPrefs); LoadFontsFromPrefs();
                 }
-            } else {
+            } else if (mPrefsTab == 1) {
                 // ── Categorie Theme : couleur de l'interface, NOMMEE par element ──
                 struct TE { const char* n; NkColor* c; };
                 TE ents[] = {
@@ -831,6 +835,53 @@ namespace nkentseu {
                 if (btn({ cx + 264.f, y, 150.f, 30.f }, "Reinitialiser", true)) mUI.theme = mDefaultTheme;
                 y += 38.f;
                 text(cx, y, "Enregistre/charge le theme dans ~/.nkcode_theme.cfg.", kTextTertiary);
+            } else {
+                // ── Categorie Langages : couleurs de coloration syntaxique ──
+                struct SE { const char* n; NkColor* c; };
+                SE ents[] = {
+                    { "Texte normal",        &mUI.syntax.text },
+                    { "Mot-cle",             &mUI.syntax.keyword },
+                    { "Type",                &mUI.syntax.type },
+                    { "Chaine de caracteres",&mUI.syntax.string },
+                    { "Commentaire",         &mUI.syntax.comment },
+                    { "Nombre",              &mUI.syntax.number },
+                    { "Preprocesseur / macro",&mUI.syntax.preproc },
+                    { "Titre (Markdown)",    &mUI.syntax.heading },
+                    { "Code (Markdown)",     &mUI.syntax.mdcode },
+                };
+                const int32 ne = 9;
+                if (mSynSel < 0 || mSynSel >= ne) mSynSel = 1;
+                text(cx, y, "Coloration syntaxique (C/C++, Python, NKSL, Markdown) :", kTextSecondary); y += 24.f;
+                const float32 rowH = 25.f, gridY = y;
+                // Liste : chaque token affiche DANS sa propre couleur (apercu direct).
+                for (int32 i = 0; i < ne; ++i) {
+                    const NkRect rr = { cx, gridY + i * rowH, 264.f, rowH - 3.f };
+                    const bool sel = (mSynSel == i);
+                    if (sel) dl.AddRectFilled(rr, kPaletteSel, 4.f);
+                    else if (hit(rr)) dl.AddRectFilled(rr, NkColor{ 33, 39, 48, 255 }, 4.f);
+                    const NkRect sw = { rr.x + 4.f, rr.y + 3.f, 15.f, 15.f };
+                    dl.AddRectFilled(sw, *ents[i].c, 3.f); dl.AddRect(sw, NkColor{ 60, 66, 74, 255 }, 1.f);
+                    text(sw.x + 24.f, rr.y + (rowH - 3.f - lh) * 0.5f, ents[i].n, *ents[i].c);
+                    if (hit(rr) && click) mSynSel = i;
+                }
+                // Palette a droite : applique au token selectionne.
+                const float32 palX = cx + 286.f;
+                text(palX, gridY - 24.f + 4.f, ents[mSynSel].n, kTextPrimary);
+                static const NkColor sp[] = {
+                    { 212, 212, 212, 255 }, { 86, 156, 214, 255 }, { 78, 201, 176, 255 }, { 206, 145, 120, 255 },
+                    { 106, 153, 85, 255 },  { 181, 206, 168, 255 }, { 197, 134, 192, 255 }, { 220, 220, 170, 255 },
+                    { 156, 220, 254, 255 }, { 244, 71, 71, 255 },  { 215, 186, 125, 255 }, { 96, 139, 78, 255 },
+                    { 255, 255, 255, 255 }, { 110, 118, 129, 255 }, { 86, 211, 100, 255 }, { 255, 123, 114, 255 },
+                };
+                for (int32 j = 0; j < 16; ++j) {
+                    const NkRect r = { palX + (j % 4) * 30.f, gridY + (j / 4) * 30.f, 26.f, 26.f };
+                    dl.AddRectFilled(r, sp[j], 5.f); dl.AddRect(r, NkColor{ 60, 66, 74, 255 }, 1.f);
+                    if (hit(r) && click) { const uint8 a = ents[mSynSel].c->a; *ents[mSynSel].c = sp[j]; ents[mSynSel].c->a = a; }
+                }
+                float32 by = gridY + ne * rowH + 12.f;
+                if (btn({ cx, by, 130.f, 30.f }, "Enregistrer", true)) NkSaveSyntax(mUI.syntax);
+                if (btn({ cx + 142.f, by, 110.f, 30.f }, "Charger", true)) NkLoadSyntax(mUI.syntax);
+                if (btn({ cx + 264.f, by, 150.f, 30.f }, "Reinitialiser", true)) mUI.syntax = mDefaultSyntax;
             }
 
             // ── Bouton Fermer (bas-droite) ──

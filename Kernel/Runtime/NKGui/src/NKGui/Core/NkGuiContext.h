@@ -48,6 +48,20 @@ namespace nkentseu {
             float32 framePadY    = 6.f;    ///< padding vertical interne d'un widget
         };
 
+        // Theme de COLORATION SYNTAXIQUE (langages) — partage avec l'editeur de code.
+        // Defauts type VS Code Dark+. Modifiable via Preferences > Langages.
+        struct NKENTSEU_NKGUI_CLASS_EXPORT NkGuiSyntax {
+            NkColor text    = { 212, 212, 212, 255 };
+            NkColor keyword = {  86, 156, 214, 255 };
+            NkColor type    = {  78, 201, 176, 255 };
+            NkColor string  = { 206, 145, 120, 255 };
+            NkColor comment = { 106, 153,  85, 255 };
+            NkColor number  = { 181, 206, 168, 255 };
+            NkColor preproc = { 197, 134, 192, 255 };
+            NkColor heading = {  78, 201, 176, 255 };   // titres Markdown
+            NkColor mdcode  = { 206, 145, 120, 255 };   // code Markdown
+        };
+
         // État de mise en page (curseur immédiat). Chaque widget « auto » prend son
         // rect via NextItemRect, qui avance le curseur (nouvelle ligne par défaut ;
         // SameLine() replace à droite de l'item précédent).
@@ -115,6 +129,7 @@ namespace nkentseu {
             int32         viewH    = 0;
             float32       scale    = 1.f;   ///< facteur d'échelle UI (DPI/HiDPI) — voir SetUiScale/Scaled
             NkGuiTheme    theme;
+            NkGuiSyntax   syntax;          ///< couleurs de coloration syntaxique (langages)
             NkGuiInput    input;
             NkGuiDrawList dl;               ///< couche principale (rendue en 1er)
             NkGuiDrawList dlOverlay;        ///< couche popups/overlay (rendue PAR-DESSUS)

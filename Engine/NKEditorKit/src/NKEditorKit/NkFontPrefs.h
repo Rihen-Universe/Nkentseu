@@ -167,5 +167,55 @@ namespace nkentseu {
             return true;
         }
 
+        // ── Theme des LANGAGES (coloration syntaxique) : persistance ───────────
+        inline void NkSyntaxFieldList(nkgui::NkGuiSyntax& s, NkThemeField* out, int32* n) {
+            nkgui::NkColor* base = &s.text;
+            auto OFF = [&](nkgui::NkColor* p) { return static_cast<nkft_uint32>(reinterpret_cast<char*>(p) - reinterpret_cast<char*>(base)); };
+            NkThemeField f[] = {
+                { "text", OFF(&s.text) }, { "keyword", OFF(&s.keyword) }, { "type", OFF(&s.type) },
+                { "string", OFF(&s.string) }, { "comment", OFF(&s.comment) }, { "number", OFF(&s.number) },
+                { "preproc", OFF(&s.preproc) }, { "heading", OFF(&s.heading) }, { "mdcode", OFF(&s.mdcode) },
+            };
+            *n = 9; for (int32 i = 0; i < 9; ++i) out[i] = f[i];
+        }
+        inline NkString NkSyntaxPath() {
+            const char* home =
+#if defined(_WIN32)
+                std::getenv("USERPROFILE");
+#else
+                std::getenv("HOME");
+#endif
+            if (home && *home) return NkString(home) + "/.nkcode_syntax.cfg";
+            return NkString("nkcode_syntax.cfg");
+        }
+        inline void NkSaveSyntax(nkgui::NkGuiSyntax& s) {
+            FILE* f = std::fopen(NkSyntaxPath().CStr(), "w");
+            if (!f) return;
+            NkThemeField fl[9]; int32 n = 0; NkSyntaxFieldList(s, fl, &n);
+            char* base = reinterpret_cast<char*>(&s.text);
+            for (int32 i = 0; i < n; ++i) {
+                nkgui::NkColor* c = reinterpret_cast<nkgui::NkColor*>(base + fl[i].off);
+                std::fprintf(f, "%s=%d,%d,%d,%d\n", fl[i].name, c->r, c->g, c->b, c->a);
+            }
+            std::fclose(f);
+        }
+        inline bool NkLoadSyntax(nkgui::NkGuiSyntax& s) {
+            FILE* f = std::fopen(NkSyntaxPath().CStr(), "r");
+            if (!f) return false;
+            NkThemeField fl[9]; int32 n = 0; NkSyntaxFieldList(s, fl, &n);
+            char* base = reinterpret_cast<char*>(&s.text);
+            char line[256];
+            while (std::fgets(line, sizeof(line), f)) {
+                char* eq = std::strchr(line, '='); if (!eq) continue; *eq = 0;
+                int r = 0, g = 0, b = 0, a = 255; if (std::sscanf(eq + 1, "%d,%d,%d,%d", &r, &g, &b, &a) < 3) continue;
+                for (int32 i = 0; i < n; ++i) if (std::strcmp(line, fl[i].name) == 0) {
+                    nkgui::NkColor* c = reinterpret_cast<nkgui::NkColor*>(base + fl[i].off);
+                    c->r = (nkft_uint8)r; c->g = (nkft_uint8)g; c->b = (nkft_uint8)b; c->a = (nkft_uint8)a; break;
+                }
+            }
+            std::fclose(f);
+            return true;
+        }
+
     } // namespace editorkit
 } // namespace nkentseu

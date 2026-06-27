@@ -124,10 +124,12 @@ namespace nkentseu {
             bool                mFontOk = false;
             NkFontPrefs         mFontPrefs;          ///< reglages de polices (persistes)
             nkgui::NkGuiTheme   mDefaultTheme;       ///< theme par defaut (vit dans l'app) -> Reinitialiser
+            nkgui::NkGuiSyntax  mDefaultSyntax;      ///< couleurs langages par defaut -> Reinitialiser
             bool                mShowPrefs = false;  ///< fenetre Preferences ouverte ?
             bool                mPrefsJustOpened = false;  ///< grace 1 frame (anti auto-fermeture)
             int32               mPrefsTab  = 0;      ///< categorie active (0=Polices, 1=Theme)
             int32               mThemeSel  = 6;      ///< element de theme selectionne (defaut Accent)
+            int32               mSynSel    = 1;      ///< token de langage selectionne (defaut Mot-cle)
 
             // === Panneaux / commandes ===
             NkEditorPanel*    mPanels[MAX_PANELS]     = {};
