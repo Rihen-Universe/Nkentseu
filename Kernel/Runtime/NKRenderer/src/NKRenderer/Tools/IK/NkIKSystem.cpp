@@ -244,6 +244,10 @@ namespace nkentseu {
 
             NkVec3f root = pos[0];   // racine MONDE reelle (ancrage fixe)
 
+            // Positions BIND (avant resolution) — servent a l'orientation bind-fidele
+            // au write-back (b+) : direction de segment au repos pour chaque os.
+            NkVector<NkVec3f> bindPos = pos;
+
             for (uint32 iter = 0; iter < iters; ++iter) {
                 // Forward pass — from root to effector
                 pos[n-1] = target;
@@ -282,27 +286,34 @@ namespace nkentseu {
                 float32 err = sqrtf(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
                 if (err < chain.desc.tolerance) break;
             }
-            // M0 (b) : reecrire la MATRICE MONDE complete de chaque os = translation
-            // (position resolue) + rotation orientee-vers-l'enfant (restDir -> direction
-            // du segment courant). Ainsi le skinning GPU reflete l'IK (pas juste les
-            // positions). Le dernier os (effecteur) garde une rotation identite.
+            // M0 (b+) : reecrire la MATRICE MONDE de chaque os = translation resolue
+            // + rotation BIND-FIDELE. On compose la rotation IK comme un DELTA monde
+            // (bindDir -> newDir) applique sur la rotation BIND locale de l'os (au
+            // lieu d'imposer {0,1,0}->dir), ce qui PRESERVE le twist d'origine -> pas
+            // de vrille du membre re-skinne. En bind pose (dir inchangee) le delta =
+            // identite -> matrice bind exacte. L'effecteur (sans segment fils) suit
+            // le delta de son parent.
+            NkQuatf lastDelta;  // identite
             for (uint32 i = 0; i < n; ++i) {
                 uint32 bi = chain.desc.bones[i].boneIdx;
                 if (bi >= bones.Size()) continue;
-                NkMat4f m = NkMat4f::Translate(pos[i]);
+                // Rotation BIND (3x3) de l'os = bones[bi] sans sa translation.
+                NkMat4f bindRot = bones[bi];
+                bindRot.m30 = 0.f; bindRot.m31 = 0.f; bindRot.m32 = 0.f; bindRot.m33 = 1.f;
+                NkQuatf delta = lastDelta;  // defaut : suit le parent (effecteur)
                 if (i + 1 < n) {
-                    NkVec3f dir = { pos[i+1].x-pos[i].x, pos[i+1].y-pos[i].y, pos[i+1].z-pos[i].z };
-                    float32 dl = sqrtf(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
-                    if (dl > 1e-6f) { dir.x/=dl; dir.y/=dl; dir.z/=dl;
-                        NkVec3f rest = chain.desc.bones[i].restDir;
-                        float32 rl = sqrtf(rest.x*rest.x + rest.y*rest.y + rest.z*rest.z);
-                        if (rl > 1e-6f) { rest.x/=rl; rest.y/=rl; rest.z/=rl; }
-                        else { rest = {0.f, 1.f, 0.f}; }
-                        NkQuatf q(rest, dir);          // rotation minimale rest -> dir
-                        m = NkMat4f::Translate(pos[i]) * q.ToMat4();
+                    NkVec3f bd = { bindPos[i+1].x-bindPos[i].x, bindPos[i+1].y-bindPos[i].y, bindPos[i+1].z-bindPos[i].z };
+                    NkVec3f nd = { pos[i+1].x-pos[i].x, pos[i+1].y-pos[i].y, pos[i+1].z-pos[i].z };
+                    float32 bl = sqrtf(bd.x*bd.x+bd.y*bd.y+bd.z*bd.z);
+                    float32 nl = sqrtf(nd.x*nd.x+nd.y*nd.y+nd.z*nd.z);
+                    if (bl > 1e-6f && nl > 1e-6f) {
+                        bd.x/=bl; bd.y/=bl; bd.z/=bl;
+                        nd.x/=nl; nd.y/=nl; nd.z/=nl;
+                        delta = NkQuatf(bd, nd);   // rotation minimale monde bindDir -> newDir
+                        lastDelta = delta;
                     }
                 }
-                bones[bi] = m;
+                bones[bi] = NkMat4f::Translate(pos[i]) * delta.ToMat4() * bindRot;
             }
         }
 

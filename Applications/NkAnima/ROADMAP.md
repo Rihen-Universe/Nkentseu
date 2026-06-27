@@ -86,13 +86,20 @@ seul. Vérifié : `mesh=1`, 150 frames, sortie propre. Limite connue : le write-
 (b) oriente depuis `{0,1,0}` (pas la convention bind exacte) → léger twist près du
 membre ; fidélité d'orientation = raffinement (préserver le frame bind local).
 
+**✅ (b+) FAIT (2026-06-27) — orientation BIND-FIDÈLE (twist supprimé)** :
+`SolveChain_FABRIK` compose désormais la rotation IK comme un **delta monde**
+`NkQuatf(bindDir, newDir)` appliqué sur la **rotation bind locale** de l'os
+(`bones[bi]` privé de sa translation), au lieu d'imposer `{0,1,0}→segDir`. On
+capture les positions BIND (`bindPos = pos` avant résolution) pour `bindDir`.
+Résultat : le twist d'origine de chaque os est PRÉSERVÉ → plus de vrille du membre
+re-skinné. En bind pose (dir inchangée) le delta = identité → matrice bind exacte.
+L'effecteur (sans segment fils) suit le delta de son parent (`lastDelta`). DemoIK
+(--demo=14, lit `.position`) et DemoIKChar (--demo=15) tournent clean.
+
 **RESTE M0** :
 - (a') **Effecteur draggable à la souris** (actuellement cible auto-animée) :
   unprojection écran→monde du curseur. Petit.
 - (c) Brancher Two-Bone + CCD pareil (FABRIK est le modèle).
-- (b+) **Orientation bind-fidèle** au write-back : composer la rotation IK comme
-  un DELTA sur la rotation bind locale de l'os (au lieu de `{0,1,0}→segDir`),
-  pour supprimer le twist résiduel du membre re-skinné.
 
 **✅ CHANTIER TRANSVERSE FAIT (2026-06-27) — vrai debug-line renderer** :
 `NkRender3D::FlushDebug` était un STUB ; maintenant il REND vraiment. Toute l'API
