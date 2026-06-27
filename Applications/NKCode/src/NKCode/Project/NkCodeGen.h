@@ -76,6 +76,23 @@ namespace nkentseu {
             if (!a || !b) return false; while (*a && *b) { if (*a != *b) return false; ++a; ++b; } return *a == *b;
         }
 
+        // Toolchain par defaut + variable d'environnement de detection, par OS.
+        // env vide => pas de detection par env (toolchain suppose present).
+        struct NkToolchainInfo { const char* os; const char* toolchain; const char* env; };
+        inline const NkToolchainInfo* NkToolchains(int32* n) noexcept {
+            static const NkToolchainInfo t[] = {
+                { "Windows",    "clang / msvc",  ""                 },
+                { "Linux",      "clang-native",  ""                 },
+                { "macOS",      "apple-clang",   ""                 },
+                { "Android",    "android-ndk",   "ANDROID_NDK_HOME" },
+                { "iOS",        "apple-clang",   ""                 },
+                { "Web",        "emscripten",    "EMSDK"            },
+                { "HarmonyOS",  "ohos-ndk",      "OHOS_NDK_HOME"    },
+                { "XboxSeries", "msvc (GDK)",    "GameDK"           },
+            };
+            if (n) *n = 8; return t;
+        }
+
         // Tables de reference (alignees sur le DSL Jenga).
         inline const char* const* NkConfigNames(int32* n) noexcept {
             static const char* c[] = { "Debug", "Release", "Profile", "Shipping" }; if (n) *n = 4; return c;

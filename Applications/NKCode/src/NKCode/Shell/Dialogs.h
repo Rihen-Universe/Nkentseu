@@ -41,10 +41,13 @@ namespace nkcode {
         bool    wsCfg[4]      = { true, true, false, false };  // Debug, Release, Profile, Shipping
         bool    wsPlat[8]     = {};            // plateformes/OS (index Systems())
         bool    wsArch[5]     = { true, false, false, false, false };  // x86_64, x86, arm64, arm, wasm32
-        char    wsStart[128]  = {};            // projet de demarrage (optionnel)
-        char    wsTool[64]    = {};            // toolchain par defaut (optionnel)
+        bool    wsMakeProj    = false;         // creer un projet de demarrage
+        char    wsProjName[128] = {};          // projet de demarrage : nom
+        int32   wsProjKind    = 0;             // genre (index NkKinds)
+        int32   wsProjLang    = 0;             // langage (index NkLangs)
         bool    wsDutc        = false;         // disable unittest compilation
         bool    wsDute        = false;         // disable unittest execution
+        bool    wsEnvFilled   = false;         // chemins SDK pre-remplis depuis l'env ?
         char    androidSdk[512] = {}, androidNdk[512] = {}, javaJdk[512] = {};
         char    harmonySdk[512] = {}, gdkPath[512] = {};
         char    loadDir[512]  = {};            // Charger : dossier choisi
@@ -58,9 +61,18 @@ namespace nkcode {
         char    pickerPath[512] = {};
         char*   pickerBuf     = nullptr;
         int32   pickerBufCap  = 0;
-        float32 pickerScroll  = 0.f;
+        float32 pickerScroll  = 0.f;           // defilement vertical
+        float32 pickerScrollX = 0.f;           // defilement horizontal
         bool    pickerEditing = false;         // edition du champ chemin
+        char    pickerNew[128] = {};           // nom du dossier a creer
+        bool    pickerNewFocus = false;
+        int32   pickerDrag    = 0;             // 0 aucun, 1 thumb V, 2 thumb H
+        float32 pickerDragOff = 0.f;           // offset souris/thumb pendant le drag
         NkVector<NkString> pickerDirs;         // sous-dossiers du chemin courant
+        void PickerCreateFolder() {
+            if (!pickerNew[0]) return;
+            if (NkDirectory::CreateRecursive(NkPath(pickerPath) / pickerNew)) { pickerNew[0] = '\0'; ScanPicker(); }
+        }
 
         static void CopyTo(char* dst, const char* src, int32 cap) {
             int32 i = 0; if (src) for (; src[i] && i + 1 < cap; ++i) dst[i] = src[i]; dst[i] = '\0';
@@ -113,17 +125,31 @@ namespace nkcode {
             for (int32 i = 0; i < 4; ++i) o.cfg[i] = wsCfg[i];
             o.os = wsPlat; o.osNames = osNames; o.nOs = nSys;
             for (int32 i = 0; i < 5; ++i) o.arch[i] = wsArch[i];
-            o.startProject = wsStart; o.toolchain = wsTool;
+            o.startProject = (wsMakeProj && wsProjName[0]) ? wsProjName : "";   // startproject() si projet cree
             o.dutc = wsDutc; o.dute = wsDute;
             o.androidSdk = androidSdk; o.androidNdk = androidNdk; o.javaJdk = javaJdk;
             o.harmonySdk = harmonySdk; o.gdkPath = gdkPath;
             NkPath dir = wsDir[0] ? NkPath(wsDir) : st->root;
             NkString made = GenerateWorkspaceEx(dir, o);
             if (made.Empty()) { status = "Echec : nom invalide ou .jenga deja existant."; return; }
+            // Projet de demarrage : genere le projet + son include() dans le workspace.
+            if (wsMakeProj && wsProjName[0])
+                GenerateProject(dir, NkPath(made.CStr()), wsProjName, wsProjKind, wsProjLang);
             if (st->LoadFolder(dir)) {
                 if (shell) shell->LoadUiState(st->UiConfigPath().CStr());
                 showStart = false;
             }
+        }
+        // Pre-remplit les chemins SDK depuis les variables d'environnement (une fois).
+        void FillEnvOnce() {
+            if (wsEnvFilled) return; wsEnvFilled = true;
+            auto envc = [](const char* a, const char* b) -> const char* {
+                const char* v = std::getenv(a); if ((!v || !*v) && b) v = std::getenv(b); return (v && *v) ? v : nullptr; };
+            if (const char* v = envc("ANDROID_SDK_ROOT", "ANDROID_HOME"))     CopyTo(androidSdk, v, 512);
+            if (const char* v = envc("ANDROID_NDK_HOME", "ANDROID_NDK_ROOT")) CopyTo(androidNdk, v, 512);
+            if (const char* v = envc("JAVA_HOME", nullptr))                   CopyTo(javaJdk, v, 512);
+            if (const char* v = envc("OHOS_NDK_HOME", "OHOS_SDK"))            CopyTo(harmonySdk, v, 512);
+            if (const char* v = envc("GameDK", "GameDKLatest"))               CopyTo(gdkPath, v, 512);
         }
         // Un OS (par nom) est-il coche dans le formulaire Nouveau ?
         bool OsChecked(const char* nm) const {
@@ -423,6 +449,7 @@ namespace nkcode {
         else if (d->launcherTab == 1) {
             // ===== NOUVEAU : toutes les proprietes de creation (DSL Jenga) =====
             if (!d->wsDir[0] && d->st) NkCodeDialogs::CopyTo(d->wsDir, d->st->root.ToString().CStr(), (int32)sizeof(d->wsDir));
+            d->FillEnvOnce();
             text(mx, cy + 22.f * S, "Nouveau workspace", cText);
             // Zone de formulaire defilante (clip + offset). Bouton Creer fixe en bas.
             const float32 footH = 50.f * S;
@@ -458,11 +485,46 @@ namespace nkcode {
             { int32 nA = 0; const char* const* aN = NkArchNames(&nA);
               for (int32 i = 0; i < nA; ++i) check({ mx + (i % 2) * (mw * 0.5f), y + (i / 2) * 26.f * S, mw * 0.5f, 18.f * S }, d->wsArch[i], aN[i]);
               y += ((nA + 1) / 2) * 26.f * S + 12.f * S; }
-            // Projet de demarrage / Toolchain
-            label("Projet de demarrage (optionnel)");
-            { const NkRect r = { mx, y, mw, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->wsStart, (int32)sizeof(d->wsStart), d->launcherFocus == 2); if (hit(r) && click) d->launcherFocus = 2; } y += 40.f * S;
-            label("Toolchain par defaut (optionnel)");
-            { const NkRect r = { mx, y, mw, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->wsTool, (int32)sizeof(d->wsTool), d->launcherFocus == 3); if (hit(r) && click) d->launcherFocus = 3; } y += 40.f * S;
+            // Toolchains detectes selon les plateformes cochees
+            label("Toolchains (detectes selon les plateformes)");
+            { int32 nT = 0; const NkToolchainInfo* tc = NkToolchains(&nT);
+              int32 nSysT = 0; const NkCodeState::SysDef* sysT = NkCodeState::Systems(&nSysT);
+              bool anyOs = false;
+              for (int32 i = 0; i < nSysT && i < nT; ++i) {
+                  if (!d->wsPlat[i]) continue; anyOs = true;
+                  const char* env = tc[i].env;
+                  const bool det = (!env || !*env) ? true : (std::getenv(env) && *std::getenv(env));
+                  char line[160]; std::snprintf(line, sizeof(line), "%s : %s", sysT[i].name, tc[i].toolchain);
+                  text(mx, y, line, cText);
+                  const char* st2 = det ? "detecte" : "non detecte";
+                  text(mx + mw - f->MeasureWidth(st2) - 6.f * S, y, st2, det ? NkColor{ 90,190,120,255 } : NkColor{ 226,114,91,255 });
+                  y += 24.f * S;
+              }
+              if (!anyOs) { text(mx, y, "(cochez des systemes cibles ci-dessus)", cFaint); y += 24.f * S; }
+              y += 8.f * S; }
+            // Projet de demarrage (formulaire de projet complet)
+            label("Projet de demarrage");
+            check({ mx, y, mw, 18.f * S }, d->wsMakeProj, "Creer un projet de demarrage avec le workspace"); y += 26.f * S;
+            if (d->wsMakeProj) {
+                text(mx, y, "Nom du projet", cSub); y += 22.f * S;
+                { const NkRect r = { mx, y, mw, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->wsProjName, (int32)sizeof(d->wsProjName), d->launcherFocus == 2); if (hit(r) && click) d->launcherFocus = 2; } y += 38.f * S;
+                text(mx, y, "Genre", cSub); y += 22.f * S;
+                { int32 nk = 0; const NkKindDef* K = NkKinds(&nk);
+                  for (int32 i = 0; i < nk; ++i) {
+                      const NkRect r = { mx, y, mw, 24.f * S }; const bool sel = (d->wsProjKind == i);
+                      dl.AddRectFilled(r, sel ? cSelBg : (hit(r) ? cRowHov : NkColor{ 24,27,32,255 }), 4.f * S);
+                      if (sel) dl.AddRect(r, cAccent, 1.f);
+                      text(r.x + 10.f * S, r.y + (24.f * S - lh) * 0.5f, K[i].label, sel ? cText : cSub);
+                      if (hit(r) && click) d->wsProjKind = i; y += 28.f * S;
+                  } }
+                text(mx, y, "Langage", cSub); y += 22.f * S;
+                { int32 nl = 0; const NkLangDef* L = NkLangs(&nl); float32 lx = mx;
+                  for (int32 i = 0; i < nl; ++i) { const float32 bw = f->MeasureWidth(L[i].label) + 22.f * S;
+                      const NkRect r = { lx, y, bw, 26.f * S }; const bool sel = (d->wsProjLang == i);
+                      dl.AddRectFilled(r, sel ? cAccent : NkColor{ 30,34,40,255 }, 6.f * S);
+                      text(r.x + 11.f * S, r.y + (26.f * S - lh) * 0.5f, L[i].label, sel ? NkColor{ 255,255,255,255 } : cText);
+                      if (hit(r) && click) d->wsProjLang = i; lx += bw + 8.f * S; } y += 36.f * S; }
+            }
             // Tests unitaires
             label("Tests unitaires");
             check({ mx, y, mw * 0.5f, 18.f * S }, d->wsDutc, "Desactiver la compilation (dutc)");
@@ -544,7 +606,8 @@ namespace nkcode {
             const float32 tw = f->MeasureWidth(s); text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, en ? NkColor{ 255,255,255,255 } : cSub); return en && hov && click;
         };
 
-        const float32 pw = 560.f * S, ph = 460.f * S, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+        const float32 pw = 580.f * S, ph = 500.f * S, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+        const bool down = ctx.input.mouseDown[0];
         dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0,0,0,160 });
         dl.AddRectFilled({ px, py, pw, ph }, cCard, 10.f * S); dl.AddRect({ px, py, pw, ph }, cBorder, 1.5f);
         text(px + 20.f * S, py + 16.f * S, "Choisir un dossier", cText);
@@ -554,34 +617,70 @@ namespace nkcode {
         float32 y = py + 50.f * S;
         { const NkRect r = { cx, y, cwid - 180.f * S, 30.f * S };
           NkOverlayTextField(ctx, dl, f, r, d->pickerPath, (int32)sizeof(d->pickerPath), d->pickerEditing);
-          if (hit(r) && click) d->pickerEditing = true;
+          if (hit(r) && click) { d->pickerEditing = true; d->pickerNewFocus = false; }
           if (sbtn({ cx + cwid - 170.f * S, y, 80.f * S, 30.f * S }, "Aller")) { d->PickerGoto(NkPath(d->pickerPath)); d->pickerEditing = false; }
           if (sbtn({ cx + cwid - 84.f * S, y, 84.f * S, 30.f * S }, ".. Remonter")) d->PickerUp();
         }
         y += 42.f * S;
 
-        // Liste des sous-dossiers (defilante)
-        const NkRect area = { cx, y, cwid, ph - (y - py) - 60.f * S };
+        // Liste des sous-dossiers (defilante V + H), avec barres VISIBLES
+        const float32 barW = 10.f * S;
+        const NkRect area = { cx, y, cwid, ph - (y - py) - 96.f * S };
+        const NkRect inner = { area.x, area.y, area.w - barW, area.h - barW };   // zone hors barres
         dl.AddRectFilled(area, NkColor{ 16,18,22,255 }, 6.f * S); dl.AddRect(area, cBorder, 1.f);
-        if (hit(area) && ctx.input.wheel != 0.f) { d->pickerScroll -= ctx.input.wheel * 34.f; ctx.input.wheel = 0.f; }
-        dl.PushClipRect(area, true);
-        float32 ly = area.y + 6.f * S - d->pickerScroll;
+        if (hit(inner) && ctx.input.wheel != 0.f) { d->pickerScroll -= ctx.input.wheel * 34.f; ctx.input.wheel = 0.f; }
+        // largeur de contenu (nom le plus long)
+        float32 contentW = 0.f;
+        for (usize i = 0; i < d->pickerDirs.Size(); ++i) { const float32 w = f->MeasureWidth(d->pickerDirs[i].CStr()) + 40.f * S; if (w > contentW) contentW = w; }
+        dl.PushClipRect(inner, true);
+        float32 ly = inner.y + 6.f * S - d->pickerScroll;
         for (usize i = 0; i < d->pickerDirs.Size(); ++i) {
-            const NkRect r = { area.x + 4.f * S, ly, area.w - 8.f * S, 28.f * S };
-            const bool hov = hit(r) && hit(area);
+            const NkRect r = { inner.x + 4.f * S - d->pickerScrollX, ly, (contentW > inner.w ? contentW : inner.w) - 8.f * S, 28.f * S };
+            const bool hov = NkGuiRectContains(r, mp) && hit(inner);
             if (hov) dl.AddRectFilled(r, cRowHov, 5.f * S);
-            // petite icone dossier
             dl.AddRectFilled({ r.x + 8.f * S, r.y + 9.f * S, 16.f * S, 11.f * S }, NkColor{ 247,154,40,220 }, 2.f * S);
             dl.AddRectFilled({ r.x + 8.f * S, r.y + 7.f * S, 8.f * S, 4.f * S }, NkColor{ 247,154,40,220 }, 1.f * S);
             text(r.x + 32.f * S, r.y + (28.f * S - lh) * 0.5f, d->pickerDirs[i].CStr(), cText);
             if (hov && click) { d->PickerEnter(d->pickerDirs[i].CStr()); dl.PopClipRect(); return; }
             ly += 30.f * S;
         }
-        const float32 contentH = (ly + d->pickerScroll) - (area.y + 6.f * S);
+        const float32 contentH = (ly + d->pickerScroll) - (inner.y + 6.f * S);
         dl.PopClipRect();
-        const float32 maxS = contentH - area.h > 0.f ? contentH - area.h : 0.f;
+        if (d->pickerDirs.Empty()) text(inner.x + 12.f * S, inner.y + 10.f * S, "(aucun sous-dossier)", cSub);
+        // clamp
+        const float32 maxS = contentH - inner.h > 0.f ? contentH - inner.h : 0.f;
+        const float32 maxX = contentW - inner.w > 0.f ? contentW - inner.w : 0.f;
+        // gestion du drag des thumbs
+        if (!down) d->pickerDrag = 0;
+        // barre V (toujours visible)
+        { const NkRect track = { area.x + area.w - barW, inner.y, barW, inner.h };
+          dl.AddRectFilled(track, NkColor{ 22,25,30,255 }, 3.f * S);
+          const float32 th = maxS > 0.f ? inner.h * (inner.h / contentH) : inner.h;
+          const float32 tt = inner.y + (maxS > 0.f ? (inner.h - th) * (d->pickerScroll / maxS) : 0.f);
+          const NkRect thumb = { track.x + 2.f * S, tt, barW - 4.f * S, th };
+          if (click && hit(thumb)) { d->pickerDrag = 1; d->pickerDragOff = mp.y - tt; }
+          if (d->pickerDrag == 1 && maxS > 0.f) d->pickerScroll = ((mp.y - d->pickerDragOff - inner.y) / (inner.h - th)) * maxS;
+          dl.AddRectFilled(thumb, d->pickerDrag == 1 ? cAccent : NkColor{ 70,76,84,255 }, 3.f * S); }
+        // barre H (toujours visible)
+        { const NkRect track = { inner.x, area.y + area.h - barW, inner.w, barW };
+          dl.AddRectFilled(track, NkColor{ 22,25,30,255 }, 3.f * S);
+          const float32 tw = maxX > 0.f ? inner.w * (inner.w / contentW) : inner.w;
+          const float32 tt = inner.x + (maxX > 0.f ? (inner.w - tw) * (d->pickerScrollX / maxX) : 0.f);
+          const NkRect thumb = { tt, track.y + 2.f * S, tw, barW - 4.f * S };
+          if (click && hit(thumb)) { d->pickerDrag = 2; d->pickerDragOff = mp.x - tt; }
+          if (d->pickerDrag == 2 && maxX > 0.f) d->pickerScrollX = ((mp.x - d->pickerDragOff - inner.x) / (inner.w - tw)) * maxX;
+          dl.AddRectFilled(thumb, d->pickerDrag == 2 ? cAccent : NkColor{ 70,76,84,255 }, 3.f * S); }
         if (d->pickerScroll < 0.f) d->pickerScroll = 0.f; if (d->pickerScroll > maxS) d->pickerScroll = maxS;
-        if (d->pickerDirs.Empty()) text(area.x + 12.f * S, area.y + 10.f * S, "(aucun sous-dossier)", cSub);
+        if (d->pickerScrollX < 0.f) d->pickerScrollX = 0.f; if (d->pickerScrollX > maxX) d->pickerScrollX = maxX;
+
+        // Ligne creation de dossier : champ + bouton
+        const float32 ny = area.y + area.h + 8.f * S;
+        { const NkRect r = { cx, ny, cwid - 150.f * S, 30.f * S };
+          NkOverlayTextField(ctx, dl, f, r, d->pickerNew, (int32)sizeof(d->pickerNew), d->pickerNewFocus);
+          if (hit(r) && click) { d->pickerNewFocus = true; d->pickerEditing = false; }
+          if (d->pickerNew[0] == '\0' && !d->pickerNewFocus) text(r.x + 10.f * S, r.y + (30.f * S - lh) * 0.5f, "nom du nouveau dossier", cSub);
+          if (sbtn({ cx + cwid - 140.f * S, ny, 140.f * S, 30.f * S }, "+ Creer dossier")) d->PickerCreateFolder();
+        }
 
         // Boutons bas
         const float32 by = py + ph - 44.f * S;
