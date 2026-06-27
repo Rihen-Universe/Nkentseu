@@ -20,6 +20,7 @@
 
 #include <cstdio>   // snprintf (numeros de ligne)
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -557,3 +558,4 @@ namespace nkcode {
     }
 
 } // namespace nkcode
+} // namespace nkentseu

@@ -11,6 +11,7 @@
 #include "NKCode/Project/NkTerm.h"
 #include "NKCode/Editor/NkTextDraw.h"
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -862,3 +863,4 @@ namespace nkcode {
     };
 
 } // namespace nkcode
+} // namespace nkentseu

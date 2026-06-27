@@ -190,6 +190,12 @@ namespace nkentseu {
             bool          dockTabAddButton = false;          ///< l'app active le bouton « + » sur les barres d'onglets
             bool          dockHideSingleTab = false;         ///< masque la barre d'onglets d'un nœud à 1 seul panneau (façon VSCode/IDE)
 
+            // Modale applicative : l'app (ex. NKCode) leve ce flag tant qu'un dialogue
+            // modal (creation de projet, proprietes...) est ouvert. Le shell masque
+            // alors l'input du corps (panneaux) au profit de l'overlay. App-gere
+            // (mis a true a l'ouverture, false a la fermeture) — le shell ne le reset pas.
+            bool          appModal = false;
+
             // Presse-papiers : cable par l'app (la fenetre OS). Decouple de NKWindow
             // via void* + NkString. Les widgets appellent GetClipboard/SetClipboard.
             void* clipboardUser = nullptr;

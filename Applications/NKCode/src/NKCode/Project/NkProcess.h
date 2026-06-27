@@ -18,6 +18,7 @@
 
 #include <cstdio>
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -118,3 +119,4 @@ namespace nkcode {
     };
 
 } // namespace nkcode
+} // namespace nkentseu

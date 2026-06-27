@@ -76,6 +76,13 @@ namespace nkentseu {
             void SetToolbar(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
                 mToolbarFn = fn; mToolbarUser = user;
             }
+            // Overlay applicatif (dessine APRES les panneaux, sur dlOverlay) : l'app y
+            // rend ses dialogues modaux (creation de projet, proprietes...). Quand
+            // ctx.appModal est leve, le shell masque l'input du corps. L'input du popup
+            // est restaure avant l'appel (comme la fenetre Preferences).
+            void SetOverlay(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
+                mOverlayFn = fn; mOverlayUser = user;
+            }
 
             // ── Layout ──────────────────────────────────────────────────────────
             void ResetLayout() noexcept { mDockBootstrap = true; }
@@ -140,6 +147,8 @@ namespace nkentseu {
             void*             mAppMenuUser            = nullptr;
             NkEditorAppMenuFn mToolbarFn              = nullptr;
             void*             mToolbarUser            = nullptr;
+            NkEditorAppMenuFn mOverlayFn              = nullptr;
+            void*             mOverlayUser            = nullptr;
 
             // === Palette de commandes ===
             bool  mPaletteOpen = false;

@@ -16,6 +16,7 @@
 #include "NKMemory/NkSharedPtr.h"
 #include "NKMemory/NkUniquePtr.h"
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -65,3 +66,4 @@ namespace nkcode {
     }
 
 } // namespace nkcode
+} // namespace nkentseu

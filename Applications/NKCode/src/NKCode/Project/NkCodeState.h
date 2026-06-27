@@ -13,6 +13,7 @@
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Editor/NkCodeEditor.h"
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -404,3 +405,4 @@ namespace nkcode {
     };
 
 } // namespace nkcode
+} // namespace nkentseu

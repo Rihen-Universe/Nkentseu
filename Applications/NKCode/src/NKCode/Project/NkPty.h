@@ -16,6 +16,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -68,3 +69,4 @@ namespace nkcode {
     };
 
 } // namespace nkcode
+} // namespace nkentseu

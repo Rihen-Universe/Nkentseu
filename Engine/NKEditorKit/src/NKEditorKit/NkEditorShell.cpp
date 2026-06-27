@@ -316,7 +316,7 @@ namespace nkentseu {
                 // MODALE : quand Preferences est ouvert, le corps (panneaux/editeur)
                 // ne doit pas reagir aux clics/molette/frappes destines au popup. On
                 // masque l'input pour le corps puis on le restaure pour DrawPreferences.
-                const bool modal = mShowPrefs;
+                const bool modal = mShowPrefs || mUI.appModal;
                 nkgui::NkGuiInput savedInput;
                 if (modal) {
                     savedInput = mUI.input;
@@ -337,6 +337,7 @@ namespace nkentseu {
                 if (modal) mUI.input = savedInput;       // restaure pour le popup
                 DrawCommandPalette(ec);
                 DrawPreferences(ec);                     // fenetre Preferences (menu dedie)
+                if (mOverlayFn) mOverlayFn(ec, mOverlayUser);   // dialogues modaux de l'app (creation/proprietes)
 
                 // Bordure de NOTRE fenetre (l'OS n'en dessine plus) — sauf si maximisee.
                 if (!mWindow.IsMaximized())

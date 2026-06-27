@@ -8,6 +8,7 @@
 // =============================================================================
 #include "NKGui/NKGui.h"
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -150,3 +151,4 @@ namespace nkcode {
     }
 
 } // namespace nkcode
+} // namespace nkentseu

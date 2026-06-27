@@ -11,6 +11,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKCode/Project/NkCodeState.h"
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu;
@@ -151,3 +152,4 @@ namespace nkcode {
     }
 
 } // namespace nkcode
+} // namespace nkentseu

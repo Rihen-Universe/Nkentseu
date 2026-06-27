@@ -24,6 +24,7 @@
   typedef void    (WINAPI *PFN_ClosePseudoConsole)(void*);
 #endif
 
+namespace nkentseu {
 namespace nkcode {
 
     using namespace nkentseu::threading;
@@ -173,3 +174,4 @@ namespace nkcode {
     }
 
 } // namespace nkcode
+} // namespace nkentseu

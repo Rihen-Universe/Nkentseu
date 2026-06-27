@@ -10,6 +10,7 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "NKCode/Shell/Panels.h"
 #include "NKCode/Shell/Toolbar.h"
+#include "NKCode/Shell/Dialogs.h"
 #include "NKCode/Project/NkLogSink.h"
 
 #include <cstdio>
@@ -42,6 +43,15 @@ static void CmdResetLayout(void* u){ if (u) static_cast<NkEditorShell*>(u)->Rese
 // Barre d'outils Visual Studio (config/plateforme + Demarrer) -> delegue a NKCode.
 static void ToolbarThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawCodeToolbar(ec, static_cast<nkcode::NkCodeState*>(u));
+}
+
+// Dialogues modaux (creation projet/workspace) + menus Projet/Deploiement.
+static nkcode::NkCodeDialogs g_dialogs;
+static void AppMenuThunk(NkEditorFrameContext& ec, void* u) {
+    nkcode::DrawAppMenu(ec, static_cast<nkcode::NkCodeDialogs*>(u));
+}
+static void OverlayThunk(NkEditorFrameContext& ec, void* u) {
+    nkcode::DrawOverlay(ec, static_cast<nkcode::NkCodeDialogs*>(u));
 }
 
 int nkmain(const NkEntryState& state) {
@@ -89,6 +99,9 @@ int nkmain(const NkEntryState& state) {
     shell->AddPanel(&terminal);
 
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
+    g_dialogs.st = &g_state;
+    shell->SetAppMenu(&AppMenuThunk, &g_dialogs);  // menus Projet / Deploiement
+    shell->SetOverlay(&OverlayThunk, &g_dialogs);  // dialogues modaux (creation .jenga)
 
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
     shell->RegisterCommand("Projet: Demarrer (jenga run)",     &CmdRun,   nullptr,      "Ctrl+R");
