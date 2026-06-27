@@ -1013,10 +1013,13 @@
                 NkMat4T Inverse() const noexcept
                 {
                     NkMat4T adjugate;
-                    // Calcul de la matrice adjointe (cofacteurs transposés)
+                    // Matrice adjointe = TRANSPOSEE de la matrice des cofacteurs :
+                    // adj(i,j) = Cofactor(j,i). element(row,col) = Cofactor(col,row).
+                    // (Auparavant Cofactor(row,col) -> renvoyait l'inverse TRANSPOSEE,
+                    //  correct seulement pour rotations pures, faux dès translation/scale.)
                     for (int col = 0; col < 4; ++col) {
                         for (int row = 0; row < 4; ++row) {
-                            adjugate.mat[col][row] = Cofactor(row, col);
+                            adjugate.mat[col][row] = Cofactor(col, row);
                         }
                     }
                     T determinant = Determinant();

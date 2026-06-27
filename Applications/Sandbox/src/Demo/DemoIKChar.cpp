@@ -7,10 +7,11 @@
 // cible animée à l'effecteur de ce membre via NkIKSystem (FABRIK).
 //
 // (d)     — squelette en debug-lines piloté par l'IK.
-// (d-bis) — le MESH se DÉFORME réellement : on recompose les matrices de
-//           skinning (globalTransform × inverseBind) à partir des transforms IK
-//           du membre, en PROPAGEANT le delta de chaque joint résolu à ses
-//           descendants (la main suit le poignet, etc.), puis SubmitSkinned.
+// (d-bis) — le MESH se DÉFORME réellement, SANS déchirure : aim-FK hiérarchique
+//           (ComputeIKWorld) -> chaque joint de chaîne pivote pour placer son
+//           enfant sur la position FABRIK, FK cohérente pour tout le squelette,
+//           skin[j] = world[j] * inverseBind[j], puis SubmitSkinned.
+//           (Le bug de déchirure venait de NkMat4::Inverse() — corrigé dans NKMath.)
 //
 //   renderdemo --demo=15           CesiumMan + skinning IK
 //   NK_SKIN_MODEL=<chemin>         autre modèle skinné
@@ -44,7 +45,8 @@ namespace nkentseu { namespace demo {
         NkVector<int32>    parentJoint;     // parent de chaque joint (-1 = racine)
         NkVector<int32>    chain;           // indices joints du membre, racine->effecteur
         NkVector<bool>     inChain;         // joint appartient au membre IK ?
-        NkVector<int32>    chainAncestor;   // nearest ancetre dans la chaine (-1) par joint
+        NkVector<NkMat4f>  localBind;        // transform LOCAL bind par joint (rel. parent)
+        NkVector<uint32>   topo;             // ordre topologique (parent avant enfant)
 
         // (d-bis) skinning GPU
         bool               meshLoaded = false;
@@ -76,6 +78,46 @@ namespace nkentseu { namespace demo {
 
     static NkVec3f JointPos(const NkMat4f& m) {
         return { m.position.x, m.position.y, m.position.z };
+    }
+
+    // Transforms MONDE de tous les joints sous IK (AIM-FK hiérarchique, tear-free).
+    // (1) Joints de chaîne racine->tip : chaque joint pivote pour amener son enfant
+    // sur la position résolue par FABRIK (res[c].position), puis enfant = parent *
+    // localBind -> FK cohérente atteignant les positions FABRIK sans double-rotation.
+    // (2) FK topo pour le reste. Réutilisé par le rendu ET le diagnostic.
+    static void ComputeIKWorld(DemoIKCharState* st, const NkMat4f* res, uint32 resCount,
+                               NkVector<NkMat4f>& out) {
+        const uint32 jc = (uint32)st->bind.Size();
+        if ((uint32)out.Size() != jc) out.Resize(jc);
+        auto rotP = [](const NkMat4f& m){ NkMat4f r=m; r.m30=0;r.m31=0;r.m32=0;r.m33=1; return r; };
+        const uint32 cn = (uint32)st->chain.Size();
+        if (cn >= 1) out[(uint32)st->chain[0]] = st->bind[(uint32)st->chain[0]];
+        for (uint32 i = 0; i + 1 < cn; ++i) {
+            uint32 j = (uint32)st->chain[i], c = (uint32)st->chain[i+1];
+            NkMat4f childLocalBind = st->bind[j].Inverse() * st->bind[c];
+            NkMat4f Gj = out[j];
+            NkVec3f jp = { Gj.position.x, Gj.position.y, Gj.position.z };
+            NkMat4f curChild = Gj * childLocalBind;
+            NkVec3f cp = { curChild.position.x, curChild.position.y, curChild.position.z };
+            NkVec3f np = (c < resCount)
+                ? NkVec3f{ res[c].position.x, res[c].position.y, res[c].position.z }
+                : NkVec3f{ st->bind[c].position.x, st->bind[c].position.y, st->bind[c].position.z };
+            NkVec3f a = { cp.x-jp.x, cp.y-jp.y, cp.z-jp.z };
+            NkVec3f b = { np.x-jp.x, np.y-jp.y, np.z-jp.z };
+            float32 al = sqrtf(a.x*a.x+a.y*a.y+a.z*a.z), bl = sqrtf(b.x*b.x+b.y*b.y+b.z*b.z);
+            if (al > 1e-6f && bl > 1e-6f) {
+                a.x/=al;a.y/=al;a.z/=al; b.x/=bl;b.y/=bl;b.z/=bl;
+                NkQuatf Rw(a, b);
+                out[j] = NkMat4f::Translate(jp) * (Rw.ToMat4() * rotP(Gj));
+            }
+            out[c] = out[j] * childLocalBind;
+        }
+        for (uint32 oi = 0; oi < (uint32)st->topo.Size(); ++oi) {
+            uint32 j = st->topo[oi];
+            if (st->inChain[j]) continue;
+            int32 p = st->parentJoint[j];
+            out[j] = (p >= 0) ? (out[(uint32)p] * st->localBind[j]) : st->localBind[j];
+        }
     }
 
     bool DemoIKChar_Init(DemoCtx& ctx) {
@@ -123,7 +165,9 @@ namespace nkentseu { namespace demo {
             if (!hasChild[j] && depth[j] > bestDepth) { bestDepth = depth[j]; leaf = (int32)j; }
         if (leaf < 0) leaf = (int32)jc - 1;
 
-        const uint32 maxLen = 5;
+        const uint32 maxLen = 3;   // membre DISTAL (ex. épaule/coude/main) : éviter de
+                                   // remonter jusqu'aux joints proches de la racine
+                                   // (colonne/bassin) qui feraient pivoter tout le corps.
         NkVector<int32> upChain;   // feuille -> racine
         { int32 cur = leaf; uint32 n = 0;
           while (cur >= 0 && n < maxLen) { upChain.PushBack(cur); cur = st->parentJoint[cur]; ++n; } }
@@ -134,15 +178,25 @@ namespace nkentseu { namespace demo {
         for (uint32 j = 0; j < jc; ++j) st->inChain[j] = false;
         for (uint32 i = 0; i < (uint32)st->chain.Size(); ++i) st->inChain[(uint32)st->chain[i]] = true;
 
-        // Nearest ancetre dans la chaine (pour propager le delta IK aux descendants).
-        st->chainAncestor.Resize(jc);
+        // Pré-calcul FK : transform LOCAL bind par joint + ordre topologique.
+        // localBind[j] = inverse(bind[parent]) * bind[j] (telescope -> reproduit bind).
+        st->localBind.Resize(jc);
         for (uint32 j = 0; j < jc; ++j) {
-            int32 a = -1, cur = st->parentJoint[j], guard = 0;
-            while (cur >= 0 && cur < (int32)jc && guard++ < (int32)jc) {
-                if (st->inChain[(uint32)cur]) { a = cur; break; }
-                cur = st->parentJoint[cur];
-            }
-            st->chainAncestor[j] = a;
+            int32 p = st->parentJoint[j];
+            st->localBind[j] = (p >= 0) ? (st->bind[(uint32)p].Inverse() * st->bind[j]) : st->bind[j];
+        }
+        st->topo.Clear();
+        { NkVector<bool> placed; placed.Resize(jc);
+          for (uint32 j = 0; j < jc; ++j) placed[j] = false;
+          uint32 done = 0, guard = 0;
+          while (done < jc && guard++ < jc + 2) {
+              for (uint32 j = 0; j < jc; ++j) {
+                  if (placed[j]) continue;
+                  int32 p = st->parentJoint[j];
+                  if (p < 0 || placed[(uint32)p]) { st->topo.PushBack(j); placed[j] = true; ++done; }
+              }
+          }
+          for (uint32 j = 0; j < jc; ++j) if (!placed[j]) st->topo.PushBack(j);
         }
 
         // Longueur du membre + ancre racine.
@@ -235,6 +289,89 @@ namespace nkentseu { namespace demo {
             });
         }
 
+        // ── DIAGNOSTIC déchirure (NK_IK_TEAR_DIAG) ────────────────────────────
+        // Mesure l'étirement MAX des arêtes de triangles (déformé / repos) pour
+        // 3 poses : BIND (référence), ANIM glTF native (= chemin DemoSkin validé),
+        // et mon RE-SKIN IK. Isole la cause : si ANIM déchire aussi -> skinning/
+        // données ; si seul IK déchire -> M0 (d-bis). One-shot, CPU.
+        if (getenv("NK_IK_TEAR_DIAG") && st->meshLoaded && !data.skinnedVertices.Empty()) {
+            NkGLTFMeshData& D = data;
+            auto skinPos = [&](const NkVector<NkMat4f>& sm, uint32 vi) -> NkVec3f {
+                const NkVertexSkinned& sv = D.skinnedVertices[vi];
+                NkMat4f m; for (int e=0;e<16;e++) m.data[e]=0.f; float32 wsum=0.f;
+                for (int b=0;b<4;b++) {
+                    int j=(int)(sv.boneIdx[b]+0.5f); float32 w=sv.boneWeight[b];
+                    if (j>=0 && j<(int)sm.Size() && w>0.f) { for (int e=0;e<16;e++) m.data[e]+=w*sm[(uint32)j].data[e]; wsum+=w; }
+                }
+                if (wsum<1e-4f) m=NkMat4f::Identity();
+                NkVec4f p = m * NkVec4f{sv.pos.x,sv.pos.y,sv.pos.z,1.f};
+                return {p.x,p.y,p.z};
+            };
+            auto metric = [&](const NkVector<NkMat4f>& sm, const char* tag) {
+                float32 maxR=0.f; uint32 bad=0, ne=0;
+                for (uint32 i=0; i+2<(uint32)D.indices.Size(); i+=3) {
+                    uint32 idx[3]={D.indices[i],D.indices[i+1],D.indices[i+2]};
+                    for (int e=0;e<3;e++) {
+                        uint32 a=idx[e], b=idx[(e+1)%3];
+                        NkVec3f pa=skinPos(sm,a), pb=skinPos(sm,b);
+                        const auto& ra=D.skinnedVertices[a].pos; const auto& rb=D.skinnedVertices[b].pos;
+                        float32 dl=sqrtf((pa.x-pb.x)*(pa.x-pb.x)+(pa.y-pb.y)*(pa.y-pb.y)+(pa.z-pb.z)*(pa.z-pb.z));
+                        float32 bl=sqrtf((ra.x-rb.x)*(ra.x-rb.x)+(ra.y-rb.y)*(ra.y-rb.y)+(ra.z-rb.z)*(ra.z-rb.z));
+                        if (bl>1e-6f) { float32 r=dl/bl; if (r>maxR)maxR=r; if (r>3.f)bad++; ne++; }
+                    }
+                }
+                logger.Info("[DemoIKChar][TEAR] {0} : maxEdgeStretch={1}x  edges>3x={2}/{3}\n", tag, maxR, bad, ne);
+            };
+            // (A) BIND
+            { NkVector<NkMat4f> bb; EvaluateGLTFPose(D, -1, 0.f, bb); metric(bb, "BIND   "); }
+            // (B) ANIM glTF native (animIdx 0) a t=1.0s
+            { NkVector<NkMat4f> ab; EvaluateGLTFPose(D, 0, 1.0f, ab); metric(ab, "ANIM   "); }
+            // (B2) FK de contrôle : ComputeIKWorld avec res = BIND (aucun mouvement
+            // IK). DOIT donner ~1.0x ; sinon la FK elle-même est buggée.
+            {
+                NkVector<NkMat4f> wb; ComputeIKWorld(st, st->bind.Data(), jc, wb);
+                // Erreur de reconstruction : |wb[j].position - bind[j].position| max.
+                float32 maxErr=0.f; uint32 worst=0;
+                for (uint32 j=0;j<jc;++j) {
+                    NkVec3f a=JointPos(wb[j]), b=JointPos(st->bind[j]);
+                    float32 e=sqrtf((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y)+(a.z-b.z)*(a.z-b.z));
+                    if (e>maxErr){maxErr=e;worst=j;}
+                }
+                // Test Inverse() : max|bind[j]*bind[j]^-1 - I|.
+                float32 invErr=0.f;
+                for (uint32 j=0;j<jc;++j) {
+                    NkMat4f p = st->bind[j] * st->bind[j].Inverse();
+                    for (int r=0;r<4;r++) for(int c=0;c<4;c++){ float32 id=(r==c)?1.f:0.f; float32 e=fabsf(p.mat[c][r]-id); if(e>invErr)invErr=e; }
+                }
+                logger.Info("[DemoIKChar][TEAR] FK-recon : topo.Size={0}/{1}  maxPosErr={2} (joint {3}, parent={4})  invErr={5}\n",
+                            (uint32)st->topo.Size(), jc, maxErr, worst, st->parentJoint[worst], invErr);
+                NkVector<NkMat4f> ib; ib.Resize(jc);
+                for (uint32 j=0;j<jc;++j) { NkMat4f m=(j<(uint32)D.inverseBind.Size())?D.inverseBind[j]:NkMat4f::Identity(); ib[j]=wb[j]*m; }
+                metric(ib, "FK-BIND ");
+            }
+            // (C) RE-SKIN IK : solve vers une cible qui plie le membre, puis skin.
+            if (st->ready) {
+                NkVec3f tgt = { st->anchor.x + st->reach*0.55f, st->anchor.y - st->reach*0.35f, st->anchor.z + st->reach*0.4f };
+                st->rig->SetWorldPose(st->bind.Data(), jc);
+                st->rig->SetTarget(st->chainId, tgt);
+                st->ik.Solve(0.016f);
+                const NkMat4f* res = st->rig->GetBoneMatrices();
+                uint32 rc = st->rig->GetBoneMatrixCount();
+                NkVector<NkMat4f> wq; ComputeIKWorld(st, res, rc, wq);
+                NkVector<NkMat4f> ik; ik.Resize(jc);
+                for (uint32 j=0;j<jc;++j) {
+                    NkMat4f ibm = (j<(uint32)D.inverseBind.Size())?D.inverseBind[j]:NkMat4f::Identity();
+                    ik[j] = wq[j] * ibm;
+                }
+                metric(ik, "RESKIN-IK");
+            }
+        }
+
+        if (getenv("NK_IK_TEAR_DIAG"))
+            for (uint32 i = 0; i < (uint32)st->chain.Size(); ++i)
+                logger.Info("[DemoIKChar][CHAIN] os {0} : joint={1} parent={2}\n",
+                            i, (uint32)st->chain[i], st->parentJoint[(uint32)st->chain[i]]);
+
         logger.Info("[DemoIKChar] '{0}' : {1} joints, membre IK = {2} os (feuille={3}, "
                     "reach={4}m), mesh={5}, center=({6},{7},{8}) r={9}\n",
                     path.CStr(), jc, (uint32)st->chain.Size(), leaf, st->reach,
@@ -320,20 +457,13 @@ namespace nkentseu { namespace demo {
             resCount = st->rig->GetBoneMatrixCount();
         }
 
-        // ── Recompose le GLOBAL de chaque joint (FK propagée) ─────────────────
-        // Joint dans la chaine -> global IK (res). Descendant d'un joint résolu ->
-        // delta de son ancetre-chaine (= resGlobal(a)*bindGlobal(a)^-1) -> la main
-        // suit le poignet. Joint non affecté -> bind.
-        for (uint32 j = 0; j < jc; ++j) {
-            if (st->inChain[j] && j < resCount) { st->world[j] = res[j]; continue; }
-            int32 a = st->chainAncestor[j];
-            if (a >= 0 && (uint32)a < resCount) {
-                NkMat4f delta = res[(uint32)a] * st->bind[(uint32)a].Inverse();
-                st->world[j] = delta * st->bind[j];
-            } else {
-                st->world[j] = st->bind[j];
-            }
-        }
+        // ── Recompose le GLOBAL par AIM-FK hiérarchique (tear-free) ───────────
+        // (1) Joints de chaîne, racine->tip : chaque joint PIVOTE (autour de son
+        // origine) pour amener son enfant sur la position résolue par FABRIK, puis
+        // enfant = parent * localBind (FK cohérente -> atteint les positions FABRIK
+        // SANS double-rotation, contrairement à un compoundage naïf). (2) FK topo
+        // pour tous les autres joints (descendants suivent leur ancêtre de chaîne).
+        ComputeIKWorld(st, res, resCount, st->world);
 
         NkSceneContext sctx;
         sctx.camera = cam; sctx.time = t;

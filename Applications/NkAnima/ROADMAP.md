@@ -117,10 +117,24 @@ une fois déplacée, la cible reste posée (`hasManual`). Input via
 `NkIKSystem` (engine) reste pur et réutilisable jeu+app. Buildé, EXIT=0 ; drag à
 valider en interactif (non testable en headless).
 
+**✅ FIX MAJEUR (2026-06-27) — déchirure du mesh = bug `NkMat4::Inverse()`** :
+le re-skin déchirait (étirement d'arête jusqu'à 83×). Diagnostic CPU (metric
+d'étirement d'arêtes, gated `NK_IK_TEAR_DIAG`) → isolé : ni le skinning ni l'anim
+native (5.9×), mais **`NkMat4::Inverse()` retournait la TRANSPOSÉE de l'inverse**
+(adjugée non transposée, `NkMat.h:1019` `Cofactor(row,col)`→`Cofactor(col,row)`).
+Faux dès qu'il y a translation/scale (OK seulement rotations pures). **Corrigé dans
+NKMath** → impact moteur LARGE : `normalMatrix = Inverse().Transpose()` (éclairage,
+les normales étaient transformées par Rᵀ au lieu de R sur les objets tournés !) +
+`invViewProj` caméra (SSR/SSAO/fog) sont désormais CORRECTS partout. Re-skin refait
+en **aim-FK hiérarchique** (`ComputeIKWorld` : chaque joint de chaîne pivote pour
+placer son enfant sur la position FABRIK, FK cohérente racine→feuilles) → **0
+déchirure** (étirement max 1.34×, < l'anim native). Démos 2/3/13/15 non régressées.
+
 **M0 = TERMINÉ.** L'IK est fonctionnel de bout en bout : 3 solveurs (FABRIK/CCD/
 Two-Bone), write-back bind-fidèle, debug-line renderer réel, sur chaîne procédurale
 (DemoIK) ET sur un vrai personnage skinné (DemoIKChar : CesiumMan, squelette + mesh
-déformé, effecteur draggable). API engine réutilisable jeu (Noge) + app (NkAnima).
+déformé SANS déchirure, effecteur draggable). API engine réutilisable jeu (Noge) +
+app (NkAnima).
 
 **✅ CHANTIER TRANSVERSE FAIT (2026-06-27) — vrai debug-line renderer** :
 `NkRender3D::FlushDebug` était un STUB ; maintenant il REND vraiment. Toute l'API
