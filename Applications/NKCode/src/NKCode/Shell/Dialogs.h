@@ -439,7 +439,9 @@ namespace nkcode {
                 const bool hov = hit(r);
                 dl.AddRectFilled(r, cSelBg, 10.f * S); dl.AddRect(r, cAccent, 1.f);
                 dl.AddRectFilled({ r.x + 10.f * S, r.y + 10.f * S, 30.f * S, 30.f * S }, cAccent, 8.f * S);
-                text(r.x + 52.f * S, r.y + 7.f * S, d->st->root.GetFileName().CStr(), NkColor{ 255,255,255,255 });
+                const char* curNm = (d->st->wsIdx >= 0 && d->st->wsIdx < (int32)d->st->wsNames.Size())
+                                  ? d->st->wsNames[d->st->wsIdx].CStr() : d->st->root.GetFileName().CStr();
+                text(r.x + 52.f * S, r.y + 7.f * S, curNm, NkColor{ 255,255,255,255 });
                 text(r.x + 52.f * S, r.y + 7.f * S + lh, d->st->root.ToString().CStr(), cSub);
                 const char* badge = "courant"; const float32 bw = f->MeasureWidth(badge) + 14.f * S;
                 const NkRect pb = { r.x + r.w - bw - 14.f * S, r.y + (50.f * S - 18.f * S) * 0.5f, bw, 18.f * S };
@@ -450,13 +452,12 @@ namespace nkcode {
             // Dessine une ligne workspace (icone + nom + chemin) avec, au survol, les
             // boutons EPINGLER/DESEPINGLER et RETIRER a droite. action: 1=charger,
             // 2=(des)epingler, 3=retirer.
-            auto wsRow = [&](const NkString& path, int32 colorIdx, bool pinnedRow) -> int32 {
-                NkPath pp(path.CStr());
+            auto wsRow = [&](const NkString& path, const char* dispName, int32 colorIdx, bool pinnedRow) -> int32 {
                 const NkRect r = { mx, ry, mw, 50.f * S };
                 const bool hov = hit(r);
                 if (hov) dl.AddRectFilled(r, cRowHov, 10.f * S);
                 dl.AddRectFilled({ r.x + 10.f * S, r.y + 10.f * S, 30.f * S, 30.f * S }, pinnedRow ? cAccent : rowCols[colorIdx % 4], 8.f * S);
-                text(r.x + 52.f * S, r.y + 7.f * S, pp.GetFileName().CStr(), cText);
+                text(r.x + 52.f * S, r.y + 7.f * S, dispName, cText);   // nom `with workspace(...)`
                 text(r.x + 52.f * S, r.y + 7.f * S + lh, path.CStr(), NkColor{ 140,140,150,255 });
                 int32 act = 0;
                 const NkRect bRem = { r.x + r.w - 30.f * S, r.y + 15.f * S, 20.f * S, 20.f * S };
@@ -479,7 +480,8 @@ namespace nkcode {
             // Epingles d'abord
             for (usize i = 0; d->st && i < d->st->pinned.Size(); ++i) {
                 const NkString path = d->st->pinned[i];
-                const int32 a = wsRow(path, (int32)i, true);
+                const char* nm = (i < d->st->pinnedNames.Size()) ? d->st->pinnedNames[i].CStr() : path.CStr();
+                const int32 a = wsRow(path, nm, (int32)i, true);
                 if (a == 1) { NkPath pp(path.CStr()); d->DoLoad(pp.GetParent()); return; }
                 if (a == 2) { d->st->UnpinRecent(path); return; }
                 if (a == 3) { d->st->RemoveRecent(path); return; }
@@ -490,7 +492,8 @@ namespace nkcode {
                 const NkString path = d->st->recents[i];
                 NkPath pp(path.CStr());
                 if (canCont && StrEq(pp.GetParent().ToString().CStr(), d->st->root.ToString().CStr())) continue;
-                const int32 a = wsRow(path, (int32)i, false);
+                const char* nm = (i < d->st->recentNames.Size()) ? d->st->recentNames[i].CStr() : path.CStr();
+                const int32 a = wsRow(path, nm, (int32)i, false);
                 if (a == 1) { d->DoLoad(pp.GetParent()); return; }
                 if (a == 2) { d->st->PinRecent(path); return; }
                 if (a == 3) { d->st->RemoveRecent(path); return; }
@@ -687,7 +690,6 @@ namespace nkcode {
 
         // ===== Liste des toolchains detectees + actions =====
         text(cx, py + 16.f * S, "Toolchains detectees par Jenga", cText);
-        if (sbtn({ px + pw - 200.f * S, py + 14.f * S, 180.f * S, 26.f * S }, "+ Ajouter un toolchain")) { d->TcEditNew(); return; }
         text(cx, py + 16.f * S + lh + 2.f, "Modifier/Supprimer un toolchain (registre Jenga) ou editer les chemins SDK.", cSub);
 
         const NkRect area = { cx, py + 64.f * S, cwid, ph - 64.f * S - 150.f * S };
@@ -740,7 +742,8 @@ namespace nkcode {
 
         const float32 by = py + ph - 44.f * S;
         if (!d->st->cfgStatus.Empty()) text(cx, by - 22.f * S, d->st->cfgStatus.CStr(), cSub);
-        if (sbtn({ px + 20.f * S, by, 200.f * S, 32.f * S }, "Rafraichir la detection")) { if (d->st) d->st->RequestReload(); }
+        if (pbtn({ px + 20.f * S, by, 200.f * S, 32.f * S }, "+ Ajouter un toolchain", true)) { d->TcEditNew(); return; }
+        if (sbtn({ px + 230.f * S, by, 180.f * S, 32.f * S }, "Rafraichir la detection")) { if (d->st) d->st->RequestReload(); }
         if (sbtn({ px + pw - 110.f * S, by, 90.f * S, 32.f * S }, "Fermer")) { d->tcOpen = false; }
         if (ctx.input.KeyPressed(NkGuiKey::Escape)) d->tcOpen = false;
     }

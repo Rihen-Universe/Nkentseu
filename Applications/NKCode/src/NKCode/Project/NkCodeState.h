@@ -320,8 +320,21 @@ namespace nkcode {
 
         // ── Recents + epingles : workspaces ouverts avec l'IDE (~/.nkcode_recent.cfg) ──
         // Fichier : 1 ligne/entree, prefixe "P " = epingle, "R " (ou rien) = recent.
-        NkVector<NkString> recents;   // non epingles (ordre = recence)
+        NkVector<NkString> recents;   // non epingles (ordre = recence) — chemins .jenga
         NkVector<NkString> pinned;    // epingles (restent en tete)
+        NkVector<NkString> recentNames, pinnedNames;   // noms `with workspace(...)` (cache)
+
+        // Lit un .jenga et renvoie le nom du workspace (`with workspace("NAME")`),
+        // ou le nom de fichier sans extension en repli.
+        static NkString WorkspaceNameOf(const char* jengaPath) {
+            const NkString txt = NkFile::ReadAllText(NkPath(jengaPath));
+            return WorkspaceName(txt, NkPath(jengaPath).GetFileNameWithoutExtension());
+        }
+        void RebuildRecentNames() {
+            recentNames.Clear(); pinnedNames.Clear();
+            for (usize i = 0; i < recents.Size(); ++i) recentNames.PushBack(WorkspaceNameOf(recents[i].CStr()));
+            for (usize i = 0; i < pinned.Size();  ++i) pinnedNames.PushBack(WorkspaceNameOf(pinned[i].CStr()));
+        }
         static NkString RecentsPath() {
             const char* home = std::getenv("USERPROFILE");
             if (!home || !*home) home = std::getenv("HOME");
@@ -349,6 +362,7 @@ namespace nkcode {
             };
             for (const char* p = txt.CStr(); *p; ++p) { if (*p == '\n' || *p == '\r') flush(); else cur += *p; }
             flush();
+            RebuildRecentNames();
         }
         void SaveRecents() {
             NkString out;
@@ -363,11 +377,11 @@ namespace nkcode {
             for (usize i = 0; i < recents.Size() && nw.Size() < 12; ++i)
                 if (!StrEq(recents[i].CStr(), wsPath.CStr())) nw.PushBack(recents[i]);
             recents = nw;
-            SaveRecents();
+            SaveRecents(); RebuildRecentNames();
         }
-        void PinRecent(const NkString& path)   { RemoveFrom(recents, path.CStr()); if (!IsPinned(path.CStr())) pinned.PushBack(path); SaveRecents(); }
-        void UnpinRecent(const NkString& path) { RemoveFrom(pinned, path.CStr()); RemoveFrom(recents, path.CStr()); recents.Insert(recents.Begin(), path); SaveRecents(); }
-        void RemoveRecent(const NkString& path){ RemoveFrom(recents, path.CStr()); RemoveFrom(pinned, path.CStr()); SaveRecents(); }
+        void PinRecent(const NkString& path)   { RemoveFrom(recents, path.CStr()); if (!IsPinned(path.CStr())) pinned.PushBack(path); SaveRecents(); RebuildRecentNames(); }
+        void UnpinRecent(const NkString& path) { RemoveFrom(pinned, path.CStr()); RemoveFrom(recents, path.CStr()); recents.Insert(recents.Begin(), path); SaveRecents(); RebuildRecentNames(); }
+        void RemoveRecent(const NkString& path){ RemoveFrom(recents, path.CStr()); RemoveFrom(pinned, path.CStr()); SaveRecents(); RebuildRecentNames(); }
 
         // Argument --jenga-file pour cibler le workspace selectionne.
         NkString JengaFileArg() const {
