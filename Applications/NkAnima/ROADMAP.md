@@ -190,9 +190,15 @@ l'édition Cascadeur). M1.a (modèle + sampler) était donc DÉJÀ là.
 - **Qualité d'interp** : `boneTracks` stocke des `NkMat4f` lerpés composant-par-
   composant (rotation imparfaite entre clés éloignées). Passer à TRS par os
   (position/quaternion-slerp/scale) pour une interpolation propre = raffinement.
-- **Superposer l'IK (M0) sur l'anim** : foot-lock / hand-IK par-dessus le clip joué
-  (anim + IK = la vraie fondation Cascadeur). Brancher `NkIKSystem` sur la pose du
-  player.
+- ~~**Superposer l'IK (M0) sur l'anim**~~ **✅ FAIT (2026-06-27)** : démo `DemoAnimIK`
+  (`renderdemo --demo=17`) — le corps MARCHE (clip rejoué) ET un bras atteint une cible
+  via IK FABRIK, EN MÊME TEMPS (= signature Cascadeur). Pipeline : `player.Update` →
+  pose animée (skinning) → `animGlobal = animSkin × bindGlobal` (transforms monde
+  animés) → FABRIK sur la chaîne du bras → aim-FK cohérente (base = pose animée) →
+  `skin = world × inverseBind`. **Piège résolu** : `bindGlobal` DOIT être
+  `inverse(inverseBind[j])` (PAS `EvaluateGLTFWorldJoints`, dont le global diffère du
+  global implicite des inverseBind → sinon pose contorsionnée). Validé visuellement
+  (perso debout qui marche + bras IK, 146 FPS). Bypass diagnostic `NK_ANIMIK_NOIK`.
 
 ### M2 — State machine / blend tree / retargeting
 Transitions, blend de poses, appliquer une anim à un autre rig (retargeting).

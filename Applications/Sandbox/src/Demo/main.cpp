@@ -52,6 +52,7 @@ namespace nkentseu { namespace demo {
     bool DemoIK_Init                     (DemoCtx&); void DemoIK_Frame                     (DemoCtx&, float32); void DemoIK_Shutdown                     (DemoCtx&);
     bool DemoIKChar_Init                 (DemoCtx&); void DemoIKChar_Frame                 (DemoCtx&, float32); void DemoIKChar_Shutdown                 (DemoCtx&);
     bool DemoAnim_Init                   (DemoCtx&); void DemoAnim_Frame                   (DemoCtx&, float32); void DemoAnim_Shutdown                   (DemoCtx&);
+    bool DemoAnimIK_Init                 (DemoCtx&); void DemoAnimIK_Frame                 (DemoCtx&, float32); void DemoAnimIK_Shutdown                 (DemoCtx&);
 
     static const DemoEntry kDemos[] = {
         { "Subsystems", "Runtime enable/disable des sous-systemes",
@@ -101,6 +102,10 @@ namespace nkentseu { namespace demo {
         // glTF -> bake clip -> save .nkanim -> reload -> play -> skinning.
         { "Anim",       "DemoAnim : NkAnima M1 — clip + .nkanim binaire + player (CesiumMan rejoue)",
             DemoAnim_Init, DemoAnim_Frame, DemoAnim_Shutdown },
+        // DemoAnimIK : NkAnima M1+M0 — IK PAR-DESSUS l'anim (le corps marche, le bras
+        // atteint une cible). Signature Cascadeur : animation + IK ensemble.
+        { "AnimIK",     "DemoAnimIK : NkAnima M1+M0 — IK sur anim (marche + bras qui atteint une cible)",
+            DemoAnimIK_Init, DemoAnimIK_Frame, DemoAnimIK_Shutdown },
     };
     static constexpr uint32 kDemoCount = (uint32)(sizeof(kDemos) / sizeof(kDemos[0]));
 
@@ -278,9 +283,8 @@ namespace nkentseu { namespace demo {
                 c.ibl.iblStrength = 0.85f;
                 return c;
             }
-            case 15: {
-                // DemoAnim (NkAnima M1) : mesh skinné rejoué depuis .nkanim. Game
-                // standard (IBL HDR + ombres), comme DemoSkin.
+            case 15:   // DemoAnim (NkAnima M1) : rejoue .nkanim. Game standard.
+            case 16: { // DemoAnimIK (NkAnima M1+M0) : anim + IK. Game standard.
                 return NkRendererConfig::ForGame(api, w, h);
             }
             case 14: {
@@ -327,6 +331,7 @@ int nkmain(const NkEntryState& state) {
     if (demoIx == 14) demoIx = 13;  // DemoIK         -> kDemos[13]
     if (demoIx == 15) demoIx = 14;  // DemoIKChar     -> kDemos[14]
     if (demoIx == 16) demoIx = 15;  // DemoAnim       -> kDemos[15]
+    if (demoIx == 17) demoIx = 16;  // DemoAnimIK     -> kDemos[16]
     if (demoIx < 0 || (uint32)demoIx >= kDemoCount) demoIx = 0;
     const DemoEntry& demo = kDemos[demoIx];
 
