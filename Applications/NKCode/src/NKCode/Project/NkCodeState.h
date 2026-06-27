@@ -76,6 +76,9 @@ namespace nkcode {
             OpenFile& f = files[active];
             if (NkFile::WriteAllText(f.path, f.doc.GetText())) {
                 f.doc.dirty = false; status = NkString("Enregistre : ") + f.Name().CStr();
+                // Sauvegarde d'un .jenga (workspace OU projet inclus) -> recharge la
+                // liste des projets (jenga info relit le workspace + ses includes).
+                if (EndsWithI(f.Name().CStr(), ".jenga")) RequestReload();
                 return true;
             }
             status = NkString("Echec enregistrement"); return false;
@@ -92,11 +95,14 @@ namespace nkcode {
             status = NkString("Construction...");
         }
 
-        // A appeler CHAQUE FRAME : recupere la sortie du build + met a jour le statut.
+        // A appeler CHAQUE FRAME : recupere la sortie + enchaine la file + statut.
         void PollBuild() {
             mBuild.Drain(output);
-            if (mBuild.Done() && status.Size() > 0 && StrEq(status.CStr(), "Construction..."))
-                status = (mBuild.ExitCode() == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
+            if (!mBuild.Running()) {
+                if (!mQueue.Empty()) { PumpQueue(); return; }   // commande suivante (rafale)
+                if (status.Size() > 0 && StrEq(status.CStr(), "Construction..."))
+                    status = (mBuild.ExitCode() == 0) ? NkString("Termine (OK)") : NkString("Termine (echec)");
+            }
         }
 
         // ── Projets du workspace (un .jenga en contient plusieurs) ───────────────
@@ -108,11 +114,13 @@ namespace nkcode {
                  ? projects[projIdx].CStr() : "";
         }
 
-        // Charge la liste des projets via `jenga info` (ASYNCHRONE).
+        // Charge la liste des projets du WORKSPACE selectionne via `jenga info`
+        // (ASYNCHRONE). Recharge automatiquement quand on change de workspace.
         void LoadProjects() {
-            if (mInfoStarted) return;
-            mInfoStarted = true; mInfoParsed = false;
-            mInfo.Start(NkString("jenga info"));
+            if (mInfoStarted && mInfoWsIdx == wsIdx) return;
+            mInfoStarted = true; mInfoParsed = false; mInfoWsIdx = wsIdx;
+            mInfoLines.Clear(); projects.Clear();
+            mInfo.Start(NkString("jenga info") + JengaFileArg().CStr());
         }
 
         // A appeler CHAQUE FRAME : draine `jenga info` puis parse la table des projets.
@@ -141,11 +149,169 @@ namespace nkcode {
 
         const char* ConfigName() const { return cfgIdx == 1 ? "Release" : "Debug"; }
 
+        // ====================================================================
+        // ── Barre d'outils build complete : workspaces -> projets -> system ->
+        //    config -> architecture -> [Construire/Recompiler/Nettoyer/Demarrer]
+        // ====================================================================
+
+        // Systeme cible + ses architectures (encodees dans --platform <OS>-<arch>).
+        struct SysDef { const char* name; const char* archs[6]; int32 nArch; };
+        static const SysDef* Systems(int32* n) {
+            static const SysDef s[] = {
+                { "Windows",    { "x86_64", "x86", "arm64" },          3 },
+                { "Linux",      { "x86_64", "arm64" },                  2 },
+                { "macOS",      { "x86_64", "arm64" },                  2 },
+                { "Android",    { "arm64", "arm", "x86", "x86_64" },    4 },
+                { "iOS",        { "arm64" },                            1 },
+                { "Web",        { "wasm32" },                           1 },
+                { "HarmonyOS",  { "arm64" },                            1 },
+                { "XboxSeries", { "x86_64" },                           1 },
+            };
+            if (n) *n = 8; return s;
+        }
+        int32 sysIdx  = 0;   // index dans Systems()
+        int32 archIdx = 0;   // 0..nArch-1 = arch precise ; == nArch -> "Toutes"
+
+        // ── Workspaces : fichiers .jenga a la racine contenant "with workspace" ──
+        NkVector<NkString> wsPaths, wsNames;
+        int32 wsIdx = 0;
+        bool  mWsScanned = false;
+
+        void ScanWorkspaces() {
+            if (mWsScanned) return; mWsScanned = true;
+            wsPaths.Clear(); wsNames.Clear();
+            NkVector<NkDirectoryEntry> entries = NkDirectory::GetEntries(root, "*", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            for (usize i = 0; i < entries.Size(); ++i) {
+                const NkDirectoryEntry& e = entries[i];
+                if (e.IsDirectory) continue;
+                const NkString nm = e.Name;
+                if (!EndsWithI(nm.CStr(), ".jenga")) continue;
+                const NkString txt = NkFile::ReadAllText(e.FullPath);
+                if (!Contains(txt.CStr(), "with workspace") && !Contains(txt.CStr(), "workspace(")) continue;
+                wsPaths.PushBack(e.FullPath.ToString());
+                wsNames.PushBack(WorkspaceName(txt, nm));
+            }
+            if (wsIdx < 0 || wsIdx >= static_cast<int32>(wsPaths.Size())) wsIdx = 0;
+        }
+        bool HasWorkspace() const { return !wsPaths.Empty(); }
+
+        // Argument --jenga-file pour cibler le workspace selectionne.
+        NkString JengaFileArg() const {
+            if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))
+                return NkString(" --jenga-file \"") + wsPaths[wsIdx].CStr() + "\"";
+            return NkString();
+        }
+
+        // Projet « Tous les projets » = entree virtuelle apres la liste.
+        bool AllProjects() const { return projIdx >= static_cast<int32>(projects.Size()); }
+        const char* ConfigNameOf(int32 i) const { return i == 1 ? "Release" : "Debug"; }
+
+        // ── File d'attente de commandes jenga (compilation en rafale) ──
+        NkVector<NkString> mQueue;
+        void EnqueueJenga(const NkString& args) { mQueue.PushBack(NkString("jenga ") + args.CStr()); }
+        void PumpQueue() {
+            if (mBuild.Running() || mQueue.Empty()) return;
+            NkString next = mQueue[0]; mQueue.Erase(mQueue.Begin());
+            output.PushBack(NkString("$ ") + next.CStr());
+            mBuild.Start(next);
+            status = NkString("Construction...");
+        }
+
+        // verb = "build" (Construire) ou "rebuild" (Recompiler de zero).
+        void DoBuildAction(const char* verb) {
+            if (!HasWorkspace()) { status = NkString("(aucun workspace)"); return; }
+            output.Clear(); mQueue.Clear();
+            int32 nSys = 0; const SysDef* sys = Systems(&nSys);
+            const SysDef& S = sys[(sysIdx >= 0 && sysIdx < nSys) ? sysIdx : 0];
+            int32 cfgs[2], nc = 0; if (cfgIdx >= 2) { cfgs[nc++] = 0; cfgs[nc++] = 1; } else cfgs[nc++] = cfgIdx;
+            int32 archs[6], na = 0;
+            if (archIdx >= S.nArch) { for (int32 i = 0; i < S.nArch; ++i) archs[na++] = i; }
+            else archs[na++] = archIdx;
+            for (int32 c = 0; c < nc; ++c) for (int32 a = 0; a < na; ++a) {
+                NkString cmd(verb);
+                if (!AllProjects()) { cmd += " --target "; cmd += SelectedProject(); }
+                cmd += " --config "; cmd += ConfigNameOf(cfgs[c]);
+                cmd += " --platform "; cmd += S.name; cmd += "-"; cmd += S.archs[archs[a]];
+                cmd += JengaFileArg();
+                EnqueueJenga(cmd);
+            }
+            PumpQueue();
+        }
+        void DoClean() {
+            if (!HasWorkspace()) { status = NkString("(aucun workspace)"); return; }
+            output.Clear(); mQueue.Clear();
+            NkString cmd("clean");
+            if (!AllProjects()) { cmd += " --project "; cmd += SelectedProject(); }
+            cmd += JengaFileArg();
+            EnqueueJenga(cmd); PumpQueue();
+        }
+        void DoRun() {
+            if (!HasWorkspace()) { status = NkString("(aucun workspace)"); return; }
+            if (AllProjects())  { status = NkString("(choisir un projet pour Demarrer)"); return; }
+            output.Clear(); mQueue.Clear();
+            int32 nSys = 0; const SysDef* sys = Systems(&nSys);
+            const SysDef& S = sys[(sysIdx >= 0 && sysIdx < nSys) ? sysIdx : 0];
+            NkString cmd("run "); cmd += SelectedProject();
+            cmd += " --config "; cmd += ConfigNameOf(cfgIdx >= 2 ? 0 : cfgIdx);
+            cmd += " --platform "; cmd += S.name;
+            cmd += " --build";
+            cmd += JengaFileArg();
+            EnqueueJenga(cmd); PumpQueue();
+        }
+
+        // Force un re-scan des workspaces + rechargement de `jenga info` (relit le
+        // workspace ET tous ses projets inclus). Appele par le bouton Recharger,
+        // au changement de workspace, et a l'auto-detection de modifs.
+        void RequestReload() {
+            mWsScanned = false;       // re-scan des .jenga racine
+            mInfoStarted = false;     // force le rechargement de jenga info
+            mInfoWsIdx = -1;
+        }
+
+        // Auto-detection (sur timer) : si un .jenga de la racine a change de date de
+        // modification -> recharge. Les modifs faites DANS l'editeur (workspace ou
+        // projet inclus) declenchent aussi un reload via SaveActive.
+        void TickWatch(float32 dt) {
+            mWatchTimer += dt;
+            if (mWatchTimer < 1.5f) return;
+            mWatchTimer = 0.f;
+            // Signature = max(date de modif) des .jenga racine. Si elle augmente -> reload.
+            int64 mx = 0;
+            NkVector<NkDirectoryEntry> entries = NkDirectory::GetEntries(root, "*.jenga", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+            for (usize i = 0; i < entries.Size(); ++i) {
+                if (entries[i].IsDirectory) continue;
+                const int64 t = static_cast<int64>(entries[i].ModificationTime);
+                if (t > mx) mx = t;
+            }
+            if (mLastJengaMtime == 0) { mLastJengaMtime = mx; return; }   // 1re mesure
+            if (mx > mLastJengaMtime) { mLastJengaMtime = mx; RequestReload(); }
+        }
+
     private:
+        float32   mWatchTimer = 0.f;
+        int64 mLastJengaMtime = 0;
+        static bool EndsWithI(const char* s, const char* suf) {
+            usize ls = 0, lf = 0; for (const char* p = s; *p; ++p) ++ls; for (const char* p = suf; *p; ++p) ++lf;
+            if (lf > ls) return false; const char* a = s + (ls - lf);
+            for (usize i = 0; i < lf; ++i) { char x = a[i], y = suf[i]; if (x >= 'A' && x <= 'Z') x += 32; if (y >= 'A' && y <= 'Z') y += 32; if (x != y) return false; }
+            return true;
+        }
+        // Extrait le nom depuis workspace("NAME" ; sinon nom de fichier sans .jenga.
+        static NkString WorkspaceName(const NkString& txt, const NkString& fileName) {
+            const char* p = txt.CStr(); const char* k = "workspace(";
+            for (; *p; ++p) { const char* a = p; const char* b = k; while (*a && *b && *a == *b) { ++a; ++b; } if (!*b) { p = a; break; } }
+            if (*p) { while (*p == ' ' || *p == '\t') ++p; if (*p == '"' || *p == '\'') { char q = *p++; char nm[96]; usize i = 0; while (*p && *p != q && i + 1 < sizeof(nm)) nm[i++] = *p++; nm[i] = '\0'; if (i > 0) return NkString(nm); } }
+            NkString s = fileName; const char* d = s.CStr(); usize n = 0; for (const char* z = d; *z; ++z) ++n;
+            if (n > 6) { char b[128]; usize i = 0; for (; i < n - 6 && i + 1 < sizeof(b); ++i) b[i] = d[i]; b[i] = '\0'; return NkString(b); }
+            return s;
+        }
+
+
         NkProcess          mInfo;            // `jenga info` (liste des projets)
         NkVector<NkString> mInfoLines;
         bool               mInfoStarted = false;
         bool               mInfoParsed  = false;
+        int32              mInfoWsIdx   = -1;   // workspace pour lequel les projets sont charges
 
         // Parse la table "Projects" de `jenga info` -> ne garde que les EXECUTABLES
         // (Kind contenant "App") = cibles build/run pertinentes.

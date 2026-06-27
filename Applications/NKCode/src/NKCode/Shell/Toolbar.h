@@ -1,9 +1,12 @@
 #pragma once
 // =============================================================================
-// Toolbar.h — Barre d'outils horizontale facon Visual Studio Community.
-//   [Construire] [Demarrer(Run)] | <projet cible> <config> <plateforme> [appareil]
-//   Un .jenga contient PLUSIEURS projets -> selecteur de projet (liste via
-//   `jenga info`). Build OU Run du projet choisi, en Debug/Release, plateforme X.
+// Toolbar.h — Barre de build complete, pilotee par la structure Jenga reelle.
+//   [Recharger] | Workspace | Projet | System | Config | Architecture |
+//               | Construire | Recompiler | Nettoyer | Demarrer
+//   - Workspace = fichier .jenga a la racine contenant `with workspace`.
+//   - Projet : liste de `jenga info` du workspace (+ « Tous les projets »).
+//   - System/Config/Architecture pilotent --platform <OS>-<arch> et --config.
+//   - Config/Architecture acceptent « Toutes » -> compilation en rafale (file).
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKCode/Project/NkCodeState.h"
@@ -17,88 +20,101 @@ namespace nkcode {
     inline void DrawCodeToolbar(NkEditorFrameContext& ec, NkCodeState* s) {
         if (!s) return;
         auto& ctx = ec.Ui();
-        s->LoadProjects();    // lazy : lance `jenga info` une seule fois
-        s->PollProjects();    // draine + parse la liste des projets
 
-        static const char* kCfg[]  = { "Debug", "Release" };
-        static const char* kPlat[] = { "x64 (Windows)", "Linux", "Android", "Web" };
-        static const char* kPArg[] = { "", "Linux", "Android", "Web" };
-        static const char* kDev[]  = { "Emulateur Android", "Appareil USB" };
+        s->ScanWorkspaces();   // detecte les workspaces (.jenga avec `with workspace`)
+        s->TickWatch(ec.dt);   // auto-detection des modifs (.jenga racine)
+        s->LoadProjects();     // `jenga info` du workspace courant (recharge au besoin)
+        s->PollProjects();
 
-        // BeginCombo remplit la largeur restante et affiche son label -> on borne la
-        // region (largeur fixe) et on passe un label vide isole par PushId/PopId.
+        // Borne la region a une largeur fixe pour chaque combo + label isole.
         auto setW = [&](float32 w) { ctx.layout.region.w = (ctx.layout.cursor.x - ctx.layout.region.x) + w; };
+        const float32 savedRegionW = ctx.layout.region.w;
 
-        // Largeurs fixes des combos.
-        const float32 wProj = ctx.S(190.f), wCfg = ctx.S(120.f), wPlat = ctx.S(150.f), wDev = ctx.S(170.f);
-        // CENTRAGE : calcule la largeur totale puis place le curseur de depart au milieu.
-        auto btnW = [&](const char* l) {
-            return (ctx.font && ctx.font->Valid() ? ctx.font->MeasureWidth(l) : 40.f) + ctx.theme.framePadX * 2.f + 6.f;
-        };
-        const float32 sp = ctx.layout.itemSpacingX;
-        int32   nItems = 5;
-        float32 total  = btnW(" Construire ") + btnW("  Demarrer  ") + wProj + wCfg + wPlat;
-        if (s->platIdx == 2) { total += wDev; nItems = 6; }
-        total += sp * (nItems - 1);
-        const float32 left = ctx.layout.region.x + ctx.S(8.f);
-        const float32 mid  = ctx.layout.region.x + (ctx.layout.region.w - total) * 0.5f;
-        ctx.layout.cursor.x   = mid > left ? mid : left;
+        // Curseur de depart a gauche.
+        ctx.layout.cursor.x   = ctx.layout.region.x + ctx.S(8.f);
         ctx.layout.lineStartX = ctx.layout.cursor.x;
 
-        // Construire (build du projet selectionne).
-        if (Button(ctx, " Construire ")) s->BuildSelected(kPArg[s->platIdx]);
-        ctx.SameLine();
-        // Demarrer (run : build force puis execution).
-        if (Button(ctx, "  Demarrer  ")) s->RunSelected(kPArg[s->platIdx], "");
+        // ── Bouton Recharger (re-scan + jenga info) ──
+        if (Button(ctx, " \xE2\x86\xBB ")) s->RequestReload();   // glyphe ↻
         ctx.SameLine();
 
-        // Projet cible (le .jenga en contient plusieurs).
-        setW(ctx.S(190.f));
-        const char* projPrev = s->projects.Empty() ? "(chargement...)" : s->SelectedProject();
-        ctx.PushId("proj");
-        if (BeginCombo(ctx, "", projPrev, static_cast<int32>(s->projects.Size()))) {
-            for (usize i = 0; i < s->projects.Size(); ++i)
-                if (Selectable(ctx, s->projects[i].CStr(), static_cast<int32>(i) == s->projIdx)) {
-                    s->projIdx = static_cast<int32>(i); ctx.ClosePopup();
-                }
+        if (!s->HasWorkspace()) {
+            ctx.SameLine();
+            ctx.layout.region.w = savedRegionW;
+            ec.Text("  Aucun workspace (.jenga avec 'with workspace') a la racine.");
+            return;
+        }
+
+        // ── 1) Workspace ──
+        setW(ctx.S(150.f));
+        ctx.PushId("ws");
+        const char* wsPrev = (s->wsIdx >= 0 && s->wsIdx < (int32)s->wsNames.Size()) ? s->wsNames[s->wsIdx].CStr() : "(workspace)";
+        if (BeginCombo(ctx, "", wsPrev, (int32)s->wsNames.Size())) {
+            for (usize i = 0; i < s->wsNames.Size(); ++i)
+                if (Selectable(ctx, s->wsNames[i].CStr(), (int32)i == s->wsIdx)) { s->wsIdx = (int32)i; s->RequestReload(); ctx.ClosePopup(); }
             EndCombo(ctx);
         }
-        ctx.PopId();
-        ctx.SameLine();
+        ctx.PopId(); ctx.SameLine();
 
-        // Configuration (Debug / Release).
-        setW(ctx.S(120.f));
+        // ── 2) Projet (+ « Tous les projets ») ──
+        setW(ctx.S(180.f));
+        ctx.PushId("proj");
+        const int32 nProj = (int32)s->projects.Size();
+        const char* projPrev = s->projects.Empty() ? "(chargement...)" : (s->AllProjects() ? "Tous les projets" : s->SelectedProject());
+        if (BeginCombo(ctx, "", projPrev, nProj + 1)) {
+            for (int32 i = 0; i < nProj; ++i)
+                if (Selectable(ctx, s->projects[i].CStr(), i == s->projIdx)) { s->projIdx = i; ctx.ClosePopup(); }
+            if (Selectable(ctx, "Tous les projets", s->AllProjects())) { s->projIdx = nProj; ctx.ClosePopup(); }
+            EndCombo(ctx);
+        }
+        ctx.PopId(); ctx.SameLine();
+
+        // ── 3) System (OS cible) ──
+        int32 nSys = 0; const NkCodeState::SysDef* sys = NkCodeState::Systems(&nSys);
+        if (s->sysIdx < 0 || s->sysIdx >= nSys) s->sysIdx = 0;
+        setW(ctx.S(130.f));
+        ctx.PushId("sys");
+        if (BeginCombo(ctx, "", sys[s->sysIdx].name, nSys)) {
+            for (int32 i = 0; i < nSys; ++i)
+                if (Selectable(ctx, sys[i].name, i == s->sysIdx)) { s->sysIdx = i; s->archIdx = 0; ctx.ClosePopup(); }
+            EndCombo(ctx);
+        }
+        ctx.PopId(); ctx.SameLine();
+
+        // ── 4) Config (Debug / Release / Toutes) ──
+        static const char* kCfg[] = { "Debug", "Release", "Toutes" };
+        setW(ctx.S(110.f));
         ctx.PushId("cfg");
-        if (BeginCombo(ctx, "", kCfg[s->cfgIdx], 2)) {
-            for (int32 i = 0; i < 2; ++i)
+        if (BeginCombo(ctx, "", kCfg[s->cfgIdx >= 0 && s->cfgIdx < 3 ? s->cfgIdx : 0], 3)) {
+            for (int32 i = 0; i < 3; ++i)
                 if (Selectable(ctx, kCfg[i], i == s->cfgIdx)) { s->cfgIdx = i; ctx.ClosePopup(); }
             EndCombo(ctx);
         }
-        ctx.PopId();
-        ctx.SameLine();
+        ctx.PopId(); ctx.SameLine();
 
-        // Plateforme cible.
-        setW(ctx.S(150.f));
-        ctx.PushId("plat");
-        if (BeginCombo(ctx, "", kPlat[s->platIdx], 4)) {
-            for (int32 i = 0; i < 4; ++i)
-                if (Selectable(ctx, kPlat[i], i == s->platIdx)) { s->platIdx = i; ctx.ClosePopup(); }
+        // ── 5) Architecture (du system courant + « Toutes ») ──
+        const NkCodeState::SysDef& S = sys[s->sysIdx];
+        if (s->archIdx < 0 || s->archIdx > S.nArch) s->archIdx = 0;
+        setW(ctx.S(130.f));
+        ctx.PushId("arch");
+        const char* archPrev = (s->archIdx >= S.nArch) ? "Toutes" : S.archs[s->archIdx];
+        if (BeginCombo(ctx, "", archPrev, S.nArch + 1)) {
+            for (int32 i = 0; i < S.nArch; ++i)
+                if (Selectable(ctx, S.archs[i], i == s->archIdx)) { s->archIdx = i; ctx.ClosePopup(); }
+            if (Selectable(ctx, "Toutes", s->archIdx >= S.nArch)) { s->archIdx = S.nArch; ctx.ClosePopup(); }
             EndCombo(ctx);
         }
-        ctx.PopId();
+        ctx.PopId(); ctx.SameLine();
 
-        // Appareil / emulateur : seulement pour une cible mobile (Android).
-        if (s->platIdx == 2) {
-            ctx.SameLine();
-            setW(ctx.S(170.f));
-            ctx.PushId("dev");
-            if (BeginCombo(ctx, "", kDev[s->devIdx], 2)) {
-                for (int32 i = 0; i < 2; ++i)
-                    if (Selectable(ctx, kDev[i], i == s->devIdx)) { s->devIdx = i; ctx.ClosePopup(); }
-                EndCombo(ctx);
-            }
-            ctx.PopId();
-        }
+        // ── 6) Actions ──
+        ctx.layout.region.w = savedRegionW;
+        if (Button(ctx, " Construire ")) s->DoBuildAction("build");
+        ctx.SameLine();
+        if (Button(ctx, " Recompiler ")) s->DoBuildAction("rebuild");
+        ctx.SameLine();
+        if (Button(ctx, " Nettoyer "))   s->DoClean();
+        ctx.SameLine();
+        if (Button(ctx, " Demarrer "))   s->DoRun();
     }
 
 } // namespace nkcode

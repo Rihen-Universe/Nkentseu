@@ -527,8 +527,8 @@ namespace nkentseu {
         // ── Barre d'outils horizontale (sous la barre de titre, facon Visual Studio) ─
         void NkEditorShell::DrawToolbar(NkEditorFrameContext& ec, const NkRect& rect) noexcept {
             auto& dl = mUI.dl;
-            dl.AddRectFilled(rect, { 45, 45, 45, 255 });                                      // #2d2d2d
-            dl.AddRectFilled({ rect.x, rect.y + rect.h - 1.f, rect.w, 1.f }, { 60, 60, 60, 255 });  // separateur
+            dl.AddRectFilled(rect, { 22, 26, 32, 255 });                                       // gris sombre #161A20
+            dl.AddRectFilled({ rect.x, rect.y + rect.h - 1.f, rect.w, 1.f }, { 40, 45, 53, 255 });  // separateur
             if (!mToolbarFn) return;
             // Region de layout horizontale : l'app pose Button/Combo + SameLine().
             const float32 itemH = mUI.ItemHeight();

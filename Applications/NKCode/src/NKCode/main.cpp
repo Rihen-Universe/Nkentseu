@@ -26,9 +26,8 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 static nkcode::NkCodeState g_state;
 
 // ── Commandes (NkEditorCommandFn = void(*)(void*)) ──
-static const char* PlatArg()       { static const char* a[] = { "", "Linux", "Android", "Web" }; return a[g_state.platIdx]; }
-static void CmdBuild(void*)        { g_state.BuildSelected(PlatArg()); }
-static void CmdRun(void*)          { g_state.RunSelected(PlatArg(), ""); }
+static void CmdBuild(void*)        { g_state.DoBuildAction("build"); }
+static void CmdRun(void*)          { g_state.DoRun(); }
 static void CmdSave(void* user)    { if (user) static_cast<nkcode::NkCodeState*>(user)->SaveActive(); }
 static void CmdFormat(void*)       {            // Formater le document actif (C/C++)
     if (g_state.active >= 0 && g_state.active < static_cast<int32>(g_state.files.Size()))
