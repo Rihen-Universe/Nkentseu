@@ -197,13 +197,29 @@ Rihen). Retour au lerp matriciel direct, correct à 30fps (clés rapprochées). 
 TRS appartient au niveau **bone-LOCAL** → cf RESTE M1 (stocker les tracks en TRS local
 + FK au sample). NkMath SLerp/DecomposeTRS restent prêts pour ça.
 
+**✅ REFACTO TRS-LOCAL + FK FAITE (2026-06-27)** : `BakeFromGLTF` bake maintenant des
+matrices **bone-LOCAL** (relatives au parent joint) + le squelette (`jointParent`,
+`jointInverseBind`, `jointTopo`, flag `skeletalLocal`). Le player fait **FK**
+(`ApplyFKSkinning` : global=parent×local, skin=global×inverseBind) au sample. `.nkanim`
+v2 (section squelette). **Validé visuellement** (NK_ANIM_NOSLERP : marche propre).
+Avantages : interp correcte sur transforms rigides locaux, retargetable, base d'édition
+de pose. **Améliorations NkMath au passage** : `NkMat4::DecomposeTRS` + `NkQuat::SLerp`
+réparé + **ctor `NkQuat(NkMat4)` RÉPARÉ** (utilisait `LookAt(forward,up)` = convention
+CAMÉRA, faux pour une rotation d'os → réécrit en trace-based Mike Day standard ;
+inutilisé ailleurs donc sûr).
+- **Interp DÉFAUT = lerp matriciel sur locaux** (rigides → propre à 30fps, prouvé).
+  **Slerp TRS opt-in `NK_ANIM_SLERP`** (DecomposeTRS+Quat+SLerp réparés) — à valider
+  visuellement avant de passer par défaut.
+
 **RESTE M1** :
-- **M1.c — timeline/scrubbing + édition de clés** (insertion/déplacement de
-  keyframes) : UI à concevoir sur **NKGui** (prêt, on conçoit les interfaces ;
-  PAS NKUI — directive Rihen). Widget timeline à créer (~1 sem), branché sur
-  `NkAnimationClip`/`NkAnimationPlayer`.
-- (option) Stocker les `boneTracks` en TRS bone-LOCAL + FK au sample plutôt que des
-  matrices de skinning bakées (édition de pose plus naturelle pour la timeline).
+- **Valider le slerp** (`NK_ANIM_SLERP=1`) visuellement → le passer par défaut.
+- **M1.c — timeline/scrubbing + édition de clés** : UI sur **NKGui** (prêt, on conçoit
+  les interfaces ; PAS NKUI — directive Rihen). Widget timeline à créer, branché sur
+  `NkAnimationClip`/`NkAnimationPlayer` (le mode TRS-local rend l'édition naturelle).
+
+⚠️ **BUILD bloqué (2026-06-27)** : `NKFont/Embedded/NkFontEmbedded.cpp` (WIP autre IA,
+modifié) référence des symboles `sNotoSans*` inexistants → renderdemo ne link pas.
+NKRenderer compile (mon code OK). Demo à relancer une fois le font réparé par l'autre IA.
 - ~~**Superposer l'IK (M0) sur l'anim**~~ **✅ FAIT (2026-06-27)** : démo `DemoAnimIK`
   (`renderdemo --demo=17`) — le corps MARCHE (clip rejoué) ET un bras atteint une cible
   via IK FABRIK, EN MÊME TEMPS (= signature Cascadeur). Pipeline : `player.Update` →

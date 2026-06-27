@@ -163,6 +163,19 @@ namespace nkentseu {
                 NkVector<NkAnimationTrack<NkMat4f>> boneTracks;  // un par bone
                 uint32 boneCount = 0;
 
+                // Mode LOCAL (M1) : si true, boneTracks = matrices bone-LOCAL (relatives
+                // au parent JOINT), PAS des matrices de skinning. Le player fait alors FK
+                // (global = parent×local) + skinning (global×inverseBind) au sample. Avantages :
+                // interp slerp CORRECTE (transforms rigides locaux, pas de scale composite),
+                // édition de pose naturelle (timeline), retargetable. Squelette requis :
+                bool              skeletalLocal = false;
+                NkVector<int32>   jointParent;       // parent de chaque joint (-1 = racine)
+                NkVector<NkMat4f> jointInverseBind;  // inverseBind par joint
+                NkVector<uint32>  jointTopo;         // ordre topo (parent avant enfant)
+                // Convertit en place des matrices bone-LOCAL en matrices de SKINNING
+                // (FK hiérarchique + inverseBind). Utilisé par le player en mode local.
+                void ApplyFKSkinning(NkVector<NkMat4f>& boneLocalToSkin) const;
+
                 // ── Morph targets ─────────────────────────────────────────────────────
                 NkVector<NkAnimationTrack<float32>> morphTracks;
                 NkVector<NkString>                  morphNames;

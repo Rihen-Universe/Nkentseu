@@ -725,20 +725,39 @@
             template <typename T>
             NkQuatT<T>::NkQuatT(const NkMat4T<T>& matrix) noexcept
             {
-                // Extraction et normalisation des axes depuis la matrice
-                NkVec3T<T> upAxis = matrix.up.xyz().Normalized();
-                NkVec3T<T> forwardAxis = matrix.forward.xyz().Normalized();
-
-                // Reconstruction de l'axe right par produit vectoriel
-                NkVec3T<T> rightAxis = upAxis.Cross(forwardAxis);
-
-                // Ré-orthogonalisation de up pour garantir l'orthonormalité
-                upAxis = forwardAxis.Cross(rightAxis);
-
-                // Construction du quaternion via LookAt
-                *this = LookAt(forwardAxis, upAxis);
-
-                // Nettoyage des erreurs d'arrondi infimes
+                // Conversion GÉNÉRALE matrice de rotation -> quaternion (méthode
+                // trace-based de Mike Day, robuste numériquement). L'ancienne version
+                // reconstruisait via LookAt(forward,up) — convention CAMÉRA qui ignorait
+                // l'axe right réel et donnait des quaternions FAUX pour une rotation
+                // d'os quelconque. Indices : R(i,j) = matrix.mat[col=j][row=i].
+                // On normalise d'abord les axes (la matrice peut contenir du scale).
+                NkVec3T<T> ax = matrix.right.xyz().Normalized();
+                NkVec3T<T> ay = matrix.up.xyz().Normalized();
+                NkVec3T<T> az = matrix.forward.xyz().Normalized();
+                // R(i,j) : colonne j = axe (ax=col0, ay=col1, az=col2), row i.
+                const T r00=ax.x, r10=ax.y, r20=ax.z;   // col0
+                const T r01=ay.x, r11=ay.y, r21=ay.z;   // col1
+                const T r02=az.x, r12=az.y, r22=az.z;   // col2
+                T qx,qy,qz,qw,t;
+                if (r22 < T(0)) {
+                    if (r00 > r11) {
+                        t  = T(1) + r00 - r11 - r22;
+                        qx = t; qy = r01 + r10; qz = r20 + r02; qw = r12 - r21;
+                    } else {
+                        t  = T(1) - r00 + r11 - r22;
+                        qx = r01 + r10; qy = t; qz = r12 + r21; qw = r20 - r02;
+                    }
+                } else {
+                    if (r00 < -r11) {
+                        t  = T(1) - r00 - r11 + r22;
+                        qx = r20 + r02; qy = r12 + r21; qz = t; qw = r01 - r10;
+                    } else {
+                        t  = T(1) + r00 + r11 + r22;
+                        qx = r12 - r21; qy = r20 - r02; qz = r01 - r10; qw = t;
+                    }
+                }
+                const T s = T(0.5) / static_cast<T>(sqrt(static_cast<double>(t)));
+                x = qx * s; y = qy * s; z = qz * s; w = qw * s;
                 ClampEpsilon();
             }
 
