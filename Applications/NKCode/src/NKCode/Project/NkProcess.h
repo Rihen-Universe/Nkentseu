@@ -48,6 +48,10 @@ namespace nkcode {
         NkProcess(const NkProcess&)            = delete;
         NkProcess& operator=(const NkProcess&) = delete;
 
+        // true = conserve les sequences ANSI (couleurs) -> parsees a l'affichage
+        // (terminal). false (defaut) = les retire (panneau Sortie/build).
+        void SetKeepAnsi(bool keep) { mKeepAnsi = keep; }
+
         // Lance `command` (stderr fusionne) en arriere-plan. false si deja en cours.
         bool Start(const NkString& command) {
             if (mRunning) return false;
@@ -81,7 +85,14 @@ namespace nkcode {
 #endif
             if (!pipe) { Push(NkString("[erreur] impossible de lancer la commande")); mExit = -1; mDone = true; mRunning = false; return; }
             char line[2048], clean[2048];
-            while (std::fgets(line, sizeof(line), pipe)) { NkStripAnsiInto(line, clean, sizeof(clean)); Push(NkString(clean)); }
+            while (std::fgets(line, sizeof(line), pipe)) {
+                if (mKeepAnsi) {                                  // garde ANSI, retire juste \r\n
+                    usize j = 0; for (const char* p = line; *p && j + 1 < sizeof(clean); ++p)
+                        if (*p != '\r' && *p != '\n') clean[j++] = *p;
+                    clean[j] = '\0';
+                } else NkStripAnsiInto(line, clean, sizeof(clean));
+                Push(NkString(clean));
+            }
 #if defined(_WIN32)
             mExit = _pclose(pipe);
 #else
@@ -102,6 +113,7 @@ namespace nkcode {
         NkString           mCmd;
         bool               mRunning = false;   // ecrit par le thread, lu (poll) par l'UI
         bool               mDone    = false;
+        bool               mKeepAnsi = false;  // conserve les codes ANSI (terminal)
         int                mExit    = 0;
     };
 

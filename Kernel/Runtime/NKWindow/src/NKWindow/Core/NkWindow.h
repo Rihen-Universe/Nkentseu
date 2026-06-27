@@ -116,6 +116,13 @@ namespace nkentseu {
             void Minimize();
             void Maximize();
             void Restore();
+            bool IsMaximized() const;        ///< true si la fenetre est maximisee (pour barre de titre custom)
+            void BeginDragMove();            ///< hand-off natif du deplacement (barre de titre custom, fenetre sans bordure)
+            /// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
+            enum class NkResizeEdge {
+                Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight
+            };
+            void BeginResize(NkResizeEdge edge);   ///< hand-off natif du redimensionnement par un bord
             void SetFullscreen(bool fullscreen);
             bool SupportsOrientationControl() const;
             void SetScreenOrientation(NkScreenOrientation orientation);
@@ -134,6 +141,23 @@ namespace nkentseu {
             void SetMousePosition(const math::NkVec2u& pos) { SetMousePosition(pos.x, pos.y); }
             void ShowMouse(bool show);
             void CaptureMouse(bool capture);
+
+            // --- Curseur ---
+            // Forme du curseur dans la zone client (consommé par les UI : poignée de
+            // redimensionnement, lien cliquable, champ texte...). Mappé sur les
+            // curseurs natifs (Win32 IDC_*, etc.). No-op sur mobile/web (sans curseur).
+            enum class NkCursorType {
+                Arrow = 0,   ///< flèche standard
+                TextInput,   ///< I-beam (saisie texte)
+                Hand,        ///< main (lien)
+                ResizeNS,    ///< redimensionnement vertical  ↕
+                ResizeWE,    ///< redimensionnement horizontal ↔
+                ResizeNWSE,  ///< diagonale ↘↖
+                ResizeNESW   ///< diagonale ↗↙
+            };
+            // Persistant : à rappeler chaque frame avec le curseur voulu (sinon, sur
+            // certaines plateformes, le système le réinitialise à la flèche).
+            void SetCursor(NkCursorType cursor);
 
             // Empeche le curseur de sortir de la zone client de la fenetre
             // (clip rectangulaire). Indispensable pour les FPS / RTS qui

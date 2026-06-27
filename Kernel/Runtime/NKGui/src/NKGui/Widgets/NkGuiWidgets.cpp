@@ -1948,13 +1948,16 @@ namespace nkentseu {
                 const NkGuiDockNode node = ctx.dockNodes[ni];       // copie (sécurité)
                 if (node.kind == 2) {
                     const NkRect  r  = node.rect;
-                    const float32 th = ctx.ItemHeight();
+                    // Masque la barre d'onglets d'un nœud à 1 seul panneau (opt-in) :
+                    // l'éditeur n'affiche alors que ses propres onglets de fichiers.
+                    const float32 th = (ctx.dockHideSingleTab && node.winCount <= 1) ? 0.f : ctx.ItemHeight();
                     if (node.winCount == 0) {
                         ctx.DL().AddRectFilled(r, ctx.theme.bgPrimary, 0.f);
                         ctx.DL().AddRect(r, ctx.theme.border, 1.f);
                         return;
                     }
                     int32 active = node.activeTab; if (active >= node.winCount) active = node.winCount - 1;
+                    if (th > 0.f) {
                     ctx.DL().AddRectFilled({ r.x, r.y, r.w, th }, ctx.theme.tabBar, 0.f);   // fond barre (≠ onglets)
                     // Réserve à DROITE : bouton « + » (si activé) + « ▾ » overflow (si débordement).
                     const float32 addW = ctx.dockTabAddButton ? th : 0.f;
@@ -2029,6 +2032,7 @@ namespace nkentseu {
                         ctx.DL().AddRectFilled({ cx - a, cy - 1.f, 2.f * a, 2.f }, ctx.theme.text);
                         ctx.DL().AddRectFilled({ cx - 1.f, cy - a, 2.f, 2.f * a }, ctx.theme.text);
                     }
+                    }   // fin barre d'onglets (masquee si th == 0 -> 1 seul panneau)
                     const NkRect content = { r.x, r.y + th, r.w, r.h - th };
                     ctx.DL().AddRectFilled(content, ctx.theme.panel, 0.f);
                     ctx.DL().AddRect(r, ctx.theme.border, 1.f);
@@ -2187,9 +2191,45 @@ namespace nkentseu {
             int32 mi; NkGuiWindowMeta* m = WinFind(ctx, wid, mi);
             if (!m) { NkGuiWindowMeta nm; nm.id = wid; ctx.windowMeta.PushBack(nm); mi = static_cast<int32>(ctx.windowMeta.Size()) - 1; m = &ctx.windowMeta[mi]; }
             if (m->dockNode >= 0) return;                          // déjà ancrée
-            int32 leaf = ctx.dockRoot;                             // descend jusqu'à une feuille
-            while (ctx.dockNodes[leaf].kind == 1) leaf = ctx.dockNodes[leaf].child0;
-            DockWindow(ctx, wid, leaf, zone);
+
+            const bool rootEmpty = (ctx.dockNodes[ctx.dockRoot].kind == 2 && ctx.dockNodes[ctx.dockRoot].winCount == 0);
+            if (zone == 0 || rootEmpty) {                          // onglet : descend vers une feuille
+                int32 leaf = ctx.dockRoot;
+                while (ctx.dockNodes[leaf].kind == 1) leaf = ctx.dockNodes[leaf].child0;
+                DockWindow(ctx, wid, leaf, zone);
+                return;
+            }
+            // Bord EXTERNE : on enveloppe TOUTE la racine -> le panneau occupe le bord
+            // entier (pleine largeur en haut/bas, pleine hauteur à gauche/droite).
+            const int32 panel = DockNew(ctx, 2);                   // (PushBack peut réallouer)
+            const int32 split = DockNew(ctx, 1);                   // -> accès par index ensuite
+            const int32 oldRoot = ctx.dockRoot;
+            { NkGuiDockNode& P = ctx.dockNodes[panel]; P.kind = 2; P.windows[0] = wid; P.winCount = 1; P.activeTab = 0; P.parent = split; }
+            { NkGuiDockNode& S = ctx.dockNodes[split];
+              S.kind = 1; S.vertical = (zone == 1 || zone == 2);   // gauche/droite = split vertical
+              const bool firstIsNew = (zone == 1 || zone == 3);    // gauche/haut -> panneau en 1er
+              S.child0 = firstIsNew ? panel : oldRoot;
+              S.child1 = firstIsNew ? oldRoot : panel;
+              S.ratio  = firstIsNew ? 0.22f : 0.78f;               // le panneau de bord ≈ 22%
+              S.parent = -1; }
+            ctx.dockNodes[oldRoot].parent = split;
+            ctx.dockRoot = split;
+            int32 mi2; NkGuiWindowMeta* wm = WinFind(ctx, wid, mi2);
+            if (wm) { wm->dockNode = panel; wm->dockActiveTab = true; }
+        }
+
+        // Ancre `windowTitle` en ONGLET dans le nœud qui contient `targetTitle`
+        // (même barre d'onglets). Si la cible n'est pas encore ancrée, repli sur un
+        // dock bas. Sert à regrouper Terminal + Sortie sur une seule barre.
+        void DockBuilderDockTab(NkGuiContext& ctx, const char* windowTitle, const char* targetTitle) noexcept {
+            const NkGuiId wid = ctx.GetId(windowTitle);
+            int32 mi; NkGuiWindowMeta* m = WinFind(ctx, wid, mi);
+            if (!m) { NkGuiWindowMeta nm; nm.id = wid; ctx.windowMeta.PushBack(nm); mi = static_cast<int32>(ctx.windowMeta.Size()) - 1; m = &ctx.windowMeta[mi]; }
+            if (m->dockNode >= 0) return;                          // déjà ancrée
+            const NkGuiId tid = ctx.GetId(targetTitle);
+            int32 ti; NkGuiWindowMeta* t = WinFind(ctx, tid, ti);
+            if (t && t->dockNode >= 0) { DockWindow(ctx, wid, t->dockNode, 0); return; }   // onglet dans la cible
+            DockBuilderDock(ctx, windowTitle, 4);                  // cible non ancrée -> dock bas
         }
 
         void DockWindowIntoWindow(NkGuiContext& ctx, const char* hostTitle, const char* winTitle) noexcept {

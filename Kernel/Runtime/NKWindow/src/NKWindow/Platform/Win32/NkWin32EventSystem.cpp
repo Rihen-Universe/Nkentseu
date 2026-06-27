@@ -153,6 +153,22 @@ namespace nkentseu {
         auto* owner  = reinterpret_cast<NkWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         NkWindowId winId = owner ? owner->GetId() : NK_INVALID_WINDOW_ID;
 
+        // Fenetre SANS decoration (frame=false) : supprime la zone non-cliente
+        // (barre de titre + bordure OS) en gardant le comportement (snap/min/max/
+        // resize). On etend la zone client a toute la fenetre.
+        if (msg == WM_NCCALCSIZE && wp == TRUE && owner && owner->mData.mBorderless) {
+            NCCALCSIZE_PARAMS* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+            if (IsZoomed(hwnd)) {   // maximise : insere le cadre pour ne pas couvrir la barre des taches
+                const int fx = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                const int fy = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                p->rgrc[0].left   += fx;
+                p->rgrc[0].top    += fy;
+                p->rgrc[0].right  -= fx;
+                p->rgrc[0].bottom -= fy;
+            }
+            return 0;   // client = toute la fenetre (aucune bordure dessinee par l'OS)
+        }
+
         return NkWin32_ProcessMessage(sys, hwnd, msg, wp, lp, winId, owner);
     }
 

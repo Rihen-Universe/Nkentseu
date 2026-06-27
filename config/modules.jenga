@@ -81,9 +81,11 @@ _REGISTRY: dict = {
     "NKRenderer"     : _m("NKENTSEU_RENDERER",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKThreading", "NKEvent", "NKWindow", "NKRHI", "NKSL", "NKImage", "NKFont", "NKFileSystem", "NKSerialization", "NKReflection"]),
     "NKImage"        : _m("NKENTSEU_IMAGE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
     "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKImage"]),
-    "NKECS"          : _m("NKENTSEU_ECS",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
+    "NKECS"          : _m("NKENTSEU_ECS",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKReflection", "NKSerialization"]),
     "NKCamera"       : _m("NKENTSEU_CAMERA",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
     "NKUI"           : _m("NKENTSEU_UI",           ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKEvent", "NKFont", "NKImage"]),
+    # NKGui : framework UI nouvelle génération (réécriture de NKUI, immédiat+retenu).
+    "NKGui"          : _m("NKENTSEU_NKGUI",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKEvent", "NKFont", "NKImage"]),
     "NKAudio"        : _m("NKENTSEU_AUDIO",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem", "NKThreading", "NKStream"]),
 
     # ---- Engine --------------------------------------------------------------
@@ -91,6 +93,11 @@ _REGISTRY: dict = {
                                                     "NKMath", "NKThreading", "NKLogger", "NKTime",
                                                     "NKEvent", "NKWindow", "NKCanvas", "NKRHI", "NKRenderer", "NKSL",
                                                     "NKFont", "NKImage", "NKUI"]),
+    # Socle d'editeur partage (coquille dockable, panneaux, palette). 2D pur :
+    # NKCanvas/NKUI, SANS NKRenderer ni NKReflection. Consomme par NKCode.
+    "NKEditorKit"    : _m("NKENTSEU_EDITORKIT",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
+                                                    "NKMath", "NKLogger", "NKTime", "NKStream", "NKFileSystem",
+                                                    "NKEvent", "NKWindow", "NKCanvas", "NKFont", "NKImage", "NKUI"]),
 
     # ---- Externes -----------------------------------------------------------
     # Pas de macro d'export Nkentseu (export=None -> aucun _STATIC_LIB emis).

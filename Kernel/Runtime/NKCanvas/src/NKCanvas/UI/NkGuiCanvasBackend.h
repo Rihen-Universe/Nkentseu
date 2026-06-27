@@ -129,8 +129,19 @@ namespace nkentseu {
                             if (mImages[ti].id == dc.texId) { tex = mImages[ti].tex; break; }
                     }
 
-                    mRenderer->DrawVertices(mScratch.Data(), static_cast<uint32>(dl.vtx.Size()),
-                                            dl.idx.Data() + dc.idxOffset, dc.idxCount, tex);
+                    // Ne soumet que le SOUS-ENSEMBLE de vertices reference par cette
+                    // commande (indices rebases). Indispensable : passer tout le buffer
+                    // depasse kMaxVertices (65536) des qu'un draw list est gros -> crash.
+                    uint32 lo = 0xFFFFFFFFu, hi = 0u;
+                    for (uint32 k = 0; k < dc.idxCount; ++k) {
+                        const uint32 v = dl.idx[dc.idxOffset + k];
+                        if (v < lo) lo = v;
+                        if (v > hi) hi = v;
+                    }
+                    mIdxTmp.Resize(dc.idxCount);
+                    for (uint32 k = 0; k < dc.idxCount; ++k) mIdxTmp[k] = dl.idx[dc.idxOffset + k] - lo;
+                    mRenderer->DrawVertices(mScratch.Data() + lo, hi - lo + 1u,
+                                            mIdxTmp.Data(), dc.idxCount, tex);
 
                     if (hasClip) mRenderer->PopClip();
                 }
@@ -145,6 +156,7 @@ namespace nkentseu {
             nkentseu::int32                                    mFontTexH  = 0;
             nkentseu::NkVector<ImgTex>                         mImages;
             nkentseu::NkVector<nkentseu::renderer::NkVertex2D> mScratch;
+            nkentseu::NkVector<nkentseu::uint32>               mIdxTmp;   // indices rebases par commande
             nkentseu::NkVector<nkentseu::uint8>                mExpand;
         };
 

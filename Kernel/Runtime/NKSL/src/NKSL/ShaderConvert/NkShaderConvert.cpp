@@ -326,17 +326,17 @@ namespace nkentseu {
             opts.shader_model = hlslShaderModel;
             compiler.set_hlsl_options(opts);
 
-            // ── Remapping compact des registres DX ────────────────────────────────
-            // NKRenderer met des ressources à des bindings élevés (25,26,27…) dans un
-            // set. Par défaut SPIRV-Cross émet register(b25/t25/s25) ; or DX11 plafonne
-            // à 14 cbuffer (b0-b13) et 16 sampler (s0-s15) -> erreur X4567. On réassigne
-            // donc des registres COMPACTS par classe (b/t/s/u) et on enregistre le
-            // mapping dans out.dxBindings pour que le device binde aux mêmes registres.
-            //   - DX11 (SM<=50) : pas de register space -> compaction PLATE (toutes sets
-            //     confondues dans space 0).
-            //   - DX12 (SM>=51) : on utilise space = descriptor set, register = compteur
-            //     par (classe, space).
-            const bool useSpaces = (hlslShaderModel >= 51);
+            // ── Registres DX = bindings GLSL (space0, pas de spaces) ───────────────
+            // Le device DX indexe sa table fusionnee par le BINDING GLSL (cf. la boucle
+            // d'assignation plus bas) => register HLSL == binding GLSL. On garde TOUT en
+            // space0 (useSpaces=false) : la root signature DX12 (NkDirectX12Device::
+            // CreateRootSignature) declare ses ranges CBV/SRV/UAV/SAMPLER UNIQUEMENT en
+            // space0. Si on emettait register(tN, space<set>) (espace = descriptor set),
+            // les shaders set=1 (FXAA/Bloom/Blur/SSAO : layout(set=1,binding=0)) liraient
+            // t0,space1 -> aucun range root ne couvre space1 -> SRV nulle -> noir/surexpose.
+            // Note : l'ancienne COMPACTION par classe (t0,t1,...) est SUPPRIMEE car elle
+            // desalignait register vs binding pour les bindings non contigus (skin).
+            const bool useSpaces = false;
             spv::ExecutionModel em =
                 (stage == NkSLStage::NK_VERTEX)   ? spv::ExecutionModelVertex   :
                 (stage == NkSLStage::NK_FRAGMENT) ? spv::ExecutionModelFragment :
@@ -344,7 +344,34 @@ namespace nkentseu {
                 (stage == NkSLStage::NK_GEOMETRY) ? spv::ExecutionModelGeometry :
                                                     spv::ExecutionModelFragment;
 
-            struct ResEntry { uint32 set; uint32 binding; spirv_cross::ID id; int cls; }; // cls 0=cbv 1=srv 2=combined 3=sampler 4=uav
+            // ── Semantics des attributs de vertex (input layout DX) ────────────────
+            // Par defaut SPIRV-Cross nomme TOUS les inputs vertex "TEXCOORD<location>".
+            // Or l'input layout du device (NkDirectX12/DX11Device) declare des semantics
+            // NOMMEES alignees sur la convention de maillage NKRenderer :
+            //   loc0=POSITION loc1=NORMAL loc2=TANGENT loc3=TEXCOORD0 loc4=TEXCOORD1
+            //   loc5=COLOR loc6=BLENDINDICES loc7=BLENDWEIGHT
+            // Sans remap, CreateInputLayout echoue ("input signature expects TEXCOORD/2
+            // but declaration doesn't provide a matching name") -> PSO E_INVALIDARG.
+            // Les shaders passant par NkSL (PBR/Shadow/Skybox) generent deja ces noms ;
+            // ce remap aligne le chemin SPIRV-Cross (ex. Skin) sur la meme convention.
+            if (stage == NkSLStage::NK_VERTEX) {
+                static const char* kVtxSemantic[] = {
+                    "POSITION", "NORMAL", "TANGENT", "TEXCOORD0", "TEXCOORD1",
+                    "COLOR", "BLENDINDICES", "BLENDWEIGHT"
+                };
+                auto vtxRes = compiler.get_shader_resources();
+                for (auto& in : vtxRes.stage_inputs) {
+                    uint32 loc = compiler.get_decoration(in.id, spv::DecorationLocation);
+                    if (loc < (sizeof(kVtxSemantic) / sizeof(kVtxSemantic[0]))) {
+                        spirv_cross::HLSLVertexAttributeRemap rm{};
+                        rm.location = loc;
+                        rm.semantic = kVtxSemantic[loc];
+                        compiler.add_vertex_attribute_remap(rm);
+                    }
+                }
+            }
+
+            struct ResEntry { uint32 set; uint32 binding; spirv_cross::ID id; int cls; }; // cls 0=cbv 1=srv 2=combined 3=sampler 4=uav 5=srv-storage-buffer
             std::vector<ResEntry> entries;
             auto add = [&](const spirv_cross::SmallVector<spirv_cross::Resource>& list, int cls) {
                 for (auto& r : list) {
@@ -355,7 +382,14 @@ namespace nkentseu {
             };
             auto resources = compiler.get_shader_resources();
             add(resources.uniform_buffers,   0); // CBV
-            add(resources.storage_buffers,   1); // SRV (StructuredBuffer lu en graphics)
+            // Skinning GPU : le SSBO de bones (readonly buffer) devient une SRV
+            // StructuredBuffer cote HLSL. Classe DEDIEE (5) : son register t#
+            // doit RESTER egal au binding GLSL (pas de compaction), car le device
+            // DX11/DX12 binde la SRV du storage buffer par NUMERO DE BINDING brut
+            // (et non via le mapping compacte out.dxBindings). Sans ca, bones
+            // compacte a t0 cote shader mais le device le binde a t<binding> ->
+            // SRV nulle -> bones=0 -> skin a l'origine -> INVISIBLE sur DX.
+            add(resources.storage_buffers,   5); // SRV storage buffer (register = binding, pas de compaction)
             add(resources.separate_images,   1); // SRV
             add(resources.sampled_images,    2); // SRV + Sampler (combiné)
             add(resources.separate_samplers, 3); // Sampler
@@ -366,14 +400,22 @@ namespace nkentseu {
                 return (a.set != b.set) ? (a.set < b.set) : (a.binding < b.binding);
             });
 
-            // Compteurs par classe et par space (état LOCAL à cet appel, pas de static).
-            // DX11 (useSpaces=false) : tout dans space 0. DX12 : un compteur par space=set.
-            uint32 cB[16]={0}, cT[16]={0}, cS[16]={0}, cU[16]={0};
-            auto alloc = [&](uint32* table, uint32 space) -> uint32 {
-                uint32 sp = useSpaces ? (space & 15u) : 0u;
-                return table[sp]++;
-            };
-
+            // ── Register HLSL = binding GLSL (PAS de compaction) ──────────────────
+            // Le device DX (DX11/DX12) indexe sa table « fusionnee » par le NUMERO
+            // DE BINDING GLSL : NkDirectX12CommandBuffer ecrit mMergedCbv/Srv/Samp
+            // [b.slot] (b.slot = binding GLSL) puis copie au slot ring OFF_CBV/SRV/
+            // SAMP + binding ; la root signature DX12 declare CBV b0, SRV t0, SAMP s0
+            // sur NUM_CBV/SRV=32 slots => register(tN) <-> ring slot OFF_SRV+N <->
+            // mMergedSrv[N] = ressource de binding N. Donc le HLSL DOIT avoir
+            // register == binding GLSL. Toute COMPACTION (t0,t1,... compacts)
+            // desaligne register vs binding : ex. skin frag tAlbedo(binding3) compacte
+            // a t0 mais le device met l'albedo a mMergedSrv[3]=t3 => t0 lit null => 0
+            // (modele skinne texture noir / discard sur alpha=0 tuait le mesh).
+            // On EPINGLE donc register = binding pour TOUTES les classes (CBV/SRV/
+            // sampler/UAV). Plus de risque X4567 DX11 ici : les shaders passant par
+            // SpirvToHlsl (skin, FXAA/Bloom/Blur) ont des bindings bas (<=8) ; les
+            // shaders a bindings eleves (25,26,27) passent par NkSL (registres deja
+            // epingles), pas par ce chemin. (cls 5 = storage buffer garde t0, cf bas.)
             for (auto& e : entries) {
                 spirv_cross::HLSLResourceBinding hb{};
                 hb.stage    = em;
@@ -382,27 +424,76 @@ namespace nkentseu {
                 NkDXResourceBinding map{};
                 map.set = e.set; map.binding = e.binding;
                 map.space = useSpaces ? e.set : 0u;
-                const uint32 space = e.set;
+                const uint32 reg = e.binding;   // register HLSL == binding GLSL
                 switch (e.cls) {
-                    case 0: { uint32 r=alloc(cB,space); hb.cbv.register_space=map.space; hb.cbv.register_binding=r; map.cbvReg=r; } break;
-                    case 1: { uint32 r=alloc(cT,space); hb.srv.register_space=map.space; hb.srv.register_binding=r; map.srvReg=r; } break;
-                    case 2: { uint32 t=alloc(cT,space); uint32 s=alloc(cS,space);
-                              hb.srv.register_space=map.space; hb.srv.register_binding=t;
-                              hb.sampler.register_space=map.space; hb.sampler.register_binding=s;
-                              map.srvReg=t; map.samplerReg=s; } break;
-                    case 3: { uint32 r=alloc(cS,space); hb.sampler.register_space=map.space; hb.sampler.register_binding=r; map.samplerReg=r; } break;
-                    case 4: { uint32 r=alloc(cU,space); hb.uav.register_space=map.space; hb.uav.register_binding=r; map.uavReg=r; } break;
+                    case 0: { hb.cbv.register_space=map.space; hb.cbv.register_binding=reg; map.cbvReg=reg; } break;
+                    case 1: { hb.srv.register_space=map.space; hb.srv.register_binding=reg; map.srvReg=reg; } break;
+                    case 2: { hb.srv.register_space=map.space; hb.srv.register_binding=reg;
+                              hb.sampler.register_space=map.space; hb.sampler.register_binding=reg;
+                              map.srvReg=reg; map.samplerReg=reg; } break;
+                    case 3: { hb.sampler.register_space=map.space; hb.sampler.register_binding=reg; map.samplerReg=reg; } break;
+                    case 4: { hb.uav.register_space=map.space; hb.uav.register_binding=reg; map.uavReg=reg; } break;
+                    // cls 5 : storage buffer lu en SRV (ByteAddressBuffer).
+                    // IMPORTANT : ce SPIRV-Cross assigne les ByteAddressBuffer a
+                    // un compteur SRV PROPRE partant de t0, en IGNORANT a la fois
+                    // add_hlsl_resource_binding ET la decoration Binding. Les
+                    // storage buffers de NKRenderer (bones skin, transforms
+                    // instancing) sont TOUJOURS seuls dans leur stage (aucune
+                    // texture au meme register dans le meme stage), donc le 1er
+                    // (et unique) storage buffer atterrit a t0. On enregistre
+                    // donc srvReg=0 dans dxBindings pour refleter la realite ; le
+                    // device DX binde la SRV du storage buffer a t0 (cf.
+                    // NkDX12/DX11 CommandBuffer : kStorageBufferSrvReg=0).
+                    case 5: { hb.srv.register_space=map.space; hb.srv.register_binding=0; map.srvReg=0; } break;
                     default: break;
                 }
                 compiler.add_hlsl_resource_binding(hb);
                 out.dxBindings.PushBack(map);
             }
 
-            out.source  = NkString(compiler.compile().c_str());
+            std::string hlsl = compiler.compile();
+
+            // ── Flip Y VK->DX (symetrique au flip_vert_y du chemin GL) ─────────────
+            // Les sources .vk.glsl sont ecrites en convention Vulkan (NDC Y=-1 au top).
+            // Le chemin GL (SpirvToGlsl) applique opts.vertex.flip_vert_y -> SPIRV-Cross
+            // emet un « gl_Position.y = -gl_Position.y; » SUPPLEMENTAIRE pour convertir
+            // VK->GL. SPIRV-Cross HLSL n'expose AUCUN equivalent : sans ce flip, le HLSL
+            // genere garde la convention VK alors que DX a la MEME convention NDC que GL
+            // (Y=+1 au top) -> la geometrie sort a l'envers / hors-ecran (mesh skinne
+            // INVISIBLE sur DX11/DX12, alors qu'il s'affiche en GL). On reproduit donc
+            // ICI le meme flip que le chemin GL, sous les MEMES conditions d'exclusion :
+            //   - 2D pur (push_constant sans UBO) : matrice ortho deja en convention GL.
+            //   - depth-only (aucun varying) : convention Y du shadow map preservee.
+            // PREUVE : dump GL du skin = DEUX « gl_Position.y=-... » (manuel source +
+            // flip_vert_y) = net nul ; dump HLSL = UN seul -> net inverse. Ce flip
+            // ramene le HLSL au meme net nul que GL (rendu correct).
+            if (stage == NkSLStage::NK_VERTEX) {
+                auto vtxRes2 = compiler.get_shader_resources();
+                bool purePC    = !vtxRes2.push_constant_buffers.empty()
+                              && vtxRes2.uniform_buffers.empty();
+                bool depthOnly = vtxRes2.stage_outputs.empty();
+                if (!purePC && !depthOnly && !vtxRes2.stage_inputs.empty()) {
+                    // SPIRV-Cross HLSL assigne la sortie clip dans main() :
+                    //   « stage_output.gl_Position = gl_Position; »
+                    // On insere le flip JUSTE APRES (sur la sortie SV_Position).
+                    const std::string anchor = "stage_output.gl_Position = gl_Position;";
+                    std::size_t apos = hlsl.find(anchor);
+                    if (apos != std::string::npos) {
+                        hlsl.insert(apos + anchor.size(),
+                            "\n    stage_output.gl_Position.y = -stage_output.gl_Position.y;");
+                    }
+                }
+            }
+
+            out.source  = NkString(hlsl.c_str());
             out.success = true;
         } catch (const std::exception& e) {
             out.success = false;
             out.errors  = NkString(e.what());
+            // Logger l'erreur SPIRV-Cross (sinon elle etait avalee silencieusement et
+            // le HLSL vide remontait sans cause visible).
+            logger.Errorf("[SpirvToHlsl] SM%u EXCEPTION: %s\n",
+                          (unsigned)hlslShaderModel, e.what());
         }
     #else
         out.success = false;

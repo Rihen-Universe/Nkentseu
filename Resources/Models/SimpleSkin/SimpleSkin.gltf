@@ -1,0 +1,202 @@
+{
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0,
+        1
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "skin": 0,
+      "mesh": 0
+    },
+    {
+      "children": [
+        2
+      ],
+      "translation": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 1,
+            "JOINTS_0": 2,
+            "WEIGHTS_0": 3
+          },
+          "indices": 0
+        }
+      ]
+    }
+  ],
+  "skins": [
+    {
+      "inverseBindMatrices": 4,
+      "joints": [
+        1,
+        2
+      ]
+    }
+  ],
+  "animations": [
+    {
+      "channels": [
+        {
+          "sampler": 0,
+          "target": {
+            "node": 2,
+            "path": "rotation"
+          }
+        }
+      ],
+      "samplers": [
+        {
+          "input": 5,
+          "interpolation": "LINEAR",
+          "output": 6
+        }
+      ]
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "data:application/gltf-buffer;base64,AAABAAMAAAADAAIAAgADAAUAAgAFAAQABAAFAAcABAAHAAYABgAHAAkABgAJAAgA",
+      "byteLength": 48
+    },
+    {
+      "uri": "data:application/gltf-buffer;base64,AAAAvwAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAvwAAAD8AAAAAAAAAPwAAAD8AAAAAAAAAvwAAgD8AAAAAAAAAPwAAgD8AAAAAAAAAvwAAwD8AAAAAAAAAPwAAwD8AAAAAAAAAvwAAAEAAAAAAAAAAPwAAAEAAAAAA",
+      "byteLength": 120
+    },
+    {
+      "uri": "data:application/gltf-buffer;base64,AAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAA=",
+      "byteLength": 80
+    },
+    {
+      "uri": "data:application/gltf-buffer;base64,AACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAEA/AACAPgAAAAAAAAAAAABAPwAAgD4AAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAA/AAAAPwAAAAAAAAAAAACAPgAAQD8AAAAAAAAAAAAAgD4AAEA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAA==",
+      "byteLength": 160
+    },
+    {
+      "uri": "data:application/gltf-buffer;base64,AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAgD8=",
+      "byteLength": 128
+    },
+    {
+      "uri": "data:application/gltf-buffer;base64,AAAAAAAAAD8AAIA/AADAPwAAAEAAACBAAABAQAAAYEAAAIBAAACQQAAAoEAAALBA",
+      "byteLength": 48
+    },
+    {
+      "uri": "data:application/gltf-buffer;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAA8wQ1P/MENT8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAADzBDW/8wQ1PwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAPMENT/zBDU/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAA8wQ1v/MENT8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAADzBDU/8wQ1PwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAPMENb/zBDU/",
+      "byteLength": 192
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 48,
+      "target": 34963
+    },
+    {
+      "buffer": 1,
+      "byteLength": 120,
+      "target": 34962
+    },
+    {
+      "buffer": 2,
+      "byteLength": 80,
+      "target": 34962
+    },
+    {
+      "buffer": 3,
+      "byteLength": 160,
+      "target": 34962
+    },
+    {
+      "buffer": 4,
+      "byteLength": 128
+    },
+    {
+      "buffer": 5,
+      "byteLength": 48
+    },
+    {
+      "buffer": 6,
+      "byteLength": 192
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5123,
+      "count": 24,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 10,
+      "type": "VEC3",
+      "min": [
+        -0.5,
+        0.0,
+        0.0
+      ],
+      "max": [
+        0.5,
+        2.0,
+        0.0
+      ]
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5123,
+      "count": 10,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5126,
+      "count": 10,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 2,
+      "type": "MAT4"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 12,
+      "type": "SCALAR",
+      "min": [
+        0.0
+      ],
+      "max": [
+        5.5
+      ]
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 12,
+      "type": "VEC4"
+    }
+  ]
+}

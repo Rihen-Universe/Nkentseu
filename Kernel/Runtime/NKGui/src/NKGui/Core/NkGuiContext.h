@@ -165,6 +165,7 @@ namespace nkentseu {
             int32         dockTargetNode= -1;                ///< feuille visée pendant le drag
             int32         dockTargetZone= -1;                ///< 0 centre, 1 G, 2 D, 3 H, 4 B
             bool          dockTabAddButton = false;          ///< l'app active le bouton « + » sur les barres d'onglets
+            bool          dockHideSingleTab = false;         ///< masque la barre d'onglets d'un nœud à 1 seul panneau (façon VSCode/IDE)
             int32         dockTabAddNode   = -1;             ///< feuille où « + » a été cliqué (lu par l'app après DockSpace)
             NkGuiId       dockOverflowPopup= NKGUI_ID_NONE;  ///< popup « onglets cachés » ouvert (overflow)
             int32         dockOverflowNode = -1;             ///< feuille dont l'overflow est ouvert

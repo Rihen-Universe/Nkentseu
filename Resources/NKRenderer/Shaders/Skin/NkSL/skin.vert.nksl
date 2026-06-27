@@ -73,18 +73,27 @@ void main() {
                  + aBoneWeight.z * uBones.bones[bi.z]
                  + aBoneWeight.w * uBones.bones[bi.w];
     float wsum = aBoneWeight.x + aBoneWeight.y + aBoneWeight.z + aBoneWeight.w;
-    if (wsum < 1e-4) skinMat = mat4(1.0);
+    // wsum ~ 0 => pas d'influence d'os => bind pose (aPos/aNormal direct).
+    // IMPORTANT cross-backend : on EVITE mat4(1.0) (identite) et mat3(mat4)
+    // (troncature) -> INVALIDES en HLSL (DX11/DX12 : erreur X3014 "incorrect number
+    // of arguments to numeric-type constructor"). A la place :
+    //   - garde booleen noSkin pour le cas degenere ;
+    //   - normales/tangentes transformees par (M * vec4(v, 0.0)).xyz : le w=0 annule
+    //     la translation, ce qui equivaut a appliquer la partie 3x3 de M, et reste
+    //     valide GLSL/VK/HLSL/MSL sans piege row/col-major.
+    bool noSkin = (wsum < 1e-4);
 
-    vec4 skinnedPos = skinMat * vec4(aPos, 1.0);
+    vec4 skinnedPos = noSkin ? vec4(aPos, 1.0) : (skinMat * vec4(aPos, 1.0));
     vec4 worldPos   = uObj.model * skinnedPos;
     vWorldPos       = worldPos.xyz;
 
-    // Normale/tangente transformees par (normalMatrix * partie 3x3 de skinMat).
-    mat3 nm = mat3(uObj.normalMatrix) * mat3(skinMat);
-    vec3 N  = normalize(nm * aNormal);
+    // Normale/tangente : partie 3x3 de (normalMatrix) * partie 3x3 de (skinMat).
+    vec3 nSkin = noSkin ? aNormal  : (skinMat * vec4(aNormal,  0.0)).xyz;
+    vec3 tSkin = noSkin ? aTangent : (skinMat * vec4(aTangent, 0.0)).xyz;
+    vec3 N = normalize((uObj.normalMatrix * vec4(nSkin, 0.0)).xyz);
     vec3 T;
     if (dot(aTangent, aTangent) > 1e-6) {
-        T = normalize(nm * aTangent);
+        T = normalize((uObj.normalMatrix * vec4(tSkin, 0.0)).xyz);
         T = normalize(T - dot(T, N) * N);
     } else {
         vec3 fb = abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);

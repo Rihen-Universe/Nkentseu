@@ -23,6 +23,7 @@
 #include "NKEditorKit/NkEditorCommand.h"
 
 #include "NKWindow/NKWindow.h"
+#include "NKEvent/NkKeyboardEvent.h"
 #include "NKTime/NkClock.h"
 #include "NKCanvas/Core/NkGraphicsApi.h"
 #include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
@@ -69,6 +70,11 @@ namespace nkentseu {
             void SetAppMenu(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
                 mAppMenuFn = fn; mAppMenuUser = user;
             }
+            // Barre d'outils horizontale (sous la barre de titre, facon Visual Studio) :
+            // l'app y dessine config/plateforme cible + bouton Build/Run + emulateur.
+            void SetToolbar(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
+                mToolbarFn = fn; mToolbarUser = user;
+            }
 
             // ── Layout ──────────────────────────────────────────────────────────
             void ResetLayout() noexcept { mDockBootstrap = true; }
@@ -77,16 +83,28 @@ namespace nkentseu {
             void SaveLayout(const char* path) noexcept { (void)path; }
             bool LoadLayout(const char* path) noexcept { (void)path; return false; }
 
+            // ── Barre d'etat (footer VSCode) : texte gauche/droite mis par l'app ─
+            void SetFooter(const char* left, const char* right = "") noexcept;
+            // ── Infos centrees dans la barre de titre (ex. fichier actif) ────────
+            void SetTitleInfo(const char* center) noexcept;
+
             // ── Acces (pour besoins avances) ────────────────────────────────────
             nkgui::NkGuiContext& Ui() noexcept { return mUI; }
 
         private:
-            void BuildMenuBar(NkEditorFrameContext& ec) noexcept;
+            void BuildMenuBar(NkEditorFrameContext& ec, const nkgui::NkRect& rect) noexcept;
+            void DrawTitleBar(NkEditorFrameContext& ec, const nkgui::NkRect& bar) noexcept;
+            void DrawToolbar(NkEditorFrameContext& ec, const nkgui::NkRect& rect) noexcept;
+            void HandleEdgeResize(float32 W, float32 H) noexcept;
             void DrawPanels(NkEditorFrameContext& ec) noexcept;
             void BootstrapDocking() noexcept;
             void DrawCommandPalette(NkEditorFrameContext& ec) noexcept;
             void ExecuteCommand(int32 index) noexcept;
             void HookEvents() noexcept;
+            void MapEditKey(NkKey k, bool down) noexcept;
+            void TryRunShortcut(NkKey k, bool shift) noexcept;
+            void DrawActivityBar(const nkgui::NkRect& bar) noexcept;
+            void DrawStatusBar(float32 footerH) noexcept;
 
             // === Fenetre / rendu ===
             NkWindow                                       mWindow;
@@ -105,10 +123,19 @@ namespace nkentseu {
             int32             mNumCommands            = 0;
             NkEditorAppMenuFn mAppMenuFn              = nullptr;
             void*             mAppMenuUser            = nullptr;
+            NkEditorAppMenuFn mToolbarFn              = nullptr;
+            void*             mToolbarUser            = nullptr;
 
             // === Palette de commandes ===
             bool  mPaletteOpen = false;
             int32 mPaletteSel  = 0;
+
+            // === Barre de titre custom + footer + activity bar ===
+            char  mTitle[160]       = {};
+            char  mTitleCenter[200] = {};
+            char  mFooterLeft[256]  = {};
+            char  mFooterRight[128] = {};
+            int32 mActivityIndex    = 0;     // icone selectionnee dans l'activity bar
 
             // === Etat boucle ===
             NkClock       mClock;
