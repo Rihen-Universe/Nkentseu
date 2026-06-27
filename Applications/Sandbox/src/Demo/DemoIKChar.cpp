@@ -150,7 +150,13 @@ namespace nkentseu { namespace demo {
         // ── Rig + chaîne IK : boneIdx = indice de joint (pose = TOUS les joints) ─
         st->rig = st->ik.CreateRig(/*skeletonId*/ 1);
         NkIKChainDesc desc;
-        desc.name = "limb"; desc.solver = NkIKSolver::NK_FABRIK;
+        desc.name = "limb";
+        // Solveur configurable : NK_IK_SOLVER=fabrik|ccd|twobone (defaut fabrik).
+        desc.solver = NkIKSolver::NK_FABRIK;
+        if (const char* sv = getenv("NK_IK_SOLVER")) {
+            if      (sv[0]=='c'||sv[0]=='C') desc.solver = NkIKSolver::NK_CCD;
+            else if (sv[0]=='t'||sv[0]=='T') desc.solver = NkIKSolver::NK_TWO_BONE;
+        }
         desc.maxIterations = 16; desc.tolerance = 0.0005f;
         for (uint32 i = 0; i < (uint32)st->chain.Size(); ++i) {
             NkIKBone b; b.boneIdx = (uint32)st->chain[i];

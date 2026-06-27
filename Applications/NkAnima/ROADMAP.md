@@ -96,10 +96,19 @@ re-skinné. En bind pose (dir inchangée) le delta = identité → matrice bind 
 L'effecteur (sans segment fils) suit le delta de son parent (`lastDelta`). DemoIK
 (--demo=14, lit `.position`) et DemoIKChar (--demo=15) tournent clean.
 
+**✅ (c) FAIT (2026-06-27) — Two-Bone + CCD branchés (3 solveurs)** :
+factorisation de deux helpers partagés (`BuildChainPositions` = positions monde +
+déduction longueurs ; `WriteBackBindFidele` = write-back (b+)) consommés par les
+3 solveurs. **CCD** : passes effecteur→racine, pivote le sous-bras autour de chaque
+joint via `NkQuatf(dirEff,dirCible)` (rotations rigides → longueurs préservées).
+**Two-Bone** : analytique (loi des cosinus) sur racine/milieu/effecteur, coude
+orienté par le `poleVector` (ou direction bind), joints surnuméraires prolongés.
+Sélecteur démo `NK_IK_SOLVER=fabrik|ccd|twobone` (défaut fabrik) → les 3 tournent
+clean sur CesiumMan (--demo=15, EXIT=0). FABRIK refactorisé sur les mêmes helpers.
+
 **RESTE M0** :
 - (a') **Effecteur draggable à la souris** (actuellement cible auto-animée) :
-  unprojection écran→monde du curseur. Petit.
-- (c) Brancher Two-Bone + CCD pareil (FABRIK est le modèle).
+  unprojection écran→monde du curseur. Dernier point M0.
 
 **✅ CHANTIER TRANSVERSE FAIT (2026-06-27) — vrai debug-line renderer** :
 `NkRender3D::FlushDebug` était un STUB ; maintenant il REND vraiment. Toute l'API
