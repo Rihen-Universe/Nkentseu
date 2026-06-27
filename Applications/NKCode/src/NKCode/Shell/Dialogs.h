@@ -35,10 +35,18 @@ namespace nkcode {
         // ── Launcher : onglets (0 Recent, 1 Nouveau, 2 Charger) ──
         int32   launcherTab   = 0;
         int32   launcherFocus = 0;             // champ de saisie focus (onglet Nouveau)
+        float32 newScrollY    = 0.f;           // defilement du formulaire Nouveau
         char    wsName[128]   = {};            // Nouveau : nom du workspace
         char    wsDir[512]    = {};            // Nouveau : repertoire cible
-        bool    wsCfg[2]      = { true, true };// Nouveau : Debug, Release
-        bool    wsPlat[8]     = {};            // Nouveau : plateformes (index Systems())
+        bool    wsCfg[4]      = { true, true, false, false };  // Debug, Release, Profile, Shipping
+        bool    wsPlat[8]     = {};            // plateformes/OS (index Systems())
+        bool    wsArch[5]     = { true, false, false, false, false };  // x86_64, x86, arm64, arm, wasm32
+        char    wsStart[128]  = {};            // projet de demarrage (optionnel)
+        char    wsTool[64]    = {};            // toolchain par defaut (optionnel)
+        bool    wsDutc        = false;         // disable unittest compilation
+        bool    wsDute        = false;         // disable unittest execution
+        char    androidSdk[512] = {}, androidNdk[512] = {}, javaJdk[512] = {};
+        char    harmonySdk[512] = {}, gdkPath[512] = {};
         char    loadDir[512]  = {};            // Charger : dossier choisi
         bool    loadScanned   = false;
         NkVector<NkString> foundPaths, foundNames;   // Charger : workspaces trouves
@@ -65,18 +73,40 @@ namespace nkcode {
             if (loadDir[0]) NkCodeState::ScanWorkspacesIn(NkPath(loadDir), foundPaths, foundNames);
             else { foundPaths.Clear(); foundNames.Clear(); }
         }
-        // Onglet Nouveau : genere le workspace puis le charge.
+        // Parcourir pour un chemin SDK (Nouveau).
+        void BrowseInto(char* dst, int32 cap, const char* title) {
+            NkDialogResult r = NkDialogs::OpenFolderDialog(title);
+            if (r.confirmed) CopyTo(dst, r.path.CStr(), cap);
+        }
+        // Onglet Nouveau : genere le workspace (toutes proprietes) puis le charge.
         void CreateNew() {
             int32 nSys = 0; const NkCodeState::SysDef* sys = NkCodeState::Systems(&nSys);
-            const char* names[8]; const char* const* archs[8]; int32 nArch[8];
-            for (int32 i = 0; i < nSys && i < 8; ++i) { names[i] = sys[i].name; archs[i] = sys[i].archs; nArch[i] = sys[i].nArch; }
+            static const char* osNames[8]; for (int32 i = 0; i < nSys && i < 8; ++i) osNames[i] = sys[i].name;
+            NkWorkspaceOpts o;
+            o.name = wsName;
+            for (int32 i = 0; i < 4; ++i) o.cfg[i] = wsCfg[i];
+            o.os = wsPlat; o.osNames = osNames; o.nOs = nSys;
+            for (int32 i = 0; i < 5; ++i) o.arch[i] = wsArch[i];
+            o.startProject = wsStart; o.toolchain = wsTool;
+            o.dutc = wsDutc; o.dute = wsDute;
+            o.androidSdk = androidSdk; o.androidNdk = androidNdk; o.javaJdk = javaJdk;
+            o.harmonySdk = harmonySdk; o.gdkPath = gdkPath;
             NkPath dir = wsDir[0] ? NkPath(wsDir) : st->root;
-            NkString made = GenerateWorkspaceEx(dir, wsName, wsCfg, wsPlat, names, archs, nArch, nSys);
+            NkString made = GenerateWorkspaceEx(dir, o);
             if (made.Empty()) { status = "Echec : nom invalide ou .jenga deja existant."; return; }
             if (st->LoadFolder(dir)) {
                 if (shell) shell->LoadUiState(st->UiConfigPath().CStr());
                 showStart = false;
             }
+        }
+        // Un OS (par nom) est-il coche dans le formulaire Nouveau ?
+        bool OsChecked(const char* nm) const {
+            int32 nSys = 0; const NkCodeState::SysDef* sys = NkCodeState::Systems(&nSys);
+            for (int32 i = 0; i < nSys; ++i) if (wsPlat[i] && StrEqA(sys[i].name, nm)) return true;
+            return false;
+        }
+        static bool StrEqA(const char* a, const char* b) {
+            if (!a || !b) return false; while (*a && *b) { if (*a != *b) return false; ++a; ++b; } return *a == *b;
         }
         // Onglet Charger : charge le workspace `i` trouve dans loadDir.
         void LoadFoundAt(usize i) {
@@ -218,18 +248,18 @@ namespace nkcode {
         auto hit  = [&](const NkRect& r) { return NkGuiRectContains(r, mp); };
         auto text = [&](float32 x, float32 y, const char* s, const NkColor& c) { dl.AddText(f->Face(), f->TexId(), { x, y + asc }, s, c); };
 
-        // Palette (cf. maquette ide_launcher_dark_flat)
-        const NkColor cBack   = { 11, 11, 15, 255 };
-        const NkColor cCard   = { 20, 20, 26, 255 };
-        const NkColor cSide   = { 27, 27, 34, 255 };
-        const NkColor cBorder = { 42, 42, 51, 255 };
-        const NkColor cAccent = { 124, 108, 240, 255 };
-        const NkColor cAccentH= { 111, 95, 230, 255 };
-        const NkColor cText   = { 236, 236, 237, 255 };
-        const NkColor cSub    = { 140, 140, 150, 255 };
-        const NkColor cFaint  = { 115, 115, 126, 255 };
-        const NkColor cRowHov = { 31, 31, 39, 255 };
-        const NkColor cSelBg  = { 36, 33, 58, 255 };
+        // Palette — accent bleu #0F73D5 (option choisie ; secondaires orange/teal)
+        const NkColor cBack   = { 11, 13, 16, 255 };
+        const NkColor cCard   = { 20, 22, 26, 255 };
+        const NkColor cSide   = { 26, 29, 34, 255 };
+        const NkColor cBorder = { 42, 46, 53, 255 };
+        const NkColor cAccent = { 15, 115, 213, 255 };   // #0F73D5
+        const NkColor cAccentH= { 41, 133, 224, 255 };
+        const NkColor cText   = { 236, 237, 239, 255 };
+        const NkColor cSub    = { 140, 146, 154, 255 };
+        const NkColor cFaint  = { 112, 118, 126, 255 };
+        const NkColor cRowHov = { 30, 34, 40, 255 };
+        const NkColor cSelBg  = { 22, 42, 64, 255 };
 
         dl.AddRectFilled({ 0.f, top, W, H - top }, cBack);
 
@@ -296,7 +326,7 @@ namespace nkcode {
         // ── Zone principale (depend de l'onglet) ──
         const float32 mx = cx + sw + 22.f * S;
         const float32 mw = cw - sw - 44.f * S;
-        const NkColor rowCols[] = { {124,108,240,255}, {217,86,138,255}, {226,114,91,255}, {51,177,160,255} };
+        const NkColor rowCols[] = { {15,115,213,255}, {247,154,40,255}, {10,85,95,255}, {51,177,160,255} };
 
         if (d->launcherTab == 0) {
             // ===== RECENT =====
@@ -332,35 +362,75 @@ namespace nkcode {
             }
         }
         else if (d->launcherTab == 1) {
-            // ===== NOUVEAU (proprietes de creation facon Jenga) =====
+            // ===== NOUVEAU : toutes les proprietes de creation (DSL Jenga) =====
             if (!d->wsDir[0] && d->st) NkCodeDialogs::CopyTo(d->wsDir, d->st->root.ToString().CStr(), (int32)sizeof(d->wsDir));
             text(mx, cy + 22.f * S, "Nouveau workspace", cText);
-            float32 y = cy + 56.f * S;
-            text(mx, y, "Nom", cSub); y += 22.f * S;
+            // Zone de formulaire defilante (clip + offset). Bouton Creer fixe en bas.
+            const float32 footH = 50.f * S;
+            const NkRect area = { mx, cy + 50.f * S, mw, chh - 50.f * S - footH - 12.f * S };
+            const bool overArea = hit(area);
+            if (overArea && ctx.input.wheel != 0.f) { d->newScrollY -= ctx.input.wheel * 36.f; ctx.input.wheel = 0.f; }
+            dl.PushClipRect(area, true);
+            float32 y = area.y - d->newScrollY;
+            auto label = [&](const char* s) { text(mx, y, s, cSub); y += 22.f * S; };
+            // Nom
+            label("Nom");
             { const NkRect r = { mx, y, mw, 30.f * S };
               NkOverlayTextField(ctx, dl, f, r, d->wsName, (int32)sizeof(d->wsName), d->launcherFocus == 0);
-              if (hit(r) && click) d->launcherFocus = 0; }
-            y += 42.f * S;
-            text(mx, y, "Repertoire", cSub); y += 22.f * S;
+              if (hit(r) && click) d->launcherFocus = 0; } y += 40.f * S;
+            // Repertoire + Parcourir
+            label("Repertoire");
             { const NkRect r = { mx, y, mw - 110.f * S, 30.f * S };
               NkOverlayTextField(ctx, dl, f, r, d->wsDir, (int32)sizeof(d->wsDir), d->launcherFocus == 1);
               if (hit(r) && click) d->launcherFocus = 1;
-              if (sbtn({ mx + mw - 100.f * S, y, 100.f * S, 30.f * S }, "Parcourir")) { d->BrowseNewDir(); return; } }
-            y += 42.f * S;
-            text(mx, y, "Configurations", cSub); y += 22.f * S;
-            check({ mx, y, 120.f * S, 18.f * S }, d->wsCfg[0], "Debug");
-            check({ mx + 130.f * S, y, 120.f * S, 18.f * S }, d->wsCfg[1], "Release");
-            y += 32.f * S;
-            text(mx, y, "Plateformes cibles", cSub); y += 22.f * S;
+              if (sbtn({ mx + mw - 100.f * S, y, 100.f * S, 30.f * S }, "Parcourir")) { d->BrowseNewDir(); } } y += 40.f * S;
+            // Configurations
+            label("Configurations");
+            { int32 nC = 0; const char* const* cN = NkConfigNames(&nC);
+              for (int32 i = 0; i < nC; ++i) check({ mx + (i % 2) * (mw * 0.5f), y + (i / 2) * 26.f * S, mw * 0.5f, 18.f * S }, d->wsCfg[i], cN[i]);
+              y += ((nC + 1) / 2) * 26.f * S + 12.f * S; }
+            // Systemes cibles
+            label("Systemes cibles (OS)");
             { int32 nSys = 0; const NkCodeState::SysDef* sys = NkCodeState::Systems(&nSys);
-              for (int32 i = 0; i < nSys; ++i) {
-                  const float32 col = (i % 2) * (mw * 0.5f);
-                  const float32 row = (i / 2) * 26.f * S;
-                  check({ mx + col, y + row, mw * 0.5f, 18.f * S }, d->wsPlat[i], sys[i].name);
-              }
-              y += ((nSys + 1) / 2) * 26.f * S + 14.f * S; }
-            if (!d->status.Empty()) { text(mx, y, d->status.CStr(), NkColor{ 240,120,120,255 }); y += 24.f * S; }
-            if (btn({ mx, y, 200.f * S, 34.f * S }, "Creer le workspace", d->wsName[0] != '\0')) { d->CreateNew(); return; }
+              for (int32 i = 0; i < nSys; ++i) check({ mx + (i % 2) * (mw * 0.5f), y + (i / 2) * 26.f * S, mw * 0.5f, 18.f * S }, d->wsPlat[i], sys[i].name);
+              y += ((nSys + 1) / 2) * 26.f * S + 12.f * S; }
+            // Architectures cibles
+            label("Architectures cibles");
+            { int32 nA = 0; const char* const* aN = NkArchNames(&nA);
+              for (int32 i = 0; i < nA; ++i) check({ mx + (i % 2) * (mw * 0.5f), y + (i / 2) * 26.f * S, mw * 0.5f, 18.f * S }, d->wsArch[i], aN[i]);
+              y += ((nA + 1) / 2) * 26.f * S + 12.f * S; }
+            // Projet de demarrage / Toolchain
+            label("Projet de demarrage (optionnel)");
+            { const NkRect r = { mx, y, mw, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->wsStart, (int32)sizeof(d->wsStart), d->launcherFocus == 2); if (hit(r) && click) d->launcherFocus = 2; } y += 40.f * S;
+            label("Toolchain par defaut (optionnel)");
+            { const NkRect r = { mx, y, mw, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->wsTool, (int32)sizeof(d->wsTool), d->launcherFocus == 3); if (hit(r) && click) d->launcherFocus = 3; } y += 40.f * S;
+            // Tests unitaires
+            label("Tests unitaires");
+            check({ mx, y, mw * 0.5f, 18.f * S }, d->wsDutc, "Desactiver la compilation (dutc)");
+            check({ mx, y + 24.f * S, mw, 18.f * S }, d->wsDute, "Desactiver l'execution (dute)"); y += 52.f * S;
+            // SDK conditionnels
+            if (d->OsChecked("Android")) {
+                label("Android SDK");  { const NkRect r = { mx, y, mw - 110.f * S, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->androidSdk, 512, d->launcherFocus == 4); if (hit(r) && click) d->launcherFocus = 4; if (sbtn({ mx + mw - 100.f * S, y, 100.f * S, 30.f * S }, "...")) d->BrowseInto(d->androidSdk, 512, "Android SDK"); } y += 40.f * S;
+                label("Android NDK");  { const NkRect r = { mx, y, mw - 110.f * S, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->androidNdk, 512, d->launcherFocus == 5); if (hit(r) && click) d->launcherFocus = 5; if (sbtn({ mx + mw - 100.f * S, y, 100.f * S, 30.f * S }, "...")) d->BrowseInto(d->androidNdk, 512, "Android NDK"); } y += 40.f * S;
+                label("Java JDK");     { const NkRect r = { mx, y, mw - 110.f * S, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->javaJdk, 512, d->launcherFocus == 6); if (hit(r) && click) d->launcherFocus = 6; if (sbtn({ mx + mw - 100.f * S, y, 100.f * S, 30.f * S }, "...")) d->BrowseInto(d->javaJdk, 512, "Java JDK"); } y += 40.f * S;
+            }
+            if (d->OsChecked("HarmonyOS")) { label("HarmonyOS SDK"); { const NkRect r = { mx, y, mw - 110.f * S, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->harmonySdk, 512, d->launcherFocus == 7); if (hit(r) && click) d->launcherFocus = 7; if (sbtn({ mx + mw - 100.f * S, y, 100.f * S, 30.f * S }, "...")) d->BrowseInto(d->harmonySdk, 512, "HarmonyOS SDK"); } y += 40.f * S; }
+            if (d->OsChecked("XboxSeries")) { label("Xbox GDK"); { const NkRect r = { mx, y, mw - 110.f * S, 30.f * S }; NkOverlayTextField(ctx, dl, f, r, d->gdkPath, 512, d->launcherFocus == 8); if (hit(r) && click) d->launcherFocus = 8; if (sbtn({ mx + mw - 100.f * S, y, 100.f * S, 30.f * S }, "...")) d->BrowseInto(d->gdkPath, 512, "Xbox GDK"); } y += 40.f * S; }
+            const float32 contentH = (y + d->newScrollY) - area.y;
+            dl.PopClipRect();
+            // clamp du defilement
+            const float32 maxScroll = contentH - area.h > 0.f ? contentH - area.h : 0.f;
+            if (d->newScrollY < 0.f) d->newScrollY = 0.f; if (d->newScrollY > maxScroll) d->newScrollY = maxScroll;
+            // barre de defilement
+            if (maxScroll > 0.f) {
+                const float32 th = area.h * (area.h / contentH);
+                const float32 tt = area.y + (area.h - th) * (d->newScrollY / maxScroll);
+                dl.AddRectFilled({ area.x + area.w - 4.f * S, tt, 4.f * S, th }, NkColor{ 70, 76, 84, 255 }, 2.f * S);
+            }
+            // Pied fixe : status + bouton Creer
+            const float32 fy = cy + chh - footH;
+            if (!d->status.Empty()) text(mx, fy - 22.f * S, d->status.CStr(), NkColor{ 240,120,120,255 });
+            if (btn({ mx, fy, 220.f * S, 36.f * S }, "Creer le workspace", d->wsName[0] != '\0')) { d->CreateNew(); return; }
         }
         else {
             // ===== CHARGER UN WORKSPACE =====

@@ -72,41 +72,82 @@ namespace nkentseu {
             return file.ToString();
         }
 
-        // Genere un workspace COMPLET (proprietes facon Jenga) dans `dir` :
-        //   nom, configurations choisies, plateformes cibles (+ leurs architectures
-        //   documentees). La config par-plateforme detaillee se fait par projet.
-        // Retourne le chemin du .jenga (vide si echec / nom invalide / deja existant).
-        inline NkString GenerateWorkspaceEx(const NkPath& dir, const char* rawName,
-                                            const bool* cfg2, const bool* plat,
-                                            const char* const* platNames, const char* const* const* platArchs,
-                                            const int32* platNArch, int32 nPlat) noexcept {
-            NkString name = NkSanitizeName(rawName);
+        inline bool StrEqA(const char* a, const char* b) noexcept {
+            if (!a || !b) return false; while (*a && *b) { if (*a != *b) return false; ++a; ++b; } return *a == *b;
+        }
+
+        // Tables de reference (alignees sur le DSL Jenga).
+        inline const char* const* NkConfigNames(int32* n) noexcept {
+            static const char* c[] = { "Debug", "Release", "Profile", "Shipping" }; if (n) *n = 4; return c;
+        }
+        inline const char* const* NkArchNames(int32* n) noexcept {
+            static const char* a[] = { "x86_64", "x86", "arm64", "arm", "wasm32" }; if (n) *n = 5; return a;
+        }
+
+        // Toutes les proprietes de creation d'un workspace (cf. DSL Jenga).
+        struct NkWorkspaceOpts {
+            const char*        name        = "";
+            bool               cfg[4]      = { true, true, false, false };   // Debug, Release, Profile, Shipping
+            const bool*        os          = nullptr;                        // flags, taille nOs
+            const char* const* osNames     = nullptr;
+            int32              nOs         = 0;
+            bool               arch[5]     = {};                             // x86_64, x86, arm64, arm, wasm32
+            const char*        startProject= "";
+            const char*        toolchain   = "";
+            bool               dutc        = false;
+            bool               dute        = false;
+            const char*        androidSdk  = "";
+            const char*        androidNdk  = "";
+            const char*        javaJdk     = "";
+            const char*        harmonySdk  = "";
+            const char*        gdkPath     = "";
+        };
+
+        // Genere un workspace COMPLET dans `dir` a partir des options (DSL Jenga :
+        // configurations / targetoses / targetarchs / usetoolchain / startproject /
+        // dutc / dute / *sdkpath). Retourne le chemin du .jenga (vide si echec).
+        inline NkString GenerateWorkspaceEx(const NkPath& dir, const NkWorkspaceOpts& o) noexcept {
+            NkString name = NkSanitizeName(o.name);
             if (name.Empty()) return NkString();
             if (!NkDirectory::Exists(dir) && !NkDirectory::CreateRecursive(dir)) return NkString();
             NkPath file = dir / (name + ".jenga").CStr();
             if (NkFile::Exists(file)) return NkString();   // ne pas ecraser
 
-            NkString cfgs;
-            if (cfg2[0]) cfgs += "\"Debug\"";
-            if (cfg2[1]) { if (!cfgs.Empty()) cfgs += ", "; cfgs += "\"Release\""; }
-            if (cfgs.Empty()) cfgs = "\"Debug\", \"Release\"";
+            auto join = [](const bool* flags, const char* const* names, int32 n) -> NkString {
+                NkString s; for (int32 i = 0; i < n; ++i) if (flags[i]) { if (!s.Empty()) s += ", "; s += "\""; s += names[i]; s += "\""; } return s;
+            };
+            int32 nC = 0, nA = 0; const char* const* cfgN = NkConfigNames(&nC); const char* const* archN = NkArchNames(&nA);
+            NkString cfgs = join(o.cfg, cfgN, nC); if (cfgs.Empty()) cfgs = "\"Debug\", \"Release\"";
+            NkString oss  = o.os ? join(o.os, o.osNames, o.nOs) : NkString();
+            NkString arcs = join(o.arch, archN, nA);
+
+            // un OS donne est-il selectionne ? (pour les chemins SDK conditionnels)
+            auto osOn = [&](const char* nm) -> bool {
+                if (!o.os) return false;
+                for (int32 i = 0; i < o.nOs; ++i) if (o.os[i] && StrEqA(o.osNames[i], nm)) return true;
+                return false;
+            };
 
             NkString c;
             c += "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n";
             c += "\"\"\""; c += name; c += " - workspace genere par NKCode.\"\"\"\n\n";
             c += "from Jenga import *\nfrom jengaconfig import *\n\n\n";
             c += "with workspace(\""; c += name; c += "\", location=\".\"):\n";
-            c += "    configurations(["; c += cfgs; c += "])\n\n";
-            c += "    # Plateformes cibles (architecture passee au build : --platform <OS>-<arch>) :\n";
-            bool any = false;
-            for (int32 i = 0; i < nPlat; ++i) {
-                if (!plat[i]) continue;
-                any = true;
-                c += "    #   - "; c += platNames[i]; c += " : ";
-                for (int32 a = 0; a < platNArch[i]; ++a) { if (a) c += ", "; c += platArchs[i][a]; }
-                c += "\n";
+            c += "    configurations(["; c += cfgs; c += "])\n";
+            if (!oss.Empty())  { c += "    targetoses(["; c += oss; c += "])\n"; }
+            if (!arcs.Empty()) { c += "    targetarchs(["; c += arcs; c += "])\n"; }
+            if (o.toolchain && *o.toolchain)       { c += "    usetoolchain(\""; c += o.toolchain; c += "\")\n"; }
+            if (o.startProject && *o.startProject) { c += "    startproject(\""; c += o.startProject; c += "\")\n"; }
+            if (o.dutc) c += "    dutc(True)\n";
+            if (o.dute) c += "    dute(True)\n";
+            // Chemins SDK (uniquement si l'OS correspondant est cible ET le chemin fourni)
+            if (osOn("Android")) {
+                if (o.androidSdk && *o.androidSdk) { c += "    androidsdkpath(r\""; c += o.androidSdk; c += "\")\n"; }
+                if (o.androidNdk && *o.androidNdk) { c += "    androidndkpath(r\""; c += o.androidNdk; c += "\")\n"; }
+                if (o.javaJdk    && *o.javaJdk)    { c += "    javajdkpath(r\"";    c += o.javaJdk;    c += "\")\n"; }
             }
-            if (!any) c += "    #   (aucune selectionnee)\n";
+            if (osOn("HarmonyOS") && o.harmonySdk && *o.harmonySdk) { c += "    harmonysdk(r\""; c += o.harmonySdk; c += "\")\n"; }
+            if ((osOn("XboxSeries") || osOn("XboxOne")) && o.gdkPath && *o.gdkPath) { c += "    gdkpath(r\""; c += o.gdkPath; c += "\")\n"; }
             c += "\n    # Les projets sont ajoutes ici via include() (menu Nouveau projet).\n";
             if (!NkFile::WriteAllText(file, c)) return NkString();
             return file.ToString();
