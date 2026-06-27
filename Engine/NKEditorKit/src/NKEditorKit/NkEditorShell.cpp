@@ -439,11 +439,14 @@ namespace nkentseu {
             // Menus a la suite du logo, DANS la barre de titre.
             BuildMenuBar(ec, { menuX, bar.y, cMin.x - menuX, bar.h });
 
-            // Infos specifiques au centre (ex. fichier actif), si elles tiennent.
+            // Infos specifiques au centre (ex. fichier actif) = "panneau du milieu".
+            // On retient son rect [titleLx, titleRx] pour delimiter les zones de drag.
+            float32 titleLx = bar.x + bar.w, titleRx = bar.x + bar.w;   // vide par defaut
             const char* info = mTitleCenter[0] ? mTitleCenter : mTitle;
             if (mUI.font && mUI.font->Face() && info[0]) {
                 const float32 iw = mUI.font->MeasureWidth(info);
                 const float32 ix = bar.x + (bar.w - iw) * 0.5f;
+                titleLx = ix - mUI.S(10.f); titleRx = ix + iw + mUI.S(10.f);   // + petite marge
                 const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
                 dl.AddText(mUI.font->Face(), mUI.font->TexId(), { ix, by }, info, { 150, 150, 150, 255 });
             }
@@ -473,15 +476,18 @@ namespace nkentseu {
               dl.AddLine({ gx - s, cy + s }, { gx + s, cy - s }, xc, 1.2f);
               if (h && mUI.input.mouseClicked[0]) { mRunning = false; consumed = true; } }
 
-            // Glissement de fenetre : barre moins les controles, et EXCLUT la bande
-            // des titres de menu [menuX, menuBarX] (exclusion GEOMETRIQUE, fiable).
-            // De plus, le deplacement ne demarre qu'apres un vrai GLISSEMENT (seuil) :
-            // un simple clic (meme sur la barre) ne deplace JAMAIS la fenetre -> clic
-            // sur un menu = ouverture, pas deplacement.
-            const NkRect drag = { bar.x, bar.y, cMin.x - bar.x, bar.h };
-            const bool inDrag       = m.x >= drag.x && m.x < drag.x + drag.w && m.y >= drag.y && m.y < drag.y + drag.h;
-            const bool inMenuTitles = (m.x >= menuX && m.x < mUI.menuBarX);   // jamais de drag sur un menu
-            const bool dragArea     = inDrag && !inMenuTitles;
+            // Glissement de fenetre facon VSCode : DEUX zones de deplacement, dans les
+            // GAPS uniquement -> (1) apres le dernier menu et avant le panneau central,
+            // (2) apres le panneau central et avant les controles de fenetre. Les menus
+            // et le panneau central ne sont JAMAIS des zones de drag. En plus, le
+            // deplacement ne demarre qu'apres un vrai GLISSEMENT (seuil) : un simple clic
+            // ne deplace jamais la fenetre.
+            const bool inBarY = (m.y >= bar.y && m.y < bar.y + bar.h);
+            const float32 gap1L = mUI.menuBarX + 2.f, gap1R = titleLx;       // menus -> centre
+            const float32 gap2L = titleRx,            gap2R = cMin.x;        // centre -> controles
+            const bool inGap1 = inBarY && m.x >= gap1L && m.x < gap1R;
+            const bool inGap2 = inBarY && m.x >= gap2L && m.x < gap2R;
+            const bool dragArea = inGap1 || inGap2;
             if (!consumed && dragArea && mUI.input.mouseDoubleClicked[0]) {
                 mWindow.Maximize(); mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false; mTitleDragArmed = false;
             } else if (!consumed && dragArea && mUI.input.mouseClicked[0]) {

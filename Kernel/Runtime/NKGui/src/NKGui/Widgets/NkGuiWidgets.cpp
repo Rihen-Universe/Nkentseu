@@ -3301,8 +3301,11 @@ namespace nkentseu {
             NkRect titleR; NkVec2 popupAt; NkRect anchor;
             if (inBar) {
                 const float32 h = ctx.menuBarRect.h;
-                titleR  = { ctx.menuBarX, ctx.menuBarRect.y, tw + 20.f, h };
-                ctx.menuBarX += tw + 20.f;
+                // Padding genereux (14 px de chaque cote) : la zone cliquable couvre
+                // tout le texte meme si le rendu est legerement plus large que la mesure
+                // (sinon la fin d'un long libelle comme "Preferences" sortait du hit-rect).
+                titleR  = { ctx.menuBarX, ctx.menuBarRect.y, tw + 28.f, h };
+                ctx.menuBarX += tw + 28.f;
                 popupAt = { titleR.x, titleR.y + titleR.h };     // popup SOUS le titre
                 anchor  = ctx.menuBarRect;                        // toute la barre = ancre
             } else {
