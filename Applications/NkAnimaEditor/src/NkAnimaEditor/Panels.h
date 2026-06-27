@@ -101,11 +101,17 @@ namespace nkanima {
 
         void OnUI(NkEditorFrameContext& ec) override {
             auto& ctx = ec.Ui();
-            ec.Text("Apercu squelette 2D (pose courante)");
-            const NkRect area = ctx.NextItemRect(560.f, 440.f);
+            ec.Text("Apercu squelette 2D — Pose Mode : clic = os, drag = IK, Enregistrer = cle");
+            // Barre : Mode Pose (toggle) + Enregistrer la pose.
+            bool bMode = ec.Button(AnimInPoseEdit() ? "Mode Pose: ON" : "Mode Pose: OFF"); ctx.SameLine();
+            bool bRec  = ec.Button("Enregistrer pose");
+            if (bMode) { if (AnimInPoseEdit()) AnimEndPoseEdit(); else AnimBeginPoseEdit(); }
+            if (bRec)  AnimCommitPoseKey();
+
+            const NkRect area = ctx.NextItemRect(560.f, 420.f);
             auto& dl = ctx.DL();
             dl.AddRectFilled(area, NkColor{16, 18, 24, 255}, 4.f);
-            dl.AddRect(area, NkColor{60, 66, 82, 255}, 1.f);
+            dl.AddRect(area, AnimInPoseEdit() ? NkColor{255,170,40,255} : NkColor{60, 66, 82, 255}, 1.f);
             if (!AnimLoaded()) return;
 
             NkVector<NkVec3f> pos; NkVector<int32> par;
@@ -119,15 +125,34 @@ namespace nkanima {
             float32 padp=30.f;
             float32 sc=nkentseu::math::NkMin((area.w-2*padp)/w, (area.h-2*padp)/h);
             float32 cx=(minx+maxx)*0.5f, cy=(miny+maxy)*0.5f;
-            auto proj=[&](const NkVec3f& p)->NkVec2{
-                return { area.x+area.w*0.5f+(p.x-cx)*sc, area.y+area.h*0.5f-(p.y-cy)*sc };
-            };
+            float32 ox=area.x+area.w*0.5f, oy=area.y+area.h*0.5f;
+            auto proj   =[&](const NkVec3f& p)->NkVec2{ return { ox+(p.x-cx)*sc, oy-(p.y-cy)*sc }; };
+            auto unprojX=[&](float32 sx){ return cx + (sx-ox)/sc; };
+            auto unprojY=[&](float32 sy){ return cy - (sy-oy)/sc; };
+
             for (uint32 j=0;j<jc;++j){
                 NkVec2 sp=proj(pos[j]); int32 p=par[j];
                 if (p>=0 && p<(int32)jc) dl.AddLine(proj(pos[(uint32)p]), sp, NkColor{120,180,255,255}, 2.f);
-                dl.AddCircleFilled(sp, 3.f, NkColor{255,200,80,255});
+                bool sel = ((int32)j==mSel);
+                dl.AddCircleFilled(sp, sel?6.f:3.f, sel ? NkColor{255,90,90,255} : NkColor{255,200,80,255});
             }
+
+            // ── Interaction Pose Mode ─────────────────────────────────────────────
+            if (!AnimInPoseEdit()) { mDragging=false; return; }
+            const NkVec2 m = ctx.input.mousePos;
+            if (ctx.IsHovered(area) && ctx.input.mouseClicked[0]) {
+                int32 hit=-1; float32 best=14.f;
+                for (uint32 j=0;j<jc;++j){ NkVec2 sp=proj(pos[j]); float32 dx=sp.x-m.x, dy=sp.y-m.y; float32 d=sqrtf(dx*dx+dy*dy); if(d<best){best=d;hit=(int32)j;} }
+                if (hit>=0) { mSel=hit; mDragging=true; mDragZ = pos[(uint32)hit].z; }
+            }
+            if (ctx.input.mouseDown[0]) {
+                if (mDragging && mSel>=0) AnimDragJoint(mSel, unprojX(m.x), unprojY(m.y), mDragZ);
+            } else mDragging=false;
         }
+    private:
+        int32   mSel = -1;
+        bool    mDragging = false;
+        float32 mDragZ = 0.f;
     };
 
 } // namespace nkanima

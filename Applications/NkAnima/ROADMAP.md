@@ -248,11 +248,19 @@ NKCanvas (Editor Kit) définissent tous deux `nkentseu::renderer::NkBlendMode`/`
 → conflit ; isolé via un **`AnimBridge`** (NKRenderer confiné à `AnimBridge.cpp`, interface
 en types foundation, les panneaux n'incluent que l'Editor Kit).
 
-**RESTE M1.c** :
-- ✅ Layout corrigé (boutons sur une ligne via `SameLine`) → piste keyframes + playhead
-  VISIBLES (61 points bleus + barre rouge + graduations). Éditeur timeline complet OK.
-- Polir le drag de keyframes ; **édition de pose** (modifier la rotation d'un os à une clé)
-  = la vraie valeur d'édition (manipulateurs sur le squelette 2D/3D).
+**✅ POSE EDITING FAIT (2026-06-27, §2 Pose Mode) — l'éditeur devient un OUTIL** :
+NkAnimaEditor permet d'**éditer la pose** : clic sur un os du squelette 2D = sélection,
+**drag = IK** (FABRIK sur une chaîne de 3 os via l'IK M0, dans le bridge), bouton
+**Enregistrer pose** = ré-écrit la pose-clé au curseur (`InsertPoseKey` avec la pose éditée).
+API bridge `AnimBeginPoseEdit`/`AnimDragJoint`/`AnimCommitPoseKey`/`AnimEndPoseEdit` ;
+pose de TRAVAIL (`worldEdit`) recompose monde↔local (bindGlobal=inverse(inverseBind), aim-FK).
+**Self-test headless validé** (`NK_POSE_TEST`) : le joint se rapproche de la cible + la clé
+est ré-écrite. (Drag interactif à valider à la souris.)
+
+**RESTE M1.c / vers la spec** (`interface.md`) :
+- Gizmos rotation/translation (§22) + édition FK (rotation d'os directe) ; multi-sélection.
+- Dope Sheet (§3) ; Graph Editor F-curves (§4) ; Outliner (§5) ; Propriétés (§6).
+- Viewport 3D réel (rendu NKRenderer offscreen → texture → panneau) au lieu du squelette 2D.
 - (option) finir de débugger la branche trig de `NkQuat::SLerp` (NLerp suffit en pratique).
 - **M1.c — timeline/scrubbing + édition de clés** : UI sur **NKGui** (prêt, on conçoit
   les interfaces ; PAS NKUI — directive Rihen). Widget timeline à créer, branché sur

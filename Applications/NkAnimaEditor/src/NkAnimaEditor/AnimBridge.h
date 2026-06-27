@@ -44,7 +44,20 @@ namespace nkanima {
     void   AnimRedo();
 
     // Squelette 2D (positions MONDE des joints + parent) à la pose courante.
+    // (En mode édition, renvoie la pose de TRAVAIL éditée.)
     uint32 AnimJointCount();
     void   AnimGetSkeleton(NkVector<NkVec3f>& outPos, NkVector<int32>& outParent);
+
+    // ── Édition de pose (§2 Pose Mode) ────────────────────────────────────────
+    // Entre en édition : capture la pose courante comme pose de TRAVAIL, met la
+    // lecture en pause. Le squelette affiché devient éditable.
+    void  AnimBeginPoseEdit();
+    bool  AnimInPoseEdit();
+    void  AnimEndPoseEdit();                 // sort sans enregistrer
+    // IK-drag : tire le joint `jointIdx` vers la cible MONDE (wx,wy,wz). Résout une
+    // courte chaîne IK (FABRIK) et met à jour la pose de travail.
+    void  AnimDragJoint(int32 jointIdx, float32 wx, float32 wy, float32 wz);
+    // Enregistre la pose de travail en pose-clé au curseur courant.
+    void  AnimCommitPoseKey();
 
 } // namespace nkanima
