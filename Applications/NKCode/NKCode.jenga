@@ -72,7 +72,7 @@ with project("NKCode"):
         if _VULKAN_LIB:
             libdirs([_VULKAN_LIB])
         _WIN_LINKS = [
-            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
             "mf", "mfplat", "mfreadwrite", "mfuuid",
             "uuid", "ole32", "dinput8", "dxguid",
             "d3d11", "d3d12", "dxgi", "d3dcompiler",

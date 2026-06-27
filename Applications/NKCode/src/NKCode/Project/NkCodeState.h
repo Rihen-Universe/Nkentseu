@@ -235,6 +235,27 @@ namespace nkcode {
         }
         bool HasWorkspace() const { return !wsPaths.Empty(); }
 
+        // Charge `folder` comme racine de travail : re-scan des workspaces du dossier.
+        // REFUSE (renvoie false, racine inchangee) si aucun workspace (.jenga contenant
+        // "with workspace") n'y est trouve — qu'il ait ete cree par l'UI ou non.
+        bool LoadFolder(const NkPath& folder) {
+            const NkPath saved = root;
+            root  = folder;
+            wsIdx = 0;
+            mWsScanned = false;
+            ScanWorkspaces();
+            if (!HasWorkspace()) {                       // aucun workspace -> refus
+                root = saved; mWsScanned = false; ScanWorkspaces();
+                return false;
+            }
+            mLastJengaMtime = 0;                         // re-amorce le watch sur la nouvelle racine
+            files.Clear(); active = -1;                  // onglets repartent a zero
+            OpenPath(NkPath(wsPaths[wsIdx].CStr()));     // ouvre le .jenga du workspace
+            RequestReload();                             // recharge la liste des projets
+            status = NkString("Workspace charge : ") + folder.ToString().CStr();
+            return true;
+        }
+
         // Argument --jenga-file pour cibler le workspace selectionne.
         NkString JengaFileArg() const {
             if (wsIdx >= 0 && wsIdx < static_cast<int32>(wsPaths.Size()))

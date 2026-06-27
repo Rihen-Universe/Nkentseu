@@ -10,6 +10,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkCodeGen.h"
+#include "NKWindow/Core/NkDialogs.h"
 
 namespace nkentseu {
 namespace nkcode {
@@ -21,7 +22,7 @@ namespace nkcode {
     // Etat des dialogues modaux (un seul a la fois). 0 = aucun.
     struct NkCodeDialogs {
         NkCodeState* st = nullptr;
-        enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };
+        enum Mode { None = 0, Welcome, NewProject, NewWorkspace, SaveAs, Properties };
         int32   mode      = None;
         char    nameBuf[256] = {};
         int32   kindIdx   = 0;
@@ -30,6 +31,22 @@ namespace nkcode {
         NkString status;          // message d'erreur/succes affiche dans le dialogue
 
         void Open(int32 m) { mode = m; justOpened = true; status.Clear(); if (m == NewProject || m == NewWorkspace) nameBuf[0] = '\0'; }
+
+        // Ouvre un dossier/workspace via les dialogues natifs. Refuse si pas de workspace.
+        void OpenFolderDialog() {
+            NkDialogResult res = NkDialogs::OpenFolderDialog("Ouvrir un dossier (workspace)");
+            if (res.confirmed && st) DoLoad(NkPath(res.path.CStr()));
+        }
+        void OpenWorkspaceDialog() {
+            NkDialogResult res = NkDialogs::OpenFileDialog("*.jenga", "Ouvrir un workspace (.jenga)");
+            if (res.confirmed && st) DoLoad(NkPath(res.path.CStr()).GetParent());
+        }
+        void DoLoad(const NkPath& folder) {
+            if (st->LoadFolder(folder)) { Close(); }
+            else NkDialogs::OpenMessageBox(
+                "Aucun workspace (.jenga avec 'with workspace') dans ce dossier. Chargement refuse.",
+                "NKCode", 2);
+        }
         void OpenSaveAs() {
             mode = SaveAs; justOpened = true; status.Clear(); nameBuf[0] = '\0';
             if (st && st->HasActive()) {   // prefill = nom du fichier actif (ou vide si sans titre)
@@ -51,9 +68,12 @@ namespace nkcode {
         const bool hasWs   = s && s->HasWorkspace();
         const bool hasFile = s && s->HasActive();
 
+        if (MenuItem(ctx, "Ecran de demarrage...")) d->Open(NkCodeDialogs::Welcome);
         if (MenuItem(ctx, "Nouveau fichier", "Ctrl+N")) { if (s) s->NewFile(); }
         if (MenuItem(ctx, "Nouveau projet...", nullptr, hasWs)) d->Open(NkCodeDialogs::NewProject);
         if (MenuItem(ctx, "Nouveau workspace...")) d->Open(NkCodeDialogs::NewWorkspace);
+        if (MenuItem(ctx, "Ouvrir un dossier...")) d->OpenFolderDialog();
+        if (MenuItem(ctx, "Ouvrir un workspace (.jenga)...")) d->OpenWorkspaceDialog();
 
         if (MenuItem(ctx, "Enregistrer", "Ctrl+S", hasFile)) {
             if (s) { if (s->ActiveHasPath()) s->SaveActive(); else d->OpenSaveAs(); }
@@ -133,6 +153,49 @@ namespace nkcode {
             text(r.x + (r.w - tw) * 0.5f, r.y + (r.h - lh) * 0.5f, s, en ? NkColor{ 230, 237, 243, 255 } : NkColor{ 110, 118, 126, 255 });
             return en && hov && click;
         };
+
+        // ── Ecran de demarrage (facon Visual Studio) ──
+        if (d->mode == NkCodeDialogs::Welcome) {
+            const float32 pw = 520.f, ph = 360.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+            dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0, 0, 0, 170 });
+            const NkRect panel = { px, py, pw, ph };
+            if (d->justOpened) d->justOpened = false;
+            dl.AddRectFilled(panel, NkColor{ 28, 33, 40, 255 }, 10.f);
+            dl.AddRect(panel, NkColor{ 70, 78, 88, 255 }, 1.5f);
+            text(px + 28.f, py + 26.f, "NKCode", NkColor{ 230, 237, 243, 255 });
+            text(px + 28.f, py + 26.f + lh + 4.f, "Demarrer - choisir un workspace", NkColor{ 150, 160, 170, 255 });
+
+            struct WItem { const char* t; const char* d; int32 act; };
+            const WItem items[] = {
+                { "Ouvrir un dossier...",          "Charge un dossier et detecte ses workspaces", 1 },
+                { "Ouvrir un workspace (.jenga)...","Selectionne directement un fichier workspace", 2 },
+                { "Nouveau workspace...",          "Cree un workspace vierge (pour de futurs projets)", 3 },
+            };
+            float32 wy = py + 92.f;
+            for (int32 i = 0; i < 3; ++i) {
+                const NkRect r = { px + 24.f, wy, pw - 48.f, 56.f };
+                const bool hov = hit(r);
+                dl.AddRectFilled(r, hov ? NkColor{ 38, 60, 92, 255 } : NkColor{ 33, 39, 48, 255 }, 6.f);
+                dl.AddRect(r, hov ? NkColor{ 88, 166, 255, 255 } : NkColor{ 55, 62, 70, 255 }, 1.f);
+                text(r.x + 16.f, r.y + 9.f, items[i].t, NkColor{ 230, 237, 243, 255 });
+                text(r.x + 16.f, r.y + 9.f + lh + 2.f, items[i].d, NkColor{ 150, 160, 170, 255 });
+                if (hov && click) {
+                    if (items[i].act == 1) d->OpenFolderDialog();
+                    else if (items[i].act == 2) d->OpenWorkspaceDialog();
+                    else { d->Open(NkCodeDialogs::NewWorkspace); }
+                    return;
+                }
+                wy += 64.f;
+            }
+            // Continuer avec le dossier courant (s'il contient deja un workspace)
+            const bool canCont = d->st && d->st->HasWorkspace();
+            if (btn({ px + pw - 250.f, py + ph - 44.f, 232.f, 32.f }, "Continuer avec le dossier courant", canCont)) {
+                d->Close(); ctx.appModal = false; return;
+            }
+            if (ctx.input.KeyPressed(NkGuiKey::Escape) && canCont) { d->Close(); ctx.appModal = false; return; }
+            ctx.appModal = true;
+            return;
+        }
 
         const bool isProj   = (d->mode == NkCodeDialogs::NewProject);
         const bool isSaveAs = (d->mode == NkCodeDialogs::SaveAs);

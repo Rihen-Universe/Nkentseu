@@ -102,6 +102,7 @@ int nkmain(const NkEntryState& state) {
     g_dialogs.st = &g_state;
     shell->SetFileMenu(&FileMenuThunk, &g_dialogs);  // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
     shell->SetOverlay(&OverlayThunk, &g_dialogs);    // dialogues modaux (creation/enregistrement)
+    g_dialogs.Open(nkcode::NkCodeDialogs::Welcome);  // ecran de demarrage facon VS Community
 
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
     shell->RegisterCommand("Projet: Demarrer (jenga run)",     &CmdRun,   nullptr,      "Ctrl+R");
