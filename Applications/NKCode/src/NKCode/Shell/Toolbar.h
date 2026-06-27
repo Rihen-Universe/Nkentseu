@@ -34,7 +34,11 @@ namespace nkcode {
         auto bW = [&](const char* l) { return (ctx.font && ctx.font->Valid() ? ctx.font->MeasureWidth(l) : 40.f) + ctx.theme.framePadX * 2.f + 6.f; };
         const float32 sp = ctx.layout.itemSpacingX;
         const float32 wWs = ctx.S(150.f), wProj = ctx.S(180.f), wSys = ctx.S(130.f), wCfg = ctx.S(110.f), wArch = ctx.S(130.f), wTest = ctx.S(150.f);
-        const bool hasTests = !s->tests.Empty();
+        // Tests VISIBLES = ceux du projet selectionne (ou tous si « Tous les projets »).
+        int32 nTestVis = 0, firstTest = -1;
+        for (int32 i = 0; i < (int32)s->tests.Size(); ++i) if (s->TestVisible(i)) { if (firstTest < 0) firstTest = i; ++nTestVis; }
+        const bool hasTests = nTestVis > 0;
+        if (hasTests && !s->TestVisible(s->testIdx)) s->testIdx = firstTest;   // recadre sur un test visible
         const float32 left = ctx.layout.region.x + ctx.S(8.f);
         float32 startX = left;
         if (s->HasWorkspace()) {
@@ -120,15 +124,14 @@ namespace nkcode {
         }
         ctx.PopId(); ctx.SameLine();
 
-        // ── 6) Tests lies au workspace (combo + Tester), si presents ──
+        // ── 6) Tests du projet selectionne (combo + Tester), si presents ──
         if (hasTests) {
             setW(wTest);
             ctx.PushId("test");
-            if (s->testIdx < 0 || s->testIdx >= (int32)s->tests.Size()) s->testIdx = 0;
-            const char* testPrev = s->tests[s->testIdx].CStr();
-            if (BeginCombo(ctx, "", testPrev, (int32)s->tests.Size())) {
-                for (usize i = 0; i < s->tests.Size(); ++i)
-                    if (Selectable(ctx, s->tests[i].CStr(), (int32)i == s->testIdx)) { s->testIdx = (int32)i; ctx.ClosePopup(); }
+            const char* testPrev = s->TestVisible(s->testIdx) ? s->tests[s->testIdx].CStr() : "(test)";
+            if (BeginCombo(ctx, "", testPrev, nTestVis)) {
+                for (int32 i = 0; i < (int32)s->tests.Size(); ++i)
+                    if (s->TestVisible(i) && Selectable(ctx, s->tests[i].CStr(), i == s->testIdx)) { s->testIdx = i; ctx.ClosePopup(); }
                 EndCombo(ctx);
             }
             ctx.PopId(); ctx.SameLine();

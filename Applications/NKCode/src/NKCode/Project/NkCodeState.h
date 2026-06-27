@@ -209,6 +209,20 @@ namespace nkcode {
 
         // Projet « Tous les projets » = entree virtuelle apres la liste.
         bool AllProjects() const { return projIdx >= static_cast<int32>(projects.Size()); }
+
+        // Un test appartient a un projet si son nom commence par le nom du projet
+        // suivi d'un separateur (ex. "NKPlatform_Tests" -> projet "NKPlatform").
+        static bool TestBelongs(const char* test, const char* proj) {
+            if (!test || !proj || !*proj) return false;
+            const char* t = test; const char* p = proj;
+            for (; *p; ++t, ++p) { char a = *t, b = *p; if (a >= 'A' && a <= 'Z') a += 32; if (b >= 'A' && b <= 'Z') b += 32; if (a != b) return false; }
+            return *t == '\0' || *t == '_' || *t == '-' || *t == ' ';
+        }
+        // Un test est-il visible pour la selection courante (projet precis, ou tous) ?
+        bool TestVisible(int32 i) const {
+            if (i < 0 || i >= static_cast<int32>(tests.Size())) return false;
+            return AllProjects() || TestBelongs(tests[i].CStr(), SelectedProject());
+        }
         const char* ConfigNameOf(int32 i) const { return i == 1 ? "Release" : "Debug"; }
 
         // ── File d'attente de commandes jenga (compilation en rafale) ──
