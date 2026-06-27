@@ -207,12 +207,17 @@ de pose. **Améliorations NkMath au passage** : `NkMat4::DecomposeTRS` + `NkQuat
 réparé + **ctor `NkQuat(NkMat4)` RÉPARÉ** (utilisait `LookAt(forward,up)` = convention
 CAMÉRA, faux pour une rotation d'os → réécrit en trace-based Mike Day standard ;
 inutilisé ailleurs donc sûr).
-- **Interp DÉFAUT = lerp matriciel sur locaux** (rigides → propre à 30fps, prouvé).
-  **Slerp TRS opt-in `NK_ANIM_SLERP`** (DecomposeTRS+Quat+SLerp réparés) — à valider
-  visuellement avant de passer par défaut.
+- **Interp DÉFAUT = lerp matriciel sur locaux** (rigides → propre à 30fps, PROUVÉ
+  VISUELLEMENT : marche nette). C'est le mode de production.
+- **Slerp TRS opt-in `NK_ANIM_SLERP` = ENCORE BUGGÉ (mesh ballonné)** : testé après le
+  fix du ctor `NkQuat(NkMat4)` → toujours faux. La conversion matrice→quat trace-based
+  n'est probablement PAS l'inverse exact de `quat→matrix` du moteur (convention/signes)
+  → `DecomposeTRS→Quat→SLerp→ToMat4` ne round-trip pas. À reprendre : vérifier
+  `q = NkQuat(R); R' = q.ToMat4()` doit == R (sinon aligner les signes du trace-based
+  sur la convention de `static_cast<NkMat4>(quat)`). **Non bloquant** (lerp-local suffit).
 
 **RESTE M1** :
-- **Valider le slerp** (`NK_ANIM_SLERP=1`) visuellement → le passer par défaut.
+- **Débugger le slerp** (round-trip matrice↔quat) puis le passer par défaut.
 - **M1.c — timeline/scrubbing + édition de clés** : UI sur **NKGui** (prêt, on conçoit
   les interfaces ; PAS NKUI — directive Rihen). Widget timeline à créer, branché sur
   `NkAnimationClip`/`NkAnimationPlayer` (le mode TRS-local rend l'édition naturelle).
