@@ -21,27 +21,47 @@ namespace nkcode {
     // Etat des dialogues modaux (un seul a la fois). 0 = aucun.
     struct NkCodeDialogs {
         NkCodeState* st = nullptr;
-        enum Mode { None = 0, NewProject, NewWorkspace, Properties };
+        enum Mode { None = 0, NewProject, NewWorkspace, SaveAs, Properties };
         int32   mode      = None;
-        char    nameBuf[96] = {};
+        char    nameBuf[256] = {};
         int32   kindIdx   = 0;
         int32   langIdx   = 0;
         bool    justOpened = false;
         NkString status;          // message d'erreur/succes affiche dans le dialogue
 
         void Open(int32 m) { mode = m; justOpened = true; status.Clear(); if (m == NewProject || m == NewWorkspace) nameBuf[0] = '\0'; }
+        void OpenSaveAs() {
+            mode = SaveAs; justOpened = true; status.Clear(); nameBuf[0] = '\0';
+            if (st && st->HasActive()) {   // prefill = nom du fichier actif (ou vide si sans titre)
+                NkString nm = st->files[st->active].Name();
+                int32 i = 0; for (; nm.CStr()[i] && i + 1 < (int32)sizeof(nameBuf); ++i) nameBuf[i] = nm.CStr()[i];
+                nameBuf[i] = '\0';
+            }
+        }
         void Close() { mode = None; }
     };
 
-    // ── Menus de la barre (appeles dans BuildMenuBar via SetAppMenu) ──
-    inline void DrawAppMenu(NkEditorFrameContext& ec, NkCodeDialogs* d) {
+    // ── Items injectes DANS le menu « Fichier » (via SetFileMenu) ──
+    // Appele alors que BeginMenu("Fichier") est deja ouvert : on dessine les items
+    // directement (creation, enregistrement, deploiement), pas un nouveau menu.
+    inline void DrawFileMenu(NkEditorFrameContext& ec, NkCodeDialogs* d) {
         if (!d) return;
         auto& ctx = ec.Ui();
-        const bool hasWs = d->st && d->st->HasWorkspace();
+        NkCodeState* s = d->st;
+        const bool hasWs   = s && s->HasWorkspace();
+        const bool hasFile = s && s->HasActive();
 
-        if (BeginMenu(ctx, "Projet")) {
-            if (MenuItem(ctx, "Nouveau projet...", nullptr, hasWs)) d->Open(NkCodeDialogs::NewProject);
-            if (MenuItem(ctx, "Nouveau workspace...")) d->Open(NkCodeDialogs::NewWorkspace);
+        if (MenuItem(ctx, "Nouveau fichier", "Ctrl+N")) { if (s) s->NewFile(); }
+        if (MenuItem(ctx, "Nouveau projet...", nullptr, hasWs)) d->Open(NkCodeDialogs::NewProject);
+        if (MenuItem(ctx, "Nouveau workspace...")) d->Open(NkCodeDialogs::NewWorkspace);
+
+        if (MenuItem(ctx, "Enregistrer", "Ctrl+S", hasFile)) {
+            if (s) { if (s->ActiveHasPath()) s->SaveActive(); else d->OpenSaveAs(); }
+        }
+        if (MenuItem(ctx, "Enregistrer sous...", "Ctrl+Shift+S", hasFile)) d->OpenSaveAs();
+        if (MenuItem(ctx, "Enregistrer tout", nullptr, hasFile)) { if (s) s->SaveAll(); }
+
+        if (BeginMenu(ctx, "Proprietes")) {
             MenuItem(ctx, "Proprietes du projet...", nullptr, false);     // TODO #5 (editeur de proprietes)
             MenuItem(ctx, "Proprietes du workspace...", nullptr, false);  // TODO #5
             EndMenu(ctx);
@@ -114,7 +134,8 @@ namespace nkcode {
             return en && hov && click;
         };
 
-        const bool isProj = (d->mode == NkCodeDialogs::NewProject);
+        const bool isProj   = (d->mode == NkCodeDialogs::NewProject);
+        const bool isSaveAs = (d->mode == NkCodeDialogs::SaveAs);
         const float32 pw = 460.f, ph = isProj ? 320.f : 220.f, px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
         dl.AddRectFilled({ 0.f, 0.f, W, H }, NkColor{ 0, 0, 0, 150 });
         const NkRect panel = { px, py, pw, ph };
@@ -124,12 +145,12 @@ namespace nkcode {
         dl.AddRectFilled(panel, NkColor{ 28, 33, 40, 255 }, 8.f);
         dl.AddRect(panel, NkColor{ 70, 78, 88, 255 }, 1.5f);
 
-        const char* title = isProj ? "Nouveau projet" : "Nouveau workspace";
+        const char* title = isProj ? "Nouveau projet" : isSaveAs ? "Enregistrer sous" : "Nouveau workspace";
         text(px + 18.f, py + 16.f, title, NkColor{ 230, 237, 243, 255 });
 
         const float32 cx = px + 20.f;
         float32 y = py + 52.f;
-        text(cx, y, "Nom", NkColor{ 160, 170, 180, 255 }); y += 22.f;
+        text(cx, y, isSaveAs ? "Nom ou chemin du fichier" : "Nom", NkColor{ 160, 170, 180, 255 }); y += 22.f;
         NkOverlayTextField(ctx, dl, f, { cx, y, pw - 40.f, 28.f }, d->nameBuf, (int32)sizeof(d->nameBuf), true);
         y += 42.f;
 
@@ -163,21 +184,29 @@ namespace nkcode {
         if (!d->status.Empty())
             text(cx, py + ph - 70.f, d->status.CStr(), NkColor{ 240, 120, 120, 255 });
 
-        // ── Boutons Creer / Annuler ──
+        // ── Boutons Creer/Enregistrer / Annuler ──
         const float32 by = py + ph - 42.f;
-        if (btn({ px + pw - 110.f, by, 96.f, 30.f }, isProj ? "Creer" : "Creer", d->nameBuf[0] != '\0')) {
-            NkString made;
-            if (isProj) made = GenerateProject(d->st->root, NkPath(d->st->wsPaths[d->st->wsIdx].CStr()),
-                                               d->nameBuf, d->kindIdx, d->langIdx);
-            else        made = GenerateWorkspace(d->st->root, d->nameBuf);
-            if (made.Empty()) {
-                d->status = isProj ? "Echec : nom invalide ou dossier deja existant."
-                                   : "Echec : nom invalide ou .jenga deja existant.";
+        if (btn({ px + pw - 110.f, by, 96.f, 30.f }, isSaveAs ? "Enregistrer" : "Creer", d->nameBuf[0] != '\0')) {
+            if (isSaveAs) {
+                // Chemin absolu (contient ':' ou separateur) -> tel quel ; sinon sous la racine.
+                bool abs = false; for (const char* p = d->nameBuf; *p; ++p) if (*p == ':' || *p == '/' || *p == '\\') { abs = true; break; }
+                NkPath dest = abs ? NkPath(d->nameBuf) : (d->st->root / d->nameBuf);
+                if (d->st->SaveActiveAs(dest)) { d->Close(); ctx.appModal = false; return; }
+                d->status = "Echec : impossible d'ecrire le fichier.";
             } else {
-                d->st->RequestReload();
-                d->st->ScanWorkspaces();
-                d->st->OpenPath(NkPath(made.CStr()));   // ouvre le .jenga genere
-                d->Close(); ctx.appModal = false; return;
+                NkString made;
+                if (isProj) made = GenerateProject(d->st->root, NkPath(d->st->wsPaths[d->st->wsIdx].CStr()),
+                                                   d->nameBuf, d->kindIdx, d->langIdx);
+                else        made = GenerateWorkspace(d->st->root, d->nameBuf);
+                if (made.Empty()) {
+                    d->status = isProj ? "Echec : nom invalide ou dossier deja existant."
+                                       : "Echec : nom invalide ou .jenga deja existant.";
+                } else {
+                    d->st->RequestReload();
+                    d->st->ScanWorkspaces();
+                    d->st->OpenPath(NkPath(made.CStr()));   // ouvre le .jenga genere
+                    d->Close(); ctx.appModal = false; return;
+                }
             }
         }
         if (btn({ px + pw - 218.f, by, 96.f, 30.f }, "Annuler", true)) { d->Close(); ctx.appModal = false; return; }

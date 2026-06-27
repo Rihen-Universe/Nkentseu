@@ -609,6 +609,7 @@ namespace nkentseu {
             if (!BeginMenuBar(mUI, rect)) return;
 
             if (BeginMenu(mUI, "Fichier")) {
+                if (mFileMenuFn) mFileMenuFn(ec, mFileMenuUser);   // Nouveau/Enregistrer/Deploiement (app)
                 if (MenuItem(mUI, "Palette de commandes", "Ctrl+P")) { mPaletteOpen = !mPaletteOpen; mPaletteSel = 0; }
                 if (MenuItem(mUI, "Quitter", "Alt+F4")) mRunning = false;
                 EndMenu(mUI);

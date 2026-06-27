@@ -12,6 +12,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Editor/NkCodeEditor.h"
+#include <cstdio>
 
 namespace nkentseu {
 namespace nkcode {
@@ -86,6 +87,39 @@ namespace nkcode {
                 return true;
             }
             status = NkString("Echec enregistrement"); return false;
+        }
+
+        bool HasActive() const { return active >= 0 && active < static_cast<int32>(files.Size()); }
+        bool ActiveHasPath() const { return HasActive() && !files[active].path.ToString().Empty(); }
+
+        // Nouveau fichier sans titre (onglet vide). Reste « sans titre » jusqu'a
+        // un Enregistrer sous (path vide -> SaveActive renvoie false).
+        void NewFile() {
+            OpenFile f;                 // path vide
+            f.doc.SetText("");
+            files.PushBack(f);
+            active = static_cast<int32>(files.Size()) - 1;
+        }
+
+        // Enregistre l'onglet actif vers `p` (Enregistrer sous).
+        bool SaveActiveAs(const NkPath& p) {
+            if (!HasActive()) return false;
+            files[active].path = p;
+            return SaveActive();
+        }
+
+        // Enregistre tous les onglets modifies ayant un chemin. Renvoie le nombre ecrit.
+        int32 SaveAll() {
+            const int32 keep = active;
+            int32 n = 0;
+            for (int32 i = 0; i < static_cast<int32>(files.Size()); ++i) {
+                if (files[i].path.ToString().Empty() || !files[i].doc.dirty) continue;
+                active = i; if (SaveActive()) ++n;
+            }
+            active = keep;
+            char sb[48]; std::snprintf(sb, sizeof(sb), "Tout enregistre (%d fichier(s))", n);
+            status = NkString(sb);
+            return n;
         }
 
         NkProcess mBuild;   // build ASYNCHRONE (ne gele pas l'UI)

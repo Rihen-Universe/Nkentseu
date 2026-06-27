@@ -71,6 +71,11 @@ namespace nkentseu {
             void SetAppMenu(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
                 mAppMenuFn = fn; mAppMenuUser = user;
             }
+            // Items injectes DANS le menu « Fichier » (avant Palette/Quitter) : l'app
+            // y met Nouveau fichier/projet/workspace, Enregistrer(/sous/tout), Deploiement.
+            void SetFileMenu(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
+                mFileMenuFn = fn; mFileMenuUser = user;
+            }
             // Barre d'outils horizontale (sous la barre de titre, facon Visual Studio) :
             // l'app y dessine config/plateforme cible + bouton Build/Run + emulateur.
             void SetToolbar(NkEditorAppMenuFn fn, void* user = nullptr) noexcept {
@@ -145,6 +150,8 @@ namespace nkentseu {
             int32             mNumCommands            = 0;
             NkEditorAppMenuFn mAppMenuFn              = nullptr;
             void*             mAppMenuUser            = nullptr;
+            NkEditorAppMenuFn mFileMenuFn             = nullptr;
+            void*             mFileMenuUser           = nullptr;
             NkEditorAppMenuFn mToolbarFn              = nullptr;
             void*             mToolbarUser            = nullptr;
             NkEditorAppMenuFn mOverlayFn              = nullptr;

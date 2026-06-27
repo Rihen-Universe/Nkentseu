@@ -45,10 +45,10 @@ static void ToolbarThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawCodeToolbar(ec, static_cast<nkcode::NkCodeState*>(u));
 }
 
-// Dialogues modaux (creation projet/workspace) + menus Projet/Deploiement.
+// Dialogues modaux (creation/enregistrement) + items du menu Fichier.
 static nkcode::NkCodeDialogs g_dialogs;
-static void AppMenuThunk(NkEditorFrameContext& ec, void* u) {
-    nkcode::DrawAppMenu(ec, static_cast<nkcode::NkCodeDialogs*>(u));
+static void FileMenuThunk(NkEditorFrameContext& ec, void* u) {
+    nkcode::DrawFileMenu(ec, static_cast<nkcode::NkCodeDialogs*>(u));
 }
 static void OverlayThunk(NkEditorFrameContext& ec, void* u) {
     nkcode::DrawOverlay(ec, static_cast<nkcode::NkCodeDialogs*>(u));
@@ -100,8 +100,8 @@ int nkmain(const NkEntryState& state) {
 
     shell->SetToolbar(&ToolbarThunk, &g_state);   // barre d'outils Visual Studio
     g_dialogs.st = &g_state;
-    shell->SetAppMenu(&AppMenuThunk, &g_dialogs);  // menus Projet / Deploiement
-    shell->SetOverlay(&OverlayThunk, &g_dialogs);  // dialogues modaux (creation .jenga)
+    shell->SetFileMenu(&FileMenuThunk, &g_dialogs);  // items du menu Fichier (Nouveau/Enregistrer/Deploiement)
+    shell->SetOverlay(&OverlayThunk, &g_dialogs);    // dialogues modaux (creation/enregistrement)
 
     shell->RegisterCommand("Projet: Construire (jenga build)", &CmdBuild, nullptr,      "Ctrl+B");
     shell->RegisterCommand("Projet: Demarrer (jenga run)",     &CmdRun,   nullptr,      "Ctrl+R");
