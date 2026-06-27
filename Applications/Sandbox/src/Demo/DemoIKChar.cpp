@@ -22,6 +22,8 @@
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Tools/IK/NkIKSystem.h"
+#include "NKWindow/Core/NkWESystem.h"   // NkEvents() (file d'événements globale)
+#include "NKEvent/NkMouseEvent.h"
 #include "NKLogger/NkLog.h"
 #include <cmath>
 #include <cstdlib>
@@ -57,6 +59,13 @@ namespace nkentseu { namespace demo {
         float32            radius = 2.f;
         float32            reach  = 1.f;     // longueur du membre (rayon d'atteinte)
         NkVec3f            anchor = {0,0,0}; // position bind de la racine du membre
+
+        // (a') effecteur draggable a la souris
+        float32            camAngle = 0.f;   // orbite (gelee pendant le drag)
+        bool               dragging  = false;
+        bool               hasManual = false;// une fois drague, la cible reste posee
+        int32              mouseX = 0, mouseY = 0;
+        NkVec3f            manualTarget = {0,0,0};
     };
 
     static NkString PickModel() {
@@ -210,6 +219,22 @@ namespace nkentseu { namespace demo {
         st->world.Resize(jc);
         st->skin.Resize(jc);
 
+        // (a') Input souris : clic gauche maintenu = déplacer l'effecteur (la cible
+        // suit le curseur, projeté sur le plan passant par l'ancre face caméra).
+        // La logique reste DANS la démo — le solveur IK (engine) ignore tout ça.
+        {
+            auto* sp = st;
+            NkEvents().AddEventCallback<NkMouseMoveEvent>([sp](NkMouseMoveEvent* e){
+                if (e) { sp->mouseX = e->GetX(); sp->mouseY = e->GetY(); }
+            });
+            NkEvents().AddEventCallback<NkMouseButtonPressEvent>([sp](NkMouseButtonPressEvent* e){
+                if (e && e->GetButton() == NkMouseButton::NK_MB_LEFT) { sp->dragging = true; sp->hasManual = true; }
+            });
+            NkEvents().AddEventCallback<NkMouseButtonReleaseEvent>([sp](NkMouseButtonReleaseEvent* e){
+                if (e && e->GetButton() == NkMouseButton::NK_MB_LEFT) sp->dragging = false;
+            });
+        }
+
         logger.Info("[DemoIKChar] '{0}' : {1} joints, membre IK = {2} os (feuille={3}, "
                     "reach={4}m), mesh={5}, center=({6},{7},{8}) r={9}\n",
                     path.CStr(), jc, (uint32)st->chain.Size(), leaf, st->reach,
@@ -227,12 +252,62 @@ namespace nkentseu { namespace demo {
         const float32 t  = ctx.totalTime;
         const uint32  jc = (uint32)st->bind.Size();
 
-        // ── Cible animée autour de l'ancre du membre ──────────────────────────
-        NkVec3f target = {
+        // ── Caméra orbitale (orbite GELÉE pendant le drag) ────────────────────
+        if (!st->dragging) st->camAngle += dt * 0.25f;
+        const float32 orbit = st->camAngle;
+        NkCamera3DData camData;
+        camData.position  = { st->center.x + sinf(orbit)*st->radius,
+                              st->center.y + st->radius*0.10f,
+                              st->center.z + cosf(orbit)*st->radius };
+        camData.target    = st->center;
+        camData.up        = {0,1,0};
+        camData.fovY      = 50.f;
+        camData.aspect    = (float32)ctx.width / (float32)NkMax(1u, ctx.height);
+        camData.nearPlane = 0.02f;
+        camData.farPlane  = NkMax(50.f, st->radius*8.f);
+        NkCamera3D cam(camData);
+
+        // ── Cible : drag souris (a') sinon animée ─────────────────────────────
+        NkVec3f animTarget = {
             st->anchor.x + sinf(t * 1.1f) * st->reach * 0.9f,
             st->anchor.y + sinf(t * 0.7f) * st->reach * 0.6f,
             st->anchor.z + cosf(t * 1.1f) * st->reach * 0.9f
         };
+        if (st->dragging) {
+            // Rayon caméra->curseur (unprojection via inv(viewProj)), intersecté
+            // avec le plan passant par l'ancre (normale = visée caméra) -> point 3D.
+            NkMat4f invVP = cam.GetViewProj().Inverse();
+            float32 nx = 2.f*((float32)st->mouseX/(float32)NkMax(1u,ctx.width)) - 1.f;
+            float32 ny = 1.f - 2.f*((float32)st->mouseY/(float32)NkMax(1u,ctx.height));
+            NkVec4f fp = invVP * NkVec4f{nx, ny, 1.f, 1.f};
+            if (fabsf(fp.w) > 1e-8f) {
+                NkVec3f O = camData.position;
+                NkVec3f D = { fp.x/fp.w - O.x, fp.y/fp.w - O.y, fp.z/fp.w - O.z };
+                float32 dl = sqrtf(D.x*D.x+D.y*D.y+D.z*D.z);
+                NkVec3f N = { camData.target.x-O.x, camData.target.y-O.y, camData.target.z-O.z };
+                float32 nl = sqrtf(N.x*N.x+N.y*N.y+N.z*N.z);
+                if (dl > 1e-6f && nl > 1e-6f) {
+                    D.x/=dl; D.y/=dl; D.z/=dl; N.x/=nl; N.y/=nl; N.z/=nl;
+                    float32 denom = D.x*N.x+D.y*N.y+D.z*N.z;
+                    if (fabsf(denom) > 1e-5f) {
+                        NkVec3f AO = { st->anchor.x-O.x, st->anchor.y-O.y, st->anchor.z-O.z };
+                        float32 tt = (AO.x*N.x+AO.y*N.y+AO.z*N.z) / denom;
+                        if (tt > 0.f) {
+                            NkVec3f hit = { O.x+D.x*tt, O.y+D.y*tt, O.z+D.z*tt };
+                            NkVec3f rel = { hit.x-st->anchor.x, hit.y-st->anchor.y, hit.z-st->anchor.z };
+                            float32 rd = sqrtf(rel.x*rel.x+rel.y*rel.y+rel.z*rel.z);
+                            float32 mx = st->reach * 0.98f;       // garde l'IK solvable
+                            if (rd > mx && rd > 1e-6f) {
+                                float32 s = mx/rd;
+                                hit = { st->anchor.x+rel.x*s, st->anchor.y+rel.y*s, st->anchor.z+rel.z*s };
+                            }
+                            st->manualTarget = hit;
+                        }
+                    }
+                }
+            }
+        }
+        NkVec3f target = st->hasManual ? st->manualTarget : animTarget;
 
         // ── Résolution IK : on repart TOUJOURS de la bind pose complète ───────
         const NkMat4f* res = st->bind.Data();
@@ -246,10 +321,9 @@ namespace nkentseu { namespace demo {
         }
 
         // ── Recompose le GLOBAL de chaque joint (FK propagée) ─────────────────
-        // Joint dans la chaine -> global IK (res). Joint descendant d'un joint
-        // résolu -> on lui applique le DELTA de son ancetre-chaine le plus proche
-        // (delta = resGlobal(a) * bindGlobal(a)^-1) -> la main suit le poignet.
-        // Joint non affecté -> bind.
+        // Joint dans la chaine -> global IK (res). Descendant d'un joint résolu ->
+        // delta de son ancetre-chaine (= resGlobal(a)*bindGlobal(a)^-1) -> la main
+        // suit le poignet. Joint non affecté -> bind.
         for (uint32 j = 0; j < jc; ++j) {
             if (st->inChain[j] && j < resCount) { st->world[j] = res[j]; continue; }
             int32 a = st->chainAncestor[j];
@@ -260,20 +334,6 @@ namespace nkentseu { namespace demo {
                 st->world[j] = st->bind[j];
             }
         }
-
-        // ── Caméra orbitale ───────────────────────────────────────────────────
-        NkCamera3DData camData;
-        const float32 orbit = t * 0.25f;
-        camData.position  = { st->center.x + sinf(orbit)*st->radius,
-                              st->center.y + st->radius*0.10f,
-                              st->center.z + cosf(orbit)*st->radius };
-        camData.target    = st->center;
-        camData.up        = {0,1,0};
-        camData.fovY      = 50.f;
-        camData.aspect    = (float32)ctx.width / (float32)NkMax(1u, ctx.height);
-        camData.nearPlane = 0.02f;
-        camData.farPlane  = NkMax(50.f, st->radius*8.f);
-        NkCamera3D cam(camData);
 
         NkSceneContext sctx;
         sctx.camera = cam; sctx.time = t;
@@ -357,8 +417,8 @@ namespace nkentseu { namespace demo {
             overlay->DrawText({20.f,35.f}, "DemoIKChar (NkAnima M0 d/d-bis)  |  API : %s", NkGraphicsApiName(ctx.api));
             overlay->DrawText({20.f,55.f}, "IK FABRIK sur CesiumMan — membre = %u os  mesh:%d",
                               (uint32)st->chain.Size(), meshSubmitted?1:0);
-            overlay->DrawText({20.f,75.f}, "joints:%u  ready:%d  reach:%.3f",
-                              jc, st->ready?1:0, st->reach);
+            overlay->DrawText({20.f,75.f}, "joints:%u  reach:%.3f  drag:%d (clic gauche = deplacer l'effecteur)",
+                              jc, st->reach, st->dragging?1:0);
             overlay->DrawText({20.f,95.f}, "FPS : %.0f", dt>1e-5f ? 1.f/dt : 0.f);
             overlay->EndOverlay();
         }
