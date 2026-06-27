@@ -623,7 +623,10 @@ namespace nkentseu {
                     if (x > w-b)                    { result = HTRIGHT;       break; }
                     if (y < b)                      { result = HTTOP;         break; }
                     if (y > h-b)                    { result = HTBOTTOM;      break; }
-                    if (y < 32 && x > 260 && x < w-260) { result = HTCAPTION; break; }
+                    // Toute la barre de titre = HTCLIENT : l'app recoit TOUS les clics
+                    // (menus cliquables sur toute leur largeur) et gere elle-meme le
+                    // deplacement (BeginDragMove dans les zones vides). PAS de HTCAPTION
+                    // code en dur (sinon il recouvrait la fin des menus -> clic vole).
                     result = HTCLIENT;
                 }
                 break;
