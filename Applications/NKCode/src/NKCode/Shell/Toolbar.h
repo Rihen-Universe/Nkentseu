@@ -30,9 +30,21 @@ namespace nkcode {
         auto setW = [&](float32 w) { ctx.layout.region.w = (ctx.layout.cursor.x - ctx.layout.region.x) + w; };
         const float32 savedRegionW = ctx.layout.region.w;
 
-        // Curseur de depart a gauche.
-        ctx.layout.cursor.x   = ctx.layout.region.x + ctx.S(8.f);
-        ctx.layout.lineStartX = ctx.layout.cursor.x;
+        // CENTRAGE : largeur totale (bouton + 5 combos + 4 actions) -> depart au milieu.
+        auto bW = [&](const char* l) { return (ctx.font && ctx.font->Valid() ? ctx.font->MeasureWidth(l) : 40.f) + ctx.theme.framePadX * 2.f + 6.f; };
+        const float32 sp = ctx.layout.itemSpacingX;
+        const float32 wWs = ctx.S(150.f), wProj = ctx.S(180.f), wSys = ctx.S(130.f), wCfg = ctx.S(110.f), wArch = ctx.S(130.f);
+        const float32 left = ctx.layout.region.x + ctx.S(8.f);
+        float32 startX = left;
+        if (s->HasWorkspace()) {
+            const float32 total = bW(" \xE2\x86\xBB ") + wWs + wProj + wSys + wCfg + wArch
+                                + bW(" Construire ") + bW(" Recompiler ") + bW(" Nettoyer ") + bW(" Demarrer ")
+                                + sp * 9.f;
+            const float32 mid = ctx.layout.region.x + (savedRegionW - total) * 0.5f;
+            startX = mid > left ? mid : left;
+        }
+        ctx.layout.cursor.x   = startX;
+        ctx.layout.lineStartX = startX;
 
         // ── Bouton Recharger (re-scan + jenga info) ──
         if (Button(ctx, " \xE2\x86\xBB ")) s->RequestReload();   // glyphe ↻

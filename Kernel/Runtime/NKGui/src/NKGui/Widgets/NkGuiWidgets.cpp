@@ -3222,7 +3222,7 @@ namespace nkentseu {
 
             bool hov = false, held = false;
             const bool clicked = ctx.ButtonBehavior(id, field, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
-            if (clicked) { if (ctx.IsPopupOpen(id)) ctx.ClosePopup(); else { ctx.OpenPopup(id); ctx.comboNav = 0; } }
+            if (clicked) { if (ctx.IsPopupOpen(id)) ctx.ClosePopup(); else { ctx.OpenPopup(id); ctx.comboNav = 0; ScrollSet(ctx, id ^ 0xC0FFEEu, NkGuiScrollState{}); } }
             const bool open = ctx.IsPopupOpen(id);
             // Navigation CLAVIER quand le combo est ouvert : ↑/↓ deplacent l'item
             // surligne, Entree le choisit (l'appelant lit ctx.comboNav/comboEnter),
@@ -3257,15 +3257,33 @@ namespace nkentseu {
 
             if (!open) return false;
 
-            // Popup sous le champ (rabattu vers le haut si ça déborde en bas).
-            const int32   n  = itemCount < 1 ? 1 : itemCount;
-            const float32 ph = n * (h + ctx.layout.itemSpacingY) + 14.f;
-            NkRect pr = { field.x, field.y + field.h + 2.f, field.w, ph };
-            if (pr.y + pr.h > static_cast<float32>(ctx.viewH)) pr.y = field.y - ph - 2.f;
-            return BeginPopupLevel(ctx, id, 0, pr, field);
+            // Popup : ouvre VERS LE BAS en priorite ; hauteur PLAFONNEE a l'espace
+            // disponible (et a un max) -> au-dela, le contenu DEFILE (scrollbar V).
+            const int32   n        = itemCount < 1 ? 1 : itemCount;
+            const float32 rowH     = h + ctx.layout.itemSpacingY;
+            const float32 desiredH = n * rowH + 10.f;
+            const float32 below    = static_cast<float32>(ctx.viewH) - (field.y + field.h + 4.f);
+            const float32 above    = field.y - 4.f;
+            const float32 capMax   = 360.f;
+            float32 popH = desiredH < capMax ? desiredH : capMax;
+            bool up = false;
+            if (popH > below && above > below) { up = true; if (popH > above) popH = above; }
+            else if (popH > below)             { popH = below; }
+            if (popH < rowH) popH = rowH;
+            NkRect pr = { field.x, up ? (field.y - popH - 2.f) : (field.y + field.h + 2.f), field.w, popH };
+
+            if (!BeginPopupLevel(ctx, id, 0, pr, field)) return false;
+            // Contenu defilant (scrollbar verticale auto quand ca deborde).
+            const NkRect inner = { pr.x + 2.f, pr.y + 3.f, pr.w - 4.f, pr.h - 6.f };
+            BeginScrollFrame(ctx, id ^ 0xC0FFEEu, inner, /*horizontal=*/false, /*fillWidth=*/true);
+            // La molette sur le popup a deja servi a defiler le combo -> on la CONSOMME
+            // pour que les panneaux dessous (editeur/explorateur, dessines apres) ne
+            // defilent pas en meme temps.
+            if (NkGuiRectContains(pr, ctx.input.mousePos)) { ctx.input.wheel = 0.f; ctx.input.wheelH = 0.f; }
+            return true;
         }
 
-        void EndCombo(NkGuiContext& ctx) noexcept { EndPopup(ctx); }
+        void EndCombo(NkGuiContext& ctx) noexcept { EndScrollFrame(ctx); EndPopup(ctx); }
 
         // ── Menus (barre + sous-menus imbriqués + menu contextuel) ───────────
         // Taille auto-mesurée d'un menu (mesurée une frame, appliquée la suivante).
