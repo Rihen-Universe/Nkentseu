@@ -25,12 +25,10 @@
 #include "NKWindow/NKWindow.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKTime/NkClock.h"
-#include "NKCanvas/Core/NkGraphicsApi.h"
-#include "NKCanvas/Renderer/Targets/NkRenderWindow.h"
-#include "NKCanvas/UI/NkGuiCanvasBackend.h"
 #include "NKGui/NKGui.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "NKEditorKit/NkFontPrefs.h"
+#include "NKEditorKit/NkIEditorRenderer.h"   // backend de rendu pluggable
 
 namespace nkentseu {
     namespace editorkit {
@@ -41,7 +39,11 @@ namespace nkentseu {
             uint32         width       = 1280;
             uint32         height      = 720;
             bool           resizable   = true;
-            NkGraphicsApi  graphicsApi = NkGraphicsApi::NK_GFX_API_AUTO;
+            NkEditorGfxApi graphicsApi = NkEditorGfxApi::Auto;
+            // Backend de rendu INJECTE (optionnel). nullptr => impl NKCanvas par
+            // defaut (IDE). Une app 2D/3D (anim/moteur) fournit ici une impl NKRHI/
+            // NKRenderer. Le shell NE POSSEDE PAS un renderer injecte (l'app le gere).
+            NkIEditorRenderer* renderer = nullptr;
         };
 
         // Menu applicatif optionnel : appele a l'interieur de la barre de menus,
@@ -137,10 +139,15 @@ namespace nkentseu {
             void DrawActivityBar(const nkgui::NkRect& bar) noexcept;
             void DrawStatusBar(float32 footerH) noexcept;
 
+            // === Redimensionnement MANUEL par les bords (resize natif KO en borderless) ===
+            int32   mResizeEdge   = 0;     // bitmask en cours : 1=L 2=R 4=T 8=B (0 = aucun)
+            float32 mResizeMouseX = 0.f, mResizeMouseY = 0.f;   // souris ECRAN au depart
+            int32   mResizeWinX = 0, mResizeWinY = 0, mResizeWinW = 0, mResizeWinH = 0;
+
             // === Fenetre / rendu ===
-            NkWindow                                       mWindow;
-            memory::NkUniquePtr<renderer::NkRenderWindow>  mRenderTarget;
-            renderer::NkGuiCanvasBackend                   mBackend;
+            NkWindow           mWindow;
+            NkIEditorRenderer* mRenderer     = nullptr;   // backend pluggable (NKCanvas par defaut / NKRHI injecte)
+            bool               mOwnsRenderer = false;      // true => cree par le shell (a detruire)
 
             // === NKGui (contexte + police possedee) ===
             nkgui::NkGuiContext mUI;
@@ -187,7 +194,7 @@ namespace nkentseu {
             NkClock       mClock;
             bool          mRunning       = true;
             bool          mDockBootstrap = true;
-            NkGraphicsApi mGraphicsApi   = NkGraphicsApi::NK_GFX_API_AUTO;
+            NkEditorGfxApi mGraphicsApi  = NkEditorGfxApi::Auto;
             uint32        mLastWidth     = 0;
             uint32        mLastHeight    = 0;
             // Deplacement de fenetre par la barre de titre : arme au press, ne demarre

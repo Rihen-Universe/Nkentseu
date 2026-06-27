@@ -3,11 +3,12 @@
 //   events -> BeginFrame -> menubar -> DockSpace -> panneaux -> palette -> rendu.
 // =============================================================================
 #include "NKEditorKit/NkEditorShell.h"
+#include "NKEditorKit/NkEditorCanvasRenderer.h"   // backend de rendu par defaut (IDE)
 
 #include "NKEvent/NkWindowEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
-#include "NKCanvas/Core/NkContextDesc.h"
+#include "NKMemory/NkAllocator.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
@@ -74,7 +75,11 @@ namespace nkentseu {
 
         // ── Cycle de vie ─────────────────────────────────────────────────────────
         NkEditorShell::~NkEditorShell() {
-            mRenderTarget.Reset();   // libere le contexte GPU avant la fenetre
+            if (mRenderer) {                     // libere le contexte GPU avant la fenetre
+                mRenderer->Shutdown();
+                if (mOwnsRenderer) memory::NkGetDefaultAllocator().Delete(mRenderer);
+                mRenderer = nullptr;
+            }
             mWindow.Close();
         }
 
@@ -91,18 +96,17 @@ namespace nkentseu {
             if (!mWindow.Create(wc)) return false;
             CopyStr(mTitle, config.title, sizeof(mTitle));
 
-            NkContextDesc desc;
-            desc.api = mGraphicsApi;
-            if (desc.api == NkGraphicsApi::NK_GFX_API_AUTO) {
-#if defined(NKENTSEU_PLATFORM_WINDOWS)
-                desc.api = NkGraphicsApi::NK_GFX_API_DX11;
-#else
-                desc.api = NkGraphicsApi::NK_GFX_API_OPENGL;
-#endif
+            // Backend de rendu : injecte (app NKRHI/NKRenderer) ou NKCanvas par
+            // defaut (IDE). Resolution AUTO->API faite par l'impl elle-meme.
+            if (config.renderer) {
+                mRenderer = config.renderer; mOwnsRenderer = false;
+            } else {
+                mRenderer = memory::NkGetDefaultAllocator().New<NkEditorCanvasRenderer>();
+                mOwnsRenderer = true;
             }
-            mRenderTarget = memory::NkMakeUnique<NkRenderWindow>(mWindow, desc);
-            if (!mRenderTarget || !mRenderTarget->IsValid()) {
-                mRenderTarget.Reset();
+            if (!mRenderer || !mRenderer->Init(mWindow, mGraphicsApi)) {
+                if (mRenderer && mOwnsRenderer) memory::NkGetDefaultAllocator().Delete(mRenderer);
+                mRenderer = nullptr;
                 return false;
             }
 
@@ -151,7 +155,6 @@ namespace nkentseu {
                     if (c.GetId(self->mPanels[i]->Title()) == win) { self->mPanels[i]->OnTabBarActions(c, bar); break; }
             };
 
-            mBackend.Init(mRenderTarget->GetRenderer());
 
             // ── DEUX polices distinctes (comme VSCode), pilotees par les reglages ──
             // INTERFACE (proportionnelle, defaut Inter) + CODE/TERMINAL (monospace,
@@ -296,12 +299,12 @@ namespace nkentseu {
                 if (!mRunning) break;
 
                 // Resize : suit la taille de la fenetre OS.
-                const math::NkVec2u wsz = mRenderTarget->GetWindow().GetSize();
+                const math::NkVec2u wsz = mWindow.GetSize();
                 if (wsz.x > 0 && wsz.y > 0 && (wsz.x != mLastWidth || wsz.y != mLastHeight)) {
-                    mRenderTarget->OnResize(wsz.x, wsz.y);
+                    mRenderer->OnResize(wsz.x, wsz.y);
                     mLastWidth = wsz.x; mLastHeight = wsz.y;
                 }
-                const math::NkVec2u sz = mRenderTarget->GetSize();
+                const math::NkVec2u sz = mRenderer->Size();
                 if (sz.x > 0 && sz.y > 0) { mUI.viewW = static_cast<int32>(sz.x); mUI.viewH = static_cast<int32>(sz.y); }
 
                 mUI.BeginFrame(dt);
@@ -374,10 +377,10 @@ namespace nkentseu {
 
                 mWindow.SetCursor(MapCursor(mUI.wantCursor));
 
-                mRenderTarget->Clear();
-                mBackend.Submit(mUI.dl,        sz.x, sz.y);
-                mBackend.Submit(mUI.dlOverlay, sz.x, sz.y);
-                mRenderTarget->Display();
+                mRenderer->BeginFrame();
+                mRenderer->SubmitDrawList(mUI.dl,        sz.x, sz.y);
+                mRenderer->SubmitDrawList(mUI.dlOverlay, sz.x, sz.y);
+                mRenderer->EndFrame();
             }
             return 0;
         }
@@ -569,21 +572,55 @@ namespace nkentseu {
         }
 
         // ── Bords de redimensionnement (fenetre sans bordure) ─────────────────────
+        // Redimensionnement MANUEL par les bords. Le resize natif (WM_NCLBUTTONDOWN/
+        // HTLEFT) ne fonctionne pas dans ce setup borderless ; on gere donc tout a la
+        // main via GetPosition/GetSize + SetPosition/SetSize, en suivant la souris ECRAN.
         void NkEditorShell::HandleEdgeResize(float32 W, float32 H) noexcept {
-            if (mWindow.IsMaximized()) return;
-            if (!mUI.input.mouseClicked[0]) return;
-            const float32 b = mUI.S(5.f);
-            const NkVec2  m = mUI.input.mousePos;
+            if (mWindow.IsMaximized()) { mResizeEdge = 0; return; }
+            const float32 b = mUI.S(7.f);
+            const NkVec2  m = mUI.input.mousePos;                 // coords CLIENT
+            const auto    wp = mWindow.GetPosition();
+            const float32 screenX = static_cast<float32>(wp.x) + m.x;   // souris ECRAN
+            const float32 screenY = static_cast<float32>(wp.y) + m.y;
+
             const bool L = m.x <= b, R = m.x >= W - b, T = m.y <= b, Bm = m.y >= H - b;
-            if (!(L || R || T || Bm)) return;
-            using E = NkWindow::NkResizeEdge;
-            E e;
-            if      (T && L) e = E::TopLeft;     else if (T && R) e = E::TopRight;
-            else if (Bm && L) e = E::BottomLeft; else if (Bm && R) e = E::BottomRight;
-            else if (L) e = E::Left;             else if (R) e = E::Right;
-            else if (T) e = E::Top;              else e = E::Bottom;
-            mWindow.BeginResize(e);
-            mUI.input.mouseDown[0] = mUI.input.mouseClicked[0] = false;
+            const int32 hoverEdge = (L ? 1 : 0) | (R ? 2 : 0) | (T ? 4 : 0) | (Bm ? 8 : 0);
+
+            // Curseur de redimensionnement au survol d'un bord (ou pendant le drag).
+            const int32 fb = mResizeEdge ? mResizeEdge : hoverEdge;
+            if (fb) {
+                if ((fb & 3) && !(fb & 12))      mUI.wantCursor = NkGuiCursor::ResizeEW;  // L/R seul
+                else if ((fb & 12) && !(fb & 3)) mUI.wantCursor = NkGuiCursor::ResizeNS;  // T/B seul
+                else                              mUI.wantCursor = NkGuiCursor::ResizeEW;  // coin (pas de diagonale dispo)
+            }
+
+            // Demarrage du drag : clic sur un bord.
+            if (mResizeEdge == 0 && hoverEdge && mUI.input.mouseClicked[0]) {
+                mResizeEdge = hoverEdge;
+                const auto sz = mWindow.GetSize();
+                mResizeWinX = static_cast<int32>(wp.x); mResizeWinY = static_cast<int32>(wp.y);
+                mResizeWinW = static_cast<int32>(sz.x); mResizeWinH = static_cast<int32>(sz.y);
+                mResizeMouseX = screenX; mResizeMouseY = screenY;
+                mUI.input.mouseClicked[0] = false;   // consomme (pas de drag de titre)
+            }
+
+            // Pendant le drag : applique le delta souris ecran a la geometrie.
+            if (mResizeEdge) {
+                if (!mUI.input.mouseDown[0]) { mResizeEdge = 0; return; }
+                const float32 dx = screenX - mResizeMouseX;
+                const float32 dy = screenY - mResizeMouseY;
+                int32 nx = mResizeWinX, ny = mResizeWinY, nw = mResizeWinW, nh = mResizeWinH;
+                if (mResizeEdge & 2) nw = mResizeWinW + static_cast<int32>(dx);                      // droite
+                if (mResizeEdge & 8) nh = mResizeWinH + static_cast<int32>(dy);                      // bas
+                if (mResizeEdge & 1) { nw = mResizeWinW - static_cast<int32>(dx); nx = mResizeWinX + static_cast<int32>(dx); }  // gauche
+                if (mResizeEdge & 4) { nh = mResizeWinH - static_cast<int32>(dy); ny = mResizeWinY + static_cast<int32>(dy); }  // haut
+                const int32 minW = static_cast<int32>(mUI.S(480.f)), minH = static_cast<int32>(mUI.S(320.f));
+                if (nw < minW) { if (mResizeEdge & 1) nx -= (minW - nw); nw = minW; }
+                if (nh < minH) { if (mResizeEdge & 4) ny -= (minH - nh); nh = minH; }
+                if (mResizeEdge & 5) mWindow.SetPosition(nx, ny);   // gauche/haut : la fenetre bouge
+                mWindow.SetSize(static_cast<uint32>(nw), static_cast<uint32>(nh));
+                mUI.input.mouseClicked[0] = false;
+            }
         }
 
         // ── Barre d'etat (footer facon VSCode : bande bleue en bas) ───────────────
@@ -792,13 +829,13 @@ namespace nkentseu {
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f);
             if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f);
             mUI.font = &mFont;
-            if (mFontOk) mBackend.UploadFontGray8(mFont.TexId(), mFont.pixels, mFont.atlasW, mFont.atlasH);
+            if (mFontOk && mRenderer) mRenderer->UploadFontGray8(mFont.TexId(), mFont.pixels, mFont.atlasW, mFont.atlasH);
 
             mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
             bool codeOk = NkResolveFont(mCodeFont, mFontPrefs.codeFont, mFontPrefs.codeSize);
             if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, mFontPrefs.codeSize);
             if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f);
-            if (codeOk) { mBackend.UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH); mUI.codeFont = &mCodeFont; }
+            if (codeOk) { if (mRenderer) mRenderer->UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH); mUI.codeFont = &mCodeFont; }
             else mUI.codeFont = &mFont;
         }
 

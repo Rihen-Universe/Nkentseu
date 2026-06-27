@@ -614,19 +614,11 @@ namespace nkentseu {
                     int y = GET_Y_LPARAM(lp) - rc.top;
                     int w = rc.right  - rc.left;
                     int h = rc.bottom - rc.top;
-                    int b = IsZoomed(hwnd) ? 0 : 7;   // bord de redimensionnement (plus large = plus facile a saisir)
-                    if (x < b && y < b)             { result = HTTOPLEFT;     break; }
-                    if (x > w-b && y < b)           { result = HTTOPRIGHT;    break; }
-                    if (x < b && y > h-b)           { result = HTBOTTOMLEFT;  break; }
-                    if (x > w-b && y > h-b)         { result = HTBOTTOMRIGHT; break; }
-                    if (x < b)                      { result = HTLEFT;        break; }
-                    if (x > w-b)                    { result = HTRIGHT;       break; }
-                    if (y < b)                      { result = HTTOP;         break; }
-                    if (y > h-b)                    { result = HTBOTTOM;      break; }
-                    // Toute la barre de titre = HTCLIENT : l'app recoit TOUS les clics
-                    // (menus cliquables sur toute leur largeur) et gere elle-meme le
-                    // deplacement (BeginDragMove dans les zones vides). PAS de HTCAPTION
-                    // code en dur (sinon il recouvrait la fin des menus -> clic vole).
+                    (void)w; (void)h;
+                    // TOUT = HTCLIENT : l'app recoit TOUS les events (menus cliquables,
+                    // deplacement via BeginDragMove, ET redimensionnement par les bords
+                    // gere MANUELLEMENT par le shell -> le resize natif NC ne fonctionnait
+                    // pas dans ce setup borderless). PAS de HTLEFT/HTCAPTION codes en dur.
                     result = HTCLIENT;
                 }
                 break;
