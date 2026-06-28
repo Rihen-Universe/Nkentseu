@@ -32,7 +32,7 @@
 // =============================================================================
 
 #include "NKECS/World/NkWorld.h"
-#include "NKECS/Scene/NkSceneGraph.h"
+#include "Noge/ECS/Scene/NkSceneGraph.h"
 #include "NKSerialization/NkSerializer.h"
 #include "NKSerialization/JSON/NkJSONWriter.h"
 #include "NKSerialization/JSON/NkJSONReader.h"

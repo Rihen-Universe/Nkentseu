@@ -25,9 +25,9 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/World/NkWorld.h"
-#include "Nkentseu/ECS/Components/NkComponentHandle.h"
-#include "Nkentseu/ECS/Components/Core/NkTransform.h"
-#include "Nkentseu/ECS/Components/Core/NkTag.h"
+#include "Noge/ECS/Components/NkComponentHandle.h"
+#include "Noge/ECS/Components/Core/NkTransform.h"
+#include "Noge/ECS/Components/Core/NkTag.h"
 #include "NkBehaviour.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"

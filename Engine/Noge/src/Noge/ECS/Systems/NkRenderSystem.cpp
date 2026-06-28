@@ -2,7 +2,7 @@
 // Nkentseu/Renderer/NkRenderSystem.cpp
 // =============================================================================
 #include "NkRenderSystem.h"
-#include "Nkentseu/ECS/Components/Core/NkTag.h"
+#include "Noge/ECS/Components/Core/NkTag.h"
 
 namespace nkentseu {
 

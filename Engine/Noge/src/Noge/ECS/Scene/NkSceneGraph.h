@@ -38,7 +38,7 @@
  */
 
 #include "NKECS/NkECSDefines.h"
-#include "Nkentseu/ECS/Factory/NkGameObjectFactory.h"
+#include "Noge/ECS/Factory/NkGameObjectFactory.h"
 #include "NKECS/World/NkWorld.h"
 #include "NkSceneScript.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -886,7 +886,7 @@ namespace nkentseu {
          * @brief Configuration basique d'une scène avec script et hiérarchie.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneGraph.h"
+         * #include "Noge/ECS/Scene/NkSceneGraph.h"
          * #include "NKECS/World/NkWorld.h"
          * #include "MyGame/Scripts/LevelScript.h"
          * 
@@ -938,8 +938,8 @@ namespace nkentseu {
          * @brief Implémentation d'un script de scène avec callbacks lifecycle.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneGraph.h"
-         * #include "NKECS/Scene/NkSceneScript.h"
+         * #include "Noge/ECS/Scene/NkSceneGraph.h"
+         * #include "Noge/ECS/Scene/NkSceneScript.h"
          * 
          * using namespace nkentseu::ecs;
          * 
@@ -1044,7 +1044,7 @@ namespace nkentseu {
          * @brief Gestion des transforms locaux et mondiaux en hiérarchie.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneGraph.h"
+         * #include "Noge/ECS/Scene/NkSceneGraph.h"
          * #include "NKECS/Systems/NkTransformSystem.h"
          * 
          * using namespace nkentseu::ecs;
@@ -1104,7 +1104,7 @@ namespace nkentseu {
          * @brief Gestion de la pause avec préservation de l'état.
          * 
          * @code
-         * #include "NKECS/Scene/NkSceneGraph.h"
+         * #include "Noge/ECS/Scene/NkSceneGraph.h"
          * #include "MyGame/Systems/PauseManager.h"
          * 
          * using namespace nkentseu::ecs;

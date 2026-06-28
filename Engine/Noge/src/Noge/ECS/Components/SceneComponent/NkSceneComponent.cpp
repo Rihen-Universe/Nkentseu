@@ -3,7 +3,7 @@
 // DESCRIPTION: Implémentations utilitaires pour NkSceneComponent.
 // =============================================================================
 #include "NkSceneComponent.h"
-#include "../../World/NkWorld.h"
+#include "NKECS/World/NkWorld.h"
 #include <cstring>
 
 namespace nkentseu {

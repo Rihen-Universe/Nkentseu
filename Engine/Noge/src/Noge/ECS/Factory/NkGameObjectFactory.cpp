@@ -1,8 +1,8 @@
 // =============================================================================
 // Nkentseu/ECS/Factory/NkGameObjectFactory.cpp
 // =============================================================================
-#include "Nkentseu/ECS/Factory/NkGameObjectFactory.h"
-#include "Nkentseu/ECS/Prefab/NkPrefab.h"
+#include "Noge/ECS/Factory/NkGameObjectFactory.h"
+#include "Noge/ECS/Prefab/NkPrefab.h"
 
 namespace nkentseu {
 

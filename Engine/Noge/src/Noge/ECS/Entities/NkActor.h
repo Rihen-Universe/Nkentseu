@@ -25,9 +25,9 @@
  */
 
 #include "NkGameObject.h"
-#include "Nkentseu/ECS/Components/Physics/NkPhysicsComponents.h"
-#include "Nkentseu/ECS/Components/Animation/NkAnimation.h"
-#include "Nkentseu/ECS/Components/Audio/NkAudioComponents.h"
+#include "Noge/ECS/Components/Physics/NkPhysicsComponents.h"
+#include "Noge/ECS/Components/Animation/NkAnimation.h"
+#include "Noge/ECS/Components/Audio/NkAudioComponents.h"
 
 namespace nkentseu {
     namespace ecs {
