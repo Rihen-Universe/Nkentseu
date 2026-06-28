@@ -85,18 +85,47 @@ namespace nkentseu {
             cmd.idxCount += 3u;
         }
 
-        void NkGuiDrawList::AddRectFilled(const NkRect& r, const NkColor& col, float32 /*rounding*/) noexcept {
-            // Phase 2 : coins droits. Le rounding (fans de coins) arrivera avec le
-            // path-builder. La signature est en place pour ne pas casser l'API.
+        void NkGuiDrawList::AddRectFilled(const NkRect& r, const NkColor& col, float32 rounding) noexcept {
             if (r.w <= 0.f || r.h <= 0.f) return;
             const uint32 c = NkGuiPackColor(col);
             const NkVec2 uv{ 0.f, 0.f };
-            const uint32 i0 = Vtx({ r.x,       r.y       }, uv, c);
-            const uint32 i1 = Vtx({ r.x + r.w, r.y       }, uv, c);
-            const uint32 i2 = Vtx({ r.x + r.w, r.y + r.h }, uv, c);
-            const uint32 i3 = Vtx({ r.x,       r.y + r.h }, uv, c);
-            Tri(i0, i1, i2, 0u);
-            Tri(i0, i2, i3, 0u);
+
+            float32 rad = rounding;
+            const float32 maxr = (r.w < r.h ? r.w : r.h) * 0.5f;
+            if (rad > maxr) rad = maxr;
+            if (rad < 0.5f) {   // coins droits
+                const uint32 i0 = Vtx({ r.x,       r.y       }, uv, c);
+                const uint32 i1 = Vtx({ r.x + r.w, r.y       }, uv, c);
+                const uint32 i2 = Vtx({ r.x + r.w, r.y + r.h }, uv, c);
+                const uint32 i3 = Vtx({ r.x,       r.y + r.h }, uv, c);
+                Tri(i0, i1, i2, 0u);
+                Tri(i0, i2, i3, 0u);
+                return;
+            }
+
+            // Rectangle ARRONDI : 4 arcs de coin tries en eventail depuis le centre.
+            const float32 x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+            const NkVec2 cc[4] = {
+                { x0 + rad, y0 + rad },   // haut-gauche
+                { x1 - rad, y0 + rad },   // haut-droite
+                { x1 - rad, y1 - rad },   // bas-droite
+                { x0 + rad, y1 - rad },   // bas-gauche
+            };
+            const float32 PI = 3.14159265358979f;
+            const float32 a0[4] = { PI, 1.5f * PI, 0.f, 0.5f * PI };   // sens horaire (y vers le bas)
+            const int32 seg = 4;   // segments par coin
+            const uint32 ic = Vtx({ (x0 + x1) * 0.5f, (y0 + y1) * 0.5f }, uv, c);
+            uint32 prev = 0, first = 0; bool has = false;
+            for (int32 k = 0; k < 4; ++k) {
+                for (int32 s = 0; s <= seg; ++s) {
+                    const float32 a = a0[k] + (0.5f * PI) * (static_cast<float32>(s) / static_cast<float32>(seg));
+                    const uint32 v = Vtx({ cc[k].x + std::cos(a) * rad, cc[k].y + std::sin(a) * rad }, uv, c);
+                    if (has) Tri(ic, prev, v, 0u);
+                    else first = v;
+                    prev = v; has = true;
+                }
+            }
+            if (has) Tri(ic, prev, first, 0u);   // ferme l'anneau
         }
 
         void NkGuiDrawList::AddTriangleMultiColor(const NkVec2& a, const NkVec2& b, const NkVec2& c,

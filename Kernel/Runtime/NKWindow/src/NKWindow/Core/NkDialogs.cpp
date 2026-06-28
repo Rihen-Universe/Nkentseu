@@ -12,8 +12,11 @@
 #endif
 #include <windows.h>
 #include <commdlg.h>
+#include <shlobj.h>
 #include <cstring>
 #pragma comment(lib, "comdlg32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "ole32.lib")
 #elif defined(NKENTSEU_PLATFORM_UWP) || defined(NKENTSEU_PLATFORM_XBOX)
 // UWP et Xbox n'ont pas de dialogues Win32 classiques ; on utilisera des stubs
 #elif defined(NKENTSEU_PLATFORM_MACOS)									// macOS
@@ -81,7 +84,7 @@ namespace nkentseu {
 		return result;
 	}
 
-	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
+	NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
@@ -98,7 +101,23 @@ namespace nkentseu {
 		return r;
 	}
 
-	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
+	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &title) {
+		NkDialogResult r;
+		char path[MAX_PATH] = {};
+		const HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+		BROWSEINFOA bi = {};
+		bi.lpszTitle = title.Empty() ? "Selectionner un dossier" : title.CStr();
+		bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
+		LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+		if (pidl) {
+			if (SHGetPathFromIDListA(pidl, path)) { r.confirmed = true; r.path = path; }
+			CoTaskMemFree(pidl);
+		}
+		if (SUCCEEDED(hrInit)) CoUninitialize();
+		return r;
+	}
+
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
@@ -114,7 +133,7 @@ namespace nkentseu {
 		return r;
 	}
 
-	inline void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+	void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
 		UINT flags = MB_OK;
 		switch (type) {
 			case 1:
@@ -130,7 +149,7 @@ namespace nkentseu {
 		MessageBoxA(nullptr, message.CStr(), title.Empty() ? nullptr : title.CStr(), flags);
 	}
 
-	inline NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
+	NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
 		static COLORREF customColors[16] = {};
 		CHOOSECOLORA cc = {};
 		cc.lStructSize = sizeof(cc);
@@ -167,7 +186,7 @@ namespace nkentseu {
 		return result;
 	}
 
-	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
+	NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
 		NkDialogResult res;
 		// Construction de la commande zenity
 		NkString cmd = "zenity --file-selection --title=\"";
@@ -185,7 +204,17 @@ namespace nkentseu {
 		return res;
 	}
 
-	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
+	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &title) {
+		NkDialogResult res;
+		NkString cmd = "zenity --file-selection --directory --title=\"";
+		cmd += title; cmd += "\"";
+		NkString path = ExecCommand(cmd.CStr());
+		res.confirmed = !path.Empty();
+		res.path = path;
+		return res;
+	}
+
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
 		NkDialogResult res;
 		NkString cmd = "zenity --file-selection --save --confirm-overwrite --title=\"";
 		cmd += title;
@@ -201,7 +230,7 @@ namespace nkentseu {
 		return res;
 	}
 
-	inline void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+	void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
 		NkString cmd = "zenity --";
 		switch (type) {
 			case 1:
@@ -222,7 +251,7 @@ namespace nkentseu {
 		system(cmd.CStr());
 	}
 
-	inline NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
+	NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
 		NkDialogResult res;
 		// Convertir initial en #RRGGBB pour zenity
 		char hex[8];
@@ -264,7 +293,7 @@ namespace nkentseu {
 	}
 
 	// Pour les dialogues de fichiers, on utilise osascript (AppleScript)
-	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
+	NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
 		NkDialogResult res;
 		// Construction d'un script AppleScript pour choisir un fichier
 		NkString script = "osascript -e 'POSIX path of (choose file with prompt \"" + title + "\"";
@@ -304,7 +333,16 @@ namespace nkentseu {
 		return res;
 	}
 
-	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
+	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &title) {
+		NkDialogResult res;
+		NkString script = "osascript -e 'POSIX path of (choose folder with prompt \"" + title + "\")'";
+		NkString path = ExecCommand(script.CStr());
+		res.confirmed = !path.Empty();
+		res.path = path;
+		return res;
+	}
+
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title) {
 		NkDialogResult res;
 		NkString script = "osascript -e 'POSIX path of (choose file name with prompt \"" + title + "\"";
 		if (!defaultExt.Empty()) {
@@ -317,7 +355,7 @@ namespace nkentseu {
 		return res;
 	}
 
-	inline void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+	void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
 		NkString script = "osascript -e 'display dialog \"" + message + "\" with title \"" + title + "\"";
 		switch (type) {
 			case 1:
@@ -334,7 +372,7 @@ namespace nkentseu {
 		system(script.CStr());
 	}
 
-	inline NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
+	NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
 		// Pas de color picker simple en ligne de commande sur macOS, on peut utiliser un script plus complexe.
 		// Pour simplifier, on renvoie un stub.
 		(void)initial;
@@ -377,18 +415,22 @@ namespace nkentseu {
     //   https://gitee.com/openharmony/docs/tree/master/zh-cn/application-dev/reference/apis-basic-services-kit
     #elif defined(NKENTSEU_PLATFORM_HARMONYOS)
  
-    inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
+    NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
         // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
         return {};
     }
-    inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
+    NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
         // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
         return {};
     }
-    inline void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
+    NkDialogResult NkDialogs::OpenFolderDialog(const NkString &) {
+        // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.file.picker
+        return {};
+    }
+    void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
         // Non implémenté : utiliser NkHarmonyBridge.ts + @ohos.promptAction
     }
-    inline NkDialogResult NkDialogs::ColorPicker(uint32) {
+    NkDialogResult NkDialogs::ColorPicker(uint32) {
         // Non implémenté : pas d'équivalent système HarmonyOS
         return {};
     }
@@ -398,15 +440,18 @@ namespace nkentseu {
 	// ===========================================================================
 	#else
 
-	inline NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
+	NkDialogResult NkDialogs::OpenFileDialog(const NkString &, const NkString &) {
 		return {};
 	}
-	inline NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
+	NkDialogResult NkDialogs::SaveFileDialog(const NkString &, const NkString &) {
 		return {};
 	}
-	inline void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
+	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &) {
+		return {};
 	}
-	inline NkDialogResult NkDialogs::ColorPicker(uint32) {
+	void NkDialogs::OpenMessageBox(const NkString &, const NkString &, int) {
+	}
+	NkDialogResult NkDialogs::ColorPicker(uint32) {
 		return {};
 	}
 
