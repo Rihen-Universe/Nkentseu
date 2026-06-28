@@ -319,11 +319,12 @@ namespace nkcode {
             }
         }
         if (f) {
-            // Texte clippe a la zone interne ; defilement horizontal pour garder la
-            // FIN visible (caret en bout) quand le texte est plus large que le champ.
+            // Texte clippe a la zone interne. Par DEFAUT (champ non focus) on montre
+            // le DEBUT (du 1er caractere) ; on ne defile vers la fin (caret) QUE pendant
+            // l'edition (focused) — sinon on verrait le dernier caractere, ce qui est faux.
             const float32 pad = 8.f, availW = r.w - pad * 2.f;
             const float32 tw = buf[0] ? f->MeasureWidth(buf) : 0.f;
-            const float32 offX = (tw > availW) ? (tw - availW) : 0.f;   // montre la fin
+            const float32 offX = (focused && tw > availW) ? (tw - availW) : 0.f;
             const NkRect clip = { r.x + pad, r.y, r.w - pad * 2.f, r.h };
             dl.PushClipRect(clip, true);
             dl.AddText(f->Face(), f->TexId(), { r.x + pad - offX, r.y + (r.h - lh) * 0.5f + asc },
