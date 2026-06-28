@@ -1401,6 +1401,10 @@ namespace nkentseu {
         mConfig.visible = true;
     }
 
+    bool NkWindow::IsMaximized() const { return false; }
+    void NkWindow::BeginDragMove() {}
+    void NkWindow::BeginResize(NkResizeEdge) {}
+
     void NkWindow::Restore() {
         if (!mData.mXdgToplevel || !mData.mDisplay) return;
         if (mData.mFullscreen) {

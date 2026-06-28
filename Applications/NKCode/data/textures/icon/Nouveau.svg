@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g id="Nouveau">
+    <line id="Line" x1="0" y1="0" x2="0" y2="12" fill="none" stroke-width="2" stroke="#FFFFFF" stroke-linecap="round" transform="translate(11 6)" />
+    <g>
+      <path id="Oval" d="M0 12C0 5.37258 5.37258 0 12 0C18.6274 0 24 5.37258 24 12C24 18.6274 18.6274 24 12 24C5.37258 24 0 18.6274 0 12Z" />
+      <path d="M12 0C5.37258 0 0 5.37258 0 12C0 18.6274 5.37258 24 12 24C18.6274 24 24 18.6274 24 12C24 5.37258 18.6274 0 12 0ZM4.92893 19.0711Q2 16.1421 2 12Q2 7.85787 4.92893 4.92893Q7.85786 2 12 2Q16.1421 2 19.0711 4.92893Q22 7.85786 22 12Q22 16.1421 19.0711 19.0711Q16.1421 22 12 22Q7.85787 22 4.92893 19.0711Z" fill="#FFFFFF" fill-rule="evenodd" />
+    </g>
+  </g>
+</svg>

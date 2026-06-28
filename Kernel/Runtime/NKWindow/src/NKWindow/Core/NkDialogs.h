@@ -50,6 +50,13 @@ namespace nkentseu {
 			static NkDialogResult SaveFileDialog(const NkString &defaultExt = "", const NkString &title = "Save File");
 
 			/**
+			 * @brief Ouvre un dialogue de sélection de DOSSIER (façon "Open Folder").
+			 * @param title Titre de la boîte de dialogue.
+			 * @return path = dossier choisi ; confirmed=false si annulé/non supporté.
+			 */
+			static NkDialogResult OpenFolderDialog(const NkString &title = "Selectionner un dossier");
+
+			/**
 			 * @brief Affiche une boîte de message.
 			 * @param message Corps du message.
 			 * @param title   Titre de la fenêtre.

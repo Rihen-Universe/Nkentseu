@@ -364,6 +364,16 @@ with workspace("Nkentseu", location="."):
     with include("Kernel/Runtime/NKUI/NKUI.jenga"):
         pass
 
+    # NKGui (framework UI immediat) + NKEditorKit (coquille d'editeur) : requis par NKCode.
+    with include("Kernel/Runtime/NKGui/NKGui.jenga"):
+        pass
+
+    with include("Engine/NKEditorKit/NKEditorKit.jenga"):
+        pass
+
+    with include("Applications/NKCode/NKCode.jenga"):
+        pass
+
     # Integrations decouplees (ImGui / NKUI -> NKCanvas/NKRHI). Optionnelles :
     # une app les lie seulement si elle en a besoin (ImGui n'est PAS tire dans
     # le coeur de NKCanvas/NKRHI).

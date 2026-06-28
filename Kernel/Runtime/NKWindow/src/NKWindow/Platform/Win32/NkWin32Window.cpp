@@ -413,6 +413,10 @@ namespace nkentseu {
                 ? WS_OVERLAPPEDWINDOW
                 : (WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU |
                    WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+            // frame=false : on garde WS_THICKFRAME/CAPTION (snap + min/max + resize
+            // natif via BeginResize) mais on SUPPRIME visuellement la zone non-cliente
+            // (titre + bordure OS) via WM_NCCALCSIZE -> seule notre deco s'affiche.
+            mData.mBorderless = !config.frame;
         }
 
         mData.mParentHwnd = reinterpret_cast<HWND>(config.native.parentWindowHandle);
@@ -540,6 +544,14 @@ namespace nkentseu {
         if (mData.mIconSmall) {
             SendMessageW(mData.mHwnd, WM_SETICON, ICON_SMALL,
                          reinterpret_cast<LPARAM>(mData.mIconSmall));
+        }
+
+        // Fenetre sans decoration : force le recalcul du cadre DES LA CREATION
+        // (sinon WM_NCCALCSIZE ne s'applique qu'au 1er redimensionnement -> la barre
+        // de titre OS reste visible au lancement).
+        if (mData.mBorderless) {
+            SetWindowPos(mData.mHwnd, nullptr, 0, 0, 0, 0,
+                         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
         if (!config.fullscreen) {
@@ -847,9 +859,74 @@ namespace nkentseu {
         mConfig.visible = true;
     }
 
+    bool NkWindow::IsMaximized() const {
+        return mData.mHwnd && IsZoomed(mData.mHwnd) != 0;
+    }
+
+    void NkWindow::BeginDragMove() {
+        // Hand-off natif : l'OS prend la main sur le deplacement (snap Aero inclus).
+        // Indispensable pour une barre de titre custom (fenetre sans bordure).
+        if (!mData.mHwnd) return;
+        ReleaseCapture();
+        SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    }
+
+    // ── Presse-papiers OS (CF_UNICODETEXT, conversion UTF-8 <-> UTF-16) ──────────
+    void NkWindow::SetClipboardText(const NkString& text) {
+        if (!OpenClipboard(mData.mHwnd)) return;
+        EmptyClipboard();
+        const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.CStr(), -1, nullptr, 0);
+        if (wlen > 0) {
+            HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wlen) * sizeof(wchar_t));
+            if (hg) {
+                wchar_t* dst = static_cast<wchar_t*>(GlobalLock(hg));
+                if (dst) { MultiByteToWideChar(CP_UTF8, 0, text.CStr(), -1, dst, wlen); GlobalUnlock(hg); SetClipboardData(CF_UNICODETEXT, hg); }
+                else GlobalFree(hg);
+            }
+        }
+        CloseClipboard();
+    }
+
+    NkString NkWindow::GetClipboardText() const {
+        NkString out;
+        if (!OpenClipboard(mData.mHwnd)) return out;
+        HANDLE h = GetClipboardData(CF_UNICODETEXT);
+        if (h) {
+            const wchar_t* w = static_cast<const wchar_t*>(GlobalLock(h));
+            if (w) {
+                const int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+                if (len > 0) {
+                    NkVector<char> buf; buf.Resize(static_cast<usize>(len));
+                    WideCharToMultiByte(CP_UTF8, 0, w, -1, buf.Data(), len, nullptr, nullptr);
+                    out = NkString(buf.Data());
+                }
+                GlobalUnlock(h);
+            }
+        }
+        CloseClipboard();
+        return out;
+    }
+
+    void NkWindow::BeginResize(NkResizeEdge edge) {
+        if (!mData.mHwnd) return;
+        WPARAM ht = HTCAPTION;
+        switch (edge) {
+            case NkResizeEdge::Left:        ht = HTLEFT;        break;
+            case NkResizeEdge::Right:       ht = HTRIGHT;       break;
+            case NkResizeEdge::Top:         ht = HTTOP;         break;
+            case NkResizeEdge::Bottom:      ht = HTBOTTOM;      break;
+            case NkResizeEdge::TopLeft:     ht = HTTOPLEFT;     break;
+            case NkResizeEdge::TopRight:    ht = HTTOPRIGHT;    break;
+            case NkResizeEdge::BottomLeft:  ht = HTBOTTOMLEFT;  break;
+            case NkResizeEdge::BottomRight: ht = HTBOTTOMRIGHT; break;
+        }
+        ReleaseCapture();
+        SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, ht, 0);
+    }
+
     void NkWindow::SetFullscreen(bool fs) {
         mConfig.fullscreen = fs;
-        
+
         if (fs) {
             SetWindowLongW(mData.mHwnd, GWL_STYLE,
                         WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);

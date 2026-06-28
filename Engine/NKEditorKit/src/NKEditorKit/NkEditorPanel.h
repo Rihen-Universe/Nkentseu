@@ -47,6 +47,10 @@ namespace nkentseu {
             // (ancre). Dessiner via les helpers de `ec` (ec.Text, ec.Button, ...).
             virtual void OnUI(NkEditorFrameContext& ec) = 0;
 
+            // Actions du panneau dessinees sur la BARRE D'ONGLETS du dock (a droite),
+            // quand ce panneau est l'onglet ACTIF. Defaut : rien. (Ex. Terminal : +/combo.)
+            virtual void OnTabBarActions(nkgui::NkGuiContext& ctx, const nkgui::NkRect& tabBar) noexcept { (void)ctx; (void)tabBar; }
+
         protected:
             char             mTitle[64]   = {};
             bool             mOpen        = true;

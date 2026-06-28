@@ -678,6 +678,10 @@ namespace nkentseu {
 
     void NkWindow::Maximize() {}
 
+    bool NkWindow::IsMaximized() const { return false; }
+    void NkWindow::BeginDragMove() {}
+    void NkWindow::BeginResize(NkResizeEdge) {}
+
     void NkWindow::Restore() {
         if (mData.mFullscreen) {
             SetFullscreen(false);

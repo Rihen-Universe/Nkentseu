@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g id="Cloner">
+    <g transform="translate(0 12)">
+      <path id="Oval" d="M0 4C0 1.79086 1.79086 0 4 0C6.20914 0 8 1.79086 8 4C8 6.20914 6.20914 8 4 8C1.79086 8 0 6.20914 0 4Z" />
+      <path d="M4 0C1.79086 0 0 1.79086 0 4C0 6.20914 1.79086 8 4 8C6.20914 8 8 6.20914 8 4C8 1.79086 6.20914 0 4 0ZM4 6Q2 6 2 4Q2 2 4 2Q6 2 6 4Q6 6 4 6Z" fill="#FFFFFF" fill-rule="evenodd" />
+    </g>
+    <g transform="translate(12 0)">
+      <path id="Oval" d="M0 4C0 1.79086 1.79086 0 4 0C6.20914 0 8 1.79086 8 4C8 6.20914 6.20914 8 4 8C1.79086 8 0 6.20914 0 4Z" />
+      <path d="M4 0C1.79086 0 0 1.79086 0 4C0 6.20914 1.79086 8 4 8C6.20914 8 8 6.20914 8 4C8 1.79086 6.20914 0 4 0ZM4 6Q2 6 2 4Q2 2 4 2Q6 2 6 4Q6 6 4 6Z" fill="#FFFFFF" fill-rule="evenodd" />
+    </g>
+    <path id="Vector" d="M0 11C0 11 0.841558 7.7466 3.5 4.50001C6.15845 1.25342 10.5 0 10.5 0" fill="none" stroke-width="2" stroke="#FFFFFF" stroke-linecap="round" transform="translate(3 2)" />
+    <line id="Line" x1="0" y1="11.5" x2="0" y2="0" fill="none" stroke-width="2" stroke="#FFFFFF" stroke-linecap="round" transform="translate(2 1)" />
+  </g>
+</svg>

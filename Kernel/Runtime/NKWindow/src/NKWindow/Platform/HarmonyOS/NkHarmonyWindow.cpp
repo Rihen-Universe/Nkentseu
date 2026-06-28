@@ -980,6 +980,10 @@ namespace nkentseu {
     /**
      * @brief Restaure la fenêtre (PC 2-en-1 uniquement)
      */
+    bool NkWindow::IsMaximized() const { return false; }
+    void NkWindow::BeginDragMove() {}
+    void NkWindow::BeginResize(NkResizeEdge) {}
+
     void NkWindow::Restore()
     {
         if (!mData.mMinimized && !mData.mMaximized)

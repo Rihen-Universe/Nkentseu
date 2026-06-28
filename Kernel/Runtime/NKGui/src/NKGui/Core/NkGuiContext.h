@@ -48,6 +48,20 @@ namespace nkentseu {
             float32 framePadY    = 6.f;    ///< padding vertical interne d'un widget
         };
 
+        // Theme de COLORATION SYNTAXIQUE (langages) — partage avec l'editeur de code.
+        // Defauts type VS Code Dark+. Modifiable via Preferences > Langages.
+        struct NKENTSEU_NKGUI_CLASS_EXPORT NkGuiSyntax {
+            NkColor text    = { 212, 212, 212, 255 };
+            NkColor keyword = {  86, 156, 214, 255 };
+            NkColor type    = {  78, 201, 176, 255 };
+            NkColor string  = { 206, 145, 120, 255 };
+            NkColor comment = { 106, 153,  85, 255 };
+            NkColor number  = { 181, 206, 168, 255 };
+            NkColor preproc = { 197, 134, 192, 255 };
+            NkColor heading = {  78, 201, 176, 255 };   // titres Markdown
+            NkColor mdcode  = { 206, 145, 120, 255 };   // code Markdown
+        };
+
         // État de mise en page (curseur immédiat). Chaque widget « auto » prend son
         // rect via NextItemRect, qui avance le curseur (nouvelle ligne par défaut ;
         // SameLine() replace à droite de l'item précédent).
@@ -115,11 +129,13 @@ namespace nkentseu {
             int32         viewH    = 0;
             float32       scale    = 1.f;   ///< facteur d'échelle UI (DPI/HiDPI) — voir SetUiScale/Scaled
             NkGuiTheme    theme;
+            NkGuiSyntax   syntax;          ///< couleurs de coloration syntaxique (langages)
             NkGuiInput    input;
             NkGuiDrawList dl;               ///< couche principale (rendue en 1er)
             NkGuiDrawList dlOverlay;        ///< couche popups/overlay (rendue PAR-DESSUS)
             NkGuiLayout   layout;
-            NkGuiFont*    font = nullptr;   ///< police par défaut (posée par l'app)
+            NkGuiFont*    font     = nullptr;   ///< police d'interface par défaut (posée par l'app)
+            NkGuiFont*    codeFont = nullptr;   ///< police monospace pour le code/terminal (optionnelle ; sinon = font)
 
             // PILE de popups ouverts (chaîne menu → sous-menu → sous-sous-menu…).
             // `curPopupLevel` = niveau en cours de DESSIN (-1 = couche principale) ;
@@ -130,6 +146,13 @@ namespace nkentseu {
             NkGuiLayout   popupSaved[PopupMax];          ///< layout sauvegardé par niveau
             int32         popupDepth     = 0;            ///< nb de popups ouverts
             int32         curPopupLevel  = -1;           ///< niveau dessiné (-1 = principale)
+            int32         comboNav       = 0;            ///< item surligné au clavier dans un combo ouvert
+            bool          comboEnter     = false;        ///< Entrée pressée dans le combo (consommé par l'appelant)
+            // Hook : actions de panneau dessinées sur la BARRE D'ONGLETS du dock (à
+            // droite). Appelé par DockRenderNode après les onglets, avec le rect de
+            // la barre + la fenêtre active. Permet "+ / combo" sur la ligne d'onglets.
+            void* dockHeaderUser = nullptr;
+            void (*dockHeaderFn)(NkGuiContext&, const NkRect&, NkGuiId, void*) = nullptr;
             NkVec2        popupPos        = { 0.f, 0.f }; ///< ancrage (menu contextuel)
             NkRect        popupAnchor     = { 0.f, 0.f, 0.f, 0.f }; ///< zone déclencheur (ne ferme pas)
 
@@ -165,6 +188,30 @@ namespace nkentseu {
             int32         dockTargetNode= -1;                ///< feuille visée pendant le drag
             int32         dockTargetZone= -1;                ///< 0 centre, 1 G, 2 D, 3 H, 4 B
             bool          dockTabAddButton = false;          ///< l'app active le bouton « + » sur les barres d'onglets
+            bool          dockHideSingleTab = false;         ///< masque la barre d'onglets d'un nœud à 1 seul panneau (façon VSCode/IDE)
+
+            // Modale applicative : l'app (ex. NKCode) leve ce flag tant qu'un dialogue
+            // modal (creation de projet, proprietes...) est ouvert. Le shell masque
+            // alors l'input du corps (panneaux) au profit de l'overlay. App-gere
+            // (mis a true a l'ouverture, false a la fermeture) — le shell ne le reset pas.
+            bool          appModal = false;
+
+            // Ecran plein cadre applicatif : quand leve, le shell remplace le corps
+            // (barre d'outils + panneaux) par l'ecran de demarrage de l'app (launcher).
+            // App-gere (true tant que le launcher remplace l'editeur).
+            bool          appFullScreen = false;
+
+            // Hauteur REELLE de la barre de titre (posee par le shell chaque frame) :
+            // l'ecran de demarrage doit commencer en dessous, sinon il la recouvre.
+            float32       titleBarH = 0.f;
+
+            // Presse-papiers : cable par l'app (la fenetre OS). Decouple de NKWindow
+            // via void* + NkString. Les widgets appellent GetClipboard/SetClipboard.
+            void* clipboardUser = nullptr;
+            void (*clipboardGetFn)(void*, NkString&) = nullptr;
+            void (*clipboardSetFn)(void*, const char*) = nullptr;
+            NkString GetClipboard() const { NkString s; if (clipboardGetFn) clipboardGetFn(clipboardUser, s); return s; }
+            void     SetClipboard(const char* t) { if (clipboardSetFn) clipboardSetFn(clipboardUser, t); }
             int32         dockTabAddNode   = -1;             ///< feuille où « + » a été cliqué (lu par l'app après DockSpace)
             NkGuiId       dockOverflowPopup= NKGUI_ID_NONE;  ///< popup « onglets cachés » ouvert (overflow)
             int32         dockOverflowNode = -1;             ///< feuille dont l'overflow est ouvert

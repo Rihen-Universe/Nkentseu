@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g id="Platforms">
+    <g fill="#FFFFFF" fill-rule="evenodd">
+      <path id="Group Difference" d="M3 12L3 15L6 15L6 18L12 18L12 15L15 15L15 12L18 12L18 6L15 6L15 3L12 3L12 0L6 1.90735e-06L6 3L3 3L3 6L0 6L0 12L3 12ZM9.0033 2.99671L3 9L9.00927 15.0093L15.0126 9.00599L9.0033 2.99671Z" />
+      <path d="M6 18L6 15L3 15L3 12L0 12L0 6L3 6L3 3L6 3L6 1.90735e-06L12 0L12 3L15 3L15 6L18 6L18 12L15 12L15 15L12 15L12 18L6 18ZM3 9L9.0033 2.99671L15.0126 9.00599L9.00927 15.0093L3 9Z" fill="#808080" fill-rule="evenodd" fill-opacity="0" />
+    </g>
+    <g fill="#FFFFFF" fill-rule="evenodd" transform="translate(3.537 3.546)">
+      <path id="Rectangle Difference" d="M5.45935 0L0 5.45935L5.45984 10.9192L10.9192 5.45984L5.45935 0ZM5.45093 1.4823L1.47144 5.46179L5.45129 9.44165L9.43079 5.46216L5.45093 1.4823Z" />
+      <path d="M0 5.45935L5.45935 0L10.9192 5.45984L5.45984 10.9192L0 5.45935ZM1.47144 5.46179L5.45093 1.4823L9.43079 5.46216L5.45129 9.44165L1.47144 5.46179Z" fill="#808080" fill-rule="evenodd" fill-opacity="0" />
+    </g>
+  </g>
+</svg>

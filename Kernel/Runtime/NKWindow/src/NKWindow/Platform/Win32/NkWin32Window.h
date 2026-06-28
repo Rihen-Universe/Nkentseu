@@ -41,6 +41,7 @@ namespace nkentseu {
         WNDPROC        mPrevWndProc   = nullptr;
         LONG_PTR       mPrevUserData  = 0;
         bool           mExternal      = false;
+        bool           mBorderless    = false;   // frame=false : zone non-cliente supprimee (WM_NCCALCSIZE)
         bool           mMouseTracking = false;
         HCURSOR        mClientCursor  = nullptr;   // curseur courant de la zone client (WM_SETCURSOR)
         NkSurfaceHints mAppliedHints{};
