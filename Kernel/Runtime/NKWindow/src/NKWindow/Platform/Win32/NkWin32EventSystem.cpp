@@ -609,27 +609,9 @@ namespace nkentseu {
 
             case WM_NCHITTEST:
                 if (owner && !owner->GetConfig().frame) {
-                    RECT rc; GetWindowRect(hwnd, &rc);
-                    const int x = GET_X_LPARAM(lp) - rc.left;
-                    const int y = GET_Y_LPARAM(lp) - rc.top;
-                    const int w = rc.right  - rc.left;
-                    const int h = rc.bottom - rc.top;
-                    // Bords de redimensionnement = HT* de resize -> Windows redimensionne
-                    // NATIVEMENT (boucle modale fluide, suit la souris hors fenetre). Le
-                    // reste (barre de titre comprise) = HTCLIENT : menus cliquables +
-                    // deplacement gere par l'app (BeginDragMove dans les zones vides).
-                    const int b = IsZoomed(hwnd) ? 0 : 8;   // pas de bord quand maximise
-                    if (b > 0) {
-                        const bool L = x < b, R = x >= w - b, T = y < b, B = y >= h - b;
-                        if      (T && L) { result = HTTOPLEFT;     break; }
-                        else if (T && R) { result = HTTOPRIGHT;    break; }
-                        else if (B && L) { result = HTBOTTOMLEFT;  break; }
-                        else if (B && R) { result = HTBOTTOMRIGHT; break; }
-                        else if (L)      { result = HTLEFT;        break; }
-                        else if (R)      { result = HTRIGHT;       break; }
-                        else if (T)      { result = HTTOP;         break; }
-                        else if (B)      { result = HTBOTTOM;      break; }
-                    }
+                    // TOUT = HTCLIENT : le resize NATIF ne fonctionne pas dans ce setup
+                    // borderless (WM_NCCALCSIZE renvoie 0). On gere donc le resize a la
+                    // MAIN cote shell (HandleEdgeResize), et l'app recoit tous les events.
                     result = HTCLIENT;
                 }
                 break;

@@ -201,6 +201,10 @@ namespace nkentseu {
             // App-gere (true tant que le launcher remplace l'editeur).
             bool          appFullScreen = false;
 
+            // Hauteur REELLE de la barre de titre (posee par le shell chaque frame) :
+            // l'ecran de demarrage doit commencer en dessous, sinon il la recouvre.
+            float32       titleBarH = 0.f;
+
             // Presse-papiers : cable par l'app (la fenetre OS). Decouple de NKWindow
             // via void* + NkString. Les widgets appellent GetClipboard/SetClipboard.
             void* clipboardUser = nullptr;

@@ -320,6 +320,7 @@ namespace nkentseu {
                 const bool fullScreen = mUI.appFullScreen && mStartScreenFn;
 
                 const float32 titleH    = mUI.ItemHeight() + mUI.S(10.f);   // barre de titre legerement plus grande
+                mUI.titleBarH = titleH;   // l'ecran de demarrage doit commencer en dessous
                 const float32 toolbarH  = (mToolbarFn && !fullScreen) ? mUI.ItemHeight() + mUI.S(8.f) : 0.f;
                 const float32 footerH   = fullScreen ? 0.f : mUI.S(22.f);
                 const float32 activityW = mUI.S(48.f);
@@ -594,11 +595,6 @@ namespace nkentseu {
         // HTLEFT) ne fonctionne pas dans ce setup borderless ; on gere donc tout a la
         // main via GetPosition/GetSize + SetPosition/SetSize, en suivant la souris ECRAN.
         void NkEditorShell::HandleEdgeResize(float32 W, float32 H) noexcept {
-            // Redimensionnement NATIF (WM_NCHITTEST renvoie les HT* de bord -> Windows
-            // gere la boucle de resize, fluide et suivant la souris hors fenetre).
-            // L'ancien resize MANUEL (ci-dessous) entrait en conflit -> desactive.
-            (void)W; (void)H; return;
-#if 0
             if (mWindow.IsMaximized()) { mResizeEdge = 0; return; }
             const float32 b = mUI.S(7.f);
             const NkVec2  m = mUI.input.mousePos;                 // coords CLIENT
@@ -644,7 +640,6 @@ namespace nkentseu {
                 mWindow.SetSize(static_cast<uint32>(nw), static_cast<uint32>(nh));
                 mUI.input.mouseClicked[0] = false;
             }
-#endif
         }
 
         // ── Barre d'etat (footer facon VSCode : bande bleue en bas) ───────────────

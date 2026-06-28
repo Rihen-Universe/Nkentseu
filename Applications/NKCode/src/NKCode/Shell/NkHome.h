@@ -308,7 +308,7 @@ namespace nkcode {
         // pompe jenga info (toolchains/projets) comme avant
         if (H->st) { H->st->ScanWorkspaces(); H->st->LoadProjects(); H->st->PollProjects(); H->st->PollConfig(); }
         const float32 W = (float32)u.ctx->viewW, Ht = (float32)u.ctx->viewH;
-        const float32 top = u.ctx->ItemHeight();
+        const float32 top = u.ctx->titleBarH > 1.f ? u.ctx->titleBarH : u.ctx->ItemHeight();
         const float32 sbW = u.s(220);
         NkHomeSidebar(u, { 0.f, top, sbW, Ht - top }, H);
         NkHomePanel  (u, { sbW, top, W - sbW, Ht - top }, H);
