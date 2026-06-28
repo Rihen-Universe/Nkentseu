@@ -1218,6 +1218,16 @@
                     return result;
                 }
 
+                // Compose TRS = Translation * Rotation * Scale. `rotation` = un type
+                // exposant .ToMat4() (typiquement NkQuat). Template pour eviter le cycle
+                // d'include NkMat <-> NkQuat (resolu au site d'appel). Inverse de DecomposeTRS.
+                template<typename TRot>
+                static NkMat4T TRS(const NkVec3T<T>& translation, const TRot& rotation,
+                                   const NkVec3T<T>& scale) noexcept
+                {
+                    return Translation(translation) * rotation.ToMat4() * Scale(scale);
+                }
+
                 // Rotation autour d'un axe arbitraire (formule de Rodrigues)
                 static NkMat4T Rotation(
                     const NkVec3T<T>& axis,
