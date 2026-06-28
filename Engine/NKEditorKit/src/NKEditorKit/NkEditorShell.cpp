@@ -842,17 +842,22 @@ namespace nkentseu {
         // ── Polices : (re)charge mFont (interface) + mCodeFont (code) depuis les
         //    reglages, avec replis surs, puis re-upload des atlas au backend. ──
         void NkEditorShell::LoadFontsFromPrefs() noexcept {
-            mFontOk = NkResolveFont(mFont, mFontPrefs.uiFont, mFontPrefs.uiSize);
-            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Inter, mFontPrefs.uiSize);
-            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f);
-            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f);
+            // Police chargee a uiSize x DPI : le LAYOUT est mis a l'echelle (ctx.S) mais
+            // la police etait a une taille ABSOLUE -> texte trop petit sur ecran scale.
+            // On la met a la meme echelle pour des proportions correctes (lisible).
+            const float32 dpi = mUI.S(1.f) > 0.5f ? mUI.S(1.f) : 1.f;
+            const float32 uiPx = mFontPrefs.uiSize * dpi, codePx = mFontPrefs.codeSize * dpi;
+            mFontOk = NkResolveFont(mFont, mFontPrefs.uiFont, uiPx);
+            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Inter, uiPx);
+            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::Karla, 16.f * dpi);
+            if (!mFontOk) mFontOk = mFont.LoadEmbedded(NkEmbeddedFontId::ProggyClean, 13.f * dpi);
             mUI.font = &mFont;
             if (mFontOk && mRenderer) mRenderer->UploadFontGray8(mFont.TexId(), mFont.pixels, mFont.atlasW, mFont.atlasH);
 
             mCodeFont.texId = mFont.TexId() + 1u;   // atlas distinct (anti-collision backend)
-            bool codeOk = NkResolveFont(mCodeFont, mFontPrefs.codeFont, mFontPrefs.codeSize);
-            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, mFontPrefs.codeSize);
-            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f);
+            bool codeOk = NkResolveFont(mCodeFont, mFontPrefs.codeFont, codePx);
+            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, codePx);
+            if (!codeOk) codeOk = mCodeFont.LoadEmbedded(NkEmbeddedFontId::Cousine, 15.f * dpi);
             if (codeOk) { if (mRenderer) mRenderer->UploadFontGray8(mCodeFont.TexId(), mCodeFont.pixels, mCodeFont.atlasW, mCodeFont.atlasH); mUI.codeFont = &mCodeFont; }
             else mUI.codeFont = &mFont;
         }

@@ -143,11 +143,33 @@ int nkmain(const NkEntryState& state) {
         // texture bien plus grande que l'affichage est sous-echantillonnee (flou) ;
         // on l'amene donc proche de sa taille a l'ecran. `base` = nom sans extension.
         auto upload = [&](NkImage& img, int32 tw, int32 th, int32* outW, int32* outH) -> uint32 {
-            NkImage* use = &img; NkImage* resized = nullptr;
-            if (img.Width() > tw || img.Height() > th) { resized = img.Resize(tw, th); if (resized && resized->IsValid()) use = resized; }
-            uint32 id = shell->UploadRGBA(use->Pixels(), use->Width(), use->Height());
-            if (outW) *outW = use->Width(); if (outH) *outH = use->Height();
-            if (resized) resized->Free();
+            const int32 sw = img.Width(), sh = img.Height();
+            if (sw <= 0 || sh <= 0) return 0;
+            // Fit en PRESERVANT L'ASPECT (anti-deformation) dans tw x th.
+            const float32 ar = (float32)sw / (float32)sh, tar = (float32)tw / (float32)th;
+            int32 fw, fh;
+            if (ar >= tar) { fw = tw; fh = (int32)((float32)tw / ar + 0.5f); }
+            else           { fh = th; fw = (int32)((float32)th * ar + 0.5f); }
+            if (fw < 1) fw = 1; if (fh < 1) fh = 1;
+            NkImage* fitted = (sw == fw && sh == fh) ? &img : img.Resize(fw, fh);
+            if (!fitted) fitted = &img;
+            uint32 id = 0;
+            if (fw == tw && fh == th) {                       // remplit la cible -> direct
+                id = shell->UploadRGBA(fitted->Pixels(), fw, fh);
+                if (outW) *outW = fw; if (outH) *outH = fh;
+            } else {                                          // LETTERBOX dans un carre transparent
+                NkImage* canvas = NkImage::Create((uint32)tw, (uint32)th, 4, 0u);
+                if (canvas && canvas->IsValid()) {
+                    canvas->Blit(*fitted, (tw - fw) / 2, (th - fh) / 2);
+                    id = shell->UploadRGBA(canvas->Pixels(), tw, th);
+                    if (outW) *outW = tw; if (outH) *outH = th;
+                    canvas->Free();
+                } else {
+                    id = shell->UploadRGBA(fitted->Pixels(), fw, fh);
+                    if (outW) *outW = fw; if (outH) *outH = fh;
+                }
+            }
+            if (fitted != &img) fitted->Free();
             return id;
         };
         auto loadTex = [&](const char* base, int32 tw, int32 th, int32* outW = nullptr, int32* outH = nullptr) -> uint32 {
