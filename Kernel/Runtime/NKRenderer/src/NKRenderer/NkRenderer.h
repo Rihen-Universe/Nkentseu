@@ -82,6 +82,12 @@ namespace nkentseu {
             virtual NkOffscreenTarget* CreateOffscreen(const NkOffscreenDesc& desc) = 0;
             virtual void               DestroyOffscreen(NkOffscreenTarget*& t)      = 0;
 
+            // Redirige la SORTIE FINALE du render graph (normalement la swapchain) vers
+            // une texture externe (ex. offscreen d'un viewport editeur sur device PARTAGE).
+            // handle null => swapchain (defaut). Reconstruit le graph. Permet de rendre le
+            // PIPELINE COMPLET (ombres/eclairage/IBL/tonemap) dans un RT echantillonnable.
+            virtual void SetFinalColorTarget(NkTextureHandle target) = 0;
+
             // ── Planar reflections (auto) ─────────────────────────────────────────
             // L'utilisateur enregistre un plan reflechissant ; le renderer fait
             // automatiquement la passe miroir avant la passe Geometry principale,
