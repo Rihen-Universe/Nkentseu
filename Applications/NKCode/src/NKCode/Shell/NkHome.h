@@ -41,19 +41,20 @@ namespace nkcode {
         u.Rect(r, NkCol::sidebar);
         u.Rect({ r.x + r.w - 1.f, r.y, 1.f, r.h }, NkCol::border);
 
-        // Logo (wordmark) ou repli dessine — aspect 512:128 preserve, bien visible
-        const float32 logoH = u.s(64);
+        // Logo dans un CADRE borde (cf. maquette) — wordmark aspect 512:128 preserve.
+        const float32 logoH = u.s(78);
+        const NkRect box = { r.x + u.s(12), r.y + u.s(12), r.w - u.s(24), logoH - u.s(22) };
+        u.Panel(box, NkColor{ 9, 19, 14, 255 }, NkCol::border, NkR::md * u.S);   // fond sombre legerement vert
         if (H->logoWord) {
             const float32 aspect = (H->wordH > 0) ? (float32)H->wordW / (float32)H->wordH : 4.f;
-            const float32 maxW = r.w - u.s(28);
-            float32 lw = maxW, lh2 = lw / aspect;          // aussi grand que possible
-            if (lh2 > u.s(44)) { lh2 = u.s(44); lw = lh2 * aspect; }
-            u.dl->AddImage(H->logoWord, { r.x + (r.w - lw) * 0.5f, r.y + (logoH - lh2) * 0.5f, lw, lh2 }, { 0,0 }, { 1,1 }, NkCol::foreground);
+            const float32 padX = u.s(12), padY = u.s(8);
+            float32 lw = box.w - padX * 2.f, lh2 = lw / aspect;
+            if (lh2 > box.h - padY * 2.f) { lh2 = box.h - padY * 2.f; lw = lh2 * aspect; }
+            u.dl->AddImage(H->logoWord, { box.x + (box.w - lw) * 0.5f, box.y + (box.h - lh2) * 0.5f, lw, lh2 }, { 0,0 }, { 1,1 }, NkCol::foreground);
         } else {
-            NkBrandMark(u, { r.x + u.s(12), r.y + u.s(16), u.s(32), u.s(32) }, NkCol::foreground);
-            u.TextV(r.x + u.s(52), r.y, logoH, "nkcode", NkCol::foreground);
+            NkBrandMark(u, { box.x + u.s(8), box.y + (box.h - u.s(28)) * 0.5f, u.s(28), u.s(28) }, NkCol::foreground);
+            u.TextV(box.x + u.s(44), box.y, box.h, "nkcode", NkCol::foreground);
         }
-        u.Rect({ r.x, r.y + logoH, r.w, 1.f }, NkCol::border);
 
         auto section = [&](float32 y, const char* title) {
             u.Text(r.x + u.s(16), y, title, NkCol::mutedFg);
@@ -94,59 +95,77 @@ namespace nkcode {
         u.Text(r.x + r.w - u.s(16) - u.TextW("2.0.7"), fy + u.s(16), "2.0.7", NkCol::accent);
     }
 
-    // Description d'un workspace recent (proprietes affichees sur la carte).
+    // Proprietes affichees sur la carte d'un workspace (cf. maquette).
     struct NkWsInfo {
         const char* name = ""; const char* path = "";
-        const char* lang = ""; const char* langVer = "";
-        const char* config = ""; const char* system = "";
-        int32 projects = 0; bool pinned = false; uint32 icon = 0;
-        NkColor iconBg{ 15,115,213,255 }; int32 build = 0;   // 0 inconnu,1 ok,2 erreur,3 partiel
+        const char* langVer = "";    // "C++20"
+        const char* configs = "";    // "Debug, Release"
+        const char* platforms = "";  // "Windows, Linux, Android, Web"
+        const char* projects = "";   // "Renderer, Physics, Audio, UI +1"
+        const char* buildConfig = "";// "Debug"
+        const char* modified = "";   // "Modifie il y a 2h"
+        int32 build = 0;             // 0 inconnu,1 ok,2 erreur,3 partiel
+        bool pinned = false; uint32 icon = 0; NkColor iconBg{ 15,115,213,255 };
     };
-    // ── Carte d'un workspace (avec ses proprietes : langage/version/config/system/projets) ──
+    // ── Carte d'un workspace : nom/chemin, langage·configs·plateformes, projets,
+    //    statut de build + modif, etoile + menu (format maquette) ──
     inline int32 NkWorkspaceCard(const NkUi& u, const NkRect& r, const NkWsInfo& w, uint32 starIcon) {
         const bool hov = u.Hit(r);
         u.Panel(r, hov ? NkCol::hover : NkCol::surface, hov ? NkColor{ 48,54,61,255 } : NkCol::border, NkR::md * u.S);
+        const float32 lh = u.Lh();
         // pastille icone (logo projet)
-        const float32 ic = u.s(34);
-        const NkRect icR = { r.x + u.s(12), r.y + (r.h - ic) * 0.5f, ic, ic };
+        const float32 ic = u.s(38);
+        const NkRect icR = { r.x + u.s(14), r.y + u.s(14), ic, ic };
         u.Rect(icR, w.iconBg, NkR::sm * u.S);
-        if (w.icon) NkDrawIcon(u, w.icon, { icR.x + u.s(6), icR.y + u.s(6), ic - u.s(12), ic - u.s(12) }, NkCol::foreground);
+        if (w.icon) NkDrawIcon(u, w.icon, { icR.x + u.s(8), icR.y + u.s(8), ic - u.s(16), ic - u.s(16) }, NkCol::foreground);
+        const float32 tx = r.x + u.s(62);
+        float32 y = r.y + u.s(12);
         // nom + chemin
-        const float32 tx = r.x + u.s(56);
-        u.Text(tx, r.y + u.s(7), w.name, NkCol::foreground);
-        u.Text(tx, r.y + u.s(7) + u.Lh(), w.path, NkCol::mutedFg);
-        // badges de proprietes (langage/version, config, system, projets)
-        float32 bx = tx; const float32 by = r.y + r.h - u.s(20);
-        auto badge = [&](const char* t, const NkColor& fg, const NkColor& bd) {
+        u.Text(tx, y, w.name, NkCol::foreground);
+        u.Text(tx + u.TextW(w.name) + u.s(10), y + u.s(1), w.path, NkCol::mutedFg);
+        y += lh + u.s(8);
+        // ligne meta : langage · configs · plateformes (segments + separateurs)
+        float32 mx = tx;
+        const float32 dotW = u.s(14);
+        auto seg = [&](const char* t, const NkColor& c) {
             if (!t || !*t) return;
-            const float32 bw = u.TextW(t) + u.s(14);
-            const NkRect br = { bx, by, bw, u.s(16) };
-            u.Panel(br, NkCol::input, bd, NkR::sm * u.S);
-            u.TextV(br.x + u.s(7), br.y, u.s(16), t, fg);
-            bx += bw + u.s(6);
+            if (mx > tx) { u.dl->AddRectFilled({ mx + dotW * 0.5f - u.s(1.5f), y + lh * 0.5f - u.s(1.5f), u.s(3), u.s(3) }, NkCol::mutedFg, u.s(1.5f)); mx += dotW; }
+            u.Text(mx, y, t, c); mx += u.TextW(t);
         };
-        char lv[48]; lv[0] = '\0';
-        if (w.lang && *w.lang) { std::snprintf(lv, sizeof(lv), "%s%s%s", w.lang, (w.langVer && *w.langVer) ? " " : "", w.langVer ? w.langVer : ""); }
-        badge(lv, NkCol::primary, NkColor{ 30,58,90,255 });
-        badge(w.config, NkCol::accent, NkColor{ 80,56,20,255 });
-        badge(w.system, NkCol::secondaryFg, NkColor{ 16,70,78,255 });
-        if (w.projects > 0) { char pj[32]; std::snprintf(pj, sizeof(pj), "%d projets", w.projects); badge(pj, NkCol::mutedFg, NkCol::border); }
-        // statut de build (pastille)
-        const NkColor st = w.build == 1 ? NkCol::success : w.build == 2 ? NkCol::danger : w.build == 3 ? NkCol::accent : NkCol::mutedFg;
-        u.Rect({ r.x + r.w - u.s(66), r.y + u.s(10), u.s(7), u.s(7) }, st, u.s(3.5f));
-        // actions epingler / retirer
-        int32 act = 0;   // 1 charger, 2 (des)epingler, 3 retirer
-        const NkRect bPin = { r.x + r.w - u.s(52), r.y + u.s(8), u.s(20), u.s(20) };
-        const NkRect bRem = { r.x + r.w - u.s(28), r.y + u.s(8), u.s(20), u.s(20) };
-        if (w.pinned || hov) {
-            if (u.Hit(bPin)) u.Rect(bPin, NkCol::muted, NkR::sm * u.S);
-            NkDrawIcon(u, starIcon, bPin, w.pinned ? NkCol::accent : NkCol::mutedFg);
-            if (u.Hit(bRem)) u.Rect(bRem, NkCol::muted, NkR::sm * u.S);
-            u.Icon("x", { bRem.x + u.s(3), bRem.y + u.s(3), u.s(14), u.s(14) }, NkCol::mutedFg);
-            if (u.Hit(bPin) && u.click) act = 2;
-            else if (u.Hit(bRem) && u.click) act = 3;
+        seg(w.langVer, NkCol::foreground);
+        seg(w.configs, NkCol::mutedFg);
+        seg(w.platforms, NkCol::mutedFg);
+        y += lh + u.s(6);
+        // ligne projets
+        if (w.projects && *w.projects) {
+            u.Text(tx, y, "Projets : ", NkCol::sidebarFg);
+            u.Text(tx + u.TextW("Projets : "), y, w.projects, NkCol::mutedFg);
+            y += lh + u.s(6);
         }
-        if (act == 0 && hov && u.click) act = 1;
+        // ligne statut de build + modif
+        const NkColor stc = w.build == 1 ? NkCol::success : w.build == 2 ? NkCol::danger : w.build == 3 ? NkCol::accent : NkCol::mutedFg;
+        const NkRect sb = { tx, y + u.s(1), u.s(14), u.s(14) };
+        u.Rect(sb, w.build ? NkColor{ stc.r, stc.g, stc.b, 40 } : NkCol::muted, NkR::sm * u.S);
+        if (w.build == 2) u.Icon("x", { sb.x + u.s(2), sb.y + u.s(2), u.s(10), u.s(10) }, stc);
+        else { // coche
+            u.dl->AddLine({ sb.x + u.s(3), sb.y + u.s(7) }, { sb.x + u.s(6), sb.y + u.s(10) }, stc, u.s(1.6f));
+            u.dl->AddLine({ sb.x + u.s(6), sb.y + u.s(10) }, { sb.x + u.s(11), sb.y + u.s(4) }, stc, u.s(1.6f));
+        }
+        float32 sx = sb.x + u.s(20);
+        if (w.buildConfig && *w.buildConfig) { u.Text(sx, y, w.buildConfig, NkCol::foreground); sx += u.TextW(w.buildConfig); }
+        if (w.modified && *w.modified) { u.dl->AddRectFilled({ sx + u.s(6), y + lh * 0.5f - u.s(1.5f), u.s(3), u.s(3) }, NkCol::mutedFg, u.s(1.5f)); sx += u.s(15); u.Text(sx, y, w.modified, NkCol::mutedFg); }
+
+        // ── etoile (favori) + menu (...) en haut a droite ──
+        int32 act = 0;   // 1 charger, 2 (des)epingler, 3 menu/retirer
+        const NkRect bStar = { r.x + r.w - u.s(58), r.y + u.s(12), u.s(20), u.s(20) };
+        const NkRect bDots = { r.x + r.w - u.s(32), r.y + u.s(12), u.s(20), u.s(20) };
+        if (u.Hit(bStar)) u.Rect(bStar, NkCol::muted, NkR::sm * u.S);
+        NkDrawIcon(u, starIcon, bStar, w.pinned ? NkCol::accent : NkCol::mutedFg);
+        if (u.Hit(bDots)) u.Rect(bDots, NkCol::muted, NkR::sm * u.S);
+        for (int32 i = 0; i < 3; ++i) u.dl->AddRectFilled({ bDots.x + u.s(4) + i * u.s(5), bDots.y + u.s(9), u.s(2.5f), u.s(2.5f) }, NkCol::mutedFg, u.s(1.2f));
+        if (u.Hit(bStar) && u.click) act = 2;
+        else if (u.Hit(bDots) && u.click) act = 3;
+        else if (hov && u.click) act = 1;
         return act;
     }
 
@@ -201,17 +220,19 @@ namespace nkcode {
         };
         const NkColor cols[] = { NkCol::primary, NkCol::accent, NkCol::secondary, NkColor{ 51,177,160,255 } };
 
-        const float32 CH = u.s(66), CSTEP = u.s(72);
+        const float32 CH = u.s(104), CSTEP = u.s(112);
         // Workspace courant (carte "en cours") en tete s'il y en a un — proprietes reelles
-        NkString curName, curPath, curSys;
+        NkString curName, curPath, curProj;
         if (st && st->HasWorkspace()) {
             groupHeader("EN COURS", NkCol::accent, true);
             curName = st->root.GetFileName(); curPath = st->root.ToString();
-            int32 nsys = 0; const NkCodeState::SysDef* sys = NkCodeState::Systems(&nsys);
-            if (st->sysIdx >= 0 && st->sysIdx < nsys) curSys = sys[st->sysIdx].name;
+            // liste des projets : 4 premiers + "+N"
+            for (usize p = 0; p < st->projects.Size() && p < 4; ++p) { if (!curProj.Empty()) curProj += ", "; curProj += st->projects[p]; }
+            if (st->projects.Size() > 4) { char e[16]; std::snprintf(e, sizeof(e), " +%d", (int)(st->projects.Size() - 4)); curProj += e; }
             NkWsInfo wi; wi.name = curName.CStr(); wi.path = curPath.CStr();
-            wi.lang = "C++"; wi.langVer = "C++20"; wi.config = st->ConfigName(); wi.system = curSys.CStr();
-            wi.projects = (int32)st->projects.Size(); wi.iconBg = NkCol::primary; wi.icon = H->icons.shape;
+            wi.langVer = "C++20"; wi.configs = st->infoConfigs.CStr(); wi.platforms = st->infoOSes.CStr();
+            wi.projects = curProj.CStr(); wi.buildConfig = st->ConfigName(); wi.build = 1;
+            wi.iconBg = NkCol::primary; wi.icon = H->icons.shape;
             const NkRect cr = { listArea.x, y, listArea.w, CH };
             if (NkWorkspaceCard(u, cr, wi, H->icons.star) == 1) loadCur = true;
             y += CSTEP;

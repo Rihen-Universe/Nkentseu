@@ -187,6 +187,9 @@ namespace nkcode {
         // Toolchains DETECTEES par Jenga (table "Available Toolchains" de `jenga info`).
         struct ToolchainRow { NkString name, family, os, arch, env; };
         NkVector<ToolchainRow> toolchains;
+        // Infos d'en-tete de `jenga info` (pour les cartes workspace).
+        NkString infoConfigs;   // "Debug, Release"
+        NkString infoOSes;      // "Windows, Linux, macOS, ..."
 
         const char* SelectedProject() const {
             return (projIdx >= 0 && projIdx < static_cast<int32>(projects.Size()))
@@ -553,6 +556,8 @@ namespace nkcode {
             enum { NONE, PROJ, TOOL } cur = NONE;
             for (usize i = 0; i < mInfoLines.Size(); ++i) {
                 const char* L = mInfoLines[i].CStr();
+                if (StartsWithI(L, "Configurations:")) { infoConfigs = AfterColon(L); continue; }
+                if (StartsWithI(L, "Target OSes:"))    { infoOSes    = AfterColon(L); continue; }
                 if (Contains(L, "Name") && Contains(L, "Kind"))   { cur = PROJ; continue; }
                 if (Contains(L, "Name") && Contains(L, "Family")) { cur = TOOL; continue; }
                 if (L[0] == '=' || L[0] == '-') continue;          // separateurs
@@ -587,6 +592,18 @@ namespace nkcode {
         }
 
         static bool IsBlank(const char* s) { for (; *s; ++s) if (*s != ' ' && *s != '\t') return false; return true; }
+        // Partie apres le premier ':' (trim espaces). Retire d'eventuels codes ANSI ESC[...m.
+        static NkString AfterColon(const char* s) {
+            const char* p = s; while (*p && *p != ':') ++p; if (*p == ':') ++p;
+            while (*p == ' ' || *p == '\t') ++p;
+            char out[256]; usize n = 0;
+            for (; *p && n + 1 < sizeof(out); ++p) {
+                if (*p == 0x1b) { while (*p && *p != 'm') ++p; if (!*p) break; continue; }   // saute ESC[...m
+                out[n++] = *p;
+            }
+            while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '\r' || out[n - 1] == '\t')) --n;
+            out[n] = '\0'; return NkString(out);
+        }
         static bool Contains(const char* h, const char* n) {
             for (; *h; ++h) { const char* a = h; const char* b = n; while (*a && *b && *a == *b) { ++a; ++b; } if (!*b) return true; }
             return false;
